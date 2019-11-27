@@ -186,7 +186,7 @@ namespace Unity.NetCode
 
         public override void AddImports(HashSet<string> imports)
         {
-            imports.Add("Unity.Entities");
+            imports.Add("Unity.Collections");
         }
 
         public override string GetTemplatePath(int quantization)

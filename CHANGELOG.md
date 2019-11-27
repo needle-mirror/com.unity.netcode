@@ -1,5 +1,13 @@
 # Change log
 
+## [0.0.2-preview.1] - 2019-11-28
+### New features
+### Changes
+### Fixes
+* Fix compile error in generated serialization code for strings.
+* Fix warning when entering playmode with the netcode disabled.
+### Upgrade guide
+
 ## [0.0.1-preview.6] - 2019-11-26
 ### New features
 * Made it possible to scale importance based on distance to support more ghosts.

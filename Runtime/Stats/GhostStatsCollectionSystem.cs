@@ -6,6 +6,7 @@ using Unity.Entities;
 namespace Unity.NetCode
 {
     [UpdateAfter(typeof(GhostSimulationSystemGroup))]
+    [UpdateInGroup(typeof(ClientAndServerSimulationSystemGroup))]
     [AlwaysUpdateSystem]
     class GhostStatsCollectionSystem : ComponentSystem
     {
