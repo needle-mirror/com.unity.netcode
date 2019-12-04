@@ -35,10 +35,10 @@ namespace Unity.NetCode
         private NativeQueue<int> freeNetworkIds;
         private BeginSimulationEntityCommandBufferSystem m_Barrier;
         private RpcQueue<RpcSetNetworkId> rpcQueue;
-        private int m_ClientPacketDelay;
-        private int m_ClientPacketDrop;
         private EntityQuery m_NetworkStreamConnectionQuery;
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
+        private int m_ClientPacketDelay;
+        private int m_ClientPacketDrop;
         private NativeArray<uint> m_NetStats;
         private GhostStatsCollectionSystem m_GhostStatsCollectionSystem;
 #endif
@@ -66,19 +66,23 @@ namespace Unity.NetCode
             LastDriverWriter.Complete();
             if (m_UnreliablePipeline == NetworkPipeline.Null)
             {
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
                 if (m_ClientPacketDelay > 0 || m_ClientPacketDrop > 0)
                     m_UnreliablePipeline = m_Driver.CreatePipeline(typeof(SimulatorPipelineStage),
                         typeof(SimulatorPipelineStageInSend));
                 else
+#endif
                     m_UnreliablePipeline = m_Driver.CreatePipeline(typeof(NullPipelineStage));
             }
 
             if (m_ReliablePipeline == NetworkPipeline.Null)
             {
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
                 if (m_ClientPacketDelay > 0 || m_ClientPacketDrop > 0)
                     m_ReliablePipeline = m_Driver.CreatePipeline(typeof(SimulatorPipelineStageInSend),
                         typeof(ReliableSequencedPipelineStage), typeof(SimulatorPipelineStage));
                 else
+#endif
                     m_ReliablePipeline = m_Driver.CreatePipeline(typeof(ReliableSequencedPipelineStage));
             }
 

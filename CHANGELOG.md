@@ -1,11 +1,25 @@
 # Change log
 
+## [0.0.3-preview.2] - 2019-12-05
+### New features
+### Changes
+* Updated the documentation and added a section about prediction.
+* Upgraded entities to 0.3.0.
+
+### Fixes
+* Fixed a crash when multiple clients disconnected on the same frame.
+* Fixed read / write access specifiers in AfterSimulationInterpolationSystem.
+* Fixed build errors in non-development standalone builds.
+
+### Upgrade guide
+
 ## [0.0.2-preview.1] - 2019-11-28
 ### New features
 ### Changes
 ### Fixes
 * Fix compile error in generated serialization code for strings.
 * Fix warning when entering playmode with the netcode disabled.
+
 ### Upgrade guide
 
 ## [0.0.1-preview.6] - 2019-11-26
@@ -19,6 +33,7 @@
 * Added a protocol version which must match for the connection to succeed.
 * Added time graphs and server view to the network debugger.
 * Network simulator now supports jitter.
+
 ### Changes
 * The authoring flow has been improved.
   * `GhostAuthoringComponent` now automatically detects what components an entity has after conversion runs and automatically populates them when you press the "Update component list" button. You no longer need to manually type in each component name.

@@ -753,6 +753,7 @@ namespace Unity.NetCode
                     }
 
                     m_ConnectionStates.RemoveAt(m_ConnectionStates.Count - 1);
+                    --i;
                 }
             }
 

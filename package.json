@@ -1,17 +1,17 @@
 {
   "name": "com.unity.netcode",
   "displayName": "Unity NetCode",
-  "version": "0.0.2-preview.1",
+  "version": "0.0.3-preview.2",
   "unity": "2019.3",
   "unityRelease": "0b11",
   "description": "Unity multiplayer netcode layer - a high level netcode system built on entities",
   "dependencies": {
-    "com.unity.transport": "0.2.1-preview.1",
-    "com.unity.entities": "0.2.0-preview.18"
+    "com.unity.transport": "0.2.2-preview.2",
+    "com.unity.entities": "0.3.0-preview.4"
   },
   "repository": {
     "type": "git",
     "url": "git@github.com:Unity-Technologies/netcode.git",
-    "revision": "dc6ff1b90bd08de36cbf05fc07d05cc47f6ba114"
+    "revision": "a66f6695feb879621aa4a464939ffb6d92d3be4e"
   }
 }

@@ -1,36 +1,32 @@
-# DOTS NetCode quick start guide
-This doc is a walkthrough of how to create a very simple client / server based simulation. We will be spawning and controlling a simple Prefab.
+# Getting started with NetCode
+This documentation provides a walkthrough of how to create a very simple client server based simulation. This walkthrough describes how to spawn and control a simple Prefab.
 
-## Setup the project
-The first step is to create a new project. From the hub we create a new project called "NetCube".
+## Set up the Project
+Open the __Unity Hub__ and create a new Project. **Note:** To use Unity NetCode you must have at least Unity 2019.3.b11 installed.
 
-> NOTE: `com.unity.netcode` requires at least `Unity 2019.3.b11`
+Open the Package Manager (menu: __Window &gt; Package Manager__). At the top of the window, under __Advanced__, select __Show preview packages__. Add the Entities, Hybrid Renderer, NetCode, and Transport packages. 
 
-![NewProject](new-project.png "New Project")
+## Create an initial Scene
 
-We need to add some packages to the new project, so open `Window > Package Manager`, make sure "Show preview packages" under "Advances is enabled and add the packages `Transport`, `NetCode`, `Entities`and `Hybrid Renderer`.
+To begin, you need to set up a way to share data between the client and the server. To achieve this separation in NetCode, you need to create a different World for each client and the server. To share data between the server and the client, create an empty GameObject (called __SharedData__ in the example), and add the __ConvertToClientServerEntity__ component.
 
-## Create the initial scene
+![Empty SharedData GameObject](images/world-game-objects.png)<br/>_Empty SharedData GameObject_
 
-To start off we want a way to share data between the client and the server. In NetCode we achieve the seperation by creating a different world for each client and the server.
+![ConvertToClientServerEntity component](images/mixed-world.png)<br/>_ConvertToClientServerEntity component_
 
-To share data between the server and the client we need create a empty GameObject and add the `ConvertToClientServerEntity` Component.
+Once you set this up you can, for example, spawn a plane in both the client and the server world. To do this, right click the __SharedData__ Prefab and select __3D Object &gt; Plane__ which then creates a plane that is nested under __SharedData__.
 
-![WorldGameObjects](world-game-objects.png "World Game Objects")
+![Scene with a plane](images/initial-scene.png)<br/>_Scene with a plane_
 
-![MixedWorld](mixed-world.png "MixedWorld")
+## Create a ghost Prefab
 
-For example if we want to spawn a plane in both the client and the server world we can just simply create a plane under `SharedData`, right click `SharedData` and select `3D Object > Plane`. 
+To make your Scene run with a client / server setup you need to create a definition of the networked object, which is called a **ghost**. 
 
-![InitialScene](initial-scene.png "Initial Scene")
+To create a ghost Prefab, create a cube in the Scene (right click on the Scene and select __3D Object &gt; Cube__). Then select the Cube GameObject under the Scene and drag it into the Project’s __Asset__ folder. This creates a Prefab of the Cube. 
 
-## Create the ghost prefab
+![Create a Cube Prefab](images/cube-prefab.png)<br/>_Create a Cube Prefab_
 
-To make this scene run with a client / server setup we need to create a definition of the networked object - called a ghost. We start by creating a cube in our scene, e.g. `3D Object > Cube`. Then we need to create a prefab by dragging the "Cube" GameObject to the Assets panel in Unity.
-
-![CubePrefab](cube-prefab.png "Cube Prefab")
-
-We want to be able to indentify our Player and in Netcode we usually do that by PlayerId. So lets start by creating and adding a simple component that we will use to identify our cube with. 
+In NetCode you identify the player with its PlayerId. To identify the Cube Prefab, create a simple component with the following code:
 
 ```c#
 using Unity.Entities;
@@ -44,25 +40,26 @@ public struct MovableCubeComponent : IComponentData
 }
 ```
 
-Then add the `MovableCubeComponent` to our `Cube` Prefab.
+Once you create this component, add it to the Cube Prefab. Then, in the Inspector, add the __Ghost Authoring Component__ to the Prefab. In this component, select __Update Component List__ to update the list of components. 
 
-Next we add a `Ghost Authoring Component` to the prefab. In the inspector for the `Ghost Authoring Component` we can update the list of components by clicking "Update component list". The Translation and Rotation components should get values setup by default. All we need to do is expand the components in this list and select where they should be present. In our case we want to disable `PerInstanceCullingTag` and `RenderMesh` on the server. This is because the server is not supposed to render anything, and interpolated objects on the client are not supposed to simulate anything.
+When you do this, Unity automatically adds default values to the Translation and Rotation components. Expand the components in the list to select where they should be present. In this example, disable `PerInstanceCullingTag` and `RenderMesh` on the server. This is because the server does not render anything, and interpolated objects on the client don’t simulate anything. 
 
-Make sure to change the `Default Client Instantiation` to `Owner Predicted` this will make sure that we predict our own movement.
+![The Ghost Authoring component](images/ghost-config.png)<br/>_The Ghost Authoring component_
 
-![GhostConfig](ghost-config.png "Ghost Config")
+**Note:** Change the __Default Client Instantiation__ to __Owner Predicted__. This makes sure that you predict your own movement. 
 
-With this in place we click "Generate Code" in the `Ghost Authoring Component`.
+After you set up the component, select the __Generate Code__ button.
 
-## Hooking up the collections
-In order for the NetCode to know which Ghosts to use we need to setup a GhostCollection. Because both the client and the server need to know about these Ghosts we create it under our SharedData. Right click on `SharedData` and chose `Create Empty`. I will rename it to GhostCollection and then add a `GhostCollectionAuthoringComponent`.
+## Hook up the collections
+To tell NetCode which Ghosts to use, set up a GhostCollection. Because both the client and the server need to know about these Ghosts, add it to the __SharedData__ Scene. Right click on SharedData and select __Create Empty__. Rename it to __GhostCollection__ and then add a __GhostCollectionAuthoringComponent__.
 
-![GhostConllection](ghost-collection.png "Ghost Collection")
+In the Inspector select the __Update ghost list__ button and then the __Generate collection code__ button.
 
-In the `Inspector` click on the "Update ghost list" and then "Generate collection code".
+![Ghost Collection settings](images/ghost-collection.png)<br/>_Ghost Collection settings_
 
-## Establishing a connection
-The next thing we need to do is make sure the server starts listening for connections, the client connects and all connections are marked as "in game" so the NetCode start sending snapshots. We do not need a full flow in this case, so we will just write the minimal amount of code to set it up. Create a file called `Game.cs` under Assets and add this code to it.
+## Establish a connection
+Next, you need to make sure the server starts listening for connections, the client connects, and all connections are marked as "in game" so NetCode can start sending snapshots. You don’t need a full flow in this case, write the minimal amount of code to set it up. Create a file called *Game.cs* under __Assets__ and the following code to the file:
+
 ```c#
 using System;
 using Unity.Entities;
@@ -102,7 +99,7 @@ public class Game : ComponentSystem
             #if UNITY_EDITOR
             else if (world.GetExistingSystem<ServerSimulationSystemGroup>() != null)
             {
-                // Server world automatically listen for connections from any host
+                // Server world automatically listens for connections from any host
                 NetworkEndPoint ep = NetworkEndPoint.AnyIpv4;
                 ep.Port = 7979;
                 network.Listen(ep);
@@ -113,9 +110,9 @@ public class Game : ComponentSystem
 }
 ```
 
-Next we need a way to tell the server we are ready to start playing. To do this we can use `Rpc` calls that are availeble in the NetCode package.
+Next you need to tell the server you are ready to start playing. To do this, use the `Rpc` calls that are available in the NetCode package.
 
-We can continue in our `Game.cs` by first creating a `RpcCommand` that we will use to tell the server we are ready to start playing now.
+In *Game.cs*, create the following [RpcCommand](https://docs.unity3d.com/Packages/com.unity.netcode@latest/index.html?subfolder=/api/Unity.NetCode.IRpcCommand.html) that tells the server you are ready to start playing now:
 
 ```c#
 [BurstCompile]
@@ -141,9 +138,9 @@ public struct GoInGameRequest : IRpcCommand
 }
 ```
 
-> NOTE: Do not forget the `BurstCompile` Attribute on `InvokeExecute`
+**Note:** Don’t forget the `BurstCompile` attribute on `InvokeExecute`.
 
-And to make sure `NetCode` handles the command we also create a `RpcCommandRequestSystem` 
+To make sure NetCode handles the command, you need to create a [RpcCommandRequestSystem](https://docs.unity3d.com/Packages/com.unity.netcode@latest/index.html?subfolder=/api/Unity.NetCode.RpcCommandRequestSystem-1.html) as follows: 
 
 ```c#
 // The system that makes the RPC request component transfer
@@ -152,9 +149,7 @@ public class GoInGameRequestSystem : RpcCommandRequestSystem<GoInGameRequest>
 }
 ```
 
-Next lets make sure we can send input from the client to the server. To do this we create a `ICommandData` struct. This struct will be responsible serialize and deserialize our input data. 
-
-We can create the script `CubeInput.cs` and write our CubeInput CommandData.
+Next, you need to create an `ICommandData` struct to make sure you can send input from the client to the server. This struct is responsible for serializing and deserializing the input data. Create a script called *CubeInput.cs* and write the `CubeInput CommandData` as follows:
 
 ```c#
 public struct CubeInput : ICommandData<CubeInput>
@@ -190,9 +185,7 @@ public struct CubeInput : ICommandData<CubeInput>
 }
 ```
 
-So our command stream will consist of the current `tick` and our `horizontal` and `vertical` movements.
-
-In the same fashion as `Rpc`, `ICommandData` also needs a few systems to handle the command. So lets add them.
+The command stream consists of the current tick and the horizontal and vertical movements. In the same fashion as `Rpc`, you need to set up `ICommandData` with some systems to handle the command as follows:
 
 ```c#
 public class NetCubeSendCommandSystem : CommandSendSystem<CubeInput>
@@ -203,7 +196,7 @@ public class NetCubeReceiveCommandSystem : CommandReceiveSystem<CubeInput>
 }
 ```
 
-And then we want to sample our input that we will send over the wire. So let's create a System for that to.
+To sample the input, send it over the wire. To do this, create a System for it as follows:
 
 ```c#
 [UpdateInGroup(typeof(ClientSimulationSystemGroup))]
@@ -247,7 +240,7 @@ public class SampleCubeInput : ComponentSystem
 }
 ```
 
-Finally we want to create a system that is able to read the `CommandData` and move the player.
+Finally, create a system that can read the `CommandData` and move the player.
 
 ```c#
 [UpdateInGroup(typeof(GhostPredictionSystemGroup))]
@@ -277,13 +270,9 @@ public class MoveCubeSystem : ComponentSystem
 }
 ```
 
-
-
 ## Tie it together
 
-One last vital part is missing and its the systems that will handle when we go in game on the client and what to do when a client connects on the server.
-
-The Client is simple enough, we want to be able to send a `Rpc` to the server when we have connected that we are ready to start playing.
+The final step you need to do is to create the systems that handle when you go in-game on the client and what to do when a client connects on the server. You need to be able to send an `Rpc` to the server when you connect that tells it you are ready to start playing.
 
 ```c#
 // When client has a connection with network id, go in game and tell server to also go in game
@@ -307,9 +296,7 @@ public class GoInGameClientSystem : ComponentSystem
 }
 ```
 
-
-
-And on the server we want to make sure that when we receive a `GoInGameRequest` we will create and spawn a `Cube` for that player.
+On the server you need to make sure that when you receive a `GoInGameRequest`, you create and spawn a Cube for that player.
 
 ```c#
 // When server receives go in game request, go in game and delete request
@@ -338,21 +325,18 @@ public class GoInGameServerSystem : ComponentSystem
 }
 ```
 
-And thats it. 
-
 ## Testing it
 
-Now everything should be good to go. Open `Multiplayer > PlayMode Tools` and make sure "PlayMode Type" is set to "Client & Server". Enter playmode and you should see the cube spawn. By pressing `a`, `s`, `d`, `w` you should also be able to move the Cube around.
+Now you have set up your code, open __Multiplayer &gt; PlayMode Tools__ and set the __PlayMode Type__ to __Client & Server__. Enter Play Mode, and the Cube spawns. Press the __A,S,D,__ and __W__ keys to move the Cube around.
 
-So to recap:
+To recap on this workflow:
 
-1. We Created a `GameObject` to hold SharedData between the Client and the Server. By adding the `ConvertToClientServerEntity` `Component`.
-2. We created our Prefab out of a simple `3D Cube` and added a `GhostAuthoringComponent` to it as well as the  `MovableCubeComponent` to it.
-3. We updated and generated code for the Ghost through the `GhostAuthoringComponent` Inspector view.
-4. We created a GhostCollection by adding the `GhostCollectionAuthoringComponent` to a Empty GameObject.
-   1. We Updated the ghost list and generated collection code.
-5. We established a connection between the client and the server.
-6. We wrote a `Rpc` to tell the server we are ready to play.
-7. We wrote a `ICommandData` to be serialize Game Input.
-8. We wrote a Client system to send a `Rpc`
-9. We wrote a Server system to handle our incomming `Rpc`.
+1. Created a GameObject and added the __ConvertToClientServerEntity__ component to hold __SharedData__ between the client and the server.
+1. Created a Prefab out of a simple 3D Cube and added a __GhostAuthoringComponent__ to it as well as the __MovableCubeComponent__.
+1. Updated and generated code for the Ghost through the __GhostAuthoringComponent__ Inspector view.
+1. Added the __GhostCollectionAuthoringComponent__ to an empty GameObject to create a GhostCollection. Updated the ghost list and generated collection code.
+1. Established a connection between the client and the server.
+1. Wrote an `Rpc` to tell the server you are ready to play.
+1. Wrote an `ICommandData` to serialize game input.
+1. Wrote a client system to send an `Rpc`
+1. Wrote a server system to handle the incoming `Rpc`.

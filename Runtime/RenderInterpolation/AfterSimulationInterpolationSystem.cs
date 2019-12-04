@@ -22,21 +22,21 @@ namespace Unity.NetCode
 
         protected override void OnCreate()
         {
-            positionInterpolationGroup = GetEntityQuery(ComponentType.ReadOnly<CurrentSimulatedPosition>(),
-                ComponentType.ReadOnly<PreviousSimulatedPosition>(), ComponentType.ReadWrite<Translation>());
-            rotationInterpolationGroup = GetEntityQuery(ComponentType.ReadOnly<CurrentSimulatedRotation>(),
-                ComponentType.ReadOnly<PreviousSimulatedRotation>(), ComponentType.ReadWrite<Rotation>());
+            positionInterpolationGroup = GetEntityQuery(ComponentType.ReadWrite<CurrentSimulatedPosition>(),
+                ComponentType.ReadOnly<PreviousSimulatedPosition>(), ComponentType.ReadOnly<Translation>());
+            rotationInterpolationGroup = GetEntityQuery(ComponentType.ReadWrite<CurrentSimulatedRotation>(),
+                ComponentType.ReadOnly<PreviousSimulatedRotation>(), ComponentType.ReadOnly<Rotation>());
             newPositionInterpolationGroup = GetEntityQuery(new EntityQueryDesc
             {
                 All = new[]
                 {
-                    ComponentType.ReadWrite<Translation>(), ComponentType.ReadOnly<CurrentSimulatedPosition>()
+                    ComponentType.ReadOnly<Translation>(), ComponentType.ReadWrite<CurrentSimulatedPosition>()
                 },
                 None = new[] {ComponentType.ReadWrite<PreviousSimulatedPosition>()}
             });
             newRotationInterpolationGroup = GetEntityQuery(new EntityQueryDesc
             {
-                All = new[] {ComponentType.ReadWrite<Rotation>(), ComponentType.ReadOnly<CurrentSimulatedRotation>()},
+                All = new[] {ComponentType.ReadOnly<Rotation>(), ComponentType.ReadWrite<CurrentSimulatedRotation>()},
                 None = new[] {ComponentType.ReadWrite<PreviousSimulatedRotation>()}
             });
 
