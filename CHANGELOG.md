@@ -1,5 +1,13 @@
 # Change log
 
+## [0.0.4-preview.0] - 2019-12-12
+### New features
+### Changes
+* Changed the codegen for NativeString64 to use the serialization in DataStream.
+
+### Fixes
+### Upgrade guide
+
 ## [0.0.3-preview.2] - 2019-12-05
 ### New features
 ### Changes

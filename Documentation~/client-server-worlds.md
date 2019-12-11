@@ -18,7 +18,7 @@ To override this default behavior, use the  [UpdateInWorld](https://docs.unity3d
 
 As well as the attributes listed above, you can use the __PlayMode Tools__ window in the Unity Editor to select what happens when you enter Play Mode. To access __PlayMode Tools__, go to menu: __Multiplayer &gt; PlayMode Tools__.
 
-![PlayMode Tools](/images/playmode-tools.png)<br/>_PlayMode Tools_
+![PlayMode Tools](images/playmode-tools.png)<br/>_PlayMode Tools_
 
 |**Property**|**Description**|
 |:---|:---|

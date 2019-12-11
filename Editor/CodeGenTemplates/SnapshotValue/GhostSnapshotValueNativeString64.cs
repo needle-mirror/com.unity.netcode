@@ -40,31 +40,7 @@ public struct GhostSnapshotData
         #endregion
         #region __GHOST_WRITE__
         if ((changeMask__GHOST_MASK_BATCH__ & (1 << __GHOST_MASK_INDEX__)) != 0)
-        {
-            writer.WritePackedUIntDelta(__GHOST_FIELD_NAME__.LengthInBytes, baseline.__GHOST_FIELD_NAME__.LengthInBytes, compressionModel);
-            var __GHOST_FIELD_NAME__BaselineLength = (ushort)math.min((uint)__GHOST_FIELD_NAME__.LengthInBytes, baseline.__GHOST_FIELD_NAME__.LengthInBytes);
-            for (int sb = 0; sb < __GHOST_FIELD_NAME__BaselineLength; ++sb)
-            {
-                unsafe
-                {
-                    fixed (byte* b1 = &__GHOST_FIELD_NAME__.buffer.byte0000)
-                    fixed (byte* b2 = &baseline.__GHOST_FIELD_NAME__.buffer.byte0000)
-                    {
-                        writer.WritePackedUIntDelta(b1[sb], b2[sb], compressionModel);
-                    }
-                }
-            }
-            for (int sb = __GHOST_FIELD_NAME__BaselineLength; sb < __GHOST_FIELD_NAME__.LengthInBytes; ++sb)
-            {
-                unsafe
-                {
-                    fixed (byte* b = &__GHOST_FIELD_NAME__.buffer.byte0000)
-                    {
-                        writer.WritePackedUIntDelta(b[sb], 0, compressionModel);
-                    }
-                }
-            }
-        }
+            writer.WritePackedStringDelta(__GHOST_FIELD_NAME__, baseline.__GHOST_FIELD_NAME__, compressionModel);
         #endregion
     }
 
@@ -73,31 +49,7 @@ public struct GhostSnapshotData
     {
         #region __GHOST_READ__
         if ((changeMask__GHOST_MASK_BATCH__ & (1 << __GHOST_MASK_INDEX__)) != 0)
-        {
-            __GHOST_FIELD_NAME__.LengthInBytes = (ushort)reader.ReadPackedUIntDelta(ref ctx, (uint)baseline.__GHOST_FIELD_NAME__.LengthInBytes, compressionModel);
-            var __GHOST_FIELD_NAME__BaselineLength = (ushort)math.min((uint)__GHOST_FIELD_NAME__.LengthInBytes, baseline.__GHOST_FIELD_NAME__.LengthInBytes);
-            for (int sb = 0; sb < __GHOST_FIELD_NAME__BaselineLength; ++sb)
-            {
-                unsafe
-                {
-                    fixed (byte* b1 = &__GHOST_FIELD_NAME__.buffer.byte0000)
-                    fixed (byte* b2 = &baseline.__GHOST_FIELD_NAME__.buffer.byte0000)
-                    {
-                        b1[sb] = (byte)reader.ReadPackedUIntDelta(ref ctx, b2[sb], compressionModel);
-                    }
-                }
-            }
-            for (int sb = __GHOST_FIELD_NAME__BaselineLength; sb < __GHOST_FIELD_NAME__.LengthInBytes; ++sb)
-            {
-                unsafe
-                {
-                    fixed (byte* b = &__GHOST_FIELD_NAME__.buffer.byte0000)
-                    {
-                        b[sb] = (byte)reader.ReadPackedUIntDelta(ref ctx, 0, compressionModel);
-                    }
-                }
-            }
-        }
+            __GHOST_FIELD_NAME__ = reader.ReadPackedStringDelta(ref ctx, baseline.__GHOST_FIELD_NAME__, compressionModel);
         else
             __GHOST_FIELD_NAME__ = baseline.__GHOST_FIELD_NAME__;
         #endregion
