@@ -94,6 +94,7 @@ namespace Unity.NetCode
             }
         }
 
+        [BurstCompile]
         struct InitCurrentPosJob : IJobChunk
         {
             [ReadOnly] public ArchetypeChunkEntityType entityType;
@@ -117,6 +118,7 @@ namespace Unity.NetCode
             }
         }
 
+        [BurstCompile]
         struct InitCurrentRotJob : IJobChunk
         {
             [ReadOnly] public ArchetypeChunkEntityType entityType;

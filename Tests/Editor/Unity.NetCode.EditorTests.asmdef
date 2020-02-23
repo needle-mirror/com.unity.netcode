@@ -5,8 +5,10 @@
         "Unity.Collections",
         "Unity.Mathematics",
         "Unity.NetCode",
+        "Unity.NetCode.TestsUtils",
         "Unity.Entities",
         "Unity.Entities.Hybrid",
+        "Unity.Transforms",
         "Unity.Networking.Transport",
         "UnityEngine.TestRunner",
         "UnityEditor.TestRunner"

@@ -40,7 +40,7 @@ public struct GhostSnapshotData
         #endregion
     }
 
-    public void Serialize(int networkId, ref GhostSnapshotData baseline, DataStreamWriter writer, NetworkCompressionModel compressionModel)
+    public void Serialize(int networkId, ref GhostSnapshotData baseline, ref DataStreamWriter writer, NetworkCompressionModel compressionModel)
     {
         #region __GHOST_CALCULATE_CHANGE_MASK_ZERO__
         changeMask__GHOST_MASK_BATCH__ = (__GHOST_FIELD_NAME__X != baseline.__GHOST_FIELD_NAME__X ||
@@ -65,16 +65,16 @@ public struct GhostSnapshotData
         #endregion
     }
 
-    public void Deserialize(uint tick, ref GhostSnapshotData baseline, DataStreamReader reader, ref DataStreamReader.Context ctx,
+    public void Deserialize(uint tick, ref GhostSnapshotData baseline, ref DataStreamReader reader,
         NetworkCompressionModel compressionModel)
     {
         #region __GHOST_READ__
         if ((changeMask__GHOST_MASK_BATCH__ & (1 << __GHOST_MASK_INDEX__)) != 0)
         {
-            __GHOST_FIELD_NAME__X = reader.ReadPackedIntDelta(ref ctx, baseline.__GHOST_FIELD_NAME__X, compressionModel);
-            __GHOST_FIELD_NAME__Y = reader.ReadPackedIntDelta(ref ctx, baseline.__GHOST_FIELD_NAME__Y, compressionModel);
-            __GHOST_FIELD_NAME__Z = reader.ReadPackedIntDelta(ref ctx, baseline.__GHOST_FIELD_NAME__Z, compressionModel);
-            __GHOST_FIELD_NAME__W = reader.ReadPackedIntDelta(ref ctx, baseline.__GHOST_FIELD_NAME__W, compressionModel);
+            __GHOST_FIELD_NAME__X = reader.ReadPackedIntDelta(baseline.__GHOST_FIELD_NAME__X, compressionModel);
+            __GHOST_FIELD_NAME__Y = reader.ReadPackedIntDelta(baseline.__GHOST_FIELD_NAME__Y, compressionModel);
+            __GHOST_FIELD_NAME__Z = reader.ReadPackedIntDelta(baseline.__GHOST_FIELD_NAME__Z, compressionModel);
+            __GHOST_FIELD_NAME__W = reader.ReadPackedIntDelta(baseline.__GHOST_FIELD_NAME__W, compressionModel);
         }
         else
         {

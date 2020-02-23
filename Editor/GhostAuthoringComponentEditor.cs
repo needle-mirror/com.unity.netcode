@@ -430,7 +430,7 @@ namespace Unity.NetCode.Editor
             EditorUtility.SetDirty(self);
         }
 
-        public static void GenerateGhost(GhostAuthoringComponent ghostInfo)
+        public static GhostCodeGen.Status GenerateGhost(GhostAuthoringComponent ghostInfo, bool testOnly = false)
         {
             var tempWorld = new World("GhostEnsureECSLoaded");
             tempWorld.Dispose();
@@ -450,7 +450,7 @@ namespace Unity.NetCode.Editor
                 if (!typeLookup.TryGetValue(ghostInfo.Components[comp].name, out var componentType))
                 {
                     Debug.LogError($"Could not find the type {ghostInfo.Components[comp].name}");
-                    return;
+                    return GhostCodeGen.Status.Failed;
                 }
                 ghostInfo.Components[comp].NamespaceName = componentType.Namespace;
                 ghostInfo.Components[comp].ShortName = (String.IsNullOrEmpty(componentType.Namespace))
@@ -463,7 +463,7 @@ namespace Unity.NetCode.Editor
                     {
                         Debug.LogError("Could not find field: " + ghostInfo.Components[comp].fields[field].name +
                                        " in componentType: " + ghostInfo.Components[comp].name);
-                        return;
+                        return GhostCodeGen.Status.Failed;
                     }
 
                     ghostInfo.Components[comp].fields[field].Field = fieldInfo;
@@ -485,8 +485,9 @@ namespace Unity.NetCode.Editor
             GenerateSnapshotData(ghostInfo, ownerField, assetPath, batch);
             GenerateSerializer(ghostInfo, assetPath, batch);
             GenerateUpdateSystem(ghostInfo, ownerField, assetPath, batch);
-            batch.Flush();
+            var didWrite = batch.Flush(testOnly);
             AssetDatabase.Refresh();
+            return didWrite ? GhostCodeGen.Status.Ok : GhostCodeGen.Status.NotModified;
         }
 
         static string GetShortName(GhostAuthoringComponent.GhostComponent comp)
@@ -693,7 +694,6 @@ namespace Unity.NetCode.Editor
                 if (entityIndex == 0)
                 {
                     ++serverComponentCount;
-                    codeGen.GenerateFragment("GHOST_COMPONENT_TYPE_CHECK", replacements);
                     codeGen.GenerateFragment("GHOST_COMPONENT_TYPE", replacements);
                     codeGen.GenerateFragment("GHOST_ASSIGN_COMPONENT_TYPE", replacements);
                 }
@@ -734,7 +734,6 @@ namespace Unity.NetCode.Editor
                 replacements.Clear();
                 replacements.Add("GHOST_COMPONENT_TYPE_NAME", "LinkedEntityGroup");
                 replacements.Add("GHOST_COMPONENT_TYPE", "LinkedEntityGroup");
-                codeGen.GenerateFragment("GHOST_COMPONENT_TYPE_CHECK", replacements);
                 codeGen.GenerateFragment("GHOST_COMPONENT_TYPE", replacements);
                 codeGen.GenerateFragment("GHOST_ASSIGN_COMPONENT_TYPE", replacements);
 
@@ -771,11 +770,14 @@ namespace Unity.NetCode.Editor
             bool predictedNeedsLinkedEntityGroup = false;
             HashSet<string> imports = new HashSet<string>();
             imports.Add("Unity.Entities");
-            HashSet<string> entityGroupTypes = new HashSet<string>();
+            HashSet<string> interpolatedEntityGroupTypes = new HashSet<string>();
+            HashSet<string> predictedEntityGroupTypes = new HashSet<string>();
             for (int comp = 0; comp < ghostInfo.Components.Length; ++comp)
             {
                 if (ghostInfo.Components[comp].interpolatedClient && ghostInfo.Components[comp].entityIndex > 0 && ghostInfo.Components[comp].fields.Length > 0)
-                    entityGroupTypes.Add(ghostInfo.Components[comp].name);
+                    interpolatedEntityGroupTypes.Add(ghostInfo.Components[comp].name);
+                if (ghostInfo.Components[comp].predictedClient && ghostInfo.Components[comp].entityIndex > 0 && ghostInfo.Components[comp].fields.Length > 0)
+                    predictedEntityGroupTypes.Add(ghostInfo.Components[comp].name);
             }
 
             for (int comp = 0; comp < ghostInfo.Components.Length; ++comp)
@@ -803,7 +805,7 @@ namespace Unity.NetCode.Editor
                     // When there are nested entities (or linked group entities) all of the components of the type
                     // we need from the group of entities (parent+children) should be accessed the same way, or we'll get native array aliasing
                     if (ghostInfo.Components[comp].entityIndex == 0 &&
-                        !entityGroupTypes.Contains(ghostInfo.Components[comp].name))
+                        !interpolatedEntityGroupTypes.Contains(ghostInfo.Components[comp].name))
                     {
                         codeGen.GenerateFragment("GHOST_INTERPOLATED_COMPONENT_TYPE", replacements);
                         codeGen.GenerateFragment("GHOST_INTERPOLATED_COMPONENT_REF", replacements);
@@ -838,7 +840,11 @@ namespace Unity.NetCode.Editor
                      ghostInfo.Components[comp].sendDataTo != GhostAuthoringComponent.ClientSendType.Interpolated))
                 {
                     imports.Add(ghostInfo.Components[comp].NamespaceName);
-                    if (ghostInfo.Components[comp].entityIndex == 0)
+
+                    // When there are nested entities (or linked group entities) all of the components of the type
+                    // we need from the group of entities (parent+children) should be accessed the same way, or we'll get native array aliasing
+                    if (ghostInfo.Components[comp].entityIndex == 0 &&
+                        !predictedEntityGroupTypes.Contains(ghostInfo.Components[comp].name))
                     {
                         codeGen.GenerateFragment("GHOST_PREDICTED_COMPONENT_TYPE", replacements);
                         codeGen.GenerateFragment("GHOST_PREDICTED_COMPONENT_REF", replacements);

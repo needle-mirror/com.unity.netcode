@@ -1,3 +1,4 @@
+using Unity.Burst;
 using Unity.Collections;
 using Unity.Entities;
 using Unity.Jobs;
@@ -34,6 +35,7 @@ namespace Unity.NetCode
             m_predictedDespawnQueue.Dispose();
         }
 
+        [BurstCompile]
         struct GhostDespawnJob : IJob
         {
             public EntityCommandBuffer commandBuffer;

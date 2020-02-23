@@ -51,6 +51,45 @@ namespace Unity.NetCode
             }
         }
 
+        public string prefabId = "";
+
+#if UNITY_EDITOR
+        void OnValidate()
+        {
+            ValidatePrefabId();
+        }
+
+        void ValidatePrefabId()
+        {
+            if (UnityEditor.PrefabUtility.IsPartOfPrefabInstance(gameObject) || Application.isPlaying)
+                return;
+            var guid = "";
+            if (gameObject.transform.parent == null)
+            {
+                // The common case is a root object in a prefab, in this case we always validate the guid to detect cloned files
+                var prefabStage = UnityEditor.Experimental.SceneManagement.PrefabStageUtility.GetPrefabStage(gameObject);
+                if (prefabStage != null)
+                {
+#if UNITY_2020_1_OR_NEWER
+                    var assetPath = prefabStage.assetPath;
+#else
+                    var assetPath = prefabStage.prefabAssetPath;
+#endif
+                    guid = UnityEditor.AssetDatabase.AssetPathToGUID(assetPath);
+                }
+                else if (UnityEditor.PrefabUtility.GetPrefabAssetType(gameObject) != UnityEditor.PrefabAssetType.NotAPrefab)
+                {
+                    var path = UnityEditor.AssetDatabase.GetAssetPath(gameObject);
+                    if (String.IsNullOrEmpty(path))
+                        return;
+                    guid = UnityEditor.AssetDatabase.AssetPathToGUID(path);
+                }
+            }
+            if (guid != prefabId)
+                prefabId = guid;
+        }
+#endif
+
         public enum ClientInstantionType
         {
             Interpolated,
@@ -71,21 +110,21 @@ namespace Unity.NetCode
         public string SerializerPath = "";
         public string Importance = "1";
         public string PredictingPlayerNetworkId = "";
-        public GhostComponent[] Components;
+        public GhostComponent[] Components = new GhostComponent[0];
 
         [HideInInspector] public bool doNotStrip = false;
     }
 
-    [ConverterVersion("timj", 1)]
+    [ConverterVersion("timj", 2)]
     [UpdateInGroup(typeof(GameObjectAfterConversionGroup))]
-    class GhostAuthoringConversion : GameObjectConversionSystem
+    public class GhostAuthoringConversion : GameObjectConversionSystem
     {
         public static NetcodeConversionTarget GetConversionTarget(GameObjectConversionSystem system)
         {
             // Detect target using build settings (This is used from sub scenes)
 #if UNITY_EDITOR
             {
-                var settings = system.GetBuildSettingsComponent<NetCodeConversionSettings>();
+                var settings = system.GetBuildConfigurationComponent<NetCodeConversionSettings>();
                 if (settings != null)
                 {
                     //Debug.LogWarning("BuildSettings conversion for: " + settings.Target);
@@ -120,6 +159,8 @@ namespace Unity.NetCode
 
             Entities.ForEach((GhostAuthoringComponent ghostAuthoring) =>
             {
+                if (String.IsNullOrEmpty(ghostAuthoring.prefabId))
+                    throw new InvalidOperationException($"The ghost {ghostAuthoring.gameObject.name} is not a valid prefab, all ghosts must be the top-level GameObject in a prefab. Ghost instances in scenes must be instances of such prefabs.");
                 DeclareLinkedEntityGroup(ghostAuthoring.gameObject);
                 if (ghostAuthoring.doNotStrip)
                     return;
@@ -136,9 +177,19 @@ namespace Unity.NetCode
                     target = NetcodeConversionTarget.Server;
                 }
 
+                if (ghostAuthoring.prefabId.Length != 32)
+                    throw new InvalidOperationException("Invalid guid for ghost prefab type");
+                var ghostType = new GhostTypeComponent();
+                ghostType.guid0 = Convert.ToUInt32(ghostAuthoring.prefabId.Substring(0, 8), 16);
+                ghostType.guid1 = Convert.ToUInt32(ghostAuthoring.prefabId.Substring(8, 8), 16);
+                ghostType.guid2 = Convert.ToUInt32(ghostAuthoring.prefabId.Substring(16, 8), 16);
+                ghostType.guid3 = Convert.ToUInt32(ghostAuthoring.prefabId.Substring(24, 8), 16);
+                DstEntityManager.AddComponentData(entity, ghostType);
                 var toRemove = new HashSet<string>();
                 if (target == NetcodeConversionTarget.Server)
                 {
+                    // Make sure different ghost types are in different chunks
+                    DstEntityManager.AddSharedComponentData(entity, new SharedGhostTypeComponent{SharedValue = ghostType});
                     DstEntityManager.AddComponentData(entity, new GhostComponent());
                     DstEntityManager.AddComponentData(entity, new PredictedGhostComponent());
                     // Create server version of prefab

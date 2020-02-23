@@ -4,7 +4,7 @@ This documentation provides a walkthrough of how to create a very simple client 
 ## Set up the Project
 Open the __Unity Hub__ and create a new Project. **Note:** To use Unity NetCode you must have at least Unity 2019.3.b11 installed.
 
-Open the Package Manager (menu: __Window &gt; Package Manager__). At the top of the window, under __Advanced__, select __Show preview packages__. Add the Entities, Hybrid Renderer, NetCode, and Transport packages. 
+Open the Package Manager (menu: __Window &gt; Package Manager__). At the top of the window, under __Advanced__, select __Show preview packages__. Add the Entities, Hybrid Renderer, NetCode, and Transport packages.
 
 ## Create an initial Scene
 
@@ -20,9 +20,9 @@ Once you set this up you can, for example, spawn a plane in both the client and 
 
 ## Create a ghost Prefab
 
-To make your Scene run with a client / server setup you need to create a definition of the networked object, which is called a **ghost**. 
+To make your Scene run with a client / server setup you need to create a definition of the networked object, which is called a **ghost**.
 
-To create a ghost Prefab, create a cube in the Scene (right click on the Scene and select __3D Object &gt; Cube__). Then select the Cube GameObject under the Scene and drag it into the Project’s __Asset__ folder. This creates a Prefab of the Cube. 
+To create a ghost Prefab, create a cube in the Scene (right click on the Scene and select __3D Object &gt; Cube__). Then select the Cube GameObject under the Scene and drag it into the Project’s __Asset__ folder. This creates a Prefab of the Cube.
 
 ![Create a Cube Prefab](images/cube-prefab.png)<br/>_Create a Cube Prefab_
 
@@ -40,13 +40,13 @@ public struct MovableCubeComponent : IComponentData
 }
 ```
 
-Once you create this component, add it to the Cube Prefab. Then, in the Inspector, add the __Ghost Authoring Component__ to the Prefab. In this component, select __Update Component List__ to update the list of components. 
+Once you create this component, add it to the Cube Prefab. Then, in the Inspector, add the __Ghost Authoring Component__ to the Prefab. In this component, select __Update Component List__ to update the list of components.
 
-When you do this, Unity automatically adds default values to the Translation and Rotation components. Expand the components in the list to select where they should be present. In this example, disable `PerInstanceCullingTag` and `RenderMesh` on the server. This is because the server does not render anything, and interpolated objects on the client don’t simulate anything. 
+When you do this, Unity automatically adds default values to the Translation and Rotation components. Expand the components in the list to select where they should be present. In this example, disable `PerInstanceCullingTag` and `RenderMesh` on the server. This is because the server does not render anything, and interpolated objects on the client don’t simulate anything.
 
 ![The Ghost Authoring component](images/ghost-config.png)<br/>_The Ghost Authoring component_
 
-**Note:** Change the __Default Client Instantiation__ to __Owner Predicted__. This makes sure that you predict your own movement. 
+**Note:** Change the __Default Client Instantiation__ to __Owner Predicted__. This makes sure that you predict your own movement.
 
 After you set up the component, select the __Generate Code__ button.
 
@@ -131,16 +131,18 @@ public struct GoInGameRequest : IRpcCommand
         RpcExecutor.ExecuteCreateRequestComponent<GoInGameRequest>(ref parameters);
     }
 
+    static PortableFunctionPointer<RpcExecutor.ExecuteDelegate> InvokeExecuteFunctionPointer =
+        new PortableFunctionPointer<RpcExecutor.ExecuteDelegate>(InvokeExecute);
     public PortableFunctionPointer<RpcExecutor.ExecuteDelegate> CompileExecute()
     {
-        return new PortableFunctionPointer<RpcExecutor.ExecuteDelegate>(InvokeExecute);
+        return InvokeExecuteFunctionPointer;
     }
 }
 ```
 
 **Note:** Don’t forget the `BurstCompile` attribute on `InvokeExecute`.
 
-To make sure NetCode handles the command, you need to create a [RpcCommandRequestSystem](https://docs.unity3d.com/Packages/com.unity.netcode@latest/index.html?subfolder=/api/Unity.NetCode.RpcCommandRequestSystem-1.html) as follows: 
+To make sure NetCode handles the command, you need to create a [RpcCommandRequestSystem](https://docs.unity3d.com/Packages/com.unity.netcode@latest/index.html?subfolder=/api/Unity.NetCode.RpcCommandRequestSystem-1.html) as follows:
 
 ```c#
 // The system that makes the RPC request component transfer
@@ -313,10 +315,10 @@ public class GoInGameServerSystem : ComponentSystem
             var ghostId = NetCubeGhostSerializerCollection.FindGhostType<CubeSnapshotData>();
             var prefab = EntityManager.GetBuffer<GhostPrefabBuffer>(ghostCollection.serverPrefabs)[ghostId].Value;
             var player = EntityManager.Instantiate(prefab);
-            
+
             EntityManager.SetComponentData(player, new MovableCubeComponent { PlayerId = EntityManager.GetComponentData<NetworkIdComponent>(reqSrc.SourceConnection).Value});
             PostUpdateCommands.AddBuffer<CubeInput>(player);
-            
+
             PostUpdateCommands.SetComponent(reqSrc.SourceConnection, new CommandTargetComponent {targetEntity = player});
 
             PostUpdateCommands.DestroyEntity(reqEnt);

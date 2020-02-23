@@ -1,3 +1,4 @@
+using Unity.Burst;
 using Unity.Collections;
 using Unity.Entities;
 using Unity.Jobs;
@@ -15,14 +16,17 @@ namespace Unity.NetCode
 
         [ExcludeComponent(typeof(NetworkStreamDisconnected))]
         [RequireComponentTag(typeof(NetworkStreamInGame))]
+        [BurstCompile]
         struct CommandSendJob : IJobForEach<NetworkStreamConnection, NetworkSnapshotAckComponent, CommandTargetComponent>
         {
-            public UdpNetworkDriver.Concurrent driver;
+            public NetworkDriver.Concurrent driver;
             public NetworkPipeline unreliablePipeline;
             [ReadOnly] public BufferFromEntity<TCommandData> inputFromEntity;
             public NetworkCompressionModel compressionModel;
             public uint localTime;
             public uint inputTargetTick;
+            public uint interpolationDelay;
+            public bool isNullCommandData;
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
             public NativeArray<uint> netStats;
 #endif
@@ -30,31 +34,34 @@ namespace Unity.NetCode
             public void Execute([ReadOnly] ref NetworkStreamConnection connection,
                 [ReadOnly] ref NetworkSnapshotAckComponent ack, [ReadOnly] ref CommandTargetComponent state)
             {
-                if (typeof(TCommandData) == typeof(NullCommandData) && state.targetEntity != Entity.Null)
+                if (isNullCommandData && state.targetEntity != Entity.Null)
                     return;
-                if (typeof(TCommandData) != typeof(NullCommandData) && !inputFromEntity.Exists(state.targetEntity))
+                if (!isNullCommandData && !inputFromEntity.Exists(state.targetEntity))
                     return;
-                DataStreamWriter writer = new DataStreamWriter(1200, Allocator.Temp);
-                writer.Write((byte) NetworkStreamProtocol.Command);
-                writer.Write(ack.LastReceivedSnapshotByLocal);
-                writer.Write(ack.ReceivedSnapshotByLocalMask);
-                writer.Write(localTime);
+                DataStreamWriter writer = driver.BeginSend(unreliablePipeline, connection.Value);
+                if (!writer.IsCreated)
+                    return;
+                writer.WriteByte((byte) NetworkStreamProtocol.Command);
+                writer.WriteUInt(ack.LastReceivedSnapshotByLocal);
+                writer.WriteUInt(ack.ReceivedSnapshotByLocalMask);
+                writer.WriteUInt(localTime);
                 uint returnTime = ack.LastReceivedRemoteTime;
                 if (returnTime != 0)
                     returnTime -= (localTime - ack.LastReceiveTimestamp);
-                writer.Write(returnTime);
-                writer.Write(inputTargetTick);
+                writer.WriteUInt(returnTime);
+                writer.WriteUInt(interpolationDelay);
+                writer.WriteUInt(inputTargetTick);
                 if (state.targetEntity != Entity.Null)
                 {
                     var input = inputFromEntity[state.targetEntity];
                     TCommandData baselineInputData;
                     input.GetDataAtTick(inputTargetTick, out baselineInputData);
-                    baselineInputData.Serialize(writer);
+                    baselineInputData.Serialize(ref writer);
                     for (uint inputIndex = 1; inputIndex < k_InputBufferSendSize; ++inputIndex)
                     {
                         TCommandData inputData;
                         input.GetDataAtTick(inputTargetTick - inputIndex, out inputData);
-                        inputData.Serialize(writer, baselineInputData, compressionModel);
+                        inputData.Serialize(ref writer, baselineInputData, compressionModel);
                     }
 
                     writer.Flush();
@@ -64,7 +71,7 @@ namespace Unity.NetCode
                 netStats[1] = (uint)writer.Length;
 #endif
 
-                driver.Send(unreliablePipeline, connection.Value, writer);
+                driver.EndSend(writer);
             }
         }
 
@@ -130,6 +137,8 @@ namespace Unity.NetCode
                 compressionModel = m_CompressionModel,
                 localTime = NetworkTimeSystem.TimestampMS,
                 inputTargetTick = targetTick,
+                interpolationDelay = m_ClientSimulationSystemGroup.ServerTick - m_ClientSimulationSystemGroup.InterpolationTick,
+                isNullCommandData = typeof(TCommandData) == typeof(NullCommandData),
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
                 netStats = m_NetStats
 #endif
@@ -137,6 +146,7 @@ namespace Unity.NetCode
 
             var handle = sendJob.ScheduleSingle(this,
                 JobHandle.CombineDependencies(inputDeps, m_ReceiveSystem.LastDriverWriter));
+            handle = m_ReceiveSystem.Driver.ScheduleFlushSend(handle);
             m_ReceiveSystem.LastDriverWriter = handle;
             return handle;
         }
@@ -145,16 +155,16 @@ namespace Unity.NetCode
     public struct NullCommandData : ICommandData<NullCommandData>
     {
         public uint Tick => 0;
-        public void Serialize(DataStreamWriter writer)
+        public void Serialize(ref DataStreamWriter writer)
         {
         }
-        public void Serialize(DataStreamWriter writer, NullCommandData baseline, NetworkCompressionModel compressionModel)
+        public void Serialize(ref DataStreamWriter writer, NullCommandData baseline, NetworkCompressionModel compressionModel)
         {
         }
-        public void Deserialize(uint tick, DataStreamReader reader, ref DataStreamReader.Context ctx)
+        public void Deserialize(uint tick, ref DataStreamReader reader)
         {
         }
-        public void Deserialize(uint tick, DataStreamReader reader, ref DataStreamReader.Context ctx, NullCommandData baseline, NetworkCompressionModel compressionModel)
+        public void Deserialize(uint tick, ref DataStreamReader reader, NullCommandData baseline, NetworkCompressionModel compressionModel)
         {
         }
     }

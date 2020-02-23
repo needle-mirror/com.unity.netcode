@@ -15,7 +15,10 @@ namespace Unity.NetCode
             return predicted.PredictionStartTick == 0 || SequenceHelpers.IsNewer(tick, predicted.PredictionStartTick);
         }
 
+        /// The tick currently being predicted. Only valid when the GhostPredictionSystemGroup is executing.
         public uint PredictingTick;
+        /// The current server tick which will be the last tick to predict. Only valid when the GhostPredictionSystemGroup is executing.
+        public bool IsFinalPredictionTick;
         public NativeArray<uint> OldestPredictedTick;
         private NativeList<JobHandle> predictedTickWriters;
         private bool isServer;
@@ -54,6 +57,7 @@ namespace Unity.NetCode
                 // If server, apply once
                 var simulationSystemGroup = World.GetExistingSystem<ServerSimulationSystemGroup>();
                 PredictingTick = simulationSystemGroup.ServerTick;
+                IsFinalPredictionTick = true;
                 base.OnUpdate();
             }
             else
@@ -80,7 +84,8 @@ namespace Unity.NetCode
                 }
 
                 var simulationSystemGroup = World.GetExistingSystem<ClientSimulationSystemGroup>();
-                var targetTick = simulationSystemGroup.ServerTick;
+                var serverTick = simulationSystemGroup.ServerTick;
+                var targetTick = serverTick;
 
                 if (oldestAppliedTick == 0 ||
                     !SequenceHelpers.IsNewer(targetTick, oldestAppliedTick))
@@ -103,12 +108,14 @@ namespace Unity.NetCode
                     uint tickAge = targetTick - i;
                     World.SetTime(new TimeData(elapsedTime - simulationSystemGroup.ServerTickDeltaTime*tickAge, simulationSystemGroup.ServerTickDeltaTime));
                     PredictingTick = i;
+                    IsFinalPredictionTick = (i == serverTick);
                     base.OnUpdate();
                 }
 
                 if (simulationSystemGroup.ServerTickFraction < 1)
                 {
                     PredictingTick = targetTick + 1;
+                    IsFinalPredictionTick = true;
                     World.SetTime(new TimeData(previousTime.ElapsedTime, simulationSystemGroup.ServerTickDeltaTime *
                                                                         simulationSystemGroup.ServerTickFraction));
                     base.OnUpdate();

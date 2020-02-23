@@ -39,29 +39,28 @@ public struct __GHOST_COLLECTION_PREFIX__GhostDeserializerCollection : IGhostDes
         #endregion
     }
     public bool Deserialize(int serializer, Entity entity, uint snapshot, uint baseline, uint baseline2, uint baseline3,
-        DataStreamReader reader,
-        ref DataStreamReader.Context ctx, NetworkCompressionModel compressionModel)
+        ref DataStreamReader reader, NetworkCompressionModel compressionModel)
     {
         switch (serializer)
         {
             #region __GHOST_INVOKE_DESERIALIZE__
             case __GHOST_SERIALIZER_INDEX__:
                 return GhostReceiveSystem<__GHOST_COLLECTION_PREFIX__GhostDeserializerCollection>.InvokeDeserialize(m___GHOST_SNAPSHOT_TYPE__FromEntity, entity, snapshot, baseline, baseline2,
-                baseline3, reader, ref ctx, compressionModel);
+                baseline3, ref reader, compressionModel);
             #endregion
             default:
                 throw new ArgumentException("Invalid serializer type");
         }
     }
-    public void Spawn(int serializer, int ghostId, uint snapshot, DataStreamReader reader,
-        ref DataStreamReader.Context ctx, NetworkCompressionModel compressionModel)
+    public void Spawn(int serializer, int ghostId, uint snapshot, ref DataStreamReader reader,
+        NetworkCompressionModel compressionModel)
     {
         switch (serializer)
         {
             #region __GHOST_INVOKE_SPAWN__
             case __GHOST_SERIALIZER_INDEX__:
                 m___GHOST_SNAPSHOT_TYPE__NewGhostIds.Add(ghostId);
-                m___GHOST_SNAPSHOT_TYPE__NewGhosts.Add(GhostReceiveSystem<__GHOST_COLLECTION_PREFIX__GhostDeserializerCollection>.InvokeSpawn<__GHOST_SNAPSHOT_TYPE__>(snapshot, reader, ref ctx, compressionModel));
+                m___GHOST_SNAPSHOT_TYPE__NewGhosts.Add(GhostReceiveSystem<__GHOST_COLLECTION_PREFIX__GhostDeserializerCollection>.InvokeSpawn<__GHOST_SNAPSHOT_TYPE__>(snapshot, ref reader, compressionModel));
                 break;
             #endregion
             default:

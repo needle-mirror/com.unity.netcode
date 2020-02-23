@@ -1,5 +1,33 @@
 # Change log
 
+## [0.1.0-preview.6] - 2020-02-24
+### New features
+* Added integration with UnityPhysics, including the lag compensation from DotsSample. To use it you must have the UnityPhysics added to your project.
+
+### Changes
+* Unity Transport has been upgraded to 0.3.0 which required some API changes - see "Upgrade guide".
+* All `FunctionPointer` instances are cached in statics to reduce the number of calls to compile.
+* The helper method RpcExecutor.ExecuteCreateRequestComponent returns the entity it creates.
+* Added an interface to NetworkStreamReceiveSystem which is used when creating the driver. It is possible to set NetworkStreamReceiveSystem.s_DriverConstructor to a custom instance during bootstrapping to create drivers in a custom way.
+* Removed World.Active workaround since it has been deprecated for a while and is causing problems with conversion at runtime.
+* Slightly improved performance by ensuring that all jobs that can be Burst compiled are
+* Ghost types are now selected based on the guid of the ghosts prefab asset instead of the archetype. This makes it possible to have multiple different ghosts with the same archetype. If a ghost is not a valid prefab you will get an error during conversion.
+
+### Fixes
+* Fixed an issue where ghost prefabs created from GameObject instances were processed by all systems.
+* The code gen now only writes files if they are modified.
+* Disposing a client or server world will now unregister it from the tick system to prevent errors.
+* Take the latency of command age updates into account when calculating time scale to get more stable inputs with high ping.
+
+### Upgrade guide
+Unity Transport has been upgraded to 0.3.0 which changes the API for `DataStreamReader` and `DataStreamWriter`.
+
+The `IRpcCommand` and `ICommandData` have been changed to not take a `DataStreamReader.Context`.
+
+The `ISnapshotData` and GhostCollection interfaces have been changed to not take a `DataStreamReader.Context`, all ghosts and collections must be regenerated.
+
+`GhostDistanceImportance.NoScale` and `GhostDistanceImportance.DefaultScale` have been replaced by `GhostDistanceImportance.NoScaleFunctionPointer` and `GhostDistanceImportance.DefaultScaleFunctionPointer` which are compiled function pointers rather than methods.
+
 ## [0.0.4-preview.0] - 2019-12-12
 ### New features
 ### Changes

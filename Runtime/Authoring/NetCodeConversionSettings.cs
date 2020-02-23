@@ -10,7 +10,7 @@ public enum NetcodeConversionTarget
 }
 
 #if UNITY_EDITOR
-public class NetCodeConversionSettings : IBuildSettingsComponent
+public class NetCodeConversionSettings : IBuildComponent
 {
     public NetcodeConversionTarget Target;
     public string Name => "NetCode Conversion Settings";

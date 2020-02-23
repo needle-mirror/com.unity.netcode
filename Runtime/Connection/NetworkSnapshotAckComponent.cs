@@ -102,7 +102,7 @@ namespace Unity.NetCode
         public uint LastReceivedSnapshotByLocal;
         public uint ReceivedSnapshotByLocalMask;
 
-        public void UpdateRemoteTime(uint remoteTime, uint localTimeMinusRTT, uint localTime)
+        public void UpdateRemoteTime(uint remoteTime, uint localTimeMinusRTT, uint localTime, uint interpolationDelay)
         {
             if (remoteTime != 0 && SequenceHelpers.IsNewer(remoteTime, LastReceivedRemoteTime))
             {
@@ -116,6 +116,7 @@ namespace Unity.NetCode
                 else
                     EstimatedRTT = EstimatedRTT * 0.875f + lastReceivedRTT * 0.125f;
                 DeviationRTT = DeviationRTT * 0.75f + math.abs(lastReceivedRTT - EstimatedRTT) * 0.25f;
+                RemoteInterpolationDelay = interpolationDelay;
             }
         }
 
@@ -124,5 +125,6 @@ namespace Unity.NetCode
         public float EstimatedRTT;
         public float DeviationRTT;
         public int ServerCommandAge;
+        public uint RemoteInterpolationDelay;
     }
 }

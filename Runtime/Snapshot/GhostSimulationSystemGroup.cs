@@ -30,6 +30,7 @@ namespace Unity.NetCode
 
         protected override void OnDestroy()
         {
+            LastGhostMapWriter.Complete();
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
             m_ghostSnapshotTickMinMax.Dispose();
 #endif

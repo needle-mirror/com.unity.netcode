@@ -1,3 +1,4 @@
+using Unity.Burst;
 using Unity.Entities;
 using Unity.Jobs;
 using Unity.Collections;
@@ -10,6 +11,7 @@ namespace Unity.NetCode
         private BeginSimulationEntityCommandBufferSystem m_Barrier;
 
         [RequireComponentTag(typeof(NetworkStreamDisconnected))]
+        [BurstCompile]
         struct CloseJob : IJobForEachWithEntity<NetworkStreamConnection>
         {
             public EntityCommandBuffer commandBuffer;

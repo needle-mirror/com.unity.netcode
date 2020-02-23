@@ -1,6 +1,4 @@
 using System.Collections.Generic;
-using System.IO;
-using System.Text;
 using UnityEditor;
 using UnityEditorInternal;
 using UnityEngine;
@@ -90,24 +88,22 @@ namespace Unity.NetCode.Editor
 
             if (GUILayout.Button("Update ghost list"))
             {
-                var collectionTarget = target as GhostCollectionAuthoringComponent;
-                AddAllNewGhosts(collectionTarget.Ghosts);
+                AddAllNewGhosts(target as GhostCollectionAuthoringComponent);
             }
 
             if (GUILayout.Button("Regenerate all ghosts"))
             {
-                RegenerateAllGhosts();
+                RegenerateAllGhosts(target as GhostCollectionAuthoringComponent);
             }
 
             if (GUILayout.Button("Generate collection code"))
             {
-                GenerateCollection();
+                GenerateCollection(target as GhostCollectionAuthoringComponent);
             }
         }
 
-        void RegenerateAllGhosts()
+        public static void RegenerateAllGhosts(GhostCollectionAuthoringComponent collectionTarget)
         {
-            var collectionTarget = target as GhostCollectionAuthoringComponent;
             foreach (var ghost in collectionTarget.Ghosts)
             {
                 if (ghost.prefab == null || !ghost.enabled)
@@ -117,8 +113,9 @@ namespace Unity.NetCode.Editor
             }
         }
 
-        void AddAllNewGhosts(List<GhostCollectionAuthoringComponent.Ghost> list)
+        public static void AddAllNewGhosts(GhostCollectionAuthoringComponent collectionTarget)
         {
+            var list = collectionTarget.Ghosts;
             var alreadyAdded = new HashSet<GhostAuthoringComponent>();
             bool hasEmpty = false;
             foreach (var ghost in list)
@@ -137,7 +134,7 @@ namespace Unity.NetCode.Editor
                     {
                         list.RemoveAt(i);
                         --i;
-                        EditorUtility.SetDirty(target);
+                        EditorUtility.SetDirty(collectionTarget);
                     }
                 }
             }
@@ -151,20 +148,20 @@ namespace Unity.NetCode.Editor
                 if (ghost != null && !alreadyAdded.Contains(ghost))
                 {
                     list.Add(new GhostCollectionAuthoringComponent.Ghost {prefab = ghost, enabled = true});
-                    EditorUtility.SetDirty(target);
+                    EditorUtility.SetDirty(collectionTarget);
                 }
             }
         }
 
-        void GenerateCollection()
+        public static GhostCodeGen.Status GenerateCollection(GhostCollectionAuthoringComponent collectionTarget, bool testOnly = false)
         {
             var serializerCodeGen = new GhostCodeGen("Packages/com.unity.netcode/Editor/CodeGenTemplates/GhostSerializerCollection.cs");
             var deserializerCodeGen = new GhostCodeGen("Packages/com.unity.netcode/Editor/CodeGenTemplates/GhostDeserializerCollection.cs");
 
-            var collectionTarget = target as GhostCollectionAuthoringComponent;
             var assetPath = GhostCodeGen.GetPrefabAssetPath(collectionTarget.gameObject);
 
             int ghostCount = 0;
+            var namePrefix = collectionTarget.NamePrefix;
 
             var localReplacements = new Dictionary<string, string>();
             for (int i = 0; i < collectionTarget.Ghosts.Count; ++i)
@@ -182,17 +179,15 @@ namespace Unity.NetCode.Editor
                     localReplacements.Add("GHOST_SNAPSHOT_TYPE", snapshotTypeName);
                     localReplacements.Add("GHOST_SPAWNER_TYPE", spawnerTypeName);
                     localReplacements.Add("GHOST_SERIALIZER_INDEX", i.ToString());
-                    localReplacements.Add("GHOST_COLLECTION_PREFIX", NamePrefix.stringValue);
+                    localReplacements.Add("GHOST_COLLECTION_PREFIX", namePrefix);
 
                     serializerCodeGen.GenerateFragment("GHOST_SERIALIZER_INSTANCE", localReplacements);
                     deserializerCodeGen.GenerateFragment("GHOST_DESERIALIZER_INSTANCE", localReplacements);
 
                     serializerCodeGen.GenerateFragment("GHOST_SERIALIZER_NAME", localReplacements);
                     serializerCodeGen.GenerateFragment("GHOST_FIND_TYPE", localReplacements);
-                    serializerCodeGen.GenerateFragment("GHOST_FIND_CHECK", localReplacements);
                     serializerCodeGen.GenerateFragment("GHOST_BEGIN_SERIALIZE", localReplacements);
                     serializerCodeGen.GenerateFragment("GHOST_CALCULATE_IMPORTANCE", localReplacements);
-                    serializerCodeGen.GenerateFragment("GHOST_WANTS_PREDICTION_DELTA", localReplacements);
                     serializerCodeGen.GenerateFragment("GHOST_SNAPSHOT_SIZE", localReplacements);
                     serializerCodeGen.GenerateFragment("GHOST_INVOKE_SERIALIZE", localReplacements);
 
@@ -205,14 +200,15 @@ namespace Unity.NetCode.Editor
             }
 
             var replacements = new Dictionary<string, string>();
-            replacements.Add("GHOST_COLLECTION_PREFIX", NamePrefix.stringValue);
-            replacements.Add("GHOST_SYSTEM_PREFIX", NamePrefix.stringValue);
+            replacements.Add("GHOST_COLLECTION_PREFIX", namePrefix);
+            replacements.Add("GHOST_SYSTEM_PREFIX", namePrefix);
             replacements.Add("GHOST_SERIALIZER_COUNT", ghostCount.ToString());
             var batch = new GhostCodeGen.Batch();
             serializerCodeGen.GenerateFile(assetPath, "", collectionTarget.SerializerCollectionPath, replacements, batch);
             deserializerCodeGen.GenerateFile(assetPath, "", collectionTarget.DeserializerCollectionPath, replacements, batch);
-            batch.Flush();
+            bool didWrite = batch.Flush(testOnly);
             AssetDatabase.Refresh();
+            return didWrite ? GhostCodeGen.Status.Ok : GhostCodeGen.Status.NotModified;
         }
     }
 }

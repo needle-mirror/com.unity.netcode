@@ -40,7 +40,6 @@ namespace Unity.NetCode
         internal NativeArray<Entity> ghostEntities;
         internal NativeArray<int> baselinePerEntity;
         internal NativeList<SnapshotBaseline> availableBaselines;
-        internal DataStreamWriter dataStream;
         internal NetworkCompressionModel compressionModel;
         internal GhostSerializerState serializerState;
     }
@@ -62,8 +61,6 @@ namespace Unity.NetCode
     public class GhostSendSystem<TGhostSerializerCollection> : JobComponentSystem
         where TGhostSerializerCollection : struct, IGhostSerializerCollection
     {
-        private DataStreamWriter m_DataStream;
-
         unsafe struct SerializationState
         {
             public EntityArchetype arch;
@@ -197,9 +194,8 @@ namespace Unity.NetCode
 
         protected override void OnCreate()
         {
-            m_NoDistanceScale = new PortableFunctionPointer<GhostDistanceImportance.ScaleImportanceByDistanceDelegate>(GhostDistanceImportance.NoScale);
+            m_NoDistanceScale = GhostDistanceImportance.NoScaleFunctionPointer;
             serializers = default(TGhostSerializerCollection);
-            m_DataStream = new DataStreamWriter(2048, Allocator.Persistent);
             ghostGroup = GetEntityQuery(typeof(GhostComponent), typeof(GhostSystemStateComponent));
             EntityQueryDesc filterSpawn = new EntityQueryDesc
             {
@@ -220,7 +216,8 @@ namespace Unity.NetCode
 
             connectionGroup = GetEntityQuery(
                 ComponentType.ReadWrite<NetworkStreamConnection>(),
-                ComponentType.ReadOnly<NetworkStreamInGame>());
+                ComponentType.ReadOnly<NetworkStreamInGame>(),
+                ComponentType.Exclude<NetworkStreamDisconnected>());
 
             m_ServerSimulation = World.GetExistingSystem<ServerSimulationSystemGroup>();
             m_Barrier = World.GetOrCreateSystem<BeginSimulationEntityCommandBufferSystem>();
@@ -249,7 +246,6 @@ namespace Unity.NetCode
             m_CompressionModel.Dispose();
             m_AllocatedGhostIds.Dispose();
             m_FreeGhostIds.Dispose();
-            m_DataStream.Dispose();
             foreach (var connectionState in m_ConnectionStates)
             {
                 connectionState.Dispose();
@@ -300,7 +296,7 @@ namespace Unity.NetCode
             }
         }
 
-        // Not burst compiled due to commandBuffer.SetComponent
+        [BurstCompile]
         struct SpawnGhostJob : IJob
         {
             [ReadOnly] public NativeArray<ArchetypeChunk> spawnChunks;
@@ -312,12 +308,25 @@ namespace Unity.NetCode
             public NativeArray<int> allocatedGhostIds;
             public EntityCommandBuffer commandBuffer;
 
+            [ReadOnly] public ComponentDataFromEntity<GhostTypeComponent> ghostTypeFromEntity;
+            [ReadOnly] public BufferFromEntity<GhostPrefabBuffer> ghostPrefabBufferFromEntity;
+            public Entity serverPrefabEntity;
+
             public unsafe void Execute()
             {
+                var prefabList = ghostPrefabBufferFromEntity[serverPrefabEntity];
                 for (int chunk = 0; chunk < spawnChunks.Length; ++chunk)
                 {
                     var entities = spawnChunks[chunk].GetNativeArray(entityType);
-                    int ghostType = serializers.FindSerializer(spawnChunks[chunk].Archetype);
+                    var ghostTypeComponent = ghostTypeFromEntity[entities[0]];
+                    int ghostType;
+                    for (ghostType = 0; ghostType < prefabList.Length; ++ghostType)
+                    {
+                        if (ghostTypeFromEntity[prefabList[ghostType].Value] == ghostTypeComponent)
+                            break;
+                    }
+                    if (ghostType >= prefabList.Length)
+                        throw new InvalidOperationException("Could not find ghost type in the collection");
                     var ghostState = (GhostSystemStateComponent*) UnsafeUtility.Malloc(
                         UnsafeUtility.SizeOf<GhostSystemStateComponent>() * entities.Length,
                         UnsafeUtility.AlignOf<GhostSystemStateComponent>(), Allocator.TempJob);
@@ -357,7 +366,7 @@ namespace Unity.NetCode
         [BurstCompile]
         struct SerializeJob : IJob
         {
-            public UdpNetworkDriver.Concurrent driver;
+            public NetworkDriver.Concurrent driver;
             public NetworkPipeline unreliablePipeline;
 
             [ReadOnly] public NativeArray<ArchetypeChunk> despawnChunks;
@@ -374,6 +383,8 @@ namespace Unity.NetCode
             [ReadOnly] public ArchetypeChunkEntityType entityType;
             [ReadOnly] public ArchetypeChunkComponentType<GhostComponent> ghostComponentType;
             [ReadOnly] public ArchetypeChunkComponentType<GhostSystemStateComponent> ghostSystemStateType;
+            [ReadOnly] public ArchetypeChunkComponentType<GhostSimpleDeltaCompression> ghostSimpleDeltaCompressionType;
+
 
             [ReadOnly] public TGhostSerializerCollection serializers;
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
@@ -404,23 +415,25 @@ namespace Unity.NetCode
                 var snapshotAck = ackFromEntity[connectionEntity];
                 var ackTick = snapshotAck.LastReceivedSnapshotByRemote;
 
-                DataStreamWriter dataStream = new DataStreamWriter(2048, Allocator.Temp);
-                dataStream.Clear();
-                dataStream.Write((byte) NetworkStreamProtocol.Snapshot);
+                DataStreamWriter dataStream = driver.BeginSend(unreliablePipeline, connectionFromEntity[connectionEntity].Value);
+                if (!dataStream.IsCreated)
+                    return;
+                dataStream.WriteByte((byte) NetworkStreamProtocol.Snapshot);
 
-                dataStream.Write(localTime);
+                dataStream.WriteUInt(localTime);
                 uint returnTime = snapshotAck.LastReceivedRemoteTime;
                 if (returnTime != 0)
                     returnTime -= (localTime - snapshotAck.LastReceiveTimestamp);
-                dataStream.Write(returnTime);
-                dataStream.Write(snapshotAck.ServerCommandAge);
+                dataStream.WriteUInt(returnTime);
+                dataStream.WriteInt(snapshotAck.ServerCommandAge);
 
-                dataStream.Write(currentTick);
+                dataStream.WriteUInt(currentTick);
 
                 int entitySize = UnsafeUtility.SizeOf<Entity>();
 
-                var despawnLenWriter = dataStream.Write((uint) 0);
-                var updateLenWriter = dataStream.Write((uint) 0);
+                var lenWriter = dataStream;
+                dataStream.WriteUInt((uint) 0);
+                dataStream.WriteUInt((uint) 0);
                 uint despawnLen = 0;
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
                 int startPos = dataStream.LengthInBits;
@@ -475,9 +488,10 @@ namespace Unity.NetCode
 
                     if (addNew)
                     {
+                        var ghostStates = ghostChunks[chunk].GetNativeArray(ghostSystemStateType);
                         chunkState.lastUpdate = currentTick - 1;
                         chunkState.startIndex = 0;
-                        chunkState.ghostType = serializers.FindSerializer(ghostChunks[chunk].Archetype);
+                        chunkState.ghostType = ghostStates[0].ghostTypeIndex;
                         chunkState.arch = ghostChunks[chunk].Archetype;
 
                         chunkState.snapshotWriteIndex = 0;
@@ -593,7 +607,8 @@ namespace Unity.NetCode
                     }
 
                     // First figure out the baselines to use per entity so they can be sent as baseline + maxCount instead of one per entity
-                    int targetBaselines = serializers.WantsPredictionDelta(ghostType) ? 3 : 1;
+                    // Ghosts tagged with "single baseline" should set this to 1 to disable delta prediction
+                    int targetBaselines = serialChunks[pc].chunk.Has(ghostSimpleDeltaCompressionType) ? 1 : 3;
                     for (ent = serialChunks[pc].startIndex; ent < chunk.Count; ++ent)
                     {
                         int foundBaselines = 0;
@@ -633,12 +648,11 @@ namespace Unity.NetCode
                         ghostEntities = ghostEntities,
                         baselinePerEntity = baselinePerEntity,
                         availableBaselines = availableBaselines,
-                        dataStream = dataStream,
                         compressionModel = compressionModel,
                         serializerState = serializerState
                     };
 
-                    ent = serializers.Serialize(data);
+                    ent = serializers.Serialize(ref dataStream, data);
                     updateLen += (uint) (ent - serialChunks[pc].startIndex);
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
                     netStats[ghostType*3 + 4] = netStats[ghostType*3 + 4] + (uint)(ent - serialChunks[pc].startIndex);
@@ -681,10 +695,10 @@ namespace Unity.NetCode
                 }
 
                 dataStream.Flush();
-                despawnLenWriter.Update(despawnLen);
-                updateLenWriter.Update(updateLen);
+                lenWriter.WriteUInt(despawnLen);
+                lenWriter.WriteUInt(updateLen);
 
-                driver.Send(unreliablePipeline, connectionFromEntity[connectionEntity].Value, dataStream);
+                driver.EndSend(dataStream);
             }
         }
 
@@ -781,13 +795,14 @@ namespace Unity.NetCode
 
 
             var entityType = GetArchetypeChunkEntityType();
-            var ghostSystemStateType = GetArchetypeChunkComponentType<GhostSystemStateComponent>();
+            var ghostSystemStateType = GetArchetypeChunkComponentType<GhostSystemStateComponent>(true);
+            var ghostSimpleDeltaCompressionType = GetArchetypeChunkComponentType<GhostSimpleDeltaCompression>(true);
             var ghostComponentType = GetArchetypeChunkComponentType<GhostComponent>();
             serializers.BeginSerialize(this);
 
             // Extract all newly spawned ghosts and set their ghost ids
             JobHandle spawnChunkHandle;
-            var spawnChunks = ghostSpawnGroup.CreateArchetypeChunkArray(Allocator.TempJob, out spawnChunkHandle);
+            var spawnChunks = ghostSpawnGroup.CreateArchetypeChunkArrayAsync(Allocator.TempJob, out spawnChunkHandle);
             var spawnJob = new SpawnGhostJob
             {
                 spawnChunks = spawnChunks,
@@ -797,13 +812,16 @@ namespace Unity.NetCode
                 serializers = serializers,
                 freeGhostIds = m_FreeGhostIds,
                 allocatedGhostIds = m_AllocatedGhostIds,
-                commandBuffer = commandBuffer
+                commandBuffer = commandBuffer,
+                ghostTypeFromEntity = GetComponentDataFromEntity<GhostTypeComponent>(true),
+                ghostPrefabBufferFromEntity = GetBufferFromEntity<GhostPrefabBuffer>(true),
+                serverPrefabEntity = GetSingleton<GhostPrefabCollectionComponent>().serverPrefabs
             };
             inputDeps = spawnJob.Schedule(JobHandle.CombineDependencies(inputDeps, spawnChunkHandle));
 
             JobHandle despawnChunksHandle, ghostChunksHandle;
-            var despawnChunks = ghostDespawnGroup.CreateArchetypeChunkArray(Allocator.TempJob, out despawnChunksHandle);
-            var ghostChunks = ghostGroup.CreateArchetypeChunkArray(Allocator.TempJob, out ghostChunksHandle);
+            var despawnChunks = ghostDespawnGroup.CreateArchetypeChunkArrayAsync(Allocator.TempJob, out despawnChunksHandle);
+            var ghostChunks = ghostGroup.CreateArchetypeChunkArrayAsync(Allocator.TempJob, out ghostChunksHandle);
             inputDeps = JobHandle.CombineDependencies(inputDeps, despawnChunksHandle, ghostChunksHandle);
 
             var tickRate = default(ClientServerTickRate);
@@ -852,6 +870,7 @@ namespace Unity.NetCode
                     entityType = entityType,
                     ghostSystemStateType = ghostSystemStateType,
                     ghostComponentType = ghostComponentType,
+                    ghostSimpleDeltaCompressionType = ghostSimpleDeltaCompressionType,
                     serializers = serializers,
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
                     netStats = m_NetStats,
@@ -873,6 +892,7 @@ namespace Unity.NetCode
             }
 
             inputDeps = JobHandle.CombineDependencies(serialDep);
+            inputDeps = m_ReceiveSystem.Driver.ScheduleFlushSend(inputDeps);
             m_ReceiveSystem.LastDriverWriter = inputDeps;
 
             // Only the spawn job is using the commandBuffer, but the serialize job is using the same chunks - so we must wait for that too before we can modify them
@@ -906,14 +926,14 @@ namespace Unity.NetCode
         }
 
         public static unsafe int InvokeSerialize<TSerializer, TSnapshotData>(
-            TSerializer serializer, SerializeData data)
+            TSerializer serializer, ref DataStreamWriter dataStream, SerializeData data)
             where TSnapshotData : unmanaged, ISnapshotData<TSnapshotData>
             where TSerializer : struct, IGhostSerializer<TSnapshotData>
         {
             int ent;
             int sameBaselineCount = 0;
             TSnapshotData* currentSnapshotData = (TSnapshotData*) data.currentSnapshotData;
-            for (ent = data.startIndex; ent < data.chunk.Count && data.dataStream.Length < TargetPacketSize; ++ent)
+            for (ent = data.startIndex; ent < data.chunk.Count && dataStream.Length < TargetPacketSize; ++ent)
             {
 #if ENABLE_UNITY_COLLECTIONS_CHECKS
                 if (data.ghostStates[ent].ghostTypeIndex != data.ghostType)
@@ -959,10 +979,10 @@ namespace Unity.NetCode
                     uint baseDiff0 = data.currentTick - baselineTick0;
                     uint baseDiff1 = data.currentTick - baselineTick1;
                     uint baseDiff2 = data.currentTick - baselineTick2;
-                    data.dataStream.WritePackedUInt(baseDiff0, data.compressionModel);
-                    data.dataStream.WritePackedUInt(baseDiff1, data.compressionModel);
-                    data.dataStream.WritePackedUInt(baseDiff2, data.compressionModel);
-                    data.dataStream.WritePackedUInt((uint) sameBaselineCount, data.compressionModel);
+                    dataStream.WritePackedUInt(baseDiff0, data.compressionModel);
+                    dataStream.WritePackedUInt(baseDiff1, data.compressionModel);
+                    dataStream.WritePackedUInt(baseDiff2, data.compressionModel);
+                    dataStream.WritePackedUInt((uint) sameBaselineCount, data.compressionModel);
                 }
 
                 --sameBaselineCount;
@@ -980,7 +1000,7 @@ namespace Unity.NetCode
                     baselineSnapshotData2 = ((TSnapshotData*) data.availableBaselines[baseline2].snapshot) + ent;
                 }
 
-                data.dataStream.WritePackedUInt((uint) data.ghosts[ent].ghostId, data.compressionModel);
+                dataStream.WritePackedUInt((uint) data.ghosts[ent].ghostId, data.compressionModel);
 
                 TSnapshotData* snapshot;
                 var snapshotData = default(TSnapshotData);
@@ -1001,7 +1021,7 @@ namespace Unity.NetCode
                     baseline = baselineSnapshotData0;
                 }
 
-                snapshot->Serialize(data.serializerState.NetworkId, ref *baseline, data.dataStream, data.compressionModel);
+                snapshot->Serialize(data.serializerState.NetworkId, ref *baseline, ref dataStream, data.compressionModel);
 
                 if (currentSnapshotData != null)
                     data.currentSnapshotEntity[ent] = data.ghostEntities[ent];

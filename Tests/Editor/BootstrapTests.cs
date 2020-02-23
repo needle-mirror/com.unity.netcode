@@ -110,5 +110,32 @@ namespace Unity.NetCode.Tests
                 Assert.IsNotNull(testWorld.ClientWorlds[0].GetExistingSystem<ExplicitClientServerSystem>());
             }
         }
+        [Test]
+        public void DisposingClientServerWorldDoesNotCauseErrors()
+        {
+            using (var testWorld = new NetCodeTestWorld())
+            {
+                testWorld.Bootstrap(false);
+                testWorld.CreateWorlds(true, 1);
+
+                testWorld.Tick(1.0f / 60.0f);
+                testWorld.DisposeAllClientWorlds();
+                testWorld.Tick(1.0f / 60.0f);
+                testWorld.DisposeServerWorld();
+                testWorld.Tick(1.0f / 60.0f);
+            }
+        }
+        [Test]
+        public void DisposingDefaultWorldBeforeClientServerWorldDoesNotCauseErrors()
+        {
+            using (var testWorld = new NetCodeTestWorld())
+            {
+                testWorld.Bootstrap(false);
+                testWorld.CreateWorlds(true, 1);
+
+                testWorld.Tick(1.0f / 60.0f);
+                testWorld.DisposeDefaultWorld();
+            }
+        }
     }
 }

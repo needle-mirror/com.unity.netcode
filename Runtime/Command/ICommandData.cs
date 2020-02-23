@@ -7,11 +7,11 @@ namespace Unity.NetCode
     public interface ICommandData<T> : IBufferElementData where T : struct, ICommandData<T>
     {
         uint Tick { get; }
-        void Serialize(DataStreamWriter writer);
-        void Deserialize(uint tick, DataStreamReader reader, ref DataStreamReader.Context ctx);
-        void Serialize(DataStreamWriter writer, T baseline, NetworkCompressionModel compressionModel);
+        void Serialize(ref DataStreamWriter writer);
+        void Deserialize(uint tick, ref DataStreamReader reader);
+        void Serialize(ref DataStreamWriter writer, T baseline, NetworkCompressionModel compressionModel);
 
-        void Deserialize(uint tick, DataStreamReader reader, ref DataStreamReader.Context ctx, T baseline,
+        void Deserialize(uint tick, ref DataStreamReader reader, T baseline,
             NetworkCompressionModel compressionModel);
     }
 

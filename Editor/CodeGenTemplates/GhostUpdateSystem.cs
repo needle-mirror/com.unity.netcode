@@ -329,7 +329,7 @@ public partial class __GHOST_NAME__GhostSpawnSystem : DefaultGhostSpawnSystem<__
         {
             snapshots = snapshots,
             predictionMask = predictionMask,
-            localPlayerId = m_PlayerGroup.ToComponentDataArray<NetworkIdComponent>(Allocator.TempJob, out playerHandle),
+            localPlayerId = m_PlayerGroup.ToComponentDataArrayAsync<NetworkIdComponent>(Allocator.TempJob, out playerHandle),
         };
         return job.Schedule(predictionMask.Length, 8, JobHandle.CombineDependencies(playerHandle, inputDeps));
     }

@@ -14,10 +14,9 @@ namespace Unity.NetCode
         void BeginDeserialize(JobComponentSystem system);
 
         bool Deserialize(int serializer, Entity entity, uint snapshot, uint baseline, uint baseline2, uint baseline3,
-            DataStreamReader reader,
-            ref DataStreamReader.Context ctx, NetworkCompressionModel compressionModel);
+            ref DataStreamReader reader, NetworkCompressionModel compressionModel);
 
-        void Spawn(int serializer, int ghostId, uint snapshot, DataStreamReader reader,
-            ref DataStreamReader.Context ctx, NetworkCompressionModel compressionModel);
+        void Spawn(int serializer, int ghostId, uint snapshot, ref DataStreamReader reader,
+            NetworkCompressionModel compressionModel);
     }
 }

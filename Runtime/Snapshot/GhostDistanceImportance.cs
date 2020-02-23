@@ -17,9 +17,14 @@ namespace Unity.NetCode
     public struct GhostDistanceImportance : IComponentData
     {
         public delegate int ScaleImportanceByDistanceDelegate(ref GhostConnectionPosition connectionPosition, ref int3 TileSize, ref int3 TileCenter, ref int3 chunkTile, int basePriority);
-
+        public static PortableFunctionPointer<GhostDistanceImportance.ScaleImportanceByDistanceDelegate> DefaultScaleFunctionPointer => s_DefaultScaleFunctionPointer;
+        public static PortableFunctionPointer<GhostDistanceImportance.ScaleImportanceByDistanceDelegate> NoScaleFunctionPointer => s_NoScaleFunctionPointer;
+        private static PortableFunctionPointer<GhostDistanceImportance.ScaleImportanceByDistanceDelegate> s_DefaultScaleFunctionPointer =
+            new PortableFunctionPointer<GhostDistanceImportance.ScaleImportanceByDistanceDelegate>(DefaultScale);
+        private static PortableFunctionPointer<GhostDistanceImportance.ScaleImportanceByDistanceDelegate> s_NoScaleFunctionPointer =
+            new PortableFunctionPointer<GhostDistanceImportance.ScaleImportanceByDistanceDelegate>(NoScale);
         [BurstCompile]
-        public static int DefaultScale(ref GhostConnectionPosition connectionPosition, ref int3 TileSize, ref int3 TileCenter, ref int3 chunkTile, int basePriority)
+        private static int DefaultScale(ref GhostConnectionPosition connectionPosition, ref int3 TileSize, ref int3 TileCenter, ref int3 chunkTile, int basePriority)
         {
             var centerTile = ((int3) connectionPosition.Position - TileCenter) / TileSize;
             var delta = chunkTile - centerTile;
@@ -31,7 +36,7 @@ namespace Unity.NetCode
             return basePriority;
         }
         [BurstCompile]
-        public static int NoScale(ref GhostConnectionPosition connectionPosition, ref int3 TileSize, ref int3 TileCenter, ref int3 pos, int basePrio)
+        private static int NoScale(ref GhostConnectionPosition connectionPosition, ref int3 TileSize, ref int3 TileCenter, ref int3 pos, int basePrio)
         {
             return basePrio;
         }

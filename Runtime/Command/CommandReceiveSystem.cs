@@ -1,7 +1,7 @@
+using Unity.Burst;
 using Unity.Entities;
 using Unity.Jobs;
 using Unity.Networking.Transport;
-using Unity.Networking.Transport.LowLevel.Unsafe;
 using Unity.Collections;
 
 namespace Unity.NetCode
@@ -14,12 +14,15 @@ namespace Unity.NetCode
     {
         [ExcludeComponent(typeof(NetworkStreamDisconnected))]
         [RequireComponentTag(typeof(NetworkStreamInGame))]
+        [BurstCompile]
         struct ReceiveJob : IJobForEachWithEntity<CommandTargetComponent, NetworkSnapshotAckComponent>
         {
             public BufferFromEntity<TCommandData> commandData;
             public BufferFromEntity<IncomingCommandDataStreamBufferComponent> cmdBuffer;
+            public ComponentDataFromEntity<CommandDataInterpolationDelay> delayFromEntity;
             public NetworkCompressionModel compressionModel;
             public uint serverTick;
+            public bool isNullCommandData;
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
             public NativeArray<uint> netStats;
 #endif
@@ -27,38 +30,43 @@ namespace Unity.NetCode
             public unsafe void Execute(Entity entity, int index, [ReadOnly] ref CommandTargetComponent commandTarget,
                 ref NetworkSnapshotAckComponent snapshotAck)
             {
-                if (typeof(TCommandData) == typeof(NullCommandData) && commandTarget.targetEntity != Entity.Null)
+                if (isNullCommandData && commandTarget.targetEntity != Entity.Null)
                     return;
-                if (typeof(TCommandData) != typeof(NullCommandData) && !commandData.Exists(commandTarget.targetEntity))
+                if (!isNullCommandData && !commandData.Exists(commandTarget.targetEntity))
                     return;
 
                 var buffer = cmdBuffer[entity];
                 if (buffer.Length < 4)
                     return;
-                DataStreamReader reader =
-                    DataStreamUnsafeUtility.CreateReaderFromExistingData((byte*) buffer.GetUnsafePtr(), buffer.Length);
-                var ctx = default(DataStreamReader.Context);
-                var tick = reader.ReadUInt(ref ctx);
+                DataStreamReader reader = buffer.AsDataStreamReader();
+                var tick = reader.ReadUInt();
 
                 int age = (int) (serverTick - tick);
                 age *= 256;
                 snapshotAck.ServerCommandAge = (snapshotAck.ServerCommandAge * 7 + age) / 8;
 
+                if (delayFromEntity.Exists(commandTarget.targetEntity))
+                    delayFromEntity[commandTarget.targetEntity] = new CommandDataInterpolationDelay{ Delay = snapshotAck.RemoteInterpolationDelay};
+
                 if (commandTarget.targetEntity != Entity.Null && buffer.Length > 4)
                 {
+                    var buffers = new NativeArray<TCommandData>((int)CommandSendSystem<TCommandData>.k_InputBufferSendSize, Allocator.Temp);
                     var command = commandData[commandTarget.targetEntity];
                     var baselineReceivedCommand = default(TCommandData);
-                    baselineReceivedCommand.Deserialize(tick, reader, ref ctx);
+                    baselineReceivedCommand.Deserialize(tick, ref reader);
                     // Store received commands in the network command buffer
-                    command.AddCommandData(baselineReceivedCommand);
+                    buffers[0] = baselineReceivedCommand;
                     for (uint i = 1; i < CommandSendSystem<TCommandData>.k_InputBufferSendSize; ++i)
                     {
                         var receivedCommand = default(TCommandData);
-                        receivedCommand.Deserialize(tick - i, reader, ref ctx, baselineReceivedCommand,
+                        receivedCommand.Deserialize(tick - i, ref reader, baselineReceivedCommand,
                             compressionModel);
                         // Store received commands in the network command buffer
-                        command.AddCommandData(receivedCommand);
+                        buffers[(int)i] = receivedCommand;
                     }
+                    // Add the command in the order they were produces instead of the order they were sent
+                    for (int i = (int)CommandSendSystem<TCommandData>.k_InputBufferSendSize - 1; i >= 0; --i)
+                        command.AddCommandData(buffers[i]);
                 }
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
                 netStats[0] = serverTick;
@@ -114,8 +122,10 @@ namespace Unity.NetCode
             var recvJob = new ReceiveJob();
             recvJob.commandData = GetBufferFromEntity<TCommandData>();
             recvJob.cmdBuffer = GetBufferFromEntity<IncomingCommandDataStreamBufferComponent>();
+            recvJob.delayFromEntity = GetComponentDataFromEntity<CommandDataInterpolationDelay>();
             recvJob.compressionModel = m_CompressionModel;
             recvJob.serverTick = serverSimulationSystemGroup.ServerTick;
+            recvJob.isNullCommandData = typeof(TCommandData) == typeof(NullCommandData);
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
             recvJob.netStats = m_NetStats;
 #endif

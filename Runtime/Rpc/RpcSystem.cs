@@ -1,12 +1,10 @@
 using System;
-using System.Collections.Generic;
 using Unity.Burst;
 using Unity.Collections;
 using Unity.Collections.LowLevel.Unsafe;
 using Unity.Entities;
 using Unity.Jobs;
 using Unity.Networking.Transport;
-using Unity.Networking.Transport.LowLevel.Unsafe;
 using UnityEngine;
 
 namespace Unity.NetCode
@@ -17,27 +15,42 @@ namespace Unity.NetCode
         public struct Parameters
         {
             public DataStreamReader Reader;
-            public DataStreamReader.Context ReaderContext;
             public Entity Connection;
             public EntityCommandBuffer.Concurrent CommandBuffer;
             public int JobIndex;
         }
         public delegate void ExecuteDelegate(ref Parameters parameters);
 
-        public static void ExecuteCreateRequestComponent<T>(ref Parameters parameters)
+        /// <summary>
+        /// Helper method used to create a new entity for an RPC request T.
+        /// </summary>
+        public static Entity ExecuteCreateRequestComponent<T>(ref Parameters parameters)
             where T: struct, IRpcCommand
         {
             var rpcData = default(T);
-            rpcData.Deserialize(parameters.Reader, ref parameters.ReaderContext);
+            rpcData.Deserialize(ref parameters.Reader);
             var entity = parameters.CommandBuffer.CreateEntity(parameters.JobIndex);
             parameters.CommandBuffer.AddComponent(parameters.JobIndex, entity, new ReceiveRpcCommandRequestComponent {SourceConnection = parameters.Connection});
             parameters.CommandBuffer.AddComponent(parameters.JobIndex, entity, rpcData);
+            return entity;
         }
     }
 
     [UpdateInGroup(typeof(ClientAndServerSimulationSystemGroup))]
     public class RpcSystem : JobComponentSystem
     {
+        public enum ErrorCodes
+        {
+            ProtocolMismatch = -1,
+            InvalidRpc = -2,
+        }
+
+        struct RpcReceiveError
+        {
+            public Entity connection;
+            public ErrorCodes error;
+        }
+
         struct RpcData : IComparable<RpcData>
         {
             public ulong TypeHash;
@@ -145,7 +158,7 @@ namespace Unity.NetCode
             [ReadOnly] public NativeList<RpcData> execute;
             [ReadOnly] public NativeHashMap<ulong, int> hashToIndex;
 
-            public UdpNetworkDriver.Concurrent driver;
+            public NetworkDriver.Concurrent driver;
             public NetworkPipeline reliablePipeline;
 
             public NetworkProtocolVersion protocolVersion;
@@ -156,51 +169,53 @@ namespace Unity.NetCode
                 var rpcInBuffer = chunk.GetBufferAccessor(inBufferType);
                 var rpcOutBuffer = chunk.GetBufferAccessor(outBufferType);
                 var connections = chunk.GetNativeArray(connectionType);
+                var errors = new NativeArray<RpcReceiveError>(rpcInBuffer.Length, Allocator.Temp);
+                var errorCount = 0;
+
                 for (int i = 0; i < rpcInBuffer.Length; ++i)
                 {
                     if (driver.GetConnectionState(connections[i].Value) != NetworkConnection.State.Connected)
                         continue;
 
                     var dynArray = rpcInBuffer[i];
-                    var reader = DataStreamUnsafeUtility.CreateReaderFromExistingData((byte*) dynArray.GetUnsafePtr(),
-                        dynArray.Length);
                     var parameters = new RpcExecutor.Parameters
                     {
-                        Reader = reader,
-                        ReaderContext = default(DataStreamReader.Context),
+                        Reader = dynArray.AsDataStreamReader(),
                         CommandBuffer = commandBuffer,
                         Connection = entities[i],
                         JobIndex = chunkIndex
 
                     };
-                    while (reader.GetBytesRead(ref parameters.ReaderContext) < reader.Length)
+                    while (parameters.Reader.GetBytesRead() < parameters.Reader.Length)
                     {
-                        var rpcIndex = reader.ReadUShort(ref parameters.ReaderContext);
+                        var rpcIndex = parameters.Reader.ReadUShort();
                         if (rpcIndex == ushort.MaxValue)
                         {
                             // Special value for NetworkProtocolVersion
-                            var netCodeVersion = reader.ReadInt(ref parameters.ReaderContext);
-                            var gameVersion = reader.ReadInt(ref parameters.ReaderContext);
-                            var rpcVersion = reader.ReadULong(ref parameters.ReaderContext);
+                            var netCodeVersion = parameters.Reader.ReadInt();
+                            var gameVersion = parameters.Reader.ReadInt();
+                            var rpcVersion = parameters.Reader.ReadULong();
                             if (netCodeVersion != protocolVersion.NetCodeVersion ||
                                 gameVersion != protocolVersion.GameVersion ||
                                 rpcVersion != protocolVersion.RpcCollectionVersion)
                             {
                                 commandBuffer.AddComponent(chunkIndex, entities[i], new NetworkStreamRequestDisconnect {Reason = NetworkStreamDisconnectReason.BadProtocolVersion});
-#if ENABLE_UNITY_COLLECTIONS_CHECKS
-                                throw new InvalidOperationException("Network protocol mismatch");
-#else
-                                return;
-#endif
+                                errors[errorCount++] = new RpcReceiveError
+                                {
+                                    connection = entities[i],
+                                    error = ErrorCodes.ProtocolMismatch
+                                };
+                                break;
                             }
                         }
                         else if (rpcIndex >= execute.Length)
                         {
-#if ENABLE_UNITY_COLLECTIONS_CHECKS
-                            throw new InvalidOperationException("Received an invalid RPC");
-#else
-                            return;
-#endif
+                            errors[errorCount++] = new RpcReceiveError
+                            {
+                                connection = entities[i],
+                                error = ErrorCodes.InvalidRpc
+                            };
+                            break;
                         }
                         else
                             execute[rpcIndex].Execute.Ptr.Invoke(ref parameters);
@@ -211,13 +226,22 @@ namespace Unity.NetCode
                     var sendBuffer = rpcOutBuffer[i];
                     if (sendBuffer.Length > 0)
                     {
-                        DataStreamWriter tmp = new DataStreamWriter(sendBuffer.Length, Allocator.Temp);
+                        DataStreamWriter tmp = driver.BeginSend(reliablePipeline, connections[i].Value);
+                        if (!tmp.IsCreated)
+                            continue;
                         tmp.WriteBytes((byte*) sendBuffer.GetUnsafePtr(), sendBuffer.Length);
-                        driver.Send(reliablePipeline, connections[i].Value, tmp);
+                        driver.EndSend(tmp);
                         sendBuffer.Clear();
                     }
-
                 }
+
+#if ENABLE_UNITY_COLLECTIONS_CHECKS
+// TODO: we need to report the errors produced.
+                if (errorCount > 0)
+                {
+                    throw new InvalidOperationException("RpcSystem received malformed packets or packets with the wrong version");
+                }
+#endif
             }
         }
 
@@ -228,16 +252,16 @@ namespace Unity.NetCode
             if (buffer.Length != 0)
                 throw new InvalidOperationException("Protocol version must be the very first RPC sent");
 #endif
-            writer.Write((byte) NetworkStreamProtocol.Rpc);
-            writer.Write(ushort.MaxValue);
-            writer.Write(version.NetCodeVersion);
-            writer.Write(version.GameVersion);
-            writer.Write(version.RpcCollectionVersion);
+            writer.WriteByte((byte) NetworkStreamProtocol.Rpc);
+            writer.WriteUShort(ushort.MaxValue);
+            writer.WriteInt(version.NetCodeVersion);
+            writer.WriteInt(version.GameVersion);
+            writer.WriteULong(version.RpcCollectionVersion);
             var prevLen = buffer.Length;
             buffer.ResizeUninitialized(buffer.Length + writer.Length);
             byte* ptr = (byte*) buffer.GetUnsafePtr();
             ptr += prevLen;
-            UnsafeUtility.MemCpy(ptr, writer.GetUnsafeReadOnlyPtr(), writer.Length);
+            UnsafeUtility.MemCpy(ptr, writer.AsNativeArray().GetUnsafeReadOnlyPtr(), writer.Length);
         }
         public ulong CalculateVersionHash()
         {
@@ -285,6 +309,7 @@ namespace Unity.NetCode
             };
             var handle = execJob.Schedule(m_RpcBufferGroup, inputDeps);
             m_Barrier.AddJobHandleForProducer(handle);
+            handle = m_ReceiveSystem.Driver.ScheduleFlushSend(handle);
             m_ReceiveSystem.LastDriverWriter = handle;
             return handle;
         }

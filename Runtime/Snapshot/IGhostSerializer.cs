@@ -6,9 +6,7 @@ namespace Unity.NetCode
     {
         int SnapshotSize { get; }
         int CalculateImportance(ArchetypeChunk chunk);
-        bool WantsPredictionDelta { get; }
         void BeginSerialize(ComponentSystemBase system);
-        bool CanSerialize(EntityArchetype arch);
 
         void CopyToSnapshot(ArchetypeChunk chunk, int ent, uint tick, ref T snapshot,
             GhostSerializerState serializerState);

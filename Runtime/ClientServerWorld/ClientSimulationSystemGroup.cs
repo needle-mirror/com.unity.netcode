@@ -9,6 +9,15 @@ namespace Unity.NetCode
     [AlwaysUpdateSystem]
     public class ClientSimulationSystemGroup : ComponentSystemGroup
     {
+#if !UNITY_SERVER
+        internal TickClientSimulationSystem ParentTickSystem;
+        protected override void OnDestroy()
+        {
+            if (ParentTickSystem != null)
+                ParentTickSystem.RemoveSystemFromUpdateList(this);
+        }
+#endif
+
         private BeginSimulationEntityCommandBufferSystem m_beginBarrier;
         private NetworkReceiveSystemGroup m_NetworkReceiveSystemGroup;
         private NetworkTimeSystem m_NetworkTimeSystem;
@@ -59,10 +68,6 @@ namespace Unity.NetCode
                 World.SetTime(new TimeData(Time.ElapsedTime, networkDeltaTime));
             }
 
-#pragma warning disable 618
-            var defaultWorld = World.Active;
-            World.Active = World;
-#pragma warning restore 618
             m_beginBarrier.Update();
             m_NetworkReceiveSystemGroup.Update();
 
@@ -134,9 +139,6 @@ namespace Unity.NetCode
                     m_fixedUpdateMarker.End();
             }
 
-#pragma warning disable 618
-            World.Active = defaultWorld;
-#pragma warning restore 618
             World.SetTime(previousTime);
         }
 
@@ -198,8 +200,14 @@ namespace Unity.NetCode
     [UpdateInWorld(UpdateInWorld.TargetWorld.Default)]
     public class TickClientSimulationSystem : ComponentSystemGroup
     {
-        public override void SortSystemUpdateList()
+        protected override void OnDestroy()
         {
+            foreach (var sys in Systems)
+            {
+                var grp = sys as ClientSimulationSystemGroup;
+                if (grp != null)
+                    grp.ParentTickSystem = null;
+            }
         }
     }
 #endif

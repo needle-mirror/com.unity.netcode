@@ -4,7 +4,6 @@ using Unity.Collections;
 using Unity.Entities;
 using Unity.Jobs;
 using Unity.Networking.Transport;
-using Unity.Networking.Transport.LowLevel.Unsafe;
 using Unity.Networking.Transport.Utilities;
 
 namespace Unity.NetCode
@@ -32,6 +31,7 @@ namespace Unity.NetCode
 
         private TGhostDeserializerCollection serializers;
 
+        private GhostUpdateSystemGroup m_GhostUpdateSystemGroup;
         private NativeHashMap<int, GhostEntity> m_ghostEntityMap;
         private BeginSimulationEntityCommandBufferSystem m_Barrier;
         private GhostDespawnSystem m_GhostDespawnSystem;
@@ -39,7 +39,8 @@ namespace Unity.NetCode
         protected override void OnCreate()
         {
             serializers = default(TGhostDeserializerCollection);
-            m_ghostEntityMap = World.GetOrCreateSystem<GhostUpdateSystemGroup>().GhostEntityMap;
+            m_GhostUpdateSystemGroup = World.GetOrCreateSystem<GhostUpdateSystemGroup>();
+            m_ghostEntityMap = m_GhostUpdateSystemGroup.GhostEntityMap;
 
             playerGroup = GetEntityQuery(
                 ComponentType.ReadWrite<NetworkStreamConnection>(),
@@ -73,6 +74,7 @@ namespace Unity.NetCode
             m_CompressionModel.Dispose();
         }
 
+        [BurstCompile]
         struct ClearGhostsJob : IJobForEachWithEntity<GhostComponent>
         {
             public EntityCommandBuffer.Concurrent commandBuffer;
@@ -83,6 +85,7 @@ namespace Unity.NetCode
             }
         }
 
+        [BurstCompile]
         struct ClearMapJob : IJob
         {
             public NativeHashMap<int, GhostEntity> ghostMap;
@@ -129,13 +132,10 @@ namespace Unity.NetCode
                 if (snapshot.Length == 0)
                     return;
 
-                var dataStream =
-                    DataStreamUnsafeUtility.CreateReaderFromExistingData((byte*) snapshot.GetUnsafePtr(),
-                        snapshot.Length);
+                var dataStream = snapshot.AsDataStreamReader();
                 // Read the ghost stream
                 // find entities to spawn or destroy
-                var readCtx = new DataStreamReader.Context();
-                var serverTick = dataStream.ReadUInt(ref readCtx);
+                var serverTick = dataStream.ReadUInt();
                 var ack = snapshotAckFromEntity[players[0]];
                 if (ack.LastReceivedSnapshotByLocal != 0 &&
                     !SequenceHelpers.IsNewer(serverTick, ack.LastReceivedSnapshotByLocal))
@@ -156,15 +156,15 @@ namespace Unity.NetCode
                 if (isThinClient)
                     return;
 
-                uint despawnLen = dataStream.ReadUInt(ref readCtx);
-                uint updateLen = dataStream.ReadUInt(ref readCtx);
+                uint despawnLen = dataStream.ReadUInt();
+                uint updateLen = dataStream.ReadUInt();
 
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
-                int startPos = dataStream.GetBitsRead(ref readCtx);
+                int startPos = dataStream.GetBitsRead();
 #endif
                 for (var i = 0; i < despawnLen; ++i)
                 {
-                    int ghostId = (int) dataStream.ReadPackedUInt(ref readCtx, compressionModel);
+                    int ghostId = (int) dataStream.ReadPackedUInt(compressionModel);
                     GhostEntity ent;
                     if (!ghostEntityMap.TryGetValue(ghostId, out ent))
                         continue;
@@ -179,10 +179,10 @@ namespace Unity.NetCode
                 }
 
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
-                int curPos = dataStream.GetBitsRead(ref readCtx);
+                int curPos = dataStream.GetBitsRead();
                 netStats[0] = serverTick;
                 netStats[1] = despawnLen;
-                netStats[2] = (uint) (dataStream.GetBitsRead(ref readCtx) - startPos);
+                netStats[2] = (uint) (dataStream.GetBitsRead() - startPos);
                 netStats[3] = 0;
                 startPos = curPos;
                 uint statCount = 0;
@@ -201,7 +201,7 @@ namespace Unity.NetCode
                     if (targetArchLen == 0)
                     {
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
-                        curPos = dataStream.GetBitsRead(ref readCtx);
+                        curPos = dataStream.GetBitsRead();
                         if (statCount > 0)
                         {
                             int statType = (int) targetArch;
@@ -214,18 +214,18 @@ namespace Unity.NetCode
                         statCount = 0;
                         uncompressedCount = 0;
 #endif
-                        targetArch = dataStream.ReadPackedUInt(ref readCtx, compressionModel);
-                        targetArchLen = dataStream.ReadPackedUInt(ref readCtx, compressionModel);
+                        targetArch = dataStream.ReadPackedUInt(compressionModel);
+                        targetArchLen = dataStream.ReadPackedUInt(compressionModel);
                     }
 
                     --targetArchLen;
 
                     if (baselineLen == 0)
                     {
-                        baselineTick = serverTick - dataStream.ReadPackedUInt(ref readCtx, compressionModel);
-                        baselineTick2 = serverTick - dataStream.ReadPackedUInt(ref readCtx, compressionModel);
-                        baselineTick3 = serverTick - dataStream.ReadPackedUInt(ref readCtx, compressionModel);
-                        baselineLen = dataStream.ReadPackedUInt(ref readCtx, compressionModel);
+                        baselineTick = serverTick - dataStream.ReadPackedUInt(compressionModel);
+                        baselineTick2 = serverTick - dataStream.ReadPackedUInt(compressionModel);
+                        baselineTick3 = serverTick - dataStream.ReadPackedUInt(compressionModel);
+                        baselineLen = dataStream.ReadPackedUInt(compressionModel);
                         if (baselineTick3 != serverTick &&
                             (baselineTick3 == baselineTick2 || baselineTick2 == baselineTick))
                         {
@@ -239,7 +239,7 @@ namespace Unity.NetCode
 
                     --baselineLen;
 
-                    int ghostId = (int) dataStream.ReadPackedUInt(ref readCtx, compressionModel);
+                    int ghostId = (int) dataStream.ReadPackedUInt(compressionModel);
                     GhostEntity gent;
                     if (ghostEntityMap.TryGetValue(ghostId, out gent))
                     {
@@ -249,7 +249,7 @@ namespace Unity.NetCode
                         //throw new InvalidOperationException("Received a ghost with an invalid ghost type " + targetArch + ", expected " + gent.ghostType);
 #endif
                         if (!serializers.Deserialize((int) targetArch, gent.entity, serverTick, baselineTick,
-                            baselineTick2, baselineTick3, dataStream, ref readCtx, compressionModel))
+                            baselineTick2, baselineTick3, ref dataStream, compressionModel))
                         {
                             // Desync - reset received snapshots
                             ack.ReceivedSnapshotByLocalMask = 0;
@@ -260,8 +260,7 @@ namespace Unity.NetCode
                     else
                     {
                         ++newGhosts;
-                        serializers.Spawn((int) targetArch, ghostId, serverTick, dataStream, ref readCtx,
-                            compressionModel);
+                        serializers.Spawn((int) targetArch, ghostId, serverTick, ref dataStream, compressionModel);
                     }
 
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
@@ -273,7 +272,7 @@ namespace Unity.NetCode
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
                 if (statCount > 0)
                 {
-                    curPos = dataStream.GetBitsRead(ref readCtx);
+                    curPos = dataStream.GetBitsRead();
                     int statType = (int) targetArch;
                     netStats[statType * 3 + 4] = netStats[statType * 3 + 4] + statCount;
                     netStats[statType * 3 + 5] = netStats[statType * 3 + 5] + (uint) (curPos - startPos);
@@ -305,6 +304,7 @@ namespace Unity.NetCode
                     ghostMap = m_ghostEntityMap
                 };
                 var clearHandle = clearMapJob.Schedule(inputDeps);
+                m_GhostUpdateSystemGroup.LastGhostMapWriter = clearHandle;
                 var clearJob = new ClearGhostsJob
                 {
                     commandBuffer = commandBuffer.ToConcurrent()
@@ -318,7 +318,7 @@ namespace Unity.NetCode
             JobHandle playerHandle;
             var readJob = new ReadStreamJob
             {
-                players = playerGroup.ToEntityArray(Allocator.TempJob, out playerHandle),
+                players = playerGroup.ToEntityArrayAsync(Allocator.TempJob, out playerHandle),
                 snapshotFromEntity = GetBufferFromEntity<IncomingSnapshotDataStreamBufferComponent>(),
                 snapshotAckFromEntity = GetComponentDataFromEntity<NetworkSnapshotAckComponent>(),
                 ghostEntityMap = m_ghostEntityMap,
@@ -341,18 +341,18 @@ namespace Unity.NetCode
         }
 
         public static T InvokeSpawn<T>(uint snapshot,
-            DataStreamReader reader, ref DataStreamReader.Context ctx, NetworkCompressionModel compressionModel)
+            ref DataStreamReader reader, NetworkCompressionModel compressionModel)
             where T : struct, ISnapshotData<T>
         {
             var snapshotData = default(T);
             var baselineData = default(T);
-            snapshotData.Deserialize(snapshot, ref baselineData, reader, ref ctx, compressionModel);
+            snapshotData.Deserialize(snapshot, ref baselineData, ref reader, compressionModel);
             return snapshotData;
         }
 
         public static bool InvokeDeserialize<T>(BufferFromEntity<T> snapshotFromEntity,
             Entity entity, uint snapshot, uint baseline, uint baseline2, uint baseline3,
-            DataStreamReader reader, ref DataStreamReader.Context ctx, NetworkCompressionModel compressionModel)
+            ref DataStreamReader reader, NetworkCompressionModel compressionModel)
             where T : struct, ISnapshotData<T>
         {
             DynamicBuffer<T> snapshotArray = snapshotFromEntity[entity];
@@ -396,7 +396,7 @@ namespace Unity.NetCode
             }
 
             var data = default(T);
-            data.Deserialize(snapshot, ref baselineData, reader, ref ctx, compressionModel);
+            data.Deserialize(snapshot, ref baselineData, ref reader, compressionModel);
             // Replace the oldest snapshot and add a new one
             if (snapshotArray.Length == GhostSystemConstants.SnapshotHistorySize)
                 snapshotArray.RemoveAt(0);

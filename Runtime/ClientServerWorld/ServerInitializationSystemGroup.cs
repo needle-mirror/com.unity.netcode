@@ -7,16 +7,14 @@ namespace Unity.NetCode
     [AlwaysUpdateSystem]
     public class ServerInitializationSystemGroup : InitializationSystemGroup
     {
-        protected override void OnUpdate()
+#if !UNITY_CLIENT || UNITY_SERVER || UNITY_EDITOR
+        internal TickServerInitializationSystem ParentTickSystem;
+        protected override void OnDestroy()
         {
-#pragma warning disable 618
-            // we're keeping World.Active until we can properly remove them all
-            var defaultWorld = World.Active;
-            World.Active = World;
-            base.OnUpdate();
-            World.Active = defaultWorld;
-#pragma warning restore 618
+            if (ParentTickSystem != null)
+                ParentTickSystem.RemoveSystemFromUpdateList(this);
         }
+#endif
     }
 
 #if !UNITY_CLIENT || UNITY_SERVER || UNITY_EDITOR
@@ -25,8 +23,14 @@ namespace Unity.NetCode
     [UpdateInWorld(UpdateInWorld.TargetWorld.Default)]
     public class TickServerInitializationSystem : ComponentSystemGroup
     {
-        public override void SortSystemUpdateList()
+        protected override void OnDestroy()
         {
+            foreach (var sys in Systems)
+            {
+                var grp = sys as ServerInitializationSystemGroup;
+                if (grp != null)
+                    grp.ParentTickSystem = null;
+            }
         }
     }
 #endif

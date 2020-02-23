@@ -31,14 +31,6 @@ public struct __GHOST_COLLECTION_PREFIX__GhostSerializerCollection : IGhostSeria
         #endregion
         return -1;
     }
-    public int FindSerializer(EntityArchetype arch)
-    {
-        #region __GHOST_FIND_CHECK__
-        if (m___GHOST_SERIALIZER_TYPE__.CanSerialize(arch))
-            return __GHOST_SERIALIZER_INDEX__;
-        #endregion
-        throw new ArgumentException("Invalid serializer type");
-    }
 
     public void BeginSerialize(ComponentSystemBase system)
     {
@@ -60,19 +52,6 @@ public struct __GHOST_COLLECTION_PREFIX__GhostSerializerCollection : IGhostSeria
         throw new ArgumentException("Invalid serializer type");
     }
 
-    public bool WantsPredictionDelta(int serializer)
-    {
-        switch (serializer)
-        {
-            #region __GHOST_WANTS_PREDICTION_DELTA__
-            case __GHOST_SERIALIZER_INDEX__:
-                return m___GHOST_SERIALIZER_TYPE__.WantsPredictionDelta;
-            #endregion
-        }
-
-        throw new ArgumentException("Invalid serializer type");
-    }
-
     public int GetSnapshotSize(int serializer)
     {
         switch (serializer)
@@ -86,14 +65,14 @@ public struct __GHOST_COLLECTION_PREFIX__GhostSerializerCollection : IGhostSeria
         throw new ArgumentException("Invalid serializer type");
     }
 
-    public int Serialize(SerializeData data)
+    public int Serialize(ref DataStreamWriter dataStream, SerializeData data)
     {
         switch (data.ghostType)
         {
             #region __GHOST_INVOKE_SERIALIZE__
             case __GHOST_SERIALIZER_INDEX__:
             {
-                return GhostSendSystem<__GHOST_COLLECTION_PREFIX__GhostSerializerCollection>.InvokeSerialize<__GHOST_SERIALIZER_TYPE__, __GHOST_SNAPSHOT_TYPE__>(m___GHOST_SERIALIZER_TYPE__, data);
+                return GhostSendSystem<__GHOST_COLLECTION_PREFIX__GhostSerializerCollection>.InvokeSerialize<__GHOST_SERIALIZER_TYPE__, __GHOST_SNAPSHOT_TYPE__>(m___GHOST_SERIALIZER_TYPE__, ref dataStream, data);
             }
             #endregion
             default:

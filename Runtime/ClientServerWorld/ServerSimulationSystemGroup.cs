@@ -11,6 +11,14 @@ namespace Unity.NetCode
     [AlwaysUpdateSystem]
     public class ServerSimulationSystemGroup : ComponentSystemGroup
     {
+#if !UNITY_CLIENT || UNITY_SERVER || UNITY_EDITOR
+        internal TickServerSimulationSystem ParentTickSystem;
+        protected override void OnDestroy()
+        {
+            if (ParentTickSystem != null)
+                ParentTickSystem.RemoveSystemFromUpdateList(this);
+        }
+#endif
         private struct FixedTimeLoop
         {
             public float accumulatedTime;
@@ -55,9 +63,6 @@ namespace Unity.NetCode
 
             m_fixedTimeLoop.maxTimeSteps = tickRate.MaxSimulationStepsPerFrame;
             m_fixedTimeLoop.fixedTimeStep = 1.0f / (float) tickRate.SimulationTickRate;
-#pragma warning disable 618
-            var defaultWorld = World.Active;
-            World.Active = World;
             int updateCount = m_fixedTimeLoop.GetUpdateCount(Time.DeltaTime);
             for (int tickAge = updateCount-1; tickAge >= 0; --tickAge)
             {
@@ -71,8 +76,6 @@ namespace Unity.NetCode
                 }
             }
 
-            World.Active = defaultWorld;
-#pragma warning restore 618
             World.SetTime(previousTime);
 #if UNITY_SERVER
             if (tickRate.TargetFrameRateMode != ClientServerTickRate.FrameRateMode.BusyWait)
@@ -149,8 +152,14 @@ namespace Unity.NetCode
     [UpdateInWorld(UpdateInWorld.TargetWorld.Default)]
     public class TickServerSimulationSystem : ComponentSystemGroup
     {
-        public override void SortSystemUpdateList()
+        protected override void OnDestroy()
         {
+            foreach (var sys in Systems)
+            {
+                var grp = sys as ServerSimulationSystemGroup;
+                if (grp != null)
+                    grp.ParentTickSystem = null;
+            }
         }
     }
 #endif

@@ -1,3 +1,4 @@
+using Unity.Burst;
 using Unity.Collections;
 using Unity.Entities;
 using Unity.Jobs;
@@ -68,6 +69,7 @@ namespace Unity.NetCode
             public int3 index;
         }
         private NativeQueue<SharedMod> m_sharedComponentModificationQueue;
+
         struct ApplySharedMod : IJob
         {
             public NativeQueue<SharedMod> queue;

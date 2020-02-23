@@ -1,3 +1,4 @@
+using System;
 using Unity.Collections;
 using Unity.Entities;
 using Unity.Jobs;
@@ -33,21 +34,37 @@ namespace Unity.NetCode
             public void Execute(Entity entity, int index, [ReadOnly] ref SendRpcCommandRequestComponent dest,
                 [ReadOnly] ref TActionRequest action)
             {
-                if (dest.TargetConnection != Entity.Null)
+                commandBuffer.DestroyEntity(index, entity);
+                if (connections.Length > 0)
                 {
-                    var buffer = rpcFromEntity[dest.TargetConnection];
-                    rpcQueue.Schedule(buffer, action);
-                }
-                else
-                {
-                    for (var i = 0; i < connections.Length; ++i)
+                    if (dest.TargetConnection != Entity.Null)
                     {
-                        var buffer = rpcFromEntity[connections[i]];
+                        if (!rpcFromEntity.Exists(dest.TargetConnection))
+                        {
+#if ENABLE_UNITY_COLLECTIONS_CHECKS
+                            throw new InvalidOperationException("Cannot send RPC with no remote connection.");
+#else
+                            return;
+#endif
+                        }
+                        var buffer = rpcFromEntity[dest.TargetConnection];
                         rpcQueue.Schedule(buffer, action);
                     }
+                    else
+                    {
+                        for (var i = 0; i < connections.Length; ++i)
+                        {
+                            var buffer = rpcFromEntity[connections[i]];
+                            rpcQueue.Schedule(buffer, action);
+                        }
+                    }
                 }
-
-                commandBuffer.DestroyEntity(index, entity);
+#if ENABLE_UNITY_COLLECTIONS_CHECKS
+                else
+                {
+                    throw new InvalidOperationException("Cannot send RPC with no remote connection.");
+                }
+#endif
             }
         }
 
@@ -72,7 +89,7 @@ namespace Unity.NetCode
                 commandBuffer = m_CommandBufferSystem.CreateCommandBuffer().ToConcurrent(),
                 rpcFromEntity = GetBufferFromEntity<OutgoingRpcDataStreamBufferComponent>(),
                 rpcQueue = m_RpcQueue,
-                connections = m_ConnectionsQuery.ToEntityArray(Allocator.TempJob, out var connectionsHandle)
+                connections = m_ConnectionsQuery.ToEntityArrayAsync(Allocator.TempJob, out var connectionsHandle)
             };
             var handle = sendJob.ScheduleSingle(this, JobHandle.CombineDependencies(inputDeps, connectionsHandle));
             m_CommandBufferSystem.AddJobHandleForProducer(handle);

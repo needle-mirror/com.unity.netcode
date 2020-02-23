@@ -100,9 +100,12 @@ namespace Unity.NetCode
             simulationGroup.SortSystemUpdateList();
             presentationGroup.SortSystemUpdateList();
 
-            defaultWorld.GetOrCreateSystem<TickClientInitializationSystem>().AddSystemToUpdateList(initializationGroup);
-            defaultWorld.GetOrCreateSystem<TickClientSimulationSystem>().AddSystemToUpdateList(simulationGroup);
-            defaultWorld.GetOrCreateSystem<TickClientPresentationSystem>().AddSystemToUpdateList(presentationGroup);
+            initializationGroup.ParentTickSystem = defaultWorld.GetOrCreateSystem<TickClientInitializationSystem>();
+            initializationGroup.ParentTickSystem.AddSystemToUpdateList(initializationGroup);
+            simulationGroup.ParentTickSystem = defaultWorld.GetOrCreateSystem<TickClientSimulationSystem>();
+            simulationGroup.ParentTickSystem.AddSystemToUpdateList(simulationGroup);
+            presentationGroup.ParentTickSystem = defaultWorld.GetOrCreateSystem<TickClientPresentationSystem>();
+            presentationGroup.ParentTickSystem.AddSystemToUpdateList(presentationGroup);
 
             return world;
 #endif
@@ -134,8 +137,10 @@ namespace Unity.NetCode
             initializationGroup.SortSystemUpdateList();
             simulationGroup.SortSystemUpdateList();
 
-            defaultWorld.GetOrCreateSystem<TickServerInitializationSystem>().AddSystemToUpdateList(initializationGroup);
-            defaultWorld.GetOrCreateSystem<TickServerSimulationSystem>().AddSystemToUpdateList(simulationGroup);
+            initializationGroup.ParentTickSystem = defaultWorld.GetOrCreateSystem<TickServerInitializationSystem>();
+            initializationGroup.ParentTickSystem.AddSystemToUpdateList(initializationGroup);
+            simulationGroup.ParentTickSystem = defaultWorld.GetOrCreateSystem<TickServerSimulationSystem>();
+            simulationGroup.ParentTickSystem.AddSystemToUpdateList(simulationGroup);
 
             return world;
 #endif
@@ -229,7 +234,7 @@ namespace Unity.NetCode
                 return null;
             return attribs[0] as T;
         }
-        protected internal static void GenerateSystemLists(List<Type> systems)
+        protected internal static void GenerateSystemLists(IReadOnlyList<Type> systems)
         {
             s_State.DefaultWorldSystems = new List<Type>();
             s_State.ExplicitDefaultWorldSystems = new List<Type>();

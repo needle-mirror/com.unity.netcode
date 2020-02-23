@@ -9,16 +9,56 @@ namespace Unity.NetCode.Editor
 {
     public class GhostCodeGen
     {
+        public enum Status
+        {
+            Ok,
+            Failed,
+            NotModified
+        }
         public class Batch
         {
             internal List<Tuple<string, string>> m_PendingOperations = new List<Tuple<string, string>>();
 
-            public void Flush()
+            public bool Flush(bool testOnly = false)
             {
+                bool didWriteAnyFile = false;
                 foreach (var op in m_PendingOperations)
                 {
-                    File.WriteAllText(op.Item1, op.Item2);
+                    var path = op.Item1;
+                    bool writeFile = true;
+                    if (File.Exists(path))
+                    {
+                        var prevContent = File.ReadAllText(path);
+                        if (prevContent == op.Item2)
+                            writeFile = false;
+                        else if ((File.GetAttributes(path) & FileAttributes.ReadOnly) != 0)
+                        {
+                            if (UnityEditor.VersionControl.Provider.isActive)
+                            {
+                                var relpath = path.Replace("\\", "/");
+                                if (relpath.StartsWith(Application.dataPath))
+                                    relpath = "Assets" + relpath.Substring(Application.dataPath.Length);
+                                var asset = UnityEditor.VersionControl.Provider.GetAssetByPath(relpath);
+                                if (asset != null)
+                                    UnityEditor.VersionControl.Provider
+                                        .Checkout(asset, UnityEditor.VersionControl.CheckoutMode.Asset).Wait();
+                            }
+                            //else
+                            //    File.SetAttributes(path, File.GetAttributes(path)&~FileAttributes.ReadOnly);
+                        }
+                    }
+                    else
+                    {
+                        var dir = Path.GetDirectoryName(path);
+                        if (!String.IsNullOrEmpty(dir))
+                            Directory.CreateDirectory(dir);
+                    }
+
+                    if (writeFile && !testOnly)
+                        File.WriteAllText(path, op.Item2);
+                    didWriteAnyFile |= writeFile;
                 }
+                return didWriteAnyFile;
             }
         }
         private Dictionary<string, FragmentData> m_Fragments;
@@ -44,42 +84,16 @@ namespace Unity.NetCode.Editor
             return assetPath;
         }
 
-        static string PreparePathForWriting(string assetPath, string root, string path)
+        static string ConcatPath(string assetPath, string root, string path)
         {
             if (root != "")
                 path = Path.Combine(root, path);
-            return PreparePathForWriting(assetPath, path);
-        }
 
-        static string PreparePathForWriting(string assetPath, string path)
-        {
             if (path[0] == '/')
                 path = Path.Combine("Assets", path.Substring(1));
             else
                 path = Path.Combine(assetPath, path);
             path = Path.GetFullPath(path);
-            if (File.Exists(path) && (File.GetAttributes(path) & FileAttributes.ReadOnly) != 0)
-            {
-                if (UnityEditor.VersionControl.Provider.isActive)
-                {
-                    var relpath = path.Replace("\\", "/");
-                    if (relpath.StartsWith(Application.dataPath))
-                        relpath = "Assets" + relpath.Substring(Application.dataPath.Length);
-                    var asset = UnityEditor.VersionControl.Provider.GetAssetByPath(relpath);
-                    if (asset != null)
-                        UnityEditor.VersionControl.Provider
-                            .Checkout(asset, UnityEditor.VersionControl.CheckoutMode.Asset).Wait();
-                }
-
-                //else
-                //    File.SetAttributes(path, File.GetAttributes(path)&~FileAttributes.ReadOnly);
-            }
-            else
-            {
-                var dir = Path.GetDirectoryName(path);
-                if (!String.IsNullOrEmpty(dir))
-                    Directory.CreateDirectory(dir);
-            }
 
             return path;
         }
@@ -192,9 +206,9 @@ namespace Unity.NetCode.Editor
             target.m_Fragments[$"__{targetFragment}__"].Content += content;
         }
 
-        public void GenerateFile(string assetPath, string rootPath, string fileName, Dictionary<string, string> replacements, Batch batch = null)
+        public void GenerateFile(string assetPath, string rootPath, string fileName, Dictionary<string, string> replacements, Batch batch)
         {
-            var filePath = PreparePathForWriting(assetPath, rootPath, fileName);
+            var filePath = ConcatPath(assetPath, rootPath, fileName);
             var header = Replace(m_HeaderTemplate, replacements);
             var content = Replace(m_FileTemplate, replacements);
 
@@ -205,10 +219,7 @@ namespace Unity.NetCode.Editor
             }
             content = header + AddNamespace(content);
             Validate(content, "Root");
-            if (batch != null)
-                batch.m_PendingOperations.Add(new Tuple<string, string>(filePath, content));
-            else
-                File.WriteAllText(filePath, content);
+            batch.m_PendingOperations.Add(new Tuple<string, string>(filePath, content));
         }
         private const string k_BeginNamespaceTemplate = @"namespace $(GHOSTNAMESPACE)
 {";

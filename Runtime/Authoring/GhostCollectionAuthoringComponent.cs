@@ -6,7 +6,7 @@ using UnityEngine;
 
 namespace Unity.NetCode
 {
-    [ConverterVersion("timj", 1)]
+    [ConverterVersion("timj", 2)]
     public class GhostCollectionAuthoringComponent : MonoBehaviour, IConvertGameObjectToEntity
     {
         public string SerializerCollectionPath = "GhostSerializerCollection.cs";
@@ -34,6 +34,21 @@ namespace Unity.NetCode
             return null;
         }
 
+        private void EnsurePrefab(Entity entity, EntityManager dstManager)
+        {
+            if (!dstManager.HasComponent<Prefab>(entity))
+            {
+                dstManager.AddComponent<Prefab>(entity);
+                if (dstManager.HasComponent<LinkedEntityGroup>(entity))
+                {
+                    var group = dstManager.GetBuffer<LinkedEntityGroup>(entity).ToNativeArray(Allocator.Temp);
+                    for (int i = 1; i < group.Length; ++i)
+                    {
+                        dstManager.AddComponent<Prefab>(group[i].Value);
+                    }
+                }
+            }
+        }
         public void Convert(Entity entity, EntityManager dstManager, GameObjectConversionSystem conversionSystem)
         {
             var conversionTarget = GhostAuthoringConversion.GetConversionTarget(conversionSystem);
@@ -60,6 +75,7 @@ namespace Unity.NetCode
                     var prefabEntity =
                         GameObjectConversionUtility.ConvertGameObjectHierarchy(ghost.prefab.gameObject,
                             conversionSystem.ForkSettings(1));
+                    EnsurePrefab(prefabEntity, dstManager);
                     prefabList.Add(new GhostPrefabBuffer {Value = prefabEntity});
                 }
 
@@ -91,6 +107,8 @@ namespace Unity.NetCode
                         GameObjectConversionUtility.ConvertGameObjectHierarchy(ghost.prefab.gameObject,
                             conversionSystem.ForkSettings(2));
                     ghost.prefab.DefaultClientInstantiationType = origInstantiate;
+                    EnsurePrefab(predictedPrefabEntity, dstManager);
+                    EnsurePrefab(prefabEntity, dstManager);
                     predictedList.Add(new GhostPrefabBuffer {Value = predictedPrefabEntity});
                     interpolatedList.Add(new GhostPrefabBuffer {Value = prefabEntity});
                 }

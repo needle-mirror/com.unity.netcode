@@ -232,6 +232,7 @@ namespace Unity.NetCode
             }
         }
 
+        [BurstCompile]
         struct PredictSpawnJob : IJob
         {
             public NativeArray<Entity> requests;

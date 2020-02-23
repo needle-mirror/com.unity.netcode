@@ -6,8 +6,8 @@ namespace Unity.NetCode
 {
     public interface IRpcCommand : IComponentData
     {
-        void Serialize(DataStreamWriter writer);
-        void Deserialize(DataStreamReader reader, ref DataStreamReader.Context ctx);
+        void Serialize(ref DataStreamWriter writer);
+        void Deserialize(ref DataStreamReader reader);
         PortableFunctionPointer<RpcExecutor.ExecuteDelegate> CompileExecute();
     }
 }

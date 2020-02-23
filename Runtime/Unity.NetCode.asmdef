@@ -1,16 +1,23 @@
 {
-  "name": "Unity.NetCode",
-  "references": [
-    "Unity.Burst",
-    "Unity.Entities",
-    "Unity.Entities.Hybrid",
-    "Unity.Transforms",
-    "Unity.Collections",
-    "Unity.Scenes.Hybrid",
-    "Unity.Mathematics",
-    "Unity.Mathematics.Extensions",
-    "Unity.Networking.Transport",
-    "Unity.Build"
-  ],
-  "allowUnsafeCode": true
+    "name": "Unity.NetCode",
+    "references": [
+        "Unity.Burst",
+        "Unity.Entities",
+        "Unity.Entities.Hybrid",
+        "Unity.Transforms",
+        "Unity.Collections",
+        "Unity.Scenes.Hybrid",
+        "Unity.Mathematics",
+        "Unity.Mathematics.Extensions",
+        "Unity.Networking.Transport",
+        "Unity.Build"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": true,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "noEngineReferences": false
 }

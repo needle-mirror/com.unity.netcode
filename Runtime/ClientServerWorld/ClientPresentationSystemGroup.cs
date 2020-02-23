@@ -7,18 +7,19 @@ namespace Unity.NetCode
     [AlwaysUpdateSystem]
     public class ClientPresentationSystemGroup : PresentationSystemGroup
     {
+#if !UNITY_SERVER
+        internal TickClientPresentationSystem ParentTickSystem;
+        protected override void OnDestroy()
+        {
+            if (ParentTickSystem != null)
+                ParentTickSystem.RemoveSystemFromUpdateList(this);
+        }
+#endif
         protected override void OnUpdate()
         {
             if (HasSingleton<ThinClientComponent>())
                 return;
-
-#pragma warning disable 618
-            // we're keeping World.Active until we can properly remove them all
-            var defaultWorld = World.Active;
-            World.Active = World;
             base.OnUpdate();
-            World.Active = defaultWorld;
-#pragma warning restore 618
         }
     }
 
@@ -28,8 +29,14 @@ namespace Unity.NetCode
     [UpdateInWorld(UpdateInWorld.TargetWorld.Default)]
     public class TickClientPresentationSystem : ComponentSystemGroup
     {
-        public override void SortSystemUpdateList()
+        protected override void OnDestroy()
         {
+            foreach (var sys in Systems)
+            {
+                var grp = sys as ClientPresentationSystemGroup;
+                if (grp != null)
+                    grp.ParentTickSystem = null;
+            }
         }
     }
 #endif

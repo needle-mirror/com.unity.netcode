@@ -17,27 +17,27 @@ namespace Unity.NetCode
         public int netTickRate;
         public int simMaxSteps;
 
-        public void Serialize(DataStreamWriter writer)
+        public void Serialize(ref DataStreamWriter writer)
         {
-            writer.Write(nid);
-            writer.Write(simTickRate);
-            writer.Write(netTickRate);
-            writer.Write(simMaxSteps);
+            writer.WriteInt(nid);
+            writer.WriteInt(simTickRate);
+            writer.WriteInt(netTickRate);
+            writer.WriteInt(simMaxSteps);
         }
 
-        public void Deserialize(DataStreamReader reader, ref DataStreamReader.Context ctx)
+        public void Deserialize(ref DataStreamReader reader)
         {
-            nid = reader.ReadInt(ref ctx);
-            simTickRate = reader.ReadInt(ref ctx);
-            netTickRate = reader.ReadInt(ref ctx);
-            simMaxSteps = reader.ReadInt(ref ctx);
+            nid = reader.ReadInt();
+            simTickRate = reader.ReadInt();
+            netTickRate = reader.ReadInt();
+            simMaxSteps = reader.ReadInt();
         }
 
         [BurstCompile]
         private static void InvokeExecute(ref RpcExecutor.Parameters parameters)
         {
             var rpcData = default(RpcSetNetworkId);
-            rpcData.Deserialize(parameters.Reader, ref parameters.ReaderContext);
+            rpcData.Deserialize(ref parameters.Reader);
 
             parameters.CommandBuffer.AddComponent(parameters.JobIndex, parameters.Connection, new NetworkIdComponent {Value = rpcData.nid});
             var ent = parameters.CommandBuffer.CreateEntity(parameters.JobIndex);
@@ -49,9 +49,11 @@ namespace Unity.NetCode
             });
         }
 
+        static PortableFunctionPointer<RpcExecutor.ExecuteDelegate> InvokeExecuteFunctionPointer =
+            new PortableFunctionPointer<RpcExecutor.ExecuteDelegate>(InvokeExecute);
         public PortableFunctionPointer<RpcExecutor.ExecuteDelegate> CompileExecute()
         {
-            return new PortableFunctionPointer<RpcExecutor.ExecuteDelegate>(InvokeExecute);
+            return InvokeExecuteFunctionPointer;
         }
     }
 }

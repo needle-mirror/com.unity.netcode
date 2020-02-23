@@ -1,5 +1,6 @@
 using Unity.Burst;
 using Unity.Entities;
+using Unity.Jobs;
 using Unity.Networking.Transport;
 
 namespace Unity.NetCode
@@ -7,11 +8,11 @@ namespace Unity.NetCode
     [BurstCompile]
     struct HeartbeatComponent : IRpcCommand
     {
-        public void Serialize(DataStreamWriter writer)
+        public void Serialize(ref DataStreamWriter writer)
         {
         }
 
-        public void Deserialize(DataStreamReader reader, ref DataStreamReader.Context ctx)
+        public void Deserialize(ref DataStreamReader reader)
         {
         }
 
@@ -21,9 +22,11 @@ namespace Unity.NetCode
             RpcExecutor.ExecuteCreateRequestComponent<HeartbeatComponent>(ref parameters);
         }
 
+        static PortableFunctionPointer<RpcExecutor.ExecuteDelegate> InvokeExecuteFunctionPointer =
+            new PortableFunctionPointer<RpcExecutor.ExecuteDelegate>(InvokeExecute);
         public PortableFunctionPointer<RpcExecutor.ExecuteDelegate> CompileExecute()
         {
-            return new PortableFunctionPointer<RpcExecutor.ExecuteDelegate>(InvokeExecute);
+            return InvokeExecuteFunctionPointer;
         }
     }
 
@@ -68,7 +71,7 @@ namespace Unity.NetCode
 
     [UpdateInGroup(typeof(NetworkReceiveSystemGroup))]
     [UpdateInWorld(UpdateInWorld.TargetWorld.Server)]
-    public class HeartbeatReplySystem : ComponentSystem
+    public class HeartbeatReplySystem : JobComponentSystem
     {
         private BeginSimulationEntityCommandBufferSystem m_CommandBufferSystem;
 
@@ -77,8 +80,9 @@ namespace Unity.NetCode
             m_CommandBufferSystem = World.GetOrCreateSystem<BeginSimulationEntityCommandBufferSystem>();
         }
 
-        protected override void OnUpdate()
+        protected override JobHandle OnUpdate(JobHandle inputDeps)
         {
+            inputDeps.Complete();
             var commandBuffer = m_CommandBufferSystem.CreateCommandBuffer();
             Entities.ForEach(
                 (Entity entity, ref HeartbeatComponent heartbeat, ref ReceiveRpcCommandRequestComponent recv) =>
@@ -86,7 +90,8 @@ namespace Unity.NetCode
                     // Re-use the same request entity, just add the send component to send it back
                     commandBuffer.AddComponent(entity,
                         new SendRpcCommandRequestComponent {TargetConnection = recv.SourceConnection});
-                });
+                }).Run();
+            return default;
         }
     }
 

@@ -8,10 +8,9 @@ namespace Unity.NetCode
     {
         uint Tick { get; }
         void PredictDelta(uint tick, ref T baseline1, ref T baseline2);
-        void Serialize(int networkId, ref T baseline, DataStreamWriter writer, NetworkCompressionModel compressionModel);
+        void Serialize(int networkId, ref T baseline, ref DataStreamWriter writer, NetworkCompressionModel compressionModel);
 
-        void Deserialize(uint tick, ref T baseline, DataStreamReader reader, ref DataStreamReader.Context ctx,
-            NetworkCompressionModel compressionModel);
+        void Deserialize(uint tick, ref T baseline, ref DataStreamReader reader, NetworkCompressionModel compressionModel);
 
         void Interpolate(ref T target, float factor);
     }

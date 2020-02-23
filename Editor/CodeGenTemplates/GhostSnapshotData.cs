@@ -26,7 +26,7 @@ public struct __GHOST_NAME__SnapshotData : ISnapshotData<__GHOST_NAME__SnapshotD
         #endregion
     }
 
-    public void Serialize(int networkId, ref __GHOST_NAME__SnapshotData baseline, DataStreamWriter writer, NetworkCompressionModel compressionModel)
+    public void Serialize(int networkId, ref __GHOST_NAME__SnapshotData baseline, ref DataStreamWriter writer, NetworkCompressionModel compressionModel)
     {
         #region __GHOST_CALCULATE_CHANGE_MASK__
         #endregion
@@ -59,15 +59,15 @@ public struct __GHOST_NAME__SnapshotData : ISnapshotData<__GHOST_NAME__SnapshotD
         #endregion
     }
 
-    public void Deserialize(uint tick, ref __GHOST_NAME__SnapshotData baseline, DataStreamReader reader, ref DataStreamReader.Context ctx,
+    public void Deserialize(uint tick, ref __GHOST_NAME__SnapshotData baseline, ref DataStreamReader reader,
         NetworkCompressionModel compressionModel)
     {
         this.tick = tick;
         #region __GHOST_READ_CHANGE_MASK__
-        changeMask__GHOST_MASK_BATCH__ = reader.ReadPackedUIntDelta(ref ctx, baseline.changeMask__GHOST_MASK_BATCH__, compressionModel);
+        changeMask__GHOST_MASK_BATCH__ = reader.ReadPackedUIntDelta(baseline.changeMask__GHOST_MASK_BATCH__, compressionModel);
         #endregion
         #region __GHOST_READ_IS_PREDICTED__
-        bool isPredicted = reader.ReadPackedUInt(ref ctx, compressionModel)!=0;
+        bool isPredicted = reader.ReadPackedUInt(compressionModel)!=0;
         #endregion
         #region __GHOST_READ__
         #endregion

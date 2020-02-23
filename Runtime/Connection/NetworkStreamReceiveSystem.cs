@@ -1,10 +1,9 @@
 using System;
+using Unity.Burst;
 using Unity.Collections;
-using Unity.Collections.LowLevel.Unsafe;
 using Unity.Entities;
 using Unity.Jobs;
 using Unity.Networking.Transport;
-using Unity.Networking.Transport.LowLevel.Unsafe;
 using Unity.Networking.Transport.Utilities;
 
 namespace Unity.NetCode
@@ -15,19 +14,27 @@ namespace Unity.NetCode
     {
     }
 
+    public interface INetworkStreamDriverConstructor
+    {
+        void CreateClientDriver(World world, out NetworkDriver driver, out NetworkPipeline unreliablePipeline, out NetworkPipeline reliablePipeline);
+        void CreateServerDriver(World world, out NetworkDriver driver, out NetworkPipeline unreliablePipeline, out NetworkPipeline reliablePipeline);
+    }
+
     [UpdateInGroup(typeof(NetworkReceiveSystemGroup))]
     [AlwaysUpdateSystem]
-    public class NetworkStreamReceiveSystem : JobComponentSystem
+    public class NetworkStreamReceiveSystem : JobComponentSystem, INetworkStreamDriverConstructor
     {
-        public UdpNetworkDriver Driver => m_Driver;
-        internal UdpNetworkDriver.Concurrent ConcurrentDriver => m_ConcurrentDriver;
+        public static INetworkStreamDriverConstructor s_DriverConstructor;
+        public INetworkStreamDriverConstructor DriverConstructor => s_DriverConstructor != null ? s_DriverConstructor : this;
+        public NetworkDriver Driver => m_Driver;
+        internal NetworkDriver.Concurrent ConcurrentDriver => m_ConcurrentDriver;
         internal JobHandle LastDriverWriter;
 
         public NetworkPipeline UnreliablePipeline => m_UnreliablePipeline;
         public NetworkPipeline ReliablePipeline => m_ReliablePipeline;
 
-        private UdpNetworkDriver m_Driver;
-        private UdpNetworkDriver.Concurrent m_ConcurrentDriver;
+        private NetworkDriver m_Driver;
+        private NetworkDriver.Concurrent m_ConcurrentDriver;
         private NetworkPipeline m_UnreliablePipeline;
         private NetworkPipeline m_ReliablePipeline;
         private bool m_DriverListening;
@@ -37,19 +44,69 @@ namespace Unity.NetCode
         private RpcQueue<RpcSetNetworkId> rpcQueue;
         private EntityQuery m_NetworkStreamConnectionQuery;
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
-        private int m_ClientPacketDelay;
-        private int m_ClientPacketDrop;
         private NativeArray<uint> m_NetStats;
         private GhostStatsCollectionSystem m_GhostStatsCollectionSystem;
 #endif
 
+        public void CreateClientDriver(World world, out NetworkDriver driver, out NetworkPipeline unreliablePipeline, out NetworkPipeline reliablePipeline)
+        {
+            var reliabilityParams = new ReliableUtility.Parameters {WindowSize = 32};
+
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+            var netParams = new NetworkConfigParameter
+            {
+                maxConnectAttempts = NetworkParameterConstants.MaxConnectAttempts,
+                connectTimeoutMS = NetworkParameterConstants.ConnectTimeoutMS,
+                disconnectTimeoutMS = NetworkParameterConstants.DisconnectTimeoutMS,
+                maxFrameTimeMS = 100
+            };
+
+            var simulatorParams = ClientSimulatorParameters;
+            driver = NetworkDriver.Create(netParams, simulatorParams, reliabilityParams);
+#else
+            driver = NetworkDriver.Create(reliabilityParams);
+#endif
+
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+            if (simulatorParams.PacketDelayMs > 0 || simulatorParams.PacketDropInterval > 0)
+            {
+                unreliablePipeline = driver.CreatePipeline(typeof(SimulatorPipelineStage),
+                    typeof(SimulatorPipelineStageInSend));
+                reliablePipeline = driver.CreatePipeline(typeof(SimulatorPipelineStageInSend),
+                    typeof(ReliableSequencedPipelineStage), typeof(SimulatorPipelineStage));
+            }
+            else
+#endif
+            {
+                unreliablePipeline = driver.CreatePipeline(typeof(NullPipelineStage));
+                reliablePipeline = driver.CreatePipeline(typeof(ReliableSequencedPipelineStage));
+            }
+        }
+
+        public void CreateServerDriver(World world, out NetworkDriver driver, out NetworkPipeline unreliablePipeline, out NetworkPipeline reliablePipeline)
+        {
+            var reliabilityParams = new ReliableUtility.Parameters {WindowSize = 32};
+
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+            var netParams = new NetworkConfigParameter
+            {
+                maxConnectAttempts = NetworkParameterConstants.MaxConnectAttempts,
+                connectTimeoutMS = NetworkParameterConstants.ConnectTimeoutMS,
+                disconnectTimeoutMS = NetworkParameterConstants.DisconnectTimeoutMS,
+                maxFrameTimeMS = 100
+            };
+            driver = NetworkDriver.Create(netParams, reliabilityParams);
+#else
+            driver = NetworkDriver.Create(reliabilityParams);
+#endif
+
+            unreliablePipeline = driver.CreatePipeline(typeof(NullPipelineStage));
+            reliablePipeline = driver.CreatePipeline(typeof(ReliableSequencedPipelineStage));
+        }
+
         public bool Listen(NetworkEndPoint endpoint)
         {
             LastDriverWriter.Complete();
-            if (m_UnreliablePipeline == NetworkPipeline.Null)
-                m_UnreliablePipeline = m_Driver.CreatePipeline(typeof(NullPipelineStage));
-            if (m_ReliablePipeline == NetworkPipeline.Null)
-                m_ReliablePipeline = m_Driver.CreatePipeline(typeof(ReliableSequencedPipelineStage));
             // Switching to server mode
             if (m_Driver.Bind(endpoint) != 0)
                 return false;
@@ -64,27 +121,6 @@ namespace Unity.NetCode
         public Entity Connect(NetworkEndPoint endpoint)
         {
             LastDriverWriter.Complete();
-            if (m_UnreliablePipeline == NetworkPipeline.Null)
-            {
-#if UNITY_EDITOR || DEVELOPMENT_BUILD
-                if (m_ClientPacketDelay > 0 || m_ClientPacketDrop > 0)
-                    m_UnreliablePipeline = m_Driver.CreatePipeline(typeof(SimulatorPipelineStage),
-                        typeof(SimulatorPipelineStageInSend));
-                else
-#endif
-                    m_UnreliablePipeline = m_Driver.CreatePipeline(typeof(NullPipelineStage));
-            }
-
-            if (m_ReliablePipeline == NetworkPipeline.Null)
-            {
-#if UNITY_EDITOR || DEVELOPMENT_BUILD
-                if (m_ClientPacketDelay > 0 || m_ClientPacketDrop > 0)
-                    m_ReliablePipeline = m_Driver.CreatePipeline(typeof(SimulatorPipelineStageInSend),
-                        typeof(ReliableSequencedPipelineStage), typeof(SimulatorPipelineStage));
-                else
-#endif
-                    m_ReliablePipeline = m_Driver.CreatePipeline(typeof(ReliableSequencedPipelineStage));
-            }
 
             var ent = EntityManager.CreateEntity();
             EntityManager.AddComponentData(ent, new NetworkStreamConnection {Value = m_Driver.Connect(endpoint)});
@@ -97,50 +133,46 @@ namespace Unity.NetCode
         }
 
 #if UNITY_EDITOR
-        private int ClientPacketDelayMs => UnityEditor.EditorPrefs.GetInt($"MultiplayerPlayMode_{UnityEngine.Application.productName}_ClientDelay");
-        private int ClientPacketJitterMs => UnityEditor.EditorPrefs.GetInt($"MultiplayerPlayMode_{UnityEngine.Application.productName}_ClientJitter");
-        private int ClientPacketDropRate => UnityEditor.EditorPrefs.GetInt($"MultiplayerPlayMode_{UnityEngine.Application.productName}_ClientDropRate");
+        private static int ClientPacketDelayMs => UnityEditor.EditorPrefs.GetInt($"MultiplayerPlayMode_{UnityEngine.Application.productName}_ClientDelay");
+        private static int ClientPacketJitterMs => UnityEditor.EditorPrefs.GetInt($"MultiplayerPlayMode_{UnityEngine.Application.productName}_ClientJitter");
+        private static int ClientPacketDropRate => UnityEditor.EditorPrefs.GetInt($"MultiplayerPlayMode_{UnityEngine.Application.productName}_ClientDropRate");
 #elif DEVELOPMENT_BUILD
         public static int ClientPacketDelayMs = 0;
         public static int ClientPacketJitterMs = 0;
         public static int ClientPacketDropRate = 0;
 #endif
-        protected override void OnCreate()
-        {
-            var reliabilityParams = new ReliableUtility.Parameters {WindowSize = 32};
-
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
-            var netParams = new NetworkConfigParameter
+        public SimulatorUtility.Parameters ClientSimulatorParameters
+        {
+            get
             {
-                maxConnectAttempts = NetworkParameterConstants.MaxConnectAttempts,
-                connectTimeoutMS = NetworkParameterConstants.ConnectTimeoutMS,
-                disconnectTimeoutMS = NetworkParameterConstants.DisconnectTimeoutMS,
-                maxFrameTimeMS = 100
-            };
-
-            m_ClientPacketDelay = ClientPacketDelayMs;
-            var jitter = ClientPacketJitterMs;
-            if (jitter > m_ClientPacketDelay)
-            jitter = m_ClientPacketDelay;
-            m_ClientPacketDrop = ClientPacketDropRate;
-            int networkRate = 60; // TODO: read from some better place
-            // All 3 packet types every frame stored for maximum delay, doubled for safety margin
-            int maxPackets = 2 * (networkRate * 3 * m_ClientPacketDelay + 999) / 1000;
-            var simulatorParams = new SimulatorUtility.Parameters
-            {
-                MaxPacketSize = NetworkParameterConstants.MTU, MaxPacketCount = maxPackets,
-                PacketDelayMs = m_ClientPacketDelay, PacketJitterMs = jitter,
-                PacketDropPercentage = m_ClientPacketDrop
-            };
-            m_Driver = new UdpNetworkDriver(netParams, simulatorParams, reliabilityParams);
-            UnityEngine.Debug.Log($"Using simulator with latency={m_ClientPacketDelay} packet drop={m_ClientPacketDrop}");
-#else
-            m_Driver = new UdpNetworkDriver(reliabilityParams);
+                var packetDelay = ClientPacketDelayMs;
+                var jitter = ClientPacketJitterMs;
+                if (jitter > packetDelay)
+                    jitter = packetDelay;
+                var packetDrop = ClientPacketDropRate;
+                int networkRate = 60; // TODO: read from some better place
+                // All 3 packet types every frame stored for maximum delay, doubled for safety margin
+                int maxPackets = 2 * (networkRate * 3 * packetDelay + 999) / 1000;
+                return new SimulatorUtility.Parameters
+                {
+                    MaxPacketSize = NetworkParameterConstants.MTU, MaxPacketCount = maxPackets,
+                    PacketDelayMs = packetDelay, PacketJitterMs = jitter,
+                    PacketDropPercentage = packetDrop
+                };
+            }
+        }
 #endif
 
+        protected override void OnCreate()
+        {
+            if (World.GetExistingSystem<ServerSimulationSystemGroup>() != null)
+                DriverConstructor.CreateServerDriver(World, out m_Driver, out m_UnreliablePipeline, out m_ReliablePipeline);
+            else
+                DriverConstructor.CreateClientDriver(World, out m_Driver, out m_UnreliablePipeline, out m_ReliablePipeline);
+
+
             m_ConcurrentDriver = m_Driver.ToConcurrent();
-            m_UnreliablePipeline = NetworkPipeline.Null;
-            m_ReliablePipeline = NetworkPipeline.Null;
             m_DriverListening = false;
             m_Barrier = World.GetOrCreateSystem<BeginSimulationEntityCommandBufferSystem>();
             numNetworkIds = new NativeArray<int>(1, Allocator.Persistent);
@@ -177,10 +209,11 @@ namespace Unity.NetCode
             m_Driver.Dispose();
         }
 
+        [BurstCompile]
         struct ConnectionAcceptJob : IJob
         {
             public EntityCommandBuffer commandBuffer;
-            public UdpNetworkDriver driver;
+            public NetworkDriver driver;
 
             public NativeArray<int> numNetworkId;
             public NativeQueue<int> freeNetworkIds;
@@ -235,6 +268,7 @@ namespace Unity.NetCode
         }
 
         [ExcludeComponent(typeof(OutgoingRpcDataStreamBufferComponent))]
+        [BurstCompile]
         struct CompleteConnectionJob : IJobForEachWithEntity<NetworkStreamConnection>
         {
             public EntityCommandBuffer.Concurrent commandBuffer;
@@ -245,10 +279,12 @@ namespace Unity.NetCode
                 RpcSystem.SendProtocolVersion(rpcBuffer, protocolVersion);
             }
         }
+
+        [BurstCompile]
         struct DisconnectJob : IJobForEachWithEntity<NetworkStreamConnection, NetworkStreamRequestDisconnect>
         {
             public EntityCommandBuffer.Concurrent commandBuffer;
-            public UdpNetworkDriver driver;
+            public NetworkDriver driver;
             public void Execute(Entity entity, int jobIndex, ref NetworkStreamConnection connection, [ReadOnly] ref NetworkStreamRequestDisconnect disconnect)
             {
                 driver.Disconnect(connection.Value);
@@ -258,10 +294,11 @@ namespace Unity.NetCode
         }
 
         [ExcludeComponent(typeof(NetworkStreamDisconnected))]
+        [BurstCompile]
         struct ConnectionReceiveJob : IJobForEachWithEntity<NetworkStreamConnection, NetworkSnapshotAckComponent>
         {
             public EntityCommandBuffer.Concurrent commandBuffer;
-            public UdpNetworkDriver.Concurrent driver;
+            public NetworkDriver.Concurrent driver;
             public NativeQueue<int>.ParallelWriter freeNetworkIds;
             [ReadOnly] public ComponentDataFromEntity<NetworkIdComponent> networkId;
             public BufferFromEntity<IncomingRpcDataStreamBufferComponent> rpcBuffer;
@@ -279,8 +316,6 @@ namespace Unity.NetCode
                     return;
                 DataStreamReader reader;
                 NetworkEvent.Type evt;
-                cmdBuffer[entity].Clear();
-                snapshotBuffer[entity].Clear();
                 while ((evt = driver.PopEventForConnection(connection.Value, out reader)) != NetworkEvent.Type.Empty)
                 {
                     switch (evt)
@@ -301,8 +336,7 @@ namespace Unity.NetCode
                             return;
                         case NetworkEvent.Type.Data:
                             // FIXME: do something with the data
-                            var ctx = default(DataStreamReader.Context);
-                            switch ((NetworkStreamProtocol) reader.ReadByte(ref ctx))
+                            switch ((NetworkStreamProtocol) reader.ReadByte())
                             {
                                 case NetworkStreamProtocol.Command:
                                 {
@@ -312,48 +346,38 @@ namespace Unity.NetCode
                                         netStats[0] = netStats[0] + 1;
 #endif
                                     // FIXME: should be handle by a custom command stream system
-                                    uint snapshot = reader.ReadUInt(ref ctx);
-                                    uint snapshotMask = reader.ReadUInt(ref ctx);
+                                    uint snapshot = reader.ReadUInt();
+                                    uint snapshotMask = reader.ReadUInt();
                                     snapshotAck.UpdateReceivedByRemote(snapshot, snapshotMask);
-                                    uint remoteTime = reader.ReadUInt(ref ctx);
-                                    uint localTimeMinusRTT = reader.ReadUInt(ref ctx);
-                                    snapshotAck.UpdateRemoteTime(remoteTime, localTimeMinusRTT, localTime);
+                                    uint remoteTime = reader.ReadUInt();
+                                    uint localTimeMinusRTT = reader.ReadUInt();
+                                    uint interpolationDelay = reader.ReadUInt();
+                                    snapshotAck.UpdateRemoteTime(remoteTime, localTimeMinusRTT, localTime, interpolationDelay);
 
-                                    int headerSize = 1 + 4 * 4;
-
-                                    buffer.ResizeUninitialized(reader.Length - headerSize);
-                                    UnsafeUtility.MemCpy(buffer.GetUnsafePtr(),
-                                        reader.GetUnsafeReadOnlyPtr() + headerSize,
-                                        reader.Length - headerSize);
+                                    buffer.Clear();
+                                    buffer.Add(ref reader);
                                     break;
                                 }
                                 case NetworkStreamProtocol.Snapshot:
                                 {
-                                    uint remoteTime = reader.ReadUInt(ref ctx);
-                                    uint localTimeMinusRTT = reader.ReadUInt(ref ctx);
-                                    snapshotAck.ServerCommandAge = reader.ReadInt(ref ctx);
-                                    snapshotAck.UpdateRemoteTime(remoteTime, localTimeMinusRTT, localTime);
-                                    int headerSize = 1 + 4 * 3;
+                                    uint remoteTime = reader.ReadUInt();
+                                    uint localTimeMinusRTT = reader.ReadUInt();
+                                    snapshotAck.ServerCommandAge = reader.ReadInt();
+                                    snapshotAck.UpdateRemoteTime(remoteTime, localTimeMinusRTT, localTime, 0);
 
                                     var buffer = snapshotBuffer[entity];
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
                                     if (buffer.Length > 0)
                                         netStats[0] = netStats[0] + 1;
 #endif
-                                    buffer.ResizeUninitialized(reader.Length - headerSize);
-                                    UnsafeUtility.MemCpy(buffer.GetUnsafePtr(),
-                                        reader.GetUnsafeReadOnlyPtr() + headerSize,
-                                        reader.Length - headerSize);
+                                    buffer.Clear();
+                                    buffer.Add(ref reader);
                                     break;
                                 }
                                 case NetworkStreamProtocol.Rpc:
                                 {
                                     var buffer = rpcBuffer[entity];
-                                    var oldLen = buffer.Length;
-                                    buffer.ResizeUninitialized(oldLen + reader.Length - 1);
-                                    UnsafeUtility.MemCpy(((byte*) buffer.GetUnsafePtr()) + oldLen,
-                                        reader.GetUnsafeReadOnlyPtr() + 1,
-                                        reader.Length - 1);
+                                    buffer.Add(ref reader);
                                     break;
                                 }
                                 default:

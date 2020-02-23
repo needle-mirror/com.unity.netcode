@@ -27,8 +27,6 @@ public struct __GHOST_NAME__GhostSerializer : IGhostSerializer<__GHOST_NAME__Sna
         return __GHOST_IMPORTANCE__;
     }
 
-    public bool WantsPredictionDelta => true;
-
     public int SnapshotSize => UnsafeUtility.SizeOf<__GHOST_NAME__SnapshotData>();
     public void BeginSerialize(ComponentSystemBase system)
     {
@@ -44,20 +42,6 @@ public struct __GHOST_NAME__GhostSerializer : IGhostSerializer<__GHOST_NAME__Sna
         #region __GHOST_ASSIGN_COMPONENT_TYPE_CHILD_DATA__
         ghost__GHOST_COMPONENT_TYPE_NAME__Type = system.GetComponentDataFromEntity<__GHOST_COMPONENT_TYPE__>(true);
         #endregion
-    }
-
-    public bool CanSerialize(EntityArchetype arch)
-    {
-        var components = arch.GetComponentTypes();
-        int matches = 0;
-        for (int i = 0; i < components.Length; ++i)
-        {
-            #region __GHOST_COMPONENT_TYPE_CHECK__
-            if (components[i] == componentType__GHOST_COMPONENT_TYPE_NAME__)
-                ++matches;
-            #endregion
-        }
-        return (matches == __GHOST_COMPONENT_COUNT__);
     }
 
     public void CopyToSnapshot(ArchetypeChunk chunk, int ent, uint tick, ref __GHOST_NAME__SnapshotData snapshot, GhostSerializerState serializerState)
