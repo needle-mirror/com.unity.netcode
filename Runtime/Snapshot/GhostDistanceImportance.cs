@@ -1,3 +1,4 @@
+using AOT;
 using Unity.Burst;
 using Unity.Entities;
 using Unity.Mathematics;
@@ -24,6 +25,7 @@ namespace Unity.NetCode
         private static PortableFunctionPointer<GhostDistanceImportance.ScaleImportanceByDistanceDelegate> s_NoScaleFunctionPointer =
             new PortableFunctionPointer<GhostDistanceImportance.ScaleImportanceByDistanceDelegate>(NoScale);
         [BurstCompile]
+        [MonoPInvokeCallback(typeof(ScaleImportanceByDistanceDelegate))]
         private static int DefaultScale(ref GhostConnectionPosition connectionPosition, ref int3 TileSize, ref int3 TileCenter, ref int3 chunkTile, int basePriority)
         {
             var centerTile = ((int3) connectionPosition.Position - TileCenter) / TileSize;
@@ -36,6 +38,7 @@ namespace Unity.NetCode
             return basePriority;
         }
         [BurstCompile]
+        [MonoPInvokeCallback(typeof(ScaleImportanceByDistanceDelegate))]
         private static int NoScale(ref GhostConnectionPosition connectionPosition, ref int3 TileSize, ref int3 TileCenter, ref int3 pos, int basePrio)
         {
             return basePrio;

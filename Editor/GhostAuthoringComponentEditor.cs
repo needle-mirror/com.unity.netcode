@@ -27,10 +27,15 @@ namespace Unity.NetCode.Editor
         SerializedProperty Importance;
         SerializedProperty PredictingPlayerNetworkId;
         SerializedProperty ghostComponents;
+        SerializedProperty Name;
 
         public static Dictionary<string, GhostAuthoringComponent.GhostComponent> GhostDefaultOverrides;
 
         static GhostAuthoringComponentEditor()
+        {
+            InitDefaultOverrides();
+        }
+        public static void InitDefaultOverrides()
         {
             GhostDefaultOverrides = new Dictionary<string, GhostAuthoringComponent.GhostComponent>();
             var comp = new GhostAuthoringComponent.GhostComponent
@@ -105,6 +110,7 @@ namespace Unity.NetCode.Editor
             Importance = serializedObject.FindProperty("Importance");
             PredictingPlayerNetworkId = serializedObject.FindProperty("PredictingPlayerNetworkId");
             ghostComponents = serializedObject.FindProperty("Components");
+            Name = serializedObject.FindProperty("Name");
 
             bool initRootPath = true;
             var namePrefix = target.name.Replace(" ", String.Empty);
@@ -125,6 +131,9 @@ namespace Unity.NetCode.Editor
                 initRootPath = false;
             if (initRootPath)
                 RootPath.stringValue = DefaultRootPath;
+            if (Name.stringValue == "")
+                Name.stringValue = target.name;
+            Name.stringValue = Name.stringValue.Replace(" ", String.Empty);
             serializedObject.ApplyModifiedProperties();
         }
 
@@ -245,6 +254,7 @@ namespace Unity.NetCode.Editor
             EditorGUILayout.PropertyField(SnapshotDataPath);
             EditorGUILayout.PropertyField(UpdateSystemPath);
             EditorGUILayout.PropertyField(SerializerPath);
+            EditorGUILayout.PropertyField(Name);
             EditorGUILayout.PropertyField(Importance);
 
             int removeIdx = -1;
@@ -665,7 +675,7 @@ namespace Unity.NetCode.Editor
             }
 
             replacements.Clear();
-            replacements.Add("GHOST_NAME", ghostInfo.name);
+            replacements.Add("GHOST_NAME", ghostInfo.Name);
             codeGen.GenerateFile(assetPath, ghostInfo.RootPath, ghostInfo.SnapshotDataPath, replacements, batch);
         }
 
@@ -753,7 +763,7 @@ namespace Unity.NetCode.Editor
             }
 
             replacements.Clear();
-            replacements.Add("GHOST_NAME", ghostInfo.name);
+            replacements.Add("GHOST_NAME", ghostInfo.Name);
             replacements.Add("GHOST_IMPORTANCE", ghostInfo.Importance);
             replacements.Add("GHOST_COMPONENT_COUNT", serverComponentCount.ToString());
             codeGen.GenerateFile(assetPath, ghostInfo.RootPath, ghostInfo.SerializerPath, replacements, batch);
@@ -896,7 +906,7 @@ namespace Unity.NetCode.Editor
             }
 
             replacements.Clear();
-            replacements.Add("GHOST_NAME", ghostInfo.name);
+            replacements.Add("GHOST_NAME", ghostInfo.Name);
             replacements.Add("GHOST_OWNER_FIELD", ownerField);
             if (ghostInfo.DefaultClientInstantiationType == GhostAuthoringComponent.ClientInstantionType.OwnerPredicted)
             {
@@ -918,7 +928,7 @@ namespace Unity.NetCode.Editor
             }
 
             replacements.Clear();
-            replacements.Add("GHOST_NAME", ghostInfo.name);
+            replacements.Add("GHOST_NAME", ghostInfo.Name);
             codeGen.GenerateFile(assetPath, ghostInfo.RootPath, ghostInfo.UpdateSystemPath, replacements, batch);
         }
     }

@@ -1,37 +1,119 @@
 ﻿using System;
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
+using Unity.Burst;
+using Unity.Collections;
+using Unity.Collections.LowLevel.Unsafe;
 using Unity.Entities;
 using Unity.Jobs;
 using Unity.Physics;
 using Unity.Physics.Systems;
 using Unity.Networking.Transport.Utilities;
 
+[assembly: InternalsVisibleTo("Unity.NetCode.Physics.EditorTests")]
 namespace Unity.NetCode
 {
     [StructLayout(LayoutKind.Sequential)]
-    public struct CollisionHistoryBuffer
+    internal struct RawHistoryBuffer
     {
         public const int Capacity = 16;
-        private CollisionWorld CollisionWorld00;
-        private CollisionWorld CollisionWorld01;
-        private CollisionWorld CollisionWorld02;
-        private CollisionWorld CollisionWorld03;
-        private CollisionWorld CollisionWorld04;
-        private CollisionWorld CollisionWorld05;
-        private CollisionWorld CollisionWorld06;
-        private CollisionWorld CollisionWorld07;
-        private CollisionWorld CollisionWorld08;
-        private CollisionWorld CollisionWorld09;
-        private CollisionWorld CollisionWorld10;
-        private CollisionWorld CollisionWorld11;
-        private CollisionWorld CollisionWorld12;
-        private CollisionWorld CollisionWorld13;
-        private CollisionWorld CollisionWorld14;
-        private CollisionWorld CollisionWorld15;
 
+        public CollisionWorld world01;
+        public CollisionWorld world02;
+        public CollisionWorld world03;
+        public CollisionWorld world04;
+        public CollisionWorld world05;
+        public CollisionWorld world06;
+        public CollisionWorld world07;
+        public CollisionWorld world08;
+        public CollisionWorld world09;
+        public CollisionWorld world10;
+        public CollisionWorld world11;
+        public CollisionWorld world12;
+        public CollisionWorld world13;
+        public CollisionWorld world14;
+        public CollisionWorld world15;
+        public CollisionWorld world16;
+    }
+    internal static class RawHistoryBufferExtension
+    {
+        public static ref CollisionWorld GetWorldAt(this ref RawHistoryBuffer buffer, int index)
+        {
+            switch (index)
+            {
+                case 0: return ref buffer.world01;
+                case 1: return ref buffer.world02;
+                case 2: return ref buffer.world03;
+                case 3: return ref buffer.world04;
+                case 4: return ref buffer.world05;
+                case 5: return ref buffer.world06;
+                case 6: return ref buffer.world07;
+                case 7: return ref buffer.world08;
+                case 8: return ref buffer.world09;
+                case 9: return ref buffer.world10;
+                case 10: return ref buffer.world11;
+                case 11: return ref buffer.world12;
+                case 12: return ref buffer.world13;
+                case 13: return ref buffer.world14;
+                case 14: return ref buffer.world15;
+                case 15: return ref buffer.world16;
+                default:
+                    throw new IndexOutOfRangeException();
+            }
+        }
+
+        public static void SetWorldAt(this ref RawHistoryBuffer buffer, int index, in CollisionWorld world)
+        {
+            switch (index)
+            {
+                case 0: buffer.world01 = world; break;
+                case 1: buffer.world02 = world; break;
+                case 2: buffer.world03 = world; break;
+                case 3: buffer.world04 = world; break;
+                case 4: buffer.world05 = world; break;
+                case 5: buffer.world06 = world; break;
+                case 6: buffer.world07 = world; break;
+                case 7: buffer.world08 = world; break;
+                case 8: buffer.world09 = world; break;
+                case 9: buffer.world10 = world; break;
+                case 10:buffer.world11 = world; break;
+                case 11:buffer.world12 = world; break;
+                case 12:buffer.world13 = world; break;
+                case 13:buffer.world14 = world; break;
+                case 14:buffer.world15 = world; break;
+                case 15:buffer.world16 = world; break;
+                default:
+                    throw new IndexOutOfRangeException();
+            }
+        }
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct CollisionHistoryBuffer : IDisposable
+    {
+        public const int Capacity = RawHistoryBuffer.Capacity;
         public int Size => m_size;
         private int m_size;
         internal uint m_lastStoredTick;
+
+        private RawHistoryBuffer m_buffer;
+        [NativeDisableUnsafePtrRestriction]
+        private unsafe void* m_bufferCopyPtr;
+#if ENABLE_UNITY_COLLECTIONS_CHECKS
+        //For job checks
+        private AtomicSafetyHandle m_Safety;
+        //To avoid accessing the buffer if already disposed
+        [NativeSetClassTypeToNullOnSchedule]
+        private DisposeSentinel m_DisposeSentinel;
+#if UNITY_2020_1_OR_NEWER
+        private static readonly SharedStatic<int> s_staticSafetyId = SharedStatic<int>.GetOrCreate<CollisionHistoryBufferRef>();
+        [BurstDiscard]
+        private static void CreateStaticSafetyId()
+        {
+            s_staticSafetyId.Data = AtomicSafetyHandle.NewStaticSafetyId<CollisionHistoryBuffer>();
+        }
+#endif
+#endif
 
         public CollisionHistoryBuffer(int size)
         {
@@ -39,14 +121,34 @@ namespace Unity.NetCode
                 throw new ArgumentOutOfRangeException($"Invalid size {size}. Must be <= {Capacity}");
             m_size = size;
             m_lastStoredTick = 0;
-            CollisionWorld00 = CollisionWorld01 = CollisionWorld02 = CollisionWorld03 =
-                CollisionWorld04 = CollisionWorld05 = CollisionWorld06 = CollisionWorld07 =
-                CollisionWorld08 = CollisionWorld09 = CollisionWorld10 = CollisionWorld11 =
-                CollisionWorld12 = CollisionWorld13 = CollisionWorld14 = CollisionWorld15 = default;
+            var defaultWorld = default(CollisionWorld);
+            m_buffer = new RawHistoryBuffer();
+            for(int i=0;i<Capacity;++i)
+            {
+                m_buffer.SetWorldAt(i, defaultWorld);
+            }
+
+            unsafe
+            {
+                m_bufferCopyPtr = UnsafeUtility.Malloc(UnsafeUtility.SizeOf<RawHistoryBuffer>(), 8, Allocator.Persistent);
+            }
+#if ENABLE_UNITY_COLLECTIONS_CHECKS
+            DisposeSentinel.Create(out this.m_Safety, out this.m_DisposeSentinel, 10, Allocator.Persistent);
+#if UNITY_2020_1_OR_NEWER
+            if (s_staticSafetyId.Data == 0)
+            {
+                CreateStaticSafetyId();
+            }
+            AtomicSafetyHandle.SetStaticSafetyId(ref m_Safety, s_staticSafetyId.Data);
+#endif
+#endif
         }
 
         public void GetCollisionWorldFromTick(uint tick, uint interpolationDelay, out CollisionWorld collWorld)
         {
+#if ENABLE_UNITY_COLLECTIONS_CHECKS
+            AtomicSafetyHandle.CheckExistsAndThrow(m_Safety);
+#endif
             // Clamp to oldest physics copy when requesting older data than supported
             if (interpolationDelay > m_size-1)
                 interpolationDelay = (uint)m_size-1;
@@ -57,84 +159,112 @@ namespace Unity.NetCode
             GetCollisionWorldFromIndex(index, out collWorld);
         }
 
-        public unsafe void DisposeIndex(int index)
+        public void DisposeIndex(int index)
         {
-            if (m_size == 1 && index == 0)
-                return;
-            switch (index)
-            {
-                case 0 : CollisionWorld00.Dispose(); return;
-                case 1 : CollisionWorld01.Dispose(); return;
-                case 2 : CollisionWorld02.Dispose(); return;
-                case 3 : CollisionWorld03.Dispose(); return;
-                case 4 : CollisionWorld04.Dispose(); return;
-                case 5 : CollisionWorld05.Dispose(); return;
-                case 6 : CollisionWorld06.Dispose(); return;
-                case 7 : CollisionWorld07.Dispose(); return;
-                case 8 : CollisionWorld08.Dispose(); return;
-                case 9 : CollisionWorld09.Dispose(); return;
-                case 10 : CollisionWorld10.Dispose(); return;
-                case 11 : CollisionWorld11.Dispose(); return;
-                case 12 : CollisionWorld12.Dispose(); return;
-                case 13 : CollisionWorld13.Dispose(); return;
-                case 14 : CollisionWorld14.Dispose(); return;
-                case 15 : CollisionWorld15.Dispose(); return;
-                default:
-                    throw new IndexOutOfRangeException();
-            }
+#if ENABLE_UNITY_COLLECTIONS_CHECKS
+            AtomicSafetyHandle.CheckExistsAndThrow(m_Safety);
+#endif
+            m_buffer.GetWorldAt(index).Dispose();
         }
 
-        unsafe void GetCollisionWorldFromIndex(int index, out CollisionWorld collWorld)
+        void GetCollisionWorldFromIndex(int index, out CollisionWorld collWorld)
         {
-            switch (index)
-            {
-                case 0 : collWorld = CollisionWorld00;break;
-                case 1 : collWorld = CollisionWorld01;break;
-                case 2 : collWorld = CollisionWorld02;break;
-                case 3 : collWorld = CollisionWorld03;break;
-                case 4 : collWorld = CollisionWorld04;break;
-                case 5 : collWorld = CollisionWorld05;break;
-                case 6 : collWorld = CollisionWorld06;break;
-                case 7 : collWorld = CollisionWorld07;break;
-                case 8 : collWorld = CollisionWorld08;break;
-                case 9 : collWorld = CollisionWorld09;break;
-                case 10 : collWorld = CollisionWorld10;break;
-                case 11 : collWorld = CollisionWorld11;break;
-                case 12 : collWorld = CollisionWorld12;break;
-                case 13 : collWorld = CollisionWorld13;break;
-                case 14 : collWorld = CollisionWorld14;break;
-                case 15 : collWorld = CollisionWorld15;break;
-                default:
-                    throw new IndexOutOfRangeException();
-            }
+#if ENABLE_UNITY_COLLECTIONS_CHECKS
+            AtomicSafetyHandle.CheckExistsAndThrow(m_Safety);
+#endif
+            collWorld = m_buffer.GetWorldAt(index);
         }
 
-        public unsafe void CloneCollisionWorld(int index, in CollisionWorld collWorld)
+        public void CloneCollisionWorld(int index, in CollisionWorld collWorld)
         {
-            var worldClone = (m_size==1 && index == 0) ? collWorld : collWorld.Clone();
-            switch (index)
+#if ENABLE_UNITY_COLLECTIONS_CHECKS
+            AtomicSafetyHandle.CheckExistsAndThrow(m_Safety);
+#endif
+            if (index >= Capacity)
             {
-                case 0 : CollisionWorld00 = (CollisionWorld)worldClone; break;
-                case 1 : CollisionWorld01 = (CollisionWorld)worldClone;break;
-                case 2 : CollisionWorld02 = (CollisionWorld)worldClone;break;
-                case 3 : CollisionWorld03 = (CollisionWorld)worldClone;break;
-                case 4 : CollisionWorld04 = (CollisionWorld)worldClone;break;
-                case 5 : CollisionWorld05 = (CollisionWorld)worldClone;break;
-                case 6 : CollisionWorld06 = (CollisionWorld)worldClone;break;
-                case 7 : CollisionWorld07 = (CollisionWorld)worldClone;break;
-                case 8 : CollisionWorld08 = (CollisionWorld)worldClone;break;
-                case 9 : CollisionWorld09 = (CollisionWorld)worldClone;break;
-                case 10 : CollisionWorld10 = (CollisionWorld)worldClone;break;
-                case 11 : CollisionWorld11 = (CollisionWorld)worldClone;break;
-                case 12 : CollisionWorld12 = (CollisionWorld)worldClone;break;
-                case 13 : CollisionWorld13 = (CollisionWorld)worldClone;break;
-                case 14 : CollisionWorld14 = (CollisionWorld)worldClone;break;
-                case 15 : CollisionWorld15 = (CollisionWorld)worldClone;break;
-                default:
-                    throw new IndexOutOfRangeException();
+                throw new IndexOutOfRangeException();
             }
+#if ENABLE_UNITY_COLLECTIONS_CHECKS
+            if (m_buffer.GetWorldAt(index).NumBodies > 0)
+            {
+                UnityEngine.Debug.LogError("Not disposing CollisionWorld before assign a new one might cause memory leak");
+            }
+#endif
+            m_buffer.SetWorldAt(index, collWorld.Clone());
         }
 
+        public unsafe CollisionHistoryBufferRef AsCollisionHistoryBufferRef()
+        {
+#if ENABLE_UNITY_COLLECTIONS_CHECKS
+            //First check the CheckExistAndThrow to avoid bad access and return better error
+            AtomicSafetyHandle.CheckExistsAndThrow(m_Safety);
+            //Then validate the write access right
+            AtomicSafetyHandle.CheckWriteAndThrow(m_Safety);
+#endif
+            UnsafeUtilityEx.AsRef<RawHistoryBuffer>(m_bufferCopyPtr) = m_buffer;
+            var bufferRef = new CollisionHistoryBufferRef
+            {
+                m_ptr = m_bufferCopyPtr,
+                m_lastStoredTick = m_lastStoredTick,
+                m_size = m_size,
+            };
+#if ENABLE_UNITY_COLLECTIONS_CHECKS
+            bufferRef.m_Safety = m_Safety;
+            AtomicSafetyHandle.UseSecondaryVersion(ref bufferRef.m_Safety);
+#endif
+            return bufferRef;
+        }
+
+        public void Dispose()
+        {
+#if ENABLE_UNITY_COLLECTIONS_CHECKS
+            DisposeSentinel.Dispose(ref m_Safety, ref m_DisposeSentinel);
+#endif
+            unsafe
+            {
+                if (m_bufferCopyPtr != null)
+                {
+                    UnsafeUtility.Free(m_bufferCopyPtr, Allocator.Persistent);
+                    m_bufferCopyPtr = null;
+                }
+                for (int i = 0; i < Capacity; ++i)
+                {
+                    m_buffer.GetWorldAt(i).Dispose();
+                }
+            }
+        }
+    }
+
+    public struct CollisionHistoryBufferRef
+    {
+        [NativeDisableUnsafePtrRestriction]
+        unsafe internal void *m_ptr;
+        internal uint m_lastStoredTick;
+        internal int m_size;
+#if ENABLE_UNITY_COLLECTIONS_CHECKS
+        internal AtomicSafetyHandle m_Safety;
+#endif
+        public void GetCollisionWorldFromTick(uint tick, uint interpolationDelay, out CollisionWorld collWorld)
+        {
+#if ENABLE_UNITY_COLLECTIONS_CHECKS
+            //The error will be misleading (is going to mention a NativeArray) but at least is more consistent
+            //Rely only on CheckReadAndThrow give bad error messages
+            AtomicSafetyHandle.CheckExistsAndThrow(this.m_Safety);
+            AtomicSafetyHandle.CheckReadAndThrow(this.m_Safety);
+#endif
+            // Clamp to oldest physics copy when requesting older data than supported
+            if (interpolationDelay > m_size-1)
+                interpolationDelay = (uint)m_size-1;
+            tick -= interpolationDelay;
+            if (SequenceHelpers.IsNewer(tick, m_lastStoredTick))
+                tick = m_lastStoredTick;
+            var index = (int)(tick % m_size);
+
+            unsafe
+            {
+                collWorld = UnsafeUtilityEx.AsRef<RawHistoryBuffer>(m_ptr).GetWorldAt(index);
+            }
+        }
     }
 
     [UpdateInGroup(typeof(ClientAndServerSimulationSystemGroup))]
@@ -154,10 +284,7 @@ namespace Unity.NetCode
         private bool m_initialized;
         private uint m_lastStoredTick;
 
-        public CollisionHistoryBuffer CollisionHistory
-        {
-            get { return m_CollisionHistory;  }
-        }
+        public CollisionHistoryBufferRef CollisionHistory => m_CollisionHistory.AsCollisionHistoryBufferRef();
 
         CollisionHistoryBuffer m_CollisionHistory;
 
@@ -174,11 +301,7 @@ namespace Unity.NetCode
         }
         protected override void OnDestroy()
         {
-            if (m_initialized)
-            {
-                for(int i=0; i < CollisionHistoryBuffer.Capacity; ++i)
-                    m_CollisionHistory.DisposeIndex(i);
-            }
+            m_CollisionHistory.Dispose();
         }
 
         protected override JobHandle OnUpdate(JobHandle inputDeps)

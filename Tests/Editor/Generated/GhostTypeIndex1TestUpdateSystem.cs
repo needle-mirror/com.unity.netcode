@@ -58,8 +58,10 @@ public class GhostTypeIndex1TestGhostUpdateSystem : JobComponentSystem
                         minMaxSnapshotTick[minMaxOffset + 1] = latestTick;
                 }
 #endif
+                // If there is no data found don't apply anything (would be default state), required for prespawned ghosts
                 GhostTypeIndex1TestSnapshotData snapshotData;
-                snapshot.GetDataAtTick(targetTick, targetTickFraction, out snapshotData);
+                if (!snapshot.GetDataAtTick(targetTick, targetTickFraction, out snapshotData))
+                    return;
 
                 var ghostGhostTypeIndex = ghostGhostTypeIndexArray[entityIndex];
                 var ghostRotation = ghostRotationArray[entityIndex];
@@ -152,19 +154,11 @@ public class GhostTypeIndex1TestGhostUpdateSystem : JobComponentSystem
     private GhostPredictionSystemGroup m_GhostPredictionSystemGroup;
     private EntityQuery m_interpolatedQuery;
     private EntityQuery m_predictedQuery;
-    private NativeHashMap<int, GhostEntity> m_ghostEntityMap;
-#if UNITY_EDITOR || DEVELOPMENT_BUILD
-    private NativeArray<uint> m_ghostMinMaxSnapshotTick;
-#endif
     private GhostUpdateSystemGroup m_GhostUpdateSystemGroup;
     private uint m_LastPredictedTick;
     protected override void OnCreate()
     {
         m_GhostUpdateSystemGroup = World.GetOrCreateSystem<GhostUpdateSystemGroup>();
-        m_ghostEntityMap = m_GhostUpdateSystemGroup.GhostEntityMap;
-#if UNITY_EDITOR || DEVELOPMENT_BUILD
-        m_ghostMinMaxSnapshotTick = m_GhostUpdateSystemGroup.GhostSnapshotTickMinMax;
-#endif
         m_ClientSimulationSystemGroup = World.GetOrCreateSystem<ClientSimulationSystemGroup>();
         m_GhostPredictionSystemGroup = World.GetOrCreateSystem<GhostPredictionSystemGroup>();
         m_interpolatedQuery = GetEntityQuery(new EntityQueryDesc
@@ -194,13 +188,17 @@ public class GhostTypeIndex1TestGhostUpdateSystem : JobComponentSystem
     }
     protected override JobHandle OnUpdate(JobHandle inputDeps)
     {
+        var ghostEntityMap = m_GhostUpdateSystemGroup.GhostEntityMap;
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+        var ghostMinMaxSnapshotTick = m_GhostUpdateSystemGroup.GhostSnapshotTickMinMax;
+#endif
         if (!m_predictedQuery.IsEmptyIgnoreFilter)
         {
             var updatePredictedJob = new UpdatePredictedJob
             {
-                GhostMap = m_ghostEntityMap,
+                GhostMap = ghostEntityMap,
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
-                minMaxSnapshotTick = m_ghostMinMaxSnapshotTick,
+                minMaxSnapshotTick = ghostMinMaxSnapshotTick,
 #endif
                 minPredictedTick = m_GhostPredictionSystemGroup.OldestPredictedTick,
                 ghostSnapshotDataType = GetArchetypeChunkBufferType<GhostTypeIndex1TestSnapshotData>(true),
@@ -223,9 +221,9 @@ public class GhostTypeIndex1TestGhostUpdateSystem : JobComponentSystem
         {
             var updateInterpolatedJob = new UpdateInterpolatedJob
             {
-                GhostMap = m_ghostEntityMap,
+                GhostMap = ghostEntityMap,
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
-                minMaxSnapshotTick = m_ghostMinMaxSnapshotTick,
+                minMaxSnapshotTick = ghostMinMaxSnapshotTick,
 #endif
                 ghostSnapshotDataType = GetArchetypeChunkBufferType<GhostTypeIndex1TestSnapshotData>(true),
                 ghostEntityType = GetArchetypeChunkEntityType(),

@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using Unity.Core;
 using Unity.Entities;
@@ -7,7 +8,7 @@ namespace Unity.NetCode
 {
     [DisableAutoCreation]
     [AlwaysUpdateSystem]
-    public class ClientSimulationSystemGroup : ComponentSystemGroup
+    public class ClientSimulationSystemGroup : SimulationSystemGroup
     {
 #if !UNITY_SERVER
         internal TickClientSimulationSystem ParentTickSystem;
@@ -36,15 +37,24 @@ namespace Unity.NetCode
 
         protected override void OnCreate()
         {
+            base.OnCreate();
             m_beginBarrier = World.GetOrCreateSystem<BeginSimulationEntityCommandBufferSystem>();
             m_NetworkReceiveSystemGroup = World.GetOrCreateSystem<NetworkReceiveSystemGroup>();
             m_NetworkTimeSystem = World.GetOrCreateSystem<NetworkTimeSystem>();
             m_fixedUpdateMarker = new ProfilerMarker("ClientFixedUpdate");
         }
 
-        protected List<ComponentSystemBase> m_systemsInGroup = new List<ComponentSystemBase>();
-
-        public override IEnumerable<ComponentSystemBase> Systems => m_systemsInGroup;
+        public override IEnumerable<ComponentSystemBase> Systems
+        {
+            get
+            {
+                yield return m_NetworkReceiveSystemGroup;
+                foreach (var v in base.Systems)
+                {
+                    yield return v;
+                }
+            }
+        }
 
         protected override void OnUpdate()
         {
@@ -142,53 +152,15 @@ namespace Unity.NetCode
             World.SetTime(previousTime);
         }
 
-        public override void SortSystemUpdateList()
+        //FIXME: this work but is not ideal. Because it is an overload and not an override (virtual), if the method is
+        //called using a reference to the base class interface only the SimulationSystem will be sorted and the NetworkReceiveSystemGroup
+        //will be not. While technically incorrect, this work in practice because we are not changing / adding new systems
+        //to the NetworkReceiveSystemGroup at runtime.
+        //Best things to do is to add a new parent group that encapsulate both and tick/sort that instead.
+        public void SortSystemsAndNetworkSystemGroup()
         {
-            // Extract list of systems to sort (excluding built-in systems that are inserted at fixed points)
-            var toSort = new List<ComponentSystemBase>(m_systemsToUpdate.Count);
-            BeginSimulationEntityCommandBufferSystem beginEcbSys = null;
-            LateSimulationSystemGroup lateSysGroup = null;
-            EndSimulationEntityCommandBufferSystem endEcbSys = null;
-            GhostSpawnSystemGroup ghostSpawnSys = null;
-            foreach (var s in m_systemsToUpdate) {
-                if (s is BeginSimulationEntityCommandBufferSystem) {
-                    beginEcbSys = (BeginSimulationEntityCommandBufferSystem)s;
-                } else if (s is GhostSpawnSystemGroup) {
-                    ghostSpawnSys = (GhostSpawnSystemGroup)s;
-                    ghostSpawnSys.SortSystemUpdateList(); // not handled by base-class sort call below
-                } else if (s is LateSimulationSystemGroup) {
-                    lateSysGroup = (LateSimulationSystemGroup)s;
-                    lateSysGroup.SortSystemUpdateList(); // not handled by base-class sort call below
-                } else if (s is EndSimulationEntityCommandBufferSystem) {
-                    endEcbSys = (EndSimulationEntityCommandBufferSystem)s;
-                } else {
-                    toSort.Add(s);
-                }
-            }
-            m_systemsToUpdate = toSort;
-            base.SortSystemUpdateList();
-            // Re-insert built-in systems to construct the final list
-            var finalSystemList = new List<ComponentSystemBase>(toSort.Count);
-            if (beginEcbSys != null)
-                finalSystemList.Add(beginEcbSys);
-            if (ghostSpawnSys != null)
-                finalSystemList.Add(ghostSpawnSys);
-            foreach (var s in m_systemsToUpdate)
-                finalSystemList.Add(s);
-            if (lateSysGroup != null)
-                finalSystemList.Add(lateSysGroup);
-            if (endEcbSys != null)
-                finalSystemList.Add(endEcbSys);
-            m_systemsToUpdate = finalSystemList;
-
-            m_NetworkReceiveSystemGroup.SortSystemUpdateList();
-            m_systemsInGroup = new List<ComponentSystemBase>(2 + m_systemsToUpdate.Count);
-            m_systemsInGroup.Add(m_beginBarrier);
-            m_systemsInGroup.Add(m_NetworkReceiveSystemGroup);
-            if (beginEcbSys != null)
-                m_systemsInGroup.AddRange(m_systemsToUpdate.GetRange(1, m_systemsToUpdate.Count-1));
-            else
-                m_systemsInGroup.AddRange(m_systemsToUpdate);
+            base.SortSystems();
+            m_NetworkReceiveSystemGroup.SortSystems();
         }
     }
 

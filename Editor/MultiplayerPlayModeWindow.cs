@@ -37,7 +37,7 @@ namespace Unity.NetCode.Editor
             if (EditorApplication.isPlaying)
             {
                 EditorGUILayout.LabelField("Controls", EditorStyles.boldLabel);
-                foreach (var world in World.AllWorlds)
+                foreach (var world in World.All)
                 {
                     var simulationGroup = world.GetExistingSystem<ClientSimulationSystemGroup>();
                     if (simulationGroup == null)
@@ -209,7 +209,7 @@ namespace Unity.NetCode.Editor
         {
             if (PresentedClient == null)
             {
-                foreach (var world in World.AllWorlds)
+                foreach (var world in World.All)
                 {
                     var simulationGroup = world.GetExistingSystem<ClientSimulationSystemGroup>();
                     if (simulationGroup != null && PresentedClient == null)
@@ -221,7 +221,7 @@ namespace Unity.NetCode.Editor
             if (PresentedClient != m_currentPresentedClient)
             {
                 // Change active client for presentation
-                foreach (var world in World.AllWorlds)
+                foreach (var world in World.All)
                 {
                     var simulationGroup = world.GetExistingSystem<ClientSimulationSystemGroup>();
                     if (simulationGroup != null && simulationGroup == m_currentPresentedClient)

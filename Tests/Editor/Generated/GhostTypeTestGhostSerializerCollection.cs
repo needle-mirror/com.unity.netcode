@@ -90,4 +90,9 @@ public class GhostTypeTestGhostSendSystem : GhostSendSystem<GhostTypeTestGhostSe
         base.OnCreate();
         RequireSingletonForUpdate<EnableGhostTypeTestGhostSendSystemComponent>();
     }
+
+    public override bool IsEnabled()
+    {
+        return HasSingleton<EnableGhostTypeTestGhostSendSystemComponent>();
+    }
 }

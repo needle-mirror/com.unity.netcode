@@ -51,8 +51,6 @@ namespace Unity.NetCode
             }
         }
 
-        public string prefabId = "";
-
 #if UNITY_EDITOR
         void OnValidate()
         {
@@ -61,7 +59,7 @@ namespace Unity.NetCode
 
         void ValidatePrefabId()
         {
-            if (UnityEditor.PrefabUtility.IsPartOfPrefabInstance(gameObject) || Application.isPlaying)
+            if (UnityEditor.PrefabUtility.IsPartOfNonAssetPrefabInstance(gameObject) || Application.isPlaying)
                 return;
             var guid = "";
             if (gameObject.transform.parent == null)
@@ -86,7 +84,10 @@ namespace Unity.NetCode
                 }
             }
             if (guid != prefabId)
+            {
+                UnityEditor.Undo.RecordObject(this, "");
                 prefabId = guid;
+            }
         }
 #endif
 
@@ -111,7 +112,9 @@ namespace Unity.NetCode
         public string Importance = "1";
         public string PredictingPlayerNetworkId = "";
         public GhostComponent[] Components = new GhostComponent[0];
-
+        public string prefabId = "";
+        public string Name;
+        
         [HideInInspector] public bool doNotStrip = false;
     }
 
@@ -201,7 +204,8 @@ namespace Unity.NetCode
                 }
                 else if (target == NetcodeConversionTarget.Client)
                 {
-                    var snapshotTypeName = $"{ghostAuthoring.name}SnapshotData";
+                    var name = ghostAuthoring.Name;
+                    var snapshotTypeName = $"{name}SnapshotData";
                     if (!typeLookup.TryGetValue(snapshotTypeName, out var snapshotType))
                     {
                         throw new InvalidOperationException(
@@ -209,6 +213,7 @@ namespace Unity.NetCode
                     }
 
                     DstEntityManager.AddComponent(entity, snapshotType);
+
                     DstEntityManager.AddComponentData(entity, new GhostComponent());
                     if (ghostAuthoring.DefaultClientInstantiationType ==
                         GhostAuthoringComponent.ClientInstantionType.Interpolated)

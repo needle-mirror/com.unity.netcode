@@ -1,5 +1,29 @@
 # Change log
 
+## [0.2.0-preview.5] - 2020-06-05
+### New features
+* Support for pre-spawned ghosts. When prefab ghost instances are placed into subscenes they will be present on server and clients when they load the scene. They are then automatically connected together and will work just like normally spawned ghosts after that.
+
+### Changes
+* Changed how snapshot size is limited to make it more robust and give more clear errors.
+* Added `Name` field to the `GhostAuthoringComponent`  which is used during code generation to identify the ghost prefab. By default this is the prefab name but can be changed.
+* `ClientServerBoostrap` now correctly use two-phase initialization to initialise all the systems
+* Changed `PhysicsWorldHistory.CollisionHistoryBuffer` to return a safe memory reference to the `CollisionHistoryBuffer` instead of copy a large amount of data on the stack.
+* Upgrade to Entities 0.11
+
+### Fixes
+* Fixed issue with ghost prefabs when they were Variant or Model Prefabs.
+* Fixed issue with datastream going out of sync when snapshot desync was detected
+* Fixed an issue with `RegisterRPC` in case you try to register a malformed RPC with an invalid pointer
+* Fixed an issue with `ServerTick` that does not monotonically increase in presence of high ping
+* Fixed an issue with `ClientServerTickRate` being created multiple times if the client connect and disconnect from the server
+* Fixed an issue with `ClientServerTickRate` not reused by the client if it was already present in the world
+* Fixed an issue with `ClientServerBootstrap` and the fact `TypeManager` was not initialised when we generate client/server world's the system lists
+
+### Upgrade guide
+
+* A `Name` field was added to the `GhostAuthoringComponent` and as a result all prefabs with this component need to be opened and close to serialize the field. It's used as a prefix name during code generation so it might also be neccessary to press the _Generate Code_ button again
+
 ## [0.1.0-preview.6] - 2020-02-24
 ### New features
 * Added integration with UnityPhysics, including the lag compensation from DotsSample. To use it you must have the UnityPhysics added to your project.

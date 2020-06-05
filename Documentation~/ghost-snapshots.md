@@ -74,6 +74,46 @@ You need to implement some specific code to handle the predicted spawning for pl
 
 NetCode spawns entities on the client with a Prefab stored in the `GhostPrefabCollectionComponent` singleton. A `GhostCollectionAuthoringComponent` and a `ConvertToClientServerEntity` component that uses Client as the conversion target creates the Prefab.
 
+## Prespawned ghosts
+
+A ghost instance (an instance of a ghost prefab) can be placed in a subscene in the Unity editor so that it will be treated just like a normal spawned ghost when the player has loaded the data. There are two restrictions for prespwaned ghosts. Firstly, it must be an instance of a ghost prefab which has been registered in the ghost collection. Secondly, it must be place in a subscene.
+
+The ghost authoring component on the prespawned ghost cannot be configured differently than the ghost prefab source, since that data is handled on a ghost type basis.
+
+Each subscene applies prespawn IDs to the ghosts it contains in a deterministic manner. The subscene hashes the component data on the ghosts, which currently is only the `Rotation` and `Translation` components. It also keeps a single hash composed of all the ghost data for the subscene itself. 
+
+At runtime, when all subscenes have been loaded, there is a process which applies the prespawn ghost IDs to the ghosts as normal runtime ghost IDs. This has to be done after all subscenes have finished loading and the game is ready to start. It is also done deterministically, so that for each player (server or client), the ghost IDs are applied in exactly the same way. This happens when the `NetworkStreamInGame` component has been added to the network connection. Currently, there is no reliable builtin way to detect when subscenes have been loaded. However, it's possible to do so manually. To do this, add a custom tag to every subscene, then count the number of tags to detect when all subscenes are ready.
+
+An alternative way to detect whether subscenes have finished loading without using tags is to check if the prespawn ghost count is correct. The following example shows one possible solution for checking this number, in this case testing for 7 ghosts across all loaded subscenes:
+
+```c#
+[UpdateInGroup(typeof(ClientSimulationSystemGroup))]
+public class GoInGameClientSystem : ComponentSystem
+{
+    public int ExpectedGhostCount = 7;
+    protected override void OnUpdate()
+    {
+        var prespawnCount = EntityManager.CreateEntityQuery(ComponentType.ReadOnly<PreSpawnedGhostId>()).CalculateEntityCount();
+        Entities.WithNone<NetworkStreamInGame>().ForEach((Entity ent, ref NetworkIdComponent id) =>
+        {
+            if (ExpectedGhostCount == prespawnCount)
+                PostUpdateCommands.AddComponent<NetworkStreamInGame>(ent);
+        });
+    }
+}
+```
+
+To create a prespawned ghost from a normal scene you can do the following:
+* Right click on the *Hierarchy* in the inspector and click *New Sub Scene*.
+* Drag an instance of a ghost prefab into the newly created subscene.
+
+This feature is new and is liable to change in the future. The current implementation has some limitations which are listed below:
+* With regard to using subscenes, when placing an object in a subscene, you no longer place the `ConvertToClientServerEntity` component on it as being in a subscene implies conversion to an Entity. Also, it means the option of making an entity only appear on the client or server is now missing. Prespawned ghosts always appear on both client and server as they are just like a normal spawned ghost, and will always be synchronized (as configured) after the game starts.
+* Loading a new subscene with prespawned ghosts after starting (entering the game) is currently not supported.
+* Only the `Translation` and `Rotation` `IComponentData` components, converted from the `Transform` component, are currently used to generate the prespawn IDs. This means that the prespawn ghosts cannot be placed in the same location and these components are required to use prespawn ghosts.
+
+To look at an example of a scene using prespawn ghosts, see the test in *Assets/Tests/PrespawnTests*. This is used in some of the tests inside the sample project.
+
 ## Snapshot visualization tool
 
 To understand what is being put on the wire in the netcode, you can use the prototype snapshot visualization tool, __NetDbg__ in the Stats folder. To open the tool, go to menu: __Multiplayer &gt; Open NetDbg__, and the tool opens in a browser window. It displays a vertical bar for each snapshot Unity receives, with a breakdown of the snapshot’s ghost types. To see more detailed information about the snapshot, click on one of the bars. __Note:__ This tool is a prototype. In future versions of the package it will integrate with the Unity Profiler so you can easily correlate network traffic with memory usage and CPU performance.

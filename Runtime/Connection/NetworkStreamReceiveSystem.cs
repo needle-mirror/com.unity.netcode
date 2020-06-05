@@ -10,6 +10,8 @@ namespace Unity.NetCode
 {
     [DisableAutoCreation]
     [UpdateInWorld(UpdateInWorld.TargetWorld.ClientAndServer)]
+    [UpdateInGroup(typeof(SimulationSystemGroup), OrderFirst = true)]
+    [UpdateAfter(typeof(BeginSimulationEntityCommandBufferSystem))]
     public class NetworkReceiveSystemGroup : ComponentSystemGroup
     {
     }
@@ -22,7 +24,7 @@ namespace Unity.NetCode
 
     [UpdateInGroup(typeof(NetworkReceiveSystemGroup))]
     [AlwaysUpdateSystem]
-    public class NetworkStreamReceiveSystem : JobComponentSystem, INetworkStreamDriverConstructor
+    public class NetworkStreamReceiveSystem : SystemBase, INetworkStreamDriverConstructor
     {
         public static INetworkStreamDriverConstructor s_DriverConstructor;
         public INetworkStreamDriverConstructor DriverConstructor => s_DriverConstructor != null ? s_DriverConstructor : this;
@@ -38,10 +40,10 @@ namespace Unity.NetCode
         private NetworkPipeline m_UnreliablePipeline;
         private NetworkPipeline m_ReliablePipeline;
         private bool m_DriverListening;
-        private NativeArray<int> numNetworkIds;
-        private NativeQueue<int> freeNetworkIds;
+        private NativeArray<int> m_NumNetworkIds;
+        private NativeQueue<int> m_FreeNetworkIds;
         private BeginSimulationEntityCommandBufferSystem m_Barrier;
-        private RpcQueue<RpcSetNetworkId> rpcQueue;
+        private RpcQueue<RpcSetNetworkId> m_RpcQueue;
         private EntityQuery m_NetworkStreamConnectionQuery;
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
         private NativeArray<uint> m_NetStats;
@@ -175,9 +177,9 @@ namespace Unity.NetCode
             m_ConcurrentDriver = m_Driver.ToConcurrent();
             m_DriverListening = false;
             m_Barrier = World.GetOrCreateSystem<BeginSimulationEntityCommandBufferSystem>();
-            numNetworkIds = new NativeArray<int>(1, Allocator.Persistent);
-            freeNetworkIds = new NativeQueue<int>(Allocator.Persistent);
-            rpcQueue = World.GetOrCreateSystem<RpcSystem>().GetRpcQueue<RpcSetNetworkId>();
+            m_NumNetworkIds = new NativeArray<int>(1, Allocator.Persistent);
+            m_FreeNetworkIds = new NativeQueue<int>(Allocator.Persistent);
+            m_RpcQueue = World.GetOrCreateSystem<RpcSystem>().GetRpcQueue<RpcSetNetworkId>();
             m_NetworkStreamConnectionQuery = EntityManager.CreateEntityQuery(typeof(NetworkStreamConnection));
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
             m_NetStats = new NativeArray<uint>(1, Allocator.Persistent);
@@ -191,8 +193,8 @@ namespace Unity.NetCode
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
             m_NetStats.Dispose();
 #endif
-            numNetworkIds.Dispose();
-            freeNetworkIds.Dispose();
+            m_NumNetworkIds.Dispose();
+            m_FreeNetworkIds.Dispose();
             var driver = m_Driver;
             using (var networkStreamConnections = m_NetworkStreamConnectionQuery.ToComponentDataArray<NetworkStreamConnection>(Allocator.TempJob))
             {
@@ -267,56 +269,115 @@ namespace Unity.NetCode
             }
         }
 
-        [ExcludeComponent(typeof(OutgoingRpcDataStreamBufferComponent))]
-        [BurstCompile]
-        struct CompleteConnectionJob : IJobForEachWithEntity<NetworkStreamConnection>
+        [BurstDiscard]
+        static void PrintEventError(NetworkEvent.Type evt)
         {
-            public EntityCommandBuffer.Concurrent commandBuffer;
-            public NetworkProtocolVersion protocolVersion;
-            public void Execute(Entity entity, int jobIndex, [ReadOnly] ref NetworkStreamConnection con)
-            {
-                var rpcBuffer = commandBuffer.AddBuffer<OutgoingRpcDataStreamBufferComponent>(jobIndex, entity);
-                RpcSystem.SendProtocolVersion(rpcBuffer, protocolVersion);
-            }
+            UnityEngine.Debug.LogError("Received unknown network event " + evt);
         }
 
-        [BurstCompile]
-        struct DisconnectJob : IJobForEachWithEntity<NetworkStreamConnection, NetworkStreamRequestDisconnect>
+        protected override void OnUpdate()
         {
-            public EntityCommandBuffer.Concurrent commandBuffer;
-            public NetworkDriver driver;
-            public void Execute(Entity entity, int jobIndex, ref NetworkStreamConnection connection, [ReadOnly] ref NetworkStreamRequestDisconnect disconnect)
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+            m_GhostStatsCollectionSystem.AddDiscardedPackets(m_NetStats[0]);
+            m_NetStats[0] = 0;
+#endif
+            var commandBuffer = m_Barrier.CreateCommandBuffer().ToConcurrent();
+
+            if (!HasSingleton<NetworkProtocolVersion>())
+            {
+                var entity = EntityManager.CreateEntity();
+                var rpcVersion = World.GetExistingSystem<RpcSystem>().CalculateVersionHash();
+                var gameVersion = HasSingleton<GameProtocolVersion>() ? GetSingleton<GameProtocolVersion>().Version : 0;
+                EntityManager.AddComponentData(entity, new NetworkProtocolVersion
+                {
+                    NetCodeVersion = NetworkProtocolVersion.k_NetCodeVersion,
+                    GameVersion = gameVersion,
+                    RpcCollectionVersion = rpcVersion
+                });
+            }
+            var concurrentFreeQueue = m_FreeNetworkIds.AsParallelWriter();
+            Dependency = m_Driver.ScheduleUpdate(Dependency);
+            if (m_DriverListening)
+            {
+                // Schedule accept job
+                var acceptJob = new ConnectionAcceptJob();
+                acceptJob.driver = m_Driver;
+                acceptJob.commandBuffer = m_Barrier.CreateCommandBuffer();
+                acceptJob.numNetworkId = m_NumNetworkIds;
+                acceptJob.freeNetworkIds = m_FreeNetworkIds;
+                acceptJob.rpcQueue = m_RpcQueue;
+                acceptJob.tickRate = default(ClientServerTickRate);
+                if (HasSingleton<ClientServerTickRate>())
+                    acceptJob.tickRate = GetSingleton<ClientServerTickRate>();
+                acceptJob.tickRate.ResolveDefaults();
+                acceptJob.protocolVersion = GetSingleton<NetworkProtocolVersion>();
+                Dependency = acceptJob.Schedule(Dependency);
+            }
+            else
+            {
+                if (!HasSingleton<ClientServerTickRate>())
+                {
+                    var newEntity = World.EntityManager.CreateEntity();
+                    var tickRate = new ClientServerTickRate();
+                    tickRate.ResolveDefaults();
+                    EntityManager.AddComponentData(newEntity, tickRate);
+                }
+                var tickRateEntity = GetSingletonEntity<ClientServerTickRate>();
+                Dependency = Entities
+                    .WithNone<NetworkStreamDisconnected>()
+                    .ForEach((Entity entity, int entityInQueryIndex, in ClientServerTickRateRefreshRequest req) =>
+                    {
+                        var dataFromEntity = GetComponentDataFromEntity<ClientServerTickRate>();
+                        var tickRate = dataFromEntity[tickRateEntity];
+                        tickRate.MaxSimulationStepsPerFrame = req.MaxSimulationStepsPerFrame;
+                        tickRate.NetworkTickRate = req.NetworkTickRate;
+                        tickRate.SimulationTickRate = req.SimulationTickRate;
+                        dataFromEntity[tickRateEntity] = tickRate;
+                        commandBuffer.RemoveComponent<ClientServerTickRateRefreshRequest>(entityInQueryIndex, entity);
+                    }).Schedule(Dependency);
+                m_FreeNetworkIds.Clear();
+            }
+
+            var protocolVersion = GetSingleton<NetworkProtocolVersion>();
+            Entities.WithName("CompleteConnection").WithNone<OutgoingRpcDataStreamBufferComponent>().
+                ForEach((Entity entity, int nativeThreadIndex, in NetworkStreamConnection con) =>
+            {
+                var buf = commandBuffer.AddBuffer<OutgoingRpcDataStreamBufferComponent>(nativeThreadIndex, entity);
+                RpcSystem.SendProtocolVersion(buf, protocolVersion);
+            }).ScheduleParallel();
+
+            Dependency = JobHandle.CombineDependencies(Dependency, LastDriverWriter);
+
+            var driver = m_Driver;
+            Entities.ForEach((Entity entity, int nativeThreadIndex, ref NetworkStreamConnection connection, in NetworkStreamRequestDisconnect disconnect) =>
             {
                 driver.Disconnect(connection.Value);
-                commandBuffer.AddComponent(jobIndex, entity, new NetworkStreamDisconnected {Reason = disconnect.Reason});
-                commandBuffer.RemoveComponent<NetworkStreamRequestDisconnect>(jobIndex, entity);
-            }
-        }
+                commandBuffer.AddComponent(nativeThreadIndex, entity, new NetworkStreamDisconnected {Reason = disconnect.Reason});
+                commandBuffer.RemoveComponent<NetworkStreamRequestDisconnect>(nativeThreadIndex, entity);
+            }).Schedule();
 
-        [ExcludeComponent(typeof(NetworkStreamDisconnected))]
-        [BurstCompile]
-        struct ConnectionReceiveJob : IJobForEachWithEntity<NetworkStreamConnection, NetworkSnapshotAckComponent>
-        {
-            public EntityCommandBuffer.Concurrent commandBuffer;
-            public NetworkDriver.Concurrent driver;
-            public NativeQueue<int>.ParallelWriter freeNetworkIds;
-            [ReadOnly] public ComponentDataFromEntity<NetworkIdComponent> networkId;
-            public BufferFromEntity<IncomingRpcDataStreamBufferComponent> rpcBuffer;
-            public BufferFromEntity<IncomingCommandDataStreamBufferComponent> cmdBuffer;
-            public BufferFromEntity<IncomingSnapshotDataStreamBufferComponent> snapshotBuffer;
-            public uint localTime;
+            // Schedule parallel update job
+            var concurrentDriver = m_ConcurrentDriver;
+            var freeNetworkIds = concurrentFreeQueue;
+            var networkId = GetComponentDataFromEntity<NetworkIdComponent>();
+            var rpcBuffer = GetBufferFromEntity<IncomingRpcDataStreamBufferComponent>();
+            var cmdBuffer = GetBufferFromEntity<IncomingCommandDataStreamBufferComponent>();
+            var snapshotBuffer = GetBufferFromEntity<IncomingSnapshotDataStreamBufferComponent>();
+            var localTime = NetworkTimeSystem.TimestampMS;
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
-            public NativeArray<uint> netStats;
+            var netStats = m_NetStats;
 #endif
-
-            public unsafe void Execute(Entity entity, int index, ref NetworkStreamConnection connection,
-                ref NetworkSnapshotAckComponent snapshotAck)
+            // FIXME: because it uses buffer from entity
+            Entities.WithNone<NetworkStreamDisconnected>().WithReadOnly(networkId).
+                ForEach((Entity entity, int nativeThreadIndex, ref NetworkStreamConnection connection,
+                ref NetworkSnapshotAckComponent snapshotAck) =>
             {
                 if (!connection.Value.IsCreated)
                     return;
                 DataStreamReader reader;
                 NetworkEvent.Type evt;
-                while ((evt = driver.PopEventForConnection(connection.Value, out reader)) != NetworkEvent.Type.Empty)
+                while ((evt = concurrentDriver.PopEventForConnection(connection.Value, out reader)) !=
+                       NetworkEvent.Type.Empty)
                 {
                     switch (evt)
                     {
@@ -324,7 +385,7 @@ namespace Unity.NetCode
                             break;
                         case NetworkEvent.Type.Disconnect:
                             // Flag the connection as lost, it will be deleted in a separate system, giving user code one frame to detect and respond to lost connection
-                            commandBuffer.AddComponent(index, entity, new NetworkStreamDisconnected
+                            commandBuffer.AddComponent(nativeThreadIndex, entity, new NetworkStreamDisconnected
                             {
                                 Reason = NetworkStreamDisconnectReason.ConnectionClose
                             });
@@ -352,7 +413,8 @@ namespace Unity.NetCode
                                     uint remoteTime = reader.ReadUInt();
                                     uint localTimeMinusRTT = reader.ReadUInt();
                                     uint interpolationDelay = reader.ReadUInt();
-                                    snapshotAck.UpdateRemoteTime(remoteTime, localTimeMinusRTT, localTime, interpolationDelay);
+                                    snapshotAck.UpdateRemoteTime(remoteTime, localTimeMinusRTT, localTime,
+                                        interpolationDelay);
 
                                     buffer.Clear();
                                     buffer.Add(ref reader);
@@ -391,88 +453,16 @@ namespace Unity.NetCode
                             break;
                         default:
 #if ENABLE_UNITY_COLLECTIONS_CHECKS
-                            throw new InvalidOperationException("Received unknown network event " + evt);
+                            PrintEventError(evt);
+                            throw new InvalidOperationException("Received unknown network event");
 #else
                             break;
 #endif
                     }
                 }
-            }
-        }
-
-        protected override JobHandle OnUpdate(JobHandle inputDeps)
-        {
-#if UNITY_EDITOR || DEVELOPMENT_BUILD
-            m_GhostStatsCollectionSystem.AddDiscardedPackets(m_NetStats[0]);
-            m_NetStats[0] = 0;
-#endif
-            if (!HasSingleton<NetworkProtocolVersion>())
-            {
-                var entity = EntityManager.CreateEntity();
-                var rpcVersion = World.GetExistingSystem<RpcSystem>().CalculateVersionHash();
-                var gameVersion = HasSingleton<GameProtocolVersion>() ? GetSingleton<GameProtocolVersion>().Version : 0;
-                EntityManager.AddComponentData(entity, new NetworkProtocolVersion
-                {
-                    NetCodeVersion = NetworkProtocolVersion.k_NetCodeVersion,
-                    GameVersion = gameVersion,
-                    RpcCollectionVersion = rpcVersion
-                });
-            }
-            var concurrentFreeQueue = freeNetworkIds.AsParallelWriter();
-            inputDeps = m_Driver.ScheduleUpdate(inputDeps);
-            if (m_DriverListening)
-            {
-                // Schedule accept job
-                var acceptJob = new ConnectionAcceptJob();
-                acceptJob.driver = m_Driver;
-                acceptJob.commandBuffer = m_Barrier.CreateCommandBuffer();
-                acceptJob.numNetworkId = numNetworkIds;
-                acceptJob.freeNetworkIds = freeNetworkIds;
-                acceptJob.rpcQueue = rpcQueue;
-                acceptJob.tickRate = default(ClientServerTickRate);
-                if (HasSingleton<ClientServerTickRate>())
-                    acceptJob.tickRate = GetSingleton<ClientServerTickRate>();
-                acceptJob.tickRate.ResolveDefaults();
-                acceptJob.protocolVersion = GetSingleton<NetworkProtocolVersion>();
-                inputDeps = acceptJob.Schedule(inputDeps);
-            }
-            else
-            {
-                freeNetworkIds.Clear();
-            }
-
-            var completeJob = new CompleteConnectionJob
-            {
-                commandBuffer = m_Barrier.CreateCommandBuffer().ToConcurrent(),
-                protocolVersion = GetSingleton<NetworkProtocolVersion>()
-            };
-            inputDeps = completeJob.Schedule(this, inputDeps);
-
-            inputDeps = JobHandle.CombineDependencies(inputDeps, LastDriverWriter);
-            var disconnectJob = new DisconnectJob
-            {
-                commandBuffer = m_Barrier.CreateCommandBuffer().ToConcurrent(),
-                driver = m_Driver
-            };
-            inputDeps = disconnectJob.ScheduleSingle(this, inputDeps);
-
-            // Schedule parallel update job
-            var recvJob = new ConnectionReceiveJob();
-            recvJob.commandBuffer = m_Barrier.CreateCommandBuffer().ToConcurrent();
-            recvJob.driver = m_ConcurrentDriver;
-            recvJob.freeNetworkIds = concurrentFreeQueue;
-            recvJob.networkId = GetComponentDataFromEntity<NetworkIdComponent>();
-            recvJob.rpcBuffer = GetBufferFromEntity<IncomingRpcDataStreamBufferComponent>();
-            recvJob.cmdBuffer = GetBufferFromEntity<IncomingCommandDataStreamBufferComponent>();
-            recvJob.snapshotBuffer = GetBufferFromEntity<IncomingSnapshotDataStreamBufferComponent>();
-            recvJob.localTime = NetworkTimeSystem.TimestampMS;
-#if UNITY_EDITOR || DEVELOPMENT_BUILD
-            recvJob.netStats = m_NetStats;
-#endif
-            // FIXME: because it uses buffer from entity
-            LastDriverWriter = recvJob.ScheduleSingle(this, inputDeps);
-            m_Barrier.AddJobHandleForProducer(LastDriverWriter);
-            return LastDriverWriter;
+            }).Schedule();
+            LastDriverWriter = Dependency;
+            m_Barrier.AddJobHandleForProducer(Dependency);
         }
     }
 }

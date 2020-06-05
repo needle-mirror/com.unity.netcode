@@ -38,7 +38,7 @@ namespace Unity.NetCode
             {
                 // For all chunks where currentTrans is newer than previousTrans
                 // Copy currentTrans to previous trans
-                if (ChangeVersionUtility.DidChange(chunk.GetComponentVersion(curPositionType),
+                if (ChangeVersionUtility.DidChange(chunk.GetChangeVersion(curPositionType),
                     simStartComponentVersion))
                 {
                     var curPos = chunk.GetNativeArray(curPositionType);
@@ -52,7 +52,7 @@ namespace Unity.NetCode
 
                 // For all chunks where transform has changed since end of last simulation
                 // Copy currentTargs to trans
-                if (ChangeVersionUtility.DidChange(chunk.GetComponentVersion(positionType), simEndComponentVersion))
+                if (ChangeVersionUtility.DidChange(chunk.GetChangeVersion(positionType), simEndComponentVersion))
                 {
                     // Transform was interpolated by the rendering system
                     var curPos = chunk.GetNativeArray(curPositionType);
@@ -79,7 +79,7 @@ namespace Unity.NetCode
             {
                 // For all chunks where currentTrans is newer than previousTrans
                 // Copy currentTrans to previous trans
-                if (ChangeVersionUtility.DidChange(chunk.GetComponentVersion(curRotationType),
+                if (ChangeVersionUtility.DidChange(chunk.GetChangeVersion(curRotationType),
                     simStartComponentVersion))
                 {
                     var curRot = chunk.GetNativeArray(curRotationType);
@@ -93,7 +93,7 @@ namespace Unity.NetCode
 
                 // For all chunks where transform has changed since end of last simulation
                 // Copy currentTargs to trans
-                if (ChangeVersionUtility.DidChange(chunk.GetComponentVersion(rotationType), simEndComponentVersion))
+                if (ChangeVersionUtility.DidChange(chunk.GetChangeVersion(rotationType), simEndComponentVersion))
                 {
                     // Transform was interpolated by the rendering system
                     var curRot = chunk.GetNativeArray(curRotationType);

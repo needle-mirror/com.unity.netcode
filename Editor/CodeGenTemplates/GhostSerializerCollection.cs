@@ -93,4 +93,9 @@ public class __GHOST_SYSTEM_PREFIX__GhostSendSystem : GhostSendSystem<__GHOST_CO
         base.OnCreate();
         RequireSingletonForUpdate<Enable__GHOST_SYSTEM_PREFIX__GhostSendSystemComponent>();
     }
+
+    public override bool IsEnabled()
+    {
+        return HasSingleton<Enable__GHOST_SYSTEM_PREFIX__GhostSendSystemComponent>();
+    }
 }

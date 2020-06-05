@@ -46,8 +46,8 @@ namespace Unity.NetCode
             public void Execute(ArchetypeChunk chunk, int chunkIndex, int firstEntityIndex)
             {
                 // If current was written after copying it to prev we need to interpolate, otherwise they must be identical
-                if (ChangeVersionUtility.DidChange(chunk.GetComponentVersion(curPositionType),
-                    chunk.GetComponentVersion(prevPositionType)))
+                if (ChangeVersionUtility.DidChange(chunk.GetChangeVersion(curPositionType),
+                    chunk.GetChangeVersion(prevPositionType)))
                 {
                     var prevPos = chunk.GetNativeArray(prevPositionType);
                     var curPos = chunk.GetNativeArray(curPositionType);
@@ -73,8 +73,8 @@ namespace Unity.NetCode
             public void Execute(ArchetypeChunk chunk, int chunkIndex, int firstEntityIndex)
             {
                 // If current was written after copying it to prev we need to interpolate, otherwise they must be identical
-                if (ChangeVersionUtility.DidChange(chunk.GetComponentVersion(curRotationType),
-                    chunk.GetComponentVersion(prevRotationType)))
+                if (ChangeVersionUtility.DidChange(chunk.GetChangeVersion(curRotationType),
+                    chunk.GetChangeVersion(prevRotationType)))
                 {
                     var prevRot = chunk.GetNativeArray(prevRotationType);
                     var curRot = chunk.GetNativeArray(curRotationType);

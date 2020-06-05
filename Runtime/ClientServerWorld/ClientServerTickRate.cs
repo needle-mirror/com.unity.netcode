@@ -30,4 +30,11 @@ namespace Unity.NetCode
     public struct FixedClientTickRate : IComponentData
     {
     }
+
+    public struct ClientServerTickRateRefreshRequest : IComponentData
+    {
+        public int SimulationTickRate;
+        public int NetworkTickRate;
+        public int MaxSimulationStepsPerFrame;
+    }
 }

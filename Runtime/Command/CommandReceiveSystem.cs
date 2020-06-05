@@ -12,22 +12,24 @@ namespace Unity.NetCode
     public class CommandReceiveSystem<TCommandData> : JobComponentSystem
         where TCommandData : struct, ICommandData<TCommandData>
     {
-        [ExcludeComponent(typeof(NetworkStreamDisconnected))]
-        [RequireComponentTag(typeof(NetworkStreamInGame))]
         [BurstCompile]
-        struct ReceiveJob : IJobForEachWithEntity<CommandTargetComponent, NetworkSnapshotAckComponent>
+        struct ReceiveJob : IJobChunk
         {
             public BufferFromEntity<TCommandData> commandData;
             public BufferFromEntity<IncomingCommandDataStreamBufferComponent> cmdBuffer;
             public ComponentDataFromEntity<CommandDataInterpolationDelay> delayFromEntity;
             public NetworkCompressionModel compressionModel;
+            public ArchetypeChunkComponentType<NetworkSnapshotAckComponent> snapshotAckType;
+            [ReadOnly] public ArchetypeChunkComponentType<CommandTargetComponent> commmandTargetType;
+            [ReadOnly] public ArchetypeChunkEntityType entitiesType;
+
             public uint serverTick;
             public bool isNullCommandData;
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
             public NativeArray<uint> netStats;
 #endif
 
-            public unsafe void Execute(Entity entity, int index, [ReadOnly] ref CommandTargetComponent commandTarget,
+            public unsafe void LambdaMethod(Entity entity, int index, in CommandTargetComponent commandTarget,
                 ref NetworkSnapshotAckComponent snapshotAck)
             {
                 if (isNullCommandData && commandTarget.targetEntity != Entity.Null)
@@ -74,8 +76,22 @@ namespace Unity.NetCode
 #endif
                 buffer.Clear();
             }
+            public void Execute(ArchetypeChunk chunk, int orderIndex, int firstEntityIndex)
+            {
+                var entities = chunk.GetNativeArray(entitiesType);
+                var snapshotAcks = chunk.GetNativeArray(snapshotAckType);
+                var commandTargets = chunk.GetNativeArray(commmandTargetType);
+
+                for (int i = 0; i < chunk.Count; ++i)
+                {
+                    var snapshotAck = snapshotAcks[i];
+                    LambdaMethod(entities[i], orderIndex, commandTargets[i], ref snapshotAck);
+                    snapshotAcks[i] = snapshotAck;
+                }
+            }
         }
 
+        private EntityQuery m_entityQuery;
         private ServerSimulationSystemGroup serverSimulationSystemGroup;
         private NetworkCompressionModel m_CompressionModel;
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
@@ -91,12 +107,20 @@ namespace Unity.NetCode
 #endif
             serverSimulationSystemGroup = World.GetExistingSystem<ServerSimulationSystemGroup>();
             m_CompressionModel = new NetworkCompressionModel(Allocator.Persistent);
-            RequireForUpdate(EntityManager.CreateEntityQuery(
+
+            m_entityQuery = GetEntityQuery(
+                ComponentType.ReadOnly<NetworkStreamInGame>(),
+                ComponentType.ReadOnly<NetworkSnapshotAckComponent>(),
+                ComponentType.ReadWrite<CommandTargetComponent>(),
+                ComponentType.Exclude<NetworkStreamDisconnected>());
+
+            RequireForUpdate(GetEntityQuery(
                 ComponentType.ReadOnly<NetworkStreamInGame>(),
                 ComponentType.ReadOnly<IncomingCommandDataStreamBufferComponent>(),
                 ComponentType.ReadOnly<NetworkSnapshotAckComponent>(),
                 ComponentType.ReadOnly<CommandTargetComponent>(),
                 ComponentType.Exclude<NetworkStreamDisconnected>()));
+
             if (typeof(TCommandData) != typeof(NullCommandData))
                 RequireForUpdate(EntityManager.CreateEntityQuery(ComponentType.ReadWrite<TCommandData>()));
         }
@@ -119,17 +143,22 @@ namespace Unity.NetCode
                 m_NetStats[1] = 0;
             }
 #endif
-            var recvJob = new ReceiveJob();
-            recvJob.commandData = GetBufferFromEntity<TCommandData>();
-            recvJob.cmdBuffer = GetBufferFromEntity<IncomingCommandDataStreamBufferComponent>();
-            recvJob.delayFromEntity = GetComponentDataFromEntity<CommandDataInterpolationDelay>();
-            recvJob.compressionModel = m_CompressionModel;
-            recvJob.serverTick = serverSimulationSystemGroup.ServerTick;
-            recvJob.isNullCommandData = typeof(TCommandData) == typeof(NullCommandData);
+            var recvJob = new ReceiveJob
+            {
+                commandData = GetBufferFromEntity<TCommandData>(),
+                cmdBuffer = GetBufferFromEntity<IncomingCommandDataStreamBufferComponent>(),
+                delayFromEntity = GetComponentDataFromEntity<CommandDataInterpolationDelay>(),
+                compressionModel = m_CompressionModel,
+                snapshotAckType = GetArchetypeChunkComponentType<NetworkSnapshotAckComponent>(),
+                commmandTargetType = GetArchetypeChunkComponentType<CommandTargetComponent>(true),
+                entitiesType = GetArchetypeChunkEntityType(),
+                serverTick = serverSimulationSystemGroup.ServerTick,
+                isNullCommandData = typeof(TCommandData) == typeof(NullCommandData),
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
-            recvJob.netStats = m_NetStats;
+                netStats = m_NetStats
 #endif
-            return recvJob.ScheduleSingle(this, inputDeps);
+            };
+            return recvJob.ScheduleSingle(m_entityQuery, inputDeps);
         }
     }
     public class NullCommandReceiveSystem : CommandReceiveSystem<NullCommandData>

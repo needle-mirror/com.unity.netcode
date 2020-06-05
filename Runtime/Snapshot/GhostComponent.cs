@@ -72,4 +72,22 @@ namespace Unity.NetCode
     public struct PredictedGhostSpawnRequestComponent : IComponentData
     {
     }
+
+    /// <summary>
+    /// The hash of all the ghost component data which exists in the scene. This can be
+    /// used to sort the subscenes so the ghost IDs of the pre-spawned scene objects line
+    /// up deterministically.
+    /// </summary>
+    public struct SubSceneGhostComponentHash : ISharedComponentData
+    {
+        public ulong Value;
+    }
+
+    /// <summary>
+    /// The ghost ID on a pre-spawned entity, it's unique withing the subscene.
+    /// </summary>
+    public struct PreSpawnedGhostId : IComponentData
+    {
+        public int Value;
+    }
 }

@@ -1,28 +1,191 @@
 # RPCs
 
-NetCode uses a limited form of RPC calls to handle events. A job on the sending side can issue RPC calls, and they then execute on a job on the receiving side. This limits what you can do in an RPC.
+NetCode uses a limited form of RPCs to handle events. A job on the sending side can issue RPCs, and they then execute on a job on the receiving side. This limits what you can do in an RPC; such as what data you can read and modify, and what calls you are allowed to make from the engine. For more information on the Job System see the Unity User Manual documentation on the [C# Job System](https://docs.unity3d.com/2019.3/Documentation/Manual/JobSystem.html). 
 
-To send an RPC, you need to get access to an [RpcQueue](https://docs.unity3d.com/Packages/com.unity.netcode@latest/index.html?subfolder=/api/Unity.NetCode.RpcQueue-1.html) of the command you want to send. You can create this in OnCreateManager. Call `m_RpcQueue = World.GetOrCreateManager<RpcSystem>().GetRpcQueue<RpcLoadLevel>();` and cache it through the lifetime of the game. When you have the queue, you can get the `OutgoingRpcDataStreamBufferComponent` from an entity to schedule events in the queue and then call `rpcQueue.Schedule(rpcBuffer, new RpcCommand);`. 
+To make the system a bit more flexible, you can use the flow of creating an entity that contains specific netcode components such as `SendRpcCommandRequestComponent` and `ReceiveRpcCommandRequestComponent`, which this page outlines. 
 
-You can send an RPC from OnUpdate as follows:
-* Get the `OutgoingRpcDataStreamBufferComponent` from the entity you want to send the event to.
-* Call `rpcQueue.Schedule(rpcBuffer, new RpcCommand);` to append the RPC data you want to sent to the outgoing RPC buffer (`OutgoingRpcDataStreamBufferComponent`).
-* Once this is done, the `NetworkStreamSendSystem` sends the queued RPC to the remote end. 
+## Extend IRpcCommand
 
-The RpcCommand interface has three methods: __Serialize, Deserialize__, and __CompileExecute__. __Serialize__ and __Deserialize__ store the data in a packet, while __CompileExecute__ uses Burst to create a `FunctionPointer`. The function it compiles takes one parameter by ref, and a struct that contains:
+To start, create a command by extending the [IRpcCommand](https://docs.unity3d.com/Packages/com.unity.netcode@latest/index.html?subfolder=/api/Unity.NetCode.IRpcCommand.html):
+
+```c#
+[BurstCompile]
+public struct OurRpcCommand : IRpcCommand
+{
+    public void Serialize(ref DataStreamWriter writer)
+    {
+    }
+
+    public void Deserialize(ref DataStreamReader reader)
+    {
+    }
+
+    public PortableFunctionPointer<RpcExecutor.ExecuteDelegate> CompileExecute()
+    {
+    }
+
+    [BurstCompile]
+    private static void InvokeExecute(ref RpcExecutor.Parameters parameters)
+    {
+    }
+
+    static PortableFunctionPointer<RpcExecutor.ExecuteDelegate> InvokeExecuteFunctionPointer = new PortableFunctionPointer<RpcExecutor.ExecuteDelegate>(InvokeExecute);
+}
+```
+
+The [IRpcCommand](https://docs.unity3d.com/Packages/com.unity.netcode@latest/index.html?subfolder=/api/Unity.NetCode.IRpcCommand.html) interface has three methods: __Serialize, Deserialize__, and __CompileExecute__. __Serialize__ and __Deserialize__ store the data in a packet, while __CompileExecute__ uses Burst to create a `FunctionPointer`. The function it compiles takes a [RpcExecutor.Parameters](https://docs.unity3d.com/Packages/com.unity.netcode@latest/index.html?subfolder=/api/Unity.NetCode.RpcExecutor.Parameters.html) by ref that contains:
 
 * `DataStreamReader` reader
-* Entity connection
+* `Entity` connection
 * `EntityCommandBuffer.Concurrent` commandBuffer
-* int `jobIndex` 
+* `int` jobIndex
 
-Because the function is static, it needs to use `Deserialize` to read the struct data before it can execute the RPC. The RPC can then either use the command buffer to modify the connection entity, or use it to create a new request entity for more complex tasks and then apply the command in a separate system at a later time. This means that you don’t need to perform any additional operations to receive and RPC; its `Execute` method is called on the receiving end automatically.
+Because the function is static, it needs to use `Deserialize` to read the struct data before it executes the RPC. The RPC then either uses the command buffer to modify the connection entity, or uses it to create a new request entity for more complex tasks. It then applies the command in a separate system at a later time. This means that you don’t need to perform any additional operations to receive an RPC; its `Execute` method is called on the receiving end automatically.
 
-## RPC command request component
-Most RPCS create new entities which serve as requests for other systems to perform an operation. To reduce the boilerplate for this, NetCode has a set of helpers that perform these operations. To do this perform the following steps:
+To create an entity that holds an RPC, use the function `ExecuteCreateRequestComponent<T>`. To do this, extend the previous `InvokeExecute` function example with:
 
-* Create a component that extends `IRpcCommand` and implement the interface methods.
-* In the execute method, call `RpcExecutor.ExecuteCreateRequestComponent<HeartbeatComponent>(ref parameters);` and add class `HeartbeatComponentRpcCommandRequestSystem : RpcCommandRequestSystem<HeartbeatComponent>{}`  to the codebase. **Note:** In future, the NetCode development team will provide a way to generate code for these methods in a similar way to `GenerateAuthoringComponent` in entities.
-* Once you have created a command request, use `IRpcCommand` and `SendRpcCommandRequestComponent` with the target connection entity to send it to a remote end. If the target connection entity is `Entity.Null`, Unity sends it to all connections.
+```c#
+[BurstCompile]
+private static void InvokeExecute(ref RpcExecutor.Parameters parameters)
+{
+    RpcExecutor.ExecuteCreateRequestComponent<OurRpcCommand>(ref parameters);
+}
+```
 
-The system automatically finds the requests, sends them, and then deletes the send request. On the remote side they show up as entities with the same `IRpcCommand` and a `ReceiveRpcCommandRequestComponent` which you can use to identify which connection the request was received from.
+This creates an entity with a [ReceiveRpcCommandRequestComponent](https://docs.unity3d.com/Packages/com.unity.netcode@latest/index.html?subfolder=/api/Unity.NetCode.ReceiveRpcCommandRequestComponent.html) and `OurRpcCommand` components. 
+
+Once you create an [IRpcCommand](https://docs.unity3d.com/Packages/com.unity.netcode@latest/index.html?subfolder=/api/Unity.NetCode.IRpcCommand.html), you need to make sure that the [RpcCommandRequest](https://docs.unity3d.com/Packages/com.unity.netcode@latest/index.html?subfolder=/api/Unity.NetCode.RpcCommandRequestSystem-1.html) system picks it up. To do this, you can create a system that extends the `RpcCommandRequest` system, as follows:
+
+```c#
+public class OurRpcCommandRequestSystem : RpcCommandRequestSystem<OurRpcCommand>
+{
+}
+```
+
+The `RpcCommandRequest` system uses an [RpcQueue](https://docs.unity3d.com/Packages/com.unity.netcode@latest/index.html?subfolder=/api/Unity.NetCode.RpcQueue-1.html) internally to schedule outgoing RPCs. 
+
+## Sending and recieving commands
+
+To complete the example, you must create some entities to send and recieve the commands you created. To send the command you need to create an entity and add the command and the special component [SendRpcCommandRequestComponent](https://docs.unity3d.com/Packages/com.unity.netcode@latest/index.html?subfolder=/api/Unity.NetCode.SendRpcCommandRequestComponent.html) to it. This component has a member called `TargetConnection` that refers to the remote connection you want to send this command to. 
+
+**Note:** If `TargetConnection` is set to `Entity.Null` you will broadcast the message. On a client you don't have to set this value because you will only send to the server.
+
+
+The following is an example of a simple send system: 
+
+```c#
+[UpdateInGroup(typeof(ClientSimulationSystemGroup))]
+public class ClientRcpSendSystem : ComponentSystem
+{
+    protected override void OnCreate()
+    {
+        RequireSingletonForUpdate<NetworkIdComponent>();
+    }
+
+    protected override void OnUpdate()
+    {
+        if (Input.GetKey("space"))
+        {
+            var req = PostUpdateCommands.CreateEntity();
+            PostUpdateCommands.AddComponent(req, new OurRpcCommand());
+            PostUpdateCommands.AddComponent(req, new SendRpcCommandRequestComponent());
+        }
+    }
+}
+```
+
+This system sends a command if the user presses the space bar on their keyboard.  
+
+In the previous example, the `RpcExecutor.ExecuteCreateRequestComponent<OurRpcCommand>(ref parameters);` function call to the `IRpCommand` creates an entity that you can filter on. To test if this works, the following example creates a system that receives the `OurRpcCommand`:
+
+```c#
+[UpdateInGroup(typeof(ServerSimulationSystemGroup))]
+public class ServerRpcReceiveSystem : ComponentSystem
+{
+    protected override void OnUpdate()
+    {
+        Entities.ForEach((Entity entity, ref OurRpcCommand cmd, ref ReceiveRpcCommandRequestComponent req) =>
+        {
+            PostUpdateCommands.DestroyEntity(entity);
+            Debug.Log("We received a command!");
+        });
+    }
+}
+```
+
+The RpcSystem automatically finds all of the requests, sends them, and then deletes the send request. On the remote side they show up as entities with the same `IRpcCommand` and a `ReceiveRpcCommandRequestComponent` which you can use to identify which connection the request was received from.
+
+## A note about serialization
+
+You might have data that you want to attach to the RpcCommand. To do this, you need to add the data as a member of your command and then use the `Serialize` and `Deserialize` functions to decide on what data should be serialized. See the following code for an example of this:
+
+```c#
+[BurstCompile]
+public struct OurDataRpcCommand : IRpcCommand
+{
+    public int intData;
+    public short shortData;
+
+    public void Serialize(ref DataStreamWriter writer)
+    {
+        writer.WriteInt(intData);
+        writer.WriteShort(shortData);
+    }
+
+    public void Deserialize(ref DataStreamReader reader)
+    {
+        intData = reader.ReadInt();
+        shortData = reader.ReadShort();
+    }
+
+    public PortableFunctionPointer<RpcExecutor.ExecuteDelegate> CompileExecute()
+    {
+    }
+
+    [BurstCompile]
+    private static void InvokeExecute(ref RpcExecutor.Parameters parameters)
+    {
+        RpcExecutor.ExecuteCreateRequestComponent<OurDataRpcCommand>(ref parameters);
+    }
+
+    static PortableFunctionPointer<RpcExecutor.ExecuteDelegate> InvokeExecuteFunctionPointer = new PortableFunctionPointer<RpcExecutor.ExecuteDelegate>(InvokeExecute);
+}
+```
+
+**Note:** To avoid problems, make sure the `serialize` and `deserialize` calls are symmetric. The example above writes an `int` then a `short`, so your code needs to read an `int` then a `short` in that order.  If you omit reading a value, forget to write a value, or change the order of the way the code reads and writes, you might have unforeseen consequences.
+
+
+## RpcQueue
+
+The [RpcQueue](https://docs.unity3d.com/Packages/com.unity.netcode@latest/index.html?subfolder=/api/Unity.NetCode.RpcQueue-1.html) is used internally to schedule outgoing RPCs. However, you can use `OnGetOrCreateManager` to manually create your own schedule. To do this, call `m_RpcQueue = World.GetOrCreateManager<RpcSystem>().GetRpcQueue<OurRpcCommand>();` and cache it through the lifetime of your application. When you have the queue, get the `OutgoingRpcDataStreamBufferComponent` from an entity to schedule events in the queue and then call `rpcQueue.Schedule(rpcBuffer, new OurRpcCommand);`, as follows: 
+
+```c#
+[UpdateInGroup(typeof(ClientSimulationSystemGroup))]
+public class ClientQueueRcpSendSystem : ComponentSystem
+{
+    private RpcQueue<OurRpcCommand> rpcQueue;
+    protected override void OnCreate()
+    {
+        RequireSingletonForUpdate<NetworkIdComponent>();
+        rpcQueue = World.GetOrCreateSystem<RpcSystem>().GetRpcQueue<OurRpcCommand>();
+    }
+
+    protected override void OnUpdate()
+    {
+        if (Input.GetKey("space"))
+        {
+            Entities.ForEach((Entity entity, ref NetworkStreamConnection connection) =>
+            {
+            	var rpcFromEntity = GetBufferFromEntity<OutgoingRpcDataStreamBufferComponent>();
+                if (rpcFromEntity.Exists(entity))
+                {
+                    var buffer = rpcFromEntity[entity];
+                    rpcQueue.Schedule(buffer, new OurRpcCommand());
+                }
+            });
+        }
+    }
+}
+```
+
+This example sends an RPC using the `RpcQueue` when the user presses the space bar on their keyboard.

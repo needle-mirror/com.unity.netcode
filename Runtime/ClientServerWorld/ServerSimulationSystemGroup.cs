@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using Unity.Core;
 using Unity.Entities;
@@ -9,7 +10,7 @@ namespace Unity.NetCode
     // Update loop for client and server worlds
     [DisableAutoCreation]
     [AlwaysUpdateSystem]
-    public class ServerSimulationSystemGroup : ComponentSystemGroup
+    public class ServerSimulationSystemGroup : SimulationSystemGroup
     {
 #if !UNITY_CLIENT || UNITY_SERVER || UNITY_EDITOR
         internal TickServerSimulationSystem ParentTickSystem;
@@ -44,6 +45,7 @@ namespace Unity.NetCode
 
         protected override void OnCreate()
         {
+            base.OnCreate();
             AddSystemToUpdateList(World.GetOrCreateSystem<NetworkReceiveSystemGroup>());
             m_ServerTick = 1;
             m_fixedUpdateMarker = new ProfilerMarker("ServerFixedUpdate");
@@ -106,45 +108,6 @@ namespace Unity.NetCode
             Application.targetFrameRate = rate;
         }
 
-        public override void SortSystemUpdateList()
-        {
-            // Extract list of systems to sort (excluding built-in systems that are inserted at fixed points)
-            var toSort = new List<ComponentSystemBase>(m_systemsToUpdate.Count);
-            BeginSimulationEntityCommandBufferSystem beginEcbSys = null;
-            LateSimulationSystemGroup lateSysGroup = null;
-            EndSimulationEntityCommandBufferSystem endEcbSys = null;
-            NetworkReceiveSystemGroup netRecvSys = null;
-            foreach (var s in m_systemsToUpdate) {
-                if (s is BeginSimulationEntityCommandBufferSystem) {
-                    beginEcbSys = (BeginSimulationEntityCommandBufferSystem)s;
-                } else if (s is NetworkReceiveSystemGroup) {
-                    netRecvSys = (NetworkReceiveSystemGroup)s;
-                    netRecvSys.SortSystemUpdateList(); // not handled by base-class sort call below
-                } else if (s is LateSimulationSystemGroup) {
-                    lateSysGroup = (LateSimulationSystemGroup)s;
-                    lateSysGroup.SortSystemUpdateList(); // not handled by base-class sort call below
-                } else if (s is EndSimulationEntityCommandBufferSystem) {
-                    endEcbSys = (EndSimulationEntityCommandBufferSystem)s;
-                } else {
-                    toSort.Add(s);
-                }
-            }
-            m_systemsToUpdate = toSort;
-            base.SortSystemUpdateList();
-            // Re-insert built-in systems to construct the final list
-            var finalSystemList = new List<ComponentSystemBase>(toSort.Count);
-            if (beginEcbSys != null)
-                finalSystemList.Add(beginEcbSys);
-            if (netRecvSys != null)
-                finalSystemList.Add(netRecvSys);
-            foreach (var s in m_systemsToUpdate)
-                finalSystemList.Add(s);
-            if (lateSysGroup != null)
-                finalSystemList.Add(lateSysGroup);
-            if (endEcbSys != null)
-                finalSystemList.Add(endEcbSys);
-            m_systemsToUpdate = finalSystemList;
-        }
     }
 
 #if !UNITY_CLIENT || UNITY_SERVER || UNITY_EDITOR

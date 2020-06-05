@@ -6,6 +6,7 @@ namespace Unity.NetCode
 {
     [UpdateBefore(typeof(BuildPhysicsWorld))]
     [UpdateAfter(typeof(GhostSimulationSystemGroup))]
+    [UpdateInWorld(UpdateInWorld.TargetWorld.ClientAndServer)]
     /// <summary>
     /// System to make sure physics runs after ghost update.
     /// This system only exists when Unity Physics is instaled.

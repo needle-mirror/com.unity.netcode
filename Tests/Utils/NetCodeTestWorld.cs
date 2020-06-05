@@ -57,7 +57,10 @@ namespace Unity.NetCode.Tests
             {
                 for (int i = 0; i < m_ClientWorlds.Length; ++i)
                 {
-                    m_ClientWorlds[i].Dispose();
+                    if (m_ClientWorlds[i] != null)
+                    {
+                        m_ClientWorlds[i].Dispose();
+                    }
                 }
             }
             if (m_ServerWorld != null)
@@ -166,7 +169,15 @@ namespace Unity.NetCode.Tests
                 m_ClientWorlds = new World[numClients];
                 for (int i = 0; i < numClients; ++i)
                 {
-                    m_ClientWorlds[i] = ClientServerBootstrap.CreateClientWorld(m_DefaultWorld, $"ClientTest{i}");
+                    try
+                    {
+                        m_ClientWorlds[i] = ClientServerBootstrap.CreateClientWorld(m_DefaultWorld, $"ClientTest{i}");
+                    }
+                    catch (Exception)
+                    {
+                        m_ClientWorlds = null;
+                        throw;
+                    }
 #if UNITY_EDITOR
                     if (m_GhostCollection != null)
                         GameObjectConversionUtility.ConvertGameObjectHierarchy(m_GhostCollection, GameObjectConversionSettings.FromWorld(m_ClientWorlds[i], m_BlobAssetStore));
@@ -332,6 +343,13 @@ namespace Unity.NetCode.Tests
 
             bool success = true;
 
+            var oldNamespace = GhostAuthoringComponentEditor.DefaultNamespace;
+            var oldGhostDefaults = GhostAuthoringComponentEditor.GhostDefaultOverrides;
+            var oldGameTypes = GhostSnapshotValue.GameSpecificTypes;
+            GhostAuthoringComponentEditor.DefaultNamespace = "";
+            GhostAuthoringComponentEditor.InitDefaultOverrides();
+            GhostSnapshotValue.GameSpecificTypes = new List<GhostSnapshotValue>();
+
             foreach (var ghostObject in ghostTypes)
             {
                 var ghost = ghostObject.GetComponent<GhostAuthoringComponent>();
@@ -342,6 +360,7 @@ namespace Unity.NetCode.Tests
                 ghost.SnapshotDataPath = ghostObject.name + "SnapshotData.cs";
                 ghost.UpdateSystemPath = ghostObject.name + "UpdateSystem.cs";
                 ghost.SerializerPath = ghostObject.name + "Serializer.cs";
+                ghost.Name = ghostObject.name;
 
                 ghost.prefabId = Guid.NewGuid().ToString().Replace("-", "");
 
@@ -351,6 +370,9 @@ namespace Unity.NetCode.Tests
 
                 collection.Ghosts.Add(new GhostCollectionAuthoringComponent.Ghost{prefab = ghost, enabled = true});
             }
+            GhostAuthoringComponentEditor.DefaultNamespace = oldNamespace;
+            GhostAuthoringComponentEditor.GhostDefaultOverrides = oldGhostDefaults;
+            GhostSnapshotValue.GameSpecificTypes = oldGameTypes;
             // Trigger code-gen for collection and ghosts, if anything changes that is an error
             if (GhostCollectionAuthoringComponentEditor.GenerateCollection(collection, validateOnly) != GhostCodeGen.Status.NotModified)
                 success = false;

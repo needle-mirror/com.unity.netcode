@@ -14,13 +14,14 @@ namespace Unity.NetCode
     {
         public const uint k_InputBufferSendSize = 4;
 
-        [ExcludeComponent(typeof(NetworkStreamDisconnected))]
-        [RequireComponentTag(typeof(NetworkStreamInGame))]
         [BurstCompile]
-        struct CommandSendJob : IJobForEach<NetworkStreamConnection, NetworkSnapshotAckComponent, CommandTargetComponent>
+        struct CommandSendJob : IJobChunk
         {
             public NetworkDriver.Concurrent driver;
             public NetworkPipeline unreliablePipeline;
+            public ArchetypeChunkComponentType<NetworkStreamConnection> streamConnectionType;
+            public ArchetypeChunkComponentType<NetworkSnapshotAckComponent> snapshotAckType;
+            public ArchetypeChunkComponentType<CommandTargetComponent> commmandTargetType;
             [ReadOnly] public BufferFromEntity<TCommandData> inputFromEntity;
             public NetworkCompressionModel compressionModel;
             public uint localTime;
@@ -31,8 +32,8 @@ namespace Unity.NetCode
             public NativeArray<uint> netStats;
 #endif
 
-            public void Execute([ReadOnly] ref NetworkStreamConnection connection,
-                [ReadOnly] ref NetworkSnapshotAckComponent ack, [ReadOnly] ref CommandTargetComponent state)
+            public void LambdaMethod(in NetworkStreamConnection connection, in NetworkSnapshotAckComponent ack,
+                in CommandTargetComponent state)
             {
                 if (isNullCommandData && state.targetEntity != Entity.Null)
                     return;
@@ -73,8 +74,21 @@ namespace Unity.NetCode
 
                 driver.EndSend(writer);
             }
+
+            public void Execute(ArchetypeChunk chunk, int orderIndex, int firstEntityIndex)
+            {
+                var connections = chunk.GetNativeArray(streamConnectionType);
+                var snapshotAcks = chunk.GetNativeArray(snapshotAckType);
+                var commandTargets = chunk.GetNativeArray(commmandTargetType);
+
+                for (int i = 0; i < chunk.Count; ++i)
+                {
+                    LambdaMethod(connections[i], snapshotAcks[i], commandTargets[i]);
+                }
+            }
         }
 
+        private EntityQuery m_entityGroup;
         private NetworkStreamReceiveSystem m_ReceiveSystem;
         private ClientSimulationSystemGroup m_ClientSimulationSystemGroup;
         private NetworkCompressionModel m_CompressionModel;
@@ -94,12 +108,12 @@ namespace Unity.NetCode
             m_ReceiveSystem = World.GetOrCreateSystem<NetworkStreamReceiveSystem>();
             m_ClientSimulationSystemGroup = World.GetOrCreateSystem<ClientSimulationSystemGroup>();
             m_CompressionModel = new NetworkCompressionModel(Allocator.Persistent);
-            RequireForUpdate(EntityManager.CreateEntityQuery(
-                ComponentType.ReadOnly<NetworkStreamInGame>(),
+            m_entityGroup = GetEntityQuery(ComponentType.ReadOnly<NetworkStreamInGame>(),
                 ComponentType.ReadOnly<NetworkStreamConnection>(),
                 ComponentType.ReadOnly<NetworkSnapshotAckComponent>(),
                 ComponentType.ReadOnly<CommandTargetComponent>(),
-                ComponentType.Exclude<NetworkStreamDisconnected>()));
+                ComponentType.Exclude<NetworkStreamDisconnected>());
+            RequireForUpdate(m_entityGroup);
             if (typeof(TCommandData) != typeof(NullCommandData))
                 RequireForUpdate(EntityManager.CreateEntityQuery(ComponentType.ReadOnly<TCommandData>()));
         }
@@ -133,18 +147,22 @@ namespace Unity.NetCode
             {
                 driver = m_ReceiveSystem.ConcurrentDriver,
                 unreliablePipeline = m_ReceiveSystem.UnreliablePipeline,
+                streamConnectionType = GetArchetypeChunkComponentType<NetworkStreamConnection>(),
+                snapshotAckType = GetArchetypeChunkComponentType<NetworkSnapshotAckComponent>(),
+                commmandTargetType = GetArchetypeChunkComponentType<CommandTargetComponent>(),
                 inputFromEntity = GetBufferFromEntity<TCommandData>(true),
                 compressionModel = m_CompressionModel,
                 localTime = NetworkTimeSystem.TimestampMS,
                 inputTargetTick = targetTick,
-                interpolationDelay = m_ClientSimulationSystemGroup.ServerTick - m_ClientSimulationSystemGroup.InterpolationTick,
+                interpolationDelay = m_ClientSimulationSystemGroup.ServerTick -
+                                     m_ClientSimulationSystemGroup.InterpolationTick,
                 isNullCommandData = typeof(TCommandData) == typeof(NullCommandData),
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
                 netStats = m_NetStats
 #endif
             };
 
-            var handle = sendJob.ScheduleSingle(this,
+            var handle = sendJob.Schedule(m_entityGroup,
                 JobHandle.CombineDependencies(inputDeps, m_ReceiveSystem.LastDriverWriter));
             handle = m_ReceiveSystem.Driver.ScheduleFlushSend(handle);
             m_ReceiveSystem.LastDriverWriter = handle;

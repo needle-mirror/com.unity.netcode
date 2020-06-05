@@ -56,11 +56,51 @@ namespace Unity.NetCode
         public const int SnapshotHistorySize = 32;
     }
 
+    public interface IGhostSendSystem
+    {
+        bool SetAllocatedGhostId(int id);
+        bool IsEnabled();
+    }
+
     [UpdateInGroup(typeof(ServerSimulationSystemGroup))]
     [UpdateAfter(typeof(TransformSystemGroup))]
-    public class GhostSendSystem<TGhostSerializerCollection> : JobComponentSystem
+    [UpdateAfter(typeof(PopulatePreSpawnedGhosts))]
+    public abstract class GhostSendSystem<TGhostSerializerCollection> : JobComponentSystem, IGhostSendSystem
         where TGhostSerializerCollection : struct, IGhostSerializerCollection
     {
+        private EntityQuery ghostGroup;
+        private EntityQuery ghostSpawnGroup;
+        private EntityQuery ghostDespawnGroup;
+        private EntityQuery snaphotsAckGroup;
+        private EntityQuery cleanupGroup;
+
+        private EntityQuery connectionGroup;
+
+        protected TGhostSerializerCollection serializers;
+
+        private NativeQueue<int> m_FreeGhostIds;
+        protected NativeArray<int> m_AllocatedGhostIds;
+        private NativeList<int> m_DestroyedPrespawns;
+        private NativeQueue<int> m_DestroyedPrespawnsQueue;
+
+        private List<ConnectionStateData> m_ConnectionStates;
+        private NativeHashMap<Entity, int> m_ConnectionStateLookup;
+        private NetworkCompressionModel m_CompressionModel;
+
+        private NativeList<PrioChunk> m_SerialSpawnChunks;
+
+        private const int TargetPacketSize = 1200;
+
+        private ServerSimulationSystemGroup m_ServerSimulation;
+        private BeginSimulationEntityCommandBufferSystem m_Barrier;
+        private NetworkStreamReceiveSystem m_ReceiveSystem;
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+        private NativeArray<uint> m_NetStats;
+        private GhostStatsCollectionSystem m_StatsCollection;
+#endif
+
+        private PortableFunctionPointer<GhostDistanceImportance.ScaleImportanceByDistanceDelegate> m_NoDistanceScale;
+
         unsafe struct SerializationState
         {
             public EntityArchetype arch;
@@ -163,35 +203,6 @@ namespace Unity.NetCode
             public NativeHashMap<ArchetypeChunk, SerializationState> SerializationState;
         }
 
-        private EntityQuery ghostGroup;
-        private EntityQuery ghostSpawnGroup;
-        private EntityQuery ghostDespawnGroup;
-
-        private EntityQuery connectionGroup;
-
-        private TGhostSerializerCollection serializers;
-
-        private NativeQueue<int> m_FreeGhostIds;
-        private NativeArray<int> m_AllocatedGhostIds;
-
-        private List<ConnectionStateData> m_ConnectionStates;
-        private NativeHashMap<Entity, int> m_ConnectionStateLookup;
-        private NetworkCompressionModel m_CompressionModel;
-
-        private NativeList<PrioChunk> m_SerialSpawnChunks;
-
-        private const int TargetPacketSize = 1200;
-
-        private ServerSimulationSystemGroup m_ServerSimulation;
-        private BeginSimulationEntityCommandBufferSystem m_Barrier;
-        private NetworkStreamReceiveSystem m_ReceiveSystem;
-#if UNITY_EDITOR || DEVELOPMENT_BUILD
-        private NativeArray<uint> m_NetStats;
-        private GhostStatsCollectionSystem m_StatsCollection;
-#endif
-
-        private PortableFunctionPointer<GhostDistanceImportance.ScaleImportanceByDistanceDelegate> m_NoDistanceScale;
-
         protected override void OnCreate()
         {
             m_NoDistanceScale = GhostDistanceImportance.NoScaleFunctionPointer;
@@ -209,10 +220,15 @@ namespace Unity.NetCode
             };
             ghostSpawnGroup = GetEntityQuery(filterSpawn);
             ghostDespawnGroup = GetEntityQuery(filterDespawn);
+            snaphotsAckGroup = GetEntityQuery(ComponentType.ReadOnly<NetworkSnapshotAckComponent>());
+            cleanupGroup = GetEntityQuery(ComponentType.ReadWrite<GhostSystemStateComponent>(),
+                ComponentType.Exclude<GhostComponent>());
 
             m_FreeGhostIds = new NativeQueue<int>(Allocator.Persistent);
             m_AllocatedGhostIds = new NativeArray<int>(1, Allocator.Persistent);
             m_AllocatedGhostIds[0] = 1; // To make sure 0 is invalid
+            m_DestroyedPrespawns = new NativeList<int>(Allocator.Persistent);
+            m_DestroyedPrespawnsQueue = new NativeQueue<int>(Allocator.Persistent);
 
             connectionGroup = GetEntityQuery(
                 ComponentType.ReadWrite<NetworkStreamConnection>(),
@@ -235,6 +251,7 @@ namespace Unity.NetCode
 #endif
 
             RequireSingletonForUpdate<GhostPrefabCollectionComponent>();
+            RequireSingletonForUpdate<NetworkStreamInGame>();
         }
 
         protected override void OnDestroy()
@@ -246,6 +263,8 @@ namespace Unity.NetCode
             m_CompressionModel.Dispose();
             m_AllocatedGhostIds.Dispose();
             m_FreeGhostIds.Dispose();
+            m_DestroyedPrespawns.Dispose();
+            m_DestroyedPrespawnsQueue.Dispose();
             foreach (var connectionState in m_ConnectionStates)
             {
                 connectionState.Dispose();
@@ -255,11 +274,12 @@ namespace Unity.NetCode
         }
 
         [BurstCompile]
-        struct FindAckedByAllJob : IJobForEach<NetworkSnapshotAckComponent>
+        struct FindAckedByAllJob : IJobChunk
         {
             public NativeArray<uint> tick;
+            [ReadOnly] public ArchetypeChunkComponentType<NetworkSnapshotAckComponent> snapshotAckType;
 
-            public void Execute([ReadOnly] ref NetworkSnapshotAckComponent ack)
+            public void LambdaMethod(in NetworkSnapshotAckComponent ack)
             {
                 uint ackedByAllTick = tick[0];
                 var snapshot = ack.LastReceivedSnapshotByRemote;
@@ -269,19 +289,31 @@ namespace Unity.NetCode
                     ackedByAllTick = snapshot;
                 tick[0] = ackedByAllTick;
             }
+
+            public void Execute(ArchetypeChunk chunk, int orderIndex, int firstEntityIndex)
+            {
+                var snapshotAcks = chunk.GetNativeArray(snapshotAckType);
+                for (int i = 0; i < chunk.Count; ++i)
+                {
+                    LambdaMethod(snapshotAcks[i]);
+                }
+            }
         }
 
         [BurstCompile]
-        [ExcludeComponent(typeof(GhostComponent))]
-        struct CleanupGhostJob : IJobForEachWithEntity<GhostSystemStateComponent>
+        struct CleanupGhostJob : IJobChunk
         {
             public uint currentTick;
             [DeallocateOnJobCompletion] [ReadOnly] public NativeArray<uint> tick;
+            [ReadOnly] public ArchetypeChunkEntityType entitiesType;
+            public ArchetypeChunkComponentType<GhostSystemStateComponent> ghostSystemStateType;
             public EntityCommandBuffer.Concurrent commandBuffer;
             public NativeQueue<int>.ParallelWriter freeGhostIds;
             public ComponentType ghostStateType;
+            public NativeQueue<int>.ParallelWriter prespawnDespawn;
+            public int highestPrespawnId;
 
-            public void Execute(Entity entity, int index, ref GhostSystemStateComponent ghost)
+            private void LambdaMethod(Entity entity, int orderIndex, ref GhostSystemStateComponent ghost)
             {
                 uint ackedByAllTick = tick[0];
                 if (ghost.despawnTick == 0)
@@ -290,8 +322,27 @@ namespace Unity.NetCode
                 }
                 else if (ackedByAllTick != 0 && !SequenceHelpers.IsNewer(ghost.despawnTick, ackedByAllTick))
                 {
-                    freeGhostIds.Enqueue(ghost.ghostId);
-                    commandBuffer.RemoveComponent(index, entity, ghostStateType);
+                    if (ghost.ghostId > highestPrespawnId)
+                        freeGhostIds.Enqueue(ghost.ghostId);
+                    commandBuffer.RemoveComponent(orderIndex, entity, ghostStateType);
+                }
+
+                if (ghost.ghostId <= highestPrespawnId)
+                    prespawnDespawn.Enqueue(ghost.ghostId);
+            }
+
+            public void Execute(ArchetypeChunk chunk, int orderIndex, int firstEntityIndex)
+            {
+                var entities = chunk.GetNativeArray(entitiesType);
+                var ghostSystemStates = chunk.GetNativeArray(ghostSystemStateType);
+                for (int i = 0; i < chunk.Count; ++i)
+                {
+                    unsafe
+                    {
+                        var ghostSystem = ghostSystemStates[i];
+                        LambdaMethod(entities[i], orderIndex, ref ghostSystem);
+                        ghostSystemStates[i] = ghostSystem;
+                    }
                 }
             }
         }
@@ -403,7 +454,9 @@ namespace Unity.NetCode
             public int3 tileCenter;
             [ReadOnly] public ArchetypeChunkComponentType<GhostDistancePartition> ghostDistancePartitionType;
             [ReadOnly] public ComponentDataFromEntity<GhostConnectionPosition> ghostConnectionPositionFromEntity;
-
+            [ReadOnly] public NativeArray<int> prespawnDespawns;
+            [ReadOnly] public ComponentDataFromEntity<InitializedPrespawnsForConnection> prespawnInit;
+            public EntityCommandBuffer commandBuffer;
 
             public unsafe void Execute()
             {
@@ -415,7 +468,7 @@ namespace Unity.NetCode
                 var snapshotAck = ackFromEntity[connectionEntity];
                 var ackTick = snapshotAck.LastReceivedSnapshotByRemote;
 
-                DataStreamWriter dataStream = driver.BeginSend(unreliablePipeline, connectionFromEntity[connectionEntity].Value);
+                DataStreamWriter dataStream = driver.BeginSend(unreliablePipeline, connectionFromEntity[connectionEntity].Value, TargetPacketSize);
                 if (!dataStream.IsCreated)
                     return;
                 dataStream.WriteByte((byte) NetworkStreamProtocol.Snapshot);
@@ -453,6 +506,24 @@ namespace Unity.NetCode
                             ++despawnLen;
                         }
                     }
+                }
+
+                // On new clients send out the current list of destroyed prespawned entities for despawning
+                if (!prespawnInit.Exists(connectionEntity))
+                {
+                    for (int i = 0; i < prespawnDespawns.Length; ++i)
+                    {
+                        dataStream.WritePackedUInt((uint) prespawnDespawns[i], compressionModel);
+                        ++despawnLen;
+                    }
+                    // Keep sending until client has sent an ack
+                    if (ackTick != 0)
+                        commandBuffer.AddComponent<InitializedPrespawnsForConnection>(connectionEntity);
+                }
+                if (dataStream.HasFailedWrites)
+                {
+                    driver.AbortSend(dataStream);
+                    throw new InvalidOperationException("Could not fit all despawn messages in a single snapshot");
                 }
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
                 netStats[0] = currentTick;
@@ -545,7 +616,7 @@ namespace Unity.NetCode
                 var availableBaselines =
                     new NativeList<SnapshotBaseline>(GhostSystemConstants.SnapshotHistorySize, Allocator.Temp);
                 var baselinePerEntity = new NativeArray<int>(maxCount * 3, Allocator.Temp);
-                for (int pc = 0; pc < serialChunks.Length && dataStream.Length < TargetPacketSize; ++pc)
+                for (int pc = 0; pc < serialChunks.Length; ++pc)
                 {
                     var chunk = serialChunks[pc].chunk;
                     var ghostType = serialChunks[pc].ghostType;
@@ -601,9 +672,15 @@ namespace Unity.NetCode
                     int ent;
                     if (serialChunks[pc].startIndex < chunk.Count)
                     {
+                        var oldStream = dataStream;
                         dataStream.WritePackedUInt((uint) ghostType, compressionModel);
                         dataStream.WritePackedUInt((uint) (chunk.Count - serialChunks[pc].startIndex),
                             compressionModel);
+                        if (dataStream.HasFailedWrites)
+                        {
+                            dataStream = oldStream;
+                            break;
+                        }
                     }
 
                     // First figure out the baselines to use per entity so they can be sent as baseline + maxCount instead of one per entity
@@ -692,6 +769,14 @@ namespace Unity.NetCode
                         chunkSerializationData.Remove(chunk);
                         chunkSerializationData.TryAdd(chunk, chunkState);
                     }
+                    // Could not send all ghosts, so packet must be full
+                    if (ent < chunk.Count)
+                        break;
+                }
+                if (dataStream.HasFailedWrites)
+                {
+                    driver.AbortSend(dataStream);
+                    throw new InvalidOperationException("Size limitation on snapshot did not prevent all errors");
                 }
 
                 dataStream.Flush();
@@ -699,6 +784,8 @@ namespace Unity.NetCode
                 lenWriter.WriteUInt(updateLen);
 
                 driver.EndSend(dataStream);
+                if (serialChunks.Length > 0 && updateLen == 0)
+                    throw new InvalidOperationException("A snapshot could not fit a single entity, please reduce the size of your serialized ghosts");
             }
         }
 
@@ -715,6 +802,22 @@ namespace Unity.NetCode
                 for (int i = 0; i < serialSpawnChunks.Length; ++i)
                 {
                     UnsafeUtility.Free(serialSpawnChunks[i].ghostState, Allocator.TempJob);
+                }
+            }
+        }
+
+        [BurstCompile]
+        struct MoveToDespawnList : IJob
+        {
+            public NativeQueue<int> despawnQueue;
+            public NativeList<int> despawnList;
+
+            public void Execute()
+            {
+                if (despawnQueue.TryDequeue(out int destroyed))
+                {
+                    if (!despawnList.Contains(destroyed))
+                        despawnList.Add(destroyed);
                 }
             }
         }
@@ -778,21 +881,35 @@ namespace Unity.NetCode
             ackedByAll[0] = currentTick;
             var findAckJob = new FindAckedByAllJob
             {
-                tick = ackedByAll
+                tick = ackedByAll,
+                snapshotAckType = GetArchetypeChunkComponentType<NetworkSnapshotAckComponent>(true)
             };
-            inputDeps = findAckJob.ScheduleSingle(this, inputDeps);
+            inputDeps = findAckJob.Schedule(snaphotsAckGroup, inputDeps);
 
             EntityCommandBuffer commandBuffer = m_Barrier.CreateCommandBuffer();
+            int highestPrespawnId = 0;
+            if (HasSingleton<HighestPrespawnIDAllocated>())
+                highestPrespawnId = GetSingleton<HighestPrespawnIDAllocated>().GhostId;
             var ghostCleanupJob = new CleanupGhostJob
             {
                 currentTick = currentTick,
                 tick = ackedByAll,
+                entitiesType = GetArchetypeChunkEntityType(),
+                ghostSystemStateType = GetArchetypeChunkComponentType<GhostSystemStateComponent>(),
                 commandBuffer = commandBuffer.ToConcurrent(),
                 freeGhostIds = m_FreeGhostIds.AsParallelWriter(),
-                ghostStateType = ComponentType.ReadWrite<GhostSystemStateComponent>()
+                ghostStateType = ComponentType.ReadWrite<GhostSystemStateComponent>(),
+                prespawnDespawn = m_DestroyedPrespawnsQueue.AsParallelWriter(),
+                highestPrespawnId = highestPrespawnId
             };
-            inputDeps = ghostCleanupJob.Schedule(this, inputDeps);
+            inputDeps = ghostCleanupJob.ScheduleParallel(cleanupGroup, inputDeps);
 
+            var despawnListJob = new MoveToDespawnList
+            {
+                despawnQueue = m_DestroyedPrespawnsQueue,
+                despawnList = m_DestroyedPrespawns
+            };
+            inputDeps = despawnListJob.Schedule(inputDeps);
 
             var entityType = GetArchetypeChunkEntityType();
             var ghostSystemStateType = GetArchetypeChunkComponentType<GhostSystemStateComponent>(true);
@@ -883,7 +1000,10 @@ namespace Unity.NetCode
                     tileSize = tileSize,
                     tileCenter = tileCenter,
                     ghostDistancePartitionType = GetArchetypeChunkComponentType<GhostDistancePartition>(true),
-                    ghostConnectionPositionFromEntity = GetComponentDataFromEntity<GhostConnectionPosition>(true)
+                    ghostConnectionPositionFromEntity = GetComponentDataFromEntity<GhostConnectionPosition>(true),
+                    prespawnDespawns = m_DestroyedPrespawns.AsDeferredJobArray(),
+                    prespawnInit = GetComponentDataFromEntity<InitializedPrespawnsForConnection>(true),
+                    commandBuffer =  commandBuffer
                 };
                 // FIXME: disable safety for BufferFromEntity is not working
                 serialDep[con + 1] =
@@ -933,8 +1053,9 @@ namespace Unity.NetCode
             int ent;
             int sameBaselineCount = 0;
             TSnapshotData* currentSnapshotData = (TSnapshotData*) data.currentSnapshotData;
-            for (ent = data.startIndex; ent < data.chunk.Count && dataStream.Length < TargetPacketSize; ++ent)
+            for (ent = data.startIndex; ent < data.chunk.Count; ++ent)
             {
+                var oldStream = dataStream;
 #if ENABLE_UNITY_COLLECTIONS_CHECKS
                 if (data.ghostStates[ent].ghostTypeIndex != data.ghostType)
                 {
@@ -1023,11 +1144,32 @@ namespace Unity.NetCode
 
                 snapshot->Serialize(data.serializerState.NetworkId, ref *baseline, ref dataStream, data.compressionModel);
 
+                if (dataStream.HasFailedWrites)
+                {
+                    // Abort before setting the entity since the snapshot is not going to be sent
+                    dataStream = oldStream;
+                    break;
+                }
+
                 if (currentSnapshotData != null)
                     data.currentSnapshotEntity[ent] = data.ghostEntities[ent];
             }
 
             return ent;
         }
+
+        // Set the allocation ghost ID, increments what the next ID should be if appropriate,
+        // next ID can never go backwards
+        public bool SetAllocatedGhostId(int id)
+        {
+            if (id >= m_AllocatedGhostIds[0])
+            {
+                m_AllocatedGhostIds[0] = id + 1;
+                return true;
+            }
+            return false;
+        }
+
+        public abstract bool IsEnabled();
     }
 }

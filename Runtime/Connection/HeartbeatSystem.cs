@@ -17,6 +17,7 @@ namespace Unity.NetCode
         }
 
         [BurstCompile]
+        [AOT.MonoPInvokeCallback(typeof(RpcExecutor.ExecuteDelegate))]
         private static void InvokeExecute(ref RpcExecutor.Parameters parameters)
         {
             RpcExecutor.ExecuteCreateRequestComponent<HeartbeatComponent>(ref parameters);

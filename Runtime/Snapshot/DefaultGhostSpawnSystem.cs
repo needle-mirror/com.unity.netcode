@@ -7,9 +7,15 @@ using Unity.Networking.Transport.Utilities;
 
 namespace Unity.NetCode
 {
+    public interface IGhostSpawnSystem
+    {
+        bool CanSpawn(Entity entity);
+        void AddGhost(int ghostId, Entity ghostEntity);
+    }
+
     [UpdateInGroup(typeof(GhostSpawnSystemGroup))]
     [AlwaysUpdateSystem]
-    public abstract class DefaultGhostSpawnSystem<T> : JobComponentSystem
+    public abstract class DefaultGhostSpawnSystem<T> : JobComponentSystem, IGhostSpawnSystem
         where T : struct, ISnapshotData<T>
     {
         public int GhostType { get; set; }
@@ -505,6 +511,29 @@ namespace Unity.NetCode
                 predictSpawnRequests = predictSpawnRequests
             };
             return clearJob.Schedule(inputDeps);
+        }
+
+        public void AddGhost(int ghostId, Entity ghostEntity)
+        {
+            if (m_GhostMap.ContainsKey(ghostId))
+            {
+                UnityEngine.Debug.LogError("Ghost ID " + ghostId + " has already been added");
+                return;
+            }
+
+            m_GhostMap.Add(ghostId, new GhostEntity
+            {
+                entity = ghostEntity,
+#if ENABLE_UNITY_COLLECTIONS_CHECKS
+                ghostType = GhostType,
+#endif
+                spawnTick = 0
+            });
+        }
+
+        public bool CanSpawn(Entity entity)
+        {
+            return EntityManager.HasComponent<T>(entity);
         }
     }
 }

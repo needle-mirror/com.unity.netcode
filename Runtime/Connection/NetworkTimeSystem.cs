@@ -194,9 +194,15 @@ namespace Unity.NetCode
             {
                 uint curPredict = latestSnapshotEstimate + kTargetCommandSlack +
                                   ((uint) estimatedRTT * (uint) tickRate.SimulationTickRate + 999) / 1000;
-                float predictDelta = (float) (curPredict - predictTargetTick) - deltaTicks;
+                float predictDelta = (float)((int)curPredict - (int)predictTargetTick) - deltaTicks;
                 if (math.abs(predictDelta) > 10)
                 {
+                    //Attention! this may can rollback in case we have an high difference in estimate (about 10 ticks greater)
+                    //and predictDelta is negative (client is too far ahead)
+                    if (predictDelta < 0.0f)
+                    {
+                        UnityEngine.Debug.LogError($"Large serverTick prediction error. Server tick rollback to {curPredict} delta: {predictDelta}");
+                    }
                     predictTargetTick = curPredict;
                     subPredictTargetTick = 0;
                     for (int i = 0; i < commandAgeAdjustment.Length; ++i)
@@ -205,7 +211,7 @@ namespace Unity.NetCode
                 else
                 {
                     predictionTimeScale = math.clamp(1.0f + 0.1f * predictDelta, .9f, 1.1f);
-                    subPredictTargetTick += deltaTicks + predictionTimeScale;
+                    subPredictTargetTick += deltaTicks * predictionTimeScale;
                     uint pdiff = (uint) subPredictTargetTick;
                     subPredictTargetTick -= pdiff;
                     predictTargetTick += pdiff;

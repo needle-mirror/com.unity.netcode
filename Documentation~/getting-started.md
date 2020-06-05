@@ -42,11 +42,16 @@ public struct MovableCubeComponent : IComponentData
 
 Once you create this component, add it to the Cube Prefab. Then, in the Inspector, add the __Ghost Authoring Component__ to the Prefab. In this component, select __Update Component List__ to update the list of components.
 
-When you do this, Unity automatically adds default values to the Translation and Rotation components. Expand the components in the list to select where they should be present. In this example, disable `PerInstanceCullingTag` and `RenderMesh` on the server. This is because the server does not render anything, and interpolated objects on the client don’t simulate anything.
+
+
+When you do this, Unity automatically adds default values to the Translation and Rotation components. 
+
+Start by changing the __Default Client Instantiation__ to __Owner Predicted__. This makes sure that you predict your own movement. Then, add the `MovableCubeComponent.PlayerId` to the
+__Predicting player network id__ field. 
+
+Now, expand the components in the list to select where they should be present. In this example, disable `PerInstanceCullingTag`, `RenderBounds` and `RenderMesh` on the server. The server doesn't render anything and interpolated objects on the client don't simulate anything, so these settings aren't required.
 
 ![The Ghost Authoring component](images/ghost-config.png)<br/>_The Ghost Authoring component_
-
-**Note:** Change the __Default Client Instantiation__ to __Owner Predicted__. This makes sure that you predict your own movement.
 
 After you set up the component, select the __Generate Code__ button.
 
@@ -118,11 +123,11 @@ In *Game.cs*, create the following [RpcCommand](https://docs.unity3d.com/Package
 [BurstCompile]
 public struct GoInGameRequest : IRpcCommand
 {
-    public void Deserialize(DataStreamReader reader, ref DataStreamReader.Context ctx)
+    public void Deserialize(ref DataStreamReader reader)
     {
     }
 
-    public void Serialize(DataStreamWriter writer)
+    public void Serialize(ref DataStreamWriter writer)
     {
     }
     [BurstCompile]
@@ -161,28 +166,28 @@ public struct CubeInput : ICommandData<CubeInput>
     public int horizontal;
     public int vertical;
 
-    public void Deserialize(uint tick, DataStreamReader reader, ref DataStreamReader.Context ctx)
+    public void Deserialize(uint tick, ref DataStreamReader reader)
     {
         this.tick = tick;
-        horizontal = reader.ReadInt(ref ctx);
-        vertical = reader.ReadInt(ref ctx);
+        horizontal = reader.ReadInt();
+        vertical = reader.ReadInt();
     }
 
-    public void Serialize(DataStreamWriter writer)
+    public void Serialize(ref DataStreamWriter writer)
     {
-        writer.Write(horizontal);
-        writer.Write(vertical);
+        writer.WriteInt(horizontal);
+        writer.WriteInt(vertical);
     }
 
-    public void Deserialize(uint tick, DataStreamReader reader, ref DataStreamReader.Context ctx, CubeInput baseline,
+    public void Deserialize(uint tick, ref DataStreamReader reader, CubeInput baseline,
         NetworkCompressionModel compressionModel)
     {
-        Deserialize(tick, reader, ref ctx);
+        Deserialize(tick, ref reader);
     }
 
-    public void Serialize(DataStreamWriter writer, CubeInput baseline, NetworkCompressionModel compressionModel)
+    public void Serialize(ref DataStreamWriter writer, CubeInput baseline, NetworkCompressionModel compressionModel)
     {
-        Serialize(writer);
+        Serialize(ref writer);
     }
 }
 ```

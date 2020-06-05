@@ -44,7 +44,7 @@ namespace Unity.NetCode
             if (m_Socket.AcceptNewConnection())
             {
                 m_StatsCollections = new List<GhostStatsCollectionSystem>();
-                foreach (var world in World.AllWorlds)
+                foreach (var world in World.All)
                 {
                     var stats = world.GetExistingSystem<GhostStatsCollectionSystem>();
                     if (stats != null)

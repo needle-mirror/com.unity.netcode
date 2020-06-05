@@ -24,10 +24,13 @@ namespace Unity.NetCode
 
     [UpdateInGroup(typeof(ClientSimulationSystemGroup))]
     [UpdateBefore(typeof(GhostSimulationSystemGroup))]
+    [UpdateAfter(typeof(PopulatePreSpawnedGhosts))]
     public class GhostReceiveSystem<TGhostDeserializerCollection> : JobComponentSystem
         where TGhostDeserializerCollection : struct, IGhostDeserializerCollection
     {
         private EntityQuery playerGroup;
+        private EntityQuery ghostCleanupGroup;
+        private EntityQuery clearJobGroup;
 
         private TGhostDeserializerCollection serializers;
 
@@ -47,6 +50,12 @@ namespace Unity.NetCode
                 ComponentType.ReadOnly<NetworkStreamInGame>(),
                 ComponentType.Exclude<NetworkStreamDisconnected>());
 
+            ghostCleanupGroup = GetEntityQuery(ComponentType.ReadOnly<GhostComponent>(),
+                ComponentType.Exclude<PreSpawnedGhostId>());
+
+            clearJobGroup = GetEntityQuery(ComponentType.ReadOnly<GhostComponent>(),
+                ComponentType.Exclude<PreSpawnedGhostId>());
+
             m_Barrier = World.GetOrCreateSystem<BeginSimulationEntityCommandBufferSystem>();
             m_CompressionModel = new NetworkCompressionModel(Allocator.Persistent);
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
@@ -54,8 +63,6 @@ namespace Unity.NetCode
             m_StatsCollection = World.GetOrCreateSystem<GhostStatsCollectionSystem>();
 #endif
             m_GhostDespawnSystem = World.GetOrCreateSystem<GhostDespawnSystem>();
-
-            serializers.Initialize(World);
 
             RequireSingletonForUpdate<GhostPrefabCollectionComponent>();
         }
@@ -65,6 +72,7 @@ namespace Unity.NetCode
         private GhostStatsCollectionSystem m_StatsCollection;
 #endif
         private NetworkCompressionModel m_CompressionModel;
+        private bool m_serializersAreInitialized = false;
 
         protected override void OnDestroy()
         {
@@ -75,13 +83,23 @@ namespace Unity.NetCode
         }
 
         [BurstCompile]
-        struct ClearGhostsJob : IJobForEachWithEntity<GhostComponent>
+        struct ClearGhostsJob : IJobChunk
         {
             public EntityCommandBuffer.Concurrent commandBuffer;
+            [ReadOnly] public ArchetypeChunkEntityType entitiesType;
 
-            public void Execute(Entity entity, int index, [ReadOnly] ref GhostComponent repl)
+            public void LambdaMethod(Entity entity, int index)
             {
                 commandBuffer.RemoveComponent<GhostComponent>(index, entity);
+            }
+
+            public void Execute(ArchetypeChunk chunk, int orderIndex, int firstEntityIndex)
+            {
+                var entities = chunk.GetNativeArray(entitiesType);
+                for (int i = 0; i < chunk.Count; ++i)
+                {
+                    LambdaMethod(entities[i], orderIndex);
+                }
             }
         }
 
@@ -170,6 +188,7 @@ namespace Unity.NetCode
                         continue;
 
                     ghostEntityMap.Remove(ghostId);
+
                     if (predictedFromEntity.Exists(ent.entity))
                         predictedDespawnQueue.Enqueue(new GhostDespawnSystem.DelayedDespawnGhost
                             {ghost = ent.entity, tick = serverTick});
@@ -279,12 +298,13 @@ namespace Unity.NetCode
                     netStats[statType * 3 + 6] = netStats[statType * 3 + 6] + uncompressedCount;
                 }
 #endif
-                while (ghostEntityMap.Capacity < ghostEntityMap.Length + newGhosts)
+                while (ghostEntityMap.Capacity < ghostEntityMap.Count() + newGhosts)
                     ghostEntityMap.Capacity += 1024;
 
                 snapshot.Clear();
             }
         }
+
 
         protected override JobHandle OnUpdate(JobHandle inputDeps)
         {
@@ -293,9 +313,20 @@ namespace Unity.NetCode
                 m_StatsCollection.SetGhostNames(this, serializers.CreateSerializerNameList());
             m_StatsCollection.AddSnapshotStats(m_NetStats);
 #endif
+            //Lazy initialization is necessary due to fact we can't guarantee that all the dependent systems
+            //has been initialized when the OnCreate is called.
+            if (!m_serializersAreInitialized)
+            {
+                serializers.Initialize(World);
+                m_serializersAreInitialized = true;
+            }
+
             var commandBuffer = m_Barrier.CreateCommandBuffer();
             if (playerGroup.IsEmptyIgnoreFilter)
             {
+                // If there were no ghosts spawned at runtime we don't need to cleanup
+                if (ghostCleanupGroup.IsEmptyIgnoreFilter)
+                    return inputDeps;
                 m_GhostDespawnSystem.LastQueueWriter.Complete();
                 m_GhostDespawnSystem.InterpolatedDespawnQueue.Clear();
                 m_GhostDespawnSystem.PredictedDespawnQueue.Clear();
@@ -307,12 +338,17 @@ namespace Unity.NetCode
                 m_GhostUpdateSystemGroup.LastGhostMapWriter = clearHandle;
                 var clearJob = new ClearGhostsJob
                 {
+                    entitiesType = GetArchetypeChunkEntityType(),
                     commandBuffer = commandBuffer.ToConcurrent()
                 };
-                inputDeps = clearJob.Schedule(this, inputDeps);
+                inputDeps = clearJob.Schedule(clearJobGroup, inputDeps);
                 m_Barrier.AddJobHandleForProducer(inputDeps);
                 return JobHandle.CombineDependencies(inputDeps, clearHandle);
             }
+
+            // Don't start ghost snapshot processing until we're in game, but allow the cleanup code above to run
+            if (!HasSingleton<NetworkStreamInGame>())
+                return inputDeps;
 
             serializers.BeginDeserialize(this);
             JobHandle playerHandle;
@@ -330,7 +366,7 @@ namespace Unity.NetCode
                 interpolatedDespawnQueue = m_GhostDespawnSystem.InterpolatedDespawnQueue,
                 predictedDespawnQueue = m_GhostDespawnSystem.PredictedDespawnQueue,
                 predictedFromEntity = GetComponentDataFromEntity<PredictedGhostComponent>(true),
-                isThinClient = HasSingleton<ThinClientComponent>()
+                isThinClient = HasSingleton<ThinClientComponent>(),
             };
             inputDeps = readJob.Schedule(JobHandle.CombineDependencies(inputDeps, playerHandle,
                 m_GhostDespawnSystem.LastQueueWriter));
@@ -356,6 +392,7 @@ namespace Unity.NetCode
             where T : struct, ISnapshotData<T>
         {
             DynamicBuffer<T> snapshotArray = snapshotFromEntity[entity];
+            var data = default(T);
             var baselineData = default(T);
             if (baseline != snapshot)
             {
@@ -369,7 +406,10 @@ namespace Unity.NetCode
                 }
 
                 if (baselineData.Tick == 0)
+                {
+                    data.Deserialize(snapshot, ref baselineData, ref reader, compressionModel);
                     return false; // Ack desync detected
+                }
             }
 
             if (baseline3 != snapshot)
@@ -390,12 +430,14 @@ namespace Unity.NetCode
                 }
 
                 if (baselineData2.Tick == 0 || baselineData3.Tick == 0)
+                {
+                    data.Deserialize(snapshot, ref baselineData, ref reader, compressionModel);
                     return false; // Ack desync detected
+                }
 
                 baselineData.PredictDelta(snapshot, ref baselineData2, ref baselineData3);
             }
 
-            var data = default(T);
             data.Deserialize(snapshot, ref baselineData, ref reader, compressionModel);
             // Replace the oldest snapshot and add a new one
             if (snapshotArray.Length == GhostSystemConstants.SnapshotHistorySize)

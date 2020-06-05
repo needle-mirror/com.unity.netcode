@@ -36,6 +36,7 @@ namespace Unity.NetCode
         }
     }
 
+    [DisableAutoCreation]
     [UpdateInGroup(typeof(ClientAndServerSimulationSystemGroup))]
     public class RpcSystem : JobComponentSystem
     {
@@ -74,11 +75,15 @@ namespace Unity.NetCode
         private NativeHashMap<ulong, int> m_RpcTypeHashToIndex;
         private bool m_CanRegister;
 
-        protected override void OnCreate()
+        public RpcSystem()
         {
             m_CanRegister = true;
             m_RpcData = new NativeList<RpcData>(16, Allocator.Persistent);
             m_RpcTypeHashToIndex = new NativeHashMap<ulong, int>(16, Allocator.Persistent);
+        }
+
+        protected override void OnCreate()
+        {
 #if ENABLE_UNITY_COLLECTIONS_CHECKS
             Debug.Assert(UnsafeUtility.SizeOf<OutgoingRpcDataStreamBufferComponent>() == 1);
             Debug.Assert(UnsafeUtility.SizeOf<IncomingRpcDataStreamBufferComponent>() == 1);
@@ -110,6 +115,13 @@ namespace Unity.NetCode
         {
             if (!m_CanRegister)
                 throw new InvalidOperationException("Cannot register new RPCs after the RpcSystem has started running");
+
+            if (!exec.Ptr.IsCreated)
+            {
+                throw new InvalidOperationException($"Cannot register RPC for type {type.GetManagedType()}: Ptr property is not created (null)" +
+                                                    "Check CompileExecute() and verify you are initializing the PortableFunctionPointer with a valid static function delegate, decorated with [BurstCompile] attribute");
+            }
+            
             var hash = TypeManager.GetTypeInfo(type.TypeIndex).StableTypeHash;
             if (hash == 0)
                 throw new InvalidOperationException(String.Format("Unexpected 0 hash for type {0}", type.GetManagedType()));
@@ -316,6 +328,9 @@ namespace Unity.NetCode
 
         public RpcQueue<T> GetRpcQueue<T>() where T : struct, IRpcCommand
         {
+            if (!m_RpcTypeHashToIndex.IsCreated)
+                throw new InvalidOperationException($"The RPCSystem has not been created or has been destroyed");
+
             var hash = TypeManager.GetTypeInfo(TypeManager.GetTypeIndex<T>()).StableTypeHash;
             if (hash == 0)
                 throw new InvalidOperationException(String.Format("Unexpected 0 hash for type {0}", typeof(T)));

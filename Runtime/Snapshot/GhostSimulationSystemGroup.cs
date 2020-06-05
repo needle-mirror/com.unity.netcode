@@ -11,6 +11,10 @@ namespace Unity.NetCode
     [UpdateBefore(typeof(TransformSystemGroup))]
     public class GhostSimulationSystemGroup : ComponentSystemGroup
     {
+        public GhostSimulationSystemGroup()
+        {
+            UseLegacySortOrder = false;
+        }
     }
 
     [UpdateInGroup(typeof(GhostSimulationSystemGroup))]
@@ -21,6 +25,8 @@ namespace Unity.NetCode
         // having the group own the ghost map is a bit of a hack to solve a problem with accessing the receiver system from the default spawn system (because it is generic)
         protected override void OnCreate()
         {
+            base.OnCreate();
+            UseLegacySortOrder = false;
             m_ghostEntityMap = new NativeHashMap<int, GhostEntity>(2048, Allocator.Persistent);
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
             m_ghostSnapshotTickMinMax = new NativeArray<uint>(JobsUtility.MaxJobThreadCount * JobsUtility.CacheLineSize/4, Allocator.Persistent);
@@ -73,8 +79,13 @@ namespace Unity.NetCode
 #endif
     }
 
-    [UpdateInGroup(typeof(ClientSimulationSystemGroup))]
+    [UpdateInGroup(typeof(ClientSimulationSystemGroup), OrderFirst=true)]
+    [UpdateAfter(typeof(BeginSimulationEntityCommandBufferSystem))]
     public class GhostSpawnSystemGroup : ComponentSystemGroup
     {
+        public GhostSpawnSystemGroup()
+        {
+            UseLegacySortOrder = false;
+        }
     }
 }

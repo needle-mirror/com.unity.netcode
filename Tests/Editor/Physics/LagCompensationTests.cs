@@ -4,10 +4,9 @@ using Unity.Networking.Transport;
 using Unity.NetCode.Tests;
 using Unity.Jobs;
 using UnityEngine;
-using Unity.NetCode;
-using Unity.NetCode.Editor;
 using Unity.Mathematics;
 using Unity.Transforms;
+using UnityEngine.TestTools;
 
 namespace Unity.NetCode.Physics.Tests
 {
@@ -150,7 +149,9 @@ namespace Unity.NetCode.Physics.Tests
                 return inputDeps;
             var isServer = m_IsServer;
             // Not using burst since there is a static used to update the UI
-            var handle = Entities.WithoutBurst().ForEach((DynamicBuffer<LagCompensationTestCommand> commands, in CommandDataInterpolationDelay delay) =>
+            var handle = Entities
+                .WithoutBurst()
+                .ForEach((DynamicBuffer<LagCompensationTestCommand> commands, in CommandDataInterpolationDelay delay) =>
             {
                 // If there is no data for the tick or a fire was not requested - do not process anything
                 if (!commands.GetDataAtTick(predictingTick, out var cmd))
@@ -227,6 +228,7 @@ namespace Unity.NetCode.Physics.Tests
     public class LagCompensationTests
     {
         [Test]
+        [UnityPlatform(RuntimePlatform.OSXEditor, RuntimePlatform.WindowsEditor)]
         public void HitWithLagCompensation()
         {
             using (var testWorld = new NetCodeTestWorld())
@@ -235,6 +237,7 @@ namespace Unity.NetCode.Physics.Tests
                 testWorld.DriverSimulatedDelay = 50;
                 testWorld.NetCodeAssemblies.Add("Unity.NetCode.Physics,");
                 testWorld.NetCodeAssemblies.Add("Unity.Physics,");
+
                 testWorld.Bootstrap(true,
                     typeof(TestAutoInGameSystem),
                     typeof(LagCompensationTestCubeMoveSystem),

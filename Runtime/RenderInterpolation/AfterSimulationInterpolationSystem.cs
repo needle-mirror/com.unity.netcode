@@ -55,7 +55,7 @@ namespace Unity.NetCode
             {
                 // For all chunks where trans has changed since start of simulation
                 // Copy trans to currentTrans
-                if (ChangeVersionUtility.DidChange(chunk.GetComponentVersion(positionType), simStartComponentVersion))
+                if (ChangeVersionUtility.DidChange(chunk.GetChangeVersion(positionType), simStartComponentVersion))
                 {
                     // Transform was interpolated by the rendering system
                     var curPos = chunk.GetNativeArray(curPositionType);
@@ -80,7 +80,7 @@ namespace Unity.NetCode
             {
                 // For all chunks where trans has changed since start of simulation
                 // Copy trans to currentTrans
-                if (ChangeVersionUtility.DidChange(chunk.GetComponentVersion(rotationType), simStartComponentVersion))
+                if (ChangeVersionUtility.DidChange(chunk.GetChangeVersion(rotationType), simStartComponentVersion))
                 {
                     // Transform was interpolated by the rendering system
                     var curRot = chunk.GetNativeArray(curRotationType);

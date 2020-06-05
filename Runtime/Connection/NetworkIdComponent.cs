@@ -34,6 +34,7 @@ namespace Unity.NetCode
         }
 
         [BurstCompile]
+        [AOT.MonoPInvokeCallback(typeof(RpcExecutor.ExecuteDelegate))]
         private static void InvokeExecute(ref RpcExecutor.Parameters parameters)
         {
             var rpcData = default(RpcSetNetworkId);
@@ -41,7 +42,7 @@ namespace Unity.NetCode
 
             parameters.CommandBuffer.AddComponent(parameters.JobIndex, parameters.Connection, new NetworkIdComponent {Value = rpcData.nid});
             var ent = parameters.CommandBuffer.CreateEntity(parameters.JobIndex);
-            parameters.CommandBuffer.AddComponent(parameters.JobIndex, ent, new ClientServerTickRate
+            parameters.CommandBuffer.AddComponent(parameters.JobIndex, ent, new ClientServerTickRateRefreshRequest
             {
                 MaxSimulationStepsPerFrame = rpcData.simMaxSteps,
                 NetworkTickRate = rpcData.netTickRate,

@@ -27,11 +27,13 @@ namespace Unity.NetCode
 
         public virtual bool Initialize(string defaultWorldName)
         {
-            var systems = DefaultWorldInitialization.GetAllSystems(WorldSystemFilterFlags.Default);
-            GenerateSystemLists(systems);
-
+            // The default world must be created before generating the system list in order to have a valid TypeManager instance.
+            // The TypeManage is initialised the first time we create a world.
             var world = new World(defaultWorldName);
             World.DefaultGameObjectInjectionWorld = world;
+
+            var systems = DefaultWorldInitialization.GetAllSystems(WorldSystemFilterFlags.Default);
+            GenerateSystemLists(systems);
 
             DefaultWorldInitialization.AddSystemsToRootLevelSystemGroups(world, ExplicitDefaultWorldSystems);
             ScriptBehaviourUpdateOrder.UpdatePlayerLoop(world);
@@ -75,37 +77,78 @@ namespace Unity.NetCode
             var initializationGroup = world.GetOrCreateSystem<ClientInitializationSystemGroup>();
             var simulationGroup = world.GetOrCreateSystem<ClientSimulationSystemGroup>();
             var presentationGroup = world.GetOrCreateSystem<ClientPresentationSystemGroup>();
+            //Disable groups legacy sorting behavior
+            initializationGroup.UseLegacySortOrder = false;
+            simulationGroup.UseLegacySortOrder = false;
+            presentationGroup.UseLegacySortOrder = false;
+
+            //Pre-create also all the necessary tick systems in the DefaultWorld
+            var initializationTickSystem = defaultWorld.GetOrCreateSystem<TickClientInitializationSystem>();
+            var simulationTickSystem = defaultWorld.GetOrCreateSystem<TickClientSimulationSystem>();
+            var presentationTickSystem = defaultWorld.GetOrCreateSystem<TickClientPresentationSystem>();
+
+            //Retrieve all clients systems and create all at once via GetOrCreateSystemsAndLogException.
+            var allSystems = new List<Type>(s_State.ClientInitializationSystems.Count +
+                                            s_State.ClientSimulationSystems.Count +
+                                            s_State.ClientPresentationSystems.Count +
+                                            s_State.ClientChildSystems.Count + 3);
+
+            // By using the two-phase creation, we can't rely anymore on the fact that the World.GetOrCreateSystem always return
+            // a system whose OnCreate method as been invoked. It depend on the system initialization order.
+            // This break almost all the systems who were relying on that logic and it might require some new changes
+            // on the Entities framework or (better) a rethink and decoupling of the systems.
+            // In general, OnCreate is reliable ONLY for caching other system instances.
+            // ** After trying different solutions I decided to explicitly add the most critical systems that are required to
+            // pre-created before the simulation group **
+            allSystems.Add(typeof(RpcSystem));  //Needed by RpcCommandSystem
+            allSystems.Add(typeof(GhostUpdateSystemGroup)); //Needed by GhostSendSystem
+            //NetworkReceiveSystem must be manually created but is not automatically updated by any group. Instead,
+            //the ClientSimulationSystem tick it manually before the fixed-update / main update loop
+            allSystems.Add(typeof(NetworkReceiveSystemGroup));
+            allSystems.AddRange(s_State.ClientInitializationSystems);
+            allSystems.AddRange(s_State.ClientSimulationSystems);
+            allSystems.AddRange(s_State.ClientPresentationSystems);
+            foreach (var systemParentType in s_State.ClientChildSystems)
+            {
+                allSystems.Add(systemParentType.Item1);
+            }
+            world.GetOrCreateSystemsAndLogException(allSystems.ToArray());
+
+            //Step2: group update binding
             foreach (var systemType in s_State.ClientInitializationSystems)
             {
-                var system = world.GetOrCreateSystem(systemType);
+                var system = world.GetExistingSystem(systemType);
                 initializationGroup.AddSystemToUpdateList(system);
             }
+
+            simulationGroup.AddSystemToUpdateList(world.GetExistingSystem(typeof(RpcSystem)));
             foreach (var systemType in s_State.ClientSimulationSystems)
             {
-                var system = world.GetOrCreateSystem(systemType);
+                var system = world.GetExistingSystem(systemType);
                 simulationGroup.AddSystemToUpdateList(system);
             }
             foreach (var systemType in s_State.ClientPresentationSystems)
             {
-                var system = world.GetOrCreateSystem(systemType);
+                var system = world.GetExistingSystem(systemType);
                 presentationGroup.AddSystemToUpdateList(system);
             }
             foreach (var systemParentType in s_State.ClientChildSystems)
             {
-                var system = world.GetOrCreateSystem(systemParentType.Item1);
-                var group = world.GetOrCreateSystem(systemParentType.Item2) as ComponentSystemGroup;
+                var system = world.GetExistingSystem(systemParentType.Item1);
+                var group = world.GetExistingSystem(systemParentType.Item2) as ComponentSystemGroup;
                 group.AddSystemToUpdateList(system);
             }
-            initializationGroup.SortSystemUpdateList();
-            simulationGroup.SortSystemUpdateList();
-            presentationGroup.SortSystemUpdateList();
+            initializationGroup.SortSystems();
+            simulationGroup.SortSystemsAndNetworkSystemGroup();
+            presentationGroup.SortSystems();
 
-            initializationGroup.ParentTickSystem = defaultWorld.GetOrCreateSystem<TickClientInitializationSystem>();
-            initializationGroup.ParentTickSystem.AddSystemToUpdateList(initializationGroup);
-            simulationGroup.ParentTickSystem = defaultWorld.GetOrCreateSystem<TickClientSimulationSystem>();
-            simulationGroup.ParentTickSystem.AddSystemToUpdateList(simulationGroup);
-            presentationGroup.ParentTickSystem = defaultWorld.GetOrCreateSystem<TickClientPresentationSystem>();
-            presentationGroup.ParentTickSystem.AddSystemToUpdateList(presentationGroup);
+            //Bind main world group to tick systems (DefaultWorld tick the client world)
+            initializationGroup.ParentTickSystem = initializationTickSystem;
+            initializationTickSystem.AddSystemToUpdateList(initializationGroup);
+            simulationGroup.ParentTickSystem = simulationTickSystem;
+            simulationTickSystem.AddSystemToUpdateList(simulationGroup);
+            presentationGroup.ParentTickSystem = presentationTickSystem;
+            presentationTickSystem.AddSystemToUpdateList(presentationGroup);
 
             return world;
 #endif
@@ -118,29 +161,66 @@ namespace Unity.NetCode
             var world = new World(name);
             var initializationGroup = world.GetOrCreateSystem<ServerInitializationSystemGroup>();
             var simulationGroup = world.GetOrCreateSystem<ServerSimulationSystemGroup>();
+            //Disable groups legacy sorting behavior
+            initializationGroup.UseLegacySortOrder = false;
+            simulationGroup.UseLegacySortOrder = false;
+
+            //Pre-create also all the necessary tick systems in the DefaultWorld
+            var initializationTickSystem = defaultWorld.GetOrCreateSystem<TickServerInitializationSystem>();
+            var simulationTickSystem = defaultWorld.GetOrCreateSystem<TickServerSimulationSystem>();
+
+            //Retrieve all clients systems and create all at once via GetOrCreateSystemsAndLogException.
+            var allSystems = new List<Type>(s_State.ServerInitializationSystems.Count +
+                                            s_State.ServerSimulationSystems.Count +
+                                            s_State.ServerChildSystems.Count + 2);
+
+            allSystems.AddRange(s_State.ServerInitializationSystems);
+            // By using the two-phase creation, we can't rely anymore on the fact that the World.GetOrCreateSystem always return
+            // a system whose OnCreate method as been invoked. It depend on the system initialization order.
+            // This break almost all the systems who were relying on that logic and it might require some new changes
+            // on the Entities framework or (better) a rethink and decoupling of the systems.
+            // In general, OnCreate is reliable ONLY for caching other system instances.
+            // ** After trying different solutions I decided to explicitly add the most critical systems that are required to
+            // pre-created before the simulation group **
+            allSystems.Add(typeof(RpcSystem));
+            allSystems.Add(typeof(NetworkReceiveSystemGroup));
+            allSystems.AddRange(s_State.ServerSimulationSystems);
+            foreach (var systemParentType in s_State.ServerChildSystems)
+            {
+                allSystems.Add(systemParentType.Item1);
+            }
+            world.GetOrCreateSystemsAndLogException(allSystems.ToArray());
+
+            //Step2: group update binding
             foreach (var systemType in s_State.ServerInitializationSystems)
             {
-                var system = world.GetOrCreateSystem(systemType);
+                var system = world.GetExistingSystem(systemType);
                 initializationGroup.AddSystemToUpdateList(system);
             }
+
+            simulationGroup.AddSystemToUpdateList(world.GetExistingSystem(typeof(RpcSystem)));
+            //For the server, the NetworkReceiveSystemGroup is part of the SimulationGroup and it is automatically updated as
+            //usual.
+            simulationGroup.AddSystemToUpdateList(world.GetExistingSystem(typeof(NetworkReceiveSystemGroup)));
             foreach (var systemType in s_State.ServerSimulationSystems)
             {
-                var system = world.GetOrCreateSystem(systemType);
+                var system = world.GetExistingSystem(systemType);
                 simulationGroup.AddSystemToUpdateList(system);
             }
             foreach (var systemParentType in s_State.ServerChildSystems)
             {
-                var system = world.GetOrCreateSystem(systemParentType.Item1);
-                var group = world.GetOrCreateSystem(systemParentType.Item2) as ComponentSystemGroup;
+                var system = world.GetExistingSystem(systemParentType.Item1);
+                var group = world.GetExistingSystem(systemParentType.Item2) as ComponentSystemGroup;
                 group.AddSystemToUpdateList(system);
             }
-            initializationGroup.SortSystemUpdateList();
-            simulationGroup.SortSystemUpdateList();
+            initializationGroup.SortSystems();
+            simulationGroup.SortSystems();
 
-            initializationGroup.ParentTickSystem = defaultWorld.GetOrCreateSystem<TickServerInitializationSystem>();
-            initializationGroup.ParentTickSystem.AddSystemToUpdateList(initializationGroup);
-            simulationGroup.ParentTickSystem = defaultWorld.GetOrCreateSystem<TickServerSimulationSystem>();
-            simulationGroup.ParentTickSystem.AddSystemToUpdateList(simulationGroup);
+            //Bind main world group to tick systems (DefaultWorld tick the client world)
+            initializationGroup.ParentTickSystem = initializationTickSystem;
+            initializationTickSystem.AddSystemToUpdateList(initializationGroup);
+            simulationGroup.ParentTickSystem = simulationTickSystem;
+            simulationTickSystem.AddSystemToUpdateList(simulationGroup);
 
             return world;
 #endif

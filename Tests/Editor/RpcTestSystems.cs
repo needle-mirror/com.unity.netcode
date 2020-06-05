@@ -1,3 +1,4 @@
+using AOT;
 using Unity.Burst;
 using Unity.Entities;
 using Unity.Networking.Transport;
@@ -21,6 +22,7 @@ namespace Unity.NetCode.Tests
         }
 
         [BurstCompile]
+        [MonoPInvokeCallback(typeof(RpcExecutor.ExecuteDelegate))]
         private static void InvokeExecute(ref RpcExecutor.Parameters parameters)
         {
             RpcExecutor.ExecuteCreateRequestComponent<SimpleRpcCommand>(ref parameters);
@@ -57,6 +59,7 @@ namespace Unity.NetCode.Tests
         }
 
         [BurstCompile]
+        [MonoPInvokeCallback(typeof(RpcExecutor.ExecuteDelegate))]
         private static void InvokeExecute(ref RpcExecutor.Parameters parameters)
         {
             var serializedData = default(SerializedRpcCommand);
@@ -93,6 +96,7 @@ namespace Unity.NetCode.Tests
         }
 
         [BurstCompile]
+        [MonoPInvokeCallback(typeof(RpcExecutor.ExecuteDelegate))]
         private static void InvokeExecute(ref RpcExecutor.Parameters parameters)
         {
             var serializedData = default(ClientIdRpcCommand);
@@ -106,6 +110,22 @@ namespace Unity.NetCode.Tests
 
         static PortableFunctionPointer<RpcExecutor.ExecuteDelegate> InvokeExecuteFunctionPointer =
             new PortableFunctionPointer<RpcExecutor.ExecuteDelegate>(InvokeExecute);
+    }
+
+    public struct InvalidRpcCommand : IRpcCommand
+    {
+        public void Serialize(ref DataStreamWriter writer)
+        {
+        }
+
+        public void Deserialize(ref DataStreamReader reader)
+        {
+        }
+
+        public PortableFunctionPointer<RpcExecutor.ExecuteDelegate> CompileExecute()
+        {
+            return new PortableFunctionPointer<RpcExecutor.ExecuteDelegate>();
+        }
     }
 
     #region Send Systems
@@ -317,6 +337,11 @@ namespace Unity.NetCode.Tests
 
     [DisableAutoCreation]
     public class MultipleClientSerializedRpcCommandRequestSystem : RpcCommandRequestSystem<ClientIdRpcCommand>
+    {
+    }
+
+    [DisableAutoCreation]
+    public class InvalidRpcCommandRequestSystem : RpcCommandRequestSystem<InvalidRpcCommand>
     {
     }
 }

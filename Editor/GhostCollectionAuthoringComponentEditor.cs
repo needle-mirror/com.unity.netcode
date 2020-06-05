@@ -11,6 +11,7 @@ namespace Unity.NetCode.Editor
         SerializedProperty SerializerCollectionPath;
         SerializedProperty DeserializerCollectionPath;
         SerializedProperty NamePrefix;
+        SerializedProperty RootPath;
         private UnityEditorInternal.ReorderableList m_GhostList;
 
         void OnEnable()
@@ -18,6 +19,7 @@ namespace Unity.NetCode.Editor
             SerializerCollectionPath = serializedObject.FindProperty("SerializerCollectionPath");
             DeserializerCollectionPath = serializedObject.FindProperty("DeserializerCollectionPath");
             NamePrefix = serializedObject.FindProperty("NamePrefix");
+            RootPath = serializedObject.FindProperty("RootPath");
 
             if (NamePrefix.stringValue == "")
                 NamePrefix.stringValue = Application.productName.Replace("-", "");
@@ -79,6 +81,7 @@ namespace Unity.NetCode.Editor
 
         public override void OnInspectorGUI()
         {
+            EditorGUILayout.PropertyField(RootPath);
             EditorGUILayout.PropertyField(SerializerCollectionPath);
             EditorGUILayout.PropertyField(DeserializerCollectionPath);
             EditorGUILayout.PropertyField(NamePrefix);
@@ -170,9 +173,9 @@ namespace Unity.NetCode.Editor
                 if (ghost.prefab != null && ghost.enabled)
                 {
                     ++ghostCount;
-                    var serializerTypeName = ghost.prefab.name + "GhostSerializer";
-                    var snapshotTypeName = ghost.prefab.name + "SnapshotData";
-                    var spawnerTypeName = ghost.prefab.name + "GhostSpawnSystem";
+                    var serializerTypeName = ghost.prefab.Name + "GhostSerializer";
+                    var snapshotTypeName = ghost.prefab.Name + "SnapshotData";
+                    var spawnerTypeName = ghost.prefab.Name + "GhostSpawnSystem";
 
                     localReplacements.Clear();
                     localReplacements.Add("GHOST_SERIALIZER_TYPE", serializerTypeName);
@@ -204,9 +207,9 @@ namespace Unity.NetCode.Editor
             replacements.Add("GHOST_SYSTEM_PREFIX", namePrefix);
             replacements.Add("GHOST_SERIALIZER_COUNT", ghostCount.ToString());
             var batch = new GhostCodeGen.Batch();
-            serializerCodeGen.GenerateFile(assetPath, "", collectionTarget.SerializerCollectionPath, replacements, batch);
-            deserializerCodeGen.GenerateFile(assetPath, "", collectionTarget.DeserializerCollectionPath, replacements, batch);
-            bool didWrite = batch.Flush(testOnly);
+            serializerCodeGen.GenerateFile(assetPath, collectionTarget.RootPath, collectionTarget.SerializerCollectionPath, replacements, batch);
+            deserializerCodeGen.GenerateFile(assetPath, collectionTarget.RootPath, collectionTarget.DeserializerCollectionPath, replacements, batch);
+            var didWrite = batch.Flush(testOnly);
             AssetDatabase.Refresh();
             return didWrite ? GhostCodeGen.Status.Ok : GhostCodeGen.Status.NotModified;
         }

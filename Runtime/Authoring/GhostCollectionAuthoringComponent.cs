@@ -9,6 +9,7 @@ namespace Unity.NetCode
     [ConverterVersion("timj", 2)]
     public class GhostCollectionAuthoringComponent : MonoBehaviour, IConvertGameObjectToEntity
     {
+        public string RootPath = "";
         public string SerializerCollectionPath = "GhostSerializerCollection.cs";
         public string DeserializerCollectionPath = "GhostDeserializerCollection.cs";
         public string NamePrefix = "";
@@ -47,6 +48,13 @@ namespace Unity.NetCode
                         dstManager.AddComponent<Prefab>(group[i].Value);
                     }
                 }
+            }
+            // These should only appear on the scene objects themselves and not the prefab
+            // but might get there in the prefab creation process (like when you create prefab from scene object)
+            if (dstManager.HasComponent<PreSpawnedGhostId>(entity))
+            {
+                dstManager.RemoveComponent<PreSpawnedGhostId>(entity);
+                dstManager.RemoveComponent<SubSceneGhostComponentHash>(entity);
             }
         }
         public void Convert(Entity entity, EntityManager dstManager, GameObjectConversionSystem conversionSystem)

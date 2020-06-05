@@ -24,7 +24,7 @@ namespace Unity.NetCode
             var system = World.DefaultGameObjectInjectionWorld.GetOrCreateSystem<ConvertToEntitySystem>();
 
             bool hasValidTargetWorld = false;
-            foreach (var world in World.AllWorlds)
+            foreach (var world in World.All)
             {
                 bool convertToClient = world.GetExistingSystem<ClientSimulationSystemGroup>() != null;
                 bool convertToServer = world.GetExistingSystem<ServerSimulationSystemGroup>() != null;
