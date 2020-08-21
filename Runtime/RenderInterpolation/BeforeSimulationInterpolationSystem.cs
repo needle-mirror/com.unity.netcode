@@ -20,6 +20,8 @@ namespace Unity.NetCode
                 ComponentType.ReadWrite<PreviousSimulatedPosition>(), ComponentType.ReadWrite<Translation>());
             rotationInterpolationGroup = GetEntityQuery(ComponentType.ReadOnly<CurrentSimulatedRotation>(),
                 ComponentType.ReadWrite<PreviousSimulatedRotation>(), ComponentType.ReadWrite<Rotation>());
+
+            RequireSingletonForUpdate<FixedClientTickRate>();
         }
 
         public uint simEndComponentVersion;
@@ -28,9 +30,9 @@ namespace Unity.NetCode
         [BurstCompile]
         struct UpdatePos : IJobChunk
         {
-            public ArchetypeChunkComponentType<Translation> positionType;
-            [ReadOnly] public ArchetypeChunkComponentType<CurrentSimulatedPosition> curPositionType;
-            public ArchetypeChunkComponentType<PreviousSimulatedPosition> prevPositionType;
+            public ComponentTypeHandle<Translation> positionType;
+            [ReadOnly] public ComponentTypeHandle<CurrentSimulatedPosition> curPositionType;
+            public ComponentTypeHandle<PreviousSimulatedPosition> prevPositionType;
             public uint simStartComponentVersion;
             public uint simEndComponentVersion;
 
@@ -69,9 +71,9 @@ namespace Unity.NetCode
         [BurstCompile]
         struct UpdateRot : IJobChunk
         {
-            public ArchetypeChunkComponentType<Rotation> rotationType;
-            [ReadOnly] public ArchetypeChunkComponentType<CurrentSimulatedRotation> curRotationType;
-            public ArchetypeChunkComponentType<PreviousSimulatedRotation> prevRotationType;
+            public ComponentTypeHandle<Rotation> rotationType;
+            [ReadOnly] public ComponentTypeHandle<CurrentSimulatedRotation> curRotationType;
+            public ComponentTypeHandle<PreviousSimulatedRotation> prevRotationType;
             public uint simStartComponentVersion;
             public uint simEndComponentVersion;
 
@@ -113,16 +115,16 @@ namespace Unity.NetCode
             RenderInterpolationSystem.parameters.fixedDeltaTime = Time.DeltaTime;
 
             var posJob = new UpdatePos();
-            posJob.positionType = GetArchetypeChunkComponentType<Translation>();
-            posJob.curPositionType = GetArchetypeChunkComponentType<CurrentSimulatedPosition>(true);
-            posJob.prevPositionType = GetArchetypeChunkComponentType<PreviousSimulatedPosition>();
+            posJob.positionType = GetComponentTypeHandle<Translation>();
+            posJob.curPositionType = GetComponentTypeHandle<CurrentSimulatedPosition>(true);
+            posJob.prevPositionType = GetComponentTypeHandle<PreviousSimulatedPosition>();
             posJob.simStartComponentVersion = simStartComponentVersion;
             posJob.simEndComponentVersion = simEndComponentVersion;
 
             var rotJob = new UpdateRot();
-            rotJob.rotationType = GetArchetypeChunkComponentType<Rotation>();
-            rotJob.curRotationType = GetArchetypeChunkComponentType<CurrentSimulatedRotation>(true);
-            rotJob.prevRotationType = GetArchetypeChunkComponentType<PreviousSimulatedRotation>();
+            rotJob.rotationType = GetComponentTypeHandle<Rotation>();
+            rotJob.curRotationType = GetComponentTypeHandle<CurrentSimulatedRotation>(true);
+            rotJob.prevRotationType = GetComponentTypeHandle<PreviousSimulatedRotation>();
             rotJob.simStartComponentVersion = simStartComponentVersion;
             rotJob.simEndComponentVersion = simEndComponentVersion;
 

@@ -2,9 +2,17 @@
 This documentation provides a walkthrough of how to create a very simple client server based simulation. This walkthrough describes how to spawn and control a simple Prefab.
 
 ## Set up the Project
-Open the __Unity Hub__ and create a new Project. **Note:** To use Unity NetCode you must have at least Unity 2019.3.b11 installed.
+Open the __Unity Hub__ and create a new Project.
+
+>[!NOTE]
+> To use Unity NetCode you must have at least Unity 2020.1.2 installed.
 
 Open the Package Manager (menu: __Window &gt; Package Manager__). At the top of the window, under __Advanced__, select __Show preview packages__. Add the Entities, Hybrid Renderer, NetCode, and Transport packages.
+
+>[!WARNING]
+> As of Unity version 2020.1, in-preview packages no longer appear in the Package Manager. To use preview packages, either manually edit your [project manifest](https://docs.unity3d.com/2020.1/Documentation/Manual/upm-concepts.html?_ga=2.181752096.669754589.1597830146-1414726221.1582037216#Manifests) or search for the package in the **Add package from Git URL** field in the Package Manager. For more information, see the [announcement blog for these changes to the Package Manager.](https://blogs.unity3d.com/2020/06/24/package-manager-updates-in-unity-2020-1/?_ga=2.84647326.669754589.1597830146-1414726221.1582037216)
+
+The NetCode package requires the Entities, Hybrid Renderer, and Transport packages to work. To install these packages while they are still in preview, either edit your project manifest to include the target package name, or type the name of the package you want to install into the **Add package from git URL** menu in the Package Manager. For example, to install the Transport package using the Package Manager, go to **Window** > **Package Manager**, click on the plus icon to open the **Add package from...** sub-menu and click on **Add package from git url...**, then type "com.unity.transport" into the text field and press **Enter**. To install the same package through your package.json manifest file, add "com.unity.transport": "0.4.0-preview.1" to your dependencies list. Version 0.4.0-preview.1 is used here as an example and is not a specific version dependency.
 
 ## Create an initial Scene
 
@@ -26,7 +34,7 @@ To create a ghost Prefab, create a cube in the Scene (right click on the Scene a
 
 ![Create a Cube Prefab](images/cube-prefab.png)<br/>_Create a Cube Prefab_
 
-In NetCode you identify the player with its PlayerId. To identify the Cube Prefab, create a simple component with the following code:
+To identify the Cube Prefab, create a simple component with the following code:
 
 ```c#
 using Unity.Entities;
@@ -35,35 +43,39 @@ using Unity.NetCode;
 [GenerateAuthoringComponent]
 public struct MovableCubeComponent : IComponentData
 {
-    [GhostDefaultField]
-    public int PlayerId;
 }
 ```
 
-Once you create this component, add it to the Cube Prefab. Then, in the Inspector, add the __Ghost Authoring Component__ to the Prefab. In this component, select __Update Component List__ to update the list of components.
+If you want to add a serialized value to the component, use the __GhostField Attribute__:
+```c#
+using Unity.Entities;
+using Unity.NetCode;
 
+[GenerateAuthoringComponent]
+public struct MovableCubeComponent : IComponentData
+{
+    [GhostField]
+    public int ExampleValue;
+}
+```
 
+Once you create this component, add it to the Cube Prefab. Then, in the Inspector, add the __Ghost Authoring Component__ to the Prefab.
 
-When you do this, Unity automatically adds default values to the Translation and Rotation components. 
+When you do this, Unity automatically adds default values to the Translation and Rotation components.
 
-Start by changing the __Default Client Instantiation__ to __Owner Predicted__. This makes sure that you predict your own movement. Then, add the `MovableCubeComponent.PlayerId` to the
-__Predicting player network id__ field. 
-
-Now, expand the components in the list to select where they should be present. In this example, disable `PerInstanceCullingTag`, `RenderBounds` and `RenderMesh` on the server. The server doesn't render anything and interpolated objects on the client don't simulate anything, so these settings aren't required.
+Start by adding a __Ghost Owner Component__ and changing the __Default Ghost Mode__ to __Owner Predicted__. The __NetworkId__ member of the __Ghost Owner Component__ needs to be set by your code, more on this later. This makes sure that you predict your own movement.
 
 ![The Ghost Authoring component](images/ghost-config.png)<br/>_The Ghost Authoring component_
 
-After you set up the component, select the __Generate Code__ button.
-
 ## Hook up the collections
-To tell NetCode which Ghosts to use, set up a GhostCollection. Because both the client and the server need to know about these Ghosts, add it to the __SharedData__ Scene. Right click on SharedData and select __Create Empty__. Rename it to __GhostCollection__ and then add a __GhostCollectionAuthoringComponent__.
+To tell NetCode which Ghosts to use, you need to set up a GhostCollection. Right click on SharedData and select __Create Empty__. Rename it to __GhostCollection__ and then add a __GhostCollectionAuthoringComponent__. Because both the client and the server need to know about these Ghosts, add it to the __SharedData__ Scene.
 
-In the Inspector select the __Update ghost list__ button and then the __Generate collection code__ button.
+In the Inspector, select the __Update ghost list__ button.
 
 ![Ghost Collection settings](images/ghost-collection.png)<br/>_Ghost Collection settings_
 
 ## Establish a connection
-Next, you need to make sure the server starts listening for connections, the client connects, and all connections are marked as "in game" so NetCode can start sending snapshots. You don’t need a full flow in this case, write the minimal amount of code to set it up. Create a file called *Game.cs* under __Assets__ and the following code to the file:
+Next, you need to make sure that the server starts listening for connections, the client connects, and all connections are marked as "in game" so NetCode can start sending snapshots. You don’t need a full flow in this case, so write the minimal amount of code to set it up. Create a file called *Game.cs* in your __Assets__ folder and add the following code to the file:
 
 ```c#
 using System;
@@ -117,46 +129,15 @@ public class Game : ComponentSystem
 
 Next you need to tell the server you are ready to start playing. To do this, use the `Rpc` calls that are available in the NetCode package.
 
-In *Game.cs*, create the following [RpcCommand](https://docs.unity3d.com/Packages/com.unity.netcode@latest/index.html?subfolder=/api/Unity.NetCode.IRpcCommand.html) that tells the server you are ready to start playing now:
+In *Game.cs*, create the following [RpcCommand](https://docs.unity3d.com/Packages/com.unity.netcode@latest/index.html?subfolder=/api/Unity.NetCode.IRpcCommand.html). This code tells the server that you are ready to start playing.
 
 ```c#
-[BurstCompile]
 public struct GoInGameRequest : IRpcCommand
 {
-    public void Deserialize(ref DataStreamReader reader)
-    {
-    }
-
-    public void Serialize(ref DataStreamWriter writer)
-    {
-    }
-    [BurstCompile]
-    private static void InvokeExecute(ref RpcExecutor.Parameters parameters)
-    {
-        RpcExecutor.ExecuteCreateRequestComponent<GoInGameRequest>(ref parameters);
-    }
-
-    static PortableFunctionPointer<RpcExecutor.ExecuteDelegate> InvokeExecuteFunctionPointer =
-        new PortableFunctionPointer<RpcExecutor.ExecuteDelegate>(InvokeExecute);
-    public PortableFunctionPointer<RpcExecutor.ExecuteDelegate> CompileExecute()
-    {
-        return InvokeExecuteFunctionPointer;
-    }
 }
 ```
 
-**Note:** Don’t forget the `BurstCompile` attribute on `InvokeExecute`.
-
-To make sure NetCode handles the command, you need to create a [RpcCommandRequestSystem](https://docs.unity3d.com/Packages/com.unity.netcode@latest/index.html?subfolder=/api/Unity.NetCode.RpcCommandRequestSystem-1.html) as follows:
-
-```c#
-// The system that makes the RPC request component transfer
-public class GoInGameRequestSystem : RpcCommandRequestSystem<GoInGameRequest>
-{
-}
-```
-
-Next, you need to create an `ICommandData` struct to make sure you can send input from the client to the server. This struct is responsible for serializing and deserializing the input data. Create a script called *CubeInput.cs* and write the `CubeInput CommandData` as follows:
+To make sure you can send input from the client to the server, you need to create an `ICommandData` struct. This struct is responsible for serializing and deserializing the input data. Create a script called *CubeInput.cs* and write the `CubeInput CommandData` as follows:
 
 ```c#
 public struct CubeInput : ICommandData<CubeInput>
@@ -192,7 +173,7 @@ public struct CubeInput : ICommandData<CubeInput>
 }
 ```
 
-The command stream consists of the current tick and the horizontal and vertical movements. In the same fashion as `Rpc`, you need to set up `ICommandData` with some systems to handle the command as follows:
+The command stream consists of the current tick and the horizontal and vertical movements. You need to set up `ICommandData` with some systems to handle the command as follows:
 
 ```c#
 public class NetCubeSendCommandSystem : CommandSendSystem<CubeInput>
@@ -279,7 +260,7 @@ public class MoveCubeSystem : ComponentSystem
 
 ## Tie it together
 
-The final step you need to do is to create the systems that handle when you go in-game on the client and what to do when a client connects on the server. You need to be able to send an `Rpc` to the server when you connect that tells it you are ready to start playing.
+The final step is to create the systems that handle when you enter a game on the client and what to do when a client connects on the server. You need to be able to send an `Rpc` to the server when you connect that tells it you are ready to start playing.
 
 ```c#
 // When client has a connection with network id, go in game and tell server to also go in game
@@ -317,11 +298,14 @@ public class GoInGameServerSystem : ComponentSystem
             PostUpdateCommands.AddComponent<NetworkStreamInGame>(reqSrc.SourceConnection);
             UnityEngine.Debug.Log(String.Format("Server setting connection {0} to in game", EntityManager.GetComponentData<NetworkIdComponent>(reqSrc.SourceConnection).Value));
             var ghostCollection = GetSingleton<GhostPrefabCollectionComponent>();
-            var ghostId = NetCubeGhostSerializerCollection.FindGhostType<CubeSnapshotData>();
-            var prefab = EntityManager.GetBuffer<GhostPrefabBuffer>(ghostCollection.serverPrefabs)[ghostId].Value;
-            var player = EntityManager.Instantiate(prefab);
-
-            EntityManager.SetComponentData(player, new MovableCubeComponent { PlayerId = EntityManager.GetComponentData<NetworkIdComponent>(reqSrc.SourceConnection).Value});
+            var prefab = Entity.Null;
+            var serverPrefabs = EntityManager.GetBuffer<GhostPrefabBuffer>(ghostCollection.serverPrefabs);
+            for (int ghostId = 0; ghostId < serverPrefabs.Length; ++ghostId)
+            {
+                if (EntityManager.HasComponent<MovableCubeComponent>(serverPrefabs[ghostId].Value))
+                    prefab = serverPrefabs[ghostId].Value;
+            }
+            EntityManager.SetComponentData(player, new GhostOwnerComponent { NetworkId = EntityManager.GetComponentData<NetworkIdComponent>(reqSrc.SourceConnection).Value});
             PostUpdateCommands.AddBuffer<CubeInput>(player);
 
             PostUpdateCommands.SetComponent(reqSrc.SourceConnection, new CommandTargetComponent {targetEntity = player});
@@ -332,18 +316,17 @@ public class GoInGameServerSystem : ComponentSystem
 }
 ```
 
-## Testing it
+## Test the code
 
 Now you have set up your code, open __Multiplayer &gt; PlayMode Tools__ and set the __PlayMode Type__ to __Client & Server__. Enter Play Mode, and the Cube spawns. Press the __A,S,D,__ and __W__ keys to move the Cube around.
 
-To recap on this workflow:
+To recap this workflow:
 
-1. Created a GameObject and added the __ConvertToClientServerEntity__ component to hold __SharedData__ between the client and the server.
-1. Created a Prefab out of a simple 3D Cube and added a __GhostAuthoringComponent__ to it as well as the __MovableCubeComponent__.
-1. Updated and generated code for the Ghost through the __GhostAuthoringComponent__ Inspector view.
-1. Added the __GhostCollectionAuthoringComponent__ to an empty GameObject to create a GhostCollection. Updated the ghost list and generated collection code.
-1. Established a connection between the client and the server.
-1. Wrote an `Rpc` to tell the server you are ready to play.
-1. Wrote an `ICommandData` to serialize game input.
-1. Wrote a client system to send an `Rpc`
-1. Wrote a server system to handle the incoming `Rpc`.
+1. Create a GameObject and add the __ConvertToClientServerEntity__ component to hold __SharedData__ between the client and the server.
+1. Create a Prefab out of a simple 3D Cube and add a __GhostAuthoringComponent__, a __MovableCubeComponent__ and a __GhostOwnerComponent__.
+1. Add the __GhostCollectionAuthoringComponent__ to an empty GameObject to create a GhostCollection. Update the ghost list.
+1. Establish a connection between the client and the server.
+1. Write an `Rpc` to tell the server you are ready to play.
+1. Write an `ICommandData` to serialize game input.
+1. Write a client system to send an `Rpc`
+1. Write a server system to handle the incoming `Rpc`.

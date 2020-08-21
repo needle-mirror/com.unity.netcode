@@ -36,7 +36,9 @@ namespace Unity.NetCode
             GenerateSystemLists(systems);
 
             DefaultWorldInitialization.AddSystemsToRootLevelSystemGroups(world, ExplicitDefaultWorldSystems);
-            ScriptBehaviourUpdateOrder.UpdatePlayerLoop(world);
+#if !UNITY_DOTSRUNTIME
+            ScriptBehaviourUpdateOrder.AddWorldToCurrentPlayerLoop(world);
+#endif
 
             PlayType playModeType = RequestedPlayType;
             int numClientWorlds = RequestedNumClients;
@@ -68,12 +70,12 @@ namespace Unity.NetCode
             return true;
         }
 
-        public static World CreateClientWorld(World defaultWorld, string name)
+        public static World CreateClientWorld(World defaultWorld, string name, World worldToUse = null)
         {
 #if UNITY_SERVER
             throw new NotImplementedException();
 #else
-            var world = new World(name);
+            var world = worldToUse!=null ? worldToUse : new World(name);
             var initializationGroup = world.GetOrCreateSystem<ClientInitializationSystemGroup>();
             var simulationGroup = world.GetOrCreateSystem<ClientSimulationSystemGroup>();
             var presentationGroup = world.GetOrCreateSystem<ClientPresentationSystemGroup>();
@@ -101,7 +103,6 @@ namespace Unity.NetCode
             // ** After trying different solutions I decided to explicitly add the most critical systems that are required to
             // pre-created before the simulation group **
             allSystems.Add(typeof(RpcSystem));  //Needed by RpcCommandSystem
-            allSystems.Add(typeof(GhostUpdateSystemGroup)); //Needed by GhostSendSystem
             //NetworkReceiveSystem must be manually created but is not automatically updated by any group. Instead,
             //the ClientSimulationSystem tick it manually before the fixed-update / main update loop
             allSystems.Add(typeof(NetworkReceiveSystemGroup));
@@ -153,12 +154,12 @@ namespace Unity.NetCode
             return world;
 #endif
         }
-        public static World CreateServerWorld(World defaultWorld, string name)
+        public static World CreateServerWorld(World defaultWorld, string name, World worldToUse = null)
         {
 #if UNITY_CLIENT && !UNITY_SERVER && !UNITY_EDITOR
             throw new NotImplementedException();
 #else
-            var world = new World(name);
+            var world = worldToUse!=null ? worldToUse : new World(name);
             var initializationGroup = world.GetOrCreateSystem<ServerInitializationSystemGroup>();
             var simulationGroup = world.GetOrCreateSystem<ServerSimulationSystemGroup>();
             //Disable groups legacy sorting behavior

@@ -2,17 +2,18 @@ using AOT;
 using Unity.Burst;
 using Unity.Entities;
 using Unity.Networking.Transport;
+using Unity.Collections;
 
 namespace Unity.NetCode.Tests
 {
     [BurstCompile]
-    public struct SimpleRpcCommand : IRpcCommand
+    public struct SimpleRpcCommand : IComponentData, IRpcCommandSerializer<SimpleRpcCommand>
     {
-        public void Serialize(ref DataStreamWriter writer)
+        public void Serialize(ref DataStreamWriter writer, in SimpleRpcCommand data)
         {
         }
 
-        public void Deserialize(ref DataStreamReader reader)
+        public void Deserialize(ref DataStreamReader reader, ref SimpleRpcCommand data)
         {
         }
 
@@ -25,7 +26,7 @@ namespace Unity.NetCode.Tests
         [MonoPInvokeCallback(typeof(RpcExecutor.ExecuteDelegate))]
         private static void InvokeExecute(ref RpcExecutor.Parameters parameters)
         {
-            RpcExecutor.ExecuteCreateRequestComponent<SimpleRpcCommand>(ref parameters);
+            RpcExecutor.ExecuteCreateRequestComponent<SimpleRpcCommand, SimpleRpcCommand>(ref parameters);
         }
 
         static PortableFunctionPointer<RpcExecutor.ExecuteDelegate> InvokeExecuteFunctionPointer =
@@ -33,24 +34,24 @@ namespace Unity.NetCode.Tests
     }
 
     [BurstCompile]
-    public struct SerializedRpcCommand : IRpcCommand
+    public struct SerializedRpcCommand : IComponentData, IRpcCommandSerializer<SerializedRpcCommand>
     {
         public int intValue;
         public short shortValue;
         public float floatValue;
 
-        public void Serialize(ref DataStreamWriter writer)
+        public void Serialize(ref DataStreamWriter writer, in SerializedRpcCommand data)
         {
-            writer.WriteInt(intValue);
-            writer.WriteShort(shortValue);
-            writer.WriteFloat(floatValue);
+            writer.WriteInt(data.intValue);
+            writer.WriteShort(data.shortValue);
+            writer.WriteFloat(data.floatValue);
         }
 
-        public void Deserialize(ref DataStreamReader reader)
+        public void Deserialize(ref DataStreamReader reader, ref SerializedRpcCommand data)
         {
-            intValue = reader.ReadInt();
-            shortValue = reader.ReadShort();
-            floatValue = reader.ReadFloat();
+            data.intValue = reader.ReadInt();
+            data.shortValue = reader.ReadShort();
+            data.floatValue = reader.ReadFloat();
         }
 
         public PortableFunctionPointer<RpcExecutor.ExecuteDelegate> CompileExecute()
@@ -63,7 +64,7 @@ namespace Unity.NetCode.Tests
         private static void InvokeExecute(ref RpcExecutor.Parameters parameters)
         {
             var serializedData = default(SerializedRpcCommand);
-            serializedData.Deserialize(ref parameters.Reader);
+            serializedData.Deserialize(ref parameters.Reader, ref serializedData);
 
             var entity = parameters.CommandBuffer.CreateEntity(parameters.JobIndex);
             parameters.CommandBuffer.AddComponent(parameters.JobIndex, entity,
@@ -76,18 +77,55 @@ namespace Unity.NetCode.Tests
     }
 
     [BurstCompile]
-    public struct ClientIdRpcCommand : IRpcCommand
+    public struct SerializedLargeRpcCommand : IComponentData, IRpcCommandSerializer<SerializedLargeRpcCommand>
+    {
+        public FixedString512 stringValue;
+
+        public void Serialize(ref DataStreamWriter writer, in SerializedLargeRpcCommand data)
+        {
+            writer.WriteFixedString512(data.stringValue);
+        }
+
+        public void Deserialize(ref DataStreamReader reader, ref SerializedLargeRpcCommand data)
+        {
+            data.stringValue = reader.ReadFixedString512();
+        }
+
+        public PortableFunctionPointer<RpcExecutor.ExecuteDelegate> CompileExecute()
+        {
+            return InvokeExecuteFunctionPointer;
+        }
+
+        [BurstCompile]
+        [MonoPInvokeCallback(typeof(RpcExecutor.ExecuteDelegate))]
+        private static void InvokeExecute(ref RpcExecutor.Parameters parameters)
+        {
+            var serializedData = default(SerializedLargeRpcCommand);
+            serializedData.Deserialize(ref parameters.Reader, ref serializedData);
+
+            var entity = parameters.CommandBuffer.CreateEntity(parameters.JobIndex);
+            parameters.CommandBuffer.AddComponent(parameters.JobIndex, entity,
+                new ReceiveRpcCommandRequestComponent {SourceConnection = parameters.Connection});
+            parameters.CommandBuffer.AddComponent(parameters.JobIndex, entity, serializedData);
+        }
+
+        static PortableFunctionPointer<RpcExecutor.ExecuteDelegate> InvokeExecuteFunctionPointer =
+            new PortableFunctionPointer<RpcExecutor.ExecuteDelegate>(InvokeExecute);
+    }
+
+    [BurstCompile]
+    public struct ClientIdRpcCommand : IComponentData, IRpcCommandSerializer<ClientIdRpcCommand>
     {
         public int Id;
 
-        public void Serialize(ref DataStreamWriter writer)
+        public void Serialize(ref DataStreamWriter writer, in ClientIdRpcCommand data)
         {
-            writer.WriteInt(Id);
+            writer.WriteInt(data.Id);
         }
 
-        public void Deserialize(ref DataStreamReader reader)
+        public void Deserialize(ref DataStreamReader reader, ref ClientIdRpcCommand data)
         {
-            Id = reader.ReadInt();
+            data.Id = reader.ReadInt();
         }
 
         public PortableFunctionPointer<RpcExecutor.ExecuteDelegate> CompileExecute()
@@ -100,7 +138,7 @@ namespace Unity.NetCode.Tests
         private static void InvokeExecute(ref RpcExecutor.Parameters parameters)
         {
             var serializedData = default(ClientIdRpcCommand);
-            serializedData.Deserialize(ref parameters.Reader);
+            serializedData.Deserialize(ref parameters.Reader, ref serializedData);
 
             var entity = parameters.CommandBuffer.CreateEntity(parameters.JobIndex);
             parameters.CommandBuffer.AddComponent(parameters.JobIndex, entity,
@@ -112,13 +150,13 @@ namespace Unity.NetCode.Tests
             new PortableFunctionPointer<RpcExecutor.ExecuteDelegate>(InvokeExecute);
     }
 
-    public struct InvalidRpcCommand : IRpcCommand
+    public struct InvalidRpcCommand : IComponentData, IRpcCommandSerializer<InvalidRpcCommand>
     {
-        public void Serialize(ref DataStreamWriter writer)
+        public void Serialize(ref DataStreamWriter writer, in InvalidRpcCommand data)
         {
         }
 
-        public void Deserialize(ref DataStreamReader reader)
+        public void Deserialize(ref DataStreamReader reader, ref InvalidRpcCommand data)
         {
         }
 
@@ -184,7 +222,15 @@ namespace Unity.NetCode.Tests
 
         protected override void OnCreate()
         {
-            RequireSingletonForUpdate<NetworkIdComponent>();
+            //This is the most correct and best practice to use on the client side.
+            //However, it still does not catch the issue when a client enqueue an rpc in the same frame we tag the connection
+            //as RequestDisconnected (enqued in the command buffer)
+            //Even if we would tag the connection synchronously (in the middle of the frame)
+            //if the client system is schedule to execute AFTER the RpcCommandRequestSystem (or the RpcSystem) or the system that
+            //change the connection state, clients can still queue commands even though the connection will be closed.
+            var query = EntityManager.CreateEntityQuery(ComponentType.ReadOnly<NetworkIdComponent>(),
+                ComponentType.Exclude<NetworkStreamDisconnected>());
+            RequireForUpdate(query);
 
             const int kStringLength = 10; // we name it ClientTest
             worldId = int.Parse(World.Name.Substring(kStringLength, World.Name.Length - kStringLength));
@@ -194,6 +240,7 @@ namespace Unity.NetCode.Tests
         {
             if (SendCount[worldId] > 0)
             {
+                var entity = GetSingletonEntity<NetworkIdComponent>();
                 var req = PostUpdateCommands.CreateEntity();
                 PostUpdateCommands.AddComponent(req, Cmds[worldId]);
                 PostUpdateCommands.AddComponent(req, new SendRpcCommandRequestComponent {TargetConnection = Entity.Null});
@@ -217,6 +264,31 @@ namespace Unity.NetCode.Tests
         protected override void OnUpdate()
         {
             if (SendCount > 0)
+            {
+                var req = PostUpdateCommands.CreateEntity();
+                PostUpdateCommands.AddComponent(req, Cmd);
+                PostUpdateCommands.AddComponent(req,
+                    new SendRpcCommandRequestComponent {TargetConnection = Entity.Null});
+                --SendCount;
+            }
+        }
+    }
+
+    [DisableAutoCreation]
+    [UpdateInGroup(typeof(ClientSimulationSystemGroup))]
+    public class SerializedClientLargeRcpSendSystem : ComponentSystem
+    {
+        public static int SendCount = 0;
+        public static SerializedLargeRpcCommand Cmd;
+
+        protected override void OnCreate()
+        {
+            RequireSingletonForUpdate<NetworkIdComponent>();
+        }
+
+        protected override void OnUpdate()
+        {
+            while (SendCount > 0)
             {
                 var req = PostUpdateCommands.CreateEntity();
                 PostUpdateCommands.AddComponent(req, Cmd);
@@ -323,25 +395,46 @@ namespace Unity.NetCode.Tests
             });
         }
     }
+    [DisableAutoCreation]
+    [UpdateInGroup(typeof(ServerSimulationSystemGroup))]
+    public class SerializedServerLargeRpcReceiveSystem : ComponentSystem
+    {
+        public static int ReceivedCount = 0;
+        public static SerializedLargeRpcCommand ReceivedCmd;
+
+        protected override void OnUpdate()
+        {
+            Entities.ForEach((Entity entity, ref SerializedLargeRpcCommand cmd, ref ReceiveRpcCommandRequestComponent req) =>
+            {
+                ReceivedCmd = cmd;
+                PostUpdateCommands.DestroyEntity(entity);
+                ++ReceivedCount;
+            });
+        }
+    }
     #endregion
 
     [DisableAutoCreation]
-    public class SerializedRpcCommandRequestSystem : RpcCommandRequestSystem<SerializedRpcCommand>
+    public class SerializedLargeRpcCommandRequestSystem : RpcCommandRequestSystem<SerializedLargeRpcCommand, SerializedLargeRpcCommand>
+    {
+    }
+    [DisableAutoCreation]
+    public class SerializedRpcCommandRequestSystem : RpcCommandRequestSystem<SerializedRpcCommand, SerializedRpcCommand>
     {
     }
 
     [DisableAutoCreation]
-    public class NonSerializedRpcCommandRequestSystem : RpcCommandRequestSystem<SimpleRpcCommand>
+    public class NonSerializedRpcCommandRequestSystem : RpcCommandRequestSystem<SimpleRpcCommand, SimpleRpcCommand>
     {
     }
 
     [DisableAutoCreation]
-    public class MultipleClientSerializedRpcCommandRequestSystem : RpcCommandRequestSystem<ClientIdRpcCommand>
+    public class MultipleClientSerializedRpcCommandRequestSystem : RpcCommandRequestSystem<ClientIdRpcCommand, ClientIdRpcCommand>
     {
     }
 
     [DisableAutoCreation]
-    public class InvalidRpcCommandRequestSystem : RpcCommandRequestSystem<InvalidRpcCommand>
+    public class InvalidRpcCommandRequestSystem : RpcCommandRequestSystem<InvalidRpcCommand, InvalidRpcCommand>
     {
     }
 }

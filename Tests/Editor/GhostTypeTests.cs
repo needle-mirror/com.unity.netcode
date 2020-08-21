@@ -21,7 +21,7 @@ namespace Unity.NetCode.Tests
 
     public struct GhostTypeIndex : IComponentData
     {
-        [GhostDefaultField]
+        [GhostField]
         public int Value;
     }
     public class GhostTypeTests
@@ -47,13 +47,7 @@ namespace Unity.NetCode.Tests
         {
             using (var testWorld = new NetCodeTestWorld())
             {
-                testWorld.Bootstrap(true,
-                    typeof(GhostTypeIndex0TestGhostSpawnSystem),
-                    typeof(GhostTypeIndex0TestGhostUpdateSystem),
-                    typeof(GhostTypeIndex1TestGhostSpawnSystem),
-                    typeof(GhostTypeIndex1TestGhostUpdateSystem),
-                    typeof(GhostTypeTestGhostSendSystem),
-                    typeof(GhostTypeTestGhostReceiveSystem));
+                testWorld.Bootstrap(true);
 
                 var ghostGameObject0 = new GameObject();
                 ghostGameObject0.AddComponent<TestNetCodeAuthoring>().Converter = new GhostTypeIndexConverter();
@@ -64,8 +58,6 @@ namespace Unity.NetCode.Tests
                 ghostGameObject1.name = "GhostTypeIndex1Test";
 
                 Assert.IsTrue(testWorld.CreateGhostCollection(
-                    "/../Packages/com.unity.netcode/Tests/Editor/Generated/",
-                    "GhostTypeTest",
                     ghostGameObject0, ghostGameObject1));
 
                 testWorld.CreateWorlds(true, 1);

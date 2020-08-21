@@ -1,0 +1,26 @@
+{
+#region __GHOST_ASSEMBLY_NAME__
+    "name": "__ASSEMBLY_NAME__",
+#endregion
+    "references": [
+#region __GHOST_ASSEMBLIES__
+        "__GHOST_ASSEMBLY__",
+#endregion
+        "Unity.Networking.Transport"
+    ],
+    "includePlatforms": [
+        __GHOST_INCLUDE_PLATFORMS__
+    ],
+    "excludePlatforms": [
+        __GHOST_EXCLUDE_PLATFORMS__
+    ],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": false,
+    "defineConstraints": [
+        __GHOST_DEFINE_CONSTRAINTS__
+    ],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

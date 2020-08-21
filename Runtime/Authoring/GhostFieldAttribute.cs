@@ -2,17 +2,23 @@ using System;
 
 namespace Unity.NetCode
 {
-    public class GhostDefaultFieldAttribute : Attribute
+    [AttributeUsage(AttributeTargets.Field)]
+    public class GhostFieldAttribute : Attribute
     {
-        private int m_quantization;
-        private bool m_interpolate;
-        public int Quantization => m_quantization;
-        public bool Interpolate => m_interpolate;
+        public int Quantization { get; set; }
+        public bool Composite { get; set; }
+        public bool Interpolate { get; set; }
+        public int SubType { get; set; }
+        public bool SendData { get; set; }
 
-        public GhostDefaultFieldAttribute(int quantizationFactor = -1, bool interpolate = false)
+
+        public GhostFieldAttribute()
         {
-            m_quantization = quantizationFactor;
-            m_interpolate = interpolate;
+            Quantization = -1;
+            Interpolate = false;
+            Composite = false;
+            SubType = 0;
+            SendData = true;
         }
     }
 }

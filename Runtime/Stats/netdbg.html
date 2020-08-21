@@ -39,11 +39,16 @@
 	background-color: green;
 	padding: 2px;
 }
+.DetailsTitle {
+	font-size: 1.2em;
+	margin-top: 5px;
+}
 </style>
 </head>
 <body>
 <div id="controlPanel">
 	<input type="checkbox" id="liveUpdate" onchange="g_debugger.toggleLiveUpdate(this.checked);"><label for="liveUpdate">Live update</label>
+	<input type="checkbox" id="showPredictionErrors" onchange="g_debugger.invalidate();"><label for="showPredictionErrors">Show prediction errors</label>
 	<input type="checkbox" id="showTimeScale" onchange="g_debugger.invalidate();"><label for="showTimeScale" id="showTimeScaleLabel">Show time scale</label>
 	<input type="checkbox" id="showInterpolationDelay" onchange="g_debugger.invalidate();"><label for="showInterpolationDelay" id="showInterpolationDelayLabel">Show interpolation delay</label>
 	<input type="checkbox" id="showSnapshotAge" onchange="g_debugger.invalidate();"><label for="showSnapshotAge" id="showSnapshotAgeLabel">Show snapshot age</label>

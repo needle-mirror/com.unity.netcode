@@ -19,9 +19,9 @@ namespace Unity.NetCode
             public BufferFromEntity<IncomingCommandDataStreamBufferComponent> cmdBuffer;
             public ComponentDataFromEntity<CommandDataInterpolationDelay> delayFromEntity;
             public NetworkCompressionModel compressionModel;
-            public ArchetypeChunkComponentType<NetworkSnapshotAckComponent> snapshotAckType;
-            [ReadOnly] public ArchetypeChunkComponentType<CommandTargetComponent> commmandTargetType;
-            [ReadOnly] public ArchetypeChunkEntityType entitiesType;
+            public ComponentTypeHandle<NetworkSnapshotAckComponent> snapshotAckType;
+            [ReadOnly] public ComponentTypeHandle<CommandTargetComponent> commmandTargetType;
+            [ReadOnly] public EntityTypeHandle entitiesType;
 
             public uint serverTick;
             public bool isNullCommandData;
@@ -34,7 +34,7 @@ namespace Unity.NetCode
             {
                 if (isNullCommandData && commandTarget.targetEntity != Entity.Null)
                     return;
-                if (!isNullCommandData && !commandData.Exists(commandTarget.targetEntity))
+                if (!isNullCommandData && !commandData.HasComponent(commandTarget.targetEntity))
                     return;
 
                 var buffer = cmdBuffer[entity];
@@ -47,7 +47,7 @@ namespace Unity.NetCode
                 age *= 256;
                 snapshotAck.ServerCommandAge = (snapshotAck.ServerCommandAge * 7 + age) / 8;
 
-                if (delayFromEntity.Exists(commandTarget.targetEntity))
+                if (delayFromEntity.HasComponent(commandTarget.targetEntity))
                     delayFromEntity[commandTarget.targetEntity] = new CommandDataInterpolationDelay{ Delay = snapshotAck.RemoteInterpolationDelay};
 
                 if (commandTarget.targetEntity != Entity.Null && buffer.Length > 4)
@@ -149,9 +149,9 @@ namespace Unity.NetCode
                 cmdBuffer = GetBufferFromEntity<IncomingCommandDataStreamBufferComponent>(),
                 delayFromEntity = GetComponentDataFromEntity<CommandDataInterpolationDelay>(),
                 compressionModel = m_CompressionModel,
-                snapshotAckType = GetArchetypeChunkComponentType<NetworkSnapshotAckComponent>(),
-                commmandTargetType = GetArchetypeChunkComponentType<CommandTargetComponent>(true),
-                entitiesType = GetArchetypeChunkEntityType(),
+                snapshotAckType = GetComponentTypeHandle<NetworkSnapshotAckComponent>(),
+                commmandTargetType = GetComponentTypeHandle<CommandTargetComponent>(true),
+                entitiesType = GetEntityTypeHandle(),
                 serverTick = serverSimulationSystemGroup.ServerTick,
                 isNullCommandData = typeof(TCommandData) == typeof(NullCommandData),
 #if UNITY_EDITOR || DEVELOPMENT_BUILD

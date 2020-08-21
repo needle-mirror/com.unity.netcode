@@ -14,7 +14,8 @@
         "Unity.Networking.Transport",
         "UnityEngine.TestRunner",
         "UnityEditor.TestRunner",
-        "Unity.Scenes.Hybrid"
+        "Unity.Scenes",
+        "NetCode.Generated"
     ],
     "includePlatforms": [
         "Editor"

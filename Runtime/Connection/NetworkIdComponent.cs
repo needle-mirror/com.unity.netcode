@@ -10,27 +10,27 @@ namespace Unity.NetCode
     }
 
     [BurstCompile]
-    internal struct RpcSetNetworkId : IRpcCommand
+    internal struct RpcSetNetworkId : IComponentData, IRpcCommandSerializer<RpcSetNetworkId>
     {
         public int nid;
         public int simTickRate;
         public int netTickRate;
         public int simMaxSteps;
 
-        public void Serialize(ref DataStreamWriter writer)
+        public void Serialize(ref DataStreamWriter writer, in RpcSetNetworkId data)
         {
-            writer.WriteInt(nid);
-            writer.WriteInt(simTickRate);
-            writer.WriteInt(netTickRate);
-            writer.WriteInt(simMaxSteps);
+            writer.WriteInt(data.nid);
+            writer.WriteInt(data.simTickRate);
+            writer.WriteInt(data.netTickRate);
+            writer.WriteInt(data.simMaxSteps);
         }
 
-        public void Deserialize(ref DataStreamReader reader)
+        public void Deserialize(ref DataStreamReader reader, ref RpcSetNetworkId data)
         {
-            nid = reader.ReadInt();
-            simTickRate = reader.ReadInt();
-            netTickRate = reader.ReadInt();
-            simMaxSteps = reader.ReadInt();
+            data.nid = reader.ReadInt();
+            data.simTickRate = reader.ReadInt();
+            data.netTickRate = reader.ReadInt();
+            data.simMaxSteps = reader.ReadInt();
         }
 
         [BurstCompile]
@@ -38,7 +38,8 @@ namespace Unity.NetCode
         private static void InvokeExecute(ref RpcExecutor.Parameters parameters)
         {
             var rpcData = default(RpcSetNetworkId);
-            rpcData.Deserialize(ref parameters.Reader);
+            var rpcSerializer = default(RpcSetNetworkId);
+            rpcSerializer.Deserialize(ref parameters.Reader, ref rpcData);
 
             parameters.CommandBuffer.AddComponent(parameters.JobIndex, parameters.Connection, new NetworkIdComponent {Value = rpcData.nid});
             var ent = parameters.CommandBuffer.CreateEntity(parameters.JobIndex);

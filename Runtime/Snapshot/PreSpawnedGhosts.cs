@@ -5,7 +5,6 @@ using Unity.Mathematics;
 using Unity.NetCode;
 using Unity.Scenes;
 using Unity.Transforms;
-using UnityEngine;
 
 [UpdateInGroup(typeof(GameObjectAfterConversionGroup))]
 [UpdateAfter(typeof(GhostAuthoringConversion))]
@@ -87,12 +86,12 @@ class PreSpawnedGhosts : GameObjectConversionSystem
 
     ulong ComponentDataToHash(Entity entity, ComponentType componentType)
     {
-        var untypedType = DstEntityManager.GetArchetypeChunkComponentTypeDynamic(componentType);
+        var untypedType = DstEntityManager.GetDynamicComponentTypeHandle(componentType);
         var chunk = DstEntityManager.GetChunk(entity);
         var sizeInChunk = TypeManager.GetTypeInfo(componentType.TypeIndex).SizeInChunk;
         var data = chunk.GetDynamicComponentDataArrayReinterpret<byte>(untypedType, sizeInChunk);
 
-        var entityType = GetArchetypeChunkEntityType();
+        var entityType = GetEntityTypeHandle();
         var entities = chunk.GetNativeArray(entityType);
         int index = -1;
         for (int j = 0; j < entities.Length; ++j)
@@ -120,9 +119,6 @@ class PreSpawnedGhosts : GameObjectConversionSystem
 public struct PreSpawnsInitialized : IComponentData
 {}
 
-public struct InitializedPrespawnsForConnection : IComponentData
-{}
-
 public struct HighestPrespawnIDAllocated : IComponentData
 {
     public int GhostId;
@@ -148,9 +144,10 @@ public class PopulatePreSpawnedGhosts : ComponentSystem
         var inGame = EntityManager.CreateEntityQuery(ComponentType.ReadOnly<NetworkStreamInGame>());
         RequireForUpdate(inGame);
         RequireForUpdate(m_UninitializedScenes);
+        RequireSingletonForUpdate<GhostPrefabCollectionComponent>();
     }
 
-    protected override void OnUpdate()
+    protected override unsafe void OnUpdate()
     {
         var preSpawnsAlreadyProcessed = EntityManager.CreateEntityQuery(ComponentType.ReadOnly<PreSpawnsInitialized>())
             .CalculateEntityCount();
@@ -182,7 +179,7 @@ public class PopulatePreSpawnedGhosts : ComponentSystem
 
         // Handle the chunk for an entity type, then handle each entity in the chunk (prespawned entities)
         var prespawnChunk = m_Prespawns.CreateArchetypeChunkArray(Allocator.TempJob);
-        var entityType = GetArchetypeChunkEntityType();
+        var entityType = GetEntityTypeHandle();
         var preSpawnedIds = GetComponentDataFromEntity<PreSpawnedGhostId>();
         var subsceneMap = new NativeMultiHashMap<ulong, Entity>(32, Allocator.Temp);
         var subscenePadding = new NativeHashMap<ulong, int>(32, Allocator.Temp);
@@ -216,33 +213,32 @@ public class PopulatePreSpawnedGhosts : ComponentSystem
         var ghostTypes = GetComponentDataFromEntity<GhostTypeComponent>();
         var ghostPrefabBufferFromEntity = GetBufferFromEntity<GhostPrefabBuffer>(true);
         var serverPrefabEntity = GetSingleton<GhostPrefabCollectionComponent>().serverPrefabs;
-        DynamicBuffer<GhostPrefabBuffer> prefabList = new DynamicBuffer<GhostPrefabBuffer>();
-        if (serverSystems != null)
-            prefabList = ghostPrefabBufferFromEntity[serverPrefabEntity];
+        var ghostReceiveSystem = World.GetExistingSystem<GhostReceiveSystem>();
+        var ghostCollectionSystem = World.GetExistingSystem<GhostCollectionSystem>();
+        DynamicBuffer<GhostPrefabBuffer> prefabList = ghostPrefabBufferFromEntity[serverPrefabEntity];
         int highestPrespawnId = -1;
+        var spawnedGhosts = new NativeList<SpawnedGhostMapping>(1024, Allocator.Temp);
         for (int i = 0; i < prespawnChunk.Length; ++i)
         {
             var chunk = prespawnChunk[i];
             var entities = chunk.GetNativeArray(entityType);
 
-            IGhostSpawnSystem activeSpawnSystem = null;
-            var spawnSystems = World.GetExistingSystem<GhostSpawnSystemGroup>();
-            if (spawnSystems != null && entities.Length > 0)
-            {
-                foreach (var system in spawnSystems.Systems)
-                {
-                    if (!(system is IGhostSpawnSystem)) continue;
-                    if (!((IGhostSpawnSystem) system).CanSpawn(entities[0])) continue;
-                    activeSpawnSystem = (IGhostSpawnSystem) system;
-                    break;
-                }
-                if (activeSpawnSystem == null)
-                    UnityEngine.Debug.LogError("Failed to find spawn system for " + entities[0]);
-            }
-
             for (int j = 0; j < entities.Length; ++j)
             {
                 var entity = entities[j];
+
+                var ghostTypeComponent = ghostTypes[entity];
+                int ghostType;
+                for (ghostType = 0; ghostType < prefabList.Length; ++ghostType)
+                {
+                    if (ghostTypes[prefabList[ghostType].Value] == ghostTypeComponent)
+                        break;
+                }
+                if (ghostType >= prefabList.Length)
+                {
+                    UnityEngine.Debug.LogError("Failed to look up ghost type for entity");
+                    return;
+                }
 
                 // Check if this entity has already been handled
                 if (ghostComponents[entity].ghostId != 0)
@@ -260,32 +256,26 @@ public class PopulatePreSpawnedGhosts : ComponentSystem
                 // will happen from the right start index
                 if (serverSystems != null)
                 {
-                    var ghostTypeComponent = ghostTypes[entity];
-                    int ghostType = -1;
-                    for (ghostType = 0; ghostType < prefabList.Length; ++ghostType)
-                    {
-                        if (ghostTypes[prefabList[ghostType].Value] == ghostTypeComponent)
-                            break;
-                    }
-                    if (ghostType >= prefabList.Length)
-                    {
-                        UnityEngine.Debug.LogError("Failed to look up ghost type for entity");
-                        return;
-                    }
-
                     var ghostSystemStateComponent = new GhostSystemStateComponent
                     {
-                        ghostId = newId, ghostTypeIndex = ghostType, despawnTick = 0
+                        ghostId = newId, despawnTick = 0
                     };
                     PostUpdateCommands.AddComponent(entity, ghostSystemStateComponent);
                 }
-                else
+                else if (ghostReceiveSystem != null)
                 {
-                    activeSpawnSystem?.AddGhost(newId, entity);
+                    var snapshotSize = ghostCollectionSystem.m_GhostTypeCollection[ghostType].SnapshotSize;
+                    spawnedGhosts.Add(new SpawnedGhostMapping{ghost = new SpawnedGhost{ghostId = newId, spawnTick = 0}, entity = entity});
+                    var newBuffer = PostUpdateCommands.SetBuffer<SnapshotDataBuffer>(entity);
+                    newBuffer.ResizeUninitialized(snapshotSize * GhostSystemConstants.SnapshotHistorySize);
+                    UnsafeUtility.MemClear(newBuffer.GetUnsafePtr(), snapshotSize * GhostSystemConstants.SnapshotHistorySize);
+                    PostUpdateCommands.SetComponent(entity, new SnapshotData{SnapshotSize = snapshotSize, LatestIndex = 0});
                 }
 
-                var ghostComponent = new GhostComponent {ghostId = newId};
-                PostUpdateCommands.AddComponent(entity, ghostComponent);
+                // Pre-spawned uses spawnTick = 0, if there is a reference to a ghost and it has spawnTick 0 the ref is always resolved
+                // This works because there despawns are high priority and we never create pre-spawned ghosts after connection
+                var ghostComponent = new GhostComponent {ghostId = newId, ghostType = ghostType, spawnTick = 0};
+                PostUpdateCommands.SetComponent(entity, ghostComponent);
 
                 // Mark scene as processed, as whole scene will have been loaded when this entity appeared
                 var sceneSection = EntityManager.GetSharedComponentData<SceneSection>(entity);
@@ -294,19 +284,16 @@ public class PopulatePreSpawnedGhosts : ComponentSystem
                 PostUpdateCommands.AddComponent<PreSpawnsInitialized>(sceneEntity);
             }
         }
-        IGhostSendSystem sendSystem = null;
+        if (ghostReceiveSystem != null && spawnedGhosts.Length > 0)
+            ghostReceiveSystem.AddSpawnedGhosts(spawnedGhosts);
         if (serverSystems != null)
         {
-            foreach (var system in serverSystems.Systems)
+            var sendSystem = World.GetExistingSystem<GhostSendSystem>();
+            if (sendSystem != null)
             {
-                sendSystem = system as IGhostSendSystem;
-                if (sendSystem != null && sendSystem.IsEnabled())
-                {
-                    sendSystem.SetAllocatedGhostId(highestPrespawnId);
-                    break;
-                }
+                sendSystem.SetAllocatedGhostId(highestPrespawnId);
             }
-            if (sendSystem == null)
+            else
             {
                 UnityEngine.Debug.LogError("Failed to look up ghost send system");
                 return;
@@ -321,7 +308,7 @@ public class PopulatePreSpawnedGhosts : ComponentSystem
                 PostUpdateCommands.AddComponent<PreSpawnsInitialized>(newScenes[i]);
             newScenes.Dispose();
         }
-        
+
         var highestIdEntity = PostUpdateCommands.CreateEntity();
         PostUpdateCommands.AddComponent(highestIdEntity,
             new HighestPrespawnIDAllocated{ GhostId = highestPrespawnId});

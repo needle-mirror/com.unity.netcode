@@ -25,7 +25,7 @@ namespace Unity.NetCode
             var config = GetSingleton<GhostDistanceImportance>();
             var barrier = World.GetExistingSystem<EndSimulationEntityCommandBufferSystem>();
             var commandBuffer = barrier.CreateCommandBuffer();
-            var concurrentCommandBuffer = commandBuffer.ToConcurrent();
+            var concurrentCommandBuffer = commandBuffer.AsParallelWriter();
             // FIXME: GhostComponent should use WithAll, but that requires a bugfix in entities
             inputDeps = Entities.WithoutBurst().WithNone<GhostDistancePartition>().ForEach((Entity ent, int entityInQueryIndex, in Translation trans, in GhostComponent ghost) =>
             {

@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using Unity.Core;
 using Unity.Entities;
 using Unity.Profiling;
-using UnityEngine;
 
 namespace Unity.NetCode
 {
@@ -105,7 +104,7 @@ namespace Unity.NetCode
             else if (m_fixedTimeLoop.accumulatedTime < 0.25f * m_fixedTimeLoop.fixedTimeStep)
                 rate -= 2; // lower rate means bigger deltaTime which means remaining accumulatedTime gets bigger
 
-            Application.targetFrameRate = rate;
+            UnityEngine.Application.targetFrameRate = rate;
         }
 
     }

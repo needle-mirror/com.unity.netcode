@@ -25,17 +25,18 @@ namespace Unity.NetCode
     }
 
     [UpdateInGroup(typeof(RpcCommandRequestSystemGroup))]
-    public class RpcCommandRequestSystem<TActionRequest> : JobComponentSystem
-        where TActionRequest : struct, IRpcCommand
+    public class RpcCommandRequestSystem<TActionSerializer, TActionRequest> : SystemBase
+        where TActionRequest : struct, IComponentData
+        where TActionSerializer : struct, IRpcCommandSerializer<TActionRequest>
     {
         struct SendRpc : IJobChunk
         {
-            public EntityCommandBuffer.Concurrent commandBuffer;
-            [ReadOnly] public ArchetypeChunkEntityType entitiesType;
-            [ReadOnly] public ArchetypeChunkComponentType<SendRpcCommandRequestComponent> rpcRequestType;
-            [ReadOnly] public ArchetypeChunkComponentType<TActionRequest> actionRequestType;
+            public EntityCommandBuffer.ParallelWriter commandBuffer;
+            [ReadOnly] public EntityTypeHandle entitiesType;
+            [ReadOnly] public ComponentTypeHandle<SendRpcCommandRequestComponent> rpcRequestType;
+            [ReadOnly] public ComponentTypeHandle<TActionRequest> actionRequestType;
             public BufferFromEntity<OutgoingRpcDataStreamBufferComponent> rpcFromEntity;
-            public RpcQueue<TActionRequest> rpcQueue;
+            public RpcQueue<TActionSerializer, TActionRequest> rpcQueue;
             [ReadOnly] public NativeArray<Entity> connections;
 
             public void LambdaMethod(Entity entity, int orderIndex, in SendRpcCommandRequestComponent dest, in TActionRequest action)
@@ -45,7 +46,7 @@ namespace Unity.NetCode
                 {
                     if (dest.TargetConnection != Entity.Null)
                     {
-                        if (!rpcFromEntity.Exists(dest.TargetConnection))
+                        if (!rpcFromEntity.HasComponent(dest.TargetConnection))
                         {
 #if ENABLE_UNITY_COLLECTIONS_CHECKS
                             throw new InvalidOperationException("Cannot send RPC with no remote connection.");
@@ -97,39 +98,39 @@ namespace Unity.NetCode
         }
 
         private BeginSimulationEntityCommandBufferSystem m_CommandBufferSystem;
-        private RpcQueue<TActionRequest> m_RpcQueue;
+        private RpcQueue<TActionSerializer, TActionRequest> m_RpcQueue;
         private EntityQuery m_ConnectionsQuery;
         private EntityQuery m_entityQuery;
 
         protected override void OnCreate()
         {
             var rpcSystem = World.GetOrCreateSystem<RpcSystem>();
-            rpcSystem.RegisterRpc<TActionRequest>();
+            rpcSystem.RegisterRpc<TActionSerializer, TActionRequest>();
             m_CommandBufferSystem = World.GetOrCreateSystem<BeginSimulationEntityCommandBufferSystem>();
-            m_RpcQueue = rpcSystem.GetRpcQueue<TActionRequest>();
+            m_RpcQueue = rpcSystem.GetRpcQueue<TActionSerializer, TActionRequest>();
             m_ConnectionsQuery = EntityManager.CreateEntityQuery(ComponentType.ReadWrite<NetworkIdComponent>(),
                 ComponentType.Exclude<NetworkStreamDisconnected>());
             m_entityQuery = GetEntityQuery(ComponentType.ReadOnly<SendRpcCommandRequestComponent>(),
                 ComponentType.ReadOnly<TActionRequest>());
         }
 
-        protected override JobHandle OnUpdate(JobHandle inputDeps)
+        protected override void OnUpdate()
         {
             var connections = m_ConnectionsQuery.ToEntityArrayAsync(Allocator.TempJob, out var connectionsHandle);
             var sendJob = new SendRpc
             {
-                commandBuffer = m_CommandBufferSystem.CreateCommandBuffer().ToConcurrent(),
-                entitiesType = GetArchetypeChunkEntityType(),
-                rpcRequestType = GetArchetypeChunkComponentType<SendRpcCommandRequestComponent>(true),
-                actionRequestType = GetArchetypeChunkComponentType<TActionRequest>(true),
+                commandBuffer = m_CommandBufferSystem.CreateCommandBuffer().AsParallelWriter(),
+                entitiesType = GetEntityTypeHandle(),
+                rpcRequestType = GetComponentTypeHandle<SendRpcCommandRequestComponent>(true),
+                actionRequestType = GetComponentTypeHandle<TActionRequest>(true),
                 rpcFromEntity = GetBufferFromEntity<OutgoingRpcDataStreamBufferComponent>(),
                 rpcQueue = m_RpcQueue,
                 connections = connections
             };
-            var handle = sendJob.ScheduleSingle(m_entityQuery, JobHandle.CombineDependencies(inputDeps, connectionsHandle));
+            var handle = sendJob.ScheduleSingle(m_entityQuery, JobHandle.CombineDependencies(Dependency, connectionsHandle));
             handle = connections.Dispose(handle);
             m_CommandBufferSystem.AddJobHandleForProducer(handle);
-            return handle;
+            Dependency = handle;
         }
     }
 }

@@ -1,37 +1,9 @@
-using Unity.Burst;
 using Unity.Entities;
 using Unity.Jobs;
-using Unity.Networking.Transport;
 
 namespace Unity.NetCode
 {
-    [BurstCompile]
-    struct HeartbeatComponent : IRpcCommand
-    {
-        public void Serialize(ref DataStreamWriter writer)
-        {
-        }
-
-        public void Deserialize(ref DataStreamReader reader)
-        {
-        }
-
-        [BurstCompile]
-        [AOT.MonoPInvokeCallback(typeof(RpcExecutor.ExecuteDelegate))]
-        private static void InvokeExecute(ref RpcExecutor.Parameters parameters)
-        {
-            RpcExecutor.ExecuteCreateRequestComponent<HeartbeatComponent>(ref parameters);
-        }
-
-        static PortableFunctionPointer<RpcExecutor.ExecuteDelegate> InvokeExecuteFunctionPointer =
-            new PortableFunctionPointer<RpcExecutor.ExecuteDelegate>(InvokeExecute);
-        public PortableFunctionPointer<RpcExecutor.ExecuteDelegate> CompileExecute()
-        {
-            return InvokeExecuteFunctionPointer;
-        }
-    }
-
-    class HeartbeatComponentRpcCommandRequestSystem : RpcCommandRequestSystem<HeartbeatComponent>
+    public struct HeartbeatComponent : IRpcCommand
     {
     }
 

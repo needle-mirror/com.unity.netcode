@@ -82,9 +82,19 @@ NetDbg.prototype.updateNames = function(nameList) {
     container.appendChild(this.content[con].container);
     this.content[con].frames = [];
     this.content[con].names = connection.ghosts;
+    this.content[con].errors = connection.errors;
+    this.content[con].enabledErrors = new Array(connection.errors.length);
+    this.content[con].totalError = new Array(connection.errors.length);
+    this.content[con].totalErrorCount = new Array(connection.errors.length);
     this.content[con].total = new Array(this.content[con].names.length*2);
     var legend = this.content[con].legend;
-    for (var i = 0; i < this.content[con].names.length; ++i) {
+	for (var i = 0; i < this.content[con].errors.length; ++i) {
+		this.content[con].enabledErrors[i] = false;
+		this.content[con].totalError[i] = 0;
+		this.content[con].totalErrorCount[i] = 0;
+	}
+
+	for (var i = 0; i < this.content[con].names.length; ++i) {
         this.content[con].total[i*2] = 0;
         this.content[con].total[i*2 + 1] = 0;
         var line = document.createElement("div");
@@ -204,6 +214,19 @@ NetDbg.prototype.wsReceive = function(evt) {
 
 		dataOffset += this.content[con].names.length * 3 * 4;
 
+		var predictionArr = new Float32Array(evt.data, dataOffset);
+		var predictionErr = [];
+		for (var i = 0; i < this.content[con].errors.length; ++i)
+		{
+			if (predictionArr[i] > 0) {
+				this.content[con].enabledErrors[i] = true;
+				this.content[con].totalErrorCount[i] += 1;
+				this.content[con].totalError[i] += predictionArr[i];
+			}
+			predictionErr.push(predictionArr[i]);
+		}
+		dataOffset += this.content[con].errors.length * 4;
+
 		var cmdTickArr = new Uint32Array(evt.data, dataOffset);
 		var commandTicks = [];
 		for (var i = 0; i < commandLen; ++i) {
@@ -235,11 +258,11 @@ NetDbg.prototype.wsReceive = function(evt) {
 				}
 				for (var missing = lastFrame.serverTick + 1; missing < tick[0]; ++missing) {
 					++age;
-					this.content[con].frames.push({serverTick: missing, snapshotAge: age, snapshot: emptySnap, snapshotTicks: [], time: [], commandTicks: [], commandSize: 0});
+					this.content[con].frames.push({serverTick: missing, snapshotAge: age, snapshot: emptySnap, snapshotTicks: [], predictionError: [], time: [], commandTicks: [], commandSize: 0});
 				}
 			}
 		}
-		this.content[con].frames.push({serverTick: tick[0], snapshotAge: snapshotAge, snapshot: snap, snapshotTicks: snapshotTicks, time: time, commandTicks: commandTicks, commandSize: commandSize, discardedPackets: discardedPackets});
+		this.content[con].frames.push({serverTick: tick[0], snapshotAge: snapshotAge, snapshot: snap, snapshotTicks: snapshotTicks, predictionError: predictionErr, time: time, commandTicks: commandTicks, commandSize: commandSize, discardedPackets: discardedPackets});
 		this.invalidate();
 		this.invalidateLegendStats();
 	}
@@ -293,6 +316,15 @@ NetDbg.prototype.createName = function(name) {
 	div.style.width = "0";
 	div.style.whiteSpace = "nowrap";
 	div.appendChild(document.createTextNode(name));
+	return div;
+}
+NetDbg.prototype.createPredictionError = function(err) {
+	var div = document.createElement("div");
+	div.style.display = "inline-block";
+	div.style.width = "0";
+	div.style.whiteSpace = "nowrap";
+	div.style.marginLeft = "400px";
+	div.appendChild(document.createTextNode("" + err));
 	return div;
 }
 NetDbg.prototype.createCount = function(count, uncompressed) {
@@ -389,6 +421,24 @@ NetDbg.prototype.select = function(evt) {
 				descr.appendChild(sectionDiv);
 				totalSize += type.size;
 			}
+			if (content.frames[this.selection].predictionError != undefined) {
+				var titleText = "Prediction errors";
+				var titleDiv = document.createElement("div");
+				titleDiv.className = "DetailsTitle";
+				titleDiv.appendChild(document.createTextNode(titleText));
+				descr.appendChild(titleDiv);
+				for (var err = 0; err < content.errors.length; ++err) {
+					if (content.enabledErrors[err]) {
+						var sectionDiv = document.createElement("div");
+						var name = this.createName(content.errors[err]);
+						sectionDiv.appendChild(name);
+						var error = this.createPredictionError(content.frames[this.selection].predictionError[err]);
+						sectionDiv.appendChild(error);
+						descr.appendChild(sectionDiv);
+					}
+				}
+			}
+
 
 			var avgCommandAge = 0;
 			var avgTimeScale = 0;
@@ -408,7 +458,10 @@ NetDbg.prototype.select = function(evt) {
 			}
 
 			var titleText = "Network frame " + this.selection;
-			div.appendChild(document.createTextNode(titleText));
+			var titleDiv = document.createElement("div");
+			titleDiv.className = "DetailsTitle";
+			titleDiv.appendChild(document.createTextNode(titleText));
+			div.appendChild(titleDiv);
 
 			var tickText = "Server tick " + content.frames[this.selection].serverTick;
 			tickText += " (" + (this.selection>0?(content.frames[this.selection].serverTick - content.frames[this.selection-1].serverTick):0) + ")";
@@ -471,6 +524,7 @@ NetDbg.prototype.maxOffset = function() {
 NetDbg.prototype.present = function() {
 	this.pendingPresent = 0;
 	var showInterpolationDelay = document.getElementById("showInterpolationDelay").checked;
+	var showPredictionErrors = document.getElementById("showPredictionErrors").checked;
 	var showTimeScale = document.getElementById("showTimeScale").checked;
 	var showRTT = document.getElementById("showRTT").checked
 	var showJitter = document.getElementById("showJitter").checked
@@ -490,11 +544,20 @@ NetDbg.prototype.present = function() {
 		if (!content.hasTimeData)
 			dtHeight = 0;
 
-		var names = content.names;
 		content.canvas.width = content.canvas.parentElement.offsetWidth;
-		content.canvas.height = 680;
-		var snapshotHeight = (content.canvas.height - dtHeight)*3 / 4;
+		var snapshotContentHeight = 680;
+		var snapshotHeight = (snapshotContentHeight - dtHeight)*3 / 4;
 		var commandHeight = snapshotHeight / 3;
+
+		var predictionContentHeight = 0;
+		var predictionErrorHeight = 32;
+		if (showPredictionErrors) {
+			for (var i = 0; i < content.errors.length; ++i) {
+				if (content.enabledErrors[i])
+					predictionContentHeight += predictionErrorHeight;
+			}
+		}
+		content.canvas.height = snapshotContentHeight + predictionContentHeight;
 
 		var byteScale = 0.25 / (8 * content.maxPackets);
 
@@ -508,9 +571,6 @@ NetDbg.prototype.present = function() {
 		}
 		if (dtHeight > 0)
 			content.ctx.fillRect(0,snapshotHeight+commandHeight + dtHeight/2,content.canvas.width, 1);
-		content.ctx.fillStyle = "white";
-		content.ctx.fillRect(0,snapshotHeight,content.canvas.width, 2);
-		content.ctx.fillRect(0,snapshotHeight+commandHeight,content.canvas.width, 2);
 
 		var currentOffset = this.currentOffset();
 
@@ -548,6 +608,24 @@ NetDbg.prototype.present = function() {
 				content.ctx.fillStyle = "red";
 				var xpos = i*this.SnapshotWidth-this.SnapshotMargin/2 - currentOffset;
 				content.ctx.fillRect(xpos, 0, this.SnapshotWidth, content.frames[i].discardedPackets * 10);
+			}
+
+			if (showPredictionErrors) {
+				var predictionErrorBase = snapshotContentHeight + predictionErrorHeight;
+				if (content.frames[i].predictionError != undefined) {
+					content.ctx.fillStyle = "blue";
+					for (var err = 0; err < content.errors.length; ++err) {
+						if (content.enabledErrors[err]) {
+							var avgError = content.totalError[err] / content.totalErrorCount[err];
+							// We target an average error to fill up 10%
+							var size = content.frames[i].predictionError[err] * predictionErrorHeight * 0.1 / avgError;
+							if (size > predictionErrorHeight-2)
+								size = predictionErrorHeight-2;
+							content.ctx.fillRect(i*this.SnapshotWidth - currentOffset, predictionErrorBase - size, this.SnapshotWidth-this.SnapshotMargin, size);
+							predictionErrorBase += predictionErrorHeight;
+						}
+					}
+				}
 			}
 		}
 
@@ -647,5 +725,20 @@ NetDbg.prototype.present = function() {
 			content.ctx.strokeStyle = this.Colors[5];
 			content.ctx.stroke();
 		}*/
+		content.ctx.fillStyle = "white";
+		content.ctx.fillRect(0,snapshotHeight,content.canvas.width, 2);
+		content.ctx.fillRect(0,snapshotHeight+commandHeight,content.canvas.width, 2);
+
+		if (showPredictionErrors) {
+			predictionContentHeight = 0;
+			content.ctx.font = '10px serif';
+			for (var i = 0; i < content.errors.length; ++i) {
+				if (content.enabledErrors[i]) {
+					content.ctx.fillText(content.errors[i], 5, snapshotContentHeight+predictionContentHeight + 15);
+					predictionContentHeight += predictionErrorHeight;
+					content.ctx.fillRect(0,snapshotContentHeight+predictionContentHeight,content.canvas.width, 2);
+				}
+			}
+		}
 	}
 }

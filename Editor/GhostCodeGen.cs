@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using Unity.NetCode.Editor.GhostCompiler;
 using UnityEditor;
 using UnityEditor.Experimental.SceneManagement;
 using UnityEngine;
@@ -9,12 +10,20 @@ namespace Unity.NetCode.Editor
 {
     public class GhostCodeGen
     {
-        public enum Status
+        public override string ToString()
         {
-            Ok,
-            Failed,
-            NotModified
+            var replacements = "";
+            foreach (var fragment in m_Fragments)
+            {
+                replacements += $"Key: {fragment.Key}, Template: {fragment.Value.Template}, Content: {fragment.Value.Content}";
+            }
+
+            return replacements;
         }
+
+        public Dictionary<string, string> Replacements;
+        public Dictionary<string, FragmentData> Fragments => m_Fragments;
+
         public class Batch
         {
             internal List<Tuple<string, string>> m_PendingOperations = new List<Tuple<string, string>>();
@@ -26,11 +35,14 @@ namespace Unity.NetCode.Editor
                 {
                     var path = op.Item1;
                     bool writeFile = true;
-                    if (File.Exists(path))
+                    var outFileInfo = new FileInfo(path);
+                    if (outFileInfo.Exists)
                     {
                         var prevContent = File.ReadAllText(path);
                         if (prevContent == op.Item2)
+                        {
                             writeFile = false;
+                        }
                         else if ((File.GetAttributes(path) & FileAttributes.ReadOnly) != 0)
                         {
                             if (UnityEditor.VersionControl.Provider.isActive)
@@ -61,28 +73,10 @@ namespace Unity.NetCode.Editor
                 return didWriteAnyFile;
             }
         }
+
         private Dictionary<string, FragmentData> m_Fragments;
         private string m_FileTemplate;
         private string m_HeaderTemplate;
-
-        public static string GetPrefabAssetPath(GameObject go)
-        {
-            string assetPath = "";
-            var prefabStage = PrefabStageUtility.GetPrefabStage(go);
-            if (prefabStage != null)
-#if UNITY_2020_1_OR_NEWER
-                assetPath = prefabStage.assetPath;
-#else
-                assetPath = prefabStage.prefabAssetPath;
-#endif
-            else
-                assetPath = AssetDatabase.GetAssetPath(go);
-            if (String.IsNullOrEmpty(assetPath))
-                assetPath = "Assets";
-            else
-                assetPath = Path.GetDirectoryName(assetPath);
-            return assetPath;
-        }
 
         static string ConcatPath(string assetPath, string root, string path)
         {
@@ -98,14 +92,54 @@ namespace Unity.NetCode.Editor
             return path;
         }
 
-        class FragmentData
+        public class FragmentData
         {
             public string Template;
             public string Content;
         }
 
+        public void AddTemplateOverrides(string template)
+        {
+            var templateData = File.ReadAllText(template);
+            int regionStart;
+            while ((regionStart = templateData.IndexOf("#region")) >= 0)
+            {
+                while (regionStart > 0 && templateData[regionStart - 1] != '\n' &&
+                       char.IsWhiteSpace(templateData[regionStart - 1]))
+                {
+                    --regionStart;
+                }
+
+                var regionNameEnd = templateData.IndexOf("\n", regionStart);
+                var regionNameLine = templateData.Substring(regionStart, regionNameEnd - regionStart);
+                var regionNameTokens = System.Text.RegularExpressions.Regex.Split(regionNameLine.Trim(), @"\s+");
+                if (regionNameTokens.Length != 2)
+                    throw new InvalidOperationException($"Invalid region in GhostCodeGen template {template}");
+                var regionEnd = templateData.IndexOf("#endregion", regionStart);
+                if (regionEnd < 0)
+                    throw new InvalidOperationException($"Invalid region in GhostCodeGen template {template}");
+                while (regionEnd > 0 && templateData[regionEnd - 1] != '\n' &&
+                       char.IsWhiteSpace(templateData[regionEnd - 1]))
+                {
+                    if (regionEnd <= regionStart)
+                        throw new InvalidOperationException($"Invalid region in GhostCodeGen template {template}");
+                    --regionEnd;
+                }
+
+                var regionData = templateData.Substring(regionNameEnd + 1, regionEnd - regionNameEnd - 1);
+                if (m_Fragments.TryGetValue(regionNameTokens[1], out var fragmentData))
+                    fragmentData.Template = regionData;
+                else
+                    Debug.LogError($"Did not find {regionNameTokens[1]} region to override");
+
+                templateData = templateData.Substring(regionEnd + 1);
+            }
+        }
+
         public GhostCodeGen(string template)
         {
+            Replacements = new Dictionary<string, string>();
+
             m_Fragments = new Dictionary<string, FragmentData>();
             m_HeaderTemplate = "";
 
@@ -145,6 +179,10 @@ namespace Unity.NetCode.Editor
                 }
                 else
                 {
+                    if (m_Fragments.ContainsKey(regionNameTokens[1]))
+                    {
+                        Debug.Log($"The template {template} already contains the key [{regionNameTokens[1]}]");
+                    }
                     m_Fragments.Add(regionNameTokens[1], new FragmentData{Template = regionData, Content = ""});
                     pre += regionNameTokens[1];
                 }
@@ -187,7 +225,25 @@ namespace Unity.NetCode.Editor
 
             return content;
         }
-        public void GenerateFragment(string fragment, Dictionary<string, string> replacements, GhostCodeGen target = null, string targetFragment = null, string extraIndent = null)
+
+        public void Append(GhostCodeGen target)
+        {
+            if (target == null)
+                target = this;
+
+            foreach (var fragment in m_Fragments)
+            {
+                if (!target.m_Fragments.ContainsKey($"{fragment.Key}"))
+                {
+                    Debug.LogWarning($"Target CodeGen is missing fragment: {fragment.Key}");
+                    continue;
+                }
+                target.m_Fragments[$"{fragment.Key}"].Content += m_Fragments[$"{fragment.Key}"].Content;
+            }
+        }
+
+        public void AppendFragment(string fragment,
+            GhostCodeGen target, string targetFragment = null, string extraIndent = null)
         {
             if (target == null)
                 target = this;
@@ -197,6 +253,29 @@ namespace Unity.NetCode.Editor
                 throw new InvalidOperationException($"{fragment} is not a valid fragment for the given template");
             if (!target.m_Fragments.ContainsKey($"__{targetFragment}__"))
                 throw new InvalidOperationException($"{targetFragment} is not a valid fragment for the given template");
+
+            target.m_Fragments[$"__{targetFragment}__"].Content += m_Fragments[$"__{fragment}__"].Content;
+        }
+
+        public string GetFragmentTemplate(string fragment)
+        {
+            if (!m_Fragments.ContainsKey($"__{fragment}__"))
+                throw new InvalidOperationException($"{fragment} is not a valid fragment for the given template");
+            return m_Fragments[$"__{fragment}__"].Template;
+        }
+
+        public bool GenerateFragment(string fragment, Dictionary<string, string> replacements, GhostCodeGen target = null, string targetFragment = null, string extraIndent = null, bool allowMissingFragment = false)
+        {
+            if (target == null)
+                target = this;
+            if (targetFragment == null)
+                targetFragment = fragment;
+            if (!m_Fragments.ContainsKey($"__{fragment}__") && !allowMissingFragment)
+                throw new InvalidOperationException($"{fragment} is not a valid fragment for the given template");
+            if (!m_Fragments.ContainsKey($"__{fragment}__") && allowMissingFragment)
+                return false;
+            if (!target.m_Fragments.ContainsKey($"__{targetFragment}__"))
+                throw new InvalidOperationException($"{targetFragment} is not a valid fragment for the given template");
             var content = Replace(m_Fragments[$"__{fragment}__"].Template, replacements);
 
             if (extraIndent != null)
@@ -204,6 +283,7 @@ namespace Unity.NetCode.Editor
 
             Validate(content, fragment);
             target.m_Fragments[$"__{targetFragment}__"].Content += content;
+            return true;
         }
 
         public void GenerateFile(string assetPath, string rootPath, string fileName, Dictionary<string, string> replacements, Batch batch)
@@ -217,7 +297,7 @@ namespace Unity.NetCode.Editor
                 header = header.Replace(keyValue.Key, keyValue.Value.Content);
                 content = content.Replace(keyValue.Key, keyValue.Value.Content);
             }
-            content = header + AddNamespace(content);
+            content = header + content;
             Validate(content, "Root");
             batch.m_PendingOperations.Add(new Tuple<string, string>(filePath, content));
         }
@@ -225,22 +305,5 @@ namespace Unity.NetCode.Editor
 {";
         private const string k_EndNamespaceTemplate = @"
 }";
-        private static string AddNamespace(string data)
-        {
-            var defaultNamespace = GhostAuthoringComponentEditor.DefaultNamespace;
-            if (defaultNamespace == "")
-                return data;
-            data = data
-                .Replace("\n    ", "\n        ")
-                .Replace("\n[", "\n    [")
-                .Replace("\n{", "\n    {")
-                .Replace("\n}", "\n    }")
-                .Replace("\npublic", "\n    public");
-
-            data = k_BeginNamespaceTemplate.Replace("$(GHOSTNAMESPACE)", defaultNamespace) +
-                   data + k_EndNamespaceTemplate;
-
-            return data;
-        }
     }
 }

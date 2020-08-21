@@ -32,6 +32,8 @@ namespace Unity.NetCode
                 ComponentType.ReadWrite<Rotation>(),
                 ComponentType.ReadOnly<CurrentSimulatedRotation>(),
                 ComponentType.ReadOnly<PreviousSimulatedRotation>());
+
+            RequireSingletonForUpdate<FixedClientTickRate>();
         }
 
         [BurstCompile]
@@ -39,9 +41,9 @@ namespace Unity.NetCode
         {
             public float curWeight;
             public float prevWeight;
-            public ArchetypeChunkComponentType<Translation> positionType;
-            [ReadOnly] public ArchetypeChunkComponentType<CurrentSimulatedPosition> curPositionType;
-            [ReadOnly] public ArchetypeChunkComponentType<PreviousSimulatedPosition> prevPositionType;
+            public ComponentTypeHandle<Translation> positionType;
+            [ReadOnly] public ComponentTypeHandle<CurrentSimulatedPosition> curPositionType;
+            [ReadOnly] public ComponentTypeHandle<PreviousSimulatedPosition> prevPositionType;
 
             public void Execute(ArchetypeChunk chunk, int chunkIndex, int firstEntityIndex)
             {
@@ -66,9 +68,9 @@ namespace Unity.NetCode
         {
             public float curWeight;
             public float prevWeight;
-            public ArchetypeChunkComponentType<Rotation> rotationType;
-            [ReadOnly] public ArchetypeChunkComponentType<CurrentSimulatedRotation> curRotationType;
-            [ReadOnly] public ArchetypeChunkComponentType<PreviousSimulatedRotation> prevRotationType;
+            public ComponentTypeHandle<Rotation> rotationType;
+            [ReadOnly] public ComponentTypeHandle<CurrentSimulatedRotation> curRotationType;
+            [ReadOnly] public ComponentTypeHandle<PreviousSimulatedRotation> prevRotationType;
 
             public void Execute(ArchetypeChunk chunk, int chunkIndex, int firstEntityIndex)
             {
@@ -92,12 +94,12 @@ namespace Unity.NetCode
         {
             var posInterpolateJob = new PosInterpolateJob();
             var rotInterpolateJob = new RotInterpolateJob();
-            posInterpolateJob.positionType = GetArchetypeChunkComponentType<Translation>();
-            posInterpolateJob.prevPositionType = GetArchetypeChunkComponentType<PreviousSimulatedPosition>(true);
-            posInterpolateJob.curPositionType = GetArchetypeChunkComponentType<CurrentSimulatedPosition>(true);
-            rotInterpolateJob.rotationType = GetArchetypeChunkComponentType<Rotation>();
-            rotInterpolateJob.prevRotationType = GetArchetypeChunkComponentType<PreviousSimulatedRotation>(true);
-            rotInterpolateJob.curRotationType = GetArchetypeChunkComponentType<CurrentSimulatedRotation>(true);
+            posInterpolateJob.positionType = GetComponentTypeHandle<Translation>();
+            posInterpolateJob.prevPositionType = GetComponentTypeHandle<PreviousSimulatedPosition>(true);
+            posInterpolateJob.curPositionType = GetComponentTypeHandle<CurrentSimulatedPosition>(true);
+            rotInterpolateJob.rotationType = GetComponentTypeHandle<Rotation>();
+            rotInterpolateJob.prevRotationType = GetComponentTypeHandle<PreviousSimulatedRotation>(true);
+            rotInterpolateJob.curRotationType = GetComponentTypeHandle<CurrentSimulatedRotation>(true);
 
             posInterpolateJob.curWeight = rotInterpolateJob.curWeight =
                 (float)(Time.ElapsedTime - parameters.startTime) / parameters.fixedDeltaTime;

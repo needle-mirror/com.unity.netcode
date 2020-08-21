@@ -4,6 +4,7 @@ using NUnit.Framework;
 using Unity.Entities;
 using UnityEngine;
 using UnityEngine.TestTools;
+using Unity.Collections;
 
 namespace Unity.NetCode.Tests
 {
@@ -170,7 +171,7 @@ namespace Unity.NetCode.Tests
         }
 
         [Test]
-        public void Rpc_MalformedPackets_Throws()
+        public void Rpc_MalformedPackets_ThrowsAndLogError()
         {
             using (var testWorld = new NetCodeTestWorld())
             {
@@ -198,7 +199,12 @@ namespace Unity.NetCode.Tests
                 // Connect and make sure the connection could be established
                 Assert.IsTrue(testWorld.Connect(frameTime, 4));
 
-                LogAssert.Expect(LogType.Exception, new Regex("InvalidOperationException: RpcSystem received malformed packets or packets with the wrong version"));
+                LogAssert.Expect(LogType.Error, new Regex("RpcSystem received invalid rpc from connection 1"));
+                //This catch is necessary right now because there is an edge case scenario when a system schedule
+                //an rpc to be executed the same frame a connection is marked for disconnection.
+                //Is not detectable reliably using entities query, because depend on system order and the fact we tag
+                //the connection at the beginning of the next simulation update (via command buffer).
+                LogAssert.Expect(LogType.Exception, new Regex("InvalidOperationException: Cannot send RPC with no remote connection"));
                 for (int i = 0; i < 32; ++i)
                     testWorld.Tick(16f / 1000f);
 
@@ -220,5 +226,35 @@ namespace Unity.NetCode.Tests
             }
         }
 
+        [Test]
+        public void Rpc_CanSendMoreThanOnePacketPerFrame()
+        {
+            using (var testWorld = new NetCodeTestWorld())
+            {
+                testWorld.Bootstrap(true,
+                    typeof(SerializedClientLargeRcpSendSystem),
+                    typeof(SerializedServerLargeRpcReceiveSystem),
+                    typeof(SerializedLargeRpcCommandRequestSystem));
+                testWorld.CreateWorlds(true, 1);
+
+                int SendCount = 50;
+                var SendCmd = new SerializedLargeRpcCommand
+                    {stringValue = new FixedString512("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")};
+                SerializedClientLargeRcpSendSystem.SendCount = SendCount;
+                SerializedClientLargeRcpSendSystem.Cmd = SendCmd;
+
+                SerializedServerLargeRpcReceiveSystem.ReceivedCount = 0;
+
+                float frameTime = 1.0f / 60.0f;
+                // Connect and make sure the connection could be established
+                Assert.IsTrue(testWorld.Connect(frameTime, 4));
+
+                for (int i = 0; i < 33; ++i)
+                    testWorld.Tick(16f / 1000f);
+
+                Assert.AreEqual(SendCount, SerializedServerLargeRpcReceiveSystem.ReceivedCount);
+                Assert.AreEqual(SendCmd, SerializedServerLargeRpcReceiveSystem.ReceivedCmd);
+            }
+        }
     }
 }

@@ -18,17 +18,24 @@ namespace Unity.NetCode
     public struct NetworkStreamConnection : IComponentData
     {
         public NetworkConnection Value;
+        public int ProtocolVersionReceived;
     }
 
     public struct NetworkStreamInGame : IComponentData
     {
     }
 
+    public struct NetworkStreamSnapshotTargetSize : IComponentData
+    {
+        public int Value;
+    }
+
     public enum NetworkStreamDisconnectReason
     {
         Unknown,
         ConnectionClose,
-        BadProtocolVersion
+        BadProtocolVersion,
+        InvalidRpc,
     }
 
     public struct NetworkStreamDisconnected : IComponentData

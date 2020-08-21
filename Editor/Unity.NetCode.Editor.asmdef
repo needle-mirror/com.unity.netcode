@@ -1,15 +1,26 @@
 {
-  "name": "Unity.NetCode.Editor",
-  "references": [
-    "Unity.NetCode",
-    "Unity.Entities",
-    "Unity.Entities.Hybrid",
-    "Unity.Collections",
-    "Unity.Mathematics",
-    "Unity.Networking.Transport"
-  ],
-  "includePlatforms": [
-    "Editor"
-  ],
-  "allowUnsafeCode": true
+    "name": "Unity.NetCode.Editor",
+    "references": [
+        "Unity.NetCode",
+        "Unity.Entities",
+        "Unity.Entities.Hybrid",
+        "Unity.Collections",
+        "Unity.Mathematics",
+        "Unity.Networking.Transport",
+        "Unity.Transforms"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": true,
+    "overrideReferences": true,
+    "precompiledReferences": [
+        "Mono.Cecil.dll",
+        "Mono.Cecil.Pdb.dll"
+    ],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
 }

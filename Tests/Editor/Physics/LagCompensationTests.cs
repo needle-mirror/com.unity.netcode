@@ -17,13 +17,12 @@ namespace Unity.NetCode.Physics.Tests
             dstManager.AddBuffer<LagCompensationTestCommand>(entity);
             dstManager.AddComponentData(entity, new CommandDataInterpolationDelay());
             dstManager.AddComponentData(entity, new LagCompensationTestPlayer());
+            dstManager.AddComponentData(entity, new GhostOwnerComponent());
         }
     }
 
     public struct LagCompensationTestPlayer : IComponentData
     {
-        [GhostDefaultField]
-        public int Owner;
     }
 
     public struct LagCompensationTestCommand : ICommandData<LagCompensationTestCommand>
@@ -77,7 +76,7 @@ namespace Unity.NetCode.Physics.Tests
         }
         protected override JobHandle OnUpdate(JobHandle inputDeps)
         {
-            var commandBuffer = m_EndSimulationCommandBufferSystem.CreateCommandBuffer().ToConcurrent();
+            var commandBuffer = m_EndSimulationCommandBufferSystem.CreateCommandBuffer().AsParallelWriter();
 
             bool isServer = m_IsServer;
             var serverPrefabs = GetSingleton<GhostPrefabCollectionComponent>().serverPrefabs;
@@ -88,14 +87,14 @@ namespace Unity.NetCode.Physics.Tests
                 if (isServer)
                 {
                     // Spawn the player so it gets replicated to the client
-                    var ghostId = LagCompensationTestGhostSerializerCollection.FindGhostType<LagCompensationTestPlayerSnapshotData>();
+                    var ghostId = 0;
                     var playerPrefab = bufferFromEntity[serverPrefabs][ghostId].Value;
                     // Spawn the cube when a player connects for simplicity
-                    ghostId = LagCompensationTestGhostSerializerCollection.FindGhostType<LagCompensationTestCubeSnapshotData>();
+                    ghostId = 1;
                     var cubePrefab = bufferFromEntity[serverPrefabs][ghostId].Value;
                     commandBuffer.Instantiate(entityInQueryIndex, cubePrefab);
                     var player = commandBuffer.Instantiate(entityInQueryIndex, playerPrefab);
-                    commandBuffer.SetComponent(entityInQueryIndex, player, new LagCompensationTestPlayer{Owner = id.Value});
+                    commandBuffer.SetComponent(entityInQueryIndex, player, new GhostOwnerComponent{NetworkId = id.Value});
                     commandBuffer.SetComponent(entityInQueryIndex, ent, new CommandTargetComponent{targetEntity = player});
                 }
             }).Schedule(inputDeps);
@@ -228,6 +227,38 @@ namespace Unity.NetCode.Physics.Tests
     public class LagCompensationTests
     {
         [Test]
+        public void LagCompensationDoesNotUpdateIfDisableLagCompensationIsPresent()
+        {
+            using (var testWorld = new NetCodeTestWorld())
+            {
+                // Test lag compensation with 100ms ping
+                testWorld.DriverSimulatedDelay = 50;
+                testWorld.NetCodeAssemblies.Add("Unity.NetCode.Physics,");
+                testWorld.NetCodeAssemblies.Add("Unity.Physics,");
+                testWorld.Bootstrap(true);
+
+                testWorld.CreateWorlds(true, 1);
+                testWorld.ServerWorld.EntityManager.CreateEntity(typeof(DisableLagCompensation));
+                testWorld.ClientWorlds[0].EntityManager.CreateEntity(typeof(DisableLagCompensation));
+
+                var ep = NetworkEndPoint.LoopbackIpv4;
+                ep.Port = 7979;
+                testWorld.ServerWorld.GetExistingSystem<NetworkStreamReceiveSystem>().Listen(ep);
+                testWorld.ClientWorlds[0].GetExistingSystem<NetworkStreamReceiveSystem>().Connect(ep);
+
+                for (int i = 0; i < 16; ++i)
+                    testWorld.Tick(16f/1000f);
+
+                var serverPhy = testWorld.ServerWorld.GetExistingSystem<PhysicsWorldHistory>();
+                Assert.IsFalse(serverPhy.IsInitialized);
+                Assert.AreEqual(0, serverPhy.LastStoreTick);
+                var clientPhy = testWorld.ServerWorld.GetExistingSystem<PhysicsWorldHistory>();
+                Assert.IsFalse(clientPhy.IsInitialized);
+                Assert.AreEqual(0, clientPhy.LastStoreTick);
+            }
+        }
+
+        [Test]
         [UnityPlatform(RuntimePlatform.OSXEditor, RuntimePlatform.WindowsEditor)]
         public void HitWithLagCompensation()
         {
@@ -244,28 +275,19 @@ namespace Unity.NetCode.Physics.Tests
                     typeof(LagCompensationTestCommandCommandSendSystem),
                     typeof(LagCompensationTestCommandCommandReceiveSystem),
                     typeof(LagCompensationTestCommandSystem),
-                    typeof(LagCompensationTestHitScanSystem),
-                    typeof(LagCompensationTestCubeGhostSpawnSystem),
-                    typeof(LagCompensationTestCubeGhostUpdateSystem),
-                    typeof(LagCompensationTestPlayerGhostSpawnSystem),
-                    typeof(LagCompensationTestPlayerGhostUpdateSystem),
-                    typeof(LagCompensationTestGhostSendSystem),
-                    typeof(LagCompensationTestGhostReceiveSystem));
+                    typeof(LagCompensationTestHitScanSystem));
 
                 var playerGameObject = new GameObject();
                 playerGameObject.AddComponent<TestNetCodeAuthoring>().Converter = new LagCompensationTestPlayerConverter();
                 playerGameObject.name = "LagCompensationTestPlayer";
-                var playerGhost = playerGameObject.AddComponent<GhostAuthoringComponent>();
-                playerGhost.DefaultClientInstantiationType = GhostAuthoringComponent.ClientInstantionType.OwnerPredicted;
-                playerGhost.PredictingPlayerNetworkId = "Unity.NetCode.Physics.Tests.LagCompensationTestPlayer.Owner";
+                var ghostAuth = playerGameObject.AddComponent<GhostAuthoringComponent>();
+                ghostAuth.DefaultGhostMode = GhostAuthoringComponent.GhostMode.OwnerPredicted;
                 var cubeGameObject = new GameObject();
                 cubeGameObject.name = "LagCompensationTestCube";
                 var collider = cubeGameObject.AddComponent<BoxCollider>();
                 collider.size = new Vector3(1,1,1);
 
                 Assert.IsTrue(testWorld.CreateGhostCollection(
-                    "/../Packages/com.unity.netcode/Tests/Editor/Physics/Generated/",
-                    "LagCompensationTest",
                     playerGameObject, cubeGameObject));
 
                 testWorld.CreateWorlds(true, 1);

@@ -1,0 +1,143 @@
+#region __GHOST_IMPORTS__
+#endregion
+namespace Generated
+{
+    public struct GhostSnapshotData
+    {
+        public struct Snapshot
+        {
+            #region __GHOST_FIELD__
+            public float __GHOST_FIELD_NAME__X;
+            public float __GHOST_FIELD_NAME__Y;
+            public float __GHOST_FIELD_NAME__Z;
+            public float __GHOST_FIELD_NAME__W;
+            #endregion
+        }
+
+        public void PredictDelta(uint tick, ref GhostSnapshotData baseline1, ref GhostSnapshotData baseline2)
+        {
+            var predictor = new GhostDeltaPredictor(tick, this.tick, baseline1.tick, baseline2.tick);
+            #region __GHOST_PREDICT__
+            #endregion
+        }
+
+        public void SerializeRpc(ref DataStreamWriter writer, in IComponentData data)
+        {
+            #region __RPC_WRITE__
+            writer.WriteFloat(data.__RPC_FIELD_NAME__.value.x);
+            writer.WriteFloat(data.__RPC_FIELD_NAME__.value.y);
+            writer.WriteFloat(data.__RPC_FIELD_NAME__.value.z);
+            writer.WriteFloat(data.__RPC_FIELD_NAME__.value.w);
+            #endregion
+        }
+
+        public void DeserializeRpc(ref DataStreamReader reader, ref IComponentData data)
+        {
+            #region __RPC_READ__
+            data.__RPC_FIELD_NAME__.value.x = reader.ReadFloat();
+            data.__RPC_FIELD_NAME__.value.y = reader.ReadFloat();
+            data.__RPC_FIELD_NAME__.value.z = reader.ReadFloat();
+            data.__RPC_FIELD_NAME__.value.w = reader.ReadFloat();
+            #endregion
+        }
+        public void Serialize(ref Snapshot snapshot, ref Snapshot baseline, ref DataStreamWriter writer, ref NetworkCompressionModel compressionModel, uint changeMask)
+        {
+            #region __GHOST_WRITE__
+            if ((changeMask__GHOST_MASK_BATCH__ & (1 << __GHOST_MASK_INDEX__)) != 0)
+            {
+                writer.WritePackedFloatDelta(snapshot.__GHOST_FIELD_NAME__X, baseline.__GHOST_FIELD_NAME__X, compressionModel);
+                writer.WritePackedFloatDelta(snapshot.__GHOST_FIELD_NAME__Y, baseline.__GHOST_FIELD_NAME__Y, compressionModel);
+                writer.WritePackedFloatDelta(snapshot.__GHOST_FIELD_NAME__Z, baseline.__GHOST_FIELD_NAME__Z, compressionModel);
+                writer.WritePackedFloatDelta(snapshot.__GHOST_FIELD_NAME__W, baseline.__GHOST_FIELD_NAME__W, compressionModel);
+            }
+            #endregion
+        }
+
+        public void Deserialize(ref Snapshot snapshot, ref Snapshot baseline, ref DataStreamReader reader, ref NetworkCompressionModel compressionModel, uint changeMask)
+        {
+            #region __GHOST_READ__
+            if ((changeMask__GHOST_MASK_BATCH__ & (1 << __GHOST_MASK_INDEX__)) != 0)
+            {
+                snapshot.__GHOST_FIELD_NAME__X = reader.ReadPackedFloatDelta(baseline.__GHOST_FIELD_NAME__X, compressionModel);
+                snapshot.__GHOST_FIELD_NAME__Y = reader.ReadPackedFloatDelta(baseline.__GHOST_FIELD_NAME__Y, compressionModel);
+                snapshot.__GHOST_FIELD_NAME__Z = reader.ReadPackedFloatDelta(baseline.__GHOST_FIELD_NAME__Z, compressionModel);
+                snapshot.__GHOST_FIELD_NAME__W = reader.ReadPackedFloatDelta(baseline.__GHOST_FIELD_NAME__W, compressionModel);
+            }
+            else
+            {
+                snapshot.__GHOST_FIELD_NAME__X = baseline.__GHOST_FIELD_NAME__X;
+                snapshot.__GHOST_FIELD_NAME__Y = baseline.__GHOST_FIELD_NAME__Y;
+                snapshot.__GHOST_FIELD_NAME__Z = baseline.__GHOST_FIELD_NAME__Z;
+                snapshot.__GHOST_FIELD_NAME__W = baseline.__GHOST_FIELD_NAME__W;
+            }
+            #endregion
+        }
+        public unsafe void CopyToSnapshot(ref Snapshot snapshot, ref IComponentData component)
+        {
+            if (true)
+            {
+                #region __GHOST_COPY_TO_SNAPSHOT__
+                snapshot.__GHOST_FIELD_NAME__X = component.__GHOST_FIELD_REFERENCE__.value.x;
+                snapshot.__GHOST_FIELD_NAME__Y = component.__GHOST_FIELD_REFERENCE__.value.y;
+                snapshot.__GHOST_FIELD_NAME__Z = component.__GHOST_FIELD_REFERENCE__.value.z;
+                snapshot.__GHOST_FIELD_NAME__W = component.__GHOST_FIELD_REFERENCE__.value.w;
+                #endregion
+            }
+        }
+        public unsafe void CopyFromSnapshot(ref GhostDeserializerState deserializerState, ref Snapshot snapshotBefore, ref Snapshot snapshotAfter, float snapshotInterpolationFactor, ref IComponentData component)
+        {
+            if (true)
+            {
+                #region __GHOST_COPY_FROM_SNAPSHOT__
+                component.__GHOST_FIELD_REFERENCE__ = new quaternion(snapshotBefore.__GHOST_FIELD_NAME__X, snapshotBefore.__GHOST_FIELD_NAME__Y, snapshotBefore.__GHOST_FIELD_NAME__Z, snapshotBefore.__GHOST_FIELD_NAME__W);
+                #endregion
+
+                #region __GHOST_COPY_FROM_SNAPSHOT_INTERPOLATE__
+                component.__GHOST_FIELD_REFERENCE__ = math.slerp(
+                    new quaternion(snapshotBefore.__GHOST_FIELD_NAME__X, snapshotBefore.__GHOST_FIELD_NAME__Y, snapshotBefore.__GHOST_FIELD_NAME__Z, snapshotBefore.__GHOST_FIELD_NAME__W),
+                    new quaternion(snapshotAfter.__GHOST_FIELD_NAME__X, snapshotAfter.__GHOST_FIELD_NAME__Y, snapshotAfter.__GHOST_FIELD_NAME__Z, snapshotAfter.__GHOST_FIELD_NAME__W),
+                    snapshotInterpolationFactor);
+                #endregion
+            }
+        }
+        public unsafe void RestoreFromBackup(ref IComponentData component, in IComponentData backup)
+        {
+            #region __GHOST_RESTORE_FROM_BACKUP__
+            component.__GHOST_FIELD_REFERENCE__ = backup.__GHOST_FIELD_REFERENCE__;
+            #endregion
+        }
+        public void CalculateChangeMask(ref Snapshot snapshot, ref Snapshot baseline, uint changeMask)
+        {
+            #region __GHOST_CALCULATE_CHANGE_MASK_ZERO__
+            changeMask = (snapshot.__GHOST_FIELD_NAME__X != baseline.__GHOST_FIELD_NAME__X ||
+                        snapshot.__GHOST_FIELD_NAME__Y != baseline.__GHOST_FIELD_NAME__Y ||
+                        snapshot.__GHOST_FIELD_NAME__Z != baseline.__GHOST_FIELD_NAME__Z ||
+                        snapshot.__GHOST_FIELD_NAME__W != baseline.__GHOST_FIELD_NAME__W) ? 1u : 0;
+            #endregion
+            #region __GHOST_CALCULATE_CHANGE_MASK__
+            changeMask |= (snapshot.__GHOST_FIELD_NAME__X != baseline.__GHOST_FIELD_NAME__X ||
+                        snapshot.__GHOST_FIELD_NAME__Y != baseline.__GHOST_FIELD_NAME__Y ||
+                        snapshot.__GHOST_FIELD_NAME__Z != baseline.__GHOST_FIELD_NAME__Z ||
+                        snapshot.__GHOST_FIELD_NAME__W != baseline.__GHOST_FIELD_NAME__W) ? (1u<<__GHOST_MASK_INDEX__) : 0;
+            #endregion
+        }
+        #if UNITY_EDITOR || DEVELOPMENT_BUILD
+        private static void ReportPredictionErrors(ref IComponentData component, in IComponentData backup, ref UnsafeList<float> errors, ref int errorIndex)
+        {
+            #region __GHOST_REPORT_PREDICTION_ERROR__
+            errors[errorIndex] = math.max(errors[errorIndex], math.distance(component.__GHOST_FIELD_REFERENCE__.value, backup.__GHOST_FIELD_REFERENCE__.value));
+            ++errorIndex;
+            #endregion
+        }
+        private static int GetPredictionErrorNames(ref FixedString512 names, ref int nameCount)
+        {
+            #region __GHOST_GET_PREDICTION_ERROR_NAME__
+            if (nameCount != 0)
+                names.Append(new FixedString32(","));
+            names.Append(new FixedString64("__GHOST_FIELD_REFERENCE__"));
+            ++nameCount;
+            #endregion
+        }
+        #endif
+    }
+}

@@ -7,23 +7,25 @@ using Unity.Networking.Transport.Utilities;
 namespace Unity.NetCode
 {
     [UpdateInGroup(typeof(GhostSimulationSystemGroup))]
-    [UpdateAfter(typeof(GhostUpdateSystemGroup))]
+    [UpdateAfter(typeof(GhostUpdateSystem))]
     [UpdateInWorld(UpdateInWorld.TargetWorld.Client)]
     public class GhostDespawnSystem : JobComponentSystem
     {
-        public struct DelayedDespawnGhost
+        internal struct DelayedDespawnGhost
         {
-            public Entity ghost;
+            public SpawnedGhost ghost;
             public uint tick;
         }
 
         private BeginSimulationEntityCommandBufferSystem m_Barrier;
         private ClientSimulationSystemGroup m_ClientSimulationSystemGroup;
+        private GhostReceiveSystem m_GhostReceiveSystem;
 
         protected override void OnCreate()
         {
             m_Barrier = World.GetOrCreateSystem<BeginSimulationEntityCommandBufferSystem>();
             m_ClientSimulationSystemGroup = World.GetOrCreateSystem<ClientSimulationSystemGroup>();
+            m_GhostReceiveSystem = World.GetExistingSystem<GhostReceiveSystem>();
             m_interpolatedDespawnQueue = new NativeQueue<DelayedDespawnGhost>(Allocator.Persistent);
             m_predictedDespawnQueue = new NativeQueue<DelayedDespawnGhost>(Allocator.Persistent);
         }
@@ -41,22 +43,32 @@ namespace Unity.NetCode
             public EntityCommandBuffer commandBuffer;
             public NativeQueue<DelayedDespawnGhost> interpolatedDespawnQueue;
             public NativeQueue<DelayedDespawnGhost> predictedDespawnQueue;
+            public NativeHashMap<SpawnedGhost, Entity> spawnedGhostMap;
             public uint interpolatedTick;
             public uint predictedTick;
-            public ComponentType ghostType;
 
             public void Execute()
             {
                 while (interpolatedDespawnQueue.Count > 0 &&
                        !SequenceHelpers.IsNewer(interpolatedDespawnQueue.Peek().tick, interpolatedTick))
                 {
-                    commandBuffer.RemoveComponent(interpolatedDespawnQueue.Dequeue().ghost, ghostType);
+                    var spawnedGhost = interpolatedDespawnQueue.Dequeue();
+                    if (spawnedGhostMap.TryGetValue(spawnedGhost.ghost, out var ent))
+                    {
+                        commandBuffer.DestroyEntity(ent);
+                        spawnedGhostMap.Remove(spawnedGhost.ghost);
+                    }
                 }
 
                 while (predictedDespawnQueue.Count > 0 &&
                        !SequenceHelpers.IsNewer(predictedDespawnQueue.Peek().tick, predictedTick))
                 {
-                    commandBuffer.RemoveComponent(predictedDespawnQueue.Dequeue().ghost, ghostType);
+                    var spawnedGhost = predictedDespawnQueue.Dequeue();
+                    if (spawnedGhostMap.TryGetValue(spawnedGhost.ghost, out var ent))
+                    {
+                        commandBuffer.DestroyEntity(ent);
+                        spawnedGhostMap.Remove(spawnedGhost.ghost);
+                    }
                 }
             }
         }
@@ -68,17 +80,18 @@ namespace Unity.NetCode
                 commandBuffer = m_Barrier.CreateCommandBuffer(),
                 interpolatedDespawnQueue = m_interpolatedDespawnQueue,
                 predictedDespawnQueue = m_predictedDespawnQueue,
+                spawnedGhostMap = m_GhostReceiveSystem.SpawnedGhostEntityMap,
                 interpolatedTick = m_ClientSimulationSystemGroup.InterpolationTick,
                 predictedTick = m_ClientSimulationSystemGroup.ServerTick,
-                ghostType = ComponentType.ReadWrite<GhostComponent>()
             };
-            LastQueueWriter = job.Schedule(JobHandle.CombineDependencies(inputDeps, LastQueueWriter));
+            LastQueueWriter = job.Schedule(JobHandle.CombineDependencies(inputDeps, LastQueueWriter, m_GhostReceiveSystem.LastGhostMapWriter));
             m_Barrier.AddJobHandleForProducer(LastQueueWriter);
+            m_GhostReceiveSystem.LastGhostMapWriter = LastQueueWriter;
             return LastQueueWriter;
         }
 
-        public NativeQueue<DelayedDespawnGhost> InterpolatedDespawnQueue => m_interpolatedDespawnQueue;
-        public NativeQueue<DelayedDespawnGhost> PredictedDespawnQueue => m_predictedDespawnQueue;
+        internal NativeQueue<DelayedDespawnGhost> InterpolatedDespawnQueue => m_interpolatedDespawnQueue;
+        internal NativeQueue<DelayedDespawnGhost> PredictedDespawnQueue => m_predictedDespawnQueue;
         public JobHandle LastQueueWriter;
         private NativeQueue<DelayedDespawnGhost> m_interpolatedDespawnQueue;
         private NativeQueue<DelayedDespawnGhost> m_predictedDespawnQueue;

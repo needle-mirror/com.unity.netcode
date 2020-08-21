@@ -111,7 +111,11 @@ namespace Unity.NetCode.Tests
                     {
                         if (sys.Assembly.FullName.StartsWith("Unity.NetCode,") ||
                             sys.Assembly.FullName.StartsWith("Unity.Entities,") ||
-                            sys.Assembly.FullName.StartsWith("Unity.Transforms,"))
+                            sys.Assembly.FullName.StartsWith("Unity.Transforms,") ||
+                            sys.Assembly.FullName.StartsWith("Unity.NetCode.Generated,") ||
+                            sys.Assembly.FullName.StartsWith("Unity.Entities.Generated,") ||
+                            sys.Assembly.FullName.StartsWith("Unity.Transforms.Generated,") ||
+                            (sys.Assembly.FullName.StartsWith("Unity.NetCode.") && sys.Assembly.FullName.Contains(".Generated,")))
                         {
                             s_NetCodeSystems.Add(sys);
                         }
@@ -207,7 +211,7 @@ namespace Unity.NetCode.Tests
             m_DefaultWorld.GetExistingSystem<TickClientPresentationSystem>().Update();
         }
 
-        public void CreateClientDriver(World world, out NetworkDriver driver, out NetworkPipeline unreliablePipeline, out NetworkPipeline reliablePipeline)
+        public void CreateClientDriver(World world, out NetworkDriver driver, out NetworkPipeline unreliablePipeline, out NetworkPipeline reliablePipeline, out NetworkPipeline unreliableFragmentedPipeline)
         {
             var reliabilityParams = new ReliableUtility.Parameters {WindowSize = 32};
 
@@ -244,18 +248,26 @@ namespace Unity.NetCode.Tests
 
             if (DriverSimulatedDelay + fuzzFactor > 0)
             {
-                unreliablePipeline = driver.CreatePipeline(typeof(SimulatorPipelineStage),
+                unreliablePipeline = driver.CreatePipeline(
+                    typeof(SimulatorPipelineStage),
                     typeof(SimulatorPipelineStageInSend));
-                reliablePipeline = driver.CreatePipeline(typeof(SimulatorPipelineStageInSend),
-                    typeof(ReliableSequencedPipelineStage), typeof(SimulatorPipelineStage));
+                reliablePipeline = driver.CreatePipeline(
+                    typeof(SimulatorPipelineStage),
+                    typeof(ReliableSequencedPipelineStage),
+                    typeof(SimulatorPipelineStageInSend));
+                unreliableFragmentedPipeline = driver.CreatePipeline(
+                    typeof(SimulatorPipelineStage),
+                    typeof(FragmentationPipelineStage),
+                    typeof(SimulatorPipelineStageInSend));
             }
             else
             {
                 unreliablePipeline = driver.CreatePipeline(typeof(NullPipelineStage));
                 reliablePipeline = driver.CreatePipeline(typeof(ReliableSequencedPipelineStage));
+                unreliableFragmentedPipeline = driver.CreatePipeline(typeof(FragmentationPipelineStage));
             }
         }
-        public void CreateServerDriver(World world, out NetworkDriver driver, out NetworkPipeline unreliablePipeline, out NetworkPipeline reliablePipeline)
+        public void CreateServerDriver(World world, out NetworkDriver driver, out NetworkPipeline unreliablePipeline, out NetworkPipeline reliablePipeline, out NetworkPipeline unreliableFragmentedPipeline)
         {
             var reliabilityParams = new ReliableUtility.Parameters {WindowSize = 32};
 
@@ -271,6 +283,7 @@ namespace Unity.NetCode.Tests
 
             unreliablePipeline = driver.CreatePipeline(typeof(NullPipelineStage));
             reliablePipeline = driver.CreatePipeline(typeof(ReliableSequencedPipelineStage));
+            unreliableFragmentedPipeline = driver.CreatePipeline(typeof(FragmentationPipelineStage));
         }
 
         public bool Connect(float dt, int maxSteps)
@@ -329,65 +342,36 @@ namespace Unity.NetCode.Tests
         }
 
 #if UNITY_EDITOR
-        private readonly bool k_ForceRegenerateAllCode = false;
-        public bool CreateGhostCollection(string rootPath, string name, params GameObject[] ghostTypes)
+        public bool CreateGhostCollection(params GameObject[] ghostTypes)
         {
-            bool validateOnly = !k_ForceRegenerateAllCode;
             if (m_GhostCollection != null)
                 return false;
             var collectionGameObject = new GameObject();
             var collection = collectionGameObject.AddComponent<GhostCollectionAuthoringComponent>();
-            collection.NamePrefix = name;
-            collection.SerializerCollectionPath = rootPath + name + "GhostSerializerCollection.cs";
-            collection.DeserializerCollectionPath = rootPath + name + "GhostDeserializerCollection.cs";
 
-            bool success = true;
-
-            var oldNamespace = GhostAuthoringComponentEditor.DefaultNamespace;
             var oldGhostDefaults = GhostAuthoringComponentEditor.GhostDefaultOverrides;
-            var oldGameTypes = GhostSnapshotValue.GameSpecificTypes;
-            GhostAuthoringComponentEditor.DefaultNamespace = "";
             GhostAuthoringComponentEditor.InitDefaultOverrides();
-            GhostSnapshotValue.GameSpecificTypes = new List<GhostSnapshotValue>();
-
             foreach (var ghostObject in ghostTypes)
             {
                 var ghost = ghostObject.GetComponent<GhostAuthoringComponent>();
                 if (ghost == null)
                     ghost = ghostObject.AddComponent<GhostAuthoringComponent>();
 
-                ghost.RootPath = rootPath;
-                ghost.SnapshotDataPath = ghostObject.name + "SnapshotData.cs";
-                ghost.UpdateSystemPath = ghostObject.name + "UpdateSystem.cs";
-                ghost.SerializerPath = ghostObject.name + "Serializer.cs";
                 ghost.Name = ghostObject.name;
-
                 ghost.prefabId = Guid.NewGuid().ToString().Replace("-", "");
-
-                GhostAuthoringComponentEditor.SyncComponentList(ghost);
-                if (GhostAuthoringComponentEditor.GenerateGhost(ghost, validateOnly) != GhostCodeGen.Status.NotModified)
-                    success = false;
 
                 collection.Ghosts.Add(new GhostCollectionAuthoringComponent.Ghost{prefab = ghost, enabled = true});
             }
-            GhostAuthoringComponentEditor.DefaultNamespace = oldNamespace;
             GhostAuthoringComponentEditor.GhostDefaultOverrides = oldGhostDefaults;
-            GhostSnapshotValue.GameSpecificTypes = oldGameTypes;
-            // Trigger code-gen for collection and ghosts, if anything changes that is an error
-            if (GhostCollectionAuthoringComponentEditor.GenerateCollection(collection, validateOnly) != GhostCodeGen.Status.NotModified)
-                success = false;
-            if (!success)
-                return false;
             m_GhostCollection = collectionGameObject;
             m_BlobAssetStore = new BlobAssetStore();
             return true;
         }
-        public void SpawnOnServer(GameObject go)
+        public Entity SpawnOnServer(GameObject go)
         {
             if (m_GhostCollection == null)
                 throw new InvalidOperationException("Cannot spawn ghost on server without setting up the ghost first");
-            GameObjectConversionUtility.ConvertGameObjectHierarchy(go, GameObjectConversionSettings.FromWorld(ServerWorld, m_BlobAssetStore));
-
+            return GameObjectConversionUtility.ConvertGameObjectHierarchy(go, GameObjectConversionSettings.FromWorld(ServerWorld, m_BlobAssetStore));
         }
 #endif
     }

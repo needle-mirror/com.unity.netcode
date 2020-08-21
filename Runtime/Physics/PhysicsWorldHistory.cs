@@ -201,7 +201,7 @@ namespace Unity.NetCode
             //Then validate the write access right
             AtomicSafetyHandle.CheckWriteAndThrow(m_Safety);
 #endif
-            UnsafeUtilityEx.AsRef<RawHistoryBuffer>(m_bufferCopyPtr) = m_buffer;
+            UnsafeUtility.AsRef<RawHistoryBuffer>(m_bufferCopyPtr) = m_buffer;
             var bufferRef = new CollisionHistoryBufferRef
             {
                 m_ptr = m_bufferCopyPtr,
@@ -262,7 +262,7 @@ namespace Unity.NetCode
 
             unsafe
             {
-                collWorld = UnsafeUtilityEx.AsRef<RawHistoryBuffer>(m_ptr).GetWorldAt(index);
+                collWorld = UnsafeUtility.AsRef<RawHistoryBuffer>(m_ptr).GetWorldAt(index);
             }
         }
     }
@@ -293,6 +293,9 @@ namespace Unity.NetCode
         ClientSimulationSystemGroup m_ClientSimulationSystemGroup;
 
         public JobHandle LastPhysicsJobHandle;
+        public uint LastStoreTick => m_lastStoredTick;
+        public bool IsInitialized => m_initialized;
+
         protected override void OnCreate()
         {
             m_ServerSimulationSystemGroup = World.GetExistingSystem<ServerSimulationSystemGroup>();
@@ -306,6 +309,9 @@ namespace Unity.NetCode
 
         protected override JobHandle OnUpdate(JobHandle inputDeps)
         {
+            if (HasSingleton<DisableLagCompensation>())
+                return inputDeps;
+
             var serverTick = (m_ServerSimulationSystemGroup != null) ? m_ServerSimulationSystemGroup.ServerTick : m_ClientSimulationSystemGroup.ServerTick;
 
             if (m_BuildPhysicsWorld == null)
@@ -314,7 +320,7 @@ namespace Unity.NetCode
                 if (m_BuildPhysicsWorld == null)
                     return inputDeps;
             }
-            m_BuildPhysicsWorld.FinalJobHandle.Complete();
+            m_BuildPhysicsWorld.GetOutputDependency().Complete();
 
             if (!m_initialized)
             {

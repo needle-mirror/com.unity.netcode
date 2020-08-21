@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using Unity.Collections;
 using Unity.Entities;
+using Unity.Mathematics;
 
 namespace Unity.NetCode
 {
@@ -10,8 +11,6 @@ namespace Unity.NetCode
     [AlwaysUpdateSystem]
     class GhostStatsCollectionSystem : ComponentSystem
     {
-        internal JobComponentSystem CurrentNameOwner { get; private set; }
-
         private ServerSimulationSystemGroup m_ServerSimulationSystemGroup;
         private ClientSimulationSystemGroup m_ClientSimulationSystemGroup;
         private NetworkTimeSystem m_NetworkTimeSystem;
@@ -19,9 +18,20 @@ namespace Unity.NetCode
         public void SetIndex(int index)
         {
             m_StatIndex = index;
-            CurrentNameOwner = null;
             m_CollectionTick = 0;
             m_PacketQueue.Clear();
+
+            if (!System.String.IsNullOrEmpty(m_LastNameAndErrorArray))
+            {
+                var ghostList = $"{{\"index\":{m_StatIndex}, {m_LastNameAndErrorArray}}}";
+
+                m_PacketQueue.Add(new Packet
+                {
+                    stringData = ghostList
+                });
+                // Make sure the packet size is big enough for the new snapshot stats
+                UpdateMaxPacketSize();
+            }
         }
 
         public void SetSnapshotTick(uint minTick, uint maxTick)
@@ -30,28 +40,41 @@ namespace Unity.NetCode
             m_SnapshotTickMax = maxTick;
         }
 
-        public void SetGhostNames(JobComponentSystem nameOwner, string[] nameList)
+        private string m_LastNameAndErrorArray;
+
+        public void SetGhostNames(string[] nameList, List<string> errorList)
         {
             // Add a pending packet with the new list of names
-            CurrentNameOwner = nameOwner;
-            if (m_StatIndex < 0)
-                return;
-            var ghostList = $"{{\"index\":{m_StatIndex}, \"name\":\"{World.Name}\",\"ghosts\":[\"Destroy\"";
+            m_LastNameAndErrorArray = $"\"name\":\"{World.Name}\",\"ghosts\":[\"Destroy\"";
             for (int i = 0; i < nameList.Length; ++i)
             {
-                ghostList += $",\"{nameList[i]}\"";
+                m_LastNameAndErrorArray += $",\"{nameList[i]}\"";
             }
 
-            ghostList += "]}";
+            m_LastNameAndErrorArray += $"], \"errors\":[\"{errorList[0]}\"";
+            for (int i = 1; i < errorList.Count; ++i)
+            {
+                m_LastNameAndErrorArray += $",\"{errorList[i]}\"";
+            }
+
+            m_LastNameAndErrorArray += "]";
+
+            // Reset the snapshot stats
+            m_SnapshotStats.Dispose();
+            m_SnapshotStats = new NativeArray<uint>((nameList.Length + 1)*3, Allocator.Persistent);
+
+            // Reset the snapshot stats
+            m_PredictionErrors.Dispose();
+            m_PredictionErrors = new NativeArray<float>(errorList.Count, Allocator.Persistent);
+
+            if (m_StatIndex < 0)
+                return;
+            var ghostList = $"{{\"index\":{m_StatIndex}, {m_LastNameAndErrorArray}}}";
 
             m_PacketQueue.Add(new Packet
             {
                 stringData = ghostList
             });
-
-            // Reset the snapshot stats
-            m_SnapshotStats.Dispose();
-            m_SnapshotStats = new NativeArray<uint>((nameList.Length + 1)*3, Allocator.Persistent);
 
             // Make sure the packet size is big enough for the new snapshot stats
             UpdateMaxPacketSize();
@@ -79,6 +102,17 @@ namespace Unity.NetCode
             if (m_CommandTicks.Length == 0 || m_CommandTicks[m_CommandTicks.Length-1] != stats[0])
                 m_CommandTicks.Add(stats[0]);
         }
+        public void AddPredictionErrorStats(NativeArray<float> stats)
+        {
+            if (m_SnapshotTicks.Length >= 255 || m_StatIndex < 0)
+                return;
+            uint currentTick = (m_ClientSimulationSystemGroup!=null) ? m_ClientSimulationSystemGroup.ServerTick : m_ServerSimulationSystemGroup.ServerTick;
+            if (currentTick != m_CollectionTick)
+                BeginCollection(currentTick);
+
+            for (int i = 0; i < stats.Length; ++i)
+                m_PredictionErrors[i] = math.max(stats[i], m_PredictionErrors[i]);
+        }
 
         public void AddDiscardedPackets(uint stats)
         {
@@ -95,11 +129,14 @@ namespace Unity.NetCode
                 m_NetworkTimeSystem = World.GetOrCreateSystem<NetworkTimeSystem>();
             m_SnapshotStats = new NativeArray<uint>(0, Allocator.Persistent);
             m_SnapshotTicks = new NativeList<uint>(16, Allocator.Persistent);
+            m_PredictionErrors = new NativeArray<float>(0, Allocator.Persistent);
             m_TimeSamples = new NativeList<TimeSample>(16, Allocator.Persistent);
             m_CommandTicks = new NativeList<uint>(16, Allocator.Persistent);
 
             m_PacketQueue = new List<Packet>();
             m_PacketPool = new List<byte[]>();
+
+            UpdateMaxPacketSize();
         }
 
         protected override void OnDestroy()
@@ -107,6 +144,7 @@ namespace Unity.NetCode
             m_CommandTicks.Dispose();
             m_SnapshotStats.Dispose();
             m_SnapshotTicks.Dispose();
+            m_PredictionErrors.Dispose();
             m_TimeSamples.Dispose();
         }
         protected override void OnUpdate()
@@ -144,6 +182,10 @@ namespace Unity.NetCode
             for (int i = 0; i < m_SnapshotStats.Length; ++i)
             {
                 m_SnapshotStats[i] = 0;
+            }
+            for (int i = 0; i < m_PredictionErrors.Length; ++i)
+            {
+                m_PredictionErrors[i] = 0;
             }
 
             m_CommandTicks.Clear();
@@ -199,6 +241,12 @@ namespace Unity.NetCode
                     *(uint*) (binaryData + binarySize) = m_SnapshotStats[i];
                     binarySize += 4;
                 }
+                // Write prediction errors
+                for (int i = 0; i < m_PredictionErrors.Length; ++i)
+                {
+                    *(float*) (binaryData + binarySize) = m_PredictionErrors[i];
+                    binarySize += 4;
+                }
                 // Write commands
                 for (int i = 0; i < m_CommandTicks.Length; ++i)
                 {
@@ -235,7 +283,7 @@ namespace Unity.NetCode
         void UpdateMaxPacketSize()
         {
             // Calculate a new max packet size
-            m_MaxPacketSize = 8 + 20 * 255 + 4 * m_SnapshotStats.Length + 4 * 255;
+            m_MaxPacketSize = 8 + 20 * 255 + 4 * m_SnapshotStats.Length + m_PredictionErrors.Length + 4 * 255;
             m_PacketPool.Clear();
 
             // Drop all pending packets not yet in the queue
@@ -258,6 +306,7 @@ namespace Unity.NetCode
         private NativeList<TimeSample> m_TimeSamples;
         private NativeArray<uint> m_SnapshotStats;
         private NativeList<uint> m_SnapshotTicks;
+        private NativeArray<float> m_PredictionErrors;
         private uint m_CommandStats;
         private uint m_DiscardedPackets;
         private NativeList<uint> m_CommandTicks;

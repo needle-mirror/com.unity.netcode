@@ -9,7 +9,11 @@ namespace Unity.NetCode
     public struct GhostComponent : IComponentData
     {
         public int ghostId;
+        public int ghostType;
+        public uint spawnTick;
     }
+    public struct GhostChildEntityComponent : IComponentData
+    {}
     /// <summary>
     /// Component storing the guid of the prefab the ghost was created from. This is used to lookup ghost type in a robust way which works even if two ghosts have the same archetype
     /// </summary>
@@ -65,9 +69,9 @@ namespace Unity.NetCode
     }
 
     /// <summary>
-    /// Component used to request predictive spawn of a ghost. Create an entity with this
-    /// tag and an ISnapshotData of the ghost type you want to create. The ghost type must
-    /// support predictive spawning to use this.
+    /// Component used to request predictive spawn of a ghost. Create an entity from a prefab
+    /// in the ghost collection with this tag added. You need to implement a custom spawn
+    /// classification system in order to use this.
     /// </summary>
     public struct PredictedGhostSpawnRequestComponent : IComponentData
     {

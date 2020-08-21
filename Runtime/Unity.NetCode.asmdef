@@ -7,7 +7,6 @@
         "Unity.Transforms",
         "Unity.Collections",
         "Unity.Scenes",
-        "Unity.Scenes.Hybrid",
         "Unity.Mathematics",
         "Unity.Mathematics.Extensions",
         "Unity.Networking.Transport",

@@ -18,8 +18,8 @@ namespace Unity.NetCode
 
     public interface INetworkStreamDriverConstructor
     {
-        void CreateClientDriver(World world, out NetworkDriver driver, out NetworkPipeline unreliablePipeline, out NetworkPipeline reliablePipeline);
-        void CreateServerDriver(World world, out NetworkDriver driver, out NetworkPipeline unreliablePipeline, out NetworkPipeline reliablePipeline);
+        void CreateClientDriver(World world, out NetworkDriver driver, out NetworkPipeline unreliablePipeline, out NetworkPipeline reliablePipeline, out NetworkPipeline unreliableFragmentedPipeline);
+        void CreateServerDriver(World world, out NetworkDriver driver, out NetworkPipeline unreliablePipeline, out NetworkPipeline reliablePipeline, out NetworkPipeline unreliableFragmentedPipeline);
     }
 
     [UpdateInGroup(typeof(NetworkReceiveSystemGroup))]
@@ -34,25 +34,29 @@ namespace Unity.NetCode
 
         public NetworkPipeline UnreliablePipeline => m_UnreliablePipeline;
         public NetworkPipeline ReliablePipeline => m_ReliablePipeline;
+        public NetworkPipeline UnreliableFragmentedPipeline => m_UnreliableFragmentedPipeline;
 
         private NetworkDriver m_Driver;
         private NetworkDriver.Concurrent m_ConcurrentDriver;
         private NetworkPipeline m_UnreliablePipeline;
         private NetworkPipeline m_ReliablePipeline;
+        private NetworkPipeline m_UnreliableFragmentedPipeline;
         private bool m_DriverListening;
         private NativeArray<int> m_NumNetworkIds;
         private NativeQueue<int> m_FreeNetworkIds;
         private BeginSimulationEntityCommandBufferSystem m_Barrier;
-        private RpcQueue<RpcSetNetworkId> m_RpcQueue;
+        private RpcQueue<RpcSetNetworkId, RpcSetNetworkId> m_RpcQueue;
+        private GhostCollectionSystem m_GhostCollectionSystem;
         private EntityQuery m_NetworkStreamConnectionQuery;
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
         private NativeArray<uint> m_NetStats;
         private GhostStatsCollectionSystem m_GhostStatsCollectionSystem;
 #endif
 
-        public void CreateClientDriver(World world, out NetworkDriver driver, out NetworkPipeline unreliablePipeline, out NetworkPipeline reliablePipeline)
+        public void CreateClientDriver(World world, out NetworkDriver driver, out NetworkPipeline unreliablePipeline, out NetworkPipeline reliablePipeline, out NetworkPipeline unreliableFragmentedPipeline)
         {
             var reliabilityParams = new ReliableUtility.Parameters {WindowSize = 32};
+            var fragmentationParams = new FragmentationUtility.Parameters {PayloadCapacity = 16 * 1024};
 
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
             var netParams = new NetworkConfigParameter
@@ -64,7 +68,7 @@ namespace Unity.NetCode
             };
 
             var simulatorParams = ClientSimulatorParameters;
-            driver = NetworkDriver.Create(netParams, simulatorParams, reliabilityParams);
+            driver = NetworkDriver.Create(netParams, simulatorParams, reliabilityParams, fragmentationParams);
 #else
             driver = NetworkDriver.Create(reliabilityParams);
 #endif
@@ -72,22 +76,31 @@ namespace Unity.NetCode
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
             if (simulatorParams.PacketDelayMs > 0 || simulatorParams.PacketDropInterval > 0)
             {
-                unreliablePipeline = driver.CreatePipeline(typeof(SimulatorPipelineStage),
+                unreliablePipeline = driver.CreatePipeline(
+                    typeof(SimulatorPipelineStage),
                     typeof(SimulatorPipelineStageInSend));
-                reliablePipeline = driver.CreatePipeline(typeof(SimulatorPipelineStageInSend),
-                    typeof(ReliableSequencedPipelineStage), typeof(SimulatorPipelineStage));
+                reliablePipeline = driver.CreatePipeline(
+                    typeof(SimulatorPipelineStage),
+                    typeof(ReliableSequencedPipelineStage),
+                    typeof(SimulatorPipelineStageInSend));
+                unreliableFragmentedPipeline = driver.CreatePipeline(
+                    typeof(SimulatorPipelineStage),
+                    typeof(FragmentationPipelineStage),
+                    typeof(SimulatorPipelineStageInSend));
             }
             else
 #endif
             {
                 unreliablePipeline = driver.CreatePipeline(typeof(NullPipelineStage));
                 reliablePipeline = driver.CreatePipeline(typeof(ReliableSequencedPipelineStage));
+                unreliableFragmentedPipeline = driver.CreatePipeline(typeof(FragmentationPipelineStage));
             }
         }
 
-        public void CreateServerDriver(World world, out NetworkDriver driver, out NetworkPipeline unreliablePipeline, out NetworkPipeline reliablePipeline)
+        public void CreateServerDriver(World world, out NetworkDriver driver, out NetworkPipeline unreliablePipeline, out NetworkPipeline reliablePipeline, out NetworkPipeline unreliableFragmentedPipeline)
         {
             var reliabilityParams = new ReliableUtility.Parameters {WindowSize = 32};
+            var fragmentationParams = new FragmentationUtility.Parameters {PayloadCapacity = 16 * 1024};
 
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
             var netParams = new NetworkConfigParameter
@@ -97,13 +110,14 @@ namespace Unity.NetCode
                 disconnectTimeoutMS = NetworkParameterConstants.DisconnectTimeoutMS,
                 maxFrameTimeMS = 100
             };
-            driver = NetworkDriver.Create(netParams, reliabilityParams);
+            driver = NetworkDriver.Create(netParams, reliabilityParams, fragmentationParams);
 #else
             driver = NetworkDriver.Create(reliabilityParams);
 #endif
 
             unreliablePipeline = driver.CreatePipeline(typeof(NullPipelineStage));
             reliablePipeline = driver.CreatePipeline(typeof(ReliableSequencedPipelineStage));
+            unreliableFragmentedPipeline = driver.CreatePipeline(typeof(FragmentationPipelineStage));
         }
 
         public bool Listen(NetworkEndPoint endpoint)
@@ -169,18 +183,18 @@ namespace Unity.NetCode
         protected override void OnCreate()
         {
             if (World.GetExistingSystem<ServerSimulationSystemGroup>() != null)
-                DriverConstructor.CreateServerDriver(World, out m_Driver, out m_UnreliablePipeline, out m_ReliablePipeline);
+                DriverConstructor.CreateServerDriver(World, out m_Driver, out m_UnreliablePipeline, out m_ReliablePipeline, out m_UnreliableFragmentedPipeline);
             else
-                DriverConstructor.CreateClientDriver(World, out m_Driver, out m_UnreliablePipeline, out m_ReliablePipeline);
-
+                DriverConstructor.CreateClientDriver(World, out m_Driver, out m_UnreliablePipeline, out m_ReliablePipeline, out m_UnreliableFragmentedPipeline);
 
             m_ConcurrentDriver = m_Driver.ToConcurrent();
             m_DriverListening = false;
             m_Barrier = World.GetOrCreateSystem<BeginSimulationEntityCommandBufferSystem>();
             m_NumNetworkIds = new NativeArray<int>(1, Allocator.Persistent);
             m_FreeNetworkIds = new NativeQueue<int>(Allocator.Persistent);
-            m_RpcQueue = World.GetOrCreateSystem<RpcSystem>().GetRpcQueue<RpcSetNetworkId>();
+            m_RpcQueue = World.GetOrCreateSystem<RpcSystem>().GetRpcQueue<RpcSetNetworkId, RpcSetNetworkId>();
             m_NetworkStreamConnectionQuery = EntityManager.CreateEntityQuery(typeof(NetworkStreamConnection));
+            m_GhostCollectionSystem = World.GetExistingSystem<GhostCollectionSystem>();
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
             m_NetStats = new NativeArray<uint>(1, Allocator.Persistent);
             m_GhostStatsCollectionSystem = World.GetOrCreateSystem<GhostStatsCollectionSystem>();
@@ -219,7 +233,7 @@ namespace Unity.NetCode
 
             public NativeArray<int> numNetworkId;
             public NativeQueue<int> freeNetworkIds;
-            public RpcQueue<RpcSetNetworkId> rpcQueue;
+            public RpcQueue<RpcSetNetworkId, RpcSetNetworkId> rpcQueue;
             public ClientServerTickRate tickRate;
             public NetworkProtocolVersion protocolVersion;
 
@@ -281,18 +295,20 @@ namespace Unity.NetCode
             m_GhostStatsCollectionSystem.AddDiscardedPackets(m_NetStats[0]);
             m_NetStats[0] = 0;
 #endif
-            var commandBuffer = m_Barrier.CreateCommandBuffer().ToConcurrent();
+            var commandBuffer = m_Barrier.CreateCommandBuffer().AsParallelWriter();
 
             if (!HasSingleton<NetworkProtocolVersion>())
             {
                 var entity = EntityManager.CreateEntity();
                 var rpcVersion = World.GetExistingSystem<RpcSystem>().CalculateVersionHash();
+                var componentsVersion = m_GhostCollectionSystem.CalculateComponentCollectionHash();
                 var gameVersion = HasSingleton<GameProtocolVersion>() ? GetSingleton<GameProtocolVersion>().Version : 0;
                 EntityManager.AddComponentData(entity, new NetworkProtocolVersion
                 {
                     NetCodeVersion = NetworkProtocolVersion.k_NetCodeVersion,
                     GameVersion = gameVersion,
-                    RpcCollectionVersion = rpcVersion
+                    RpcCollectionVersion = rpcVersion,
+                    ComponentCollectionVersion = componentsVersion
                 });
             }
             var concurrentFreeQueue = m_FreeNetworkIds.AsParallelWriter();
@@ -392,7 +408,7 @@ namespace Unity.NetCode
                             rpcBuffer[entity].Clear();
                             cmdBuffer[entity].Clear();
                             connection.Value = default(NetworkConnection);
-                            if (networkId.Exists(entity))
+                            if (networkId.HasComponent(entity))
                                 freeNetworkIds.Enqueue(networkId[entity].Value);
                             return;
                         case NetworkEvent.Type.Data:

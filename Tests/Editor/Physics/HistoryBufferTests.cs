@@ -175,7 +175,7 @@ namespace Unity.NetCode.Physics.Tests
         [BurstCompile]
         struct CloneCollisionWorldJob : IJob
         {
-            public CollisionHistoryBuffer historyBuffer;
+            public CollisionHistoryBufferRef historyBuffer;
             public void Execute()
             {
                 historyBuffer.GetCollisionWorldFromTick(0,0, out var world);
@@ -195,7 +195,7 @@ namespace Unity.NetCode.Physics.Tests
                     }
                     Assert.DoesNotThrow(() =>
                     {
-                        var handle = new CloneCollisionWorldJob { historyBuffer = historyBuffer,}.Schedule();
+                        var handle = new CloneCollisionWorldJob { historyBuffer = historyBuffer.AsCollisionHistoryBufferRef(),}.Schedule();
                         handle.Complete();
                     });
                 }

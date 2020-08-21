@@ -8,6 +8,7 @@ namespace Unity.NetCode
         public int NetCodeVersion;
         public int GameVersion;
         public ulong RpcCollectionVersion;
+        public ulong ComponentCollectionVersion;
     }
 
     public struct GameProtocolVersion : IComponentData

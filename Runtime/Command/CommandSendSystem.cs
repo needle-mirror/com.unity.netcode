@@ -19,9 +19,9 @@ namespace Unity.NetCode
         {
             public NetworkDriver.Concurrent driver;
             public NetworkPipeline unreliablePipeline;
-            public ArchetypeChunkComponentType<NetworkStreamConnection> streamConnectionType;
-            public ArchetypeChunkComponentType<NetworkSnapshotAckComponent> snapshotAckType;
-            public ArchetypeChunkComponentType<CommandTargetComponent> commmandTargetType;
+            public ComponentTypeHandle<NetworkStreamConnection> streamConnectionType;
+            public ComponentTypeHandle<NetworkSnapshotAckComponent> snapshotAckType;
+            public ComponentTypeHandle<CommandTargetComponent> commmandTargetType;
             [ReadOnly] public BufferFromEntity<TCommandData> inputFromEntity;
             public NetworkCompressionModel compressionModel;
             public uint localTime;
@@ -37,7 +37,7 @@ namespace Unity.NetCode
             {
                 if (isNullCommandData && state.targetEntity != Entity.Null)
                     return;
-                if (!isNullCommandData && !inputFromEntity.Exists(state.targetEntity))
+                if (!isNullCommandData && !inputFromEntity.HasComponent(state.targetEntity))
                     return;
                 DataStreamWriter writer = driver.BeginSend(unreliablePipeline, connection.Value);
                 if (!writer.IsCreated)
@@ -147,9 +147,9 @@ namespace Unity.NetCode
             {
                 driver = m_ReceiveSystem.ConcurrentDriver,
                 unreliablePipeline = m_ReceiveSystem.UnreliablePipeline,
-                streamConnectionType = GetArchetypeChunkComponentType<NetworkStreamConnection>(),
-                snapshotAckType = GetArchetypeChunkComponentType<NetworkSnapshotAckComponent>(),
-                commmandTargetType = GetArchetypeChunkComponentType<CommandTargetComponent>(),
+                streamConnectionType = GetComponentTypeHandle<NetworkStreamConnection>(),
+                snapshotAckType = GetComponentTypeHandle<NetworkSnapshotAckComponent>(),
+                commmandTargetType = GetComponentTypeHandle<CommandTargetComponent>(),
                 inputFromEntity = GetBufferFromEntity<TCommandData>(true),
                 compressionModel = m_CompressionModel,
                 localTime = NetworkTimeSystem.TimestampMS,

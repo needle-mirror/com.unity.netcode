@@ -8,49 +8,6 @@ namespace Unity.NetCode
 {
     public class GhostAuthoringComponent : MonoBehaviour
     {
-        [Serializable]
-        public struct GhostComponentField
-        {
-            public string name;
-            public int quantization;
-            public bool interpolate;
-            internal FieldInfo field;
-
-            public FieldInfo Field
-            {
-                get { return field; }
-                set { field = value; }
-            }
-        }
-
-        [Serializable]
-        public struct GhostComponent
-        {
-            public string name;
-            public bool interpolatedClient;
-            public bool predictedClient;
-            public bool server;
-            public ClientSendType sendDataTo;
-            public GhostComponentField[] fields;
-            public bool manualFieldList;
-            public int entityIndex;
-            internal string namespaceName;
-
-            public string NamespaceName
-            {
-                get { return namespaceName; }
-                set { namespaceName = value; }
-            }
-
-            internal string shortName;
-
-            public string ShortName
-            {
-                get { return shortName; }
-                set { shortName = value; }
-            }
-        }
-
 #if UNITY_EDITOR
         void OnValidate()
         {
@@ -91,34 +48,36 @@ namespace Unity.NetCode
         }
 #endif
 
-        public enum ClientInstantionType
+        public enum GhostModeMask
+        {
+            Interpolated = 1,
+            Predicted = 2,
+            All = 3
+        }
+        public enum GhostMode
         {
             Interpolated,
             Predicted,
             OwnerPredicted
         }
-        public enum ClientSendType
+        public enum GhostOptimizationMode
         {
-            All,
-            Interpolated,
-            Predicted
+            Dynamic,
+            Static
         }
 
-        public ClientInstantionType DefaultClientInstantiationType = ClientInstantionType.Interpolated;
-        public string RootPath = "";
-        public string SnapshotDataPath = "";
-        public string UpdateSystemPath = "";
-        public string SerializerPath = "";
-        public string Importance = "1";
-        public string PredictingPlayerNetworkId = "";
-        public GhostComponent[] Components = new GhostComponent[0];
+        internal bool ForceServerConversion;
+        public GhostMode DefaultGhostMode = GhostMode.Interpolated;
+        public GhostModeMask SupportedGhostModes = GhostModeMask.All;
+        public GhostOptimizationMode OptimizationMode = GhostOptimizationMode.Dynamic;
+        public int Importance = 1;
         public string prefabId = "";
         public string Name;
-        
+
         [HideInInspector] public bool doNotStrip = false;
     }
 
-    [ConverterVersion("timj", 2)]
+    [ConverterVersion("timj", 3)]
     [UpdateInGroup(typeof(GameObjectAfterConversionGroup))]
     public class GhostAuthoringConversion : GameObjectConversionSystem
     {
@@ -146,30 +105,16 @@ namespace Unity.NetCode
 
         protected override void OnUpdate()
         {
-            var typeLookup = new Dictionary<string, Type>();
-            var allTypes = TypeManager.GetAllTypes();
-            foreach (var compType in allTypes)
-            {
-                if (compType.Category == TypeManager.TypeCategory.BufferData &&
-                    compType.Type != null && compType.Type.Name.EndsWith("SnapshotData"))
-                {
-                    if (typeLookup.ContainsKey(compType.Type.Name))
-                        throw new InvalidOperationException(
-                            $"Found multiple snapshot data types named {compType.Type.Name}, namespaces are not fully supported for snapshot data");
-                    typeLookup.Add(compType.Type.Name, compType.Type);
-                }
-            }
-
             Entities.ForEach((GhostAuthoringComponent ghostAuthoring) =>
             {
                 if (String.IsNullOrEmpty(ghostAuthoring.prefabId))
-                    throw new InvalidOperationException($"The ghost {ghostAuthoring.gameObject.name} is not a valid prefab, all ghosts must be the top-level GameObject in a prefab. Ghost instances in scenes must be instances of such prefabs.");
+                    throw new InvalidOperationException($"The ghost {ghostAuthoring.gameObject.name} is not a valid prefab, all ghosts must be the top-level GameObject in a prefab. Ghost instances in scenes must be instances of such prefabs and changes should be made on the prefab asset, not the prefab instance");
                 DeclareLinkedEntityGroup(ghostAuthoring.gameObject);
                 if (ghostAuthoring.doNotStrip)
                     return;
                 var entity = GetPrimaryEntity(ghostAuthoring);
 
-                var target = GetConversionTarget(this);
+                var target = ghostAuthoring.ForceServerConversion ? NetcodeConversionTarget.Server : GetConversionTarget(this);
 
                 // FIXME: A2 hack
                 if (target == NetcodeConversionTarget.Undefined)
@@ -188,7 +133,9 @@ namespace Unity.NetCode
                 ghostType.guid2 = Convert.ToUInt32(ghostAuthoring.prefabId.Substring(16, 8), 16);
                 ghostType.guid3 = Convert.ToUInt32(ghostAuthoring.prefabId.Substring(24, 8), 16);
                 DstEntityManager.AddComponentData(entity, ghostType);
-                var toRemove = new HashSet<string>();
+
+                // FIXME: maybe stripping should be individual systems running before this to make sure it can be changed in a way that always triggers a reconvert - and to avoid reflection
+                var components = DstEntityManager.GetComponentTypes(entity);
                 if (target == NetcodeConversionTarget.Server)
                 {
                     // Make sure different ghost types are in different chunks
@@ -196,55 +143,67 @@ namespace Unity.NetCode
                     DstEntityManager.AddComponentData(entity, new GhostComponent());
                     DstEntityManager.AddComponentData(entity, new PredictedGhostComponent());
                     // Create server version of prefab
-                    foreach (var comp in ghostAuthoring.Components)
+                    foreach (var comp in components)
                     {
-                        if (!comp.server && comp.entityIndex == 0)
-                            toRemove.Add(comp.name);
+                        var attr = comp.GetManagedType().GetCustomAttribute<GhostComponentAttribute>();
+                        if (attr != null && (attr.PrefabType & GhostPrefabType.Server) == 0)
+                            DstEntityManager.RemoveComponent(entity, comp);
+                    }
+                    if (ghostAuthoring.SupportedGhostModes == GhostAuthoringComponent.GhostModeMask.Interpolated)
+                        DstEntityManager.AddComponentData(entity, default(GhostAlwaysInterpolatedComponent));
+                    else if (ghostAuthoring.SupportedGhostModes == GhostAuthoringComponent.GhostModeMask.Predicted)
+                        DstEntityManager.AddComponentData(entity, default(GhostAlwaysPredictedComponent));
+                    else if (ghostAuthoring.DefaultGhostMode == GhostAuthoringComponent.GhostMode.OwnerPredicted)
+                    {
+                        if (!DstEntityManager.HasComponent<GhostOwnerComponent>(entity))
+                            throw new InvalidOperationException("OwnerPrediction mode can only be used on prefabs which have a GhostOwnerComponent");
+                        DstEntityManager.AddComponentData(entity, default(GhostOwnerPredictedComponent));
+                    }
+                    else if (ghostAuthoring.DefaultGhostMode == GhostAuthoringComponent.GhostMode.Predicted)
+                    {
+                        DstEntityManager.AddComponentData(entity, default(GhostDefaultPredictedComponent));
                     }
                 }
                 else if (target == NetcodeConversionTarget.Client)
                 {
-                    var name = ghostAuthoring.Name;
-                    var snapshotTypeName = $"{name}SnapshotData";
-                    if (!typeLookup.TryGetValue(snapshotTypeName, out var snapshotType))
-                    {
-                        throw new InvalidOperationException(
-                            $"Could not find snapshot data {snapshotTypeName}, did you generate the ghost code?");
-                    }
-
-                    DstEntityManager.AddComponent(entity, snapshotType);
+                    DstEntityManager.AddComponentData(entity, new SnapshotData());
+                    DstEntityManager.AddBuffer<SnapshotDataBuffer>(entity);
 
                     DstEntityManager.AddComponentData(entity, new GhostComponent());
-                    if (ghostAuthoring.DefaultClientInstantiationType ==
-                        GhostAuthoringComponent.ClientInstantionType.Interpolated)
+                    if (ghostAuthoring.DefaultGhostMode == GhostAuthoringComponent.GhostMode.Interpolated)
                     {
-                        foreach (var comp in ghostAuthoring.Components)
+                        foreach (var comp in components)
                         {
-                            if (!comp.interpolatedClient && comp.entityIndex == 0)
-                                toRemove.Add(comp.name);
+                            var attr = comp.GetManagedType().GetCustomAttribute<GhostComponentAttribute>();
+                            if (attr != null && (attr.PrefabType & GhostPrefabType.InterpolatedClient) == 0)
+                                DstEntityManager.RemoveComponent(entity, comp);
+                        }
+                    }
+                    else if (ghostAuthoring.DefaultGhostMode == GhostAuthoringComponent.GhostMode.Predicted)
+                    {
+                        DstEntityManager.AddComponentData(entity, new PredictedGhostComponent());
+                        foreach (var comp in components)
+                        {
+                            var attr = comp.GetManagedType().GetCustomAttribute<GhostComponentAttribute>();
+                            if (attr != null && (attr.PrefabType & GhostPrefabType.PredictedClient) == 0)
+                                DstEntityManager.RemoveComponent(entity, comp);
                         }
                     }
                     else
                     {
-                        DstEntityManager.AddComponentData(entity, new PredictedGhostComponent());
-                        foreach (var comp in ghostAuthoring.Components)
-                        {
-                            if (!comp.predictedClient && comp.entityIndex == 0)
-                                toRemove.Add(comp.name);
-                        }
-
+                        throw new InvalidOperationException("Cannot convert a owner predicted ghost as a scene instance");
                     }
                 }
-
-                // Add list of things to strip based on target world
-                // Strip the things in GhostAuthoringConversion
-                var components = DstEntityManager.GetComponentTypes(entity);
-                foreach (var comp in components)
+                if (ghostAuthoring.OptimizationMode == GhostAuthoringComponent.GhostOptimizationMode.Static)
+                    DstEntityManager.AddComponentData(entity, default(GhostSimpleDeltaCompression));
+            });
+            Entities.WithNone<GhostAuthoringComponent>().ForEach((Transform trans) =>
+            {
+                if (trans.parent != null && trans.root.gameObject.GetComponent<GhostAuthoringComponent>() != null)
                 {
-                    if (toRemove.Contains(comp.GetManagedType().FullName))
-                        DstEntityManager.RemoveComponent(entity, comp);
+                    var entity = GetPrimaryEntity(trans);
+                    DstEntityManager.AddComponentData(entity, default(GhostChildEntityComponent));
                 }
-
             });
         }
     }
