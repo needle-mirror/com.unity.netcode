@@ -283,17 +283,17 @@ namespace Unity.NetCode.Physics.Tests
                 testWorld.NetCodeAssemblies.Add("Unity.Physics,");
                 testWorld.Bootstrap(true);
 
+                testWorld.CreateWorlds(true, 0);
+
+                Assert.IsTrue(testWorld.CreateGhostCollection());
                 for (int i = 0; i < 10; ++i)
                 {
                     var cubeGameObject = new GameObject();
                     cubeGameObject.name = "SimpleCube";
-                    var convert = cubeGameObject.AddComponent<ConvertToClientServerEntity>();
-                    convert.ConversionTarget = ConvertToClientServerEntity.ConversionTargetType.ClientAndServer;
                     var collider = cubeGameObject.AddComponent<UnityEngine.BoxCollider>();
                     collider.size = new Vector3(1,1,1);
+                    testWorld.SpawnOnServer(cubeGameObject);
                 }
-
-                testWorld.CreateWorlds(true, 0);
 
                 for (int i = 0; i < 200; ++i)
                 {

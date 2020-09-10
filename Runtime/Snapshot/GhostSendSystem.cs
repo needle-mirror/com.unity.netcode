@@ -369,7 +369,7 @@ namespace Unity.NetCode
 
             [ReadOnly] public ComponentDataFromEntity<GhostTypeComponent> ghostTypeFromEntity;
             [ReadOnly] public BufferFromEntity<GhostPrefabBuffer> ghostPrefabBufferFromEntity;
-            public Entity serverPrefabEntity;
+            public Entity prefabEntity;
             public uint serverTick;
 
 #if ENABLE_UNITY_COLLECTIONS_CHECKS
@@ -377,7 +377,7 @@ namespace Unity.NetCode
 #endif
             public unsafe void Execute()
             {
-                var prefabList = ghostPrefabBufferFromEntity[serverPrefabEntity];
+                var prefabList = ghostPrefabBufferFromEntity[prefabEntity];
                 for (int chunk = 0; chunk < spawnChunks.Length; ++chunk)
                 {
                     var entities = spawnChunks[chunk].GetNativeArray(entityType);
@@ -493,7 +493,6 @@ namespace Unity.NetCode
             [ReadOnly] public EntityTypeHandle entityType;
             [ReadOnly] public ComponentTypeHandle<GhostComponent> ghostComponentType;
             [ReadOnly] public ComponentTypeHandle<GhostSystemStateComponent> ghostSystemStateType;
-            [ReadOnly] public ComponentTypeHandle<GhostSimpleDeltaCompression> ghostSimpleDeltaCompressionType;
             [ReadOnly] public BufferTypeHandle<GhostGroup> ghostGroupType;
             [ReadOnly] public ComponentTypeHandle<GhostChildEntityComponent> ghostChildEntityComponentType;
 
@@ -661,7 +660,7 @@ namespace Unity.NetCode
                     availableBaselines.Clear();
 
                     // Ghosts tagged with "optimize for static" set this to 1 to disable delta prediction and enable not sending data for unchanged chunks
-                    int targetBaselines = serialChunks[pc].chunk.Has(ghostSimpleDeltaCompressionType) ? 1 : 3;
+                    int targetBaselines = GhostTypeCollection[ghostType].StaticOptimization ? 1 : 3;
 
                     int snapshotSize = GhostTypeCollection[ghostType].SnapshotSize;
                     int connectionId = networkIdFromEntity[connectionEntity].Value;
@@ -1676,6 +1675,7 @@ namespace Unity.NetCode
             var freeGhostIds = m_FreeGhostIds.AsParallelWriter();
             var prespawnDespawn = m_DestroyedPrespawnsQueue.AsParallelWriter();
             Entities
+                .WithReadOnly(ackedByAll)
                 .WithNone<GhostComponent>()
                 .ForEach((Entity entity, int entityInQueryIndex, ref GhostSystemStateComponent ghost) => {
                 uint ackedByAllTick = ackedByAll[0];
@@ -1749,7 +1749,6 @@ namespace Unity.NetCode
                 // Get component types for serialization
                 var entityType = GetEntityTypeHandle();
                 var ghostSystemStateType = GetComponentTypeHandle<GhostSystemStateComponent>(true);
-                var ghostSimpleDeltaCompressionType = GetComponentTypeHandle<GhostSimpleDeltaCompression>(true);
                 var ghostComponentType = GetComponentTypeHandle<GhostComponent>();
                 var ghostChildEntityComponentType = GetComponentTypeHandle<GhostChildEntityComponent>(true);
                 var ghostGroupType = GetBufferTypeHandle<GhostGroup>(true);
@@ -1772,7 +1771,7 @@ namespace Unity.NetCode
                     commandBuffer = commandBuffer,
                     ghostTypeFromEntity = GetComponentDataFromEntity<GhostTypeComponent>(true),
                     ghostPrefabBufferFromEntity = GetBufferFromEntity<GhostPrefabBuffer>(true),
-                    serverPrefabEntity = GetSingleton<GhostPrefabCollectionComponent>().serverPrefabs,
+                    prefabEntity = GetSingletonEntity<GhostPrefabCollectionComponent>(),
                     serverTick = currentTick,
 #if ENABLE_UNITY_COLLECTIONS_CHECKS
                     ghostOwnerComponentType = ghostOwnerComponentType
@@ -1810,7 +1809,6 @@ namespace Unity.NetCode
                     relevantGhostForConnection = GhostRelevancySet,
                     relevancyMode = GhostRelevancyMode,
                     relevantGhostCountForConnection = connectionRelevantCount,
-                    ghostSimpleDeltaCompressionType = ghostSimpleDeltaCompressionType,
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
                     netStatsBuffer = m_NetStats,
                     netStatSize = netStatSize,

@@ -279,7 +279,7 @@ namespace Unity.NetCode
     /// When passing the collision history to a job you must set LastPhysicsJobHandle to
     /// the handle for that job.
     /// </summary>
-    public class PhysicsWorldHistory : JobComponentSystem
+    public class PhysicsWorldHistory : SystemBase
     {
         private bool m_initialized;
         private uint m_lastStoredTick;
@@ -307,10 +307,10 @@ namespace Unity.NetCode
             m_CollisionHistory.Dispose();
         }
 
-        protected override JobHandle OnUpdate(JobHandle inputDeps)
+        protected override void OnUpdate()
         {
             if (HasSingleton<DisableLagCompensation>())
-                return inputDeps;
+                return;
 
             var serverTick = (m_ServerSimulationSystemGroup != null) ? m_ServerSimulationSystemGroup.ServerTick : m_ClientSimulationSystemGroup.ServerTick;
 
@@ -318,7 +318,7 @@ namespace Unity.NetCode
             {
                 m_BuildPhysicsWorld = World.GetExistingSystem<BuildPhysicsWorld>();
                 if (m_BuildPhysicsWorld == null)
-                    return inputDeps;
+                    return;
             }
             m_BuildPhysicsWorld.GetOutputDependency().Complete();
 
@@ -335,7 +335,7 @@ namespace Unity.NetCode
             else
             {
                 if (serverTick <= m_lastStoredTick)
-                    return inputDeps;
+                    return;
 
                 // Store world for each tick that has not been stored yet (framerate might be lower than tickrate)
                 var startStoreTick = (m_lastStoredTick != 0) ? (m_lastStoredTick + 1) : serverTick;
@@ -350,8 +350,6 @@ namespace Unity.NetCode
                 m_lastStoredTick = serverTick;
             }
             m_CollisionHistory.m_lastStoredTick = m_lastStoredTick;
-
-            return inputDeps;
         }
     }
 }

@@ -16,12 +16,14 @@ namespace Unity.NetCode.Editor
         }
 
         public GhostCodeGen.Batch Generate(string outputFolder, string assemblyGeneratedName, string assemblyName,
-            bool isRuntimeAssembly, IEnumerable<Mono.Cecil.TypeDefinition> validTypes, IEnumerable<Mono.Cecil.TypeDefinition> rpcTypes)
+            bool isRuntimeAssembly, IEnumerable<Mono.Cecil.TypeDefinition> validTypes, IEnumerable<Mono.Cecil.TypeDefinition> commandTypes,
+            Dictionary<string, GhostCodeGen> codeGenCache)
         {
             var context = new Context(assemblyName,
                 CodeGenNamespaceUtils.GenerateNamespaceFromAssemblyName(assemblyGeneratedName),
                 isRuntimeAssembly,
-                outputFolder);
+                outputFolder,
+                codeGenCache);
             // generate ghost types
             foreach (var type in validTypes)
             {
@@ -32,10 +34,10 @@ namespace Unity.NetCode.Editor
             GenerateRegistrationSystem(context);
 
             //Generate Rpcs
-            foreach (var type in rpcTypes)
+            foreach (var type in commandTypes)
             {
                 context.ResetState();
-                GenerateRpc(context, type);
+                GenerateCommand(context, type);
             }
 
 
@@ -48,8 +50,14 @@ namespace Unity.NetCode.Editor
         {
             //Generate the ghost registration
 
-            var registrationSystemCodeGen = new GhostCodeGen(
-                "Packages/com.unity.netcode/Editor/CodeGenTemplates/GhostComponentSerializerRegistrationSystem.cs");
+            var regTemplate = "Packages/com.unity.netcode/Editor/CodeGenTemplates/GhostComponentSerializerRegistrationSystem.cs";
+            if (!context.typeCodeGenCache.TryGetValue(regTemplate, out var registrationSystemCodeGen))
+            {
+                registrationSystemCodeGen = new GhostCodeGen(regTemplate);
+
+                context.typeCodeGenCache.Add(regTemplate, registrationSystemCodeGen);
+            }
+            registrationSystemCodeGen = registrationSystemCodeGen.Clone();
             var replacements = new Dictionary<string, string>();
             foreach (var t in context.generatedTypes)
             {
@@ -130,7 +138,14 @@ namespace Unity.NetCode.Editor
             }
 
             var replacements = new Dictionary<string, string>();
-            var asmdefCodeGen = new GhostCodeGen("Packages/com.unity.netcode/Editor/CodeGenTemplates/NetCode.Generated.asmdef.template");
+            var asmdefTemplate = "Packages/com.unity.netcode/Editor/CodeGenTemplates/NetCode.Generated.asmdef.template";
+            if (!context.typeCodeGenCache.TryGetValue(asmdefTemplate, out var asmdefCodeGen))
+            {
+                asmdefCodeGen = new GhostCodeGen(asmdefTemplate);
+
+                context.typeCodeGenCache.Add(asmdefTemplate, asmdefCodeGen);
+            }
+            asmdefCodeGen = asmdefCodeGen.Clone();
 
             replacements.Add("ASSEMBLY_NAME", assemblyGeneratedName);
             asmdefCodeGen.GenerateFragment("GHOST_ASSEMBLY_NAME", replacements);
@@ -155,26 +170,26 @@ namespace Unity.NetCode.Editor
             var generator = InternalGenerateType(context, typeTree, type.FullName);
             generator.GenerateMasks(context);
 
-            var serializeGenerator = new TypeGenerator();
+            var serializeGenerator = new TypeGenerator(context);
             generator.AppendTarget(serializeGenerator);
             serializeGenerator.GenerateSerializer(context, type);
         }
 
-        private void GenerateRpc(Context context, Mono.Cecil.TypeDefinition type)
+        private void GenerateCommand(Context context, Mono.Cecil.TypeDefinition type)
         {
-            void BuildGenerator(Context ctx, TypeInformation typeInfo, RpcGenerator parentGenerator)
+            void BuildGenerator(Context ctx, TypeInformation typeInfo, CommandGenerator parentGenerator)
             {
                 if (!typeInfo.IsValid)
                     return;
 
                 var description = typeInfo.Description;
-                var fieldGen = new RpcGenerator(typeInfo);
+                var fieldGen = new CommandGenerator(context, parentGenerator.CommandType, typeInfo);
                 if (Registry.Templates.TryGetValue(description, out var template))
                 {
-                    if (!template.SupportRpc)
+                    if (!template.SupportCommand)
                         return;
 
-                    fieldGen = GetGenerator<RpcGenerator>(typeInfo);
+                    fieldGen  = new CommandGenerator(context, parentGenerator.CommandType, typeInfo, GetGeneratorTemplate(typeInfo));
                     if (!template.Composite)
                     {
                         fieldGen.GenerateFields(ctx, typeInfo.Parent);
@@ -190,7 +205,7 @@ namespace Unity.NetCode.Editor
             }
 
             var typeTree = ParseTypeFields(type, false);
-            var serializeGenerator = new RpcGenerator();
+            var serializeGenerator = new CommandGenerator(context, type.IsIRpcCommand() ? CommandGenerator.Type.Rpc : CommandGenerator.Type.Input);
             BuildGenerator(context, typeTree, serializeGenerator);
             serializeGenerator.GenerateSerializer(context, type);
         }
@@ -252,7 +267,7 @@ namespace Unity.NetCode.Editor
             return information;
         }
 
-        T GetGenerator<T>(TypeInformation information) where T: class
+        TypeTemplate GetGeneratorTemplate(TypeInformation information)
         {
             var typeDescription = information.Description;
             if (!Registry.Templates.TryGetValue(typeDescription, out var template))
@@ -268,7 +283,7 @@ namespace Unity.NetCode.Editor
                 }
                 template.TemplatePath = defaultTemplate.TemplatePath;
             }
-            return System.Activator.CreateInstance(typeof(T),information, template) as T;
+            return template;
         }
 
         #endregion
@@ -280,14 +295,14 @@ namespace Unity.NetCode.Editor
             if (!type.IsValid)
                 return null;
 
-            var typeGenerator = new TypeGenerator(type);
-
             bool canGenerate = Registry.CanGenerateType(type.Description);
             if (canGenerate)
             {
-                var generator  = GetGenerator<TypeGenerator>(type);
+                var generator  = new TypeGenerator(context, type, GetGeneratorTemplate(type));
                 return generator;
             }
+
+            var typeGenerator = new TypeGenerator(context, type);
 
             bool composite = type.Attribute.composite;
             int index = 0;
@@ -299,7 +314,7 @@ namespace Unity.NetCode.Editor
                 {
                     int fieldIt = 0;
                     // Find and apply the composite overrides, then skip those fragments when processing the composite fields
-                    var overrides = generator.GenerateCompositeOverrides(field.Parent);
+                    var overrides = generator.GenerateCompositeOverrides(context, field.Parent);
                     if (overrides != null)
                         generator.AppendTarget(typeGenerator);
                     foreach (var f in generator.TypeInformation.Fields)
@@ -380,7 +395,7 @@ namespace Unity.NetCode.Editor
                 imports.Add("Unity.Mathematics");
             }
 
-            public Context(string assembly, string generatedAssemblyNs, bool isRuntimeAssembly, string outputDir)
+            public Context(string assembly, string generatedAssemblyNs, bool isRuntimeAssembly, string outputDir, Dictionary<string, GhostCodeGen> codeGenCache)
             {
                 AssemblyName = assembly;
                 IsRuntimeAssembly = isRuntimeAssembly;
@@ -391,7 +406,7 @@ namespace Unity.NetCode.Editor
                 outputFolder = outputDir;
 
                 batch = new GhostCodeGen.Batch();
-                typeCodeGenCache = new Dictionary<string, GhostCodeGen>();
+                typeCodeGenCache = codeGenCache;
 
                 imports = new HashSet<string>();
                 generatedTypes = new HashSet<string>();

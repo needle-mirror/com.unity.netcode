@@ -4,6 +4,7 @@ using UnityEngine;
 
 namespace Unity.NetCode
 {
+    [Obsolete("ConvertToClientServerEntity has been deprecated. Please use the sub-scene conversion workflows instead. (RemovedAfter 2020-12-01).")]
     public class ConvertToClientServerEntity : ConvertToEntity
     {
         [Flags]

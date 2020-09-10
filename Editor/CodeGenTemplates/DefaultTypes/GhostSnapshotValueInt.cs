@@ -72,17 +72,23 @@ namespace Generated
             changeMask |= (snapshot.__GHOST_FIELD_NAME__ != baseline.__GHOST_FIELD_NAME__) ? (1u<<__GHOST_MASK_INDEX__) : 0;
             #endregion
         }
-        public void SerializeRpc(ref DataStreamWriter writer, in IComponentData data)
+        public void SerializeCommand(ref DataStreamWriter writer, in IComponentData data, in IComponentData baseline, NetworkCompressionModel compressionModel)
         {
-            #region __RPC_WRITE__
-            writer.WriteInt((int) data.__RPC_FIELD_NAME__);
+            #region __COMMAND_WRITE__
+            writer.WriteInt((int) data.__COMMAND_FIELD_NAME__);
+            #endregion
+            #region __COMMAND_WRITE_PACKED__
+            writer.WritePackedIntDelta((int) data.__COMMAND_FIELD_NAME__, (int) baseline.__COMMAND_FIELD_NAME__, compressionModel);
             #endregion
         }
 
-        public void DeserializeRpc(ref DataStreamReader reader, ref IComponentData data)
+        public void DeserializeCommand(ref DataStreamReader reader, ref IComponentData data, in IComponentData baseline, NetworkCompressionModel compressionModel)
         {
-            #region __RPC_READ__
-            data.__RPC_FIELD_NAME__ = (__RPC_FIELD_TYPE_NAME__) reader.ReadInt();
+            #region __COMMAND_READ__
+            data.__COMMAND_FIELD_NAME__ = (__COMMAND_FIELD_TYPE_NAME__) reader.ReadInt();
+            #endregion
+            #region __COMMAND_READ_PACKED__
+            data.__COMMAND_FIELD_NAME__ = (__COMMAND_FIELD_TYPE_NAME__) reader.ReadPackedIntDelta((int) baseline.__COMMAND_FIELD_NAME__, compressionModel);
             #endregion
         }
         #if UNITY_EDITOR || DEVELOPMENT_BUILD

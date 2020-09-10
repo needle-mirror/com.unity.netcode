@@ -8,7 +8,7 @@ namespace Unity.NetCode.Tests
 {
     [DisableAutoCreation]
     [AlwaysUpdateSystem]
-    public class CheckConnectionSystem : ComponentSystem
+    public class CheckConnectionSystem : SystemBase
     {
         public static int IsConnected;
         protected override void OnUpdate()

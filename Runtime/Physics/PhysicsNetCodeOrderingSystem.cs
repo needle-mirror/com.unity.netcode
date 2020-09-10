@@ -11,17 +11,16 @@ namespace Unity.NetCode
     /// System to make sure physics runs after ghost update.
     /// This system only exists when Unity Physics is instaled.
     /// </summary>
-    public class PhysicsNetCodeOrderingSystem : JobComponentSystem
+    public class PhysicsNetCodeOrderingSystem : SystemBase
     {
         PhysicsWorldHistory m_PhysicsWorldHistory;
         protected override void OnCreate()
         {
             m_PhysicsWorldHistory = World.GetOrCreateSystem<PhysicsWorldHistory>();
         }
-        protected override JobHandle OnUpdate(JobHandle inputDeps)
+        protected override void OnUpdate()
         {
             m_PhysicsWorldHistory.LastPhysicsJobHandle.Complete();
-            return inputDeps;
         }
     }
 }

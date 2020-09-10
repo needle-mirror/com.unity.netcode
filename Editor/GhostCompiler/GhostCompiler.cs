@@ -84,9 +84,10 @@ namespace Unity.NetCode.Editor.GhostCompiler
             }
 
             GhostCompilerServiceUtils.DebugLog($"--> Generating netcode files");
+            var codeGenCache = new Dictionary<string, GhostCodeGen>();
             foreach (var assembly in assemblies)
             {
-                var context = new CompilationContext(assembly, _fileCache);
+                var context = new CompilationContext(assembly, _fileCache, codeGenCache);
                 context.excludeTypeFilter = options.excludeTypes;
                 context.outputFolder = Path.Combine(options.tempOutputFolderPath, context.assemblyNameGenerated);
                 if (_fileCache.assemblies.TryGetValue(context.assemblyNameGenerated, out var assemblyEntry))

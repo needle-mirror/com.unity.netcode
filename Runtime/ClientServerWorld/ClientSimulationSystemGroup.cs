@@ -33,7 +33,6 @@ namespace Unity.NetCode
         private float m_interpolationTickFraction;
         private uint m_previousServerTick;
         private float m_previousServerTickFraction;
-        private ProfilerMarker m_fixedUpdateMarker;
 
         protected override void OnCreate()
         {
@@ -41,7 +40,6 @@ namespace Unity.NetCode
             m_beginBarrier = World.GetOrCreateSystem<BeginSimulationEntityCommandBufferSystem>();
             m_NetworkReceiveSystemGroup = World.GetOrCreateSystem<NetworkReceiveSystemGroup>();
             m_NetworkTimeSystem = World.GetOrCreateSystem<NetworkTimeSystem>();
-            m_fixedUpdateMarker = new ProfilerMarker("ClientFixedUpdate");
         }
 
         public override IEnumerable<ComponentSystemBase> Systems
@@ -69,9 +67,9 @@ namespace Unity.NetCode
             float fixedTimeStep = 1.0f / (float) tickRate.SimulationTickRate;
             ServerTickDeltaTime = fixedTimeStep;
 
-            var previousTime = Time;
             float networkDeltaTime = Time.DeltaTime;
             // Set delta time for the NetworkTimeSystem
+            World.PushTime(Time);
             if (networkDeltaTime > (float) tickRate.MaxSimulationStepsPerFrame / (float) tickRate.SimulationTickRate)
             {
                 networkDeltaTime = (float) tickRate.MaxSimulationStepsPerFrame / (float) tickRate.SimulationTickRate;
@@ -84,72 +82,39 @@ namespace Unity.NetCode
             // Calculate update time based on values received from the network time system
             var curServerTick = m_NetworkTimeSystem.predictTargetTick;
             var curInterpoationTick = m_NetworkTimeSystem.interpolateTargetTick;
-            uint deltaTicks = curServerTick - m_previousServerTick;
 
-            bool fixedTick = HasSingleton<FixedClientTickRate>();
             double currentTime = Time.ElapsedTime;
-            if (fixedTick)
-            {
-                if (curServerTick != 0)
-                {
-                    m_serverTickFraction = m_interpolationTickFraction = 1;
-                    var fraction = m_NetworkTimeSystem.subPredictTargetTick;
-                    if (fraction < 1)
-                        currentTime -= fraction * fixedTimeStep;
-                    networkDeltaTime = fixedTimeStep;
-                    if (deltaTicks > (uint) tickRate.MaxSimulationStepsPerFrame)
-                        deltaTicks = (uint) tickRate.MaxSimulationStepsPerFrame;
-                }
-                else
-                {
-                    deltaTicks = 1;
-                }
-            }
+            m_serverTickFraction = m_NetworkTimeSystem.subPredictTargetTick;
+            m_interpolationTickFraction = m_NetworkTimeSystem.subInterpolateTargetTick;
+
+            // If the tick is within +/- 5% of a frame from matching a tick - just use the actual tick instead
+            if (m_serverTickFraction < 0.05f)
+                m_serverTickFraction = 1;
             else
-            {
-                m_serverTickFraction = m_NetworkTimeSystem.subPredictTargetTick;
-                m_interpolationTickFraction = m_NetworkTimeSystem.subInterpolateTargetTick;
+                ++curServerTick;
+            if (m_serverTickFraction > 0.95f)
+                m_serverTickFraction = 1;
+            if (m_interpolationTickFraction < 0.05f)
+                m_interpolationTickFraction = 1;
+            else
+                ++curInterpoationTick;
+            if (m_interpolationTickFraction > 0.95f)
+                m_interpolationTickFraction = 1;
 
-                // If the tick is within +/- 5% of a frame from matching a tick - just use the actual tick instead
-                if (m_serverTickFraction < 0.05f)
-                    m_serverTickFraction = 1;
-                else
-                    ++curServerTick;
-                if (m_serverTickFraction > 0.95f)
-                    m_serverTickFraction = 1;
-                if (m_interpolationTickFraction < 0.05f)
-                    m_interpolationTickFraction = 1;
-                else
-                    ++curInterpoationTick;
-                if (m_interpolationTickFraction > 0.95f)
-                    m_interpolationTickFraction = 1;
-
-                deltaTicks = curServerTick - m_previousServerTick;
-                if (deltaTicks > (uint) tickRate.MaxSimulationStepsPerFrame)
-                    deltaTicks = (uint) tickRate.MaxSimulationStepsPerFrame;
-                networkDeltaTime = (deltaTicks + m_serverTickFraction - m_previousServerTickFraction) * fixedTimeStep;
-                deltaTicks = 1;
-
-            }
+            uint deltaTicks = curServerTick - m_previousServerTick;
+            if (deltaTicks > (uint) tickRate.MaxSimulationStepsPerFrame)
+                deltaTicks = (uint) tickRate.MaxSimulationStepsPerFrame;
+            networkDeltaTime = (deltaTicks + m_serverTickFraction - m_previousServerTickFraction) * fixedTimeStep;
 
             m_previousServerTick = curServerTick;
             m_previousServerTickFraction = m_serverTickFraction;
 
 
-            for (uint i = 0; i < deltaTicks; ++i)
-            {
-                if (fixedTick)
-                    m_fixedUpdateMarker.Begin();
-                var tickAge = deltaTicks - 1 - i;
-                m_serverTick = curServerTick - tickAge;
-                m_interpolationTick = curInterpoationTick - tickAge;
-                World.SetTime(new TimeData(currentTime - fixedTimeStep * tickAge, networkDeltaTime));
-                base.OnUpdate();
-                if (fixedTick)
-                    m_fixedUpdateMarker.End();
-            }
-
-            World.SetTime(previousTime);
+            m_serverTick = curServerTick;
+            m_interpolationTick = curInterpoationTick;
+            World.SetTime(new TimeData(currentTime, networkDeltaTime));
+            base.OnUpdate();
+            World.PopTime();
         }
 
         //FIXME: this work but is not ideal. Because it is an overload and not an override (virtual), if the method is

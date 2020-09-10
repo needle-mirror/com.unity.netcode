@@ -28,17 +28,23 @@ namespace Generated
             #endregion
         }
 
-        public void SerializeRpc(ref DataStreamWriter writer, in IComponentData data)
+        public void SerializeCommand(ref DataStreamWriter writer, in IComponentData data, in IComponentData baseline, NetworkCompressionModel compressionModel)
         {
-            #region __RPC_WRITE__
-            writer.WriteUInt(data.__RPC_FIELD_NAME__ ? 1u : 0);
+            #region __COMMAND_WRITE__
+            writer.WriteUInt(data.__COMMAND_FIELD_NAME__ ? 1u : 0);
+            #endregion
+            #region __COMMAND_WRITE_PACKED__
+            writer.WritePackedUInt(data.__COMMAND_FIELD_NAME__ ? 1u : 0, compressionModel);
             #endregion
         }
 
-        public void DeserializeRpc(ref DataStreamReader reader, ref IComponentData data)
+        public void DeserializeCommand(ref DataStreamReader reader, ref IComponentData data, in IComponentData baseline, NetworkCompressionModel compressionModel)
         {
-            #region __RPC_READ__
-            data.__RPC_FIELD_NAME__ = (reader.ReadUInt() != 0) ? true : false;
+            #region __COMMAND_READ__
+            data.__COMMAND_FIELD_NAME__ = (reader.ReadUInt() != 0) ? true : false;
+            #endregion
+            #region __COMMAND_READ_PACKED__
+            data.__COMMAND_FIELD_NAME__ = (reader.ReadPackedUInt(compressionModel) != 0) ? true : false;
             #endregion
         }
         #if UNITY_EDITOR || DEVELOPMENT_BUILD

@@ -342,7 +342,7 @@ namespace Unity.NetCode
                                 childChunk.chunk.Has(ghostChunkComponentTypesPtr[compIdx]))
                             {
                                 var compData = (byte*)childChunk.chunk.GetDynamicComponentDataArrayReinterpret<byte>(ghostChunkComponentTypesPtr[compIdx], compSize).GetUnsafePtr();
-                                UnsafeUtility.MemCpy(dataPtr + ent * compSize, compData + ent * compSize, compSize);
+                                UnsafeUtility.MemCpy(dataPtr + ent * compSize, compData + childChunk.index * compSize, compSize);
                             }
                             else
                                 UnsafeUtility.MemClear(dataPtr + ent * compSize, compSize);

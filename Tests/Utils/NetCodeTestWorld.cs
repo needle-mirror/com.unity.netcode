@@ -161,8 +161,7 @@ namespace Unity.NetCode.Tests
                     throw new InvalidOperationException("Server world already created");
                 m_ServerWorld = ClientServerBootstrap.CreateServerWorld(m_DefaultWorld, "ServerTest");
 #if UNITY_EDITOR
-                if (m_GhostCollection != null)
-                    GameObjectConversionUtility.ConvertGameObjectHierarchy(m_GhostCollection, GameObjectConversionSettings.FromWorld(m_ServerWorld, m_BlobAssetStore));
+                ConvertGhostCollection(m_ServerWorld);
 #endif
             }
 
@@ -183,8 +182,7 @@ namespace Unity.NetCode.Tests
                         throw;
                     }
 #if UNITY_EDITOR
-                    if (m_GhostCollection != null)
-                        GameObjectConversionUtility.ConvertGameObjectHierarchy(m_GhostCollection, GameObjectConversionSettings.FromWorld(m_ClientWorlds[i], m_BlobAssetStore));
+                    ConvertGhostCollection(m_ClientWorlds[i]);
 #endif
                 }
             }
@@ -372,6 +370,29 @@ namespace Unity.NetCode.Tests
             if (m_GhostCollection == null)
                 throw new InvalidOperationException("Cannot spawn ghost on server without setting up the ghost first");
             return GameObjectConversionUtility.ConvertGameObjectHierarchy(go, GameObjectConversionSettings.FromWorld(ServerWorld, m_BlobAssetStore));
+        }
+        public Entity ConvertGhostCollection(World world)
+        {
+            if (m_GhostCollection == null)
+                return Entity.Null;
+            var collectionAuthoring = m_GhostCollection.GetComponent<GhostCollectionAuthoringComponent>();
+            NativeList<Entity> prefabs = new NativeList<Entity>(collectionAuthoring.Ghosts.Count, Allocator.Temp);
+            foreach (var prefab in collectionAuthoring.Ghosts)
+            {
+                if (!prefab.enabled)
+                    continue;
+                prefab.prefab.ForcePrefabConversion = true;
+                var prefabEnt = GameObjectConversionUtility.ConvertGameObjectHierarchy(prefab.prefab.gameObject, GameObjectConversionSettings.FromWorld(world, m_BlobAssetStore));
+                prefab.prefab.ForcePrefabConversion = false;
+                world.EntityManager.AddComponentData(prefabEnt, default(Prefab));
+                prefabs.Add(prefabEnt);
+            }
+            var collection = world.EntityManager.CreateEntity();
+            world.EntityManager.AddComponentData(collection, default(GhostPrefabCollectionComponent));
+            var prefabBuffer = world.EntityManager.AddBuffer<GhostPrefabBuffer>(collection);
+            foreach (var prefab in prefabs)
+                prefabBuffer.Add(new GhostPrefabBuffer{Value = prefab});
+            return collection;
         }
 #endif
     }

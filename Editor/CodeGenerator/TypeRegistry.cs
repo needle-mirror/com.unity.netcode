@@ -58,7 +58,7 @@ namespace Unity.NetCode.Editor
     {
         public bool SupportsQuantization = false;
         public bool Composite = false;
-        public bool SupportRpc = true;
+        public bool SupportCommand = true;
         public string TemplatePath;
         public string TemplateOverridePath;
 

@@ -196,6 +196,21 @@ namespace Unity.NetCode.Editor
 
             m_FileTemplate = templateData;
         }
+        private GhostCodeGen()
+        {}
+        public GhostCodeGen Clone()
+        {
+            var codeGen = new GhostCodeGen();
+            codeGen.m_FileTemplate = m_FileTemplate;
+            codeGen.m_HeaderTemplate = m_HeaderTemplate;
+            codeGen.Replacements = new Dictionary<string, string>();
+            codeGen.m_Fragments = new Dictionary<string, FragmentData>();
+            foreach (var value in m_Fragments)
+            {
+                codeGen.m_Fragments.Add(value.Key, new FragmentData{Template = value.Value.Template, Content = ""});
+            }
+            return codeGen;
+        }
 
         private void Validate(string content, string fragment)
         {

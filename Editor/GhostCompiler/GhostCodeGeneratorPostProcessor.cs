@@ -18,8 +18,9 @@ namespace Unity.NetCode.Editor.GhostCompiler
         public GeneratedFileGuidCache.AssemblyEntry generatedAssembly;
         public GhostCodeGen.Batch generatedBatch;
         public HashSet<string> excludeTypeFilter = null;
+        public Dictionary<string, GhostCodeGen> codeGenCache;
 
-        public CompilationContext(UnityEditor.Compilation.Assembly assembly, GeneratedFileGuidCache cache)
+        public CompilationContext(UnityEditor.Compilation.Assembly assembly, GeneratedFileGuidCache cache, Dictionary<string, GhostCodeGen> genCache)
         {
             assemblyName = assembly.name;
             assemblyNameGenerated = AssemblyNameGenerated(assembly.name);
@@ -28,6 +29,7 @@ namespace Unity.NetCode.Editor.GhostCompiler
             generatedBatch = default;
             isRuntimeAssembly = !assembly.flags.HasFlag(AssemblyFlags.EditorAssembly) &&
                                 !assembly.compiledAssemblyReferences.Any(a => a.EndsWith("nunit.framework.dll"));
+            codeGenCache = genCache;
         }
         public static string AssemblyNameGenerated(string assembly)
         {
@@ -81,15 +83,15 @@ namespace Unity.NetCode.Editor.GhostCompiler
             });
             var ghostTypes = new GhostComponentFilter {excludeList = context.excludeTypeFilter}
                 .Filter(assemblyDefinition).ToArray();
-            var rpcTypes = new RpcComponentFilter { excludeList = context.excludeTypeFilter }
+            var commandTypes = new CommandComponentFilter { excludeList = context.excludeTypeFilter }
                 .Filter(assemblyDefinition).ToArray();
 
-            if (ghostTypes.Length == 0 && rpcTypes.Length == 0)
+            if (ghostTypes.Length == 0 && commandTypes.Length == 0)
                 return;
 
             var generator = new CodeGenerator(CodeGenTypes.Registry);
             context.generatedBatch = generator.Generate(assemblyFolder, context.assemblyNameGenerated, context.assemblyName,
-                context.isRuntimeAssembly, ghostTypes, rpcTypes);
+                context.isRuntimeAssembly, ghostTypes, commandTypes, context.codeGenCache);
         }
 
         //Return true if the assembly folder is changed

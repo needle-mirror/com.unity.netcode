@@ -260,7 +260,7 @@ namespace Unity.NetCode
                                 var compData = (byte*)childChunk.chunk.GetDynamicComponentDataArrayReinterpret<byte>(ghostChunkComponentTypesPtr[compIdx], compSize).GetUnsafePtr();
                                 int errorIndex = GhostComponentIndex[baseOffset + comp].PredictionErrorBaseIndex;
                                 var errors = new UnsafeList<float>(((float*)predictionErrors.GetUnsafePtr()) + errorIndex + ThreadIndex * numPredictionErrors, numPredictionErrors - errorIndex);
-                                GhostComponentCollection[compIdx].ReportPredictionErrors.Ptr.Invoke((System.IntPtr)(compData + compSize * ent), (System.IntPtr)(dataPtr + compSize * ent), ref errors);
+                                GhostComponentCollection[compIdx].ReportPredictionErrors.Ptr.Invoke((System.IntPtr)(compData + compSize * childChunk.index), (System.IntPtr)(dataPtr + compSize * ent), ref errors);
                             }
                         }
 

@@ -15,7 +15,8 @@
         "UnityEngine.TestRunner",
         "UnityEditor.TestRunner",
         "Unity.NetCode.EditorTests",
-        "Unity.NetCode.TestsUtils"
+        "Unity.NetCode.TestsUtils",
+        "Unity.NetCode.Authoring.Hybrid"
     ],
     "includePlatforms": [
         "Editor"

@@ -74,7 +74,6 @@ namespace Unity.NetCode
 
             [NativeDisableParallelForRestriction] public NativeArray<uint> minPredictedTick;
             public ComponentTypeHandle<PredictedGhostComponent> predictedGhostComponentType;
-            [ReadOnly] public ComponentTypeHandle<GhostSimpleDeltaCompression> simpleDeltaCompressionType;
             public uint lastPredictedTick;
             public uint lastInterpolatedTick;
 
@@ -110,7 +109,7 @@ namespace Unity.NetCode
                 var entityRange = new NativeList<int2>(ghostComponents.Length, Allocator.Temp);
                 int2 nextRange = default;
                 var predictedGhostComponentArray = chunk.GetNativeArray(predictedGhostComponentType);
-                bool canBeStatic = chunk.Has(simpleDeltaCompressionType);
+                bool canBeStatic = typeData.StaticOptimization;
                 // Find the ranges of entities which have data to apply, store the data to apply in an array while doing so
                 for (int ent = 0; ent < ghostComponents.Length; ++ent)
                 {
@@ -332,7 +331,7 @@ namespace Unity.NetCode
                             childChunk.chunk.Has(ghostChunkComponentTypesPtr[compIdx]))
                         {
                             var compData = (byte*)childChunk.chunk.GetDynamicComponentDataArrayReinterpret<byte>(ghostChunkComponentTypesPtr[compIdx], compSize).GetUnsafePtr();
-                            GhostComponentCollection[compIdx].RestoreFromBackup.Ptr.Invoke((System.IntPtr)(compData + ent * compSize), (System.IntPtr)(dataPtr + ent * compSize));
+                            GhostComponentCollection[compIdx].RestoreFromBackup.Ptr.Invoke((System.IntPtr)(compData + childChunk.index * compSize), (System.IntPtr)(dataPtr + ent * compSize));
                         }
 
                         dataPtr = PredictionBackupState.GetNextData(dataPtr, compSize, chunk.Capacity);
@@ -378,6 +377,8 @@ namespace Unity.NetCode
 
             m_ChildEntityQuery = GetEntityQuery(ComponentType.ReadOnly<GhostChildEntityComponent>());
             m_ChildEntityLookup = new NativeHashMap<Entity, EntityChunkLookup>(1024, Allocator.Persistent);
+
+            RequireSingletonForUpdate<NetworkStreamInGame>();
         }
         protected override void OnDestroy()
         {
@@ -440,7 +441,6 @@ namespace Unity.NetCode
                 predictedTargetTick = m_ClientSimulationSystemGroup.ServerTick,
                 minPredictedTick = m_GhostPredictionSystemGroup.OldestPredictedTick,
                 predictedGhostComponentType = GetComponentTypeHandle<PredictedGhostComponent>(),
-                simpleDeltaCompressionType = GetComponentTypeHandle<GhostSimpleDeltaCompression>(true),
                 lastPredictedTick = m_LastPredictedTick,
                 lastInterpolatedTick = m_LastInterpolatedTick,
 

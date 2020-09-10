@@ -9,7 +9,8 @@
         "Unity.Entities",
         "Unity.Entities.Hybrid",
         "Unity.Transforms",
-        "Unity.Networking.Transport"
+        "Unity.Networking.Transport",
+        "Unity.NetCode.Authoring.Hybrid"
     ],
     "optionalUnityReferences": [
         "TestAssemblies"

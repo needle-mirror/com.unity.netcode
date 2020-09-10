@@ -169,7 +169,7 @@ namespace Unity.NetCode.Tests
     #region Send Systems
     [DisableAutoCreation]
     [UpdateInGroup(typeof(ClientSimulationSystemGroup))]
-    public class ClientRcpSendSystem : ComponentSystem
+    public class ClientRcpSendSystem : SystemBase
     {
         public static int SendCount = 0;
         public Entity Remote = Entity.Null;
@@ -183,9 +183,9 @@ namespace Unity.NetCode.Tests
         {
             if (SendCount > 0)
             {
-                var req = PostUpdateCommands.CreateEntity();
-                PostUpdateCommands.AddComponent(req, new SimpleRpcCommand());
-                PostUpdateCommands.AddComponent(req, new SendRpcCommandRequestComponent {TargetConnection = Remote});
+                var req = EntityManager.CreateEntity();
+                EntityManager.AddComponentData(req, new SimpleRpcCommand());
+                EntityManager.AddComponentData(req, new SendRpcCommandRequestComponent {TargetConnection = Remote});
                 --SendCount;
             }
         }
@@ -194,7 +194,7 @@ namespace Unity.NetCode.Tests
     [DisableAutoCreation]
     [AlwaysUpdateSystem]
     [UpdateInGroup(typeof(ServerSimulationSystemGroup))]
-    public class ServerRpcBroadcastSendSystem : ComponentSystem
+    public class ServerRpcBroadcastSendSystem : SystemBase
     {
         public static int SendCount = 0;
 
@@ -202,9 +202,9 @@ namespace Unity.NetCode.Tests
         {
             if (SendCount > 0)
             {
-                var req = PostUpdateCommands.CreateEntity();
-                PostUpdateCommands.AddComponent(req, new SimpleRpcCommand());
-                PostUpdateCommands.AddComponent(req,
+                var req = EntityManager.CreateEntity();
+                EntityManager.AddComponentData(req, new SimpleRpcCommand());
+                EntityManager.AddComponentData(req,
                     new SendRpcCommandRequestComponent {TargetConnection = Entity.Null});
                 --SendCount;
             }
@@ -213,7 +213,7 @@ namespace Unity.NetCode.Tests
 
     [DisableAutoCreation]
     [UpdateInGroup(typeof(ClientSimulationSystemGroup))]
-    public class MalformedClientRcpSendSystem : ComponentSystem
+    public class MalformedClientRcpSendSystem : SystemBase
     {
         public static int[] SendCount = new int[2];
         public static ClientIdRpcCommand[] Cmds = new ClientIdRpcCommand[2];
@@ -241,9 +241,9 @@ namespace Unity.NetCode.Tests
             if (SendCount[worldId] > 0)
             {
                 var entity = GetSingletonEntity<NetworkIdComponent>();
-                var req = PostUpdateCommands.CreateEntity();
-                PostUpdateCommands.AddComponent(req, Cmds[worldId]);
-                PostUpdateCommands.AddComponent(req, new SendRpcCommandRequestComponent {TargetConnection = Entity.Null});
+                var req = EntityManager.CreateEntity();
+                EntityManager.AddComponentData(req, Cmds[worldId]);
+                EntityManager.AddComponentData(req, new SendRpcCommandRequestComponent {TargetConnection = Entity.Null});
                 --SendCount[worldId];
             }
         }
@@ -251,7 +251,7 @@ namespace Unity.NetCode.Tests
 
     [DisableAutoCreation]
     [UpdateInGroup(typeof(ClientSimulationSystemGroup))]
-    public class SerializedClientRcpSendSystem : ComponentSystem
+    public class SerializedClientRcpSendSystem : SystemBase
     {
         public static int SendCount = 0;
         public static SerializedRpcCommand Cmd;
@@ -265,9 +265,9 @@ namespace Unity.NetCode.Tests
         {
             if (SendCount > 0)
             {
-                var req = PostUpdateCommands.CreateEntity();
-                PostUpdateCommands.AddComponent(req, Cmd);
-                PostUpdateCommands.AddComponent(req,
+                var req = EntityManager.CreateEntity();
+                EntityManager.AddComponentData(req, Cmd);
+                EntityManager.AddComponentData(req,
                     new SendRpcCommandRequestComponent {TargetConnection = Entity.Null});
                 --SendCount;
             }
@@ -276,7 +276,7 @@ namespace Unity.NetCode.Tests
 
     [DisableAutoCreation]
     [UpdateInGroup(typeof(ClientSimulationSystemGroup))]
-    public class SerializedClientLargeRcpSendSystem : ComponentSystem
+    public class SerializedClientLargeRcpSendSystem : SystemBase
     {
         public static int SendCount = 0;
         public static SerializedLargeRpcCommand Cmd;
@@ -290,9 +290,9 @@ namespace Unity.NetCode.Tests
         {
             while (SendCount > 0)
             {
-                var req = PostUpdateCommands.CreateEntity();
-                PostUpdateCommands.AddComponent(req, Cmd);
-                PostUpdateCommands.AddComponent(req,
+                var req = EntityManager.CreateEntity();
+                EntityManager.AddComponentData(req, Cmd);
+                EntityManager.AddComponentData(req,
                     new SendRpcCommandRequestComponent {TargetConnection = Entity.Null});
                 --SendCount;
             }
@@ -302,7 +302,7 @@ namespace Unity.NetCode.Tests
     [DisableAutoCreation]
     [AlwaysUpdateSystem]
     [UpdateInGroup(typeof(ClientSimulationSystemGroup))]
-    public class FlawedClientRcpSendSystem : ComponentSystem
+    public class FlawedClientRcpSendSystem : SystemBase
     {
         public static int SendCount = 0;
 
@@ -310,9 +310,9 @@ namespace Unity.NetCode.Tests
         {
             if (HasSingleton<NetworkStreamConnection>() && !HasSingleton<NetworkIdComponent>() && SendCount > 0)
             {
-                var req = PostUpdateCommands.CreateEntity();
-                PostUpdateCommands.AddComponent<SimpleRpcCommand>(req);
-                PostUpdateCommands.AddComponent(req,
+                var req = EntityManager.CreateEntity();
+                EntityManager.AddComponentData(req, default(SimpleRpcCommand));
+                EntityManager.AddComponentData(req,
                     new SendRpcCommandRequestComponent {TargetConnection = Entity.Null});
                 --SendCount;
             }
@@ -323,24 +323,26 @@ namespace Unity.NetCode.Tests
     #region Receive Systems
     [DisableAutoCreation]
     [UpdateInGroup(typeof(ServerSimulationSystemGroup))]
-    public class ServerMultipleRpcReceiveSystem : ComponentSystem
+    public class ServerMultipleRpcReceiveSystem : SystemBase
     {
         public static int[] ReceivedCount = new int[2];
 
         protected override void OnUpdate()
         {
-            Entities.ForEach((Entity entity, ref ClientIdRpcCommand cmd, ref ReceiveRpcCommandRequestComponent req) =>
+            var PostUpdateCommands = new EntityCommandBuffer(Allocator.Temp);
+            Entities.WithoutBurst().ForEach((Entity entity, ref ClientIdRpcCommand cmd, ref ReceiveRpcCommandRequestComponent req) =>
             {
                 PostUpdateCommands.DestroyEntity(entity);
                 if (cmd.Id >= 0 && cmd.Id < 2)
                     ReceivedCount[cmd.Id]++;
-            });
+            }).Run();
+            PostUpdateCommands.Playback(EntityManager);
         }
     }
 
     [DisableAutoCreation]
     [UpdateInGroup(typeof(ClientSimulationSystemGroup))]
-    public class MultipleClientBroadcastRpcReceiveSystem : ComponentSystem
+    public class MultipleClientBroadcastRpcReceiveSystem : SystemBase
     {
         public static int[] ReceivedCount = new int[2];
 
@@ -354,62 +356,71 @@ namespace Unity.NetCode.Tests
 
         protected override void OnUpdate()
         {
-            Entities.ForEach((Entity entity, ref SimpleRpcCommand cmd, ref ReceiveRpcCommandRequestComponent req) =>
+            var PostUpdateCommands = new EntityCommandBuffer(Allocator.Temp);
+            var currentWorldId = worldId;
+            Entities.WithoutBurst().ForEach((Entity entity, ref SimpleRpcCommand cmd, ref ReceiveRpcCommandRequestComponent req) =>
             {
                 PostUpdateCommands.DestroyEntity(entity);
-                ++ReceivedCount[worldId];
-            });
+                ++ReceivedCount[currentWorldId];
+            }).Run();
+            PostUpdateCommands.Playback(EntityManager);
         }
     }
 
     [DisableAutoCreation]
     [UpdateInGroup(typeof(ServerSimulationSystemGroup))]
-    public class ServerRpcReceiveSystem : ComponentSystem
+    public class ServerRpcReceiveSystem : SystemBase
     {
         public static int ReceivedCount = 0;
 
         protected override void OnUpdate()
         {
-            Entities.ForEach((Entity entity, ref SimpleRpcCommand cmd, ref ReceiveRpcCommandRequestComponent req) =>
+            var PostUpdateCommands = new EntityCommandBuffer(Allocator.Temp);
+            Entities.WithoutBurst().ForEach((Entity entity, ref SimpleRpcCommand cmd, ref ReceiveRpcCommandRequestComponent req) =>
             {
                 PostUpdateCommands.DestroyEntity(entity);
                 ++ReceivedCount;
-            });
+            }).Run();
+            PostUpdateCommands.Playback(EntityManager);
         }
     }
 
     [DisableAutoCreation]
     [UpdateInGroup(typeof(ServerSimulationSystemGroup))]
-    public class SerializedServerRpcReceiveSystem : ComponentSystem
+    public class SerializedServerRpcReceiveSystem : SystemBase
     {
         public static int ReceivedCount = 0;
         public static SerializedRpcCommand ReceivedCmd;
 
         protected override void OnUpdate()
         {
-            Entities.ForEach((Entity entity, ref SerializedRpcCommand cmd, ref ReceiveRpcCommandRequestComponent req) =>
+            var PostUpdateCommands = new EntityCommandBuffer(Allocator.Temp);
+            Entities.WithoutBurst().ForEach((Entity entity, ref SerializedRpcCommand cmd, ref ReceiveRpcCommandRequestComponent req) =>
             {
                 ReceivedCmd = cmd;
                 PostUpdateCommands.DestroyEntity(entity);
                 ++ReceivedCount;
-            });
+            }).Run();
+            PostUpdateCommands.Playback(EntityManager);
         }
     }
     [DisableAutoCreation]
     [UpdateInGroup(typeof(ServerSimulationSystemGroup))]
-    public class SerializedServerLargeRpcReceiveSystem : ComponentSystem
+    public class SerializedServerLargeRpcReceiveSystem : SystemBase
     {
         public static int ReceivedCount = 0;
         public static SerializedLargeRpcCommand ReceivedCmd;
 
         protected override void OnUpdate()
         {
-            Entities.ForEach((Entity entity, ref SerializedLargeRpcCommand cmd, ref ReceiveRpcCommandRequestComponent req) =>
+            var PostUpdateCommands = new EntityCommandBuffer(Allocator.Temp);
+            Entities.WithoutBurst().ForEach((Entity entity, ref SerializedLargeRpcCommand cmd, ref ReceiveRpcCommandRequestComponent req) =>
             {
                 ReceivedCmd = cmd;
                 PostUpdateCommands.DestroyEntity(entity);
                 ++ReceivedCount;
-            });
+            }).Run();
+            PostUpdateCommands.Playback(EntityManager);
         }
     }
     #endregion
@@ -417,24 +428,94 @@ namespace Unity.NetCode.Tests
     [DisableAutoCreation]
     public class SerializedLargeRpcCommandRequestSystem : RpcCommandRequestSystem<SerializedLargeRpcCommand, SerializedLargeRpcCommand>
     {
+        [BurstCompile]
+        protected struct SendRpc : IJobEntityBatch
+        {
+            public SendRpcData data;
+            public void Execute(ArchetypeChunk chunk, int orderIndex)
+            {
+                data.Execute(chunk, orderIndex);
+            }
+        }
+        protected override void OnUpdate()
+        {
+            var sendJob = new SendRpc{data = InitJobData()};
+            ScheduleJobData(sendJob);
+        }
     }
     [DisableAutoCreation]
     public class SerializedRpcCommandRequestSystem : RpcCommandRequestSystem<SerializedRpcCommand, SerializedRpcCommand>
     {
+        [BurstCompile]
+        protected struct SendRpc : IJobEntityBatch
+        {
+            public SendRpcData data;
+            public void Execute(ArchetypeChunk chunk, int orderIndex)
+            {
+                data.Execute(chunk, orderIndex);
+            }
+        }
+        protected override void OnUpdate()
+        {
+            var sendJob = new SendRpc{data = InitJobData()};
+            ScheduleJobData(sendJob);
+        }
     }
 
     [DisableAutoCreation]
     public class NonSerializedRpcCommandRequestSystem : RpcCommandRequestSystem<SimpleRpcCommand, SimpleRpcCommand>
     {
+        [BurstCompile]
+        protected struct SendRpc : IJobEntityBatch
+        {
+            public SendRpcData data;
+            public void Execute(ArchetypeChunk chunk, int orderIndex)
+            {
+                data.Execute(chunk, orderIndex);
+            }
+        }
+        protected override void OnUpdate()
+        {
+            var sendJob = new SendRpc{data = InitJobData()};
+            ScheduleJobData(sendJob);
+        }
     }
 
     [DisableAutoCreation]
     public class MultipleClientSerializedRpcCommandRequestSystem : RpcCommandRequestSystem<ClientIdRpcCommand, ClientIdRpcCommand>
     {
+        [BurstCompile]
+        protected struct SendRpc : IJobEntityBatch
+        {
+            public SendRpcData data;
+            public void Execute(ArchetypeChunk chunk, int orderIndex)
+            {
+                data.Execute(chunk, orderIndex);
+            }
+        }
+        protected override void OnUpdate()
+        {
+            var sendJob = new SendRpc{data = InitJobData()};
+            ScheduleJobData(sendJob);
+        }
     }
 
     [DisableAutoCreation]
     public class InvalidRpcCommandRequestSystem : RpcCommandRequestSystem<InvalidRpcCommand, InvalidRpcCommand>
     {
+        [BurstCompile]
+        protected struct SendRpc : IJobEntityBatch
+        {
+            public SendRpcData data;
+            public void Execute(ArchetypeChunk chunk, int orderIndex)
+            {
+                data.Execute(chunk, orderIndex);
+            }
+        }
+        protected override void OnUpdate()
+        {
+            var sendJob = new SendRpc{data = InitJobData()};
+            ScheduleJobData(sendJob);
+        }
     }
 }

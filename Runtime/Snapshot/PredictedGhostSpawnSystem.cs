@@ -4,6 +4,7 @@ using Unity.Collections;
 using Unity.Collections.LowLevel.Unsafe;
 using Unity.NetCode.LowLevel.Unsafe;
 using Unity.Networking.Transport.Utilities;
+using System;
 
 namespace Unity.NetCode
 {
@@ -25,6 +26,8 @@ namespace Unity.NetCode
         private GhostCollectionSystem m_GhostCollectionSystem;
         private EntityQuery m_GhostInitQuery;
         private uint m_SpawnTick;
+        NativeHashMap<Entity, EntityChunkLookup> m_ChildEntityLookup;
+        EntityQuery m_ChildEntityQuery;
 
         [BurstCompile]
         unsafe struct InitGhostJob32 : IJobChunk
@@ -74,13 +77,16 @@ namespace Unity.NetCode
             public ComponentDataFromEntity<GhostComponent> ghostFromEntity;
             [ReadOnly] public ComponentDataFromEntity<GhostTypeComponent> ghostTypeFromEntity;
             [ReadOnly] public BufferFromEntity<GhostPrefabBuffer> ghostPrefabBufferFromEntity;
-            public Entity serverPrefabEntity;
+            public Entity prefabEntity;
 
             public EntityCommandBuffer commandBuffer;
             public uint spawnTick;
+
+            [ReadOnly] public BufferTypeHandle<LinkedEntityGroup> linkedEntityGroupType;
+            [ReadOnly] public NativeHashMap<Entity, EntityChunkLookup> childEntityLookup;
             public unsafe void Execute(ArchetypeChunk chunk, int chunkIndex, int firstEntityIndex, DynamicComponentTypeHandle* ghostChunkComponentTypesPtr, int ghostChunkComponentTypesLength)
             {
-                var prefabList = ghostPrefabBufferFromEntity[serverPrefabEntity];
+                var prefabList = ghostPrefabBufferFromEntity[prefabEntity];
                 var entityList = chunk.GetNativeArray(entityType);
                 var snapshotDataList = chunk.GetNativeArray(snapshotDataType);
                 var snapshotDataBufferList = chunk.GetBufferAccessor(snapshotDataBufferType);
@@ -121,21 +127,59 @@ namespace Unity.NetCode
                     *(uint*)snapshotPtr = spawnTick;
                     var snapshotOffset = snapshotBaseOffset;
 
-                    for (int comp = 0; comp < typeData.NumComponents; ++comp)
+                    int numBaseComponents = typeData.NumComponents - typeData.NumChildComponents;
+                    for (int comp = 0; comp < numBaseComponents; ++comp)
                     {
                         int compIdx = GhostComponentIndex[typeData.FirstComponent + comp].ComponentIndex;
 #if ENABLE_UNITY_COLLECTIONS_CHECKS
                         if (compIdx >= ghostChunkComponentTypesLength)
-                            throw new System.InvalidOperationException("Component index out of range");
+                            throw new InvalidOperationException("Component index out of range");
 #endif
                         if (chunk.Has(ghostChunkComponentTypesPtr[compIdx]))
                         {
                             var compSize = GhostComponentCollection[compIdx].ComponentSize;
                             var compData = (byte*)chunk.GetDynamicComponentDataArrayReinterpret<byte>(ghostChunkComponentTypesPtr[compIdx], compSize).GetUnsafeReadOnlyPtr();
-                            GhostComponentCollection[compIdx].CopyToSnapshot.Ptr.Invoke((System.IntPtr)UnsafeUtility.AddressOf(ref serializerState), (System.IntPtr)snapshotPtr, snapshotOffset, snapshotSize, (System.IntPtr)(compData + i*compSize), compSize, 1);
+                            compData += i * compSize;
+                            GhostComponentCollection[compIdx].CopyToSnapshot.Ptr.Invoke((IntPtr)UnsafeUtility.AddressOf(ref serializerState), (IntPtr)snapshotPtr, snapshotOffset, snapshotSize, (IntPtr)compData, compSize, 1);
+                        }
+                        else
+                        {
+                            var componentSnapshotSize = GhostCollectionSystem.SnapshotSizeAligned(GhostComponentCollection[compIdx].SnapshotSize);
+                            UnsafeUtility.MemClear(snapshotPtr + snapshotOffset, componentSnapshotSize);
                         }
                         snapshotOffset += GhostCollectionSystem.SnapshotSizeAligned(GhostComponentCollection[compIdx].SnapshotSize);
                     }
+                    if (typeData.NumChildComponents > 0)
+                    {
+                        var linkedEntityGroupAccessor = chunk.GetBufferAccessor(linkedEntityGroupType);
+                        for (int comp = numBaseComponents; comp < typeData.NumComponents; ++comp)
+                        {
+                            int compIdx = GhostComponentIndex[typeData.FirstComponent + comp].ComponentIndex;
+#if ENABLE_UNITY_COLLECTIONS_CHECKS
+                            if (compIdx >= ghostChunkComponentTypesLength)
+                                throw new InvalidOperationException("Component index out of range");
+#endif
+                            var compSize = GhostComponentCollection[compIdx].ComponentSize;
+
+                            var linkedEntityGroup = linkedEntityGroupAccessor[i];
+                            var childEnt = linkedEntityGroup[GhostComponentIndex[typeData.FirstComponent + comp].EntityIndex].Value;
+                            //We can skip here, becase the memory buffer offset is computed using the start-end entity indices
+                            if (!childEntityLookup.TryGetValue(childEnt, out var childChunk) || !childChunk.chunk.Has(ghostChunkComponentTypesPtr[compIdx]))
+                            {
+                                var componentSnapshotSize = GhostCollectionSystem.SnapshotSizeAligned(GhostComponentCollection[compIdx].SnapshotSize);
+                                UnsafeUtility.MemClear(snapshotPtr + snapshotOffset, componentSnapshotSize);
+                            }
+                            else
+                            {
+                                var compData = (byte*)childChunk.chunk.GetDynamicComponentDataArrayReinterpret<byte>(ghostChunkComponentTypesPtr[compIdx], compSize).GetUnsafeReadOnlyPtr();
+                                compData += childChunk.index * compSize;
+                                GhostComponentCollection[compIdx].CopyToSnapshot.Ptr.Invoke((IntPtr)UnsafeUtility.AddressOf(ref serializerState), (IntPtr)snapshotPtr, snapshotOffset, snapshotSize, (IntPtr)compData, compSize, 1);
+                            }
+
+                            snapshotOffset += GhostCollectionSystem.SnapshotSizeAligned(GhostComponentCollection[compIdx].SnapshotSize);
+                        }
+                    }
+
 
                     // Remove request component
                     commandBuffer.RemoveComponent<PredictedGhostSpawnRequestComponent>(entity);
@@ -156,6 +200,13 @@ namespace Unity.NetCode
                 ComponentType.ReadOnly<GhostTypeComponent>(),
                 ComponentType.ReadWrite<GhostComponent>());
             m_ClientSimulationSystemGroup = World.GetExistingSystem<ClientSimulationSystemGroup>();
+            m_ChildEntityLookup = new NativeHashMap<Entity, EntityChunkLookup>(1024, Allocator.Persistent);
+            m_ChildEntityQuery = GetEntityQuery(ComponentType.ReadOnly<GhostChildEntityComponent>());
+        }
+
+        protected override void OnDestroy()
+        {
+            m_ChildEntityLookup.Dispose();
         }
 
         protected override unsafe void OnUpdate()
@@ -166,6 +217,16 @@ namespace Unity.NetCode
 
             if (!m_GhostInitQuery.IsEmptyIgnoreFilter)
             {
+                m_ChildEntityLookup.Clear();
+                var childCount = m_ChildEntityQuery.CalculateEntityCountWithoutFiltering();
+                if (childCount > m_ChildEntityLookup.Capacity)
+                    m_ChildEntityLookup.Capacity = childCount;
+                var buildChildJob = new BuildChildEntityLookupJob
+                {
+                    entityType = GetEntityTypeHandle(),
+                    childEntityLookup = m_ChildEntityLookup.AsParallelWriter()
+                };
+                Dependency = buildChildJob.ScheduleParallel(m_ChildEntityQuery, Dependency);
                 var initJob = new InitGhostJob
                 {
                     GhostComponentCollection = m_GhostCollectionSystem.m_GhostComponentCollection,
@@ -182,10 +243,12 @@ namespace Unity.NetCode
                     ghostFromEntity = GetComponentDataFromEntity<GhostComponent>(),
                     ghostTypeFromEntity = GetComponentDataFromEntity<GhostTypeComponent>(true),
                     ghostPrefabBufferFromEntity = GetBufferFromEntity<GhostPrefabBuffer>(true),
-                    serverPrefabEntity = GetSingleton<GhostPrefabCollectionComponent>().serverPrefabs,
+                    prefabEntity = GetSingletonEntity<GhostPrefabCollectionComponent>(),
 
                     commandBuffer = commandBuffer,
-                    spawnTick = m_SpawnTick
+                    spawnTick = m_SpawnTick,
+                    linkedEntityGroupType = GetBufferTypeHandle<LinkedEntityGroup>(),
+                    childEntityLookup = m_ChildEntityLookup
                 };
                 var listLength = m_GhostCollectionSystem.m_GhostComponentCollection.Length;
                 if (listLength <= 32)
@@ -222,7 +285,7 @@ namespace Unity.NetCode
                     if (SequenceHelpers.IsNewer(interpolatedTick, ghost.spawnTick))
                     {
                         // Destroy entity and remove from list
-                        commandBuffer.RemoveComponent<GhostComponent>(ghost.entity);
+                        commandBuffer.DestroyEntity(ghost.entity);
                         spawnList[i] = spawnList[spawnList.Length - 1];
                         spawnList.RemoveAt(spawnList.Length - 1);
                         --i;

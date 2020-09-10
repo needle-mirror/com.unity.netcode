@@ -50,9 +50,8 @@ namespace Unity.NetCode
             if (m_ClientSimulationSystemGroup.InterpolationTickFraction < 1)
                 --interpolationTargetTick;
             //var predictionTargetTick = m_ClientSimulationSystemGroup.ServerTick;
-            var prefabs = GetSingleton<GhostPrefabCollectionComponent>();
-            var interpolatedPrefabs = EntityManager.GetBuffer<GhostPrefabBuffer>(prefabs.clientInterpolatedPrefabs).ToNativeArray(Allocator.Temp);
-            var predictedPrefabs = EntityManager.GetBuffer<GhostPrefabBuffer>(prefabs.clientPredictedPrefabs).ToNativeArray(Allocator.Temp);
+            var prefabsEntity = GetSingletonEntity<GhostPrefabCollectionComponent>();
+            var prefabs = EntityManager.GetBuffer<GhostPrefabBuffer>(prefabsEntity).ToNativeArray(Allocator.Temp);
 
             var ghostSpawnEntity = GetSingletonEntity<GhostSpawnQueueComponent>();
             var ghostSpawnBufferComponent = EntityManager.GetBuffer<GhostSpawnBuffer>(ghostSpawnEntity);
@@ -85,7 +84,16 @@ namespace Unity.NetCode
                 else if (ghost.SpawnType == GhostSpawnBuffer.Type.Predicted)
                 {
                     // Spawn directly
-                    entity = ghost.PredictedSpawnEntity != Entity.Null ? ghost.PredictedSpawnEntity : EntityManager.Instantiate(predictedPrefabs[ghost.GhostType].Value);
+                    entity = ghost.PredictedSpawnEntity != Entity.Null ? ghost.PredictedSpawnEntity : EntityManager.Instantiate(prefabs[ghost.GhostType].Value);
+                    if (EntityManager.HasComponent<GhostPrefabMetaDataComponent>(prefabs[ghost.GhostType].Value))
+                    {
+                        ref var toRemove = ref EntityManager.GetComponentData<GhostPrefabMetaDataComponent>(prefabs[ghost.GhostType].Value).Value.Value.DisableOnPredictedClient;
+                        for (int rm = 0; rm < toRemove.Length; ++rm)
+                        {
+                            var compType = ComponentType.ReadWrite(TypeManager.GetTypeIndexFromStableTypeHash(toRemove[rm]));
+                            EntityManager.RemoveComponent(entity, compType);
+                        }
+                    }
                     EntityManager.SetComponentData(entity, new GhostComponent {ghostId = ghost.GhostID, ghostType = ghost.GhostType, spawnTick = ghost.ServerSpawnTick});
                     var newBuffer = EntityManager.GetBuffer<SnapshotDataBuffer>(entity);
                     newBuffer.ResizeUninitialized(snapshotSize * GhostSystemConstants.SnapshotHistorySize);
@@ -108,7 +116,16 @@ namespace Unity.NetCode
             {
                 var ghost = m_DelayedSpawnQueue.Dequeue();
                 // Spawn actual entity
-                Entity entity = EntityManager.Instantiate(interpolatedPrefabs[ghost.ghostType].Value);
+                Entity entity = EntityManager.Instantiate(prefabs[ghost.ghostType].Value);
+                if (EntityManager.HasComponent<GhostPrefabMetaDataComponent>(prefabs[ghost.ghostType].Value))
+                {
+                    ref var toRemove = ref EntityManager.GetComponentData<GhostPrefabMetaDataComponent>(prefabs[ghost.ghostType].Value).Value.Value.DisableOnInterpolatedClient;
+                    for (int i = 0; i < toRemove.Length; ++i)
+                    {
+                        var compType = ComponentType.ReadWrite(TypeManager.GetTypeIndexFromStableTypeHash(toRemove[i]));
+                        EntityManager.RemoveComponent(entity, compType);
+                    }
+                }
                 EntityManager.SetComponentData(entity, EntityManager.GetComponentData<SnapshotData>(ghost.oldEntity));
                 var ghostComponentData = EntityManager.GetComponentData<GhostComponent>(ghost.oldEntity);
                 EntityManager.SetComponentData(entity, ghostComponentData);

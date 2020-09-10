@@ -9,7 +9,7 @@ namespace Unity.NetCode
     [UpdateAfter(typeof(GhostSimulationSystemGroup))]
     [UpdateInGroup(typeof(ClientAndServerSimulationSystemGroup))]
     [AlwaysUpdateSystem]
-    class GhostStatsCollectionSystem : ComponentSystem
+    class GhostStatsCollectionSystem : SystemBase
     {
         private ServerSimulationSystemGroup m_ServerSimulationSystemGroup;
         private ClientSimulationSystemGroup m_ClientSimulationSystemGroup;
@@ -42,16 +42,18 @@ namespace Unity.NetCode
 
         private string m_LastNameAndErrorArray;
 
-        public void SetGhostNames(string[] nameList, List<string> errorList)
+        public void SetGhostNames(List<string> nameList, List<string> errorList)
         {
             // Add a pending packet with the new list of names
             m_LastNameAndErrorArray = $"\"name\":\"{World.Name}\",\"ghosts\":[\"Destroy\"";
-            for (int i = 0; i < nameList.Length; ++i)
+            for (int i = 0; i < nameList.Count; ++i)
             {
                 m_LastNameAndErrorArray += $",\"{nameList[i]}\"";
             }
 
-            m_LastNameAndErrorArray += $"], \"errors\":[\"{errorList[0]}\"";
+            m_LastNameAndErrorArray += "], \"errors\":[";
+            if (errorList.Count > 0)
+                m_LastNameAndErrorArray += $"\"{errorList[0]}\"";
             for (int i = 1; i < errorList.Count; ++i)
             {
                 m_LastNameAndErrorArray += $",\"{errorList[i]}\"";
@@ -61,7 +63,7 @@ namespace Unity.NetCode
 
             // Reset the snapshot stats
             m_SnapshotStats.Dispose();
-            m_SnapshotStats = new NativeArray<uint>((nameList.Length + 1)*3, Allocator.Persistent);
+            m_SnapshotStats = new NativeArray<uint>((nameList.Count + 1)*3, Allocator.Persistent);
 
             // Reset the snapshot stats
             m_PredictionErrors.Dispose();

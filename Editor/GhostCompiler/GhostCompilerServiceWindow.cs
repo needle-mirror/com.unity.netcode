@@ -23,7 +23,7 @@ namespace Unity.NetCode.Editor
         private GUIContent _unlockedIcon;
         private GUIContent _greenIcon;
         private GUIContent _redIcon;
-        private KeyValuePair<string, List<Type>>[] _serializedRpcsAndComponents;
+        private KeyValuePair<string, List<Type>>[] _serializedCommandsAndComponents;
         private Dictionary<string, bool> _foldedAssembly = new Dictionary<string, bool>();
         [SerializeField] private List<string> _exludeAssemblyAndTypes = new List<string>();
 
@@ -157,7 +157,7 @@ namespace Unity.NetCode.Editor
 
                     if (GUILayout.Button("Rescan", GUILayout.MinHeight(50)))
                     {
-                        _serializedRpcsAndComponents = null;
+                        _serializedCommandsAndComponents = null;
                         Scan(service);
                     }
 
@@ -186,7 +186,7 @@ namespace Unity.NetCode.Editor
                     _scrollPosition = EditorGUILayout.BeginScrollView(_scrollPosition, GUILayout.ExpandHeight(true),
                         GUILayout.MaxHeight(500));
 
-                    foreach(var kv in _serializedRpcsAndComponents)
+                    foreach(var kv in _serializedCommandsAndComponents)
                     {
                         var icon = service.IsAssemblyChanged(kv.Key)
                             ? _assemblyNeedRecompileIcon
@@ -241,7 +241,7 @@ namespace Unity.NetCode.Editor
                                 var newExcludeType = !EditorGUI.Toggle(toggleRect, !oldExcludeType);
                                 rect.x += 20.0f;
                                 rect.width -= 20.0f;
-                                var scriptIcon = typeof(IRpcCommand).IsAssignableFrom(t) ? _rpcIcon : _ghostIcon;
+                                var scriptIcon = (typeof(IRpcCommand).IsAssignableFrom(t) || typeof(ICommandData).IsAssignableFrom(t)) ? _rpcIcon : _ghostIcon;
                                 EditorGUI.LabelField(rect, new GUIContent(t.Name, scriptIcon.image));
 
                                 allTypeExcluded &= newExcludeType;
@@ -307,15 +307,15 @@ namespace Unity.NetCode.Editor
 
         private void Scan(GhostCompilerService service)
         {
-            if (_serializedRpcsAndComponents == null)
+            if (_serializedCommandsAndComponents == null)
             {
                 var provider = service.GetAssemblyProvider();
 
                 var ghostFilter = new GhostComponentFilter();
-                var rpcFilter = new RpcComponentFilter();
+                var commandFilter = new CommandComponentFilter();
                 var ghosts = ghostFilter.Filter(provider.GetAssemblies()).ToDictionary(
                     kv => kv.Item1, kv => new List<Type>(kv.Item2));
-                foreach (var kv in rpcFilter.Filter(provider.GetAssemblies()))
+                foreach (var kv in commandFilter.Filter(provider.GetAssemblies()))
                 {
                     if (!ghosts.TryGetValue(kv.Item1, out var types))
                     {
@@ -332,7 +332,7 @@ namespace Unity.NetCode.Editor
                     temp.Add(kv);
                 }
 
-                _serializedRpcsAndComponents = temp.OrderBy(kv => kv.Key).ToArray();
+                _serializedCommandsAndComponents = temp.OrderBy(kv => kv.Key).ToArray();
 
 
                 UpdateFoldedDict();
@@ -344,7 +344,7 @@ namespace Unity.NetCode.Editor
         {
             var allTypes = new HashSet<string>();
             {
-                foreach (var kv in _serializedRpcsAndComponents)
+                foreach (var kv in _serializedCommandsAndComponents)
                 {
                     allTypes.Add(kv.Key);
                     foreach (var t in kv.Value)
@@ -368,13 +368,13 @@ namespace Unity.NetCode.Editor
         private void UpdateFoldedDict()
         {
             var toRemove = _foldedAssembly.Keys.Where(k =>
-                { return !_serializedRpcsAndComponents.Any(kv => kv.Key == k); });
+                { return !_serializedCommandsAndComponents.Any(kv => kv.Key == k); });
 
             foreach (var k in toRemove)
             {
                 _foldedAssembly.Remove(k);
             }
-            foreach (var kv in _serializedRpcsAndComponents)
+            foreach (var kv in _serializedCommandsAndComponents)
             {
                 _foldedAssembly[kv.Key] = false;
             }

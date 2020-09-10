@@ -4,7 +4,7 @@ using Unity.Build;
 
 public enum NetcodeConversionTarget
 {
-    Undefined = 0,
+    ClientAndServer = 0,
     Server = 1,
     Client = 2
 }

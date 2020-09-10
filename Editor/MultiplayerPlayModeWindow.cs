@@ -22,7 +22,6 @@ namespace Unity.NetCode.Editor
             var playModeType = EditorPopup("PlayMode Type", new[] {"Client & Server", "Client", "Server"}, "Type");
             if (playModeType != 2)
             {
-                EditorInt("Num Clients", "NumClients", 1, ClientServerBootstrap.k_MaxNumClients);
                 EditorInt("Num Thin Clients", "NumThinClients", 0, ClientServerBootstrap.k_MaxNumThinClients);
                 EditorInt("Client send/recv delay (ms)", "ClientDelay", 0, 2000);
                 EditorInt("Client send/recv jitter (ms)", "ClientJitter", 0, 200);
@@ -129,7 +128,7 @@ namespace Unity.NetCode.Editor
     [UpdateInGroup(typeof(NetworkReceiveSystemGroup))]
     [UpdateBefore(typeof(NetworkStreamReceiveSystem))]
     [AlwaysUpdateSystem]
-    public class MultiplayerPlayModeConnectionSystem : ComponentSystem
+    public class MultiplayerPlayModeConnectionSystem : SystemBase
     {
         public enum ConnectionState
         {
@@ -194,7 +193,7 @@ namespace Unity.NetCode.Editor
     [UpdateBefore(typeof(TickServerSimulationSystem))]
 #endif
     [UpdateInWorld(UpdateInWorld.TargetWorld.Default)]
-    public class MultiplayerPlayModeControllerSystem : ComponentSystem
+    public class MultiplayerPlayModeControllerSystem : SystemBase
     {
         public static ClientSimulationSystemGroup PresentedClient;
         private ClientSimulationSystemGroup m_currentPresentedClient;

@@ -9,11 +9,20 @@ namespace Unity.NetCode
     [UpdateInWorld(UpdateInWorld.TargetWorld.Server)]
     [UpdateInGroup(typeof(NetworkReceiveSystemGroup))]
     [UpdateAfter(typeof(NetworkStreamReceiveSystem))]
-    public class CommandReceiveSystem<TCommandData> : JobComponentSystem
-        where TCommandData : struct, ICommandData<TCommandData>
+    public class CommandReceiveSystemGroup : ComponentSystemGroup
     {
-        [BurstCompile]
-        struct ReceiveJob : IJobChunk
+        public CommandReceiveSystemGroup()
+        {
+            UseLegacySortOrder = false;
+        }
+    }
+
+    [UpdateInGroup(typeof(CommandReceiveSystemGroup))]
+    public abstract class CommandReceiveSystem<TCommandDataSerializer, TCommandData> : SystemBase
+        where TCommandData : struct, ICommandData
+        where TCommandDataSerializer : struct, ICommandDataSerializer<TCommandData>
+    {
+        protected struct ReceiveJobData
         {
             public BufferFromEntity<TCommandData> commandData;
             public BufferFromEntity<IncomingCommandDataStreamBufferComponent> cmdBuffer;
@@ -52,22 +61,25 @@ namespace Unity.NetCode
 
                 if (commandTarget.targetEntity != Entity.Null && buffer.Length > 4)
                 {
-                    var buffers = new NativeArray<TCommandData>((int)CommandSendSystem<TCommandData>.k_InputBufferSendSize, Allocator.Temp);
+                    var buffers = new NativeArray<TCommandData>((int)CommandSendSystem<TCommandDataSerializer, TCommandData>.k_InputBufferSendSize, Allocator.Temp);
                     var command = commandData[commandTarget.targetEntity];
                     var baselineReceivedCommand = default(TCommandData);
-                    baselineReceivedCommand.Deserialize(tick, ref reader);
+                    var serializer = default(TCommandDataSerializer);
+                    baselineReceivedCommand.Tick = tick;
+                    serializer.Deserialize(ref reader, ref baselineReceivedCommand);
                     // Store received commands in the network command buffer
                     buffers[0] = baselineReceivedCommand;
-                    for (uint i = 1; i < CommandSendSystem<TCommandData>.k_InputBufferSendSize; ++i)
+                    for (uint i = 1; i < CommandSendSystem<TCommandDataSerializer, TCommandData>.k_InputBufferSendSize; ++i)
                     {
                         var receivedCommand = default(TCommandData);
-                        receivedCommand.Deserialize(tick - i, ref reader, baselineReceivedCommand,
+                        receivedCommand.Tick = tick - i;
+                        serializer.Deserialize(ref reader, ref receivedCommand, baselineReceivedCommand,
                             compressionModel);
                         // Store received commands in the network command buffer
                         buffers[(int)i] = receivedCommand;
                     }
                     // Add the command in the order they were produces instead of the order they were sent
-                    for (int i = (int)CommandSendSystem<TCommandData>.k_InputBufferSendSize - 1; i >= 0; --i)
+                    for (int i = (int)CommandSendSystem<TCommandDataSerializer, TCommandData>.k_InputBufferSendSize - 1; i >= 0; --i)
                         command.AddCommandData(buffers[i]);
                 }
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
@@ -76,7 +88,7 @@ namespace Unity.NetCode
 #endif
                 buffer.Clear();
             }
-            public void Execute(ArchetypeChunk chunk, int orderIndex, int firstEntityIndex)
+            public void Execute(ArchetypeChunk chunk, int orderIndex)
             {
                 var entities = chunk.GetNativeArray(entitiesType);
                 var snapshotAcks = chunk.GetNativeArray(snapshotAckType);
@@ -133,7 +145,7 @@ namespace Unity.NetCode
 #endif
         }
 
-        protected override JobHandle OnUpdate(JobHandle inputDeps)
+        protected ReceiveJobData InitJobData()
         {
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
             if (m_NetStats[0] != 0)
@@ -143,7 +155,7 @@ namespace Unity.NetCode
                 m_NetStats[1] = 0;
             }
 #endif
-            var recvJob = new ReceiveJob
+            var recvJob = new ReceiveJobData
             {
                 commandData = GetBufferFromEntity<TCommandData>(),
                 cmdBuffer = GetBufferFromEntity<IncomingCommandDataStreamBufferComponent>(),
@@ -158,10 +170,11 @@ namespace Unity.NetCode
                 netStats = m_NetStats
 #endif
             };
-            return recvJob.ScheduleSingle(m_entityQuery, inputDeps);
+            return recvJob;
         }
-    }
-    public class NullCommandReceiveSystem : CommandReceiveSystem<NullCommandData>
-    {
+        protected void ScheduleJobData<T>(in T sendJob) where T: struct, IJobEntityBatch
+        {
+            Dependency = sendJob.Schedule(m_entityQuery, Dependency);
+        }
     }
 }

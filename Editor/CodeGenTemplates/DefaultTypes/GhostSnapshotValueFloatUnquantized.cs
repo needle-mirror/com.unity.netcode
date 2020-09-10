@@ -75,17 +75,23 @@ namespace Generated
             #endregion
         }
 
-        public void SerializeRpc(ref DataStreamWriter writer, in IComponentData data)
+        public void SerializeCommand(ref DataStreamWriter writer, in IComponentData data, in IComponentData baseline, NetworkCompressionModel compressionModel)
         {
-            #region __RPC_WRITE__
-            writer.WriteFloat(data.__RPC_FIELD_NAME__);
+            #region __COMMAND_WRITE__
+            writer.WriteFloat(data.__COMMAND_FIELD_NAME__);
+            #endregion
+            #region __COMMAND_WRITE_PACKED__
+            writer.WritePackedFloatDelta(data.__COMMAND_FIELD_NAME__, baseline.__COMMAND_FIELD_NAME__, compressionModel);
             #endregion
         }
 
-        public void DeserializeRpc(ref DataStreamReader reader, ref IComponentData data)
+        public void DeserializeCommand(ref DataStreamReader reader, ref IComponentData data, in IComponentData baseline, NetworkCompressionModel compressionModel)
         {
-            #region __RPC_READ__
-            data.__RPC_FIELD_NAME__ = reader.ReadFloat();
+            #region __COMMAND_READ__
+            data.__COMMAND_FIELD_NAME__ = reader.ReadFloat();
+            #endregion
+            #region __COMMAND_READ_PACKED__
+            data.__COMMAND_FIELD_NAME__ = reader.ReadPackedFloatDelta(baseline.__COMMAND_FIELD_NAME__, compressionModel);
             #endregion
         }
         #if UNITY_EDITOR || DEVELOPMENT_BUILD

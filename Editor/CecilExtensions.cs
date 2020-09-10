@@ -50,6 +50,15 @@ namespace Unity.NetCode.Editor
                 i.InterfaceType.Name == typeof(IRpcCommand).Name &&
                 i.InterfaceType.Namespace == typeof(IRpcCommand).Namespace);
         }
+        public static bool IsICommandData(this Mono.Cecil.TypeReference typeReference)
+        {
+            var resolvedType = typeReference.Resolve();
+            if (resolvedType == null)
+                return false;
+            return resolvedType.Interfaces.Any(i =>
+                i.InterfaceType.Name == typeof(ICommandData).Name &&
+                i.InterfaceType.Namespace == typeof(ICommandData).Namespace);
+        }
 
         public static bool HasGhostFieldAttribute(Mono.Cecil.TypeReference parentType, Mono.Cecil.FieldDefinition componentField)
         {

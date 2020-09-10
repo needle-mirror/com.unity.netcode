@@ -8,6 +8,7 @@
         "Unity.NetCode",
         "Unity.NetCode.Editor",
         "Unity.NetCode.TestsUtils",
+        "Unity.NetCode.Authoring.Hybrid",
         "Unity.Entities",
         "Unity.Entities.Hybrid",
         "Unity.Transforms",

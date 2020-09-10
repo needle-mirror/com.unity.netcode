@@ -7,6 +7,7 @@ using UnityEngine;
 using Unity.Mathematics;
 using Unity.Transforms;
 using UnityEngine.TestTools;
+using Unity.Burst;
 
 namespace Unity.NetCode.Physics.Tests
 {
@@ -25,47 +26,46 @@ namespace Unity.NetCode.Physics.Tests
     {
     }
 
-    public struct LagCompensationTestCommand : ICommandData<LagCompensationTestCommand>
+    [NetCodeDisableCommandCodeGen]
+    public struct LagCompensationTestCommand : ICommandData, ICommandDataSerializer<LagCompensationTestCommand>
     {
-        public uint Tick => tick;
-        public uint tick;
+        public uint Tick {get; set;}
         public float3 origin;
         public float3 direction;
         public uint lastFire;
 
-        public void Serialize(ref DataStreamWriter writer)
+        public void Serialize(ref DataStreamWriter writer, in LagCompensationTestCommand data)
         {
-            writer.WriteFloat(origin.x);
-            writer.WriteFloat(origin.y);
-            writer.WriteFloat(origin.z);
-            writer.WriteFloat(direction.x);
-            writer.WriteFloat(direction.y);
-            writer.WriteFloat(direction.z);
-            writer.WriteUInt(lastFire);
+            writer.WriteFloat(data.origin.x);
+            writer.WriteFloat(data.origin.y);
+            writer.WriteFloat(data.origin.z);
+            writer.WriteFloat(data.direction.x);
+            writer.WriteFloat(data.direction.y);
+            writer.WriteFloat(data.direction.z);
+            writer.WriteUInt(data.lastFire);
         }
-        public void Serialize(ref DataStreamWriter writer, LagCompensationTestCommand baseline, NetworkCompressionModel model)
+        public void Serialize(ref DataStreamWriter writer, in LagCompensationTestCommand data, in LagCompensationTestCommand baseline, NetworkCompressionModel model)
         {
-            Serialize(ref writer);
+            Serialize(ref writer, data);
         }
-        public void Deserialize(uint t, ref DataStreamReader reader)
+        public void Deserialize(ref DataStreamReader reader, ref LagCompensationTestCommand data)
         {
-            tick = t;
-            origin.x = reader.ReadFloat();
-            origin.y = reader.ReadFloat();
-            origin.z = reader.ReadFloat();
-            direction.x = reader.ReadFloat();
-            direction.y = reader.ReadFloat();
-            direction.z = reader.ReadFloat();
-            lastFire = reader.ReadUInt();
+            data.origin.x = reader.ReadFloat();
+            data.origin.y = reader.ReadFloat();
+            data.origin.z = reader.ReadFloat();
+            data.direction.x = reader.ReadFloat();
+            data.direction.y = reader.ReadFloat();
+            data.direction.z = reader.ReadFloat();
+            data.lastFire = reader.ReadUInt();
         }
-        public void Deserialize(uint t, ref DataStreamReader reader, LagCompensationTestCommand baseline, NetworkCompressionModel model)
+        public void Deserialize(ref DataStreamReader reader, ref LagCompensationTestCommand data, in LagCompensationTestCommand baseline, NetworkCompressionModel model)
         {
-            Deserialize(t, ref reader);
+            Deserialize(ref reader, ref data);
         }
     }
     [DisableAutoCreation]
     [AlwaysUpdateSystem]
-    public class TestAutoInGameSystem : JobComponentSystem
+    public class TestAutoInGameSystem : SystemBase
     {
         EndSimulationEntityCommandBufferSystem m_EndSimulationCommandBufferSystem;
         bool m_IsServer;
@@ -74,59 +74,88 @@ namespace Unity.NetCode.Physics.Tests
             m_EndSimulationCommandBufferSystem = World.GetOrCreateSystem<EndSimulationEntityCommandBufferSystem>();
             m_IsServer = World.GetExistingSystem<ServerSimulationSystemGroup>()!=null;
         }
-        protected override JobHandle OnUpdate(JobHandle inputDeps)
+        protected override void OnUpdate()
         {
             var commandBuffer = m_EndSimulationCommandBufferSystem.CreateCommandBuffer().AsParallelWriter();
 
             bool isServer = m_IsServer;
-            var serverPrefabs = GetSingleton<GhostPrefabCollectionComponent>().serverPrefabs;
+            var prefabEntity = GetSingletonEntity<GhostPrefabCollectionComponent>();
             var bufferFromEntity = GetBufferFromEntity<GhostPrefabBuffer>(true);
-            var handle = Entities.WithReadOnly(bufferFromEntity).WithNone<NetworkStreamInGame>().WithoutBurst().ForEach((int entityInQueryIndex, Entity ent, in NetworkIdComponent id) =>
+            Entities.WithReadOnly(bufferFromEntity).WithNone<NetworkStreamInGame>().WithoutBurst().ForEach((int entityInQueryIndex, Entity ent, in NetworkIdComponent id) =>
             {
                 commandBuffer.AddComponent(entityInQueryIndex, ent, new NetworkStreamInGame());
                 if (isServer)
                 {
                     // Spawn the player so it gets replicated to the client
                     var ghostId = 0;
-                    var playerPrefab = bufferFromEntity[serverPrefabs][ghostId].Value;
+                    var playerPrefab = bufferFromEntity[prefabEntity][ghostId].Value;
                     // Spawn the cube when a player connects for simplicity
                     ghostId = 1;
-                    var cubePrefab = bufferFromEntity[serverPrefabs][ghostId].Value;
+                    var cubePrefab = bufferFromEntity[prefabEntity][ghostId].Value;
                     commandBuffer.Instantiate(entityInQueryIndex, cubePrefab);
                     var player = commandBuffer.Instantiate(entityInQueryIndex, playerPrefab);
                     commandBuffer.SetComponent(entityInQueryIndex, player, new GhostOwnerComponent{NetworkId = id.Value});
                     commandBuffer.SetComponent(entityInQueryIndex, ent, new CommandTargetComponent{targetEntity = player});
                 }
-            }).Schedule(inputDeps);
-            m_EndSimulationCommandBufferSystem.AddJobHandleForProducer(handle);
-            return handle;
+            }).Schedule();
+            m_EndSimulationCommandBufferSystem.AddJobHandleForProducer(Dependency);
         }
     }
     [DisableAutoCreation]
-    public class LagCompensationTestCommandCommandSendSystem : CommandSendSystem<LagCompensationTestCommand>
-    {}
+    public class LagCompensationTestCommandCommandSendSystem : CommandSendSystem<LagCompensationTestCommand, LagCompensationTestCommand>
+    {
+        [BurstCompile]
+        struct SendJob : IJobEntityBatch
+        {
+            public SendJobData data;
+            public void Execute(ArchetypeChunk chunk, int orderIndex)
+            {
+                data.Execute(chunk, orderIndex);
+            }
+        }
+        protected override void OnUpdate()
+        {
+            var sendJob = new SendJob{data = InitJobData()};
+            ScheduleJobData(sendJob);
+        }
+    }
     [DisableAutoCreation]
-    public class LagCompensationTestCommandCommandReceiveSystem : CommandReceiveSystem<LagCompensationTestCommand>
-    {}
+    public class LagCompensationTestCommandCommandReceiveSystem : CommandReceiveSystem<LagCompensationTestCommand, LagCompensationTestCommand>
+    {
+        [BurstCompile]
+        struct ReceiveJob : IJobEntityBatch
+        {
+            public ReceiveJobData data;
+            public void Execute(ArchetypeChunk chunk, int orderIndex)
+            {
+                data.Execute(chunk, orderIndex);
+            }
+        }
+        protected override void OnUpdate()
+        {
+            var recvJob = new ReceiveJob{data = InitJobData()};
+            ScheduleJobData(recvJob);
+        }
+    }
 
     [DisableAutoCreation]
     [UpdateInGroup(typeof(ServerSimulationSystemGroup))]
     [UpdateBefore(typeof(GhostSimulationSystemGroup))]
-    public class LagCompensationTestCubeMoveSystem : JobComponentSystem
+    public class LagCompensationTestCubeMoveSystem : SystemBase
     {
-        protected override JobHandle OnUpdate(JobHandle inputDeps)
+        protected override void OnUpdate()
         {
-            return Entities.WithNone<LagCompensationTestPlayer>().WithAll<GhostComponent>().ForEach((ref Translation pos) => {
+            Entities.WithNone<LagCompensationTestPlayer>().WithAll<GhostComponent>().ForEach((ref Translation pos) => {
                 pos.Value.x += 0.1f;
                 if (pos.Value.x > 100)
                     pos.Value.x -= 200;
-            }).Schedule(inputDeps);
+            }).ScheduleParallel();
         }
     }
 
     [DisableAutoCreation]
     [UpdateInGroup(typeof(GhostPredictionSystemGroup))]
-    public class LagCompensationTestHitScanSystem : JobComponentSystem
+    public class LagCompensationTestHitScanSystem : SystemBase
     {
         private PhysicsWorldHistory m_physicsHistory;
         private GhostPredictionSystemGroup m_predictionGroup;
@@ -139,16 +168,16 @@ namespace Unity.NetCode.Physics.Tests
             m_predictionGroup = World.GetOrCreateSystem<GhostPredictionSystemGroup>();
             m_IsServer = World.GetExistingSystem<ServerSimulationSystemGroup>() != null;
         }
-        protected override JobHandle OnUpdate(JobHandle inputDeps)
+        protected override void OnUpdate()
         {
             var collisionHistory = m_physicsHistory.CollisionHistory;
             uint predictingTick = m_predictionGroup.PredictingTick;
             // Do not perform hit-scan when rolling back, only when simulating the latest tick
             if (!m_predictionGroup.IsFinalPredictionTick)
-                return inputDeps;
+                return;
             var isServer = m_IsServer;
             // Not using burst since there is a static used to update the UI
-            var handle = Entities
+            Dependency = Entities
                 .WithoutBurst()
                 .ForEach((DynamicBuffer<LagCompensationTestCommand> commands, in CommandDataInterpolationDelay delay) =>
             {
@@ -170,17 +199,17 @@ namespace Unity.NetCode.Physics.Tests
                 {
                     HitStatus |= isServer?1:2;
                 }
-            }).Schedule(JobHandle.CombineDependencies(inputDeps, m_physicsHistory.LastPhysicsJobHandle));
+            }).Schedule(JobHandle.CombineDependencies(Dependency, m_physicsHistory.LastPhysicsJobHandle));
 
-            m_physicsHistory.LastPhysicsJobHandle = handle;
-            return handle;
+            m_physicsHistory.LastPhysicsJobHandle = Dependency;
         }
     }
     [UpdateInGroup(typeof(ClientSimulationSystemGroup))]
     [UpdateBefore(typeof(GhostSimulationSystemGroup))]
     [UpdateBefore(typeof(LagCompensationTestCommandCommandSendSystem))]
+    [AlwaysSynchronizeSystem]
     [DisableAutoCreation]
-    public class LagCompensationTestCommandSystem : JobComponentSystem
+    public class LagCompensationTestCommandSystem : SystemBase
     {
         public static float3 Target;
         ClientSimulationSystemGroup m_systemGroup;
@@ -189,9 +218,8 @@ namespace Unity.NetCode.Physics.Tests
             RequireSingletonForUpdate<CommandTargetComponent>();
             m_systemGroup = World.GetExistingSystem<ClientSimulationSystemGroup>();
         }
-        protected override JobHandle OnUpdate(JobHandle inputDeps)
+        protected override void OnUpdate()
         {
-            inputDeps.Complete();
             var target = GetSingleton<CommandTargetComponent>();
             if (target.targetEntity == Entity.Null)
             {
@@ -201,26 +229,25 @@ namespace Unity.NetCode.Physics.Tests
                 }).Run();
             }
             if (target.targetEntity == Entity.Null || m_systemGroup.ServerTick == 0 || !EntityManager.HasComponent<LagCompensationTestCommand>(target.targetEntity))
-                return default;
+                return;
 
             var buffer = EntityManager.GetBuffer<LagCompensationTestCommand>(target.targetEntity);
             var cmd = default(LagCompensationTestCommand);
-            cmd.tick = m_systemGroup.ServerTick;
+            cmd.Tick = m_systemGroup.ServerTick;
             if (math.any(Target != default))
             {
                 Entities.WithoutBurst().WithNone<PredictedGhostComponent>().WithAll<GhostComponent>().ForEach((in Translation pos) => {
                     var offset = new float3(0,0,-10);
                     cmd.origin = pos.Value + offset;
                     cmd.direction = Target - offset;
-                    cmd.lastFire = cmd.tick;
+                    cmd.lastFire = cmd.Tick;
                 }).Run();
                 Target = default;
             }
             // Not firing and data for the tick already exists, skip it to make sure a fiew command is not overwritten
-            else if (buffer.GetDataAtTick(cmd.tick, out var dupCmd) && dupCmd.Tick == cmd.tick)
-                return default;
+            else if (buffer.GetDataAtTick(cmd.Tick, out var dupCmd) && dupCmd.Tick == cmd.Tick)
+                return;
             buffer.AddCommandData(cmd);
-            return default;
         }
     }
 

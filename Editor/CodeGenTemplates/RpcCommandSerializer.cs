@@ -2,32 +2,32 @@
 using AOT;
 using Unity.Burst;
 using Unity.Networking.Transport;
-#region __RPC_USING_STATEMENT__
-using __RPC_USING__;
+#region __COMMAND_USING_STATEMENT__
+using __COMMAND_USING__;
 #endregion
 
 
-namespace __RPC_NAMESPACE__
+namespace __COMMAND_NAMESPACE__
 {
     [BurstCompile]
-    public struct __RPC_NAME__Serializer : IComponentData, IRpcCommandSerializer<__RPC_COMPONENT_TYPE__>
+    public struct __COMMAND_NAME__Serializer : IComponentData, IRpcCommandSerializer<__COMMAND_COMPONENT_TYPE__>
     {
-        public void Serialize(ref DataStreamWriter writer, in __RPC_COMPONENT_TYPE__ data)
+        public void Serialize(ref DataStreamWriter writer, in __COMMAND_COMPONENT_TYPE__ data)
         {
-            #region __RPC_WRITE__
+            #region __COMMAND_WRITE__
             #endregion
         }
 
-        public void Deserialize(ref DataStreamReader reader, ref __RPC_COMPONENT_TYPE__ data)
+        public void Deserialize(ref DataStreamReader reader, ref __COMMAND_COMPONENT_TYPE__ data)
         {
-            #region __RPC_READ__
+            #region __COMMAND_READ__
             #endregion
         }
         [BurstCompile]
         [MonoPInvokeCallback(typeof(RpcExecutor.ExecuteDelegate))]
         private static void InvokeExecute(ref RpcExecutor.Parameters parameters)
         {
-            RpcExecutor.ExecuteCreateRequestComponent<__RPC_NAME__Serializer, __RPC_COMPONENT_TYPE__>(ref parameters);
+            RpcExecutor.ExecuteCreateRequestComponent<__COMMAND_NAME__Serializer, __COMMAND_COMPONENT_TYPE__>(ref parameters);
         }
 
         static PortableFunctionPointer<RpcExecutor.ExecuteDelegate> InvokeExecuteFunctionPointer =
@@ -37,7 +37,21 @@ namespace __RPC_NAMESPACE__
             return InvokeExecuteFunctionPointer;
         }
     }
-    class __RPC_NAME__RpcCommandRequestSystem : RpcCommandRequestSystem<__RPC_NAME__Serializer, __RPC_COMPONENT_TYPE__>
+    class __COMMAND_NAME__RpcCommandRequestSystem : RpcCommandRequestSystem<__COMMAND_NAME__Serializer, __COMMAND_COMPONENT_TYPE__>
     {
+        [BurstCompile]
+        protected struct SendRpc : IJobEntityBatch
+        {
+            public SendRpcData data;
+            public void Execute(ArchetypeChunk chunk, int orderIndex)
+            {
+                data.Execute(chunk, orderIndex);
+            }
+        }
+        protected override void OnUpdate()
+        {
+            var sendJob = new SendRpc{data = InitJobData()};
+            ScheduleJobData(sendJob);
+        }
     }
 }

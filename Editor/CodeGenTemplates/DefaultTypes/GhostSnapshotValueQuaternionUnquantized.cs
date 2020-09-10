@@ -21,23 +21,35 @@ namespace Generated
             #endregion
         }
 
-        public void SerializeRpc(ref DataStreamWriter writer, in IComponentData data)
+        public void SerializeCommand(ref DataStreamWriter writer, in IComponentData data, in IComponentData baseline, NetworkCompressionModel compressionModel)
         {
-            #region __RPC_WRITE__
-            writer.WriteFloat(data.__RPC_FIELD_NAME__.value.x);
-            writer.WriteFloat(data.__RPC_FIELD_NAME__.value.y);
-            writer.WriteFloat(data.__RPC_FIELD_NAME__.value.z);
-            writer.WriteFloat(data.__RPC_FIELD_NAME__.value.w);
+            #region __COMMAND_WRITE__
+            writer.WriteFloat(data.__COMMAND_FIELD_NAME__.value.x);
+            writer.WriteFloat(data.__COMMAND_FIELD_NAME__.value.y);
+            writer.WriteFloat(data.__COMMAND_FIELD_NAME__.value.z);
+            writer.WriteFloat(data.__COMMAND_FIELD_NAME__.value.w);
+            #endregion
+            #region __COMMAND_WRITE_PACKED__
+            writer.WritePackedFloatDelta(data.__COMMAND_FIELD_NAME__.value.x, baseline.__COMMAND_FIELD_NAME__.value.x, compressionModel);
+            writer.WritePackedFloatDelta(data.__COMMAND_FIELD_NAME__.value.y, baseline.__COMMAND_FIELD_NAME__.value.y, compressionModel);
+            writer.WritePackedFloatDelta(data.__COMMAND_FIELD_NAME__.value.z, baseline.__COMMAND_FIELD_NAME__.value.z, compressionModel);
+            writer.WritePackedFloatDelta(data.__COMMAND_FIELD_NAME__.value.w, baseline.__COMMAND_FIELD_NAME__.value.w, compressionModel);
             #endregion
         }
 
-        public void DeserializeRpc(ref DataStreamReader reader, ref IComponentData data)
+        public void DeserializeCommand(ref DataStreamReader reader, ref IComponentData data, in IComponentData baseline, NetworkCompressionModel compressionModel)
         {
-            #region __RPC_READ__
-            data.__RPC_FIELD_NAME__.value.x = reader.ReadFloat();
-            data.__RPC_FIELD_NAME__.value.y = reader.ReadFloat();
-            data.__RPC_FIELD_NAME__.value.z = reader.ReadFloat();
-            data.__RPC_FIELD_NAME__.value.w = reader.ReadFloat();
+            #region __COMMAND_READ__
+            data.__COMMAND_FIELD_NAME__.value.x = reader.ReadFloat();
+            data.__COMMAND_FIELD_NAME__.value.y = reader.ReadFloat();
+            data.__COMMAND_FIELD_NAME__.value.z = reader.ReadFloat();
+            data.__COMMAND_FIELD_NAME__.value.w = reader.ReadFloat();
+            #endregion
+            #region __COMMAND_READ_PACKED__
+            data.__COMMAND_FIELD_NAME__.value.x = reader.ReadPackedFloatDelta(baseline.__COMMAND_FIELD_NAME__.value.x, compressionModel);
+            data.__COMMAND_FIELD_NAME__.value.y = reader.ReadPackedFloatDelta(baseline.__COMMAND_FIELD_NAME__.value.y, compressionModel);
+            data.__COMMAND_FIELD_NAME__.value.z = reader.ReadPackedFloatDelta(baseline.__COMMAND_FIELD_NAME__.value.z, compressionModel);
+            data.__COMMAND_FIELD_NAME__.value.w = reader.ReadPackedFloatDelta(baseline.__COMMAND_FIELD_NAME__.value.w, compressionModel);
             #endregion
         }
         public void Serialize(ref Snapshot snapshot, ref Snapshot baseline, ref DataStreamWriter writer, ref NetworkCompressionModel compressionModel, uint changeMask)

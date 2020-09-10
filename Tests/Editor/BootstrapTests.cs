@@ -7,7 +7,7 @@ namespace Unity.NetCode.Tests
 {
     [DisableAutoCreation]
     [UpdateInWorld(UpdateInWorld.TargetWorld.Default)]
-    public class ExplicitDefaultSystem : ComponentSystem
+    public class ExplicitDefaultSystem : SystemBase
     {
         protected override void OnUpdate()
         {
@@ -15,7 +15,7 @@ namespace Unity.NetCode.Tests
     }
     [DisableAutoCreation]
     [UpdateInWorld(UpdateInWorld.TargetWorld.Client)]
-    public class ExplicitClientSystem : ComponentSystem
+    public class ExplicitClientSystem : SystemBase
     {
         protected override void OnUpdate()
         {
@@ -23,7 +23,7 @@ namespace Unity.NetCode.Tests
     }
     [DisableAutoCreation]
     [UpdateInWorld(UpdateInWorld.TargetWorld.Server)]
-    public class ExplicitServerSystem : ComponentSystem
+    public class ExplicitServerSystem : SystemBase
     {
         protected override void OnUpdate()
         {
@@ -31,7 +31,7 @@ namespace Unity.NetCode.Tests
     }
     [DisableAutoCreation]
     [UpdateInWorld(UpdateInWorld.TargetWorld.ClientAndServer)]
-    public class ExplicitClientServerSystem : ComponentSystem
+    public class ExplicitClientServerSystem : SystemBase
     {
         protected override void OnUpdate()
         {

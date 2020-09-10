@@ -42,8 +42,11 @@ namespace Generated
             {
                 #region __GHOST_COPY_FROM_SNAPSHOT__
                 component.__GHOST_FIELD_REFERENCE__ = Entity.Null;
-                if (snapshotBefore.__GHOST_FIELD_NAME__ != 0 && deserializerState.GhostMap.TryGetValue(new SpawnedGhost{ghostId = snapshotBefore.__GHOST_FIELD_NAME__, spawnTick = snapshotBefore.__GHOST_FIELD_NAME__SpawnTick}, out var ghostEnt))
-                    component.__GHOST_FIELD_REFERENCE__ = ghostEnt;
+                if (snapshotBefore.__GHOST_FIELD_NAME__ != 0)
+                {
+                    if (deserializerState.GhostMap.TryGetValue(new SpawnedGhost{ghostId = snapshotBefore.__GHOST_FIELD_NAME__, spawnTick = snapshotBefore.__GHOST_FIELD_NAME__SpawnTick}, out var ghostEnt))
+                        component.__GHOST_FIELD_REFERENCE__ = ghostEnt;
+                }
                 #endregion
             }
         }

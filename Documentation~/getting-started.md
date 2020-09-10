@@ -12,7 +12,9 @@ Open the Package Manager (menu: __Window &gt; Package Manager__). At the top of 
 >[!WARNING]
 > As of Unity version 2020.1, in-preview packages no longer appear in the Package Manager. To use preview packages, either manually edit your [project manifest](https://docs.unity3d.com/2020.1/Documentation/Manual/upm-concepts.html?_ga=2.181752096.669754589.1597830146-1414726221.1582037216#Manifests) or search for the package in the **Add package from Git URL** field in the Package Manager. For more information, see the [announcement blog for these changes to the Package Manager.](https://blogs.unity3d.com/2020/06/24/package-manager-updates-in-unity-2020-1/?_ga=2.84647326.669754589.1597830146-1414726221.1582037216)
 
-The NetCode package requires the Entities, Hybrid Renderer, and Transport packages to work. To install these packages while they are still in preview, either edit your project manifest to include the target package name, or type the name of the package you want to install into the **Add package from git URL** menu in the Package Manager. For example, to install the Transport package using the Package Manager, go to **Window** > **Package Manager**, click on the plus icon to open the **Add package from...** sub-menu and click on **Add package from git url...**, then type "com.unity.transport" into the text field and press **Enter**. To install the same package through your package.json manifest file, add "com.unity.transport": "0.4.0-preview.1" to your dependencies list. Version 0.4.0-preview.1 is used here as an example and is not a specific version dependency.
+The NetCode package requires the Entities, Hybrid Renderer, and Transport packages to work. To install these packages while they are still in preview, either edit your project manifest to include the target package name, or type the name of the package you want to install into the **Add package from git URL** menu in the Package Manager.
+
+For example, to install the Transport package using the Package Manager, go to **Window** > **Package Manager**, click on the plus icon to open the **Add package from...** sub-menu and click on **Add package from git url...**, then type "com.unity.transport" into the text field and press **Enter**. To install the same package through your package.json manifest file, add "com.unity.transport": "0.4.0-preview.1" to your dependencies list. Version 0.4.0-preview.1 is used here as an example and is not a specific version dependency.
 
 ## Create an initial Scene
 
@@ -75,7 +77,9 @@ In the Inspector, select the __Update ghost list__ button.
 ![Ghost Collection settings](images/ghost-collection.png)<br/>_Ghost Collection settings_
 
 ## Establish a connection
-Next, you need to make sure that the server starts listening for connections, the client connects, and all connections are marked as "in game" so NetCode can start sending snapshots. You don’t need a full flow in this case, so write the minimal amount of code to set it up. Create a file called *Game.cs* in your __Assets__ folder and add the following code to the file:
+Next, you need to make sure that the server starts listening for connections, the client connects, and all connections are marked as "in game" so NetCode can start sending snapshots. You don’t need a full flow in this case, so write the minimal amount of code to set it up.
+
+Create a file called *Game.cs* in your __Assets__ folder and add the following code to the file:
 
 ```c#
 using System;
@@ -140,49 +144,15 @@ public struct GoInGameRequest : IRpcCommand
 To make sure you can send input from the client to the server, you need to create an `ICommandData` struct. This struct is responsible for serializing and deserializing the input data. Create a script called *CubeInput.cs* and write the `CubeInput CommandData` as follows:
 
 ```c#
-public struct CubeInput : ICommandData<CubeInput>
+public struct CubeInput : ICommandData
 {
-    public uint Tick => tick;
-    public uint tick;
+    public uint Tick {get; set;}
     public int horizontal;
     public int vertical;
-
-    public void Deserialize(uint tick, ref DataStreamReader reader)
-    {
-        this.tick = tick;
-        horizontal = reader.ReadInt();
-        vertical = reader.ReadInt();
-    }
-
-    public void Serialize(ref DataStreamWriter writer)
-    {
-        writer.WriteInt(horizontal);
-        writer.WriteInt(vertical);
-    }
-
-    public void Deserialize(uint tick, ref DataStreamReader reader, CubeInput baseline,
-        NetworkCompressionModel compressionModel)
-    {
-        Deserialize(tick, ref reader);
-    }
-
-    public void Serialize(ref DataStreamWriter writer, CubeInput baseline, NetworkCompressionModel compressionModel)
-    {
-        Serialize(ref writer);
-    }
 }
 ```
 
-The command stream consists of the current tick and the horizontal and vertical movements. You need to set up `ICommandData` with some systems to handle the command as follows:
-
-```c#
-public class NetCubeSendCommandSystem : CommandSendSystem<CubeInput>
-{
-}
-public class NetCubeReceiveCommandSystem : CommandReceiveSystem<CubeInput>
-{
-}
-```
+The command stream consists of the current tick and the horizontal and vertical movements. The serialization code for the data will be automatically generated.
 
 To sample the input, send it over the wire. To do this, create a System for it as follows:
 
@@ -193,7 +163,6 @@ public class SampleCubeInput : ComponentSystem
     protected override void OnCreate()
     {
         RequireSingletonForUpdate<NetworkIdComponent>();
-        RequireSingletonForUpdate<EnableNetCubeGhostReceiveSystemComponent>();
     }
 
     protected override void OnUpdate()
@@ -202,9 +171,9 @@ public class SampleCubeInput : ComponentSystem
         if (localInput == Entity.Null)
         {
             var localPlayerId = GetSingleton<NetworkIdComponent>().Value;
-            Entities.WithNone<CubeInput>().ForEach((Entity ent, ref MovableCubeComponent cube) =>
+            Entities.WithAll<MovableCubeComponent>().WithNone<CubeInput>().ForEach((Entity ent, ref GhostOwnerComponent ghostOwner) =>
             {
-                if (cube.PlayerId == localPlayerId)
+                if (ghostOwner.NetworkId == localPlayerId)
                 {
                     PostUpdateCommands.AddBuffer<CubeInput>(ent);
                     PostUpdateCommands.SetComponent(GetSingletonEntity<CommandTargetComponent>(), new CommandTargetComponent {targetEntity = ent});
@@ -297,14 +266,15 @@ public class GoInGameServerSystem : ComponentSystem
         {
             PostUpdateCommands.AddComponent<NetworkStreamInGame>(reqSrc.SourceConnection);
             UnityEngine.Debug.Log(String.Format("Server setting connection {0} to in game", EntityManager.GetComponentData<NetworkIdComponent>(reqSrc.SourceConnection).Value));
-            var ghostCollection = GetSingleton<GhostPrefabCollectionComponent>();
+            var ghostCollection = GetSingletonEntity<GhostPrefabCollectionComponent>();
             var prefab = Entity.Null;
-            var serverPrefabs = EntityManager.GetBuffer<GhostPrefabBuffer>(ghostCollection.serverPrefabs);
-            for (int ghostId = 0; ghostId < serverPrefabs.Length; ++ghostId)
+            var prefabs = EntityManager.GetBuffer<GhostPrefabBuffer>(ghostCollection);
+            for (int ghostId = 0; ghostId < prefabs.Length; ++ghostId)
             {
-                if (EntityManager.HasComponent<MovableCubeComponent>(serverPrefabs[ghostId].Value))
-                    prefab = serverPrefabs[ghostId].Value;
+                if (EntityManager.HasComponent<MovableCubeComponent>(prefabs[ghostId].Value))
+                    prefab = prefabs[ghostId].Value;
             }
+            var player = EntityManager.Instantiate(prefab);
             EntityManager.SetComponentData(player, new GhostOwnerComponent { NetworkId = EntityManager.GetComponentData<NetworkIdComponent>(reqSrc.SourceConnection).Value});
             PostUpdateCommands.AddBuffer<CubeInput>(player);
 
@@ -328,5 +298,5 @@ To recap this workflow:
 1. Establish a connection between the client and the server.
 1. Write an `Rpc` to tell the server you are ready to play.
 1. Write an `ICommandData` to serialize game input.
-1. Write a client system to send an `Rpc`
+1. Write a client system to send an `Rpc`.
 1. Write a server system to handle the incoming `Rpc`.

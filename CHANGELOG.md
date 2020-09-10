@@ -1,5 +1,93 @@
 # Change log
 
+## [0.4.0] - 2020-09-10
+### New features
+* Code gen support for ICommandData, serialization for command data can now be generated instead of hand-written. You can opt out of code generation by adding `[NetCodeDisableCommandCodeGen]`.
+* `NetCodeConversionSettings` has a new Client And Server mode, which makes it possible to build a single standalong build supporting both client and server.
+* There is a new static method to generate predicted spawn version of a prefab, `GhostCollectionSystem.CreatePredictedSpawnPrefab`.
+
+### Changes
+* When not using code-gen for rpcs or commands the systems for registering them (the ones extending `RpcCommandRequestSystem<TActionSerializer, TActionRequest>`, `CommandSendSystem<TCommandDataSerializer, TCommandData>` and `CommandReceiveSystem<TCommandDataSerializer, TCommandData>`) need some more code to setup the jobs.
+* The `ICommandData` interface no longer takes an additional generic type.
+* Added a `CommandSendSystemGroup` and a `CommandReceiveSystemGroup` which can be used for dependencies when generating code for `ICommandData`.
+* Moved the GameObjects used for authoring to a separate assembly.
+* Fixed tickrate on the client is no longer supported. This also means that the render interpolation has been removed.
+* Using multiple rendering clients in the editor is no longer supported, thin clients are still supported.
+* The `GhostPrefabCollectionComponent` now only contains a single prefab list, and the `GhostPrefabBuffer` for it is attached to the same entity.
+
+### Deprecated
+* Deprecated `ConvertToClientServerEntity`, please use the sub-scene conversion workflow instead.
+
+### Fixes
+* Fixed a compile error in the generated code for components containing multiple ghosted Entity references.
+* Fixed a bug where predicted spawn ghosts were not destroyed on mis-prediction.
+* Fixed a bug where data for child entities on predicted ghosts could be corrupted.
+
+### Upgrade guide
+* The predicted spawn code must switch to using the new `GhostCollectionSystem.CreatePredictedSpawnPrefab` utility method since there is only a single prefab on the client and it requires some patching before it can be used.
+* When using the `GhostPrefabCollectionComponent` to find a prefab to find a ghost prefab on the server you must change the code to read the `GhostPrefabBuffer` from the same entity as `GhostPrefabCollectionComponent`.
+* If you are using fixed tickrate mode on the client you need to remove the creation of the `FixedClientTickRate` singleton and remove the `CurrentSimulatedPosition` and `CurrentSimulatedRotation` if using them.
+* If you are using "Num Clients" in the PlayMode tools you need to move to using "Num Thin Clients" instead.
+* RPCs not using code-gen needs to add more code to the `RpcCommandRequestSystem`. The new implementation should look like this:
+```c#
+class MyRequestRpcCommandRequestSystem : RpcCommandRequestSystem<MyRequestSerializer, MyRequest>
+{
+    [BurstCompile]
+    protected struct SendRpc : IJobEntityBatch
+    {
+        public SendRpcData data;
+        public void Execute(ArchetypeChunk chunk, int orderIndex)
+        {
+            data.Execute(chunk, orderIndex);
+        }
+    }
+    protected override void OnUpdate()
+    {
+        var sendJob = new SendRpc{data = InitJobData()};
+        ScheduleJobData(sendJob);
+    }
+}
+```
+* The `Tick` property in `ICommandData` now requires both a getter and a setter.
+* ICommandData structs no longer need serialization or implementaions of `CommandSendSystem` and `CommandReceiveSystem` if you are using code-gen, and the interface changed from `ICommandData<T>` to `ICommandData`.
+* When manually writing serialization code for `ICommandData` you need to move the serialization code to a struct implementing `ICommandDataSerialize<T>`, and the `CommandSendSystem` and `CommandReceiveSystem` implementations need code to schedule the jobs like this:
+```c#
+public class MyCommandSendCommandSystem : CommandSendSystem<MyCommandSerializer, MyCommand>
+{
+    [BurstCompile]
+    struct SendJob : IJobEntityBatch
+    {
+        public SendJobData data;
+        public void Execute(ArchetypeChunk chunk, int orderIndex)
+        {
+            data.Execute(chunk, orderIndex);
+        }
+    }
+    protected override void OnUpdate()
+    {
+        var sendJob = new SendJob{data = InitJobData()};
+        ScheduleJobData(sendJob);
+    }
+}
+public class MyCommandReceiveCommandSystem : CommandReceiveSystem<MyCommandSerializer, MyCommand>
+{
+    [BurstCompile]
+    struct ReceiveJob : IJobEntityBatch
+    {
+        public ReceiveJobData data;
+        public void Execute(ArchetypeChunk chunk, int orderIndex)
+        {
+            data.Execute(chunk, orderIndex);
+        }
+    }
+    protected override void OnUpdate()
+    {
+        var recvJob = new ReceiveJob{data = InitJobData()};
+        ScheduleJobData(recvJob);
+    }
+}
+```
+
 ## [0.3.0-preview.3] - 2020-08-21
 ### New features
 * New workflow for generating serialization code for ghosts. In the new workflow code is generated per component and there is no codegen per ghost type prefab.
@@ -14,18 +102,22 @@
 * Added visualization of prediction errors to the NetDbg.
 * A connection entity on the server can have a `NetworkStreamSnapshotTargetSize` which is used to control the target size for snapshots.
 * Added `GhostReceiveSystem.GhostCountOnServer` and `GhostReceiveSystem.GhostCountOnClient` which can be used to check how many ghosts a client should have and how many it does have.
+
 ### Changes
 * Support for `NativeString64` has been replaced by support for `FixedString64`. Support for `FixedString32`, `FixedString128`, `FixedString512` and `FixedString4096` has also been added.
 * In dynamic timestep mode it is now possible to resume prediction from the last full predicted tick instead of rolling back to the latest received snapshot when no new data has been received.
 * Added a `DisableLagCompensationComponent` which when added as a singleton prevents the lag compensation system from running.
+
 ### Fixes
 * Quaternions are renormalized after dequantization to make sure they are still valid rotations.
 * Floats are rounded to the nearest int after quantization to improve acuracy.
 * It is now possible to send more than one packet with RPC commands per frame, previously commands could be silently dropped when doing that.
+
 ### Upgrade guide
 * `NativeString64` is no longer uspported, change your code to use `FixedString64` instead.
 * `GhostUpdateSystemGroup` no longer exists, references to it for update order should be replaced with `GhostUpdateSystem`
 * NetCode now requires Unity 2020.1.2.
+
 #### New ghost workflow
 * Change all `[GhostDefaultField]` to `[GhostField]` and all `[GhostDefaultComponent]` to `[GhostComponent]` in your components. The parameters to the constructors have also changed, you need to specify `[GhostField(Quantization=100, Interpolate=true)]` instead of `[GhostDefaultField(100, true)]`.
 * For all ghosts which manually adds fields you must add `GhostField` attributes to the component since manual overrides are no longer supported.
@@ -38,6 +130,7 @@
 * If you are using predictive spawning the new way to request a predictive spawn is to instantiate the predicted client version of the ghost prefab and add a `PredictedGhostSpawnRequestComponent` to the entity.
 * Any custom spawn behavior - including matching entities for pre-spawned ghosts - previously implemented in `MarkPredictedGhosts` must be moved to a spawn classification system.
 * Any custom code to modify spawned ghosts previously implemented in `UpdateNewPredictedEntities` or `UpdateNewInterpolatedEntities` must be moved to systems running in the `GhostSpawnSystemGroup` after `GhostSpawnSystem`. Use tag components to deterct which ghosts are new.
+
 #### RPC
 * If your `IRpcCommand` component only uses `RpcExecutor.ExecuteCreateRequestComponent` in the execute method you can remove the implementations for `Serialize`, `Deserialize`, `CompileExecute` along with the execute method and burst function pointer for it. You also need to remove the `CommandRequestSystem` implementationf for your component. All of those will be generated by code-gen.
 * All RPC implementations which still needs manual serialization or execute must be changed to implement `public struct MyRequest : IComponentData, IRpcCommandSerializer<MyRequest>` instead of `public stuct MyRequest : IRpcCommand`.

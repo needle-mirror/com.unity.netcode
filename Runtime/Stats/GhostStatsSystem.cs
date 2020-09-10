@@ -16,7 +16,7 @@ namespace Unity.NetCode
     [UpdateBefore(typeof(TickServerSimulationSystem))]
 #endif
     [UpdateInWorld(UpdateInWorld.TargetWorld.Default)]
-    class GhostStatsSystem : ComponentSystem
+    class GhostStatsSystem : SystemBase
     {
         #if UNITY_EDITOR
         [MenuItem("Multiplayer/Open NetDbg")]

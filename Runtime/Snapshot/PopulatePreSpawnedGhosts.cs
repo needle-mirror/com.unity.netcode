@@ -6,116 +6,6 @@ using Unity.NetCode;
 using Unity.Scenes;
 using Unity.Transforms;
 
-[UpdateInGroup(typeof(GameObjectAfterConversionGroup))]
-[UpdateAfter(typeof(GhostAuthoringConversion))]
-class PreSpawnedGhosts : GameObjectConversionSystem
-{
-    protected override void OnUpdate()
-    {
-        var hashToEntity = new NativeHashMap<ulong, Entity>(128, Allocator.TempJob);
-
-        // TODO: Check that the GhostAuthoringComponent is interpolated, as we don't support predicted atm
-        Entities.ForEach((GhostAuthoringComponent ghostAuthoring) =>
-        {
-            var entity = GetPrimaryEntity(ghostAuthoring);
-            var isInSubscene = DstEntityManager.HasComponent<SceneSection>(entity);
-            var isPrefab = DstEntityManager.HasComponent<Prefab>(entity);
-            var activeInScene = ghostAuthoring.gameObject.activeInHierarchy;
-            if (!isPrefab && isInSubscene && activeInScene)
-            {
-                var hashData = new NativeList<ulong>(Allocator.TempJob);
-                var componentTypes = DstEntityManager.GetComponentTypes(entity, Allocator.TempJob);
-                // Hash all the data on the entity (first each component data then all together)
-                for (int i = 0; i < componentTypes.Length; ++i)
-                {
-                    // Do not include components which might be included or not included depending on if you are a
-                    // client or a server
-                    // TODO: Check the interpolated/predicted/server bools instead
-                    //       Only iterate ghostAuthoring.Components
-                    //       Should skip PhysicsCollider, WorldRenderBounds, XXXSnapshotData, PredictedGhostComponent
-                    if (componentTypes[i] == typeof(Translation) || componentTypes[i] == typeof(Rotation))
-                    {
-                        var componentDataHash = ComponentDataToHash(entity, componentTypes[i]);
-                        hashData.Add(componentDataHash);
-                    }
-                }
-                hashData.Sort();
-
-                ulong combinedComponentHash;
-                unsafe
-                {
-                    combinedComponentHash = Unity.Core.XXHash.Hash64((byte*)hashData.GetUnsafeReadOnlyPtr(), hashData.Length * sizeof(ulong));
-                }
-
-                // When duplicating a scene object it will have the same position/rotation as the original, so until that
-                // changes there will always be a duplicate hash until it's moved to it's own location
-                if (!hashToEntity.ContainsKey(combinedComponentHash))
-                    hashToEntity.Add(combinedComponentHash, entity);
-
-                componentTypes.Dispose();
-                hashData.Dispose();
-            }
-        });
-
-        if (hashToEntity.Count() > 0)
-        {
-            var keys = hashToEntity.GetKeyArray(Allocator.TempJob);
-            keys.Sort();
-
-            // Assign ghost IDs to the pre-spawned entities sorted by component data hash
-            for (int i = 0; i < keys.Length; ++i)
-            {
-                DstEntityManager.AddComponentData(hashToEntity[keys[i]], new PreSpawnedGhostId {Value = i + 1});
-            }
-
-            // Save the final subscene hash with all the pre-spawned ghosts
-            unsafe
-            {
-                var hash = Unity.Core.XXHash.Hash64((byte*) keys.GetUnsafeReadOnlyPtr(), keys.Length * sizeof(ulong));
-
-                for (int i = 0; i < keys.Length; ++i)
-                {
-                    // Track the subscene which is the parent of this entity
-                    DstEntityManager.AddSharedComponentData(hashToEntity[keys[i]], new SubSceneGhostComponentHash {Value = hash});
-                }
-            }
-            keys.Dispose();
-        }
-        hashToEntity.Dispose();
-    }
-
-    ulong ComponentDataToHash(Entity entity, ComponentType componentType)
-    {
-        var untypedType = DstEntityManager.GetDynamicComponentTypeHandle(componentType);
-        var chunk = DstEntityManager.GetChunk(entity);
-        var sizeInChunk = TypeManager.GetTypeInfo(componentType.TypeIndex).SizeInChunk;
-        var data = chunk.GetDynamicComponentDataArrayReinterpret<byte>(untypedType, sizeInChunk);
-
-        var entityType = GetEntityTypeHandle();
-        var entities = chunk.GetNativeArray(entityType);
-        int index = -1;
-        for (int j = 0; j < entities.Length; ++j)
-        {
-            if (entities[j] == entity)
-            {
-                index = j;
-                break;
-            }
-        }
-
-        ulong hash = 0;
-        if (index != -1)
-        {
-            unsafe
-            {
-                hash = Unity.Core.XXHash.Hash64((byte*)data.GetUnsafeReadOnlyPtr() + (index*sizeInChunk), sizeInChunk);
-            }
-        }
-
-        return hash;
-    }
-}
-
 public struct PreSpawnsInitialized : IComponentData
 {}
 
@@ -125,7 +15,7 @@ public struct HighestPrespawnIDAllocated : IComponentData
 }
 
 [UpdateInGroup(typeof(ClientAndServerSimulationSystemGroup))]
-public class PopulatePreSpawnedGhosts : ComponentSystem
+public class PopulatePreSpawnedGhosts : SystemBase
 {
     private EntityQuery m_UninitializedScenes;
     private EntityQuery m_Prespawns;
@@ -209,13 +99,14 @@ public class PopulatePreSpawnedGhosts : ComponentSystem
             scenePadding += subsceneMap.CountValuesForKey(subsceneArray.Item1[i]);
         }
 
+        var PostUpdateCommands = new EntityCommandBuffer(Allocator.Temp);
         var serverSystems = World.GetExistingSystem<ServerSimulationSystemGroup>();
         var ghostTypes = GetComponentDataFromEntity<GhostTypeComponent>();
         var ghostPrefabBufferFromEntity = GetBufferFromEntity<GhostPrefabBuffer>(true);
-        var serverPrefabEntity = GetSingleton<GhostPrefabCollectionComponent>().serverPrefabs;
+        var prefabEntity = GetSingletonEntity<GhostPrefabCollectionComponent>();
         var ghostReceiveSystem = World.GetExistingSystem<GhostReceiveSystem>();
         var ghostCollectionSystem = World.GetExistingSystem<GhostCollectionSystem>();
-        DynamicBuffer<GhostPrefabBuffer> prefabList = ghostPrefabBufferFromEntity[serverPrefabEntity];
+        DynamicBuffer<GhostPrefabBuffer> prefabList = ghostPrefabBufferFromEntity[prefabEntity];
         int highestPrespawnId = -1;
         var spawnedGhosts = new NativeList<SpawnedGhostMapping>(1024, Allocator.Temp);
         for (int i = 0; i < prespawnChunk.Length; ++i)
@@ -245,6 +136,45 @@ public class PopulatePreSpawnedGhosts : ComponentSystem
                 {
                     UnityEngine.Debug.LogWarning(entity + " already has ghostId=" + ghostComponents[entity].ghostId + " prespawn=" + preSpawnedIds[entity].Value);
                     continue;
+                }
+
+                // Modfy the entity to its proper version
+                if (EntityManager.HasComponent<GhostPrefabMetaDataComponent>(prefabList[ghostType].Value))
+                {
+                    ref var ghostMetaData = ref EntityManager.GetComponentData<GhostPrefabMetaDataComponent>(prefabList[ghostType].Value).Value.Value;
+                    if (serverSystems != null)
+                    {
+                        for (int rm = 0; rm < ghostMetaData.RemoveOnServer.Length; ++rm)
+                        {
+                            var rmCompType = ComponentType.ReadWrite(TypeManager.GetTypeIndexFromStableTypeHash(ghostMetaData.RemoveOnServer[rm]));
+                            PostUpdateCommands.RemoveComponent(entity, rmCompType);
+                        }
+                    }
+                    else
+                    {
+                        for (int rm = 0; rm < ghostMetaData.RemoveOnClient.Length; ++rm)
+                        {
+                            var rmCompType = ComponentType.ReadWrite(TypeManager.GetTypeIndexFromStableTypeHash(ghostMetaData.RemoveOnClient[rm]));
+                            PostUpdateCommands.RemoveComponent(entity, rmCompType);
+                        }
+                        // FIXME: should disable instead of removing once we have a way of doing that without structural changes
+                        if (ghostMetaData.DefaultMode == GhostPrefabMetaData.GhostMode.Predicted)
+                        {
+                            for (int rm = 0; rm < ghostMetaData.DisableOnPredictedClient.Length; ++rm)
+                            {
+                                var rmCompType = ComponentType.ReadWrite(TypeManager.GetTypeIndexFromStableTypeHash(ghostMetaData.DisableOnPredictedClient[rm]));
+                                PostUpdateCommands.RemoveComponent(entity, rmCompType);
+                            }
+                        }
+                        else if (ghostMetaData.DefaultMode == GhostPrefabMetaData.GhostMode.Interpolated)
+                        {
+                            for (int rm = 0; rm < ghostMetaData.DisableOnInterpolatedClient.Length; ++rm)
+                            {
+                                var rmCompType = ComponentType.ReadWrite(TypeManager.GetTypeIndexFromStableTypeHash(ghostMetaData.DisableOnInterpolatedClient[rm]));
+                                PostUpdateCommands.RemoveComponent(entity, rmCompType);
+                            }
+                        }
+                    }
                 }
 
                 var subsceneHash = EntityManager.GetSharedComponentData<SubSceneGhostComponentHash>(entity).Value;
@@ -313,6 +243,7 @@ public class PopulatePreSpawnedGhosts : ComponentSystem
         PostUpdateCommands.AddComponent(highestIdEntity,
             new HighestPrespawnIDAllocated{ GhostId = highestPrespawnId});
 
+        PostUpdateCommands.Playback(EntityManager);
         prespawnChunk.Dispose();
     }
 }

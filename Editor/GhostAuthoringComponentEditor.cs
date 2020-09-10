@@ -315,9 +315,7 @@ namespace Unity.NetCode.Editor
             using (var tempWorld = new World("TempGhostConversion"))
             using (var blobAssetStore = new BlobAssetStore())
             {
-                self.doNotStrip = true;
                 var convertedEntity = GameObjectConversionUtility.ConvertGameObjectHierarchy(self.gameObject, GameObjectConversionSettings.FromWorld(tempWorld, blobAssetStore));
-                self.doNotStrip = false;
 
                 var newComponents = new List<GhostComponent>();
                 AddToComponentList(newComponents, tempWorld, convertedEntity, 0);

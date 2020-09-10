@@ -4,15 +4,17 @@ using Unity.Networking.Transport.Utilities;
 
 namespace Unity.NetCode
 {
-    public interface ICommandData<T> : IBufferElementData where T : struct, ICommandData<T>
+    public interface ICommandData : IBufferElementData
     {
-        uint Tick { get; }
-        void Serialize(ref DataStreamWriter writer);
-        void Deserialize(uint tick, ref DataStreamReader reader);
-        void Serialize(ref DataStreamWriter writer, T baseline, NetworkCompressionModel compressionModel);
+        uint Tick { get; set; }
+    }
+    public interface ICommandDataSerializer<T> where T: struct, ICommandData
+    {
+        void Serialize(ref DataStreamWriter writer, in T data);
+        void Deserialize(ref DataStreamReader reader, ref T data);
+        void Serialize(ref DataStreamWriter writer, in T data, in T baseline, NetworkCompressionModel compressionModel);
 
-        void Deserialize(uint tick, ref DataStreamReader reader, T baseline,
-            NetworkCompressionModel compressionModel);
+        void Deserialize(ref DataStreamReader reader, ref T data, in T baseline, NetworkCompressionModel compressionModel);
     }
 
     public static class CommandDataUtility
@@ -20,7 +22,7 @@ namespace Unity.NetCode
         public const int k_CommandDataMaxSize = 64;
 
         public static bool GetDataAtTick<T>(this DynamicBuffer<T> commandArray, uint targetTick, out T commandData)
-            where T : struct, ICommandData<T>
+            where T : struct, ICommandData
         {
             int beforeIdx = 0;
             uint beforeTick = 0;
@@ -46,7 +48,7 @@ namespace Unity.NetCode
         }
 
         public static void AddCommandData<T>(this DynamicBuffer<T> commandArray, T commandData)
-            where T : struct, ICommandData<T>
+            where T : struct, ICommandData
         {
             uint targetTick = commandData.Tick;
             int oldestIdx = 0;

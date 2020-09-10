@@ -91,7 +91,7 @@ namespace Unity.NetCode.Editor
                     {
                         TemplatePath = $"{TypeRegistry.k_TemplateRootPath}/GhostSnapshotValueFloat.cs",
                         SupportsQuantization = true,
-                        SupportRpc = false
+                        SupportCommand = false
                     }
                 },
                 new TypeRegistry.CodeGenType
@@ -101,7 +101,7 @@ namespace Unity.NetCode.Editor
                     {
                         TemplatePath = $"{TypeRegistry.k_TemplateRootPath}/GhostSnapshotValueFloat.cs",
                         SupportsQuantization = true,
-                        SupportRpc = false
+                        SupportCommand = false
                     }
                 },
                 new TypeRegistry.CodeGenType
@@ -118,7 +118,7 @@ namespace Unity.NetCode.Editor
                     template = new TypeTemplate
                     {
                         TemplatePath = $"{TypeRegistry.k_TemplateRootPath}/GhostSnapshotValueFloatUnquantized.cs",
-                        SupportRpc = false
+                        SupportCommand = false
                     }
                 },
                 new TypeRegistry.CodeGenType
@@ -130,7 +130,7 @@ namespace Unity.NetCode.Editor
                         TemplateOverridePath = $"{TypeRegistry.k_TemplateRootPath}/GhostSnapshotValueFloat2.cs",
                         SupportsQuantization = true,
                         Composite = true,
-                        SupportRpc = false
+                        SupportCommand = false
                     }
                 },
                 new TypeRegistry.CodeGenType
@@ -142,7 +142,7 @@ namespace Unity.NetCode.Editor
                         TemplateOverridePath = $"{TypeRegistry.k_TemplateRootPath}/GhostSnapshotValueFloat2.cs",
                         SupportsQuantization = true,
                         Composite = true,
-                        SupportRpc = false
+                        SupportCommand = false
                     }
                 },
                 new TypeRegistry.CodeGenType
@@ -163,7 +163,7 @@ namespace Unity.NetCode.Editor
                         TemplatePath = $"{TypeRegistry.k_TemplateRootPath}/GhostSnapshotValueFloatUnquantized.cs",
                         TemplateOverridePath = $"{TypeRegistry.k_TemplateRootPath}/GhostSnapshotValueFloat2Unquantized.cs",
                         Composite = true,
-                        SupportRpc = false
+                        SupportCommand = false
                     }
                 },
                 new TypeRegistry.CodeGenType
@@ -175,7 +175,7 @@ namespace Unity.NetCode.Editor
                         TemplateOverridePath = $"{TypeRegistry.k_TemplateRootPath}/GhostSnapshotValueFloat3.cs",
                         SupportsQuantization = true,
                         Composite = true,
-                        SupportRpc = false
+                        SupportCommand = false
                     }
                 },
                 new TypeRegistry.CodeGenType
@@ -187,7 +187,7 @@ namespace Unity.NetCode.Editor
                         TemplateOverridePath = $"{TypeRegistry.k_TemplateRootPath}/GhostSnapshotValueFloat3.cs",
                         SupportsQuantization = true,
                         Composite = true,
-                        SupportRpc = false
+                        SupportCommand = false
                     }
                 },
                 new TypeRegistry.CodeGenType
@@ -208,7 +208,7 @@ namespace Unity.NetCode.Editor
                         TemplatePath = $"{TypeRegistry.k_TemplateRootPath}/GhostSnapshotValueFloatUnquantized.cs",
                         TemplateOverridePath = $"{TypeRegistry.k_TemplateRootPath}/GhostSnapshotValueFloat3Unquantized.cs",
                         Composite = true,
-                        SupportRpc = false
+                        SupportCommand = false
                     }
                 },
                 new TypeRegistry.CodeGenType
@@ -220,7 +220,7 @@ namespace Unity.NetCode.Editor
                         TemplateOverridePath = $"{TypeRegistry.k_TemplateRootPath}/GhostSnapshotValueFloat4.cs",
                         SupportsQuantization = true,
                         Composite = true,
-                        SupportRpc = false
+                        SupportCommand = false
                     }
                 },
                 new TypeRegistry.CodeGenType
@@ -232,7 +232,7 @@ namespace Unity.NetCode.Editor
                         TemplateOverridePath = $"{TypeRegistry.k_TemplateRootPath}/GhostSnapshotValueFloat4.cs",
                         SupportsQuantization = true,
                         Composite = true,
-                        SupportRpc = false
+                        SupportCommand = false
                     }
                 },
                 new TypeRegistry.CodeGenType
@@ -253,7 +253,7 @@ namespace Unity.NetCode.Editor
                         TemplatePath = $"{TypeRegistry.k_TemplateRootPath}/GhostSnapshotValueFloatUnquantized.cs",
                         TemplateOverridePath = $"{TypeRegistry.k_TemplateRootPath}/GhostSnapshotValueFloat4Unquantized.cs",
                         Composite = true,
-                        SupportRpc = false
+                        SupportCommand = false
                     }
                 },
                 new TypeRegistry.CodeGenType
@@ -263,7 +263,7 @@ namespace Unity.NetCode.Editor
                     {
                         TemplatePath = $"{TypeRegistry.k_TemplateRootPath}/GhostSnapshotValueQuaternion.cs",
                         SupportsQuantization = true,
-                        SupportRpc = false
+                        SupportCommand = false
                     }
                 },
                 new TypeRegistry.CodeGenType
@@ -273,7 +273,7 @@ namespace Unity.NetCode.Editor
                     {
                         TemplatePath = $"{TypeRegistry.k_TemplateRootPath}/GhostSnapshotValueQuaternion.cs",
                         SupportsQuantization = true,
-                        SupportRpc = false
+                        SupportCommand = false
                     }
                 },
                 new TypeRegistry.CodeGenType
@@ -290,7 +290,7 @@ namespace Unity.NetCode.Editor
                     template = new TypeTemplate
                     {
                         TemplatePath = $"{TypeRegistry.k_TemplateRootPath}/GhostSnapshotValueQuaternionUnquantized.cs",
-                        SupportRpc = false
+                        SupportCommand = false
                     }
                 },
                 new TypeRegistry.CodeGenType
@@ -299,7 +299,7 @@ namespace Unity.NetCode.Editor
                     template = new TypeTemplate
                     {
                         TemplatePath = $"{TypeRegistry.k_TemplateRootPath}/GhostSnapshotValueEntity.cs",
-                        SupportRpc = false
+                        SupportCommand = false
                     }
                 },
                 new TypeRegistry.CodeGenType

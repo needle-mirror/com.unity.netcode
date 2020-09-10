@@ -139,20 +139,20 @@ namespace Unity.NetCode.Editor.GhostCompiler
             return assemblyWithGhosts;
         }
     }
-    internal struct RpcComponentFilter
+    internal struct CommandComponentFilter
     {
         public HashSet<string> excludeList;
         public IEnumerable<Mono.Cecil.TypeDefinition> Filter(Mono.Cecil.AssemblyDefinition assembly)
         {
             var excludeTypes = excludeList;
-            bool IsRpcPredicate(Mono.Cecil.TypeDefinition t)
+            bool IsCommandPredicate(Mono.Cecil.TypeDefinition t)
             {
-                if (!t.IsValueType || t.IsPrimitive || !t.IsIRpcCommand())
+                if (!t.IsValueType || t.IsPrimitive || (!t.IsIRpcCommand() && !t.IsICommandData()))
                     return false;
 
                 if (excludeTypes != null && excludeTypes.Contains(t.FullName))
                     return false;
-                return true;
+                return !t.HasAttribute<NetCodeDisableCommandCodeGenAttribute>();
             }
 
             var result = new List<Mono.Cecil.TypeDefinition>();
@@ -162,7 +162,7 @@ namespace Unity.NetCode.Editor.GhostCompiler
                 {
                     if (m != null)
                     {
-                        result.AddRange(m.GetTypes().Where(IsRpcPredicate));
+                        result.AddRange(m.GetTypes().Where(IsCommandPredicate));
                     }
                 }
             }
@@ -172,11 +172,11 @@ namespace Unity.NetCode.Editor.GhostCompiler
 
         public List<Tuple<string, Type[]>> Filter(IEnumerable<UnityEditor.Compilation.Assembly> assemblies)
         {
-            bool IsRpcPredicate(Type t)
+            bool IsCommandPredicate(Type t)
             {
-                if (!t.IsValueType || t.IsPrimitive || !typeof(IRpcCommand).IsAssignableFrom(t))
+                if (!t.IsValueType || t.IsPrimitive || (!typeof(IRpcCommand).IsAssignableFrom(t) && !typeof(ICommandData).IsAssignableFrom(t)))
                     return false;
-                return true;
+                return t.GetCustomAttribute<NetCodeDisableCommandCodeGenAttribute>() == null;
             }
 
             var assemblyWithRpcs = new List<Tuple<string, Type[]>>();
@@ -191,7 +191,7 @@ namespace Unity.NetCode.Editor.GhostCompiler
                     continue;
                 }
 
-                var types = assembly.GetTypes().Where(IsRpcPredicate).ToArray();
+                var types = assembly.GetTypes().Where(IsCommandPredicate).ToArray();
                 if(types.Length > 0)
                 {
                     assemblyWithRpcs.Add(new Tuple<string, Type[]>(assembly.GetName().Name, types));

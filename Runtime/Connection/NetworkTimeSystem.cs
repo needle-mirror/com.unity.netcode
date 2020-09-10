@@ -7,7 +7,7 @@ namespace Unity.NetCode
     [UpdateInWorld(UpdateInWorld.TargetWorld.Client)]
     [UpdateInGroup(typeof(NetworkReceiveSystemGroup))]
     [UpdateBefore(typeof(NetworkStreamReceiveSystem))]
-    public class NetworkTimeSystem : ComponentSystem
+    public class NetworkTimeSystem : SystemBase
     {
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
         public static uint s_FixedTimestampMS = 0;

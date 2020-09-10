@@ -52,7 +52,7 @@ namespace Unity.NetCode.Editor
                 context.typeCodeGenCache.Add(m_Template.TemplatePath + m_Template.TemplateOverridePath, generator);
             }
 
-            generator.Replacements.Clear();
+            generator = generator.Clone();
 
             // Prefix and Variable Replacements
             var reference = string.IsNullOrEmpty(parent)
@@ -116,7 +116,7 @@ namespace Unity.NetCode.Editor
             m_ActiveGenerator = generator;
         }
 
-        public Dictionary<string, GhostCodeGen.FragmentData> GenerateCompositeOverrides(string parent = null)
+        public Dictionary<string, GhostCodeGen.FragmentData> GenerateCompositeOverrides(CodeGenerator.Context context, string parent = null)
         {
             var fragments = new Dictionary<string, GhostCodeGen.FragmentData>();
             if (m_Template == null || string.IsNullOrEmpty(m_Template.TemplateOverridePath))
@@ -124,9 +124,14 @@ namespace Unity.NetCode.Editor
 
             var quantization = m_TypeInformation.Attribute.quantization;
             var interpolate = m_TypeInformation.Attribute.interpolate;
-            var generator = new GhostCodeGen(m_Template.TemplateOverridePath);
+            if (!context.typeCodeGenCache.TryGetValue(m_Template.TemplateOverridePath,
+                out var generator))
+            {
+                generator = new GhostCodeGen(m_Template.TemplateOverridePath);
+                context.typeCodeGenCache.Add(m_Template.TemplateOverridePath, generator);
+            }
 
-            generator.Replacements.Clear();
+            generator = generator.Clone();
 
             // Prefix and Variable Replacements
             var reference = string.IsNullOrEmpty(parent)
@@ -228,21 +233,28 @@ namespace Unity.NetCode.Editor
             context.FieldState.curChangeMask = curChangeMask;
         }
 
-        public TypeGenerator()
+        public TypeGenerator(CodeGenerator.Context context)
         {
-            m_TargetGenerator = new GhostCodeGen("Packages/com.unity.netcode/Editor/CodeGenTemplates/GhostComponentSerializer.cs");
+            var template = "Packages/com.unity.netcode/Editor/CodeGenTemplates/GhostComponentSerializer.cs";
+            if (!context.typeCodeGenCache.TryGetValue(template, out var generator))
+            {
+                generator = new GhostCodeGen(template);
+
+                context.typeCodeGenCache.Add(template, generator);
+            }
+            m_TargetGenerator = generator.Clone();
             foreach (var frag in k_OverridableFragments.Cast<string>())
             {
                 if (!m_OverridableFragmentsList.Contains(frag))
                     m_OverridableFragmentsList += " " + frag;
             };
         }
-        public TypeGenerator(TypeInformation information) : this()
+        public TypeGenerator(CodeGenerator.Context context, TypeInformation information) : this(context)
         {
             m_TypeInformation = information;
         }
 
-        public TypeGenerator(TypeInformation information, TypeTemplate template) : this(information)
+        public TypeGenerator(CodeGenerator.Context context, TypeInformation information, TypeTemplate template) : this(context, information)
         {
             m_Template = template;
         }

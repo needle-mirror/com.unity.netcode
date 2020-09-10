@@ -41,7 +41,7 @@ namespace Unity.NetCode
 #endif
 
             PlayType playModeType = RequestedPlayType;
-            int numClientWorlds = RequestedNumClients;
+            int numClientWorlds = 1;
 
             int totalNumClients = numClientWorlds;
             if (playModeType != PlayType.Server)
@@ -235,28 +235,11 @@ namespace Unity.NetCode
         }
 #if UNITY_SERVER
         public static PlayType RequestedPlayType => PlayType.Server;
-        public static int RequestedNumClients => 0;
 #elif UNITY_EDITOR
-        public const int k_MaxNumClients = 4;
         public const int k_MaxNumThinClients = 32;
         public static PlayType RequestedPlayType =>
             (PlayType) UnityEditor.EditorPrefs.GetInt("MultiplayerPlayMode_" + UnityEngine.Application.productName +
                                                       "_Type");
-
-        public static int RequestedNumClients
-        {
-            get
-            {
-                int numClientWorlds =
-                    UnityEditor.EditorPrefs.GetInt("MultiplayerPlayMode_" + UnityEngine.Application.productName +
-                                                   "_NumClients");
-                if (numClientWorlds < 1)
-                    numClientWorlds = 1;
-                if (numClientWorlds > k_MaxNumClients)
-                    numClientWorlds = k_MaxNumClients;
-                return numClientWorlds;
-            }
-        }
 
         public static int RequestedNumThinClients
         {
@@ -291,10 +274,8 @@ namespace Unity.NetCode
         }
 #elif UNITY_CLIENT
         public static PlayType RequestedPlayType => PlayType.Client;
-        public static int RequestedNumClients => 1;
 #else
         public static PlayType RequestedPlayType => PlayType.ClientAndServer;
-        public static int RequestedNumClients => 1;
 #endif
 
         [Flags]

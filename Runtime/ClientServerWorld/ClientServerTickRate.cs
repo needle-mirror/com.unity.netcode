@@ -27,10 +27,6 @@ namespace Unity.NetCode
         }
     }
 
-    public struct FixedClientTickRate : IComponentData
-    {
-    }
-
     public struct ClientServerTickRateRefreshRequest : IComponentData
     {
         public int SimulationTickRate;

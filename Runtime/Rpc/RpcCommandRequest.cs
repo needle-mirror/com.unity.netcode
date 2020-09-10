@@ -25,11 +25,11 @@ namespace Unity.NetCode
     }
 
     [UpdateInGroup(typeof(RpcCommandRequestSystemGroup))]
-    public class RpcCommandRequestSystem<TActionSerializer, TActionRequest> : SystemBase
+    public abstract class RpcCommandRequestSystem<TActionSerializer, TActionRequest> : SystemBase
         where TActionRequest : struct, IComponentData
         where TActionSerializer : struct, IRpcCommandSerializer<TActionRequest>
     {
-        struct SendRpc : IJobChunk
+        protected struct SendRpcData
         {
             public EntityCommandBuffer.ParallelWriter commandBuffer;
             [ReadOnly] public EntityTypeHandle entitiesType;
@@ -37,7 +37,7 @@ namespace Unity.NetCode
             [ReadOnly] public ComponentTypeHandle<TActionRequest> actionRequestType;
             public BufferFromEntity<OutgoingRpcDataStreamBufferComponent> rpcFromEntity;
             public RpcQueue<TActionSerializer, TActionRequest> rpcQueue;
-            [ReadOnly] public NativeArray<Entity> connections;
+            [DeallocateOnJobCompletion] [ReadOnly] public NativeArray<Entity> connections;
 
             public void LambdaMethod(Entity entity, int orderIndex, in SendRpcCommandRequestComponent dest, in TActionRequest action)
             {
@@ -74,7 +74,7 @@ namespace Unity.NetCode
 #endif
             }
 
-            public void Execute(ArchetypeChunk chunk, int orderIndex, int firstEntityIndex)
+            public void Execute(ArchetypeChunk chunk, int orderIndex)
             {
                 var entities = chunk.GetNativeArray(entitiesType);
                 var rpcRequests = chunk.GetNativeArray(rpcRequestType);
@@ -99,8 +99,8 @@ namespace Unity.NetCode
 
         private BeginSimulationEntityCommandBufferSystem m_CommandBufferSystem;
         private RpcQueue<TActionSerializer, TActionRequest> m_RpcQueue;
-        private EntityQuery m_ConnectionsQuery;
         private EntityQuery m_entityQuery;
+        private EntityQuery m_ConnectionsQuery;
 
         protected override void OnCreate()
         {
@@ -108,16 +108,16 @@ namespace Unity.NetCode
             rpcSystem.RegisterRpc<TActionSerializer, TActionRequest>();
             m_CommandBufferSystem = World.GetOrCreateSystem<BeginSimulationEntityCommandBufferSystem>();
             m_RpcQueue = rpcSystem.GetRpcQueue<TActionSerializer, TActionRequest>();
-            m_ConnectionsQuery = EntityManager.CreateEntityQuery(ComponentType.ReadWrite<NetworkIdComponent>(),
-                ComponentType.Exclude<NetworkStreamDisconnected>());
             m_entityQuery = GetEntityQuery(ComponentType.ReadOnly<SendRpcCommandRequestComponent>(),
                 ComponentType.ReadOnly<TActionRequest>());
+            m_ConnectionsQuery = EntityManager.CreateEntityQuery(ComponentType.ReadWrite<NetworkIdComponent>(),
+                ComponentType.Exclude<NetworkStreamDisconnected>());
         }
 
-        protected override void OnUpdate()
+        protected SendRpcData InitJobData()
         {
             var connections = m_ConnectionsQuery.ToEntityArrayAsync(Allocator.TempJob, out var connectionsHandle);
-            var sendJob = new SendRpc
+            var sendJob = new SendRpcData
             {
                 commandBuffer = m_CommandBufferSystem.CreateCommandBuffer().AsParallelWriter(),
                 entitiesType = GetEntityTypeHandle(),
@@ -127,8 +127,12 @@ namespace Unity.NetCode
                 rpcQueue = m_RpcQueue,
                 connections = connections
             };
-            var handle = sendJob.ScheduleSingle(m_entityQuery, JobHandle.CombineDependencies(Dependency, connectionsHandle));
-            handle = connections.Dispose(handle);
+            Dependency = JobHandle.CombineDependencies(Dependency, connectionsHandle);
+            return sendJob;
+        }
+        protected void ScheduleJobData<T>(in T sendJob) where T: struct, IJobEntityBatch
+        {
+            var handle = sendJob.Schedule(m_entityQuery, Dependency);
             m_CommandBufferSystem.AddJobHandleForProducer(handle);
             Dependency = handle;
         }

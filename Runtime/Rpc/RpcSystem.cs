@@ -39,7 +39,7 @@ namespace Unity.NetCode
 
     [DisableAutoCreation]
     [UpdateInGroup(typeof(ClientAndServerSimulationSystemGroup))]
-    public class RpcSystem : JobComponentSystem
+    public class RpcSystem : SystemBase
     {
         public enum ErrorCodes
         {
@@ -401,11 +401,11 @@ namespace Unity.NetCode
             m_CanRegister = false;
             return hash;
         }
-        protected override JobHandle OnUpdate(JobHandle inputDeps)
+        protected override void OnUpdate()
         {
             // Deserialize the command type from the reader stream
             // Execute the RPC
-            inputDeps = JobHandle.CombineDependencies(inputDeps, m_ReceiveSystem.LastDriverWriter);
+            Dependency = JobHandle.CombineDependencies(Dependency, m_ReceiveSystem.LastDriverWriter);
             var execJob = new RpcExecJob
             {
                 commandBuffer = m_Barrier.CreateCommandBuffer()
@@ -421,18 +421,17 @@ namespace Unity.NetCode
                 reliablePipeline = m_ReceiveSystem.ReliablePipeline,
                 protocolVersion = GetSingleton<NetworkProtocolVersion>()
             };
-            var handle = execJob.Schedule(m_RpcBufferGroup, inputDeps);
-            m_Barrier.AddJobHandleForProducer(handle);
-            handle = new RpcErrorReportingJob
+            Dependency = execJob.Schedule(m_RpcBufferGroup, Dependency);
+            m_Barrier.AddJobHandleForProducer(Dependency);
+            Dependency = new RpcErrorReportingJob
             {
                 commandBuffer = m_Barrier.CreateCommandBuffer(),
                 connections = GetComponentDataFromEntity<NetworkStreamConnection>(),
                 errors = m_RpcErrors
-            }.Schedule(handle);
-            m_Barrier.AddJobHandleForProducer(handle);
-            handle = m_ReceiveSystem.Driver.ScheduleFlushSend(handle);
-            m_ReceiveSystem.LastDriverWriter = handle;
-            return handle;
+            }.Schedule(Dependency);
+            m_Barrier.AddJobHandleForProducer(Dependency);
+            Dependency = m_ReceiveSystem.Driver.ScheduleFlushSend(Dependency);
+            m_ReceiveSystem.LastDriverWriter = Dependency;
         }
 
         public RpcQueue<TActionSerializer, TActionRequest> GetRpcQueue<TActionSerializer, TActionRequest>()

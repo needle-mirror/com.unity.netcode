@@ -7,7 +7,7 @@ using System.Collections.Generic;
 namespace Unity.NetCode
 {
     [UpdateInGroup(typeof(ClientAndServerSimulationSystemGroup))]
-    public class GhostCollectionSystem : ComponentSystem
+    public class GhostCollectionSystem : SystemBase
     {
         public struct GhostComponentIndex
         {
@@ -30,6 +30,7 @@ namespace Unity.NetCode
             public int BaseImportance;
             public GhostSpawnBuffer.Type FallbackPredictionMode;
             public int IsGhostGroup;
+            public bool StaticOptimization;
         }
         struct ComponentHashComparer : IComparer<GhostComponentSerializer.State>
         {
@@ -107,10 +108,6 @@ namespace Unity.NetCode
                     {
                         componentCollectionHash = TypeHash.CombineFNV1A64(componentCollectionHash, comp.SerializerHash);
                     }
-                    #if UNITY_EDITOR || DEVELOPMENT_BUILD
-                    else
-                        UnityEngine.Debug.Log($"ComponentColletionHash: skipping {comp.ComponentType} from hash computation (editor or test only");
-                    #endif
                 }
             }
             return componentCollectionHash;
@@ -195,23 +192,32 @@ namespace Unity.NetCode
             m_GhostComponentIndex = new NativeList<GhostComponentIndex>(16, Allocator.Persistent);
             m_GhostTypeCollection.Clear();
             m_GhostComponentIndex.Clear();
-            var ghostCollection = GetSingleton<GhostPrefabCollectionComponent>();
-            var prefabList = EntityManager.GetBuffer<GhostPrefabBuffer>(ghostCollection.serverPrefabs);
-            var ghostMetaData = EntityManager.GetBuffer<GhostMetaDataBuffer>(ghostCollection.ghostMetaData);
+            var ghostCollection = GetSingletonEntity<GhostPrefabCollectionComponent>();
+            var prefabList = EntityManager.GetBuffer<GhostPrefabBuffer>(ghostCollection).ToNativeArray(Allocator.Temp);
 
             #if UNITY_EDITOR || DEVELOPMENT_BUILD
             m_PredictionErrorNames = new List<string>();
+            var ghostNames = new List<string>();
             #endif
+            bool isServer = (World.GetExistingSystem<ServerSimulationSystemGroup>() != null);
             for (var prefab = 0; prefab < prefabList.Length; ++prefab)
             {
                 var prefabEntity = prefabList[prefab].Value;
-                var components = EntityManager.GetComponentTypes(prefabEntity);
+                ref var ghostMetaData = ref EntityManager.GetComponentData<GhostPrefabMetaDataComponent>(prefabEntity).Value.Value;
+                ref var componentHashes = ref ghostMetaData.ServerComponentList;
+                var components = new NativeArray<ComponentType>(componentHashes.Length, Allocator.Temp);
+                for (int i = 0; i < componentHashes.Length; ++i)
+                {
+                    components[i] = ComponentType.ReadWrite(TypeManager.GetTypeIndexFromStableTypeHash(componentHashes[i]));
+                }
+#if ENABLE_UNITY_COLLECTIONS_CHECKS
+                if (ghostMetaData.SupportedModes != GhostPrefabMetaData.GhostMode.Both && ghostMetaData.SupportedModes != ghostMetaData.DefaultMode)
+                    throw new InvalidOperationException($"The ghost {ghostMetaData.Name.ToString()} has a default mode which is not supported");
+#endif
                 var fallbackPredictionMode = GhostSpawnBuffer.Type.Interpolated;
-                if (EntityManager.HasComponent<GhostAlwaysPredictedComponent>(prefabEntity))
+                if (ghostMetaData.DefaultMode == GhostPrefabMetaData.GhostMode.Predicted)
                     fallbackPredictionMode = GhostSpawnBuffer.Type.Predicted;
-                else if (!EntityManager.HasComponent<GhostAlwaysInterpolatedComponent>(prefabEntity) &&
-                    EntityManager.HasComponent<GhostDefaultPredictedComponent>(prefabEntity))
-                    fallbackPredictionMode = GhostSpawnBuffer.Type.Predicted;
+                bool isOwnerPredicted = (ghostMetaData.DefaultMode == GhostPrefabMetaData.GhostMode.Both);
                 var ghostType = new GhostTypeState
                 {
                     TypeHash = 0,
@@ -220,14 +226,15 @@ namespace Unity.NetCode
                     NumChildComponents = 0,
                     SnapshotSize = 0,
                     ChangeMaskBits = 0,
-                    PredictionOwnerOffset = 0,
+                    PredictionOwnerOffset = -1,
                     PartialComponents = 0,
-                    BaseImportance = ghostMetaData[prefab].Importance,
+                    BaseImportance = ghostMetaData.Importance,
                     FallbackPredictionMode = fallbackPredictionMode,
-                    IsGhostGroup = EntityManager.HasComponent<GhostGroup>(prefabEntity) ? 1 : 0
+                    IsGhostGroup = EntityManager.HasComponent<GhostGroup>(prefabEntity) ? 1 : 0,
+                    StaticOptimization = ghostMetaData.StaticOptimization
                 };
                 // Map the component types to things in the collection and create lists of function pointers
-                bool isOwnerPredicted = AddComponents(ghostMetaData[prefab].Name, 0, ref ghostType, components, prefabEntity, 0);
+                AddComponents(ref ghostMetaData.Name, 0, ref ghostType, components, prefabEntity, 0, ghostMetaData.SupportedModes);
                 if (EntityManager.HasComponent<LinkedEntityGroup>(prefabEntity))
                 {
                     var linkedEntityGroup = EntityManager.GetBuffer<LinkedEntityGroup>(prefabEntity);
@@ -236,25 +243,48 @@ namespace Unity.NetCode
                         if (!EntityManager.HasComponent<GhostChildEntityComponent>(linkedEntityGroup[entityIndex].Value))
                             continue;
                         components = EntityManager.GetComponentTypes(linkedEntityGroup[entityIndex].Value);
-                        AddComponents(ghostMetaData[prefab].Name, entityIndex, ref ghostType, components, prefabEntity, entityIndex);
+                        AddComponents(ref ghostMetaData.Name, entityIndex, ref ghostType, components, prefabEntity, entityIndex, ghostMetaData.SupportedModes);
                     }
                 }
                 if (!isOwnerPredicted)
                     ghostType.PredictionOwnerOffset = 0;
+                else if (ghostType.PredictionOwnerOffset < 0)
+                {
+                    ghostType.PredictionOwnerOffset = 0;
+#if ENABLE_UNITY_COLLECTIONS_CHECKS
+                    throw new InvalidOperationException($"The ghost {ghostMetaData.Name.ToString()} is owner predicted, but the ghost owner component could not be found");
+#endif
+                }
                 else
                     ghostType.PredictionOwnerOffset += SnapshotSizeAligned(4 + ChangeMaskArraySizeInUInts(ghostType.ChangeMaskBits)*4);
                 // Reserve space for tick and change mask in the snapshot
                 ghostType.SnapshotSize += SnapshotSizeAligned(4 + ChangeMaskArraySizeInUInts(ghostType.ChangeMaskBits)*4);
                 m_GhostTypeCollection.Add(ghostType);
+                #if UNITY_EDITOR || DEVELOPMENT_BUILD
+                ghostNames.Add(ghostMetaData.Name.ToString());
+                #endif
+                // Delete everything from toBeDeleted from the prefab
+                if (isServer)
+                {
+                    for (int rm = 0; rm < ghostMetaData.RemoveOnServer.Length; ++rm)
+                    {
+                        var compType = ComponentType.ReadWrite(TypeManager.GetTypeIndexFromStableTypeHash(ghostMetaData.RemoveOnServer[rm]));
+                        if (EntityManager.HasComponent(prefabEntity, compType))
+                            EntityManager.RemoveComponent(prefabEntity, compType);
+                    }
+                }
+                else
+                {
+                    for (int rm = 0; rm < ghostMetaData.RemoveOnClient.Length; ++rm)
+                    {
+                        var compType = ComponentType.ReadWrite(TypeManager.GetTypeIndexFromStableTypeHash(ghostMetaData.RemoveOnClient[rm]));
+                        if (EntityManager.HasComponent(prefabEntity, compType))
+                            EntityManager.RemoveComponent(prefabEntity, compType);
+                    }
+                }
             }
             #if UNITY_EDITOR || DEVELOPMENT_BUILD
-            // Update ghost names in the stat gathering system
-            var names = new string[ghostMetaData.Length];
-            for (int i = 0; i < ghostMetaData.Length; ++i)
-            {
-                names[i] = ghostMetaData[i].Name.ToString();
-            }
-            World.GetExistingSystem<GhostStatsCollectionSystem>().SetGhostNames(names, m_PredictionErrorNames);
+            World.GetExistingSystem<GhostStatsCollectionSystem>().SetGhostNames(ghostNames, m_PredictionErrorNames);
             #endif
             CalculateGhostCollectionHash();
         }
@@ -268,17 +298,14 @@ namespace Unity.NetCode
             m_GhostComponentCollection.Sort(default(ComponentHashComparer));
             m_PendingGhostComponentCollection.Clear();
         }
-        private bool AddComponents(in FixedString32 ghostName, int ghostChildIndex, ref GhostTypeState ghostType, in NativeArray<ComponentType> components, Entity prefabEntity, int entityIndex)
+        private void AddComponents(ref BlobString ghostName, int ghostChildIndex, ref GhostTypeState ghostType, in NativeArray<ComponentType> components, Entity prefabEntity, int entityIndex, GhostPrefabMetaData.GhostMode supportedModes)
         {
             ghostType.TypeHash = TypeHash.FNV1A64(ghostName.ToString());
 
-            bool isOwnerPredicted = false;
             for (var i = 0; i < components.Length; ++i)
             {
                 if (entityIndex == 0)
                 {
-                    if (components[i] == ComponentType.ReadWrite<GhostOwnerPredictedComponent>())
-                        isOwnerPredicted = true;
                     if (components[i] == ComponentType.ReadWrite<GhostOwnerComponent>())
                         ghostType.PredictionOwnerOffset = ghostType.SnapshotSize;
                 }
@@ -289,9 +316,9 @@ namespace Unity.NetCode
                     {
                         if (entityIndex != 0 && compState.SendForChildEntities == 0)
                             continue;
-                        if ((compState.SendMask & GhostComponentSerializer.SendMask.Interpolated) == 0 && EntityManager.HasComponent<GhostAlwaysInterpolatedComponent>(prefabEntity))
+                        if ((compState.SendMask & GhostComponentSerializer.SendMask.Interpolated) == 0 && supportedModes == GhostPrefabMetaData.GhostMode.Interpolated)
                             continue;
-                        if ((compState.SendMask & GhostComponentSerializer.SendMask.Predicted) == 0 && EntityManager.HasComponent<GhostAlwaysPredictedComponent>(prefabEntity))
+                        if ((compState.SendMask & GhostComponentSerializer.SendMask.Predicted) == 0 && supportedModes == GhostPrefabMetaData.GhostMode.Predicted)
                             continue;
                         // Found something
                         ++ghostType.NumComponents;
@@ -325,7 +352,27 @@ namespace Unity.NetCode
                     }
                 }
             }
-            return isOwnerPredicted;
+        }
+
+        /// <summary>
+        /// Convert a prefab from the prefab collection to a predictive spawn version of the prefab. This will not modify the prefab on the server,
+        /// so it is safe to unconditionally call this method to get a prefab that can be used for predictive spawning in a prediction system.
+        /// </summary>
+        public static Entity CreatePredictedSpawnPrefab(EntityManager entityManager, Entity prefab)
+        {
+            if (entityManager.World.GetExistingSystem<ServerSimulationSystemGroup>() != null)
+                return prefab;
+            ref var toRemove = ref entityManager.GetComponentData<GhostPrefabMetaDataComponent>(prefab).Value.Value.DisableOnPredictedClient;
+            prefab = entityManager.Instantiate(prefab);
+            entityManager.AddComponentData(prefab, default(Prefab));
+            entityManager.AddComponentData(prefab, default(PredictedGhostSpawnRequestComponent));
+            // TODO: disable instead of deleting
+            for (int rm = 0; rm < toRemove.Length; ++rm)
+            {
+                var compType = ComponentType.ReadWrite(TypeManager.GetTypeIndexFromStableTypeHash(toRemove[rm]));
+                entityManager.RemoveComponent(prefab, compType);
+            }
+            return prefab;
         }
     }
 }

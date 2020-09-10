@@ -9,7 +9,7 @@ namespace Unity.NetCode
 
     [UpdateInGroup(typeof(NetworkReceiveSystemGroup))]
     [UpdateInWorld(UpdateInWorld.TargetWorld.Client)]
-    public class HeartbeatSendSystem : ComponentSystem
+    public class HeartbeatSendSystem : SystemBase
     {
         private uint m_LastSend;
         private BeginSimulationEntityCommandBufferSystem m_CommandBufferSystem;
@@ -44,7 +44,7 @@ namespace Unity.NetCode
 
     [UpdateInGroup(typeof(NetworkReceiveSystemGroup))]
     [UpdateInWorld(UpdateInWorld.TargetWorld.Server)]
-    public class HeartbeatReplySystem : JobComponentSystem
+    public class HeartbeatReplySystem : SystemBase
     {
         private BeginSimulationEntityCommandBufferSystem m_CommandBufferSystem;
 
@@ -53,9 +53,8 @@ namespace Unity.NetCode
             m_CommandBufferSystem = World.GetOrCreateSystem<BeginSimulationEntityCommandBufferSystem>();
         }
 
-        protected override JobHandle OnUpdate(JobHandle inputDeps)
+        protected override void OnUpdate()
         {
-            inputDeps.Complete();
             var commandBuffer = m_CommandBufferSystem.CreateCommandBuffer();
             Entities.ForEach(
                 (Entity entity, ref HeartbeatComponent heartbeat, ref ReceiveRpcCommandRequestComponent recv) =>
@@ -63,14 +62,14 @@ namespace Unity.NetCode
                     // Re-use the same request entity, just add the send component to send it back
                     commandBuffer.AddComponent(entity,
                         new SendRpcCommandRequestComponent {TargetConnection = recv.SourceConnection});
-                }).Run();
-            return default;
+                }).Schedule();
+            m_CommandBufferSystem.AddJobHandleForProducer(Dependency);
         }
     }
 
     [UpdateInGroup(typeof(NetworkReceiveSystemGroup))]
     [UpdateInWorld(UpdateInWorld.TargetWorld.Client)]
-    public class HeartbeatReceiveSystem : ComponentSystem
+    public class HeartbeatReceiveSystem : SystemBase
     {
         private BeginSimulationEntityCommandBufferSystem m_CommandBufferSystem;
 
@@ -87,7 +86,8 @@ namespace Unity.NetCode
                 {
                     // Just make sure the request is destroyed
                     commandBuffer.DestroyEntity(entity);
-                });
+                }).Schedule();
+            m_CommandBufferSystem.AddJobHandleForProducer(Dependency);
         }
     }
 }

@@ -9,13 +9,22 @@ namespace Unity.NetCode
     [UpdateInGroup(typeof(ClientSimulationSystemGroup))]
     // dependency just for acking
     [UpdateAfter(typeof(GhostSimulationSystemGroup))]
-    public class CommandSendSystem<TCommandData> : JobComponentSystem
-        where TCommandData : struct, ICommandData<TCommandData>
+    public class CommandSendSystemGroup : ComponentSystemGroup
+    {
+        public CommandSendSystemGroup()
+        {
+            UseLegacySortOrder = false;
+        }
+    }
+
+    [UpdateInGroup(typeof(CommandSendSystemGroup))]
+    public abstract class CommandSendSystem<TCommandDataSerializer, TCommandData> : SystemBase
+        where TCommandData : struct, ICommandData
+        where TCommandDataSerializer : struct, ICommandDataSerializer<TCommandData>
     {
         public const uint k_InputBufferSendSize = 4;
 
-        [BurstCompile]
-        struct CommandSendJob : IJobChunk
+        protected struct SendJobData
         {
             public NetworkDriver.Concurrent driver;
             public NetworkPipeline unreliablePipeline;
@@ -57,12 +66,13 @@ namespace Unity.NetCode
                     var input = inputFromEntity[state.targetEntity];
                     TCommandData baselineInputData;
                     input.GetDataAtTick(inputTargetTick, out baselineInputData);
-                    baselineInputData.Serialize(ref writer);
+                    var serializer = default(TCommandDataSerializer);
+                    serializer.Serialize(ref writer, baselineInputData);
                     for (uint inputIndex = 1; inputIndex < k_InputBufferSendSize; ++inputIndex)
                     {
                         TCommandData inputData;
                         input.GetDataAtTick(inputTargetTick - inputIndex, out inputData);
-                        inputData.Serialize(ref writer, baselineInputData, compressionModel);
+                        serializer.Serialize(ref writer, inputData, baselineInputData, compressionModel);
                     }
 
                     writer.Flush();
@@ -75,7 +85,7 @@ namespace Unity.NetCode
                 driver.EndSend(writer);
             }
 
-            public void Execute(ArchetypeChunk chunk, int orderIndex, int firstEntityIndex)
+            public void Execute(ArchetypeChunk chunk, int orderIndex)
             {
                 var connections = chunk.GetNativeArray(streamConnectionType);
                 var snapshotAcks = chunk.GetNativeArray(snapshotAckType);
@@ -126,7 +136,7 @@ namespace Unity.NetCode
 #endif
         }
 
-        protected override JobHandle OnUpdate(JobHandle inputDeps)
+        protected SendJobData InitJobData()
         {
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
             if (m_NetStats[0] != 0)
@@ -139,11 +149,7 @@ namespace Unity.NetCode
             var targetTick = m_ClientSimulationSystemGroup.ServerTick;
             if (m_ClientSimulationSystemGroup.ServerTickFraction < 1)
                 --targetTick;
-            // Make sure we only send a single ack per tick - only triggers when using dynamic timestep
-            if (targetTick == m_LastServerTick)
-                return inputDeps;
-            m_LastServerTick = targetTick;
-            var sendJob = new CommandSendJob
+            var sendJob = new SendJobData
             {
                 driver = m_ReceiveSystem.ConcurrentDriver,
                 unreliablePipeline = m_ReceiveSystem.UnreliablePipeline,
@@ -161,33 +167,26 @@ namespace Unity.NetCode
                 netStats = m_NetStats
 #endif
             };
+            return sendJob;
+        }
+        protected void ScheduleJobData<T>(in T sendJob) where T: struct, IJobEntityBatch
+        {
+            var targetTick = m_ClientSimulationSystemGroup.ServerTick;
+            if (m_ClientSimulationSystemGroup.ServerTickFraction < 1)
+                --targetTick;
+            // Make sure we only send a single ack per tick - only triggers when using dynamic timestep
+            if (targetTick == m_LastServerTick)
+                return;
+            m_LastServerTick = targetTick;
 
-            var handle = sendJob.Schedule(m_entityGroup,
-                JobHandle.CombineDependencies(inputDeps, m_ReceiveSystem.LastDriverWriter));
-            handle = m_ReceiveSystem.Driver.ScheduleFlushSend(handle);
-            m_ReceiveSystem.LastDriverWriter = handle;
-            return handle;
+            Dependency = sendJob.Schedule(m_entityGroup, JobHandle.CombineDependencies(Dependency, m_ReceiveSystem.LastDriverWriter));
+            Dependency = m_ReceiveSystem.Driver.ScheduleFlushSend(Dependency);
+            m_ReceiveSystem.LastDriverWriter = Dependency;
         }
     }
 
-    public struct NullCommandData : ICommandData<NullCommandData>
+    public struct NullCommandData : ICommandData
     {
-        public uint Tick => 0;
-        public void Serialize(ref DataStreamWriter writer)
-        {
-        }
-        public void Serialize(ref DataStreamWriter writer, NullCommandData baseline, NetworkCompressionModel compressionModel)
-        {
-        }
-        public void Deserialize(uint tick, ref DataStreamReader reader)
-        {
-        }
-        public void Deserialize(uint tick, ref DataStreamReader reader, NullCommandData baseline, NetworkCompressionModel compressionModel)
-        {
-        }
-    }
-
-    public class NullCommandSendSystem : CommandSendSystem<NullCommandData>
-    {
+        public uint Tick {get; set;}
     }
 }
