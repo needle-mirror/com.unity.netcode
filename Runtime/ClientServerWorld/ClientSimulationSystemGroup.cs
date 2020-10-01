@@ -19,8 +19,6 @@ namespace Unity.NetCode
         }
 #endif
 
-        private BeginSimulationEntityCommandBufferSystem m_beginBarrier;
-        private NetworkReceiveSystemGroup m_NetworkReceiveSystemGroup;
         private NetworkTimeSystem m_NetworkTimeSystem;
         public float ServerTickDeltaTime { get; private set; }
         public uint ServerTick => m_serverTick;
@@ -37,21 +35,7 @@ namespace Unity.NetCode
         protected override void OnCreate()
         {
             base.OnCreate();
-            m_beginBarrier = World.GetOrCreateSystem<BeginSimulationEntityCommandBufferSystem>();
-            m_NetworkReceiveSystemGroup = World.GetOrCreateSystem<NetworkReceiveSystemGroup>();
             m_NetworkTimeSystem = World.GetOrCreateSystem<NetworkTimeSystem>();
-        }
-
-        public override IEnumerable<ComponentSystemBase> Systems
-        {
-            get
-            {
-                yield return m_NetworkReceiveSystemGroup;
-                foreach (var v in base.Systems)
-                {
-                    yield return v;
-                }
-            }
         }
 
         protected override void OnUpdate()
@@ -75,9 +59,6 @@ namespace Unity.NetCode
                 networkDeltaTime = (float) tickRate.MaxSimulationStepsPerFrame / (float) tickRate.SimulationTickRate;
                 World.SetTime(new TimeData(Time.ElapsedTime, networkDeltaTime));
             }
-
-            m_beginBarrier.Update();
-            m_NetworkReceiveSystemGroup.Update();
 
             // Calculate update time based on values received from the network time system
             var curServerTick = m_NetworkTimeSystem.predictTargetTick;
@@ -115,17 +96,6 @@ namespace Unity.NetCode
             World.SetTime(new TimeData(currentTime, networkDeltaTime));
             base.OnUpdate();
             World.PopTime();
-        }
-
-        //FIXME: this work but is not ideal. Because it is an overload and not an override (virtual), if the method is
-        //called using a reference to the base class interface only the SimulationSystem will be sorted and the NetworkReceiveSystemGroup
-        //will be not. While technically incorrect, this work in practice because we are not changing / adding new systems
-        //to the NetworkReceiveSystemGroup at runtime.
-        //Best things to do is to add a new parent group that encapsulate both and tick/sort that instead.
-        public void SortSystemsAndNetworkSystemGroup()
-        {
-            base.SortSystems();
-            m_NetworkReceiveSystemGroup.SortSystems();
         }
     }
 

@@ -5,8 +5,10 @@ using Unity.Mathematics;
 namespace Unity.NetCode
 {
     [UpdateInWorld(UpdateInWorld.TargetWorld.Client)]
-    [UpdateInGroup(typeof(NetworkReceiveSystemGroup))]
-    [UpdateBefore(typeof(NetworkStreamReceiveSystem))]
+    [UpdateInGroup(typeof(InitializationSystemGroup))]
+#if !UNITY_DOTSRUNTIME
+    [UpdateAfter(typeof(UpdateWorldTimeSystem))]
+#endif
     public class NetworkTimeSystem : SystemBase
     {
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
@@ -40,7 +42,6 @@ namespace Unity.NetCode
         internal float subInterpolateTargetTick;
         internal float subPredictTargetTick;
 
-        private EntityQuery connectionGroup;
         private uint latestSnapshot;
         private uint latestSnapshotEstimate;
         private int latestSnapshotAge;
@@ -75,25 +76,23 @@ namespace Unity.NetCode
 
         protected override void OnCreate()
         {
-            connectionGroup = GetEntityQuery(ComponentType.ReadOnly<NetworkSnapshotAckComponent>());
             latestSnapshotEstimate = 0;
             latestSnapshot = 0;
             latestSnapshotAge = 0;
             commandAgeAdjustment = new NativeArray<float>(64, Allocator.Persistent);
+            RequireSingletonForUpdate<NetworkSnapshotAckComponent>();
         }
         protected override void OnDestroy()
         {
             commandAgeAdjustment.Dispose();
         }
+        protected override void OnStopRunning()
+        {
+            interpolateTargetTick = predictTargetTick = 0;
+            latestSnapshotEstimate = 0;
+        }
         protected override void OnUpdate()
         {
-            if (connectionGroup.IsEmptyIgnoreFilter)
-            {
-                interpolateTargetTick = predictTargetTick = 0;
-                latestSnapshotEstimate = 0;
-                return;
-            }
-
             var tickRate = default(ClientServerTickRate);
             if (HasSingleton<ClientServerTickRate>())
             {
@@ -102,9 +101,7 @@ namespace Unity.NetCode
 
             tickRate.ResolveDefaults();
 
-            var connections = connectionGroup.ToComponentDataArray<NetworkSnapshotAckComponent>(Allocator.TempJob);
-            var ack = connections[0];
-            connections.Dispose();
+            var ack = GetSingleton<NetworkSnapshotAckComponent>();
 
             float deltaTime = Time.DeltaTime;
             float deltaTicks = deltaTime * tickRate.SimulationTickRate;

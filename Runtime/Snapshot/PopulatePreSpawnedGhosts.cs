@@ -14,7 +14,7 @@ public struct HighestPrespawnIDAllocated : IComponentData
     public int GhostId;
 }
 
-[UpdateInGroup(typeof(ClientAndServerSimulationSystemGroup))]
+[UpdateInGroup(typeof(GhostSimulationSystemGroup))]
 public class PopulatePreSpawnedGhosts : SystemBase
 {
     private EntityQuery m_UninitializedScenes;
@@ -105,6 +105,7 @@ public class PopulatePreSpawnedGhosts : SystemBase
         var ghostPrefabBufferFromEntity = GetBufferFromEntity<GhostPrefabBuffer>(true);
         var prefabEntity = GetSingletonEntity<GhostPrefabCollectionComponent>();
         var ghostReceiveSystem = World.GetExistingSystem<GhostReceiveSystem>();
+        var ghostSendSystem = World.GetExistingSystem<GhostSendSystem>();
         var ghostCollectionSystem = World.GetExistingSystem<GhostCollectionSystem>();
         DynamicBuffer<GhostPrefabBuffer> prefabList = ghostPrefabBufferFromEntity[prefabEntity];
         int highestPrespawnId = -1;
@@ -186,9 +187,10 @@ public class PopulatePreSpawnedGhosts : SystemBase
                 // will happen from the right start index
                 if (serverSystems != null)
                 {
+                    spawnedGhosts.Add(new SpawnedGhostMapping{ghost = new SpawnedGhost{ghostId = newId, spawnTick = 0}, entity = entity});
                     var ghostSystemStateComponent = new GhostSystemStateComponent
                     {
-                        ghostId = newId, despawnTick = 0
+                        ghostId = newId, despawnTick = 0, spawnTick = 0
                     };
                     PostUpdateCommands.AddComponent(entity, ghostSystemStateComponent);
                 }
@@ -216,6 +218,9 @@ public class PopulatePreSpawnedGhosts : SystemBase
         }
         if (ghostReceiveSystem != null && spawnedGhosts.Length > 0)
             ghostReceiveSystem.AddSpawnedGhosts(spawnedGhosts);
+        else if (ghostSendSystem != null && spawnedGhosts.Length > 0)
+            ghostSendSystem.AddSpawnedGhosts(spawnedGhosts);
+
         if (serverSystems != null)
         {
             var sendSystem = World.GetExistingSystem<GhostSendSystem>();

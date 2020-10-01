@@ -7,6 +7,7 @@ using UnityEngine;
 
 namespace Unity.NetCode
 {
+    [DisallowMultipleComponent]
     public class GhostAuthoringComponent : MonoBehaviour
     {
 #if UNITY_EDITOR

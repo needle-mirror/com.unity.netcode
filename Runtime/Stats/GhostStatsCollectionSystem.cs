@@ -6,8 +6,7 @@ using Unity.Mathematics;
 
 namespace Unity.NetCode
 {
-    [UpdateAfter(typeof(GhostSimulationSystemGroup))]
-    [UpdateInGroup(typeof(ClientAndServerSimulationSystemGroup))]
+    [UpdateInGroup(typeof(GhostSimulationSystemGroup), OrderLast = true)]
     [AlwaysUpdateSystem]
     class GhostStatsCollectionSystem : SystemBase
     {

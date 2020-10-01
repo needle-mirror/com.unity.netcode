@@ -12,31 +12,39 @@ namespace Unity.NetCode
     {
         internal ulong rpcType;
         [ReadOnly] internal NativeHashMap<ulong, int> rpcTypeHashToIndex;
+        internal bool dynamicAssemblyList;
 
-        public unsafe void Schedule(DynamicBuffer<OutgoingRpcDataStreamBufferComponent> buffer, TActionRequest data)
+        public unsafe void Schedule(DynamicBuffer<OutgoingRpcDataStreamBufferComponent> buffer,
+            ComponentDataFromEntity<GhostComponent> ghostFromEntity, TActionRequest data)
         {
             var serializer = default(TActionSerializer);
-            int maxSize = UnsafeUtility.SizeOf<TActionRequest>() + 4 + 1;
-            if (!rpcTypeHashToIndex.TryGetValue(rpcType, out var rpcIndex))
+            var serializerState = new RpcSerializerState {GhostFromEntity = ghostFromEntity};
+            var msgHeaderLen = dynamicAssemblyList ? 10 : 4;
+            int maxSize = UnsafeUtility.SizeOf<TActionRequest>() + msgHeaderLen + 1;
+            int rpcIndex = 0;
+            if (!dynamicAssemblyList && !rpcTypeHashToIndex.TryGetValue(rpcType, out rpcIndex))
                 throw new InvalidOperationException("Could not find RPC index for type");
             while (true)
             {
                 DataStreamWriter writer = new DataStreamWriter(maxSize, Allocator.Temp);
-                int headerLen = 0;
+                int packetHeaderLen = 0;
                 if (buffer.Length == 0)
                 {
-                    headerLen = 1;
+                    packetHeaderLen = 1;
                     writer.WriteByte((byte) NetworkStreamProtocol.Rpc);
                 }
-                writer.WriteUShort((ushort)rpcIndex);
+                if (dynamicAssemblyList)
+                    writer.WriteULong(rpcType);
+                else
+                    writer.WriteUShort((ushort)rpcIndex);
                 var lenWriter = writer;
                 writer.WriteUShort((ushort)0);
-                serializer.Serialize(ref writer, data);
+                serializer.Serialize(ref writer, serializerState, data);
                 if (!writer.HasFailedWrites)
                 {
-                    if (writer.Length-headerLen > ushort.MaxValue)
+                    if (writer.Length-packetHeaderLen > ushort.MaxValue)
                         throw new InvalidOperationException("RPC is too large to serialize");
-                    lenWriter.WriteUShort((ushort)(writer.Length - 4 - headerLen));
+                    lenWriter.WriteUShort((ushort)(writer.Length - msgHeaderLen - packetHeaderLen));
                     var prevLen = buffer.Length;
                     buffer.ResizeUninitialized(buffer.Length + writer.Length);
                     byte* ptr = (byte*) buffer.GetUnsafePtr();

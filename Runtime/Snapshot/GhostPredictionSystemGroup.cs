@@ -37,7 +37,6 @@ namespace Unity.NetCode
         protected override void OnCreate()
         {
             base.OnCreate();
-            UseLegacySortOrder = false;
             OldestPredictedTick = new NativeArray<uint>(JobsUtility.MaxJobThreadCount, Allocator.Persistent);
             predictedTickWriters = new NativeList<JobHandle>(16, Allocator.Persistent);
             isServer = World.GetExistingSystem<ServerSimulationSystemGroup>() != null;

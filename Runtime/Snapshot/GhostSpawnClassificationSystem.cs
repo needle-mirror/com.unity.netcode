@@ -50,7 +50,8 @@ namespace Unity.NetCode
     /// items with SpawnType set to Predicted and set the PredictedSpawnEntity if you find a matching entity.
     /// The reason to put predictive spawn systems after the default is so the owner predicted logic has run.
     /// </summary>
-    [UpdateInGroup(typeof(ClientSimulationSystemGroup))]
+    [UpdateInWorld(UpdateInWorld.TargetWorld.Client)]
+    [UpdateInGroup(typeof(GhostSimulationSystemGroup))]
     public class GhostSpawnClassificationSystem : SystemBase
     {
         private GhostCollectionSystem m_GhostCollectionSystem;

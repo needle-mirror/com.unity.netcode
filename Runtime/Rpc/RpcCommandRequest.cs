@@ -14,14 +14,11 @@ namespace Unity.NetCode
         public Entity SourceConnection;
     }
 
-    [UpdateInGroup(typeof(ClientAndServerSimulationSystemGroup))]
+    [UpdateInGroup(typeof(SimulationSystemGroup), OrderLast = true)]
     [UpdateBefore(typeof(RpcSystem))]
+    [UpdateAfter(typeof(EndSimulationEntityCommandBufferSystem))]
     public class RpcCommandRequestSystemGroup : ComponentSystemGroup
     {
-        public RpcCommandRequestSystemGroup()
-        {
-            UseLegacySortOrder = false;
-        }
     }
 
     [UpdateInGroup(typeof(RpcCommandRequestSystemGroup))]
@@ -35,6 +32,7 @@ namespace Unity.NetCode
             [ReadOnly] public EntityTypeHandle entitiesType;
             [ReadOnly] public ComponentTypeHandle<SendRpcCommandRequestComponent> rpcRequestType;
             [ReadOnly] public ComponentTypeHandle<TActionRequest> actionRequestType;
+            [ReadOnly] public ComponentDataFromEntity<GhostComponent> ghostFromEntity;
             public BufferFromEntity<OutgoingRpcDataStreamBufferComponent> rpcFromEntity;
             public RpcQueue<TActionSerializer, TActionRequest> rpcQueue;
             [DeallocateOnJobCompletion] [ReadOnly] public NativeArray<Entity> connections;
@@ -55,14 +53,14 @@ namespace Unity.NetCode
 #endif
                         }
                         var buffer = rpcFromEntity[dest.TargetConnection];
-                        rpcQueue.Schedule(buffer, action);
+                        rpcQueue.Schedule(buffer, ghostFromEntity, action);
                     }
                     else
                     {
                         for (var i = 0; i < connections.Length; ++i)
                         {
                             var buffer = rpcFromEntity[connections[i]];
-                            rpcQueue.Schedule(buffer, action);
+                            rpcQueue.Schedule(buffer, ghostFromEntity, action);
                         }
                     }
                 }
@@ -123,6 +121,7 @@ namespace Unity.NetCode
                 entitiesType = GetEntityTypeHandle(),
                 rpcRequestType = GetComponentTypeHandle<SendRpcCommandRequestComponent>(true),
                 actionRequestType = GetComponentTypeHandle<TActionRequest>(true),
+                ghostFromEntity = GetComponentDataFromEntity<GhostComponent>(true),
                 rpcFromEntity = GetBufferFromEntity<OutgoingRpcDataStreamBufferComponent>(),
                 rpcQueue = m_RpcQueue,
                 connections = connections

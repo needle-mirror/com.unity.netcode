@@ -148,6 +148,7 @@ namespace Unity.NetCode
         {
 #if ENABLE_UNITY_COLLECTIONS_CHECKS
             AtomicSafetyHandle.CheckExistsAndThrow(m_Safety);
+            AtomicSafetyHandle.CheckReadAndThrow(m_Safety);
 #endif
             // Clamp to oldest physics copy when requesting older data than supported
             if (interpolationDelay > m_size-1)
@@ -163,6 +164,7 @@ namespace Unity.NetCode
         {
 #if ENABLE_UNITY_COLLECTIONS_CHECKS
             AtomicSafetyHandle.CheckExistsAndThrow(m_Safety);
+            AtomicSafetyHandle.CheckWriteAndBumpSecondaryVersion(m_Safety);
 #endif
             m_buffer.GetWorldAt(index).Dispose();
         }
@@ -171,6 +173,7 @@ namespace Unity.NetCode
         {
 #if ENABLE_UNITY_COLLECTIONS_CHECKS
             AtomicSafetyHandle.CheckExistsAndThrow(m_Safety);
+            AtomicSafetyHandle.CheckReadAndThrow(m_Safety);
 #endif
             collWorld = m_buffer.GetWorldAt(index);
         }
@@ -179,6 +182,7 @@ namespace Unity.NetCode
         {
 #if ENABLE_UNITY_COLLECTIONS_CHECKS
             AtomicSafetyHandle.CheckExistsAndThrow(m_Safety);
+            AtomicSafetyHandle.CheckWriteAndBumpSecondaryVersion(m_Safety);
 #endif
             if (index >= Capacity)
             {
@@ -267,11 +271,9 @@ namespace Unity.NetCode
         }
     }
 
-    [UpdateInGroup(typeof(ClientAndServerSimulationSystemGroup))]
+    [UpdateInGroup(typeof(GhostSimulationSystemGroup), OrderFirst = true)]
     [AlwaysUpdateSystem]
     [AlwaysSynchronizeSystem]
-    [UpdateBefore(typeof(BuildPhysicsWorld))]
-    [UpdateBefore(typeof(GhostSimulationSystemGroup))]
     /// <summary>
     /// A system used to store old state of the physics world for lag compensation.
     /// You can get a CollisionHistoryBuffer from this system and from that you can
@@ -289,6 +291,7 @@ namespace Unity.NetCode
         CollisionHistoryBuffer m_CollisionHistory;
 
         BuildPhysicsWorld m_BuildPhysicsWorld;
+        EndFramePhysicsSystem m_EndFramePhysicsSystem;
         ServerSimulationSystemGroup m_ServerSimulationSystemGroup;
         ClientSimulationSystemGroup m_ClientSimulationSystemGroup;
 
@@ -300,6 +303,8 @@ namespace Unity.NetCode
         {
             m_ServerSimulationSystemGroup = World.GetExistingSystem<ServerSimulationSystemGroup>();
             m_ClientSimulationSystemGroup = World.GetExistingSystem<ClientSimulationSystemGroup>();
+            m_BuildPhysicsWorld = World.GetExistingSystem<BuildPhysicsWorld>();
+            m_EndFramePhysicsSystem = World.GetExistingSystem<EndFramePhysicsSystem>();
             m_CollisionHistory = new CollisionHistoryBuffer(m_ServerSimulationSystemGroup!=null ? CollisionHistoryBuffer.Capacity : 1);
         }
         protected override void OnDestroy()
@@ -313,14 +318,11 @@ namespace Unity.NetCode
                 return;
 
             var serverTick = (m_ServerSimulationSystemGroup != null) ? m_ServerSimulationSystemGroup.ServerTick : m_ClientSimulationSystemGroup.ServerTick;
+            if (serverTick == 0)
+                return;
 
-            if (m_BuildPhysicsWorld == null)
-            {
-                m_BuildPhysicsWorld = World.GetExistingSystem<BuildPhysicsWorld>();
-                if (m_BuildPhysicsWorld == null)
-                    return;
-            }
-            m_BuildPhysicsWorld.GetOutputDependency().Complete();
+            m_EndFramePhysicsSystem.GetOutputDependency().Complete();
+            LastPhysicsJobHandle.Complete();
 
             if (!m_initialized)
             {
@@ -334,7 +336,7 @@ namespace Unity.NetCode
             }
             else
             {
-                if (serverTick <= m_lastStoredTick)
+                if (!SequenceHelpers.IsNewer(serverTick, m_lastStoredTick))
                     return;
 
                 // Store world for each tick that has not been stored yet (framerate might be lower than tickrate)

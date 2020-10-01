@@ -4,11 +4,11 @@ using Unity.Collections;
 using Unity.Collections.LowLevel.Unsafe;
 using Unity.Entities;
 using Unity.Jobs;
+using Unity.NetCode.LowLevel.Unsafe;
 using Unity.Networking.Transport;
 
 namespace Unity.NetCode
 {
-
     public struct RpcExecutor
     {
         public struct Parameters
@@ -17,7 +17,13 @@ namespace Unity.NetCode
             public Entity Connection;
             public EntityCommandBuffer.ParallelWriter CommandBuffer;
             public int JobIndex;
+            internal IntPtr State;
+            public RpcDeserializerState DeserializerState
+            {
+                get { unsafe { return UnsafeUtility.AsRef<RpcDeserializerState>((void*)State); } }
+            }
         }
+
         public delegate void ExecuteDelegate(ref Parameters parameters);
 
         /// <summary>
@@ -28,8 +34,9 @@ namespace Unity.NetCode
             where TActionSerializer : struct, IRpcCommandSerializer<TActionRequest>
         {
             var rpcData = default(TActionRequest);
+
             var rpcSerializer = default(TActionSerializer);
-            rpcSerializer.Deserialize(ref parameters.Reader, ref rpcData);
+            rpcSerializer.Deserialize(ref parameters.Reader, parameters.DeserializerState, ref rpcData);
             var entity = parameters.CommandBuffer.CreateEntity(parameters.JobIndex);
             parameters.CommandBuffer.AddComponent(parameters.JobIndex, entity, new ReceiveRpcCommandRequestComponent {SourceConnection = parameters.Connection});
             parameters.CommandBuffer.AddComponent(parameters.JobIndex, entity, rpcData);
@@ -37,8 +44,8 @@ namespace Unity.NetCode
         }
     }
 
-    [DisableAutoCreation]
-    [UpdateInGroup(typeof(ClientAndServerSimulationSystemGroup))]
+    [UpdateInGroup(typeof(SimulationSystemGroup), OrderLast = true)]
+    [UpdateAfter(typeof(EndSimulationEntityCommandBufferSystem))]
     public class RpcSystem : SystemBase
     {
         public enum ErrorCodes
@@ -70,7 +77,16 @@ namespace Unity.NetCode
                 return 0;
             }
         }
+
+        /// <summary>
+        /// Treat the set of assemblies loaded on the client / server as dynamic or different. This is required if
+        /// assemblies containing ghost component serializers or RPC serializers are removed when building standalone.
+        /// This property is only read during system creation, so it must be set from the ClientServerBootstrap.
+        /// </summary>
+        public static bool DynamicAssemblyList;
+        private bool m_DynamicAssemblyList;
         private NetworkStreamReceiveSystem m_ReceiveSystem;
+        private GhostSimulationSystemGroup m_GhostSimulationGroup;
         private EntityQuery m_RpcBufferGroup;
         private BeginSimulationEntityCommandBufferSystem m_Barrier;
         private NativeList<RpcData> m_RpcData;
@@ -83,6 +99,7 @@ namespace Unity.NetCode
             m_CanRegister = true;
             m_RpcData = new NativeList<RpcData>(16, Allocator.Persistent);
             m_RpcTypeHashToIndex = new NativeHashMap<ulong, int>(16, Allocator.Persistent);
+            m_DynamicAssemblyList = DynamicAssemblyList;
         }
 
         protected override void OnCreate()
@@ -101,6 +118,7 @@ namespace Unity.NetCode
 
             RegisterRpc(ComponentType.ReadWrite<RpcSetNetworkId>(), default(RpcSetNetworkId).CompileExecute());
             m_ReceiveSystem = World.GetOrCreateSystem<NetworkStreamReceiveSystem>();
+            m_GhostSimulationGroup = World.GetExistingSystem<GhostSimulationSystemGroup>();
             m_RpcErrors = new NativeQueue<RpcReceiveError>(Allocator.Persistent);
         }
 
@@ -176,11 +194,13 @@ namespace Unity.NetCode
             public NativeQueue<RpcReceiveError>.ParallelWriter errors;
             [ReadOnly] public NativeList<RpcData> execute;
             [ReadOnly] public NativeHashMap<ulong, int> hashToIndex;
+            [ReadOnly] public NativeHashMap<SpawnedGhost, Entity> ghostMap;
 
             public NetworkDriver.Concurrent driver;
             public NetworkPipeline reliablePipeline;
 
             public NetworkProtocolVersion protocolVersion;
+            public bool dynamicAssemblyList;
 
             public unsafe void Execute(ArchetypeChunk chunk, int chunkIndex, int firstEntityIndex)
             {
@@ -188,6 +208,7 @@ namespace Unity.NetCode
                 var rpcInBuffer = chunk.GetBufferAccessor(inBufferType);
                 var rpcOutBuffer = chunk.GetBufferAccessor(outBufferType);
                 var connections = chunk.GetNativeArray(connectionType);
+                var deserializeState = new RpcDeserializerState {ghostMap = ghostMap};
                 for (int i = 0; i < rpcInBuffer.Length; ++i)
                 {
                     if (driver.GetConnectionState(connections[i].Value) != NetworkConnection.State.Connected)
@@ -198,13 +219,38 @@ namespace Unity.NetCode
                     {
                         Reader = dynArray.AsDataStreamReader(),
                         CommandBuffer = commandBuffer,
+                        State = (IntPtr)UnsafeUtility.AddressOf(ref deserializeState),
                         Connection = entities[i],
                         JobIndex = chunkIndex
-
                     };
+                    int msgHeaderLen = dynamicAssemblyList ? 10 : 4;
                     while (parameters.Reader.GetBytesRead() < parameters.Reader.Length)
                     {
-                        var rpcIndex = parameters.Reader.ReadUShort();
+                        int rpcIndex = 0;
+                        if (dynamicAssemblyList)
+                        {
+                            ulong rpcHash = parameters.Reader.ReadULong();
+                            if (rpcHash == 0)
+                            {
+                                rpcIndex = ushort.MaxValue;
+                                protocolVersion.RpcCollectionVersion = 0;
+                                protocolVersion.ComponentCollectionVersion = 0;
+                            }
+                            else if (rpcHash != 0 && !hashToIndex.TryGetValue(rpcHash, out rpcIndex))
+                            {
+                                errors.Enqueue(new RpcReceiveError
+                                {
+                                    connection = entities[i],
+                                    error = ErrorCodes.InvalidRpc
+                                });
+                                break;
+                            }
+                        }
+                        else
+                        {
+                            rpcIndex = parameters.Reader.ReadUShort();
+                        }
+
                         var rpcSize = parameters.Reader.ReadUShort();
                         if (rpcIndex == ushort.MaxValue)
                         {
@@ -275,7 +321,7 @@ namespace Unity.NetCode
                             var reader = new DataStreamReader(sendArray);
                             reader.ReadByte();
                             reader.ReadUShort();
-                            var len = reader.ReadUShort() + 5;
+                            var len = reader.ReadUShort() + msgHeaderLen + 1;
                             if (len > tmp.Capacity)
                             {
                                 sendBuffer.Clear();
@@ -289,7 +335,7 @@ namespace Unity.NetCode
                                 var subArray = sendArray.GetSubArray(tmp.Length, sendArray.Length - tmp.Length);
                                 reader = new DataStreamReader(subArray);
                                 reader.ReadUShort();
-                                len = reader.ReadUShort() + 4;
+                                len = reader.ReadUShort() + msgHeaderLen;
                                 if (tmp.Length + len > tmp.Capacity)
                                     break;
                                 tmp.WriteBytes((byte*) subArray.GetUnsafeReadOnlyPtr(), len);
@@ -355,20 +401,33 @@ namespace Unity.NetCode
 
         public static unsafe void SendProtocolVersion(DynamicBuffer<OutgoingRpcDataStreamBufferComponent> buffer, NetworkProtocolVersion version)
         {
-            DataStreamWriter writer = new DataStreamWriter(UnsafeUtility.SizeOf<NetworkProtocolVersion>() + 4 + 1, Allocator.Temp);
+            bool dynamicAssemblyList = (version.RpcCollectionVersion == 0);
+            int msgHeaderLen = dynamicAssemblyList ? 10 : 4;
+            DataStreamWriter writer = new DataStreamWriter(UnsafeUtility.SizeOf<NetworkProtocolVersion>() + msgHeaderLen + 1, Allocator.Temp);
 #if ENABLE_UNITY_COLLECTIONS_CHECKS
             if (buffer.Length != 0)
                 throw new InvalidOperationException("Protocol version must be the very first RPC sent");
 #endif
             writer.WriteByte((byte) NetworkStreamProtocol.Rpc);
-            writer.WriteUShort(ushort.MaxValue);
+            if (dynamicAssemblyList)
+                writer.WriteULong(0);
+            else
+                writer.WriteUShort(ushort.MaxValue);
             var lenWriter = writer;
             writer.WriteUShort((ushort)0);
             writer.WriteInt(version.NetCodeVersion);
             writer.WriteInt(version.GameVersion);
-            writer.WriteULong(version.RpcCollectionVersion);
-            writer.WriteULong(version.ComponentCollectionVersion);
-            lenWriter.WriteUShort((ushort)(writer.Length - 5));
+            if (dynamicAssemblyList)
+            {
+                writer.WriteULong(0);
+                writer.WriteULong(0);
+            }
+            else
+            {
+                writer.WriteULong(version.RpcCollectionVersion);
+                writer.WriteULong(version.ComponentCollectionVersion);
+            }
+            lenWriter.WriteUShort((ushort)(writer.Length - msgHeaderLen - 1));
             var prevLen = buffer.Length;
             buffer.ResizeUninitialized(buffer.Length + writer.Length);
             byte* ptr = (byte*) buffer.GetUnsafePtr();
@@ -385,7 +444,7 @@ namespace Unity.NetCode
 #if ENABLE_UNITY_COLLECTIONS_CHECKS
                     throw new InvalidOperationException(String.Format("Missing RPC registration for {0} which is used to send data", m_RpcData[i].RpcType.GetManagedType()));
 #else
-                        throw new InvalidOperationException("Missing RPC registration for RPC which is used to send");
+                    throw new InvalidOperationException("Missing RPC registration for RPC which is used to send");
 #endif
             }
             m_RpcData.Sort();
@@ -399,13 +458,13 @@ namespace Unity.NetCode
             for (int i = 0; i < m_RpcData.Length; ++i)
                 hash = TypeHash.CombineFNV1A64(hash, m_RpcData[i].TypeHash);
             m_CanRegister = false;
-            return hash;
+            return m_DynamicAssemblyList ? 0 : hash;
         }
         protected override void OnUpdate()
         {
             // Deserialize the command type from the reader stream
             // Execute the RPC
-            Dependency = JobHandle.CombineDependencies(Dependency, m_ReceiveSystem.LastDriverWriter);
+            Dependency = JobHandle.CombineDependencies(Dependency, m_ReceiveSystem.LastDriverWriter, m_GhostSimulationGroup.LastGhostMapWriter);
             var execJob = new RpcExecJob
             {
                 commandBuffer = m_Barrier.CreateCommandBuffer()
@@ -417,11 +476,14 @@ namespace Unity.NetCode
                 errors = m_RpcErrors.AsParallelWriter(),
                 execute = m_RpcData,
                 hashToIndex = m_RpcTypeHashToIndex,
+                ghostMap = m_GhostSimulationGroup.SpawnedGhostEntityMap,
                 driver = m_ReceiveSystem.ConcurrentDriver,
                 reliablePipeline = m_ReceiveSystem.ReliablePipeline,
-                protocolVersion = GetSingleton<NetworkProtocolVersion>()
+                protocolVersion = GetSingleton<NetworkProtocolVersion>(),
+                dynamicAssemblyList = m_DynamicAssemblyList
             };
             Dependency = execJob.Schedule(m_RpcBufferGroup, Dependency);
+            m_GhostSimulationGroup.LastGhostMapWriter = Dependency;
             m_Barrier.AddJobHandleForProducer(Dependency);
             Dependency = new RpcErrorReportingJob
             {
@@ -461,7 +523,8 @@ namespace Unity.NetCode
             return new RpcQueue<TActionSerializer, TActionRequest>
             {
                 rpcType = hash,
-                rpcTypeHashToIndex = m_RpcTypeHashToIndex
+                rpcTypeHashToIndex = m_RpcTypeHashToIndex,
+                dynamicAssemblyList = m_DynamicAssemblyList
             };
         }
     }

@@ -10,7 +10,8 @@
         "Unity.Mathematics",
         "Unity.Mathematics.Extensions",
         "Unity.Networking.Transport",
-        "Unity.Build"
+        "Unity.Build",
+        "Unity.Jobs"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],
@@ -19,5 +20,6 @@
     "precompiledReferences": [],
     "autoReferenced": true,
     "defineConstraints": [],
+    "versionDefines": [],
     "noEngineReferences": false
 }

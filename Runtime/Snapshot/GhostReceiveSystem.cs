@@ -41,19 +41,18 @@ namespace Unity.NetCode
         public uint SnapshotTick;
     }
 
-    [UpdateInGroup(typeof(ClientSimulationSystemGroup))]
-    [UpdateBefore(typeof(GhostSimulationSystemGroup))]
+    [UpdateInWorld(UpdateInWorld.TargetWorld.Client)]
+    [UpdateInGroup(typeof(GhostSimulationSystemGroup))]
+    [UpdateBefore(typeof(GhostUpdateSystem))]
     [UpdateBefore(typeof(GhostSpawnClassificationSystem))]
     [UpdateAfter(typeof(GhostCollectionSystem))]
     [UpdateAfter(typeof(PopulatePreSpawnedGhosts))]
-    public unsafe class GhostReceiveSystem : SystemBase
+    public unsafe class GhostReceiveSystem : SystemBase, IGhostMappingSystem
     {
         private EntityQuery playerGroup;
         private EntityQuery ghostCleanupGroup;
         private EntityQuery clearJobGroup;
 
-        public JobHandle LastGhostMapWriter;
-        public NativeHashMap<SpawnedGhost, Entity> SpawnedGhostEntityMap => m_spawnedGhostEntityMap;
         private NativeHashMap<int, Entity> m_ghostEntityMap;
         private NativeHashMap<SpawnedGhost, Entity> m_spawnedGhostEntityMap;
 
@@ -71,6 +70,9 @@ namespace Unity.NetCode
         /// The total number of ghosts received by this client the last time a snapshot was received. The number of received ghosts can be different from the number of currently spawned ghosts. Use this and GhostCountOnServer to figure out how much of the state the client has received.
         /// </summary>
         public int GhostCountOnClient => m_GhostCompletionCount[1];
+
+        public JobHandle LastGhostMapWriter { get; set; }
+        public NativeHashMap<SpawnedGhost, Entity> SpawnedGhostEntityMap => m_spawnedGhostEntityMap;
 
         protected override void OnCreate()
         {
@@ -611,8 +613,7 @@ namespace Unity.NetCode
 #if ENABLE_UNITY_COLLECTIONS_CHECKS
                     UnityEngine.Debug.LogError("Ghost ID " + ghostId + " has already been added");
 #endif
-                    m_ghostEntityMap.Remove(ghostId);
-                    m_ghostEntityMap.TryAdd(ghostId, ent);
+                    m_ghostEntityMap[ghostId] = ent;
                 }
             }
         }
@@ -628,16 +629,15 @@ namespace Unity.NetCode
 #if ENABLE_UNITY_COLLECTIONS_CHECKS
                     UnityEngine.Debug.LogError("Ghost ID " + ghost.ghostId + " has already been added");
 #endif
-                    m_ghostEntityMap.Remove(ghost.ghostId);
-                    m_ghostEntityMap.TryAdd(ghost.ghostId, ent);
+                    m_ghostEntityMap[ghost.ghostId] = ent;
                 }
+
                 if (!m_spawnedGhostEntityMap.TryAdd(ghost, ent))
                 {
 #if ENABLE_UNITY_COLLECTIONS_CHECKS
                     UnityEngine.Debug.LogError("Ghost ID " + ghost.ghostId + " has already been added to the spawned ghost map");
 #endif
-                    m_spawnedGhostEntityMap.Remove(ghost);
-                    m_spawnedGhostEntityMap.TryAdd(ghost, ent);
+                    m_spawnedGhostEntityMap[ghost] = ent;
                 }
             }
         }
@@ -654,16 +654,14 @@ namespace Unity.NetCode
                 // a different ghost might be in the ghost map
                 if (m_ghostEntityMap.TryGetValue(ghost.ghostId, out var existing) && existing == prevEnt)
                 {
-                    m_ghostEntityMap.Remove(ghost.ghostId);
-                    m_ghostEntityMap.TryAdd(ghost.ghostId, ent);
+                    m_ghostEntityMap[ghost.ghostId] =  ent;
                 }
                 if (!m_spawnedGhostEntityMap.TryAdd(ghost, ent))
                 {
 #if ENABLE_UNITY_COLLECTIONS_CHECKS
                     UnityEngine.Debug.LogError("Ghost ID " + ghost.ghostId + " has already been added to the spawned ghost map");
 #endif
-                    m_spawnedGhostEntityMap.Remove(ghost);
-                    m_spawnedGhostEntityMap.TryAdd(ghost, ent);
+                    m_spawnedGhostEntityMap[ghost] = ent;
                 }
             }
         }

@@ -145,7 +145,7 @@ namespace Unity.NetCode.Tests
                 // Connect and make sure the connection could be established
                 Assert.IsTrue(testWorld.Connect(frameTime, 4));
 
-                LogAssert.Expect(LogType.Exception, "InvalidOperationException: Cannot send RPC with no remote connection.");
+                LogAssert.Expect(LogType.Exception, new Regex("InvalidOperationException: Cannot send RPC with no remote connection."));
                 for (int i = 0; i < 33; ++i)
                     testWorld.Tick(16f / 1000f);
 
@@ -200,11 +200,6 @@ namespace Unity.NetCode.Tests
                 Assert.IsTrue(testWorld.Connect(frameTime, 4));
 
                 LogAssert.Expect(LogType.Error, new Regex("RpcSystem received invalid rpc from connection 1"));
-                //This catch is necessary right now because there is an edge case scenario when a system schedule
-                //an rpc to be executed the same frame a connection is marked for disconnection.
-                //Is not detectable reliably using entities query, because depend on system order and the fact we tag
-                //the connection at the beginning of the next simulation update (via command buffer).
-                LogAssert.Expect(LogType.Exception, new Regex("InvalidOperationException: Cannot send RPC with no remote connection"));
                 for (int i = 0; i < 32; ++i)
                     testWorld.Tick(16f / 1000f);
 
@@ -254,6 +249,117 @@ namespace Unity.NetCode.Tests
 
                 Assert.AreEqual(SendCount, SerializedServerLargeRpcReceiveSystem.ReceivedCount);
                 Assert.AreEqual(SendCmd, SerializedServerLargeRpcReceiveSystem.ReceivedCmd);
+            }
+        }
+
+
+        public class GhostConverter : TestNetCodeAuthoring.IConverter
+        {
+            public void Convert(GameObject gameObject, Entity entity, EntityManager dstManager, GameObjectConversionSystem conversionSystem)
+            {
+                dstManager.AddComponentData(entity, new GhostOwnerComponent());
+            }
+        }
+
+        [Test]
+        public void Rpc_CanSendEntityFromClientAndServer()
+        {
+            void SendRpc(World world, Entity entity)
+            {
+                var req = world.EntityManager.CreateEntity();
+                world.EntityManager.AddComponentData(req, new RpcWithEntity {entity = entity});
+                world.EntityManager.AddComponentData(req, new SendRpcCommandRequestComponent {TargetConnection = Entity.Null});
+            }
+
+            RpcWithEntity RecvRpc(World world)
+            {
+                var query = world.EntityManager.CreateEntityQuery(ComponentType.ReadOnly<RpcWithEntity>());
+                Assert.AreEqual(1, query.CalculateEntityCount());
+                var rpcReceived = query.GetSingleton<RpcWithEntity>();
+                world.EntityManager.DestroyEntity(query);
+                return rpcReceived;
+            }
+
+
+            using (var testWorld = new NetCodeTestWorld())
+            {
+                testWorld.Bootstrap(true, typeof(RpcWithEntityRpcCommandRequestSystem));
+                var ghostGameObject = new GameObject("SimpleGhost");
+                ghostGameObject.AddComponent<TestNetCodeAuthoring>().Converter = new GhostConverter();
+                testWorld.CreateGhostCollection(ghostGameObject);
+                testWorld.CreateWorlds(true, 1);
+
+                float frameTime = 1.0f / 60.0f;
+                Assert.IsTrue(testWorld.Connect(frameTime, 4));
+                // Go in-game
+                testWorld.GoInGame();
+
+                var serverEntity = testWorld.SpawnOnServer(ghostGameObject);
+                //Wait some frame so it is spawned also on the client
+                for (int i = 0; i < 8; ++i)
+                    testWorld.Tick(16f / 1000f);
+
+                // Retrieve the client entity
+                testWorld.ClientWorlds[0].GetExistingSystem<GhostSimulationSystemGroup>().LastGhostMapWriter.Complete();
+                var ghost = testWorld.ServerWorld.EntityManager.GetComponentData<GhostComponent>(serverEntity);
+                Assert.IsTrue(testWorld.ClientWorlds[0].GetExistingSystem<GhostSimulationSystemGroup>().SpawnedGhostEntityMap
+                    .TryGetValue(new SpawnedGhost {ghostId = ghost.ghostId, spawnTick = ghost.spawnTick}, out var clientEntity));
+
+                //Send the rpc to the server
+                SendRpc(testWorld.ClientWorlds[0], clientEntity);
+                for (int i = 0; i < 8; ++i)
+                    testWorld.Tick(16f / 1000f);
+                var rpcReceived = RecvRpc(testWorld.ServerWorld);
+                Assert.IsTrue(rpcReceived.entity != Entity.Null);
+                Assert.IsTrue(rpcReceived.entity == serverEntity);
+
+                // Server send the rpc to the client
+                SendRpc(testWorld.ServerWorld, serverEntity);
+                for (int i = 0; i < 8; ++i)
+                    testWorld.Tick(16f / 1000f);
+                rpcReceived = RecvRpc(testWorld.ClientWorlds[0]);
+                Assert.IsTrue(rpcReceived.entity != Entity.Null);
+                Assert.IsTrue(rpcReceived.entity == clientEntity);
+
+                // Client try to send a client-only entity -> result in a Entity.Null reference
+                //Send the rpc to the server
+                var clientOnlyEntity = testWorld.ClientWorlds[0].EntityManager.CreateEntity();
+                SendRpc(testWorld.ClientWorlds[0], clientOnlyEntity);
+                for (int i = 0; i < 8; ++i)
+                    testWorld.Tick(16f / 1000f);
+                rpcReceived = RecvRpc(testWorld.ServerWorld);
+                Assert.IsTrue(rpcReceived.entity == Entity.Null);
+
+                // Some Edge cases:
+                // 1 - Entity has been or going to be despawned on the client. Expected: server will receive an Entity.Null in the rpc
+                // 2 - Entity has been despawn on the server but the client. Server will not be able to resolve the entity correctly
+                //     in that window, since the ghost mapping is reset
+
+                //Destroy the entity on the server
+                testWorld.ServerWorld.EntityManager.DestroyEntity(serverEntity);
+                //Let the client try to send an rpc for it (this mimic sort of latency)
+                SendRpc(testWorld.ClientWorlds[0], clientEntity);
+                //Entity is destroyed on the server (so no GhostComponent). If server try to send an rpc, the entity will be translated to null
+                SendRpc(testWorld.ServerWorld, serverEntity);
+                for (int i = 0; i < 4; ++i)
+                    testWorld.Tick(16f / 1000f);
+                //Server should not be able to resolve the reference
+                rpcReceived = RecvRpc(testWorld.ServerWorld);
+                Assert.IsTrue(rpcReceived.entity == Entity.Null);
+                //On the client must but null
+                rpcReceived = RecvRpc(testWorld.ClientWorlds[0]);
+                Assert.IsTrue(rpcReceived.entity == Entity.Null);
+                //If client send the rpc now (the entity should not exists anymore and the mapping should be reset on both client and server now)
+                Assert.IsFalse(testWorld.ClientWorlds[0].GetExistingSystem<GhostSimulationSystemGroup>().SpawnedGhostEntityMap
+                    .TryGetValue(new SpawnedGhost {ghostId = ghost.ghostId, spawnTick = ghost.spawnTick}, out var _));
+                Assert.IsFalse(testWorld.ServerWorld.GetExistingSystem<GhostSimulationSystemGroup>().SpawnedGhostEntityMap
+                    .TryGetValue(new SpawnedGhost {ghostId = ghost.ghostId, spawnTick = ghost.spawnTick}, out var _));
+                SendRpc(testWorld.ClientWorlds[0], clientEntity);
+                for (int i = 0; i < 4; ++i)
+                    testWorld.Tick(16f / 1000f);
+                //The received entity must be null
+                rpcReceived = RecvRpc(testWorld.ServerWorld);
+                Assert.IsTrue(rpcReceived.entity == Entity.Null);
             }
         }
     }

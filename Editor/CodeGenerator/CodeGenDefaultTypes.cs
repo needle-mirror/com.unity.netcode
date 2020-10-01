@@ -299,7 +299,7 @@ namespace Unity.NetCode.Editor
                     template = new TypeTemplate
                     {
                         TemplatePath = $"{TypeRegistry.k_TemplateRootPath}/GhostSnapshotValueEntity.cs",
-                        SupportCommand = false
+                        SupportCommand = true
                     }
                 },
                 new TypeRegistry.CodeGenType

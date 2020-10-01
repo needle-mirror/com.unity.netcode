@@ -9,11 +9,11 @@ namespace Unity.NetCode.Tests
     [BurstCompile]
     public struct SimpleRpcCommand : IComponentData, IRpcCommandSerializer<SimpleRpcCommand>
     {
-        public void Serialize(ref DataStreamWriter writer, in SimpleRpcCommand data)
+        public void Serialize(ref DataStreamWriter writer, in RpcSerializerState state, in SimpleRpcCommand data)
         {
         }
 
-        public void Deserialize(ref DataStreamReader reader, ref SimpleRpcCommand data)
+        public void Deserialize(ref DataStreamReader reader, in RpcDeserializerState state, ref SimpleRpcCommand data)
         {
         }
 
@@ -40,14 +40,14 @@ namespace Unity.NetCode.Tests
         public short shortValue;
         public float floatValue;
 
-        public void Serialize(ref DataStreamWriter writer, in SerializedRpcCommand data)
+        public void Serialize(ref DataStreamWriter writer, in RpcSerializerState state, in SerializedRpcCommand data)
         {
             writer.WriteInt(data.intValue);
             writer.WriteShort(data.shortValue);
             writer.WriteFloat(data.floatValue);
         }
 
-        public void Deserialize(ref DataStreamReader reader, ref SerializedRpcCommand data)
+        public void Deserialize(ref DataStreamReader reader, in RpcDeserializerState state, ref SerializedRpcCommand data)
         {
             data.intValue = reader.ReadInt();
             data.shortValue = reader.ReadShort();
@@ -64,7 +64,7 @@ namespace Unity.NetCode.Tests
         private static void InvokeExecute(ref RpcExecutor.Parameters parameters)
         {
             var serializedData = default(SerializedRpcCommand);
-            serializedData.Deserialize(ref parameters.Reader, ref serializedData);
+            serializedData.Deserialize(ref parameters.Reader, parameters.DeserializerState, ref serializedData);
 
             var entity = parameters.CommandBuffer.CreateEntity(parameters.JobIndex);
             parameters.CommandBuffer.AddComponent(parameters.JobIndex, entity,
@@ -81,12 +81,12 @@ namespace Unity.NetCode.Tests
     {
         public FixedString512 stringValue;
 
-        public void Serialize(ref DataStreamWriter writer, in SerializedLargeRpcCommand data)
+        public void Serialize(ref DataStreamWriter writer, in RpcSerializerState state, in SerializedLargeRpcCommand data)
         {
             writer.WriteFixedString512(data.stringValue);
         }
 
-        public void Deserialize(ref DataStreamReader reader, ref SerializedLargeRpcCommand data)
+        public void Deserialize(ref DataStreamReader reader, in RpcDeserializerState state, ref SerializedLargeRpcCommand data)
         {
             data.stringValue = reader.ReadFixedString512();
         }
@@ -101,7 +101,7 @@ namespace Unity.NetCode.Tests
         private static void InvokeExecute(ref RpcExecutor.Parameters parameters)
         {
             var serializedData = default(SerializedLargeRpcCommand);
-            serializedData.Deserialize(ref parameters.Reader, ref serializedData);
+            serializedData.Deserialize(ref parameters.Reader, parameters.DeserializerState, ref serializedData);
 
             var entity = parameters.CommandBuffer.CreateEntity(parameters.JobIndex);
             parameters.CommandBuffer.AddComponent(parameters.JobIndex, entity,
@@ -118,12 +118,12 @@ namespace Unity.NetCode.Tests
     {
         public int Id;
 
-        public void Serialize(ref DataStreamWriter writer, in ClientIdRpcCommand data)
+        public void Serialize(ref DataStreamWriter writer, in RpcSerializerState state, in ClientIdRpcCommand data)
         {
             writer.WriteInt(data.Id);
         }
 
-        public void Deserialize(ref DataStreamReader reader, ref ClientIdRpcCommand data)
+        public void Deserialize(ref DataStreamReader reader, in RpcDeserializerState state, ref ClientIdRpcCommand data)
         {
             data.Id = reader.ReadInt();
         }
@@ -138,7 +138,7 @@ namespace Unity.NetCode.Tests
         private static void InvokeExecute(ref RpcExecutor.Parameters parameters)
         {
             var serializedData = default(ClientIdRpcCommand);
-            serializedData.Deserialize(ref parameters.Reader, ref serializedData);
+            serializedData.Deserialize(ref parameters.Reader, parameters.DeserializerState, ref serializedData);
 
             var entity = parameters.CommandBuffer.CreateEntity(parameters.JobIndex);
             parameters.CommandBuffer.AddComponent(parameters.JobIndex, entity,
@@ -152,17 +152,64 @@ namespace Unity.NetCode.Tests
 
     public struct InvalidRpcCommand : IComponentData, IRpcCommandSerializer<InvalidRpcCommand>
     {
-        public void Serialize(ref DataStreamWriter writer, in InvalidRpcCommand data)
+        public void Serialize(ref DataStreamWriter writer, in RpcSerializerState state, in InvalidRpcCommand data)
         {
         }
 
-        public void Deserialize(ref DataStreamReader reader, ref InvalidRpcCommand data)
+        public void Deserialize(ref DataStreamReader reader, in RpcDeserializerState state, ref InvalidRpcCommand data)
         {
         }
 
         public PortableFunctionPointer<RpcExecutor.ExecuteDelegate> CompileExecute()
         {
             return new PortableFunctionPointer<RpcExecutor.ExecuteDelegate>();
+        }
+    }
+
+    [BurstCompile]
+    public struct RpcWithEntity : IComponentData, IRpcCommandSerializer<RpcWithEntity>
+    {
+        public Entity entity;
+
+        public void Serialize(ref DataStreamWriter writer, in RpcSerializerState state, in Unity.NetCode.Tests.RpcWithEntity data)
+        {
+            if (state.GhostFromEntity.HasComponent(data.entity))
+            {
+                var ghostComponent = state.GhostFromEntity[data.entity];
+                writer.WriteInt(ghostComponent.ghostId);
+                writer.WriteUInt(ghostComponent.spawnTick);
+            }
+            else
+            {
+                writer.WriteInt(0);
+                writer.WriteUInt(0);
+            }
+        }
+
+        public void Deserialize(ref DataStreamReader reader, in RpcDeserializerState state,  ref RpcWithEntity data)
+        {
+            var ghostId = reader.ReadInt();
+            var spawnTick = reader.ReadUInt();
+            data.entity = Entity.Null;
+            if (ghostId != 0 && spawnTick != 0)
+            {
+                if (state.ghostMap.TryGetValue(new SpawnedGhost{ghostId = ghostId, spawnTick = spawnTick}, out var ghostEnt))
+                    data.entity = ghostEnt;
+            }
+        }
+
+        [BurstCompile]
+        [MonoPInvokeCallback(typeof(RpcExecutor.ExecuteDelegate))]
+        private static void InvokeExecute(ref RpcExecutor.Parameters parameters)
+        {
+            RpcExecutor.ExecuteCreateRequestComponent<RpcWithEntity, RpcWithEntity>(ref parameters);
+        }
+
+        static PortableFunctionPointer<RpcExecutor.ExecuteDelegate> InvokeExecuteFunctionPointer =
+            new PortableFunctionPointer<RpcExecutor.ExecuteDelegate>(InvokeExecute);
+        public PortableFunctionPointer<RpcExecutor.ExecuteDelegate> CompileExecute()
+        {
+            return InvokeExecuteFunctionPointer;
         }
     }
 
@@ -502,6 +549,25 @@ namespace Unity.NetCode.Tests
 
     [DisableAutoCreation]
     public class InvalidRpcCommandRequestSystem : RpcCommandRequestSystem<InvalidRpcCommand, InvalidRpcCommand>
+    {
+        [BurstCompile]
+        protected struct SendRpc : IJobEntityBatch
+        {
+            public SendRpcData data;
+            public void Execute(ArchetypeChunk chunk, int orderIndex)
+            {
+                data.Execute(chunk, orderIndex);
+            }
+        }
+        protected override void OnUpdate()
+        {
+            var sendJob = new SendRpc{data = InitJobData()};
+            ScheduleJobData(sendJob);
+        }
+    }
+
+    [DisableAutoCreation]
+    class RpcWithEntityRpcCommandRequestSystem : RpcCommandRequestSystem<RpcWithEntity, RpcWithEntity>
     {
         [BurstCompile]
         protected struct SendRpc : IJobEntityBatch

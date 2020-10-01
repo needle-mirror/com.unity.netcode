@@ -21,7 +21,6 @@ namespace Unity.NetCode.Tests
     }
 
     [UpdateInGroup(typeof(ServerSimulationSystemGroup))]
-    [UpdateBefore(typeof(GhostSendSystem))]
     [DisableAutoCreation]
     internal class AutoMarkIrrelevantSystem : SystemBase
     {

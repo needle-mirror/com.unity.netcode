@@ -18,6 +18,7 @@ namespace Unity.NetCode
     internal struct GhostSystemStateComponent : ISystemStateComponentData
     {
         public int ghostId;
+        public uint spawnTick;
         public uint despawnTick;
     }
 
@@ -59,11 +60,9 @@ namespace Unity.NetCode
         public const int SnapshotHistorySize = 32;
     }
 
-    [UpdateInGroup(typeof(ServerSimulationSystemGroup))]
-    [UpdateAfter(typeof(TransformSystemGroup))]
-    [UpdateAfter(typeof(GhostCollectionSystem))]
-    [UpdateAfter(typeof(PopulatePreSpawnedGhosts))]
-    public class GhostSendSystem : SystemBase
+    [UpdateInGroup(typeof(ServerSimulationSystemGroup), OrderLast = true)]
+    [UpdateAfter(typeof(EndSimulationEntityCommandBufferSystem))]
+    public class GhostSendSystem : SystemBase, IGhostMappingSystem
     {
         public GhostRelevancyMode GhostRelevancyMode{get; set;}
         public JobHandle GhostRelevancySetWriteHandle{get;set;}
@@ -102,6 +101,14 @@ namespace Unity.NetCode
 
         private EntityQuery m_ChildEntityQuery;
         private NativeHashMap<Entity, EntityChunkLookup> m_ChildEntityLookup;
+        private NativeList<int> m_ConnectionRelevantCount;
+        private NativeList<ConnectionStateData> m_ConnectionsToProcess;
+
+        private NativeHashMap<SpawnedGhost, Entity> m_GhostMap;
+        private NativeQueue<SpawnedGhost> m_FreeSpawnedGhostQueue;
+
+        public NativeHashMap<SpawnedGhost, Entity> SpawnedGhostEntityMap => m_GhostMap;
+        public JobHandle LastGhostMapWriter { get; set; }
 
         unsafe struct SerializationState
         {
@@ -326,6 +333,11 @@ namespace Unity.NetCode
             m_ChildEntityLookup = new NativeHashMap<Entity, EntityChunkLookup>(1024, Allocator.Persistent);
 
             m_GhostRelevancySet = new NativeHashMap<RelevantGhostForConnection, int>(1024, Allocator.Persistent);
+            m_ConnectionRelevantCount = new NativeList<int>(16, Allocator.Persistent);
+            m_ConnectionsToProcess = new NativeList<ConnectionStateData>(16, Allocator.Persistent);
+
+            m_GhostMap = new NativeHashMap<SpawnedGhost, Entity>(1024, Allocator.Persistent);
+            m_FreeSpawnedGhostQueue = new NativeQueue<SpawnedGhost>(Allocator.Persistent);
         }
 
         protected override void OnDestroy()
@@ -352,11 +364,18 @@ namespace Unity.NetCode
 
             GhostRelevancySetWriteHandle.Complete();
             m_GhostRelevancySet.Dispose();
+            m_ConnectionRelevantCount.Dispose();
+            m_ConnectionsToProcess.Dispose();
+
+            LastGhostMapWriter.Complete();
+            m_GhostMap.Dispose();
+            m_FreeSpawnedGhostQueue.Dispose();
         }
 
         [BurstCompile]
         struct SpawnGhostJob : IJob
         {
+            [ReadOnly] public NativeArray<ConnectionStateData> connectionState;
             [ReadOnly] public NativeList<GhostCollectionSystem.GhostTypeState> GhostTypeCollection;
             [ReadOnly] public NativeArray<ArchetypeChunk> spawnChunks;
             public NativeList<PrioChunk> serialSpawnChunks;
@@ -366,6 +385,7 @@ namespace Unity.NetCode
             public NativeQueue<int> freeGhostIds;
             public NativeArray<int> allocatedGhostIds;
             public EntityCommandBuffer commandBuffer;
+            public NativeHashMap<SpawnedGhost, Entity> ghostMap;
 
             [ReadOnly] public ComponentDataFromEntity<GhostTypeComponent> ghostTypeFromEntity;
             [ReadOnly] public BufferFromEntity<GhostPrefabBuffer> ghostPrefabBufferFromEntity;
@@ -377,6 +397,8 @@ namespace Unity.NetCode
 #endif
             public unsafe void Execute()
             {
+                if (connectionState.Length == 0)
+                    return;
                 var prefabList = ghostPrefabBufferFromEntity[prefabEntity];
                 for (int chunk = 0; chunk < spawnChunks.Length; ++chunk)
                 {
@@ -401,11 +423,24 @@ namespace Unity.NetCode
                         }
 
                         ghosts[ent] = new GhostComponent {ghostId = newId, ghostType = ghostType, spawnTick = serverTick};
+
+                        var spawnedGhost = new SpawnedGhost
+                        {
+                            ghostId = newId,
+                            spawnTick =  serverTick
+                        };
+                        if (!ghostMap.TryAdd(spawnedGhost, entities[ent]))
+                        {
+#if ENABLE_UNITY_COLLECTIONS_CHECKS
+                            UnityEngine.Debug.LogError($"GhostID {newId} already present in the ghost entity map");
+#endif
+                            ghostMap[spawnedGhost] = entities[ent];
+                        }
+
                         var ghostState = new GhostSystemStateComponent
                         {
-                            ghostId = newId, despawnTick = 0
+                            ghostId = newId, despawnTick = 0, spawnTick = serverTick
                         };
-
                         commandBuffer.AddComponent(entities[ent], ghostState);
                     }
 
@@ -439,7 +474,7 @@ namespace Unity.NetCode
         }
 
         [BurstCompile]
-        unsafe struct SerializeJob32 : IJobParallelFor
+        unsafe struct SerializeJob32 : IJobParallelForDefer
         {
             public DynamicTypeList32 List;
             public SerializeJob Job;
@@ -449,7 +484,7 @@ namespace Unity.NetCode
             }
         }
         [BurstCompile]
-        unsafe struct SerializeJob64 : IJobParallelFor
+        unsafe struct SerializeJob64 : IJobParallelForDefer
         {
             public DynamicTypeList64 List;
             public SerializeJob Job;
@@ -459,7 +494,7 @@ namespace Unity.NetCode
             }
         }
         [BurstCompile]
-        unsafe struct SerializeJob128 : IJobParallelFor
+        unsafe struct SerializeJob128 : IJobParallelForDefer
         {
             public DynamicTypeList128 List;
             public SerializeJob Job;
@@ -1587,84 +1622,112 @@ namespace Unity.NetCode
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
             UpdateNetStats(out var netStatSize, out var netStatStride);
 #endif
-            // Make sure the list of connections and connection state is up to date
-            var connections = connectionGroup.ToEntityArray(Allocator.TempJob);
-            var existing = new NativeHashMap<Entity, int>(connections.Length, Allocator.Temp);
-            int maxConnectionId = 0;
-            var networkIdFromEntity = GetComponentDataFromEntity<NetworkIdComponent>(true);
-            for (int i = 0; i < connections.Length; ++i)
+            // Calculate how many state updates we should send this frame
+            var tickRate = default(ClientServerTickRate);
+            if (HasSingleton<ClientServerTickRate>())
             {
-                existing.TryAdd(connections[i], 1);
-                int stateIndex;
-                if (!m_ConnectionStateLookup.TryGetValue(connections[i], out stateIndex))
-                {
-                    m_ConnectionStates.Add(new ConnectionStateData
-                    {
-                        Entity = connections[i],
-                        SerializationState =
-                            new UnsafeHashMap<ArchetypeChunk, SerializationState>(1024, Allocator.Persistent),
-                        ClearHistory = new UnsafeHashMap<int, uint>(256, Allocator.Persistent)
-                    });
-                    m_ConnectionStateLookup.TryAdd(connections[i], m_ConnectionStates.Length - 1);
-                }
-                maxConnectionId = math.max(maxConnectionId, networkIdFromEntity[connections[i]].Value);
+                tickRate = GetSingleton<ClientServerTickRate>();
             }
 
-            connections.Dispose();
+            tickRate.ResolveDefaults();
+            var netTickInterval =
+                (tickRate.SimulationTickRate + tickRate.NetworkTickRate - 1) / tickRate.NetworkTickRate;
 
-            // go through all keys in the relevancy set, +1 to the connection idx array
-            var connectionRelevantCount = new NativeArray<int>(maxConnectionId+1, Allocator.TempJob);
-            if (GhostRelevancyMode != GhostRelevancyMode.Disabled)
-            {
-                var relevancySet = m_GhostRelevancySet;
-                var countRelevantHandle = Job.WithCode(() => {
+            // Make sure the list of connections and connection state is up to date
+            var connections = connectionGroup.ToEntityArrayAsync(Allocator.TempJob, out var connectionHandle);
+            var connectionStates = m_ConnectionStates;
+            var connectionStateLookup = m_ConnectionStateLookup;
+            var networkIdFromEntity = GetComponentDataFromEntity<NetworkIdComponent>(true);
+            var ackFromEntity = GetComponentDataFromEntity<NetworkSnapshotAckComponent>(true);
+            var connectionRelevantCount = m_ConnectionRelevantCount;
+            var relevancySet = m_GhostRelevancySet;
+            bool relevancyEnabled = (GhostRelevancyMode != GhostRelevancyMode.Disabled);
+            // Find the latest tick which has been acknowledged by all clients and cleanup all ghosts destroyed before that
+            uint currentTick = m_ServerSimulation.ServerTick;
+            // Find the latest tick received by all connections
+            var ackedByAll = m_AckedByAllTick;
+            ackedByAll[0] = currentTick;
+            var connectionsToProcess = m_ConnectionsToProcess;
+            connectionsToProcess.Clear();
+            Dependency = Job
+                .WithDisposeOnCompletion(connections)
+                .WithReadOnly(networkIdFromEntity)
+                .WithReadOnly(ackFromEntity)
+                .WithCode(() => {
+                var existing = new NativeHashMap<Entity, int>(connections.Length, Allocator.Temp);
+                int maxConnectionId = 0;
+                for (int i = 0; i < connections.Length; ++i)
+                {
+                    existing.TryAdd(connections[i], 1);
+                    int stateIndex;
+                    if (!connectionStateLookup.TryGetValue(connections[i], out stateIndex))
+                    {
+                        connectionStates.Add(new ConnectionStateData
+                        {
+                            Entity = connections[i],
+                            SerializationState =
+                                new UnsafeHashMap<ArchetypeChunk, SerializationState>(1024, Allocator.Persistent),
+                            ClearHistory = new UnsafeHashMap<int, uint>(256, Allocator.Persistent)
+                        });
+                        connectionStateLookup.TryAdd(connections[i], connectionStates.Length - 1);
+                    }
+                    maxConnectionId = math.max(maxConnectionId, networkIdFromEntity[connections[i]].Value);
+
+                    uint ackedByAllTick = ackedByAll[0];
+                    var ack = ackFromEntity[connections[i]];
+                    var snapshot = ack.LastReceivedSnapshotByRemote;
+                    if (snapshot == 0)
+                        ackedByAllTick = 0;
+                    else if (ackedByAllTick != 0 && SequenceHelpers.IsNewer(ackedByAllTick, snapshot))
+                        ackedByAllTick = snapshot;
+                    ackedByAll[0] = ackedByAllTick;
+                }
+
+                for (int i = 0; i < connectionStates.Length; ++i)
+                {
+                    int val;
+                    if (!existing.TryGetValue(connectionStates[i].Entity, out val))
+                    {
+                        connectionStateLookup.Remove(connectionStates[i].Entity);
+                        connectionStates[i].Dispose();
+                        if (i != connectionStates.Length - 1)
+                        {
+                            connectionStates[i] = connectionStates[connectionStates.Length - 1];
+                            connectionStateLookup.Remove(connectionStates[i].Entity);
+                            connectionStateLookup.TryAdd(connectionStates[i].Entity, i);
+                        }
+
+                        connectionStates.RemoveAtSwapBack(connectionStates.Length - 1);
+                        --i;
+                    }
+                }
+
+                connectionRelevantCount.ResizeUninitialized(maxConnectionId+1);
+                for (int i = 0; i < connectionRelevantCount.Length; ++i)
+                    connectionRelevantCount[i] = 0;
+
+                // go through all keys in the relevancy set, +1 to the connection idx array
+                if (relevancyEnabled)
+                {
                     var values = relevancySet.GetKeyArray(Allocator.Temp);
                     for (int i = 0; i < values.Length; ++i)
                     {
                         var cid = values[i].Connection;
                         connectionRelevantCount[cid] = connectionRelevantCount[cid] + 1;
                     }
-                }).Schedule(GhostRelevancySetWriteHandle);
-                Dependency = JobHandle.CombineDependencies(Dependency, countRelevantHandle);
-            }
-
-            for (int i = 0; i < m_ConnectionStates.Length; ++i)
-            {
-                int val;
-                if (!existing.TryGetValue(m_ConnectionStates[i].Entity, out val))
-                {
-                    m_ConnectionStateLookup.Remove(m_ConnectionStates[i].Entity);
-                    m_ConnectionStates[i].Dispose();
-                    if (i != m_ConnectionStates.Length - 1)
-                    {
-                        m_ConnectionStates[i] = m_ConnectionStates[m_ConnectionStates.Length - 1];
-                        m_ConnectionStateLookup.Remove(m_ConnectionStates[i].Entity);
-                        m_ConnectionStateLookup.TryAdd(m_ConnectionStates[i].Entity, i);
-                    }
-
-                    m_ConnectionStates.RemoveAtSwapBack(m_ConnectionStates.Length - 1);
-                    --i;
                 }
-            }
+                var sendPerFrame = (connectionStates.Length + netTickInterval - 1) / netTickInterval;
+                var sendStartPos = sendPerFrame * (int) (currentTick % netTickInterval);
+
+                if (sendStartPos + sendPerFrame > connectionStates.Length)
+                    sendPerFrame = connectionStates.Length - sendStartPos;
+                for (int i = 0; i < sendPerFrame; ++i)
+                    connectionsToProcess.Add(connectionStates[sendStartPos + i]);
+            }).Schedule(JobHandle.CombineDependencies(Dependency, connectionHandle));
 
             // Prepare a command buffer
             EntityCommandBuffer commandBuffer = m_Barrier.CreateCommandBuffer();
             var commandBufferConcurrent = commandBuffer.AsParallelWriter();
-            // Find the latest tick which has been acknowledged by all clients and cleanup all ghosts destroyed before that
-            uint currentTick = m_ServerSimulation.ServerTick;
-
-            // Find the latest tick received by all connections
-            var ackedByAll = m_AckedByAllTick;
-            ackedByAll[0] = currentTick;
-            Entities.ForEach((in NetworkSnapshotAckComponent ack) => {
-                uint ackedByAllTick = ackedByAll[0];
-                var snapshot = ack.LastReceivedSnapshotByRemote;
-                if (snapshot == 0)
-                    ackedByAllTick = 0;
-                else if (ackedByAllTick != 0 && SequenceHelpers.IsNewer(ackedByAllTick, snapshot))
-                    ackedByAllTick = snapshot;
-                ackedByAll[0] = ackedByAllTick;
-            }).Schedule();
 
             // Find the highest presspawn ghost id if any
             int highestPrespawnId = 0;
@@ -1674,8 +1737,11 @@ namespace Unity.NetCode
             // Setup the tick at which ghosts were despawned, cleanup ghosts which have been despawned and acked by al connections
             var freeGhostIds = m_FreeGhostIds.AsParallelWriter();
             var prespawnDespawn = m_DestroyedPrespawnsQueue.AsParallelWriter();
+            var freeSpawendGhosts = m_FreeSpawnedGhostQueue.AsParallelWriter();
+            var ghostMap = m_GhostMap;
             Entities
                 .WithReadOnly(ackedByAll)
+                .WithReadOnly(ghostMap)
                 .WithNone<GhostComponent>()
                 .ForEach((Entity entity, int entityInQueryIndex, ref GhostSystemStateComponent ghost) => {
                 uint ackedByAllTick = ackedByAll[0];
@@ -1689,182 +1755,176 @@ namespace Unity.NetCode
                         freeGhostIds.Enqueue(ghost.ghostId);
                     commandBufferConcurrent.RemoveComponent<GhostSystemStateComponent>(entityInQueryIndex, entity);
                 }
+                //Remove the ghost from the mapping as soon as possible, regardless of clients acknowledge
+                var spawnedGhost = new SpawnedGhost {ghostId = ghost.ghostId, spawnTick = ghost.spawnTick};
+                if(ghostMap.ContainsKey(spawnedGhost))
+                    freeSpawendGhosts.Enqueue(spawnedGhost);
 
                 if (ghost.ghostId <= highestPrespawnId)
                     prespawnDespawn.Enqueue(ghost.ghostId);
             }).ScheduleParallel();
 
             // Copy destroyed entities in the parallel write queue populated by ghost cleanup to a single list
+            // and free despawned ghosts from map
             var despawnQueue = m_DestroyedPrespawnsQueue;
             var despawnList = m_DestroyedPrespawns;
-            Job.WithCode(() => {
+            var freeSpawnQueue = m_FreeSpawnedGhostQueue;
+            var despawnListJobHandle = Job.WithCode(() => {
                 if (despawnQueue.TryDequeue(out int destroyed))
                 {
                     if (!despawnList.Contains(destroyed))
                         despawnList.Add(destroyed);
                 }
-            }).Schedule();
+                while (freeSpawnQueue.TryDequeue(out var spawnedGhost))
+                    ghostMap.Remove(spawnedGhost);
+            }).Schedule(Dependency);
+            LastGhostMapWriter = despawnListJobHandle;
+            Dependency = JobHandle.CombineDependencies(Dependency, despawnListJobHandle);
 
-            // Calculate how many state updates we should send this frame
-            var tickRate = default(ClientServerTickRate);
-            if (HasSingleton<ClientServerTickRate>())
+            // Initialize the distance scale function
+            var distanceScaleFunction = m_NoDistanceScale;
+            var tileSize = default(int3);
+            var tileCenter = default(int3);
+            if (HasSingleton<GhostDistanceImportance>())
             {
-                tickRate = GetSingleton<ClientServerTickRate>();
+                var config = GetSingleton<GhostDistanceImportance>();
+                distanceScaleFunction = config.ScaleImportanceByDistance;
+                tileSize = config.TileSize;
+                tileCenter = config.TileCenter;
             }
 
-            tickRate.ResolveDefaults();
-            var netTickInterval =
-                (tickRate.SimulationTickRate + tickRate.NetworkTickRate - 1) / tickRate.NetworkTickRate;
-            var sendPerFrame = (m_ConnectionStates.Length + netTickInterval - 1) / netTickInterval;
-            var sendStartPos = sendPerFrame * (int) (currentTick % netTickInterval);
-
-            if (sendStartPos + sendPerFrame > m_ConnectionStates.Length)
-                sendPerFrame = m_ConnectionStates.Length - sendStartPos;
-            if (sendPerFrame > 0)
+            // Generate a lookup from child entity to chunk + index
+            m_ChildEntityLookup.Clear();
+            var childCount = m_ChildEntityQuery.CalculateEntityCountWithoutFiltering();
+            if (childCount > m_ChildEntityLookup.Capacity)
+                m_ChildEntityLookup.Capacity = childCount;
+            var buildChildJob = new BuildChildEntityLookupJob
             {
-                // Initialize the distance scale function
-                var distanceScaleFunction = m_NoDistanceScale;
-                var tileSize = default(int3);
-                var tileCenter = default(int3);
-                if (HasSingleton<GhostDistanceImportance>())
-                {
-                    var config = GetSingleton<GhostDistanceImportance>();
-                    distanceScaleFunction = config.ScaleImportanceByDistance;
-                    tileSize = config.TileSize;
-                    tileCenter = config.TileCenter;
-                }
+                entityType = GetEntityTypeHandle(),
+                childEntityLookup = m_ChildEntityLookup.AsParallelWriter()
+            };
+            Dependency = buildChildJob.ScheduleParallel(m_ChildEntityQuery, Dependency);
 
-                // Generate a lookup from child entity to chunk + index
-                m_ChildEntityLookup.Clear();
-                var childCount = m_ChildEntityQuery.CalculateEntityCountWithoutFiltering();
-                if (childCount > m_ChildEntityLookup.Capacity)
-                    m_ChildEntityLookup.Capacity = childCount;
-                var buildChildJob = new BuildChildEntityLookupJob
-                {
-                    entityType = GetEntityTypeHandle(),
-                    childEntityLookup = m_ChildEntityLookup.AsParallelWriter()
-                };
-                Dependency = buildChildJob.ScheduleParallel(m_ChildEntityQuery, Dependency);
+            // Get component types for serialization
+            var entityType = GetEntityTypeHandle();
+            var ghostSystemStateType = GetComponentTypeHandle<GhostSystemStateComponent>(true);
+            var ghostComponentType = GetComponentTypeHandle<GhostComponent>();
+            var ghostChildEntityComponentType = GetComponentTypeHandle<GhostChildEntityComponent>(true);
+            var ghostGroupType = GetBufferTypeHandle<GhostGroup>(true);
+            var ghostOwnerComponentType = GetComponentTypeHandle<GhostOwnerComponent>(true);
 
-                // Get component types for serialization
-                var entityType = GetEntityTypeHandle();
-                var ghostSystemStateType = GetComponentTypeHandle<GhostSystemStateComponent>(true);
-                var ghostComponentType = GetComponentTypeHandle<GhostComponent>();
-                var ghostChildEntityComponentType = GetComponentTypeHandle<GhostChildEntityComponent>(true);
-                var ghostGroupType = GetBufferTypeHandle<GhostGroup>(true);
-                var ghostOwnerComponentType = GetComponentTypeHandle<GhostOwnerComponent>(true);
-
-                // Extract all newly spawned ghosts and set their ghost ids
-                m_SerialSpawnChunks.Clear();
-                JobHandle spawnChunkHandle;
-                var spawnChunks = ghostSpawnGroup.CreateArchetypeChunkArrayAsync(Allocator.TempJob, out spawnChunkHandle);
-                var spawnJob = new SpawnGhostJob
-                {
-                    GhostTypeCollection = m_GhostCollectionSystem.m_GhostTypeCollection,
-                    spawnChunks = spawnChunks,
-                    serialSpawnChunks = m_SerialSpawnChunks,
-                    entityType = entityType,
-                    ghostComponentType = ghostComponentType,
-                    ghostChildEntityComponentType = ghostChildEntityComponentType,
-                    freeGhostIds = m_FreeGhostIds,
-                    allocatedGhostIds = m_AllocatedGhostIds,
-                    commandBuffer = commandBuffer,
-                    ghostTypeFromEntity = GetComponentDataFromEntity<GhostTypeComponent>(true),
-                    ghostPrefabBufferFromEntity = GetBufferFromEntity<GhostPrefabBuffer>(true),
-                    prefabEntity = GetSingletonEntity<GhostPrefabCollectionComponent>(),
-                    serverTick = currentTick,
+            // Extract all newly spawned ghosts and set their ghost ids
+            m_SerialSpawnChunks.Clear();
+            JobHandle spawnChunkHandle;
+            var spawnChunks = ghostSpawnGroup.CreateArchetypeChunkArrayAsync(Allocator.TempJob, out spawnChunkHandle);
+            var spawnJob = new SpawnGhostJob
+            {
+                connectionState = m_ConnectionsToProcess.AsDeferredJobArray(),
+                GhostTypeCollection = m_GhostCollectionSystem.m_GhostTypeCollection,
+                spawnChunks = spawnChunks,
+                serialSpawnChunks = m_SerialSpawnChunks,
+                entityType = entityType,
+                ghostComponentType = ghostComponentType,
+                ghostChildEntityComponentType = ghostChildEntityComponentType,
+                freeGhostIds = m_FreeGhostIds,
+                allocatedGhostIds = m_AllocatedGhostIds,
+                commandBuffer = commandBuffer,
+                ghostMap = ghostMap,
+                ghostTypeFromEntity = GetComponentDataFromEntity<GhostTypeComponent>(true),
+                ghostPrefabBufferFromEntity = GetBufferFromEntity<GhostPrefabBuffer>(true),
+                prefabEntity = GetSingletonEntity<GhostPrefabCollectionComponent>(),
+                serverTick = currentTick,
 #if ENABLE_UNITY_COLLECTIONS_CHECKS
-                    ghostOwnerComponentType = ghostOwnerComponentType
+                ghostOwnerComponentType = ghostOwnerComponentType
 #endif
-                };
-                Dependency = spawnJob.Schedule(JobHandle.CombineDependencies(Dependency, spawnChunkHandle));
+            };
+            Dependency = spawnJob.Schedule(JobHandle.CombineDependencies(Dependency, spawnChunkHandle));
+            LastGhostMapWriter = Dependency;
 
-                // Create chunk arrays for ghosts and despawned ghosts
-                JobHandle despawnChunksHandle, ghostChunksHandle;
-                var despawnChunks = ghostDespawnGroup.CreateArchetypeChunkArrayAsync(Allocator.TempJob, out despawnChunksHandle);
-                var ghostChunks = ghostGroup.CreateArchetypeChunkArrayAsync(Allocator.TempJob, out ghostChunksHandle);
-                Dependency = JobHandle.CombineDependencies(Dependency, despawnChunksHandle, ghostChunksHandle);
+            // Create chunk arrays for ghosts and despawned ghosts
+            JobHandle despawnChunksHandle, ghostChunksHandle;
+            var despawnChunks = ghostDespawnGroup.CreateArchetypeChunkArrayAsync(Allocator.TempJob, out despawnChunksHandle);
+            var ghostChunks = ghostGroup.CreateArchetypeChunkArrayAsync(Allocator.TempJob, out ghostChunksHandle);
+            Dependency = JobHandle.CombineDependencies(Dependency, despawnChunksHandle, ghostChunksHandle);
 
-                // If there are any connections to send data to, serilize the data fo them in parallel
-                var serializeJob = new SerializeJob
-                {
-                    GhostComponentCollection = m_GhostCollectionSystem.m_GhostComponentCollection,
-                    GhostTypeCollection = m_GhostCollectionSystem.m_GhostTypeCollection,
-                    GhostComponentIndex = m_GhostCollectionSystem.m_GhostComponentIndex,
-                    driver = m_ReceiveSystem.ConcurrentDriver,
-                    unreliablePipeline = m_ReceiveSystem.UnreliablePipeline,
-                    unreliableFragmentedPipeline = m_ReceiveSystem.UnreliableFragmentedPipeline,
-                    despawnChunks = despawnChunks,
-                    ghostChunks = ghostChunks,
-                    connectionState = ((NativeArray<ConnectionStateData>)m_ConnectionStates).GetSubArray(sendStartPos, sendPerFrame),
-                    ackFromEntity = GetComponentDataFromEntity<NetworkSnapshotAckComponent>(true),
-                    connectionFromEntity = GetComponentDataFromEntity<NetworkStreamConnection>(true),
-                    networkIdFromEntity = networkIdFromEntity,
-                    serialSpawnChunks = m_SerialSpawnChunks,
-                    entityType = entityType,
-                    ghostSystemStateType = ghostSystemStateType,
-                    ghostComponentType = ghostComponentType,
-                    ghostGroupType = ghostGroupType,
-                    ghostChildEntityComponentType = ghostChildEntityComponentType,
-                    relevantGhostForConnection = GhostRelevancySet,
-                    relevancyMode = GhostRelevancyMode,
-                    relevantGhostCountForConnection = connectionRelevantCount,
+            // If there are any connections to send data to, serilize the data fo them in parallel
+            var serializeJob = new SerializeJob
+            {
+                GhostComponentCollection = m_GhostCollectionSystem.m_GhostComponentCollection,
+                GhostTypeCollection = m_GhostCollectionSystem.m_GhostTypeCollection,
+                GhostComponentIndex = m_GhostCollectionSystem.m_GhostComponentIndex,
+                driver = m_ReceiveSystem.ConcurrentDriver,
+                unreliablePipeline = m_ReceiveSystem.UnreliablePipeline,
+                unreliableFragmentedPipeline = m_ReceiveSystem.UnreliableFragmentedPipeline,
+                despawnChunks = despawnChunks,
+                ghostChunks = ghostChunks,
+                connectionState = m_ConnectionsToProcess.AsDeferredJobArray(),
+                ackFromEntity = GetComponentDataFromEntity<NetworkSnapshotAckComponent>(true),
+                connectionFromEntity = GetComponentDataFromEntity<NetworkStreamConnection>(true),
+                networkIdFromEntity = networkIdFromEntity,
+                serialSpawnChunks = m_SerialSpawnChunks,
+                entityType = entityType,
+                ghostSystemStateType = ghostSystemStateType,
+                ghostComponentType = ghostComponentType,
+                ghostGroupType = ghostGroupType,
+                ghostChildEntityComponentType = ghostChildEntityComponentType,
+                relevantGhostForConnection = GhostRelevancySet,
+                relevancyMode = GhostRelevancyMode,
+                relevantGhostCountForConnection = m_ConnectionRelevantCount.AsDeferredJobArray(),
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
-                    netStatsBuffer = m_NetStats,
-                    netStatSize = netStatSize,
-                    netStatStride = netStatStride,
+                netStatsBuffer = m_NetStats,
+                netStatSize = netStatSize,
+                netStatStride = netStatStride,
 #endif
-                    compressionModel = m_CompressionModel,
-                    ghostFromEntity = GetComponentDataFromEntity<GhostComponent>(true),
-                    currentTick = currentTick,
-                    localTime = NetworkTimeSystem.TimestampMS,
-                    scaleGhostImportanceByDistance = distanceScaleFunction,
-                    tileSize = tileSize,
-                    tileCenter = tileCenter,
-                    ghostDistancePartitionType = GetComponentTypeHandle<GhostDistancePartition>(true),
-                    ghostConnectionPositionFromEntity = GetComponentDataFromEntity<GhostConnectionPosition>(true),
-                    snapshotTargetSizeFromEntity = GetComponentDataFromEntity<NetworkStreamSnapshotTargetSize>(true),
-                    prespawnDespawns = m_DestroyedPrespawns,
-                    commandBuffer = commandBufferConcurrent,
-                    ghostOwnerType = ghostOwnerComponentType,
-                    childEntityLookup = m_ChildEntityLookup,
-                    linkedEntityGroupType = GetBufferTypeHandle<LinkedEntityGroup>(true),
-                    CurrentSystemVersion = GlobalSystemVersion,
-                    CurrentGhostTypeVersion = m_GhostCollectionSystem.GhostTypeCollectionHash
-                };
+                compressionModel = m_CompressionModel,
+                ghostFromEntity = GetComponentDataFromEntity<GhostComponent>(true),
+                currentTick = currentTick,
+                localTime = NetworkTimeSystem.TimestampMS,
+                scaleGhostImportanceByDistance = distanceScaleFunction,
+                tileSize = tileSize,
+                tileCenter = tileCenter,
+                ghostDistancePartitionType = GetComponentTypeHandle<GhostDistancePartition>(true),
+                ghostConnectionPositionFromEntity = GetComponentDataFromEntity<GhostConnectionPosition>(true),
+                snapshotTargetSizeFromEntity = GetComponentDataFromEntity<NetworkStreamSnapshotTargetSize>(true),
+                prespawnDespawns = m_DestroyedPrespawns,
+                commandBuffer = commandBufferConcurrent,
+                ghostOwnerType = ghostOwnerComponentType,
+                childEntityLookup = m_ChildEntityLookup,
+                linkedEntityGroupType = GetBufferTypeHandle<LinkedEntityGroup>(true),
+                CurrentSystemVersion = GlobalSystemVersion,
+                CurrentGhostTypeVersion = m_GhostCollectionSystem.GhostTypeCollectionHash
+            };
 
-                Dependency = JobHandle.CombineDependencies(Dependency, m_ReceiveSystem.LastDriverWriter, GhostRelevancySetWriteHandle);
-                var listLength = m_GhostCollectionSystem.m_GhostComponentCollection.Length;
-                if (listLength <= 32)
-                {
-                    var dynamicListJob = new SerializeJob32 {Job = serializeJob};
-                    DynamicTypeList.PopulateList(this, m_GhostCollectionSystem.m_GhostComponentCollection, true, ref dynamicListJob.List);
-                    Dependency = dynamicListJob.Schedule(sendPerFrame, 1, Dependency);
-                }
-                else if (listLength <= 64)
-                {
-                    var dynamicListJob = new SerializeJob64 {Job = serializeJob};
-                    DynamicTypeList.PopulateList(this, m_GhostCollectionSystem.m_GhostComponentCollection, true, ref dynamicListJob.List);
-                    Dependency = dynamicListJob.Schedule(sendPerFrame, 1, Dependency);
-                }
-                else if (listLength <= 128)
-                {
-                    var dynamicListJob = new SerializeJob128 {Job = serializeJob};
-                    DynamicTypeList.PopulateList(this, m_GhostCollectionSystem.m_GhostComponentCollection, true, ref dynamicListJob.List);
-                    Dependency = dynamicListJob.Schedule(sendPerFrame, 1, Dependency);
-                }
-                else
-                    throw new InvalidOperationException(
-                        $"Too many ghost component types present in project, limit is {DynamicTypeList.MaxCapacity} types. This is any struct which has a field marked with GhostField attribute.");
-                GhostRelevancySetWriteHandle = Dependency;
-                Dependency = m_ReceiveSystem.Driver.ScheduleFlushSend(Dependency);
-                m_ReceiveSystem.LastDriverWriter = Dependency;
-
-                despawnChunks.Dispose(Dependency);
-                spawnChunks.Dispose(Dependency);
-                ghostChunks.Dispose(Dependency);
+            Dependency = JobHandle.CombineDependencies(Dependency, m_ReceiveSystem.LastDriverWriter, GhostRelevancySetWriteHandle);
+            var listLength = m_GhostCollectionSystem.m_GhostComponentCollection.Length;
+            if (listLength <= 32)
+            {
+                var dynamicListJob = new SerializeJob32 {Job = serializeJob};
+                DynamicTypeList.PopulateList(this, m_GhostCollectionSystem.m_GhostComponentCollection, true, ref dynamicListJob.List);
+                Dependency = dynamicListJob.Schedule(m_ConnectionsToProcess, 1, Dependency);
             }
-            connectionRelevantCount.Dispose(Dependency);
+            else if (listLength <= 64)
+            {
+                var dynamicListJob = new SerializeJob64 {Job = serializeJob};
+                DynamicTypeList.PopulateList(this, m_GhostCollectionSystem.m_GhostComponentCollection, true, ref dynamicListJob.List);
+                Dependency = dynamicListJob.Schedule(m_ConnectionsToProcess, 1, Dependency);
+            }
+            else if (listLength <= 128)
+            {
+                var dynamicListJob = new SerializeJob128 {Job = serializeJob};
+                DynamicTypeList.PopulateList(this, m_GhostCollectionSystem.m_GhostComponentCollection, true, ref dynamicListJob.List);
+                Dependency = dynamicListJob.Schedule(m_ConnectionsToProcess, 1, Dependency);
+            }
+            else
+                throw new InvalidOperationException(
+                    $"Too many ghost component types present in project, limit is {DynamicTypeList.MaxCapacity} types. This is any struct which has a field marked with GhostField attribute.");
+            GhostRelevancySetWriteHandle = Dependency;
+            Dependency = m_ReceiveSystem.Driver.ScheduleFlushSend(Dependency);
+            m_ReceiveSystem.LastDriverWriter = Dependency;
+
+            despawnChunks.Dispose(Dependency);
+            spawnChunks.Dispose(Dependency);
+            ghostChunks.Dispose(Dependency);
             // Only the spawn job is using the commandBuffer, but the serialize job is using the same chunks - so we must wait for that too before we can modify them
             m_Barrier.AddJobHandleForProducer(Dependency);
         }
@@ -1893,6 +1953,21 @@ namespace Unity.NetCode
                 return true;
             }
             return false;
+        }
+
+        //Add spawned ghosts to the mapping
+        internal void AddSpawnedGhosts(NativeArray<SpawnedGhostMapping> spawnedGhosts)
+        {
+            foreach (var g in spawnedGhosts)
+            {
+                if (!m_GhostMap.TryAdd(g.ghost, g.entity))
+                {
+#if ENABLE_UNITY_COLLECTIONS_CHECKS
+                    UnityEngine.Debug.LogError($"GhostID {g.ghost.ghostId} already present in the ghost entity map");
+#endif
+                    m_GhostMap[g.ghost] = g.entity;
+                }
+            }
         }
     }
 }

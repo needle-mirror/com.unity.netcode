@@ -79,10 +79,6 @@ namespace Unity.NetCode
             var initializationGroup = world.GetOrCreateSystem<ClientInitializationSystemGroup>();
             var simulationGroup = world.GetOrCreateSystem<ClientSimulationSystemGroup>();
             var presentationGroup = world.GetOrCreateSystem<ClientPresentationSystemGroup>();
-            //Disable groups legacy sorting behavior
-            initializationGroup.UseLegacySortOrder = false;
-            simulationGroup.UseLegacySortOrder = false;
-            presentationGroup.UseLegacySortOrder = false;
 
             //Pre-create also all the necessary tick systems in the DefaultWorld
             var initializationTickSystem = defaultWorld.GetOrCreateSystem<TickClientInitializationSystem>();
@@ -95,17 +91,6 @@ namespace Unity.NetCode
                                             s_State.ClientPresentationSystems.Count +
                                             s_State.ClientChildSystems.Count + 3);
 
-            // By using the two-phase creation, we can't rely anymore on the fact that the World.GetOrCreateSystem always return
-            // a system whose OnCreate method as been invoked. It depend on the system initialization order.
-            // This break almost all the systems who were relying on that logic and it might require some new changes
-            // on the Entities framework or (better) a rethink and decoupling of the systems.
-            // In general, OnCreate is reliable ONLY for caching other system instances.
-            // ** After trying different solutions I decided to explicitly add the most critical systems that are required to
-            // pre-created before the simulation group **
-            allSystems.Add(typeof(RpcSystem));  //Needed by RpcCommandSystem
-            //NetworkReceiveSystem must be manually created but is not automatically updated by any group. Instead,
-            //the ClientSimulationSystem tick it manually before the fixed-update / main update loop
-            allSystems.Add(typeof(NetworkReceiveSystemGroup));
             allSystems.AddRange(s_State.ClientInitializationSystems);
             allSystems.AddRange(s_State.ClientSimulationSystems);
             allSystems.AddRange(s_State.ClientPresentationSystems);
@@ -122,7 +107,6 @@ namespace Unity.NetCode
                 initializationGroup.AddSystemToUpdateList(system);
             }
 
-            simulationGroup.AddSystemToUpdateList(world.GetExistingSystem(typeof(RpcSystem)));
             foreach (var systemType in s_State.ClientSimulationSystems)
             {
                 var system = world.GetExistingSystem(systemType);
@@ -140,7 +124,7 @@ namespace Unity.NetCode
                 group.AddSystemToUpdateList(system);
             }
             initializationGroup.SortSystems();
-            simulationGroup.SortSystemsAndNetworkSystemGroup();
+            simulationGroup.SortSystems();
             presentationGroup.SortSystems();
 
             //Bind main world group to tick systems (DefaultWorld tick the client world)
@@ -162,9 +146,6 @@ namespace Unity.NetCode
             var world = worldToUse!=null ? worldToUse : new World(name);
             var initializationGroup = world.GetOrCreateSystem<ServerInitializationSystemGroup>();
             var simulationGroup = world.GetOrCreateSystem<ServerSimulationSystemGroup>();
-            //Disable groups legacy sorting behavior
-            initializationGroup.UseLegacySortOrder = false;
-            simulationGroup.UseLegacySortOrder = false;
 
             //Pre-create also all the necessary tick systems in the DefaultWorld
             var initializationTickSystem = defaultWorld.GetOrCreateSystem<TickServerInitializationSystem>();
@@ -176,15 +157,6 @@ namespace Unity.NetCode
                                             s_State.ServerChildSystems.Count + 2);
 
             allSystems.AddRange(s_State.ServerInitializationSystems);
-            // By using the two-phase creation, we can't rely anymore on the fact that the World.GetOrCreateSystem always return
-            // a system whose OnCreate method as been invoked. It depend on the system initialization order.
-            // This break almost all the systems who were relying on that logic and it might require some new changes
-            // on the Entities framework or (better) a rethink and decoupling of the systems.
-            // In general, OnCreate is reliable ONLY for caching other system instances.
-            // ** After trying different solutions I decided to explicitly add the most critical systems that are required to
-            // pre-created before the simulation group **
-            allSystems.Add(typeof(RpcSystem));
-            allSystems.Add(typeof(NetworkReceiveSystemGroup));
             allSystems.AddRange(s_State.ServerSimulationSystems);
             foreach (var systemParentType in s_State.ServerChildSystems)
             {
@@ -199,10 +171,6 @@ namespace Unity.NetCode
                 initializationGroup.AddSystemToUpdateList(system);
             }
 
-            simulationGroup.AddSystemToUpdateList(world.GetExistingSystem(typeof(RpcSystem)));
-            //For the server, the NetworkReceiveSystemGroup is part of the SimulationGroup and it is automatically updated as
-            //usual.
-            simulationGroup.AddSystemToUpdateList(world.GetExistingSystem(typeof(NetworkReceiveSystemGroup)));
             foreach (var systemType in s_State.ServerSimulationSystems)
             {
                 var system = world.GetExistingSystem(systemType);
@@ -312,10 +280,12 @@ namespace Unity.NetCode
             {
                 var targetWorld = GetSystemAttribute<UpdateInWorld>(type);
                 if ((targetWorld != null && targetWorld.World == UpdateInWorld.TargetWorld.Default) ||
+#if !UNITY_DOTSRUNTIME
+                    type == typeof(ConvertToEntitySystem) ||
+#endif
                     type == typeof(InitializationSystemGroup) ||
                     type == typeof(SimulationSystemGroup) ||
-                    type == typeof(PresentationSystemGroup) ||
-                    type == typeof(ConvertToEntitySystem))
+                    type == typeof(PresentationSystemGroup))
                 {
                     DefaultWorldSystems.Add(type);
                     ExplicitDefaultWorldSystems.Add(type);

@@ -8,7 +8,6 @@ using Unity.Networking.Transport.Utilities;
 
 namespace Unity.NetCode
 {
-    [DisableAutoCreation]
     [UpdateInWorld(UpdateInWorld.TargetWorld.ClientAndServer)]
     [UpdateInGroup(typeof(SimulationSystemGroup), OrderFirst = true)]
     [UpdateAfter(typeof(BeginSimulationEntityCommandBufferSystem))]
@@ -236,6 +235,7 @@ namespace Unity.NetCode
             public RpcQueue<RpcSetNetworkId, RpcSetNetworkId> rpcQueue;
             public ClientServerTickRate tickRate;
             public NetworkProtocolVersion protocolVersion;
+            [ReadOnly] public ComponentDataFromEntity<GhostComponent> ghostFromEntity;
 
             public void Execute()
             {
@@ -272,7 +272,7 @@ namespace Unity.NetCode
                     }
 
                     commandBuffer.AddComponent(ent, new NetworkIdComponent {Value = nid});
-                    rpcQueue.Schedule(rpcBuffer, new RpcSetNetworkId
+                    rpcQueue.Schedule(rpcBuffer, ghostFromEntity, new RpcSetNetworkId
                     {
                         nid = nid,
                         netTickRate = tickRate.NetworkTickRate,
@@ -322,6 +322,7 @@ namespace Unity.NetCode
                 acceptJob.numNetworkId = m_NumNetworkIds;
                 acceptJob.freeNetworkIds = m_FreeNetworkIds;
                 acceptJob.rpcQueue = m_RpcQueue;
+                acceptJob.ghostFromEntity = GetComponentDataFromEntity<GhostComponent>(true);
                 acceptJob.tickRate = default(ClientServerTickRate);
                 if (HasSingleton<ClientServerTickRate>())
                     acceptJob.tickRate = GetSingleton<ClientServerTickRate>();

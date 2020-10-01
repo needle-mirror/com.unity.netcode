@@ -6,7 +6,7 @@ using System.Collections.Generic;
 
 namespace Unity.NetCode
 {
-    [UpdateInGroup(typeof(ClientAndServerSimulationSystemGroup))]
+    [UpdateInGroup(typeof(GhostSimulationSystemGroup))]
     public class GhostCollectionSystem : SystemBase
     {
         public struct GhostComponentIndex
@@ -36,9 +36,12 @@ namespace Unity.NetCode
         {
             public int Compare(GhostComponentSerializer.State x, GhostComponentSerializer.State y)
             {
-                if (x.ComponentType < y.ComponentType)
+                var hashX = TypeManager.GetTypeInfo(x.ComponentType.TypeIndex).StableTypeHash;
+                var hashY = TypeManager.GetTypeInfo(y.ComponentType.TypeIndex).StableTypeHash;
+
+                if (hashX < hashY)
                     return -1;
-                if (x.ComponentType > y.ComponentType)
+                if (hashX > hashY)
                     return 1;
                 return 0;
             }
@@ -136,7 +139,7 @@ namespace Unity.NetCode
             //this will give us a good starting point
             var compHash = TypeManager.GetTypeInfo(comp.ComponentType.TypeIndex).StableTypeHash;
             if (compHash == 0)
-                throw new InvalidOperationException(String.Format("Unexpected 0 hash for type {0}", comp.ComponentType.GetManagedType()));
+                throw new InvalidOperationException($"Unexpected 0 hash for type {comp.ComponentType.GetManagedType()}");
             compHash = TypeHash.CombineFNV1A64(compHash, comp.GhostFieldsHash);
             //ComponentSize might depend on #ifdef or other compilation/platform rules so it must be not included. we will leave the comment here
             //so it is clear why we don't consider this field

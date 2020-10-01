@@ -6,15 +6,21 @@ using Unity.Networking.Transport;
 
 namespace Unity.NetCode
 {
-    [UpdateInGroup(typeof(ClientSimulationSystemGroup))]
+    [UpdateInWorld(UpdateInWorld.TargetWorld.Client)]
+    [UpdateInGroup(typeof(GhostSimulationSystemGroup))]
+    [UpdateAfter(typeof(GhostReceiveSystem))]
+    [UpdateBefore(typeof(CommandSendSystemGroup))]
+    public class GhostInputSystemGroup : ComponentSystemGroup
+    {
+    }
+
+    [UpdateInWorld(UpdateInWorld.TargetWorld.Client)]
+    [UpdateInGroup(typeof(GhostSimulationSystemGroup))]
     // dependency just for acking
-    [UpdateAfter(typeof(GhostSimulationSystemGroup))]
+    [UpdateAfter(typeof(GhostReceiveSystem))]
+    [UpdateBefore(typeof(GhostPredictionSystemGroup))]
     public class CommandSendSystemGroup : ComponentSystemGroup
     {
-        public CommandSendSystemGroup()
-        {
-            UseLegacySortOrder = false;
-        }
     }
 
     [UpdateInGroup(typeof(CommandSendSystemGroup))]

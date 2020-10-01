@@ -77,6 +77,38 @@ namespace Generated
             }
             #endregion
         }
+
+        public void SerializeCommand(ref DataStreamWriter writer, in IComponentData data, in RpcSerializerState state, NetworkCompressionModel compressionModel)
+        {
+            #region __COMMAND_WRITE__
+            if (state.GhostFromEntity.HasComponent(data.__COMMAND_FIELD_NAME__))
+            {
+                var ghostComponent = state.GhostFromEntity[data.__COMMAND_FIELD_NAME__];
+                writer.WriteInt(ghostComponent.ghostId);
+                writer.WriteUInt(ghostComponent.spawnTick);
+            }
+            else
+            {
+                writer.WriteInt(0);
+                writer.WriteUInt(0);
+            }
+            #endregion
+        }
+
+        public void DeserializeCommand(ref DataStreamReader reader, ref IComponentData data, in RpcDeserializerState state, NetworkCompressionModel compressionModel)
+        {
+            #region __COMMAND_READ__
+            var ghostId = reader.ReadInt();
+            var spawnTick = reader.ReadUInt();
+            data.__COMMAND_FIELD_NAME__ = Entity.Null;
+            if (ghostId != 0)
+            {
+                if (state.ghostMap.TryGetValue(new SpawnedGhost{ghostId = ghostId, spawnTick = spawnTick}, out var ghostEnt))
+                    data.__COMMAND_FIELD_NAME__ = ghostEnt;
+            }
+            #endregion
+        }
+
         public void CalculateChangeMask(ref Snapshot snapshot, ref Snapshot baseline, uint changeMask)
         {
             #region __GHOST_CALCULATE_CHANGE_MASK_ZERO__

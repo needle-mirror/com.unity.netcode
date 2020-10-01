@@ -1,4 +1,5 @@
 using Unity.Burst;
+using Unity.Collections.LowLevel.Unsafe;
 using Unity.Entities;
 using Unity.Networking.Transport;
 
@@ -17,7 +18,7 @@ namespace Unity.NetCode
         public int netTickRate;
         public int simMaxSteps;
 
-        public void Serialize(ref DataStreamWriter writer, in RpcSetNetworkId data)
+        public void Serialize(ref DataStreamWriter writer, in RpcSerializerState state, in RpcSetNetworkId data)
         {
             writer.WriteInt(data.nid);
             writer.WriteInt(data.simTickRate);
@@ -25,7 +26,7 @@ namespace Unity.NetCode
             writer.WriteInt(data.simMaxSteps);
         }
 
-        public void Deserialize(ref DataStreamReader reader, ref RpcSetNetworkId data)
+        public void Deserialize(ref DataStreamReader reader, in RpcDeserializerState state, ref RpcSetNetworkId data)
         {
             data.nid = reader.ReadInt();
             data.simTickRate = reader.ReadInt();
@@ -39,7 +40,7 @@ namespace Unity.NetCode
         {
             var rpcData = default(RpcSetNetworkId);
             var rpcSerializer = default(RpcSetNetworkId);
-            rpcSerializer.Deserialize(ref parameters.Reader, ref rpcData);
+            rpcSerializer.Deserialize(ref parameters.Reader, parameters.DeserializerState, ref rpcData);
 
             parameters.CommandBuffer.AddComponent(parameters.JobIndex, parameters.Connection, new NetworkIdComponent {Value = rpcData.nid});
             var ent = parameters.CommandBuffer.CreateEntity(parameters.JobIndex);

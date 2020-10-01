@@ -11,10 +11,6 @@ namespace Unity.NetCode
     [UpdateAfter(typeof(NetworkStreamReceiveSystem))]
     public class CommandReceiveSystemGroup : ComponentSystemGroup
     {
-        public CommandReceiveSystemGroup()
-        {
-            UseLegacySortOrder = false;
-        }
     }
 
     [UpdateInGroup(typeof(CommandReceiveSystemGroup))]

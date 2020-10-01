@@ -1,5 +1,18 @@
 # Change log
 
+## [0.5.0] - 2020-10-01
+### New features
+* Added RpcSystem.DynamicAssemblyList which can be used to delay the checksums for RPCs and ghost components when the set of assemblies are different on the client and server.
+* Added to RPC and Command the possiblity to send Entity reference from both client and server.
+
+### Changes
+* Change the system ordering to be compatible with latest physics. `NetworkTimeSystem` has moved to `ClientInitializationSystemGroup`. The SimulationSystemGroup runs `GhostSpawnSystemGroup` (client), `GhostReceiveSystemGroup` and `GhostSimulationSystemGroup` before `FixedStepSimulationSystemGroup` where physics is running. `RpcCommandRequestSystemGroup`, `RpcSystem` and `GhostSendSystem` (server) is running at the end of the frame, after all simulation code. Other systems has been moved into one of the groups.
+* Created a new `GhostInputSystemGroup` where systems adding inputs to the input buffer should run.
+
+### Fixes
+### Upgrade guide
+* The systems adding input to the `ICommandData` buffer needs to be moved to `GhostInputSystemGroup`
+
 ## [0.4.0] - 2020-09-10
 ### New features
 * Code gen support for ICommandData, serialization for command data can now be generated instead of hand-written. You can opt out of code generation by adding `[NetCodeDisableCommandCodeGen]`.

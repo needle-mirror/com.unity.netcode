@@ -83,7 +83,9 @@ namespace Unity.NetCode
         }
 
         private ArchetypeChunkComponentTypeDynamic32 dynamicTypes00_31;
+#pragma warning disable 0169
         private ArchetypeChunkComponentTypeDynamic32 dynamicTypes32_63;
+#pragma warning restore 0169
     }
 
     public struct DynamicTypeList128 : IDynamicTypeList
@@ -99,9 +101,11 @@ namespace Unity.NetCode
         }
 
         private ArchetypeChunkComponentTypeDynamic32 dynamicType000_031;
+#pragma warning disable 0169
         private ArchetypeChunkComponentTypeDynamic32 dynamicType031_063;
         private ArchetypeChunkComponentTypeDynamic32 dynamicType064_095;
         private ArchetypeChunkComponentTypeDynamic32 dynamicType096_127;
+#pragma warning restore 0169
     }
     /*public struct DynamicTypeList160 : IDynamicTypeList
     {

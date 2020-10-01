@@ -22,7 +22,6 @@ namespace Unity.NetCode.Tests
     }
     [DisableAutoCreation]
     [UpdateInGroup(typeof(ClientSimulationSystemGroup))]
-    [UpdateAfter(typeof(GhostSimulationSystemGroup))]
     public class DeleteGhostOnClientSystem : SystemBase
     {
         public static int s_DeleteCount;

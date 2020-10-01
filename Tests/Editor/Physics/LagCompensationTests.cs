@@ -67,16 +67,16 @@ namespace Unity.NetCode.Physics.Tests
     [AlwaysUpdateSystem]
     public class TestAutoInGameSystem : SystemBase
     {
-        EndSimulationEntityCommandBufferSystem m_EndSimulationCommandBufferSystem;
+        BeginSimulationEntityCommandBufferSystem m_BeginSimulationCommandBufferSystem;
         bool m_IsServer;
         protected override void OnCreate()
         {
-            m_EndSimulationCommandBufferSystem = World.GetOrCreateSystem<EndSimulationEntityCommandBufferSystem>();
+            m_BeginSimulationCommandBufferSystem = World.GetOrCreateSystem<BeginSimulationEntityCommandBufferSystem>();
             m_IsServer = World.GetExistingSystem<ServerSimulationSystemGroup>()!=null;
         }
         protected override void OnUpdate()
         {
-            var commandBuffer = m_EndSimulationCommandBufferSystem.CreateCommandBuffer().AsParallelWriter();
+            var commandBuffer = m_BeginSimulationCommandBufferSystem.CreateCommandBuffer().AsParallelWriter();
 
             bool isServer = m_IsServer;
             var prefabEntity = GetSingletonEntity<GhostPrefabCollectionComponent>();
@@ -98,7 +98,7 @@ namespace Unity.NetCode.Physics.Tests
                     commandBuffer.SetComponent(entityInQueryIndex, ent, new CommandTargetComponent{targetEntity = player});
                 }
             }).Schedule();
-            m_EndSimulationCommandBufferSystem.AddJobHandleForProducer(Dependency);
+            m_BeginSimulationCommandBufferSystem.AddJobHandleForProducer(Dependency);
         }
     }
     [DisableAutoCreation]
@@ -140,7 +140,6 @@ namespace Unity.NetCode.Physics.Tests
 
     [DisableAutoCreation]
     [UpdateInGroup(typeof(ServerSimulationSystemGroup))]
-    [UpdateBefore(typeof(GhostSimulationSystemGroup))]
     public class LagCompensationTestCubeMoveSystem : SystemBase
     {
         protected override void OnUpdate()
@@ -171,6 +170,8 @@ namespace Unity.NetCode.Physics.Tests
         protected override void OnUpdate()
         {
             var collisionHistory = m_physicsHistory.CollisionHistory;
+            if (!m_physicsHistory.IsInitialized)
+                return;
             uint predictingTick = m_predictionGroup.PredictingTick;
             // Do not perform hit-scan when rolling back, only when simulating the latest tick
             if (!m_predictionGroup.IsFinalPredictionTick)
@@ -204,9 +205,8 @@ namespace Unity.NetCode.Physics.Tests
             m_physicsHistory.LastPhysicsJobHandle = Dependency;
         }
     }
-    [UpdateInGroup(typeof(ClientSimulationSystemGroup))]
-    [UpdateBefore(typeof(GhostSimulationSystemGroup))]
-    [UpdateBefore(typeof(LagCompensationTestCommandCommandSendSystem))]
+    [UpdateInWorld(UpdateInWorld.TargetWorld.Client)]
+    [UpdateInGroup(typeof(GhostSimulationSystemGroup), OrderFirst = true)]
     [AlwaysSynchronizeSystem]
     [DisableAutoCreation]
     public class LagCompensationTestCommandSystem : SystemBase
@@ -242,7 +242,14 @@ namespace Unity.NetCode.Physics.Tests
                     cmd.direction = Target - offset;
                     cmd.lastFire = cmd.Tick;
                 }).Run();
+                // If too close to an edge, wait a bit
+                if (cmd.origin.x < -90 || cmd.origin.x > 90)
+                {
+                    buffer.AddCommandData(new LagCompensationTestCommand{Tick = cmd.Tick});
+                    return;
+                }
                 Target = default;
+
             }
             // Not firing and data for the tick already exists, skip it to make sure a fiew command is not overwritten
             else if (buffer.GetDataAtTick(cmd.Tick, out var dupCmd) && dupCmd.Tick == cmd.Tick)
@@ -329,17 +336,17 @@ namespace Unity.NetCode.Physics.Tests
                 LagCompensationTestCommandSystem.Target = default;
                 // Give the netcode some time to spawn entities and settle on a good time synchronization
                 for (int i = 0; i < 128; ++i)
-                    testWorld.Tick(16f/1000f);
+                    testWorld.Tick(1f/60f);
                 LagCompensationTestCommandSystem.Target = new float3(-0.45f,0,-0.5f);
                 for (int i = 0; i < 32; ++i)
-                    testWorld.Tick(16f/1000f);
+                    testWorld.Tick(1f/60f);
                 Assert.AreEqual(3, LagCompensationTestHitScanSystem.HitStatus);
 
                 // Test miss
                 LagCompensationTestHitScanSystem.HitStatus = 0;
                 LagCompensationTestCommandSystem.Target = new float3(-0.55f,0,-0.5f);
                 for (int i = 0; i < 32; ++i)
-                    testWorld.Tick(16f/1000f);
+                    testWorld.Tick(1f/60f);
                 Assert.AreEqual(0, LagCompensationTestHitScanSystem.HitStatus);
 
                 // Make sure there is no hit without lag compensation
@@ -347,14 +354,14 @@ namespace Unity.NetCode.Physics.Tests
                 LagCompensationTestHitScanSystem.EnableLagCompensation = false;
                 LagCompensationTestCommandSystem.Target = new float3(-0.45f,0,-0.5f);
                 for (int i = 0; i < 32; ++i)
-                    testWorld.Tick(16f/1000f);
+                    testWorld.Tick(1f/60f);
                 Assert.AreEqual(2, LagCompensationTestHitScanSystem.HitStatus);
 
                 // Test miss
                 LagCompensationTestHitScanSystem.HitStatus = 0;
                 LagCompensationTestCommandSystem.Target = new float3(-0.55f,0,-0.5f);
                 for (int i = 0; i < 32; ++i)
-                    testWorld.Tick(16f/1000f);
+                    testWorld.Tick(1f/60f);
                 Assert.AreEqual(0, LagCompensationTestHitScanSystem.HitStatus);
             }
         }

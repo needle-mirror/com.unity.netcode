@@ -16,8 +16,9 @@ namespace Unity.NetCode
         public int3 Index;
     }
 
-    [UpdateInGroup(typeof(ServerSimulationSystemGroup))]
-    [UpdateAfter(typeof(GhostSimulationSystemGroup))]
+    [UpdateInWorld(UpdateInWorld.TargetWorld.Server)]
+    // Update before almost everything to make sure there is no DestroyEntity pending in the command buffer
+    [UpdateInGroup(typeof(GhostSimulationSystemGroup), OrderFirst = true)]
     public class GhostDistancePartitioningSystem : SystemBase
     {
         protected override void OnUpdate()

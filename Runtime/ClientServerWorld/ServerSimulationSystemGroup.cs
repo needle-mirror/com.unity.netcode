@@ -45,7 +45,6 @@ namespace Unity.NetCode
         protected override void OnCreate()
         {
             base.OnCreate();
-            AddSystemToUpdateList(World.GetOrCreateSystem<NetworkReceiveSystemGroup>());
             m_ServerTick = 1;
             m_fixedUpdateMarker = new ProfilerMarker("ServerFixedUpdate");
         }
@@ -104,7 +103,10 @@ namespace Unity.NetCode
             else if (m_fixedTimeLoop.accumulatedTime < 0.25f * m_fixedTimeLoop.fixedTimeStep)
                 rate -= 2; // lower rate means bigger deltaTime which means remaining accumulatedTime gets bigger
 
+            // TODO: need to do solve this for dots runtime. For now just do nothing
+            #if !UNITY_DOTSRUNTIME
             UnityEngine.Application.targetFrameRate = rate;
+            #endif
         }
 
     }

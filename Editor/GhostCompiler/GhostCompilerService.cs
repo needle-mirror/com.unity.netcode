@@ -191,6 +191,7 @@ namespace Unity.NetCode.Editor.GhostCompiler
         internal bool ignoreAssemblyCSharpNextCompilation;
         private int _templateChangeCount;
         internal int _regenerateChangeCount;
+        internal bool _regenerateAll;
 
 
         public UnityAssemblyDefinition[] CodegenTemplatesAssemblies => _codegenTemplatesAssemblies;
@@ -230,9 +231,6 @@ namespace Unity.NetCode.Editor.GhostCompiler
                 FirstTimeInitialization();
                 initialized = true;
             }
-
-            RetrieveTemplatesFoldersAndRegisterWatcher();
-            LoadCustomGhostSnapshotValueTypes();
         }
 
         private void LoadCustomGhostSnapshotValueTypes()
@@ -266,17 +264,14 @@ namespace Unity.NetCode.Editor.GhostCompiler
             }
         }
 
-        private void TriggerRegenerateAll()
-        {
-            RegenerateAll();
-        }
         private void FirstTimeInitialization()
         {
             //If autocompilation is set to true, it is necessary to force the project to regenerate any changes and/or generated files the first
             //time we open the project, in order to keep up-to-date the temp folder with the current project files
             if (_settings.autoRecompile)
             {
-                EditorApplication.delayCall += TriggerRegenerateAll;
+                GhostCompilerServiceUtils.DebugLog($"Initial load, force recompilation of everything");
+                _regenerateAll = true;
             }
         }
 
@@ -284,7 +279,12 @@ namespace Unity.NetCode.Editor.GhostCompiler
         {
             GhostCompilerServiceUtils.DebugLog("All assemblies has been loaded. Collecting components...");
 
-            if (_settings.autoRecompile)
+            if (_regenerateAll)
+            {
+                _regenerateAll = false;
+                RegenerateAll();
+            }
+            else if (_settings.autoRecompile)
             {
                 RegenerateAllChanges();
             }
@@ -374,6 +374,11 @@ namespace Unity.NetCode.Editor.GhostCompiler
 
         private void OnUpdate()
         {
+            if (_codegenTemplatesAssemblies.Length == 0)
+            {
+                RetrieveTemplatesFoldersAndRegisterWatcher();
+                LoadCustomGhostSnapshotValueTypes();
+            }
             if (foldersToDelete.Count != 0)
             {
                 foreach(var f in foldersToDelete)

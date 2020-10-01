@@ -12,13 +12,13 @@ namespace __COMMAND_NAMESPACE__
     [BurstCompile]
     public struct __COMMAND_NAME__Serializer : IComponentData, IRpcCommandSerializer<__COMMAND_COMPONENT_TYPE__>
     {
-        public void Serialize(ref DataStreamWriter writer, in __COMMAND_COMPONENT_TYPE__ data)
+        public void Serialize(ref DataStreamWriter writer, in RpcSerializerState state, in __COMMAND_COMPONENT_TYPE__ data)
         {
             #region __COMMAND_WRITE__
             #endregion
         }
 
-        public void Deserialize(ref DataStreamReader reader, ref __COMMAND_COMPONENT_TYPE__ data)
+        public void Deserialize(ref DataStreamReader reader, in RpcDeserializerState state,  ref __COMMAND_COMPONENT_TYPE__ data)
         {
             #region __COMMAND_READ__
             #endregion
