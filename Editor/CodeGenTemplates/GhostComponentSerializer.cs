@@ -30,7 +30,9 @@ namespace __GHOST_NAMESPACE__
                     SnapshotSize = UnsafeUtility.SizeOf<Snapshot>(),
                     ChangeMaskBits = ChangeMaskBits,
                     SendMask = __GHOST_SEND_MASK__,
+                    SendToOwner = __GHOST_SEND_OWNER__,
                     SendForChildEntities = __GHOST_SEND_CHILD_ENTITY__,
+                    VariantHash = __GHOST_VARIANT_HASH__,
                     CopyToSnapshot =
                         new PortableFunctionPointer<GhostComponentSerializer.CopyToFromSnapshotDelegate>(CopyToSnapshot),
                     CopyFromSnapshot =
@@ -82,17 +84,50 @@ namespace __GHOST_NAMESPACE__
         {
             for (int i = 0; i < count; ++i)
             {
+                var deserializerState = GhostComponentSerializer.TypeCast<GhostDeserializerState>(stateData, 0);
+                #region __GHOST_COPY_FROM_COMPONENT__
                 ref var snapshotInterpolationData = ref GhostComponentSerializer.TypeCast<SnapshotData.DataAtTick>(snapshotData, snapshotStride*i);
                 ref var snapshotBefore = ref GhostComponentSerializer.TypeCast<Snapshot>(snapshotInterpolationData.SnapshotBefore, snapshotOffset);
                 ref var snapshotAfter = ref GhostComponentSerializer.TypeCast<Snapshot>(snapshotInterpolationData.SnapshotAfter, snapshotOffset);
-                float snapshotInterpolationFactor = snapshotInterpolationData.InterpolationFactor;
-                ref var component = ref GhostComponentSerializer.TypeCast<__GHOST_COMPONENT_TYPE__>(componentData, componentStride*i);
-                var deserializerState = GhostComponentSerializer.TypeCast<GhostDeserializerState>(stateData, 0);
+                //Compute the required owner mask for the components and buffers by retrievieng the ghost owner id from the data for the current tick.
+                if (snapshotInterpolationData.GhostOwner > 0)
+                {
+                    var requiredOwnerMask = snapshotInterpolationData.GhostOwner == deserializerState.GhostOwner
+                        ? SendToOwnerType.SendToOwner
+                        : SendToOwnerType.SendToNonOwner;
+                    if ((deserializerState.SendToOwner & requiredOwnerMask) == 0)
+                        continue;
+                }
+                #endregion
+                #region __GHOST_COPY_FROM_BUFFER__
+                //For buffers the function iterate over the element in the buffers not entities.
+                ref var snapshotInterpolationData = ref GhostComponentSerializer.TypeCast<SnapshotData.DataAtTick>(snapshotData);
+                ref var snapshotBefore = ref GhostComponentSerializer.TypeCast<Snapshot>(snapshotInterpolationData.SnapshotBefore, snapshotOffset + snapshotStride*i);
+                ref var snapshotAfter = ref snapshotBefore;
+                #endregion
+                #region __COPY_FROM_SNAPSHOT_SETUP__
+                #endregion
                 deserializerState.SnapshotTick = snapshotInterpolationData.Tick;
+                float snapshotInterpolationFactorRaw = snapshotInterpolationData.InterpolationFactor;
+                float snapshotInterpolationFactor = snapshotInterpolationFactorRaw;
+                ref var component = ref GhostComponentSerializer.TypeCast<__GHOST_COMPONENT_TYPE__>(componentData, componentStride*i);
                 #region __GHOST_COPY_FROM_SNAPSHOT__
+                #endregion
+
+                #region __GHOST_COPY_FROM_SNAPSHOT_DISABLE_EXTRAPOLATION__
+                snapshotInterpolationFactor = math.max(snapshotInterpolationFactorRaw, 0);
+                #endregion
+                #region __GHOST_COPY_FROM_SNAPSHOT_ENABLE_EXTRAPOLATION__
+                snapshotInterpolationFactor = snapshotInterpolationFactorRaw;
+                #endregion
+                #region __GHOST_COPY_FROM_SNAPSHOT_INTERPOLATE_CLAMP_MAX__
+                if (__GHOST_FIELD_NAME___DistSq > __GHOST_MAX_INTERPOLATION_DISTSQ__)
+                    snapshotInterpolationFactor = 0;
                 #endregion
             }
         }
+
+
         [BurstCompile]
         [MonoPInvokeCallback(typeof(GhostComponentSerializer.RestoreFromBackupDelegate))]
         private static void RestoreFromBackup(IntPtr componentData, IntPtr backupData)

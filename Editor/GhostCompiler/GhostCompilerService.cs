@@ -192,6 +192,7 @@ namespace Unity.NetCode.Editor.GhostCompiler
         private int _templateChangeCount;
         internal int _regenerateChangeCount;
         internal bool _regenerateAll;
+        internal bool _loadCustomOverrides;
 
 
         public UnityAssemblyDefinition[] CodegenTemplatesAssemblies => _codegenTemplatesAssemblies;
@@ -228,15 +229,21 @@ namespace Unity.NetCode.Editor.GhostCompiler
         {
             if (!initialized)
             {
-                FirstTimeInitialization();
+                //If autocompilation is set to true, it is necessary to force the project to regenerate any changes and/or generated files the first
+                //time we open the project, in order to keep up-to-date the temp folder with the current project files
+                if (_settings.autoRecompile)
+                {
+                    GhostCompilerServiceUtils.DebugLog($"Initial load, force recompilation of everything");
+                    _regenerateAll = true;
+                }
                 initialized = true;
             }
         }
 
         private void LoadCustomGhostSnapshotValueTypes()
         {
+            _loadCustomOverrides = false;
             var assemblies = AppDomain.CurrentDomain.GetAssemblies().Where(a => a.GetName().Name.EndsWith(".NetCodeGen"));
-
             bool appliedOverride = false;
             //Must be editor only and end with .NetCodeGen
             foreach (var assembly in assemblies)
@@ -250,8 +257,8 @@ namespace Unity.NetCode.Editor.GhostCompiler
                         {
                             var assemblyPath = Path.GetDirectoryName(CompilationPipeline.GetAssemblyDefinitionFilePathFromAssemblyName(assembly.GetName().Name));
                             var overrideImpl = Activator.CreateInstance(t) as IGhostDefaultOverridesModifier;
-                            overrideImpl.Modify(GhostAuthoringComponentEditor.GhostDefaultOverrides);
-                            overrideImpl.ModifyAlwaysIncludedAssembly(GhostAuthoringComponentEditor.AssembliesDefaultOverrides);
+                            overrideImpl.Modify(GhostAuthoringModifiers.GhostDefaultOverrides);
+                            overrideImpl.ModifyAlwaysIncludedAssembly(GhostAuthoringModifiers.AssembliesDefaultOverrides);
                             overrideImpl.ModifyTypeRegistry(CodeGenTypes.Registry, assemblyPath);
                             appliedOverride = true;
                         }
@@ -264,21 +271,9 @@ namespace Unity.NetCode.Editor.GhostCompiler
             }
         }
 
-        private void FirstTimeInitialization()
-        {
-            //If autocompilation is set to true, it is necessary to force the project to regenerate any changes and/or generated files the first
-            //time we open the project, in order to keep up-to-date the temp folder with the current project files
-            if (_settings.autoRecompile)
-            {
-                GhostCompilerServiceUtils.DebugLog($"Initial load, force recompilation of everything");
-                _regenerateAll = true;
-            }
-        }
-
         internal void DomainReload()
         {
             GhostCompilerServiceUtils.DebugLog("All assemblies has been loaded. Collecting components...");
-
             if (_regenerateAll)
             {
                 _regenerateAll = false;
@@ -286,11 +281,11 @@ namespace Unity.NetCode.Editor.GhostCompiler
             }
             else if (_settings.autoRecompile)
             {
-                RegenerateAllChanges();
+                System.Threading.Interlocked.Increment(ref _regenerateChangeCount);
             }
         }
 
-        public bool RegenerateAll()
+        internal bool RegenerateAll()
         {
             //Do nothing if entering/exiting play-mode
             if (EditorApplication.isPlayingOrWillChangePlaymode || EditorApplication.isCompiling)
@@ -298,6 +293,10 @@ namespace Unity.NetCode.Editor.GhostCompiler
                 Debug.Log($"RegenerateAll is a no-op if compilation is pending or entering/exiting playmode");
                 return false;
             }
+
+            //Load custom snapshosts valuetypes before compile assemblies if necessary.
+            if (_loadCustomOverrides)
+                LoadCustomGhostSnapshotValueTypes();
             return CompileAssemblies(GetAssemblyProvider().GetAssemblies());
         }
 
@@ -374,11 +373,12 @@ namespace Unity.NetCode.Editor.GhostCompiler
 
         private void OnUpdate()
         {
-            if (_codegenTemplatesAssemblies.Length == 0)
-            {
+            if(_codegenTemplatesAssemblies.Length == 0)
                 RetrieveTemplatesFoldersAndRegisterWatcher();
+
+            if (_loadCustomOverrides)
                 LoadCustomGhostSnapshotValueTypes();
-            }
+
             if (foldersToDelete.Count != 0)
             {
                 foreach(var f in foldersToDelete)
@@ -541,6 +541,8 @@ namespace Unity.NetCode.Editor.GhostCompiler
             CompilationPipeline.compilationFinished += OnCompilationFinished;
             AssemblyReloadEvents.afterAssemblyReload += DomainReload;
             EditorApplication.update += OnUpdate;
+            //Force loading the overrides after every domain reload
+            _loadCustomOverrides = true;
         }
 
         private void OnDestroy()

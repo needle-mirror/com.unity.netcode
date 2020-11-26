@@ -8,7 +8,7 @@ namespace Unity.NetCode.Editor
     /// </summary>
     public interface IGhostDefaultOverridesModifier
     {
-        void Modify(Dictionary<string, GhostAuthoringComponentEditor.GhostComponent> overrides);
+        void Modify(Dictionary<string, GhostComponentModifier> overrides);
         void ModifyAlwaysIncludedAssembly(HashSet<string> alwaysIncludedAssemblies);
         void ModifyTypeRegistry(TypeRegistry typeRegistry, string netCodeGenAssemblyPath);
     }

@@ -53,6 +53,9 @@ namespace Generated
                 component.__GHOST_FIELD_REFERENCE__ = snapshotBefore.__GHOST_FIELD_NAME__;
                 #endregion
 
+                #region __GHOST_COPY_FROM_SNAPSHOT_INTERPOLATE_DISTSQ__
+                var __GHOST_FIELD_NAME___DistSq = math.distancesq(snapshotBefore.__GHOST_FIELD_NAME__, snapshotAfter.__GHOST_FIELD_NAME__);
+                #endregion
                 #region __GHOST_COPY_FROM_SNAPSHOT_INTERPOLATE__
                 component.__GHOST_FIELD_REFERENCE__ = math.lerp(snapshotBefore.__GHOST_FIELD_NAME__,
                     snapshotAfter.__GHOST_FIELD_NAME__, snapshotInterpolationFactor);

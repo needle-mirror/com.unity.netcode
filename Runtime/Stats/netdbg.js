@@ -50,63 +50,67 @@ NetDbg.prototype.Colors = ['#e6194b', '#3cb44b', '#ffe119', '#4363d8', '#f58231'
 
 
 NetDbg.prototype.updateNames = function(nameList) {
-	var container = document.getElementById("connectionContainer");
 	var connection = JSON.parse(nameList);
 	var con = connection.index;
-    this.content[con] = {};
-    this.content[con].container = document.createElement("div");
-    if (con != 0)
-        this.content[con].container.style.display = "none";
-    var title = document.createElement("div");
-    title.className = "ConnectionTitle";
-    title.appendChild(document.createTextNode(connection.name));
-    title.addEventListener("click", function(){
-        if (this.nextElementSibling.style.display == "none") {
-            this.nextElementSibling.style.display = "block";
-            g_debugger.invalidate();
-        } else
-            this.nextElementSibling.style.display = "none";
-        });
-    container.appendChild(title);
-    this.content[con].hasTimeData = false;
-    this.content[con].maxPackets = 1;
-    this.content[con].legend = document.createElement("div");
-    this.content[con].legend.className = "LegendOverlay";
-    this.content[con].container.appendChild(this.content[con].legend);
-    this.content[con].canvas = document.createElement("canvas");
-    this.content[con].ctx = this.content[con].canvas.getContext("2d");
-    this.content[con].canvas.addEventListener("mousedown", this.startDrag.bind(this));
-    this.content[con].container.appendChild(this.content[con].canvas);
-    this.content[con].details = document.createElement("div");
-    this.content[con].container.appendChild(this.content[con].details);
-    container.appendChild(this.content[con].container);
-    this.content[con].frames = [];
-    this.content[con].names = connection.ghosts;
-    this.content[con].errors = connection.errors;
-    this.content[con].enabledErrors = new Array(connection.errors.length);
-    this.content[con].totalError = new Array(connection.errors.length);
-    this.content[con].totalErrorCount = new Array(connection.errors.length);
-    this.content[con].total = new Array(this.content[con].names.length*2);
-    var legend = this.content[con].legend;
-	for (var i = 0; i < this.content[con].errors.length; ++i) {
+	if (this.content[con] == undefined) {
+		var container = document.getElementById("connectionContainer");
+		this.content[con] = {};
+		this.content[con].container = document.createElement("div");
+		if (con != 0)
+			this.content[con].container.style.display = "none";
+		var title = document.createElement("div");
+		title.className = "ConnectionTitle";
+		title.appendChild(document.createTextNode(connection.name));
+		title.addEventListener("click", function(){
+			if (this.nextElementSibling.style.display == "none") {
+				this.nextElementSibling.style.display = "block";
+				g_debugger.invalidate();
+			} else
+				this.nextElementSibling.style.display = "none";
+			});
+		container.appendChild(title);
+		this.content[con].hasTimeData = false;
+		this.content[con].maxPackets = 1;
+		this.content[con].legend = document.createElement("div");
+		this.content[con].legend.className = "LegendOverlay";
+		this.content[con].container.appendChild(this.content[con].legend);
+		this.content[con].canvas = document.createElement("canvas");
+		this.content[con].ctx = this.content[con].canvas.getContext("2d");
+		this.content[con].canvas.addEventListener("mousedown", this.startDrag.bind(this));
+		this.content[con].container.appendChild(this.content[con].canvas);
+		this.content[con].details = document.createElement("div");
+		this.content[con].container.appendChild(this.content[con].details);
+		container.appendChild(this.content[con].container);
+		this.content[con].frames = [];
+		this.content[con].names = [];
+		this.content[con].errors = [];
+		this.content[con].enabledErrors = [];
+		this.content[con].totalError = [];
+		this.content[con].totalErrorCount = [];
+		this.content[con].total = [];
+	}
+	var legend = this.content[con].legend;
+	for (var i = this.content[con].errors.length; i < connection.errors.length; ++i) {
 		this.content[con].enabledErrors[i] = false;
 		this.content[con].totalError[i] = 0;
 		this.content[con].totalErrorCount[i] = 0;
 	}
 
-	for (var i = 0; i < this.content[con].names.length; ++i) {
-        this.content[con].total[i*2] = 0;
-        this.content[con].total[i*2 + 1] = 0;
-        var line = document.createElement("div");
-        line.style.color = "white";
-        line.style.padding = "2px";
-        line.style.margin = "2px";
-        line.style.borderWidth = "1px";
-        line.style.borderColor = this.Colors[i%this.Colors.length];
-        line.style.borderStyle = "solid";
-        line.appendChild(document.createTextNode(this.content[con].names[i]));
-        legend.appendChild(line);
-    }
+	for (var i = this.content[con].names.length; i < connection.ghosts.length; ++i) {
+		this.content[con].total[i*2] = 0;
+		this.content[con].total[i*2 + 1] = 0;
+		var line = document.createElement("div");
+		line.style.color = "white";
+		line.style.padding = "2px";
+		line.style.margin = "2px";
+		line.style.borderWidth = "1px";
+		line.style.borderColor = this.Colors[i%this.Colors.length];
+		line.style.borderStyle = "solid";
+		line.appendChild(document.createTextNode(connection.ghosts[i]));
+		legend.appendChild(line);
+	}
+	this.content[con].names = connection.ghosts;
+	this.content[con].errors = connection.errors;
 }
 
 NetDbg.prototype.invalidateLegendStats = function() {

@@ -104,11 +104,17 @@ namespace Generated
                 component.__GHOST_FIELD_REFERENCE__ = new quaternion(snapshotBefore.__GHOST_FIELD_NAME__X, snapshotBefore.__GHOST_FIELD_NAME__Y, snapshotBefore.__GHOST_FIELD_NAME__Z, snapshotBefore.__GHOST_FIELD_NAME__W);
                 #endregion
 
+                #region __GHOST_COPY_FROM_SNAPSHOT_INTERPOLATE_SETUP__
+                var __GHOST_FIELD_NAME___Before = new quaternion(snapshotBefore.__GHOST_FIELD_NAME__X, snapshotBefore.__GHOST_FIELD_NAME__Y, snapshotBefore.__GHOST_FIELD_NAME__Z, snapshotBefore.__GHOST_FIELD_NAME__W);
+                var __GHOST_FIELD_NAME___After = new quaternion(snapshotAfter.__GHOST_FIELD_NAME__X, snapshotAfter.__GHOST_FIELD_NAME__Y, snapshotAfter.__GHOST_FIELD_NAME__Z, snapshotAfter.__GHOST_FIELD_NAME__W);
+                #endregion
+                #region __GHOST_COPY_FROM_SNAPSHOT_INTERPOLATE_DISTSQ__
+                var __GHOST_FIELD_NAME___DistSq = math.dot(__GHOST_FIELD_NAME___Before, __GHOST_FIELD_NAME___After);
+                __GHOST_FIELD_NAME___DistSq = 1 - __GHOST_FIELD_NAME___DistSq*__GHOST_FIELD_NAME___DistSq;
+                #endregion
                 #region __GHOST_COPY_FROM_SNAPSHOT_INTERPOLATE__
-                component.__GHOST_FIELD_REFERENCE__ = math.slerp(
-                    new quaternion(snapshotBefore.__GHOST_FIELD_NAME__X, snapshotBefore.__GHOST_FIELD_NAME__Y, snapshotBefore.__GHOST_FIELD_NAME__Z, snapshotBefore.__GHOST_FIELD_NAME__W),
-                    new quaternion(snapshotAfter.__GHOST_FIELD_NAME__X, snapshotAfter.__GHOST_FIELD_NAME__Y, snapshotAfter.__GHOST_FIELD_NAME__Z, snapshotAfter.__GHOST_FIELD_NAME__W),
-                    snapshotInterpolationFactor);
+                component.__GHOST_FIELD_REFERENCE__ = math.slerp(__GHOST_FIELD_NAME___Before,
+                    __GHOST_FIELD_NAME___After, snapshotInterpolationFactor);
                 #endregion
             }
         }

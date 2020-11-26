@@ -101,11 +101,13 @@ namespace Unity.NetCode
         private ulong ReceivedSnapshotByRemoteMask3;
         public uint LastReceivedSnapshotByLocal;
         public uint ReceivedSnapshotByLocalMask;
+        public uint NumLoadedPrefabs;
 
-        public void UpdateRemoteTime(uint remoteTime, uint localTimeMinusRTT, uint localTime, uint interpolationDelay)
+        public void UpdateRemoteTime(uint remoteTime, uint localTimeMinusRTT, uint localTime, uint interpolationDelay, uint numLoadedPrefabs)
         {
-            if (remoteTime != 0 && SequenceHelpers.IsNewer(remoteTime, LastReceivedRemoteTime))
+            if (remoteTime != 0 && (SequenceHelpers.IsNewer(remoteTime, LastReceivedRemoteTime) || LastReceivedRemoteTime == 0))
             {
+                NumLoadedPrefabs = numLoadedPrefabs;
                 LastReceivedRemoteTime = remoteTime;
                 LastReceiveTimestamp = localTime;
                 if (localTimeMinusRTT == 0)

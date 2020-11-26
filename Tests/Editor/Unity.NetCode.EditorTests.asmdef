@@ -25,7 +25,8 @@
     "allowUnsafeCode": true,
     "overrideReferences": true,
     "precompiledReferences": [
-        "nunit.framework.dll"
+        "nunit.framework.dll",
+        "Mono.Cecil.dll"
     ],
     "autoReferenced": false,
     "defineConstraints": [

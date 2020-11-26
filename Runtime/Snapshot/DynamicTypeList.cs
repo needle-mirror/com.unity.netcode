@@ -10,7 +10,7 @@ namespace Unity.NetCode
     {
         public const int MaxCapacity = 128;
 
-        public static unsafe void PopulateList<T>(SystemBase system, NativeArray<GhostComponentSerializer.State> ghostComponentCollection, bool readOnly, ref T list)
+        public static unsafe void PopulateList<T>(SystemBase system, DynamicBuffer<GhostCollectionComponentType> ghostComponentCollection, bool readOnly, ref T list)
             where T: struct, IDynamicTypeList
         {
 #if ENABLE_UNITY_COLLECTIONS_CHECKS
@@ -22,10 +22,29 @@ namespace Unity.NetCode
             list.Length = listLength;
             for (int i = 0; i < list.Length; ++i)
             {
-                var compType = ghostComponentCollection[i].ComponentType;
+                var compType = ghostComponentCollection[i].Type;
                 if (readOnly)
                     compType.AccessModeType = ComponentType.AccessMode.ReadOnly;
                 GhostChunkComponentTypesPtr[i] = system.GetDynamicComponentTypeHandle(compType);
+            }
+        }
+
+        public static unsafe void PopulateListFromArray<T>(SystemBase system, NativeArray<ComponentType> componentTypes,  bool readOnly, ref T list)
+            where T: struct, IDynamicTypeList
+        {
+#if ENABLE_UNITY_COLLECTIONS_CHECKS
+            if (UnsafeUtility.SizeOf<ArchetypeChunkComponentTypeDynamic8>() != UnsafeUtility.SizeOf<DynamicComponentTypeHandle>()*8)
+                throw new System.Exception("Invalid type size, this will cause undefined behavior");
+#endif
+
+            DynamicComponentTypeHandle* componentTypesPtr = list.GetData();
+            list.Length = componentTypes.Length;
+            for (int i = 0; i < list.Length; ++i)
+            {
+                var compType = componentTypes[i];
+                if (readOnly)
+                    compType.AccessModeType = ComponentType.AccessMode.ReadOnly;
+                componentTypesPtr[i] = system.GetDynamicComponentTypeHandle(compType);
             }
         }
     }
@@ -38,14 +57,14 @@ namespace Unity.NetCode
     [StructLayout(LayoutKind.Sequential)]
     public struct ArchetypeChunkComponentTypeDynamic8
     {
-        [NativeDisableContainerSafetyRestriction] public DynamicComponentTypeHandle dynamicType00;
-        [NativeDisableContainerSafetyRestriction] public DynamicComponentTypeHandle dynamicType01;
-        [NativeDisableContainerSafetyRestriction] public DynamicComponentTypeHandle dynamicType02;
-        [NativeDisableContainerSafetyRestriction] public DynamicComponentTypeHandle dynamicType03;
-        [NativeDisableContainerSafetyRestriction] public DynamicComponentTypeHandle dynamicType04;
-        [NativeDisableContainerSafetyRestriction] public DynamicComponentTypeHandle dynamicType05;
-        [NativeDisableContainerSafetyRestriction] public DynamicComponentTypeHandle dynamicType06;
-        [NativeDisableContainerSafetyRestriction] public DynamicComponentTypeHandle dynamicType07;
+        public DynamicComponentTypeHandle dynamicType00;
+        public DynamicComponentTypeHandle dynamicType01;
+        public DynamicComponentTypeHandle dynamicType02;
+        public DynamicComponentTypeHandle dynamicType03;
+        public DynamicComponentTypeHandle dynamicType04;
+        public DynamicComponentTypeHandle dynamicType05;
+        public DynamicComponentTypeHandle dynamicType06;
+        public DynamicComponentTypeHandle dynamicType07;
     }
     [StructLayout(LayoutKind.Sequential)]
     public struct ArchetypeChunkComponentTypeDynamic32
@@ -54,6 +73,21 @@ namespace Unity.NetCode
         public ArchetypeChunkComponentTypeDynamic8 dynamicType07_15;
         public ArchetypeChunkComponentTypeDynamic8 dynamicType16_23;
         public ArchetypeChunkComponentTypeDynamic8 dynamicType24_31;
+    }
+
+    public struct DynamicTypeList8 : IDynamicTypeList
+    {
+        public int Length { get; set; }
+
+        public unsafe DynamicComponentTypeHandle* GetData()
+        {
+            fixed (DynamicComponentTypeHandle* ptr = &dynamicTypes.dynamicType00)
+            {
+                return ptr;
+            }
+        }
+
+        private ArchetypeChunkComponentTypeDynamic8 dynamicTypes;
     }
 
     public struct DynamicTypeList32 : IDynamicTypeList

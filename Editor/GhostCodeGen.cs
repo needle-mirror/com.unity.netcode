@@ -279,6 +279,10 @@ namespace Unity.NetCode.Editor
             return m_Fragments[$"__{fragment}__"].Template;
         }
 
+        public bool HasFragment(string fragment)
+        {
+            return m_Fragments.ContainsKey($"__{fragment}__");
+        }
         public bool GenerateFragment(string fragment, Dictionary<string, string> replacements, GhostCodeGen target = null, string targetFragment = null, string extraIndent = null, bool allowMissingFragment = false)
         {
             if (target == null)

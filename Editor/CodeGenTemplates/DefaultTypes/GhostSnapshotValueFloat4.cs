@@ -10,11 +10,15 @@ namespace Generated
                 component.__GHOST_FIELD_REFERENCE__ = new float4(snapshotBefore.__GHOST_FIELD_NAME___x * __GHOST_DEQUANTIZE_SCALE__, snapshotBefore.__GHOST_FIELD_NAME___y * __GHOST_DEQUANTIZE_SCALE__, snapshotBefore.__GHOST_FIELD_NAME___z * __GHOST_DEQUANTIZE_SCALE__, snapshotBefore.__GHOST_FIELD_NAME___w * __GHOST_DEQUANTIZE_SCALE__);
                 #endregion
 
+                #region __GHOST_COPY_FROM_SNAPSHOT_INTERPOLATE_SETUP__
+                var __GHOST_FIELD_NAME___Before = new float4(snapshotBefore.__GHOST_FIELD_NAME___x * __GHOST_DEQUANTIZE_SCALE__, snapshotBefore.__GHOST_FIELD_NAME___y * __GHOST_DEQUANTIZE_SCALE__, snapshotBefore.__GHOST_FIELD_NAME___z * __GHOST_DEQUANTIZE_SCALE__, snapshotBefore.__GHOST_FIELD_NAME___w * __GHOST_DEQUANTIZE_SCALE__);
+                var __GHOST_FIELD_NAME___After = new float4(snapshotAfter.__GHOST_FIELD_NAME___x * __GHOST_DEQUANTIZE_SCALE__, snapshotAfter.__GHOST_FIELD_NAME___y * __GHOST_DEQUANTIZE_SCALE__, snapshotAfter.__GHOST_FIELD_NAME___z * __GHOST_DEQUANTIZE_SCALE__, snapshotAfter.__GHOST_FIELD_NAME___w * __GHOST_DEQUANTIZE_SCALE__);
+                #endregion
+                #region __GHOST_COPY_FROM_SNAPSHOT_INTERPOLATE_DISTSQ__
+                var __GHOST_FIELD_NAME___DistSq = math.distancesq(__GHOST_FIELD_NAME___Before, __GHOST_FIELD_NAME___After);
+                #endregion
                 #region __GHOST_COPY_FROM_SNAPSHOT_INTERPOLATE__
-                component.__GHOST_FIELD_REFERENCE__ = math.lerp(
-                    new float4(snapshotBefore.__GHOST_FIELD_NAME___x * __GHOST_DEQUANTIZE_SCALE__, snapshotBefore.__GHOST_FIELD_NAME___y * __GHOST_DEQUANTIZE_SCALE__, snapshotBefore.__GHOST_FIELD_NAME___z * __GHOST_DEQUANTIZE_SCALE__, snapshotBefore.__GHOST_FIELD_NAME___w * __GHOST_DEQUANTIZE_SCALE__),
-                    new float4(snapshotAfter.__GHOST_FIELD_NAME___x * __GHOST_DEQUANTIZE_SCALE__, snapshotAfter.__GHOST_FIELD_NAME___y * __GHOST_DEQUANTIZE_SCALE__, snapshotAfter.__GHOST_FIELD_NAME___z * __GHOST_DEQUANTIZE_SCALE__, snapshotAfter.__GHOST_FIELD_NAME___w * __GHOST_DEQUANTIZE_SCALE__),
-                    snapshotInterpolationFactor);
+                component.__GHOST_FIELD_REFERENCE__ = math.lerp(__GHOST_FIELD_NAME___Before, __GHOST_FIELD_NAME___After, snapshotInterpolationFactor);
                 #endregion
             }
         }

@@ -10,6 +10,7 @@ namespace Unity.NetCode.LowLevel.Unsafe
         [Flags]
         public enum SendMask
         {
+            None = 0,
             Interpolated = 1,
             Predicted = 2
         }
@@ -20,16 +21,18 @@ namespace Unity.NetCode.LowLevel.Unsafe
         public delegate void SerializeDelegate(IntPtr snapshotData, IntPtr baselineData, ref DataStreamWriter writer, ref NetworkCompressionModel compressionModel, IntPtr changeMaskData, int startOffset);
         public delegate void DeserializeDelegate(IntPtr snapshotData, IntPtr baselineData, ref DataStreamReader reader, ref NetworkCompressionModel compressionModel, IntPtr changeMaskData, int startOffset);
         public delegate void ReportPredictionErrorsDelegate(IntPtr componentData, IntPtr backupData, ref UnsafeList<float> errors);
-        public struct State
+        public struct State : IBufferElementData
         {
             public ulong SerializerHash;
             public ulong GhostFieldsHash;
+            public ulong VariantHash;
             public int ExcludeFromComponentCollectionHash;
             public ComponentType ComponentType;
             public int ComponentSize;
             public int SnapshotSize;
             public int ChangeMaskBits;
             public SendMask SendMask;
+            public SendToOwnerType SendToOwner;
             public int SendForChildEntities;
             public PortableFunctionPointer<CopyToFromSnapshotDelegate> CopyToSnapshot;
             public PortableFunctionPointer<CopyToFromSnapshotDelegate> CopyFromSnapshot;

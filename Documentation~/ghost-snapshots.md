@@ -45,7 +45,7 @@ For example, if you add `[GhostComponent(PrefabType=GhostPrefabType.Client)]` to
 A component can set __OwnerPredictedSendType__ in the __GhostComponentAttribute__ to control which clients the component is sent to when it is owner predicted. The available modes are:
 * __Interpolated__ - the component is only sent to clients which are interpolating the ghost.
 * __Predicted__ - the component is only sent to clients which are predicting the ghost.
-* __Interpolated__ - the component is sent to all clients.
+* __All__ - the component is sent to all clients.
 
 If a component is not sent to a client NetCode will not modify the component on the client which did not receive it.
 
@@ -55,7 +55,7 @@ For each component, you need to add an attribute to the values you want to sent.
 The __GhostFieldAttribute__ also has a `Interpolate` property which controls if the field will be interpolated or not on clients which are not predicting the ghost.
 Finally the __GhostFieldAttribute__ has a `SubType` property which can be set to an integer value to use special serialization rules supplied by the game for that specific field.
 
-As well as adding attributes, you can specify rules for components which you do not have source access to by creating an assembly with a name ending with `.NetCodeGen`. This assembly should contain a class implementing the interface __IGhostDefaultOverridesModifier__. Implement the method `public void Modify(Dictionary<string, GhostAuthoringComponentEditor.GhostComponent> overrides)` and add an entry to the ictionary with the full name of the component as key and a value containing the desired override attributes.
+As well as adding attributes, you can specify rules for components which you do not have source access to by creating an assembly with a name ending with `.NetCodeGen`. This assembly should contain a class implementing the interface __IGhostDefaultOverridesModifier__. Implement the method `public void Modify(Dictionary<string, GhostAuthoringComponentEditor.GhostComponent> overrides)` and add an entry to the dictionary with the full name of the component as key and a value containing the desired override attributes.
 
 
 ## Ghost collection
@@ -140,6 +140,6 @@ To look at an example of a scene using prespawn ghosts, see the test in *Assets/
 
 ## Snapshot visualization tool
 
-To understand what is being put on the wire in the netcode, you can use the prototype snapshot visualization tool, __NetDbg__ in the Stats folder. To open the tool, go to menu: __Multiplayer &gt; Open NetDbg__, and the tool opens in a browser window. It displays a vertical bar for each snapshot Unity receives, with a breakdown of the snapshot’s ghost types. To see more detailed information about the snapshot, click on one of the bars. 
+To understand what is being put on the wire in the netcode, you can use the prototype snapshot visualization tool, __NetDbg__ in the Stats folder. To open the tool, go to menu: __Multiplayer &gt; Open NetDbg__, and the tool opens in a browser window. It displays a vertical bar for each snapshot Unity receives, with a breakdown of the snapshot’s ghost types. To see more detailed information about the snapshot, click on one of the bars.
 > [!NOTE]
 > This tool is a prototype. In future versions of the package it will integrate with the Unity Profiler so you can easily correlate network traffic with memory usage and CPU performance.

@@ -8,7 +8,7 @@ using TypeInfo = Unity.Entities.TypeManager.TypeInfo;
 
 namespace Unity.NetCode.Editor
 {
-    public class CommandGenerator
+    internal class CommandGenerator
     {
         public enum Type
         {
@@ -70,8 +70,8 @@ namespace Unity.NetCode.Editor
                 context.typeCodeGenCache.Add(m_Template.TemplatePath + m_Template.TemplateOverridePath, generator);
             }
             var fieldName = string.IsNullOrEmpty(parent)
-                ? m_TypeInformation.FieldInfo.Name
-                : $"{parent}.{m_TypeInformation.FieldInfo.Name}";
+                ? m_TypeInformation.FieldName
+                : $"{parent}.{m_TypeInformation.FieldName}";
 
             generator = generator.Clone();
             generator.Replacements.Add("COMMAND_FIELD_NAME", fieldName);
@@ -111,7 +111,7 @@ namespace Unity.NetCode.Editor
                 m_CommandGenerator.GenerateFragment("COMMAND_USING_STATEMENT", replacements);
             }
 
-            var serializerName = typeDefinition.FullName.Replace("/", "+") + "Serializer.cs";
+            var serializerName = typeDefinition.FullName.Replace("/", "+") + "CommandSerializer.cs";
             m_CommandGenerator.GenerateFile("", context.outputFolder, serializerName, replacements, context.batch);
         }
 

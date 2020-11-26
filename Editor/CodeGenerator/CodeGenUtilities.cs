@@ -1,10 +1,6 @@
 using System;
 using System.Collections.Generic;
-using System.Globalization;
-using System.Reflection;
 using System.Text.RegularExpressions;
-using Unity.Collections;
-using TypeInfo = Unity.Entities.TypeManager.TypeInfo;
 
 namespace Unity.NetCode.Editor
 {
@@ -20,7 +16,7 @@ namespace Unity.NetCode.Editor
         public static string GetValidNamespaceForType(string generatedNs, string ns)
         {
             //if it is 0 is still part of the ancestor
-            if(generatedNs.IndexOf(ns, StringComparison.Ordinal) <= 0)
+            if (generatedNs.IndexOf(ns, StringComparison.Ordinal) <= 0)
                 return ns;
 
             //need to use global to avoid confusion
@@ -30,31 +26,6 @@ namespace Unity.NetCode.Editor
         public static string GenerateNamespaceFromAssemblyName(string assemblyGeneratedName)
         {
             return Regex.Replace(assemblyGeneratedName, @"[^\w\.]", "_", RegexOptions.Singleline);
-        }
-    }
-    public class DebugInformation
-    {
-        public List<string> LogLines;
-
-        public void Log(string logMessage)
-        {
-            LogLines.Add(logMessage);
-        }
-
-        public string GetLog()
-        {
-            string message = "";
-            foreach (var line in LogLines)
-            {
-                message += line + "\n";
-            }
-
-            return message;
-        }
-
-        public DebugInformation()
-        {
-            LogLines = new List<string>();
         }
     }
 }

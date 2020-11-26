@@ -46,6 +46,7 @@ namespace Unity.NetCode
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
             public NativeArray<uint> netStats;
 #endif
+            public int numLoadedPrefabs;
 
             public void LambdaMethod(in NetworkStreamConnection connection, in NetworkSnapshotAckComponent ack,
                 in CommandTargetComponent state)
@@ -54,41 +55,48 @@ namespace Unity.NetCode
                     return;
                 if (!isNullCommandData && !inputFromEntity.HasComponent(state.targetEntity))
                     return;
-                DataStreamWriter writer = driver.BeginSend(unreliablePipeline, connection.Value);
-                if (!writer.IsCreated)
-                    return;
-                writer.WriteByte((byte) NetworkStreamProtocol.Command);
-                writer.WriteUInt(ack.LastReceivedSnapshotByLocal);
-                writer.WriteUInt(ack.ReceivedSnapshotByLocalMask);
-                writer.WriteUInt(localTime);
-                uint returnTime = ack.LastReceivedRemoteTime;
-                if (returnTime != 0)
-                    returnTime -= (localTime - ack.LastReceiveTimestamp);
-                writer.WriteUInt(returnTime);
-                writer.WriteUInt(interpolationDelay);
-                writer.WriteUInt(inputTargetTick);
-                if (state.targetEntity != Entity.Null)
+                if (driver.BeginSend(unreliablePipeline, connection.Value, out var writer) == 0)
                 {
-                    var input = inputFromEntity[state.targetEntity];
-                    TCommandData baselineInputData;
-                    input.GetDataAtTick(inputTargetTick, out baselineInputData);
-                    var serializer = default(TCommandDataSerializer);
-                    serializer.Serialize(ref writer, baselineInputData);
-                    for (uint inputIndex = 1; inputIndex < k_InputBufferSendSize; ++inputIndex)
+                    writer.WriteByte((byte) NetworkStreamProtocol.Command);
+                    writer.WriteUInt(ack.LastReceivedSnapshotByLocal);
+                    writer.WriteUInt(ack.ReceivedSnapshotByLocalMask);
+                    writer.WriteUInt(localTime);
+
+                    uint returnTime = ack.LastReceivedRemoteTime;
+                    if (returnTime != 0)
+                        returnTime -= (localTime - ack.LastReceiveTimestamp);
+
+                    writer.WriteUInt(returnTime);
+                    writer.WriteUInt(interpolationDelay);
+                    writer.WriteUInt((uint)numLoadedPrefabs);
+                    writer.WriteUInt(inputTargetTick);
+                    if (state.targetEntity != Entity.Null)
                     {
-                        TCommandData inputData;
-                        input.GetDataAtTick(inputTargetTick - inputIndex, out inputData);
-                        serializer.Serialize(ref writer, inputData, baselineInputData, compressionModel);
+                        var input = inputFromEntity[state.targetEntity];
+                        TCommandData baselineInputData;
+                        input.GetDataAtTick(inputTargetTick, out baselineInputData);
+                        var serializer = default(TCommandDataSerializer);
+                        serializer.Serialize(ref writer, baselineInputData);
+                        for (uint inputIndex = 1; inputIndex < k_InputBufferSendSize; ++inputIndex)
+                        {
+                            TCommandData inputData;
+                            input.GetDataAtTick(inputTargetTick - inputIndex, out inputData);
+                            serializer.Serialize(ref writer, inputData, baselineInputData, compressionModel);
+                        }
+
+                        writer.Flush();
                     }
+    #if UNITY_EDITOR || DEVELOPMENT_BUILD
+                    netStats[0] = inputTargetTick;
+                    netStats[1] = (uint)writer.Length;
+    #endif
 
-                    writer.Flush();
+                    var result = 0;
+                    if ((result = driver.EndSend(writer)) <= 0)
+                    {
+                        UnityEngine.Debug.LogError($"An error occured during EndSend. ErrorCode: {result}");
+                    }
                 }
-#if UNITY_EDITOR || DEVELOPMENT_BUILD
-                netStats[0] = inputTargetTick;
-                netStats[1] = (uint)writer.Length;
-#endif
-
-                driver.EndSend(writer);
             }
 
             public void Execute(ArchetypeChunk chunk, int orderIndex)
@@ -132,6 +140,7 @@ namespace Unity.NetCode
             RequireForUpdate(m_entityGroup);
             if (typeof(TCommandData) != typeof(NullCommandData))
                 RequireForUpdate(EntityManager.CreateEntityQuery(ComponentType.ReadOnly<TCommandData>()));
+            RequireSingletonForUpdate<GhostCollection>();
         }
 
         protected override void OnDestroy()
@@ -170,8 +179,9 @@ namespace Unity.NetCode
                                      m_ClientSimulationSystemGroup.InterpolationTick,
                 isNullCommandData = typeof(TCommandData) == typeof(NullCommandData),
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
-                netStats = m_NetStats
+                netStats = m_NetStats,
 #endif
+                numLoadedPrefabs = GetSingleton<GhostCollection>().NumLoadedPrefabs
             };
             return sendJob;
         }

@@ -41,12 +41,14 @@ namespace Unity.NetCode
         public uint ServerTick => m_ServerTick;
         private FixedTimeLoop m_fixedTimeLoop;
         private ProfilerMarker m_fixedUpdateMarker;
+        private double m_currentTime;
 
         protected override void OnCreate()
         {
             base.OnCreate();
             m_ServerTick = 1;
             m_fixedUpdateMarker = new ProfilerMarker("ServerFixedUpdate");
+            m_currentTime = Time.ElapsedTime;
         }
 
         protected override void OnUpdate()
@@ -68,7 +70,8 @@ namespace Unity.NetCode
             {
                 using (m_fixedUpdateMarker.Auto())
                 {
-                    World.SetTime(new TimeData(previousTime.ElapsedTime - m_fixedTimeLoop.accumulatedTime - m_fixedTimeLoop.fixedTimeStep * tickAge, m_fixedTimeLoop.fixedTimeStep));
+                    m_currentTime += m_fixedTimeLoop.fixedTimeStep;
+                    World.SetTime(new TimeData(m_currentTime, m_fixedTimeLoop.fixedTimeStep));
                     base.OnUpdate();
                     ++m_ServerTick;
                     if (m_ServerTick == 0)

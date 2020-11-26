@@ -10,11 +10,15 @@ namespace Generated
                 component.__GHOST_FIELD_REFERENCE__ = new float3(snapshotBefore.__GHOST_FIELD_NAME___x, snapshotBefore.__GHOST_FIELD_NAME___y, snapshotBefore.__GHOST_FIELD_NAME___z);
                 #endregion
 
+                #region __GHOST_COPY_FROM_SNAPSHOT_INTERPOLATE_SETUP__
+                var __GHOST_FIELD_NAME___Before = new float3(snapshotBefore.__GHOST_FIELD_NAME___x, snapshotBefore.__GHOST_FIELD_NAME___y, snapshotBefore.__GHOST_FIELD_NAME___z);
+                var __GHOST_FIELD_NAME___After = new float3(snapshotAfter.__GHOST_FIELD_NAME___x, snapshotAfter.__GHOST_FIELD_NAME___y, snapshotAfter.__GHOST_FIELD_NAME___z);
+                #endregion
+                #region __GHOST_COPY_FROM_SNAPSHOT_INTERPOLATE_DISTSQ__
+                var __GHOST_FIELD_NAME___DistSq = math.distancesq(__GHOST_FIELD_NAME___Before, __GHOST_FIELD_NAME___After);
+                #endregion
                 #region __GHOST_COPY_FROM_SNAPSHOT_INTERPOLATE__
-                component.__GHOST_FIELD_REFERENCE__ = math.lerp(
-                    new float3(snapshotBefore.__GHOST_FIELD_NAME___x, snapshotBefore.__GHOST_FIELD_NAME___y, snapshotBefore.__GHOST_FIELD_NAME___z),
-                    new float3(snapshotAfter.__GHOST_FIELD_NAME___x, snapshotAfter.__GHOST_FIELD_NAME___y, snapshotAfter.__GHOST_FIELD_NAME___z),
-                    snapshotInterpolationFactor);
+                component.__GHOST_FIELD_REFERENCE__ = math.lerp(__GHOST_FIELD_NAME___Before, __GHOST_FIELD_NAME___After, snapshotInterpolationFactor);
                 #endregion
             }
         }

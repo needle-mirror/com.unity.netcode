@@ -4,6 +4,7 @@ using Unity.Collections;
 using Unity.Collections.LowLevel.Unsafe;
 using Unity.Entities;
 using Unity.Jobs;
+using Unity.Mathematics;
 using Unity.Networking.Transport;
 using Unity.Networking.Transport.Utilities;
 using Unity.NetCode.LowLevel.Unsafe;
@@ -39,6 +40,8 @@ namespace Unity.NetCode
     {
         public NativeHashMap<SpawnedGhost, Entity> GhostMap;
         public uint SnapshotTick;
+        public int GhostOwner;
+        public SendToOwnerType SendToOwner;
     }
 
     [UpdateInWorld(UpdateInWorld.TargetWorld.Client)]
@@ -55,12 +58,11 @@ namespace Unity.NetCode
 
         private NativeHashMap<int, Entity> m_ghostEntityMap;
         private NativeHashMap<SpawnedGhost, Entity> m_spawnedGhostEntityMap;
+        private NativeList<byte> m_tempDynamicData;
 
         private BeginSimulationEntityCommandBufferSystem m_Barrier;
         private GhostDespawnSystem m_GhostDespawnSystem;
 
-        private GhostCollectionSystem m_GhostCollectionSystem;
-        private NativeArray<ulong> m_ReceivedGhostVersion;
         private NativeArray<int> m_GhostCompletionCount;
         /// <summary>
         /// The total number of ghosts on the server the last time a snapshot was received. Use this and GhostCountOnClient to figure out how much of the state the client has received.
@@ -76,8 +78,6 @@ namespace Unity.NetCode
 
         protected override void OnCreate()
         {
-            m_GhostCollectionSystem = World.GetOrCreateSystem<GhostCollectionSystem>();
-
             m_ghostEntityMap = new NativeHashMap<int, Entity>(2048, Allocator.Persistent);
             m_spawnedGhostEntityMap = new NativeHashMap<SpawnedGhost, Entity>(2048, Allocator.Persistent);
 
@@ -99,9 +99,9 @@ namespace Unity.NetCode
 #endif
             m_GhostDespawnSystem = World.GetOrCreateSystem<GhostDespawnSystem>();
 
-            RequireSingletonForUpdate<GhostPrefabCollectionComponent>();
-            m_ReceivedGhostVersion = new NativeArray<ulong>(1, Allocator.Persistent);
+            RequireSingletonForUpdate<GhostCollection>();
             m_GhostCompletionCount = new NativeArray<int>(2, Allocator.Persistent);
+            m_tempDynamicData = new NativeList<byte>(Allocator.Persistent);
         }
 
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
@@ -121,8 +121,8 @@ namespace Unity.NetCode
             m_spawnedGhostEntityMap.Dispose();
 
             m_CompressionModel.Dispose();
-            m_ReceivedGhostVersion.Dispose();
             m_GhostCompletionCount.Dispose();
+            m_tempDynamicData.Dispose();
         }
 
         [BurstCompile]
@@ -162,18 +162,25 @@ namespace Unity.NetCode
         [BurstCompile]
         struct ReadStreamJob : IJob
         {
-            [ReadOnly] public NativeArray<GhostComponentSerializer.State> GhostComponentCollection;
-            [ReadOnly] public NativeList<GhostCollectionSystem.GhostTypeState> GhostTypeCollection;
-            [ReadOnly] public NativeList<GhostCollectionSystem.GhostComponentIndex> GhostComponentIndex;
+            public Entity GhostCollectionSingleton;
+            [ReadOnly] public BufferFromEntity<GhostComponentSerializer.State> GhostComponentCollectionFromEntity;
+            [ReadOnly] public BufferFromEntity<GhostCollectionPrefabSerializer> GhostTypeCollectionFromEntity;
+            [ReadOnly] public BufferFromEntity<GhostCollectionComponentIndex> GhostComponentIndexFromEntity;
+            public BufferFromEntity<GhostCollectionPrefab> GhostCollectionFromEntity;
+
+            [NativeDisableContainerSafetyRestriction] private DynamicBuffer<GhostComponentSerializer.State> GhostComponentCollection;
+            [NativeDisableContainerSafetyRestriction] private DynamicBuffer<GhostCollectionPrefabSerializer> GhostTypeCollection;
+            [NativeDisableContainerSafetyRestriction] private DynamicBuffer<GhostCollectionComponentIndex> GhostComponentIndex;
 
             [DeallocateOnJobCompletion] public NativeArray<Entity> players;
             public BufferFromEntity<IncomingSnapshotDataStreamBufferComponent> snapshotFromEntity;
             public BufferFromEntity<SnapshotDataBuffer> snapshotDataBufferFromEntity;
+            public BufferFromEntity<SnapshotDynamicDataBuffer> snapshotDynamicDataFromEntity;
             public BufferFromEntity<GhostSpawnBuffer> ghostSpawnBufferFromEntity;
             public ComponentDataFromEntity<SnapshotData> snapshotDataFromEntity;
             public ComponentDataFromEntity<NetworkSnapshotAckComponent> snapshotAckFromEntity;
+            [ReadOnly] public ComponentDataFromEntity<NetworkIdComponent> networkIdFromEntity;
             public NativeHashMap<int, Entity> ghostEntityMap;
-            public NativeArray<ulong> receivedGhostVersion;
             public NetworkCompressionModel compressionModel;
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
             public NativeArray<uint> netStats;
@@ -181,13 +188,14 @@ namespace Unity.NetCode
             public NativeQueue<GhostDespawnSystem.DelayedDespawnGhost> interpolatedDespawnQueue;
             public NativeQueue<GhostDespawnSystem.DelayedDespawnGhost> predictedDespawnQueue;
             [ReadOnly] public ComponentDataFromEntity<PredictedGhostComponent> predictedFromEntity;
-            [ReadOnly] public ComponentDataFromEntity<GhostComponent> ghostFromEntity;
+            public ComponentDataFromEntity<GhostComponent> ghostFromEntity;
             public bool isThinClient;
 
             public EntityCommandBuffer commandBuffer;
             public Entity ghostSpawnEntity;
-            public ulong ghostVersion;
+            private int connectionId;
             public NativeArray<int> GhostCompletionCount;
+            public NativeList<byte> tempDynamicData;
 
             public unsafe void Execute()
             {
@@ -197,6 +205,9 @@ namespace Unity.NetCode
                     netStats[i] = 0;
                 }
 #endif
+                GhostComponentCollection = GhostComponentCollectionFromEntity[GhostCollectionSingleton];
+                GhostTypeCollection = GhostTypeCollectionFromEntity[GhostCollectionSingleton];
+                GhostComponentIndex = GhostComponentIndexFromEntity[GhostCollectionSingleton];
 
                 // FIXME: should handle any number of connections with individual ghost mappings for each
 #if ENABLE_UNITY_COLLECTIONS_CHECKS
@@ -207,6 +218,12 @@ namespace Unity.NetCode
                 var snapshot = snapshotFromEntity[players[0]];
                 if (snapshot.Length == 0)
                     return;
+
+                //compute the size for the temporary buffer used to extract delta compressed buffer elements
+                int maxDynamicSnapshotSize = 0;
+                for (int i = 0; i < GhostTypeCollection.Length; ++i)
+                    maxDynamicSnapshotSize = math.max(maxDynamicSnapshotSize, GhostTypeCollection[i].MaxBufferSnapshotSize);
+                tempDynamicData.Resize(maxDynamicSnapshotSize,NativeArrayOptions.ClearMemory);
 
                 var dataStream = snapshot.AsDataStreamReader();
                 // Read the ghost stream
@@ -229,28 +246,37 @@ namespace Unity.NetCode
                 ack.ReceivedSnapshotByLocalMask |= 1;
                 ack.LastReceivedSnapshotByLocal = serverTick;
 
-                // Find out if the stream is compatible
-                if(dataStream.ReadPackedUInt(compressionModel) == 1)
+                // Load all new prefabs
+                uint numPrefabs = dataStream.ReadPackedUInt(compressionModel);
+                if (numPrefabs > 0)
                 {
-                    ulong hi = dataStream.ReadPackedUInt(compressionModel);
-                    ulong lo = dataStream.ReadPackedUInt(compressionModel);
-                    receivedGhostVersion[0] = (hi << 32) | lo;
-#if ENABLE_UNITY_COLLECTIONS_CHECKS
-                    if (receivedGhostVersion[0] == 0)
-                        throw new InvalidOperationException($"ghost version should always be != 0");
-#endif
-                }
-#if ENABLE_UNITY_COLLECTIONS_CHECKS
-                else if (receivedGhostVersion[0] == 0)
-                    throw new InvalidOperationException($"received snapshot does not contains the ghost version (server received an ack) but the previous received value is invalid or not set");
-#endif
-                if (receivedGhostVersion[0] != ghostVersion)
-                {
-#if ENABLE_UNITY_COLLECTIONS_CHECKS
-                    UnityEngine.Debug.LogError($"GhostReceiveSystem incompatible ghost version {ghostVersion}. Server: {receivedGhostVersion[0]}");
-#endif
-                    commandBuffer.AddComponent(players[0], new NetworkStreamRequestDisconnect{Reason = NetworkStreamDisconnectReason.BadProtocolVersion});
-                    return;
+                    var ghostCollection = GhostCollectionFromEntity[GhostCollectionSingleton];
+                    // The server only sends ghost types which have not been acked yet, acking takes one RTT so we need to check
+                    // which prefab was the first included in the list sent by the server
+                    int firstPrefab = (int)dataStream.ReadUInt();
+                    for (int i = 0; i < numPrefabs; ++i)
+                    {
+                        GhostTypeComponent type;
+                        ulong hash;
+                        type.guid0 = dataStream.ReadUInt();
+                        type.guid1 = dataStream.ReadUInt();
+                        type.guid2 = dataStream.ReadUInt();
+                        type.guid3 = dataStream.ReadUInt();
+                        hash = dataStream.ReadULong();
+                        if (firstPrefab+i == ghostCollection.Length)
+                        {
+                            // This just adds the type, the prefab entity will be populated by the GhostCollectionSystem
+                            ghostCollection.Add(new GhostCollectionPrefab{GhostType = type, GhostPrefab = Entity.Null, Hash = hash});
+                        }
+                        else if (type != ghostCollection[firstPrefab+i].GhostType || hash != ghostCollection[firstPrefab+i].Hash)
+                        {
+        #if ENABLE_UNITY_COLLECTIONS_CHECKS
+                            UnityEngine.Debug.LogError($"GhostReceiveSystem ghost list item {firstPrefab+i} was modified (Hash {ghostCollection[firstPrefab+i].Hash} -> {hash})");
+        #endif
+                            commandBuffer.AddComponent(players[0], new NetworkStreamRequestDisconnect{Reason = NetworkStreamDisconnectReason.BadProtocolVersion});
+                            return;
+                        }
+                    }
                 }
                 snapshotAckFromEntity[players[0]] = ack;
 
@@ -258,6 +284,8 @@ namespace Unity.NetCode
                     return;
 
                 uint totalGhostCount = dataStream.ReadPackedUInt(compressionModel);
+                if(networkIdFromEntity.HasComponent(players[0]))
+                    connectionId = networkIdFromEntity[players[0]].Value;
                 GhostCompletionCount[0] = (int)totalGhostCount;
 
                 uint despawnLen = dataStream.ReadUInt();
@@ -339,6 +367,7 @@ namespace Unity.NetCode
                 public uint uncompressedCount;
 #endif
             }
+
             private bool DeserializeEntity(uint serverTick, ref DataStreamReader dataStream, ref DeserializeData data)
             {
                 if (data.targetArchLen == 0)
@@ -359,6 +388,13 @@ namespace Unity.NetCode
 #endif
                     data.targetArch = dataStream.ReadPackedUInt(compressionModel);
                     data.targetArchLen = dataStream.ReadPackedUInt(compressionModel);
+                    if (data.targetArch >= GhostTypeCollection.Length)
+                    {
+#if ENABLE_UNITY_COLLECTIONS_CHECKS
+                        UnityEngine.Debug.LogError("Received invalid ghost type from server");
+#endif
+                        return false;
+                    }
                 }
 
                 --data.targetArchLen;
@@ -395,7 +431,26 @@ namespace Unity.NetCode
                 DynamicBuffer<SnapshotDataBuffer> snapshotDataBuffer;
                 SnapshotData snapshotDataComponent;
                 byte* snapshotData;
+                //
+                byte* snapshotDynamicDataPtr = null;
+                uint snapshotDynamicDataCapacity = 0; // available space in the dynamic snapshot data history slot
+                byte* baselineDynamicDataPtr = null;
+                uint baselineDynamicDataSize = 0; //used for delta compression, the last stored dynamic size for the entity in snapshot history buffer
+
                 bool existingGhost = ghostEntityMap.TryGetValue(ghostId, out gent);
+                var sendToOwnerMask = SendToOwnerType.All;
+                if (snapshotDataBufferFromEntity.HasComponent(gent) && ghostFromEntity[gent].ghostType < 0)
+                {
+                    // Pre-spawned ghosts can have ghost type -1 until they receive the proper type from the server
+                    var existingGhostEnt = ghostFromEntity[gent];
+                    existingGhostEnt.ghostType = (int)data.targetArch;
+                    ghostFromEntity[gent] = existingGhostEnt;
+
+                    snapshotDataBuffer = snapshotDataBufferFromEntity[gent];
+                    snapshotDataBuffer.ResizeUninitialized(snapshotSize * GhostSystemConstants.SnapshotHistorySize);
+                    UnsafeUtility.MemClear(snapshotDataBuffer.GetUnsafePtr(), snapshotSize * GhostSystemConstants.SnapshotHistorySize);
+                    snapshotDataFromEntity[gent] = new SnapshotData{SnapshotSize = snapshotSize, LatestIndex = 0};
+                }
                 if (existingGhost && snapshotDataBufferFromEntity.HasComponent(gent) && ghostFromEntity[gent].ghostType == data.targetArch)
                 {
                     snapshotDataBuffer = snapshotDataBufferFromEntity[gent];
@@ -414,6 +469,17 @@ namespace Unity.NetCode
                             if (*(uint*)(snapshotData+bi) == data.baselineTick)
                             {
                                 UnsafeUtility.MemCpy(baselineData, snapshotData+bi, snapshotSize);
+                                //retrive also the baseline dynamic snapshot buffer if the ghost has some buffers
+                                if(typeData.NumBuffers > 0)
+                                {
+                                    if (!snapshotDynamicDataFromEntity.HasComponent(gent))
+                                        throw new InvalidOperationException($"SnapshotDynamictDataBuffer buffer not found for ghost with id {ghostId}");
+                                    var snapshotDynamicDataBuffer = snapshotDynamicDataFromEntity[gent];
+                                    int bindex = bi / snapshotSize;
+                                    var bufferPtr = (byte*)snapshotDynamicDataBuffer.GetUnsafeReadOnlyPtr();
+                                    baselineDynamicDataPtr = SnapshotDynamicBuffersHelper.GetDynamicDataPtr(bufferPtr, bindex, snapshotDynamicDataBuffer.Length);
+                                    baselineDynamicDataSize = ((uint*)bufferPtr)[bindex];
+                                }
                                 break;
                             }
                         }
@@ -443,16 +509,87 @@ namespace Unity.NetCode
                             return false; // Ack desync detected
                         snapshotOffset = GhostCollectionSystem.SnapshotSizeAligned(4 + changeMaskUints*4);
                         var predictor = new GhostDeltaPredictor(serverTick, data.baselineTick, data.baselineTick2, data.baselineTick3);
+
+                        if (typeData.PredictionOwnerOffset != 0)
+                        {
+                            var networkId = predictor.PredictInt(
+                                *(int*) (baselineData + typeData.PredictionOwnerOffset),
+                                *(int*) (baselineData2 + typeData.PredictionOwnerOffset),
+                                *(int*) (baselineData3 + typeData.PredictionOwnerOffset));
+                            sendToOwnerMask = networkId == connectionId
+                                ? SendToOwnerType.SendToOwner
+                                : SendToOwnerType.SendToNonOwner;
+                        }
+
                         for (int comp = 0; comp < typeData.NumComponents; ++comp)
                         {
-                            int compIdx = GhostComponentIndex[typeData.FirstComponent + comp].ComponentIndex;
+                            int serializerIdx = GhostComponentIndex[typeData.FirstComponent + comp].SerializerIndex;
+                            //Buffers does not use delta prediction for the size and the contents
+                            if (!GhostComponentCollection[serializerIdx].ComponentType.IsBuffer)
+                            {
 #if ENABLE_UNITY_COLLECTIONS_CHECKS
-                            if (snapshotOffset+GhostComponentCollection[compIdx].SnapshotSize > snapshotSize)
-                                throw new InvalidOperationException("Snapshot buffer overflow during predict");
+                                if (snapshotOffset+GhostComponentCollection[serializerIdx].SnapshotSize > snapshotSize)
+                                    throw new InvalidOperationException("Snapshot buffer overflow during predict");
 #endif
-                            GhostComponentCollection[compIdx].PredictDelta.Ptr.Invoke((IntPtr)(baselineData + snapshotOffset), (IntPtr)(baselineData2 + snapshotOffset), (IntPtr)(baselineData3 + snapshotOffset), ref predictor);
-                            snapshotOffset += GhostCollectionSystem.SnapshotSizeAligned(GhostComponentCollection[compIdx].SnapshotSize);
+                                if ((sendToOwnerMask & GhostComponentCollection[serializerIdx].SendToOwner) != 0)
+                                {
+                                    GhostComponentCollection[serializerIdx].PredictDelta.Ptr.Invoke(
+                                        (IntPtr) (baselineData + snapshotOffset),
+                                        (IntPtr) (baselineData2 + snapshotOffset),
+                                        (IntPtr) (baselineData3 + snapshotOffset), ref predictor);
+                                }
+                                snapshotOffset += GhostCollectionSystem.SnapshotSizeAligned(GhostComponentCollection[serializerIdx].SnapshotSize);
+                            }
+                            else
+                            {
+#if ENABLE_UNITY_COLLECTIONS_CHECKS
+                                if (snapshotOffset+GhostSystemConstants.DynamicBufferComponentSnapshotSize > snapshotSize)
+                                    throw new InvalidOperationException("Snapshot buffer overflow during predict");
+#endif
+                                snapshotOffset += GhostCollectionSystem.SnapshotSizeAligned(GhostSystemConstants.DynamicBufferComponentSnapshotSize);
+                            }
                         }
+                    }
+                    //buffers: retrieve the dynamic contents size and re-fit the snapshot dynamic history
+                    if (typeData.NumBuffers > 0)
+                    {
+                        //Delta-decompress the dynamic data size
+                        //FIXME
+                        //@timj This could also use PackedUIntDelta with baselineSize = 0 if the send system is changed to match.
+                        //      That's how most other readers / writers work.
+                        uint dynamicDataSize;
+                        if (baselineDynamicDataPtr == null)
+                            dynamicDataSize = dataStream.ReadPackedUInt(compressionModel);
+                        else
+                            dynamicDataSize = dataStream.ReadPackedUIntDelta(baselineDynamicDataSize, compressionModel);
+
+                        if (!snapshotDynamicDataFromEntity.HasComponent(gent))
+                            throw new InvalidOperationException($"SnapshotDynamictDataBuffer buffer not found for ghost with id {ghostId}");
+
+                        //Fit the snapshot buffer to accomodate the new size. Add some room for growth (20%)
+                        var buf = snapshotDynamicDataFromEntity[gent];
+                        var slotCapacity = SnapshotDynamicBuffersHelper.GetDynamicDataCapacity(SnapshotDynamicBuffersHelper.GetHeaderSize(), buf.Length);
+                        var newCapacity = SnapshotDynamicBuffersHelper.CalculateBufferCapacity(dynamicDataSize, out var newSlotCapacity);
+                        if (buf.Length < newCapacity)
+                        {
+                            //Perf: Is already copying over the contents to the new re-allocated buffer. It would be nice to avoid that
+                            buf.ResizeUninitialized((int)newCapacity);
+                            //Move buffer content around (because the slot size is changed)
+                            var sourcePtr = (byte*)buf.GetUnsafePtr() + GhostSystemConstants.SnapshotHistorySize*slotCapacity;
+                            var destPtr = (byte*)buf.GetUnsafePtr() + GhostSystemConstants.SnapshotHistorySize*newSlotCapacity;
+                            for (int i=0;i<GhostSystemConstants.SnapshotHistorySize;++i)
+                            {
+                                destPtr -= newSlotCapacity;
+                                sourcePtr -= slotCapacity;
+                                UnsafeUtility.MemMove(destPtr, sourcePtr, slotCapacity);
+                            }
+                            slotCapacity = newSlotCapacity;
+                        }
+                        //write down the received data size inside the snapshot (used for delta compression) and setup dynamic data ptr
+                        var bufPtr = (byte*)buf.GetUnsafePtr();
+                        ((uint*)bufPtr)[snapshotDataComponent.LatestIndex] = dynamicDataSize;
+                        snapshotDynamicDataPtr = SnapshotDynamicBuffersHelper.GetDynamicDataPtr(bufPtr,snapshotDataComponent.LatestIndex, buf.Length);
+                        snapshotDynamicDataCapacity = slotCapacity;
                     }
                 }
                 else
@@ -473,33 +610,139 @@ namespace Unity.NetCode
                         return false;
                     }
                     ++data.newGhosts;
-
                     var ghostSpawnBuffer = ghostSpawnBufferFromEntity[ghostSpawnEntity];
                     snapshotDataBuffer = snapshotDataBufferFromEntity[ghostSpawnEntity];
                     var snapshotDataBufferOffset = snapshotDataBuffer.Length;
-                    ghostSpawnBuffer.Add(new GhostSpawnBuffer {GhostType = (int)data.targetArch, GhostID = ghostId, DataOffset = snapshotDataBufferOffset, ClientSpawnTick = serverTick, ServerSpawnTick = serverSpawnTick});
-                    snapshotDataBuffer.ResizeUninitialized(snapshotDataBufferOffset + snapshotSize);
+                    //Grow the ghostSpawnBuffer to include also the dynamic data size.
+                    uint dynamicDataSize = 0;
+                    if (typeData.NumBuffers > 0)
+                        dynamicDataSize = dataStream.ReadPackedUInt(compressionModel);
+                    ghostSpawnBuffer.Add(new GhostSpawnBuffer {
+                        GhostType = (int)data.targetArch,
+                        GhostID = ghostId,
+                        DataOffset = snapshotDataBufferOffset,
+                        DynamicDataSize = dynamicDataSize,
+                        ClientSpawnTick = serverTick,
+                        ServerSpawnTick = serverSpawnTick});
+                    snapshotDataBuffer.ResizeUninitialized(snapshotDataBufferOffset + snapshotSize + (int)dynamicDataSize);
                     snapshotData = (byte*)snapshotDataBuffer.GetUnsafePtr() + snapshotDataBufferOffset;
-                    UnsafeUtility.MemClear(snapshotData, snapshotSize);
+                    UnsafeUtility.MemClear(snapshotData, snapshotSize + dynamicDataSize);
                     snapshotDataComponent = new SnapshotData{SnapshotSize = snapshotSize, LatestIndex = 0};
+                    //dynamic content temporary data start after the snapshot for new ghosts
+                    if (typeData.NumBuffers > 0)
+                    {
+                        snapshotDynamicDataPtr = snapshotData + snapshotSize;
+                        snapshotDynamicDataCapacity = dynamicDataSize;
+                    }
                 }
+
                 int maskOffset = 0;
+                //the dynamicBufferOffset is used to track the dynamic content offset from the begining of the dynamic history slot
+                //for each entity
+                uint dynamicBufferOffset = 0;
+
                 snapshotOffset = GhostCollectionSystem.SnapshotSizeAligned(4 + changeMaskUints*4);
                 snapshotData += snapshotSize * snapshotDataComponent.LatestIndex;
                 *(uint*)(snapshotData) = serverTick;
                 uint* changeMask = (uint*)(snapshotData+4);
                 for (int cm = 0; cm < changeMaskUints; ++cm)
                     changeMask[cm] = dataStream.ReadPackedUIntDelta(((uint*)(baselineData+4))[cm], compressionModel);
+
                 for (int comp = 0; comp < typeData.NumComponents; ++comp)
                 {
-                    int compIdx = GhostComponentIndex[typeData.FirstComponent + comp].ComponentIndex;
+                    int serializerIdx = GhostComponentIndex[typeData.FirstComponent + comp].SerializerIndex;
+                    if (!GhostComponentCollection[serializerIdx].ComponentType.IsBuffer)
+                    {
 #if ENABLE_UNITY_COLLECTIONS_CHECKS
-                    if (maskOffset+GhostComponentCollection[compIdx].ChangeMaskBits > typeData.ChangeMaskBits || snapshotOffset+GhostComponentCollection[compIdx].SnapshotSize > snapshotSize)
-                        throw new InvalidOperationException("Snapshot buffer overflow during deserialize");
+                        if (maskOffset+GhostComponentCollection[serializerIdx].ChangeMaskBits > typeData.ChangeMaskBits || snapshotOffset+GhostComponentCollection[serializerIdx].SnapshotSize > snapshotSize)
+                            throw new InvalidOperationException("Snapshot buffer overflow during deserialize");
 #endif
-                    GhostComponentCollection[compIdx].Deserialize.Ptr.Invoke((IntPtr)(snapshotData + snapshotOffset), (IntPtr)(baselineData + snapshotOffset), ref dataStream, ref compressionModel, (IntPtr)changeMask, maskOffset);
-                    snapshotOffset += GhostCollectionSystem.SnapshotSizeAligned(GhostComponentCollection[compIdx].SnapshotSize);
-                    maskOffset += GhostComponentCollection[compIdx].ChangeMaskBits;
+                        if ((sendToOwnerMask & GhostComponentCollection[serializerIdx].SendToOwner) != 0)
+                        {
+                            GhostComponentCollection[serializerIdx].Deserialize.Ptr.Invoke((IntPtr) (snapshotData + snapshotOffset), (IntPtr) (baselineData + snapshotOffset), ref dataStream, ref compressionModel, (IntPtr) changeMask, maskOffset);
+                        }
+                        snapshotOffset += GhostCollectionSystem.SnapshotSizeAligned(GhostComponentCollection[serializerIdx].SnapshotSize);
+                        maskOffset += GhostComponentCollection[serializerIdx].ChangeMaskBits;
+                    }
+                    else
+                    {
+#if ENABLE_UNITY_COLLECTIONS_CHECKS
+                        if (maskOffset + GhostSystemConstants.DynamicBufferComponentMaskBits > typeData.ChangeMaskBits || (snapshotOffset + GhostCollectionSystem.SnapshotSizeAligned(GhostSystemConstants.DynamicBufferComponentSnapshotSize)) > snapshotSize)
+                            throw new InvalidOperationException("Snapshot buffer overflow during deserialize");
+#endif
+                        if ((sendToOwnerMask & GhostComponentCollection[serializerIdx].SendToOwner) != 0)
+                        {
+                            //Delta decompress the buffer len
+                            uint mask = GhostComponentSerializer.CopyFromChangeMask((IntPtr) changeMask, maskOffset, GhostSystemConstants.DynamicBufferComponentMaskBits);
+                            var baseLen = *(uint*) (baselineData + snapshotOffset);
+                            var baseOffset = *(uint*) (baselineData + snapshotOffset + sizeof(uint));
+                            var bufLen = (mask & 0x2) == 0 ? baseLen : dataStream.ReadPackedUIntDelta(baseLen, compressionModel);
+                            //Assign the buffer info to the snapshot and register the current offset from the beginning of the dynamic history slot
+                            *(uint*) (snapshotData + snapshotOffset) = bufLen;
+                            *(uint*) (snapshotData + snapshotOffset + sizeof(uint)) = dynamicBufferOffset;
+                            snapshotOffset += GhostCollectionSystem.SnapshotSizeAligned(GhostSystemConstants.DynamicBufferComponentSnapshotSize);
+                            maskOffset += GhostSystemConstants.DynamicBufferComponentMaskBits;
+                            //Copy the buffer contents. Use delta compression based on mask bits configuration
+                            //00 : nothing changed
+                            //01 : same len, only content changed. Add additional mask bits for each elements
+                            //11 : len changed, everthing need to be sent again . No mask bits for the elements
+                            var dynamicDataSnapshotStride = (uint)GhostComponentCollection[serializerIdx].SnapshotSize;
+                            var contentMaskUInts = (uint)GhostCollectionSystem.ChangeMaskArraySizeInUInts((int)(GhostComponentCollection[serializerIdx].ChangeMaskBits * bufLen));
+                            var maskSize = GhostCollectionSystem.SnapshotSizeAligned(contentMaskUInts*4);
+    #if ENABLE_UNITY_COLLECTIONS_CHECKS
+                            if ((dynamicBufferOffset + maskSize + bufLen * dynamicDataSnapshotStride) > snapshotDynamicDataCapacity)
+                                throw new InvalidOperationException("DynamicData Snapshot buffer overflow during deserialize");
+    #endif
+                            uint* contentMask = (uint*) (snapshotDynamicDataPtr + dynamicBufferOffset);
+                            dynamicBufferOffset += maskSize;
+                            if ((mask & 0x3) == 0) //Nothing changed, just copy the baseline content
+                            {
+                                UnsafeUtility.MemSet(contentMask, 0x0, maskSize);
+                                UnsafeUtility.MemCpy(snapshotDynamicDataPtr + dynamicBufferOffset,
+                                    baselineDynamicDataPtr + baseOffset + maskSize, bufLen * dynamicDataSnapshotStride);
+                                dynamicBufferOffset += bufLen * dynamicDataSnapshotStride;
+                            }
+                            else if ((mask & 0x2) != 0) // len changed, element masks are not present.
+                            {
+                                UnsafeUtility.MemSet(contentMask, 0xFF, maskSize);
+                                var contentMaskOffset = 0;
+                                //Performace here are not great. It would be better to call a method that serialize the content inside so only one call
+                                for (int i = 0; i < bufLen; ++i)
+                                {
+                                    GhostComponentCollection[serializerIdx].Deserialize.Ptr.Invoke(
+                                        (IntPtr) (snapshotDynamicDataPtr + dynamicBufferOffset),
+                                        (IntPtr) tempDynamicData.GetUnsafePtr(),
+                                        ref dataStream, ref compressionModel, (IntPtr) contentMask, contentMaskOffset);
+                                    dynamicBufferOffset += dynamicDataSnapshotStride;
+                                    contentMaskOffset += GhostComponentCollection[serializerIdx].ChangeMaskBits;
+                                }
+                            }
+                            else //same len but content changed, decode the masks and copy the content
+                            {
+                                var baselineMaskPtr = (uint*) (baselineDynamicDataPtr + baseOffset);
+                                for (int cm = 0; cm < contentMaskUInts; ++cm)
+                                    contentMask[cm] = dataStream.ReadPackedUIntDelta(baselineMaskPtr[cm], compressionModel);
+                                baseOffset += maskSize;
+                                var contentMaskOffset = 0;
+                                for (int i = 0; i < bufLen; ++i)
+                                {
+                                    GhostComponentCollection[serializerIdx].Deserialize.Ptr.Invoke(
+                                        (IntPtr) (snapshotDynamicDataPtr + dynamicBufferOffset),
+                                        (IntPtr) (baselineDynamicDataPtr + baseOffset),
+                                        ref dataStream, ref compressionModel, (IntPtr) contentMask, contentMaskOffset);
+                                    dynamicBufferOffset += dynamicDataSnapshotStride;
+                                    baseOffset += dynamicDataSnapshotStride;
+                                    contentMaskOffset += GhostComponentCollection[serializerIdx].ChangeMaskBits;
+                                }
+                            }
+                            dynamicBufferOffset = GhostCollectionSystem.SnapshotSizeAligned(dynamicBufferOffset);
+                        }
+                        else
+                        {
+                            snapshotOffset += GhostCollectionSystem.SnapshotSizeAligned(GhostSystemConstants.DynamicBufferComponentSnapshotSize);
+                            maskOffset += GhostSystemConstants.DynamicBufferComponentMaskBits;
+                        }
+                    }
                 }
 
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
@@ -524,10 +767,11 @@ namespace Unity.NetCode
         protected override void OnUpdate()
         {
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
-            if (m_NetStats.IsCreated && m_NetStats.Length != m_GhostCollectionSystem.m_GhostTypeCollection.Length * 3 + 3 + 1)
+            var numLoadedPrefabs = GetSingleton<GhostCollection>().NumLoadedPrefabs;
+            if (m_NetStats.IsCreated && m_NetStats.Length != numLoadedPrefabs * 3 + 3 + 1)
                 m_NetStats.Dispose();
             if (!m_NetStats.IsCreated)
-                m_NetStats = new NativeArray<uint>(m_GhostCollectionSystem.m_GhostTypeCollection.Length * 3 + 3 + 1, Allocator.Persistent);
+                m_NetStats = new NativeArray<uint>(numLoadedPrefabs * 3 + 3 + 1, Allocator.Persistent);
             m_StatsCollection.AddSnapshotStats(m_NetStats);
 #endif
             var commandBuffer = m_Barrier.CreateCommandBuffer();
@@ -561,26 +805,27 @@ namespace Unity.NetCode
             // Don't start ghost snapshot processing until we're in game, but allow the cleanup code above to run
             if (!HasSingleton<NetworkStreamInGame>())
             {
-                //I need to reset the received version if the player is not in game.
-                m_ReceivedGhostVersion[0] = 0;
                 return;
             }
 
             JobHandle playerHandle;
             var readJob = new ReadStreamJob
             {
-                GhostComponentCollection = m_GhostCollectionSystem.m_GhostComponentCollection,
-                GhostTypeCollection = m_GhostCollectionSystem.m_GhostTypeCollection,
-                GhostComponentIndex = m_GhostCollectionSystem.m_GhostComponentIndex,
+                GhostCollectionSingleton = GetSingletonEntity<GhostCollection>(),
+                GhostComponentCollectionFromEntity = GetBufferFromEntity<GhostComponentSerializer.State>(true),
+                GhostTypeCollectionFromEntity = GetBufferFromEntity<GhostCollectionPrefabSerializer>(true),
+                GhostComponentIndexFromEntity = GetBufferFromEntity<GhostCollectionComponentIndex>(true),
+                GhostCollectionFromEntity = GetBufferFromEntity<GhostCollectionPrefab>(),
                 players = playerGroup.ToEntityArrayAsync(Allocator.TempJob,
                     out playerHandle),
                 snapshotFromEntity = GetBufferFromEntity<IncomingSnapshotDataStreamBufferComponent>(),
                 snapshotDataBufferFromEntity = GetBufferFromEntity<SnapshotDataBuffer>(),
+                snapshotDynamicDataFromEntity = GetBufferFromEntity<SnapshotDynamicDataBuffer>(),
                 ghostSpawnBufferFromEntity = GetBufferFromEntity<GhostSpawnBuffer>(),
                 snapshotDataFromEntity = GetComponentDataFromEntity<SnapshotData>(),
                 snapshotAckFromEntity = GetComponentDataFromEntity<NetworkSnapshotAckComponent>(),
+                networkIdFromEntity = GetComponentDataFromEntity<NetworkIdComponent>(true),
                 ghostEntityMap = m_ghostEntityMap,
-                receivedGhostVersion = m_ReceivedGhostVersion,
                 compressionModel = m_CompressionModel,
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
                 netStats = m_NetStats,
@@ -588,12 +833,12 @@ namespace Unity.NetCode
                 interpolatedDespawnQueue = m_GhostDespawnSystem.InterpolatedDespawnQueue,
                 predictedDespawnQueue = m_GhostDespawnSystem.PredictedDespawnQueue,
                 predictedFromEntity = GetComponentDataFromEntity<PredictedGhostComponent>(true),
-                ghostFromEntity = GetComponentDataFromEntity<GhostComponent>(true),
+                ghostFromEntity = GetComponentDataFromEntity<GhostComponent>(),
                 isThinClient = HasSingleton<ThinClientComponent>(),
                 commandBuffer = commandBuffer,
                 ghostSpawnEntity = GetSingletonEntity<GhostSpawnQueueComponent>(),
-                ghostVersion = m_GhostCollectionSystem.GhostTypeCollectionHash,
-                GhostCompletionCount = m_GhostCompletionCount
+                GhostCompletionCount = m_GhostCompletionCount,
+                tempDynamicData = m_tempDynamicData
             };
             Dependency = readJob.Schedule(JobHandle.CombineDependencies(Dependency, playerHandle,
                 m_GhostDespawnSystem.LastQueueWriter));

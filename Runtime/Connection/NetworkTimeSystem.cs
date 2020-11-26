@@ -11,6 +11,13 @@ namespace Unity.NetCode
 #endif
     public class NetworkTimeSystem : SystemBase
     {
+        public static ClientTickRate DefaultClientTickRate => new ClientTickRate
+        {
+            InterpolationTimeNetTicks = 2,
+            MaxExtrapolationTimeSimTicks = 20,
+            MaxPredictAheadTimeMS = 500,
+            TargetCommandSlack = 2
+        };
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
         public static uint s_FixedTimestampMS = 0;
         private static uint s_PrevTimestampMS = 0;
@@ -66,14 +73,6 @@ namespace Unity.NetCode
         }
         #endif
 
-        private const int KInterpolationTimeNetTicks = 2;
-        private const int KInterpolationTimeMS = 0;
-        // This is the maximum accepted ping, rtt will be clamped to this value which means if ping is higher than this the server will get old commands
-        // Increasing this makes the client able to deal with higher ping, but the client needs to run more prediction steps which takes more CPU time
-        private const uint KMaxPredictAheadTimeMS = 500;
-
-        private const uint kTargetCommandSlack = 2;
-
         protected override void OnCreate()
         {
             latestSnapshotEstimate = 0;
@@ -101,20 +100,26 @@ namespace Unity.NetCode
 
             tickRate.ResolveDefaults();
 
+            var clientTickRate = DefaultClientTickRate;
+            if (HasSingleton<ClientTickRate>())
+                clientTickRate = GetSingleton<ClientTickRate>();
+
             var ack = GetSingleton<NetworkSnapshotAckComponent>();
 
             float deltaTime = Time.DeltaTime;
+            if (deltaTime > (float) tickRate.MaxSimulationStepsPerFrame / (float) tickRate.SimulationTickRate)
+            {
+                deltaTime = (float) tickRate.MaxSimulationStepsPerFrame / (float) tickRate.SimulationTickRate;
+            }
             float deltaTicks = deltaTime * tickRate.SimulationTickRate;
 
-            var estimatedRTT = ack.EstimatedRTT;
-            if (estimatedRTT > KMaxPredictAheadTimeMS)
-                estimatedRTT = KMaxPredictAheadTimeMS;
+            var estimatedRTT = math.min(ack.EstimatedRTT, clientTickRate.MaxPredictAheadTimeMS);
             // FIXME: adjust by latency
-            uint interpolationTimeMS = KInterpolationTimeMS;
+            uint interpolationTimeMS = clientTickRate.InterpolationTimeMS;
             if (interpolationTimeMS == 0)
-                interpolationTimeMS = (1000 * KInterpolationTimeNetTicks + (uint) tickRate.NetworkTickRate - 1) /
+                interpolationTimeMS = (1000 * clientTickRate.InterpolationTimeNetTicks + (uint) tickRate.NetworkTickRate - 1) /
                                       (uint) tickRate.NetworkTickRate;
-            float interpolationFrames = 0.5f + kTargetCommandSlack + (((estimatedRTT + 4*ack.DeviationRTT + interpolationTimeMS) / 1000f) * tickRate.SimulationTickRate);
+            float interpolationFrames = 0.5f + clientTickRate.TargetCommandSlack + (((estimatedRTT + 4*ack.DeviationRTT + interpolationTimeMS) / 1000f) * tickRate.SimulationTickRate);
 
             // What we expect to have this frame based on what was the most recent received previous frames
             if (latestSnapshotEstimate == 0)
@@ -129,7 +134,7 @@ namespace Unity.NetCode
                 latestSnapshotEstimate = ack.LastReceivedSnapshotByLocal;
                 latestSnapshotAge = 0;
 
-                predictTargetTick = latestSnapshotEstimate + kTargetCommandSlack +
+                predictTargetTick = latestSnapshotEstimate + clientTickRate.TargetCommandSlack +
                                   ((uint) estimatedRTT * (uint) tickRate.SimulationTickRate + 999) / 1000;
 
                 currentInterpolationFrames = interpolationFrames;
@@ -171,7 +176,7 @@ namespace Unity.NetCode
                 commandAgeAdjustmentSlot = curSlot;
             }
 
-            float commandAge = ack.ServerCommandAge / 256.0f + kTargetCommandSlack;
+            float commandAge = ack.ServerCommandAge / 256.0f + clientTickRate.TargetCommandSlack;
             // round down to whole ticks performed in one rtt
             int rttInTicks = (int)(((uint) estimatedRTT * (uint) tickRate.SimulationTickRate) / 1000);
             if (rttInTicks > commandAgeAdjustment.Length)
@@ -189,7 +194,7 @@ namespace Unity.NetCode
             }
             else
             {
-                uint curPredict = latestSnapshotEstimate + kTargetCommandSlack +
+                uint curPredict = latestSnapshotEstimate + clientTickRate.TargetCommandSlack +
                                   ((uint) estimatedRTT * (uint) tickRate.SimulationTickRate + 999) / 1000;
                 float predictDelta = (float)((int)curPredict - (int)predictTargetTick) - deltaTicks;
                 if (math.abs(predictDelta) > 10)

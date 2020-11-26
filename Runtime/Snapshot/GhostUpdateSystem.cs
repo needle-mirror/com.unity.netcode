@@ -53,20 +53,25 @@ namespace Unity.NetCode
         [BurstCompile]
         struct UpdateJob
         {
-            [ReadOnly] public NativeArray<GhostComponentSerializer.State> GhostComponentCollection;
-            [ReadOnly] public NativeList<GhostCollectionSystem.GhostTypeState> GhostTypeCollection;
-            [ReadOnly] public NativeList<GhostCollectionSystem.GhostComponentIndex> GhostComponentIndex;
+            public Entity GhostCollectionSingleton;
+            [ReadOnly] public BufferFromEntity<GhostComponentSerializer.State> GhostComponentCollectionFromEntity;
+            [ReadOnly] public BufferFromEntity<GhostCollectionPrefabSerializer> GhostTypeCollectionFromEntity;
+            [ReadOnly] public BufferFromEntity<GhostCollectionComponentIndex> GhostComponentIndexFromEntity;
+            [NativeDisableContainerSafetyRestriction] private DynamicBuffer<GhostComponentSerializer.State> GhostComponentCollection;
+            [NativeDisableContainerSafetyRestriction] private DynamicBuffer<GhostCollectionPrefabSerializer> GhostTypeCollection;
+            [NativeDisableContainerSafetyRestriction] private DynamicBuffer<GhostCollectionComponentIndex> GhostComponentIndex;
 
             [ReadOnly] public NativeHashMap<SpawnedGhost, Entity> GhostMap;
     #if UNITY_EDITOR || DEVELOPMENT_BUILD
-            [NativeDisableContainerSafetyRestriction] public NativeArray<uint> minMaxSnapshotTick;
+            [NativeDisableParallelForRestriction] public NativeArray<uint> minMaxSnapshotTick;
     #endif
     #pragma warning disable 649
             [NativeSetThreadIndex] public int ThreadIndex;
     #pragma warning restore 649
             [ReadOnly] public ComponentTypeHandle<GhostComponent> ghostType;
             [ReadOnly] public ComponentTypeHandle<SnapshotData> ghostSnapshotDataType;
-            public BufferTypeHandle<SnapshotDataBuffer> ghostSnapshotDataBufferType;
+            [ReadOnly] public BufferTypeHandle<SnapshotDataBuffer> ghostSnapshotDataBufferType;
+            [ReadOnly] public BufferTypeHandle<SnapshotDynamicDataBuffer> ghostSnapshotDynamicDataBufferType;
 
             public uint interpolatedTargetTick;
             public float interpolatedTargetTickFraction;
@@ -83,21 +88,32 @@ namespace Unity.NetCode
             public uint predictionStateBackupTick;
             [ReadOnly] public NativeHashMap<ArchetypeChunk, System.IntPtr> predictionStateBackup;
             [ReadOnly] public EntityTypeHandle entityType;
+            public int ghostOwnerId;
+            public uint MaxExtrapolationTicks;
             public void Execute(ArchetypeChunk chunk, int chunkIndex, int firstEntityIndex, DynamicComponentTypeHandle* ghostChunkComponentTypesPtr, int ghostChunkComponentTypesLength)
             {
+                GhostComponentCollection = GhostComponentCollectionFromEntity[GhostCollectionSingleton];
+                GhostTypeCollection = GhostTypeCollectionFromEntity[GhostCollectionSingleton];
+                GhostComponentIndex = GhostComponentIndexFromEntity[GhostCollectionSingleton];
+
                 bool predicted = chunk.Has(predictedGhostComponentType);
                 uint targetTick = predicted ? predictedTargetTick : interpolatedTargetTick;
                 float targetTickFraction = predicted ? 1.0f : interpolatedTargetTickFraction;
 
                 var deserializerState = new GhostDeserializerState
                 {
-                    GhostMap = GhostMap
+                    GhostMap = GhostMap,
+                    GhostOwner = ghostOwnerId,
+                    SendToOwner = SendToOwnerType.All
                 };
                 var ghostComponents = chunk.GetNativeArray(ghostType);
-                int ghostTypeId = ghostComponents[0].ghostType;
+                int ghostTypeId = ghostComponents.GetFirstGhostTypeId(out var firstGhost);
+                if (ghostTypeId < 0)
+                    return;
                 var typeData = GhostTypeCollection[ghostTypeId];
                 var ghostSnapshotDataArray = chunk.GetNativeArray(ghostSnapshotDataType);
                 var ghostSnapshotDataBufferArray = chunk.GetBufferAccessor(ghostSnapshotDataBufferType);
+                var ghostSnapshotDynamicBufferArray = chunk.GetBufferAccessor(ghostSnapshotDynamicDataBufferType);
 
                 int changeMaskUints = GhostCollectionSystem.ChangeMaskArraySizeInUInts(typeData.ChangeMaskBits);
                 int snapshotOffset = GhostCollectionSystem.SnapshotSizeAligned(4 + changeMaskUints*4);
@@ -111,8 +127,16 @@ namespace Unity.NetCode
                 var predictedGhostComponentArray = chunk.GetNativeArray(predictedGhostComponentType);
                 bool canBeStatic = typeData.StaticOptimization;
                 // Find the ranges of entities which have data to apply, store the data to apply in an array while doing so
-                for (int ent = 0; ent < ghostComponents.Length; ++ent)
+                for (int ent = firstGhost; ent < ghostComponents.Length; ++ent)
                 {
+                    // Pre spawned ghosts might not have the ghost type set yet - in that case we need to skip them until the GHostReceiveSystem has assigned the ghost type
+                    if (ghostComponents[firstGhost].ghostType != ghostTypeId)
+                    {
+                        if (nextRange.y != 0)
+                            entityRange.Add(nextRange);
+                        nextRange = default;
+                        continue;
+                    }
                     var snapshotDataBuffer = ghostSnapshotDataBufferArray[ent];
                     var ghostSnapshotData = ghostSnapshotDataArray[ent];
                     var latestTick = ghostSnapshotData.GetLatestTick(snapshotDataBuffer);
@@ -126,7 +150,7 @@ namespace Unity.NetCode
                             minMaxSnapshotTick[minMaxOffset + 1] = latestTick;
                     }
 #endif
-                    if (ghostSnapshotData.GetDataAtTick(targetTick, targetTickFraction, snapshotDataBuffer, out var data))
+                    if (ghostSnapshotData.GetDataAtTick(targetTick, typeData.PredictionOwnerOffset, targetTickFraction, snapshotDataBuffer, out var data, MaxExtrapolationTicks))
                     {
                         if (predicted)
                         {
@@ -217,27 +241,71 @@ namespace Unity.NetCode
 
                 var requiredSendMask = predicted ? GhostComponentSerializer.SendMask.Predicted : GhostComponentSerializer.SendMask.Interpolated;
                 int numBaseComponents = typeData.NumComponents - typeData.NumChildComponents;
+
                 for (int comp = 0; comp < numBaseComponents; ++comp)
                 {
                     int compIdx = GhostComponentIndex[typeData.FirstComponent + comp].ComponentIndex;
+                    int serializerIdx = GhostComponentIndex[typeData.FirstComponent + comp].SerializerIndex;
 #if ENABLE_UNITY_COLLECTIONS_CHECKS
                     if (compIdx >= ghostChunkComponentTypesLength)
                         throw new System.InvalidOperationException("Component index out of range");
 #endif
-                    if (chunk.Has(ghostChunkComponentTypesPtr[compIdx]) &&
-                        (GhostComponentCollection[compIdx].SendMask&requiredSendMask) != 0)
+                    var snapshotSize = GhostComponentCollection[serializerIdx].ComponentType.IsBuffer
+                        ? GhostCollectionSystem.SnapshotSizeAligned(GhostSystemConstants.DynamicBufferComponentSnapshotSize)
+                        : GhostCollectionSystem.SnapshotSizeAligned(GhostComponentCollection[serializerIdx].SnapshotSize);
+                    if (!chunk.Has(ghostChunkComponentTypesPtr[compIdx]) || (GhostComponentIndex[typeData.FirstComponent + comp].SendMask&requiredSendMask) == 0)
                     {
-                        var compSize = GhostComponentCollection[compIdx].ComponentSize;
-                        var compData = (byte*)chunk.GetDynamicComponentDataArrayReinterpret<byte>(ghostChunkComponentTypesPtr[compIdx], compSize).GetUnsafePtr();
+                        snapshotOffset += snapshotSize;
+                        continue;
+                    }
+                    var compSize = GhostComponentCollection[serializerIdx].ComponentSize;
+                    if (!GhostComponentCollection[serializerIdx].ComponentType.IsBuffer)
+                    {
+                        var compData = (byte*)chunk.GetDynamicComponentDataArrayReinterpret<byte>(ghostChunkComponentTypesPtr[compIdx], compSize).GetUnsafeReadOnlyPtr();
+                        deserializerState.SendToOwner = GhostComponentCollection[serializerIdx].SendToOwner;
                         for (var rangeIdx = 0; rangeIdx < entityRange.Length; ++rangeIdx)
                         {
                             var range = entityRange[rangeIdx];
                             var snapshotData = (byte*)dataAtTick.GetUnsafeReadOnlyPtr();
                             snapshotData += snapshotDataAtTickSize * range.x;
-                            GhostComponentCollection[compIdx].CopyFromSnapshot.Ptr.Invoke((System.IntPtr)UnsafeUtility.AddressOf(ref deserializerState), (System.IntPtr)snapshotData, snapshotOffset, snapshotDataAtTickSize, (System.IntPtr)(compData + range.x*compSize), compSize, range.y-range.x);
+                            GhostComponentCollection[serializerIdx].CopyFromSnapshot.Ptr.Invoke((System.IntPtr)UnsafeUtility.AddressOf(ref deserializerState), (System.IntPtr)snapshotData, snapshotOffset, snapshotDataAtTickSize, (System.IntPtr)(compData + range.x*compSize), compSize, range.y-range.x);
                         }
+                        snapshotOffset += snapshotSize;
                     }
-                    snapshotOffset += GhostCollectionSystem.SnapshotSizeAligned(GhostComponentCollection[compIdx].SnapshotSize);
+                    else
+                    {
+                        var bufferAccessor = chunk.GetUntypedBufferAccessor(ref ghostChunkComponentTypesPtr[compIdx]);
+                        var dynamicDataSize = GhostComponentCollection[serializerIdx].SnapshotSize;
+                        var maskBits = GhostComponentCollection[serializerIdx].ChangeMaskBits;
+                        deserializerState.SendToOwner = GhostComponentCollection[serializerIdx].SendToOwner;
+                        for (var rangeIdx = 0; rangeIdx < entityRange.Length; ++rangeIdx)
+                        {
+                            var range = entityRange[rangeIdx];
+                            for (int ent = range.x; ent < range.y; ++ent)
+                            {
+                                //Compute the required owner mask for the buffers and skip the copyfromsnapshot. The check must be done
+                                //for each entity.
+                                if (dataAtTick[ent].GhostOwner > 0)
+                                {
+                                    var requiredOwnerMask = dataAtTick[ent].GhostOwner == deserializerState.GhostOwner
+                                        ? SendToOwnerType.SendToOwner
+                                        : SendToOwnerType.SendToNonOwner;
+                                    if ((GhostComponentCollection[serializerIdx].SendToOwner & requiredOwnerMask) == 0)
+                                        continue;
+                                }
+
+                                var dynamicDataBuffer = ghostSnapshotDynamicBufferArray[ent];
+                                var dynamicDataAtTick = SetupDynamicDataAtTick(dataAtTick[ent], snapshotOffset, dynamicDataSize, maskBits, dynamicDataBuffer, out var bufLen);
+                                bufferAccessor.ResizeUninitialized(ent, bufLen);
+                                var componentData = (System.IntPtr)bufferAccessor.GetUnsafePtr(ent);
+                                GhostComponentCollection[serializerIdx].CopyFromSnapshot.Ptr.Invoke(
+                                    (System.IntPtr)UnsafeUtility.AddressOf(ref deserializerState),
+                                    (System.IntPtr) UnsafeUtility.AddressOf(ref dynamicDataAtTick), 0, dynamicDataSize,
+                                    componentData, compSize, bufLen);
+                            }
+                        }
+                        snapshotOffset += snapshotSize;
+                    }
                 }
                 if (typeData.NumChildComponents > 0)
                 {
@@ -245,13 +313,24 @@ namespace Unity.NetCode
                     for (int comp = numBaseComponents; comp < typeData.NumComponents; ++comp)
                     {
                         int compIdx = GhostComponentIndex[typeData.FirstComponent + comp].ComponentIndex;
+                        int serializerIdx = GhostComponentIndex[typeData.FirstComponent + comp].SerializerIndex;
 #if ENABLE_UNITY_COLLECTIONS_CHECKS
                         if (compIdx >= ghostChunkComponentTypesLength)
                             throw new System.InvalidOperationException("Component index out of range");
 #endif
-                        if ((GhostComponentCollection[compIdx].SendMask&requiredSendMask) != 0)
+
+                        var snapshotSize = GhostComponentCollection[serializerIdx].ComponentType.IsBuffer
+                            ? GhostCollectionSystem.SnapshotSizeAligned(GhostSystemConstants.DynamicBufferComponentSnapshotSize)
+                            : GhostCollectionSystem.SnapshotSizeAligned(GhostComponentCollection[serializerIdx].SnapshotSize);
+                        if ((GhostComponentIndex[typeData.FirstComponent + comp].SendMask & requiredSendMask) == 0)
                         {
-                            var compSize = GhostComponentCollection[compIdx].ComponentSize;
+                            snapshotOffset += snapshotSize;
+                            continue;
+                        }
+                        var compSize = GhostComponentCollection[serializerIdx].ComponentSize;
+                        if (!GhostComponentCollection[serializerIdx].ComponentType.IsBuffer)
+                        {
+                            deserializerState.SendToOwner = GhostComponentCollection[serializerIdx].SendToOwner;
                             for (var rangeIdx = 0; rangeIdx < entityRange.Length; ++rangeIdx)
                             {
                                 var range = entityRange[rangeIdx];
@@ -262,54 +341,161 @@ namespace Unity.NetCode
                                         continue;
                                     if (!childChunk.chunk.Has(ghostChunkComponentTypesPtr[compIdx]))
                                         continue;
-                                    var compData = (byte*)childChunk.chunk.GetDynamicComponentDataArrayReinterpret<byte>(ghostChunkComponentTypesPtr[compIdx], compSize).GetUnsafePtr();
+                                    var compData = (byte*)childChunk.chunk.GetDynamicComponentDataArrayReinterpret<byte>(ghostChunkComponentTypesPtr[compIdx], compSize).GetUnsafeReadOnlyPtr();
                                     var snapshotData = (byte*)dataAtTick.GetUnsafeReadOnlyPtr();
                                     snapshotData += snapshotDataAtTickSize * ent;
-                                    GhostComponentCollection[compIdx].CopyFromSnapshot.Ptr.Invoke((System.IntPtr)UnsafeUtility.AddressOf(ref deserializerState), (System.IntPtr)snapshotData, snapshotOffset, snapshotDataAtTickSize, (System.IntPtr)(compData + childChunk.index*compSize), compSize, 1);
+                                    GhostComponentCollection[serializerIdx].CopyFromSnapshot.Ptr.Invoke((System.IntPtr)UnsafeUtility.AddressOf(ref deserializerState), (System.IntPtr)snapshotData, snapshotOffset, snapshotDataAtTickSize, (System.IntPtr)(compData + childChunk.index*compSize), compSize, 1);
                                 }
                             }
+                            snapshotOffset += snapshotSize;
                         }
-                        snapshotOffset += GhostCollectionSystem.SnapshotSizeAligned(GhostComponentCollection[compIdx].SnapshotSize);
+                        else
+                        {
+                            var dynamicDataSize = GhostComponentCollection[serializerIdx].SnapshotSize;
+                            var maskBits = GhostComponentCollection[serializerIdx].ChangeMaskBits;
+                            deserializerState.SendToOwner = GhostComponentCollection[serializerIdx].SendToOwner;
+                            for (var rangeIdx = 0; rangeIdx < entityRange.Length; ++rangeIdx)
+                            {
+                                var range = entityRange[rangeIdx];
+                                for (int ent = range.x; ent < range.y; ++ent)
+                                {
+                                    var linkedEntityGroup = linkedEntityGroupAccessor[ent];
+                                    if (!childEntityLookup.TryGetValue(linkedEntityGroup[GhostComponentIndex[typeData.FirstComponent + comp].EntityIndex].Value, out var childChunk))
+                                        continue;
+                                    if (!childChunk.chunk.Has(ghostChunkComponentTypesPtr[compIdx]))
+                                        continue;
+
+                                    //Compute the required owner mask for the buffers and skip the copyfromsnapshot. The check must be done
+                                    if (dataAtTick[ent].GhostOwner > 0)
+                                    {
+                                        var requiredOwnerMask = dataAtTick[ent].GhostOwner == deserializerState.GhostOwner
+                                            ? SendToOwnerType.SendToOwner
+                                            : SendToOwnerType.SendToNonOwner;
+                                        if ((deserializerState.SendToOwner & requiredOwnerMask) == 0)
+                                            continue;
+                                    }
+
+                                    var dynamicDataBuffer = ghostSnapshotDynamicBufferArray[ent];
+                                    var dynamicDataAtTick = SetupDynamicDataAtTick(dataAtTick[ent], snapshotOffset, dynamicDataSize, maskBits, dynamicDataBuffer, out var bufLen);
+                                    var bufferAccessor = childChunk.chunk.GetUntypedBufferAccessor(ref ghostChunkComponentTypesPtr[compIdx]);
+                                    bufferAccessor.ResizeUninitialized(childChunk.index, bufLen);
+                                    var componentData = (System.IntPtr)bufferAccessor.GetUnsafePtr(childChunk.index);
+                                    GhostComponentCollection[serializerIdx].CopyFromSnapshot.Ptr.Invoke(
+                                        (System.IntPtr)UnsafeUtility.AddressOf(ref deserializerState),
+                                        (System.IntPtr) UnsafeUtility.AddressOf(ref dynamicDataAtTick), 0, dynamicDataSize,
+                                        componentData, compSize, bufLen);
+                                }
+                            }
+                            snapshotOffset += snapshotSize;
+                        }
                     }
                 }
             }
-            bool RestorePredictionBackup(ArchetypeChunk chunk, int ent, in GhostCollectionSystem.GhostTypeState typeData, DynamicComponentTypeHandle* ghostChunkComponentTypesPtr, int ghostChunkComponentTypesLength)
+
+            SnapshotData.DataAtTick SetupDynamicDataAtTick(in SnapshotData.DataAtTick dataAtTick,
+                int snapshotOffset, int snapshotSize, int maskBits, in DynamicBuffer<SnapshotDynamicDataBuffer> ghostSnapshotDynamicBuffer, out int buffernLen)
+            {
+                // Retrieve from the snapshot the buffer information and
+                var snapshotData = (int*)(dataAtTick.SnapshotBefore + snapshotOffset);
+                var bufLen = snapshotData[0];
+                var dynamicDataOffset = snapshotData[1];
+                //The dynamic snapshot data is associated with the root entity not the children
+                var dynamicSnapshotDataBeforePtr = SnapshotDynamicBuffersHelper.GetDynamicDataPtr((byte*)ghostSnapshotDynamicBuffer.GetUnsafeReadOnlyPtr(),
+                    dataAtTick.BeforeIdx, ghostSnapshotDynamicBuffer.Length);
+                //var dynamicSnapshotDataCapacity = SnapshotDynamicBuffersHelper.GetDynamicDataCapacity(SnapshotDynamicBuffersHelper.GetHeaderSize(),ghostSnapshotDynamicBuffer.Length);
+                var dynamicMaskSize = SnapshotDynamicBuffersHelper.GetDynamicDataChangeMaskSize(maskBits, bufLen);
+
+#if ENABLE_UNITY_COLLECTIONS_CHECKS
+                if ((dynamicDataOffset + bufLen*snapshotSize) > ghostSnapshotDynamicBuffer.Length)
+                    throw new System.InvalidOperationException("Overflow reading data from dynamic snapshot memory buffer");
+#endif
+                //Copy into the buffer the snapshot data. Use a temporary DataTick to pass some information to the serializer function.
+                //No need to use a DataAtTick per element (would be overkill)
+                buffernLen = bufLen;
+                return new SnapshotData.DataAtTick
+                {
+                    SnapshotBefore = (System.IntPtr)(dynamicSnapshotDataBeforePtr + dynamicDataOffset + dynamicMaskSize),
+                    SnapshotAfter = (System.IntPtr)(dynamicSnapshotDataBeforePtr + dynamicDataOffset + dynamicMaskSize),
+                    //No interpolation factor is necessary
+                    InterpolationFactor = 0.0f,
+                    Tick = dataAtTick.Tick
+                };
+            }
+            bool RestorePredictionBackup(ArchetypeChunk chunk, int ent, in GhostCollectionPrefabSerializer typeData, DynamicComponentTypeHandle* ghostChunkComponentTypesPtr, int ghostChunkComponentTypesLength)
             {
                 // Try to get the backup state
                 if (!predictionStateBackup.TryGetValue(chunk, out var state) ||
                     (*(PredictionBackupState*)state).entityCapacity != chunk.Capacity)
                     return false;
 
-                var headerSize = PredictionBackupState.GetHeaderSize();
-
                 // Verify that the backup is for the correct entity
-                Entity* entities = PredictionBackupState.GetEntities(state, headerSize);
+                Entity* entities = PredictionBackupState.GetEntities(state);
                 var entity = chunk.GetNativeArray(entityType)[ent];
                 if (entity != entities[ent])
                     return false;
 
-                var entitySize = PredictionBackupState.GetEntitiesSize(chunk.Capacity, out var singleEntitySize);
                 int baseOffset = typeData.FirstComponent;
                 const GhostComponentSerializer.SendMask requiredSendMask = GhostComponentSerializer.SendMask.Predicted;
 
-                byte* dataPtr = PredictionBackupState.GetData(state, headerSize, entitySize);
+                byte* dataPtr = PredictionBackupState.GetData(state);
+                //bufferBackupDataPtr is null in case there are no buffer for that ghost type
+                byte* bufferBackupDataPtr = PredictionBackupState.GetBufferDataPtr(state);
                 int numBaseComponents = typeData.NumComponents - typeData.NumChildComponents;
                 for (int comp = 0; comp < numBaseComponents; ++comp)
                 {
                     int compIdx = GhostComponentIndex[baseOffset + comp].ComponentIndex;
+                    int serializerIdx = GhostComponentIndex[baseOffset + comp].SerializerIndex;
 #if ENABLE_UNITY_COLLECTIONS_CHECKS
                     if (compIdx >= ghostChunkComponentTypesLength)
                         throw new System.InvalidOperationException("Component index out of range");
 #endif
-                    if ((GhostComponentCollection[compIdx].SendMask&requiredSendMask) == 0)
+                    if ((GhostComponentIndex[baseOffset + comp].SendMask&requiredSendMask) == 0)
                         continue;
-                    var compSize = GhostComponentCollection[compIdx].ComponentSize;
-                    if (chunk.Has(ghostChunkComponentTypesPtr[compIdx]))
+
+                    var compSize = GhostComponentCollection[serializerIdx].ComponentType.IsBuffer
+                        ? GhostSystemConstants.DynamicBufferComponentSnapshotSize
+                        : GhostComponentCollection[serializerIdx].ComponentSize;
+                    if (!chunk.Has(ghostChunkComponentTypesPtr[compIdx]))
                     {
-                        var compData = (byte*)chunk.GetDynamicComponentDataArrayReinterpret<byte>(ghostChunkComponentTypesPtr[compIdx], compSize).GetUnsafeReadOnlyPtr();
-                        GhostComponentCollection[compIdx].RestoreFromBackup.Ptr.Invoke((System.IntPtr)(compData + ent * compSize), (System.IntPtr)(dataPtr + ent * compSize));
+                        dataPtr = PredictionBackupState.GetNextData(dataPtr, compSize, chunk.Capacity);
+                        continue;
                     }
 
+                    if (!GhostComponentCollection[serializerIdx].ComponentType.IsBuffer)
+                    {
+                        var compData = (byte*)chunk.GetDynamicComponentDataArrayReinterpret<byte>(ghostChunkComponentTypesPtr[compIdx], compSize).GetUnsafeReadOnlyPtr();
+                        GhostComponentCollection[serializerIdx].RestoreFromBackup.Ptr.Invoke((System.IntPtr)(compData + ent * compSize), (System.IntPtr)(dataPtr + ent * compSize));
+                    }
+                    else
+                    {
+                        var backupData = (int*)(dataPtr + ent * compSize);
+                        var bufLen = backupData[0];
+                        var bufOffset = backupData[1];
+                        var elemSize = GhostComponentCollection[serializerIdx].ComponentSize;
+                        var bufferDataPtr = bufferBackupDataPtr + bufOffset;
+#if ENABLE_UNITY_COLLECTIONS_CHECKS
+                        if ((bufOffset + bufLen*elemSize) > PredictionBackupState.GetBufferDataCapacity(state))
+                            throw new System.InvalidOperationException("Overflow reading data from dynamic snapshot memory buffer");
+#endif
+                        var bufferAccessor = chunk.GetUntypedBufferAccessor(ref ghostChunkComponentTypesPtr[compIdx]);
+
+                        //IMPORTANT NOTE: The RestoreFromBackup restore only the serialized fields for a given struct.
+                        //Differently from the component counterpart, when the dynamic snapshot buffer get resized the memory is not
+                        //cleared (for performance reason) and some portion of the data could be left "uninitialized" with random values
+                        //in case some of the element fields does not have a [GhostField] annotation.
+                        //For such a reason we enforced a rule: BufferElementData MUST have all fields annotated with the GhostFieldAttribute.
+                        //This solve the problem and we might relax that condition later.
+
+                        bufferAccessor.ResizeUninitialized(ent, bufLen);
+                        var bufferPointer = (byte*)bufferAccessor.GetUnsafePtr(ent);
+
+                        for(int i=0;i<bufLen;++i)
+                        {
+                            GhostComponentCollection[serializerIdx].RestoreFromBackup.Ptr.Invoke((System.IntPtr)(bufferPointer), (System.IntPtr)(bufferDataPtr));
+                            bufferPointer += elemSize;
+                            bufferDataPtr += elemSize;
+                        }
+                    }
                     dataPtr = PredictionBackupState.GetNextData(dataPtr, compSize, chunk.Capacity);
                 }
                 if (typeData.NumChildComponents > 0)
@@ -318,22 +504,49 @@ namespace Unity.NetCode
                     for (int comp = numBaseComponents; comp < typeData.NumComponents; ++comp)
                     {
                         int compIdx = GhostComponentIndex[baseOffset + comp].ComponentIndex;
+                        int serializerIdx = GhostComponentIndex[baseOffset + comp].SerializerIndex;
 #if ENABLE_UNITY_COLLECTIONS_CHECKS
                         if (compIdx >= ghostChunkComponentTypesLength)
                             throw new System.InvalidOperationException("Component index out of range");
 #endif
-                        if ((GhostComponentCollection[compIdx].SendMask&requiredSendMask) == 0)
+                        if ((GhostComponentIndex[baseOffset + comp].SendMask&requiredSendMask) == 0)
                             continue;
-                        var compSize = GhostComponentCollection[compIdx].ComponentSize;
+
+                        var compSize = GhostComponentCollection[serializerIdx].ComponentType.IsBuffer
+                            ? GhostSystemConstants.DynamicBufferComponentSnapshotSize
+                            : GhostComponentCollection[serializerIdx].ComponentSize;
 
                         var linkedEntityGroup = linkedEntityGroupAccessor[ent];
                         if (childEntityLookup.TryGetValue(linkedEntityGroup[GhostComponentIndex[baseOffset + comp].EntityIndex].Value, out var childChunk) &&
                             childChunk.chunk.Has(ghostChunkComponentTypesPtr[compIdx]))
                         {
-                            var compData = (byte*)childChunk.chunk.GetDynamicComponentDataArrayReinterpret<byte>(ghostChunkComponentTypesPtr[compIdx], compSize).GetUnsafePtr();
-                            GhostComponentCollection[compIdx].RestoreFromBackup.Ptr.Invoke((System.IntPtr)(compData + childChunk.index * compSize), (System.IntPtr)(dataPtr + ent * compSize));
+                            if (!GhostComponentCollection[serializerIdx].ComponentType.IsBuffer)
+                            {
+                                var compData = (byte*)childChunk.chunk.GetDynamicComponentDataArrayReinterpret<byte>(ghostChunkComponentTypesPtr[compIdx], compSize).GetUnsafeReadOnlyPtr();
+                                GhostComponentCollection[serializerIdx].RestoreFromBackup.Ptr.Invoke((System.IntPtr)(compData + childChunk.index * compSize), (System.IntPtr)(dataPtr + ent * compSize));
+                            }
+                            else
+                            {
+                                var backupData = (int*)(dataPtr + ent * compSize);
+                                var bufLen = backupData[0];
+                                var bufOffset = backupData[1];
+                                var elemSize = GhostComponentCollection[serializerIdx].ComponentSize;
+                                var bufferDataPtr = bufferBackupDataPtr + bufOffset;
+#if ENABLE_UNITY_COLLECTIONS_CHECKS
+                                if ((bufOffset + bufLen*elemSize) > PredictionBackupState.GetBufferDataCapacity(state))
+                                    throw new System.InvalidOperationException("Overflow reading data from dynamic snapshot memory buffer");
+#endif
+                                var bufferAccessor = childChunk.chunk.GetUntypedBufferAccessor(ref ghostChunkComponentTypesPtr[compIdx]);
+                                bufferAccessor.ResizeUninitialized(childChunk.index, bufLen);
+                                var bufferPointer = (byte*)bufferAccessor.GetUnsafePtr(childChunk.index);
+                                for(int i=0;i<bufLen;++i)
+                                {
+                                    GhostComponentCollection[serializerIdx].RestoreFromBackup.Ptr.Invoke((System.IntPtr)(bufferPointer), (System.IntPtr)(bufferDataPtr));
+                                    bufferPointer += elemSize;
+                                    bufferDataPtr += elemSize;
+                                }
+                            }
                         }
-
                         dataPtr = PredictionBackupState.GetNextData(dataPtr, compSize, chunk.Capacity);
                     }
                 }
@@ -352,11 +565,9 @@ namespace Unity.NetCode
         private uint m_LastPredictedTick;
         private uint m_LastInterpolatedTick;
 
-        private GhostCollectionSystem m_GhostCollectionSystem;
         private GhostPredictionHistorySystem m_GhostPredictionHistorySystem;
         protected override void OnCreate()
         {
-            m_GhostCollectionSystem = World.GetOrCreateSystem<GhostCollectionSystem>();
             m_GhostPredictionHistorySystem = World.GetOrCreateSystem<GhostPredictionHistorySystem>();
 
             m_GhostReceiveSystem = World.GetOrCreateSystem<GhostReceiveSystem>();
@@ -379,6 +590,7 @@ namespace Unity.NetCode
             m_ChildEntityLookup = new NativeHashMap<Entity, EntityChunkLookup>(1024, Allocator.Persistent);
 
             RequireSingletonForUpdate<NetworkStreamInGame>();
+            RequireSingletonForUpdate<GhostCollection>();
         }
         protected override void OnDestroy()
         {
@@ -410,9 +622,9 @@ namespace Unity.NetCode
             m_ghostSnapshotTickMinMax[0] = 0;
             m_ghostSnapshotTickMinMax[1] = 0;
 #endif
-
-            if (!m_GhostCollectionSystem.m_GhostTypeCollection.IsCreated)
-                return;
+            var clientTickRate = NetworkTimeSystem.DefaultClientTickRate;
+            if (HasSingleton<ClientTickRate>())
+                clientTickRate = GetSingleton<ClientTickRate>();
 
             m_ChildEntityLookup.Clear();
             var childCount = m_ChildEntityQuery.CalculateEntityCountWithoutFiltering();
@@ -426,9 +638,10 @@ namespace Unity.NetCode
             Dependency = buildChildJob.ScheduleParallel(m_ChildEntityQuery, Dependency);
             var updateJob = new UpdateJob
             {
-                GhostComponentCollection = m_GhostCollectionSystem.m_GhostComponentCollection,
-                GhostTypeCollection = m_GhostCollectionSystem.m_GhostTypeCollection,
-                GhostComponentIndex = m_GhostCollectionSystem.m_GhostComponentIndex,
+                GhostCollectionSingleton = GetSingletonEntity<GhostCollection>(),
+                GhostComponentCollectionFromEntity = GetBufferFromEntity<GhostComponentSerializer.State>(true),
+                GhostTypeCollectionFromEntity = GetBufferFromEntity<GhostCollectionPrefabSerializer>(true),
+                GhostComponentIndexFromEntity = GetBufferFromEntity<GhostCollectionComponentIndex>(true),
 
                 GhostMap = m_GhostReceiveSystem.SpawnedGhostEntityMap,
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
@@ -446,32 +659,36 @@ namespace Unity.NetCode
 
                 ghostType = GetComponentTypeHandle<GhostComponent>(true),
                 ghostSnapshotDataType = GetComponentTypeHandle<SnapshotData>(true),
-                ghostSnapshotDataBufferType = GetBufferTypeHandle<SnapshotDataBuffer>(), // FIXME: can't be read-only because we need GetUnsafePtr
+                ghostSnapshotDataBufferType = GetBufferTypeHandle<SnapshotDataBuffer>(true),
+                ghostSnapshotDynamicDataBufferType = GetBufferTypeHandle<SnapshotDynamicDataBuffer>(true),
                 childEntityLookup = m_ChildEntityLookup,
                 linkedEntityGroupType = GetBufferTypeHandle<LinkedEntityGroup>(true),
 
                 predictionStateBackupTick = m_GhostPredictionHistorySystem.LastBackupTick,
                 predictionStateBackup = m_GhostPredictionHistorySystem.PredictionState,
                 entityType = GetEntityTypeHandle(),
+                ghostOwnerId = GetSingleton<NetworkIdComponent>().Value,
+                MaxExtrapolationTicks = clientTickRate.MaxExtrapolationTimeSimTicks
             };
             Dependency = JobHandle.CombineDependencies(Dependency, m_GhostPredictionHistorySystem.PredictionStateWriteJobHandle, m_GhostReceiveSystem.LastGhostMapWriter);
-            var listLength = m_GhostCollectionSystem.m_GhostComponentCollection.Length;
+            var ghostComponentCollection = EntityManager.GetBuffer<GhostCollectionComponentType>(updateJob.GhostCollectionSingleton);
+            var listLength = ghostComponentCollection.Length;
             if (listLength <= 32)
             {
                 var dynamicListJob = new GhostUpdateJob32 {Job = updateJob};
-                DynamicTypeList.PopulateList(this, m_GhostCollectionSystem.m_GhostComponentCollection, false, ref dynamicListJob.List);
+                DynamicTypeList.PopulateList(this, ghostComponentCollection, false, ref dynamicListJob.List);
                 Dependency = dynamicListJob.ScheduleParallel(m_ghostQuery, Dependency);
             }
             else if (listLength <= 64)
             {
                 var dynamicListJob = new GhostUpdateJob64 {Job = updateJob};
-                DynamicTypeList.PopulateList(this, m_GhostCollectionSystem.m_GhostComponentCollection, false, ref dynamicListJob.List);
+                DynamicTypeList.PopulateList(this, ghostComponentCollection, false, ref dynamicListJob.List);
                 Dependency = dynamicListJob.ScheduleParallel(m_ghostQuery, Dependency);
             }
             else if (listLength <= 128)
             {
                 var dynamicListJob = new GhostUpdateJob128 {Job = updateJob};
-                DynamicTypeList.PopulateList(this, m_GhostCollectionSystem.m_GhostComponentCollection, false, ref dynamicListJob.List);
+                DynamicTypeList.PopulateList(this, ghostComponentCollection, false, ref dynamicListJob.List);
                 Dependency = dynamicListJob.ScheduleParallel(m_ghostQuery, Dependency);
             }
             else

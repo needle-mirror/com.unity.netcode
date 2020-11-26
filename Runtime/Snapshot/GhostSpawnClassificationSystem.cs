@@ -30,6 +30,10 @@ namespace Unity.NetCode
         public int GhostID;
         public int DataOffset;
         /// <summary>
+        /// The size of the initial dynamic buffers data associated with the entity.
+        /// </summary>
+        public uint DynamicDataSize;
+        /// <summary>
         /// The tick this ghost was spawned on the client. This is mainly used to determine the first tick we have data
         /// for so we can avoid spawning it before we have any data for the ghost.
         /// </summary>
@@ -54,37 +58,33 @@ namespace Unity.NetCode
     [UpdateInGroup(typeof(GhostSimulationSystemGroup))]
     public class GhostSpawnClassificationSystem : SystemBase
     {
-        private GhostCollectionSystem m_GhostCollectionSystem;
-
-
         protected override void OnCreate()
         {
-            m_GhostCollectionSystem = World.GetOrCreateSystem<GhostCollectionSystem>();
             var ent = EntityManager.CreateEntity();
             EntityManager.AddComponentData(ent, default(GhostSpawnQueueComponent));
             EntityManager.AddBuffer<GhostSpawnBuffer>(ent);
             EntityManager.AddBuffer<SnapshotDataBuffer>(ent);
             RequireSingletonForUpdate<NetworkIdComponent>();
+            RequireSingletonForUpdate<GhostCollection>();
         }
         protected unsafe override void OnUpdate()
         {
-            if (!m_GhostCollectionSystem.m_GhostTypeCollection.IsCreated)
-                return;
-
-            var ghostTypes = m_GhostCollectionSystem.m_GhostTypeCollection;
+            var ghostCollectionSingleton = GetSingletonEntity<GhostCollection>();
+            var ghostTypesFromEntity = GetBufferFromEntity<GhostCollectionPrefabSerializer>(true);
             var networkId = GetSingleton<NetworkIdComponent>().Value;
             Dependency = Entities
                 .WithAll<GhostSpawnQueueComponent>()
-                .WithReadOnly(ghostTypes)
+                .WithReadOnly(ghostTypesFromEntity)
                 .ForEach((DynamicBuffer<GhostSpawnBuffer> ghosts, DynamicBuffer<SnapshotDataBuffer> data) =>
             {
+                var ghostTypes = ghostTypesFromEntity[ghostCollectionSingleton];
                 for (int i = 0; i < ghosts.Length; ++i)
                 {
                     var ghost = ghosts[i];
                     if (ghost.SpawnType == GhostSpawnBuffer.Type.Unknown)
                     {
                         ghost.SpawnType = ghostTypes[ghost.GhostType].FallbackPredictionMode;
-                        if (ghostTypes[ghost.GhostType].PredictionOwnerOffset != 0)
+                        if (ghostTypes[ghost.GhostType].PredictionOwnerOffset != 0 && ghostTypes[ghost.GhostType].OwnerPredicted != 0)
                         {
                             // Prediciton mode is where the owner i is stored in the snapshot data
                             var dataPtr = (byte*)data.GetUnsafePtr();

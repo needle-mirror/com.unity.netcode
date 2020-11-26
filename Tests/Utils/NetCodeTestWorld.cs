@@ -347,8 +347,10 @@ namespace Unity.NetCode.Tests
             var collectionGameObject = new GameObject();
             var collection = collectionGameObject.AddComponent<GhostCollectionAuthoringComponent>();
 
-            var oldGhostDefaults = GhostAuthoringComponentEditor.GhostDefaultOverrides;
-            GhostAuthoringComponentEditor.InitDefaultOverrides();
+            var oldGhostDefaults = GhostAuthoringModifiers.GhostDefaultOverrides;
+            GhostAuthoringModifiers.InitDefaultOverrides();
+            GhostAuthoringModifiers.InitVariantCache();
+
             foreach (var ghostObject in ghostTypes)
             {
                 var ghost = ghostObject.GetComponent<GhostAuthoringComponent>();
@@ -360,7 +362,7 @@ namespace Unity.NetCode.Tests
 
                 collection.Ghosts.Add(new GhostCollectionAuthoringComponent.Ghost{prefab = ghost, enabled = true});
             }
-            GhostAuthoringComponentEditor.GhostDefaultOverrides = oldGhostDefaults;
+            GhostAuthoringModifiers.GhostDefaultOverrides = oldGhostDefaults;
             m_GhostCollection = collectionGameObject;
             m_BlobAssetStore = new BlobAssetStore();
             return true;

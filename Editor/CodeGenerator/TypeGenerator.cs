@@ -2,10 +2,11 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
 using System.Text.RegularExpressions;
+using Mono.Cecil;
 
 namespace Unity.NetCode.Editor
 {
-    public class TypeGenerator
+    internal class TypeGenerator
     {
         private TypeInformation m_TypeInformation;
         private GhostCodeGen m_TargetGenerator;
@@ -40,7 +41,7 @@ namespace Unity.NetCode.Editor
                 return;
 
             var quantization = m_TypeInformation.Attribute.quantization;
-            var interpolate = m_TypeInformation.Attribute.interpolate;
+            var interpolate = m_TypeInformation.Attribute.smoothing > 0;
             if (!context.typeCodeGenCache.TryGetValue(m_Template.TemplatePath + m_Template.TemplateOverridePath,
                 out var generator))
             {
@@ -56,8 +57,7 @@ namespace Unity.NetCode.Editor
 
             // Prefix and Variable Replacements
             var reference = string.IsNullOrEmpty(parent)
-                ? m_TypeInformation.FieldInfo.Name
-                : $"{parent}.{m_TypeInformation.FieldInfo.Name}";
+                ? m_TypeInformation.FieldName : $"{parent}.{m_TypeInformation.FieldName}";
             var name = reference.Replace('.', '_');
 
             generator.Replacements.Add("GHOST_FIELD_NAME", $"{name}");
@@ -70,6 +70,9 @@ namespace Unity.NetCode.Editor
                 generator.Replacements.Add("GHOST_DEQUANTIZE_SCALE",
                     $"{(1.0f / quantization).ToString(CultureInfo.InvariantCulture)}f");
             }
+            float maxSmoothingDistSq = m_TypeInformation.Attribute.maxSmoothingDist * m_TypeInformation.Attribute.maxSmoothingDist;
+            bool enableExtrapolation = m_TypeInformation.Attribute.smoothing == (uint)TypeAttribute.AttributeFlags.InterpolatedAndExtrapolated;
+            generator.Replacements.Add("GHOST_MAX_INTERPOLATION_DISTSQ", maxSmoothingDistSq.ToString(CultureInfo.InvariantCulture));
 
             // Skip fragments which have been overridden already
             for (int i = 0; i < k_OverridableFragments.GetLength(0); i++)
@@ -78,8 +81,27 @@ namespace Unity.NetCode.Editor
                 {
                     var fragment = k_OverridableFragments[i, 1];
                     var targetFragment = k_OverridableFragments[i, 0];
-                    if (targetFragment == "GHOST_COPY_FROM_SNAPSHOT" && !interpolate)
-                        fragment = "GHOST_COPY_FROM_SNAPSHOT";
+                    if (targetFragment == "GHOST_COPY_FROM_SNAPSHOT")
+                    {
+                        if (interpolate)
+                        {
+                            m_TargetGenerator.GenerateFragment(enableExtrapolation ? "GHOST_COPY_FROM_SNAPSHOT_ENABLE_EXTRAPOLATION" : "GHOST_COPY_FROM_SNAPSHOT_DISABLE_EXTRAPOLATION",
+                                generator.Replacements, m_TargetGenerator, "GHOST_COPY_FROM_SNAPSHOT");
+                            // The setup section is optional, so do not generate error if it is not present
+                            generator.GenerateFragment("GHOST_COPY_FROM_SNAPSHOT_INTERPOLATE_SETUP", generator.Replacements, m_TargetGenerator,
+                                "GHOST_COPY_FROM_SNAPSHOT", null, true);
+                            // only generate max distance checks if clamp is enabled
+                            if (maxSmoothingDistSq > 0)
+                            {
+                                generator.GenerateFragment("GHOST_COPY_FROM_SNAPSHOT_INTERPOLATE_DISTSQ", generator.Replacements, m_TargetGenerator,
+                                    "GHOST_COPY_FROM_SNAPSHOT");
+                                m_TargetGenerator.GenerateFragment("GHOST_COPY_FROM_SNAPSHOT_INTERPOLATE_CLAMP_MAX", generator.Replacements, m_TargetGenerator,
+                                    "GHOST_COPY_FROM_SNAPSHOT");
+                            }
+                        }
+                        else
+                            fragment = "GHOST_COPY_FROM_SNAPSHOT";
+                    }
                     generator.GenerateFragment(fragment, generator.Replacements, m_TargetGenerator,
                         targetFragment);
                 }
@@ -103,7 +125,7 @@ namespace Unity.NetCode.Editor
 
             ulong fieldHash = 0;
             fieldHash = Entities.TypeHash.CombineFNV1A64(fieldHash, Entities.TypeHash.FNV1A64(m_TypeInformation.Attribute.composite?1:0));
-            fieldHash = Entities.TypeHash.CombineFNV1A64(fieldHash, Entities.TypeHash.FNV1A64(m_TypeInformation.Attribute.interpolate?1:0));
+            fieldHash = Entities.TypeHash.CombineFNV1A64(fieldHash, Entities.TypeHash.FNV1A64(m_TypeInformation.Attribute.smoothing > 0 ? 1 : 0));
             fieldHash = Entities.TypeHash.CombineFNV1A64(fieldHash, (ulong)m_TypeInformation.Attribute.subtype);
             fieldHash = Entities.TypeHash.CombineFNV1A64(fieldHash, (ulong)m_TypeInformation.Attribute.quantization);
             context.FieldState.ghostfieldHash = Entities.TypeHash.CombineFNV1A64(context.FieldState.ghostfieldHash, fieldHash);
@@ -123,7 +145,7 @@ namespace Unity.NetCode.Editor
                 return null;
 
             var quantization = m_TypeInformation.Attribute.quantization;
-            var interpolate = m_TypeInformation.Attribute.interpolate;
+            var interpolate = m_TypeInformation.Attribute.smoothing > 0;
             if (!context.typeCodeGenCache.TryGetValue(m_Template.TemplateOverridePath,
                 out var generator))
             {
@@ -135,8 +157,7 @@ namespace Unity.NetCode.Editor
 
             // Prefix and Variable Replacements
             var reference = string.IsNullOrEmpty(parent)
-                ? m_TypeInformation.FieldInfo.Name
-                : $"{parent}.{m_TypeInformation.FieldInfo.Name}";
+                ? m_TypeInformation.FieldName : $"{parent}.{m_TypeInformation.FieldName}";
             var name = reference.Replace('.', '_');
 
             generator.Replacements.Add("GHOST_FIELD_NAME", $"{name}");
@@ -149,6 +170,9 @@ namespace Unity.NetCode.Editor
                 generator.Replacements.Add("GHOST_DEQUANTIZE_SCALE",
                     $"{(1.0f / quantization).ToString(CultureInfo.InvariantCulture)}f");
             }
+            float maxSmoothingDistSq = m_TypeInformation.Attribute.maxSmoothingDist * m_TypeInformation.Attribute.maxSmoothingDist;
+            bool enableExtrapolation = m_TypeInformation.Attribute.smoothing == (uint)TypeAttribute.AttributeFlags.InterpolatedAndExtrapolated;
+            generator.Replacements.Add("GHOST_MAX_INTERPOLATION_DISTSQ", maxSmoothingDistSq.ToString(CultureInfo.InvariantCulture));
 
             // Type Info
             if (generator.GenerateFragment("GHOST_FIELD", generator.Replacements, m_TargetGenerator, null, null, true))
@@ -156,13 +180,39 @@ namespace Unity.NetCode.Editor
             // CopyToSnapshot
             if (generator.GenerateFragment("GHOST_COPY_TO_SNAPSHOT", generator.Replacements, m_TargetGenerator, null, null, true))
                 fragments.Add("GHOST_COPY_TO_SNAPSHOT", m_TargetGenerator.Fragments["__GHOST_COPY_TO_SNAPSHOT__"]);
+
             // CopyFromSnapshot
-            if (generator.GenerateFragment(
-                interpolate ? "GHOST_COPY_FROM_SNAPSHOT_INTERPOLATE" : "GHOST_COPY_FROM_SNAPSHOT",
-                generator.Replacements, m_TargetGenerator, "GHOST_COPY_FROM_SNAPSHOT", null, true))
+            if (interpolate)
             {
-                fragments.Add("GHOST_COPY_FROM_SNAPSHOT", generator.Fragments["__GHOST_COPY_FROM_SNAPSHOT__"]);
-                fragments.Add("GHOST_COPY_FROM_SNAPSHOT_INTERPOLATE", generator.Fragments["__GHOST_COPY_FROM_SNAPSHOT_INTERPOLATE__"]);
+                if (generator.HasFragment("GHOST_COPY_FROM_SNAPSHOT_INTERPOLATE"))
+                {
+                    m_TargetGenerator.GenerateFragment(enableExtrapolation ? "GHOST_COPY_FROM_SNAPSHOT_ENABLE_EXTRAPOLATION" : "GHOST_COPY_FROM_SNAPSHOT_DISABLE_EXTRAPOLATION",
+                        generator.Replacements, m_TargetGenerator, "GHOST_COPY_FROM_SNAPSHOT");
+                    // The setup section is optional, so do not generate error if it is not present
+                    generator.GenerateFragment("GHOST_COPY_FROM_SNAPSHOT_INTERPOLATE_SETUP", generator.Replacements, m_TargetGenerator,
+                        "GHOST_COPY_FROM_SNAPSHOT", null, true);
+                    // only generate max distance checks if clamp is enabled
+                    if (maxSmoothingDistSq > 0)
+                    {
+                        generator.GenerateFragment("GHOST_COPY_FROM_SNAPSHOT_INTERPOLATE_DISTSQ", generator.Replacements, m_TargetGenerator,
+                            "GHOST_COPY_FROM_SNAPSHOT");
+                        m_TargetGenerator.GenerateFragment("GHOST_COPY_FROM_SNAPSHOT_INTERPOLATE_CLAMP_MAX", generator.Replacements, m_TargetGenerator,
+                            "GHOST_COPY_FROM_SNAPSHOT");
+                    }
+                    generator.GenerateFragment("GHOST_COPY_FROM_SNAPSHOT_INTERPOLATE" ,
+                        generator.Replacements, m_TargetGenerator, "GHOST_COPY_FROM_SNAPSHOT");
+                    fragments.Add("GHOST_COPY_FROM_SNAPSHOT", generator.Fragments["__GHOST_COPY_FROM_SNAPSHOT__"]);
+                    fragments.Add("GHOST_COPY_FROM_SNAPSHOT_INTERPOLATE", generator.Fragments["__GHOST_COPY_FROM_SNAPSHOT_INTERPOLATE__"]);
+                }
+            }
+            else
+            {
+                if (generator.GenerateFragment("GHOST_COPY_FROM_SNAPSHOT",
+                    generator.Replacements, m_TargetGenerator, "GHOST_COPY_FROM_SNAPSHOT", null, true))
+                {
+                    fragments.Add("GHOST_COPY_FROM_SNAPSHOT", generator.Fragments["__GHOST_COPY_FROM_SNAPSHOT__"]);
+                    fragments.Add("GHOST_COPY_FROM_SNAPSHOT_INTERPOLATE", generator.Fragments["__GHOST_COPY_FROM_SNAPSHOT_INTERPOLATE__"]);
+                }
             }
             // RestoreFromBackup
             if (generator.GenerateFragment("GHOST_RESTORE_FROM_BACKUP", generator.Replacements, m_TargetGenerator, null, null, true))
@@ -264,9 +314,9 @@ namespace Unity.NetCode.Editor
             m_TargetGenerator.Append(typeGenerator.m_TargetGenerator);
         }
 
-        public void GenerateSerializer(CodeGenerator.Context context, Mono.Cecil.TypeDefinition type)
+        public void GenerateSerializer(CodeGenerator.Context context, Mono.Cecil.TypeDefinition generatorType,
+            Mono.Cecil.TypeDefinition componentType, GhostComponentAttribute ghostAttributes)
         {
-
             var replacements = new Dictionary<string, string>();
             if (context.FieldState.curChangeMask > 0)
             {
@@ -274,9 +324,9 @@ namespace Unity.NetCode.Editor
                 m_TargetGenerator.GenerateFragment("GHOST_FLUSH_FINAL_COMPONENT_CHANGE_MASK", replacements);
             }
 
-            if (type.Namespace != null && type.Namespace != "")
+            if (componentType.Namespace != null && componentType.Namespace != "")
             {
-                context.imports.Add(type.Namespace);
+                context.imports.Add(componentType.Namespace);
             }
             foreach (var ns in context.imports)
             {
@@ -284,32 +334,64 @@ namespace Unity.NetCode.Editor
                 m_TargetGenerator.GenerateFragment("GHOST_USING_STATEMENT", replacements);
             }
 
-            context.collectionAssemblies.Add(type.Module.Assembly.Name.Name);
+            context.collectionAssemblies.Add(componentType.Module.Assembly.Name.Name);
+            if (generatorType != componentType)
+                context.collectionAssemblies.Add(generatorType.Module.Assembly.Name.Name);
 
             replacements.Clear();
-            replacements.Add("GHOST_NAME", type.FullName.Replace(".", "").Replace("/", "_"));
+            replacements.Add("GHOST_NAME", generatorType.FullName.Replace(".", "").Replace("/", "_"));
             replacements.Add("GHOST_NAMESPACE", context.generatedNs);
-            replacements.Add("GHOST_COMPONENT_TYPE", type.FullName.Replace("/", "."));
+            replacements.Add("GHOST_COMPONENT_TYPE", componentType.FullName.Replace("/", "."));
             replacements.Add("GHOST_CHANGE_MASK_BITS", context.FieldState.numFields.ToString());
             replacements.Add("GHOST_FIELD_HASH", context.FieldState.ghostfieldHash.ToString());
             replacements.Add("GHOST_COMPONENT_EXCLUDE_FROM_COLLECTION_HASH", context.IsRuntimeAssembly ? "0" : "1");
+            replacements.Add("GHOST_VARIANT_HASH", context.VariantHash.ToString());
 
-            var ghostAttributes = CecilExtensions.GetGhostComponentAttribute(type);
+            if (ghostAttributes != null)
+            {
+                if (ghostAttributes.OwnerPredictedSendType == GhostSendType.Interpolated || (ghostAttributes.PrefabType&GhostPrefabType.Client) == GhostPrefabType.InterpolatedClient)
+                    replacements.Add("GHOST_SEND_MASK", "GhostComponentSerializer.SendMask.Interpolated");
+                else if (ghostAttributes.OwnerPredictedSendType == GhostSendType.Predicted || (ghostAttributes.PrefabType&GhostPrefabType.Client) == GhostPrefabType.PredictedClient)
+                    replacements.Add("GHOST_SEND_MASK", "GhostComponentSerializer.SendMask.Predicted");
+                else if (ghostAttributes.PrefabType == GhostPrefabType.Server)
+                    replacements.Add("GHOST_SEND_MASK", "GhostComponentSerializer.SendMask.None");
+                else
+                    replacements.Add("GHOST_SEND_MASK", "GhostComponentSerializer.SendMask.Interpolated | GhostComponentSerializer.SendMask.Predicted");
+                replacements.Add("GHOST_SEND_CHILD_ENTITY", ghostAttributes.SendDataForChildEntity?"1":"0");
 
-            if (ghostAttributes != null && (ghostAttributes.OwnerPredictedSendType == GhostSendType.Interpolated || (ghostAttributes.PrefabType&GhostPrefabType.Client) == GhostPrefabType.InterpolatedClient))
-                replacements.Add("GHOST_SEND_MASK", "GhostComponentSerializer.SendMask.Interpolated");
-            else if (ghostAttributes!= null && (ghostAttributes.OwnerPredictedSendType == GhostSendType.Predicted || (ghostAttributes.PrefabType&GhostPrefabType.Client) == GhostPrefabType.PredictedClient))
-                replacements.Add("GHOST_SEND_MASK", "GhostComponentSerializer.SendMask.Predicted");
-            else
+                var ownerType = ghostAttributes.OwnerSendType;
+                if (componentType.IsICommandData() && (ghostAttributes.OwnerSendType & SendToOwnerType.SendToOwner) != 0)
+                {
+                    UnityEngine.Debug.LogError($"ICommandData {componentType.FullName} is configured to be sent to ghost owner. It will be ignored");
+                    ownerType &= ~SendToOwnerType.SendToOwner;
+                }
+                replacements.Add("GHOST_SEND_OWNER", "SendToOwnerType." + ownerType);
+            }
+            else if(!componentType.IsICommandData())
+            {
                 replacements.Add("GHOST_SEND_MASK", "GhostComponentSerializer.SendMask.Interpolated | GhostComponentSerializer.SendMask.Predicted");
-            replacements.Add("GHOST_SEND_CHILD_ENTITY", (ghostAttributes!=null && !ghostAttributes.SendDataForChildEntity)?"0":"1");
+                replacements.Add("GHOST_SEND_OWNER", "SendToOwnerType.All");
+                replacements.Add("GHOST_SEND_CHILD_ENTITY", "1");
+            }
+            else
+            {
+                replacements.Add("GHOST_SEND_MASK", "GhostComponentSerializer.SendMask.Predicted");
+                replacements.Add("GHOST_SEND_OWNER", "SendToOwnerType.SendToNonOwner");
+                replacements.Add("GHOST_SEND_CHILD_ENTITY", "0");
+            }
+
+            if (componentType.IsBufferElementData())
+                m_TargetGenerator.GenerateFragment("GHOST_COPY_FROM_BUFFER", replacements, m_TargetGenerator, "COPY_FROM_SNAPSHOT_SETUP");
+            else
+                m_TargetGenerator.GenerateFragment("GHOST_COPY_FROM_COMPONENT", replacements, m_TargetGenerator, "COPY_FROM_SNAPSHOT_SETUP");
+
 
             if (m_TargetGenerator.Fragments["__GHOST_REPORT_PREDICTION_ERROR__"].Content.Length > 0)
             {
                 m_TargetGenerator.GenerateFragment("GHOST_PREDICTION_ERROR_HEADER", replacements, m_TargetGenerator);
             }
 
-            var serializerName = type.FullName.Replace("/", "+") + "Serializer.cs";
+            var serializerName = generatorType.FullName.Replace("/", "+") + "Serializer.cs";
             m_TargetGenerator.GenerateFile("", context.outputFolder, serializerName, replacements, context.batch);
 
             context.generatedTypes.Add(replacements["GHOST_NAME"]);

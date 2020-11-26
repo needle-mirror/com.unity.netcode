@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using Mono.Cecil;
 using UnityEditor;
 using UnityEditor.Compilation;
 using UnityEngine;
@@ -83,6 +84,8 @@ namespace Unity.NetCode.Editor.GhostCompiler
             });
             var ghostTypes = new GhostComponentFilter {excludeList = context.excludeTypeFilter}
                 .Filter(assemblyDefinition).ToArray();
+            //Make a validation pass over the ghost types. Filter out invalid configuration and log errors
+            ghostTypes = CheckAndFilterInvalidGhostTypes(ghostTypes);
             var commandTypes = new CommandComponentFilter { excludeList = context.excludeTypeFilter }
                 .Filter(assemblyDefinition).ToArray();
 
@@ -92,6 +95,30 @@ namespace Unity.NetCode.Editor.GhostCompiler
             var generator = new CodeGenerator(CodeGenTypes.Registry);
             context.generatedBatch = generator.Generate(assemblyFolder, context.assemblyNameGenerated, context.assemblyName,
                 context.isRuntimeAssembly, ghostTypes, commandTypes, context.codeGenCache);
+        }
+
+        //Check and enforce some restriction for IBufferElementData:
+        // "Buffer element MUST have all fields annotated with the GhostFieldAttribute"
+        //
+        //This rule must be enforced to avoid having uninitialized data when a dynamic buffer is restored from the history
+        //(see GhostPredictionHistorySystem.cs).
+        //When a buffer is restored it might get resized and in that case, since we don't clear the buffer memory (for performance reason),
+        //some portion of the data could be left untouched by the RestoreFromBackup function if some element fields are are not replicated.
+        //The above requirement avoid that problem. We migh relax it later.
+        private TypeDefinition[] CheckAndFilterInvalidGhostTypes(TypeDefinition[] ghostTypes)
+        {
+            bool CheckIsValid(TypeDefinition t)
+            {
+                if(CecilExtensions.IsBufferElementData(t) &&
+                   t.Fields.Any(f => f.IsPublic && !f.HasAttribute<GhostFieldAttribute>()))
+                {
+                    Debug.LogError($"BufferElementData {t.FullName} has some members without a GhostField attribute.\n" +
+                                   "In order to be replicated, BufferElementData requires that all fields must be annotated with a GhostField attribute.");
+                    return false;
+                }
+                return true;
+            }
+            return ghostTypes.Where(CheckIsValid).ToArray();
         }
 
         //Return true if the assembly folder is changed

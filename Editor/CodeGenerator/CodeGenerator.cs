@@ -1,17 +1,15 @@
 using System;
 using System.Collections.Generic;
-using UnityEngine;
+using System.Linq;
 
 namespace Unity.NetCode.Editor
 {
     public class CodeGenerator
     {
-        public DebugInformation Debug;
         private TypeRegistry Registry;
 
         public CodeGenerator(TypeRegistry registry)
         {
-            Debug = new DebugInformation();
             Registry = registry;
         }
 
@@ -82,7 +80,7 @@ namespace Unity.NetCode.Editor
             var defineConstraints = "";
             if (!string.IsNullOrEmpty(asmdefPath))
             {
-                var assemblyDefinition = JsonUtility.FromJson<GhostCompiler.UnityAssemblyDefinition>(System.IO.File.ReadAllText(asmdefPath));
+                var assemblyDefinition = UnityEngine.JsonUtility.FromJson<GhostCompiler.UnityAssemblyDefinition>(System.IO.File.ReadAllText(asmdefPath));
                 string EscapeStrings(string[] list)
                 {
                     if (list == null)
@@ -165,14 +163,34 @@ namespace Unity.NetCode.Editor
 
         void GenerateType(Context context, Mono.Cecil.TypeDefinition type)
         {
-            var typeTree = ParseTypeFields(type);
+            TypeInformation typeTree;
+            Mono.Cecil.TypeDefinition componentType;
+            GhostComponentAttribute ghostAttribute;
+            var variantAttr = type.GetAttribute<GhostComponentVariationAttribute>();
+            if (variantAttr != null)
+            {
+                ghostAttribute = CecilExtensions.GetGhostComponentAttribute(type);
+                context.VariantHash = CecilExtensions.ComputeVariantHash(type, variantAttr);
+                var typeReference = variantAttr.ConstructorArguments.First().Value as Mono.Cecil.TypeReference;
+                typeTree = ParseVariantTypeFields(type, typeReference);
+                componentType = typeReference.Resolve();
+            }
+            else
+            {
+                if (GhostAuthoringModifiers.GhostDefaultOverrides.TryGetValue(type.FullName.Replace('/', '+'), out var newComponent))
+                    ghostAttribute = newComponent.attribute;
+                else
+                    ghostAttribute = CecilExtensions.GetGhostComponentAttribute(type);
+                typeTree = ParseTypeFields(type);
+                componentType = type;
+            }
 
             var generator = InternalGenerateType(context, typeTree, type.FullName);
             generator.GenerateMasks(context);
 
             var serializeGenerator = new TypeGenerator(context);
             generator.AppendTarget(serializeGenerator);
-            serializeGenerator.GenerateSerializer(context, type);
+            serializeGenerator.GenerateSerializer(context, type, componentType, ghostAttribute);
         }
 
         private void GenerateCommand(Context context, Mono.Cecil.TypeDefinition type)
@@ -213,56 +231,128 @@ namespace Unity.NetCode.Editor
         #endregion
 
         #region Internal for Parsing
-        TypeInformation ParseTypeFields(Mono.Cecil.TypeDefinition type, bool onlyFieldWithGhostField = true)
+
+        static internal TypeInformation ParseVariantTypeFields(Mono.Cecil.TypeDefinition variantType, Mono.Cecil.TypeReference typeReference)
         {
+            var type = typeReference.Resolve();
+
             var root = new TypeInformation(type);
-            if (!type.HasFields)
+            if (!variantType.HasFields)
                 return root;
 
-            foreach (var field in type.Fields)
+            foreach (var field in variantType.Fields)
             {
                 if (!field.IsPublic || field.IsStatic)
                     continue;
 
-                if (!onlyFieldWithGhostField || CecilExtensions.HasGhostFieldAttribute(type, field))
+                if (type.Fields.FirstOrDefault(f=> f.Name == field.Name) == null)
                 {
-                    if (!CecilExtensions.HasGhostFieldAttribute(type, field) || CecilExtensions.GetGhostFieldAttribute(type, field).SendData)
-                        root.Add(ParseTypeField(type, field, TypeAttribute.Empty()));
+                    UnityEngine.Debug.LogError($"Variant {variantType.Name}. field {field.Name} not present in original type {type.Name}");
+                    continue;
+                }
+
+                //Avoid use ghost fields modifiers for the variant type. passing null prevent that
+                var ghostField = CecilExtensions.GetGhostFieldAttribute(null, field);
+                if (ghostField != null && ghostField.SendData)
+                {
+                    root.Add(ParseTypeField(field, field.FieldType, ghostField, TypeAttribute.Empty(), root.AttributeMask));
+                }
+            }
+            foreach (var prop in type.Properties)
+            {
+                if (prop.GetMethod == null || !prop.GetMethod.IsPublic || prop.GetMethod.IsStatic)
+                    continue;
+                if (prop.SetMethod == null || !prop.SetMethod.IsPublic || prop.SetMethod.IsStatic)
+                    continue;
+
+                if (type.Properties.FirstOrDefault(f=> f.Name == prop.Name) == null)
+                {
+                    UnityEngine.Debug.LogError($"Variant {variantType.Name}. field {prop.Name} not present in original type {type.Name}");
+                    continue;
+                }
+
+                var ghostField = CecilExtensions.GetGhostFieldAttribute(type, prop);
+                if (ghostField != null && ghostField.SendData)
+                {
+                    root.Add(ParseTypeField(prop, prop.PropertyType, ghostField, TypeAttribute.Empty(), root.AttributeMask));
                 }
             }
             return root;
         }
 
-        TypeInformation ParseTypeField(Mono.Cecil.TypeReference typeDefinition, Mono.Cecil.FieldDefinition fieldInfo, TypeAttribute inheritedAttribute, string parent = "")
+        static internal TypeInformation ParseTypeFields(Mono.Cecil.TypeDefinition type, bool onlyFieldWithGhostField = true)
         {
-            var information = new TypeInformation(typeDefinition, fieldInfo, inheritedAttribute, parent);
+            bool isBuffer = CecilExtensions.IsBufferElementData(type);
+            bool isCommandData = CecilExtensions.IsICommandData(type);
+            var root = new TypeInformation(type);
+            if (isBuffer)
+                root.AttributeMask &= ~(TypeAttribute.AttributeFlags.InterpolatedAndExtrapolated);
 
+            if (!type.HasFields)
+                return root;
+            foreach (var field in type.Fields)
+            {
+                if (!field.IsPublic || field.IsStatic)
+                    continue;
+
+                var ghostField = CecilExtensions.GetGhostFieldAttribute(type, field);
+                if (!onlyFieldWithGhostField && isCommandData &&
+                    field.HasAttributeOnMemberOImplementedInterfaces<DontSerializeForCommand>())
+                    continue;
+                if (!onlyFieldWithGhostField || (ghostField != null && ghostField.SendData))
+                {
+                    root.Add(ParseTypeField(field, field.FieldType, ghostField,TypeAttribute.Empty(), root.AttributeMask));
+                }
+            }
+            foreach (var prop in type.Properties)
+            {
+                if (prop.GetMethod == null || !prop.GetMethod.IsPublic || prop.GetMethod.IsStatic)
+                    continue;
+                if (prop.SetMethod == null || !prop.SetMethod.IsPublic || prop.SetMethod.IsStatic)
+                    continue;
+
+                var ghostField = CecilExtensions.GetGhostFieldAttribute(type, prop);
+                if (!onlyFieldWithGhostField && isCommandData &&
+                    prop.HasAttributeOnMemberOImplementedInterfaces<DontSerializeForCommand>())
+                    continue;
+
+                if (!onlyFieldWithGhostField || (ghostField != null && ghostField.SendData))
+                {
+                    root.Add(ParseTypeField(prop, prop.PropertyType, ghostField, TypeAttribute.Empty(), root.AttributeMask));
+                }
+            }
+
+
+            return root;
+        }
+
+        static private TypeInformation ParseTypeField(Mono.Cecil.IMemberDefinition fieldInfo, Mono.Cecil.TypeReference fieldType,
+            GhostFieldAttribute ghostField, TypeAttribute inheritedAttribute, TypeAttribute.AttributeFlags inheriteAttributedMask, string parent = "")
+        {
+            var information = new TypeInformation(fieldInfo, fieldType, ghostField, inheritedAttribute, inheriteAttributedMask, parent);
             //blittable also contains bool, but does not contains enums
-            if (fieldInfo.FieldType.IsBlittable())
-            {
-                return information;
-            }
-
-            var fieldTypeDef = fieldInfo.FieldType.Resolve();
-
-            if (fieldTypeDef.IsEnum)
+            if (fieldType.IsBlittable())
                 return information;
 
-            if (!fieldTypeDef.IsStruct())
-            {
+            var fieldDef = fieldType.Resolve();
+            if (fieldDef.IsEnum)
+                return information;
+
+            if (!fieldDef.IsStruct())
                 return default;
-            }
 
             parent = string.IsNullOrEmpty(parent)
                 ? fieldInfo.Name
                 : parent + "." + fieldInfo.Name;
 
-            foreach (var field in fieldTypeDef.Fields)
+            foreach (var field in fieldDef.Fields)
             {
                 if (!field.IsPublic || field.IsStatic)
                     continue;
-                if (!CecilExtensions.HasGhostFieldAttribute(fieldTypeDef, field) || CecilExtensions.GetGhostFieldAttribute(fieldTypeDef, field).SendData)
-                    information.Add(ParseTypeField(fieldTypeDef,  field, information.Attribute, parent));
+
+                ghostField = CecilExtensions.GetGhostFieldAttribute(fieldType, field);
+                if (ghostField == null || ghostField.SendData)
+                    information.Add(ParseTypeField(field, field.FieldType, ghostField, information.Attribute, information.AttributeMask, parent));
             }
             return information;
         }
@@ -309,7 +399,7 @@ namespace Unity.NetCode.Editor
 
             foreach (var field in type.Fields)
             {
-                var generator = InternalGenerateType(context, field, $"{field.FieldInfo.DeclaringType.FullName}.{field.FieldInfo.Name}");
+                var generator = InternalGenerateType(context, field, $"{field.DeclaringType.FullName}.{field.FieldName}");
                 if (generator.Composite)
                 {
                     int fieldIt = 0;
@@ -319,7 +409,7 @@ namespace Unity.NetCode.Editor
                         generator.AppendTarget(typeGenerator);
                     foreach (var f in generator.TypeInformation.Fields)
                     {
-                        var g = InternalGenerateType(context, f, $"{f.FieldInfo.DeclaringType.FullName}.{f.FieldInfo.Name}");
+                        var g = InternalGenerateType(context, f, $"{f.DeclaringType.FullName}.{f.FieldName}");
                         g?.GenerateFields(context, f.Parent, overrides);
                         g?.GenerateMasks(context, true, fieldIt++);
                         g?.AppendTarget(typeGenerator);
@@ -330,19 +420,19 @@ namespace Unity.NetCode.Editor
                 }
                 else
                 {
-                    generator?.GenerateFields(context, field.Parent);
-                    generator?.GenerateMasks(context, composite, index++);
-                    if (!composite && !(generator?.IsContainerType ?? false))
+                    generator.GenerateFields(context, field.Parent);
+                    generator.GenerateMasks(context, composite, index++);
+                    if (!composite && !generator.IsContainerType)
                     {
                         ++context.FieldState.numFields;
                         ++context.FieldState.curChangeMask;
                     }
-                    generator?.AppendTarget(typeGenerator);
+                    generator.AppendTarget(typeGenerator);
                 }
             }
 
-            if (type.Fields.Count == 0 && !canGenerate)
-                UnityEngine.Debug.LogError($"Couldn't find the TypeDescriptor for the type {type.Description.TypeFullName} (quantized={type.Description.Attribute.quantization} composite={type.Description.Attribute.composite} interpolated={type.Description.Attribute.interpolate} subtype={type.Description.Attribute.subtype}) when processing {fullFieldName}");
+            if (type.Fields.Count == 0)
+                UnityEngine.Debug.LogError($"Couldn't find the TypeDescriptor for the type {type.Description.TypeFullName} (quantized={type.Description.Attribute.quantization} composite={type.Description.Attribute.composite} smoothing={type.Description.Attribute.smoothing} subtype={type.Description.Attribute.subtype}) when processing {fullFieldName}");
 
             if (composite)
             {
@@ -370,6 +460,7 @@ namespace Unity.NetCode.Editor
             public HashSet<string> generatedTypes;
             public string outputFolder;
             public string generatedNs;
+            public ulong VariantHash;
 
             public struct CurrentFieldState
             {
@@ -387,6 +478,7 @@ namespace Unity.NetCode.Editor
                 FieldState.ghostfieldHash = 0;
                 FieldState.currentQuantizationFactor = -1;
                 FieldState.isComposite = false;
+                VariantHash = 0;
                 imports.Clear();
                 imports.Add("Unity.Entities");
                 imports.Add("Unity.Collections");
@@ -404,6 +496,7 @@ namespace Unity.NetCode.Editor
                 FieldState.currentQuantizationFactor = -1;
                 generatedNs = generatedAssemblyNs;
                 outputFolder = outputDir;
+                VariantHash = 0;
 
                 batch = new GhostCodeGen.Batch();
                 typeCodeGenCache = codeGenCache;

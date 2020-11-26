@@ -19,6 +19,15 @@ namespace Unity.NetCode
         Predicted = 2,
         All = 3
     }
+
+    [Flags]
+    public enum SendToOwnerType
+    {
+        None = 0,
+        SendToOwner = 1,
+        SendToNonOwner = 2,
+        All = 3,
+    }
     /// <summary>
     /// This attribute can be used to tag components to control which ghost prefab variants they are included in and where they are sent for owner predicted ghosts.
     /// </summary>
@@ -34,6 +43,11 @@ namespace Unity.NetCode
         /// </summary>
         public GhostSendType OwnerPredictedSendType {get; set;}
         /// <summary>
+        /// Get or sets to witch if a component should be be sent to the prediction owner or not. Some combination
+        /// of the parameters and OwnerSendType may result in an error or warning at code-generation time.
+        /// </summary>
+        public SendToOwnerType OwnerSendType { get; set; }
+        /// <summary>
         /// Gets or sets if the component should send data when it is on a child entity rather than the main entity of a prefab.
         /// </summary>
         public bool SendDataForChildEntity {get; set;}
@@ -41,6 +55,7 @@ namespace Unity.NetCode
         {
             PrefabType = GhostPrefabType.All;
             OwnerPredictedSendType = GhostSendType.All;
+            OwnerSendType = SendToOwnerType.All;
             SendDataForChildEntity = true;
         }
     }

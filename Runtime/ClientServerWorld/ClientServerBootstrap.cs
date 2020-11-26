@@ -29,7 +29,7 @@ namespace Unity.NetCode
         {
             // The default world must be created before generating the system list in order to have a valid TypeManager instance.
             // The TypeManage is initialised the first time we create a world.
-            var world = new World(defaultWorldName);
+            var world = new World(defaultWorldName, WorldFlags.Game);
             World.DefaultGameObjectInjectionWorld = world;
 
             var systems = DefaultWorldInitialization.GetAllSystems(WorldSystemFilterFlags.Default);
@@ -70,12 +70,26 @@ namespace Unity.NetCode
             return true;
         }
 
+        private static void AddSystemsToList(List<Type> src, List<Type> allManagedSystems, List<Type> allUnmanagedSystems)
+        {
+            foreach (var stype in src)
+                AddSystemToList(stype, allManagedSystems, allUnmanagedSystems);
+        }
+        private static void AddSystemToList(Type stype, List<Type> allManagedSystems, List<Type> allUnmanagedSystems)
+        {
+            if (typeof(ComponentSystemBase).IsAssignableFrom(stype))
+                allManagedSystems.Add(stype);
+            else if (typeof(ISystemBase).IsAssignableFrom(stype))
+                allUnmanagedSystems.Add(stype);
+            else
+                throw new InvalidOperationException("Bad type");
+        }
         public static World CreateClientWorld(World defaultWorld, string name, World worldToUse = null)
         {
 #if UNITY_SERVER
             throw new NotImplementedException();
 #else
-            var world = worldToUse!=null ? worldToUse : new World(name);
+            var world = worldToUse!=null ? worldToUse : new World(name, WorldFlags.Game);
             var initializationGroup = world.GetOrCreateSystem<ClientInitializationSystemGroup>();
             var simulationGroup = world.GetOrCreateSystem<ClientSimulationSystemGroup>();
             var presentationGroup = world.GetOrCreateSystem<ClientPresentationSystemGroup>();
@@ -86,39 +100,54 @@ namespace Unity.NetCode
             var presentationTickSystem = defaultWorld.GetOrCreateSystem<TickClientPresentationSystem>();
 
             //Retrieve all clients systems and create all at once via GetOrCreateSystemsAndLogException.
-            var allSystems = new List<Type>(s_State.ClientInitializationSystems.Count +
+            var allManagedTypes = new List<Type>(s_State.ClientInitializationSystems.Count +
                                             s_State.ClientSimulationSystems.Count +
                                             s_State.ClientPresentationSystems.Count +
                                             s_State.ClientChildSystems.Count + 3);
+            var allUnmanagedTypes = new List<Type>();
 
-            allSystems.AddRange(s_State.ClientInitializationSystems);
-            allSystems.AddRange(s_State.ClientSimulationSystems);
-            allSystems.AddRange(s_State.ClientPresentationSystems);
+            AddSystemsToList(s_State.ClientInitializationSystems, allManagedTypes, allUnmanagedTypes);
+            AddSystemsToList(s_State.ClientSimulationSystems, allManagedTypes, allUnmanagedTypes);
+            AddSystemsToList(s_State.ClientPresentationSystems, allManagedTypes, allUnmanagedTypes);
             foreach (var systemParentType in s_State.ClientChildSystems)
             {
-                allSystems.Add(systemParentType.Item1);
+                AddSystemToList(systemParentType.Item1, allManagedTypes, allUnmanagedTypes);
             }
-            world.GetOrCreateSystemsAndLogException(allSystems.ToArray());
+            world.GetOrCreateSystemsAndLogException(allManagedTypes.ToArray());
+
+            // TODO: create unmanaged systems
 
             //Step2: group update binding
             foreach (var systemType in s_State.ClientInitializationSystems)
             {
+                // TODO: handle unmanaged systems
+                if (!typeof(ComponentSystemBase).IsAssignableFrom(systemType))
+                    continue;
                 var system = world.GetExistingSystem(systemType);
                 initializationGroup.AddSystemToUpdateList(system);
             }
 
             foreach (var systemType in s_State.ClientSimulationSystems)
             {
+                // TODO: handle unmanaged systems
+                if (!typeof(ComponentSystemBase).IsAssignableFrom(systemType))
+                    continue;
                 var system = world.GetExistingSystem(systemType);
                 simulationGroup.AddSystemToUpdateList(system);
             }
             foreach (var systemType in s_State.ClientPresentationSystems)
             {
+                // TODO: handle unmanaged systems
+                if (!typeof(ComponentSystemBase).IsAssignableFrom(systemType))
+                    continue;
                 var system = world.GetExistingSystem(systemType);
                 presentationGroup.AddSystemToUpdateList(system);
             }
             foreach (var systemParentType in s_State.ClientChildSystems)
             {
+                // TODO: handle unmanaged systems
+                if (!typeof(ComponentSystemBase).IsAssignableFrom(systemParentType.Item1))
+                    continue;
                 var system = world.GetExistingSystem(systemParentType.Item1);
                 var group = world.GetExistingSystem(systemParentType.Item2) as ComponentSystemGroup;
                 group.AddSystemToUpdateList(system);
@@ -143,7 +172,7 @@ namespace Unity.NetCode
 #if UNITY_CLIENT && !UNITY_SERVER && !UNITY_EDITOR
             throw new NotImplementedException();
 #else
-            var world = worldToUse!=null ? worldToUse : new World(name);
+            var world = worldToUse!=null ? worldToUse : new World(name, WorldFlags.Game);
             var initializationGroup = world.GetOrCreateSystem<ServerInitializationSystemGroup>();
             var simulationGroup = world.GetOrCreateSystem<ServerSimulationSystemGroup>();
 
@@ -152,32 +181,44 @@ namespace Unity.NetCode
             var simulationTickSystem = defaultWorld.GetOrCreateSystem<TickServerSimulationSystem>();
 
             //Retrieve all clients systems and create all at once via GetOrCreateSystemsAndLogException.
-            var allSystems = new List<Type>(s_State.ServerInitializationSystems.Count +
+            var allManagedTypes = new List<Type>(s_State.ServerInitializationSystems.Count +
                                             s_State.ServerSimulationSystems.Count +
                                             s_State.ServerChildSystems.Count + 2);
+            var allUnmanagedTypes = new List<Type>();
 
-            allSystems.AddRange(s_State.ServerInitializationSystems);
-            allSystems.AddRange(s_State.ServerSimulationSystems);
+            AddSystemsToList(s_State.ServerInitializationSystems, allManagedTypes, allUnmanagedTypes);
+            AddSystemsToList(s_State.ServerSimulationSystems, allManagedTypes, allUnmanagedTypes);
             foreach (var systemParentType in s_State.ServerChildSystems)
             {
-                allSystems.Add(systemParentType.Item1);
+                AddSystemToList(systemParentType.Item1, allManagedTypes, allUnmanagedTypes);
             }
-            world.GetOrCreateSystemsAndLogException(allSystems.ToArray());
+            world.GetOrCreateSystemsAndLogException(allManagedTypes.ToArray());
+
+            // TODO: create unmanaged systems
 
             //Step2: group update binding
             foreach (var systemType in s_State.ServerInitializationSystems)
             {
+                // TODO: handle unmanaged systems
+                if (!typeof(ComponentSystemBase).IsAssignableFrom(systemType))
+                    continue;
                 var system = world.GetExistingSystem(systemType);
                 initializationGroup.AddSystemToUpdateList(system);
             }
 
             foreach (var systemType in s_State.ServerSimulationSystems)
             {
+                // TODO: handle unmanaged systems
+                if (!typeof(ComponentSystemBase).IsAssignableFrom(systemType))
+                    continue;
                 var system = world.GetExistingSystem(systemType);
                 simulationGroup.AddSystemToUpdateList(system);
             }
             foreach (var systemParentType in s_State.ServerChildSystems)
             {
+                // TODO: handle unmanaged systems
+                if (!typeof(ComponentSystemBase).IsAssignableFrom(systemParentType.Item1))
+                    continue;
                 var system = world.GetExistingSystem(systemParentType.Item1);
                 var group = world.GetExistingSystem(systemParentType.Item2) as ComponentSystemGroup;
                 group.AddSystemToUpdateList(system);

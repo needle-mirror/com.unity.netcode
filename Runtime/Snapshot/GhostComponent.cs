@@ -1,4 +1,5 @@
 using Unity.Entities;
+using Unity.Collections;
 using System;
 
 namespace Unity.NetCode
@@ -6,17 +7,23 @@ namespace Unity.NetCode
     /// <summary>
     /// Component signaling an entity which is replicated over the network
     /// </summary>
+    [DontSupportPrefabOverrides]
     public struct GhostComponent : IComponentData
     {
         public int ghostId;
         public int ghostType;
         public uint spawnTick;
     }
+    /// <summary>
+    /// A tag added to child entities in a ghost with multiple entities. It should also be added to ghosts in a group if the ghost is not the root of the group.
+    /// </summary>
+    [DontSupportPrefabOverrides]
     public struct GhostChildEntityComponent : IComponentData
     {}
     /// <summary>
     /// Component storing the guid of the prefab the ghost was created from. This is used to lookup ghost type in a robust way which works even if two ghosts have the same archetype
     /// </summary>
+    [DontSupportPrefabOverrides]
     public struct GhostTypeComponent : IComponentData,
         IEquatable<GhostTypeComponent>
     {
@@ -54,6 +61,7 @@ namespace Unity.NetCode
     /// <summary>
     /// Component used on the server to make sure ghosts of difference ghost types are in different chunks even if they have the same archetype (but different data)
     /// </summary>
+    [DontSupportPrefabOverrides]
     public struct SharedGhostTypeComponent : ISharedComponentData
     {
         public GhostTypeComponent SharedValue;
@@ -62,6 +70,7 @@ namespace Unity.NetCode
     /// <summary>
     /// Component on client signaling that an entity is predicted instead of interpolated
     /// </summary>
+    [DontSupportPrefabOverrides]
     public struct PredictedGhostComponent : IComponentData
     {
         public uint AppliedTick;
@@ -93,5 +102,36 @@ namespace Unity.NetCode
     public struct PreSpawnedGhostId : IComponentData
     {
         public int Value;
+    }
+
+
+    /// <summary>
+    /// Utility methods for working with GhostComponent.
+    /// </summary>
+    public static class GhostComponentUtilities
+    {
+        /// <summary>
+        /// Find the first valid ghost type id in an array of ghost components, pre-spawned ghosts have type id -1.
+        /// This method returns -1 if no ghost type id is found.
+        /// </summary>
+        public static int GetFirstGhostTypeId(this NativeArray<GhostComponent> self)
+        {
+            return self.GetFirstGhostTypeId(out var first);
+        }
+
+        /// <summary>
+        /// Find the first valid ghost type id in an array of ghost components, pre-spawned ghosts have type id -1.
+        /// This method returns -1 if no ghost type id is found.
+        /// </summary>
+        public static int GetFirstGhostTypeId(this NativeArray<GhostComponent> self, out int firstGhost)
+        {
+            firstGhost = 0;
+            int ghostTypeId = self[0].ghostType;
+            while (ghostTypeId == -1 && ++firstGhost < self.Length)
+            {
+                ghostTypeId = self[firstGhost].ghostType;
+            }
+            return ghostTypeId;
+        }
     }
 }

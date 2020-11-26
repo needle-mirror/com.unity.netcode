@@ -2,7 +2,7 @@
     "name": "Unity.NetCode.Editor",
     "references": [
         "Unity.NetCode",
-	"Unity.NetCode.Authoring.Hybrid",
+	    "Unity.NetCode.Authoring.Hybrid",
         "Unity.Entities",
         "Unity.Entities.Hybrid",
         "Unity.Collections",

@@ -307,55 +307,59 @@ namespace Unity.NetCode
                     var sendBuffer = rpcOutBuffer[i];
                     while (sendBuffer.Length > 0)
                     {
-                        DataStreamWriter tmp = driver.BeginSend(reliablePipeline, connections[i].Value);
-                        // If sending failed we stop and wait until next frame
-                        if (!tmp.IsCreated)
-                            break;
-                        if (sendBuffer.Length > tmp.Capacity)
+                        if (driver.BeginSend(reliablePipeline, connections[i].Value, out var tmp) == 0)
                         {
-                            var sendArray = NativeArrayUnsafeUtility.ConvertExistingDataToNativeArray<byte>(sendBuffer.GetUnsafePtr(), sendBuffer.Length, Allocator.Invalid);
-#if ENABLE_UNITY_COLLECTIONS_CHECKS
-                            var safety = NativeArrayUnsafeUtility.GetAtomicSafetyHandle(sendBuffer.AsNativeArray());
-                            NativeArrayUnsafeUtility.SetAtomicSafetyHandle(ref sendArray, safety);
-#endif
-                            var reader = new DataStreamReader(sendArray);
-                            reader.ReadByte();
-                            reader.ReadUShort();
-                            var len = reader.ReadUShort() + msgHeaderLen + 1;
-                            if (len > tmp.Capacity)
+                            // If sending failed we stop and wait until next frame
+                            if (sendBuffer.Length > tmp.Capacity)
                             {
-                                sendBuffer.Clear();
-                                // Could not fit a single message in the packet, this is a serious error
-                                throw new InvalidOperationException("An RPC was too big to be sent, reduce the size of your RPCs");
-                            }
-                            tmp.WriteBytes((byte*) sendBuffer.GetUnsafePtr(), len);
-                            // Try to fit a few more messages in this packet
-                            while (true)
-                            {
-                                var subArray = sendArray.GetSubArray(tmp.Length, sendArray.Length - tmp.Length);
-                                reader = new DataStreamReader(subArray);
+                                var sendArray = NativeArrayUnsafeUtility.ConvertExistingDataToNativeArray<byte>(sendBuffer.GetUnsafePtr(), sendBuffer.Length, Allocator.Invalid);
+    #if ENABLE_UNITY_COLLECTIONS_CHECKS
+                                var safety = NativeArrayUnsafeUtility.GetAtomicSafetyHandle(sendBuffer.AsNativeArray());
+                                NativeArrayUnsafeUtility.SetAtomicSafetyHandle(ref sendArray, safety);
+    #endif
+                                var reader = new DataStreamReader(sendArray);
+                                reader.ReadByte();
                                 reader.ReadUShort();
-                                len = reader.ReadUShort() + msgHeaderLen;
-                                if (tmp.Length + len > tmp.Capacity)
-                                    break;
-                                tmp.WriteBytes((byte*) subArray.GetUnsafeReadOnlyPtr(), len);
+                                var len = reader.ReadUShort() + msgHeaderLen + 1;
+                                if (len > tmp.Capacity)
+                                {
+                                    sendBuffer.Clear();
+                                    // Could not fit a single message in the packet, this is a serious error
+                                    throw new InvalidOperationException("An RPC was too big to be sent, reduce the size of your RPCs");
+                                }
+                                tmp.WriteBytes((byte*) sendBuffer.GetUnsafePtr(), len);
+                                // Try to fit a few more messages in this packet
+                                while (true)
+                                {
+                                    var subArray = sendArray.GetSubArray(tmp.Length, sendArray.Length - tmp.Length);
+                                    reader = new DataStreamReader(subArray);
+                                    reader.ReadUShort();
+                                    len = reader.ReadUShort() + msgHeaderLen;
+                                    if (tmp.Length + len > tmp.Capacity)
+                                        break;
+                                    tmp.WriteBytes((byte*) subArray.GetUnsafeReadOnlyPtr(), len);
+                                }
                             }
+                            else
+                                tmp.WriteBytes((byte*) sendBuffer.GetUnsafePtr(), sendBuffer.Length);
+                            // If sending failed we stop and wait until next frame
+                            var result = 0;
+                            if ((result = driver.EndSend(tmp)) <= 0)
+                            {
+                                UnityEngine.Debug.LogWarning($"An error occured during EndSend. ErrorCode: {result}");
+                                break;
+                            }
+                            if (tmp.Length < sendBuffer.Length)
+                            {
+                                // Compact the buffer, removing the rpcs we did send
+                                for (int cpy = tmp.Length; cpy < sendBuffer.Length; ++cpy)
+                                    sendBuffer[1 + cpy - tmp.Length] = sendBuffer[cpy];
+                                // Remove all but the first byte of the data we sent, first byte is identifying the packet as an rpc
+                                sendBuffer.ResizeUninitialized(1 + sendBuffer.Length - tmp.Length);
+                            }
+                            else
+                                sendBuffer.Clear();
                         }
-                        else
-                            tmp.WriteBytes((byte*) sendBuffer.GetUnsafePtr(), sendBuffer.Length);
-                        // If sending failed we stop and wait until next frame
-                        if (driver.EndSend(tmp) <= 0)
-                            break;
-                        if (tmp.Length < sendBuffer.Length)
-                        {
-                            // Compact the buffer, removing the rpcs we did send
-                            for (int cpy = tmp.Length; cpy < sendBuffer.Length; ++cpy)
-                                sendBuffer[1 + cpy - tmp.Length] = sendBuffer[cpy];
-                            // Remove all but the first byte of the data we sent, first byte is identifying the packet as an rpc
-                            sendBuffer.ResizeUninitialized(1 + sendBuffer.Length - tmp.Length);
-                        }
-                        else
-                            sendBuffer.Clear();
                     }
                 }
             }
@@ -378,7 +382,6 @@ namespace Unity.NetCode
                         case ErrorCodes.InvalidRpc:
                         case ErrorCodes.VersionNotReceived:
 #if ENABLE_UNITY_COLLECTIONS_CHECKS
-                            // TODO: we need to report the errors produced.
                             UnityEngine.Debug.LogError($"RpcSystem received invalid rpc from connection {connections[rpcError.connection].Value.InternalId}");
 #endif
                             commandBuffer.AddComponent(rpcError.connection,
@@ -390,7 +393,6 @@ namespace Unity.NetCode
                                 new NetworkStreamRequestDisconnect
                                     {Reason = NetworkStreamDisconnectReason.BadProtocolVersion});
 #if ENABLE_UNITY_COLLECTIONS_CHECKS
-                            // TODO: we need to report the errors produced.
                             UnityEngine.Debug.LogError($"RpcSystem received bad protocol version from connection {connections[rpcError.connection].Value.InternalId}");
 #endif
                             break;

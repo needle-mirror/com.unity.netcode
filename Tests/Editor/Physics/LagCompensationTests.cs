@@ -69,29 +69,29 @@ namespace Unity.NetCode.Physics.Tests
     {
         BeginSimulationEntityCommandBufferSystem m_BeginSimulationCommandBufferSystem;
         bool m_IsServer;
+        EntityQuery m_PlayerPrefabQuery;
+        EntityQuery m_CubePrefabQuery;
         protected override void OnCreate()
         {
             m_BeginSimulationCommandBufferSystem = World.GetOrCreateSystem<BeginSimulationEntityCommandBufferSystem>();
             m_IsServer = World.GetExistingSystem<ServerSimulationSystemGroup>()!=null;
+            m_PlayerPrefabQuery = GetEntityQuery(ComponentType.ReadOnly<Prefab>(), ComponentType.ReadOnly<GhostComponent>(), ComponentType.ReadOnly<LagCompensationTestPlayer>());
+            m_CubePrefabQuery = GetEntityQuery(ComponentType.ReadOnly<Prefab>(), ComponentType.ReadOnly<GhostComponent>(), ComponentType.Exclude<LagCompensationTestPlayer>());
         }
         protected override void OnUpdate()
         {
             var commandBuffer = m_BeginSimulationCommandBufferSystem.CreateCommandBuffer().AsParallelWriter();
 
             bool isServer = m_IsServer;
-            var prefabEntity = GetSingletonEntity<GhostPrefabCollectionComponent>();
-            var bufferFromEntity = GetBufferFromEntity<GhostPrefabBuffer>(true);
-            Entities.WithReadOnly(bufferFromEntity).WithNone<NetworkStreamInGame>().WithoutBurst().ForEach((int entityInQueryIndex, Entity ent, in NetworkIdComponent id) =>
+            var playerPrefab = m_PlayerPrefabQuery.GetSingletonEntity();
+            var cubePrefab = m_CubePrefabQuery.GetSingletonEntity();
+            Entities.WithNone<NetworkStreamInGame>().WithoutBurst().ForEach((int entityInQueryIndex, Entity ent, in NetworkIdComponent id) =>
             {
                 commandBuffer.AddComponent(entityInQueryIndex, ent, new NetworkStreamInGame());
                 if (isServer)
                 {
                     // Spawn the player so it gets replicated to the client
-                    var ghostId = 0;
-                    var playerPrefab = bufferFromEntity[prefabEntity][ghostId].Value;
                     // Spawn the cube when a player connects for simplicity
-                    ghostId = 1;
-                    var cubePrefab = bufferFromEntity[prefabEntity][ghostId].Value;
                     commandBuffer.Instantiate(entityInQueryIndex, cubePrefab);
                     var player = commandBuffer.Instantiate(entityInQueryIndex, playerPrefab);
                     commandBuffer.SetComponent(entityInQueryIndex, player, new GhostOwnerComponent{NetworkId = id.Value});

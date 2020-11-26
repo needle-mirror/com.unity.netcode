@@ -41,6 +41,15 @@ namespace Unity.NetCode.Editor
                 i.InterfaceType.Name == typeof(IComponentData).Name &&
                 i.InterfaceType.Namespace == typeof(IComponentData).Namespace);
         }
+        public static bool IsBufferElementData(this Mono.Cecil.TypeReference typeReference)
+        {
+            var resolvedType = typeReference.Resolve();
+            if (resolvedType == null)
+                return false;
+            return resolvedType.Interfaces.Any(i =>
+                i.InterfaceType.Name == typeof(IBufferElementData).Name &&
+                i.InterfaceType.Namespace == typeof(IBufferElementData).Namespace);
+        }
         public static bool IsIRpcCommand(this Mono.Cecil.TypeReference typeReference)
         {
             var resolvedType = typeReference.Resolve();
@@ -60,9 +69,9 @@ namespace Unity.NetCode.Editor
                 i.InterfaceType.Namespace == typeof(ICommandData).Namespace);
         }
 
-        public static bool HasGhostFieldAttribute(Mono.Cecil.TypeReference parentType, Mono.Cecil.FieldDefinition componentField)
+        public static bool HasGhostFieldAttribute(Mono.Cecil.TypeReference parentType, Mono.Cecil.IMemberDefinition componentField)
         {
-            if (!GhostAuthoringComponentEditor.GhostDefaultOverrides.TryGetValue(parentType.FullName.Replace('/','+'), out var newComponent))
+            if (!GhostAuthoringModifiers.GhostDefaultOverrides.TryGetValue(parentType.FullName.Replace('/','+'), out var newComponent))
             {
                 return componentField.HasAttribute<GhostFieldAttribute>();
             }
@@ -72,9 +81,9 @@ namespace Unity.NetCode.Editor
             }
         }
 
-        public static GhostFieldAttribute GetGhostFieldAttribute(Mono.Cecil.TypeReference parentType, Mono.Cecil.FieldDefinition componentField)
+        public static GhostFieldAttribute GetGhostFieldAttribute(Mono.Cecil.TypeReference parentType, Mono.Cecil.IMemberDefinition componentField)
         {
-            if (GhostAuthoringComponentEditor.GhostDefaultOverrides.TryGetValue(parentType.FullName.Replace('/','+'), out var newComponent))
+            if (parentType != null && GhostAuthoringModifiers.GhostDefaultOverrides.TryGetValue(parentType.FullName.Replace('/','+'), out var newComponent))
             {
                 foreach (var field in newComponent.fields)
                 {
@@ -103,10 +112,6 @@ namespace Unity.NetCode.Editor
 
         public static GhostComponentAttribute GetGhostComponentAttribute(Mono.Cecil.TypeDefinition managedType)
         {
-            if (GhostAuthoringComponentEditor.GhostDefaultOverrides.TryGetValue(managedType.FullName.Replace('/', '+'), out var newComponent))
-            {
-                return newComponent.attribute;
-            }
             var attribute = managedType.GetAttribute<GhostComponentAttribute>();
             if (attribute != null)
             {
@@ -125,6 +130,16 @@ namespace Unity.NetCode.Editor
             return null;
         }
 
+        public static ulong ComputeVariantHash(Mono.Cecil.TypeReference variantType, Mono.Cecil.CustomAttribute attribute)
+        {
+            var hash = TypeHash.FNV1A64(attribute.AttributeType.FullName);
+            var componentType = attribute.ConstructorArguments[0].Value as Mono.Cecil.TypeReference;
+            var variantName = variantType.FullName;
+            hash = TypeHash.CombineFNV1A64(hash, TypeHash.FNV1A64(componentType.FullName));
+            hash = TypeHash.CombineFNV1A64(hash, TypeHash.FNV1A64(variantName));
+            return hash;
+        }
+
         public static bool IsStruct(this Mono.Cecil.TypeDefinition type)
         {
             return !type.IsPrimitive && type.IsValueType && !type.IsEnum;
@@ -140,22 +155,45 @@ namespace Unity.NetCode.Editor
 
         public static string GetFieldTypeName(this Mono.Cecil.TypeReference type)
         {
-            if (type.IsTypeOf<System.Byte>()) return "byte";
-            if (type.IsTypeOf<System.SByte>()) return "sbyte";
-            if (type.IsTypeOf<System.Int16>()) return "short";
-            if (type.IsTypeOf<System.UInt16>()) return "ushort";
-            if (type.IsTypeOf<System.Int32>()) return "int";
-            if (type.IsTypeOf<System.UInt32>()) return "uint";
-            if (type.IsTypeOf<System.Int64>()) return "long";
-            if (type.IsTypeOf<System.UInt64>()) return "ulong";
+            if (type.IsTypeOf<Byte>()) return "byte";
+            if (type.IsTypeOf<SByte>()) return "sbyte";
+            if (type.IsTypeOf<Int16>()) return "short";
+            if (type.IsTypeOf<UInt16>()) return "ushort";
+            if (type.IsTypeOf<Int32>()) return "int";
+            if (type.IsTypeOf<UInt32>()) return "uint";
+            if (type.IsTypeOf<Int64>()) return "long";
+            if (type.IsTypeOf<UInt64>()) return "ulong";
 
-            if (type.IsTypeOf<System.IntPtr>()) return "iptr";
-            if (type.IsTypeOf<System.UIntPtr>()) return "uptr";
+            if (type.IsTypeOf<IntPtr>()) return "iptr";
+            if (type.IsTypeOf<UIntPtr>()) return "uptr";
 
-            if (type.IsTypeOf<System.Single>()) return "float";
-            if (type.IsTypeOf<System.Double>()) return "double";
+            if (type.IsTypeOf<Single>()) return "float";
+            if (type.IsTypeOf<Double>()) return "double";
 
             return type.ToString().Replace("/", ".");
+        }
+
+        static public bool HasAttributeOnMemberOImplementedInterfaces<T>(this Mono.Cecil.FieldDefinition member) where T: Attribute
+        {
+            foreach (var m in member.DeclaringType.Interfaces)
+            {
+                var prop = m.InterfaceType.Resolve().Fields.FirstOrDefault(p => p.Name == member.Name);
+                if (prop != null && prop.GetAttribute<T>() != null)
+                    return true;
+            }
+
+            return false;
+        }
+        static public bool HasAttributeOnMemberOImplementedInterfaces<T>(this Mono.Cecil.PropertyDefinition member) where T: Attribute
+        {
+            foreach (var m in member.DeclaringType.Interfaces)
+            {
+                var prop = m.InterfaceType.Resolve().Properties.FirstOrDefault(p => p.Name == member.Name);
+                if (prop != null && prop.GetAttribute<T>() != null)
+                    return true;
+            }
+
+            return false;
         }
 
     }

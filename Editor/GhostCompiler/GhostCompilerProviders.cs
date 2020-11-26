@@ -8,6 +8,14 @@ using UnityEditor.Compilation;
 
 namespace Unity.NetCode.Editor.GhostCompiler
 {
+
+    ///<summary>
+    /// Filter from compilation pipeline assemblies and build a potential list of assembly definition relevant to ghost,rpc and command generation.
+    /// Sufficient conditions:
+    /// - The assembly definition must reference to NetCode. Notable exceptions to this rule: NetCode and Unity.Transform
+    /// - The assembly definition must reference Unity.Entities
+    /// - If exclude flag is set, it should also check for further condition (editor only, test assembly)
+    ///</summary>
     internal struct GhostAssemblyProvider : IGhostAssemblyProvider
     {
         private AssemblyFilterExcludeFlag flags;
@@ -33,7 +41,7 @@ namespace Unity.NetCode.Editor.GhostCompiler
         {
             if (editorAssembly.name.Contains(".Generated"))
                 return false;
-            if (GhostAuthoringComponentEditor.AssembliesDefaultOverrides.Contains(editorAssembly.name))
+            if (GhostAuthoringModifiers.AssembliesDefaultOverrides.Contains(editorAssembly.name))
                 return true;
             if (!editorAssembly.assemblyReferences.Any(a => a.name == "Unity.Entities"))
                 return false;
@@ -47,6 +55,14 @@ namespace Unity.NetCode.Editor.GhostCompiler
         }
     }
 
+    ///<summary>
+    /// Extract from an assembly all the components types that can be used by ghosts, for witch we need
+    /// to generate serialization and deserializion code.
+    /// For a type to be added to the potential list one of the following condition should hold:
+    /// - ComponentData with at least one non static, public field annotated with a [GhostField] attribute
+    /// - BufferElementData witch at least one non static, public field annotated with a [GhostField] attribute
+    /// Is possible to always exclude or include certain types using GhostDefaultOverrides.
+    ///</summary>
     internal struct GhostComponentFilter
     {
         public HashSet<string> excludeList;
@@ -54,7 +70,7 @@ namespace Unity.NetCode.Editor.GhostCompiler
         {
             bool IsEnginedSupportedType(Mono.Cecil.TypeDefinition type)
             {
-                if (GhostAuthoringComponentEditor.GhostDefaultOverrides.TryGetValue(type.FullName.Replace("/", "+"), out var newComponent))
+                if (GhostAuthoringModifiers.GhostDefaultOverrides.TryGetValue(type.FullName.Replace("/", "+"), out var newComponent))
                     return true;
                 return false;
             }
@@ -62,7 +78,16 @@ namespace Unity.NetCode.Editor.GhostCompiler
             var excludeTypes = excludeList;
             bool IsGhostPredicate(Mono.Cecil.TypeDefinition t)
             {
-                if (!t.IsValueType || t.IsPrimitive || !t.IsIComponentData() || t.IsIRpcCommand())
+                if (!t.IsValueType || t.IsPrimitive || t.IsIRpcCommand())
+                    return false;
+
+                if (t.HasCustomAttributes)
+                {
+                    var variant = t.GetAttribute<GhostComponentVariationAttribute>();
+                    if (variant != null)
+                        return true;
+                }
+                if (!(t.IsIComponentData() || t.IsBufferElementData() || t.IsICommandData()))
                     return false;
 
                 if (excludeTypes != null && excludeTypes.Contains(t.FullName))
@@ -73,8 +98,10 @@ namespace Unity.NetCode.Editor.GhostCompiler
                 if (IsEnginedSupportedType(t))
                     return true;
 
-                // Otherwise, for backward compatibility I need to scan for presence of any GhostField.
-                return t.HasFields && t.Fields.Any(f => f.HasAttribute<GhostFieldAttribute>());
+                return ((t.HasFields && t.Fields.Any(f => f.IsPublic && f.HasAttribute<GhostFieldAttribute>())) ||
+                        (t.HasProperties && t.Properties.Any(f =>
+                            f.GetMethod != null && f.GetMethod.IsPublic && f.SetMethod != null && f.SetMethod.IsPublic &&
+                            f.HasAttribute<GhostFieldAttribute>())));
             }
 
             var result = new List<Mono.Cecil.TypeDefinition>();
@@ -97,14 +124,18 @@ namespace Unity.NetCode.Editor.GhostCompiler
         {
             bool IsEnginedSupportedType(Type type)
             {
-                if (GhostAuthoringComponentEditor.GhostDefaultOverrides.TryGetValue(type.FullName, out var newComponent))
+                if (GhostAuthoringModifiers.GhostDefaultOverrides.TryGetValue(type.FullName, out var newComponent))
                     return true;
                 return false;
             }
 
             bool IsGhostPredicate(Type t)
             {
-                if (!t.IsValueType || t.IsPrimitive || !typeof(IComponentData).IsAssignableFrom(t))
+                if (!t.IsValueType || t.IsPrimitive)
+                    return false;
+
+                if(!(typeof(IRpcCommand).IsAssignableFrom(t) || typeof(ICommandData).IsAssignableFrom(t) ||
+                   typeof(IComponentData).IsAssignableFrom(t) || typeof(IBufferElementData).IsAssignableFrom(t)))
                     return false;
 
                 // Backward compatibility for Transform and Rotation and other default types here.
@@ -139,6 +170,12 @@ namespace Unity.NetCode.Editor.GhostCompiler
             return assemblyWithGhosts;
         }
     }
+    ///<summary>
+    /// Extract from an assembly all the components types that can be used by rpc and command code-generation.
+    /// For a type to be added to the potential list one of the following condition should hold:
+    /// - he must be an ICommandData or IRpcCommand
+    /// - he must not have a NetCodeDisableCommandCodeGenAttribute attribute
+    ///</summary>
     internal struct CommandComponentFilter
     {
         public HashSet<string> excludeList;

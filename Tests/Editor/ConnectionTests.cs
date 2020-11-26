@@ -208,7 +208,20 @@ namespace Unity.NetCode.Tests
                 //First tick: compute on both client and server the ghost collection hash
                 testWorld.Tick(frameTime);
                 Assert.AreEqual(serverCollectionSystem.CalculateComponentCollectionHash(), clientCollectionSystem.CalculateComponentCollectionHash());
-                Assert.AreEqual(serverCollectionSystem.GhostTypeCollectionHash, clientCollectionSystem.GhostTypeCollectionHash);
+
+                // compare the list of loaded prefabs
+                var serverCollectionSingleton = testWorld.TryGetSingletonEntity<GhostCollection>(testWorld.ServerWorld);
+                var clientCollectionSingleton = testWorld.TryGetSingletonEntity<GhostCollection>(testWorld.ClientWorlds[0]);
+                Assert.AreNotEqual(Entity.Null, serverCollectionSingleton);
+                Assert.AreNotEqual(Entity.Null, clientCollectionSingleton);
+                var serverCollection = testWorld.ServerWorld.EntityManager.GetBuffer<GhostCollectionPrefab>(serverCollectionSingleton);
+                var clientCollection = testWorld.ClientWorlds[0].EntityManager.GetBuffer<GhostCollectionPrefab>(clientCollectionSingleton);
+                Assert.AreEqual(serverCollection.Length, clientCollection.Length);
+                for (int i = 0; i < serverCollection.Length; ++i)
+                {
+                    Assert.AreEqual(serverCollection[i].GhostType, clientCollection[i].GhostType);
+                    Assert.AreEqual(serverCollection[i].Hash, clientCollection[i].Hash);
+                }
 
                 //Check that and server can connect (same component hash)
                 Assert.IsTrue(testWorld.Connect(frameTime, 4));

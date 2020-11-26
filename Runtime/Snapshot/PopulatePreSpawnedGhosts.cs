@@ -15,6 +15,7 @@ public struct HighestPrespawnIDAllocated : IComponentData
 }
 
 [UpdateInGroup(typeof(GhostSimulationSystemGroup))]
+[UpdateAfter(typeof(GhostCollectionSystem))]
 public class PopulatePreSpawnedGhosts : SystemBase
 {
     private EntityQuery m_UninitializedScenes;
@@ -34,7 +35,7 @@ public class PopulatePreSpawnedGhosts : SystemBase
         var inGame = EntityManager.CreateEntityQuery(ComponentType.ReadOnly<NetworkStreamInGame>());
         RequireForUpdate(inGame);
         RequireForUpdate(m_UninitializedScenes);
-        RequireSingletonForUpdate<GhostPrefabCollectionComponent>();
+        RequireSingletonForUpdate<GhostCollection>();
     }
 
     protected override unsafe void OnUpdate()
@@ -102,14 +103,19 @@ public class PopulatePreSpawnedGhosts : SystemBase
         var PostUpdateCommands = new EntityCommandBuffer(Allocator.Temp);
         var serverSystems = World.GetExistingSystem<ServerSimulationSystemGroup>();
         var ghostTypes = GetComponentDataFromEntity<GhostTypeComponent>();
-        var ghostPrefabBufferFromEntity = GetBufferFromEntity<GhostPrefabBuffer>(true);
-        var prefabEntity = GetSingletonEntity<GhostPrefabCollectionComponent>();
         var ghostReceiveSystem = World.GetExistingSystem<GhostReceiveSystem>();
         var ghostSendSystem = World.GetExistingSystem<GhostSendSystem>();
-        var ghostCollectionSystem = World.GetExistingSystem<GhostCollectionSystem>();
-        DynamicBuffer<GhostPrefabBuffer> prefabList = ghostPrefabBufferFromEntity[prefabEntity];
+        var ghostTypeCollection = EntityManager.GetBuffer<GhostCollectionPrefabSerializer>(GetSingletonEntity<GhostCollection>());
         int highestPrespawnId = -1;
         var spawnedGhosts = new NativeList<SpawnedGhostMapping>(1024, Allocator.Temp);
+
+        // Create a lookup from ghost type component to prefab entity, used to figure out how to strip components on the client
+        var prefabFromType = new NativeHashMap<GhostTypeComponent, Entity>(1024, Allocator.Temp);
+        Entities.WithNone<GhostPrefabRuntimeStrip>().WithAll<Prefab>().ForEach((Entity ent, in GhostTypeComponent ghostType) =>
+        {
+            prefabFromType.TryAdd(ghostType, ent);
+        }).Run();
+
         for (int i = 0; i < prespawnChunk.Length; ++i)
         {
             var chunk = prespawnChunk[i];
@@ -120,13 +126,7 @@ public class PopulatePreSpawnedGhosts : SystemBase
                 var entity = entities[j];
 
                 var ghostTypeComponent = ghostTypes[entity];
-                int ghostType;
-                for (ghostType = 0; ghostType < prefabList.Length; ++ghostType)
-                {
-                    if (ghostTypes[prefabList[ghostType].Value] == ghostTypeComponent)
-                        break;
-                }
-                if (ghostType >= prefabList.Length)
+                if (!prefabFromType.TryGetValue(ghostTypeComponent, out var ghostPrefabEntity))
                 {
                     UnityEngine.Debug.LogError("Failed to look up ghost type for entity");
                     return;
@@ -140,42 +140,51 @@ public class PopulatePreSpawnedGhosts : SystemBase
                 }
 
                 // Modfy the entity to its proper version
-                if (EntityManager.HasComponent<GhostPrefabMetaDataComponent>(prefabList[ghostType].Value))
+                if (EntityManager.HasComponent<GhostPrefabMetaDataComponent>(ghostPrefabEntity))
                 {
-                    ref var ghostMetaData = ref EntityManager.GetComponentData<GhostPrefabMetaDataComponent>(prefabList[ghostType].Value).Value.Value;
+                    ref var ghostMetaData = ref EntityManager.GetComponentData<GhostPrefabMetaDataComponent>(ghostPrefabEntity).Value.Value;
+                    var linkedEntityGroup = EntityManager.GetBuffer<LinkedEntityGroup>(entity);
                     if (serverSystems != null)
                     {
                         for (int rm = 0; rm < ghostMetaData.RemoveOnServer.Length; ++rm)
                         {
-                            var rmCompType = ComponentType.ReadWrite(TypeManager.GetTypeIndexFromStableTypeHash(ghostMetaData.RemoveOnServer[rm]));
-                            PostUpdateCommands.RemoveComponent(entity, rmCompType);
+                            var childIndexCompHashPair = ghostMetaData.RemoveOnServer[rm];
+                            var rmCompType = ComponentType.ReadWrite(TypeManager.GetTypeIndexFromStableTypeHash(childIndexCompHashPair.StableHash));
+                            PostUpdateCommands.RemoveComponent(linkedEntityGroup[childIndexCompHashPair.EntityIndex].Value, rmCompType);
                         }
                     }
                     else
                     {
                         for (int rm = 0; rm < ghostMetaData.RemoveOnClient.Length; ++rm)
                         {
-                            var rmCompType = ComponentType.ReadWrite(TypeManager.GetTypeIndexFromStableTypeHash(ghostMetaData.RemoveOnClient[rm]));
-                            PostUpdateCommands.RemoveComponent(entity, rmCompType);
+                            var childIndexCompHashPair = ghostMetaData.RemoveOnClient[rm];
+                            var rmCompType = ComponentType.ReadWrite(TypeManager.GetTypeIndexFromStableTypeHash(childIndexCompHashPair.StableHash));
+                            PostUpdateCommands.RemoveComponent(linkedEntityGroup[childIndexCompHashPair.EntityIndex].Value, rmCompType);
                         }
                         // FIXME: should disable instead of removing once we have a way of doing that without structural changes
                         if (ghostMetaData.DefaultMode == GhostPrefabMetaData.GhostMode.Predicted)
                         {
                             for (int rm = 0; rm < ghostMetaData.DisableOnPredictedClient.Length; ++rm)
                             {
-                                var rmCompType = ComponentType.ReadWrite(TypeManager.GetTypeIndexFromStableTypeHash(ghostMetaData.DisableOnPredictedClient[rm]));
-                                PostUpdateCommands.RemoveComponent(entity, rmCompType);
+                                var childIndexCompHashPair = ghostMetaData.DisableOnPredictedClient[rm];
+                                var rmCompType = ComponentType.ReadWrite(TypeManager.GetTypeIndexFromStableTypeHash(childIndexCompHashPair.StableHash));
+                                PostUpdateCommands.RemoveComponent(linkedEntityGroup[childIndexCompHashPair.EntityIndex].Value, rmCompType);
                             }
                         }
                         else if (ghostMetaData.DefaultMode == GhostPrefabMetaData.GhostMode.Interpolated)
                         {
                             for (int rm = 0; rm < ghostMetaData.DisableOnInterpolatedClient.Length; ++rm)
                             {
-                                var rmCompType = ComponentType.ReadWrite(TypeManager.GetTypeIndexFromStableTypeHash(ghostMetaData.DisableOnInterpolatedClient[rm]));
-                                PostUpdateCommands.RemoveComponent(entity, rmCompType);
+                                var childIndexCompHashPair = ghostMetaData.DisableOnInterpolatedClient[rm];
+                                var rmCompType = ComponentType.ReadWrite(TypeManager.GetTypeIndexFromStableTypeHash(childIndexCompHashPair.StableHash));
+                                PostUpdateCommands.RemoveComponent(linkedEntityGroup[childIndexCompHashPair.EntityIndex].Value, rmCompType);
                             }
                         }
                     }
+                }
+                else
+                {
+                    UnityEngine.Debug.LogWarning("Could not find a valid ghost prefab for " + entity);
                 }
 
                 var subsceneHash = EntityManager.GetSharedComponentData<SubSceneGhostComponentHash>(entity).Value;
@@ -196,17 +205,14 @@ public class PopulatePreSpawnedGhosts : SystemBase
                 }
                 else if (ghostReceiveSystem != null)
                 {
-                    var snapshotSize = ghostCollectionSystem.m_GhostTypeCollection[ghostType].SnapshotSize;
                     spawnedGhosts.Add(new SpawnedGhostMapping{ghost = new SpawnedGhost{ghostId = newId, spawnTick = 0}, entity = entity});
-                    var newBuffer = PostUpdateCommands.SetBuffer<SnapshotDataBuffer>(entity);
-                    newBuffer.ResizeUninitialized(snapshotSize * GhostSystemConstants.SnapshotHistorySize);
-                    UnsafeUtility.MemClear(newBuffer.GetUnsafePtr(), snapshotSize * GhostSystemConstants.SnapshotHistorySize);
-                    PostUpdateCommands.SetComponent(entity, new SnapshotData{SnapshotSize = snapshotSize, LatestIndex = 0});
                 }
 
+                // GhostType -1 is a special case for prespawned ghosts which is converted to a proper ghost id in the send / receive systems
+                // once the ghost ids are known
                 // Pre-spawned uses spawnTick = 0, if there is a reference to a ghost and it has spawnTick 0 the ref is always resolved
                 // This works because there despawns are high priority and we never create pre-spawned ghosts after connection
-                var ghostComponent = new GhostComponent {ghostId = newId, ghostType = ghostType, spawnTick = 0};
+                var ghostComponent = new GhostComponent {ghostId = newId, ghostType = -1, spawnTick = 0};
                 PostUpdateCommands.SetComponent(entity, ghostComponent);
 
                 // Mark scene as processed, as whole scene will have been loaded when this entity appeared

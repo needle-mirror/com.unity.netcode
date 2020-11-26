@@ -182,7 +182,7 @@ public class SampleCubeInput : ComponentSystem
             return;
         }
         var input = default(CubeInput);
-        input.tick = World.GetExistingSystem<ClientSimulationSystemGroup>().ServerTick;
+        input.Tick = World.GetExistingSystem<ClientSimulationSystemGroup>().ServerTick;
         if (Input.GetKey("a"))
             input.horizontal -= 1;
         if (Input.GetKey("d"))

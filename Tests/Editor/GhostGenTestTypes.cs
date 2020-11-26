@@ -1,5 +1,8 @@
+using System.Linq;
+using System.Reflection;
 using NUnit.Framework;
 using Unity.Collections;
+using Unity.Collections.LowLevel.Unsafe;
 using Unity.Entities;
 using Unity.Mathematics;
 using UnityEngine;
@@ -42,36 +45,36 @@ namespace Unity.NetCode.Tests
         [GhostField(Composite=true)] public partialUint3 ComposedPartial_UInt3;
         [GhostField] public partialUint3 Partial_UInt3;
 
-        [GhostField(Quantization = 10, Composite=true)] public floatX Composed_FloatX;
-        [GhostField(Quantization = 10, Interpolate = true)] public floatX FloatX;
+        [GhostField(Quantization=10, Composite=true)] public floatX Composed_FloatX;
+        [GhostField(Quantization=10, Smoothing=SmoothingAction.Interpolate)] public floatX FloatX;
         [GhostField] public int IntValue;
         [GhostField] public uint UIntValue;
         [GhostField] public bool BoolValue;
 
         [GhostField] public float Unquantized_FloatValue;
-        [GhostField(Interpolate=true)] public float Unquantized_Interpolated_FloatValue;
+        [GhostField(Smoothing=SmoothingAction.Interpolate)] public float Unquantized_Interpolated_FloatValue;
         [GhostField(Quantization=10)] public float FloatValue;
-        [GhostField(Quantization=10, Interpolate=true)] public float Interpolated_FloatValue;
+        [GhostField(Quantization=10, Smoothing=SmoothingAction.Interpolate)] public float Interpolated_FloatValue;
 
         [GhostField(Quantization=10)] public float2 Float2Value;
-        [GhostField(Quantization=10, Interpolate=true)] public float2 Interpolated_Float2Value;
+        [GhostField(Quantization=10, Smoothing=SmoothingAction.Interpolate)] public float2 Interpolated_Float2Value;
         [GhostField] public float2 Unquantized_Float2Value;
-        [GhostField(Interpolate=true)] public float2 Interpolated_Unquantized_Float2Value;
+        [GhostField(Smoothing=SmoothingAction.Interpolate)] public float2 Interpolated_Unquantized_Float2Value;
 
         [GhostField(Quantization=10)] public float3 Float3Value;
-        [GhostField(Quantization=10, Interpolate=true)] public float3 Interpolated_Float3Value;
+        [GhostField(Quantization=10, Smoothing=SmoothingAction.Interpolate)] public float3 Interpolated_Float3Value;
         [GhostField] public float3 Unquantized_Float3Value;
-        [GhostField(Interpolate=true)] public float3 Interpolated_Unquantized_Float3Value;
+        [GhostField(Smoothing=SmoothingAction.Interpolate)] public float3 Interpolated_Unquantized_Float3Value;
 
         [GhostField(Quantization=10)] public float4 Float4Value;
-        [GhostField(Quantization=10, Interpolate=true)] public float4 Interpolated_Float4Value;
+        [GhostField(Quantization=10, Smoothing=SmoothingAction.Interpolate)] public float4 Interpolated_Float4Value;
         [GhostField] public float4 Unquantized_Float4Value;
-        [GhostField(Interpolate=true)] public float4 Interpolated_Unquantized_Float4Value;
+        [GhostField(Smoothing=SmoothingAction.Interpolate)] public float4 Interpolated_Unquantized_Float4Value;
 
         [GhostField(Quantization=1000)] public quaternion QuaternionValue;
-        [GhostField(Quantization=1000, Interpolate=true)] public quaternion Interpolated_QuaternionValue;
+        [GhostField(Quantization=1000, Smoothing=SmoothingAction.Interpolate)] public quaternion Interpolated_QuaternionValue;
         [GhostField] public quaternion Unquantized_QuaternionValue;
-        [GhostField(Interpolate=true)] public quaternion Interpolated_Unquantized_QuaternionValue;
+        [GhostField(Smoothing=SmoothingAction.Interpolate)] public quaternion Interpolated_Unquantized_QuaternionValue;
 
         [GhostField] public FixedString32 String32Value;
         [GhostField] public FixedString64 String64Value;
@@ -286,6 +289,166 @@ namespace Unity.NetCode.Tests
 
                 // Assert that replicated version is correct
                 VerifyGhostValues(testWorld);
+            }
+        }
+
+
+        public struct GhostGenBigStruct : IComponentData
+        {
+            //Add 100 int fields and check they are serialized correctly
+            [GhostField] public int field000;
+            [GhostField] public int field001;
+            [GhostField] public int field002;
+            [GhostField] public int field003;
+            [GhostField] public int field004;
+            [GhostField] public int field005;
+            [GhostField] public int field006;
+            [GhostField] public int field007;
+            [GhostField] public int field008;
+            [GhostField] public int field009;
+            [GhostField] public int field010;
+            [GhostField] public int field011;
+            [GhostField] public int field012;
+            [GhostField] public int field013;
+            [GhostField] public int field014;
+            [GhostField] public int field015;
+            [GhostField] public int field016;
+            [GhostField] public int field017;
+            [GhostField] public int field018;
+            [GhostField] public int field019;
+            [GhostField] public int field020;
+            [GhostField] public int field021;
+            [GhostField] public int field022;
+            [GhostField] public int field023;
+            [GhostField] public int field024;
+            [GhostField] public int field025;
+            [GhostField] public int field026;
+            [GhostField] public int field027;
+            [GhostField] public int field028;
+            [GhostField] public int field029;
+            [GhostField] public int field030;
+            [GhostField] public int field031;
+            [GhostField] public int field032;
+            [GhostField] public int field033;
+            [GhostField] public int field034;
+            [GhostField] public int field035;
+            [GhostField] public int field036;
+            [GhostField] public int field037;
+            [GhostField] public int field038;
+            [GhostField] public int field039;
+            [GhostField] public int field040;
+            [GhostField] public int field041;
+            [GhostField] public int field042;
+            [GhostField] public int field043;
+            [GhostField] public int field044;
+            [GhostField] public int field045;
+            [GhostField] public int field046;
+            [GhostField] public int field047;
+            [GhostField] public int field048;
+            [GhostField] public int field049;
+            [GhostField] public int field050;
+            [GhostField] public int field051;
+            [GhostField] public int field052;
+            [GhostField] public int field053;
+            [GhostField] public int field054;
+            [GhostField] public int field055;
+            [GhostField] public int field056;
+            [GhostField] public int field057;
+            [GhostField] public int field058;
+            [GhostField] public int field059;
+            [GhostField] public int field060;
+            [GhostField] public int field061;
+            [GhostField] public int field062;
+            [GhostField] public int field063;
+            [GhostField] public int field064;
+            [GhostField] public int field065;
+            [GhostField] public int field066;
+            [GhostField] public int field067;
+            [GhostField] public int field068;
+            [GhostField] public int field069;
+            [GhostField] public int field070;
+            [GhostField] public int field071;
+            [GhostField] public int field072;
+            [GhostField] public int field073;
+            [GhostField] public int field074;
+            [GhostField] public int field075;
+            [GhostField] public int field076;
+            [GhostField] public int field077;
+            [GhostField] public int field078;
+            [GhostField] public int field079;
+            [GhostField] public int field080;
+            [GhostField] public int field081;
+            [GhostField] public int field082;
+            [GhostField] public int field083;
+            [GhostField] public int field084;
+            [GhostField] public int field085;
+            [GhostField] public int field086;
+            [GhostField] public int field087;
+            [GhostField] public int field088;
+            [GhostField] public int field089;
+            [GhostField] public int field090;
+            [GhostField] public int field091;
+            [GhostField] public int field092;
+            [GhostField] public int field093;
+            [GhostField] public int field094;
+            [GhostField] public int field095;
+            [GhostField] public int field096;
+            [GhostField] public int field097;
+            [GhostField] public int field098;
+            [GhostField] public int field099;
+            [GhostField] public int field100;
+        }
+
+        public class GhostGenBigStructConverter : TestNetCodeAuthoring.IConverter
+        {
+            public void Convert(GameObject gameObject, Entity entity, EntityManager dstManager, GameObjectConversionSystem conversionSystem)
+            {
+                dstManager.AddComponentData(entity, new GhostGenBigStruct {});
+            }
+        }
+
+        [Test]
+        public void StructWithLargeNumberOfFields()
+        {
+            using (var testWorld = new NetCodeTestWorld())
+            {
+                testWorld.Bootstrap(true);
+
+                var ghostGameObject = new GameObject();
+                ghostGameObject.AddComponent<TestNetCodeAuthoring>().Converter = new GhostGenBigStructConverter();
+
+                Assert.IsTrue(testWorld.CreateGhostCollection(ghostGameObject));
+
+                testWorld.CreateWorlds(true, 1);
+
+                var serverEntity = testWorld.SpawnOnServer(ghostGameObject);
+                //Use reflection.. just because if is faster
+                var data = default(GhostGenBigStruct);
+                unsafe
+                {
+                    var values = (int*)UnsafeUtility.AddressOf(ref data);
+                    for (int i = 0; i < 100; ++i)
+                    {
+                        values[i] = i;
+                    }
+                }
+                testWorld.ServerWorld.EntityManager.SetComponentData(serverEntity, data);
+
+                float frameTime = 1.0f / 60.0f;
+                // Connect and make sure the connection could be established
+                Assert.IsTrue(testWorld.Connect(frameTime, 4));
+
+                // Go in-game
+                testWorld.GoInGame();
+
+                // Let the game run for a bit so the ghosts are spawned on the client
+                for (int i = 0; i < 16; ++i)
+                    testWorld.Tick(frameTime);
+
+                var clientEntity = testWorld.TryGetSingletonEntity<GhostGenBigStruct>(testWorld.ClientWorlds[0]);
+                var clientData = testWorld.ClientWorlds[0].EntityManager.GetComponentData<GhostGenBigStruct>(clientEntity);
+                var serverData = testWorld.ServerWorld.EntityManager.GetComponentData<GhostGenBigStruct>(serverEntity);
+                Assert.AreEqual(serverData, clientData);
             }
         }
     }

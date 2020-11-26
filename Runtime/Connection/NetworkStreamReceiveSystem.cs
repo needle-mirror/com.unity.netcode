@@ -128,7 +128,6 @@ namespace Unity.NetCode
             if (m_Driver.Listen() != 0)
                 return false;
             m_DriverListening = true;
-            // FIXME: Bind breaks all copies of the driver nad makes them send to the wrong socket
             m_ConcurrentDriver = m_Driver.ToConcurrent();
             return true;
         }
@@ -373,6 +372,16 @@ namespace Unity.NetCode
                 commandBuffer.RemoveComponent<NetworkStreamRequestDisconnect>(nativeThreadIndex, entity);
             }).Schedule();
 
+            // Clear the ack mask when not in-game
+            Entities
+                .WithNone<NetworkStreamDisconnected>()
+                .WithNone<NetworkStreamRequestDisconnect>()
+                .WithNone<NetworkStreamInGame>()
+                .ForEach((ref NetworkSnapshotAckComponent ack) =>
+            {
+                ack = default;
+            }).Schedule();
+
             // Schedule parallel update job
             var concurrentDriver = m_ConcurrentDriver;
             var freeNetworkIds = concurrentFreeQueue;
@@ -430,8 +439,9 @@ namespace Unity.NetCode
                                     uint remoteTime = reader.ReadUInt();
                                     uint localTimeMinusRTT = reader.ReadUInt();
                                     uint interpolationDelay = reader.ReadUInt();
+                                    uint numLoadedPrefabs = reader.ReadUInt();
                                     snapshotAck.UpdateRemoteTime(remoteTime, localTimeMinusRTT, localTime,
-                                        interpolationDelay);
+                                        interpolationDelay, numLoadedPrefabs);
 
                                     buffer.Clear();
                                     buffer.Add(ref reader);
@@ -442,7 +452,7 @@ namespace Unity.NetCode
                                     uint remoteTime = reader.ReadUInt();
                                     uint localTimeMinusRTT = reader.ReadUInt();
                                     snapshotAck.ServerCommandAge = reader.ReadInt();
-                                    snapshotAck.UpdateRemoteTime(remoteTime, localTimeMinusRTT, localTime, 0);
+                                    snapshotAck.UpdateRemoteTime(remoteTime, localTimeMinusRTT, localTime, 0, 0);
 
                                     var buffer = snapshotBuffer[entity];
 #if UNITY_EDITOR || DEVELOPMENT_BUILD

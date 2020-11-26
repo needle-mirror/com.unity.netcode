@@ -15,22 +15,6 @@ namespace Unity.NetCode.Editor
             Key = !type.IsEnum ? type.FullName : typeof(Enum).FullName;
             Attribute = attribute;
         }
-
-        public TypeDescription(Mono.Cecil.TypeReference typeReference, TypeAttribute attribute)
-        {
-            TypeFullName = typeReference.FullName.Replace("/", "+");
-
-            if (!typeReference.IsPrimitive && typeReference.Resolve().IsEnum)
-            {
-                Key = typeof(Enum).FullName;
-            }
-            else
-            {
-                Key = TypeFullName;
-            }
-            Attribute = attribute;
-        }
-
         public override bool Equals(object obj)
         {
             if (obj is TypeDescription)
@@ -39,9 +23,13 @@ namespace Unity.NetCode.Editor
                 var otherQuantization = other.Attribute.quantization > 0;
                 var ourQuantization = Attribute.quantization > 0;
 
+                var mask = (uint)TypeAttribute.AttributeFlags.Interpolated;
+
                 if (other.Key == this.Key &&
                     other.Attribute.subtype == Attribute.subtype &&
-                    other.Attribute.interpolate == Attribute.interpolate &&
+
+                    (other.Attribute.smoothing & mask) == (Attribute.smoothing & mask) &&
+
                     ourQuantization == otherQuantization)
                     return true;
             }
@@ -73,17 +61,21 @@ namespace Unity.NetCode.Editor
     {
         public int  quantization;
         public int  subtype;
-        public bool interpolate;
+
+        public uint smoothing;
+
         public bool composite;
+        public int  maxSmoothingDist;
 
         public static TypeAttribute Empty()
         {
             return new TypeAttribute
             {
                 composite = false,
-                interpolate = false,
+                smoothing = (uint)SmoothingAction.Clamp,
                 quantization = -1,
-                subtype = 0
+                subtype = 0,
+                maxSmoothingDist = 0
             };
         }
 
@@ -91,16 +83,19 @@ namespace Unity.NetCode.Editor
         public enum AttributeFlags
         {
             None = 0,
-            Quantized = 1 << 0,
-            Composite = 1 << 1,
-            Interpolated = 1 << 2
+            Interpolated = 1 << 0,
+            InterpolatedAndExtrapolated = Interpolated | 1 << 1,
+            Quantized = 1 << 2,
+            Composite = 1 << 3,
+
+            All = InterpolatedAndExtrapolated | Quantized | Composite
         }
         public static TypeAttribute Specialized(AttributeFlags flags, int subtype = 0)
         {
             return new TypeAttribute
             {
                 composite = flags.HasFlag(AttributeFlags.Composite),
-                interpolate = flags.HasFlag(AttributeFlags.Interpolated),
+                smoothing = (uint)AttributeFlags.InterpolatedAndExtrapolated & (uint)flags,
                 quantization = flags.HasFlag(AttributeFlags.Quantized) ? 1 :-1,
                 subtype = subtype
             };
@@ -109,31 +104,42 @@ namespace Unity.NetCode.Editor
         public override int GetHashCode()
         {
             bool isquantized = quantization > 0;
-            return isquantized.GetHashCode() ^ subtype.GetHashCode() ^ interpolate.GetHashCode();
+            return isquantized.GetHashCode() ^ subtype.GetHashCode() ^
+                   (int) ((smoothing & (uint) AttributeFlags.Interpolated));
         }
     }
-    public class TypeInformation
+    internal class TypeInformation
     {
         public Mono.Cecil.TypeReference Type;
+        public Mono.Cecil.TypeReference DeclaringType;
+        public string FieldName;
         public TypeAttribute Attribute;
+        //Children can inherith and set attribute if they are set in the mask (by default: all)
+        public TypeAttribute.AttributeFlags AttributeMask = TypeAttribute.AttributeFlags.All;
 
-        public Mono.Cecil.FieldReference FieldInfo;
         public string Parent;
 
         public List<TypeInformation> Fields;
 
-        public TypeDescription Description => new TypeDescription(Type, Attribute);
+        public TypeDescription Description
+        {
+            get
+            {
+                var typeFullName = Type.FullName.Replace("/", "+");
+                return new TypeDescription
+                {
+                    TypeFullName = typeFullName,
+                    Key = !Type.IsPrimitive && Type.Resolve().IsEnum ? typeof(Enum).FullName : typeFullName,
+                    Attribute = Attribute
+                };
+            }
+        }
 
         public bool IsValid => this.Type != null;
 
         public void Add(TypeInformation information)
         {
             Fields.Add(information);
-        }
-
-        private TypeInformation()
-        {
-            Fields = new List<TypeInformation>();
         }
 
         public TypeInformation(Mono.Cecil.TypeDefinition type)
@@ -143,15 +149,27 @@ namespace Unity.NetCode.Editor
             Attribute = TypeAttribute.Empty();
         }
 
-        public TypeInformation(Mono.Cecil.TypeReference parentType, Mono.Cecil.FieldDefinition fieldInfo, TypeAttribute inheritedAttribute,
-            string parent = null)
+        public TypeInformation(Mono.Cecil.IMemberDefinition field, Mono.Cecil.TypeReference fieldType, GhostFieldAttribute ghostField,
+            TypeAttribute inheritedAttribute, TypeAttribute.AttributeFlags inheritedAttributeMask, string parent = null)
         {
-            FieldInfo = fieldInfo;
-            Type = fieldInfo.FieldType;
+            Type = fieldType;
+            FieldName = field.Name;
+            DeclaringType = field.DeclaringType;
             Fields = new List<TypeInformation>();
             Attribute = inheritedAttribute;
+            AttributeMask = inheritedAttributeMask;
+            //Always reset the subtype. It cannot be inherithed like this
+            Attribute.subtype = 0;
+            //Reset flags based on inheritance mask
+            Attribute.composite &= (AttributeMask & TypeAttribute.AttributeFlags.Composite) != 0;
 
-            ParseAttribute(CecilExtensions.GetGhostFieldAttribute(parentType, fieldInfo));
+            Attribute.smoothing &= inheritedAttribute.smoothing;
+
+            if((AttributeMask & TypeAttribute.AttributeFlags.Quantized) == 0)
+                Attribute.quantization = -1;
+
+
+            ParseAttribute(ghostField);
             Parent = string.IsNullOrEmpty(parent) ? "" : parent;
         }
 
@@ -160,16 +178,18 @@ namespace Unity.NetCode.Editor
             if (attribute != null)
             {
                 if (attribute.Quantization >= 0) Attribute.quantization = attribute.Quantization;
-                if (attribute.Interpolate) Attribute.interpolate = attribute.Interpolate;
+                if ((int) attribute.Smoothing >= 0) Attribute.smoothing = (uint) attribute.Smoothing;
                 if (attribute.SubType > 0) Attribute.subtype = attribute.SubType;
                 if (attribute.Composite) Attribute.composite = attribute.Composite;
+                if (attribute.MaxSmoothingDistance > 0)
+                    Attribute.maxSmoothingDist = attribute.MaxSmoothingDistance;
             }
         }
 
         public override string ToString()
         {
             var typeName = this.Type.Name;
-            var fieldName = this.FieldInfo?.Name ?? "";
+            var fieldName = this.FieldName != null ? this.FieldName : "";
             var attributes = "";
 
             if (Attribute.quantization >= 0)
@@ -178,7 +198,7 @@ namespace Unity.NetCode.Editor
                 attributes += "is_composite ";
             if (Attribute.subtype != 0)
                 attributes += $"subtype: {Attribute.subtype} ";
-            if (Attribute.interpolate)
+            if (Attribute.smoothing == (uint)SmoothingAction.Interpolate)
                 attributes += "interpolated";
 
             return $"({typeName}) [{attributes}] {fieldName}\n";
@@ -235,30 +255,6 @@ namespace Unity.NetCode.Editor
             {
                 Templates.Add(type.description, type.template);
             }
-        }
-    }
-
-    public static class TypeExtensions
-    {
-
-
-        public static void PrintInfo(this Mono.Cecil.TypeDefinition type)
-        {
-            System.Console.WriteLine($"Printing info about ({type.Name})");
-            if (type.IsBlittable())
-                System.Console.WriteLine("Blittable");
-            if (type.IsPublic)
-                System.Console.WriteLine("Public");
-            if (type.IsEnum)
-                System.Console.WriteLine("Enum");
-            if (type.IsStruct())
-                System.Console.WriteLine("Struct");
-            if (type.IsPrimitive)
-                System.Console.WriteLine("Primitive");
-            if (type.IsValueType)
-                System.Console.WriteLine("ValueType");
-            if (type.IsClass)
-                System.Console.WriteLine("Class");
         }
     }
 }

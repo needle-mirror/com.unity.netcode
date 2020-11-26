@@ -31,11 +31,13 @@ namespace Unity.NetCode
         private float m_interpolationTickFraction;
         private uint m_previousServerTick;
         private float m_previousServerTickFraction;
+        private double m_currentTime;
 
         protected override void OnCreate()
         {
             base.OnCreate();
             m_NetworkTimeSystem = World.GetOrCreateSystem<NetworkTimeSystem>();
+            m_currentTime = Time.ElapsedTime;
         }
 
         protected override void OnUpdate()
@@ -51,20 +53,10 @@ namespace Unity.NetCode
             float fixedTimeStep = 1.0f / (float) tickRate.SimulationTickRate;
             ServerTickDeltaTime = fixedTimeStep;
 
-            float networkDeltaTime = Time.DeltaTime;
-            // Set delta time for the NetworkTimeSystem
-            World.PushTime(Time);
-            if (networkDeltaTime > (float) tickRate.MaxSimulationStepsPerFrame / (float) tickRate.SimulationTickRate)
-            {
-                networkDeltaTime = (float) tickRate.MaxSimulationStepsPerFrame / (float) tickRate.SimulationTickRate;
-                World.SetTime(new TimeData(Time.ElapsedTime, networkDeltaTime));
-            }
-
             // Calculate update time based on values received from the network time system
             var curServerTick = m_NetworkTimeSystem.predictTargetTick;
             var curInterpoationTick = m_NetworkTimeSystem.interpolateTargetTick;
 
-            double currentTime = Time.ElapsedTime;
             m_serverTickFraction = m_NetworkTimeSystem.subPredictTargetTick;
             m_interpolationTickFraction = m_NetworkTimeSystem.subInterpolateTargetTick;
 
@@ -85,7 +77,7 @@ namespace Unity.NetCode
             uint deltaTicks = curServerTick - m_previousServerTick;
             if (deltaTicks > (uint) tickRate.MaxSimulationStepsPerFrame)
                 deltaTicks = (uint) tickRate.MaxSimulationStepsPerFrame;
-            networkDeltaTime = (deltaTicks + m_serverTickFraction - m_previousServerTickFraction) * fixedTimeStep;
+            float networkDeltaTime = (deltaTicks + m_serverTickFraction - m_previousServerTickFraction) * fixedTimeStep;
 
             m_previousServerTick = curServerTick;
             m_previousServerTickFraction = m_serverTickFraction;
@@ -93,7 +85,8 @@ namespace Unity.NetCode
 
             m_serverTick = curServerTick;
             m_interpolationTick = curInterpoationTick;
-            World.SetTime(new TimeData(currentTime, networkDeltaTime));
+            m_currentTime += networkDeltaTime;
+            World.PushTime(new TimeData(m_currentTime, networkDeltaTime));
             base.OnUpdate();
             World.PopTime();
         }

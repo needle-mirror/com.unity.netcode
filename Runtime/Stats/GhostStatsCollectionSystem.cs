@@ -60,13 +60,19 @@ namespace Unity.NetCode
 
             m_LastNameAndErrorArray += "]";
 
-            // Reset the snapshot stats
-            m_SnapshotStats.Dispose();
-            m_SnapshotStats = new NativeArray<uint>((nameList.Count + 1)*3, Allocator.Persistent);
+            if (m_SnapshotStats.Length != (nameList.Count+1)*3)
+            {
+                // Reset the snapshot stats
+                m_SnapshotStats.Dispose();
+                m_SnapshotStats = new NativeArray<uint>((nameList.Count + 1)*3, Allocator.Persistent);
+            }
 
-            // Reset the snapshot stats
-            m_PredictionErrors.Dispose();
-            m_PredictionErrors = new NativeArray<float>(errorList.Count, Allocator.Persistent);
+            if (m_PredictionErrors.Length != errorList.Count)
+            {
+                // Reset the snapshot stats
+                m_PredictionErrors.Dispose();
+                m_PredictionErrors = new NativeArray<float>(errorList.Count, Allocator.Persistent);
+            }
 
             if (m_StatIndex < 0)
                 return;
@@ -284,7 +290,10 @@ namespace Unity.NetCode
         void UpdateMaxPacketSize()
         {
             // Calculate a new max packet size
-            m_MaxPacketSize = 8 + 20 * 255 + 4 * m_SnapshotStats.Length + m_PredictionErrors.Length + 4 * 255;
+            var packetSize = 8 + 20 * 255 + 4 * m_SnapshotStats.Length + m_PredictionErrors.Length + 4 * 255;
+            if (packetSize == m_MaxPacketSize)
+                return;
+            m_MaxPacketSize = packetSize;
             m_PacketPool.Clear();
 
             // Drop all pending packets not yet in the queue

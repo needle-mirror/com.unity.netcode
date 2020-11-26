@@ -77,11 +77,17 @@ namespace Generated
                 component.__GHOST_FIELD_REFERENCE__ = math.normalize(new quaternion(snapshotBefore.__GHOST_FIELD_NAME__X * __GHOST_DEQUANTIZE_SCALE__, snapshotBefore.__GHOST_FIELD_NAME__Y * __GHOST_DEQUANTIZE_SCALE__, snapshotBefore.__GHOST_FIELD_NAME__Z * __GHOST_DEQUANTIZE_SCALE__, snapshotBefore.__GHOST_FIELD_NAME__W * __GHOST_DEQUANTIZE_SCALE__));
                 #endregion
 
+                #region __GHOST_COPY_FROM_SNAPSHOT_INTERPOLATE_SETUP__
+                var __GHOST_FIELD_NAME___Before = math.normalize(new quaternion(snapshotBefore.__GHOST_FIELD_NAME__X * __GHOST_DEQUANTIZE_SCALE__, snapshotBefore.__GHOST_FIELD_NAME__Y * __GHOST_DEQUANTIZE_SCALE__, snapshotBefore.__GHOST_FIELD_NAME__Z * __GHOST_DEQUANTIZE_SCALE__, snapshotBefore.__GHOST_FIELD_NAME__W * __GHOST_DEQUANTIZE_SCALE__));
+                var __GHOST_FIELD_NAME___After = math.normalize(new quaternion(snapshotAfter.__GHOST_FIELD_NAME__X * __GHOST_DEQUANTIZE_SCALE__, snapshotAfter.__GHOST_FIELD_NAME__Y * __GHOST_DEQUANTIZE_SCALE__, snapshotAfter.__GHOST_FIELD_NAME__Z * __GHOST_DEQUANTIZE_SCALE__, snapshotAfter.__GHOST_FIELD_NAME__W * __GHOST_DEQUANTIZE_SCALE__));
+                #endregion
+                #region __GHOST_COPY_FROM_SNAPSHOT_INTERPOLATE_DISTSQ__
+                var __GHOST_FIELD_NAME___DistSq = math.dot(__GHOST_FIELD_NAME___Before, __GHOST_FIELD_NAME___After);
+                __GHOST_FIELD_NAME___DistSq = 1 - __GHOST_FIELD_NAME___DistSq*__GHOST_FIELD_NAME___DistSq;
+                #endregion
                 #region __GHOST_COPY_FROM_SNAPSHOT_INTERPOLATE__
-                component.__GHOST_FIELD_REFERENCE__ = math.slerp(
-                    math.normalize(new quaternion(snapshotBefore.__GHOST_FIELD_NAME__X * __GHOST_DEQUANTIZE_SCALE__, snapshotBefore.__GHOST_FIELD_NAME__Y * __GHOST_DEQUANTIZE_SCALE__, snapshotBefore.__GHOST_FIELD_NAME__Z * __GHOST_DEQUANTIZE_SCALE__, snapshotBefore.__GHOST_FIELD_NAME__W * __GHOST_DEQUANTIZE_SCALE__)),
-                    math.normalize(new quaternion(snapshotAfter.__GHOST_FIELD_NAME__X * __GHOST_DEQUANTIZE_SCALE__, snapshotAfter.__GHOST_FIELD_NAME__Y * __GHOST_DEQUANTIZE_SCALE__, snapshotAfter.__GHOST_FIELD_NAME__Z * __GHOST_DEQUANTIZE_SCALE__, snapshotAfter.__GHOST_FIELD_NAME__W * __GHOST_DEQUANTIZE_SCALE__)),
-                    snapshotInterpolationFactor);
+                component.__GHOST_FIELD_REFERENCE__ = math.slerp(__GHOST_FIELD_NAME___Before,
+                    __GHOST_FIELD_NAME___After, snapshotInterpolationFactor);
                 #endregion
             }
         }

@@ -7,11 +7,11 @@ using Unity.Networking.Transport.Utilities;
 using Unity.Collections.LowLevel.Unsafe;
 using Unity.NetCode.LowLevel.Unsafe;
 using Unity.Jobs.LowLevel.Unsafe;
+using Unity.Mathematics;
 
 namespace Unity.NetCode
 {
     [UpdateInGroup(typeof(GhostSpawnSystemGroup))]
-    [AlwaysUpdateSystem]
     public class GhostSpawnSystem : SystemBase
     {
         private struct DelayedSpawnGhost
@@ -25,15 +25,15 @@ namespace Unity.NetCode
         private NativeQueue<DelayedSpawnGhost> m_DelayedSpawnQueue;
         private ClientSimulationSystemGroup m_ClientSimulationSystemGroup;
         private GhostReceiveSystem m_GhostReceiveSystem;
-        private GhostCollectionSystem m_GhostCollectionSystem;
 
 
         protected override void OnCreate()
         {
-            m_GhostCollectionSystem = World.GetOrCreateSystem<GhostCollectionSystem>();
             m_DelayedSpawnQueue = new NativeQueue<DelayedSpawnGhost>(Allocator.Persistent);
             m_ClientSimulationSystemGroup = World.GetExistingSystem<ClientSimulationSystemGroup>();
             m_GhostReceiveSystem = World.GetOrCreateSystem<GhostReceiveSystem>();
+            RequireSingletonForUpdate<GhostCollection>();
+            RequireSingletonForUpdate<GhostSpawnQueueComponent>();
         }
         protected override void OnDestroy()
         {
@@ -41,17 +41,14 @@ namespace Unity.NetCode
         }
         protected unsafe override void OnUpdate()
         {
-            if (!HasSingleton<GhostPrefabCollectionComponent>() || !HasSingleton<GhostSpawnQueueComponent>())
-                return;
-
             m_GhostReceiveSystem.LastGhostMapWriter.Complete();
 
             var interpolationTargetTick = m_ClientSimulationSystemGroup.InterpolationTick;
             if (m_ClientSimulationSystemGroup.InterpolationTickFraction < 1)
                 --interpolationTargetTick;
             //var predictionTargetTick = m_ClientSimulationSystemGroup.ServerTick;
-            var prefabsEntity = GetSingletonEntity<GhostPrefabCollectionComponent>();
-            var prefabs = EntityManager.GetBuffer<GhostPrefabBuffer>(prefabsEntity).ToNativeArray(Allocator.Temp);
+            var prefabsEntity = GetSingletonEntity<GhostCollection>();
+            var prefabs = EntityManager.GetBuffer<GhostCollectionPrefab>(prefabsEntity).ToNativeArray(Allocator.Temp);
 
             var ghostSpawnEntity = GetSingletonEntity<GhostSpawnQueueComponent>();
             var ghostSpawnBufferComponent = EntityManager.GetBuffer<GhostSpawnBuffer>(ghostSpawnEntity);
@@ -63,12 +60,15 @@ namespace Unity.NetCode
 
             var spawnedGhosts = new NativeList<SpawnedGhostMapping>(16, Allocator.Temp);
             var nonSpawnedGhosts = new NativeList<NonSpawnedGhostMapping>(16, Allocator.Temp);
+            var ghostCollectionSingleton = GetSingletonEntity<GhostCollection>();
             for (int i = 0; i < ghostSpawnBuffer.Length; ++i)
             {
                 var ghost = ghostSpawnBuffer[i];
                 Entity entity = Entity.Null;
                 byte* snapshotData = null;
-                var snapshotSize = m_GhostCollectionSystem.m_GhostTypeCollection[ghost.GhostType].SnapshotSize;
+                var ghostTypeCollection = EntityManager.GetBuffer<GhostCollectionPrefabSerializer>(ghostCollectionSingleton);
+                var snapshotSize = ghostTypeCollection[ghost.GhostType].SnapshotSize;
+                bool hasBuffers = ghostTypeCollection[ghost.GhostType].NumBuffers > 0;
                 if (ghost.SpawnType == GhostSpawnBuffer.Type.Interpolated)
                 {
                     // Add to m_DelayedSpawnQueue
@@ -77,21 +77,32 @@ namespace Unity.NetCode
                     var newBuffer = EntityManager.AddBuffer<SnapshotDataBuffer>(entity);
                     newBuffer.ResizeUninitialized(snapshotSize * GhostSystemConstants.SnapshotHistorySize);
                     snapshotData = (byte*)newBuffer.GetUnsafePtr();
+                    //Add also the SnapshotDynamicDataBuffer if the entity has buffers to copy the dynamic contents
+                    if (hasBuffers)
+                        EntityManager.AddBuffer<SnapshotDynamicDataBuffer>(entity);
                     EntityManager.AddComponentData(entity, new SnapshotData{SnapshotSize = snapshotSize, LatestIndex = 0});
                     m_DelayedSpawnQueue.Enqueue(new GhostSpawnSystem.DelayedSpawnGhost{ghostId = ghost.GhostID, ghostType = ghost.GhostType, clientSpawnTick = ghost.ClientSpawnTick, serverSpawnTick = ghost.ServerSpawnTick, oldEntity = entity});
                     nonSpawnedGhosts.Add(new NonSpawnedGhostMapping{ghostId = ghost.GhostID, entity = entity});
                 }
                 else if (ghost.SpawnType == GhostSpawnBuffer.Type.Predicted)
                 {
-                    // Spawn directly
-                    entity = ghost.PredictedSpawnEntity != Entity.Null ? ghost.PredictedSpawnEntity : EntityManager.Instantiate(prefabs[ghost.GhostType].Value);
-                    if (EntityManager.HasComponent<GhostPrefabMetaDataComponent>(prefabs[ghost.GhostType].Value))
+                    // TODO: this could allow some time for the prefab to load before giving an error
+                    if (prefabs[ghost.GhostType].GhostPrefab == Entity.Null)
                     {
-                        ref var toRemove = ref EntityManager.GetComponentData<GhostPrefabMetaDataComponent>(prefabs[ghost.GhostType].Value).Value.Value.DisableOnPredictedClient;
+                        ReportMissingPrefab();
+                        continue;
+                    }
+                    // Spawn directly
+                    entity = ghost.PredictedSpawnEntity != Entity.Null ? ghost.PredictedSpawnEntity : EntityManager.Instantiate(prefabs[ghost.GhostType].GhostPrefab);
+                    if (EntityManager.HasComponent<GhostPrefabMetaDataComponent>(prefabs[ghost.GhostType].GhostPrefab))
+                    {
+                        ref var toRemove = ref EntityManager.GetComponentData<GhostPrefabMetaDataComponent>(prefabs[ghost.GhostType].GhostPrefab).Value.Value.DisableOnPredictedClient;
+                        //Need copy because removing component will invalidate the buffer pointer, since introduce structural changes
+                        var linkedEntityGroup = EntityManager.GetBuffer<LinkedEntityGroup>(entity).ToNativeArray(Allocator.Temp);
                         for (int rm = 0; rm < toRemove.Length; ++rm)
                         {
-                            var compType = ComponentType.ReadWrite(TypeManager.GetTypeIndexFromStableTypeHash(toRemove[rm]));
-                            EntityManager.RemoveComponent(entity, compType);
+                            var compType = ComponentType.ReadWrite(TypeManager.GetTypeIndexFromStableTypeHash(toRemove[rm].StableHash));
+                            EntityManager.RemoveComponent(linkedEntityGroup[toRemove[rm].EntityIndex].Value, compType);
                         }
                     }
                     EntityManager.SetComponentData(entity, new GhostComponent {ghostId = ghost.GhostID, ghostType = ghost.GhostType, spawnTick = ghost.ServerSpawnTick});
@@ -105,6 +116,24 @@ namespace Unity.NetCode
                 {
                     UnsafeUtility.MemClear(snapshotData, snapshotSize*GhostSystemConstants.SnapshotHistorySize);
                     UnsafeUtility.MemCpy(snapshotData, (byte*)snapshotDataBuffer.GetUnsafeReadOnlyPtr() + ghost.DataOffset, snapshotSize);
+                    if (hasBuffers)
+                    {
+                        //Resize and copy the associated dynamic buffer snapshot data
+                        var snapshotDynamicBuffer = EntityManager.GetBuffer<SnapshotDynamicDataBuffer>(entity);
+                        var dynamicDataCapacity= SnapshotDynamicBuffersHelper.CalculateBufferCapacity(ghost.DynamicDataSize, out var _);
+                        snapshotDynamicBuffer.ResizeUninitialized((int)dynamicDataCapacity);
+                        var dynamicSnapshotData = (byte*)snapshotDynamicBuffer.GetUnsafePtr();
+                        if(dynamicSnapshotData == null)
+                            throw new InvalidOperationException("snapshot dynamic data buffer not initialized but ghost has dynamic buffer contents");
+
+                        // Update the dynamic data header (uint[GhostSystemConstants.SnapshotHistorySize)]) by writing the used size for the current slot
+                        // (for new spawned entity is 0). Is un-necessary to initialize all the header slots to 0 since that information is only used
+                        // for sake of delta compression and, because that depend on the acked tick, only initialized and relevant slots are accessed in general.
+                        // For more information about the layout, see SnapshotData.cs.
+                        ((uint*)dynamicSnapshotData)[0] = ghost.DynamicDataSize;
+                        var headerSize = SnapshotDynamicBuffersHelper.GetHeaderSize();
+                        UnsafeUtility.MemCpy(dynamicSnapshotData + headerSize, (byte*)snapshotDataBuffer.GetUnsafeReadOnlyPtr() + ghost.DataOffset + snapshotSize, ghost.DynamicDataSize);
+                    }
                 }
             }
             m_GhostReceiveSystem.AddNonSpawnedGhosts(nonSpawnedGhosts);
@@ -115,15 +144,23 @@ namespace Unity.NetCode
                    !SequenceHelpers.IsNewer(m_DelayedSpawnQueue.Peek().clientSpawnTick, interpolationTargetTick))
             {
                 var ghost = m_DelayedSpawnQueue.Dequeue();
-                // Spawn actual entity
-                Entity entity = EntityManager.Instantiate(prefabs[ghost.ghostType].Value);
-                if (EntityManager.HasComponent<GhostPrefabMetaDataComponent>(prefabs[ghost.ghostType].Value))
+                // TODO: this could allow some time for the prefab to load before giving an error
+                if (prefabs[ghost.ghostType].GhostPrefab == Entity.Null)
                 {
-                    ref var toRemove = ref EntityManager.GetComponentData<GhostPrefabMetaDataComponent>(prefabs[ghost.ghostType].Value).Value.Value.DisableOnInterpolatedClient;
-                    for (int i = 0; i < toRemove.Length; ++i)
+                    ReportMissingPrefab();
+                    continue;
+                }
+                // Spawn actual entity
+                Entity entity = EntityManager.Instantiate(prefabs[ghost.ghostType].GhostPrefab);
+                if (EntityManager.HasComponent<GhostPrefabMetaDataComponent>(prefabs[ghost.ghostType].GhostPrefab))
+                {
+                    ref var toRemove = ref EntityManager.GetComponentData<GhostPrefabMetaDataComponent>(prefabs[ghost.ghostType].GhostPrefab).Value.Value.DisableOnInterpolatedClient;
+                    var linkedEntityGroup = EntityManager.GetBuffer<LinkedEntityGroup>(entity).ToNativeArray(Allocator.Temp);
+                    //Need copy because removing component will invalidate the buffer pointer, since introduce structural changes
+                    for (int rm = 0; rm < toRemove.Length; ++rm)
                     {
-                        var compType = ComponentType.ReadWrite(TypeManager.GetTypeIndexFromStableTypeHash(toRemove[i]));
-                        EntityManager.RemoveComponent(entity, compType);
+                        var compType = ComponentType.ReadWrite(TypeManager.GetTypeIndexFromStableTypeHash(toRemove[rm].StableHash));
+                        EntityManager.RemoveComponent(linkedEntityGroup[toRemove[rm].EntityIndex].Value, compType);
                     }
                 }
                 EntityManager.SetComponentData(entity, EntityManager.GetComponentData<SnapshotData>(ghost.oldEntity));
@@ -133,11 +170,38 @@ namespace Unity.NetCode
                 var newBuffer = EntityManager.GetBuffer<SnapshotDataBuffer>(entity);
                 newBuffer.ResizeUninitialized(oldBuffer.Length);
                 UnsafeUtility.MemCpy(newBuffer.GetUnsafePtr(), oldBuffer.GetUnsafeReadOnlyPtr(), oldBuffer.Length);
+                //copy the old buffers content to the new entity.
+                //Perf FIXME: if we can introduce a "move" like concept for buffer to transfer ownership we can avoid a lot of copies and
+                //allocations
+                var ghostTypeCollection = EntityManager.GetBuffer<GhostCollectionPrefabSerializer>(ghostCollectionSingleton);
+                bool hasBuffers = ghostTypeCollection[ghost.ghostType].NumBuffers > 0;
+                if (hasBuffers)
+                {
+                    var oldDynamicBuffer = EntityManager.GetBuffer<SnapshotDynamicDataBuffer>(ghost.oldEntity);
+                    var newDynamicBuffer = EntityManager.GetBuffer<SnapshotDynamicDataBuffer>(entity);
+                    newDynamicBuffer.ResizeUninitialized(oldDynamicBuffer.Length);
+                    UnsafeUtility.MemCpy(newDynamicBuffer.GetUnsafePtr(), oldDynamicBuffer.GetUnsafeReadOnlyPtr(), oldDynamicBuffer.Length);
+                }
                 EntityManager.DestroyEntity(ghost.oldEntity);
 
                 spawnedGhosts.Add(new SpawnedGhostMapping{ghost = new SpawnedGhost{ghostId = ghost.ghostId, spawnTick = ghostComponentData.spawnTick}, entity = entity, previousEntity = ghost.oldEntity});
             }
             m_GhostReceiveSystem.UpdateSpawnedGhosts(spawnedGhosts);
+        }
+        private void ReportMissingPrefab()
+        {
+#if ENABLE_UNITY_COLLECTIONS_CHECKS
+            UnityEngine.Debug.LogError($"Trying to spawn with a prefab which is not loaded");
+#endif
+            Entities
+                .WithAll<NetworkIdComponent>()
+                .WithNone<NetworkStreamDisconnected>()
+                .WithoutBurst()
+                .WithStructuralChanges()
+                .ForEach((Entity entity) => {
+                EntityManager.AddComponentData(entity, new NetworkStreamRequestDisconnect{Reason = NetworkStreamDisconnectReason.BadProtocolVersion});
+            }).Run();
+
         }
     }
 }
