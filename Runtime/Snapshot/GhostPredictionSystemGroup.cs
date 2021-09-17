@@ -15,13 +15,16 @@ namespace Unity.NetCode
             return predicted.PredictionStartTick == 0 || SequenceHelpers.IsNewer(tick, predicted.PredictionStartTick);
         }
 
-        /// The tick currently being predicted. Only valid when the GhostPredictionSystemGroup is executing.
+        /// <summary>True only while this prediction group is executing its OnUpdate.</summary>
+        public bool IsInPredictionLoop { get; private set; }
+
+        /// <summary>The tick currently being predicted. Only valid when the GhostPredictionSystemGroup is executing (see <see cref="IsInPredictionLoop"/>), otherwise the value will be the last predicted tick.</summary>
         public uint PredictingTick;
-        /// The current server tick which will be the last tick to predict. Only valid when the GhostPredictionSystemGroup is executing.
+        /// <summary>The current server tick which will be the last tick to predict. Only valid when the GhostPredictionSystemGroup is executing, otherwise will be true.</summary>
         public bool IsFinalPredictionTick;
         public NativeArray<uint> OldestPredictedTick;
-        private NativeList<JobHandle> predictedTickWriters;
-        private bool isServer;
+        NativeList<JobHandle> predictedTickWriters;
+        bool isServer;
 
         public void AddPredictedTickWriter(JobHandle handle)
         {
@@ -51,6 +54,8 @@ namespace Unity.NetCode
 
         protected override void OnUpdate()
         {
+            IsInPredictionLoop = true;
+
             // If client, go from oldest applied predicted tick to target tick, apply. Allow filtering on latest received tick somehow
             if (isServer)
             {
@@ -87,10 +92,18 @@ namespace Unity.NetCode
                 var serverTick = simulationSystemGroup.ServerTick;
                 var targetTick = serverTick;
 
-                if (oldestAppliedTick == 0 ||
-                    !SequenceHelpers.IsNewer(targetTick, oldestAppliedTick))
+                //Target tick == 0 is an invalid tick (disconneted or similar).
+                //Reset the oldestAppliedTick to 0 to avoid problem with serverTick wrap around
+                if (targetTick == 0)
+                    oldestAppliedTick = 0;
+
+                if (oldestAppliedTick == 0 || !SequenceHelpers.IsNewer(targetTick, oldestAppliedTick))
+                {
                     //oldestAppliedTick = targetTick - 1;
+                    IsInPredictionLoop = false;
                     return; // Nothing rolled back - nothing to predict
+                }
+
                 // Do not try to predict more frames than we can have input for
                 if (targetTick - oldestAppliedTick > CommandDataUtility.k_CommandDataMaxSize)
                     oldestAppliedTick = targetTick - CommandDataUtility.k_CommandDataMaxSize;
@@ -122,6 +135,8 @@ namespace Unity.NetCode
                 }
                 World.SetTime(previousTime);
             }
+
+            IsInPredictionLoop = false;
         }
     }
 }

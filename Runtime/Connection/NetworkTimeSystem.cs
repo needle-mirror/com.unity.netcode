@@ -4,12 +4,14 @@ using Unity.Mathematics;
 
 namespace Unity.NetCode
 {
-    [UpdateInWorld(UpdateInWorld.TargetWorld.Client)]
+    [UpdateInWorld(TargetWorld.Client)]
+#if UNITY_DOTSRUNTIME
+    [UpdateInGroup(typeof(InitializationSystemGroup), OrderLast=true)] // FIXME: cannot get access to the dots runtime version of UpdateWorldTimeSystem here, so just put it last
+#else
     [UpdateInGroup(typeof(InitializationSystemGroup))]
-#if !UNITY_DOTSRUNTIME
     [UpdateAfter(typeof(UpdateWorldTimeSystem))]
 #endif
-    public class NetworkTimeSystem : SystemBase
+    public partial class NetworkTimeSystem : SystemBase
     {
         public static ClientTickRate DefaultClientTickRate => new ClientTickRate
         {
@@ -29,7 +31,10 @@ namespace Unity.NetCode
                 // If fixed timestamp is set, use that
                 if (s_FixedTimestampMS != 0)
                     return s_FixedTimestampMS;
-                var cur = (uint) (System.Diagnostics.Stopwatch.GetTimestamp() / System.TimeSpan.TicksPerMillisecond);
+
+                //FIXME If the stopwatch is not high resolution means that it is based on the system timer, witch have a precision of about 10ms
+                //This can be a little problematic for computing the right timestamp in general
+                var cur = (uint) (System.Diagnostics.Stopwatch.GetTimestamp() / (System.Diagnostics.Stopwatch.Frequency/1000));
                 // If more than 100ms passed since last timestamp heck, increase the adjustment so the reported time delta is 100ms
                 if (s_PrevTimestampMS != 0 && (cur - s_PrevTimestampMS) > 100)
                 {
@@ -41,7 +46,7 @@ namespace Unity.NetCode
         }
 #else
         public static uint TimestampMS =>
-            (uint) (System.Diagnostics.Stopwatch.GetTimestamp() / System.TimeSpan.TicksPerMillisecond);
+            (uint) (System.Diagnostics.Stopwatch.GetTimestamp() / (System.Diagnostics.Stopwatch.Frequency/1000));
 #endif
 
         internal uint interpolateTargetTick;
@@ -55,6 +60,16 @@ namespace Unity.NetCode
         internal float currentInterpolationFrames;
         private NativeArray<float> commandAgeAdjustment;
         private int commandAgeAdjustmentSlot;
+        private NetDebugSystem m_NetDebugSystem;
+
+        private enum InProcessServerStatus
+        {
+            Unknown,
+            Running,
+            NotRunning
+        }
+        private InProcessServerStatus inProcessServerStatus;
+
         #if UNITY_EDITOR || DEVELOPMENT_BUILD
         private float timeScale;
         private int timeScaleSamples;
@@ -80,6 +95,7 @@ namespace Unity.NetCode
             latestSnapshotAge = 0;
             commandAgeAdjustment = new NativeArray<float>(64, Allocator.Persistent);
             RequireSingletonForUpdate<NetworkSnapshotAckComponent>();
+            m_NetDebugSystem = World.GetOrCreateSystem<NetDebugSystem>();
         }
         protected override void OnDestroy()
         {
@@ -105,11 +121,26 @@ namespace Unity.NetCode
                 clientTickRate = GetSingleton<ClientTickRate>();
 
             var ack = GetSingleton<NetworkSnapshotAckComponent>();
+            bool isInGame = HasSingleton<NetworkStreamInGame>();
+
+            if (!isInGame)
+                inProcessServerStatus = InProcessServerStatus.Unknown;
+            else if (inProcessServerStatus == InProcessServerStatus.Unknown)
+            {
+                inProcessServerStatus = InProcessServerStatus.NotRunning;
+                foreach (var world in World.All)
+                {
+                    if (world.GetExistingSystem<ServerSimulationSystemGroup>() != null)
+                        inProcessServerStatus = InProcessServerStatus.Running;
+                }
+            }
 
             float deltaTime = Time.DeltaTime;
-            if (deltaTime > (float) tickRate.MaxSimulationStepsPerFrame / (float) tickRate.SimulationTickRate)
+            if (inProcessServerStatus == InProcessServerStatus.Running)
             {
-                deltaTime = (float) tickRate.MaxSimulationStepsPerFrame / (float) tickRate.SimulationTickRate;
+                var maxDeltaTicks = (uint)tickRate.MaxSimulationStepsPerFrame * (uint)tickRate.MaxSimulationLongStepTimeMultiplier;
+                if (deltaTime > (float) maxDeltaTicks / (float) tickRate.SimulationTickRate)
+                    deltaTime = (float) maxDeltaTicks / (float) tickRate.SimulationTickRate;
             }
             float deltaTicks = deltaTime * tickRate.SimulationTickRate;
 
@@ -122,6 +153,11 @@ namespace Unity.NetCode
             float interpolationFrames = 0.5f + clientTickRate.TargetCommandSlack + (((estimatedRTT + 4*ack.DeviationRTT + interpolationTimeMS) / 1000f) * tickRate.SimulationTickRate);
 
             // What we expect to have this frame based on what was the most recent received previous frames
+
+            // Reset the latestSnapshotEstimate if not in game
+            if (latestSnapshotEstimate != 0 && !isInGame)
+                latestSnapshotEstimate = 0;
+
             if (latestSnapshotEstimate == 0)
             {
                 if (ack.LastReceivedSnapshotByLocal == 0)
@@ -199,11 +235,11 @@ namespace Unity.NetCode
                 float predictDelta = (float)((int)curPredict - (int)predictTargetTick) - deltaTicks;
                 if (math.abs(predictDelta) > 10)
                 {
-                    //Attention! this may can rollback in case we have an high difference in estimate (about 10 ticks greater)
+                    //Attention! this may rollback in case we have an high difference in estimate (about 10 ticks greater)
                     //and predictDelta is negative (client is too far ahead)
                     if (predictDelta < 0.0f)
                     {
-                        UnityEngine.Debug.LogError($"Large serverTick prediction error. Server tick rollback to {curPredict} delta: {predictDelta}");
+                        m_NetDebugSystem.NetDebug.LogError($"Large serverTick prediction error. Server tick rollback to {curPredict} delta: {predictDelta}");
                     }
                     predictTargetTick = curPredict;
                     subPredictTargetTick = 0;
@@ -227,12 +263,13 @@ namespace Unity.NetCode
             #endif
 
             //currentInterpolationFrames = currentInterpolationFrames * 7f / 8f + interpolationFrames / 8f;
-            currentInterpolationFrames += math.clamp((interpolationFrames-currentInterpolationFrames)*.1f, -.1f, .1f);
+            var delayChangeLimit = deltaTicks*.1f;
+            currentInterpolationFrames += math.clamp((interpolationFrames-currentInterpolationFrames)*delayChangeLimit, -delayChangeLimit, delayChangeLimit);
 
             var idiff = (uint)currentInterpolationFrames;
             interpolateTargetTick = predictTargetTick - idiff;
             var subidiff = currentInterpolationFrames - idiff;
-            subidiff -= subInterpolateTargetTick+subPredictTargetTick;
+            subidiff -= subPredictTargetTick;
             if (subidiff < 0)
             {
                 ++interpolateTargetTick;

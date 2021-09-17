@@ -15,6 +15,6 @@ To install this package, follow the instructions in the [Package Manager documen
 ## Requirements
 This version of Unity NetCode is compatible with the following versions of the Unity Editor:
 
-* 2020.1.2 and later (recommended)
+* 2020.2.4f1-dots-5 and later (recommended) [Get From Here](unityhub://2020.2.4f1-dots.5/01acd19d2e17)
 
 This package uses Unity’s [Entity Component System (ECS)](https://docs.unity3d.com/Packages/com.unity.entities@latest) as a foundation. As such, you must know how to use ECS to use this package.

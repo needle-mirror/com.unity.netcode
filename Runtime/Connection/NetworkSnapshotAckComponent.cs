@@ -103,22 +103,37 @@ namespace Unity.NetCode
         public uint ReceivedSnapshotByLocalMask;
         public uint NumLoadedPrefabs;
 
-        public void UpdateRemoteTime(uint remoteTime, uint localTimeMinusRTT, uint localTime, uint interpolationDelay, uint numLoadedPrefabs)
+        public void UpdateRemoteAckedData(uint remoteTime, uint numLoadedPrefabs, uint interpolationDelay)
         {
-            if (remoteTime != 0 && (SequenceHelpers.IsNewer(remoteTime, LastReceivedRemoteTime) || LastReceivedRemoteTime == 0))
+            //Because the remote time is updated also by RPC and there is no order guarante for witch is handled
+            //first (snapshost or rpc message) it is necessary to accept update if received remoteTime
+            //is also equals to the LastReceivedRemoteTime.
+            if (remoteTime != 0 && (!SequenceHelpers.IsNewer(LastReceivedRemoteTime, remoteTime) || LastReceivedRemoteTime == 0))
             {
                 NumLoadedPrefabs = numLoadedPrefabs;
+                RemoteInterpolationDelay = interpolationDelay;
+            }
+        }
+
+        public void UpdateRemoteTime(uint remoteTime, uint localTimeMinusRTT, uint localTime)
+        {
+            //Because we sync time using both RPC and snapshot it is more correct to also accept
+            //update the stats for a remotetime that is equals to the last received one.
+            if (remoteTime != 0 && (!SequenceHelpers.IsNewer(LastReceivedRemoteTime, remoteTime) || LastReceivedRemoteTime == 0))
+            {
                 LastReceivedRemoteTime = remoteTime;
                 LastReceiveTimestamp = localTime;
                 if (localTimeMinusRTT == 0)
                     return;
                 uint lastReceivedRTT = localTime - localTimeMinusRTT;
+                // Highest bit set means we got a negative value, which can happen on low ping due to clock difference between client and server
+                if ((lastReceivedRTT & (1<<31)) != 0)
+                    lastReceivedRTT = 0;
                 if (EstimatedRTT == 0)
                     EstimatedRTT = lastReceivedRTT;
                 else
                     EstimatedRTT = EstimatedRTT * 0.875f + lastReceivedRTT * 0.125f;
                 DeviationRTT = DeviationRTT * 0.75f + math.abs(lastReceivedRTT - EstimatedRTT) * 0.25f;
-                RemoteInterpolationDelay = interpolationDelay;
             }
         }
 

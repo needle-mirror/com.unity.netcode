@@ -15,7 +15,7 @@ using UnityEngine.TestTools;
 namespace Unity.NetCode.Physics.Tests
 {
     [DisableAutoCreation]
-    class TestPhysicsAndEntityForEach : SystemBase
+    partial class TestPhysicsAndEntityForEach : SystemBase
     {
         protected override void OnUpdate()
         {

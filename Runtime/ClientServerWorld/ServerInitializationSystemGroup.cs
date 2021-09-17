@@ -20,7 +20,7 @@ namespace Unity.NetCode
 #if !UNITY_CLIENT || UNITY_SERVER || UNITY_EDITOR
     [UpdateInGroup(typeof(InitializationSystemGroup))]
     [AlwaysUpdateSystem]
-    [UpdateInWorld(UpdateInWorld.TargetWorld.Default)]
+    [UpdateInWorld(TargetWorld.Default)]
     public class TickServerInitializationSystem : ComponentSystemGroup
     {
         protected override void OnDestroy()

@@ -1,3 +1,4 @@
+using Unity.Collections;
 using Unity.Entities;
 
 namespace Unity.NetCode
@@ -16,7 +17,9 @@ namespace Unity.NetCode
     /// GhostReceiveSystem and there needs to be a classification system updating after the GhostReceiveSystem which
     /// sets the SpawnType so the spawn system knows how to spawn the ghost.
     /// A classification system should only modify the SpawnType and PredictedSpawnEntity fields of this struct.
+    /// InternalBufferCapacity allocated to almost max out chunk memory.
     /// </summary>
+    [InternalBufferCapacity(240)]
     public struct GhostSpawnBuffer : IBufferElementData
     {
         public enum Type
@@ -45,6 +48,17 @@ namespace Unity.NetCode
         /// </summary>
         public uint ServerSpawnTick;
         public Entity PredictedSpawnEntity;
+
+        /// <summary>
+        /// Only valid for prepawn ghost. Mainly used by the spawning system to re-assign
+        /// the PrespawnGhostIndex component to pre-spawned ghosts that has re-instantiated because of relevancy changes.
+        /// </summary>
+        internal int PrespawnIndex;
+        /// <summary>
+        /// Only valid for prepawn ghost. The scene section that ghost belong to.
+        /// </summary>
+        internal  Hash128 SceneGUID;
+        internal  int SectionIndex;
     }
     /// <summary>
     /// The default GhostSpawnClassificationSystem will set the SpawnType to the default specified in the
@@ -54,13 +68,14 @@ namespace Unity.NetCode
     /// items with SpawnType set to Predicted and set the PredictedSpawnEntity if you find a matching entity.
     /// The reason to put predictive spawn systems after the default is so the owner predicted logic has run.
     /// </summary>
-    [UpdateInWorld(UpdateInWorld.TargetWorld.Client)]
+    [UpdateInWorld(TargetWorld.Client)]
     [UpdateInGroup(typeof(GhostSimulationSystemGroup))]
-    public class GhostSpawnClassificationSystem : SystemBase
+    public partial class GhostSpawnClassificationSystem : SystemBase
     {
         protected override void OnCreate()
         {
             var ent = EntityManager.CreateEntity();
+            EntityManager.SetName(ent, "GhostSpawnQueue");
             EntityManager.AddComponentData(ent, default(GhostSpawnQueueComponent));
             EntityManager.AddBuffer<GhostSpawnBuffer>(ent);
             EntityManager.AddBuffer<SnapshotDataBuffer>(ent);

@@ -27,12 +27,6 @@ namespace Unity.NetCode
             while (true)
             {
                 DataStreamWriter writer = new DataStreamWriter(maxSize, Allocator.Temp);
-                int packetHeaderLen = 0;
-                if (buffer.Length == 0)
-                {
-                    packetHeaderLen = 1;
-                    writer.WriteByte((byte) NetworkStreamProtocol.Rpc);
-                }
                 if (dynamicAssemblyList)
                     writer.WriteULong(rpcType);
                 else
@@ -42,9 +36,9 @@ namespace Unity.NetCode
                 serializer.Serialize(ref writer, serializerState, data);
                 if (!writer.HasFailedWrites)
                 {
-                    if (writer.Length-packetHeaderLen > ushort.MaxValue)
+                    if (writer.Length > ushort.MaxValue)
                         throw new InvalidOperationException("RPC is too large to serialize");
-                    lenWriter.WriteUShort((ushort)(writer.Length - msgHeaderLen - packetHeaderLen));
+                    lenWriter.WriteUShort((ushort)(writer.Length - msgHeaderLen));
                     var prevLen = buffer.Length;
                     buffer.ResizeUninitialized(buffer.Length + writer.Length);
                     byte* ptr = (byte*) buffer.GetUnsafePtr();

@@ -16,7 +16,8 @@
         "UnityEditor.TestRunner",
         "Unity.NetCode.EditorTests",
         "Unity.NetCode.TestsUtils",
-        "Unity.NetCode.Authoring.Hybrid"
+        "Unity.NetCode.Authoring.Hybrid",
+        "Unity.Logging"
     ],
     "includePlatforms": [
         "Editor"
@@ -37,6 +38,11 @@
             "name": "com.unity.physics",
             "expression": "0.2.4",
             "define": "ENABLE_UNITY_NETCODE_PHYSICS"
+        },
+        {
+          "name": "com.unity.logging",
+          "expression": "0",
+          "define": "USE_UNITY_LOGGING"
         }
     ],
     "noEngineReferences": false

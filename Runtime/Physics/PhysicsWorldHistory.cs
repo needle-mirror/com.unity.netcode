@@ -9,6 +9,7 @@ using Unity.Jobs;
 using Unity.Physics;
 using Unity.Physics.Systems;
 using Unity.Networking.Transport.Utilities;
+using Unity.Mathematics;
 
 [assembly: InternalsVisibleTo("Unity.NetCode.Physics.EditorTests")]
 namespace Unity.NetCode
@@ -93,6 +94,7 @@ namespace Unity.NetCode
     {
         public const int Capacity = RawHistoryBuffer.Capacity;
         public int Size => m_size;
+        public unsafe bool IsCreated => m_bufferCopyPtr != null;
         private int m_size;
         internal uint m_lastStoredTick;
 
@@ -272,7 +274,6 @@ namespace Unity.NetCode
     }
 
     [UpdateInGroup(typeof(GhostSimulationSystemGroup), OrderFirst = true)]
-    [AlwaysUpdateSystem]
     [AlwaysSynchronizeSystem]
     /// <summary>
     /// A system used to store old state of the physics world for lag compensation.
@@ -281,7 +282,7 @@ namespace Unity.NetCode
     /// When passing the collision history to a job you must set LastPhysicsJobHandle to
     /// the handle for that job.
     /// </summary>
-    public class PhysicsWorldHistory : SystemBase
+    public partial class PhysicsWorldHistory : SystemBase
     {
         private bool m_initialized;
         private uint m_lastStoredTick;
@@ -291,7 +292,6 @@ namespace Unity.NetCode
         CollisionHistoryBuffer m_CollisionHistory;
 
         BuildPhysicsWorld m_BuildPhysicsWorld;
-        EndFramePhysicsSystem m_EndFramePhysicsSystem;
         ServerSimulationSystemGroup m_ServerSimulationSystemGroup;
         ClientSimulationSystemGroup m_ClientSimulationSystemGroup;
 
@@ -304,24 +304,45 @@ namespace Unity.NetCode
             m_ServerSimulationSystemGroup = World.GetExistingSystem<ServerSimulationSystemGroup>();
             m_ClientSimulationSystemGroup = World.GetExistingSystem<ClientSimulationSystemGroup>();
             m_BuildPhysicsWorld = World.GetExistingSystem<BuildPhysicsWorld>();
-            m_EndFramePhysicsSystem = World.GetExistingSystem<EndFramePhysicsSystem>();
-            m_CollisionHistory = new CollisionHistoryBuffer(m_ServerSimulationSystemGroup!=null ? CollisionHistoryBuffer.Capacity : 1);
+            RequireSingletonForUpdate<LagCompensationConfig>();
+            RequireForUpdate(GetEntityQuery(ComponentType.ReadOnly<NetworkIdComponent>()));
         }
         protected override void OnDestroy()
         {
-            m_CollisionHistory.Dispose();
+            if (m_CollisionHistory.IsCreated)
+                m_CollisionHistory.Dispose();
+        }
+
+        protected override void OnStartRunning()
+        {
+            this.RegisterPhysicsRuntimeSystemReadOnly();
         }
 
         protected override void OnUpdate()
         {
-            if (HasSingleton<DisableLagCompensation>())
-                return;
+            if (!m_CollisionHistory.IsCreated)
+            {
+                var config = GetSingleton<LagCompensationConfig>();
+                int historySize;
+                if (World.GetExistingSystem<ServerSimulationSystemGroup>()!=null)
+                    historySize = config.ServerHistorySize!=0 ? config.ServerHistorySize : RawHistoryBuffer.Capacity;
+                else
+                    historySize = config.ClientHistorySize!=0 ? config.ClientHistorySize : 1;
+                if (historySize < 0 || historySize > RawHistoryBuffer.Capacity)
+                {
+                    World.GetExistingSystem<NetDebugSystem>().NetDebug.LogWarning($"Invalid LagCompensationConfig, history size ({historySize}) must be > 0 <= {RawHistoryBuffer.Capacity}. Clamping hte value to the valid range.");
+                    historySize = math.clamp(historySize, 1, RawHistoryBuffer.Capacity);
+                }
+
+                m_CollisionHistory = new CollisionHistoryBuffer(historySize);
+            }
+
 
             var serverTick = (m_ServerSimulationSystemGroup != null) ? m_ServerSimulationSystemGroup.ServerTick : m_ClientSimulationSystemGroup.ServerTick;
             if (serverTick == 0)
                 return;
 
-            m_EndFramePhysicsSystem.GetOutputDependency().Complete();
+            Dependency.Complete();
             LastPhysicsJobHandle.Complete();
 
             if (!m_initialized)
@@ -341,7 +362,11 @@ namespace Unity.NetCode
 
                 // Store world for each tick that has not been stored yet (framerate might be lower than tickrate)
                 var startStoreTick = (m_lastStoredTick != 0) ? (m_lastStoredTick + 1) : serverTick;
-                for (var storeTick = startStoreTick; storeTick <= serverTick; storeTick++)
+                // Copying more than m_CollisionHistory.Size would mean we overwrite a tick we copied this frame
+                var oldestTickWithUniqueIndex = (serverTick + 1u - (uint)m_CollisionHistory.Size);
+                if (SequenceHelpers.IsNewer(oldestTickWithUniqueIndex, startStoreTick))
+                    startStoreTick = oldestTickWithUniqueIndex;
+                for (var storeTick = startStoreTick; !SequenceHelpers.IsNewer(storeTick, serverTick); storeTick++)
                 {
                     var index = (int)(storeTick % m_CollisionHistory.Size);
 

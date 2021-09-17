@@ -22,7 +22,7 @@ namespace Unity.NetCode.Tests
             return InvokeExecuteFunctionPointer;
         }
 
-        [BurstCompile]
+        [BurstCompile(DisableDirectCall = true)]
         [MonoPInvokeCallback(typeof(RpcExecutor.ExecuteDelegate))]
         private static void InvokeExecute(ref RpcExecutor.Parameters parameters)
         {
@@ -59,7 +59,7 @@ namespace Unity.NetCode.Tests
             return InvokeExecuteFunctionPointer;
         }
 
-        [BurstCompile]
+        [BurstCompile(DisableDirectCall = true)]
         [MonoPInvokeCallback(typeof(RpcExecutor.ExecuteDelegate))]
         private static void InvokeExecute(ref RpcExecutor.Parameters parameters)
         {
@@ -79,7 +79,7 @@ namespace Unity.NetCode.Tests
     [BurstCompile]
     public struct SerializedLargeRpcCommand : IComponentData, IRpcCommandSerializer<SerializedLargeRpcCommand>
     {
-        public FixedString512 stringValue;
+        public FixedString512Bytes stringValue;
 
         public void Serialize(ref DataStreamWriter writer, in RpcSerializerState state, in SerializedLargeRpcCommand data)
         {
@@ -96,7 +96,7 @@ namespace Unity.NetCode.Tests
             return InvokeExecuteFunctionPointer;
         }
 
-        [BurstCompile]
+        [BurstCompile(DisableDirectCall = true)]
         [MonoPInvokeCallback(typeof(RpcExecutor.ExecuteDelegate))]
         private static void InvokeExecute(ref RpcExecutor.Parameters parameters)
         {
@@ -133,7 +133,7 @@ namespace Unity.NetCode.Tests
             return InvokeExecuteFunctionPointer;
         }
 
-        [BurstCompile]
+        [BurstCompile(DisableDirectCall = true)]
         [MonoPInvokeCallback(typeof(RpcExecutor.ExecuteDelegate))]
         private static void InvokeExecute(ref RpcExecutor.Parameters parameters)
         {
@@ -198,7 +198,7 @@ namespace Unity.NetCode.Tests
             }
         }
 
-        [BurstCompile]
+        [BurstCompile(DisableDirectCall = true)]
         [MonoPInvokeCallback(typeof(RpcExecutor.ExecuteDelegate))]
         private static void InvokeExecute(ref RpcExecutor.Parameters parameters)
         {
@@ -216,7 +216,7 @@ namespace Unity.NetCode.Tests
     #region Send Systems
     [DisableAutoCreation]
     [UpdateInGroup(typeof(ClientSimulationSystemGroup))]
-    public class ClientRcpSendSystem : SystemBase
+    public partial class ClientRcpSendSystem : SystemBase
     {
         public static int SendCount = 0;
         public Entity Remote = Entity.Null;
@@ -241,7 +241,7 @@ namespace Unity.NetCode.Tests
     [DisableAutoCreation]
     [AlwaysUpdateSystem]
     [UpdateInGroup(typeof(ServerSimulationSystemGroup))]
-    public class ServerRpcBroadcastSendSystem : SystemBase
+    public partial class ServerRpcBroadcastSendSystem : SystemBase
     {
         public static int SendCount = 0;
 
@@ -260,7 +260,7 @@ namespace Unity.NetCode.Tests
 
     [DisableAutoCreation]
     [UpdateInGroup(typeof(ClientSimulationSystemGroup))]
-    public class MalformedClientRcpSendSystem : SystemBase
+    public partial class MalformedClientRcpSendSystem : SystemBase
     {
         public static int[] SendCount = new int[2];
         public static ClientIdRpcCommand[] Cmds = new ClientIdRpcCommand[2];
@@ -297,8 +297,8 @@ namespace Unity.NetCode.Tests
     }
 
     [DisableAutoCreation]
-    [UpdateInGroup(typeof(ClientSimulationSystemGroup))]
-    public class SerializedClientRcpSendSystem : SystemBase
+    [UpdateInGroup(typeof(ServerSimulationSystemGroup))]
+    public partial class SerializedServerRcpSendSystem : SystemBase
     {
         public static int SendCount = 0;
         public static SerializedRpcCommand Cmd;
@@ -323,7 +323,32 @@ namespace Unity.NetCode.Tests
 
     [DisableAutoCreation]
     [UpdateInGroup(typeof(ClientSimulationSystemGroup))]
-    public class SerializedClientLargeRcpSendSystem : SystemBase
+    public partial class SerializedClientRcpSendSystem : SystemBase
+    {
+        public static int SendCount = 0;
+        public static SerializedRpcCommand Cmd;
+
+        protected override void OnCreate()
+        {
+            RequireSingletonForUpdate<NetworkIdComponent>();
+        }
+
+        protected override void OnUpdate()
+        {
+            if (SendCount > 0)
+            {
+                var req = EntityManager.CreateEntity();
+                EntityManager.AddComponentData(req, Cmd);
+                EntityManager.AddComponentData(req,
+                    new SendRpcCommandRequestComponent {TargetConnection = Entity.Null});
+                --SendCount;
+            }
+        }
+    }
+
+    [DisableAutoCreation]
+    [UpdateInGroup(typeof(ClientSimulationSystemGroup))]
+    public partial class SerializedClientLargeRcpSendSystem : SystemBase
     {
         public static int SendCount = 0;
         public static SerializedLargeRpcCommand Cmd;
@@ -349,7 +374,7 @@ namespace Unity.NetCode.Tests
     [DisableAutoCreation]
     [AlwaysUpdateSystem]
     [UpdateInGroup(typeof(ClientSimulationSystemGroup))]
-    public class FlawedClientRcpSendSystem : SystemBase
+    public partial class FlawedClientRcpSendSystem : SystemBase
     {
         public static int SendCount = 0;
 
@@ -370,7 +395,7 @@ namespace Unity.NetCode.Tests
     #region Receive Systems
     [DisableAutoCreation]
     [UpdateInGroup(typeof(ServerSimulationSystemGroup))]
-    public class ServerMultipleRpcReceiveSystem : SystemBase
+    public partial class ServerMultipleRpcReceiveSystem : SystemBase
     {
         public static int[] ReceivedCount = new int[2];
 
@@ -387,9 +412,10 @@ namespace Unity.NetCode.Tests
         }
     }
 
+
     [DisableAutoCreation]
     [UpdateInGroup(typeof(ClientSimulationSystemGroup))]
-    public class MultipleClientBroadcastRpcReceiveSystem : SystemBase
+    public partial class MultipleClientBroadcastRpcReceiveSystem : SystemBase
     {
         public static int[] ReceivedCount = new int[2];
 
@@ -405,7 +431,9 @@ namespace Unity.NetCode.Tests
         {
             var PostUpdateCommands = new EntityCommandBuffer(Allocator.Temp);
             var currentWorldId = worldId;
-            Entities.WithoutBurst().ForEach((Entity entity, ref SimpleRpcCommand cmd, ref ReceiveRpcCommandRequestComponent req) =>
+            Entities.WithoutBurst()
+                .WithAll<SimpleRpcCommand>()
+                .ForEach((Entity entity, ref ReceiveRpcCommandRequestComponent req) =>
             {
                 PostUpdateCommands.DestroyEntity(entity);
                 ++ReceivedCount[currentWorldId];
@@ -416,14 +444,16 @@ namespace Unity.NetCode.Tests
 
     [DisableAutoCreation]
     [UpdateInGroup(typeof(ServerSimulationSystemGroup))]
-    public class ServerRpcReceiveSystem : SystemBase
+    public partial class ServerRpcReceiveSystem : SystemBase
     {
         public static int ReceivedCount = 0;
 
         protected override void OnUpdate()
         {
             var PostUpdateCommands = new EntityCommandBuffer(Allocator.Temp);
-            Entities.WithoutBurst().ForEach((Entity entity, ref SimpleRpcCommand cmd, ref ReceiveRpcCommandRequestComponent req) =>
+            Entities.WithoutBurst()
+                .WithAll<SimpleRpcCommand>()
+                .ForEach((Entity entity, ref ReceiveRpcCommandRequestComponent req) =>
             {
                 PostUpdateCommands.DestroyEntity(entity);
                 ++ReceivedCount;
@@ -433,8 +463,28 @@ namespace Unity.NetCode.Tests
     }
 
     [DisableAutoCreation]
+    [UpdateInGroup(typeof(ClientSimulationSystemGroup))]
+    public partial class SerializedClientRpcReceiveSystem : SystemBase
+    {
+        public static int ReceivedCount = 0;
+        public static SerializedRpcCommand ReceivedCmd;
+
+        protected override void OnUpdate()
+        {
+            var PostUpdateCommands = new EntityCommandBuffer(Allocator.Temp);
+            Entities.WithoutBurst().ForEach((Entity entity, ref SerializedRpcCommand cmd, ref ReceiveRpcCommandRequestComponent req) =>
+            {
+                ReceivedCmd = cmd;
+                PostUpdateCommands.DestroyEntity(entity);
+                ++ReceivedCount;
+            }).Run();
+            PostUpdateCommands.Playback(EntityManager);
+        }
+    }
+
+    [DisableAutoCreation]
     [UpdateInGroup(typeof(ServerSimulationSystemGroup))]
-    public class SerializedServerRpcReceiveSystem : SystemBase
+    public partial class SerializedServerRpcReceiveSystem : SystemBase
     {
         public static int ReceivedCount = 0;
         public static SerializedRpcCommand ReceivedCmd;
@@ -453,7 +503,7 @@ namespace Unity.NetCode.Tests
     }
     [DisableAutoCreation]
     [UpdateInGroup(typeof(ServerSimulationSystemGroup))]
-    public class SerializedServerLargeRpcReceiveSystem : SystemBase
+    public partial class SerializedServerLargeRpcReceiveSystem : SystemBase
     {
         public static int ReceivedCount = 0;
         public static SerializedLargeRpcCommand ReceivedCmd;

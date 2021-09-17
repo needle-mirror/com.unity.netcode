@@ -22,7 +22,7 @@ namespace Unity.NetCode.Tests
 
     [UpdateInGroup(typeof(ServerSimulationSystemGroup))]
     [DisableAutoCreation]
-    internal class AutoMarkIrrelevantSystem : SystemBase
+    internal partial class AutoMarkIrrelevantSystem : SystemBase
     {
         public static int s_ConnectionId;
         public static NativeHashMap<int,int> s_IrrelevantGhosts;
@@ -561,6 +561,56 @@ namespace Unity.NetCode.Tests
                         Assert.AreEqual(2, clientValues[ghost].NetworkId);
                 }
                 Assert.IsTrue(foundOne);
+            }
+        }
+        [Test]
+        public void ManyEntitiesCanBecomeIrrelevantSameTick()
+        {
+            using (var testWorld = new NetCodeTestWorld())
+            {
+                testWorld.Bootstrap(true);
+
+                var ghostGameObject = new GameObject();
+                ghostGameObject.AddComponent<TestNetCodeAuthoring>().Converter = new GhostValueSerializerConverter();
+
+                Assert.IsTrue(testWorld.CreateGhostCollection(ghostGameObject));
+
+                testWorld.CreateWorlds(true, 1);
+
+                var prefabCollection = testWorld.TryGetSingletonEntity<NetCodeTestPrefabCollection>(testWorld.ServerWorld);
+                var prefab = testWorld.ServerWorld.EntityManager.GetBuffer<NetCodeTestPrefab>(prefabCollection)[0].Value;
+                using (var entities = testWorld.ServerWorld.EntityManager.Instantiate(prefab, 10000, Allocator.Persistent))
+                {
+                    float frameTime = 1.0f / 60.0f;
+                    // Connect and make sure the connection could be established
+                    Assert.IsTrue(testWorld.Connect(frameTime, 4));
+
+                    // Go in-game
+                    testWorld.GoInGame();
+
+                    // Let the game run for a bit so the ghosts are spawned on the client
+                    for (int i = 0; i < 128; ++i)
+                        testWorld.Tick(frameTime);
+
+                    Assert.AreEqual(10000, testWorld.ClientWorlds[0].GetExistingSystem<GhostReceiveSystem>().GhostCountOnClient);
+
+                    // Make all 10 000 ghosts irrelevant
+                    testWorld.ServerWorld.GetExistingSystem<GhostSendSystem>().GhostRelevancyMode = GhostRelevancyMode.SetIsRelevant;
+
+                    for (int i = 0; i < 256; ++i)
+                        testWorld.Tick(frameTime);
+
+                    // Assert that replicated version is correct
+                    Assert.AreEqual(0, testWorld.ClientWorlds[0].GetExistingSystem<GhostReceiveSystem>().GhostCountOnClient);
+
+                    testWorld.ServerWorld.EntityManager.DestroyEntity(entities);
+
+                    for (int i = 0; i < 128; ++i)
+                        testWorld.Tick(frameTime);
+
+                    // Assert that replicated version is correct
+                    Assert.AreEqual(0, testWorld.ClientWorlds[0].GetExistingSystem<GhostReceiveSystem>().GhostCountOnClient);
+                }
             }
         }
     }

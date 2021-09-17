@@ -1,14 +1,17 @@
 using System;
+using System.Collections.Generic;
 using Unity.Burst;
 using Unity.Collections;
 using Unity.Entities;
 using Unity.Jobs;
 using Unity.Networking.Transport;
 using Unity.Networking.Transport.Utilities;
+using UnityEngine;
+using Hash128 = Unity.Entities.Hash128;
 
 namespace Unity.NetCode
 {
-    [UpdateInWorld(UpdateInWorld.TargetWorld.ClientAndServer)]
+    [UpdateInWorld(TargetWorld.ClientAndServer)]
     [UpdateInGroup(typeof(SimulationSystemGroup), OrderFirst = true)]
     [UpdateAfter(typeof(BeginSimulationEntityCommandBufferSystem))]
     public class NetworkReceiveSystemGroup : ComponentSystemGroup
@@ -23,7 +26,7 @@ namespace Unity.NetCode
 
     [UpdateInGroup(typeof(NetworkReceiveSystemGroup))]
     [AlwaysUpdateSystem]
-    public class NetworkStreamReceiveSystem : SystemBase, INetworkStreamDriverConstructor
+    public partial class NetworkStreamReceiveSystem : SystemBase, INetworkStreamDriverConstructor
     {
         public static INetworkStreamDriverConstructor s_DriverConstructor;
         public INetworkStreamDriverConstructor DriverConstructor => s_DriverConstructor != null ? s_DriverConstructor : this;
@@ -35,7 +38,14 @@ namespace Unity.NetCode
         public NetworkPipeline ReliablePipeline => m_ReliablePipeline;
         public NetworkPipeline UnreliableFragmentedPipeline => m_UnreliableFragmentedPipeline;
 
+        private enum DriverState : int
+        {
+            Default,
+            Migrating
+        }
+
         private NetworkDriver m_Driver;
+        private int m_DriverState;
         private NetworkDriver.Concurrent m_ConcurrentDriver;
         private NetworkPipeline m_UnreliablePipeline;
         private NetworkPipeline m_ReliablePipeline;
@@ -47,29 +57,32 @@ namespace Unity.NetCode
         private RpcQueue<RpcSetNetworkId, RpcSetNetworkId> m_RpcQueue;
         private GhostCollectionSystem m_GhostCollectionSystem;
         private EntityQuery m_NetworkStreamConnectionQuery;
+        private ServerSimulationSystemGroup m_ServerSimulationSystemGroup;
+        private NetDebugSystem m_NetDebugSystem;
+        private FixedString128Bytes m_DebugPrefix;
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
         private NativeArray<uint> m_NetStats;
         private GhostStatsCollectionSystem m_GhostStatsCollectionSystem;
 #endif
 
+        private EntityQuery m_refreshTickRateQuery;
+        private EntityQuery m_pendingConnectionQuery;
+        private EntityQuery m_requestDisconnectQuery;
+        private EntityQuery m_notInGameQuery;
+
         public void CreateClientDriver(World world, out NetworkDriver driver, out NetworkPipeline unreliablePipeline, out NetworkPipeline reliablePipeline, out NetworkPipeline unreliableFragmentedPipeline)
         {
-            var reliabilityParams = new ReliableUtility.Parameters {WindowSize = 32};
-            var fragmentationParams = new FragmentationUtility.Parameters {PayloadCapacity = 16 * 1024};
+            var settings = new NetworkSettings();
+            settings.WithReliableStageParameters(windowSize: 32)
+                    .WithFragmentationStageParameters(payloadCapacity: 16 * 1024);
 
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
-            var netParams = new NetworkConfigParameter
-            {
-                maxConnectAttempts = NetworkParameterConstants.MaxConnectAttempts,
-                connectTimeoutMS = NetworkParameterConstants.ConnectTimeoutMS,
-                disconnectTimeoutMS = NetworkParameterConstants.DisconnectTimeoutMS,
-                maxFrameTimeMS = 100
-            };
-
             var simulatorParams = ClientSimulatorParameters;
-            driver = NetworkDriver.Create(netParams, simulatorParams, reliabilityParams, fragmentationParams);
+            settings.WithNetworkConfigParameters(maxFrameTimeMS: 100);
+            settings.AddRawParameterStruct(ref simulatorParams);
+            driver = NetworkDriver.Create(settings);
 #else
-            driver = NetworkDriver.Create(reliabilityParams);
+            driver = NetworkDriver.Create(settings);
 #endif
 
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
@@ -79,12 +92,12 @@ namespace Unity.NetCode
                     typeof(SimulatorPipelineStage),
                     typeof(SimulatorPipelineStageInSend));
                 reliablePipeline = driver.CreatePipeline(
-                    typeof(SimulatorPipelineStage),
                     typeof(ReliableSequencedPipelineStage),
+                    typeof(SimulatorPipelineStage),
                     typeof(SimulatorPipelineStageInSend));
                 unreliableFragmentedPipeline = driver.CreatePipeline(
-                    typeof(SimulatorPipelineStage),
                     typeof(FragmentationPipelineStage),
+                    typeof(SimulatorPipelineStage),
                     typeof(SimulatorPipelineStageInSend));
             }
             else
@@ -98,20 +111,15 @@ namespace Unity.NetCode
 
         public void CreateServerDriver(World world, out NetworkDriver driver, out NetworkPipeline unreliablePipeline, out NetworkPipeline reliablePipeline, out NetworkPipeline unreliableFragmentedPipeline)
         {
-            var reliabilityParams = new ReliableUtility.Parameters {WindowSize = 32};
-            var fragmentationParams = new FragmentationUtility.Parameters {PayloadCapacity = 16 * 1024};
+            var settings = new NetworkSettings();
+            settings.WithReliableStageParameters(windowSize: 32)
+                    .WithFragmentationStageParameters(payloadCapacity: 16 * 1024);
 
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
-            var netParams = new NetworkConfigParameter
-            {
-                maxConnectAttempts = NetworkParameterConstants.MaxConnectAttempts,
-                connectTimeoutMS = NetworkParameterConstants.ConnectTimeoutMS,
-                disconnectTimeoutMS = NetworkParameterConstants.DisconnectTimeoutMS,
-                maxFrameTimeMS = 100
-            };
-            driver = NetworkDriver.Create(netParams, reliabilityParams, fragmentationParams);
+            settings.WithNetworkConfigParameters(maxFrameTimeMS: 100);
+            driver = NetworkDriver.Create(settings);
 #else
-            driver = NetworkDriver.Create(reliabilityParams);
+            driver = NetworkDriver.Create(settings);
 #endif
 
             unreliablePipeline = driver.CreatePipeline(typeof(NullPipelineStage));
@@ -129,20 +137,24 @@ namespace Unity.NetCode
                 return false;
             m_DriverListening = true;
             m_ConcurrentDriver = m_Driver.ToConcurrent();
+            m_NetDebugSystem.NetDebug.DebugLog(FixedString.Format("{0} Listening on {1}", m_DebugPrefix, endpoint.Address));
             return true;
         }
 
-        public Entity Connect(NetworkEndPoint endpoint)
+        public Entity Connect(NetworkEndPoint endpoint, Entity ent = default)
         {
             LastDriverWriter.Complete();
 
-            var ent = EntityManager.CreateEntity();
+            if (ent == Entity.Null)
+                ent = EntityManager.CreateEntity();
             EntityManager.AddComponentData(ent, new NetworkStreamConnection {Value = m_Driver.Connect(endpoint)});
             EntityManager.AddComponentData(ent, new NetworkSnapshotAckComponent());
             EntityManager.AddComponentData(ent, new CommandTargetComponent());
             EntityManager.AddBuffer<IncomingRpcDataStreamBufferComponent>(ent);
-            EntityManager.AddBuffer<IncomingCommandDataStreamBufferComponent>(ent);
+            EntityManager.AddBuffer<OutgoingCommandDataStreamBufferComponent>(ent);
             EntityManager.AddBuffer<IncomingSnapshotDataStreamBufferComponent>(ent);
+            EntityManager.AddBuffer<LinkedEntityGroup>(ent).Add(new LinkedEntityGroup{Value = ent});
+            m_NetDebugSystem.NetDebug.DebugLog(FixedString.Format("{0} Connecting to {1}", m_DebugPrefix, endpoint.Address));
             return ent;
         }
 
@@ -178,23 +190,61 @@ namespace Unity.NetCode
         }
 #endif
 
+        private DriverMigrationSystem m_DriverMigrationSystem = default;
+
         protected override void OnCreate()
         {
-            if (World.GetExistingSystem<ServerSimulationSystemGroup>() != null)
-                DriverConstructor.CreateServerDriver(World, out m_Driver, out m_UnreliablePipeline, out m_ReliablePipeline, out m_UnreliableFragmentedPipeline);
-            else
-                DriverConstructor.CreateClientDriver(World, out m_Driver, out m_UnreliablePipeline, out m_ReliablePipeline, out m_UnreliableFragmentedPipeline);
+            foreach (var world in World.All)
+            {
+                if ((m_DriverMigrationSystem = world.GetExistingSystem<DriverMigrationSystem>()) != null)
+                    break;
+            }
 
-            m_ConcurrentDriver = m_Driver.ToConcurrent();
-            m_DriverListening = false;
-            m_Barrier = World.GetOrCreateSystem<BeginSimulationEntityCommandBufferSystem>();
             m_NumNetworkIds = new NativeArray<int>(1, Allocator.Persistent);
             m_FreeNetworkIds = new NativeQueue<int>(Allocator.Persistent);
+
+            m_ServerSimulationSystemGroup = World.GetExistingSystem<ServerSimulationSystemGroup>();
+
+            if (HasSingleton<MigrationTicket>())
+            {
+                var ticket = GetSingleton<MigrationTicket>();
+
+                // load driver & all the network connection data
+                var driverState = m_DriverMigrationSystem.Load(ticket.Value);
+
+                m_Driver = driverState.Driver;
+                m_ReliablePipeline = driverState.ReliablePipeline;
+                m_UnreliablePipeline = driverState.UnreliablePipeline;
+                m_UnreliableFragmentedPipeline = driverState.UnreliableFragmentedPipeline;
+
+                m_DriverListening = driverState.Listening;
+                m_NumNetworkIds[0] = driverState.NextId;
+
+                foreach (var id in driverState.FreeList)
+                {
+                    m_FreeNetworkIds.Enqueue(id);
+                }
+                driverState.FreeList.Dispose();
+            }
+            else
+            {
+                if (m_ServerSimulationSystemGroup != null)
+                    DriverConstructor.CreateServerDriver(World, out m_Driver, out m_UnreliablePipeline, out m_ReliablePipeline, out m_UnreliableFragmentedPipeline);
+                else
+                    DriverConstructor.CreateClientDriver(World, out m_Driver, out m_UnreliablePipeline, out m_ReliablePipeline, out m_UnreliableFragmentedPipeline);
+
+                m_DriverListening = false;
+            }
+
+            m_ConcurrentDriver = m_Driver.ToConcurrent();
+            m_Barrier = World.GetOrCreateSystem<BeginSimulationEntityCommandBufferSystem>();
             m_RpcQueue = World.GetOrCreateSystem<RpcSystem>().GetRpcQueue<RpcSetNetworkId, RpcSetNetworkId>();
             m_NetworkStreamConnectionQuery = EntityManager.CreateEntityQuery(typeof(NetworkStreamConnection));
             m_GhostCollectionSystem = World.GetExistingSystem<GhostCollectionSystem>();
+            m_NetDebugSystem = World.GetOrCreateSystem<NetDebugSystem>();
+            m_DebugPrefix = $"[{World.Name}][Connection]";
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
-            m_NetStats = new NativeArray<uint>(1, Allocator.Persistent);
+            m_NetStats = new NativeArray<uint>(3, Allocator.Persistent);
             m_GhostStatsCollectionSystem = World.GetOrCreateSystem<GhostStatsCollectionSystem>();
 #endif
         }
@@ -207,20 +257,16 @@ namespace Unity.NetCode
 #endif
             m_NumNetworkIds.Dispose();
             m_FreeNetworkIds.Dispose();
-            var driver = m_Driver;
-            using (var networkStreamConnections = m_NetworkStreamConnectionQuery.ToComponentDataArray<NetworkStreamConnection>(Allocator.TempJob))
+
+            if ((int)DriverState.Default == m_DriverState)
             {
-                foreach (var connection in networkStreamConnections)
-                {
+                var driver = m_Driver;
+                Entities.WithoutBurst().ForEach((in NetworkStreamConnection connection) => {
                     driver.Disconnect(connection.Value);
-                }
+                }).Run();
+                m_Driver.ScheduleFlushSend(default).Complete();
+                m_Driver.Dispose();
             }
-// TODO: can this be run without safety on the main thread?
-//            Entities.ForEach((ref NetworkStreamConnection connection) =>
-//            {
-//                driver.Disconnect(connection.Value);
-//            }).Run();
-            m_Driver.Dispose();
         }
 
         [BurstCompile]
@@ -234,6 +280,8 @@ namespace Unity.NetCode
             public RpcQueue<RpcSetNetworkId, RpcSetNetworkId> rpcQueue;
             public ClientServerTickRate tickRate;
             public NetworkProtocolVersion protocolVersion;
+            public NetDebug netDebug;
+            public FixedString128Bytes debugPrefix;
             [ReadOnly] public ComponentDataFromEntity<GhostComponent> ghostFromEntity;
 
             public void Execute()
@@ -243,21 +291,26 @@ namespace Unity.NetCode
                 {
                     // New connection can never have any events, if this one does - just close it
                     DataStreamReader reader;
-                    if (con.PopEvent(driver, out reader) != NetworkEvent.Type.Empty)
+                    var evt = con.PopEvent(driver, out reader);
+                    if (evt != NetworkEvent.Type.Empty)
                     {
                         con.Disconnect(driver);
+                        netDebug.DebugLog(FixedString.Format("[{0}][Connection] Disconnecting stale connection detected as new (has pending event={1}).", debugPrefix, (int)evt));
                         continue;
                     }
 
                     // create an entity for the new connection
                     var ent = commandBuffer.CreateEntity();
                     commandBuffer.AddComponent(ent, new NetworkStreamConnection {Value = con});
+
+                    // rpc send buffer might need to be migrated...
                     commandBuffer.AddComponent(ent, new NetworkSnapshotAckComponent());
+                    commandBuffer.AddBuffer<PrespawnSectionAck>(ent);
                     commandBuffer.AddComponent(ent, new CommandTargetComponent());
                     commandBuffer.AddBuffer<IncomingRpcDataStreamBufferComponent>(ent);
                     var rpcBuffer = commandBuffer.AddBuffer<OutgoingRpcDataStreamBufferComponent>(ent);
                     commandBuffer.AddBuffer<IncomingCommandDataStreamBufferComponent>(ent);
-                    commandBuffer.AddBuffer<IncomingSnapshotDataStreamBufferComponent>(ent);
+                    commandBuffer.AddBuffer<LinkedEntityGroup>(ent).Add(new LinkedEntityGroup{Value = ent});
 
                     RpcSystem.SendProtocolVersion(rpcBuffer, protocolVersion);
 
@@ -271,34 +324,40 @@ namespace Unity.NetCode
                     }
 
                     commandBuffer.AddComponent(ent, new NetworkIdComponent {Value = nid});
+                    commandBuffer.SetName(ent, new FixedString64Bytes(FixedString.Format("NetworkConnection ({0})", nid)));
                     rpcQueue.Schedule(rpcBuffer, ghostFromEntity, new RpcSetNetworkId
                     {
                         nid = nid,
                         netTickRate = tickRate.NetworkTickRate,
                         simMaxSteps = tickRate.MaxSimulationStepsPerFrame,
+                        simMaxStepLength = tickRate.MaxSimulationLongStepTimeMultiplier,
                         simTickRate = tickRate.SimulationTickRate
                     });
+                    netDebug.DebugLog(FixedString.Format("{0} Accepted new connection NetworkId={1} InternalId={2}", debugPrefix, nid, con.InternalId));
                 }
             }
-        }
-
-        [BurstDiscard]
-        static void PrintEventError(NetworkEvent.Type evt)
-        {
-            UnityEngine.Debug.LogError("Received unknown network event " + evt);
         }
 
         protected override void OnUpdate()
         {
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
-            m_GhostStatsCollectionSystem.AddDiscardedPackets(m_NetStats[0]);
-            m_NetStats[0] = 0;
+            m_GhostStatsCollectionSystem.AddDiscardedPackets(m_NetStats[2]);
+            m_NetStats[2] = 0;
+            if (m_NetStats[0] != 0)
+            {
+                m_GhostStatsCollectionSystem.AddCommandStats(m_NetStats);
+                m_NetStats[0] = 0;
+                m_NetStats[1] = 0;
+            }
 #endif
             var commandBuffer = m_Barrier.CreateCommandBuffer().AsParallelWriter();
+            var netDebug = m_NetDebugSystem.NetDebug;
+            var debugPrefix = m_DebugPrefix;
 
             if (!HasSingleton<NetworkProtocolVersion>())
             {
                 var entity = EntityManager.CreateEntity();
+                EntityManager.SetName(entity, "NetworkProtocolVersion");
                 var rpcVersion = World.GetExistingSystem<RpcSystem>().CalculateVersionHash();
                 var componentsVersion = m_GhostCollectionSystem.CalculateComponentCollectionHash();
                 var gameVersion = HasSingleton<GameProtocolVersion>() ? GetSingleton<GameProtocolVersion>().Version : 0;
@@ -327,6 +386,8 @@ namespace Unity.NetCode
                     acceptJob.tickRate = GetSingleton<ClientServerTickRate>();
                 acceptJob.tickRate.ResolveDefaults();
                 acceptJob.protocolVersion = GetSingleton<NetworkProtocolVersion>();
+                acceptJob.netDebug = m_NetDebugSystem.NetDebug;
+                acceptJob.debugPrefix = m_DebugPrefix;
                 Dependency = acceptJob.Schedule(Dependency);
             }
             else
@@ -338,49 +399,87 @@ namespace Unity.NetCode
                     tickRate.ResolveDefaults();
                     EntityManager.AddComponentData(newEntity, tickRate);
                 }
-                var tickRateEntity = GetSingletonEntity<ClientServerTickRate>();
-                Dependency = Entities
-                    .WithNone<NetworkStreamDisconnected>()
-                    .ForEach((Entity entity, int entityInQueryIndex, in ClientServerTickRateRefreshRequest req) =>
-                    {
-                        var dataFromEntity = GetComponentDataFromEntity<ClientServerTickRate>();
-                        var tickRate = dataFromEntity[tickRateEntity];
-                        tickRate.MaxSimulationStepsPerFrame = req.MaxSimulationStepsPerFrame;
-                        tickRate.NetworkTickRate = req.NetworkTickRate;
-                        tickRate.SimulationTickRate = req.SimulationTickRate;
-                        dataFromEntity[tickRateEntity] = tickRate;
-                        commandBuffer.RemoveComponent<ClientServerTickRateRefreshRequest>(entityInQueryIndex, entity);
-                    }).Schedule(Dependency);
+                if (!m_refreshTickRateQuery.IsEmptyIgnoreFilter)
+                {
+                    var tickRateEntity = GetSingletonEntity<ClientServerTickRate>();
+                    Dependency = Entities
+                        .WithNone<NetworkStreamDisconnected>()
+                        .WithName("RefreshClientServerTickRate")
+                        .WithStoreEntityQueryInField(ref m_refreshTickRateQuery)
+                        .ForEach((Entity entity, int entityInQueryIndex, in ClientServerTickRateRefreshRequest req) =>
+                        {
+                            var dataFromEntity = GetComponentDataFromEntity<ClientServerTickRate>();
+                            var tickRate = dataFromEntity[tickRateEntity];
+                            tickRate.MaxSimulationStepsPerFrame = req.MaxSimulationStepsPerFrame;
+                            tickRate.NetworkTickRate = req.NetworkTickRate;
+                            tickRate.SimulationTickRate = req.SimulationTickRate;
+                            tickRate.MaxSimulationLongStepTimeMultiplier = req.MaxSimulationLongStepTimeMultiplier;
+                            dataFromEntity[tickRateEntity] = tickRate;
+                            var dbgMsg = FixedString.Format("Using SimulationTickRate={0} NetworkTickRate={1} MaxSimulationStepsPerFrame={2} TargetFrameRateMode={3}", tickRate.SimulationTickRate, tickRate.NetworkTickRate, tickRate.MaxSimulationStepsPerFrame, (int)tickRate.TargetFrameRateMode);
+                            netDebug.DebugLog(FixedString.Format("{0} {1}", debugPrefix, dbgMsg));
+                            commandBuffer.RemoveComponent<ClientServerTickRateRefreshRequest>(entityInQueryIndex, entity);
+                        }).Schedule(Dependency);
+                }
                 m_FreeNetworkIds.Clear();
             }
 
-            var protocolVersion = GetSingleton<NetworkProtocolVersion>();
-            Entities.WithName("CompleteConnection").WithNone<OutgoingRpcDataStreamBufferComponent>().
-                ForEach((Entity entity, int nativeThreadIndex, in NetworkStreamConnection con) =>
+            if (!m_pendingConnectionQuery.IsEmptyIgnoreFilter)
             {
-                var buf = commandBuffer.AddBuffer<OutgoingRpcDataStreamBufferComponent>(nativeThreadIndex, entity);
-                RpcSystem.SendProtocolVersion(buf, protocolVersion);
-            }).ScheduleParallel();
+                var protocolVersion = GetSingleton<NetworkProtocolVersion>();
+                Entities
+                    .WithName("CompleteConnection")
+                    .WithStoreEntityQueryInField(ref m_pendingConnectionQuery)
+                    .WithNone<OutgoingRpcDataStreamBufferComponent>()
+                    .ForEach((Entity entity, int nativeThreadIndex, in NetworkStreamConnection con) =>
+                {
+                    var buf = commandBuffer.AddBuffer<OutgoingRpcDataStreamBufferComponent>(nativeThreadIndex, entity);
+                    RpcSystem.SendProtocolVersion(buf, protocolVersion);
+                }).ScheduleParallel();
+            }
 
             Dependency = JobHandle.CombineDependencies(Dependency, LastDriverWriter);
 
-            var driver = m_Driver;
-            Entities.ForEach((Entity entity, int nativeThreadIndex, ref NetworkStreamConnection connection, in NetworkStreamRequestDisconnect disconnect) =>
+            if (!m_requestDisconnectQuery.IsEmptyIgnoreFilter)
             {
-                driver.Disconnect(connection.Value);
-                commandBuffer.AddComponent(nativeThreadIndex, entity, new NetworkStreamDisconnected {Reason = disconnect.Reason});
-                commandBuffer.RemoveComponent<NetworkStreamRequestDisconnect>(nativeThreadIndex, entity);
-            }).Schedule();
+                var driver = m_Driver;
+                Entities
+                    .WithName("ProcessRequestDisconnect")
+                    .WithStoreEntityQueryInField(ref m_requestDisconnectQuery)
+                    .ForEach((Entity entity, int nativeThreadIndex, ref NetworkStreamConnection connection, in NetworkStreamRequestDisconnect disconnect) =>
+                {
+                    var id = -1;
+                    if (HasComponent<NetworkIdComponent>(entity))
+                    {
+                        var netIdDataFromEntity = GetComponentDataFromEntity<NetworkIdComponent>(true);
+                        id = netIdDataFromEntity[entity].Value;
+                    }
+                    driver.Disconnect(connection.Value);
+                    commandBuffer.AddComponent(nativeThreadIndex, entity, new NetworkStreamDisconnected {Reason = disconnect.Reason});
+                    commandBuffer.RemoveComponent<NetworkStreamRequestDisconnect>(nativeThreadIndex, entity);
+                    netDebug.DebugLog(FixedString.Format("{0} Disconnecting NetworkId={1} InternalId={2} Reason={3}", debugPrefix, id, connection.Value.InternalId, DisconnectReasonEnumToString.Convert((int)disconnect.Reason)));
+                }).Schedule();
+            }
 
-            // Clear the ack mask when not in-game
-            Entities
-                .WithNone<NetworkStreamDisconnected>()
-                .WithNone<NetworkStreamRequestDisconnect>()
-                .WithNone<NetworkStreamInGame>()
-                .ForEach((ref NetworkSnapshotAckComponent ack) =>
+            if (!m_notInGameQuery.IsEmptyIgnoreFilter)
             {
-                ack = default;
-            }).Schedule();
+                // Clear the ack mask when not in-game
+                Entities
+                    .WithName("ClearAckMaskWhenNotInGame")
+                    .WithStoreEntityQueryInField(ref m_notInGameQuery)
+                    .WithNone<NetworkStreamDisconnected>()
+                    .WithNone<NetworkStreamRequestDisconnect>()
+                    .WithNone<NetworkStreamInGame>()
+                    .ForEach((ref NetworkSnapshotAckComponent ack) =>
+                {
+                    ack = new NetworkSnapshotAckComponent
+                    {
+                        LastReceivedRemoteTime = ack.LastReceivedRemoteTime,
+                        LastReceiveTimestamp = ack.LastReceiveTimestamp,
+                        EstimatedRTT = ack.EstimatedRTT,
+                        DeviationRTT = ack.DeviationRTT
+                    };
+                }).Schedule();
+            }
 
             // Schedule parallel update job
             var concurrentDriver = m_ConcurrentDriver;
@@ -393,6 +492,7 @@ namespace Unity.NetCode
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
             var netStats = m_NetStats;
 #endif
+            uint serverTick = (m_ServerSimulationSystemGroup != null) ? m_ServerSimulationSystemGroup.ServerTick : 0;
             // FIXME: because it uses buffer from entity
             Entities.WithNone<NetworkStreamDisconnected>().WithReadOnly(networkId).
                 ForEach((Entity entity, int nativeThreadIndex, ref NetworkStreamConnection connection,
@@ -410,29 +510,37 @@ namespace Unity.NetCode
                         case NetworkEvent.Type.Connect:
                             break;
                         case NetworkEvent.Type.Disconnect:
+                            var reason = NetworkStreamDisconnectReason.ConnectionClose;
+                            if (reader.Length == 1)
+                                reason = (NetworkStreamDisconnectReason)reader.ReadByte();
+
                             // Flag the connection as lost, it will be deleted in a separate system, giving user code one frame to detect and respond to lost connection
                             commandBuffer.AddComponent(nativeThreadIndex, entity, new NetworkStreamDisconnected
                             {
-                                Reason = NetworkStreamDisconnectReason.ConnectionClose
+                                Reason = reason
                             });
                             rpcBuffer[entity].Clear();
-                            cmdBuffer[entity].Clear();
+                            if (cmdBuffer.HasComponent(entity))
+                                cmdBuffer[entity].Clear();
                             connection.Value = default(NetworkConnection);
+                            var id = -1;
                             if (networkId.HasComponent(entity))
-                                freeNetworkIds.Enqueue(networkId[entity].Value);
+                            {
+                                id = networkId[entity].Value;
+                                freeNetworkIds.Enqueue(id);
+                            }
+                            netDebug.DebugLog(FixedString.Format("{0} Connection closed NetworkId={1} InternalId={2} Reason={3}", debugPrefix, id, connection.Value.InternalId, DisconnectReasonEnumToString.Convert((int)reason)));
                             return;
                         case NetworkEvent.Type.Data:
                             // FIXME: do something with the data
-                            switch ((NetworkStreamProtocol) reader.ReadByte())
+                            var msgType = reader.ReadByte();
+                            switch ((NetworkStreamProtocol)msgType)
                             {
                                 case NetworkStreamProtocol.Command:
                                 {
+                                    if (!cmdBuffer.HasComponent(entity))
+                                        break;
                                     var buffer = cmdBuffer[entity];
-#if UNITY_EDITOR || DEVELOPMENT_BUILD
-                                    if (buffer.Length > 0)
-                                        netStats[0] = netStats[0] + 1;
-#endif
-                                    // FIXME: should be handle by a custom command stream system
                                     uint snapshot = reader.ReadUInt();
                                     uint snapshotMask = reader.ReadUInt();
                                     snapshotAck.UpdateReceivedByRemote(snapshot, snapshotMask);
@@ -440,8 +548,22 @@ namespace Unity.NetCode
                                     uint localTimeMinusRTT = reader.ReadUInt();
                                     uint interpolationDelay = reader.ReadUInt();
                                     uint numLoadedPrefabs = reader.ReadUInt();
-                                    snapshotAck.UpdateRemoteTime(remoteTime, localTimeMinusRTT, localTime,
-                                        interpolationDelay, numLoadedPrefabs);
+
+                                    snapshotAck.UpdateRemoteAckedData(remoteTime, numLoadedPrefabs, interpolationDelay);
+                                    snapshotAck.UpdateRemoteTime(remoteTime, localTimeMinusRTT, localTime);
+                                    var tickReader = reader;
+                                    var cmdTick = tickReader.ReadUInt();
+                                    var isValidCmdTick = snapshotAck.LastReceivedSnapshotByLocal == 0 || SequenceHelpers.IsNewer(cmdTick, snapshotAck.LastReceivedSnapshotByLocal);
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+                                    netStats[0] = serverTick;
+                                    netStats[1] = (uint)reader.Length - 1u;
+                                    if (!isValidCmdTick || buffer.Length > 0)
+                                        netStats[2] = netStats[2] + 1;
+#endif
+                                    // Do not try to process incoming commands which are older than commands we already processed
+                                    if (!isValidCmdTick)
+                                        break;
+                                    snapshotAck.LastReceivedSnapshotByLocal = cmdTick;
 
                                     buffer.Clear();
                                     buffer.Add(ref reader);
@@ -449,15 +571,17 @@ namespace Unity.NetCode
                                 }
                                 case NetworkStreamProtocol.Snapshot:
                                 {
+                                    if (!snapshotBuffer.HasComponent(entity))
+                                        break;
                                     uint remoteTime = reader.ReadUInt();
                                     uint localTimeMinusRTT = reader.ReadUInt();
                                     snapshotAck.ServerCommandAge = reader.ReadInt();
-                                    snapshotAck.UpdateRemoteTime(remoteTime, localTimeMinusRTT, localTime, 0, 0);
+                                    snapshotAck.UpdateRemoteTime(remoteTime, localTimeMinusRTT, localTime);
 
                                     var buffer = snapshotBuffer[entity];
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
                                     if (buffer.Length > 0)
-                                        netStats[0] = netStats[0] + 1;
+                                        netStats[2] = netStats[2] + 1;
 #endif
                                     buffer.Clear();
                                     buffer.Add(ref reader);
@@ -465,31 +589,54 @@ namespace Unity.NetCode
                                 }
                                 case NetworkStreamProtocol.Rpc:
                                 {
+                                    uint remoteTime = reader.ReadUInt();
+                                    uint localTimeMinusRTT = reader.ReadUInt();
+                                    snapshotAck.UpdateRemoteTime(remoteTime, localTimeMinusRTT, localTime);
                                     var buffer = rpcBuffer[entity];
                                     buffer.Add(ref reader);
                                     break;
                                 }
                                 default:
-#if ENABLE_UNITY_COLLECTIONS_CHECKS
-                                    throw new InvalidOperationException("Received unknown message type");
-#else
+                                    netDebug.LogError(FixedString.Format("Received unknown message type {0}", msgType));
                                     break;
-#endif
                             }
 
                             break;
                         default:
-#if ENABLE_UNITY_COLLECTIONS_CHECKS
-                            PrintEventError(evt);
-                            throw new InvalidOperationException("Received unknown network event");
-#else
+                            netDebug.LogError(FixedString.Format("Received unknown network event {0}", (int)evt));
                             break;
-#endif
                     }
                 }
             }).Schedule();
             LastDriverWriter = Dependency;
             m_Barrier.AddJobHandleForProducer(Dependency);
+        }
+
+        public void StoreMigrationState(int ticket)
+        {
+            m_Driver.ScheduleFlushSend(LastDriverWriter).Complete();
+
+            var state = new DriverMigrationSystem.DriverState
+            {
+                Driver = this.Driver,
+                ReliablePipeline = this.ReliablePipeline,
+                UnreliablePipeline = this.UnreliablePipeline,
+                UnreliableFragmentedPipeline = this.UnreliableFragmentedPipeline,
+
+                Listening = this.m_DriverListening,
+                NextId = this.m_NumNetworkIds[0]
+            };
+
+            var ids = m_FreeNetworkIds.Count;
+            state.FreeList = new NativeArray<int>(ids, Allocator.Persistent);
+            for (int i = 0; i < ids; ++i)
+            {
+                state.FreeList[i] = m_FreeNetworkIds.Dequeue();
+            }
+
+            m_DriverState = (int) DriverState.Migrating;
+
+            m_DriverMigrationSystem.Store(state, ticket);
         }
     }
 }

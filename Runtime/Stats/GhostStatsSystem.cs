@@ -15,8 +15,8 @@ namespace Unity.NetCode
 #if !UNITY_CLIENT || UNITY_SERVER || UNITY_EDITOR
     [UpdateBefore(typeof(TickServerSimulationSystem))]
 #endif
-    [UpdateInWorld(UpdateInWorld.TargetWorld.Default)]
-    class GhostStatsSystem : SystemBase
+    [UpdateInWorld(TargetWorld.Default)]
+    partial class GhostStatsSystem : SystemBase
     {
         #if UNITY_EDITOR
         [MenuItem("Multiplayer/Open NetDbg")]
@@ -27,20 +27,26 @@ namespace Unity.NetCode
         #endif
         private DebugWebSocket m_Socket;
         private List<GhostStatsCollectionSystem> m_StatsCollections;
+        internal static ushort Port = 8787;
 
         protected override void OnCreate()
         {
-            m_Socket = new DebugWebSocket(0);
-
+            if (Port == 0)
+                Enabled = false;
+            else
+                m_Socket = new DebugWebSocket(Port);
         }
 
         protected override void OnDestroy()
         {
-            m_Socket.Dispose();
+            if (m_Socket != null)
+                m_Socket.Dispose();
         }
 
         protected override void OnUpdate()
         {
+            if (m_Socket == null)
+                return;
             if (m_Socket.AcceptNewConnection())
             {
                 m_StatsCollections = new List<GhostStatsCollectionSystem>();

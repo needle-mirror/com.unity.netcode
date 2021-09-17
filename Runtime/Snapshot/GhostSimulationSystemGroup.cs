@@ -13,7 +13,7 @@ namespace Unity.NetCode
         JobHandle LastGhostMapWriter { get; set; }
         NativeHashMap<SpawnedGhost, Entity> SpawnedGhostEntityMap { get; }
     }
-    [UpdateInWorld(UpdateInWorld.TargetWorld.ClientAndServer)]
+    [UpdateInWorld(TargetWorld.ClientAndServer)]
     [UpdateInGroup(typeof(SimulationSystemGroup), OrderFirst = true)]
     [UpdateBefore(typeof(FixedStepSimulationSystemGroup))]
     [UpdateAfter(typeof(NetworkReceiveSystemGroup))]

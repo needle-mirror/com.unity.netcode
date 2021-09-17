@@ -6,32 +6,32 @@ using Unity.Entities;
 namespace Unity.NetCode.Tests
 {
     [DisableAutoCreation]
-    [UpdateInWorld(UpdateInWorld.TargetWorld.Default)]
-    public class ExplicitDefaultSystem : SystemBase
+    [UpdateInWorld(TargetWorld.Default)]
+    public partial class ExplicitDefaultSystem : SystemBase
     {
         protected override void OnUpdate()
         {
         }
     }
     [DisableAutoCreation]
-    [UpdateInWorld(UpdateInWorld.TargetWorld.Client)]
-    public class ExplicitClientSystem : SystemBase
+    [UpdateInWorld(TargetWorld.Client)]
+    public partial class ExplicitClientSystem : SystemBase
     {
         protected override void OnUpdate()
         {
         }
     }
     [DisableAutoCreation]
-    [UpdateInWorld(UpdateInWorld.TargetWorld.Server)]
-    public class ExplicitServerSystem : SystemBase
+    [UpdateInWorld(TargetWorld.Server)]
+    public partial class ExplicitServerSystem : SystemBase
     {
         protected override void OnUpdate()
         {
         }
     }
     [DisableAutoCreation]
-    [UpdateInWorld(UpdateInWorld.TargetWorld.ClientAndServer)]
-    public class ExplicitClientServerSystem : SystemBase
+    [UpdateInWorld(TargetWorld.ClientAndServer)]
+    public partial class ExplicitClientServerSystem : SystemBase
     {
         protected override void OnUpdate()
         {

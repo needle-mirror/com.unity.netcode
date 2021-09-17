@@ -30,7 +30,7 @@ namespace Unity.NetCode.Tests
                 Assert.IsTrue(testWorld.Connect(frameTime, 4));
 
                 for (int i = 0; i < 33; ++i)
-                    testWorld.Tick(16f / 1000f);
+                    testWorld.Tick(1f / 60f);
 
                 Assert.AreEqual(SendCount, ServerRpcReceiveSystem.ReceivedCount);
             }
@@ -59,7 +59,7 @@ namespace Unity.NetCode.Tests
                 testWorld.ClientWorlds[0].GetExistingSystem<ClientRcpSendSystem>().Remote = remote;
 
                 for (int i = 0; i < 33; ++i)
-                    testWorld.Tick(16f / 1000f);
+                    testWorld.Tick(1f / 60f);
 
                 Assert.AreEqual(SendCount, ServerRpcReceiveSystem.ReceivedCount);
             }
@@ -89,7 +89,7 @@ namespace Unity.NetCode.Tests
                 Assert.IsTrue(testWorld.Connect(frameTime, 4));
 
                 for (int i = 0; i < 33; ++i)
-                    testWorld.Tick(16f / 1000f);
+                    testWorld.Tick(1f / 60f);
 
                 Assert.AreEqual(SendCount, SerializedServerRpcReceiveSystem.ReceivedCount);
                 Assert.AreEqual(SendCmd, SerializedServerRpcReceiveSystem.ReceivedCmd);
@@ -119,7 +119,7 @@ namespace Unity.NetCode.Tests
                 ServerRpcBroadcastSendSystem.SendCount = SendCount;
 
                 for (int i = 0; i < 33; ++i)
-                    testWorld.Tick(16f / 1000f);
+                    testWorld.Tick(1f / 60f);
 
                 Assert.AreEqual(SendCount, MultipleClientBroadcastRpcReceiveSystem.ReceivedCount[0]);
                 Assert.AreEqual(SendCount, MultipleClientBroadcastRpcReceiveSystem.ReceivedCount[1]);
@@ -147,7 +147,7 @@ namespace Unity.NetCode.Tests
 
                 LogAssert.Expect(LogType.Exception, new Regex("InvalidOperationException: Cannot send RPC with no remote connection."));
                 for (int i = 0; i < 33; ++i)
-                    testWorld.Tick(16f / 1000f);
+                    testWorld.Tick(1f / 60f);
 
                 Assert.AreEqual(0, ServerRpcReceiveSystem.ReceivedCount);
             }
@@ -201,7 +201,7 @@ namespace Unity.NetCode.Tests
 
                 LogAssert.Expect(LogType.Error, new Regex("RpcSystem received invalid rpc from connection 1"));
                 for (int i = 0; i < 32; ++i)
-                    testWorld.Tick(16f / 1000f);
+                    testWorld.Tick(1f / 60f);
 
                 Assert.Less(ServerMultipleRpcReceiveSystem.ReceivedCount[0], SendCount);
                 Assert.True(ServerMultipleRpcReceiveSystem.ReceivedCount[1] == SendCount);
@@ -234,7 +234,7 @@ namespace Unity.NetCode.Tests
 
                 int SendCount = 50;
                 var SendCmd = new SerializedLargeRpcCommand
-                    {stringValue = new FixedString512("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")};
+                    {stringValue = new FixedString512Bytes("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")};
                 SerializedClientLargeRcpSendSystem.SendCount = SendCount;
                 SerializedClientLargeRcpSendSystem.Cmd = SendCmd;
 
@@ -245,7 +245,7 @@ namespace Unity.NetCode.Tests
                 Assert.IsTrue(testWorld.Connect(frameTime, 4));
 
                 for (int i = 0; i < 33; ++i)
-                    testWorld.Tick(16f / 1000f);
+                    testWorld.Tick(1f / 60f);
 
                 Assert.AreEqual(SendCount, SerializedServerLargeRpcReceiveSystem.ReceivedCount);
                 Assert.AreEqual(SendCmd, SerializedServerLargeRpcReceiveSystem.ReceivedCmd);
@@ -297,7 +297,7 @@ namespace Unity.NetCode.Tests
                 var serverEntity = testWorld.SpawnOnServer(ghostGameObject);
                 //Wait some frame so it is spawned also on the client
                 for (int i = 0; i < 8; ++i)
-                    testWorld.Tick(16f / 1000f);
+                    testWorld.Tick(1f / 60f);
 
                 // Retrieve the client entity
                 testWorld.ClientWorlds[0].GetExistingSystem<GhostSimulationSystemGroup>().LastGhostMapWriter.Complete();
@@ -308,7 +308,7 @@ namespace Unity.NetCode.Tests
                 //Send the rpc to the server
                 SendRpc(testWorld.ClientWorlds[0], clientEntity);
                 for (int i = 0; i < 8; ++i)
-                    testWorld.Tick(16f / 1000f);
+                    testWorld.Tick(1f / 60f);
                 var rpcReceived = RecvRpc(testWorld.ServerWorld);
                 Assert.IsTrue(rpcReceived.entity != Entity.Null);
                 Assert.IsTrue(rpcReceived.entity == serverEntity);
@@ -316,7 +316,7 @@ namespace Unity.NetCode.Tests
                 // Server send the rpc to the client
                 SendRpc(testWorld.ServerWorld, serverEntity);
                 for (int i = 0; i < 8; ++i)
-                    testWorld.Tick(16f / 1000f);
+                    testWorld.Tick(1f / 60f);
                 rpcReceived = RecvRpc(testWorld.ClientWorlds[0]);
                 Assert.IsTrue(rpcReceived.entity != Entity.Null);
                 Assert.IsTrue(rpcReceived.entity == clientEntity);
@@ -326,7 +326,7 @@ namespace Unity.NetCode.Tests
                 var clientOnlyEntity = testWorld.ClientWorlds[0].EntityManager.CreateEntity();
                 SendRpc(testWorld.ClientWorlds[0], clientOnlyEntity);
                 for (int i = 0; i < 8; ++i)
-                    testWorld.Tick(16f / 1000f);
+                    testWorld.Tick(1f / 60f);
                 rpcReceived = RecvRpc(testWorld.ServerWorld);
                 Assert.IsTrue(rpcReceived.entity == Entity.Null);
 
@@ -342,7 +342,7 @@ namespace Unity.NetCode.Tests
                 //Entity is destroyed on the server (so no GhostComponent). If server try to send an rpc, the entity will be translated to null
                 SendRpc(testWorld.ServerWorld, serverEntity);
                 for (int i = 0; i < 4; ++i)
-                    testWorld.Tick(16f / 1000f);
+                    testWorld.Tick(1f / 60f);
                 //Server should not be able to resolve the reference
                 rpcReceived = RecvRpc(testWorld.ServerWorld);
                 Assert.IsTrue(rpcReceived.entity == Entity.Null);
@@ -356,11 +356,50 @@ namespace Unity.NetCode.Tests
                     .TryGetValue(new SpawnedGhost {ghostId = ghost.ghostId, spawnTick = ghost.spawnTick}, out var _));
                 SendRpc(testWorld.ClientWorlds[0], clientEntity);
                 for (int i = 0; i < 4; ++i)
-                    testWorld.Tick(16f / 1000f);
+                    testWorld.Tick(1f / 60f);
                 //The received entity must be null
                 rpcReceived = RecvRpc(testWorld.ServerWorld);
                 Assert.IsTrue(rpcReceived.entity == Entity.Null);
             }
         }
+
+#if ENABLE_UNITY_COLLECTIONS_CHECKS
+        [Test]
+        public void Rpc_WarnsIfNotConsumedAfter4Frames()
+        {
+            const float dt = 1f/60f;
+
+            using (var testWorld = new NetCodeTestWorld())
+            {
+                testWorld.Bootstrap(true);
+                testWorld.CreateWorlds(true, 1);
+
+                // Create a dud RPC on client and server. Ideally this test would test a full RPC flow, but trying to isolate dependencies:
+                var clientWorld = testWorld.ClientWorlds[0];
+                var clientNetDebug = clientWorld.GetExistingSystem<NetDebugSystem>().NetDebug;
+                clientNetDebug.LogLevel = NetDebug.LogLevelType.Warning;
+                clientWorld.GetExistingSystem<WarnAboutStaleRpcSystem>().MaxRpcAgeFrames = 4;
+                clientWorld.EntityManager.CreateEntity(ComponentType.ReadWrite<ReceiveRpcCommandRequestComponent>());
+
+                var serverWorld = testWorld.ServerWorld;
+                var serverNetDebug = serverWorld.GetExistingSystem<NetDebugSystem>().NetDebug;
+                serverNetDebug.LogLevel = NetDebug.LogLevelType.Warning;
+                serverWorld.GetExistingSystem<WarnAboutStaleRpcSystem>().MaxRpcAgeFrames = 4;
+                serverWorld.EntityManager.CreateEntity(ComponentType.ReadWrite<ReceiveRpcCommandRequestComponent>());
+
+                // 3 ticks before our expected one:
+                testWorld.Tick(dt);
+                testWorld.Tick(dt);
+                testWorld.Tick(dt);
+
+                // Now assert the final tick logs warning on both client and server (server is 1 frame behind):
+                var regex = new Regex("or remove the RPC component, or destroy the entity");
+                LogAssert.Expect(LogType.Warning, regex);
+                testWorld.Tick(dt);
+                LogAssert.Expect(LogType.Warning, regex);
+                testWorld.Tick(dt);
+            }
+        }
+#endif
     }
 }

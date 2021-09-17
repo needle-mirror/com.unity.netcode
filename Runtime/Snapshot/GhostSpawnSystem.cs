@@ -1,18 +1,15 @@
 using System;
-using Unity.Burst;
 using Unity.Collections;
 using Unity.Entities;
-using Unity.Jobs;
 using Unity.Networking.Transport.Utilities;
 using Unity.Collections.LowLevel.Unsafe;
-using Unity.NetCode.LowLevel.Unsafe;
-using Unity.Jobs.LowLevel.Unsafe;
+using Unity.Transforms;
 using Unity.Mathematics;
 
 namespace Unity.NetCode
 {
     [UpdateInGroup(typeof(GhostSpawnSystemGroup))]
-    public class GhostSpawnSystem : SystemBase
+    public partial class GhostSpawnSystem : SystemBase
     {
         private struct DelayedSpawnGhost
         {
@@ -25,13 +22,18 @@ namespace Unity.NetCode
         private NativeQueue<DelayedSpawnGhost> m_DelayedSpawnQueue;
         private ClientSimulationSystemGroup m_ClientSimulationSystemGroup;
         private GhostReceiveSystem m_GhostReceiveSystem;
-
+        private NetDebugSystem m_NetDebugSystem;
+        private EntityQuery m_InGameGroup;
+        GhostPredictionSystemGroup m_GhostPredictionSystemGroup;
 
         protected override void OnCreate()
         {
             m_DelayedSpawnQueue = new NativeQueue<DelayedSpawnGhost>(Allocator.Persistent);
             m_ClientSimulationSystemGroup = World.GetExistingSystem<ClientSimulationSystemGroup>();
             m_GhostReceiveSystem = World.GetOrCreateSystem<GhostReceiveSystem>();
+            m_NetDebugSystem = World.GetOrCreateSystem<NetDebugSystem>();
+            m_GhostPredictionSystemGroup = World.GetOrCreateSystem<GhostPredictionSystemGroup>();
+            m_InGameGroup = EntityManager.CreateEntityQuery(ComponentType.ReadOnly<NetworkStreamInGame>());
             RequireSingletonForUpdate<GhostCollection>();
             RequireSingletonForUpdate<GhostSpawnQueueComponent>();
         }
@@ -53,6 +55,16 @@ namespace Unity.NetCode
             var ghostSpawnEntity = GetSingletonEntity<GhostSpawnQueueComponent>();
             var ghostSpawnBufferComponent = EntityManager.GetBuffer<GhostSpawnBuffer>(ghostSpawnEntity);
             var snapshotDataBufferComponent = EntityManager.GetBuffer<SnapshotDataBuffer>(ghostSpawnEntity);
+
+            //Avoid adding new ghost if the stream is not in game
+            if (m_InGameGroup.IsEmptyIgnoreFilter)
+            {
+                ghostSpawnBufferComponent.ResizeUninitialized(0);
+                snapshotDataBufferComponent.ResizeUninitialized(0);
+                m_DelayedSpawnQueue.Clear();
+                return;
+            }
+
             var ghostSpawnBuffer = ghostSpawnBufferComponent.ToNativeArray(Allocator.Temp);
             var snapshotDataBuffer = snapshotDataBufferComponent.ToNativeArray(Allocator.Temp);
             ghostSpawnBufferComponent.ResizeUninitialized(0);
@@ -74,6 +86,9 @@ namespace Unity.NetCode
                     // Add to m_DelayedSpawnQueue
                     entity = EntityManager.CreateEntity();
                     EntityManager.AddComponentData(entity, new GhostComponent {ghostId = ghost.GhostID, ghostType = ghost.GhostType, spawnTick = ghost.ServerSpawnTick});
+                    EntityManager.AddComponent<PendingSpawnPlaceholderComponent>(entity);
+                    if (PrespawnHelper.IsPrespawGhostId(ghost.GhostID))
+                        ConfigurePrespawnGhost(entity, ghost);
                     var newBuffer = EntityManager.AddBuffer<SnapshotDataBuffer>(entity);
                     newBuffer.ResizeUninitialized(snapshotSize * GhostSystemConstants.SnapshotHistorySize);
                     snapshotData = (byte*)newBuffer.GetUnsafePtr();
@@ -106,6 +121,8 @@ namespace Unity.NetCode
                         }
                     }
                     EntityManager.SetComponentData(entity, new GhostComponent {ghostId = ghost.GhostID, ghostType = ghost.GhostType, spawnTick = ghost.ServerSpawnTick});
+                    if (PrespawnHelper.IsPrespawGhostId(ghost.GhostID))
+                        ConfigurePrespawnGhost(entity, ghost);
                     var newBuffer = EntityManager.GetBuffer<SnapshotDataBuffer>(entity);
                     newBuffer.ResizeUninitialized(snapshotSize * GhostSystemConstants.SnapshotHistorySize);
                     snapshotData = (byte*)newBuffer.GetUnsafePtr();
@@ -150,6 +167,10 @@ namespace Unity.NetCode
                     ReportMissingPrefab();
                     continue;
                 }
+                //Entity has been destroyed meawhile it was in the queue
+                if(!EntityManager.HasComponent<GhostComponent>(ghost.oldEntity))
+                    continue;
+
                 // Spawn actual entity
                 Entity entity = EntityManager.Instantiate(prefabs[ghost.ghostType].GhostPrefab);
                 if (EntityManager.HasComponent<GhostPrefabMetaDataComponent>(prefabs[ghost.ghostType].GhostPrefab))
@@ -164,9 +185,14 @@ namespace Unity.NetCode
                     }
                 }
                 EntityManager.SetComponentData(entity, EntityManager.GetComponentData<SnapshotData>(ghost.oldEntity));
+                if (PrespawnHelper.IsPrespawGhostId(ghost.ghostId))
+                {
+                    EntityManager.AddComponentData(entity, EntityManager.GetComponentData<PreSpawnedGhostIndex>(ghost.oldEntity));
+                    EntityManager.AddSharedComponentData(entity, EntityManager.GetSharedComponentData<SceneSection>(ghost.oldEntity));
+                }
                 var ghostComponentData = EntityManager.GetComponentData<GhostComponent>(ghost.oldEntity);
                 EntityManager.SetComponentData(entity, ghostComponentData);
-                var oldBuffer = EntityManager.GetBuffer<SnapshotDataBuffer>(ghost.oldEntity).ToNativeArray(Allocator.Temp);
+                var oldBuffer = EntityManager.GetBuffer<SnapshotDataBuffer>(ghost.oldEntity);
                 var newBuffer = EntityManager.GetBuffer<SnapshotDataBuffer>(entity);
                 newBuffer.ResizeUninitialized(oldBuffer.Length);
                 UnsafeUtility.MemCpy(newBuffer.GetUnsafePtr(), oldBuffer.GetUnsafeReadOnlyPtr(), oldBuffer.Length);
@@ -188,11 +214,170 @@ namespace Unity.NetCode
             }
             m_GhostReceiveSystem.UpdateSpawnedGhosts(spawnedGhosts);
         }
+
+        /// <summary>
+        /// Convert an interpolated ghost to a predicted ghost. The ghost must support both interpolated and predicted mode,
+        /// and it cannot be owner predicted. The new components added as a result of this operation will have the inital
+        /// values from the ghost prefab.
+        /// </summary>
+        public bool ConvertGhostToPredicted(Entity entity, float transitionDuration = 0)
+        {
+            if (m_GhostPredictionSystemGroup.IsInPredictionLoop)
+            {
+                m_NetDebugSystem.NetDebug.LogWarning("Trying to convert a ghost to predicted, but this is not allowed during the GhostPredictionSystemGroup phase. Call ConvertGhostToPredicted in a valid client SystemGroup (e.g. the ClientSimulationSystemGroup) instead.");
+                return false;
+            }
+            var prefabsEntity = GetSingletonEntity<GhostCollection>();
+            var prefabs = EntityManager.GetBuffer<GhostCollectionPrefab>(prefabsEntity).ToNativeArray(Allocator.Temp);
+            var ghost = EntityManager.GetComponentData<GhostComponent>(entity);
+            var prefab = prefabs[ghost.ghostType].GhostPrefab;
+            if (!EntityManager.HasComponent<GhostPrefabMetaDataComponent>(prefab))
+            {
+                m_NetDebugSystem.NetDebug.LogWarning("Trying to convert a ghost to predicted, but did not find a prefab with meta data");
+                return false;
+            }
+            if (EntityManager.HasComponent<PredictedGhostComponent>(entity))
+            {
+                m_NetDebugSystem.NetDebug.LogWarning("Trying to convert a ghost to predicted, but it is already predicted");
+                return false;
+            }
+
+            ref var ghostMetaData = ref EntityManager.GetComponentData<GhostPrefabMetaDataComponent>(prefab).Value.Value;
+            if (ghostMetaData.SupportedModes != GhostPrefabMetaData.GhostMode.Both)
+            {
+                m_NetDebugSystem.NetDebug.LogWarning("Trying to convert a ghost to predicted, but it does not support both modes");
+                return false;
+            }
+            if (ghostMetaData.DefaultMode == GhostPrefabMetaData.GhostMode.Both)
+            {
+                m_NetDebugSystem.NetDebug.LogWarning("Trying to convert a ghost to predicted, but it is owner predicted and owner predicted ghosts cannot be switched on demand");
+                return false;
+            }
+
+            ref var toAdd = ref ghostMetaData.DisableOnInterpolatedClient;
+            ref var toRemove = ref ghostMetaData.DisableOnPredictedClient;
+            return AddRemoveComponents(entity, prefab, ref toAdd, ref toRemove, transitionDuration);
+        }
+
+        /// <summary>
+        /// Convert a predicted ghost to an interpolated ghost. The ghost must support both interpolated and predicted mode,
+        /// and it cannot be owner predicted. The new components added as a result of this operation will have the inital
+        /// values from the ghost prefab.
+        /// </summary>
+        public bool ConvertGhostToInterpolated(Entity entity, float transitionDuration = 0)
+        {
+            if (m_GhostPredictionSystemGroup.IsInPredictionLoop)
+            {
+                m_NetDebugSystem.NetDebug.LogWarning("Trying to convert a ghost to interpolated, but this is not allowed during the GhostPredictionSystemGroup phase. Call ConvertGhostToInterpolated in a valid client SystemGroup (e.g. the ClientSimulationSystemGroup) instead.");
+                return false;
+            }
+            var prefabsEntity = GetSingletonEntity<GhostCollection>();
+            var prefabs = EntityManager.GetBuffer<GhostCollectionPrefab>(prefabsEntity).ToNativeArray(Allocator.Temp);
+            var ghost = EntityManager.GetComponentData<GhostComponent>(entity);
+            var prefab = prefabs[ghost.ghostType].GhostPrefab;
+            if (!EntityManager.HasComponent<GhostPrefabMetaDataComponent>(prefab))
+            {
+                m_NetDebugSystem.NetDebug.LogWarning("Trying to convert a ghost to interpolated, but did not find a prefab with meta data");
+                return false;
+            }
+            if (!EntityManager.HasComponent<PredictedGhostComponent>(entity))
+            {
+                m_NetDebugSystem.NetDebug.LogWarning("Trying to convert a ghost to interpolated, but it is already interpolated");
+                return false;
+            }
+
+            ref var ghostMetaData = ref EntityManager.GetComponentData<GhostPrefabMetaDataComponent>(prefab).Value.Value;
+            if (ghostMetaData.SupportedModes != GhostPrefabMetaData.GhostMode.Both)
+            {
+                m_NetDebugSystem.NetDebug.LogWarning("Trying to convert a ghost to interpolated, but it does not support both modes");
+                return false;
+            }
+            if (ghostMetaData.DefaultMode == GhostPrefabMetaData.GhostMode.Both)
+            {
+                m_NetDebugSystem.NetDebug.LogWarning("Trying to convert a ghost to interpolated, but it is owner predicted and owner predicted ghosts cannot be switched on demand");
+                return false;
+            }
+
+            ref var toAdd = ref ghostMetaData.DisableOnPredictedClient;
+            ref var toRemove = ref ghostMetaData.DisableOnInterpolatedClient;
+            return AddRemoveComponents(entity, prefab, ref toAdd, ref toRemove, transitionDuration);
+        }
+
+        private unsafe bool AddRemoveComponents(Entity entity, Entity prefab, ref BlobArray<GhostPrefabMetaData.ComponentReference> toAdd, ref BlobArray<GhostPrefabMetaData.ComponentReference> toRemove, float duration)
+        {
+            var linkedEntityGroup = EntityManager.GetBuffer<LinkedEntityGroup>(entity).ToNativeArray(Allocator.Temp);
+            var prefabLinkedEntityGroup = EntityManager.GetBuffer<LinkedEntityGroup>(prefab).ToNativeArray(Allocator.Temp);
+            //Need copy because removing component will invalidate the buffer pointer, since introduce structural changes
+            for (int add = 0; add < toAdd.Length; ++add)
+            {
+                var compType = ComponentType.ReadWrite(TypeManager.GetTypeIndexFromStableTypeHash(toAdd[add].StableHash));
+#if ENABLE_UNITY_COLLECTIONS_CHECKS
+                if (compType.IsChunkComponent || compType.IsSharedComponent)
+                {
+                    throw new InvalidOperationException("Ghosts with chunk or shared components cannot switch prediction");
+                }
+#endif
+                EntityManager.AddComponent(linkedEntityGroup[toAdd[add].EntityIndex].Value, compType);
+                if (compType.IsZeroSized)
+                    continue;
+                var typeInfo = TypeManager.GetTypeInfo(compType.TypeIndex);
+                var typeHandle = EntityManager.GetDynamicComponentTypeHandle(compType);
+                var sizeInChunk = typeInfo.SizeInChunk;
+                var srcInfo = EntityManager.GetStorageInfo(prefabLinkedEntityGroup[toAdd[add].EntityIndex].Value);
+                var dstInfo = EntityManager.GetStorageInfo(linkedEntityGroup[toAdd[add].EntityIndex].Value);
+                if (compType.IsBuffer)
+                {
+                    var srcBuffer = srcInfo.Chunk.GetUntypedBufferAccessor(ref typeHandle);
+                    var dstBuffer = dstInfo.Chunk.GetUntypedBufferAccessor(ref typeHandle);
+                    dstBuffer.ResizeUninitialized(dstInfo.IndexInChunk, srcBuffer.Length);
+                    var dstDataPtr = dstBuffer.GetUnsafeReadOnlyPtr(dstInfo.IndexInChunk);
+                    var srcDataPtr = srcBuffer.GetUnsafeReadOnlyPtrAndLength(srcInfo.IndexInChunk, out var bufLen);
+                    UnsafeUtility.MemCpy(dstDataPtr, srcDataPtr, typeInfo.ElementSize * bufLen);
+                }
+                else
+                {
+                    byte* src = (byte*)srcInfo.Chunk.GetDynamicComponentDataArrayReinterpret<byte>(typeHandle, sizeInChunk).GetUnsafeReadOnlyPtr();
+                    byte* dst = (byte*)dstInfo.Chunk.GetDynamicComponentDataArrayReinterpret<byte>(typeHandle, sizeInChunk).GetUnsafePtr();
+                    UnsafeUtility.MemCpy(dst + dstInfo.IndexInChunk*sizeInChunk, src + srcInfo.IndexInChunk*sizeInChunk, sizeInChunk);
+                }
+            }
+            for (int rm = 0; rm < toRemove.Length; ++rm)
+            {
+                var compType = ComponentType.ReadWrite(TypeManager.GetTypeIndexFromStableTypeHash(toRemove[rm].StableHash));
+                EntityManager.RemoveComponent(linkedEntityGroup[toRemove[rm].EntityIndex].Value, compType);
+            }
+            if (duration > 0 &&
+                EntityManager.HasComponent<LocalToWorld>(entity) &&
+                EntityManager.HasComponent<Translation>(entity) &&
+                EntityManager.HasComponent<Rotation>(entity))
+            {
+                EntityManager.AddComponentData(entity, new SwitchPredictionSmoothing
+                    {
+                        InitialPosition = EntityManager.GetComponentData<Translation>(entity).Value,
+                        InitialRotation = EntityManager.GetComponentData<Rotation>(entity).Value,
+                        CurrentFactor = 0,
+                        Duration = duration,
+                        SkipVersion = World.GetExistingSystem<GhostUpdateSystem>().LastSystemVersion
+                    });
+            }
+            return true;
+        }
+
+        private void ConfigurePrespawnGhost(Entity entity, in GhostSpawnBuffer ghost)
+        {
+            if(ghost.PrespawnIndex == -1)
+                throw new InvalidOperationException("respawning a pre-spawned ghost requires a valid prespawn index");
+            EntityManager.AddComponentData(entity, new PreSpawnedGhostIndex {Value = ghost.PrespawnIndex});
+            EntityManager.AddSharedComponentData(entity, new SceneSection
+            {
+                SceneGUID = ghost.SceneGUID,
+                Section = ghost.SectionIndex
+            });
+        }
+
         private void ReportMissingPrefab()
         {
-#if ENABLE_UNITY_COLLECTIONS_CHECKS
-            UnityEngine.Debug.LogError($"Trying to spawn with a prefab which is not loaded");
-#endif
+            m_NetDebugSystem.NetDebug.LogError($"Trying to spawn with a prefab which is not loaded");
             Entities
                 .WithAll<NetworkIdComponent>()
                 .WithNone<NetworkStreamDisconnected>()

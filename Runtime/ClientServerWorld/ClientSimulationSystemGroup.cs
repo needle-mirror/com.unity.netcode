@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using Unity.Core;
 using Unity.Entities;
+using Unity.Mathematics;
 using Unity.Profiling;
 
 namespace Unity.NetCode
@@ -12,11 +13,6 @@ namespace Unity.NetCode
     {
 #if !UNITY_SERVER
         internal TickClientSimulationSystem ParentTickSystem;
-        protected override void OnDestroy()
-        {
-            if (ParentTickSystem != null)
-                ParentTickSystem.RemoveSystemFromUpdateList(this);
-        }
 #endif
 
         private NetworkTimeSystem m_NetworkTimeSystem;
@@ -38,6 +34,14 @@ namespace Unity.NetCode
             base.OnCreate();
             m_NetworkTimeSystem = World.GetOrCreateSystem<NetworkTimeSystem>();
             m_currentTime = Time.ElapsedTime;
+        }
+
+        protected override void OnDestroy()
+        {
+#if !UNITY_SERVER
+            if (ParentTickSystem != null)
+                ParentTickSystem.RemoveSystemFromUpdateList(this);
+#endif
         }
 
         protected override void OnUpdate()
@@ -75,13 +79,10 @@ namespace Unity.NetCode
                 m_interpolationTickFraction = 1;
 
             uint deltaTicks = curServerTick - m_previousServerTick;
-            if (deltaTicks > (uint) tickRate.MaxSimulationStepsPerFrame)
-                deltaTicks = (uint) tickRate.MaxSimulationStepsPerFrame;
             float networkDeltaTime = (deltaTicks + m_serverTickFraction - m_previousServerTickFraction) * fixedTimeStep;
 
             m_previousServerTick = curServerTick;
             m_previousServerTickFraction = m_serverTickFraction;
-
 
             m_serverTick = curServerTick;
             m_interpolationTick = curInterpoationTick;
@@ -97,7 +98,7 @@ namespace Unity.NetCode
     [UpdateAfter(typeof(TickServerSimulationSystem))]
 #endif
     [AlwaysUpdateSystem]
-    [UpdateInWorld(UpdateInWorld.TargetWorld.Default)]
+    [UpdateInWorld(TargetWorld.Default)]
     public class TickClientSimulationSystem : ComponentSystemGroup
     {
         protected override void OnDestroy()

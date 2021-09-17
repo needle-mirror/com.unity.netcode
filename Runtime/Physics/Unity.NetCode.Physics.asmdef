@@ -3,6 +3,7 @@
     "references": [
         "Unity.Burst",
         "Unity.Entities",
+        "Unity.Entities.Hybrid",
         "Unity.Networking.Transport",
         "Unity.NetCode",
         "Unity.Transforms",

@@ -15,14 +15,14 @@ namespace Unity.NetCode
         private bool m_connectionComplete;
         private byte[] m_frameHeader;
 
-        public DebugWebSocket(int portOffset)
+        public DebugWebSocket(ushort port)
         {
             try
             {
                 m_serverSocket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
                 m_serverSocket.Blocking = false;
                 m_serverSocket.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.ReuseAddress, 1);
-                m_serverSocket.Bind(new IPEndPoint(IPAddress.Any, 8787 + portOffset));
+                m_serverSocket.Bind(new IPEndPoint(IPAddress.Any, port));
                 m_serverSocket.Listen(10);
                 m_frameHeader = new byte[16];
 
@@ -48,9 +48,9 @@ namespace Unity.NetCode
         {
             if (m_serverSocket == null)
                 return false;
-            try
+            if (!m_connectionComplete && m_connectionSocket != null)
             {
-                if (!m_connectionComplete && m_connectionSocket != null)
+                try
                 {
                     // Listen for the http header, parse it and reply with another http header
                     var headerBuffer = new byte[4096];
@@ -140,16 +140,18 @@ namespace Unity.NetCode
                         return true;
                     }
                 }
-            }
-            catch (SocketException e)
-            {
-                if (e.SocketErrorCode != SocketError.WouldBlock)
+                catch (SocketException e)
                 {
-                    m_connectionSocket.Dispose();
-                    m_connectionSocket = null;
+                    if (e.SocketErrorCode != SocketError.WouldBlock)
+                    {
+                        m_connectionSocket.Dispose();
+                        m_connectionSocket = null;
+                    }
                 }
             }
 
+            if (!m_serverSocket.Poll(0, SelectMode.SelectRead))
+                return false;
             try
             {
                 var sock = m_serverSocket.Accept();
@@ -178,14 +180,13 @@ namespace Unity.NetCode
             m_connectionSocket = null;
         }
 
-        public void SendText(string msg)
+        public void SendText(byte[] msg, int offset, int len)
         {
             if (m_connectionSocket == null)
                 return;
             // Fin bit + text message
             m_frameHeader[0] = 0x81;
             int headerLen = 2;
-            int len = msg.Length;
             if (len < 126)
                 m_frameHeader[1] = (byte) len;
             else if (len <= ushort.MaxValue)
@@ -212,7 +213,7 @@ namespace Unity.NetCode
             try
             {
                 m_connectionSocket.Send(m_frameHeader, headerLen, SocketFlags.None);
-                m_connectionSocket.Send(Encoding.UTF8.GetBytes(msg));
+                m_connectionSocket.Send(msg, offset, len, SocketFlags.None);
             }
             catch (SocketException e)
             {

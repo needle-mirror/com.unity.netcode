@@ -31,8 +31,8 @@ namespace Unity.NetCode.Tests
         public float Fraction;
     }
     [DisableAutoCreation]
-    [UpdateInWorld(UpdateInWorld.TargetWorld.Server)]
-    public class MoveExtrapolated : SystemBase
+    [UpdateInWorld(TargetWorld.Server)]
+    public partial class MoveExtrapolated : SystemBase
     {
         protected override void OnUpdate()
         {
@@ -45,8 +45,8 @@ namespace Unity.NetCode.Tests
         }
     }
     [DisableAutoCreation]
-    [UpdateInWorld(UpdateInWorld.TargetWorld.Client)]
-    public class CheckInterpolationDistance : SystemBase
+    [UpdateInWorld(TargetWorld.Client)]
+    public partial class CheckInterpolationDistance : SystemBase
     {
         protected override void OnUpdate()
         {
@@ -56,8 +56,8 @@ namespace Unity.NetCode.Tests
         }
     }
     [DisableAutoCreation]
-    [UpdateInWorld(UpdateInWorld.TargetWorld.Client)]
-    public class CheckExtrapolate : SystemBase
+    [UpdateInWorld(TargetWorld.Client)]
+    public partial class CheckExtrapolate : SystemBase
     {
         private ClientSimulationSystemGroup m_ClientSimulationSystemGroup;
         protected override void OnCreate()

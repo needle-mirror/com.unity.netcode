@@ -8,8 +8,8 @@ namespace Unity.NetCode
     }
 
     [UpdateInGroup(typeof(NetworkReceiveSystemGroup))]
-    [UpdateInWorld(UpdateInWorld.TargetWorld.Client)]
-    public class HeartbeatSendSystem : SystemBase
+    [UpdateInWorld(TargetWorld.Client)]
+    public partial class HeartbeatSendSystem : SystemBase
     {
         private uint m_LastSend;
         private BeginSimulationEntityCommandBufferSystem m_CommandBufferSystem;
@@ -43,8 +43,8 @@ namespace Unity.NetCode
     }
 
     [UpdateInGroup(typeof(NetworkReceiveSystemGroup))]
-    [UpdateInWorld(UpdateInWorld.TargetWorld.Server)]
-    public class HeartbeatReplySystem : SystemBase
+    [UpdateInWorld(TargetWorld.Server)]
+    public partial class HeartbeatReplySystem : SystemBase
     {
         private BeginSimulationEntityCommandBufferSystem m_CommandBufferSystem;
 
@@ -68,8 +68,8 @@ namespace Unity.NetCode
     }
 
     [UpdateInGroup(typeof(NetworkReceiveSystemGroup))]
-    [UpdateInWorld(UpdateInWorld.TargetWorld.Client)]
-    public class HeartbeatReceiveSystem : SystemBase
+    [UpdateInWorld(TargetWorld.Client)]
+    public partial class HeartbeatReceiveSystem : SystemBase
     {
         private BeginSimulationEntityCommandBufferSystem m_CommandBufferSystem;
 

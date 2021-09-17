@@ -6,7 +6,9 @@ To create a new input type, create a struct that implements the `ICommandData` i
 
 The serialization and registration code for the `ICommandData` will be generated automatically, but it is also possible to disable that and write the serialization manually.
 
-As well as setting the input buffer on an entity, your game code must also set the [CommandTargetComponent](https://docs.unity3d.com/Packages/com.unity.netcode@latest/index.html?subfolder=/api/Unity.NetCode.CommandTargetComponent.html) on the connection entity to reference the entity that the `ICommandData` component has been attached to.
+If you add your `ICommandData` component to a ghost which has `Has Owner` and `Support Auto Command Target` enabled in the autoring component the commands for that ghost will automatically be sent if the ghost is owned by you, is predicted, and [AutoCommandTarget](https://docs.unity3d.com/Packages/com.unity.netcode@latest/index.html?subfolder=/api/Unity.NetCode.AutoCommandTarget.html).Enabled has not been set to false.
+
+If you are not using `Auto Command Target`, your game code must set the [CommandTargetComponent](https://docs.unity3d.com/Packages/com.unity.netcode@latest/index.html?subfolder=/api/Unity.NetCode.CommandTargetComponent.html) on the connection entity to reference the entity that the `ICommandData` component has been attached to.
 
 You can have multiple command systems, and NetCode selects the correct one based on the `ICommandData` type of the entity that points to `CommandTargetComponent`.
 

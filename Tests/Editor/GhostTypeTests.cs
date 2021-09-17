@@ -21,8 +21,7 @@ namespace Unity.NetCode.Tests
 
     public struct GhostTypeIndex : IComponentData
     {
-        [GhostField]
-        public int Value;
+        [GhostField] public int Value;
     }
     public class GhostTypeTests
     {

@@ -1,14 +1,22 @@
 using System;
 using System.Collections.Generic;
 using Unity.Entities;
+using Unity.Networking.Transport;
 
 namespace Unity.NetCode
 {
     // Bootstrap of client and server worlds
+    [UnityEngine.Scripting.Preserve]
     public class ClientServerBootstrap : ICustomBootstrap
     {
         public static List<Type> DefaultWorldSystems => s_State.DefaultWorldSystems;
         public static List<Type> ExplicitDefaultWorldSystems => s_State.ExplicitDefaultWorldSystems;
+
+        internal struct ChildSystem
+        {
+            public Type SystemType;
+            public Type ParentSystemType;
+        }
 
         internal struct State
         {
@@ -17,29 +25,53 @@ namespace Unity.NetCode
             public List<Type> ClientInitializationSystems;
             public List<Type> ClientSimulationSystems;
             public List<Type> ClientPresentationSystems;
-            public List<Tuple<Type, Type>> ClientChildSystems;
+            public List<ChildSystem> ClientChildSystems;
             public List<Type> ServerInitializationSystems;
             public List<Type> ServerSimulationSystems;
-            public List<Tuple<Type, Type>> ServerChildSystems;
+            public List<ChildSystem> ServerChildSystems;
         }
 
         internal static State s_State;
 
-        public virtual bool Initialize(string defaultWorldName)
+        /// <summary>
+        /// Utility method for creating the default way when bootstrapping. Can be used in
+        /// custom implementations of `Initialize` to generate systems lists and populate the
+        /// default world. If the `world` parameter specified that world will be used and
+        /// populated with systems instead of creating a new one.
+        /// </summary>
+        public World CreateDefaultWorld(string defaultWorldName, World world = null)
         {
-            // The default world must be created before generating the system list in order to have a valid TypeManager instance.
-            // The TypeManage is initialised the first time we create a world.
-            var world = new World(defaultWorldName, WorldFlags.Game);
-            World.DefaultGameObjectInjectionWorld = world;
+            if (world == null)
+            {
+                // The default world must be created before generating the system list in order to have a valid TypeManager instance.
+                // The TypeManage is initialised the first time we create a world.
+                world = new World(defaultWorldName, WorldFlags.Game);
+                World.DefaultGameObjectInjectionWorld = world;
+            }
 
             var systems = DefaultWorldInitialization.GetAllSystems(WorldSystemFilterFlags.Default);
             GenerateSystemLists(systems);
 
             DefaultWorldInitialization.AddSystemsToRootLevelSystemGroups(world, ExplicitDefaultWorldSystems);
 #if !UNITY_DOTSRUNTIME
-            ScriptBehaviourUpdateOrder.AddWorldToCurrentPlayerLoop(world);
+            ScriptBehaviourUpdateOrder.AppendWorldToCurrentPlayerLoop(world);
 #endif
+            return world;
+        }
+        public virtual bool Initialize(string defaultWorldName)
+        {
+            var world = CreateDefaultWorld(defaultWorldName);
+            CreateDefaultClientServerWorlds(world);
+            return true;
+        }
 
+        /// <summary>
+        /// Utility method for creating the default client and server worlds based on the settings
+        /// in the playmode tools in the editor or client / server defined in a player.
+        /// Can be used in custom implementations of `Initialize`.
+        /// </summary>
+        public virtual void CreateDefaultClientServerWorlds(World defaultWorld)
+        {
             PlayType playModeType = RequestedPlayType;
             int numClientWorlds = 1;
 
@@ -52,12 +84,12 @@ namespace Unity.NetCode
 #endif
                 for (int i = 0; i < numClientWorlds; ++i)
                 {
-                    CreateClientWorld(world, "ClientWorld" + i);
+                    CreateClientWorld(defaultWorld, "ClientWorld" + i);
                 }
 #if UNITY_EDITOR
                 for (int i = numClientWorlds; i < totalNumClients; ++i)
                 {
-                    var clientWorld = CreateClientWorld(world, "ClientWorld" + i);
+                    var clientWorld = CreateClientWorld(defaultWorld, "ClientWorld" + i);
                     clientWorld.EntityManager.CreateEntity(typeof(ThinClientComponent));
                 }
 #endif
@@ -65,9 +97,8 @@ namespace Unity.NetCode
 
             if (playModeType != PlayType.Client)
             {
-                CreateServerWorld(world, "ServerWorld");
+                CreateServerWorld(defaultWorld, "ServerWorld");
             }
-            return true;
         }
 
         private static void AddSystemsToList(List<Type> src, List<Type> allManagedSystems, List<Type> allUnmanagedSystems)
@@ -79,7 +110,7 @@ namespace Unity.NetCode
         {
             if (typeof(ComponentSystemBase).IsAssignableFrom(stype))
                 allManagedSystems.Add(stype);
-            else if (typeof(ISystemBase).IsAssignableFrom(stype))
+            else if (typeof(ISystem).IsAssignableFrom(stype))
                 allUnmanagedSystems.Add(stype);
             else
                 throw new InvalidOperationException("Bad type");
@@ -111,46 +142,68 @@ namespace Unity.NetCode
             AddSystemsToList(s_State.ClientPresentationSystems, allManagedTypes, allUnmanagedTypes);
             foreach (var systemParentType in s_State.ClientChildSystems)
             {
-                AddSystemToList(systemParentType.Item1, allManagedTypes, allUnmanagedTypes);
+                AddSystemToList(systemParentType.SystemType, allManagedTypes, allUnmanagedTypes);
             }
             world.GetOrCreateSystemsAndLogException(allManagedTypes.ToArray());
 
-            // TODO: create unmanaged systems
+            foreach (var t in allUnmanagedTypes)
+                world.GetOrCreateUnmanagedSystem(t);
+
 
             //Step2: group update binding
             foreach (var systemType in s_State.ClientInitializationSystems)
             {
-                // TODO: handle unmanaged systems
-                if (!typeof(ComponentSystemBase).IsAssignableFrom(systemType))
-                    continue;
-                var system = world.GetExistingSystem(systemType);
-                initializationGroup.AddSystemToUpdateList(system);
+                if (typeof(ComponentSystemBase).IsAssignableFrom(systemType))
+                {
+                    var system = world.GetExistingSystem(systemType);
+                    initializationGroup.AddSystemToUpdateList(system);
+                }
+                else if (typeof(ISystem).IsAssignableFrom(systemType))
+                {
+                    initializationGroup.AddUnmanagedSystemToUpdateList(world.Unmanaged.GetExistingUnmanagedSystem(systemType));
+                }
             }
 
             foreach (var systemType in s_State.ClientSimulationSystems)
             {
-                // TODO: handle unmanaged systems
-                if (!typeof(ComponentSystemBase).IsAssignableFrom(systemType))
-                    continue;
-                var system = world.GetExistingSystem(systemType);
-                simulationGroup.AddSystemToUpdateList(system);
+                if (typeof(ComponentSystemBase).IsAssignableFrom(systemType))
+                {
+                    var system = world.GetExistingSystem(systemType);
+                    simulationGroup.AddSystemToUpdateList(system);
+                }
+                else if (typeof(ISystem).IsAssignableFrom(systemType))
+                {
+                    simulationGroup.AddUnmanagedSystemToUpdateList(world.Unmanaged.GetExistingUnmanagedSystem(systemType));
+                }
             }
+
             foreach (var systemType in s_State.ClientPresentationSystems)
             {
-                // TODO: handle unmanaged systems
-                if (!typeof(ComponentSystemBase).IsAssignableFrom(systemType))
-                    continue;
-                var system = world.GetExistingSystem(systemType);
-                presentationGroup.AddSystemToUpdateList(system);
+                if (typeof(ComponentSystemBase).IsAssignableFrom(systemType))
+                {
+                    var system = world.GetExistingSystem(systemType);
+                    presentationGroup.AddSystemToUpdateList(system);
+                }
+                else if (typeof(ISystem).IsAssignableFrom(systemType))
+                {
+                    presentationGroup.AddUnmanagedSystemToUpdateList(world.Unmanaged.GetExistingUnmanagedSystem(systemType));
+                }
             }
             foreach (var systemParentType in s_State.ClientChildSystems)
             {
-                // TODO: handle unmanaged systems
-                if (!typeof(ComponentSystemBase).IsAssignableFrom(systemParentType.Item1))
-                    continue;
-                var system = world.GetExistingSystem(systemParentType.Item1);
-                var group = world.GetExistingSystem(systemParentType.Item2) as ComponentSystemGroup;
-                group.AddSystemToUpdateList(system);
+                if (typeof(ComponentSystemBase).IsAssignableFrom(systemParentType.SystemType))
+                {
+                    var system = world.GetExistingSystem(systemParentType.SystemType);
+                    var group = world.GetExistingSystem(systemParentType.ParentSystemType) as ComponentSystemGroup;
+                    group.AddSystemToUpdateList(system);
+                }
+                else if (typeof(ISystem).IsAssignableFrom(systemParentType.SystemType))
+                {
+                    var sysref = world.Unmanaged.GetExistingUnmanagedSystem(systemParentType.SystemType);
+                    var group = world.GetExistingSystem(systemParentType.ParentSystemType) as ComponentSystemGroup;
+                    group.AddUnmanagedSystemToUpdateList(sysref);
+                }
+
             }
             initializationGroup.SortSystems();
             simulationGroup.SortSystems();
@@ -164,6 +217,16 @@ namespace Unity.NetCode
             presentationGroup.ParentTickSystem = presentationTickSystem;
             presentationTickSystem.AddSystemToUpdateList(presentationGroup);
 
+            if (AutoConnectPort != 0 && DefaultConnectAddress != NetworkEndPoint.AnyIpv4)
+            {
+                NetworkEndPoint ep;
+#if UNITY_EDITOR
+                var addr = RequestedAutoConnect;
+                if (!NetworkEndPoint.TryParse(addr, AutoConnectPort, out ep))
+#endif
+                    ep = DefaultConnectAddress.WithPort(AutoConnectPort);
+                world.GetExistingSystem<NetworkStreamReceiveSystem>().Connect(ep);
+            }
             return world;
 #endif
         }
@@ -190,38 +253,52 @@ namespace Unity.NetCode
             AddSystemsToList(s_State.ServerSimulationSystems, allManagedTypes, allUnmanagedTypes);
             foreach (var systemParentType in s_State.ServerChildSystems)
             {
-                AddSystemToList(systemParentType.Item1, allManagedTypes, allUnmanagedTypes);
+                AddSystemToList(systemParentType.SystemType, allManagedTypes, allUnmanagedTypes);
             }
             world.GetOrCreateSystemsAndLogException(allManagedTypes.ToArray());
-
-            // TODO: create unmanaged systems
+            foreach (var t in allUnmanagedTypes)
+                world.GetOrCreateUnmanagedSystem(t);
 
             //Step2: group update binding
             foreach (var systemType in s_State.ServerInitializationSystems)
             {
-                // TODO: handle unmanaged systems
-                if (!typeof(ComponentSystemBase).IsAssignableFrom(systemType))
-                    continue;
-                var system = world.GetExistingSystem(systemType);
-                initializationGroup.AddSystemToUpdateList(system);
+                if (typeof(ComponentSystemBase).IsAssignableFrom(systemType))
+                {
+                    var system = world.GetExistingSystem(systemType);
+                    initializationGroup.AddSystemToUpdateList(system);
+                }
+                else if (typeof(ISystem).IsAssignableFrom(systemType))
+                {
+                    initializationGroup.AddUnmanagedSystemToUpdateList(world.Unmanaged.GetExistingUnmanagedSystem(systemType));
+                }
             }
 
             foreach (var systemType in s_State.ServerSimulationSystems)
             {
-                // TODO: handle unmanaged systems
-                if (!typeof(ComponentSystemBase).IsAssignableFrom(systemType))
-                    continue;
-                var system = world.GetExistingSystem(systemType);
-                simulationGroup.AddSystemToUpdateList(system);
+                if (typeof(ComponentSystemBase).IsAssignableFrom(systemType))
+                {
+                    var system = world.GetExistingSystem(systemType);
+                    simulationGroup.AddSystemToUpdateList(system);
+                }
+                else if (typeof(ISystem).IsAssignableFrom(systemType))
+                {
+                    simulationGroup.AddUnmanagedSystemToUpdateList(world.Unmanaged.GetExistingUnmanagedSystem(systemType));
+                }
             }
             foreach (var systemParentType in s_State.ServerChildSystems)
             {
-                // TODO: handle unmanaged systems
-                if (!typeof(ComponentSystemBase).IsAssignableFrom(systemParentType.Item1))
-                    continue;
-                var system = world.GetExistingSystem(systemParentType.Item1);
-                var group = world.GetExistingSystem(systemParentType.Item2) as ComponentSystemGroup;
-                group.AddSystemToUpdateList(system);
+                if (typeof(ComponentSystemBase).IsAssignableFrom(systemParentType.SystemType))
+                {
+                    var system = world.GetExistingSystem(systemParentType.SystemType);
+                    var group = world.GetExistingSystem(systemParentType.ParentSystemType) as ComponentSystemGroup;
+                    group.AddSystemToUpdateList(system);
+                }
+                else if (typeof(ISystem).IsAssignableFrom(systemParentType.SystemType))
+                {
+                    var sysref = world.Unmanaged.GetExistingUnmanagedSystem(systemParentType.SystemType);
+                    var group = world.GetExistingSystem(systemParentType.ParentSystemType) as ComponentSystemGroup;
+                    group.AddUnmanagedSystemToUpdateList(sysref);
+                }
             }
             initializationGroup.SortSystems();
             simulationGroup.SortSystems();
@@ -232,10 +309,34 @@ namespace Unity.NetCode
             simulationGroup.ParentTickSystem = simulationTickSystem;
             simulationTickSystem.AddSystemToUpdateList(simulationGroup);
 
+            if (AutoConnectPort != 0)
+                world.GetExistingSystem<NetworkStreamReceiveSystem>().Listen(DefaultListenAddress.WithPort(AutoConnectPort));
+
             return world;
 #endif
         }
 
+        /// <summary>
+        /// The default port to use for auto connection. The default value is zero, which means do not auto connect.
+        /// If this is set to a valid port any call to `CreateClientWorld` - including `CreateDefaultWorlds` and `Initialize` -
+        /// will try to connect to the specified port and address - assuming `DefaultConnectAddress` is valid.
+        /// Any call to `CreateServerWorld` - including `CreateDefaultWorlds` and `Initialize` - will listen on the specified
+        /// port and listen address.
+        /// </summary>
+        public static ushort AutoConnectPort = 0;
+        /// <summary>
+        /// The default address to connect to when using auto connect (`AutoConnectPort` is not zero).
+        /// If this valud is `NetworkEndPoint.AnyIpv4` auto connect will not be used even if the port is specified.
+        /// This is to allow auto listen without auto connect.
+        /// The address specified in the Multiplayer PlayMode Tools takes precedence over this when running in the editor,
+        /// if that address is not valid or you are running in a player `DefaultConnectAddress` will be used instead.
+        /// An invalid `DefaultConnectAddress` will disable auto connect even if the address in Multiplayer PlayMode Tools is valid.
+        /// </summary>
+        public static NetworkEndPoint DefaultConnectAddress = NetworkEndPoint.LoopbackIpv4;
+        /// <summary>
+        /// The default address to listen on when using auto connect (`AutoConnectPort` is not zero).
+        /// </summary>
+        public static NetworkEndPoint DefaultListenAddress = NetworkEndPoint.AnyIpv4;
         public enum PlayType
         {
             ClientAndServer = 0,
@@ -312,15 +413,15 @@ namespace Unity.NetCode
             s_State.ClientInitializationSystems = new List<Type>();
             s_State.ClientSimulationSystems = new List<Type>();
             s_State.ClientPresentationSystems = new List<Type>();
-            s_State.ClientChildSystems = new List<Tuple<Type, Type>>();
+            s_State.ClientChildSystems = new List<ChildSystem>();
             s_State.ServerInitializationSystems = new List<Type>();
             s_State.ServerSimulationSystems = new List<Type>();
-            s_State.ServerChildSystems = new List<Tuple<Type, Type>>();
+            s_State.ServerChildSystems = new List<ChildSystem>();
 
             foreach (var type in systems)
             {
-                var targetWorld = GetSystemAttribute<UpdateInWorld>(type);
-                if ((targetWorld != null && targetWorld.World == UpdateInWorld.TargetWorld.Default) ||
+                var targetWorld = GetSystemAttribute<UpdateInWorldAttribute>(type);
+                if ((targetWorld != null && targetWorld.World == TargetWorld.Default) ||
 #if !UNITY_DOTSRUNTIME
                     type == typeof(ConvertToEntitySystem) ||
 #endif
@@ -329,6 +430,11 @@ namespace Unity.NetCode
                     type == typeof(PresentationSystemGroup))
                 {
                     DefaultWorldSystems.Add(type);
+                    ExplicitDefaultWorldSystems.Add(type);
+                    continue;
+                }
+                else if (type == typeof(WorldUpdateAllocatorResetSystem))
+                {
                     ExplicitDefaultWorldSystems.Add(type);
                     continue;
                 }
@@ -345,22 +451,22 @@ namespace Unity.NetCode
                     if (group.GroupType == typeof(ClientAndServerSimulationSystemGroup) ||
                         group.GroupType == typeof(SimulationSystemGroup))
                     {
-                        if (group.GroupType == typeof(ClientAndServerSimulationSystemGroup) && targetWorld != null && targetWorld.World == UpdateInWorld.TargetWorld.Default)
+                        if (group.GroupType == typeof(ClientAndServerSimulationSystemGroup) && targetWorld != null && targetWorld.World == TargetWorld.Default)
                             UnityEngine.Debug.LogWarning(String.Format(
-                                "Cannot use [UpdateInWorld(UpdateInWorld.TargetWorld.Default)] when using [UpdateInGroup(typeof(ClientAndServerSimulationSystemGroup)] {0}",
+                                "Cannot use [UpdateInWorld(TargetWorld.Default)] when using [UpdateInGroup(typeof(ClientAndServerSimulationSystemGroup)] {0}",
                                 type));
                         if (group.GroupType == typeof(SimulationSystemGroup) &&
-                            (targetWorld == null || targetWorld.World == UpdateInWorld.TargetWorld.Default))
+                            (targetWorld == null || targetWorld.World == TargetWorld.Default))
                         {
                             DefaultWorldSystems.Add(type);
                             if (targetWorld != null)
                                 ExplicitDefaultWorldSystems.Add(type);
                         }
-                        if (targetWorld == null || (targetWorld.World & UpdateInWorld.TargetWorld.Server) != 0)
+                        if (targetWorld == null || (targetWorld.World & TargetWorld.Server) != 0)
                         {
                             s_State.ServerSimulationSystems.Add(type);
                         }
-                        if (targetWorld == null || (targetWorld.World & UpdateInWorld.TargetWorld.Client) != 0)
+                        if (targetWorld == null || (targetWorld.World & TargetWorld.Client) != 0)
                         {
                             s_State.ClientSimulationSystems.Add(type);
                         }
@@ -368,22 +474,22 @@ namespace Unity.NetCode
                     else if (group.GroupType == typeof(ClientAndServerInitializationSystemGroup) ||
                              group.GroupType == typeof(InitializationSystemGroup))
                     {
-                        if (group.GroupType == typeof(ClientAndServerInitializationSystemGroup) && targetWorld != null && targetWorld.World == UpdateInWorld.TargetWorld.Default)
+                        if (group.GroupType == typeof(ClientAndServerInitializationSystemGroup) && targetWorld != null && targetWorld.World == TargetWorld.Default)
                             UnityEngine.Debug.LogWarning(String.Format(
-                                "Cannot use [UpdateInWorld(UpdateInWorld.TargetWorld.Default)] when using [UpdateInGroup(typeof(ClientAndServerInitializationSystemGroup)] {0}",
+                                "Cannot use [UpdateInWorld(TargetWorld.Default)] when using [UpdateInGroup(typeof(ClientAndServerInitializationSystemGroup)] {0}",
                                 type));
                         if (group.GroupType == typeof(InitializationSystemGroup) &&
-                            (targetWorld == null || targetWorld.World == UpdateInWorld.TargetWorld.Default))
+                            (targetWorld == null || targetWorld.World == TargetWorld.Default))
                         {
                             DefaultWorldSystems.Add(type);
                             if (targetWorld != null)
                                 ExplicitDefaultWorldSystems.Add(type);
                         }
-                        if (targetWorld == null || (targetWorld.World & UpdateInWorld.TargetWorld.Server) != 0)
+                        if (targetWorld == null || (targetWorld.World & TargetWorld.Server) != 0)
                         {
                             s_State.ServerInitializationSystems.Add(type);
                         }
-                        if (targetWorld == null || (targetWorld.World & UpdateInWorld.TargetWorld.Client) != 0)
+                        if (targetWorld == null || (targetWorld.World & TargetWorld.Client) != 0)
                         {
                             s_State.ClientInitializationSystems.Add(type);
                         }
@@ -427,18 +533,18 @@ namespace Unity.NetCode
                             UnityEngine.Debug.LogWarning(String.Format(
                                 "Cannot use [UpdateInWorld] when using [UpdateInGroup(typeof(ClientPresentationSystemGroup)] {0}",
                                 type));
-                        if (targetWorld != null && (targetWorld.World & UpdateInWorld.TargetWorld.Server) != 0)
+                        if (targetWorld != null && (targetWorld.World & TargetWorld.Server) != 0)
                             UnityEngine.Debug.LogWarning(String.Format(
                                 "Cannot use presentation systems on the server {0}",
                                 type));
                         if (group.GroupType == typeof(PresentationSystemGroup) &&
-                            (targetWorld == null || targetWorld.World == UpdateInWorld.TargetWorld.Default))
+                            (targetWorld == null || targetWorld.World == TargetWorld.Default))
                         {
                             DefaultWorldSystems.Add(type);
                             if (targetWorld != null)
                                 ExplicitDefaultWorldSystems.Add(type);
                         }
-                        if (targetWorld == null || (targetWorld.World & UpdateInWorld.TargetWorld.Client) != 0)
+                        if (targetWorld == null || (targetWorld.World & TargetWorld.Client) != 0)
                         {
                             s_State.ClientPresentationSystems.Add(type);
                         }
@@ -446,34 +552,34 @@ namespace Unity.NetCode
                     else
                     {
                         var mask = GetTopLevelWorldMask(group.GroupType);
-                        if (targetWorld != null && targetWorld.World == UpdateInWorld.TargetWorld.Default &&
+                        if (targetWorld != null && targetWorld.World == TargetWorld.Default &&
                             (mask & WorldType.DefaultWorld) == 0)
                             UnityEngine.Debug.LogWarning(String.Format(
                                 "Cannot update in default world when parent is not in the default world {0}", type));
-                        if ((targetWorld != null && (targetWorld.World & UpdateInWorld.TargetWorld.Client) != 0) &&
+                        if ((targetWorld != null && (targetWorld.World & TargetWorld.Client) != 0) &&
                             (mask & WorldType.ClientWorld) == 0)
                             UnityEngine.Debug.LogWarning(String.Format(
                                 "Cannot update in client world when parent is not in the client world {0}", type));
-                        if ((targetWorld != null && (targetWorld.World & UpdateInWorld.TargetWorld.Server) != 0) &&
+                        if ((targetWorld != null && (targetWorld.World & TargetWorld.Server) != 0) &&
                             (mask & WorldType.ServerWorld) == 0)
                             UnityEngine.Debug.LogWarning(String.Format(
                                 "Cannot update in server world when parent is not in the server world {0}", type));
                         if ((mask & WorldType.DefaultWorld) != 0 &&
-                            (targetWorld == null || targetWorld.World == UpdateInWorld.TargetWorld.Default))
+                            (targetWorld == null || targetWorld.World == TargetWorld.Default))
                         {
                             DefaultWorldSystems.Add(type);
                             if (targetWorld != null || (mask & WorldType.ExplicitWorld) != 0)
                                 ExplicitDefaultWorldSystems.Add(type);
                         }
                         if ((mask & WorldType.ClientWorld) != 0 &&
-                            (targetWorld == null || (targetWorld.World & UpdateInWorld.TargetWorld.Client) != 0))
+                            (targetWorld == null || (targetWorld.World & TargetWorld.Client) != 0))
                         {
-                            s_State.ClientChildSystems.Add(new Tuple<Type,Type>(type, group.GroupType));
+                            s_State.ClientChildSystems.Add(new ChildSystem{SystemType = type, ParentSystemType = group.GroupType});
                         }
                         if ((mask & WorldType.ServerWorld) != 0 &&
-                            (targetWorld == null || (targetWorld.World & UpdateInWorld.TargetWorld.Server) != 0))
+                            (targetWorld == null || (targetWorld.World & TargetWorld.Server) != 0))
                         {
-                            s_State.ServerChildSystems.Add(new Tuple<Type,Type>(type, group.GroupType));
+                            s_State.ServerChildSystems.Add(new ChildSystem{SystemType = type, ParentSystemType = group.GroupType});
                         }
                     }
                 }
@@ -481,14 +587,14 @@ namespace Unity.NetCode
         }
         static WorldType GetTopLevelWorldMask(Type type)
         {
-            var targetWorld = GetSystemAttribute<UpdateInWorld>(type);
+            var targetWorld = GetSystemAttribute<UpdateInWorldAttribute>(type);
             if (targetWorld != null)
             {
-                if (targetWorld.World == UpdateInWorld.TargetWorld.Default)
+                if (targetWorld.World == TargetWorld.Default)
                     return WorldType.DefaultWorld | WorldType.ExplicitWorld;
-                if (targetWorld.World == UpdateInWorld.TargetWorld.Client)
+                if (targetWorld.World == TargetWorld.Client)
                     return WorldType.ClientWorld;
-                if (targetWorld.World == UpdateInWorld.TargetWorld.Server)
+                if (targetWorld.World == TargetWorld.Server)
                     return WorldType.ServerWorld;
                 return WorldType.ClientWorld | WorldType.ServerWorld;
             }

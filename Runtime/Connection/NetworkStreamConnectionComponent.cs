@@ -32,28 +32,49 @@ namespace Unity.NetCode
 
     public enum NetworkStreamDisconnectReason
     {
-        Unknown,
         ConnectionClose,
+        Timeout,
+        MaxConnectionAttempts,
+        ClosedByRemote,
         BadProtocolVersion,
         InvalidRpc,
     }
 
     public struct NetworkStreamDisconnected : IComponentData
     {
-
         public NetworkStreamDisconnectReason Reason;
     }
     public struct NetworkStreamRequestDisconnect : IComponentData
     {
-
         public NetworkStreamDisconnectReason Reason;
     }
 
+    /// <summary>
+    /// This buffer stores a single incoming command packet. One per NetworkStream (client).
+    /// A command packet contains commands for CommandSendSystem.k_InputBufferSendSize (default 4) ticks where 3 of them are delta compressed.
+    /// It also contains some timestamps etc for ping calculations.
+    /// </summary>
     public struct IncomingCommandDataStreamBufferComponent : IBufferElementData
     {
         public byte Value;
     }
+    /// <summary>
+    /// This buffer stores a single outgoing command packet without the headers for timestamps and ping.
+    /// A command packet contains commands for CommandSendSystem.k_InputBufferSendSize (default 4) ticks where 3 of them are delta compressed.
+    /// It also contains some timestamps etc for ping calculations.
+    /// </summary>
+    public struct OutgoingCommandDataStreamBufferComponent : IBufferElementData
+    {
+        public byte Value;
+    }
 
+    /// <summary>
+    /// One per NetworkConnection.
+    /// Stores the incoming, yet-to-be-processed snapshot stream data for a connection.
+    /// Each snapshot is designed to fit inside <see cref="NetworkParameterConstants.MTU"/>,
+    /// so expect this to be MTU or less.
+    /// </summary>
+    [InternalBufferCapacity(0)]
     public struct IncomingSnapshotDataStreamBufferComponent : IBufferElementData
     {
         public byte Value;
@@ -67,7 +88,7 @@ namespace Unity.NetCode
             if (UnsafeUtility.SizeOf<T>() != 1)
                 throw new System.InvalidOperationException("Can only convert DynamicBuffers of size 1 to DataStreamWriters");
 #endif
-            var na = NativeArrayUnsafeUtility.ConvertExistingDataToNativeArray<byte>(self.GetUnsafePtr(), self.Length, Allocator.Invalid);
+            var na = NativeArrayUnsafeUtility.ConvertExistingDataToNativeArray<byte>(self.GetUnsafeReadOnlyPtr(), self.Length, Allocator.Invalid);
 #if ENABLE_UNITY_COLLECTIONS_CHECKS
             var safety = NativeArrayUnsafeUtility.GetAtomicSafetyHandle(self.AsNativeArray());
             NativeArrayUnsafeUtility.SetAtomicSafetyHandle(ref na, safety);

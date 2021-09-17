@@ -1,9 +1,12 @@
 using System;
+using System.Text.RegularExpressions;
 using NUnit.Framework;
 using Unity.Collections;
 using Unity.Entities;
 using UnityEngine;
 using Unity.Transforms;
+using UnityEngine.Networking.PlayerConnection;
+using UnityEngine.TestTools;
 
 namespace Unity.NetCode.Tests
 {
@@ -12,8 +15,13 @@ namespace Unity.NetCode.Tests
     public struct TestInput : ICommandData
     {
         [GhostField] public uint Tick { get; set; }
-        [GhostField]
-        public int Value;
+        [GhostField] public int Value;
+    }
+
+    public struct TestInput2 : ICommandData
+    {
+        [GhostField] public uint Tick { get; set; }
+        [GhostField] public int Value2;
     }
 
     public class TestInputConverter : TestNetCodeAuthoring.IConverter
@@ -28,7 +36,7 @@ namespace Unity.NetCode.Tests
 
     [UpdateInGroup(typeof(GhostInputSystemGroup))]
     [DisableAutoCreation]
-    public class PredictionSystem : SystemBase
+    public partial class PredictionSystem : SystemBase
     {
         private GhostPredictionSystemGroup predictionGroup;
         protected override void OnCreate()
@@ -57,7 +65,7 @@ namespace Unity.NetCode.Tests
 
     [UpdateInGroup(typeof(GhostInputSystemGroup))]
     [DisableAutoCreation]
-    public class InputSystem : SystemBase
+    public partial class InputSystem : SystemBase
     {
         private ClientSimulationSystemGroup clientSim;
         protected override void OnCreate()
@@ -119,9 +127,13 @@ namespace Unity.NetCode.Tests
                 //Server as always 3 more inputs)
                 Assert.GreaterOrEqual(serverBuffer.Length, clientBuffer.Length + 1);
                 //Because of the redundancy the server always has more imputs
-                for (int i = 0; i < serverBuffer.Length - clientBuffer.Length + 1; ++i)
-                    Assert.AreEqual(0, serverBuffer[i].Value);
-                for (int i = serverBuffer.Length - clientBuffer.Length + 1; i < serverBuffer.Length; ++i)
+                int firstServerTick = 0;
+                while (firstServerTick < serverBuffer.Length && serverBuffer[firstServerTick].Value == 0)
+                    ++firstServerTick;
+                Assert.Greater(firstServerTick, 0);
+                Assert.Less(firstServerTick, serverBuffer.Length);
+                Assert.AreEqual(clientBuffer[0].Tick, serverBuffer[firstServerTick].Tick);
+                for (int i = firstServerTick; i < serverBuffer.Length; ++i)
                     Assert.AreEqual(1, serverBuffer[i].Value);
                 for (int i = 0; i < clientBuffer.Length; ++i)
                     Assert.AreEqual(1, clientBuffer[i].Value);
@@ -316,8 +328,10 @@ namespace Unity.NetCode.Tests
         {
             bool entitiesAreNotSpawned;
             var clientEnt = new Entity[numClients];
+            int iterations = 0;
             do
             {
+                ++iterations;
                 testWorld.Tick(deltaTime);
                 entitiesAreNotSpawned = false;
                 for (int i = 0; i < numClients; ++i)
@@ -325,7 +339,7 @@ namespace Unity.NetCode.Tests
                     clientEnt[i] = testWorld.TryGetSingletonEntity<TestInput>(testWorld.ClientWorlds[i]);
                     entitiesAreNotSpawned |= clientEnt[i] == Entity.Null;
                 }
-            } while (entitiesAreNotSpawned);
+            } while (entitiesAreNotSpawned && iterations < 128);
 
             var clientConn = testWorld.TryGetSingletonEntity<NetworkStreamInGame>(testWorld.ClientWorlds[owner]);
             testWorld.ClientWorlds[owner].EntityManager.SetComponentData(clientConn, new CommandTargetComponent {targetEntity = clientEnt[owner]});

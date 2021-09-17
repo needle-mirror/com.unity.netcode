@@ -6,6 +6,7 @@ using Unity.Entities;
 using Unity.Jobs;
 using Unity.NetCode.LowLevel.Unsafe;
 using Unity.Networking.Transport;
+using System.Runtime.InteropServices;
 
 namespace Unity.NetCode
 {
@@ -24,6 +25,7 @@ namespace Unity.NetCode
             }
         }
 
+        [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
         public delegate void ExecuteDelegate(ref Parameters parameters);
 
         /// <summary>
@@ -40,13 +42,17 @@ namespace Unity.NetCode
             var entity = parameters.CommandBuffer.CreateEntity(parameters.JobIndex);
             parameters.CommandBuffer.AddComponent(parameters.JobIndex, entity, new ReceiveRpcCommandRequestComponent {SourceConnection = parameters.Connection});
             parameters.CommandBuffer.AddComponent(parameters.JobIndex, entity, rpcData);
+
+#if !DOTS_DISABLE_DEBUG_NAMES
+            parameters.CommandBuffer.SetName(parameters.JobIndex, entity, "NetCodeRPC");
+#endif
             return entity;
         }
     }
 
     [UpdateInGroup(typeof(SimulationSystemGroup), OrderLast = true)]
     [UpdateAfter(typeof(EndSimulationEntityCommandBufferSystem))]
-    public class RpcSystem : SystemBase
+    public partial class RpcSystem : SystemBase
     {
         public enum ErrorCodes
         {
@@ -93,6 +99,7 @@ namespace Unity.NetCode
         private NativeHashMap<ulong, int> m_RpcTypeHashToIndex;
         private NativeQueue<RpcReceiveError> m_RpcErrors;
         private bool m_CanRegister;
+        private NetDebugSystem m_NetDebugSystem;
 
         public RpcSystem()
         {
@@ -113,6 +120,7 @@ namespace Unity.NetCode
                 ComponentType.ReadWrite<IncomingRpcDataStreamBufferComponent>(),
                 ComponentType.ReadWrite<OutgoingRpcDataStreamBufferComponent>(),
                 ComponentType.ReadWrite<NetworkStreamConnection>(),
+                ComponentType.ReadOnly<NetworkSnapshotAckComponent>(),
                 ComponentType.Exclude<NetworkStreamDisconnected>());
             RequireForUpdate(m_RpcBufferGroup);
 
@@ -120,6 +128,7 @@ namespace Unity.NetCode
             m_ReceiveSystem = World.GetOrCreateSystem<NetworkStreamReceiveSystem>();
             m_GhostSimulationGroup = World.GetExistingSystem<GhostSimulationSystemGroup>();
             m_RpcErrors = new NativeQueue<RpcReceiveError>(Allocator.Persistent);
+            m_NetDebugSystem = World.GetOrCreateSystem<NetDebugSystem>();
         }
 
         protected override void OnDestroy()
@@ -143,7 +152,7 @@ namespace Unity.NetCode
             if (!exec.Ptr.IsCreated)
             {
                 throw new InvalidOperationException($"Cannot register RPC for type {type.GetManagedType()}: Ptr property is not created (null)" +
-                                                    "Check CompileExecute() and verify you are initializing the PortableFunctionPointer with a valid static function delegate, decorated with [BurstCompile] attribute");
+                                                    "Check CompileExecute() and verify you are initializing the PortableFunctionPointer with a valid static function delegate, decorated with [BurstCompile(DisableDirectCall = true)] attribute");
             }
 
             var hash = TypeManager.GetTypeInfo(type.TypeIndex).StableTypeHash;
@@ -196,11 +205,15 @@ namespace Unity.NetCode
             [ReadOnly] public NativeHashMap<ulong, int> hashToIndex;
             [ReadOnly] public NativeHashMap<SpawnedGhost, Entity> ghostMap;
 
+            [ReadOnly] public ComponentTypeHandle<NetworkSnapshotAckComponent> ackType;
+            public uint localTime;
+
             public NetworkDriver.Concurrent driver;
             public NetworkPipeline reliablePipeline;
 
             public NetworkProtocolVersion protocolVersion;
             public bool dynamicAssemblyList;
+            public NetDebug netDebug;
 
             public unsafe void Execute(ArchetypeChunk chunk, int chunkIndex, int firstEntityIndex)
             {
@@ -208,6 +221,7 @@ namespace Unity.NetCode
                 var rpcInBuffer = chunk.GetBufferAccessor(inBufferType);
                 var rpcOutBuffer = chunk.GetBufferAccessor(outBufferType);
                 var connections = chunk.GetNativeArray(connectionType);
+                var acks = chunk.GetNativeArray(ackType);
                 var deserializeState = new RpcDeserializerState {ghostMap = ghostMap};
                 for (int i = 0; i < rpcInBuffer.Length; ++i)
                 {
@@ -305,12 +319,21 @@ namespace Unity.NetCode
                     dynArray.Clear();
 
                     var sendBuffer = rpcOutBuffer[i];
+                    var ack = acks[i];
                     while (sendBuffer.Length > 0)
                     {
                         if (driver.BeginSend(reliablePipeline, connections[i].Value, out var tmp) == 0)
                         {
+                            tmp.WriteByte((byte) NetworkStreamProtocol.Rpc);
+                            tmp.WriteUInt(localTime);
+                            uint returnTime = ack.LastReceivedRemoteTime;
+                            if (returnTime != 0)
+                                returnTime += (localTime - ack.LastReceiveTimestamp);
+                            tmp.WriteUInt(returnTime);
+                            var headerLength = tmp.Length;
+
                             // If sending failed we stop and wait until next frame
-                            if (sendBuffer.Length > tmp.Capacity)
+                            if (sendBuffer.Length + headerLength > tmp.Capacity)
                             {
                                 var sendArray = NativeArrayUnsafeUtility.ConvertExistingDataToNativeArray<byte>(sendBuffer.GetUnsafePtr(), sendBuffer.Length, Allocator.Invalid);
     #if ENABLE_UNITY_COLLECTIONS_CHECKS
@@ -318,10 +341,9 @@ namespace Unity.NetCode
                                 NativeArrayUnsafeUtility.SetAtomicSafetyHandle(ref sendArray, safety);
     #endif
                                 var reader = new DataStreamReader(sendArray);
-                                reader.ReadByte();
                                 reader.ReadUShort();
-                                var len = reader.ReadUShort() + msgHeaderLen + 1;
-                                if (len > tmp.Capacity)
+                                var len = reader.ReadUShort() + msgHeaderLen;
+                                if (len + headerLength > tmp.Capacity)
                                 {
                                     sendBuffer.Clear();
                                     // Could not fit a single message in the packet, this is a serious error
@@ -346,16 +368,16 @@ namespace Unity.NetCode
                             var result = 0;
                             if ((result = driver.EndSend(tmp)) <= 0)
                             {
-                                UnityEngine.Debug.LogWarning($"An error occured during EndSend. ErrorCode: {result}");
+                                netDebug.LogWarning(FixedString.Format("An error occured during EndSend. ErrorCode: {0}", result));
                                 break;
                             }
-                            if (tmp.Length < sendBuffer.Length)
+                            var tmpDataLength = tmp.Length - headerLength;
+                            if (tmpDataLength < sendBuffer.Length)
                             {
                                 // Compact the buffer, removing the rpcs we did send
-                                for (int cpy = tmp.Length; cpy < sendBuffer.Length; ++cpy)
-                                    sendBuffer[1 + cpy - tmp.Length] = sendBuffer[cpy];
-                                // Remove all but the first byte of the data we sent, first byte is identifying the packet as an rpc
-                                sendBuffer.ResizeUninitialized(1 + sendBuffer.Length - tmp.Length);
+                                for (int cpy = tmpDataLength; cpy < sendBuffer.Length; ++cpy)
+                                    sendBuffer[cpy - tmpDataLength] = sendBuffer[cpy];
+                                sendBuffer.ResizeUninitialized(sendBuffer.Length - tmpDataLength);
                             }
                             else
                                 sendBuffer.Clear();
@@ -371,6 +393,7 @@ namespace Unity.NetCode
             public EntityCommandBuffer commandBuffer;
             public NativeQueue<RpcReceiveError> errors;
             [ReadOnly] public ComponentDataFromEntity<NetworkStreamConnection> connections;
+            public NetDebug netDebug;
 
             public void Execute()
             {
@@ -381,9 +404,7 @@ namespace Unity.NetCode
                     {
                         case ErrorCodes.InvalidRpc:
                         case ErrorCodes.VersionNotReceived:
-#if ENABLE_UNITY_COLLECTIONS_CHECKS
-                            UnityEngine.Debug.LogError($"RpcSystem received invalid rpc from connection {connections[rpcError.connection].Value.InternalId}");
-#endif
+                            netDebug.LogError(FixedString.Format("RpcSystem received invalid rpc from connection {0}", connections[rpcError.connection].Value.InternalId));
                             commandBuffer.AddComponent(rpcError.connection,
                                 new NetworkStreamRequestDisconnect
                                     {Reason = NetworkStreamDisconnectReason.InvalidRpc});
@@ -392,9 +413,7 @@ namespace Unity.NetCode
                             commandBuffer.AddComponent(rpcError.connection,
                                 new NetworkStreamRequestDisconnect
                                     {Reason = NetworkStreamDisconnectReason.BadProtocolVersion});
-#if ENABLE_UNITY_COLLECTIONS_CHECKS
-                            UnityEngine.Debug.LogError($"RpcSystem received bad protocol version from connection {connections[rpcError.connection].Value.InternalId}");
-#endif
+                            netDebug.LogError(FixedString.Format("RpcSystem received bad protocol version from connection {0}", connections[rpcError.connection].Value.InternalId));
                             break;
                     }
                 }
@@ -410,7 +429,6 @@ namespace Unity.NetCode
             if (buffer.Length != 0)
                 throw new InvalidOperationException("Protocol version must be the very first RPC sent");
 #endif
-            writer.WriteByte((byte) NetworkStreamProtocol.Rpc);
             if (dynamicAssemblyList)
                 writer.WriteULong(0);
             else
@@ -479,10 +497,13 @@ namespace Unity.NetCode
                 execute = m_RpcData,
                 hashToIndex = m_RpcTypeHashToIndex,
                 ghostMap = m_GhostSimulationGroup.SpawnedGhostEntityMap,
+                ackType = GetComponentTypeHandle<NetworkSnapshotAckComponent>(true),
+                localTime = NetworkTimeSystem.TimestampMS,
                 driver = m_ReceiveSystem.ConcurrentDriver,
                 reliablePipeline = m_ReceiveSystem.ReliablePipeline,
                 protocolVersion = GetSingleton<NetworkProtocolVersion>(),
-                dynamicAssemblyList = m_DynamicAssemblyList
+                dynamicAssemblyList = m_DynamicAssemblyList,
+                netDebug = m_NetDebugSystem.NetDebug
             };
             Dependency = execJob.Schedule(m_RpcBufferGroup, Dependency);
             m_GhostSimulationGroup.LastGhostMapWriter = Dependency;
@@ -491,7 +512,8 @@ namespace Unity.NetCode
             {
                 commandBuffer = m_Barrier.CreateCommandBuffer(),
                 connections = GetComponentDataFromEntity<NetworkStreamConnection>(),
-                errors = m_RpcErrors
+                errors = m_RpcErrors,
+                netDebug = m_NetDebugSystem.NetDebug
             }.Schedule(Dependency);
             m_Barrier.AddJobHandleForProducer(Dependency);
             Dependency = m_ReceiveSystem.Driver.ScheduleFlushSend(Dependency);

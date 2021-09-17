@@ -6,7 +6,7 @@ namespace Unity.NetCode
     /// Use this attribute to prevent a GhostComponent to support any kind of variation.
     /// </summary>
     [AttributeUsage(AttributeTargets.Struct | AttributeTargets.Class)]
-    sealed public class DontSupportVariation : Attribute
+    sealed public class DontSupportVariationAttribute : Attribute
     {
     }
 }

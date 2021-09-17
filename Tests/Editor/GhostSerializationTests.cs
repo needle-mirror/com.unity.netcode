@@ -19,49 +19,77 @@ namespace Unity.NetCode.Tests
         }
     }
 
+    public enum EnumUntyped
+    {
+        Value0 = 255,
+    }
+    public enum EnumS8 : sbyte
+    {
+        Value0 = 126,
+    }
+    public enum EnumU8 : byte
+    {
+        Value0 = 253,
+    }
+    public enum EnumS16 : short
+    {
+        Value0 = 0x7AAB
+    }
+    public enum EnumU16 : ushort
+    {
+        Value0 = 0xF00D,
+    }
+    public enum EnumS32
+    {
+        Value0 = 0x007AD0BE,
+    }
+    public enum EnumU32 : uint
+    {
+        Value0 = 0xBAADF00D
+    }
+    public enum EnumS64 : long
+    {
+        Value0 = 0x791BBCDC0CCAEDD1,
+    }
+    public enum EnumU64 : ulong
+    {
+        Value0 = 0xABBA1970F1809FE2,
+    }
+
     public struct GhostValueSerializer : IComponentData
     {
-        [GhostField]
-        public bool BoolValue;
-        [GhostField]
-        public int IntValue;
-        [GhostField]
-        public uint UIntValue;
-        [GhostField(Quantization=10)]
-        public float FloatValue;
-        [GhostField(Quantization=0)]
-        public float UnquantizedFloatValue;
+        [GhostField] public bool BoolValue;
+        [GhostField] public int IntValue;
+        [GhostField] public uint UIntValue;
+        [GhostField] public long LongValue;
+        [GhostField] public ulong ULongValue;
 
-        [GhostField(Quantization=10)]
-        public float2 Float2Value;
-        [GhostField(Quantization=0)]
-        public float2 UnquantizedFloat2Value;
-        [GhostField(Quantization=10)]
-        public float3 Float3Value;
-        [GhostField(Quantization=0)]
-        public float3 UnquantizedFloat3Value;
-        [GhostField(Quantization=10)]
-        public float4 Float4Value;
-        [GhostField(Quantization=0)]
-        public float4 UnquantizedFloat4Value;
-        [GhostField(Quantization=1000)]
-        public quaternion QuaternionValue;
-        [GhostField(Quantization=0)]
-        public quaternion UnquantizedQuaternionValue;
+        [GhostField] public EnumUntyped EnumUntyped;
+        [GhostField] public EnumS8   EnumS08;
+        [GhostField] public EnumU8   EnumU08;
+        [GhostField] public EnumS16  EnumS16;
+        [GhostField] public EnumU16  EnumU16;
+        [GhostField] public EnumS32  EnumS32;
+        [GhostField] public EnumU32  EnumU32;
+        [GhostField] public EnumS64  EnumS64;
+        [GhostField] public EnumU64  EnumU64;
 
-        [GhostField]
-        public FixedString32 StringValue32;
-        [GhostField]
-        public FixedString64 StringValue64;
-        [GhostField]
-        public FixedString128 StringValue128;
-        [GhostField]
-        public FixedString512 StringValue512;
-        [GhostField]
-        public FixedString4096 StringValue4096;
-
-        [GhostField]
-        public Entity EntityValue;
+        [GhostField(Quantization=10)] public float FloatValue;
+        [GhostField(Quantization=0)] public float UnquantizedFloatValue;
+        [GhostField(Quantization=10)] public float2 Float2Value;
+        [GhostField(Quantization=0)] public float2 UnquantizedFloat2Value;
+        [GhostField(Quantization=10)] public float3 Float3Value;
+        [GhostField(Quantization=0)] public float3 UnquantizedFloat3Value;
+        [GhostField(Quantization=10)] public float4 Float4Value;
+        [GhostField(Quantization=0)] public float4 UnquantizedFloat4Value;
+        [GhostField(Quantization=1000)] public quaternion QuaternionValue;
+        [GhostField(Quantization=0)] public quaternion UnquantizedQuaternionValue;
+        [GhostField] public FixedString32Bytes StringValue32;
+        [GhostField] public FixedString64Bytes StringValue64;
+        [GhostField] public FixedString128Bytes StringValue128;
+        [GhostField] public FixedString512Bytes StringValue512;
+        [GhostField] public FixedString4096Bytes StringValue4096;
+        [GhostField] public Entity EntityValue;
     }
     public class GhostSerializationTests
     {
@@ -77,8 +105,21 @@ namespace Unity.NetCode.Tests
             var clientValues = testWorld.ClientWorlds[0].EntityManager.GetComponentData<GhostValueSerializer>(clientEntity);
             Assert.AreEqual(serverValues.BoolValue, clientValues.BoolValue);
             Assert.AreEqual(serverValues.IntValue, clientValues.IntValue);
+            Assert.AreEqual(serverValues.UIntValue, clientValues.UIntValue);
+            Assert.AreEqual(serverValues.LongValue, clientValues.LongValue);
+            Assert.AreEqual(serverValues.ULongValue, clientValues.ULongValue);
             Assert.AreEqual(serverValues.FloatValue, clientValues.FloatValue);
             Assert.AreEqual(serverValues.UnquantizedFloatValue, clientValues.UnquantizedFloatValue);
+
+            Assert.AreEqual(serverValues.EnumUntyped,clientValues.EnumUntyped);
+            Assert.AreEqual(serverValues.EnumS08,clientValues.EnumS08);
+            Assert.AreEqual(serverValues.EnumU08,clientValues.EnumU08);
+            Assert.AreEqual(serverValues.EnumS16,clientValues.EnumS16);
+            Assert.AreEqual(serverValues.EnumU16,clientValues.EnumU16);
+            Assert.AreEqual(serverValues.EnumS32,clientValues.EnumS32);
+            Assert.AreEqual(serverValues.EnumU32,clientValues.EnumU32);
+            Assert.AreEqual(serverValues.EnumS64,clientValues.EnumS64);
+            Assert.AreEqual(serverValues.EnumU64,clientValues.EnumU64);
 
             Assert.AreEqual(serverValues.Float2Value, clientValues.Float2Value);
             Assert.AreEqual(serverValues.UnquantizedFloat2Value, clientValues.UnquantizedFloat2Value);
@@ -107,8 +148,20 @@ namespace Unity.NetCode.Tests
                 BoolValue = (baseValue&1) != 0,
                 IntValue = baseValue,
                 UIntValue = (uint)baseValue + 1u,
+                LongValue = baseValue + 0x1234567898763210L,
+                ULongValue = ((ulong)baseValue) + 0x8234567898763210UL,
                 FloatValue = baseValue + 2,
                 UnquantizedFloatValue = baseValue + 3,
+
+                EnumUntyped = EnumUntyped.Value0,
+                EnumS08 = EnumS8.Value0,
+                EnumU08 = EnumU8.Value0,
+                EnumS16 = EnumS16.Value0,
+                EnumU16 = EnumU16.Value0,
+                EnumS32 = EnumS32.Value0,
+                EnumU32 = EnumU32.Value0,
+                EnumS64 = EnumS64.Value0,
+                EnumU64 = EnumU64.Value0,
 
                 Float2Value = new float2(baseValue + 4, baseValue + 5),
                 UnquantizedFloat2Value = new float2(baseValue + 6, baseValue + 7),
@@ -119,11 +172,11 @@ namespace Unity.NetCode.Tests
                 QuaternionValue = math.normalize(new quaternion(baseValue + 22, baseValue + 23, baseValue + 24, baseValue + 25)),
                 UnquantizedQuaternionValue = math.normalize(new quaternion(baseValue + 26, baseValue + 27, baseValue + 28, baseValue + 29)),
 
-                StringValue32 = new FixedString32($"baseValue = {baseValue}"),
-                StringValue64 = new FixedString64($"baseValue = {baseValue*2}"),
-                StringValue128 = new FixedString128($"baseValue = {baseValue*3}"),
-                StringValue512 = new FixedString512($"baseValue = {baseValue*4}"),
-                StringValue4096 = new FixedString4096($"baseValue = {baseValue*5}"),
+                StringValue32 = new FixedString32Bytes($"baseValue = {baseValue}"),
+                StringValue64 = new FixedString64Bytes($"baseValue = {baseValue*2}"),
+                StringValue128 = new FixedString128Bytes($"baseValue = {baseValue*3}"),
+                StringValue512 = new FixedString512Bytes($"baseValue = {baseValue*4}"),
+                StringValue4096 = new FixedString4096Bytes($"baseValue = {baseValue*5}"),
 
                 EntityValue = serverEntity
             });
@@ -306,6 +359,47 @@ namespace Unity.NetCode.Tests
                 }
                 Assert.LessOrEqual(mismatchFrames, 1);
                 Assert.AreEqual(Entity.Null, testWorld.TryGetSingletonEntity<GhostOwnerComponent>(testWorld.ClientWorlds[0]));
+            }
+        }
+        [Test]
+        public void ManyEntitiesCanBeDespawnedSameTick()
+        {
+            using (var testWorld = new NetCodeTestWorld())
+            {
+                testWorld.Bootstrap(true);
+
+                var ghostGameObject = new GameObject();
+                ghostGameObject.AddComponent<TestNetCodeAuthoring>().Converter = new GhostValueSerializerConverter();
+
+                Assert.IsTrue(testWorld.CreateGhostCollection(ghostGameObject));
+
+                testWorld.CreateWorlds(true, 1);
+
+                var prefabCollection = testWorld.TryGetSingletonEntity<NetCodeTestPrefabCollection>(testWorld.ServerWorld);
+                var prefab = testWorld.ServerWorld.EntityManager.GetBuffer<NetCodeTestPrefab>(prefabCollection)[0].Value;
+                using (var entities = testWorld.ServerWorld.EntityManager.Instantiate(prefab, 10000, Allocator.Persistent))
+                {
+                    float frameTime = 1.0f / 60.0f;
+                    // Connect and make sure the connection could be established
+                    Assert.IsTrue(testWorld.Connect(frameTime, 4));
+
+                    // Go in-game
+                    testWorld.GoInGame();
+
+                    // Let the game run for a bit so the ghosts are spawned on the client
+                    for (int i = 0; i < 128; ++i)
+                        testWorld.Tick(frameTime);
+
+                    Assert.AreEqual(10000, testWorld.ClientWorlds[0].GetExistingSystem<GhostReceiveSystem>().GhostCountOnClient);
+
+                    testWorld.ServerWorld.EntityManager.DestroyEntity(entities);
+
+                    for (int i = 0; i < 256; ++i)
+                        testWorld.Tick(frameTime);
+
+                    // Assert that replicated version is correct
+                    Assert.AreEqual(0, testWorld.ClientWorlds[0].GetExistingSystem<GhostReceiveSystem>().GhostCountOnClient);
+                }
             }
         }
     }

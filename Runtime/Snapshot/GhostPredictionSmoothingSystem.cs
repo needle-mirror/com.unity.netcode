@@ -4,22 +4,21 @@ using Unity.Collections;
 using Unity.NetCode.LowLevel.Unsafe;
 using Unity.Burst;
 using Unity.Jobs;
+using System.Runtime.InteropServices;
 
 namespace Unity.NetCode
 {
-    [UpdateInWorld(UpdateInWorld.TargetWorld.Client)]
+    [UpdateInWorld(TargetWorld.Client)]
     [UpdateInGroup(typeof(GhostPredictionSystemGroup), OrderLast = true)]
     [UpdateBefore(typeof(GhostPredictionHistorySystem))]
-    public unsafe class GhostPredictionSmoothingSystem : SystemBase
+    public unsafe partial class GhostPredictionSmoothingSystem : SystemBase
     {
         GhostPredictionSystemGroup m_GhostPredictionSystemGroup;
         GhostPredictionHistorySystem m_GhostPredictionHistorySystem;
 
         EntityQuery m_PredictionQuery;
-        EntityQuery m_ChildEntityQuery;
 
-        NativeHashMap<Entity, EntityChunkLookup> m_ChildEntityLookup;
-
+        [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
         public delegate void SmoothingActionDelegate(void* currentData, void* previousData, void* userData);
 
         struct SmoothingActionState
@@ -121,8 +120,6 @@ namespace Unity.NetCode
             m_GhostPredictionHistorySystem = World.GetExistingSystem<GhostPredictionHistorySystem>();
 
             m_PredictionQuery = GetEntityQuery(ComponentType.ReadOnly<PredictedGhostComponent>(), ComponentType.ReadOnly<GhostComponent>());
-            m_ChildEntityLookup = new NativeHashMap<Entity, EntityChunkLookup>(1024, Allocator.Persistent);
-            m_ChildEntityQuery = GetEntityQuery(ComponentType.ReadOnly<GhostChildEntityComponent>());
 
             m_UserSpecifiedComponentData = new NativeList<ComponentType>(8, Allocator.Persistent);
             m_SmoothingActions = new NativeHashMap<ComponentType, SmoothingActionState>(32, Allocator.Persistent);
@@ -132,7 +129,6 @@ namespace Unity.NetCode
         }
         protected override void OnDestroy()
         {
-            m_ChildEntityLookup.Dispose();
             m_UserSpecifiedComponentData.Dispose();
             m_SmoothingActions.Dispose();
 
@@ -143,17 +139,6 @@ namespace Unity.NetCode
         {
             if (m_GhostPredictionSystemGroup.PredictingTick != m_GhostPredictionHistorySystem.LastBackupTick)
                 return;
-
-            m_ChildEntityLookup.Clear();
-            var childCount = m_ChildEntityQuery.CalculateEntityCountWithoutFiltering();
-            if (childCount > m_ChildEntityLookup.Capacity)
-                m_ChildEntityLookup.Capacity = childCount;
-            var buildChildJob = new BuildChildEntityLookupJob
-            {
-                entityType = GetEntityTypeHandle(),
-                childEntityLookup = m_ChildEntityLookup.AsParallelWriter()
-            };
-            Dependency = buildChildJob.ScheduleParallel(m_ChildEntityQuery, Dependency);
 
             var smoothingJob = new PredictionSmoothingJob
             {
@@ -167,7 +152,7 @@ namespace Unity.NetCode
                 GhostTypeCollectionFromEntity = GetBufferFromEntity<GhostCollectionPrefabSerializer>(true),
                 GhostComponentIndexFromEntity = GetBufferFromEntity<GhostCollectionComponentIndex>(true),
 
-                childEntityLookup = m_ChildEntityLookup,
+                childEntityLookup = GetStorageInfoFromEntity(),
                 linkedEntityGroupType = GetBufferTypeHandle<LinkedEntityGroup>(),
                 tick = m_GhostPredictionSystemGroup.PredictingTick,
 
@@ -178,71 +163,19 @@ namespace Unity.NetCode
                 m_GhostPredictionHistorySystem.PredictionStateWriteJobHandle);
 
             var ghostComponentCollection = EntityManager.GetBuffer<GhostCollectionComponentType>(smoothingJob.GhostCollectionSingleton);
-            var listLength = ghostComponentCollection.Length;
-            if (listLength <= 32)
-            {
-                var dynamicListJob = new PredictionSmoothingJob32 {Job = smoothingJob};
+            DynamicTypeList.PopulateList(this, ghostComponentCollection, false, ref smoothingJob.DynamicTypeList);
+            DynamicTypeList.PopulateListFromArray(this, m_UserSpecifiedComponentData, true, ref smoothingJob.UserList);
 
-                DynamicTypeList.PopulateList(this, ghostComponentCollection, false, ref dynamicListJob.List);
-                DynamicTypeList.PopulateListFromArray(this, m_UserSpecifiedComponentData, true, ref dynamicListJob.UserList);
-
-                Dependency = dynamicListJob.ScheduleParallel(m_PredictionQuery, Dependency);
-            }
-            else if (listLength <= 64)
-            {
-                var dynamicListJob = new PredictionSmoothingJob64 {Job = smoothingJob};
-                DynamicTypeList.PopulateList(this, ghostComponentCollection, false, ref dynamicListJob.List);
-                DynamicTypeList.PopulateListFromArray(this, m_UserSpecifiedComponentData, true, ref dynamicListJob.UserList);
-                Dependency = dynamicListJob.ScheduleParallel(m_PredictionQuery, Dependency);
-            }
-            else if (listLength <= 128)
-            {
-                var dynamicListJob = new PredictionSmoothingJob128 {Job = smoothingJob};
-                DynamicTypeList.PopulateList(this, ghostComponentCollection, false, ref dynamicListJob.List);
-                DynamicTypeList.PopulateListFromArray(this, m_UserSpecifiedComponentData, true, ref dynamicListJob.UserList);
-                Dependency = dynamicListJob.ScheduleParallel(m_PredictionQuery, Dependency);
-            }
-            else
-                throw new System.InvalidOperationException(
-                    $"Too many ghost component types present in project, limit is {DynamicTypeList.MaxCapacity} types. This is any struct which has a field marked with GhostField attribute.");
+            Dependency = smoothingJob.ScheduleParallelByRef(m_PredictionQuery, Dependency);
 
             m_GhostPredictionHistorySystem.AddPredictionStateReader(Dependency);
         }
+
         [BurstCompile]
-        struct PredictionSmoothingJob32 : IJobChunk
+        struct PredictionSmoothingJob : IJobChunk
         {
-            public DynamicTypeList32 List;
-            public DynamicTypeList8 UserList;
-            public PredictionSmoothingJob Job;
-            public void Execute(ArchetypeChunk chunk, int chunkIndex, int firstEntityIndex)
-            {
-                Job.Execute(chunk, chunkIndex, firstEntityIndex, List.GetData(), List.Length, UserList.GetData(), UserList.Length);
-            }
-        }
-        [BurstCompile]
-        struct PredictionSmoothingJob64 : IJobChunk
-        {
-            public DynamicTypeList64 List;
-            public DynamicTypeList8 UserList;
-            public PredictionSmoothingJob Job;
-            public void Execute(ArchetypeChunk chunk, int chunkIndex, int firstEntityIndex)
-            {
-                Job.Execute(chunk, chunkIndex, firstEntityIndex, List.GetData(), List.Length, UserList.GetData(), UserList.Length);
-            }
-        }
-        [BurstCompile]
-        struct PredictionSmoothingJob128 : IJobChunk
-        {
-            public DynamicTypeList128 List;
-            public DynamicTypeList8 UserList;
-            public PredictionSmoothingJob Job;
-            public void Execute(ArchetypeChunk chunk, int chunkIndex, int firstEntityIndex)
-            {
-                Job.Execute(chunk, chunkIndex, firstEntityIndex, List.GetData(), List.Length, UserList.GetData(), UserList.Length);
-            }
-        }
-        struct PredictionSmoothingJob
-        {
+            public DynamicTypeList DynamicTypeList;
+            public DynamicTypeList UserList;
             [ReadOnly] public NativeHashMap<ArchetypeChunk, System.IntPtr> predictionState;
 
             [ReadOnly] public ComponentTypeHandle<GhostComponent> ghostType;
@@ -254,7 +187,7 @@ namespace Unity.NetCode
             [ReadOnly] public BufferFromEntity<GhostCollectionPrefabSerializer> GhostTypeCollectionFromEntity;
             [ReadOnly] public BufferFromEntity<GhostCollectionComponentIndex> GhostComponentIndexFromEntity;
 
-            [ReadOnly] public NativeHashMap<Entity, EntityChunkLookup> childEntityLookup;
+            [ReadOnly] public StorageInfoFromEntity childEntityLookup;
             [ReadOnly] public BufferTypeHandle<LinkedEntityGroup> linkedEntityGroupType;
 
             [ReadOnly] public NativeHashMap<ComponentType, SmoothingActionState> smoothingActions;
@@ -262,12 +195,16 @@ namespace Unity.NetCode
 
             const GhostComponentSerializer.SendMask requiredSendMask = GhostComponentSerializer.SendMask.Predicted;
 
-            public void Execute(ArchetypeChunk chunk, int chunkIndex, int firstEntityIndex, DynamicComponentTypeHandle* ghostChunkComponentTypesPtr, int ghostChunkComponentTypesLength,
-                DynamicComponentTypeHandle* userTypes, int userTypesLength)
+            public void Execute(ArchetypeChunk chunk, int chunkIndex, int firstEntityIndex)
             {
                 if (!predictionState.TryGetValue(chunk, out var state) ||
                     (*(PredictionBackupState*)state).entityCapacity != chunk.Capacity)
                     return;
+
+                DynamicComponentTypeHandle* ghostChunkComponentTypesPtr = DynamicTypeList.GetData();
+                int ghostChunkComponentTypesLength = DynamicTypeList.Length;
+                DynamicComponentTypeHandle* userTypes = UserList.GetData();
+                int userTypesLength = UserList.Length;
 
                 var GhostTypeCollection = GhostTypeCollectionFromEntity[GhostCollectionSingleton];
                 var GhostComponentIndex = GhostComponentIndexFromEntity[GhostCollectionSingleton];
@@ -278,6 +215,8 @@ namespace Unity.NetCode
                 int ghostTypeId = ghostComponents.GetFirstGhostTypeId();
                 if (ghostTypeId < 0)
                     return;
+                if (ghostTypeId >= GhostTypeCollection.Length)
+                    return; // serialization data has not been loaded yet. This can only happen for prespawn objects
 
                 var typeData = GhostTypeCollection[ghostTypeId];
 
@@ -374,10 +313,11 @@ namespace Unity.NetCode
                         if (entities[ent] != backupEntities[ent])
                             continue;
                         var linkedEntityGroup = linkedEntityGroupAccessor[ent];
-                        if (childEntityLookup.TryGetValue(linkedEntityGroup[action.entityIndex].Value, out var childChunk) &&
-                            childChunk.chunk.Has(ghostChunkComponentTypesPtr[action.compIndex]))
+                        var childEnt = linkedEntityGroup[action.entityIndex].Value;
+                        if (childEntityLookup.TryGetValue(childEnt, out var childChunk) &&
+                            childChunk.Chunk.Has(ghostChunkComponentTypesPtr[action.compIndex]))
                         {
-                            var compData = (byte*)childChunk.chunk.GetDynamicComponentDataArrayReinterpret<byte>(ghostChunkComponentTypesPtr[action.compIndex], action.compSize).GetUnsafePtr();
+                            var compData = (byte*)childChunk.Chunk.GetDynamicComponentDataArrayReinterpret<byte>(ghostChunkComponentTypesPtr[action.compIndex], action.compSize).GetUnsafePtr();
 
                             void* usrDataPtr = null;
                             if (action.userTypeId >= 0 && chunk.Has(userTypes[action.userTypeId]))
@@ -387,7 +327,7 @@ namespace Unity.NetCode
                             }
 
                             byte* dataPtr = ((byte*) state) + action.compBackupOffset;
-                            action.action.Ptr.Invoke(compData + action.compSize * childChunk.index, dataPtr + action.compSize * ent, usrDataPtr);
+                            action.action.Ptr.Invoke(compData + action.compSize * childChunk.IndexInChunk, dataPtr + action.compSize * ent, usrDataPtr);
                         }
                     }
                 }

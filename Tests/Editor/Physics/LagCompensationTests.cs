@@ -8,6 +8,7 @@ using Unity.Mathematics;
 using Unity.Transforms;
 using UnityEngine.TestTools;
 using Unity.Burst;
+using Unity.Collections;
 
 namespace Unity.NetCode.Physics.Tests
 {
@@ -34,7 +35,7 @@ namespace Unity.NetCode.Physics.Tests
         public float3 direction;
         public uint lastFire;
 
-        public void Serialize(ref DataStreamWriter writer, in LagCompensationTestCommand data)
+        public void Serialize(ref DataStreamWriter writer, in RpcSerializerState state, in LagCompensationTestCommand data)
         {
             writer.WriteFloat(data.origin.x);
             writer.WriteFloat(data.origin.y);
@@ -44,11 +45,11 @@ namespace Unity.NetCode.Physics.Tests
             writer.WriteFloat(data.direction.z);
             writer.WriteUInt(data.lastFire);
         }
-        public void Serialize(ref DataStreamWriter writer, in LagCompensationTestCommand data, in LagCompensationTestCommand baseline, NetworkCompressionModel model)
+        public void Serialize(ref DataStreamWriter writer, in RpcSerializerState state, in LagCompensationTestCommand data, in LagCompensationTestCommand baseline, NetworkCompressionModel model)
         {
-            Serialize(ref writer, data);
+            Serialize(ref writer, state, data);
         }
-        public void Deserialize(ref DataStreamReader reader, ref LagCompensationTestCommand data)
+        public void Deserialize(ref DataStreamReader reader, in RpcDeserializerState state, ref LagCompensationTestCommand data)
         {
             data.origin.x = reader.ReadFloat();
             data.origin.y = reader.ReadFloat();
@@ -58,14 +59,14 @@ namespace Unity.NetCode.Physics.Tests
             data.direction.z = reader.ReadFloat();
             data.lastFire = reader.ReadUInt();
         }
-        public void Deserialize(ref DataStreamReader reader, ref LagCompensationTestCommand data, in LagCompensationTestCommand baseline, NetworkCompressionModel model)
+        public void Deserialize(ref DataStreamReader reader, in RpcDeserializerState state, ref LagCompensationTestCommand data, in LagCompensationTestCommand baseline, NetworkCompressionModel model)
         {
-            Deserialize(ref reader, ref data);
+            Deserialize(ref reader, state, ref data);
         }
     }
     [DisableAutoCreation]
     [AlwaysUpdateSystem]
-    public class TestAutoInGameSystem : SystemBase
+    public partial class TestAutoInGameSystem : SystemBase
     {
         BeginSimulationEntityCommandBufferSystem m_BeginSimulationCommandBufferSystem;
         bool m_IsServer;
@@ -140,7 +141,7 @@ namespace Unity.NetCode.Physics.Tests
 
     [DisableAutoCreation]
     [UpdateInGroup(typeof(ServerSimulationSystemGroup))]
-    public class LagCompensationTestCubeMoveSystem : SystemBase
+    public partial class LagCompensationTestCubeMoveSystem : SystemBase
     {
         protected override void OnUpdate()
         {
@@ -154,7 +155,7 @@ namespace Unity.NetCode.Physics.Tests
 
     [DisableAutoCreation]
     [UpdateInGroup(typeof(GhostPredictionSystemGroup))]
-    public class LagCompensationTestHitScanSystem : SystemBase
+    public partial class LagCompensationTestHitScanSystem : SystemBase
     {
         private PhysicsWorldHistory m_physicsHistory;
         private GhostPredictionSystemGroup m_predictionGroup;
@@ -205,11 +206,11 @@ namespace Unity.NetCode.Physics.Tests
             m_physicsHistory.LastPhysicsJobHandle = Dependency;
         }
     }
-    [UpdateInWorld(UpdateInWorld.TargetWorld.Client)]
+    [UpdateInWorld(TargetWorld.Client)]
     [UpdateInGroup(typeof(GhostSimulationSystemGroup), OrderFirst = true)]
     [AlwaysSynchronizeSystem]
     [DisableAutoCreation]
-    public class LagCompensationTestCommandSystem : SystemBase
+    public partial class LagCompensationTestCommandSystem : SystemBase
     {
         public static float3 Target;
         ClientSimulationSystemGroup m_systemGroup;
@@ -261,7 +262,7 @@ namespace Unity.NetCode.Physics.Tests
     public class LagCompensationTests
     {
         [Test]
-        public void LagCompensationDoesNotUpdateIfDisableLagCompensationIsPresent()
+        public void LagCompensationDoesNotUpdateIfLagCompensationConfigIsNotPresent()
         {
             using (var testWorld = new NetCodeTestWorld())
             {
@@ -271,9 +272,9 @@ namespace Unity.NetCode.Physics.Tests
                 testWorld.NetCodeAssemblies.Add("Unity.Physics,");
                 testWorld.Bootstrap(true);
 
-                testWorld.CreateWorlds(true, 1);
-                testWorld.ServerWorld.EntityManager.CreateEntity(typeof(DisableLagCompensation));
-                testWorld.ClientWorlds[0].EntityManager.CreateEntity(typeof(DisableLagCompensation));
+                testWorld.CreateWorlds(true, 1, false);
+                Assert.IsFalse(testWorld.TryGetSingletonEntity<LagCompensationConfig>(testWorld.ServerWorld) != Entity.Null);
+                Assert.IsFalse(testWorld.TryGetSingletonEntity<LagCompensationConfig>(testWorld.ClientWorlds[0]) != Entity.Null);
 
                 var ep = NetworkEndPoint.LoopbackIpv4;
                 ep.Port = 7979;
@@ -325,6 +326,11 @@ namespace Unity.NetCode.Physics.Tests
                     playerGameObject, cubeGameObject));
 
                 testWorld.CreateWorlds(true, 1);
+
+                var serverConfig = testWorld.ServerWorld.EntityManager.CreateEntity(typeof(LagCompensationConfig));
+                var clientConfig = testWorld.ClientWorlds[0].EntityManager.CreateEntity(typeof(LagCompensationConfig));
+                Assert.IsTrue(testWorld.TryGetSingletonEntity<LagCompensationConfig>(testWorld.ServerWorld) != Entity.Null);
+                Assert.IsTrue(testWorld.TryGetSingletonEntity<LagCompensationConfig>(testWorld.ClientWorlds[0]) != Entity.Null);
 
                 var ep = NetworkEndPoint.LoopbackIpv4;
                 ep.Port = 7979;

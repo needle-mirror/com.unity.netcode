@@ -1,11 +1,20 @@
 using System;
 using System.Collections.Generic;
+using NUnit.Framework;
+using System.Diagnostics;
 using Unity.Core;
 using Unity.Entities;
 using Unity.NetCode;
 using Unity.Networking.Transport;
 using Unity.Networking.Transport.Utilities;
 using Unity.Collections;
+
+#if USE_UNITY_LOGGING
+using Unity.Logging;
+using Unity.Logging.Sinks;
+#endif
+
+using Debug = UnityEngine.Debug;
 #if UNITY_EDITOR
 using Unity.NetCode.Editor;
 using UnityEngine;
@@ -13,8 +22,16 @@ using UnityEngine;
 
 namespace Unity.NetCode.Tests
 {
+    public struct NetCodeTestPrefabCollection : IComponentData
+    {}
+    public struct NetCodeTestPrefab : IBufferElementData
+    {
+        public Entity Value;
+    }
     public class NetCodeTestWorld : IDisposable, INetworkStreamDriverConstructor
     {
+        public bool DebugPackets = false;
+
         public World DefaultWorld => m_DefaultWorld;
         public World ServerWorld => m_ServerWorld;
         public World[] ClientWorlds => m_ClientWorlds;
@@ -23,6 +40,7 @@ namespace Unity.NetCode.Tests
         private World[] m_ClientWorlds;
         private World m_ServerWorld;
         private ClientServerBootstrap.State m_OldBootstrapState;
+        private ushort m_OldBootstrapAutoConnectPort;
         private bool m_DefaultWorldInitialized;
         private double m_ElapsedTime;
         public int DriverFixedTime = 16;
@@ -33,12 +51,32 @@ namespace Unity.NetCode.Tests
         public uint DriverRandomSeed = 0;
 
 #if UNITY_EDITOR
-        private GameObject m_GhostCollection;
+        private List<GameObject> m_GhostCollection;
         private BlobAssetStore m_BlobAssetStore;
 #endif
-
         public List<string> NetCodeAssemblies = new List<string>{
         };
+
+        [Conditional("USE_UNITY_LOGGING")]
+        private static void ForwardUnityLoggingToDebugLog()
+        {
+#if USE_UNITY_LOGGING
+            static void AddUnityDebugLogSink(Unity.Logging.Logger logger)
+            {
+                logger.GetOrCreateSink(new SinkConfiguration<UnityDebugLogSink>
+                {
+                    MinLevelOverride = logger.MinimalLogLevelAcrossAllSystems,
+                    OutputTemplateOverride = "{Message}"
+                });
+            }
+
+            Unity.Logging.Internal.LoggerManager.OnNewLoggerCreated(AddUnityDebugLogSink);
+            Unity.Logging.Internal.LoggerManager.CallForEveryLogger(AddUnityDebugLogSink);
+
+            // Self log enabled, so any error inside logging will cause Debug.LogError -> failed test
+            Unity.Logging.Internal.Debug.SelfLog.SetMode(Unity.Logging.Internal.Debug.SelfLog.Mode.EnabledInUnityEngineDebugLogError);
+#endif
+        }
 
         public NetCodeTestWorld()
         {
@@ -48,8 +86,12 @@ namespace Unity.NetCode.Tests
 #endif
             m_OldBootstrapState = ClientServerBootstrap.s_State;
             ClientServerBootstrap.s_State = default;
+            m_OldBootstrapAutoConnectPort = ClientServerBootstrap.AutoConnectPort;
+            ClientServerBootstrap.AutoConnectPort = 0;
             m_DefaultWorld = new World("NetCodeTest");
             m_ElapsedTime = 42;
+
+            ForwardUnityLoggingToDebugLog();
         }
         public void Dispose()
         {
@@ -71,6 +113,7 @@ namespace Unity.NetCode.Tests
             m_ServerWorld = null;
             m_DefaultWorld = null;
             ClientServerBootstrap.s_State = m_OldBootstrapState;
+            ClientServerBootstrap.AutoConnectPort = m_OldBootstrapAutoConnectPort;
 
 #if UNITY_EDITOR
             if (m_GhostCollection != null)
@@ -97,6 +140,11 @@ namespace Unity.NetCode.Tests
             m_DefaultWorld = null;
         }
 
+        public void SetServerTick(uint tick)
+        {
+            m_ServerWorld.GetExistingSystem<ServerSimulationSystemGroup>().ServerTick = tick;
+        }
+
         private static List<Type> s_NetCodeSystems;
         public void Bootstrap(bool includeNetCodeSystems, params Type[] userSystems)
         {
@@ -112,10 +160,11 @@ namespace Unity.NetCode.Tests
                         if (sys.Assembly.FullName.StartsWith("Unity.NetCode,") ||
                             sys.Assembly.FullName.StartsWith("Unity.Entities,") ||
                             sys.Assembly.FullName.StartsWith("Unity.Transforms,") ||
-                            sys.Assembly.FullName.StartsWith("Unity.NetCode.Generated,") ||
-                            sys.Assembly.FullName.StartsWith("Unity.Entities.Generated,") ||
-                            sys.Assembly.FullName.StartsWith("Unity.Transforms.Generated,") ||
-                            (sys.Assembly.FullName.StartsWith("Unity.NetCode.") && sys.Assembly.FullName.Contains(".Generated,")))
+                            sys.Assembly.FullName.StartsWith("Unity.Scenes,") ||
+                            sys.Assembly.FullName.StartsWith("Unity.NetCode.EditorTests,") ||
+                            sys.Assembly.FullName.StartsWith("Unity.NetCode.TestsUtils,") ||
+                            sys.Assembly.FullName.StartsWith("Unity.NetCode.Physics.EditorTests,") ||
+                            typeof(GhostComponentSerializerRegistrationSystemBase).IsAssignableFrom(sys))
                         {
                             s_NetCodeSystems.Add(sys);
                         }
@@ -144,10 +193,12 @@ namespace Unity.NetCode.Tests
             ClientServerBootstrap.GenerateSystemLists(systems);
         }
 
-        public void CreateWorlds(bool server, int numClients)
+        public void CreateWorlds(bool server, int numClients, bool tickWorldAfterCreation = true, bool useThinClients = false)
         {
             var oldConstructor = NetworkStreamReceiveSystem.s_DriverConstructor;
             NetworkStreamReceiveSystem.s_DriverConstructor = this;
+            var oldDebugPort = GhostStatsSystem.Port;
+            GhostStatsSystem.Port = 0;
             if (!m_DefaultWorldInitialized)
             {
                 DefaultWorldInitialization.AddSystemsToRootLevelSystemGroups(m_DefaultWorld,
@@ -163,6 +214,11 @@ namespace Unity.NetCode.Tests
 #if UNITY_EDITOR
                 ConvertGhostCollection(m_ServerWorld);
 #endif
+                if (DebugPackets)
+                {
+                    var dbg = m_ServerWorld.EntityManager.CreateEntity(ComponentType.ReadWrite<NetCodeDebugConfig>());
+                    m_ServerWorld.EntityManager.SetComponentData(dbg, new NetCodeDebugConfig{LogLevel = NetDebug.LogLevelType.Debug, DumpPackets = true});
+                }
             }
 
             if (numClients > 0)
@@ -175,6 +231,12 @@ namespace Unity.NetCode.Tests
                     try
                     {
                         m_ClientWorlds[i] = ClientServerBootstrap.CreateClientWorld(m_DefaultWorld, $"ClientTest{i}");
+                        if (useThinClients) m_ClientWorlds[i].EntityManager.CreateEntity(typeof(ThinClientComponent));
+                        if (DebugPackets)
+                        {
+                            var dbg = m_ClientWorlds[i].EntityManager.CreateEntity(ComponentType.ReadWrite<NetCodeDebugConfig>());
+                            m_ClientWorlds[i].EntityManager.SetComponentData(dbg, new NetCodeDebugConfig{LogLevel = NetDebug.LogLevelType.Debug, DumpPackets = true});
+                        }
                     }
                     catch (Exception)
                     {
@@ -186,7 +248,11 @@ namespace Unity.NetCode.Tests
 #endif
                 }
             }
+            GhostStatsSystem.Port = oldDebugPort;
             NetworkStreamReceiveSystem.s_DriverConstructor = oldConstructor;
+            //Run 1 tick so that all the ghost collection and the ghost collection component run once.
+            if(tickWorldAfterCreation)
+                Tick(1.0f/60.0f);
         }
 
         public void Tick(float dt)
@@ -207,7 +273,65 @@ namespace Unity.NetCode.Tests
             m_DefaultWorld.GetExistingSystem<TickServerSimulationSystem>().Update();
             m_DefaultWorld.GetExistingSystem<TickClientSimulationSystem>().Update();
             m_DefaultWorld.GetExistingSystem<TickClientPresentationSystem>().Update();
+#if USE_UNITY_LOGGING
+            // Flush the pending logs since the system doing that might not have run yet which means Log.Expect does not work
+            Logging.Internal.LoggerManager.ScheduleUpdateLoggers().Complete();
+#endif
         }
+
+        public void MigrateServerWorld(World suppliedWorld = null)
+        {
+            DriverMigrationSystem migrationSystem = default;
+
+            foreach (var world in World.All)
+            {
+                if ((migrationSystem = world.GetExistingSystem<DriverMigrationSystem>()) != null)
+                    break;
+            }
+
+            var ticket = migrationSystem.StoreWorld(ServerWorld);
+            ServerWorld.Dispose();
+
+            var newWorld = migrationSystem.LoadWorld(ticket, suppliedWorld);
+            m_ServerWorld = ClientServerBootstrap.CreateServerWorld(DefaultWorld, newWorld.Name, newWorld);
+
+            Assert.True(newWorld.Name == m_ServerWorld.Name);
+        }
+
+        public void MigrateClientWorld(int index, World suppliedWorld = null)
+        {
+            if (index > ClientWorlds.Length)
+                throw new IndexOutOfRangeException($"ClientWorlds only contain {ClientWorlds.Length} items, you are trying to read index {index} that is out of range.");
+
+            DriverMigrationSystem migrationSystem = default;
+
+            foreach (var world in World.All)
+            {
+                if ((migrationSystem = world.GetExistingSystem<DriverMigrationSystem>()) != null)
+                    break;
+            }
+
+            var ticket = migrationSystem.StoreWorld(ClientWorlds[index]);
+            ClientWorlds[index].Dispose();
+
+            var newWorld = migrationSystem.LoadWorld(ticket, suppliedWorld);
+            m_ClientWorlds[index] = ClientServerBootstrap.CreateClientWorld(DefaultWorld, newWorld.Name, newWorld);
+
+            Assert.True(newWorld.Name == m_ClientWorlds[index].Name);
+        }
+
+        public void RestartClientWorld(int index)
+        {
+            var oldConstructor = NetworkStreamReceiveSystem.s_DriverConstructor;
+            NetworkStreamReceiveSystem.s_DriverConstructor = this;
+
+            var name = m_ClientWorlds[index].Name;
+            m_ClientWorlds[index].Dispose();
+
+            m_ClientWorlds[index] = ClientServerBootstrap.CreateClientWorld(DefaultWorld, name);
+            NetworkStreamReceiveSystem.s_DriverConstructor = oldConstructor;
+        }
+
 
         public void CreateClientDriver(World world, out NetworkDriver driver, out NetworkPipeline unreliablePipeline, out NetworkPipeline reliablePipeline, out NetworkPipeline unreliableFragmentedPipeline)
         {
@@ -250,12 +374,12 @@ namespace Unity.NetCode.Tests
                     typeof(SimulatorPipelineStage),
                     typeof(SimulatorPipelineStageInSend));
                 reliablePipeline = driver.CreatePipeline(
-                    typeof(SimulatorPipelineStage),
                     typeof(ReliableSequencedPipelineStage),
+                    typeof(SimulatorPipelineStage),
                     typeof(SimulatorPipelineStageInSend));
                 unreliableFragmentedPipeline = driver.CreatePipeline(
-                    typeof(SimulatorPipelineStage),
                     typeof(FragmentationPipelineStage),
+                    typeof(SimulatorPipelineStage),
                     typeof(SimulatorPipelineStageInSend));
             }
             else
@@ -325,6 +449,73 @@ namespace Unity.NetCode.Tests
             connections.Dispose();
         }
 
+        public void ExitFromGame()
+        {
+            void RemoveTag(World world)
+            {
+                var type = ComponentType.ReadOnly<NetworkIdComponent>();
+                var query = world.EntityManager.CreateEntityQuery(type);
+                var connections = query.ToEntityArray(Allocator.Temp);
+                for (int i = 0; i < connections.Length; ++i)
+                {
+                    world.EntityManager.RemoveComponent<NetworkStreamInGame>(connections[i]);
+                }
+                connections.Dispose();
+            }
+
+            RemoveTag(ServerWorld);
+            for (int i = 0; i < ClientWorlds.Length; ++i)
+            {
+                RemoveTag(ClientWorlds[i]);
+            }
+        }
+
+        public void SetInGame(int client)
+        {
+            var type = ComponentType.ReadOnly<NetworkIdComponent>();
+            var clientQuery = ClientWorlds[client].EntityManager.CreateEntityQuery(type);
+            var clientEntity = clientQuery.ToEntityArray(Allocator.Temp);
+            ClientWorlds[client].EntityManager.AddComponent<NetworkStreamInGame>(clientEntity[0]);
+            var clientNetId = ClientWorlds[client].EntityManager.GetComponentData<NetworkIdComponent>(clientEntity[0]);
+            clientEntity.Dispose();
+
+            var query = ServerWorld.EntityManager.CreateEntityQuery(type);
+            var connections = query.ToEntityArray(Allocator.Temp);
+            for (int i = 0; i < connections.Length; ++i)
+            {
+                var netId = ServerWorld.EntityManager.GetComponentData<NetworkIdComponent>(connections[i]);
+                if (netId.Value == clientNetId.Value)
+                {
+                    ServerWorld.EntityManager.AddComponent<NetworkStreamInGame>(connections[i]);
+                    break;
+                }
+            }
+            connections.Dispose();
+        }
+
+        public void RemoveFroGame(int client)
+        {
+            var type = ComponentType.ReadOnly<NetworkIdComponent>();
+            var clientQuery = ClientWorlds[client].EntityManager.CreateEntityQuery(type);
+            var clientEntity = clientQuery.ToEntityArray(Allocator.Temp);
+            ClientWorlds[client].EntityManager.RemoveComponent<NetworkStreamInGame>(clientEntity[0]);
+            var clientNetId = ClientWorlds[client].EntityManager.GetComponentData<NetworkIdComponent>(clientEntity[0]);
+            clientEntity.Dispose();
+
+            var query = ServerWorld.EntityManager.CreateEntityQuery(type);
+            var connections = query.ToEntityArray(Allocator.Temp);
+            for (int i = 0; i < connections.Length; ++i)
+            {
+                var netId = ServerWorld.EntityManager.GetComponentData<NetworkIdComponent>(connections[i]);
+                if (netId.Value == clientNetId.Value)
+                {
+                    ServerWorld.EntityManager.RemoveComponent<NetworkStreamInGame>(connections[i]);
+                    break;
+                }
+            }
+            connections.Dispose();
+        }
+
         public unsafe Entity TryGetSingletonEntity<T>(World w)
         {
             var type = ComponentType.ReadOnly<T>();
@@ -344,56 +535,59 @@ namespace Unity.NetCode.Tests
         {
             if (m_GhostCollection != null)
                 return false;
-            var collectionGameObject = new GameObject();
-            var collection = collectionGameObject.AddComponent<GhostCollectionAuthoringComponent>();
-
-            var oldGhostDefaults = GhostAuthoringModifiers.GhostDefaultOverrides;
-            GhostAuthoringModifiers.InitDefaultOverrides();
-            GhostAuthoringModifiers.InitVariantCache();
+            m_GhostCollection = new List<GameObject>(ghostTypes.Length);
 
             foreach (var ghostObject in ghostTypes)
             {
                 var ghost = ghostObject.GetComponent<GhostAuthoringComponent>();
                 if (ghost == null)
                     ghost = ghostObject.AddComponent<GhostAuthoringComponent>();
-
                 ghost.Name = ghostObject.name;
                 ghost.prefabId = Guid.NewGuid().ToString().Replace("-", "");
-
-                collection.Ghosts.Add(new GhostCollectionAuthoringComponent.Ghost{prefab = ghost, enabled = true});
+                m_GhostCollection.Add(ghostObject);
             }
-            GhostAuthoringModifiers.GhostDefaultOverrides = oldGhostDefaults;
-            m_GhostCollection = collectionGameObject;
             m_BlobAssetStore = new BlobAssetStore();
             return true;
+        }
+
+        public Entity SpawnOnServer(int prefabIndex)
+        {
+            if (m_GhostCollection == null)
+                throw new InvalidOperationException("Cannot spawn ghost on server without setting up the ghost first");
+            var prefabCollection = TryGetSingletonEntity<NetCodeTestPrefabCollection>(ServerWorld);
+            if (prefabCollection == Entity.Null)
+                throw new InvalidOperationException("Cannot spawn ghost on server if a ghost prefab collection is not created");
+            var prefabBuffers = ServerWorld.EntityManager.GetBuffer<NetCodeTestPrefab>(prefabCollection);
+            return ServerWorld.EntityManager.Instantiate(prefabBuffers[prefabIndex].Value);
         }
         public Entity SpawnOnServer(GameObject go)
         {
             if (m_GhostCollection == null)
                 throw new InvalidOperationException("Cannot spawn ghost on server without setting up the ghost first");
+            int index = m_GhostCollection.IndexOf(go);
+            if (index >= 0)
+                return SpawnOnServer(index);
             return GameObjectConversionUtility.ConvertGameObjectHierarchy(go, GameObjectConversionSettings.FromWorld(ServerWorld, m_BlobAssetStore));
         }
         public Entity ConvertGhostCollection(World world)
         {
             if (m_GhostCollection == null)
                 return Entity.Null;
-            var collectionAuthoring = m_GhostCollection.GetComponent<GhostCollectionAuthoringComponent>();
-            NativeList<Entity> prefabs = new NativeList<Entity>(collectionAuthoring.Ghosts.Count, Allocator.Temp);
-            foreach (var prefab in collectionAuthoring.Ghosts)
+            NativeList<Entity> prefabs = new NativeList<Entity>(m_GhostCollection.Count, Allocator.Temp);
+            foreach (var prefab in m_GhostCollection)
             {
-                if (!prefab.enabled)
-                    continue;
-                prefab.prefab.ForcePrefabConversion = true;
-                var prefabEnt = GameObjectConversionUtility.ConvertGameObjectHierarchy(prefab.prefab.gameObject, GameObjectConversionSettings.FromWorld(world, m_BlobAssetStore));
-                prefab.prefab.ForcePrefabConversion = false;
+                var ghostAuth = prefab.GetComponent<GhostAuthoringComponent>();
+                ghostAuth.ForcePrefabConversion = true;
+                var prefabEnt = GameObjectConversionUtility.ConvertGameObjectHierarchy(prefab, GameObjectConversionSettings.FromWorld(world, m_BlobAssetStore));
+                ghostAuth.ForcePrefabConversion = false;
                 world.EntityManager.AddComponentData(prefabEnt, default(Prefab));
                 prefabs.Add(prefabEnt);
             }
             var collection = world.EntityManager.CreateEntity();
-            world.EntityManager.AddComponentData(collection, default(GhostPrefabCollectionComponent));
-            var prefabBuffer = world.EntityManager.AddBuffer<GhostPrefabBuffer>(collection);
+            world.EntityManager.AddComponentData(collection, default(NetCodeTestPrefabCollection));
+            var prefabBuffer = world.EntityManager.AddBuffer<NetCodeTestPrefab>(collection);
             foreach (var prefab in prefabs)
-                prefabBuffer.Add(new GhostPrefabBuffer{Value = prefab});
+                prefabBuffer.Add(new NetCodeTestPrefab{Value = prefab});
             return collection;
         }
 #endif

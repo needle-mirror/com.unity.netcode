@@ -24,21 +24,58 @@ namespace Unity.NetCode
             public float accumulatedTime;
             public float fixedTimeStep;
             public int maxTimeSteps;
+            public int maxTimeStepLength;
 
-            public int GetUpdateCount(float deltaTime)
+            public struct Count
+            {
+                // The total number of step the simulation should take
+                public int Total;
+                // The number of short steps, if for example Total is 4 and Short is 1 the update will
+                // take 3 long steps followed by on short step
+                public int Short;
+                // The length of the long steps, if this is for example 3 the long steps should use deltaTime*3
+                // while the short steps should reduce it by one and use deltaTime*2
+                public int Length;
+            }
+
+            public Count GetUpdateCount(float deltaTime)
             {
                 accumulatedTime += deltaTime;
                 int updateCount = (int)(accumulatedTime / fixedTimeStep);
                 accumulatedTime = accumulatedTime % fixedTimeStep;
+                int shortSteps = 0;
+                int length = 1;
                 if (updateCount > maxTimeSteps)
+                {
+                    // Required length
+                    length = (updateCount + maxTimeSteps - 1) / maxTimeSteps;
+                    if (length > maxTimeStepLength)
+                        length = maxTimeStepLength;
+                    else
+                    {
+                        // Check how many will need to be long vs short
+                        shortSteps = length * maxTimeSteps - updateCount;
+                    }
                     updateCount = maxTimeSteps;
-                return updateCount;
+                }
+                return new Count
+                {
+                    Total = updateCount,
+                    Short = shortSteps,
+                    Length = length
+                };
             }
 
         }
 
         private uint m_ServerTick;
-        public uint ServerTick => m_ServerTick;
+        public uint ServerTick
+        {
+            get { return m_ServerTick; }
+            internal set { m_ServerTick = value; }
+        }
+        public bool IsCatchUpTick {get; private set;}
+
         private FixedTimeLoop m_fixedTimeLoop;
         private ProfilerMarker m_fixedUpdateMarker;
         private double m_currentTime;
@@ -64,14 +101,26 @@ namespace Unity.NetCode
             var previousTime = Time;
 
             m_fixedTimeLoop.maxTimeSteps = tickRate.MaxSimulationStepsPerFrame;
+            m_fixedTimeLoop.maxTimeStepLength = tickRate.MaxSimulationLongStepTimeMultiplier;
             m_fixedTimeLoop.fixedTimeStep = 1.0f / (float) tickRate.SimulationTickRate;
-            int updateCount = m_fixedTimeLoop.GetUpdateCount(Time.DeltaTime);
-            for (int tickAge = updateCount-1; tickAge >= 0; --tickAge)
+            var updateCount = m_fixedTimeLoop.GetUpdateCount(Time.DeltaTime);
+            for (int tickAge = updateCount.Total-1; tickAge >= 0; --tickAge)
             {
                 using (m_fixedUpdateMarker.Auto())
                 {
-                    m_currentTime += m_fixedTimeLoop.fixedTimeStep;
-                    World.SetTime(new TimeData(m_currentTime, m_fixedTimeLoop.fixedTimeStep));
+                    if (tickAge == (updateCount.Short - 1))
+                        --updateCount.Length;
+
+                    // Check for wrap around
+                    uint curTick = m_ServerTick + (uint)(updateCount.Length - 1);
+                    if (m_ServerTick < curTick)
+                        ++m_ServerTick;
+                    m_ServerTick = curTick;
+
+                    var dt = m_fixedTimeLoop.fixedTimeStep * updateCount.Length;
+                    m_currentTime += dt;
+                    World.SetTime(new TimeData(m_currentTime, dt));
+                    IsCatchUpTick = (tickAge != 0);
                     base.OnUpdate();
                     ++m_ServerTick;
                     if (m_ServerTick == 0)
@@ -116,7 +165,7 @@ namespace Unity.NetCode
 
 #if !UNITY_CLIENT || UNITY_SERVER || UNITY_EDITOR
     [AlwaysUpdateSystem]
-    [UpdateInWorld(UpdateInWorld.TargetWorld.Default)]
+    [UpdateInWorld(TargetWorld.Default)]
     public class TickServerSimulationSystem : ComponentSystemGroup
     {
         protected override void OnDestroy()

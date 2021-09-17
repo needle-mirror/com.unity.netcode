@@ -1,5 +1,6 @@
 {
     "name": "Unity.NetCode",
+    "rootNamespace": "",
     "references": [
         "Unity.Burst",
         "Unity.Entities",
@@ -11,7 +12,8 @@
         "Unity.Mathematics.Extensions",
         "Unity.Networking.Transport",
         "Unity.Build",
-        "Unity.Jobs"
+        "Unity.Jobs",
+        "Unity.Logging"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],
@@ -20,6 +22,12 @@
     "precompiledReferences": [],
     "autoReferenced": true,
     "defineConstraints": [],
-    "versionDefines": [],
+    "versionDefines": [
+        {
+            "name": "com.unity.logging",
+            "expression": "0",
+            "define": "USE_UNITY_LOGGING"
+        }
+    ],
     "noEngineReferences": false
 }

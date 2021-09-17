@@ -21,7 +21,7 @@ namespace Unity.NetCode.Tests
     }
     [UpdateInGroup(typeof(GhostPredictionSystemGroup))]
     [DisableAutoCreation]
-    public class PredictionTestPredictionSystem : SystemBase
+    public partial class PredictionTestPredictionSystem : SystemBase
     {
         GhostPredictionSystemGroup m_GhostPredictionSystemGroup;
         public static bool s_IsEnabled;

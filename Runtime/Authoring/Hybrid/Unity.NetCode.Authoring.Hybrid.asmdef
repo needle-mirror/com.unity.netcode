@@ -1,5 +1,6 @@
 {
     "name": "Unity.NetCode.Authoring.Hybrid",
+    "rootNamespace": "",
     "references": [
         "Unity.NetCode",
         "Unity.Entities",
@@ -17,7 +18,9 @@
     "overrideReferences": false,
     "precompiledReferences": [],
     "autoReferenced": true,
-    "defineConstraints": [],
+    "defineConstraints": [
+        "!UNITY_DOTSRUNTIME"
+    ],
     "versionDefines": [],
     "noEngineReferences": false
 }

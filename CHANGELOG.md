@@ -1,11 +1,246 @@
-# Change log
+# Changelog
+
+## [0.50.0] - 2021-09-17
+
+### Added
+
+* Added new methods `GhostSpawnSystem.ConvertGhostToInterpolated` and `GhostSpawnSystem.ConvertGhostToPredicted` for switching the prediction mode of a ghost. The methods have an optional transition time parameter which when not zero will smoothly transition the visual transform from the old to the new state.
+* Made it possible for clients to on demand load ghost prefabs by setting `GhostCollectionPrefab.Loading` to `GhostCollectionPrefab.LoadingState.LoadingActive` while the prefab is being loaded.
+* Added the possibility to dynamically load new sub-scenes with pre-spawned ghosts at runtime, while the both server and client are in game.
+* Added the possibility for a client to have only a sub-set of scenes loaded in respect to the server. Client will be able to load / unload them on demand. Creating a singleton with a DisableAutomaticPrespawnSectionReporting component lets you disable the built-in sub-scene synchronisation and implement your own logic. Can be used to implement more complex streaming scenario or other special needs.
+* Support for FirstSendImportanceMultiplier, which can be used to artificially inflate the importance of new (to the client) ghosts. I.e. Allows all ghosts to be sent to the client quickly, even if MinSendImportance is high.
+* A DriverMigrationSystem to allow migration of a NetworkDriver and related Connection Entities. To see a working example look into the `WorldMigrationTests`
+* Netcode bootstrap can now handle ISystemBase systems.
+* The NetDbg will now auto-connect when you focus on it, or when it's first opened, unless you manually call disconnect.
+* It is now possible to send commands without setting the `CommandTargetComponent` if the `ICommandData` is on a ghost which is predicted, owned by the current connection and has `SupportAutoCommandTarget` enabled in the authoring component. `SupportAutoCommandTarget` will add a `AutoCommandTarget` component, the server can set the `Enabled` member to false to prevent commands from being sent. The `AutoCommandTarget` can be used to send commands for multiple entities. It is also possible to have multiple `ICommandData` on the same entity, both for `AutoCommandTarget` and `CommandTargetComponent`.
+* Added `ClientServerTickRate.MaxSimulationLongStepTimeMultiplier` which allows you to run server ticks with longer delta time instead of, or in addition to, running more ticks in a frame.
+* Added `ClientServerTickRate.SendSnapshotsForCatchUpTicks` to decide if the server should send snapshots for all ticks or just the last when it needs multiple ticks in a frame. The default is to only send snapshot for the last tick.
+
+### Changed
+
+* Changed `GhostFieldAttribute.MaxSmoothingDistance` from `int` to `float`
+* Changed `ConnectionAcceptJob.debugPrefix` from `FixedString32` to `FixedString128` to account for longer world names.
+* Made sure despawning can handle large number of ghosts desapwning at the same time. This also reduces the bandwidth required to despawn, but can increase the latency of despawns if there is packet-loss.
+* UpdateInWorld renamed to UpdateInWorldAttribute
+* UpdateInWorld.TargetWorld enum move to Unity.NetCode namespace.
+* Client can now enter/exit from "in game" without the need to disconnect from the server.
+* Server can now stop streaming ghosts to all clients (exit from game), load a new scene/subscene and start streaming ghost again.
+* `GhostPredictionDebugSystem` only runs when NetDbg is connected and processes more errors in parallel to improve performance.
+* Use stopwatch instead of TimeSpan for dots-runtime portability
+* Improve the handling of ticks when applying ghost state to avoid errors about not having a state to roll back to.
+* Server is now responsible to assign to all the pre-spawned ghosts their unique id.
+* All types in the generated serialiser now use qualified names
+* Debug logging is implemented using com.unity.logging
+* Added validation check on the server side that verify the command target entity, when set, has a ICommandData buffer.
+* Fixed command age not updated on the server if a non null entity target is set but no command data buffer is present. That was causing problem on the clients that were constantly increasing the prediction loop count and dropping the frame rate.
+* Pre-spawned ghost entities are disabled during conversion and re-enabled at runtime after their baseline are initialised. This should prevent user code to modify components before the entities are ready and consequently avoiding pre-spawned ghost hash validation failures.
+* An error is reported if a fields in ICommandData/IRpcCommand or replicated fields in IComponentData/IBufferElement starts with the reserver prefix __GHOST or __COMMAND
+* Replaced the out-out `DisableLagCompensation` with an opt-in `LagCompensationConfig`.
+* Removed previously deperecated `GhostCollectionAuthoringComponent`.
+* Undeprecated `ConvertToClientServerEntity`. It was deprecated because the old source gen could no support runtime conversion of ghosts, that is not a problem in the new source generator. We still recommend using subscenes for everything involving ghosts.
+* `NetworkStreamCloseSystem` has been moved to `NetworkReceiveSystemGroup`.
+* Network connection entities now has `LinkedEntityGroup` which makes it easier to delete ghosts on disconnection in simple cases.
+* The `GhostAuthoringComponent` has a new checkbox for adding a `GhostOwnerComponent` to a ghost without additional authoring components.
+* SceneLoadingTests are not Editor only tests
+* Websocket's DebugWebSocket code fixed for il2cpp tests
+
+### Fixed
+
+* Fixed GhostAuthoringEditor not showing the correct default variant assigned to a component.
+* Fixed memory leak. GhostVariantAssignmentCollection blob data not disposed.
+* Fixed issue with ghost variant cache. GhostComponentVariation attribute where collected only if the annotated struct was public.
+* Stale inputs are no longer stored in the input buffer on the server. This makes it more reliable to compare current input state to last frames state.
+* Avoid overflow in RTT calculation if reported processing time is greater than the calculated delta time
+* Fixed hash calculation for child entities
+* Fixed an inconsistency error thrown when registering a generic job with a generic RPC type by changing the accessibility of 'RpcCommandRequest.SendRpcData' from protected to public
+* Fixed wrong stats packet size that was causing random crashes.
+* Fix GhostStatsSystem try access a NetworkAckComponent singleton when it does not exists (client only)
+* Typo in GhostSnapshotValueULong that cause compilation error when an RPC contains unsigned long fields.
+* LogAssert.ignoreFailingMessages not reset to true, causing some failing tests not being reported.
+* IrrelevantImportanceDownScale is now guarded to not go below 1.
+* `SnapshotDataBuffer` and `SnapshotDynamicDataBuffer` now use `[InternalBufferCapacity(0)]`, which will reduce entity size in a chunk.
+* Compilation error due to generated serializer class trying to cast types without prepending the correct namespace.
+* Ghost gen fails with GhostCodeGen failed for fragment.. if you have a namespace, typename or field name start with double underscores. An error is actually reported if __GHOSTXXX__ or __COMMANDXXX__ keywords are present.
+* UX improvement when creating an invalid Ghost Authoring.
+* No error reported if an component implement multiple interfaces at the same time, causing generating code for the wrong one.
+* PacketLogger output files are now saved for standalone player in Application.consoleLogPath instead of current folder, causing errors in some platform/environment.
+* No compilation errors for missing assemblies references are reported anymore if the assembly that does not contains types which require code-generated serializers.
+* Overriding nested component in a prefab will be assigned correct GameObject reference
+
+### Upgrade guide
+
+* TargetWorld enum is now part of the Unity.NetCode namespace. Find and replace all the `UpdateInWorld.TargetWorld` occurrences with `TargetWorld` and continue to keep the enum old value.
+* `DisableLagCompensation` no longer exists. If you were note using lag compensation you can remove it, if you were using lag compensation you must add a `LagCompensationConfig` in order for it to run.
+* `GhostCollectionAuthoringComponent` is now removed, see previous upgrade guide and the getting started doc page for information on what to do instead.
+
+
+
+## [0.8.0] - 2021-03-23
+### New features
+* New code-generation system based on Roslyn source generators.
+* Added pre-serialization support to ghosts which can reduce CPU time for serializing complex ghosts which are sent to multiple connections every frame.
+* Added parameters to control how much data the server serializes based on CPU time in addition to bandwith. The parameters are MinSendImportance, MinDistanceScaledSendImportance, MaxSendChunks and MaxSendEntities.
+* Added default baselines for pre-spawned ghosts
+* Added bandwidth (and cpu) optimization for pre-spawned ghosts when a new client connect to the server. Only pre-spawned ghosts which have changed in respect their default baseline are sent.
+  If static optimization is turned on, no data is sent for the prespawns unless changed.
+* Added runtime client/server validation to verify that pre-spawned ghosts baselines and sub-scenes has the same data on both client and server.
+
+### Changes
+* Entities created by NetCode now has appropriate names
+* Removed IGhostDefaultOverridesModifier.
+  * To modify or changed the component/buffer serialization GhostComponentVariation must be used instead.
+  * To add custom templates you should implement the partial class `UserDefinedTemplates`
+* NetCode generated classes are not presents in the project anymore.
+* NetCode code generation windows has been removed
+* It is now possible to keep snapshot history on structural changes in some cases when `GhostSendSystem.KeepSnapshotHistoryOnStructuralChange` is set to true (the default)
+* GhostId for prespawn and GhostId for normal spawned ghosts are now two disjoint set. Prespawn ghosts ids have the 31st bit set and as such are negative integers values.
+
+### Fixes
+* Fixed bad codegen when using entities in ICommandData structs
+* Made sure CreatePredictedSpawnPrefab does not instantiate child entities
+* Fixed an issue with disconnect messages not being send on shutdown
+* Fixed a very rare issue where invalid baselines could be used when an entity had structural changes
+* Translation and Rotation of predicted ghosts are not modified if physics runs in the ghost prediction loop and PhysicMassOverride.IsKinematic is set to 1.
+* Entities which have never been sent to a client no longer requires despawn messages when they become irrelevant
+* Fixed dynamic buffer change masks not properly cleanup and buffers always reported as changed
+* Fix latestSnapshotEstimate not reset when client is not in game
+* Fix PredictionHistoryBuffer not updated for predicted ghost with static optimization turned on
+* Fix GhostSendSystem not properly cleanup if last client exit the game
+
+### Upgrade guide
+* The `Assets/NetCodeGenerated` folder must be removed before/after the upgrade. Compilation errors may be present if you remove
+  the folder after the upgrade.
+
+If your project was customizing the code-generation by using Modifiers and/or templates extra steps are necessary.
+
+#### If you are using custom templates in your project
+Create a new folder inside your project add an assembly reference to NetCode. For example:
+```text
++ CodeGenCustomization/
+   + NetCodeRef/
+       NetCode.asmref
+   + Templates/
+       Templates.asmdef (has NETCODE_CODEGEN_TEMPLATES define constraints)
+```
+You are going to put here your templates and subtypes definition. The steps are outline below but please reference to the updated docs for more information.
+
+##### Re-implementing template registration
+Create a new file and add a partial class for the `UserDefinedTemplates` inside the folder with the netcode.asmref (in the example is NetCodeRef).
+Then implement the `static partial void RegisterTemplates(...)` method, you will register here your templates.
+
+```csharp
+using System.Collections.Generic;
+namespace Unity.NetCode.Generators
+{
+    public static partial class UserDefinedTemplates
+    {
+        static partial void RegisterTemplates(List<TypeRegistryEntry> templates, string defaultRootPath)
+        {
+            templates.AddRange(new[]{
+
+                new TypeRegistryEntry
+                {
+                    Type = "Unity.Mathematics.float3",
+                    SubType = Unity.NetCode.GhostFieldSubType.Translation2d,
+                    Quantized = true,
+                    Smoothing = SmoothingAction.InterpolateAndExtrapolate,
+                    SupportCommand = false,
+                    Composite = false,
+                    Template = "Assets/Samples/NetCodeGen/Templates/Translation2d.cs",
+                    TemplateOverride = "",
+                },
+            }
+        }
+    }
+}
+```
+##### New Subtype definition
+If your template uses sub-types (as in the example above), you need add a partial class for __Unity.NetCode.GhostFieldSubType__ type inside the netcode assembly reference folder.
+For example:
+```c#
+namespace Unity.NetCode
+{
+    static public partial class GhostFieldSubType
+    {
+        public const int MySubType = 1;
+    }
+}
+```
+The new subtypes will now be available in your project everywhere you are referencing the Unity.NetCode assembly now.
+
+#### How to reimplement GhostComponentModifiers
+ComponentModifiers has been removed and you should create a ghost component variant instead using __GhostComponentVariation__ attribute.
+<br>
+1) Create a new file that will contains your variants in an assembly that has visibility / access to the types
+you are going to add variation for. Then for each modifier you had before, just create its respective variant implementation as in the following example.
+
+```csharp
+  // Old modifier
+  new GhostComponentModifier
+  {
+      typeFullName = "Unity.Transforms.Translation",
+      attribute = new GhostComponentAttribute{PrefabType = GhostPrefabType.All, OwnerPredictedSendType = GhostSendType.All, SendDataForChildEntity = false},
+      fields = new[]
+      {
+          new GhostFieldModifier
+          {
+              name = "Value",
+              attribute = new GhostFieldAttribute{Quantization = 100, Smoothing=SmoothingAction.InterpolateAndExtrapolate}
+          }
+      },
+      entityIndex = 0
+  };
+
+// The new variant
+[GhostComponentVariation(typeof(Translation))]
+[GhostComponent(SendDataForChildEntity = false)]
+public struct MyTranslationVariant
+{
+  [GhostField(Quantization=100, Smoothing=SmoothingAction.InterpolateAndExtrapolate)] public float3 Value;
+}
+```
+
+2) Then you must declare these variants __as the default to use for that component.__
+   You must create a concrete system implementation for the `DefaultVariantSystemBase` by implementing the `RegisterDefaultVariants` method.
+```csharp
+class MyDefaultVariantSystem : DefaultVariantSystemBase
+{
+    protected override void RegisterDefaultVariants(Dictionary<ComponentType, System.Type> defaultVariants)
+    {
+        defaultVariants.Add(new ComponentType(typeof(Translation)), typeof(MyTranslationVariant));
+        ...
+    }
+}
+```
+There are no particular restriction where to put this system. Please refer to the updated docs for more information.
+
+
+## [0.7.0] - 2021-02-05
+### New features
+* Added network logging functionality which can be used to get more detailed netcode debug information (`Debug` level) in general or to enable ghost snapshot or packet logging per connection. Has simple toggles in the Playmode Tools Window and in the `NetCodeDebugConfigAuthoring` component. Can programmatically be changed via `NetCodeDebugSystem.LogLevel` or by adding the `EnablePacketLogging` component to connection entities.
+* Added support for running physics in the ghost prediciton loop. Create a singleton with a `PredictedPhysicsConfig` component to enable it. See the physics section of the manual for more information.
+
+### Changes
+* Disconnect reason is now properly passed from transport to netcode and the `NetworkStreamDisconnectReason` enum now matches `Unity.Networking.Transport.DisconnectReason`
+
+### Deprecated
+* Deprecated `GhostCollectionAuthoringComponent`, please create a component with references to the prefabs you want to spawn and make sure the component exists on an entity in a scene. There is no need to store pre spawned ghosts in a collection.
+
+### Fixes
+* Fixed an issue causing interpolation time to jitter and sometime moving backwards on the client.
+* Fixed an issue whith packet loss in the network condition simulator not working reliably.
+* Fixed an issue with il2cpp stripping causing errors at runtime.
+* Fixed an issue with fragmented snapshots in release builds.
+
+### Upgrade guide
+* User specified bootstraps (classes extending ClientServerBootstrap) must have a `[Preserve]` attribute on the class.
 
 ## [0.6.0] - 2020-11-26
 ### New features
 * Added DynamicBuffers serialization support to ghosts. Like IComponentData, is now possible to annotate IBufferElementData with GhostComponentAttribute and members with GhostFieldAttribute
 and having the buffers replicated through the network.
 * ICommandData are now serializable and can be sent to the remote players.
-* Added new SendToOwner property to the GhostComponentAttribute that can be used to configure to witch
+* Added new SendToOwner property to the GhostComponentAttribute that can be used to configure to which
 subset of players the component should be sent to: only to the owner, only to the non owner, or all.
 * Ghost Component Serialization Variant. A new GhostComponentVariation attribute has been introduced that let you to specify different serialization options for a component or buffer, by overriding
 the `[GhostField]` and `[GhostComponent]` properties present in the original type definition.
@@ -187,7 +422,7 @@ public class MyCommandReceiveCommandSystem : CommandReceiveSystem<MyCommandSeria
 ### Changes
 * Changed how snapshot size is limited to make it more robust and give more clear errors.
 * Added `Name` field to the `GhostAuthoringComponent`  which is used during code generation to identify the ghost prefab. By default this is the prefab name but can be changed.
-* `ClientServerBoostrap` now correctly use two-phase initialization to initialise all the systems
+* `ClientServerBootstrap` now correctly use two-phase initialization to initialise all the systems
 * Changed `PhysicsWorldHistory.CollisionHistoryBuffer` to return a safe memory reference to the `CollisionHistoryBuffer` instead of copy a large amount of data on the stack.
 * Upgrade to Entities 0.11
 

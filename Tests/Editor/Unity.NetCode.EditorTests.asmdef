@@ -12,11 +12,11 @@
         "Unity.Entities",
         "Unity.Entities.Hybrid",
         "Unity.Transforms",
+        "Unity.Scenes",
         "Unity.Networking.Transport",
         "UnityEngine.TestRunner",
         "UnityEditor.TestRunner",
-        "Unity.Scenes",
-        "NetCode.Generated"
+        "Unity.Logging"
     ],
     "includePlatforms": [
         "Editor"
@@ -25,13 +25,18 @@
     "allowUnsafeCode": true,
     "overrideReferences": true,
     "precompiledReferences": [
-        "nunit.framework.dll",
-        "Mono.Cecil.dll"
+        "nunit.framework.dll"
     ],
     "autoReferenced": false,
     "defineConstraints": [
         "UNITY_INCLUDE_TESTS"
     ],
-    "versionDefines": [],
+    "versionDefines": [
+      {
+        "name": "com.unity.logging",
+        "expression": "0",
+        "define": "USE_UNITY_LOGGING"
+      }
+    ],
     "noEngineReferences": false
 }

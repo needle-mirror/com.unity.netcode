@@ -2,6 +2,7 @@ using AOT;
 using Unity.Burst;
 using Unity.Entities;
 using Unity.Mathematics;
+using System.Runtime.InteropServices;
 
 namespace Unity.NetCode
 {
@@ -17,6 +18,7 @@ namespace Unity.NetCode
     [BurstCompile]
     public struct GhostDistanceImportance : IComponentData
     {
+        [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
         public delegate int ScaleImportanceByDistanceDelegate(ref GhostConnectionPosition connectionPosition, ref int3 TileSize, ref int3 TileCenter, ref int3 chunkTile, int basePriority);
         public static PortableFunctionPointer<GhostDistanceImportance.ScaleImportanceByDistanceDelegate> DefaultScaleFunctionPointer => s_DefaultScaleFunctionPointer;
         public static PortableFunctionPointer<GhostDistanceImportance.ScaleImportanceByDistanceDelegate> NoScaleFunctionPointer => s_NoScaleFunctionPointer;
@@ -24,7 +26,7 @@ namespace Unity.NetCode
             new PortableFunctionPointer<GhostDistanceImportance.ScaleImportanceByDistanceDelegate>(DefaultScale);
         private static PortableFunctionPointer<GhostDistanceImportance.ScaleImportanceByDistanceDelegate> s_NoScaleFunctionPointer =
             new PortableFunctionPointer<GhostDistanceImportance.ScaleImportanceByDistanceDelegate>(NoScale);
-        [BurstCompile]
+        [BurstCompile(DisableDirectCall = true)]
         [MonoPInvokeCallback(typeof(ScaleImportanceByDistanceDelegate))]
         private static int DefaultScale(ref GhostConnectionPosition connectionPosition, ref int3 TileSize, ref int3 TileCenter, ref int3 chunkTile, int basePriority)
         {
@@ -37,7 +39,7 @@ namespace Unity.NetCode
                 basePriority /= distSq;
             return basePriority;
         }
-        [BurstCompile]
+        [BurstCompile(DisableDirectCall = true)]
         [MonoPInvokeCallback(typeof(ScaleImportanceByDistanceDelegate))]
         private static int NoScale(ref GhostConnectionPosition connectionPosition, ref int3 TileSize, ref int3 TileCenter, ref int3 pos, int basePrio)
         {

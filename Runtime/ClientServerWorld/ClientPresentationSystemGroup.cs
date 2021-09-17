@@ -26,7 +26,7 @@ namespace Unity.NetCode
 #if !UNITY_SERVER
     [UpdateInGroup(typeof(PresentationSystemGroup))]
     [AlwaysUpdateSystem]
-    [UpdateInWorld(UpdateInWorld.TargetWorld.Default)]
+    [UpdateInWorld(TargetWorld.Default)]
     public class TickClientPresentationSystem : ComponentSystemGroup
     {
         protected override void OnDestroy()

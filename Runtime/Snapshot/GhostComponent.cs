@@ -87,25 +87,12 @@ namespace Unity.NetCode
     }
 
     /// <summary>
-    /// The hash of all the ghost component data which exists in the scene. This can be
-    /// used to sort the subscenes so the ghost IDs of the pre-spawned scene objects line
-    /// up deterministically.
+    /// Component on client signaling that an entity is a placeholder for a not yet spawned ghost rather than a real ghost
     /// </summary>
-    public struct SubSceneGhostComponentHash : ISharedComponentData
+    public struct PendingSpawnPlaceholderComponent : IComponentData
     {
-        public ulong Value;
     }
 
-    /// <summary>
-    /// The ghost ID on a pre-spawned entity, it's unique withing the subscene.
-    /// </summary>
-    public struct PreSpawnedGhostId : IComponentData
-    {
-        public int Value;
-    }
-
-
-    /// <summary>
     /// Utility methods for working with GhostComponent.
     /// </summary>
     public static class GhostComponentUtilities
@@ -132,6 +119,11 @@ namespace Unity.NetCode
                 ghostTypeId = self[firstGhost].ghostType;
             }
             return ghostTypeId;
+        }
+
+        public static string GetDebugTypeName(this ComponentType self)
+        {
+            return TypeManager.GetTypeInfo(self.TypeIndex).DebugTypeName;
         }
     }
 }

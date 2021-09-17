@@ -3,34 +3,59 @@ using System.Collections.Generic;
 using Unity.Collections;
 using Unity.Entities;
 using Unity.Mathematics;
+using Unity.Collections.LowLevel.Unsafe;
 
 namespace Unity.NetCode
 {
     [UpdateInGroup(typeof(GhostSimulationSystemGroup), OrderLast = true)]
     [AlwaysUpdateSystem]
-    class GhostStatsCollectionSystem : SystemBase
+    partial class GhostStatsCollectionSystem : SystemBase
     {
         private ServerSimulationSystemGroup m_ServerSimulationSystemGroup;
         private ClientSimulationSystemGroup m_ClientSimulationSystemGroup;
         private NetworkTimeSystem m_NetworkTimeSystem;
+
+        public bool IsConnected => m_StatIndex>=0;
 
         public void SetIndex(int index)
         {
             m_StatIndex = index;
             m_CollectionTick = 0;
             m_PacketQueue.Clear();
+            m_UsedPacketPoolSize = 0;
 
-            if (!System.String.IsNullOrEmpty(m_LastNameAndErrorArray))
+            if (m_LastNameAndErrorArray.Length > 0)
             {
-                var ghostList = $"{{\"index\":{m_StatIndex}, {m_LastNameAndErrorArray}}}";
-
-                m_PacketQueue.Add(new Packet
-                {
-                    stringData = ghostList
-                });
-                // Make sure the packet size is big enough for the new snapshot stats
-                UpdateMaxPacketSize();
+                AppendNamePacket();
             }
+        }
+
+        private unsafe void AppendNamePacket()
+        {
+            FixedString64Bytes header = "{\"index\":";
+            header.Append(m_StatIndex);
+            header.Append(',');
+            FixedString32Bytes footer = "}";
+
+            var totalLen = header.Length + m_LastNameAndErrorArray.Length + footer.Length;
+            EnsurePoolSize(totalLen);
+            fixed (byte* poolData = m_PacketPool)
+            {
+                var binaryData = poolData + m_UsedPacketPoolSize;
+                UnsafeUtility.MemCpy(binaryData, header.GetUnsafePtr(), header.Length);
+                UnsafeUtility.MemCpy(binaryData + header.Length, m_LastNameAndErrorArray.GetUnsafePtr(), m_LastNameAndErrorArray.Length);
+                UnsafeUtility.MemCpy(binaryData + header.Length + m_LastNameAndErrorArray.Length, footer.GetUnsafePtr(), footer.Length);
+            }
+
+            m_PacketQueue.Add(new Packet
+            {
+                dataSize = totalLen,
+                dataOffset = m_UsedPacketPoolSize,
+                isString = true
+            });
+            m_UsedPacketPoolSize += totalLen;
+            // Make sure the packet size is big enough for the new snapshot stats
+            UpdateMaxPacketSize();
         }
 
         public void SetSnapshotTick(uint minTick, uint maxTick)
@@ -39,52 +64,57 @@ namespace Unity.NetCode
             m_SnapshotTickMax = maxTick;
         }
 
-        private string m_LastNameAndErrorArray;
+        private NativeText m_LastNameAndErrorArray;
 
-        public void SetGhostNames(List<string> nameList, List<string> errorList)
+        public void SetGhostNames(NativeList<FixedString128Bytes> nameList, NativeList<FixedString512Bytes> errorList)
         {
             // Add a pending packet with the new list of names
-            m_LastNameAndErrorArray = $"\"name\":\"{World.Name}\",\"ghosts\":[\"Destroy\"";
-            for (int i = 0; i < nameList.Count; ++i)
+            m_LastNameAndErrorArray.Clear();
+            m_LastNameAndErrorArray.Append("\"name\":\"");
+            m_LastNameAndErrorArray.Append(World.Name);
+            m_LastNameAndErrorArray.Append("\",\"ghosts\":[\"Destroy\"");
+            for (int i = 0; i < nameList.Length; ++i)
             {
-                m_LastNameAndErrorArray += $",\"{nameList[i]}\"";
+                m_LastNameAndErrorArray.Append(',');
+                m_LastNameAndErrorArray.Append('"');
+                m_LastNameAndErrorArray.Append(nameList[i]);
+                m_LastNameAndErrorArray.Append('"');
             }
 
-            m_LastNameAndErrorArray += "], \"errors\":[";
-            if (errorList.Count > 0)
-                m_LastNameAndErrorArray += $"\"{errorList[0]}\"";
-            for (int i = 1; i < errorList.Count; ++i)
+            m_LastNameAndErrorArray.Append("], \"errors\":[");
+            if (errorList.Length > 0)
             {
-                m_LastNameAndErrorArray += $",\"{errorList[i]}\"";
+                m_LastNameAndErrorArray.Append('"');
+                m_LastNameAndErrorArray.Append(errorList[0]);
+                m_LastNameAndErrorArray.Append('"');
+            }
+            for (int i = 1; i < errorList.Length; ++i)
+            {
+                m_LastNameAndErrorArray.Append(',');
+                m_LastNameAndErrorArray.Append('"');
+                m_LastNameAndErrorArray.Append(errorList[i]);
+                m_LastNameAndErrorArray.Append('"');
             }
 
-            m_LastNameAndErrorArray += "]";
+            m_LastNameAndErrorArray.Append(']');
 
-            if (m_SnapshotStats.Length != (nameList.Count+1)*3)
+            if (m_SnapshotStats.Length != (nameList.Length+1)*3)
             {
                 // Reset the snapshot stats
                 m_SnapshotStats.Dispose();
-                m_SnapshotStats = new NativeArray<uint>((nameList.Count + 1)*3, Allocator.Persistent);
+                m_SnapshotStats = new NativeArray<uint>((nameList.Length + 1)*3, Allocator.Persistent);
             }
 
-            if (m_PredictionErrors.Length != errorList.Count)
+            if (m_PredictionErrors.Length != errorList.Length)
             {
                 // Reset the snapshot stats
                 m_PredictionErrors.Dispose();
-                m_PredictionErrors = new NativeArray<float>(errorList.Count, Allocator.Persistent);
+                m_PredictionErrors = new NativeArray<float>(errorList.Length, Allocator.Persistent);
             }
 
             if (m_StatIndex < 0)
                 return;
-            var ghostList = $"{{\"index\":{m_StatIndex}, {m_LastNameAndErrorArray}}}";
-
-            m_PacketQueue.Add(new Packet
-            {
-                stringData = ghostList
-            });
-
-            // Make sure the packet size is big enough for the new snapshot stats
-            UpdateMaxPacketSize();
+            AppendNamePacket();
         }
 
         public void AddSnapshotStats(NativeArray<uint> stats)
@@ -140,14 +170,18 @@ namespace Unity.NetCode
             m_TimeSamples = new NativeList<TimeSample>(16, Allocator.Persistent);
             m_CommandTicks = new NativeList<uint>(16, Allocator.Persistent);
 
-            m_PacketQueue = new List<Packet>();
-            m_PacketPool = new List<byte[]>();
+            m_PacketQueue = new NativeList<Packet>(16, Allocator.Persistent);
+            m_PacketPool = new byte[4096];
+
+            m_LastNameAndErrorArray = new NativeText(4096, Allocator.Persistent);
 
             UpdateMaxPacketSize();
         }
 
         protected override void OnDestroy()
         {
+            m_LastNameAndErrorArray.Dispose();
+            m_PacketQueue.Dispose();
             m_CommandTicks.Dispose();
             m_SnapshotStats.Dispose();
             m_SnapshotTicks.Dispose();
@@ -161,7 +195,7 @@ namespace Unity.NetCode
             uint currentTick = (m_ClientSimulationSystemGroup!=null) ? m_ClientSimulationSystemGroup.ServerTick : m_ServerSimulationSystemGroup.ServerTick;
             if (currentTick != m_CollectionTick)
                 BeginCollection(currentTick);
-            if (m_ClientSimulationSystemGroup == null)
+            if (m_ClientSimulationSystemGroup == null || !HasSingleton<NetworkSnapshotAckComponent>())
                 return;
             var ack = GetSingleton<NetworkSnapshotAckComponent>();
             var timeSample = new TimeSample
@@ -201,18 +235,12 @@ namespace Unity.NetCode
         }
         unsafe void BuildPacket()
         {
-            byte[] binaryArray;
-            if (m_PacketPool.Count > 0)
-            {
-                binaryArray = m_PacketPool[m_PacketPool.Count - 1];
-                m_PacketPool.RemoveAt(m_PacketPool.Count - 1);
-            }
-            else
-                binaryArray = new byte[m_MaxPacketSize];
+            EnsurePoolSize(m_MaxPacketSize);
 
             int binarySize = 0;
-            fixed (byte* binaryData = binaryArray)
+            fixed (byte* poolData = m_PacketPool)
             {
+                var binaryData = poolData + m_UsedPacketPoolSize;
                 *(uint*) binaryData = m_CollectionTick;
                 binarySize += 4;
                 binaryData[binarySize++] = (byte) m_StatIndex;
@@ -266,35 +294,44 @@ namespace Unity.NetCode
 
             m_PacketQueue.Add(new Packet
             {
-                binarySize = binarySize,
-                binaryData = binaryArray
+                dataSize = binarySize,
+                dataOffset = m_UsedPacketPoolSize
             });
+            m_UsedPacketPoolSize += binarySize;
         }
 
         public void SendPackets(DebugWebSocket socket)
         {
             foreach (var packet in m_PacketQueue)
             {
-                if (packet.stringData != null)
-                    socket.SendText(packet.stringData);
+                if (packet.isString)
+                    socket.SendText(m_PacketPool, packet.dataOffset, packet.dataSize);
                 else
-                {
-                    socket.SendBinary(packet.binaryData, 0, packet.binarySize);
-                    if (packet.binaryData.Length == m_MaxPacketSize)
-                        m_PacketPool.Add(packet.binaryData);
-                }
+                    socket.SendBinary(m_PacketPool, packet.dataOffset, packet.dataSize);
             }
             m_PacketQueue.Clear();
+            m_UsedPacketPoolSize = 0;
         }
 
+        void EnsurePoolSize(int packetSize)
+        {
+            if (m_UsedPacketPoolSize + packetSize > m_PacketPool.Length)
+            {
+                int newLen = m_PacketPool.Length*2;
+                while (m_UsedPacketPoolSize + packetSize > newLen)
+                    newLen *= 2;
+                var newPool = new byte[newLen];
+                m_PacketPool.CopyTo(newPool, 0);
+                m_PacketPool = newPool;
+            }
+        }
         void UpdateMaxPacketSize()
         {
             // Calculate a new max packet size
-            var packetSize = 8 + 20 * 255 + 4 * m_SnapshotStats.Length + m_PredictionErrors.Length + 4 * 255;
+            var packetSize = 8 + 20 * 255 + 4 * m_SnapshotStats.Length + 4 * m_PredictionErrors.Length + 4 * 255;
             if (packetSize == m_MaxPacketSize)
                 return;
             m_MaxPacketSize = packetSize;
-            m_PacketPool.Clear();
 
             // Drop all pending packets not yet in the queue
             m_CollectionTick = 0;
@@ -302,12 +339,13 @@ namespace Unity.NetCode
 
         internal struct Packet
         {
-            public int binarySize;
-            public byte[] binaryData;
-            public string stringData;
+            public int dataSize;
+            public int dataOffset;
+            public bool isString;
         }
-        private List<Packet> m_PacketQueue;
-        private List<byte[]> m_PacketPool;
+        private NativeList<Packet> m_PacketQueue;
+        private byte[] m_PacketPool;
+        private int m_UsedPacketPoolSize;
         private int m_MaxPacketSize;
 
         private uint m_CollectionTick;

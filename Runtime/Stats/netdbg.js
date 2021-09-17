@@ -9,6 +9,7 @@ function NetDbg() {
 	this.offsetX = -1;
 	this.dragEvt = this.updateDrag.bind(this);
 	this.dragStopEvt = this.stopDrag.bind(this);
+	this.autoReconnect = true;
 
 	document.getElementById("liveUpdate").checked = true;
 
@@ -39,6 +40,11 @@ function NetDbg() {
 	this.pendingPresent = 0;
 	this.pendingStats = 0;
 	this.invalidate();
+
+	// Auto-connect to the game on focus.
+	document.onvisibilitychange = this.tryFastConnect.bind(this);
+	window.onfocus = this.tryFastConnect.bind(this);
+	this.tryFastConnect();
 }
 
 NetDbg.prototype.SnapshotWidth = 10;
@@ -136,7 +142,18 @@ NetDbg.prototype.updateLegendStats = function() {
 	}
 }
 
+NetDbg.prototype.tryFastConnect = function() {
+	var isConnected = this.ws !== undefined && this.ws.readyState <= 1;
+	if(document.visibilityState === "visible" && this.autoReconnect === true && !isConnected) {
+		var connectDlgValue = document.getElementById('connectUIButtonValue').value;
+		this.connect(connectDlgValue);
+	}
+}
+
 NetDbg.prototype.connect = function(host) {
+
+	console.log(`'${this.constructor.name}' connecting to websocket ${host}...`);
+
 	document.getElementById('connectDlg').className = "NetDbgConnecting";
 	// Clear the existing data
 	this.content = [];
@@ -156,18 +173,24 @@ NetDbg.prototype.connect = function(host) {
 }
 NetDbg.prototype.disconnect = function() {
 	this.ws.close();
+	this.autoReconnect = false;
 	document.getElementById('connectDlg').className = "NetDbgDisconnected";
+	console.log(`'${this.constructor.name}' disconnected from '${this.ws.url}']!`)
 }
 
 NetDbg.prototype.wsOpen = function(evt) {
+	this.autoReconnect = true;
 	document.getElementById('connectDlg').className = "NetDbgConnected";
+	console.log(`'${this.constructor.name}' connected to '${this.ws.url}'!`)
 }
 
 NetDbg.prototype.wsClose = function(evt) {
 	document.getElementById('connectDlg').className = "NetDbgDisconnected";
+	console.log(`'${this.constructor.name}' WebSocket '${this.ws.url}' closed with [${evt.code}:'${evt.reason}']!`)
 }
 
 NetDbg.prototype.wsReceive = function(evt) {
+
 	if (typeof(evt.data) == "string") {
 		this.updateNames(evt.data);
 	} else {
@@ -178,6 +201,9 @@ NetDbg.prototype.wsReceive = function(evt) {
 		var snapshotLen = header[2];
 		var commandLen = header[3];
 		var discardedPackets = header[5];
+
+		var content = this.content[con];
+		if(content === undefined) return;
 
 		var dataOffset = 12;
 
@@ -209,27 +235,28 @@ NetDbg.prototype.wsReceive = function(evt) {
 		var snapArr = new Uint32Array(evt.data, dataOffset);
 		var snap = [];
 		var totalSize = 0;
-		for (var i = 0; i < this.content[con].names.length; ++i) {
+
+		for (var i = 0; i < content.names.length; ++i) {
 			snap.push({count: snapArr[i*3], size: snapArr[i*3+1], uncompressed: snapArr[i*3+2]});
-			this.content[con].total[i*2] += snapArr[i*3+1];
-			this.content[con].total[i*2 + 1] += snapArr[i*3];
+			content.total[i*2] += snapArr[i*3+1];
+			content.total[i*2 + 1] += snapArr[i*3];
 			totalSize += snapArr[i*3+1];
 		}
 
-		dataOffset += this.content[con].names.length * 3 * 4;
+		dataOffset += content.names.length * 3 * 4;
 
 		var predictionArr = new Float32Array(evt.data, dataOffset);
 		var predictionErr = [];
-		for (var i = 0; i < this.content[con].errors.length; ++i)
+		for (var i = 0; i < content.errors.length; ++i)
 		{
 			if (predictionArr[i] > 0) {
-				this.content[con].enabledErrors[i] = true;
-				this.content[con].totalErrorCount[i] += 1;
-				this.content[con].totalError[i] += predictionArr[i];
+				content.enabledErrors[i] = true;
+				content.totalErrorCount[i] += 1;
+				content.totalError[i] += predictionArr[i];
 			}
 			predictionErr.push(predictionArr[i]);
 		}
-		dataOffset += this.content[con].errors.length * 4;
+		dataOffset += content.errors.length * 4;
 
 		var cmdTickArr = new Uint32Array(evt.data, dataOffset);
 		var commandTicks = [];
@@ -244,29 +271,29 @@ NetDbg.prototype.wsReceive = function(evt) {
 		var snapshotAge = 0;
 		if (snapshotLen > 0) {
 			snapshotAge = tick[0] - snapTickArr[snapshotLen-1];
-		} else if (this.content[con].frames.length > 0) {
-			snapshotAge = this.content[con].frames[this.content[con].frames.length-1].snapshotAge + 1;
+		} else if (content.frames.length > 0) {
+			snapshotAge = content.frames[content.frames.length-1].snapshotAge + 1;
 		}
 		var maxPackets = Math.ceil(totalSize / (1400*8));
-		if (maxPackets > this.content[con].maxPackets)
-			this.content[con].maxPackets = maxPackets;
+		if (maxPackets > content.maxPackets)
+			content.maxPackets = maxPackets;
 		if (timeLen > 0)
-			this.content[con].hasTimeData = true;
-		if (this.content[con].frames.length > 0) {
-			var lastFrame = this.content[con].frames[this.content[con].frames.length-1];
+			content.hasTimeData = true;
+		if (content.frames.length > 0) {
+			var lastFrame = content.frames[content.frames.length-1];
 			if (lastFrame.serverTick+1 < tick[0]) {
 				var age = lastFrame.snapshotAge;
 				var emptySnap = [];
-				for (var i = 0; i < this.content[con].names.length; ++i) {
+				for (var i = 0; i < content.names.length; ++i) {
 					emptySnap.push({count: 0, size: 0, uncompressed: 0});
 				}
 				for (var missing = lastFrame.serverTick + 1; missing < tick[0]; ++missing) {
 					++age;
-					this.content[con].frames.push({serverTick: missing, snapshotAge: age, snapshot: emptySnap, snapshotTicks: [], predictionError: [], time: [], commandTicks: [], commandSize: 0});
+					content.frames.push({serverTick: missing, snapshotAge: age, snapshot: emptySnap, snapshotTicks: [], predictionError: [], time: [], commandTicks: [], commandSize: 0});
 				}
 			}
 		}
-		this.content[con].frames.push({serverTick: tick[0], snapshotAge: snapshotAge, snapshot: snap, snapshotTicks: snapshotTicks, predictionError: predictionErr, time: time, commandTicks: commandTicks, commandSize: commandSize, discardedPackets: discardedPackets});
+		content.frames.push({serverTick: tick[0], snapshotAge: snapshotAge, snapshot: snap, snapshotTicks: snapshotTicks, predictionError: predictionErr, time: time, commandTicks: commandTicks, commandSize: commandSize, discardedPackets: discardedPackets});
 		this.invalidate();
 		this.invalidateLegendStats();
 	}

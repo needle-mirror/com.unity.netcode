@@ -22,5 +22,15 @@ namespace Unity.NetCode
                 return baseline0;
             return baseline0 + delta * applyFrac / 16;
         }
+
+        public long PredictLong(long baseline0, long baseline1, long baseline2)
+        {
+            long delta = baseline1 - baseline2;
+            long predictBaseline = baseline1 + delta * predictFrac / 16;
+            delta = baseline0 - baseline1;
+            if (math.abs(baseline0 - predictBaseline) >= math.abs(delta))
+                return baseline0;
+            return baseline0 + delta * applyFrac / 16;
+        }
     }
 }

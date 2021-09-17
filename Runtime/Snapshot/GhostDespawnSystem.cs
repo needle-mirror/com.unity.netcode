@@ -8,8 +8,8 @@ namespace Unity.NetCode
 {
     [UpdateInGroup(typeof(GhostSimulationSystemGroup))]
     [UpdateAfter(typeof(GhostUpdateSystem))]
-    [UpdateInWorld(UpdateInWorld.TargetWorld.Client)]
-    public class GhostDespawnSystem : SystemBase
+    [UpdateInWorld(TargetWorld.Client)]
+    public partial class GhostDespawnSystem : SystemBase
     {
         internal struct DelayedDespawnGhost
         {
@@ -39,6 +39,14 @@ namespace Unity.NetCode
 
         protected override void OnUpdate()
         {
+            if(!HasSingleton<NetworkStreamInGame>())
+            {
+                LastQueueWriter.Complete();
+                m_predictedDespawnQueue.Clear();
+                m_interpolatedDespawnQueue.Clear();
+                LastQueueWriter = default;
+                return;
+            }
             var commandBuffer = m_Barrier.CreateCommandBuffer();
             var interpolatedDespawnQueue = m_interpolatedDespawnQueue;
             var predictedDespawnQueue = m_predictedDespawnQueue;

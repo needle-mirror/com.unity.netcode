@@ -26,8 +26,7 @@ namespace Unity.NetCode.Tests
     [GhostComponent(SendDataForChildEntity = false)]
     public struct ChildLevelComponent : IComponentData
     {
-        [GhostField]
-        public int Value;
+        [GhostField] public int Value;
     }
     public class MultiEntityGhostTests
     {

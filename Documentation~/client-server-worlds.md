@@ -54,7 +54,7 @@ public class ExampleBootstrap : ClientServerBootstrap
         World.DefaultGameObjectInjectionWorld = world;
 
         DefaultWorldInitialization.AddSystemsToRootLevelSystemGroups(world, ExplicitDefaultWorldSystems);
-        ScriptBehaviourUpdateOrder.UpdatePlayerLoop(world);
+        ScriptBehaviourUpdateOrder.AppendWorldToCurrentPlayerLoop(world);
         return true;
     }
 
@@ -83,3 +83,30 @@ The client updates at a dynamic time step, with the exception of prediction code
 When you build a standalone game, NetCode uses the __Server Build__ property in the __Build Settings__ window to decide what to build. If the property is enabled, NetCode sets the ```UNITY_SERVER``` define and you get a server-only build. If the property is disabled you get a combined client and server build. You can use a combined client and server build to decide if a game should be client, server or both at runtime.
 
 To build a client-only game, add the ```UNITY_CLIENT``` define to the __Scripting Define Symbols__ in the __Player Settings__ (menu: __Edit &gt; Project Settings &gt; Player &gt; Configuration__). You can have the ```UNITY_CLIENT``` define set when you build a server, but the ```UNITY_SERVER``` define takes precedence and you get a server-only build.
+
+## World migration
+
+Sometimes you want to be able to destroy the world you are in and spin up another world without loosing your connection state. In order to do this we supply a DriverMigrationSystem, that allows a user to Store and Load Transport related information so a smooth world transition can be made. 
+
+```
+public World MigrateWorld(World sourceWorld)
+{
+    DriverMigrationSystem migrationSystem = default;
+    foreach (var world in World.All)
+    {
+        if ((migrationSystem = world.GetExistingSystem<DriverMigrationSystem>()) != null)
+            break;
+    }
+
+    var ticket = migrationSystem.StoreWorld(sourceWorld);
+    sourceWorld.Dispose();
+
+    var newWorld = migrationSystem.LoadWorld(ticket);
+
+    // NOTE: LoadWorld must be executed before you populate your world with the systems it needs!
+    // This is because LoadWorld creates a `MigrationTicket` Component that the NetworkStreamReceiveSystem needs in order to be able to Load
+    // the correct Driver.
+
+    return ClientServerBootstrap.CreateServerWorld(DefaultWorld, newWorld.Name, newWorld);
+}
+```

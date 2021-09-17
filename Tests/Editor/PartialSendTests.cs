@@ -24,14 +24,12 @@ namespace Unity.NetCode.Tests
     [GhostComponent(OwnerPredictedSendType = GhostSendType.Predicted)]
     public struct GhostPredictedOnly : IComponentData
     {
-        [GhostField]
-        public int Value;
+        [GhostField] public int Value;
     }
     [GhostComponent(OwnerPredictedSendType = GhostSendType.Interpolated)]
     public struct GhostInterpolatedOnly : IComponentData
     {
-        [GhostField]
-        public int Value;
+        [GhostField] public int Value;
     }
     public class PartialSendTests
     {

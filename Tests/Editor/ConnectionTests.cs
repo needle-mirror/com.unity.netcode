@@ -8,7 +8,7 @@ namespace Unity.NetCode.Tests
 {
     [DisableAutoCreation]
     [AlwaysUpdateSystem]
-    public class CheckConnectionSystem : SystemBase
+    public partial class CheckConnectionSystem : SystemBase
     {
         public static int IsConnected;
         protected override void OnUpdate()
@@ -55,7 +55,9 @@ namespace Unity.NetCode.Tests
             using (var testWorld = new NetCodeTestWorld())
             {
                 testWorld.Bootstrap(true);
-                testWorld.CreateWorlds(true, 1);
+                //Don't tick the world after creation. that will generate the default protocol version.
+                //We want to use a custom one here
+                testWorld.CreateWorlds(true, 1, false);
                 var serverVersion = testWorld.ServerWorld.EntityManager.CreateEntity(typeof(NetworkProtocolVersion));
                 testWorld.ServerWorld.EntityManager.SetComponentData(serverVersion, new NetworkProtocolVersion
                 {
@@ -92,7 +94,9 @@ namespace Unity.NetCode.Tests
             using (var testWorld = new NetCodeTestWorld())
             {
                 testWorld.Bootstrap(true);
-                testWorld.CreateWorlds(true, 1);
+                //Don't tick the world after creation. that will generate the default protocol version.
+                //We want to use a custom one here
+                testWorld.CreateWorlds(true, 1, false);
                 var serverVersion = testWorld.ServerWorld.EntityManager.CreateEntity(typeof(NetworkProtocolVersion));
                 testWorld.ServerWorld.EntityManager.SetComponentData(serverVersion, new NetworkProtocolVersion
                 {

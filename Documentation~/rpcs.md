@@ -59,7 +59,7 @@ public class ClientRcpSendSystem : ComponentSystem
 
 This system sends a command if the user presses the space bar on their keyboard.
 
-In the previous example, the `RpcExecutor.ExecuteCreateRequestComponent<OurRpcCommand>(ref parameters);` function call to the `IRpCommand` creates an entity that you can filter on. To test if this works, the following example creates a system that receives the `OurRpcCommand`:
+When the rpc is received, an entity that you can filter on is created by a code-generated system. To test if this works, the following example creates a system that receives the `OurRpcCommand`:
 
 ```c#
 [UpdateInGroup(typeof(ServerSimulationSystemGroup))]
@@ -98,7 +98,7 @@ public struct OurRpcCommand : IComponentData, IRpcCommandSerializer<OurRpcComman
     {
     }
 
-    [BurstCompile]
+    [BurstCompile(DisableDirectCall = true)]
     private static void InvokeExecute(ref RpcExecutor.Parameters parameters)
     {
     }
@@ -119,7 +119,7 @@ Because the function is static, it needs to use `Deserialize` to read the struct
 To create an entity that holds an RPC, use the function `ExecuteCreateRequestComponent<T>`. To do this, extend the previous `InvokeExecute` function example with:
 
 ```c#
-[BurstCompile]
+[BurstCompile(DisableDirectCall = true)]
 private static void InvokeExecute(ref RpcExecutor.Parameters parameters)
 {
     RpcExecutor.ExecuteCreateRequestComponent<OurRpcCommand, OurRpcCommand>(ref parameters);
@@ -179,7 +179,7 @@ public struct OurDataRpcCommand : IComponentData, IRpcCommandSerializer<OurDataR
     {
     }
 
-    [BurstCompile]
+    [BurstCompile(DisableDirectCall = true)]
     private static void InvokeExecute(ref RpcExecutor.Parameters parameters)
     {
         RpcExecutor.ExecuteCreateRequestComponent<OurDataRpcCommand, OurDataRpcCommand>(ref parameters);

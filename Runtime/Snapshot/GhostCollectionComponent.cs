@@ -1,7 +1,7 @@
+using System;
 using System.Collections.Generic;
 using System.Runtime.InteropServices;
 using Unity.Entities;
-using Unity.Collections;
 using Unity.NetCode.LowLevel.Unsafe;
 
 namespace Unity.NetCode
@@ -80,23 +80,6 @@ namespace Unity.NetCode
         public BlobAssetReference<GhostPrefabMetaData> Value;
     }
 
-
-    /// <summary>
-    /// A buffer added to the ghost prefab collection singleton containing references to all ghost prefabs.
-    /// </summary>
-    public struct GhostPrefabBuffer : IBufferElementData
-    {
-        public Entity Value;
-    }
-
-    /// <summary>
-    /// Component added to the ghost collection in order to inditify teh singleton containing a GhostPrefabBuffer with
-    /// the prefabs for all ghosts.
-    /// </summary>
-    public struct GhostPrefabCollectionComponent : IComponentData
-    {
-    }
-
     /// <summary>
     /// A component added to ghost prefabs which require runtime stripping of components before they can be used.
     /// The component is removed when the runtime stripping is performed.
@@ -119,20 +102,38 @@ namespace Unity.NetCode
     }
 
     /// <summary>
-    /// A list of all prefabs which can be used for ghosts. This is populated with all ghost prefabs onthe server
+    /// A list of all prefabs which can be used for ghosts. This is populated with all ghost prefabs on the server
     /// and that list is sent for clients. Having a prefab in this list does not guarantee that there is a serializer
     /// for it yet.
+    /// Added to the GhostCollection singleton entity.
     /// </summary>
+    [InternalBufferCapacity(ghostCollectionPrefabBufferSize)]
     public struct GhostCollectionPrefab : IBufferElementData
     {
+        internal const int ghostCollectionPrefabBufferSize = 96;
+
+        public enum LoadingState
+        {
+            NotLoading = 0,
+            LoadingActive,
+            LoadingNotActive
+        }
         public GhostTypeComponent GhostType;
         public Entity GhostPrefab;
         public ulong Hash;
+        /// <summary>
+        /// Game code should set this to LoadingActive if the prefab is currently being loaded. The collection system
+        /// will set it to LoadingNotActive every frame, so game code must reset it to LoadingActive every frame the
+        /// prefab is still loading.
+        /// </summary>
+        public LoadingState Loading;
     }
     /// <summary>
     /// A list of all serializer data for the prefabs in GhostCollectionPrefab. This list can be shorter if not all
     /// serializers are created yet.
+    /// Added to the GhostCollection singleton entity.
     /// </summary>
+    [InternalBufferCapacity(GhostCollectionPrefab.ghostCollectionPrefabBufferSize)]
     public struct GhostCollectionPrefabSerializer : IBufferElementData
     {
         public ulong TypeHash;
@@ -143,19 +144,23 @@ namespace Unity.NetCode
         public int ChangeMaskBits;
         public int PredictionOwnerOffset;
         public int OwnerPredicted;
-        public int PartialComponents;
+        public byte PartialComponents;
+        public byte PartialSendToOwner;
+        public bool StaticOptimization;
         public int BaseImportance;
         public GhostSpawnBuffer.Type FallbackPredictionMode;
         public int IsGhostGroup;
-        public bool StaticOptimization;
         public int MaxBufferSnapshotSize;
         public int NumBuffers;
+        public Profiling.ProfilerMarker profilerMarker;
     }
 
     /// <summary>
-    /// This list contains the set of uniques component witch support serialization. Used to map the DynamicComponentTypeHandle
-    /// to a concreat ComponentType in jobs.
+    /// This list contains the set of uniques component which support serialization. Used to map the DynamicComponentTypeHandle
+    /// to a concrete ComponentType in jobs.
+    /// Added to the GhostCollection singleton entity.
     /// </summary>
+    [InternalBufferCapacity(128)]
     public struct GhostCollectionComponentType : IBufferElementData
     {
         public ComponentType Type;
@@ -165,15 +170,17 @@ namespace Unity.NetCode
 
     /// <summary>
     /// This list contains the set of entity + component for all serialization rules in GhostCollectionPrefabSerializer.
-    /// GhostCollectionPrefabSerializer contains a FirstComponent and NumComponents which identifes the set of components
+    /// GhostCollectionPrefabSerializer contains a FirstComponent and NumComponents which identifies the set of components
     /// to use from this array.
+    /// Added to the GhostCollection singleton entity.
     /// </summary>
+    [InternalBufferCapacity(128)]
     public struct GhostCollectionComponentIndex : IBufferElementData
     {
         public int EntityIndex;
         // index in the GhostComponentCollection, used to retrieve the component type from the DynamicTypeHandle
         public int ComponentIndex;
-        // index in the GhostComponentSerializer.State colleciton, used to get the type of serializer to use
+        // index in the GhostComponentSerializer.State collection, used to get the type of serializer to use
         public int SerializerIndex;
         // current send mask for that component, used to not send/receive components in some configuration
         public GhostComponentSerializer.SendMask SendMask;

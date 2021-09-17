@@ -51,6 +51,9 @@ namespace Unity.NetCode.Tests
         [GhostField] public uint UIntValue;
         [GhostField] public bool BoolValue;
 
+        [GhostField] public long LongValue;
+        [GhostField] public ulong ULongValue;
+
         [GhostField] public float Unquantized_FloatValue;
         [GhostField(Smoothing=SmoothingAction.Interpolate)] public float Unquantized_Interpolated_FloatValue;
         [GhostField(Quantization=10)] public float FloatValue;
@@ -76,11 +79,11 @@ namespace Unity.NetCode.Tests
         [GhostField] public quaternion Unquantized_QuaternionValue;
         [GhostField(Smoothing=SmoothingAction.Interpolate)] public quaternion Interpolated_Unquantized_QuaternionValue;
 
-        [GhostField] public FixedString32 String32Value;
-        [GhostField] public FixedString64 String64Value;
-        [GhostField] public FixedString128 String128Value;
-        [GhostField] public FixedString512 String512Value;
-        [GhostField] public FixedString4096 String4096Value;
+        [GhostField] public FixedString32Bytes String32Value;
+        [GhostField] public FixedString64Bytes String64Value;
+        [GhostField] public FixedString128Bytes String128Value;
+        [GhostField] public FixedString512Bytes String512Value;
+        [GhostField] public FixedString4096Bytes String4096Value;
         [GhostField] public Entity EntityValue;
     }
 
@@ -124,6 +127,9 @@ namespace Unity.NetCode.Tests
             Assert.AreEqual(serverValues.IntValue, clientValues.IntValue);
             Assert.AreEqual(serverValues.UIntValue, clientValues.UIntValue);
             Assert.AreEqual(serverValues.BoolValue, clientValues.BoolValue);
+
+            Assert.AreEqual(serverValues.LongValue, clientValues.LongValue);
+            Assert.AreEqual(serverValues.ULongValue, clientValues.ULongValue);
 
             Assert.AreEqual(serverValues.FloatValue, clientValues.FloatValue);
             Assert.AreEqual(serverValues.Interpolated_FloatValue, clientValues.Interpolated_FloatValue);
@@ -218,6 +224,9 @@ namespace Unity.NetCode.Tests
                 UIntValue = (uint)baseValue + (uint)++i,
                 BoolValue = (baseValue & ++i) != 0,
 
+                LongValue = baseValue + ++i,
+                ULongValue = (ulong)baseValue + (uint)++i,
+
                 FloatValue = baseValue + ++i,
                 Interpolated_FloatValue = baseValue + ++i,
                 Unquantized_FloatValue = baseValue + ++i,
@@ -243,11 +252,11 @@ namespace Unity.NetCode.Tests
                 Unquantized_QuaternionValue = math.normalize(new quaternion(0.6f, 0.6f, 0.6f, 0.6f)),
                 Interpolated_Unquantized_QuaternionValue = math.normalize(new quaternion(0.5f, 0.5f, 0.5f, 0.5f)),
 
-                String32Value = new FixedString32($"baseValue = {baseValue + ++i}"),
-                String64Value = new FixedString64($"baseValue = {baseValue + ++i}"),
-                String128Value = new FixedString128($"baseValue = {baseValue + ++i}"),
-                String512Value = new FixedString512($"baseValue = {baseValue + ++i}"),
-                String4096Value = new FixedString4096($"baseValue = {baseValue + ++i}"),
+                String32Value = new FixedString32Bytes($"baseValue = {baseValue + ++i}"),
+                String64Value = new FixedString64Bytes($"baseValue = {baseValue + ++i}"),
+                String128Value = new FixedString128Bytes($"baseValue = {baseValue + ++i}"),
+                String512Value = new FixedString512Bytes($"baseValue = {baseValue + ++i}"),
+                String4096Value = new FixedString4096Bytes($"baseValue = {baseValue + ++i}"),
 
                 EntityValue = serverEntity,
             });

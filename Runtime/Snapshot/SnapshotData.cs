@@ -27,6 +27,27 @@ namespace Unity.NetCode
             snapshotData = (byte*)buffer.GetUnsafeReadOnlyPtr() + LatestIndex * SnapshotSize;
             return *(uint*)snapshotData;
         }
+        public unsafe uint GetOldestTick(in DynamicBuffer<SnapshotDataBuffer> buffer)
+        {
+            if (buffer.Length == 0)
+                return 0;
+            byte* snapshotData;
+
+            // The snapshot store is a ringbuffer, once it is full the entry after "latest" is the oldest - the next one to be overwritten
+            // That might however be uninitialize (tick 0) so we scan forward from that until we find a valid entry
+            var oldestIndex = (LatestIndex + 1) % GhostSystemConstants.SnapshotHistorySize;
+            while (oldestIndex != LatestIndex)
+            {
+                snapshotData = (byte*)buffer.GetUnsafeReadOnlyPtr() + oldestIndex * SnapshotSize;
+                var oldestTick = *(uint*)snapshotData;
+                if (oldestTick != 0)
+                    return oldestTick;
+                oldestIndex = (oldestIndex + 1) % GhostSystemConstants.SnapshotHistorySize;
+            }
+
+            snapshotData = (byte*)buffer.GetUnsafeReadOnlyPtr() + LatestIndex * SnapshotSize;
+            return *(uint*)snapshotData;
+        }
         public unsafe bool WasLatestTickZeroChange(in DynamicBuffer<SnapshotDataBuffer> buffer, int numChangeUints)
         {
             if (buffer.Length == 0)
@@ -134,21 +155,13 @@ namespace Unity.NetCode
 
             return true;
         }
-        unsafe byte* AppendData(ref DynamicBuffer<SnapshotDataBuffer> buffer)
-        {
-            var numBuffers = buffer.Length / SnapshotSize;
-            if (numBuffers < 32)
-            {
-                buffer.ResizeUninitialized(buffer.Length + SnapshotSize);
-                LatestIndex = numBuffers;
-            }
-            else
-                LatestIndex = (LatestIndex + 1) % 32;
-            // Get the pointer etc
-            var ptr = (byte*)buffer.GetUnsafePtr() + LatestIndex * SnapshotSize;
-            return ptr;
-        }
     }
+
+    /// <summary>
+    /// A data structure used to store ghosts snapshot buffers data content.
+    /// Typically around 1-12kb per entity. Thus, we always allocate on the heap.
+    /// </summary>
+    [InternalBufferCapacity(0)]
     public struct SnapshotDataBuffer : IBufferElementData
     {
         public byte Value;
@@ -168,6 +181,7 @@ namespace Unity.NetCode
     /// than the data size.
     /// The serialized element size is aligned to the 16 bytes boundary
     /// </summary>
+    [InternalBufferCapacity(0)]
     public struct SnapshotDynamicDataBuffer : IBufferElementData
     {
         public byte Value;

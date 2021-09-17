@@ -2,32 +2,6 @@ using System;
 
 namespace Unity.NetCode
 {
-    [Flags]
-    public enum GhostPrefabType
-    {
-        InterpolatedClient = 1,
-        PredictedClient = 2,
-        Client = 3,
-        Server = 4,
-        AllPredicted = 6,
-        All = 7
-    }
-    [Flags]
-    public enum GhostSendType
-    {
-        Interpolated = 1,
-        Predicted = 2,
-        All = 3
-    }
-
-    [Flags]
-    public enum SendToOwnerType
-    {
-        None = 0,
-        SendToOwner = 1,
-        SendToNonOwner = 2,
-        All = 3,
-    }
     /// <summary>
     /// This attribute can be used to tag components to control which ghost prefab variants they are included in and where they are sent for owner predicted ghosts.
     /// </summary>

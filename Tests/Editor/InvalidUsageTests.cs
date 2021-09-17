@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using NUnit.Framework;
 using Unity.Entities;
 using Unity.Networking.Transport;
@@ -22,7 +23,7 @@ namespace Unity.NetCode.Tests
     }
     [DisableAutoCreation]
     [UpdateInGroup(typeof(ClientSimulationSystemGroup))]
-    public class DeleteGhostOnClientSystem : SystemBase
+    public partial class DeleteGhostOnClientSystem : SystemBase
     {
         public static int s_DeleteCount;
         protected override void OnCreate()
@@ -70,8 +71,11 @@ namespace Unity.NetCode.Tests
                 LogAssert.Expect(LogType.Error, new Regex("Found a ghost in the ghost map which does not have an entity connected to it. This can happen if you delete ghost entities on the client."));
                 LogAssert.Expect(LogType.Error, new Regex("Ghost ID \\d+ has already been added to the spawned ghost map"));
                 // Let the game run for a bit so the ghosts are spawned on the client
+                // There will be a bunch of "Received baseline for a ghost we do not have ghostId=0 baselineTick=1 serverTick=2" messages, ignore them
+                LogAssert.ignoreFailingMessages = true;
                 for (int i = 0; i < 64; ++i)
                     testWorld.Tick(frameTime);
+                LogAssert.ignoreFailingMessages = false;
 
                 // Validate that the ghost was deleted on the cliet
                 Assert.AreEqual(0, DeleteGhostOnClientSystem.s_DeleteCount);

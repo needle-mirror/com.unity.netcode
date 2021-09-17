@@ -52,7 +52,7 @@ namespace Unity.NetCode
             Action =
                 new PortableFunctionPointer<GhostPredictionSmoothingSystem.SmoothingActionDelegate>(SmoothingAction);
 
-        [BurstCompile]
+        [BurstCompile(DisableDirectCall = true)]
         [MonoPInvokeCallback(typeof(GhostPredictionSmoothingSystem.SmoothingActionDelegate))]
         private static void SmoothingAction(void* currentData, void* previousData, void* usrData)
         {

@@ -43,11 +43,10 @@ namespace Unity.NetCode
     }
     public interface ICommandDataSerializer<T> where T: struct, ICommandData
     {
-        void Serialize(ref DataStreamWriter writer, in T data);
-        void Deserialize(ref DataStreamReader reader, ref T data);
-        void Serialize(ref DataStreamWriter writer, in T data, in T baseline, NetworkCompressionModel compressionModel);
-
-        void Deserialize(ref DataStreamReader reader, ref T data, in T baseline, NetworkCompressionModel compressionModel);
+        void Serialize(ref DataStreamWriter writer, in RpcSerializerState state, in T data);
+        void Deserialize(ref DataStreamReader reader, in RpcDeserializerState state, ref T data);
+        void Serialize(ref DataStreamWriter writer, in RpcSerializerState state, in T data, in T baseline, NetworkCompressionModel compressionModel);
+        void Deserialize(ref DataStreamReader reader, in RpcDeserializerState state, ref T data, in T baseline, NetworkCompressionModel compressionModel);
     }
 
     public static class CommandDataUtility

@@ -21,7 +21,7 @@ namespace Unity.NetCode.Tests
     }
 
     [DisableAutoCreation]
-    public class StaticOptimizationTestSystem : SystemBase
+    public partial class StaticOptimizationTestSystem : SystemBase
     {
         public static int s_ModifyNetworkId;
         protected override void OnUpdate()

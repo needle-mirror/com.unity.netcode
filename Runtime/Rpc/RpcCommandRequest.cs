@@ -1,4 +1,5 @@
 using System;
+using System.Runtime.CompilerServices;
 using Unity.Collections;
 using Unity.Entities;
 using Unity.Jobs;
@@ -12,6 +13,37 @@ namespace Unity.NetCode
     public struct ReceiveRpcCommandRequestComponent : IComponentData
     {
         public Entity SourceConnection;
+
+#if ENABLE_UNITY_COLLECTIONS_CHECKS
+        /// <inheritdoc cref="Consume"/>
+        public ushort Age;
+
+#endif
+        /// <inheritdoc cref="Consume"/>
+        public bool IsConsumed
+        {
+            get
+            {
+#if ENABLE_UNITY_COLLECTIONS_CHECKS
+                return Age == ushort.MaxValue;
+#else
+                return false;
+#endif
+            }
+        }
+
+        /// <summary>
+        ///     <see cref="ReceiveRpcCommandRequestComponent"/> has a <see cref="WarnAboutStaleRpcSystem"/> which will log a warning if this <see cref="Age"/> value exceeds <see cref="WarnAboutStaleRpcSystem.MaxRpcAgeFrames"/>.
+        ///     Counts simulation frames.
+        ///     0 is the simulation frame it is received on.
+        /// </summary>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public void Consume()
+        {
+#if ENABLE_UNITY_COLLECTIONS_CHECKS
+            Age = ushort.MaxValue;
+#endif
+        }
     }
 
     [UpdateInGroup(typeof(SimulationSystemGroup), OrderLast = true)]
@@ -19,14 +51,25 @@ namespace Unity.NetCode
     [UpdateAfter(typeof(EndSimulationEntityCommandBufferSystem))]
     public class RpcCommandRequestSystemGroup : ComponentSystemGroup
     {
+        EntityQuery m_Query;
+        protected override void OnCreate()
+        {
+            base.OnCreate();
+            m_Query = EntityManager.CreateEntityQuery(ComponentType.ReadOnly<SendRpcCommandRequestComponent>());
+        }
+        protected override void OnUpdate()
+        {
+            if (!m_Query.IsEmptyIgnoreFilter)
+                base.OnUpdate();
+        }
     }
 
     [UpdateInGroup(typeof(RpcCommandRequestSystemGroup))]
-    public abstract class RpcCommandRequestSystem<TActionSerializer, TActionRequest> : SystemBase
+    public abstract partial class RpcCommandRequestSystem<TActionSerializer, TActionRequest> : SystemBase
         where TActionRequest : struct, IComponentData
         where TActionSerializer : struct, IRpcCommandSerializer<TActionRequest>
     {
-        protected struct SendRpcData
+        public struct SendRpcData
         {
             public EntityCommandBuffer.ParallelWriter commandBuffer;
             [ReadOnly] public EntityTypeHandle entitiesType;
@@ -110,6 +153,7 @@ namespace Unity.NetCode
                 ComponentType.ReadOnly<TActionRequest>());
             m_ConnectionsQuery = EntityManager.CreateEntityQuery(ComponentType.ReadWrite<NetworkIdComponent>(),
                 ComponentType.Exclude<NetworkStreamDisconnected>());
+            RequireForUpdate(m_entityQuery);
         }
 
         protected SendRpcData InitJobData()
