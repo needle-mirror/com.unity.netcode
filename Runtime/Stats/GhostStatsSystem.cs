@@ -9,11 +9,13 @@ using UnityEditor;
 namespace Unity.NetCode
 {
     [UpdateInGroup(typeof(SimulationSystemGroup))]
+#if UNITY_DOTSRUNTIME
 #if !UNITY_SERVER
     [UpdateBefore(typeof(TickClientSimulationSystem))]
 #endif
 #if !UNITY_CLIENT || UNITY_SERVER || UNITY_EDITOR
     [UpdateBefore(typeof(TickServerSimulationSystem))]
+#endif
 #endif
     [UpdateInWorld(TargetWorld.Default)]
     partial class GhostStatsSystem : SystemBase

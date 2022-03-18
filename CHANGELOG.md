@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.50.1] - 2022-03-18
+
+### Added
+
+* Hybrid assemblies will not be included in DOTS Runtime builds.
+
+### Changed
+
+* Changed: Tick systems (Initialization, Simulation, Presentation) are not created as part of the default client-server bootstrap for Hybrid and the Client and Server worlds are updated by the PlayerLoop instead.
+
+### Fixed
+
+* Fixed an exception in `PhysicsWorldHistory` when enabling lag compensation.
+* Fixed a rare compile error when source generators found invalid data in the package cache.
+* Fixed issue that prevent systems been shown in System Hierarchy window.
+* Fixed an issue where RPCs could be lost in rare cases when sending too many of them.
+* Fix an incorrect overflow exception when pre-spawned or predicted spawned ghost serialize a subset of the fields.
+
+
+
 ## [0.50.0] - 2021-09-17
 
 ### Added

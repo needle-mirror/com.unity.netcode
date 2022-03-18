@@ -74,8 +74,13 @@ namespace Unity.NetCode
         {
             PlayType playModeType = RequestedPlayType;
             int numClientWorlds = 1;
-
             int totalNumClients = numClientWorlds;
+
+            if (playModeType == PlayType.Server || playModeType == PlayType.ClientAndServer)
+            {
+                CreateServerWorld(defaultWorld, "ServerWorld");
+            }
+
             if (playModeType != PlayType.Server)
             {
 #if UNITY_EDITOR
@@ -93,11 +98,6 @@ namespace Unity.NetCode
                     clientWorld.EntityManager.CreateEntity(typeof(ThinClientComponent));
                 }
 #endif
-            }
-
-            if (playModeType != PlayType.Client)
-            {
-                CreateServerWorld(defaultWorld, "ServerWorld");
             }
         }
 
@@ -124,11 +124,11 @@ namespace Unity.NetCode
             var initializationGroup = world.GetOrCreateSystem<ClientInitializationSystemGroup>();
             var simulationGroup = world.GetOrCreateSystem<ClientSimulationSystemGroup>();
             var presentationGroup = world.GetOrCreateSystem<ClientPresentationSystemGroup>();
-
-            //Pre-create also all the necessary tick systems in the DefaultWorld
-            var initializationTickSystem = defaultWorld.GetOrCreateSystem<TickClientInitializationSystem>();
-            var simulationTickSystem = defaultWorld.GetOrCreateSystem<TickClientSimulationSystem>();
-            var presentationTickSystem = defaultWorld.GetOrCreateSystem<TickClientPresentationSystem>();
+            //These system are always created for dots-runtime automatically as part of the default world initialization.
+            //In hybrid, they must be explicitly added to system list and they are only used for tests purpose.
+            var initializationTickSystem = defaultWorld.GetExistingSystem<TickClientInitializationSystem>();
+            var simulationTickSystem = defaultWorld.GetExistingSystem<TickClientSimulationSystem>();
+            var presentationTickSystem = defaultWorld.GetExistingSystem<TickClientPresentationSystem>();
 
             //Retrieve all clients systems and create all at once via GetOrCreateSystemsAndLogException.
             var allManagedTypes = new List<Type>(s_State.ClientInitializationSystems.Count +
@@ -210,12 +210,24 @@ namespace Unity.NetCode
             presentationGroup.SortSystems();
 
             //Bind main world group to tick systems (DefaultWorld tick the client world)
-            initializationGroup.ParentTickSystem = initializationTickSystem;
-            initializationTickSystem.AddSystemToUpdateList(initializationGroup);
-            simulationGroup.ParentTickSystem = simulationTickSystem;
-            simulationTickSystem.AddSystemToUpdateList(simulationGroup);
-            presentationGroup.ParentTickSystem = presentationTickSystem;
-            presentationTickSystem.AddSystemToUpdateList(presentationGroup);
+            if (initializationTickSystem != null && simulationTickSystem != null && presentationTickSystem != null)
+            {
+                initializationGroup.ParentTickSystem = initializationTickSystem;
+                initializationTickSystem.AddSystemToUpdateList(initializationGroup);
+                simulationGroup.ParentTickSystem = simulationTickSystem;
+                simulationTickSystem.AddSystemToUpdateList(simulationGroup);
+                presentationGroup.ParentTickSystem = presentationTickSystem;
+                presentationTickSystem.AddSystemToUpdateList(presentationGroup);
+            }
+            else
+            {
+#if UNITY_DOTSRUNTIME
+                //These systems are mandatory
+                throw new InvalidOperationException("TickClientInitializationSystem, TickClientSimulationSystem and TickClientPresentationSystem are missing");
+#else
+                ScriptBehaviourUpdateOrder.AppendWorldToCurrentPlayerLoop(world);
+#endif
+            }
 
             if (AutoConnectPort != 0 && DefaultConnectAddress != NetworkEndPoint.AnyIpv4)
             {
@@ -238,10 +250,10 @@ namespace Unity.NetCode
             var world = worldToUse!=null ? worldToUse : new World(name, WorldFlags.Game);
             var initializationGroup = world.GetOrCreateSystem<ServerInitializationSystemGroup>();
             var simulationGroup = world.GetOrCreateSystem<ServerSimulationSystemGroup>();
-
-            //Pre-create also all the necessary tick systems in the DefaultWorld
-            var initializationTickSystem = defaultWorld.GetOrCreateSystem<TickServerInitializationSystem>();
-            var simulationTickSystem = defaultWorld.GetOrCreateSystem<TickServerSimulationSystem>();
+            //These system are always created for dots-runtime automatically as part of the default world initialization.
+            //In hybrid, they must be explicitly added to system list and they are only used for tests purpose.
+            var initializationTickSystem = defaultWorld.GetExistingSystem<TickServerInitializationSystem>();
+            var simulationTickSystem = defaultWorld.GetExistingSystem<TickServerSimulationSystem>();
 
             //Retrieve all clients systems and create all at once via GetOrCreateSystemsAndLogException.
             var allManagedTypes = new List<Type>(s_State.ServerInitializationSystems.Count +
@@ -304,11 +316,22 @@ namespace Unity.NetCode
             simulationGroup.SortSystems();
 
             //Bind main world group to tick systems (DefaultWorld tick the client world)
-            initializationGroup.ParentTickSystem = initializationTickSystem;
-            initializationTickSystem.AddSystemToUpdateList(initializationGroup);
-            simulationGroup.ParentTickSystem = simulationTickSystem;
-            simulationTickSystem.AddSystemToUpdateList(simulationGroup);
-
+            if (initializationTickSystem != null && simulationTickSystem != null)
+            {
+                initializationGroup.ParentTickSystem = initializationTickSystem;
+                initializationTickSystem.AddSystemToUpdateList(initializationGroup);
+                simulationGroup.ParentTickSystem = simulationTickSystem;
+                simulationTickSystem.AddSystemToUpdateList(simulationGroup);
+            }
+            else
+            {
+#if UNITY_DOTSRUNTIME
+                //These systems are mandatory
+                throw new InvalidOperationException("TickServerSimulationSystem and TickServerInitializationSystem are missing");
+#else
+                ScriptBehaviourUpdateOrder.AppendWorldToCurrentPlayerLoop(world);
+#endif
+            }
             if (AutoConnectPort != 0)
                 world.GetExistingSystem<NetworkStreamReceiveSystem>().Listen(DefaultListenAddress.WithPort(AutoConnectPort));
 

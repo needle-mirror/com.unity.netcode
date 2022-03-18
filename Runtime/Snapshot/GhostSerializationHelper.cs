@@ -52,9 +52,9 @@ namespace Unity.NetCode
             }
 
             [Conditional("ENABLE_UNITY_COLLECTIONS_CHECKS")]
-            private void CheckValidSnapshotOffset(int compSize)
+            private void CheckValidSnapshotOffset(int compSnapshotSize)
             {
-                if ((snapshotOffset + compSize) > snapshotCapacity)
+                if ((snapshotOffset + compSnapshotSize) > snapshotCapacity)
                     throw new InvalidOperationException("Overflow writing data to dynamic snapshot memory buffer");
             }
 
@@ -64,7 +64,7 @@ namespace Unity.NetCode
             {
                 var compSize = serializer.ComponentSize;
                 var compData = (byte*) chunk.GetDynamicComponentDataArrayReinterpret<byte>(typeHandle, compSize).GetUnsafeReadOnlyPtr();
-                CheckValidSnapshotOffset(compSize);
+                CheckValidSnapshotOffset(serializer.SnapshotSize);
                 serializer.CopyToSnapshot.Ptr.Invoke((IntPtr) UnsafeUtility.AddressOf(ref serializerState),
                     (IntPtr) snapshotPtr, snapshotOffset, snapshotCapacity, (IntPtr) (compData + ent * compSize), compSize, 1);
             }

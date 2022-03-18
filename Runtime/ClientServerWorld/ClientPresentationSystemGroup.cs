@@ -24,6 +24,9 @@ namespace Unity.NetCode
     }
 
 #if !UNITY_SERVER
+#if !UNITY_DOTSRUNTIME
+    [DisableAutoCreation]
+#endif
     [UpdateInGroup(typeof(PresentationSystemGroup))]
     [AlwaysUpdateSystem]
     [UpdateInWorld(TargetWorld.Default)]

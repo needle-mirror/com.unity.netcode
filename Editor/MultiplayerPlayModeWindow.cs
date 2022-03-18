@@ -275,12 +275,6 @@ namespace Unity.NetCode.Editor
         }
     }
 
-#if !UNITY_SERVER
-    [UpdateBefore(typeof(TickClientSimulationSystem))]
-#endif
-#if !UNITY_CLIENT || UNITY_SERVER || UNITY_EDITOR
-    [UpdateBefore(typeof(TickServerSimulationSystem))]
-#endif
     [UpdateInWorld(TargetWorld.Default)]
     public partial class MultiplayerPlayModeControllerSystem : SystemBase
     {

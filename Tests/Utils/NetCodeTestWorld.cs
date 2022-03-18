@@ -149,6 +149,11 @@ namespace Unity.NetCode.Tests
         public void Bootstrap(bool includeNetCodeSystems, params Type[] userSystems)
         {
             var systems = new List<Type>();
+            systems.Add(typeof(TickClientInitializationSystem));
+            systems.Add(typeof(TickClientSimulationSystem));
+            systems.Add(typeof(TickClientPresentationSystem));
+            systems.Add(typeof(TickServerInitializationSystem));
+            systems.Add(typeof(TickServerSimulationSystem));
             if (includeNetCodeSystems)
             {
                 if (s_NetCodeSystems == null)

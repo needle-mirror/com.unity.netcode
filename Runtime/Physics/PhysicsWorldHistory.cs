@@ -190,12 +190,6 @@ namespace Unity.NetCode
             {
                 throw new IndexOutOfRangeException();
             }
-#if ENABLE_UNITY_COLLECTIONS_CHECKS
-            if (m_buffer.GetWorldAt(index).NumBodies > 0)
-            {
-                UnityEngine.Debug.LogError("Not disposing CollisionWorld before assign a new one might cause memory leak");
-            }
-#endif
             m_buffer.SetWorldAt(index, collWorld.Clone());
         }
 
@@ -287,7 +281,15 @@ namespace Unity.NetCode
         private bool m_initialized;
         private uint m_lastStoredTick;
 
-        public CollisionHistoryBufferRef CollisionHistory => m_CollisionHistory.AsCollisionHistoryBufferRef();
+        public CollisionHistoryBufferRef CollisionHistory
+        {
+            get
+            {
+                if (!m_CollisionHistory.IsCreated || !m_initialized)
+                    throw new InvalidOperationException("Cannot retrieve the physics history buffer. The buffer is not initialized yet. Please check that the PhysicsWorldHistory is initialized using the IsInitialized method.");
+                return m_CollisionHistory.AsCollisionHistoryBufferRef();
+            }
+        }
 
         CollisionHistoryBuffer m_CollisionHistory;
 
@@ -311,6 +313,7 @@ namespace Unity.NetCode
         {
             if (m_CollisionHistory.IsCreated)
                 m_CollisionHistory.Dispose();
+            m_initialized = false;
         }
 
         protected override void OnStartRunning()

@@ -13,11 +13,17 @@ namespace Unity.NetCode
         {
             if (ParentTickSystem != null)
                 ParentTickSystem.RemoveSystemFromUpdateList(this);
+#if !UNITY_DOTSRUNTIME
+            ScriptBehaviourUpdateOrder.RemoveWorldFromCurrentPlayerLoop(World);
+#endif
         }
 #endif
     }
 
 #if !UNITY_SERVER
+#if !UNITY_DOTSRUNTIME
+    [DisableAutoCreation]
+#endif
     [UpdateInGroup(typeof(InitializationSystemGroup))]
     [AlwaysUpdateSystem]
     [UpdateInWorld(TargetWorld.Default)]

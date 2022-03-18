@@ -251,7 +251,36 @@ namespace Unity.NetCode.Tests
                 Assert.AreEqual(SendCmd, SerializedServerLargeRpcReceiveSystem.ReceivedCmd);
             }
         }
+        [Test]
+        public void Rpc_CanPackMultipleRPCs()
+        {
+            using (var testWorld = new NetCodeTestWorld())
+            {
+                testWorld.Bootstrap(true,
+                    typeof(SerializedClientLargeRcpSendSystem),
+                    typeof(SerializedServerLargeRpcReceiveSystem),
+                    typeof(SerializedLargeRpcCommandRequestSystem));
+                testWorld.CreateWorlds(true, 1);
 
+                int SendCount = 500;
+                var SendCmd = new SerializedLargeRpcCommand
+                    {stringValue = new FixedString512Bytes("\0\0\0\0\0\0\0\0\0\0")};
+                SerializedClientLargeRcpSendSystem.SendCount = SendCount;
+                SerializedClientLargeRcpSendSystem.Cmd = SendCmd;
+
+                SerializedServerLargeRpcReceiveSystem.ReceivedCount = 0;
+
+                float frameTime = 1.0f / 60.0f;
+                // Connect and make sure the connection could be established
+                Assert.IsTrue(testWorld.Connect(frameTime, 4));
+
+                for (int i = 0; i < 33; ++i)
+                    testWorld.Tick(1f / 60f);
+
+                Assert.AreEqual(SendCount, SerializedServerLargeRpcReceiveSystem.ReceivedCount);
+                Assert.AreEqual(SendCmd, SerializedServerLargeRpcReceiveSystem.ReceivedCmd);
+            }
+        }
 
         public class GhostConverter : TestNetCodeAuthoring.IConverter
         {

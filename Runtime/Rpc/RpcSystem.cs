@@ -341,7 +341,10 @@ namespace Unity.NetCode
                                 NativeArrayUnsafeUtility.SetAtomicSafetyHandle(ref sendArray, safety);
     #endif
                                 var reader = new DataStreamReader(sendArray);
-                                reader.ReadUShort();
+                                if (dynamicAssemblyList)
+                                    reader.ReadULong();
+                                else
+                                    reader.ReadUShort();
                                 var len = reader.ReadUShort() + msgHeaderLen;
                                 if (len + headerLength > tmp.Capacity)
                                 {
@@ -353,9 +356,13 @@ namespace Unity.NetCode
                                 // Try to fit a few more messages in this packet
                                 while (true)
                                 {
-                                    var subArray = sendArray.GetSubArray(tmp.Length, sendArray.Length - tmp.Length);
+                                    var curTmpDataLength = tmp.Length - headerLength;
+                                    var subArray = sendArray.GetSubArray(curTmpDataLength, sendArray.Length - curTmpDataLength);
                                     reader = new DataStreamReader(subArray);
-                                    reader.ReadUShort();
+                                    if (dynamicAssemblyList)
+                                        reader.ReadULong();
+                                    else
+                                        reader.ReadUShort();
                                     len = reader.ReadUShort() + msgHeaderLen;
                                     if (tmp.Length + len > tmp.Capacity)
                                         break;

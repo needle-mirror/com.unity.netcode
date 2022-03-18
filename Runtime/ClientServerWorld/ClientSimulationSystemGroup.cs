@@ -97,6 +97,9 @@ namespace Unity.NetCode
 #if !UNITY_CLIENT || UNITY_SERVER || UNITY_EDITOR
     [UpdateAfter(typeof(TickServerSimulationSystem))]
 #endif
+#if !UNITY_DOTSRUNTIME
+    [DisableAutoCreation]
+#endif
     [AlwaysUpdateSystem]
     [UpdateInWorld(TargetWorld.Default)]
     public class TickClientSimulationSystem : ComponentSystemGroup

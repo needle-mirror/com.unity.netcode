@@ -24,6 +24,7 @@ namespace Unity.NetCode
         public int ghostType;
         public int entityCapacity;
         public int entitiesOffset;
+        public int ghostOwnerOffset;
         //the ghost component serialized size
         public int dataOffset;
         public int dataSize;
@@ -31,7 +32,7 @@ namespace Unity.NetCode
         public int bufferDataCapacity;
         public int bufferDataOffset;
 
-        public static IntPtr AllocNew(int ghostTypeId, int dataSize, int entityCapacity, int buffersDataCapacity)
+        public static IntPtr AllocNew(int ghostTypeId, int dataSize, int entityCapacity, int buffersDataCapacity, int predictionOwnerOffset)
         {
             var entitiesSize = (ushort)GetEntitiesSize(entityCapacity, out var _);
             var headerSize = GetHeaderSize();
@@ -41,6 +42,7 @@ namespace Unity.NetCode
             state->entitiesOffset = headerSize;
             state->dataOffset = headerSize + entitiesSize;
             state->dataSize = dataSize;
+            state->ghostOwnerOffset = predictionOwnerOffset;
             state->bufferDataCapacity = buffersDataCapacity;
             state->bufferDataOffset = headerSize + entitiesSize + dataSize;
             return (IntPtr)state;
@@ -81,6 +83,14 @@ namespace Unity.NetCode
         public static byte* GetNextData(byte* data, int componentSize, int chunkCapacity)
         {
             return data + GetDataSize(componentSize, chunkCapacity);
+        }
+        public static int GetGhostOwner(IntPtr state)
+        {
+            var ps = ((PredictionBackupState*) state);
+            if (ps->ghostOwnerOffset != -1)
+                return *(((byte*)state) + ps->dataOffset + ps->ghostOwnerOffset);
+            //return an invalid owner (0)
+            return 0;
         }
     }
     /// <summary>
@@ -349,6 +359,8 @@ namespace Unity.NetCode
 
                 var singleEntitySize = UnsafeUtility.SizeOf<Entity>();
                 int baseOffset = typeData.FirstComponent;
+                int predictionOwnerOffset = -1;
+                var ghostOwnerTypeIndex = TypeManager.GetTypeIndex<GhostOwnerComponent>();
                 if (!predictionState.TryGetValue(chunk, out var state) ||
                     (*(PredictionBackupState*)state).ghostType != ghostTypeId ||
                     (*(PredictionBackupState*)state).entityCapacity != chunk.Capacity)
@@ -366,6 +378,9 @@ namespace Unity.NetCode
                         if ((GhostComponentIndex[baseOffset + comp].SendMask&requiredSendMask) == 0)
                             continue;
 
+                        if (GhostComponentCollection[serializerIdx].ComponentType.TypeIndex == ghostOwnerTypeIndex)
+                            predictionOwnerOffset = dataSize;
+
                         //for buffers we store a a pair of uint:
                         // uint length: the num of elements
                         // uint backupDataOffset: the start position in the backup buffer
@@ -382,7 +397,7 @@ namespace Unity.NetCode
                         buffersDataCapacity = GetChunkBuffersDataSize(typeData, chunk, ghostChunkComponentTypesPtr, ghostChunkComponentTypesLength, GhostComponentIndex, GhostComponentCollection);
 
                     // Chunk does not exist in the history, or has changed ghost type in which case we need to create a new one
-                    state = PredictionBackupState.AllocNew(ghostTypeId, dataSize, chunk.Capacity, buffersDataCapacity);
+                    state = PredictionBackupState.AllocNew(ghostTypeId, dataSize, chunk.Capacity, buffersDataCapacity, predictionOwnerOffset);
                     newPredictionState.Enqueue(new PredictionStateEntry{chunk = chunk, data = state});
                 }
                 else
@@ -396,7 +411,8 @@ namespace Unity.NetCode
                         if (bufferBackupDataCapacity < buffersDataCapacity)
                         {
                             var dataSize = ((PredictionBackupState*)state)->dataSize;
-                            var newState =  PredictionBackupState.AllocNew(ghostTypeId, dataSize, chunk.Capacity, buffersDataCapacity);
+                            var ghostOwnerOffset = ((PredictionBackupState*)state)->ghostOwnerOffset;
+                            var newState =  PredictionBackupState.AllocNew(ghostTypeId, dataSize, chunk.Capacity, buffersDataCapacity, ghostOwnerOffset);
                             UnsafeUtility.Free((void*) state, Allocator.Persistent);
                             state = newState;
                             updatedPredictionState.Enqueue(new PredictionStateEntry{chunk = chunk, data = newState});

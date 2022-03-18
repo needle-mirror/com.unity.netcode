@@ -1155,7 +1155,7 @@ namespace Unity.NetCode
             int irrelevantCount = 0;
             for (int ent = 0; ent < chunk.Count; ++ent)
             {
-                relevancyData[ent] = keepState ? relevancyData[ent] : 1;
+                relevancyData[ent] = keepState ? relevancyData[ent] : (byte)1;
                 if (relevancyData[ent] != 0 && !CanSerializeGroup(ghostGroupAccessor[ent]))
                 {
                     PacketDumpSkipGroup(ghost[ent].ghostId);

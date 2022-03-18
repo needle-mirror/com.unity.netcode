@@ -447,6 +447,15 @@ namespace Unity.NetCode
                 //bufferBackupDataPtr is null in case there are no buffer for that ghost type
                 byte* bufferBackupDataPtr = PredictionBackupState.GetBufferDataPtr(state);
                 int numBaseComponents = typeData.NumComponents - typeData.NumChildComponents;
+
+                var ghostOwner = PredictionBackupState.GetGhostOwner(state);
+                var requiredOwnerMask = SendToOwnerType.All;
+                if (ghostOwnerId != 0 && ghostOwner != 0)
+                {
+                    requiredOwnerMask = ghostOwnerId == ghostOwner
+                        ? SendToOwnerType.SendToOwner
+                        : SendToOwnerType.SendToNonOwner;
+                }
                 for (int comp = 0; comp < numBaseComponents; ++comp)
                 {
                     int compIdx = GhostComponentIndex[baseOffset + comp].ComponentIndex;
@@ -467,6 +476,12 @@ namespace Unity.NetCode
                         continue;
                     }
 
+                    //Do not restore the backup if the component is never received by this client (PlayerGhostFilter setting)
+                    if ((GhostComponentCollection[serializerIdx].SendToOwner & requiredOwnerMask) == 0)
+                    {
+                        dataPtr = PredictionBackupState.GetNextData(dataPtr, compSize, chunk.Capacity);
+                        continue;
+                    }
                     if (!GhostComponentCollection[serializerIdx].ComponentType.IsBuffer)
                     {
                         var compData = (byte*)chunk.GetDynamicComponentDataArrayReinterpret<byte>(ghostChunkComponentTypesPtr[compIdx], compSize).GetUnsafeReadOnlyPtr();
@@ -521,6 +536,13 @@ namespace Unity.NetCode
                         var compSize = GhostComponentCollection[serializerIdx].ComponentType.IsBuffer
                             ? GhostSystemConstants.DynamicBufferComponentSnapshotSize
                             : GhostComponentCollection[serializerIdx].ComponentSize;
+
+                        //Do not restore the backup if the component is never received by this client (PlayerGhostFilter setting)
+                        if ((GhostComponentCollection[serializerIdx].SendToOwner & requiredOwnerMask) == 0)
+                        {
+                            dataPtr = PredictionBackupState.GetNextData(dataPtr, compSize, chunk.Capacity);
+                            continue;
+                        }
 
                         var linkedEntityGroup = linkedEntityGroupAccessor[ent];
                         var childEnt = linkedEntityGroup[GhostComponentIndex[typeData.FirstComponent + comp].EntityIndex].Value;
