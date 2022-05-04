@@ -488,7 +488,7 @@ namespace Unity.NetCode.PrespawnTests
                     .ToComponentDataArray<GhostComponent>(Allocator.Temp);
                 var serverGhostPos = testWorld.ServerWorld.EntityManager.CreateEntityQuery(typeof(GhostComponent), typeof(Translation), ComponentType.ReadOnly<PreSpawnedGhostIndex>())
                     .ToComponentDataArray<Translation>(Allocator.Temp);
-                var serverPosLookup = new NativeHashMap<int, float3>(serverGhostPos.Length, Allocator.Temp);
+                var serverPosLookup = new NativeParallelHashMap<int, float3>(serverGhostPos.Length, Allocator.Temp);
                 Assert.AreEqual(clientGhostPos.Length, serverGhostPos.Length);
                 // Fill a hashmap with mapping from server ghost id to server position
                 for (int i = 0; i < serverGhosts.Length; ++i)

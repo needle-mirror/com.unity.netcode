@@ -43,7 +43,7 @@ namespace Unity.NetCode
 
     public struct GhostDeserializerState
     {
-        public NativeHashMap<SpawnedGhost, Entity> GhostMap;
+        public NativeParallelHashMap<SpawnedGhost, Entity> GhostMap;
         public uint SnapshotTick;
         public int GhostOwner;
         public SendToOwnerType SendToOwner;
@@ -62,8 +62,8 @@ namespace Unity.NetCode
         private EntityQuery clearJobGroup;
         private EntityQuery subSceneGroup;
 
-        private NativeHashMap<int, Entity> m_ghostEntityMap;
-        private NativeHashMap<SpawnedGhost, Entity> m_spawnedGhostEntityMap;
+        private NativeParallelHashMap<int, Entity> m_ghostEntityMap;
+        private NativeParallelHashMap<SpawnedGhost, Entity> m_spawnedGhostEntityMap;
         private NativeList<byte> m_tempDynamicData;
 
         private BeginSimulationEntityCommandBufferSystem m_Barrier;
@@ -88,13 +88,13 @@ namespace Unity.NetCode
         public int GhostCountOnClient => m_GhostCompletionCount[1];
 
         public JobHandle LastGhostMapWriter { get; set; }
-        public NativeHashMap<SpawnedGhost, Entity> SpawnedGhostEntityMap => m_spawnedGhostEntityMap;
-        internal NativeHashMap<int, Entity> GhostEntityMap => m_ghostEntityMap;
+        public NativeParallelHashMap<SpawnedGhost, Entity> SpawnedGhostEntityMap => m_spawnedGhostEntityMap;
+        internal NativeParallelHashMap<int, Entity> GhostEntityMap => m_ghostEntityMap;
 
         protected override void OnCreate()
         {
-            m_ghostEntityMap = new NativeHashMap<int, Entity>(2048, Allocator.Persistent);
-            m_spawnedGhostEntityMap = new NativeHashMap<SpawnedGhost, Entity>(2048, Allocator.Persistent);
+            m_ghostEntityMap = new NativeParallelHashMap<int, Entity>(2048, Allocator.Persistent);
+            m_spawnedGhostEntityMap = new NativeParallelHashMap<SpawnedGhost, Entity>(2048, Allocator.Persistent);
 
             playerGroup = GetEntityQuery(
                 ComponentType.ReadWrite<NetworkStreamConnection>(),
@@ -176,8 +176,8 @@ namespace Unity.NetCode
         [BurstCompile]
         struct ClearMapJob : IJob
         {
-            public NativeHashMap<int, Entity> ghostMap;
-            public NativeHashMap<SpawnedGhost, Entity> spawnedGhostMap;
+            public NativeParallelHashMap<int, Entity> ghostMap;
+            public NativeParallelHashMap<SpawnedGhost, Entity> spawnedGhostMap;
 
             public void Execute()
             {
@@ -218,7 +218,7 @@ namespace Unity.NetCode
             public ComponentDataFromEntity<SnapshotData> snapshotDataFromEntity;
             public ComponentDataFromEntity<NetworkSnapshotAckComponent> snapshotAckFromEntity;
             [ReadOnly] public ComponentDataFromEntity<NetworkIdComponent> networkIdFromEntity;
-            public NativeHashMap<int, Entity> ghostEntityMap;
+            public NativeParallelHashMap<int, Entity> ghostEntityMap;
             public NetworkCompressionModel compressionModel;
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
             public NativeArray<uint> netStats;
@@ -242,7 +242,7 @@ namespace Unity.NetCode
 #if NETCODE_DEBUG
             public NetDebugPacket netDebugPacket;
             [ReadOnly] public ComponentDataFromEntity<PrefabDebugName> prefabNames;
-            [ReadOnly] public NativeHashMap<int, FixedString128Bytes> componentTypeNameLookup;
+            [ReadOnly] public NativeParallelHashMap<int, FixedString128Bytes> componentTypeNameLookup;
             [ReadOnly] public ComponentDataFromEntity<EnablePacketLogging> enableLoggingFromEntity;
             public FixedString128Bytes timestampAndTick;
             private bool enablePacketLogging;

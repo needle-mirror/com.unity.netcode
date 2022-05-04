@@ -92,7 +92,7 @@ namespace Unity.NetCode
             if(GhostPrefabTypes.Length == 0)
                 return;
 
-            var processedPrefabs = new NativeHashMap<GhostTypeComponent, Entity>(256, Allocator.TempJob);
+            var processedPrefabs = new NativeParallelHashMap<GhostTypeComponent, Entity>(256, Allocator.TempJob);
             var subSceneWithPrespawnGhosts = m_UninitializedScenes.ToComponentDataArray<SubSceneWithPrespawnGhosts>(Allocator.Temp);
             var subScenesSections = m_UninitializedScenes.ToEntityArray(Allocator.Temp);
             var readySections = new NativeList<int>(subScenesSections.Length, Allocator.Temp);

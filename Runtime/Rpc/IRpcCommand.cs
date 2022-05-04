@@ -16,7 +16,7 @@ namespace Unity.NetCode
 
     public struct RpcDeserializerState
     {
-        public NativeHashMap<SpawnedGhost, Entity> ghostMap;
+        public NativeParallelHashMap<SpawnedGhost, Entity> ghostMap;
     }
 
     public interface IRpcCommandSerializer<T> where T: struct, IComponentData

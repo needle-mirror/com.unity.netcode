@@ -11,7 +11,7 @@ namespace Unity.NetCode
         where TActionSerializer : struct, IRpcCommandSerializer<TActionRequest>
     {
         internal ulong rpcType;
-        [ReadOnly] internal NativeHashMap<ulong, int> rpcTypeHashToIndex;
+        [ReadOnly] internal NativeParallelHashMap<ulong, int> rpcTypeHashToIndex;
         internal bool dynamicAssemblyList;
 
         public unsafe void Schedule(DynamicBuffer<OutgoingRpcDataStreamBufferComponent> buffer,

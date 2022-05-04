@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.51.0] - 2022-05-04
+
+### Changed
+
+* Package Dependencies
+    * `com.unity.entities` to version `0.51.0`
+* Updated transport dependency to 1.0.0.
+
+
+
 ## [0.50.1] - 2022-03-18
 
 ### Added
@@ -17,8 +27,6 @@
 * Fixed issue that prevent systems been shown in System Hierarchy window.
 * Fixed an issue where RPCs could be lost in rare cases when sending too many of them.
 * Fix an incorrect overflow exception when pre-spawned or predicted spawned ghost serialize a subset of the fields.
-
-
 
 ## [0.50.0] - 2021-09-17
 

@@ -96,7 +96,7 @@ namespace Unity.NetCode
         private EntityQuery m_RpcBufferGroup;
         private BeginSimulationEntityCommandBufferSystem m_Barrier;
         private NativeList<RpcData> m_RpcData;
-        private NativeHashMap<ulong, int> m_RpcTypeHashToIndex;
+        private NativeParallelHashMap<ulong, int> m_RpcTypeHashToIndex;
         private NativeQueue<RpcReceiveError> m_RpcErrors;
         private bool m_CanRegister;
         private NetDebugSystem m_NetDebugSystem;
@@ -105,7 +105,7 @@ namespace Unity.NetCode
         {
             m_CanRegister = true;
             m_RpcData = new NativeList<RpcData>(16, Allocator.Persistent);
-            m_RpcTypeHashToIndex = new NativeHashMap<ulong, int>(16, Allocator.Persistent);
+            m_RpcTypeHashToIndex = new NativeParallelHashMap<ulong, int>(16, Allocator.Persistent);
             m_DynamicAssemblyList = DynamicAssemblyList;
         }
 
@@ -202,8 +202,8 @@ namespace Unity.NetCode
             public BufferTypeHandle<OutgoingRpcDataStreamBufferComponent> outBufferType;
             public NativeQueue<RpcReceiveError>.ParallelWriter errors;
             [ReadOnly] public NativeList<RpcData> execute;
-            [ReadOnly] public NativeHashMap<ulong, int> hashToIndex;
-            [ReadOnly] public NativeHashMap<SpawnedGhost, Entity> ghostMap;
+            [ReadOnly] public NativeParallelHashMap<ulong, int> hashToIndex;
+            [ReadOnly] public NativeParallelHashMap<SpawnedGhost, Entity> ghostMap;
 
             [ReadOnly] public ComponentTypeHandle<NetworkSnapshotAckComponent> ackType;
             public uint localTime;

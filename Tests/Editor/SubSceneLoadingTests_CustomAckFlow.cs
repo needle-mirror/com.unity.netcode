@@ -81,7 +81,7 @@ namespace Unity.NetCode.Tests
     {
         protected override void OnUpdate()
         {
-            var hashmap = new NativeHashMap<ulong, Entity>(16, Allocator.TempJob);
+            var hashmap = new NativeParallelHashMap<ulong, Entity>(16, Allocator.TempJob);
             Entities.ForEach((Entity entity, in SubSceneWithPrespawnGhosts sub) =>
             {
                 hashmap[sub.SubSceneHash] =  entity;

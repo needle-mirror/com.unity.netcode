@@ -1,23 +1,23 @@
 {
   "name": "com.unity.netcode",
   "displayName": "Netcode for Entities",
-  "version": "0.50.1-preview.19",
+  "version": "0.51.0-preview.32",
   "unity": "2020.3",
   "unityRelease": "0f1",
   "description": "Unity's Data Oriented Technology Stack (DOTS) multiplayer netcode layer - a high level netcode system built on entities. This package provides a foundation for creating networked multiplayer applications within DOTS.",
   "dependencies": {
-    "com.unity.transport": "1.0.0-pre.15",
-    "com.unity.entities": "0.50.1-preview.2"
+    "com.unity.transport": "1.0.0",
+    "com.unity.entities": "0.51.0-preview.32"
   },
   "upm": {
-    "changelog": "### Added\n\n* Hybrid assemblies will not be included in DOTS Runtime builds.\n\n### Changed\n\n* Changed: Tick systems (Initialization, Simulation, Presentation) are not created as part of the default client-server bootstrap for Hybrid and the Client and Server worlds are updated by the PlayerLoop instead.\n\n### Fixed\n\n* Fixed an exception in `PhysicsWorldHistory` when enabling lag compensation.\n* Fixed a rare compile error when source generators found invalid data in the package cache.\n* Fixed issue that prevent systems been shown in System Hierarchy window.\n* Fixed an issue where RPCs could be lost in rare cases when sending too many of them.\n* Fix an incorrect overflow exception when pre-spawned or predicted spawned ghost serialize a subset of the fields."
+    "changelog": "### Changed\n\n* Package Dependencies\n    * `com.unity.entities` to version `0.51.0`\n* Updated transport dependency to 1.0.0."
   },
   "upmCi": {
-    "footprint": "ebb579f0e70cd21376c67031ff6ad11a2e7c7d65"
+    "footprint": "165c77c2407541000019d5a6a04db076d1ceae17"
   },
   "repository": {
     "url": "https://github.cds.internal.unity3d.com/unity/dots.git",
     "type": "git",
-    "revision": "f510d2cf044b48696ac6e43c591f2fb031f46fca"
+    "revision": "469d2b30300a7ff2c2b15f72ee8613e374c37b63"
   }
 }

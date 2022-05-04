@@ -19,7 +19,7 @@ namespace Unity.NetCode
     {
         protected override void OnUpdate()
         {
-            var hashToEntity = new NativeHashMap<ulong, Entity>(128, Allocator.TempJob);
+            var hashToEntity = new NativeParallelHashMap<ulong, Entity>(128, Allocator.TempJob);
             // TODO: Check that the GhostAuthoringComponent is interpolated, as we don't support predicted atm
             Entities.ForEach((GhostAuthoringComponent ghostAuthoring) =>
             {

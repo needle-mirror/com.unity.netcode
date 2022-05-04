@@ -112,7 +112,7 @@ namespace Unity.NetCode
         struct PredictionDebugJob : IJobChunk
         {
             public DynamicTypeList DynamicTypeList;
-            [ReadOnly] public NativeHashMap<ArchetypeChunk, System.IntPtr> predictionState;
+            [ReadOnly] public NativeParallelHashMap<ArchetypeChunk, System.IntPtr> predictionState;
 
             [ReadOnly] public ComponentTypeHandle<GhostComponent> ghostType;
             [ReadOnly] public ComponentTypeHandle<PredictedGhostComponent> predictedGhostType;

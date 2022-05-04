@@ -30,30 +30,30 @@ namespace Unity.NetCode
         public ComponentTypeHandle<GhostChildEntityComponent> ghostChildEntityComponentType;
         public BufferTypeHandle<GhostGroup> ghostGroupType;
         public NetworkSnapshotAckComponent snapshotAck;
-        public UnsafeHashMap<ArchetypeChunk, GhostChunkSerializationState> chunkSerializationData;
+        public UnsafeParallelHashMap<ArchetypeChunk, GhostChunkSerializationState> chunkSerializationData;
         public DynamicComponentTypeHandle* ghostChunkComponentTypesPtr;
         public int ghostChunkComponentTypesLength;
         public uint currentTick;
         public NetworkCompressionModel compressionModel;
         public GhostSerializerState serializerState;
         public int NetworkId;
-        public NativeHashMap<RelevantGhostForConnection, int> relevantGhostForConnection;
+        public NativeParallelHashMap<RelevantGhostForConnection, int> relevantGhostForConnection;
         public GhostRelevancyMode relevancyMode;
-        public UnsafeHashMap<int, uint> clearHistoryData;
+        public UnsafeParallelHashMap<int, uint> clearHistoryData;
         public ConnectionStateData.GhostStateList ghostStateData;
         public uint CurrentSystemVersion;
 
         public NetDebug netDebug;
 #if NETCODE_DEBUG
         public NetDebugPacket netDebugPacket;
-        public NativeHashMap<int, FixedString128Bytes> componentTypeNameLookup;
+        public NativeParallelHashMap<int, FixedString128Bytes> componentTypeNameLookup;
         public bool enablePacketLogging;
         public bool enablePerComponentProfiling;
         public FixedString64Bytes ghostTypeName;
         FixedString512Bytes debugLog;
 #endif
 
-        [ReadOnly] public NativeHashMap<ArchetypeChunk, SnapshotPreSerializeData> SnapshotPreSerializeData;
+        [ReadOnly] public NativeParallelHashMap<ArchetypeChunk, SnapshotPreSerializeData> SnapshotPreSerializeData;
         public bool forceSingleBaseline;
         public bool keepSnapshotHistoryOnStructuralChange;
         public bool snaphostHasCompressedGhostSize;
@@ -1234,7 +1234,7 @@ namespace Unity.NetCode
         {
             var ghostSystemState = currentChunk.GetNativeArray(ghostSystemStateType);
             var ghostEntities = currentChunk.GetNativeArray(entityType);
-            NativeHashMap<uint, IntPtr> prevSnapshots = default;
+            NativeParallelHashMap<uint, IntPtr> prevSnapshots = default;
             for (int currentIndexInChunk = 0; currentIndexInChunk < currentChunk.Count; ++currentIndexInChunk)
             {
                 ref var ghostState = ref ghostStateData.GetGhostState(ghostSystemState[currentIndexInChunk]);
@@ -1257,7 +1257,7 @@ namespace Unity.NetCode
                         if (prevSnapshots.IsCreated)
                             prevSnapshots.Clear();
                         else
-                            prevSnapshots = new NativeHashMap<uint, IntPtr>(GhostSystemConstants.SnapshotHistorySize, Allocator.Temp);
+                            prevSnapshots = new NativeParallelHashMap<uint, IntPtr>(GhostSystemConstants.SnapshotHistorySize, Allocator.Temp);
                         for (int history = 0; history < GhostSystemConstants.SnapshotHistorySize; ++history)
                         {
                             // We do not want to copy snapshot data from the write index since it is ok to keep incomplete data there

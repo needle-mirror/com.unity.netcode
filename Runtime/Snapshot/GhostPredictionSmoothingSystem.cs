@@ -34,7 +34,7 @@ namespace Unity.NetCode
         }
 
         NativeList<ComponentType> m_UserSpecifiedComponentData;
-        NativeHashMap<ComponentType, SmoothingActionState> m_SmoothingActions;
+        NativeParallelHashMap<ComponentType, SmoothingActionState> m_SmoothingActions;
 
         struct SmoothingAction : IComponentData {}
         Entity m_HasSmoothingAction;
@@ -122,7 +122,7 @@ namespace Unity.NetCode
             m_PredictionQuery = GetEntityQuery(ComponentType.ReadOnly<PredictedGhostComponent>(), ComponentType.ReadOnly<GhostComponent>());
 
             m_UserSpecifiedComponentData = new NativeList<ComponentType>(8, Allocator.Persistent);
-            m_SmoothingActions = new NativeHashMap<ComponentType, SmoothingActionState>(32, Allocator.Persistent);
+            m_SmoothingActions = new NativeParallelHashMap<ComponentType, SmoothingActionState>(32, Allocator.Persistent);
 
             RequireSingletonForUpdate<GhostCollection>();
             RequireSingletonForUpdate<SmoothingAction>();
@@ -176,7 +176,7 @@ namespace Unity.NetCode
         {
             public DynamicTypeList DynamicTypeList;
             public DynamicTypeList UserList;
-            [ReadOnly] public NativeHashMap<ArchetypeChunk, System.IntPtr> predictionState;
+            [ReadOnly] public NativeParallelHashMap<ArchetypeChunk, System.IntPtr> predictionState;
 
             [ReadOnly] public ComponentTypeHandle<GhostComponent> ghostType;
             [ReadOnly] public ComponentTypeHandle<PredictedGhostComponent> predictedGhostType;
@@ -190,7 +190,7 @@ namespace Unity.NetCode
             [ReadOnly] public StorageInfoFromEntity childEntityLookup;
             [ReadOnly] public BufferTypeHandle<LinkedEntityGroup> linkedEntityGroupType;
 
-            [ReadOnly] public NativeHashMap<ComponentType, SmoothingActionState> smoothingActions;
+            [ReadOnly] public NativeParallelHashMap<ComponentType, SmoothingActionState> smoothingActions;
             public uint tick;
 
             const GhostComponentSerializer.SendMask requiredSendMask = GhostComponentSerializer.SendMask.Predicted;

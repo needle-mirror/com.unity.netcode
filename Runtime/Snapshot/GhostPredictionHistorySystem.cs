@@ -114,10 +114,10 @@ namespace Unity.NetCode
             public System.IntPtr data;
         }
 
-        internal NativeHashMap<ArchetypeChunk, System.IntPtr> PredictionState;
+        internal NativeParallelHashMap<ArchetypeChunk, System.IntPtr> PredictionState;
         internal JobHandle PredictionStateWriteJobHandle {get; private set;}
         JobHandle m_PredictionStateReadJobHandle;
-        NativeHashMap<ArchetypeChunk, int> m_StillUsedPredictionState;
+        NativeParallelHashMap<ArchetypeChunk, int> m_StillUsedPredictionState;
         NativeQueue<PredictionStateEntry> m_NewPredictionState;
         NativeQueue<PredictionStateEntry> m_UpdatedPredictionState;
         EntityQuery m_PredictionQuery;
@@ -134,8 +134,8 @@ namespace Unity.NetCode
             m_GhostPredictionSystemGroup = World.GetExistingSystem<GhostPredictionSystemGroup>();
             m_ClientSimulationSystemGroup = World.GetExistingSystem<ClientSimulationSystemGroup>();
 
-            PredictionState = new NativeHashMap<ArchetypeChunk, System.IntPtr>(128, Allocator.Persistent);
-            m_StillUsedPredictionState = new NativeHashMap<ArchetypeChunk, int>(128, Allocator.Persistent);
+            PredictionState = new NativeParallelHashMap<ArchetypeChunk, System.IntPtr>(128, Allocator.Persistent);
+            m_StillUsedPredictionState = new NativeParallelHashMap<ArchetypeChunk, int>(128, Allocator.Persistent);
             m_NewPredictionState = new NativeQueue<PredictionStateEntry>(Allocator.Persistent);
             m_UpdatedPredictionState = new NativeQueue<PredictionStateEntry>(Allocator.Persistent);
             m_PredictionQuery = GetEntityQuery(ComponentType.ReadOnly<PredictedGhostComponent>(), ComponentType.ReadOnly<GhostComponent>());
@@ -238,8 +238,8 @@ namespace Unity.NetCode
         {
             public DynamicTypeList DynamicTypeList;
 
-            [ReadOnly]public NativeHashMap<ArchetypeChunk, System.IntPtr> predictionState;
-            public NativeHashMap<ArchetypeChunk, int>.ParallelWriter stillUsedPredictionState;
+            [ReadOnly]public NativeParallelHashMap<ArchetypeChunk, System.IntPtr> predictionState;
+            public NativeParallelHashMap<ArchetypeChunk, int>.ParallelWriter stillUsedPredictionState;
             public NativeQueue<PredictionStateEntry>.ParallelWriter newPredictionState;
             public NativeQueue<PredictionStateEntry>.ParallelWriter updatedPredictionState;
             [ReadOnly] public ComponentTypeHandle<GhostComponent> ghostComponentType;

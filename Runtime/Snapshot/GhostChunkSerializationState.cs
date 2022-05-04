@@ -419,26 +419,26 @@ namespace Unity.NetCode.LowLevel.Unsafe
             return new ConnectionStateData
             {
                 Entity = connection,
-                SerializationState = new UnsafeHashMap<ArchetypeChunk, GhostChunkSerializationState>(1024, Allocator.Persistent),
-                ClearHistory = new UnsafeHashMap<int, uint>(256, Allocator.Persistent),
+                SerializationState = new UnsafeParallelHashMap<ArchetypeChunk, GhostChunkSerializationState>(1024, Allocator.Persistent),
+                ClearHistory = new UnsafeParallelHashMap<int, uint>(256, Allocator.Persistent),
 #if NETCODE_DEBUG
                 NetDebugPacket = new NetDebugPacket(),
 #endif
                 GhostStateData = new GhostStateList(1024, 1024, Allocator.Persistent),
-                AckedPrespawnSceneMap = new UnsafeHashMap<ulong, int>(256, Allocator.Persistent),
+                AckedPrespawnSceneMap = new UnsafeParallelHashMap<ulong, int>(256, Allocator.Persistent),
                 m_NewLoadedPrespawnRanges = UnsafeList<PrespawnHelper.GhostIdInterval>.Create(32, Allocator.Persistent),
             };
         }
 
         public Entity Entity;
-        public UnsafeHashMap<ArchetypeChunk, GhostChunkSerializationState> SerializationState;
-        public UnsafeHashMap<int, uint> ClearHistory;
+        public UnsafeParallelHashMap<ArchetypeChunk, GhostChunkSerializationState> SerializationState;
+        public UnsafeParallelHashMap<int, uint> ClearHistory;
 #if NETCODE_DEBUG
         public NetDebugPacket NetDebugPacket;
 #endif
 
         public GhostStateList GhostStateData;
-        public UnsafeHashMap<ulong, int> AckedPrespawnSceneMap;
+        public UnsafeParallelHashMap<ulong, int> AckedPrespawnSceneMap;
         public ref UnsafeList<PrespawnHelper.GhostIdInterval> NewLoadedPrespawnRanges => ref m_NewLoadedPrespawnRanges[0];
         private UnsafeList<PrespawnHelper.GhostIdInterval>* m_NewLoadedPrespawnRanges;
 

@@ -40,7 +40,7 @@ namespace Unity.NetCode
 
 #if NETCODE_DEBUG
         private BeginSimulationEntityCommandBufferSystem m_Barrier;
-        public NativeHashMap<int, FixedString128Bytes> ComponentTypeNameLookup { get; private set; }
+        public NativeParallelHashMap<int, FixedString128Bytes> ComponentTypeNameLookup { get; private set; }
 #endif
 
         protected override void OnCreate()
@@ -48,7 +48,7 @@ namespace Unity.NetCode
             m_NetDebug.Initialize();
 #if NETCODE_DEBUG
             m_Barrier = World.GetOrCreateSystem<BeginSimulationEntityCommandBufferSystem>();
-            ComponentTypeNameLookup = new NativeHashMap<int, FixedString128Bytes>(1024, Allocator.Persistent);
+            ComponentTypeNameLookup = new NativeParallelHashMap<int, FixedString128Bytes>(1024, Allocator.Persistent);
 #else
             Enabled = false;
 #endif

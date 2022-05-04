@@ -11,7 +11,7 @@ namespace Unity.NetCode
     public interface IGhostMappingSystem
     {
         JobHandle LastGhostMapWriter { get; set; }
-        NativeHashMap<SpawnedGhost, Entity> SpawnedGhostEntityMap { get; }
+        NativeParallelHashMap<SpawnedGhost, Entity> SpawnedGhostEntityMap { get; }
     }
     [UpdateInWorld(TargetWorld.ClientAndServer)]
     [UpdateInGroup(typeof(SimulationSystemGroup), OrderFirst = true)]
@@ -46,7 +46,7 @@ namespace Unity.NetCode
             set { ghostMappingSystem.LastGhostMapWriter = value; }
         }
 
-        public NativeHashMap<SpawnedGhost, Entity> SpawnedGhostEntityMap
+        public NativeParallelHashMap<SpawnedGhost, Entity> SpawnedGhostEntityMap
         {
             get { return ghostMappingSystem.SpawnedGhostEntityMap; }
         }

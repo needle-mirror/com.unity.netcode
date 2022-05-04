@@ -28,7 +28,7 @@ namespace Unity.NetCode
             [NativeDisableContainerSafetyRestriction] private DynamicBuffer<GhostCollectionPrefabSerializer> GhostTypeCollection;
             [NativeDisableContainerSafetyRestriction] private DynamicBuffer<GhostCollectionComponentIndex> GhostComponentIndex;
 
-            [ReadOnly] public NativeHashMap<SpawnedGhost, Entity> GhostMap;
+            [ReadOnly] public NativeParallelHashMap<SpawnedGhost, Entity> GhostMap;
     #if UNITY_EDITOR || DEVELOPMENT_BUILD
             [NativeDisableParallelForRestriction] public NativeArray<uint> minMaxSnapshotTick;
     #endif
@@ -55,7 +55,7 @@ namespace Unity.NetCode
             [ReadOnly] public BufferTypeHandle<LinkedEntityGroup> linkedEntityGroupType;
 
             public uint predictionStateBackupTick;
-            [ReadOnly] public NativeHashMap<ArchetypeChunk, System.IntPtr> predictionStateBackup;
+            [ReadOnly] public NativeParallelHashMap<ArchetypeChunk, System.IntPtr> predictionStateBackup;
             [ReadOnly] public EntityTypeHandle entityType;
             public int ghostOwnerId;
             public uint MaxExtrapolationTicks;

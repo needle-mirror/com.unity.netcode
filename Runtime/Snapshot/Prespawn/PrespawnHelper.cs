@@ -133,7 +133,7 @@ namespace Unity.NetCode
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        static public void PopulateSceneHashLookupTable(EntityQuery query, EntityManager entityManager, NativeHashMap<int, ulong> hashMap)
+        static public void PopulateSceneHashLookupTable(EntityQuery query, EntityManager entityManager, NativeParallelHashMap<int, ulong> hashMap)
         {
             var chunks = query.CreateArchetypeChunkArray(Allocator.Temp);
             var sharedComponentType = entityManager.GetSharedComponentTypeHandle<SubSceneGhostComponentHash>();
@@ -163,7 +163,7 @@ namespace Unity.NetCode
                 return;
             }
             var prespawnAck = prespawnAckFromEntity[connectionEntity];
-            var newMap = new NativeHashMap<ulong, int>(prespawnAck.Length, Allocator.Temp);
+            var newMap = new NativeParallelHashMap<ulong, int>(prespawnAck.Length, Allocator.Temp);
             for (int i = 0; i < prespawnAck.Length; ++i)
             {
                 if(!clientPrespawnSceneMap.ContainsKey(prespawnAck[i].SceneHash))

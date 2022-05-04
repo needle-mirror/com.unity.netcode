@@ -54,7 +54,7 @@ namespace Unity.NetCode
             [ReadOnly] public ComponentTypeHandle<NetworkSnapshotAckComponent> snapshotAckType;
             [ReadOnly] public ComponentTypeHandle<NetworkIdComponent> networkIdType;
             [ReadOnly] public ComponentTypeHandle<CommandTargetComponent> commmandTargetType;
-            [ReadOnly] public NativeHashMap<SpawnedGhost, Entity> ghostMap;
+            [ReadOnly] public NativeParallelHashMap<SpawnedGhost, Entity> ghostMap;
 
             public uint serverTick;
             public NetDebug netDebug;

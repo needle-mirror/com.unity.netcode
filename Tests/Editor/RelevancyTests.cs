@@ -25,7 +25,7 @@ namespace Unity.NetCode.Tests
     internal partial class AutoMarkIrrelevantSystem : SystemBase
     {
         public static int s_ConnectionId;
-        public static NativeHashMap<int,int> s_IrrelevantGhosts;
+        public static NativeParallelHashMap<int,int> s_IrrelevantGhosts;
         GhostSendSystem m_GhostSendSystem;
         protected override void OnCreate()
         {
@@ -247,7 +247,7 @@ namespace Unity.NetCode.Tests
         public void MarkedIrrelevantAtSpawnIsNeverSeen()
         {
             using (var testWorld = new NetCodeTestWorld())
-            using (AutoMarkIrrelevantSystem.s_IrrelevantGhosts = new NativeHashMap<int, int>(128, Allocator.TempJob))
+            using (AutoMarkIrrelevantSystem.s_IrrelevantGhosts = new NativeParallelHashMap<int, int>(128, Allocator.TempJob))
             {
                 var ghostGameObject = bootstrapAndSetup(testWorld, typeof(AutoMarkIrrelevantSystem));
 
@@ -284,7 +284,7 @@ namespace Unity.NetCode.Tests
         public void MarkedIrrelevantIsDespawned()
         {
             using (var testWorld = new NetCodeTestWorld())
-            using (AutoMarkIrrelevantSystem.s_IrrelevantGhosts = new NativeHashMap<int, int>(128, Allocator.TempJob))
+            using (AutoMarkIrrelevantSystem.s_IrrelevantGhosts = new NativeParallelHashMap<int, int>(128, Allocator.TempJob))
             {
                 var ghostGameObject = bootstrapAndSetup(testWorld, typeof(AutoMarkIrrelevantSystem));
 
@@ -345,7 +345,7 @@ namespace Unity.NetCode.Tests
         public void MarkIrrelevantAtRuntimeReachTheClient(int ghostsPerFrame)
         {
             using (var testWorld = new NetCodeTestWorld())
-            using (AutoMarkIrrelevantSystem.s_IrrelevantGhosts = new NativeHashMap<int, int>(128, Allocator.TempJob))
+            using (AutoMarkIrrelevantSystem.s_IrrelevantGhosts = new NativeParallelHashMap<int, int>(128, Allocator.TempJob))
             {
                 var ghostGameObject = bootstrapAndSetup(testWorld, typeof(AutoMarkIrrelevantSystem));
 
@@ -388,7 +388,7 @@ namespace Unity.NetCode.Tests
         public void MarkRelevantAtRuntimeReachTheClient(int ghostsPerFrame)
         {
             using (var testWorld = new NetCodeTestWorld())
-            using (AutoMarkIrrelevantSystem.s_IrrelevantGhosts = new NativeHashMap<int, int>(128, Allocator.TempJob))
+            using (AutoMarkIrrelevantSystem.s_IrrelevantGhosts = new NativeParallelHashMap<int, int>(128, Allocator.TempJob))
             {
                 var ghostGameObject = bootstrapAndSetup(testWorld, typeof(AutoMarkIrrelevantSystem));
 
@@ -432,7 +432,7 @@ namespace Unity.NetCode.Tests
         public void ChangeRelevantSetAtRuntimeReachTheClient(int ghostsPerFrame)
         {
             using (var testWorld = new NetCodeTestWorld())
-            using (AutoMarkIrrelevantSystem.s_IrrelevantGhosts = new NativeHashMap<int, int>(128, Allocator.TempJob))
+            using (AutoMarkIrrelevantSystem.s_IrrelevantGhosts = new NativeParallelHashMap<int, int>(128, Allocator.TempJob))
             {
                 var ghostGameObject = bootstrapAndSetup(testWorld, typeof(AutoMarkIrrelevantSystem));
 
@@ -480,7 +480,7 @@ namespace Unity.NetCode.Tests
         public void ToggleEveryFrameDoesNotRepetedlySpawn()
         {
             using (var testWorld = new NetCodeTestWorld())
-            using (AutoMarkIrrelevantSystem.s_IrrelevantGhosts = new NativeHashMap<int, int>(128, Allocator.TempJob))
+            using (AutoMarkIrrelevantSystem.s_IrrelevantGhosts = new NativeParallelHashMap<int, int>(128, Allocator.TempJob))
             {
                 testWorld.DriverSimulatedDelay = 10;
                 var ghostGameObject = bootstrapAndSetup(testWorld, typeof(AutoMarkIrrelevantSystem));

@@ -30,14 +30,14 @@ namespace Unity.NetCode
     }
     internal unsafe struct GhostPreSerializer : IDisposable
     {
-        public NativeHashMap<ArchetypeChunk, SnapshotPreSerializeData> SnapshotData;
-        private NativeHashMap<ArchetypeChunk, SnapshotPreSerializeData> PreviousSnapshotData;
+        public NativeParallelHashMap<ArchetypeChunk, SnapshotPreSerializeData> SnapshotData;
+        private NativeParallelHashMap<ArchetypeChunk, SnapshotPreSerializeData> PreviousSnapshotData;
         private EntityQuery m_Query;
 
         public GhostPreSerializer(EntityQuery query)
         {
-            SnapshotData = new NativeHashMap<ArchetypeChunk, SnapshotPreSerializeData>(1024, Allocator.Persistent);
-            PreviousSnapshotData = new NativeHashMap<ArchetypeChunk, SnapshotPreSerializeData>(1024, Allocator.Persistent);
+            SnapshotData = new NativeParallelHashMap<ArchetypeChunk, SnapshotPreSerializeData>(1024, Allocator.Persistent);
+            PreviousSnapshotData = new NativeParallelHashMap<ArchetypeChunk, SnapshotPreSerializeData>(1024, Allocator.Persistent);
             m_Query = query;
         }
         void CleanupSnapshotData()
@@ -112,8 +112,8 @@ namespace Unity.NetCode
         [BurstCompile]
         struct GhostPreSerializeJob : IJobEntityBatch
         {
-            public NativeHashMap<ArchetypeChunk, SnapshotPreSerializeData>.ParallelWriter SnapshotData;
-            [ReadOnly] public NativeHashMap<ArchetypeChunk, SnapshotPreSerializeData> PreviousSnapshotData;
+            public NativeParallelHashMap<ArchetypeChunk, SnapshotPreSerializeData>.ParallelWriter SnapshotData;
+            [ReadOnly] public NativeParallelHashMap<ArchetypeChunk, SnapshotPreSerializeData> PreviousSnapshotData;
 
 
             [ReadOnly] public BufferFromEntity<GhostComponentSerializer.State> GhostComponentCollectionFromEntity;

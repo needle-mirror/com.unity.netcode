@@ -115,7 +115,7 @@ namespace Unity.NetCode
         [ReadOnly]public ComponentTypeHandle<GhostTypeComponent> ghostTypeHandle;
         [ReadOnly]public ComponentDataFromEntity<GhostPrefabMetaDataComponent> metaDataFromEntity;
         [ReadOnly]public BufferTypeHandle<LinkedEntityGroup> linkedEntityTypeHandle;
-        [ReadOnly]public NativeHashMap<GhostTypeComponent, Entity> prefabFromType;
+        [ReadOnly]public NativeParallelHashMap<GhostTypeComponent, Entity> prefabFromType;
         public EntityCommandBuffer.ParallelWriter commandBuffer;
         public NetDebug netDebug;
         public bool server;

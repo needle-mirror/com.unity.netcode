@@ -53,8 +53,8 @@ namespace Unity.NetCode
     {
         public GhostRelevancyMode GhostRelevancyMode{get; set;}
         public JobHandle GhostRelevancySetWriteHandle{get;set;}
-        public NativeHashMap<RelevantGhostForConnection, int> GhostRelevancySet => m_GhostRelevancySet;
-        private NativeHashMap<RelevantGhostForConnection, int> m_GhostRelevancySet;
+        public NativeParallelHashMap<RelevantGhostForConnection, int> GhostRelevancySet => m_GhostRelevancySet;
+        private NativeParallelHashMap<RelevantGhostForConnection, int> m_GhostRelevancySet;
 
         private EntityQuery ghostGroup;
         private EntityQuery ghostSpawnGroup;
@@ -70,9 +70,9 @@ namespace Unity.NetCode
         private NativeArray<uint> m_DespawnAckedByAllTick;
 
         private NativeList<ConnectionStateData> m_ConnectionStates;
-        private NativeHashMap<Entity, int> m_ConnectionStateLookup;
+        private NativeParallelHashMap<Entity, int> m_ConnectionStateLookup;
         private NetworkCompressionModel m_CompressionModel;
-        private NativeHashMap<int, ulong> m_SceneSectionHashLookup;
+        private NativeParallelHashMap<int, ulong> m_SceneSectionHashLookup;
 
         private ServerSimulationSystemGroup m_ServerSimulation;
         private BeginSimulationEntityCommandBufferSystem m_Barrier;
@@ -92,10 +92,10 @@ namespace Unity.NetCode
         private EntityQuery m_PacketLogEnableQuery;
 #endif
 
-        private NativeHashMap<SpawnedGhost, Entity> m_GhostMap;
+        private NativeParallelHashMap<SpawnedGhost, Entity> m_GhostMap;
         private NativeQueue<SpawnedGhost> m_FreeSpawnedGhostQueue;
 
-        public NativeHashMap<SpawnedGhost, Entity> SpawnedGhostEntityMap => m_GhostMap;
+        public NativeParallelHashMap<SpawnedGhost, Entity> SpawnedGhostEntityMap => m_GhostMap;
         internal NativeList<int> DestroyedPrespawns => m_DestroyedPrespawns;
         public JobHandle LastGhostMapWriter { get; set; }
 
@@ -245,9 +245,9 @@ namespace Unity.NetCode
             m_ReceiveSystem = World.GetOrCreateSystem<NetworkStreamReceiveSystem>();
 
             m_ConnectionStates = new NativeList<ConnectionStateData>(256, Allocator.Persistent);
-            m_ConnectionStateLookup = new NativeHashMap<Entity, int>(256, Allocator.Persistent);
+            m_ConnectionStateLookup = new NativeParallelHashMap<Entity, int>(256, Allocator.Persistent);
             m_CompressionModel = new NetworkCompressionModel(Allocator.Persistent);
-            m_SceneSectionHashLookup = new NativeHashMap<int, ulong>(256, Allocator.Persistent);
+            m_SceneSectionHashLookup = new NativeParallelHashMap<int, ulong>(256, Allocator.Persistent);
 
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
             m_StatsCollection = World.GetOrCreateSystem<GhostStatsCollectionSystem>();
@@ -255,11 +255,11 @@ namespace Unity.NetCode
 
             RequireSingletonForUpdate<GhostCollection>();
 
-            m_GhostRelevancySet = new NativeHashMap<RelevantGhostForConnection, int>(1024, Allocator.Persistent);
+            m_GhostRelevancySet = new NativeParallelHashMap<RelevantGhostForConnection, int>(1024, Allocator.Persistent);
             m_ConnectionRelevantCount = new NativeList<int>(16, Allocator.Persistent);
             m_ConnectionsToProcess = new NativeList<ConnectionStateData>(16, Allocator.Persistent);
 
-            m_GhostMap = new NativeHashMap<SpawnedGhost, Entity>(1024, Allocator.Persistent);
+            m_GhostMap = new NativeParallelHashMap<SpawnedGhost, Entity>(1024, Allocator.Persistent);
             m_FreeSpawnedGhostQueue = new NativeQueue<SpawnedGhost>(Allocator.Persistent);
 
             m_PrioritizeChunksMarker = new Unity.Profiling.ProfilerMarker("PrioritizeChunks");
@@ -323,7 +323,7 @@ namespace Unity.NetCode
             public NativeQueue<int> freeGhostIds;
             public NativeArray<int> allocatedGhostIds;
             public EntityCommandBuffer commandBuffer;
-            public NativeHashMap<SpawnedGhost, Entity> ghostMap;
+            public NativeParallelHashMap<SpawnedGhost, Entity> ghostMap;
 
             [ReadOnly] public ComponentDataFromEntity<GhostTypeComponent> ghostTypeFromEntity;
             public uint serverTick;
@@ -454,7 +454,7 @@ namespace Unity.NetCode
             [ReadOnly] public SharedComponentTypeHandle<SubSceneGhostComponentHash> subsceneHashSharedTypeHandle;
 
             public GhostRelevancyMode relevancyMode;
-            [ReadOnly] public NativeHashMap<RelevantGhostForConnection, int> relevantGhostForConnection;
+            [ReadOnly] public NativeParallelHashMap<RelevantGhostForConnection, int> relevantGhostForConnection;
             [ReadOnly] public NativeArray<int> relevantGhostCountForConnection;
 
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
@@ -486,13 +486,13 @@ namespace Unity.NetCode
             [ReadOnly] public StorageInfoFromEntity childEntityLookup;
             [ReadOnly] public BufferTypeHandle<LinkedEntityGroup> linkedEntityGroupType;
             [ReadOnly] public BufferTypeHandle<PrespawnGhostBaseline> prespawnBaselineTypeHandle;
-            [ReadOnly] public NativeHashMap<int, ulong> SubSceneHashSharedIndexMap;
+            [ReadOnly] public NativeParallelHashMap<int, ulong> SubSceneHashSharedIndexMap;
             public uint CurrentSystemVersion;
             public NetDebug netDebug;
 #if NETCODE_DEBUG
             public NetDebugPacket netDebugPacket;
             [ReadOnly] public ComponentDataFromEntity<PrefabDebugName> prefabNames;
-            [ReadOnly] public NativeHashMap<int, FixedString128Bytes> componentTypeNameLookup;
+            [ReadOnly] public NativeParallelHashMap<int, FixedString128Bytes> componentTypeNameLookup;
             [ReadOnly] public ComponentDataFromEntity<EnablePacketLogging> enableLoggingFromEntity;
             public FixedString32Bytes timestamp;
             public bool enablePerComponentProfiling;
@@ -504,8 +504,8 @@ namespace Unity.NetCode
             [ReadOnly] public BufferFromEntity<PrespawnSceneLoaded> prespawnSceneLoadedFromEntity;
 
             Entity connectionEntity;
-            UnsafeHashMap<ArchetypeChunk, GhostChunkSerializationState> chunkSerializationData;
-            UnsafeHashMap<int, uint> clearHistoryData;
+            UnsafeParallelHashMap<ArchetypeChunk, GhostChunkSerializationState> chunkSerializationData;
+            UnsafeParallelHashMap<int, uint> clearHistoryData;
             ConnectionStateData.GhostStateList ghostStateData;
             int connectionIdx;
 
@@ -522,7 +522,7 @@ namespace Unity.NetCode
             public bool keepSnapshotHistoryOnStructuralChange;
             public bool snaphostHasCompressedGhostSize;
 
-            [ReadOnly] public NativeHashMap<ArchetypeChunk, SnapshotPreSerializeData> SnapshotPreSerializeData;
+            [ReadOnly] public NativeParallelHashMap<ArchetypeChunk, SnapshotPreSerializeData> SnapshotPreSerializeData;
             public unsafe void Execute(int idx)
             {
                 DynamicComponentTypeHandle* ghostChunkComponentTypesPtr = DynamicTypeList.GetData();
@@ -1286,7 +1286,7 @@ namespace Unity.NetCode
                 .WithReadOnly(networkIdFromEntity)
                 .WithName("UpdateConnections")
                 .WithCode(() => {
-                var existing = new NativeHashMap<Entity, int>(connections.Length, Allocator.Temp);
+                var existing = new NativeParallelHashMap<Entity, int>(connections.Length, Allocator.Temp);
                 int maxConnectionId = 0;
                 for (int i = 0; i < connections.Length; ++i)
                 {
@@ -1628,7 +1628,7 @@ namespace Unity.NetCode
                 .WithName("CleanupGhostSerializationState")
                 .WithCode(() => {
                 var conCount = math.min(cleanupConnectionStatePerTick, connectionStates.Length);
-                var existingChunks = new NativeHashMap<ArchetypeChunk, int>(ghostChunks.Length, Allocator.Temp);
+                var existingChunks = new NativeParallelHashMap<ArchetypeChunk, int>(ghostChunks.Length, Allocator.Temp);
                 for (int chunk = 0; chunk < ghostChunks.Length; ++chunk)
                 {
                     existingChunks.TryAdd(ghostChunks[chunk], 1);
