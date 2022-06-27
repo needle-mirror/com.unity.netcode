@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.51.1] - 2022-06-27
+
+### Changed
+
+* Package Dependencies
+    * `com.unity.entities` to version `0.51.1`
+
 ## [0.51.0] - 2022-05-04
 
 ### Changed
@@ -7,6 +14,10 @@
 * Package Dependencies
     * `com.unity.entities` to version `0.51.0`
 * Updated transport dependency to 1.0.0.
+
+### Added
+
+* prevent the netcode generator running if the assembly compilation that does not references netcode package.
 
 
 
