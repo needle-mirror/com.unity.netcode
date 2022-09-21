@@ -1,18 +1,21 @@
-﻿#if (UNITY_EDITOR || DEVELOPMENT_BUILD) && !NETCODE_NDEBUG
+#if (UNITY_EDITOR || DEVELOPMENT_BUILD) && !NETCODE_NDEBUG
 #define NETCODE_DEBUG
 #endif
 using System.Diagnostics;
 using Unity.Collections;
 using Unity.Entities;
 using Unity.Jobs;
+using Unity.Burst;
 
 namespace Unity.NetCode
 {
     /// <summary>
-    /// ServerPopulatePrespawnedGhostsSystem systems is responsible for assign to the pre-spawned ghosts
-    /// their ghost ids and add add them to the spawn maps.
-    /// It rely on the previous initialization steps to determine the subscene subset to process.
-    ///
+    /// Responsible for assigning a unique <see cref="GhostComponent.ghostId"/> to each pre-spawned ghost,
+    /// and and adding the ghosts to the spawned ghosts maps.
+    /// Relies on the previous initializations step to determine the subscene subset to process.
+    /// </summary>
+    /// <remarks>
+    /// <para>
     /// The server is authoritative and it is responsible for assigning unique id ranges to the each scene.
     /// For each section that present prespawn ghosts, the prespawn hash, id range and baseline hash are sent to client
     /// as part of the streaming protocol.
@@ -20,107 +23,128 @@ namespace Unity.NetCode
     /// the ghost id to the pre-spawned ghosts like the server. This remove any necessity for loading order determinism.
     /// Finally, clients will ack the server about the loaded scenes and the server, upon ack receipt,
     /// will start streaming the pre-spawned ghosts
-    ///
-    /// ======================================================================
-    /// THE FULL PRESPAWN SUBSCENE SYNC PROTOCOL
-    /// ======================================================================
-    /// Server> calculates the prespawn baselines
-    /// Server> assign runtime ghost IDs to the prespawned ghosts
-    /// Server> store the SubSceneHash, BaselineHash and AssignedFirstId, PrespawnCount inside the the PrespawnHashElement collection
-    /// Server> create a new ghost with a PrespawnSceneLoaded bufffer that is serialized to the clients
-    ///
-    /// Client> will eventually receive the ghost with the subscene list
-    /// Client> (in parallel or before) will serialize the prespawn baseline when a new scene is loaded
-    /// Client> should validate that subscene data match
-    /// Client> will assign the ghost ids to the prespawns
-    /// Client> will ack the server that the scene has been received and witch sub-set of the scenes must be streamed to him
-    ///
-    /// </summary>
-    [UpdateInWorld(TargetWorld.Server)]
+    /// </para>
+    /// <para>### The Full Prespawn Subscene Sync Protocol</para>
+    /// <para>
+    /// The Server calculates the prespawn baselines.
+    /// The Server assigns runtime ghost IDs to the prespawned ghosts.
+    /// The Server stores the `SubSceneHash`, `BaselineHash`, `AssignedFirstId`, and `PrespawnCount` inside the the `PrespawnHashElement` collection.
+    /// The Server creates a new ghost with a `PrespawnSceneLoaded` buffer that is serialized to the clients.
+    /// </para>
+    /// <seealso cref="ClientPopulatePrespawnedGhostsSystem"/>
+    /// </remarks>
+    [WorldSystemFilter(WorldSystemFilterFlags.ServerSimulation)]
     [UpdateInGroup(typeof(PrespawnGhostSystemGroup))]
     [UpdateAfter(typeof(PrespawnGhostInitializationSystem))]
-    public partial class ServerPopulatePrespawnedGhostsSystem : SystemBase
+    [BurstCompile]
+    public partial struct ServerPopulatePrespawnedGhostsSystem : ISystem
     {
-        private EntityQuery m_UninitializedScenes;
-        private EntityQuery m_Prespawns;
-        private EntityQuery m_StreamInGame;
-        private NetDebugSystem m_NetDebugSystem;
-        private BeginSimulationEntityCommandBufferSystem m_Barrier;
-        private GhostSendSystem m_GhostSendSystem;
-        private Entity m_GhostIdAllocator;
+        EntityQuery m_UninitializedScenes;
+        EntityQuery m_Prespawns;
+        EntityQuery m_PrefabQuery;
+        Entity m_GhostIdAllocator;
 
-        protected override void OnCreate()
+        EntityTypeHandle m_EntityTypeHandle;
+        ComponentTypeHandle<PreSpawnedGhostIndex> m_PreSpawnedGhostIndexHandle;
+        ComponentTypeHandle<GhostComponent> m_GhostComponentHandle;
+        ComponentTypeHandle<GhostCleanupComponent> m_GhostCleanupComponentHandle;
+        BufferLookup<PrespawnGhostIdRange> m_PrespawnGhostIdRangeFromEntity;
+
+        [BurstCompile]
+        public void OnCreate(ref SystemState state)
         {
-            m_Barrier = World.GetExistingSystem<BeginSimulationEntityCommandBufferSystem>();
             // Assumes that at this point all subscenes should be already loaded
-            m_UninitializedScenes = GetEntityQuery(
-                ComponentType.ReadOnly<SubSceneWithPrespawnGhosts>(),
-                ComponentType.ReadOnly<SubScenePrespawnBaselineResolved>(),
-                ComponentType.Exclude<PrespawnsSceneInitialized>());
-            m_Prespawns = GetEntityQuery(ComponentType.ReadOnly<PreSpawnedGhostIndex>(),
-                ComponentType.ReadOnly<SubSceneGhostComponentHash>());
-            m_NetDebugSystem = World.GetOrCreateSystem<NetDebugSystem>();
+            var builder = new EntityQueryBuilder(Allocator.Temp)
+                .WithAll<SubSceneWithPrespawnGhosts, SubScenePrespawnBaselineResolved>()
+                .WithNone<PrespawnsSceneInitialized>();
+            m_UninitializedScenes = state.GetEntityQuery(builder);
+            builder.Reset();
+            builder.WithAll<PreSpawnedGhostIndex, SubSceneGhostComponentHash>();
+            m_Prespawns = state.GetEntityQuery(builder);
+            builder.Reset();
+            builder.WithAll<PrespawnSceneLoaded, Prefab>();
+            m_PrefabQuery = state.GetEntityQuery(builder);
+
+            m_EntityTypeHandle = state.GetEntityTypeHandle();
+            m_PreSpawnedGhostIndexHandle = state.GetComponentTypeHandle<PreSpawnedGhostIndex>(true);
+            m_GhostComponentHandle = state.GetComponentTypeHandle<GhostComponent>();
+            m_GhostCleanupComponentHandle = state.GetComponentTypeHandle<GhostCleanupComponent>();
+            m_PrespawnGhostIdRangeFromEntity = state.GetBufferLookup<PrespawnGhostIdRange>();
+
+            var atype = new NativeArray<ComponentType>(1, Allocator.Temp);
+            atype[0] = ComponentType.ReadWrite<PrespawnGhostIdRange>();
+            m_GhostIdAllocator = state.EntityManager.CreateEntity(state.EntityManager.CreateArchetype(atype));
+            state.EntityManager.SetName(m_GhostIdAllocator, (FixedString64Bytes)"PrespawnGhostIdAllocator");
+            state.RequireForUpdate(m_UninitializedScenes);
+            state.RequireForUpdate(m_Prespawns);
             // Require any number of in-game tags, server can have one per client
-            m_StreamInGame = GetEntityQuery(ComponentType.ReadOnly<NetworkStreamInGame>());
-            m_GhostSendSystem = World.GetExistingSystem<GhostSendSystem>();
-            m_GhostIdAllocator = EntityManager.CreateEntity(typeof(PrespawnGhostIdRange));
-            EntityManager.SetName(m_GhostIdAllocator, "PrespawnGhostIdAllocator");
-            RequireForUpdate(m_UninitializedScenes);
-            RequireForUpdate(m_Prespawns);
-            RequireForUpdate(m_StreamInGame);
-            RequireSingletonForUpdate<GhostCollection>();
+            state.RequireForUpdate<NetworkStreamInGame>();
+            state.RequireForUpdate<GhostCollection>();
+        }
+        [BurstCompile]
+        public void OnDestroy(ref SystemState state)
+        {
         }
 
-        protected override void OnUpdate()
+        [BurstCompile]
+        public void OnUpdate(ref SystemState state)
         {
-            if (!TryGetSingletonEntity<PrespawnSceneLoaded>(out var prespawnSceneListEntity))
+            if (!SystemAPI.TryGetSingletonEntity<PrespawnSceneLoaded>(out var prespawnSceneListEntity))
             {
-                var prefab = World.GetExistingSystem<PrespawnGhostInitializationSystem>().SubSceneListPrefab;
-                prespawnSceneListEntity = EntityManager.Instantiate(prefab);
-                EntityManager.RemoveComponent<GhostPrefabMetaDataComponent>(prespawnSceneListEntity);
-                EntityManager.GetBuffer<PrespawnSceneLoaded>(prespawnSceneListEntity).EnsureCapacity(128);
+                var prefab = m_PrefabQuery.GetSingletonEntity();
+                prespawnSceneListEntity = state.EntityManager.Instantiate(prefab);
+                state.EntityManager.RemoveComponent<GhostPrefabMetaDataComponent>(prespawnSceneListEntity);
+                state.EntityManager.GetBuffer<PrespawnSceneLoaded>(prespawnSceneListEntity).EnsureCapacity(128);
             }
             var subScenesWithGhosts = m_UninitializedScenes.ToComponentDataArray<SubSceneWithPrespawnGhosts>(Allocator.Temp);
             var subSceneEntities = m_UninitializedScenes.ToEntityArray(Allocator.Temp);
-            // Add GhostSystemStateComponent to all ghosts
+            // Add GhostCleanupComponent to all ghosts
             // After some measurement this is the fastest way to achieve it. Is roughly 5/6x faster than
-            // adding all the components change one by one via command buffer in a IJobChunk or IJobEntityBatch
+            // adding all the components change one by one via command buffer in a job
             // with a decent amout of entities (> 3000)
             for (int i = 0; i < subScenesWithGhosts.Length; ++i)
             {
                 var sharedFilter = new SubSceneGhostComponentHash {Value = subScenesWithGhosts[i].SubSceneHash};
                 m_Prespawns.SetSharedComponentFilter(sharedFilter);
-                EntityManager.AddComponent<GhostSystemStateComponent>(m_Prespawns);
+                state.EntityManager.AddComponent<GhostCleanupComponent>(m_Prespawns);
             }
+            var netDebug = SystemAPI.GetSingleton<NetDebug>();
             //This temporary list is necessary because we forcibly re-assign the entity to spawn maps for both client and server in case the
             //ghost is already registered.
             var totalPrespawns = 0;
             for (int i = 0; i < subScenesWithGhosts.Length; ++i)
                 totalPrespawns += subScenesWithGhosts[i].PrespawnCount;
-            var spawnedGhosts = new NativeArray<SpawnedGhostMapping>(totalPrespawns, Allocator.TempJob);
+            var spawnedGhosts = new NativeList<SpawnedGhostMapping>(totalPrespawns, state.WorldUnmanaged.UpdateAllocator.ToAllocator);
             //Kick a job for each sub-scene that assign the ghost id to all scene prespawn ghosts.
             //It also fill the array of prespawned ghosts that is going to be used to populate the ghost maps in the send/receive systems.
             var scenePadding = 0;
-            var subsceneCollection = EntityManager.GetBuffer<PrespawnSceneLoaded>(prespawnSceneListEntity);
-            var entityCommandBuffer = m_Barrier.CreateCommandBuffer();
+            var subsceneCollection = state.EntityManager.GetBuffer<PrespawnSceneLoaded>(prespawnSceneListEntity);
+            var entityCommandBuffer = SystemAPI.GetSingleton<BeginSimulationEntityCommandBufferSystem.Singleton>().CreateCommandBuffer(state.WorldUnmanaged);
+            ref var spawnedGhostEntityMap = ref SystemAPI.GetSingletonRW<SpawnedGhostEntityMap>().ValueRW;
+
+            m_EntityTypeHandle.Update(ref state);
+            m_PreSpawnedGhostIndexHandle.Update(ref state);
+            m_GhostComponentHandle.Update(ref state);
+            m_GhostCleanupComponentHandle.Update(ref state);
+            m_PrespawnGhostIdRangeFromEntity.Update(ref state);
             for (int i = 0; i < subScenesWithGhosts.Length; ++i)
             {
-                LogAssignPrespawnGhostIds(subScenesWithGhosts[i]);
+                LogAssignPrespawnGhostIds(ref netDebug, subScenesWithGhosts[i]);
                 var sharedFilter = new SubSceneGhostComponentHash {Value = subScenesWithGhosts[i].SubSceneHash};
                 m_Prespawns.SetSharedComponentFilter(sharedFilter);
                 //Allocate or reuse an id-range for that subscene and assign the ids to the ghosts
-                int startId = AllocatePrespawnGhostRange(subScenesWithGhosts[i].SubSceneHash, subScenesWithGhosts[i].PrespawnCount);
+                int startId = AllocatePrespawnGhostRange(ref netDebug, ref spawnedGhostEntityMap, subScenesWithGhosts[i].SubSceneHash, subScenesWithGhosts[i].PrespawnCount);
                 var assignPrespawnGhostIdJob = new AssignPrespawnGhostIdJob
                 {
-                    entityType = GetEntityTypeHandle(),
-                    prespawnIdType = GetComponentTypeHandle<PreSpawnedGhostIndex>(true),
-                    ghostComponentType = GetComponentTypeHandle<GhostComponent>(),
-                    ghostStateTypeHandle = GetComponentTypeHandle<GhostSystemStateComponent>(),
+                    entityType = m_EntityTypeHandle,
+                    prespawnIdType = m_PreSpawnedGhostIndexHandle,
+                    ghostComponentType = m_GhostComponentHandle,
+                    ghostStateTypeHandle = m_GhostCleanupComponentHandle,
                     startGhostId = startId,
-                    spawnedGhosts = spawnedGhosts.GetSubArray(scenePadding, subScenesWithGhosts[i].PrespawnCount),
-                    netDebug = m_NetDebugSystem.NetDebug
+                    spawnedGhosts = spawnedGhosts.AsParallelWriter(),
+                    netDebug = netDebug
                 };
-                Dependency = assignPrespawnGhostIdJob.ScheduleParallel(m_Prespawns, Dependency);
+                state.Dependency = assignPrespawnGhostIdJob.ScheduleParallel(m_Prespawns, state.Dependency);
                 scenePadding += subScenesWithGhosts[i].PrespawnCount;
                 //add the subscene to the collection. This will be synchronized to the clients
                 subsceneCollection.Add(new PrespawnSceneLoaded
@@ -134,15 +158,15 @@ namespace Unity.NetCode
                 //Mark scenes as initialized and add tracking.
                 var sceneSectionData = default(SceneSectionData);
 #if UNITY_EDITOR
-                if (EntityManager.HasComponent<LiveLinkPrespawnSectionReference>(subSceneEntities[i]))
+                if (state.EntityManager.HasComponent<LiveLinkPrespawnSectionReference>(subSceneEntities[i]))
                 {
-                    var sceneSectionRef = EntityManager.GetComponentData<LiveLinkPrespawnSectionReference>(subSceneEntities[i]);
+                    var sceneSectionRef = state.EntityManager.GetComponentData<LiveLinkPrespawnSectionReference>(subSceneEntities[i]);
                     sceneSectionData.SceneGUID = sceneSectionRef.SceneGUID;
                     sceneSectionData.SubSectionIndex = sceneSectionRef.Section;
                 }
                 else
 #endif
-                    sceneSectionData = EntityManager.GetComponentData<SceneSectionData>(subSceneEntities[i]);
+                    sceneSectionData = state.EntityManager.GetComponentData<SceneSectionData>(subSceneEntities[i]);
 
                 entityCommandBuffer.AddComponent<PrespawnsSceneInitialized>(subSceneEntities[i]);
                 entityCommandBuffer.AddComponent(subSceneEntities[i], new SubSceneWithGhostStateComponent
@@ -156,9 +180,21 @@ namespace Unity.NetCode
             }
             m_Prespawns.ResetFilter();
             //Wait for all ghost ids jobs assignments completed and populate the spawned ghost map
-            var netDebug = m_NetDebugSystem.NetDebug;
-            var ghostMap = m_GhostSendSystem.SpawnedGhostEntityMap;
-            Dependency = Job.WithName("ServerAddPrespawn").WithDisposeOnCompletion(spawnedGhosts).WithCode(() =>
+            var addJob = new ServerAddPrespawn
+            {
+                netDebug = netDebug,
+                spawnedGhosts = spawnedGhosts,
+                ghostMap = spawnedGhostEntityMap.SpawnedGhostMapRW
+            };
+            state.Dependency = addJob.Schedule(state.Dependency);
+        }
+
+        struct ServerAddPrespawn : IJob
+        {
+            public NetDebug netDebug;
+            public NativeList<SpawnedGhostMapping> spawnedGhosts;
+            public NativeParallelHashMap<SpawnedGhost, Entity> ghostMap;
+            public void Execute()
             {
                 for (int i = 0; i < spawnedGhosts.Length; ++i)
                 {
@@ -175,18 +211,16 @@ namespace Unity.NetCode
                         ghostMap[newGhost.ghost] = newGhost.entity;
                     }
                 }
-            }).Schedule(JobHandle.CombineDependencies(Dependency, m_GhostSendSystem.LastGhostMapWriter));
-            m_GhostSendSystem.LastGhostMapWriter = Dependency;
-            m_Barrier.AddJobHandleForProducer(Dependency);
+            }
         }
 
         /// <summary>
         /// Return the start ghost id for the subscene. Id ranges are re-used by the same subscene if it is loaded again
         /// </summary>
         //TODO: the allocation may become a little more advanced by re-using ids later
-        private int AllocatePrespawnGhostRange(ulong subSceneHash, int prespawnCount)
+        private int AllocatePrespawnGhostRange(ref NetDebug netDebug, ref SpawnedGhostEntityMap spawnedGhostEntityMap, ulong subSceneHash, int prespawnCount)
         {
-            var allocatedRanges = EntityManager.GetBuffer<PrespawnGhostIdRange>(m_GhostIdAllocator);
+            var allocatedRanges = m_PrespawnGhostIdRangeFromEntity[m_GhostIdAllocator];
             for (int r = 0; r < allocatedRanges.Length; ++r)
             {
                 if (allocatedRanges[r].SubSceneHash == subSceneHash)
@@ -195,7 +229,7 @@ namespace Unity.NetCode
                     if (allocatedRanges[r].Reserved != 0)
                         throw new System.InvalidOperationException($"prespawn ids range already present for subscene with hash {subSceneHash}");
 
-                    m_NetDebugSystem.NetDebug.DebugLog($"reusing prespawn ids range from {allocatedRanges[r].FirstGhostId} to {allocatedRanges[r].FirstGhostId + prespawnCount} for subscene with hash {subSceneHash}");
+                    netDebug.DebugLog($"reusing prespawn ids range from {allocatedRanges[r].FirstGhostId} to {allocatedRanges[r].FirstGhostId + prespawnCount} for subscene with hash {subSceneHash}");
                     allocatedRanges[r] = new PrespawnGhostIdRange
                     {
                         SubSceneHash = subSceneHash,
@@ -220,22 +254,22 @@ namespace Unity.NetCode
                 Reserved = 1
             };
             allocatedRanges.Add(newRange);
-            LogAllocatedIdRange(newRange);
+            LogAllocatedIdRange(ref netDebug, newRange);
             //Update the prespawn allocated ids
-            m_GhostSendSystem.SetAllocatedPrespawnGhostId(nextGhostId + prespawnCount);
+            spawnedGhostEntityMap.SetServerAllocatedPrespawnGhostId(nextGhostId + prespawnCount);
             return newRange.FirstGhostId;
         }
 
         [Conditional("NETCODE_DEBUG")]
-        private void LogAllocatedIdRange(PrespawnGhostIdRange rangeAlloc)
+        private void LogAllocatedIdRange(ref NetDebug netDebug, PrespawnGhostIdRange rangeAlloc)
         {
-            m_NetDebugSystem.NetDebug.DebugLog($"Assigned id-range [{rangeAlloc.FirstGhostId}-{rangeAlloc.FirstGhostId + rangeAlloc.Count}] to scene section with hash {NetDebug.PrintHex(rangeAlloc.SubSceneHash)}");
+            netDebug.DebugLog($"Assigned id-range [{rangeAlloc.FirstGhostId}-{rangeAlloc.FirstGhostId + rangeAlloc.Count}] to scene section with hash {NetDebug.PrintHex(rangeAlloc.SubSceneHash)}");
         }
 
         [Conditional("NETCODE_DEBUG")]
-        void LogAssignPrespawnGhostIds(in SubSceneWithPrespawnGhosts subScenesWithGhosts)
+        void LogAssignPrespawnGhostIds(ref NetDebug netDebug, in SubSceneWithPrespawnGhosts subScenesWithGhosts)
         {
-            m_NetDebugSystem.NetDebug.DebugLog(FixedString.Format("Assinging prespawn ghost ids for scene Hash:{0} Count:{1}",
+            netDebug.DebugLog(FixedString.Format("Assinging prespawn ghost ids for scene Hash:{0} Count:{1}",
                 NetDebug.PrintHex(subScenesWithGhosts.SubSceneHash), subScenesWithGhosts.PrespawnCount));
         }
     }

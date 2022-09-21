@@ -13,9 +13,9 @@ namespace Unity.NetCode.Tests
 {
     public class GhostValueSerializerConverter : TestNetCodeAuthoring.IConverter
     {
-        public void Convert(GameObject gameObject, Entity entity, EntityManager dstManager, GameObjectConversionSystem conversionSystem)
+        public void Bake(GameObject gameObject, IBaker baker)
         {
-            dstManager.AddComponentData(entity, new GhostValueSerializer {});
+            baker.AddComponent(new GhostValueSerializer {});
         }
     }
 
@@ -229,7 +229,8 @@ namespace Unity.NetCode.Tests
                 var ghostGameObject = new GameObject();
                 ghostGameObject.AddComponent<TestNetCodeAuthoring>().Converter = new GhostValueSerializerConverter();
                 var referencedGameObject = new GameObject();
-                referencedGameObject.AddComponent<GhostOwnerComponentAuthoring>();
+                var ghostConfig = referencedGameObject.AddComponent<GhostAuthoringComponent>();
+                ghostConfig.HasOwner = true;
 
                 Assert.IsTrue(testWorld.CreateGhostCollection(ghostGameObject, referencedGameObject));
 
@@ -276,17 +277,18 @@ namespace Unity.NetCode.Tests
                 var ghostGameObject = new GameObject();
                 ghostGameObject.AddComponent<TestNetCodeAuthoring>().Converter = new GhostValueSerializerConverter();
                 var referencedGameObject = new GameObject();
-                referencedGameObject.AddComponent<GhostOwnerComponentAuthoring>();
+                var ghostConfig = referencedGameObject.AddComponent<GhostAuthoringComponent>();
+                ghostConfig.HasOwner = true;
 
                 Assert.IsTrue(testWorld.CreateGhostCollection(ghostGameObject, referencedGameObject));
 
                 testWorld.CreateWorlds(true, 1);
-                var ghostSendSystem = testWorld.ServerWorld.GetExistingSystem<GhostSendSystem>();
+                ref var ghostRelevancy = ref testWorld.GetSingletonRW<GhostRelevancy>(testWorld.ServerWorld).ValueRW;
 
                 float frameTime = 1.0f / 60.0f;
                 // Connect and make sure the connection could be established
                 Assert.IsTrue(testWorld.Connect(frameTime, 4));
-                ghostSendSystem.GhostRelevancyMode = GhostRelevancyMode.SetIsRelevant;
+                ghostRelevancy.GhostRelevancyMode = GhostRelevancyMode.SetIsRelevant;
 
                 // Go in-game
                 testWorld.GoInGame();
@@ -309,7 +311,7 @@ namespace Unity.NetCode.Tests
                 var serverRefGhostId = testWorld.ServerWorld.EntityManager.GetComponentData<GhostComponent>(serverRefEntity).ghostId;
 
                 // only mark the entity with the ref as relevant so that arrived before the referenced entity exists
-                ghostSendSystem.GhostRelevancySet.TryAdd(new RelevantGhostForConnection(serverConnectionId, serverGhostId), 1);
+                ghostRelevancy.GhostRelevancySet.TryAdd(new RelevantGhostForConnection(serverConnectionId, serverGhostId), 1);
 
                 // Let the game run for a bit so the ghosts are spawned on the client
                 for (int i = 0; i < 8; ++i)
@@ -326,7 +328,7 @@ namespace Unity.NetCode.Tests
                 // Verify that we did not the referenced entity since it is irrelevant
                 Assert.AreEqual(Entity.Null, testWorld.TryGetSingletonEntity<GhostOwnerComponent>(testWorld.ClientWorlds[0]));
 
-                ghostSendSystem.GhostRelevancySet.TryAdd(new RelevantGhostForConnection(serverConnectionId, serverRefGhostId), 1);
+                ghostRelevancy.GhostRelevancySet.TryAdd(new RelevantGhostForConnection(serverConnectionId, serverRefGhostId), 1);
                 for (int i = 0; i < 8; ++i)
                 {
                     testWorld.Tick(frameTime);
@@ -390,7 +392,9 @@ namespace Unity.NetCode.Tests
                     for (int i = 0; i < 128; ++i)
                         testWorld.Tick(frameTime);
 
-                    Assert.AreEqual(10000, testWorld.ClientWorlds[0].GetExistingSystem<GhostReceiveSystem>().GhostCountOnClient);
+
+                    var ghostCount = testWorld.GetSingleton<GhostCount>(testWorld.ClientWorlds[0]);
+                    Assert.AreEqual(10000, ghostCount.GhostCountOnClient);
 
                     testWorld.ServerWorld.EntityManager.DestroyEntity(entities);
 
@@ -398,7 +402,7 @@ namespace Unity.NetCode.Tests
                         testWorld.Tick(frameTime);
 
                     // Assert that replicated version is correct
-                    Assert.AreEqual(0, testWorld.ClientWorlds[0].GetExistingSystem<GhostReceiveSystem>().GhostCountOnClient);
+                    Assert.AreEqual(0, ghostCount.GhostCountOnClient);
                 }
             }
         }

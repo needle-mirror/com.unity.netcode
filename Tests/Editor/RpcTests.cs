@@ -56,7 +56,7 @@ namespace Unity.NetCode.Tests
                 Assert.IsTrue(testWorld.Connect(frameTime, 4));
 
                 var remote = testWorld.TryGetSingletonEntity<NetworkStreamConnection>(testWorld.ClientWorlds[0]);
-                testWorld.ClientWorlds[0].GetExistingSystem<ClientRcpSendSystem>().Remote = remote;
+                testWorld.ClientWorlds[0].GetExistingSystemManaged<ClientRcpSendSystem>().Remote = remote;
 
                 for (int i = 0; i < 33; ++i)
                     testWorld.Tick(1f / 60f);
@@ -154,23 +154,6 @@ namespace Unity.NetCode.Tests
         }
 
         [Test]
-        public void Rpc_LateCreationOfSystem_Throws()
-        {
-            using (var testWorld = new NetCodeTestWorld())
-            {
-                testWorld.Bootstrap(true);
-                testWorld.CreateWorlds(true, 1);
-
-                float frameTime = 1.0f / 60.0f;
-                // Connect and make sure the connection could be established
-                Assert.IsTrue(testWorld.Connect(frameTime, 4));
-
-                Assert.Throws<InvalidOperationException>(()=>{testWorld.ServerWorld.GetOrCreateSystem(typeof(NonSerializedRpcCommandRequestSystem));});
-                Assert.Throws<InvalidOperationException>(()=>{testWorld.ClientWorlds[0].GetOrCreateSystem(typeof(NonSerializedRpcCommandRequestSystem));});
-            }
-        }
-
-        [Test]
         public void Rpc_MalformedPackets_ThrowsAndLogError()
         {
             using (var testWorld = new NetCodeTestWorld())
@@ -199,7 +182,7 @@ namespace Unity.NetCode.Tests
                 // Connect and make sure the connection could be established
                 Assert.IsTrue(testWorld.Connect(frameTime, 4));
 
-                LogAssert.Expect(LogType.Error, new Regex("RpcSystem received invalid rpc from connection 1"));
+                LogAssert.Expect(LogType.Error, new Regex("\\[ServerTest\\] RpcSystem received invalid rpc \\(index (\\d+) out of range\\) from connection 0"));
                 for (int i = 0; i < 32; ++i)
                     testWorld.Tick(1f / 60f);
 
@@ -284,9 +267,9 @@ namespace Unity.NetCode.Tests
 
         public class GhostConverter : TestNetCodeAuthoring.IConverter
         {
-            public void Convert(GameObject gameObject, Entity entity, EntityManager dstManager, GameObjectConversionSystem conversionSystem)
+            public void Bake(GameObject gameObject, IBaker baker)
             {
-                dstManager.AddComponentData(entity, new GhostOwnerComponent());
+                baker.AddComponent(new GhostOwnerComponent());
             }
         }
 
@@ -328,10 +311,10 @@ namespace Unity.NetCode.Tests
                 for (int i = 0; i < 8; ++i)
                     testWorld.Tick(1f / 60f);
 
+                var recvGhostMapSingleton = testWorld.TryGetSingletonEntity<SpawnedGhostEntityMap>(testWorld.ClientWorlds[0]);
                 // Retrieve the client entity
-                testWorld.ClientWorlds[0].GetExistingSystem<GhostSimulationSystemGroup>().LastGhostMapWriter.Complete();
                 var ghost = testWorld.ServerWorld.EntityManager.GetComponentData<GhostComponent>(serverEntity);
-                Assert.IsTrue(testWorld.ClientWorlds[0].GetExistingSystem<GhostSimulationSystemGroup>().SpawnedGhostEntityMap
+                Assert.IsTrue(testWorld.ClientWorlds[0].EntityManager.GetComponentData<SpawnedGhostEntityMap>(recvGhostMapSingleton).Value
                     .TryGetValue(new SpawnedGhost {ghostId = ghost.ghostId, spawnTick = ghost.spawnTick}, out var clientEntity));
 
                 //Send the rpc to the server
@@ -378,10 +361,11 @@ namespace Unity.NetCode.Tests
                 //On the client must but null
                 rpcReceived = RecvRpc(testWorld.ClientWorlds[0]);
                 Assert.IsTrue(rpcReceived.entity == Entity.Null);
+                var sendGhostMapSingleton = testWorld.TryGetSingletonEntity<SpawnedGhostEntityMap>(testWorld.ServerWorld);
                 //If client send the rpc now (the entity should not exists anymore and the mapping should be reset on both client and server now)
-                Assert.IsFalse(testWorld.ClientWorlds[0].GetExistingSystem<GhostSimulationSystemGroup>().SpawnedGhostEntityMap
+                Assert.IsFalse(testWorld.ClientWorlds[0].EntityManager.GetComponentData<SpawnedGhostEntityMap>(recvGhostMapSingleton).Value
                     .TryGetValue(new SpawnedGhost {ghostId = ghost.ghostId, spawnTick = ghost.spawnTick}, out var _));
-                Assert.IsFalse(testWorld.ServerWorld.GetExistingSystem<GhostSimulationSystemGroup>().SpawnedGhostEntityMap
+                Assert.IsFalse(testWorld.ServerWorld.EntityManager.GetComponentData<SpawnedGhostEntityMap>(sendGhostMapSingleton).Value
                     .TryGetValue(new SpawnedGhost {ghostId = ghost.ghostId, spawnTick = ghost.spawnTick}, out var _));
                 SendRpc(testWorld.ClientWorlds[0], clientEntity);
                 for (int i = 0; i < 4; ++i)
@@ -405,15 +389,15 @@ namespace Unity.NetCode.Tests
 
                 // Create a dud RPC on client and server. Ideally this test would test a full RPC flow, but trying to isolate dependencies:
                 var clientWorld = testWorld.ClientWorlds[0];
-                var clientNetDebug = clientWorld.GetExistingSystem<NetDebugSystem>().NetDebug;
+                var clientNetDebug = clientWorld.EntityManager.CreateEntityQuery(ComponentType.ReadWrite<NetDebug>()).GetSingleton<NetDebug>();
                 clientNetDebug.LogLevel = NetDebug.LogLevelType.Warning;
-                clientWorld.GetExistingSystem<WarnAboutStaleRpcSystem>().MaxRpcAgeFrames = 4;
+                testWorld.GetSingletonRW<NetDebug>(clientWorld).ValueRW.MaxRpcAgeFrames = 4;
                 clientWorld.EntityManager.CreateEntity(ComponentType.ReadWrite<ReceiveRpcCommandRequestComponent>());
 
                 var serverWorld = testWorld.ServerWorld;
-                var serverNetDebug = serverWorld.GetExistingSystem<NetDebugSystem>().NetDebug;
+                var serverNetDebug = serverWorld.EntityManager.CreateEntityQuery(ComponentType.ReadWrite<NetDebug>()).GetSingleton<NetDebug>();
                 serverNetDebug.LogLevel = NetDebug.LogLevelType.Warning;
-                serverWorld.GetExistingSystem<WarnAboutStaleRpcSystem>().MaxRpcAgeFrames = 4;
+                testWorld.GetSingletonRW<NetDebug>(serverWorld).ValueRW.MaxRpcAgeFrames = 4;
                 serverWorld.EntityManager.CreateEntity(ComponentType.ReadWrite<ReceiveRpcCommandRequestComponent>());
 
                 // 3 ticks before our expected one:

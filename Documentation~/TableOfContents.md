@@ -7,6 +7,7 @@
 * [Ghost snapshots](ghost-snapshots.md)
 * [Prediction](prediction.md)
 * [Time synchronization](time-synchronization.md)
+* [Optimizations](optimizations.md)
 * [Logging](logging.md)
 * [Physics](physics.md)
 * [Ghost types and variants](ghost-types-templates.md)

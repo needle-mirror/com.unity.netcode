@@ -15,6 +15,7 @@ using UnityEngine.TestTools;
 namespace Unity.NetCode.Physics.Tests
 {
     [DisableAutoCreation]
+    [RequireMatchingQueriesForUpdate]
     partial class TestPhysicsAndEntityForEach : SystemBase
     {
         protected override void OnUpdate()
@@ -24,7 +25,7 @@ namespace Unity.NetCode.Physics.Tests
                 .WithAll<Translation>()
                 .ForEach((Entity entity, int entityInQueryIndex) =>
                 {
-                    historyBuffer.GetCollisionWorldFromTick(0,0, out var world);
+                    historyBuffer.GetCollisionWorldFromTick(new NetworkTick(0),0, out var world);
                 }).Schedule();
             Assert.Throws<InvalidOperationException>(()=>
             {
@@ -37,7 +38,7 @@ namespace Unity.NetCode.Physics.Tests
                 //.WithReadOnly(historyBuffer)
                 .ForEach((Entity entity, int entityInQueryIndex) =>
             {
-                historyBuffer.GetCollisionWorldFromTick(0,0, out var world);
+                historyBuffer.GetCollisionWorldFromTick(new NetworkTick(0),0, out var world);
             }).Schedule();
             Assert.DoesNotThrow(()=>
             {
@@ -64,8 +65,8 @@ namespace Unity.NetCode.Physics.Tests
             {
                 for(int i=0;i<CollisionHistoryBuffer.Capacity;++i)
                 {
-                    historyBuffer.GetCollisionWorldFromTick(0, 0, out var world);
-                    Assert.IsFalse(world.NumBodies > 0);;
+                    historyBuffer.GetCollisionWorldFromTick(new NetworkTick(0), 0, out var world);
+                    Assert.IsFalse(world.NumBodies > 0);
                 }
             }
         }
@@ -109,7 +110,7 @@ namespace Unity.NetCode.Physics.Tests
                 //Looking at the code the triggering logic is quite involved and depends on where the method is called
                 //and some other conditions.
                 //This is why I used a more generic Catch clause instead of Throws
-                Assert.Catch(()=> { historyBuffer.GetCollisionWorldFromTick(0, 0, out var world); });
+                Assert.Catch(()=> { historyBuffer.GetCollisionWorldFromTick(new NetworkTick(0), 0, out var world); });
                 Assert.Catch(()=> { historyBuffer.CloneCollisionWorld(0, collisionWorld); });
                 Assert.Catch(()=> {  historyBuffer.DisposeIndex(0); });
                 Assert.Catch(()=> {  historyBuffer.Dispose(); });
@@ -126,7 +127,7 @@ namespace Unity.NetCode.Physics.Tests
                 {
                     Assert.DoesNotThrow(() =>
                     {
-                        historyBuffer.GetCollisionWorldFromTick(0, 0, out var world);
+                        historyBuffer.GetCollisionWorldFromTick(new NetworkTick(0), 0, out var world);
                     });
                     Assert.DoesNotThrow(() =>
                     {
@@ -137,22 +138,6 @@ namespace Unity.NetCode.Physics.Tests
                         historyBuffer.DisposeIndex(0);
                     });
                 }
-            }
-        }
-
-        [Test]
-        public void PhysicsHistoryBuffer_CloningWithoutDisposeLogError()
-        {
-            using (var historyBuffer = new CollisionHistoryBuffer(1))
-            {
-                var collisionWorld = new CollisionWorld(1, 0);
-                //This is fine because by default world history is empty
-                historyBuffer.CloneCollisionWorld(0, collisionWorld);
-                historyBuffer.GetCollisionWorldFromTick(0, 0, out var tempWorld);
-                LogAssert.Expect(LogType.Error, "Not disposing CollisionWorld before assign a new one might cause memory leak");
-                historyBuffer.CloneCollisionWorld(0, collisionWorld);
-                tempWorld.Dispose();
-                collisionWorld.Dispose();
             }
         }
 
@@ -178,7 +163,7 @@ namespace Unity.NetCode.Physics.Tests
             public CollisionHistoryBufferRef historyBuffer;
             public void Execute()
             {
-                historyBuffer.GetCollisionWorldFromTick(0,0, out var world);
+                historyBuffer.GetCollisionWorldFromTick(new NetworkTick(0),0, out var world);
             }
         }
 
@@ -209,7 +194,7 @@ namespace Unity.NetCode.Physics.Tests
             public NativeArray<int> result;
             public void Execute(int index)
             {
-                HistoryBufferBuffer.GetCollisionWorldFromTick(0, 0, out var world);
+                HistoryBufferBuffer.GetCollisionWorldFromTick(new NetworkTick(0), 0, out var world);
                 var rayInput = new Unity.Physics.RaycastInput();
                 rayInput.Start = float3.zero;
                 rayInput.End = new float3(1.0f, 1.0f, 1.0f);
@@ -225,7 +210,7 @@ namespace Unity.NetCode.Physics.Tests
             [ReadOnly] public CollisionHistoryBufferRef CollisionHistoryBufferRef;
             public void Execute()
             {
-                CollisionHistoryBufferRef.GetCollisionWorldFromTick(0, 0, out var world);
+                CollisionHistoryBufferRef.GetCollisionWorldFromTick(new NetworkTick(0), 0, out var world);
             }
         }
 
@@ -329,7 +314,7 @@ namespace Unity.NetCode.Physics.Tests
         public void PhysicsHistoryBuffer_SupportEntityForEach()
         {
             var entityWorld = new World("NetCodeTest");
-            entityWorld.GetOrCreateSystem<TestPhysicsAndEntityForEach>();
+            entityWorld.GetOrCreateSystemManaged<TestPhysicsAndEntityForEach>();
             var archetype = entityWorld.EntityManager.CreateArchetype(typeof(Translation));
             var entities = entityWorld.EntityManager.CreateEntity(archetype, 10, Allocator.Temp);
             entities.Dispose();

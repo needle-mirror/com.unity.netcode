@@ -4,6 +4,8 @@ using Unity.Collections;
 using Unity.Collections.LowLevel.Unsafe;
 using System;
 using System.Diagnostics;
+using Unity.Assertions;
+using Unity.Burst.Intrinsics;
 using Unity.NetCode.LowLevel.Unsafe;
 using Unity.Jobs;
 
@@ -69,20 +71,20 @@ namespace Unity.NetCode
         }
 
         public JobHandle Schedule(JobHandle dependency,
-            BufferFromEntity<GhostComponentSerializer.State> GhostComponentCollectionFromEntity,
-            BufferFromEntity<GhostCollectionPrefabSerializer> GhostTypeCollectionFromEntity,
-            BufferFromEntity<GhostCollectionComponentIndex> GhostComponentIndexFromEntity,
+            BufferLookup<GhostComponentSerializer.State> GhostComponentCollectionFromEntity,
+            BufferLookup<GhostCollectionPrefabSerializer> GhostTypeCollectionFromEntity,
+            BufferLookup<GhostCollectionComponentIndex> GhostComponentIndexFromEntity,
             Entity GhostCollectionSingleton,
-            BufferFromEntity<GhostCollectionPrefab> GhostCollectionFromEntity,
+            BufferLookup<GhostCollectionPrefab> GhostCollectionFromEntity,
             BufferTypeHandle<LinkedEntityGroup> linkedEntityGroupType,
-            StorageInfoFromEntity childEntityLookup,
+            EntityStorageInfoLookup childEntityLookup,
             ComponentTypeHandle<GhostComponent> ghostComponentType,
             ComponentTypeHandle<GhostTypeComponent> ghostTypeComponentType,
             EntityTypeHandle entityType,
-            ComponentDataFromEntity<GhostComponent> ghostFromEntity,
+            ComponentLookup<GhostComponent> ghostFromEntity,
             NetDebug netDebug,
-            uint currentTick,
-            SystemBase system,
+            NetworkTick currentTick,
+            ref SystemState system,
             DynamicBuffer<GhostCollectionComponentType> ghostCollection)
         {
             CleanupSnapshotData();
@@ -105,43 +107,44 @@ namespace Unity.NetCode
                 netDebug = netDebug,
                 currentTick = currentTick
             };
-            DynamicTypeList.PopulateList(system, ghostCollection, true, ref job.List);
+            DynamicTypeList.PopulateList(ref system, ghostCollection, true, ref job.List);
             return job.ScheduleParallelByRef(m_Query, dependency);
         }
 
         [BurstCompile]
-        struct GhostPreSerializeJob : IJobEntityBatch
+        struct GhostPreSerializeJob : IJobChunk
         {
             public NativeParallelHashMap<ArchetypeChunk, SnapshotPreSerializeData>.ParallelWriter SnapshotData;
             [ReadOnly] public NativeParallelHashMap<ArchetypeChunk, SnapshotPreSerializeData> PreviousSnapshotData;
 
 
-            [ReadOnly] public BufferFromEntity<GhostComponentSerializer.State> GhostComponentCollectionFromEntity;
-            [ReadOnly] public BufferFromEntity<GhostCollectionPrefabSerializer> GhostTypeCollectionFromEntity;
-            [ReadOnly] public BufferFromEntity<GhostCollectionComponentIndex> GhostComponentIndexFromEntity;
+            [ReadOnly] public BufferLookup<GhostComponentSerializer.State> GhostComponentCollectionFromEntity;
+            [ReadOnly] public BufferLookup<GhostCollectionPrefabSerializer> GhostTypeCollectionFromEntity;
+            [ReadOnly] public BufferLookup<GhostCollectionComponentIndex> GhostComponentIndexFromEntity;
 
             public Entity GhostCollectionSingleton;
-            [ReadOnly] public BufferFromEntity<GhostCollectionPrefab> GhostCollectionFromEntity;
+            [ReadOnly] public BufferLookup<GhostCollectionPrefab> GhostCollectionFromEntity;
 
             public DynamicTypeList List;
 
 
             [ReadOnly] public BufferTypeHandle<LinkedEntityGroup> linkedEntityGroupType;
-            [ReadOnly] public StorageInfoFromEntity childEntityLookup;
+            [ReadOnly] public EntityStorageInfoLookup childEntityLookup;
 
             [ReadOnly] public ComponentTypeHandle<GhostComponent> ghostComponentType;
             [ReadOnly] public ComponentTypeHandle<GhostTypeComponent> ghostTypeComponentType;
             [ReadOnly] public EntityTypeHandle entityType;
 
-            [ReadOnly] public ComponentDataFromEntity<GhostComponent> ghostFromEntity;
+            [ReadOnly] public ComponentLookup<GhostComponent> ghostFromEntity;
 
 
             public NetDebug netDebug;
 
-            public uint currentTick;
+            public NetworkTick currentTick;
 
-            public void Execute(ArchetypeChunk chunk, int orderIndex)
+            public void Execute(in ArchetypeChunk chunk, int unfilteredChunkIndex, bool useEnabledMask, in v128 chunkEnabledMask)
             {
+                Assert.IsFalse(useEnabledMask);
                 var GhostTypeCollection = GhostTypeCollectionFromEntity[GhostCollectionSingleton];
                 DynamicComponentTypeHandle* ghostChunkComponentTypesPtr = List.GetData();
                 var ghosts = chunk.GetNativeArray(ghostComponentType);
@@ -168,8 +171,10 @@ namespace Unity.NetCode
                 int dynamicDataHeaderSize = 0;
                 int snapshotSize = typeData.SnapshotSize;
 
-                int changeMaskUints = GhostCollectionSystem.ChangeMaskArraySizeInUInts(typeData.ChangeMaskBits);
-                int snapshotOffset = GhostCollectionSystem.SnapshotSizeAligned(4 + changeMaskUints*4);
+                int changeMaskUints = GhostComponentSerializer.ChangeMaskArraySizeInUInts(typeData.ChangeMaskBits);
+                int enableableMaskUints = GhostComponentSerializer.ChangeMaskArraySizeInUInts(typeData.EnableableBits);
+
+                int snapshotOffset = GhostComponentSerializer.SnapshotSizeAligned(sizeof(uint) + changeMaskUints*sizeof(uint) + enableableMaskUints*sizeof(uint));
                 var helper = new GhostSerializeHelper
                 {
                     serializerState = new GhostSerializerState { GhostFromEntity = ghostFromEntity },
@@ -214,7 +219,8 @@ namespace Unity.NetCode
                 // Go through all entities and serialize the data to the snapshot store
                 helper.snapshotPtr = (byte*)snapshot.Data;
                 helper.snapshotOffset = snapshotOffset;
-                helper.snapshotCapacity = snapshotSize;
+                helper.snapshotSize = snapshotSize;
+                helper.changeMaskUints = changeMaskUints;
                 if (typeData.NumBuffers != 0)
                 {
                     //This require some explanation.
@@ -238,7 +244,7 @@ namespace Unity.NetCode
                     //    X     |                                 |
                     //          |_________________________________|
                     //
-                    // Becausee the pre-serialized data is actually stored right after the snapshot but
+                    // Because the pre-serialized data is actually stored right after the snapshot but
                     // the helper will write in memory at address snapshotDynamicPtr + dynamicSnapshotDataOffset,
                     // we are offsetting the start position of the buffer back by the header capacity
                     helper.snapshotDynamicPtr = (byte*)snapshot.Data + snapshot.Capacity - dynamicDataHeaderSize;
@@ -247,9 +253,9 @@ namespace Unity.NetCode
                     helper.dynamicSnapshotCapacity = snapshot.DynamicCapacity + dynamicDataHeaderSize;
                 }
                 helper.CopyChunkToSnapshot(chunk, typeData);
-                for (int ent = 0; ent < chunk.Count; ++ent)
+                for (int ent = 0, chunkEntityCount = chunk.Count; ent < chunkEntityCount; ++ent)
                 {
-                    *(uint*)((byte*)snapshot.Data + snapshotSize * ent) = currentTick;
+                    *(uint*)((byte*)snapshot.Data + snapshotSize * ent) = currentTick.SerializedData;
                 }
                 typeData.profilerMarker.End();
             }

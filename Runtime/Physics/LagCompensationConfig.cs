@@ -9,7 +9,6 @@ namespace Unity.NetCode
     /// exist in both client and server worlds, but in the client world HistorySize can
     /// be different from the server - usually 1 is enough on the client.
     /// </summary>
-    [GenerateAuthoringComponent]
     public struct LagCompensationConfig : IComponentData
     {
         /// <summary>

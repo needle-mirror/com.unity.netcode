@@ -1,5 +1,8 @@
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
+using System;
 using System.Collections.Generic;
+using Unity.Collections;
+using Unity.Collections.LowLevel.Unsafe;
 using Unity.Entities;
 #if UNITY_EDITOR
 using System.IO;
@@ -8,58 +11,92 @@ using UnityEditor;
 
 namespace Unity.NetCode
 {
-    [UpdateInGroup(typeof(SimulationSystemGroup))]
-#if UNITY_DOTSRUNTIME
-#if !UNITY_SERVER
-    [UpdateBefore(typeof(TickClientSimulationSystem))]
-#endif
-#if !UNITY_CLIENT || UNITY_SERVER || UNITY_EDITOR
-    [UpdateBefore(typeof(TickServerSimulationSystem))]
-#endif
-#endif
-    [UpdateInWorld(TargetWorld.Default)]
-    partial class GhostStatsSystem : SystemBase
+    /// <summary>
+    /// Commit to the Network Debugger tools all the stats collected by the server and clients worlds
+    /// during the last frame. It is also responsible to handle the connection to the debugging tool.
+    /// The system explicity run in the DefaultWorld (since it is responsible to persist and mains the connection to the
+    /// debugging systems, regardless of the existance of the client/server worlds).
+    /// </summary>
+    class GhostStatsConnection : IDisposable
     {
         #if UNITY_EDITOR
-        [MenuItem("Multiplayer/Open NetDbg")]
+        [MenuItem("Multiplayer/Window: NetDbg (Browser)", priority = 75)]
         public static void OpenDebugger()
         {
             System.Diagnostics.Process.Start(Path.GetFullPath("Packages/com.unity.netcode/Runtime/Stats/netdbg.html"));
         }
         #endif
+
+        struct GhostStatsToSend : IDisposable
+        {
+            readonly public World managedWorld;
+            public EntityQuery singletonQuery;
+
+            public GhostStatsToSend(World world, EntityQuery query)
+            {
+                managedWorld = world;
+                singletonQuery = query;
+            }
+            public void Dispose()
+            {
+                singletonQuery.Dispose();
+            }
+        }
         private DebugWebSocket m_Socket;
-        private List<GhostStatsCollectionSystem> m_StatsCollections;
+        private List<GhostStatsToSend> m_StatsCollections;
         internal static ushort Port = 8787;
 
-        protected override void OnCreate()
+        public uint UpdateId;
+        public int RefCount;
+
+        public GhostStatsConnection()
         {
-            if (Port == 0)
-                Enabled = false;
-            else
+            if (Port != 0)
                 m_Socket = new DebugWebSocket(Port);
         }
 
-        protected override void OnDestroy()
+        public void Dispose()
         {
             if (m_Socket != null)
                 m_Socket.Dispose();
         }
 
-        protected override void OnUpdate()
+        public void Update()
         {
             if (m_Socket == null)
                 return;
             if (m_Socket.AcceptNewConnection())
             {
-                m_StatsCollections = new List<GhostStatsCollectionSystem>();
+                m_StatsCollections = new List<GhostStatsToSend>();
                 foreach (var world in World.All)
                 {
-                    var stats = world.GetExistingSystem<GhostStatsCollectionSystem>();
-                    if (stats != null)
+                    if(world.IsThinClient())
+                        continue;
+
+                    var collectionDataQry = world.EntityManager.CreateEntityQuery(
+                        ComponentType.ReadWrite<GhostStatsCollectionData>(),
+                        ComponentType.ReadWrite<GhostStatsCollectionCommand>(),
+                        ComponentType.ReadWrite<GhostStatsCollectionSnapshot>(),
+                        ComponentType.ReadWrite<GhostStatsCollectionPredictionError>(),
+                        ComponentType.ReadWrite<GhostStatsCollectionMinMaxTick>());
+
+                    if (!collectionDataQry.HasSingleton<GhostStatsCollectionData>())
                     {
-                        stats.SetIndex(m_StatsCollections.Count);
-                        m_StatsCollections.Add(stats);
+                        collectionDataQry.Dispose();
+                        continue;
                     }
+                    SetStatIndex(collectionDataQry, m_StatsCollections.Count);
+                    m_StatsCollections.Add(new GhostStatsToSend(world, collectionDataQry));
+                }
+            }
+
+            //Remove stats if the world has been disposed
+            if (m_StatsCollections != null)
+            {
+                for (var con = m_StatsCollections.Count - 1; con >= 0; --con)
+                {
+                    if ((!m_StatsCollections[con].managedWorld.IsCreated))
+                        m_StatsCollections.RemoveAt(con);
                 }
             }
 
@@ -68,10 +105,7 @@ namespace Unity.NetCode
                 if (m_StatsCollections != null)
                 {
                     for (var con = 0; con < m_StatsCollections.Count; ++con)
-                    {
-                        m_StatsCollections[con].SetIndex(-1);
-                    }
-
+                        SetStatIndex(m_StatsCollections[con].singletonQuery, -1);
                     m_StatsCollections = null;
                 }
                 return;
@@ -82,8 +116,82 @@ namespace Unity.NetCode
 
             for (var con = 0; con < m_StatsCollections.Count; ++con)
             {
-                m_StatsCollections[con].SendPackets(m_Socket);
+                SendPackets(ref m_StatsCollections[con].singletonQuery.GetSingletonRW<GhostStatsCollectionData>().ValueRW);
             }
+        }
+
+        private void SendPackets(ref GhostStatsCollectionData data)
+        {
+            foreach (var packet in data.m_PacketQueue)
+            {
+                if (packet.isString)
+                    m_Socket.SendText(data.m_PacketPool.AsArray().GetSubArray(packet.dataOffset, packet.dataSize));
+                else
+                    m_Socket.SendBinary(data.m_PacketPool.AsArray().GetSubArray(packet.dataOffset, packet.dataSize));
+            }
+            data.m_PacketQueue.Clear();
+            data.m_UsedPacketPoolSize = 0;
+        }
+
+        private unsafe void SetStatIndex(EntityQuery query, int index)
+        {
+            //Reset the collected stats when we invalidate the index
+            ref var statsData = ref query.GetSingletonRW<GhostStatsCollectionData>().ValueRW;
+            statsData.m_StatIndex = index;
+            statsData.m_CollectionTick = NetworkTick.Invalid;
+            statsData.m_PacketQueue.Clear();
+            statsData.m_UsedPacketPoolSize = 0;
+            if (statsData.m_LastNameAndErrorArray.Length > 0)
+                statsData.AppendNamePacket();
+
+            //Complete any pending jobs before resetting singleton data
+            query.CompleteDependency();
+            ref var commandStatsData = ref query.GetSingletonRW<GhostStatsCollectionCommand>().ValueRW;
+            ref var snapshotCollectionData = ref query.GetSingletonRW<GhostStatsCollectionSnapshot>().ValueRW;
+            ref var predictionErrorData = ref query.GetSingletonRW<GhostStatsCollectionPredictionError>().ValueRW;
+            ref readonly var minMaxTickData = ref query.GetSingletonRW<GhostStatsCollectionMinMaxTick>().ValueRO;
+            commandStatsData.Value[0] = 0;
+            commandStatsData.Value[1] = 0;
+            commandStatsData.Value[2] = 0;
+            snapshotCollectionData.Data.Clear();
+            predictionErrorData.Data.Clear();
+            UnsafeUtility.MemClear(minMaxTickData.Value.GetUnsafePtr(), UnsafeUtility.SizeOf<NetworkTick>()*minMaxTickData.Value.Length);
+        }
+    }
+
+    [UpdateInGroup(typeof(InitializationSystemGroup))]
+    [WorldSystemFilter(WorldSystemFilterFlags.ClientSimulation | WorldSystemFilterFlags.ServerSimulation)]
+    internal partial class GhostStatsFlushSystem : SystemBase
+    {
+        private static GhostStatsConnection s_GhostStatsConnection;
+        private uint m_UpdateId;
+        protected override void OnCreate()
+        {
+            if (s_GhostStatsConnection == null)
+                s_GhostStatsConnection = new GhostStatsConnection();
+            ++s_GhostStatsConnection.RefCount;
+        }
+
+        protected override void OnDestroy()
+        {
+            if (--s_GhostStatsConnection.RefCount <= 0)
+            {
+                s_GhostStatsConnection.Dispose();
+                s_GhostStatsConnection = null;
+            }
+        }
+
+        protected override void OnUpdate()
+        {
+            if (s_GhostStatsConnection == null)
+                return;
+
+            if (m_UpdateId == s_GhostStatsConnection.UpdateId)
+            {
+                ++s_GhostStatsConnection.UpdateId;
+                s_GhostStatsConnection.Update();
+            }
+            m_UpdateId = s_GhostStatsConnection.UpdateId;
         }
     }
 }

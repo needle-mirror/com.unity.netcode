@@ -13,16 +13,18 @@ namespace Unity.NetCode.Tests
 {
     public class GhostGroupGhostConverter : TestNetCodeAuthoring.IConverter
     {
-        public void Convert(GameObject gameObject, Entity entity, EntityManager dstManager, GameObjectConversionSystem conversionSystem)
+        public void Bake(GameObject gameObject, IBaker baker)
         {
-            dstManager.AddComponentData(entity, new GhostOwnerComponent());
+            baker.AddComponent(new GhostOwnerComponent());
+            // Dependency on the name
+            baker.DependsOn(gameObject);
             if (gameObject.name == "ParentGhost")
             {
-                dstManager.AddBuffer<GhostGroup>(entity);
-                dstManager.AddComponentData(entity, default(GhostGroupRoot));
+                baker.AddBuffer<GhostGroup>();
+                baker.AddComponent(default(GhostGroupRoot));
             }
             else
-                dstManager.AddComponentData(entity, default(GhostChildEntityComponent));
+                baker.AddComponent(default(GhostChildEntityComponent));
         }
     }
     public struct GhostGroupRoot : IComponentData

@@ -2,13 +2,6 @@
 using Unity.Build;
 #endif
 
-public enum NetcodeConversionTarget
-{
-    ClientAndServer = 0,
-    Server = 1,
-    Client = 2
-}
-
 #if UNITY_EDITOR
 public class NetCodeConversionSettings : IBuildComponent
 {

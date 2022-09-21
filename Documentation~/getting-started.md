@@ -7,12 +7,12 @@ Open the __Unity Hub__ and create a new Project.
 >[!NOTE]
 > To use Unity NetCode you must have at least Unity 2020.1.2 installed.
 
-Open the Package Manager (menu: __Window &gt; Package Manager__). At the top of the window, under __Advanced__, select __Show preview packages__. Add the Entities, Hybrid Renderer, NetCode, and Transport packages.
+Open the Package Manager (menu: __Window &gt; Package Manager__). At the top of the window, under __Advanced__, select __Show preview packages__. Add the Entities, Entities Graphics, NetCode, and Transport packages.
 
 >[!WARNING]
 > As of Unity version 2020.1, in-preview packages no longer appear in the Package Manager. To use preview packages, either manually edit your [project manifest](https://docs.unity3d.com/2020.1/Documentation/Manual/upm-concepts.html?_ga=2.181752096.669754589.1597830146-1414726221.1582037216#Manifests) or search for the package in the **Add package from Git URL** field in the Package Manager. For more information, see the [announcement blog for these changes to the Package Manager.](https://blogs.unity3d.com/2020/06/24/package-manager-updates-in-unity-2020-1/?_ga=2.84647326.669754589.1597830146-1414726221.1582037216)
 
-The NetCode package requires the Entities, Hybrid Renderer, and Transport packages to work. Entities and the Transport packages are installed automatically through dependencies when installing NetCode, but the Hybrid Renderer is not. The minimum set of packages you need to manually install are NetCode (com.unity.netcode) and the Hybrid Renderer (com.unity.rendering.hybrid). To install these packages while they are still in preview, either edit your project manifest to include the target package name, or type the name of the package you want to install into the **Add package from git URL** menu in the Package Manager.
+The NetCode package requires the Entities, Entities Graphics, and Transport packages to work. Entities and the Transport packages are installed automatically through dependencies when installing NetCode, but the Entities Graphics is not. The minimum set of packages you need to manually install are NetCode (com.unity.netcode) and the Entities Graphics (com.unity.entities.graphics). To install these packages while they are still in preview, either edit your project manifest to include the target package name, or type the name of the package you want to install into the **Add package from git URL** menu in the Package Manager.
 
 For example, to install the Transport package using the Package Manager, go to **Window** > **Package Manager**, click on the plus icon to open the **Add package from...** sub-menu and click on **Add package from git url...**, then type "com.unity.transport" into the text field and press **Enter**. To install the same package through your package.json manifest file, add "com.unity.transport": "0.4.0-preview.1" to your dependencies list. Version 0.4.0-preview.1 is used here as an example and is not a specific version dependency.
 
@@ -95,7 +95,7 @@ using System;
 using Unity.Entities;
 using Unity.NetCode;
 
-// Create a custom bootstrap which enables auto connect.
+// Create a custom bootstrap, which enables auto-connect.
 // The bootstrap can also be used to configure other settings as well as to
 // manually decide which worlds (client and server) to create based on user input
 [UnityEngine.Scripting.Preserve]
@@ -124,7 +124,7 @@ To make sure you can send input from the client to the server, you need to creat
 ```c#
 public struct CubeInput : ICommandData
 {
-    public uint Tick {get; set;}
+    public NetworkTick Tick {get; set;}
     public int horizontal;
     public int vertical;
 }
@@ -135,14 +135,12 @@ The command stream consists of the current tick and the horizontal and vertical 
 To sample the input, send it over the wire. To do this, create a System for it as follows:
 
 ```c#
-[UpdateInGroup(typeof(ClientSimulationSystemGroup))]
+[WorldSystemFilter(WorldSystemFilterFlags.ClientSimulation)]
 public class SampleCubeInput : SystemBase
 {
-    ClientSimulationSystemGroup m_ClientSimulationSystemGroup;
     protected override void OnCreate()
     {
-        RequireSingletonForUpdate<NetworkIdComponent>();
-        m_ClientSimulationSystemGroup = World.GetExistingSystem<ClientSimulationSystemGroup>();
+        RequireForUpdate<NetworkIdComponent>();
     }
 
     protected override void OnUpdate()
@@ -165,7 +163,7 @@ public class SampleCubeInput : SystemBase
             return;
         }
         var input = default(CubeInput);
-        input.Tick = m_ClientSimulationSystemGroup.ServerTick;
+        input.Tick = GetSingleton<NetworkTime>().ServerTick;
         if (Input.GetKey("a"))
             input.horizontal -= 1;
         if (Input.GetKey("d"))
@@ -183,22 +181,15 @@ public class SampleCubeInput : SystemBase
 Finally, create a system that can read the `CommandData` and move the player.
 
 ```c#
-[UpdateInGroup(typeof(GhostPredictionSystemGroup))]
+[UpdateInGroup(typeof(PredictedSimulationSystemGroup))]
 public class MoveCubeSystem : SystemBase
 {
-    GhostPredictionSystemGroup m_GhostPredictionSystemGroup;
-    protected override void OnCreate()
-    {
-        m_GhostPredictionSystemGroup = World.GetExistingSystem<GhostPredictionSystemGroup>();
-    }
     protected override void OnUpdate()
     {
-        var tick = m_GhostPredictionSystemGroup.PredictingTick;
+        var tick = GetSingleton<NetworkTime>().ServerTick;
         var deltaTime = Time.DeltaTime;
-        Entities.ForEach((DynamicBuffer<CubeInput> inputBuffer, ref Translation trans, in PredictedGhostComponent prediction) =>
+        Entities.WithAll<Simulate>().ForEach((DynamicBuffer<CubeInput> inputBuffer, ref Translation trans) =>
         {
-            if (!GhostPredictionSystemGroup.ShouldPredict(tick, prediction))
-                return;
             CubeInput input;
             inputBuffer.GetDataAtTick(tick, out input);
             if (input.horizontal > 0)
@@ -220,13 +211,13 @@ The final step is to create the systems that handle when you enter a game on the
 
 ```c#
 // When client has a connection with network id, go in game and tell server to also go in game
-[UpdateInGroup(typeof(ClientSimulationSystemGroup))]
+[WorldSystemFilter(WorldSystemFilterFlags.ClientSimulation)]
 public class GoInGameClientSystem : SystemBase
 {
     protected override void OnCreate()
     {
         // Make sure we wait with the sub scene containing the prefabs to load before going in-game
-        RequireSingletonForUpdate<CubeSpawner>();
+        RequireForUpdate<CubeSpawner>();
         RequireForUpdate(GetEntityQuery(ComponentType.ReadOnly<NetworkIdComponent>(), ComponentType.Exclude<NetworkStreamInGame>()));
     }
     protected override void OnUpdate()
@@ -248,25 +239,25 @@ On the server you need to make sure that when you receive a `GoInGameRequest`, y
 
 ```c#
 // When server receives go in game request, go in game and delete request
-[UpdateInGroup(typeof(ServerSimulationSystemGroup))]
+[WorldSystemFilter(WorldSystemFilterFlags.ServerSimulation)]
 public class GoInGameServerSystem : SystemBase
 {
     protected override void OnCreate()
     {
-        RequireSingletonForUpdate<CubeSpawner>();
+        RequireForUpdate<CubeSpawner>();
         RequireForUpdate(GetEntityQuery(ComponentType.ReadOnly<GoInGameRequest>(), ComponentType.ReadOnly<ReceiveRpcCommandRequestComponent>()));
     }
     protected override void OnUpdate()
     {
         var prefab = GetSingleton<CubeSpawner>().Cube;
-        var networkIdFromEntity = GetComponentDataFromEntity<NetworkIdComponent>(true);
+        var networkIdLookup = GetComponentLookup<NetworkIdComponent>(true);
         var commandBuffer = new EntityCommandBuffer(Allocator.Temp);
         Entities.WithNone<SendRpcCommandRequestComponent>().ForEach((Entity reqEnt, in GoInGameRequest req, in ReceiveRpcCommandRequestComponent reqSrc) =>
         {
             commandBuffer.AddComponent<NetworkStreamInGame>(reqSrc.SourceConnection);
-            UnityEngine.Debug.Log(String.Format("Server setting connection {0} to in game", networkIdFromEntity[reqSrc.SourceConnection].Value));
+            UnityEngine.Debug.Log(String.Format("Server setting connection {0} to in game", networkIdLookup[reqSrc.SourceConnection].Value));
             var player = commandBuffer.Instantiate(prefab);
-            commandBuffer.SetComponent(player, new GhostOwnerComponent { NetworkId = networkIdFromEntity[reqSrc.SourceConnection].Value});
+            commandBuffer.SetComponent(player, new GhostOwnerComponent { NetworkId = networkIdLookup[reqSrc.SourceConnection].Value});
             commandBuffer.AddBuffer<CubeInput>(player);
 
             commandBuffer.SetComponent(reqSrc.SourceConnection, new CommandTargetComponent {targetEntity = player});

@@ -11,17 +11,23 @@ using UnityEngine;
 
 namespace Unity.NetCode.Tests
 {
+    // TODO - Test case to ensure the default variants for all components on the root level entity are `DefaultSerialization`.
+    // TODO - Test case to ensure manually specified defaults are respected.
+    // TODO - Test case to ensure the default variant for all components on all child entities are `DontSerializeVariant`.
+    // TODO - Test case for usage of `ClientOnlyVariant`.
+
     [TestFixture]
     public class PerPrefabOverridesTests
     {
         public class GhostConverter : TestNetCodeAuthoring.IConverter
         {
-            public void Convert(GameObject gameObject, Entity entity, EntityManager dstManager,
-                GameObjectConversionSystem conversionSystem)
+            public void Bake(GameObject gameObject, IBaker baker)
             {
-                if(gameObject.transform.parent == null)
-                    dstManager.AddComponentData(entity, new GhostOwnerComponent { NetworkId = -1});
-                dstManager.AddComponentData(entity, new GhostGen_IntStruct());
+                var transform = baker.GetComponent<Transform>();
+                baker.DependsOn(transform.parent);
+                if(transform.parent == null)
+                    baker.AddComponent(new GhostOwnerComponent { NetworkId = -1});
+                baker.AddComponent(new GhostGen_IntStruct());
             }
         }
 
@@ -39,8 +45,8 @@ namespace Unity.NetCode.Tests
                 nestedChildGhost.transform.parent = childGhost.transform;
                 nestedChildGhost.AddComponent<TestNetCodeAuthoring>().Converter = new GhostConverter();
                 var authoring = ghostGameObject.AddComponent<GhostAuthoringComponent>();
-                authoring.DefaultGhostMode = GhostAuthoringComponent.GhostMode.OwnerPredicted;
-                authoring.SupportedGhostModes = GhostAuthoringComponent.GhostModeMask.All;
+                authoring.DefaultGhostMode = GhostMode.OwnerPredicted;
+                authoring.SupportedGhostModes = GhostModeMask.All;
                 collection[i] = ghostGameObject;
             }
 
@@ -93,16 +99,17 @@ namespace Unity.NetCode.Tests
                 //overrides the component prefab types in different prefabs
                 for (int i = 0; i < prefabTypes.Length; ++i)
                 {
-                    var authoring = collection[i].GetComponent<GhostAuthoringComponent>();
-                    authoring.ComponentOverrides = new List<GhostAuthoringComponent.ComponentOverride>
+                    var gameObject = collection[i];
+                    var inspection = gameObject.AddComponent<GhostAuthoringInspectionComponent>();
+                    inspection.ComponentOverrides = new []
                     {
-                        new GhostAuthoringComponent.ComponentOverride
+                        new GhostAuthoringInspectionComponent.ComponentOverride
                         {
-                            fullTypeName = typeof(GhostGen_IntStruct).FullName,
-                            gameObject = collection[i],
-                            PrefabType = (int)prefabTypes[i],
-                            OwnerPredictedSendType = (int)GhostSendType.All,
-                            ComponentVariant = 0
+                            FullTypeName = typeof(GhostGen_IntStruct).FullName,
+                            GameObject = gameObject,
+                            PrefabType = prefabTypes[i],
+                            SendTypeOptimization = GhostSendType.AllClients,
+                            VariantHash = 0
                         }
                     };
                 }
@@ -155,16 +162,17 @@ namespace Unity.NetCode.Tests
                 //Only modify child behaviors
                 for (int i = 0; i < prefabTypes.Length; ++i)
                 {
-                    var authoring = collection[i].GetComponent<GhostAuthoringComponent>();
-                    authoring.ComponentOverrides = new List<GhostAuthoringComponent.ComponentOverride>
+                    var gameObject = collection[i];
+                    var child = gameObject.transform.GetChild(0);
+                    child.gameObject.AddComponent<GhostAuthoringInspectionComponent>().ComponentOverrides = new []
                     {
-                        new GhostAuthoringComponent.ComponentOverride
+                        new GhostAuthoringInspectionComponent.ComponentOverride
                         {
-                            fullTypeName = typeof(GhostGen_IntStruct).FullName,
-                            gameObject = collection[i].transform.GetChild(0).gameObject,
-                            PrefabType = (int)prefabTypes[i],
-                            OwnerPredictedSendType = (int)GhostSendType.All,
-                            ComponentVariant = 0
+                            FullTypeName = typeof(GhostGen_IntStruct).FullName,
+                            GameObject = child.gameObject,
+                            PrefabType = prefabTypes[i],
+                            SendTypeOptimization = GhostSendType.AllClients,
+                            VariantHash = 0
                         }
                     };
                 }
@@ -218,16 +226,19 @@ namespace Unity.NetCode.Tests
                 // Only modify nested child behaviors
                 for (int i = 0; i < prefabTypes.Length; ++i)
                 {
-                    var authoring = collection[i].GetComponent<GhostAuthoringComponent>();
-                    authoring.ComponentOverrides = new List<GhostAuthoringComponent.ComponentOverride>
+                    var gameObject = collection[i];
+
+                    var child = gameObject.transform.GetChild(0);
+                    var nestedChild = child.GetChild(0);
+                    nestedChild.gameObject.AddComponent<GhostAuthoringInspectionComponent>().ComponentOverrides = new []
                     {
-                        new GhostAuthoringComponent.ComponentOverride
+                        new GhostAuthoringInspectionComponent.ComponentOverride
                         {
-                            fullTypeName = typeof(GhostGen_IntStruct).FullName,
-                            gameObject = collection[i].transform.GetChild(0).GetChild(0).gameObject,
-                            PrefabType = (int)prefabTypes[i],
-                            OwnerPredictedSendType = (int)GhostSendType.All,
-                            ComponentVariant = 0
+                            FullTypeName = typeof(GhostGen_IntStruct).FullName,
+                            GameObject = nestedChild.gameObject,
+                            PrefabType = prefabTypes[i],
+                            SendTypeOptimization = GhostSendType.AllClients,
+                            VariantHash = 0
                         }
                     };
                 }
@@ -276,21 +287,20 @@ namespace Unity.NetCode.Tests
             {
                 testWorld.Bootstrap(true);
                 var names = new[] {"All", "Interpolated", "Predicted", "None"};
-                var sendTypes = new[] {GhostSendType.All, GhostSendType.Interpolated, GhostSendType.Predicted, (GhostSendType)0};
+                var sendTypes = new[] {GhostSendType.AllClients, GhostSendType.OnlyInterpolatedClients, GhostSendType.OnlyPredictedClients, (GhostSendType)0};
                 var collection = CreatePrefabs(names);
                 for (int i = 0; i < sendTypes.Length; ++i)
                 {
-                    var authoring = collection[i].GetComponent<GhostAuthoringComponent>();
-                    authoring.ComponentOverrides = new List<GhostAuthoringComponent.ComponentOverride>
+                    var inspection = collection[i].AddComponent<GhostAuthoringInspectionComponent>();
+                    inspection.ComponentOverrides = new []
                     {
-                        new GhostAuthoringComponent.ComponentOverride
+                        new GhostAuthoringInspectionComponent.ComponentOverride
                         {
-                            fullTypeName = typeof(GhostGen_IntStruct).FullName,
-                            gameObject = collection[i],
-                            PrefabType = (int)GhostPrefabType.All,
-                            OwnerPredictedSendType = (int)sendTypes[i],
-                            SendForChild = GhostAuthoringComponent.ComponentOverride.UseDefaultValue,
-                            ComponentVariant = 0
+                            FullTypeName = typeof(GhostGen_IntStruct).FullName,
+                            GameObject = collection[i],
+                            PrefabType = GhostPrefabType.All,
+                            SendTypeOptimization = sendTypes[i],
+                            VariantHash = 0,
                         }
                     };
                 }
@@ -335,21 +345,21 @@ namespace Unity.NetCode.Tests
             {
                 testWorld.Bootstrap(true);
                 var names = new[] {"All", "Interpolated", "Predicted", "None"};
-                var sendTypes = new[] {GhostSendType.All, GhostSendType.Interpolated, GhostSendType.Predicted, (GhostSendType)0};
+                var sendTypes = new[] {GhostSendType.AllClients, GhostSendType.OnlyInterpolatedClients, GhostSendType.OnlyPredictedClients, (GhostSendType)0};
                 var collection = CreatePrefabs(names);
                 for (int i = 0; i < sendTypes.Length; ++i)
                 {
-                    var authoring = collection[i].GetComponent<GhostAuthoringComponent>();
-                    authoring.ComponentOverrides = new List<GhostAuthoringComponent.ComponentOverride>
+                    var gameObject = collection[i];
+                    var child = gameObject.transform.GetChild(0);
+                    child.gameObject.AddComponent<GhostAuthoringInspectionComponent>().ComponentOverrides = new[]
                     {
-                        new GhostAuthoringComponent.ComponentOverride
+                        new GhostAuthoringInspectionComponent.ComponentOverride
                         {
-                            fullTypeName = typeof(GhostGen_IntStruct).FullName,
-                            gameObject = collection[i].transform.GetChild(0).gameObject,
-                            PrefabType = (int)GhostPrefabType.All,
-                            OwnerPredictedSendType = (int)sendTypes[i],
-                            SendForChild = GhostAuthoringComponent.ComponentOverride.UseDefaultValue,
-                            ComponentVariant = 0
+                            FullTypeName = typeof(GhostGen_IntStruct).FullName,
+                            GameObject = child.gameObject,
+                            PrefabType = GhostPrefabType.All,
+                            SendTypeOptimization = sendTypes[i],
+                            VariantHash = 0
                         }
                     };
                 }
@@ -394,21 +404,22 @@ namespace Unity.NetCode.Tests
             {
                 testWorld.Bootstrap(true);
                 var names = new[] {"All", "Interpolated", "Predicted", "None"};
-                var sendTypes = new[] {GhostSendType.All, GhostSendType.Interpolated, GhostSendType.Predicted, (GhostSendType)0};
+                var sendTypes = new[] {GhostSendType.AllClients, GhostSendType.OnlyInterpolatedClients, GhostSendType.OnlyPredictedClients, (GhostSendType)0};
                 var collection = CreatePrefabs(names);
                 for (int i = 0; i < sendTypes.Length; ++i)
                 {
-                    var authoring = collection[i].GetComponent<GhostAuthoringComponent>();
-                    authoring.ComponentOverrides = new List<GhostAuthoringComponent.ComponentOverride>
+                    var gameObject = collection[i];
+                    var child = gameObject.transform.GetChild(0);
+                    var nestedChild = child.GetChild(0);
+                    nestedChild.gameObject.AddComponent<GhostAuthoringInspectionComponent>().ComponentOverrides = new []
                     {
-                        new GhostAuthoringComponent.ComponentOverride
+                        new GhostAuthoringInspectionComponent.ComponentOverride
                         {
-                            fullTypeName = typeof(GhostGen_IntStruct).FullName,
-                            gameObject = collection[i].transform.GetChild(0).GetChild(0).gameObject,
-                            PrefabType = (int)GhostPrefabType.All,
-                            OwnerPredictedSendType = (int)sendTypes[i],
-                            SendForChild = GhostAuthoringComponent.ComponentOverride.UseDefaultValue,
-                            ComponentVariant = 0
+                            FullTypeName = typeof(GhostGen_IntStruct).FullName,
+                            GameObject = nestedChild.gameObject,
+                            PrefabType = GhostPrefabType.All,
+                            SendTypeOptimization = sendTypes[i],
+                            VariantHash = 0
                         }
                     };
                 }
@@ -448,9 +459,9 @@ namespace Unity.NetCode.Tests
             }
         }
 
-        //Does nothing special (same serialiation code) but just provide a variant we can assign
-        [GhostComponentVariation(typeof(Transforms.Translation), "TranslationVariantTest")]
-        [GhostComponent(PrefabType = GhostPrefabType.All, OwnerPredictedSendType = GhostSendType.All, SendDataForChildEntity = false)]
+        /// <summary>A client only variant we can assign.</summary>
+        [GhostComponentVariation(typeof(Transforms.Translation), "TranslationVariantTest", true)]
+        [GhostComponent(PrefabType = GhostPrefabType.All, SendTypeOptimization = GhostSendType.AllClients)]
         public struct TranslationVariantTest
         {
             [GhostField(Quantization=1000, Smoothing=SmoothingAction.Interpolate, SubType=0)] public float3 Value;
@@ -469,49 +480,62 @@ namespace Unity.NetCode.Tests
                 var nestedChildGhost = new GameObject("NestedChild");
                 nestedChildGhost.transform.parent = childGhost.transform;
                 var authoring = ghostGameObject.AddComponent<GhostAuthoringComponent>();
-                authoring.DefaultGhostMode = GhostAuthoringComponent.GhostMode.Interpolated;
-                authoring.SupportedGhostModes = GhostAuthoringComponent.GhostModeMask.All;
+                var inspection = ghostGameObject.AddComponent<GhostAuthoringInspectionComponent>();
+                authoring.DefaultGhostMode = GhostMode.Interpolated;
+                authoring.SupportedGhostModes = GhostModeMask.All;
 
                 //Setup a variant for both root and child entity and check that the runtime serializer use this one to serialize data
                 var attrType = typeof(TranslationVariantTest).GetCustomAttribute<GhostComponentVariationAttribute>();
                 ulong hash = 0;
-                foreach (var serializer in testWorld.ServerWorld.GetExistingSystem<GhostComponentSerializerCollectionSystemGroup>().GhostComponentCollection)
+
+                using var collectionQuery = testWorld.ServerWorld.EntityManager.CreateEntityQuery(ComponentType.ReadOnly<GhostComponentSerializerCollectionData>());
+                var collectionData = collectionQuery.GetSingleton<GhostComponentSerializerCollectionData>();
+                var serializers = collectionData.GhostComponentCollection.GetValueArray(Allocator.Temp);
+                foreach (var serializer in serializers)
                 {
                     if (serializer.ComponentType == attrType.ComponentType && GhostComponentSerializer.VariantTypes[serializer.VariantTypeIndex] == typeof(TranslationVariantTest))
                         hash = serializer.VariantHash;
                 }
+                serializers.Dispose();
+
                 Assert.AreNotEqual(0, hash);
-                authoring.ComponentOverrides = new List<GhostAuthoringComponent.ComponentOverride>
+                inspection.ComponentOverrides = new[]
                 {
-                    new GhostAuthoringComponent.ComponentOverride
+                    new GhostAuthoringInspectionComponent.ComponentOverride
                     {
-                        fullTypeName = typeof(Transforms.Translation).FullName,
-                        gameObject = ghostGameObject,
-                        PrefabType = (int)GhostPrefabType.All,
-                        OwnerPredictedSendType = (int)GhostSendType.All,
-                        ComponentVariant = hash
+                        FullTypeName = typeof(Transforms.Translation).FullName,
+                        GameObject = ghostGameObject,
+                        PrefabType = GhostPrefabType.All,
+                        SendTypeOptimization = GhostSendType.AllClients,
+                        VariantHash = hash
                     },
-                    new GhostAuthoringComponent.ComponentOverride
+                };
+                childGhost.AddComponent<GhostAuthoringInspectionComponent>().ComponentOverrides = new[]
+                {
+                    new GhostAuthoringInspectionComponent.ComponentOverride
                     {
-                        fullTypeName = typeof(Transforms.Translation).FullName,
-                        gameObject = childGhost,
-                        PrefabType = (int)GhostPrefabType.All,
-                        OwnerPredictedSendType = (int)GhostSendType.All,
-                        ComponentVariant = hash
+                        FullTypeName = typeof(Transforms.Translation).FullName,
+                        GameObject = childGhost,
+                        PrefabType = GhostPrefabType.All,
+                        SendTypeOptimization = GhostSendType.AllClients,
+                        VariantHash = hash
                     },
-                    new GhostAuthoringComponent.ComponentOverride
+                };
+                nestedChildGhost.AddComponent<GhostAuthoringInspectionComponent>().ComponentOverrides = new[]
+                {
+                    new GhostAuthoringInspectionComponent.ComponentOverride
                     {
-                        fullTypeName = typeof(Transforms.Translation).FullName,
-                        gameObject = nestedChildGhost,
-                        PrefabType = (int)GhostPrefabType.All,
-                        OwnerPredictedSendType = (int)GhostSendType.All,
-                        ComponentVariant = hash
+                        FullTypeName = typeof(Transforms.Translation).FullName,
+                        GameObject = nestedChildGhost,
+                        PrefabType = GhostPrefabType.All,
+                        SendTypeOptimization = GhostSendType.AllClients,
+                        VariantHash = hash
                     }
                 };
 
                 Assert.IsTrue(testWorld.CreateGhostCollection(ghostGameObject), "Cannot create ghost collection");
-                testWorld.ConvertGhostCollection(testWorld.ServerWorld);
-                testWorld.ConvertGhostCollection(testWorld.ClientWorlds[0]);
+                testWorld.BakeGhostCollection(testWorld.ServerWorld);
+                testWorld.BakeGhostCollection(testWorld.ClientWorlds[0]);
 
                 //Register serializers and setup all the system
                 for(int i=0;i<16;++i)
@@ -567,36 +591,26 @@ namespace Unity.NetCode.Tests
             AddPrefabOverride_ComputesGameObjectReference((collection, i) => collection[i].transform.GetChild(0).GetChild(0).gameObject);
         }
 
-        [Test]
-        public void AddPrefabOverride_NotFoundInstanceID_Throws()
-        {
-            var notFoundGameObject = new GameObject("Not in the hierarchy");
-            var argumentException = Assert.Throws<ArgumentException>(() =>
-            {
-                AddPrefabOverride_ComputesGameObjectReference((collection, i) => notFoundGameObject);
-            });
-            Assert.AreEqual(argumentException.Message, $"{notFoundGameObject.GetInstanceID()}: didn't match any game object in All");
-        }
-
         private void AddPrefabOverride_ComputesGameObjectReference(Func<GameObject[], int, GameObject> testTransform)
         {
             using var testWorld = new NetCodeTestWorld();
             testWorld.Bootstrap(true);
             var names = new[] { "All", "Interpolated", "Predicted", "None" };
             var sendTypes = new[]
-                { GhostSendType.All, GhostSendType.Interpolated, GhostSendType.Predicted, GhostSendType.None };
+                { GhostSendType.AllClients, GhostSendType.OnlyInterpolatedClients, GhostSendType.OnlyPredictedClients, GhostSendType.DontSend };
             var collection = CreatePrefabs(names);
             for (int i = 0; i < sendTypes.Length; ++i)
             {
-                var authoring = collection[i].GetComponent<GhostAuthoringComponent>();
+                var goFromFunc = testTransform(collection, i);
+                var inspection = goFromFunc.GetComponent<GhostAuthoringInspectionComponent>() ?? goFromFunc.AddComponent<GhostAuthoringInspectionComponent>();
                 var entityGuid = new EntityGuid
                 {
-                    a = (ulong)testTransform(collection, i).GetInstanceID(),
+                    a = (ulong)goFromFunc.GetInstanceID(),
                     b = 0,
                 };
-                var componentOverride = authoring.AddPrefabOverride(typeof(GhostGen_IntStruct).FullName, entityGuid);
-                Assert.AreEqual(componentOverride.gameObject.GetInstanceID(), entityGuid.OriginatingId,
-                    $"{entityGuid.OriginatingId}: did not match game object set on {componentOverride.gameObject.name}");
+                var componentOverride = inspection.GetOrAddPrefabOverride(typeof(GhostGen_IntStruct), entityGuid, (GhostPrefabType) GhostAuthoringInspectionComponent.ComponentOverride.NoOverride, out bool didAdd);
+                Assert.AreEqual(componentOverride.GameObject.GetInstanceID(), entityGuid.OriginatingId,
+                    $"{entityGuid.OriginatingId}: did not match game object set on {componentOverride.GameObject.name}");
             }
         }
     }

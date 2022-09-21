@@ -6,49 +6,56 @@ namespace Unity.NetCode
 {
     /// <summary>
     /// Collection of utility that are used by the editor and runtime to compute and check ghost
-    /// component variants hashes
+    /// component variants hashes.
     /// </summary>
-    public static class GhostVariantsUtility
+    internal static class GhostVariantsUtility
     {
-        private static ulong UncheckedVariantHash(string variantTypeName, ComponentType componentType)
+        public const string k_DefaultVariantName = "Default";
+        public const string k_ClientOnlyVariant = nameof(ClientOnlyVariant);
+        public const string k_DontSerializeVariant = nameof(DontSerializeVariant);
+        static readonly FixedString32Bytes k_NetCodeGhostNetVariant = "NetCode.GhostNetVariant";
+        static readonly ulong k_NetCodeGhostNetVariantHash = TypeHash.FNV1A64(k_NetCodeGhostNetVariant);
+
+        internal static readonly ulong ClientOnlyHash = TypeHash.CombineFNV1A64(k_NetCodeGhostNetVariantHash, TypeHash.FNV1A64((FixedString64Bytes)$"Unity.NetCode.{k_ClientOnlyVariant}"));
+        internal static readonly ulong DontSerializeHash = TypeHash.CombineFNV1A64(k_NetCodeGhostNetVariantHash, TypeHash.FNV1A64((FixedString64Bytes)$"Unity.NetCode.{k_DontSerializeVariant}"));
+
+        /// <summary>Calculates a stable hash for a variant via <see cref="TypeManager.GetTypeNameFixed"/>.</summary>
+        /// <param name="variantTypeName">Full type name of the variant type.</param>
+        /// <param name="componentType">The ComponentType that this variant applies to.</param>
+        /// <returns>The calculated hash.</returns>
+        [GenerateTestsForBurstCompatibility]
+        internal static ulong UncheckedVariantHash(in FixedString512Bytes variantTypeName, ComponentType componentType)
         {
-            var hash = TypeHash.FNV1A64("NetCode.GhostNetVariant");
-            hash = TypeHash.CombineFNV1A64(hash, Entities.TypeHash.FNV1A64(componentType.GetDebugTypeName()));
-            hash = TypeHash.CombineFNV1A64(hash, Entities.TypeHash.FNV1A64(variantTypeName));
-            return hash;
+            var componentTypeFullName = componentType.GetDebugTypeName();
+            return UncheckedVariantHash(variantTypeName, new FixedString512Bytes(componentTypeFullName));
         }
-        private static ulong UncheckedVariantHash(string variantTypeName, string componentTypeName)
+
+        /// <summary>Calculates the "variant hash" for the variant + component pair.</summary>
+        [GenerateTestsForBurstCompatibility]
+        internal static ulong UncheckedVariantHash(in FixedString512Bytes variantTypeName, in FixedString512Bytes componentTypeFullName)
         {
-            var hash = TypeHash.FNV1A64("NetCode.GhostNetVariant");
-            hash = TypeHash.CombineFNV1A64(hash, Entities.TypeHash.FNV1A64(componentTypeName));
-            hash = TypeHash.CombineFNV1A64(hash, Entities.TypeHash.FNV1A64(variantTypeName));
+            var hash = k_NetCodeGhostNetVariantHash;
+            hash = TypeHash.CombineFNV1A64(hash, TypeHash.FNV1A64(componentTypeFullName));
+            hash = TypeHash.CombineFNV1A64(hash, TypeHash.FNV1A64(variantTypeName));
             return hash;
         }
 
-        internal static bool IsClientOnlyVariant(ComponentType componentType, ulong variantHash)
+        /// <summary>Calculates the "variant hash" for the component type itself, so that we can fetch the meta-data.</summary>
+        /// <remarks>It's a little odd, but the default serializer for a Component is the ComponentType itself. I.e. It is its own variant.</remarks>
+        public static ulong CalculateVariantHashForComponent(ComponentType componentType)
         {
-            return ClientOnlyHash(componentType) == variantHash;
-        }
-        internal static bool IsDoNotSerializeVariant(ComponentType componentType, ulong variantHash)
-        {
-            return DoNotSerializeHash(componentType) == variantHash;
-        }
-        internal static bool IsDoNotSerializeVariant(string componentTypeName, ulong variantHash)
-        {
-            return DoNotSerializeHash(componentTypeName) == variantHash;
+            var baseComponentTypeName =  componentType.GetDebugTypeName();
+            var fs = new FixedString512Bytes(baseComponentTypeName);
+            return UncheckedVariantHash(fs, fs);
         }
 
-        internal static ulong ClientOnlyHash(ComponentType componentType)
+        /// <summary>Calculates the "variant hash" for the variant + component pair. Non-Burst Compatible version.</summary>
+        internal static ulong UncheckedVariantHashNBC(string variantTypeName, string componentTypeFullName)
         {
-            return UncheckedVariantHash("Unity.NetCode.ClientOnlyVariant", componentType);
-        }
-        internal static ulong DoNotSerializeHash(ComponentType componentType)
-        {
-            return UncheckedVariantHash("Unity.NetCode.DontSerializeVariant", componentType);
-        }
-        internal static ulong DoNotSerializeHash(string componentTypeName)
-        {
-            return UncheckedVariantHash("Unity.NetCode.DontSerializeVariant", componentTypeName);
+            var hash = k_NetCodeGhostNetVariantHash;
+            hash = TypeHash.CombineFNV1A64(hash, TypeHash.FNV1A64(componentTypeFullName));
+            hash = TypeHash.CombineFNV1A64(hash, TypeHash.FNV1A64(variantTypeName));
+            return hash;
         }
     }
 }

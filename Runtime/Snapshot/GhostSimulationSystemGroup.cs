@@ -4,55 +4,38 @@ using Unity.Entities;
 using Unity.Jobs;
 using Unity.Transforms;
 using Unity.Jobs.LowLevel.Unsafe;
-using Unity.Networking.Transport.Utilities;
 
 namespace Unity.NetCode
 {
-    public interface IGhostMappingSystem
-    {
-        JobHandle LastGhostMapWriter { get; set; }
-        NativeParallelHashMap<SpawnedGhost, Entity> SpawnedGhostEntityMap { get; }
-    }
-    [UpdateInWorld(TargetWorld.ClientAndServer)]
+    /// <summary>
+    /// Present for both client and server worlds. This is the core group, and contains the majority of the netcode systems.
+    /// Its responsibilities are varied, and can be roughly sub-divided in the following categories:
+    /// <para>-input gathering: <see cref="GhostInputSystemGroup"/></para>
+    /// <para>-command handling: <see cref="CommandSendSystemGroup"/></para>
+    /// <para>-ghost prediction/simulation: <see cref="PredictedSimulationSystemGroup"/></para>
+    /// <para>-ghost spawning: see <see cref="GhostSpawnClassificationSystem"/>, <see cref="GhostSpawnSystemGroup"/>, <see cref="GhostSpawnSystem"/>, <see cref="GhostDespawnSystem"/></para>
+    /// <para>-ghost replication: <see cref="GhostCollection"/>, <see cref="GhostSendSystem"/>, <see cref="GhostReceiveSystem"/> and <see cref="GhostUpdateSystem"/>.</para>
+    /// <para>
+    /// In general, all systems that need to simulate/manipulate ghost entities should be added to this group.
+    /// </para>
+    /// </summary>
+    [WorldSystemFilter(WorldSystemFilterFlags.ClientSimulation | WorldSystemFilterFlags.ServerSimulation | WorldSystemFilterFlags.ThinClientSimulation,
+        WorldSystemFilterFlags.ClientSimulation | WorldSystemFilterFlags.ServerSimulation)]
     [UpdateInGroup(typeof(SimulationSystemGroup), OrderFirst = true)]
     [UpdateBefore(typeof(FixedStepSimulationSystemGroup))]
+    [UpdateBefore(typeof(PredictedSimulationSystemGroup))]
     [UpdateAfter(typeof(NetworkReceiveSystemGroup))]
     public class GhostSimulationSystemGroup : ComponentSystemGroup
     {
-        private IGhostMappingSystem ghostMappingSystem;
-        protected override void OnCreate()
-        {
-            //Client and server retrieve depedencies and ghost mapping from different systems. They are implementing
-            //the IGhostMappingSystem interface and the GhostSimulationGroup just like as mediato to dispatch the
-            //call to the right system.
-            base.OnCreate();
-            if (World.GetExistingSystem<GhostSendSystem>() != null)
-            {
-                ghostMappingSystem = World.GetExistingSystem<GhostSendSystem>();
-            }
-            else if (World.GetExistingSystem<GhostReceiveSystem>() != null)
-            {
-                ghostMappingSystem = World.GetExistingSystem<GhostReceiveSystem>();
-            }
-            else
-            {
-                throw new InvalidOperationException("Neither GhostSendSystem or GhostReceiveSystem are present in the world");
-            }
-        }
-
-        public JobHandle LastGhostMapWriter
-        {
-            get { return ghostMappingSystem.LastGhostMapWriter; }
-            set { ghostMappingSystem.LastGhostMapWriter = value; }
-        }
-
-        public NativeParallelHashMap<SpawnedGhost, Entity> SpawnedGhostEntityMap
-        {
-            get { return ghostMappingSystem.SpawnedGhostEntityMap; }
-        }
     }
 
-    [UpdateInGroup(typeof(ClientSimulationSystemGroup), OrderFirst=true)]
+    /// <summary>
+    /// Parent group of all systems that need to process ghost entities after they are spawned.
+    /// The group execute before <see cref="NetworkReceiveSystemGroup"/> to guarantee that when a new snasphot is received
+    /// from server, all new ghosts has been spawned and ready to receive new data.
+    /// </summary>
+    [WorldSystemFilter(WorldSystemFilterFlags.ClientSimulation|WorldSystemFilterFlags.ThinClientSimulation, WorldSystemFilterFlags.ClientSimulation)]
+    [UpdateInGroup(typeof(SimulationSystemGroup), OrderFirst=true)]
     [UpdateAfter(typeof(BeginSimulationEntityCommandBufferSystem))]
     [UpdateBefore(typeof(NetworkReceiveSystemGroup))]
     public class GhostSpawnSystemGroup : ComponentSystemGroup

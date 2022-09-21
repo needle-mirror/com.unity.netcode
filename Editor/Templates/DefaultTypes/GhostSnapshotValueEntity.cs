@@ -26,12 +26,12 @@ namespace Generated
             {
                 #region __GHOST_COPY_TO_SNAPSHOT__
                 snapshot.__GHOST_FIELD_NAME__ = 0;
-                snapshot.__GHOST_FIELD_NAME__SpawnTick = 0;
+                snapshot.__GHOST_FIELD_NAME__SpawnTick = NetworkTick.Invalid.SerializedData;
                 if (serializerState.GhostFromEntity.HasComponent(component.__GHOST_FIELD_REFERENCE__))
                 {
                     var ghostComponent = serializerState.GhostFromEntity[component.__GHOST_FIELD_REFERENCE__];
                     snapshot.__GHOST_FIELD_NAME__ = ghostComponent.ghostId;
-                    snapshot.__GHOST_FIELD_NAME__SpawnTick = ghostComponent.spawnTick;
+                    snapshot.__GHOST_FIELD_NAME__SpawnTick = ghostComponent.spawnTick.SerializedData;
                 }
                 #endregion
             }
@@ -44,16 +44,16 @@ namespace Generated
                 component.__GHOST_FIELD_REFERENCE__ = Entity.Null;
                 if (snapshotBefore.__GHOST_FIELD_NAME__ != 0)
                 {
-                    if (deserializerState.GhostMap.TryGetValue(new SpawnedGhost{ghostId = snapshotBefore.__GHOST_FIELD_NAME__, spawnTick = snapshotBefore.__GHOST_FIELD_NAME__SpawnTick}, out var ghostEnt))
+                    if (deserializerState.GhostMap.TryGetValue(new SpawnedGhost{ghostId = snapshotBefore.__GHOST_FIELD_NAME__, spawnTick = new NetworkTick{SerializedData = snapshotBefore.__GHOST_FIELD_NAME__SpawnTick}}, out var ghostEnt))
                         component.__GHOST_FIELD_REFERENCE__ = ghostEnt;
                 }
                 #endregion
             }
         }
-        public void Serialize(int networkId, ref GhostSnapshotData baseline, ref DataStreamWriter writer, NetworkCompressionModel compressionModel)
+        public void Serialize(int networkId, ref GhostSnapshotData baseline, ref DataStreamWriter writer, StreamCompressionModel compressionModel)
         {
             #region __GHOST_WRITE__
-            if ((changeMask__GHOST_MASK_BATCH__ & (1 << __GHOST_MASK_INDEX__)) != 0)
+            if ((changeMask & (1 << __GHOST_MASK_INDEX__)) != 0)
             {
                 writer.WritePackedIntDelta(snapshot.__GHOST_FIELD_NAME__, baseline.__GHOST_FIELD_NAME__, compressionModel);
                 writer.WritePackedUIntDelta(snapshot.__GHOST_FIELD_NAME__SpawnTick, baseline.__GHOST_FIELD_NAME__SpawnTick, compressionModel);
@@ -62,10 +62,10 @@ namespace Generated
         }
 
         public void Deserialize(uint tick, ref GhostSnapshotData baseline, ref DataStreamReader reader,
-            NetworkCompressionModel compressionModel)
+            StreamCompressionModel compressionModel)
         {
             #region __GHOST_READ__
-            if ((changeMask__GHOST_MASK_BATCH__ & (1 << __GHOST_MASK_INDEX__)) != 0)
+            if ((changeMask & (1 << __GHOST_MASK_INDEX__)) != 0)
             {
                 snapshot.__GHOST_FIELD_NAME__ = reader.ReadPackedIntDelta(baseline.__GHOST_FIELD_NAME__, compressionModel);
                 snapshot.__GHOST_FIELD_NAME__SpawnTick = reader.ReadPackedUIntDelta(baseline.__GHOST_FIELD_NAME__SpawnTick, compressionModel);
@@ -78,19 +78,19 @@ namespace Generated
             #endregion
         }
 
-        public void SerializeCommand(ref DataStreamWriter writer, in IComponentData data, in IComponentData baseline, in RpcSerializerState state, NetworkCompressionModel compressionModel)
+        public void SerializeCommand(ref DataStreamWriter writer, in IComponentData data, in IComponentData baseline, in RpcSerializerState state, StreamCompressionModel compressionModel)
         {
             #region __COMMAND_WRITE__
             if (state.GhostFromEntity.HasComponent(data.__COMMAND_FIELD_NAME__))
             {
                 var ghostComponent = state.GhostFromEntity[data.__COMMAND_FIELD_NAME__];
                 writer.WriteInt(ghostComponent.ghostId);
-                writer.WriteUInt(ghostComponent.spawnTick);
+                writer.WriteUInt(ghostComponent.spawnTick.SerializedData);
             }
             else
             {
                 writer.WriteInt(0);
-                writer.WriteUInt(0);
+                writer.WriteUInt(NetworkTick.Invalid.SerializedData);
             }
             #endregion
             #region __COMMAND_WRITE_PACKED__
@@ -98,22 +98,22 @@ namespace Generated
             {
                 var ghostComponent = state.GhostFromEntity[data.__COMMAND_FIELD_NAME__];
                 writer.WriteInt(ghostComponent.ghostId);
-                writer.WriteUInt(ghostComponent.spawnTick);
+                writer.WriteUInt(ghostComponent.spawnTick.SerializedData);
             }
             else
             {
                 writer.WriteInt(0);
-                writer.WriteUInt(0);
+                writer.WriteUInt(NetworkTick.Invalid.SerializedData);
             }
             #endregion
         }
 
-        public void DeserializeCommand(ref DataStreamReader reader, ref IComponentData data, in IComponentData baseline, in RpcDeserializerState state, NetworkCompressionModel compressionModel)
+        public void DeserializeCommand(ref DataStreamReader reader, ref IComponentData data, in IComponentData baseline, in RpcDeserializerState state, StreamCompressionModel compressionModel)
         {
             #region __COMMAND_READ__
             {
                 var ghostId = reader.ReadInt();
-                var spawnTick = reader.ReadUInt();
+                NetworkTick spawnTick = new NetworkTick{SerializedData = reader.ReadUInt()};
                 data.__COMMAND_FIELD_NAME__ = Entity.Null;
                 if (ghostId != 0)
                 {
@@ -125,7 +125,7 @@ namespace Generated
             #region __COMMAND_READ_PACKED__
             {
                 var ghostId = reader.ReadInt();
-                var spawnTick = reader.ReadUInt();
+                NetworkTick spawnTick = new NetworkTick{SerializedData = reader.ReadUInt()};
                 data.__COMMAND_FIELD_NAME__ = Entity.Null;
                 if (ghostId != 0)
                 {

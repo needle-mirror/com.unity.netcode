@@ -1,43 +1,35 @@
 using System;
 using System.Collections.Generic;
+using Unity.Entities.Conversion;
 using UnityEditor;
 using UnityEngine;
-using Unity.NetCode.Generators;
 
 namespace Unity.NetCode.Editor
 {
     [CustomEditor(typeof(GhostAuthoringComponent))]
-    public class GhostAuthoringComponentEditor : UnityEditor.Editor
+    internal class GhostAuthoringComponentEditor : UnityEditor.Editor
     {
-        internal class ComponentField
-        {
-            public string name;
-            public SmoothingAction smoothing = SmoothingAction.Clamp;
-            public int quantization = -1;
-        }
-
-        internal class SerializedComponentData
-        {
-            public string name;
-            public Type managedType;
-            public GhostComponentAttribute attribute;
-            public ComponentField[] fields;
-        }
         SerializedProperty DefaultGhostMode;
         SerializedProperty SupportedGhostModes;
         SerializedProperty OptimizationMode;
         SerializedProperty HasOwner;
         SerializedProperty SupportAutoCommandTarget;
+        SerializedProperty TrackInterpolationDelay;
+        SerializedProperty GhostGroup;
         SerializedProperty UsePreSerialization;
         SerializedProperty Importance;
-        SerializedProperty Name;
-        private GhostComponentInspector componentInspector;
-        private GhostComponentVariantLookup variantLookup;
-        static Color s_BrokenColor = new Color(1f, 0.56f, 0.54f);
 
-        bool IsInvalidName() => string.IsNullOrWhiteSpace(Name.stringValue);
+        internal static EntityPrefabComponentsPreview prefabPreview { get; private set; }
+        internal static Dictionary<GameObject, BakedGameObjectResult> bakedGameObjectResultsMap { get; private set; }
+        internal static GhostAuthoringComponent bakedGhostAuthoringComponent { get; private set; }
 
-        static string ValidateGhostName(string ghostName) => ghostName.Replace(" ", string.Empty);
+        internal static Color brokenColor = new Color(1f, 0.56f, 0.54f);
+
+        internal static bool hasBakedNetCodePrefab => bakedGhostAuthoringComponent != null;
+        internal static bool bakingSucceeded => hasBakedNetCodePrefab && bakedGameObjectResultsMap != default;
+
+        /// <summary>Aligned with NetCode for GameObjects.</summary>
+        public static Color netcodeColor => EditorGUIUtility.isProSkin ? new Color(0.91f, 0.55f, 0.86f) : new Color(0.8f, 0.14f, 0.5f);
 
         void OnEnable()
         {
@@ -46,86 +38,130 @@ namespace Unity.NetCode.Editor
             OptimizationMode = serializedObject.FindProperty("OptimizationMode");
             HasOwner = serializedObject.FindProperty("HasOwner");
             SupportAutoCommandTarget = serializedObject.FindProperty("SupportAutoCommandTarget");
+            TrackInterpolationDelay = serializedObject.FindProperty("TrackInterpolationDelay");
+            GhostGroup = serializedObject.FindProperty("GhostGroup");
             UsePreSerialization = serializedObject.FindProperty("UsePreSerialization");
             Importance = serializedObject.FindProperty("Importance");
-            Name = serializedObject.FindProperty("Name");
-            variantLookup = new GhostComponentVariantLookup();
-            componentInspector = new GhostComponentInspector((GhostAuthoringComponent)target, variantLookup);
-
-            if (IsInvalidName())
-            {
-                Name.stringValue = ValidateGhostName(target.name);
-                serializedObject.ApplyModifiedPropertiesWithoutUndo();
-                Debug.Log($"'{target.name}' has a `GhostAuthoringComponent` with a null or empty `Name` property. It must be assigned, so was auto-assigned to '{Name.stringValue}'.");
-            }
         }
 
         public override void OnInspectorGUI()
         {
-            var authoringComponent = (GhostAuthoringComponent) target;
-            if (serializedObject.UpdateIfRequiredOrScript())
+            var authoringComponent = (GhostAuthoringComponent)target;
+            var go = authoringComponent.gameObject;
+
+            var isViewingPrefab = IsViewingPrefab(go, out var isViewingInstance);
+            if (isViewingPrefab)
             {
-                componentInspector.Refresh();
+                if (!isViewingInstance)
+                {
+                    if (authoringComponent.transform != authoringComponent.transform.root)
+                    {
+                        EditorGUILayout.HelpBox("The `GhostAuthoringComponent` must only be added to the root GameObject of a prefab. Cannot continue setup.", MessageType.Error);
+                        return;
+                    }
+                }
             }
+            else
+            {
+                var prefabInstanceStatus = PrefabUtility.GetPrefabInstanceStatus(go);
+                if (prefabInstanceStatus == PrefabInstanceStatus.NotAPrefab || prefabInstanceStatus == PrefabInstanceStatus.MissingAsset)
+                    EditorGUILayout.HelpBox($"'{authoringComponent}' is not a recognised Prefab, so the `GhostAuthoringComponent` is not valid. Please ensure that this GameObject is an unmodified Prefab instance mapped to a known project asset.", MessageType.Error);
+            }
+
+            GUI.enabled = isViewingPrefab;
 
             var originalColor = GUI.color;
 
-            EditorGUI.BeginDisabledGroup(PrefabUtility.IsPartOfNonAssetPrefabInstance(target));
-            GUI.color = IsInvalidName() ? s_BrokenColor : originalColor;
-            EditorGUILayout.PropertyField(Name);
-            Name.stringValue = ValidateGhostName(Name.stringValue);
             GUI.color = originalColor;
-            if(IsInvalidName()) EditorGUILayout.HelpBox($"Ghosts must have a `Name`. We recommend it matches the prefab name.", MessageType.Error);
-
             EditorGUILayout.PropertyField(Importance);
             EditorGUILayout.PropertyField(SupportedGhostModes);
 
-            var self = (GhostAuthoringComponent)target;
-            bool hasGhostOwnerAuthoring = self.gameObject.GetComponent<GhostOwnerComponentAuthoring>() != null;
-            bool hasGhostOwner = hasGhostOwnerAuthoring || self.HasOwner;
-            var isOwnerPredictedError = DefaultGhostMode.enumValueIndex == (int)GhostAuthoringComponent.GhostMode.OwnerPredicted && !hasGhostOwner;
+            var self = (GhostAuthoringComponent) target;
+            var isOwnerPredictedError = DefaultGhostMode.enumValueIndex == (int) GhostMode.OwnerPredicted && !self.HasOwner;
 
-            if (SupportedGhostModes.intValue == (int)GhostAuthoringComponent.GhostModeMask.All)
+            if (SupportedGhostModes.intValue == (int) GhostModeMask.All)
             {
                 EditorGUILayout.PropertyField(DefaultGhostMode);
+
                 // Selecting OwnerPredicted on a ghost without a GhostOwnerComponent will cause an exception during conversion - display an error for that case in the inspector
                 if (isOwnerPredictedError)
                 {
                     EditorGUILayout.HelpBox("Setting `Default Ghost Mode` to `Owner Predicted` requires the ghost to have a `Ghost Owner Component`. You must also ensure your code sets the `NetworkId` of that component correctly. The solutions are:", MessageType.Error);
-                    GUI.color = s_BrokenColor;
+                    GUI.color = brokenColor;
                     if (GUILayout.Button("Enable `Has Owner` now (and ensure code hooks up `GhostOwnerComponent.NetworkId` myself)?")) HasOwner.boolValue = true;
-                    if (GUILayout.Button("Set to `GhostMode.Interpolated`?")) DefaultGhostMode.enumValueIndex = (int)GhostAuthoringComponent.GhostMode.Interpolated;
-                    if (GUILayout.Button("Set to `GhostMode.Predicted`?")) DefaultGhostMode.enumValueIndex = (int)GhostAuthoringComponent.GhostMode.Predicted;
+                    if (GUILayout.Button("Set to `GhostMode.Interpolated`?")) DefaultGhostMode.enumValueIndex = (int) GhostMode.Interpolated;
+                    if (GUILayout.Button("Set to `GhostMode.Predicted`?")) DefaultGhostMode.enumValueIndex = (int) GhostMode.Predicted;
                     GUI.color = originalColor;
                 }
             }
+
             EditorGUILayout.PropertyField(OptimizationMode);
-            if (hasGhostOwnerAuthoring)
+            EditorGUILayout.PropertyField(HasOwner);
+
+            if (self.HasOwner)
             {
-                EditorGUI.BeginDisabledGroup(true);
-                EditorGUILayout.Toggle("Has Owner", true);
-                EditorGUI.EndDisabledGroup();
-            }
-            else
-                EditorGUILayout.PropertyField(HasOwner);
-            if (hasGhostOwner)
                 EditorGUILayout.PropertyField(SupportAutoCommandTarget);
+                EditorGUILayout.PropertyField(TrackInterpolationDelay);
+            }
+            EditorGUILayout.PropertyField(GhostGroup);
             EditorGUILayout.PropertyField(UsePreSerialization);
-            EditorGUI.EndDisabledGroup();
 
-            GUILayout.Label("Prefab Overrides", "box", GUILayout.ExpandWidth(true));
-            OverridesPreview.OnInspectorGUI(authoringComponent, variantLookup);
-
-            //Show components
-            GUILayout.Label("Components", "box", GUILayout.ExpandWidth(true));
-            componentInspector.OnInspectorGUI();
-            serializedObject.ApplyModifiedProperties();
-            EditorGUILayout.Separator();
-            GUI.enabled = ! isOwnerPredictedError;
-            GUI.color = isOwnerPredictedError ? s_BrokenColor : originalColor;
-            if (GUILayout.Button(isOwnerPredictedError ? "Update component list is disabled due to errors" : "Update component list"))
+            if (serializedObject.ApplyModifiedProperties())
             {
-                componentInspector.UpdateComponentList();
+                GhostAuthoringInspectionComponent.forceBake = true;
+                var allComponentOverridesForGhost = GhostAuthoringInspectionComponent.CollectAllComponentOverridesInInspectionComponents(authoringComponent);
+                GhostComponentAnalytics.BufferConfigurationData(authoringComponent, allComponentOverridesForGhost.Count);
+            }
+
+            if (isViewingPrefab && !isViewingInstance && !go.GetComponent<GhostAuthoringInspectionComponent>())
+            {
+                EditorGUILayout.HelpBox("To modify this ghost's per-entity component meta-data, add a `Ghost Authoring Inspection Component` (a MonoBehaviour) to the relevant authoring GameObject.", MessageType.Info);
+            }
+        }
+
+
+        // TODO - Add guard against nested Ghost prefabs as they're invalid (although a non-ghost prefab containing ghost nested prefabs is valid AFAIK).
+        /// <summary>
+        /// <para>Lots of valid and invalid ways to view a prefab. These API calls check to ensure we're either:</para>
+        /// <para>- IN the prefabs own scene (thus it's a prefab).</para>
+        /// <para>- Selecting the prefab in the project.</para>
+        /// <para>Thus, it's invalid to select a prefab instance in some other scene or sub-scene (or some other prefabs scene).</para>
+        /// </summary>
+        internal static bool IsViewingPrefab(GameObject go, out bool isViewingInstance)
+        {
+            var isInPrefabScene = go.scene.IsValid();
+            isViewingInstance = PrefabUtility.IsPartOfPrefabInstance(go) || isInPrefabScene;
+            return !PrefabUtility.IsPartOfNonAssetPrefabInstance(go) && (isInPrefabScene || PrefabUtility.IsPartOfPrefabAsset(go));
+        }
+
+        internal static bool TryGetEntitiesAssociatedWithAuthoringGameObject(GhostAuthoringInspectionComponent ghostAuthoringInspection, out BakedGameObjectResult result)
+        {
+            result = default;
+            if (bakedGhostAuthoringComponent == null || bakedGhostAuthoringComponent.gameObject != ghostAuthoringInspection.transform.root.gameObject)
+            {
+                BakeNetCodePrefab(ghostAuthoringInspection.GetComponent<GhostAuthoringComponent>() ?? ghostAuthoringInspection.transform.root.GetComponent<GhostAuthoringComponent>());
+            }
+            return bakedGameObjectResultsMap != null && bakedGameObjectResultsMap.TryGetValue(ghostAuthoringInspection.gameObject, out result);
+        }
+
+        public static void BakeNetCodePrefab(GhostAuthoringComponent ghostAuthoring)
+        {
+            if (bakedGhostAuthoringComponent != ghostAuthoring || GhostAuthoringInspectionComponent.forceBake)
+            {
+                // These allow interop with GhostAuthoringInspectionComponentEditor.
+                bakedGhostAuthoringComponent = ghostAuthoring;
+                prefabPreview = new EntityPrefabComponentsPreview();
+                bakedGameObjectResultsMap = new Dictionary<GameObject, BakedGameObjectResult>(4);
+                try
+                {
+                    prefabPreview.BakeEntireNetcodePrefab(ghostAuthoring, bakedGameObjectResultsMap);
+                }
+                catch
+                {
+                    prefabPreview = default;
+                    bakedGameObjectResultsMap = default;
+                    throw;
+                }
             }
         }
     }

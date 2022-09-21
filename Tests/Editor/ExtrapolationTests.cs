@@ -13,9 +13,9 @@ namespace Unity.NetCode.Tests
 {
     public class GhostExtrapolationConverter : TestNetCodeAuthoring.IConverter
     {
-        public void Convert(GameObject gameObject, Entity entity, EntityManager dstManager, GameObjectConversionSystem conversionSystem)
+        public void Bake(GameObject gameObject, IBaker baker)
         {
-            dstManager.AddComponentData(entity, new TestExtrapolated());
+            baker.AddComponent(new TestExtrapolated());
         }
     }
 
@@ -27,11 +27,12 @@ namespace Unity.NetCode.Tests
     public struct ExtrapolateBackup : IComponentData
     {
         public float Value;
-        public uint Tick;
+        public NetworkTick Tick;
         public float Fraction;
     }
     [DisableAutoCreation]
-    [UpdateInWorld(TargetWorld.Server)]
+    [RequireMatchingQueriesForUpdate]
+    [WorldSystemFilter(WorldSystemFilterFlags.ServerSimulation)]
     public partial class MoveExtrapolated : SystemBase
     {
         protected override void OnUpdate()
@@ -45,7 +46,8 @@ namespace Unity.NetCode.Tests
         }
     }
     [DisableAutoCreation]
-    [UpdateInWorld(TargetWorld.Client)]
+    [RequireMatchingQueriesForUpdate]
+    [WorldSystemFilter(WorldSystemFilterFlags.ClientSimulation)]
     public partial class CheckInterpolationDistance : SystemBase
     {
         protected override void OnUpdate()
@@ -56,18 +58,14 @@ namespace Unity.NetCode.Tests
         }
     }
     [DisableAutoCreation]
-    [UpdateInWorld(TargetWorld.Client)]
+    [RequireMatchingQueriesForUpdate]
+    [WorldSystemFilter(WorldSystemFilterFlags.ClientSimulation)]
     public partial class CheckExtrapolate : SystemBase
     {
-        private ClientSimulationSystemGroup m_ClientSimulationSystemGroup;
-        protected override void OnCreate()
-        {
-            m_ClientSimulationSystemGroup = World.GetExistingSystem<ClientSimulationSystemGroup>();
-        }
         protected override void OnUpdate()
         {
-            var InterpolTick = m_ClientSimulationSystemGroup.InterpolationTick;
-            var InterpolFraction = m_ClientSimulationSystemGroup.InterpolationTickFraction;
+            var InterpolTick = GetSingleton<NetworkTime>().InterpolationTick;
+            var InterpolFraction = GetSingleton<NetworkTime>().InterpolationTickFraction;
             Entities.WithoutBurst().ForEach((ref TestExtrapolated val, ref ExtrapolateBackup bkup) => {
                 if (bkup.Tick == InterpolTick && bkup.Fraction == InterpolFraction)
                     return;

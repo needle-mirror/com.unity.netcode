@@ -3,12 +3,15 @@ using UnityEngine;
 
 namespace Unity.NetCode.Tests
 {
-    [ConverterVersion("cristian", 1)]
-    public class SomeDataElementAuthoring : MonoBehaviour, IConvertGameObjectToEntity
+    public class SomeDataElementAuthoring : MonoBehaviour
     {
-        public void Convert(Entity entity, EntityManager dstManager, GameObjectConversionSystem conversionSystem)
+    }
+
+    class SomeDataElementAuthoringBaker : Baker<SomeDataElementAuthoring>
+    {
+        public override void Bake(SomeDataElementAuthoring authoring)
         {
-            var buffer = dstManager.AddBuffer<SomeDataElement>(entity);
+            var buffer = AddBuffer<SomeDataElement>();
             buffer.ResizeUninitialized(16);
             for (int i = 0; i < 16; ++i)
                 buffer[i] = new SomeDataElement{Value = i};

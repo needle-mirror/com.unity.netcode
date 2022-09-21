@@ -6,7 +6,7 @@ using Unity.Entities;
 namespace Unity.NetCode.Tests
 {
     [DisableAutoCreation]
-    [UpdateInWorld(TargetWorld.Default)]
+    [WorldSystemFilter(WorldSystemFilterFlags.LocalSimulation)]
     public partial class ExplicitDefaultSystem : SystemBase
     {
         protected override void OnUpdate()
@@ -14,7 +14,7 @@ namespace Unity.NetCode.Tests
         }
     }
     [DisableAutoCreation]
-    [UpdateInWorld(TargetWorld.Client)]
+    [WorldSystemFilter(WorldSystemFilterFlags.ClientSimulation)]
     public partial class ExplicitClientSystem : SystemBase
     {
         protected override void OnUpdate()
@@ -22,7 +22,7 @@ namespace Unity.NetCode.Tests
         }
     }
     [DisableAutoCreation]
-    [UpdateInWorld(TargetWorld.Server)]
+    [WorldSystemFilter(WorldSystemFilterFlags.ServerSimulation)]
     public partial class ExplicitServerSystem : SystemBase
     {
         protected override void OnUpdate()
@@ -30,57 +30,23 @@ namespace Unity.NetCode.Tests
         }
     }
     [DisableAutoCreation]
-    [UpdateInWorld(TargetWorld.ClientAndServer)]
+    [WorldSystemFilter(WorldSystemFilterFlags.ClientSimulation | WorldSystemFilterFlags.ServerSimulation)]
     public partial class ExplicitClientServerSystem : SystemBase
     {
         protected override void OnUpdate()
         {
         }
     }
+
+    public enum SendForChildrenTestCase
+    {
+        YesViaDefaultNameDictionary,
+        YesViaInspectionComponentOverride,
+        NoViaDontSerializeVariantDefault,
+    }
+
     public class BootstrapTests
     {
-        [Test]
-        public void BootstrapPutsTickSystemInDefaultWorld()
-        {
-            var oldBootstrapState = ClientServerBootstrap.s_State;
-            ClientServerBootstrap.s_State = default;
-
-            var systems = new List<Type>();
-            systems.Add(typeof(TickClientInitializationSystem));
-            systems.Add(typeof(TickClientSimulationSystem));
-            systems.Add(typeof(TickClientPresentationSystem));
-            systems.Add(typeof(TickServerInitializationSystem));
-            systems.Add(typeof(TickServerSimulationSystem));
-            ClientServerBootstrap.GenerateSystemLists(systems);
-
-            Assert.True(ClientServerBootstrap.DefaultWorldSystems.Contains(typeof(TickClientInitializationSystem)));
-            Assert.True(ClientServerBootstrap.ExplicitDefaultWorldSystems.Contains(typeof(TickClientInitializationSystem)));
-            Assert.True(ClientServerBootstrap.DefaultWorldSystems.Contains(typeof(TickClientSimulationSystem)));
-            Assert.True(ClientServerBootstrap.ExplicitDefaultWorldSystems.Contains(typeof(TickClientSimulationSystem)));
-            Assert.True(ClientServerBootstrap.DefaultWorldSystems.Contains(typeof(TickClientPresentationSystem)));
-            Assert.True(ClientServerBootstrap.ExplicitDefaultWorldSystems.Contains(typeof(TickClientPresentationSystem)));
-            Assert.True(ClientServerBootstrap.DefaultWorldSystems.Contains(typeof(TickServerInitializationSystem)));
-            Assert.True(ClientServerBootstrap.ExplicitDefaultWorldSystems.Contains(typeof(TickServerInitializationSystem)));
-            Assert.True(ClientServerBootstrap.DefaultWorldSystems.Contains(typeof(TickServerSimulationSystem)));
-            Assert.True(ClientServerBootstrap.ExplicitDefaultWorldSystems.Contains(typeof(TickServerSimulationSystem)));
-
-            ClientServerBootstrap.s_State = oldBootstrapState;
-        }
-        [Test]
-        public void BootstrapDoesNotPutNetworkTimeSystemInDefaultWorld()
-        {
-            var oldBootstrapState = ClientServerBootstrap.s_State;
-            ClientServerBootstrap.s_State = default;
-
-            var systems = new List<Type>();
-            systems.Add(typeof(NetworkTimeSystem));
-            ClientServerBootstrap.GenerateSystemLists(systems);
-
-            Assert.False(ClientServerBootstrap.DefaultWorldSystems.Contains(typeof(NetworkTimeSystem)));
-            Assert.False(ClientServerBootstrap.ExplicitDefaultWorldSystems.Contains(typeof(NetworkTimeSystem)));
-
-            ClientServerBootstrap.s_State = oldBootstrapState;
-        }
         [Test]
         public void BootstrapRespectsUpdateInWorld()
         {
@@ -93,21 +59,20 @@ namespace Unity.NetCode.Tests
                     typeof(ExplicitClientServerSystem));
                 testWorld.CreateWorlds(true, 1);
 
-                Assert.IsNotNull(testWorld.DefaultWorld.GetExistingSystem<ExplicitDefaultSystem>());
-                Assert.IsNull(testWorld.ServerWorld.GetExistingSystem<ExplicitDefaultSystem>());
-                Assert.IsNull(testWorld.ClientWorlds[0].GetExistingSystem<ExplicitDefaultSystem>());
+                Assert.IsNull(testWorld.ServerWorld.GetExistingSystemManaged<ExplicitDefaultSystem>());
+                Assert.IsNull(testWorld.ClientWorlds[0].GetExistingSystemManaged<ExplicitDefaultSystem>());
 
-                Assert.IsNull(testWorld.DefaultWorld.GetExistingSystem<ExplicitClientSystem>());
-                Assert.IsNull(testWorld.ServerWorld.GetExistingSystem<ExplicitClientSystem>());
-                Assert.IsNotNull(testWorld.ClientWorlds[0].GetExistingSystem<ExplicitClientSystem>());
+                Assert.IsNull(testWorld.DefaultWorld.GetExistingSystemManaged<ExplicitClientSystem>());
+                Assert.IsNull(testWorld.ServerWorld.GetExistingSystemManaged<ExplicitClientSystem>());
+                Assert.IsNotNull(testWorld.ClientWorlds[0].GetExistingSystemManaged<ExplicitClientSystem>());
 
-                Assert.IsNull(testWorld.DefaultWorld.GetExistingSystem<ExplicitServerSystem>());
-                Assert.IsNotNull(testWorld.ServerWorld.GetExistingSystem<ExplicitServerSystem>());
-                Assert.IsNull(testWorld.ClientWorlds[0].GetExistingSystem<ExplicitServerSystem>());
+                Assert.IsNull(testWorld.DefaultWorld.GetExistingSystemManaged<ExplicitServerSystem>());
+                Assert.IsNotNull(testWorld.ServerWorld.GetExistingSystemManaged<ExplicitServerSystem>());
+                Assert.IsNull(testWorld.ClientWorlds[0].GetExistingSystemManaged<ExplicitServerSystem>());
 
-                Assert.IsNull(testWorld.DefaultWorld.GetExistingSystem<ExplicitClientServerSystem>());
-                Assert.IsNotNull(testWorld.ServerWorld.GetExistingSystem<ExplicitClientServerSystem>());
-                Assert.IsNotNull(testWorld.ClientWorlds[0].GetExistingSystem<ExplicitClientServerSystem>());
+                Assert.IsNull(testWorld.DefaultWorld.GetExistingSystemManaged<ExplicitClientServerSystem>());
+                Assert.IsNotNull(testWorld.ServerWorld.GetExistingSystemManaged<ExplicitClientServerSystem>());
+                Assert.IsNotNull(testWorld.ClientWorlds[0].GetExistingSystemManaged<ExplicitClientServerSystem>());
             }
         }
         [Test]

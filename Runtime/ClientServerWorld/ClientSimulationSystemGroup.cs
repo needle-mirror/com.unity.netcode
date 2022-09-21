@@ -1,118 +1,204 @@
-using System;
-using System.Collections.Generic;
 using Unity.Core;
 using Unity.Entities;
-using Unity.Mathematics;
-using Unity.Profiling;
+using System.Collections.Generic;
 
 namespace Unity.NetCode
 {
-    [DisableAutoCreation]
-    [AlwaysUpdateSystem]
-    public class ClientSimulationSystemGroup : SimulationSystemGroup
+    /// <summary>
+    /// Store the previous tick and fraction. Used by client to calculated the network elapsed deltatime
+    /// </summary>
+    internal struct PreviousServerTick : IComponentData
     {
-#if !UNITY_SERVER
-        internal TickClientSimulationSystem ParentTickSystem;
-#endif
+        public NetworkTick Value;
+        public float Fraction;
+    }
 
-        private NetworkTimeSystem m_NetworkTimeSystem;
-        public float ServerTickDeltaTime { get; private set; }
-        public uint ServerTick => m_serverTick;
-        public float InterpolationTickFraction => m_interpolationTickFraction;
-        public float ServerTickFraction => m_serverTickFraction;
-        public uint InterpolationTick => m_interpolationTick;
-        private uint m_serverTick;
-        private uint m_interpolationTick;
-        private float m_serverTickFraction;
-        private float m_interpolationTickFraction;
-        private uint m_previousServerTick;
-        private float m_previousServerTickFraction;
-        private double m_currentTime;
+    class NetcodeClientRateManager : IRateManager
+    {
+        private EntityQuery m_NetworkTimeQuery;
+        private EntityQuery m_UnscaledTimeQuery;
+        private EntityQuery m_PreviousServerTickQuery;
+        private EntityQuery m_ClientSeverTickRateQuery;
+        private EntityQuery m_NetworkStreamInGameQuery;
+        private EntityQuery m_NetworkTimeSystemDataQuery;
 
-        protected override void OnCreate()
+        private bool m_DidPushTime;
+        internal NetcodeClientRateManager(ComponentSystemGroup group)
         {
-            base.OnCreate();
-            m_NetworkTimeSystem = World.GetOrCreateSystem<NetworkTimeSystem>();
-            m_currentTime = Time.ElapsedTime;
-        }
+            // Create the queries for singletons
+            m_NetworkTimeQuery = group.World.EntityManager.CreateEntityQuery(ComponentType.ReadWrite<NetworkTime>());
+            m_UnscaledTimeQuery = group.World.EntityManager.CreateEntityQuery(ComponentType.ReadWrite<UnscaledClientTime>());
+            m_PreviousServerTickQuery = group.World.EntityManager.CreateEntityQuery(ComponentType.ReadWrite<PreviousServerTick>());
+            m_ClientSeverTickRateQuery = group.World.EntityManager.CreateEntityQuery(ComponentType.ReadWrite<ClientServerTickRate>());
+            m_NetworkStreamInGameQuery = group.World.EntityManager.CreateEntityQuery(ComponentType.ReadWrite<NetworkStreamInGame>());
+            m_NetworkTimeSystemDataQuery = group.World.EntityManager.CreateEntityQuery(ComponentType.ReadOnly<NetworkTimeSystemData>());
 
-        protected override void OnDestroy()
-        {
-#if !UNITY_SERVER
-            if (ParentTickSystem != null)
-                ParentTickSystem.RemoveSystemFromUpdateList(this);
-#endif
-        }
+            var netTimeEntity = group.World.EntityManager.CreateEntity(
+                ComponentType.ReadWrite<NetworkTime>(),
+                ComponentType.ReadWrite<UnscaledClientTime>(),
+                ComponentType.ReadWrite<PreviousServerTick>(),
+                ComponentType.ReadWrite<GhostSnapshotLastBackupTick>());
+            group.World.EntityManager.SetName(netTimeEntity, "NetworkTimeSingleton");
 
-        protected override void OnUpdate()
-        {
-            var tickRate = default(ClientServerTickRate);
-            if (HasSingleton<ClientServerTickRate>())
+            m_UnscaledTimeQuery.SetSingleton(new UnscaledClientTime
             {
-                tickRate = GetSingleton<ClientServerTickRate>();
+                UnscaleElapsedTime = group.World.Time.ElapsedTime,
+            });
+        }
+        public bool ShouldGroupUpdate(ComponentSystemGroup group)
+        {
+            if (m_DidPushTime)
+            {
+                group.World.PopTime();
+                m_DidPushTime = false;
+                return false;
             }
 
+            m_ClientSeverTickRateQuery.TryGetSingleton<ClientServerTickRate>(out var tickRate);
             tickRate.ResolveDefaults();
 
-            float fixedTimeStep = 1.0f / (float) tickRate.SimulationTickRate;
-            ServerTickDeltaTime = fixedTimeStep;
+            var networkTimeSystemData = m_NetworkTimeSystemDataQuery.GetSingleton<NetworkTimeSystemData>();
 
+            float fixedTimeStep = tickRate.SimulationFixedTimeStep;
             // Calculate update time based on values received from the network time system
-            var curServerTick = m_NetworkTimeSystem.predictTargetTick;
-            var curInterpoationTick = m_NetworkTimeSystem.interpolateTargetTick;
+            var curServerTick = networkTimeSystemData.predictTargetTick;
+            var curInterpoationTick = networkTimeSystemData.interpolateTargetTick;
+            var serverTickFraction = networkTimeSystemData.subPredictTargetTick;
+            var interpolationTickFraction = networkTimeSystemData.subInterpolateTargetTick;
 
-            m_serverTickFraction = m_NetworkTimeSystem.subPredictTargetTick;
-            m_interpolationTickFraction = m_NetworkTimeSystem.subInterpolateTargetTick;
+            ref var networkTime = ref m_NetworkTimeQuery.GetSingletonRW<NetworkTime>().ValueRW;
+            ref var unscaledTime = ref m_UnscaledTimeQuery.GetSingletonRW<UnscaledClientTime>().ValueRW;
+            ref var previousServerTick = ref m_PreviousServerTickQuery.GetSingletonRW<PreviousServerTick>().ValueRW;
+			var currentTime = group.World.Time;
 
             // If the tick is within +/- 5% of a frame from matching a tick - just use the actual tick instead
-            if (m_serverTickFraction < 0.05f)
-                m_serverTickFraction = 1;
+            if (curServerTick.IsValid)
+            {
+                if (serverTickFraction < 0.05f)
+                    serverTickFraction = 1;
+                else
+                    curServerTick.Increment();
+                if (serverTickFraction > 0.95f)
+                    serverTickFraction = 1;
+                if (interpolationTickFraction < 0.05f)
+                    interpolationTickFraction = 1;
+                else
+                    curInterpoationTick.Increment();
+                if (interpolationTickFraction > 0.95f)
+                    interpolationTickFraction = 1;
+            }
+
+            networkTime.SimulationStepBatchSize = 1;
+            float networkDeltaTime = currentTime.DeltaTime;
+            if (curServerTick.IsValid && previousServerTick.Value.IsValid)
+            {
+                var deltaTicks = curServerTick.TicksSince(previousServerTick.Value);
+                networkDeltaTime = (deltaTicks + serverTickFraction - previousServerTick.Fraction) * fixedTimeStep;
+                networkTime.SimulationStepBatchSize = (int)deltaTicks;
+                // If last tick was fractional - consider this as re-doing that tick since it will be re-predicted
+                if (previousServerTick.Fraction < 1)
+                    ++networkTime.SimulationStepBatchSize;
+            }
+
+            if (!m_NetworkStreamInGameQuery.HasSingleton<NetworkStreamInGame>())
+            {
+                previousServerTick.Value = NetworkTick.Invalid;
+                previousServerTick.Fraction = 0f;
+                networkDeltaTime = currentTime.DeltaTime;
+            }
             else
-                ++curServerTick;
-            if (m_serverTickFraction > 0.95f)
-                m_serverTickFraction = 1;
-            if (m_interpolationTickFraction < 0.05f)
-                m_interpolationTickFraction = 1;
-            else
-                ++curInterpoationTick;
-            if (m_interpolationTickFraction > 0.95f)
-                m_interpolationTickFraction = 1;
+            {
+                previousServerTick.Value = curServerTick;
+                previousServerTick.Fraction = serverTickFraction;
+            }
+            unscaledTime.UnscaleElapsedTime = currentTime.ElapsedTime;
+            unscaledTime.UnscaleDeltaTime = currentTime.DeltaTime;
+            networkTime.ElapsedNetworkTime += networkDeltaTime;
+            networkTime.ServerTick = curServerTick;
+            networkTime.ServerTickFraction = serverTickFraction;
+            networkTime.InterpolationTick = curInterpoationTick;
+            networkTime.InterpolationTickFraction = interpolationTickFraction;
 
-            uint deltaTicks = curServerTick - m_previousServerTick;
-            float networkDeltaTime = (deltaTicks + m_serverTickFraction - m_previousServerTickFraction) * fixedTimeStep;
-
-            m_previousServerTick = curServerTick;
-            m_previousServerTickFraction = m_serverTickFraction;
-
-            m_serverTick = curServerTick;
-            m_interpolationTick = curInterpoationTick;
-            m_currentTime += networkDeltaTime;
-            World.PushTime(new TimeData(m_currentTime, networkDeltaTime));
-            base.OnUpdate();
-            World.PopTime();
+            group.World.PushTime(new TimeData(networkTime.ElapsedNetworkTime, networkDeltaTime));
+            m_DidPushTime = true;
+            return true;
+        }
+        public float Timestep
+        {
+            get
+            {
+                throw new System.NotImplementedException();
+            }
+            set
+            {
+                throw new System.NotImplementedException();
+            }
         }
     }
 
-#if !UNITY_SERVER
+    /// <summary>
+    /// Base class for all the tick system, provide a common update mehod that deal with proper and safe
+    /// handling of system removal at runtime, in particular when the world in which those systems are created is destroyd.
+    /// </summary>
+    internal abstract class TickComponentSystemGroup : ComponentSystemGroup
+    {
+        struct UpdateGroup
+        {
+            public World world;
+            public ComponentSystemGroup group;
+        }
+        private List<UpdateGroup> m_UpdateGroups = new List<UpdateGroup>();
+        private List<int> m_InvalidUpdateGroups = new List<int>();
+
+        /// <summary>
+        /// Add the group to the update list.
+        /// </summary>
+        /// <param name="grp"></param>
+        public void AddSystemGroupToTickList(ComponentSystemGroup grp)
+        {
+            m_UpdateGroups.Add(new UpdateGroup{world = grp.World, group = grp});
+            AddSystemToUpdateList(grp);
+        }
+
+        /// <summary>
+        /// Update all the children groups and remove them from the update list if they become invalid or destroyed.
+        /// </summary>
+        protected override void OnUpdate()
+        {
+            for (int i = 0; i < m_UpdateGroups.Count; ++i)
+            {
+                if (!m_UpdateGroups[i].world.IsCreated)
+                    m_InvalidUpdateGroups.Add(i);
+            }
+            if (m_InvalidUpdateGroups.Count > 0)
+            {
+                // Rever order to make sure we remove largest indices first
+                for (int i = m_InvalidUpdateGroups.Count - 1; i >= 0; --i)
+                {
+                    var idx = m_InvalidUpdateGroups[i];
+                    RemoveSystemFromUpdateList(m_UpdateGroups[idx].group);
+                    m_UpdateGroups.RemoveAt(idx);
+                }
+                m_InvalidUpdateGroups.Clear();
+            }
+            base.OnUpdate();
+        }
+    }
+
+    /// <summary>
+    /// Update the <see cref="SimulationSystemGroup"/> of a client world from another world (usually the default world)
+    /// Used only for DOTSRuntime and tests or other specific use cases.
+    /// </summary>
+#if !UNITY_SERVER || UNITY_EDITOR
 #if !UNITY_CLIENT || UNITY_SERVER || UNITY_EDITOR
     [UpdateAfter(typeof(TickServerSimulationSystem))]
 #endif
 #if !UNITY_DOTSRUNTIME
     [DisableAutoCreation]
 #endif
-    [AlwaysUpdateSystem]
-    [UpdateInWorld(TargetWorld.Default)]
-    public class TickClientSimulationSystem : ComponentSystemGroup
+    [WorldSystemFilter(WorldSystemFilterFlags.LocalSimulation)]
+    internal class TickClientSimulationSystem : TickComponentSystemGroup
     {
-        protected override void OnDestroy()
-        {
-            foreach (var sys in Systems)
-            {
-                var grp = sys as ClientSimulationSystemGroup;
-                if (grp != null)
-                    grp.ParentTickSystem = null;
-            }
-        }
     }
 #endif
 }

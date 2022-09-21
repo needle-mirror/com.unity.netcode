@@ -2,7 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using NUnit.Framework;
-using NUnit.Framework.Internal;
+using Unity.Burst.Intrinsics;
 using Unity.Collections;
 using Unity.Entities;
 using Unity.Mathematics;
@@ -12,12 +12,15 @@ using UnityEngine;
 using Unity.Scenes;
 using Unity.Transforms;
 using UnityEngine.SceneManagement;
+using Hash128 = Unity.Entities.Hash128;
 
 namespace Unity.NetCode.Tests
 {
     [DisableAutoCreation]
+    [RequireMatchingQueriesForUpdate]
     [UpdateInGroup(typeof(GhostSimulationSystemGroup))]
     [UpdateBefore(typeof(GhostCollectionSystem))]
+    [WorldSystemFilter(WorldSystemFilterFlags.ClientSimulation | WorldSystemFilterFlags.ServerSimulation)]
     public partial class LoadingGhostCollectionSystem : SystemBase
     {
         protected override void OnUpdate()
@@ -26,9 +29,8 @@ namespace Unity.NetCode.Tests
             var ghostCollection = EntityManager.GetBuffer<GhostCollectionPrefab>(collectionEntity);
             var subScenes = GetEntityQuery(ComponentType.ReadOnly<SubSceneWithPrespawnGhosts>()).ToEntityArray(Allocator.Temp);
             var anyLoaded = false;
-            var sceneSystem = World.GetExistingSystem<SceneSystem>();
             for (int i = 0; i < subScenes.Length; ++i)
-                anyLoaded |= sceneSystem.IsSceneLoaded(subScenes[i]);
+                anyLoaded |= SceneSystem.IsSceneLoaded(World.Unmanaged, subScenes[i]);
             for (int g = 0; g < ghostCollection.Length; ++g)
             {
                 var ghost = ghostCollection[g];
@@ -43,6 +45,7 @@ namespace Unity.NetCode.Tests
 
     [DisableAutoCreation]
     [UpdateInGroup(typeof(GhostSimulationSystemGroup))]
+    [WorldSystemFilter(WorldSystemFilterFlags.ClientSimulation | WorldSystemFilterFlags.ServerSimulation)]
     public partial class UpdatePrespawnGhostTransform : SystemBase
     {
         protected override void OnCreate()
@@ -52,7 +55,7 @@ namespace Unity.NetCode.Tests
 
         protected override void OnUpdate()
         {
-            float deltaTime = Time.DeltaTime;
+            float deltaTime = SystemAPI.Time.DeltaTime;
             Entities
                 .WithAll<PreSpawnedGhostIndex>()
                 .ForEach((ref Translation translation) =>
@@ -71,36 +74,9 @@ namespace Unity.NetCode.Tests
             return world.EntityManager.GetBuffer<PrespawnSceneLoaded>(collection);
         }
     }
-    public partial class SubSceneLoadingTests
+
+    public partial class SubSceneLoadingTests : TestWithSceneAsset
     {
-        private string ScenePath = "Assets/TestScenes";
-        private DateTime LastWriteTime;
-
-
-        [SetUp]
-        public void SetupScene()
-        {
-            if (!Directory.Exists(ScenePath))
-                Directory.CreateDirectory(ScenePath);
-            Directory.CreateDirectory(ScenePath);
-            LastWriteTime = Directory.GetLastWriteTime(Application.dataPath + ScenePath);
-        }
-
-        [TearDown]
-        public void DestroyScenes()
-        {
-            foreach (var go in SceneManager.GetActiveScene().GetRootGameObjects())
-                UnityEngine.Object.DestroyImmediate(go);
-
-            AssetDatabase.DeleteAsset(ScenePath);
-            var currentCache = Directory.GetFiles(Application.dataPath + "/SceneDependencyCache");
-            foreach (var file in currentCache)
-            {
-                if (File.GetCreationTime(file) > LastWriteTime)
-                    File.Delete(file);
-            }
-        }
-
         [Test]
         public void SubSceneListIsSentToClient()
         {
@@ -111,12 +87,11 @@ namespace Unity.NetCode.Tests
             var prefab2 = SubSceneHelper.CreateSimplePrefab(ScenePath, "WithData2", typeof(GhostAuthoringComponent),
                 typeof(SomeDataElementAuthoring));
             var parentScene = SubSceneHelper.CreateEmptyScene(ScenePath, "LateJoinTest");
-            var subScene = SubSceneHelper.CreateSubSceneWithPrefabs(ScenePath, "subscene", new[]
+            var subScene = SubSceneHelper.CreateSubSceneWithPrefabs(parentScene, ScenePath, "subscene", new[]
             {
                 prefab1,
                 prefab2
             }, numObjects);
-            SubSceneHelper.AddSubSceneToParentScene(parentScene, subScene);
 
             using (var testWorld = new NetCodeTestWorld())
             {
@@ -159,15 +134,15 @@ namespace Unity.NetCode.Tests
                 //Need one more tick now to have the ghost map updated
                 testWorld.Tick(frameTime);
 
-                var sendSystem = testWorld.ServerWorld.GetExistingSystem<GhostSendSystem>();
-                sendSystem.LastGhostMapWriter.Complete();
-                Assert.AreEqual(21, sendSystem.SpawnedGhostEntityMap.Count());
-                var receiveSystem = testWorld.ClientWorlds[0].GetExistingSystem<GhostReceiveSystem>();
-                receiveSystem.LastGhostMapWriter.Complete();
-                Assert.AreEqual(21, receiveSystem.GhostEntityMap.Count());
-                Assert.AreEqual(21, receiveSystem.SpawnedGhostEntityMap.Count());
+                var sendGhostMapSingleton = testWorld.TryGetSingletonEntity<SpawnedGhostEntityMap>(testWorld.ServerWorld);
+                var sendGhostMap = testWorld.ServerWorld.EntityManager.GetComponentData<SpawnedGhostEntityMap>(sendGhostMapSingleton);
+                Assert.AreEqual(21, sendGhostMap.Value.Count());
+                var recvGhostMapSingleton = testWorld.TryGetSingletonEntity<SpawnedGhostEntityMap>(testWorld.ClientWorlds[0]);
+                var recvGhostMap = testWorld.ClientWorlds[0].EntityManager.GetComponentData<SpawnedGhostEntityMap>(recvGhostMapSingleton);
+                Assert.AreEqual(21, recvGhostMap.ClientGhostEntityMap.Count());
+                Assert.AreEqual(21, recvGhostMap.Value.Count());
                 //Check that they are identically mapped.
-                foreach (var kv in sendSystem.SpawnedGhostEntityMap)
+                foreach (var kv in sendGhostMap.Value)
                 {
 
                     var ghost = kv.Key;
@@ -175,7 +150,7 @@ namespace Unity.NetCode.Tests
                         continue;
                     var serverPrespawnId = testWorld.ServerWorld.EntityManager.GetComponentData<PreSpawnedGhostIndex>(kv.Value);
                     Assert.AreEqual(PrespawnHelper.MakePrespawGhostId(serverPrespawnId.Value + 1), ghost.ghostId);
-                    var clientGhost = receiveSystem.SpawnedGhostEntityMap[ghost];
+                    var clientGhost = recvGhostMap.Value[ghost];
                     var clientPrespawnId = testWorld.ClientWorlds[0].EntityManager.GetComponentData<PreSpawnedGhostIndex>(clientGhost);
                     Assert.AreEqual(PrespawnHelper.MakePrespawGhostId(clientPrespawnId.Value + 1), ghost.ghostId);
                     Assert.AreEqual(serverPrespawnId.Value, clientPrespawnId.Value);
@@ -188,12 +163,15 @@ namespace Unity.NetCode.Tests
             public ComponentTypeHandle<SomeData> someDataHandle;
             public int offset;
 
-            public void Execute(ArchetypeChunk batchInChunk, int chunkIndex, int firstEntityIndex)
+            public void Execute(in ArchetypeChunk chunk, int unfilteredChunkIndex, bool useEnabledMask, in v128 chunkEnabledMask)
             {
-                var array = batchInChunk.GetNativeArray(someDataHandle);
-                for (int i = 0; i < batchInChunk.Count; ++i)
+                // This job is not written to support queries with enableable component types.
+                Assert.IsFalse(useEnabledMask);
+
+                var array = chunk.GetNativeArray(someDataHandle);
+                for (int i = 0, chunkEntityCount = chunk.Count; i < chunkEntityCount; ++i)
                 {
-                    array[i] = new SomeData {Value = offset + firstEntityIndex + i};
+                    array[i] = new SomeData {Value = offset + i};
                 }
             }
         }
@@ -209,16 +187,18 @@ namespace Unity.NetCode.Tests
             var ghostPrefab = SubSceneHelper.CreateSimplePrefab(ScenePath, "WithData1", typeof(GhostAuthoringComponent),
                 typeof(SomeDataAuthoring));
             var parentScene = SubSceneHelper.CreateEmptyScene(ScenePath, "StreamTest");
-            var sub0 = SubSceneHelper.AddSubSceneToParentScene(parentScene, SubSceneHelper.CreateSubSceneWithPrefabs(
+            var sub0 = SubSceneHelper.CreateSubSceneWithPrefabs(
+                parentScene,
                 ScenePath, "Sub0", new[]
                 {
                     ghostPrefab,
-                }, numObjects));
-            var sub1 = SubSceneHelper.AddSubSceneToParentScene(parentScene, SubSceneHelper.CreateSubSceneWithPrefabs(
+                }, numObjects);
+            var sub1 = SubSceneHelper.CreateSubSceneWithPrefabs(
+                parentScene,
                 ScenePath, "sub1", new[]
                 {
                     ghostPrefab,
-                }, numObjects, 5.0f));
+                }, numObjects, 5.0f);
 
             using (var testWorld = new NetCodeTestWorld())
             {
@@ -253,13 +233,12 @@ namespace Unity.NetCode.Tests
                     {
                         Value = subsceneList[i].SubSceneHash
                     });
-                    var chunks = q.GetArchetypeChunkIterator();
                     var job = new SetSomeDataJob
                     {
                         someDataHandle = testWorld.ServerWorld.EntityManager.GetComponentTypeHandle<SomeData>(false),
                         offset = 100 + i * 100
                     };
-                    job.RunWithoutJobs(ref chunks);
+                    InternalCompilerInterface.JobChunkInterface.RunWithoutJobs(ref job, q);
                 }
 
                 SubSceneHelper.LoadSubScene(testWorld.ClientWorlds[0], sub1);
@@ -284,6 +263,7 @@ namespace Unity.NetCode.Tests
                         Value = subsceneList[i].SubSceneHash
                     });
                     var data = q.ToComponentDataArray<SomeData>(Allocator.Temp);
+                    Assert.AreEqual(1, q.CalculateChunkCount());
                     for (int d = 0; d < numObjects; ++d)
                     {
                         Assert.AreEqual(100 + 100 * i + d, data[d].Value);
@@ -303,21 +283,24 @@ namespace Unity.NetCode.Tests
             //The client will then follow and load the scene as well.
             //Ghost should be synched
 
+
+
             const int numObjects = 5;
             var ghostPrefab = SubSceneHelper.CreateSimplePrefab(ScenePath, "WithData1", typeof(GhostAuthoringComponent),
                 typeof(SomeDataAuthoring));
             var parentScene = SubSceneHelper.CreateEmptyScene(ScenePath, "StreamTest");
-            var sub0 = SubSceneHelper.AddSubSceneToParentScene(parentScene, SubSceneHelper.CreateSubSceneWithPrefabs(
+            var sub0 = SubSceneHelper.CreateSubSceneWithPrefabs(
+                parentScene,
                 ScenePath, "Sub0", new[]
                 {
                     ghostPrefab,
-                }, numObjects));
+                }, numObjects);
             using (var testWorld = new NetCodeTestWorld())
             {
                 testWorld.Bootstrap(true, typeof(LoadingGhostCollectionSystem));
                 testWorld.CreateWorlds(true, 1);
                 //Just create the scene entities proxies but not load any content
-                SubSceneHelper.ResolveScenes(testWorld, 1.0f/60.0f, 100, sub0);
+                SubSceneHelper.LoadSceneSceneProxies(sub0.SceneGUID, testWorld, 1.0f/60.0f, 200);
                 float frameTime = 1.0f / 60.0f;
                 Assert.IsTrue(testWorld.Connect(frameTime, 4));
                 testWorld.GoInGame();
@@ -327,7 +310,7 @@ namespace Unity.NetCode.Tests
                 Assert.AreEqual(Entity.Null, testWorld.TryGetSingletonEntity<PrespawnSceneLoaded>(testWorld.ServerWorld));
                 Assert.AreEqual(Entity.Null, testWorld.TryGetSingletonEntity<PrespawnSceneLoaded>(testWorld.ClientWorlds[0]));
                 //Server will load first. Wait some frame
-                SubSceneHelper.LoadSubSceneAsync(testWorld.ServerWorld, testWorld, sub0.SceneGUID, frameTime, 128);
+                SubSceneHelper.LoadSubSceneAsync(testWorld.ServerWorld, testWorld, sub0.SceneGUID, frameTime);
                 //No subscene are ready on the client
                 Assert.IsTrue(testWorld.ClientWorlds[0].EntityManager.CreateEntityQuery(ComponentType.ReadOnly<PrespawnsSceneInitialized>()).IsEmpty);
                 Assert.IsTrue(testWorld.ClientWorlds[0].EntityManager.CreateEntityQuery(ComponentType.ReadOnly<SubScenePrespawnBaselineResolved>()).IsEmpty);
@@ -337,20 +320,19 @@ namespace Unity.NetCode.Tests
                 var subSceneList = SubSceneStreamingTestHelper.GetPrespawnLoaded(testWorld, testWorld.ClientWorlds[0]);
                 Assert.AreEqual(1, subSceneList.Length);
                 //Client load the scene now
-                SubSceneHelper.LoadSubSceneAsync(testWorld.ClientWorlds[0], testWorld, sub0.SceneGUID, frameTime, 128);
+                SubSceneHelper.LoadSubSceneAsync(testWorld.ClientWorlds[0], testWorld, sub0.SceneGUID, frameTime);
                 for (int i = 0; i < 16; ++i)
                     testWorld.Tick(frameTime);
                 //Modify the data on the server
                 {
                     var q = testWorld.ServerWorld.EntityManager.CreateEntityQuery(
                         ComponentType.ReadOnly<PreSpawnedGhostIndex>(), ComponentType.ReadWrite<SomeData>());
-                    var chunks = q.GetArchetypeChunkIterator();
                     var job = new SetSomeDataJob
                     {
                         someDataHandle = testWorld.ServerWorld.EntityManager.GetComponentTypeHandle<SomeData>(false),
                         offset = 100
                     };
-                    job.RunWithoutJobs(ref chunks);
+                    InternalCompilerInterface.JobChunkInterface.RunWithoutJobs(ref job, q);
                 }
 
                 for (int i = 0; i < 16; ++i)
@@ -410,34 +392,33 @@ namespace Unity.NetCode.Tests
             var ghostPrefab = SubSceneHelper.CreateSimplePrefab(ScenePath, "WithData1", typeof(GhostAuthoringComponent),
                 typeof(SomeDataAuthoring));
             var parentScene = SubSceneHelper.CreateEmptyScene(ScenePath, "StreamTest");
-            var sub0 = SubSceneHelper.AddSubSceneToParentScene(parentScene, SubSceneHelper.CreateSubSceneWithPrefabs(
+            var sub0 = SubSceneHelper.CreateSubSceneWithPrefabs(
+                parentScene,
                 ScenePath, "Sub0", new[]
                 {
                     ghostPrefab,
-                }, numObjects));
-            SubSceneHelper.AddSubSceneToParentScene(parentScene, SubSceneHelper.CreateSubSceneWithPrefabs(
+                }, numObjects);
+            SubSceneHelper.CreateSubSceneWithPrefabs(
+                parentScene,
                 ScenePath, "Sub1", new[]
                 {
                     ghostPrefab,
-                }, numObjects));
+                }, numObjects);
             using (var testWorld = new NetCodeTestWorld())
             {
                 testWorld.Bootstrap(true);
                 testWorld.CreateWorlds(true, 1);
+                SubSceneHelper.LoadSubSceneInWorlds(testWorld);
                 float frameTime = 1.0f / 60.0f;
                 Assert.IsTrue(testWorld.Connect(frameTime, 4));
                 testWorld.GoInGame();
-                SubSceneHelper.LoadSubSceneInWorlds(testWorld);
                 for (int i = 0; i < 16; ++i)
-                {
                     testWorld.Tick(frameTime);
-                }
 
                 var subSceneList = SubSceneStreamingTestHelper.GetPrespawnLoaded(testWorld, testWorld.ServerWorld);
                 var idsRanges = GetIdsRanges(testWorld.ServerWorld, subSceneList);
                 //Server will unload the first scene. This will despawn ghosts and also update the scene list
-                var sceneSystem = testWorld.ServerWorld.GetExistingSystem<SceneSystem>();
-                sceneSystem.UnloadScene(sub0.SceneGUID,
+                SceneSystem.UnloadScene(testWorld.ServerWorld.Unmanaged, sub0.SceneGUID,
                     SceneSystem.UnloadParameters.DestroySceneProxyEntity|
                     SceneSystem.UnloadParameters.DestroySectionProxyEntities|
                     SceneSystem.UnloadParameters.DestroySubSceneProxyEntities);
@@ -456,10 +437,10 @@ namespace Unity.NetCode.Tests
                 query = testWorld.ClientWorlds[0].EntityManager.CreateEntityQuery(ComponentType.ReadOnly<PreSpawnedGhostIndex>());
                 Assert.AreEqual(numObjects, query.CalculateEntityCount());
                 //Unload the scene on the client too
-                sceneSystem = testWorld.ClientWorlds[0].GetExistingSystem<SceneSystem>();
-                sceneSystem.UnloadScene(sub0.SceneGUID,
-                    SceneSystem.UnloadParameters.DestroySceneProxyEntity|
-                    SceneSystem.UnloadParameters.DestroySectionProxyEntities|
+                SceneSystem.UnloadScene(testWorld.ClientWorlds[0].Unmanaged,
+                    sub0.SceneGUID,
+                    SceneSystem.UnloadParameters.DestroySceneProxyEntity |
+                    SceneSystem.UnloadParameters.DestroySectionProxyEntities |
                     SceneSystem.UnloadParameters.DestroySubSceneProxyEntities);
                 //And nothing should break
                 for (int i = 0; i < 16; ++i)
@@ -498,12 +479,12 @@ namespace Unity.NetCode.Tests
             var subScenes = new SubScene[4];
             for(int i=0;i<4;++i)
             {
-                subScenes[i] = SubSceneHelper.AddSubSceneToParentScene(parentScene, SubSceneHelper.CreateSubSceneWithPrefabs(
+                subScenes[i] = SubSceneHelper.CreateSubSceneWithPrefabs(
+                    parentScene,
                     ScenePath, $"Sub{i}", new[]
                     {
                         ghostPrefab,
-                    }, numObjects)
-                );
+                    }, numObjects);
             }
             using (var testWorld = new NetCodeTestWorld())
             {
@@ -521,10 +502,10 @@ namespace Unity.NetCode.Tests
                 Assert.AreEqual(4, subSceneList.Length);
 
                 //Load/Unload all the scene 1 by 1
-                for (int scene = 0; scene < 4; ++scene)
+                for (int scene = 0; scene < 2; ++scene)
                 {
                     //Client load the first scene
-                    SubSceneHelper.LoadSubSceneAsync(testWorld.ClientWorlds[0], testWorld, subScenes[scene].SceneGUID, frameTime, 16);
+                    SubSceneHelper.LoadSubSceneAsync(testWorld.ClientWorlds[0], testWorld, subScenes[scene].SceneGUID, frameTime);
                     //Run another bunch of frame to have the scene initialized
                     for (int i = 0; i < 4; ++i)
                         testWorld.Tick(frameTime);
@@ -538,14 +519,14 @@ namespace Unity.NetCode.Tests
                     for (int i = 0; i < 16; ++i)
                         testWorld.Tick(frameTime);
 
-                    using var translations = query.ToComponentDataArrayAsync<Translation>(Allocator.TempJob, out var translationsJobHandle);
-                    translationsJobHandle.Complete();
+                    using var translations = query.ToComponentDataArray<Translation>(Allocator.TempJob);
                     for (int i = 0; i < translations.Length; ++i)
                         Assert.AreNotEqual(0.0f, translations[i].Value);
 
                     //Unload the scene on the client
-                    var sceneSystem = testWorld.ClientWorlds[0].GetExistingSystem<SceneSystem>();
-                    sceneSystem.UnloadScene(subScenes[scene].SceneGUID);
+                    SceneSystem.UnloadScene(
+                        testWorld.ClientWorlds[0].Unmanaged,
+                        subScenes[scene].SceneGUID);
                     for (int i = 0; i < 16; ++i)
                         testWorld.Tick(frameTime);
                     //0 ghost should be preset
@@ -565,12 +546,12 @@ namespace Unity.NetCode.Tests
             var subScenes = new SubScene[2];
             for(int i=0;i<subScenes.Length;++i)
             {
-                subScenes[i] = SubSceneHelper.AddSubSceneToParentScene(parentScene, SubSceneHelper.CreateSubSceneWithPrefabs(
+                subScenes[i] = SubSceneHelper.CreateSubSceneWithPrefabs(
+                    parentScene,
                     ScenePath, $"Sub{i}", new[]
                     {
                         ghostPrefab,
-                    }, numObjects)
-                );
+                    }, numObjects);
             }
 
             using (var testWorld = new NetCodeTestWorld())
@@ -587,30 +568,30 @@ namespace Unity.NetCode.Tests
                 for (int i = 0; i < 32; ++i)
                     testWorld.Tick(1.0f / 60.0f);
 
-                testWorld.ServerWorld.GetExistingSystem<GhostSendSystem>().LastGhostMapWriter.Complete();
-                var spawnMap = testWorld.ServerWorld.GetExistingSystem<GhostSendSystem>().SpawnedGhostEntityMap;
+                var sendGhostMapSingleton = testWorld.TryGetSingletonEntity<SpawnedGhostEntityMap>(testWorld.ServerWorld);
+                var spawnMap = testWorld.ServerWorld.EntityManager.GetComponentData<SpawnedGhostEntityMap>(sendGhostMapSingleton).Value;
                 //Host despawn 2 ghost in scene 0 and 2 ghost in scene 1
                 var despawnedGhosts = new[]
                 {
                     new SpawnedGhost
                     {
                         ghostId = PrespawnHelper.MakePrespawGhostId(1),
-                        spawnTick = 0
+                        spawnTick = NetworkTick.Invalid
                     },
                     new SpawnedGhost
                     {
                         ghostId = PrespawnHelper.MakePrespawGhostId(4),
-                        spawnTick = 0
+                        spawnTick = NetworkTick.Invalid
                     },
                     new SpawnedGhost
                     {
                         ghostId = PrespawnHelper.MakePrespawGhostId(8),
-                        spawnTick = 0
+                        spawnTick = NetworkTick.Invalid
                     },
                     new SpawnedGhost
                     {
                         ghostId = PrespawnHelper.MakePrespawGhostId(9),
-                        spawnTick = 0
+                        spawnTick = NetworkTick.Invalid
                     },
                 };
 
@@ -634,20 +615,19 @@ namespace Unity.NetCode.Tests
                 for (int i = 0; i < 32; ++i)
                     testWorld.Tick(1.0f / 60.0f);
 
-                testWorld.ClientWorlds[0].GetExistingSystem<GhostReceiveSystem>().LastGhostMapWriter.Complete();
-                var clientSpawnMap = testWorld.ClientWorlds[0].GetExistingSystem<GhostReceiveSystem>().SpawnedGhostEntityMap;
+                var recvGhostMapSingleton = testWorld.TryGetSingletonEntity<SpawnedGhostEntityMap>(testWorld.ClientWorlds[0]);
+                var clientSpawnMap = testWorld.ClientWorlds[0].EntityManager.GetComponentData<SpawnedGhostEntityMap>(recvGhostMapSingleton).Value;
                 //3 prespawn and 1 ghost for the list
                 Assert.AreEqual(4, clientSpawnMap.Count());
                 Assert.IsFalse(clientSpawnMap.ContainsKey(despawnedGhosts[0]));
                 Assert.IsFalse(clientSpawnMap.ContainsKey(despawnedGhosts[1]));
 
                 //Client load scene 2. Should receive the despawn
-                SubSceneHelper.LoadSubSceneAsync(testWorld.ClientWorlds[0], testWorld, subScenes[1].SceneGUID, 1.0f/60.0f, 32);
+                SubSceneHelper.LoadSubSceneAsync(testWorld.ClientWorlds[0], testWorld, subScenes[1].SceneGUID, 1.0f/60.0f);
                 for (int i = 0; i < 32; ++i)
                     testWorld.Tick(1.0f / 60.0f);
 
-                testWorld.ClientWorlds[0].GetExistingSystem<GhostReceiveSystem>().LastGhostMapWriter.Complete();
-                clientSpawnMap = testWorld.ClientWorlds[0].GetExistingSystem<GhostReceiveSystem>().SpawnedGhostEntityMap;
+                clientSpawnMap = testWorld.ClientWorlds[0].EntityManager.GetComponentData<SpawnedGhostEntityMap>(recvGhostMapSingleton).Value;
                 //6 prespawn and 1 ghost for the list
                 Assert.AreEqual(7, clientSpawnMap.Count());
                 Assert.IsFalse(clientSpawnMap.ContainsKey(despawnedGhosts[0]));
@@ -657,24 +637,22 @@ namespace Unity.NetCode.Tests
 
                 //Client unload scene 0 and then reload it later it should receive the despawns
                 //Unload the scene on the client
-                var sceneSystem = testWorld.ClientWorlds[0].GetExistingSystem<SceneSystem>();
-                sceneSystem.UnloadScene(subScenes[0].SceneGUID);
+                SceneSystem.UnloadScene(testWorld.ClientWorlds[0].Unmanaged,
+                    subScenes[0].SceneGUID);
                 for (int i = 0; i < 32; ++i)
                     testWorld.Tick(1.0f / 60.0f);
 
-                testWorld.ClientWorlds[0].GetExistingSystem<GhostReceiveSystem>().LastGhostMapWriter.Complete();
-                clientSpawnMap = testWorld.ClientWorlds[0].GetExistingSystem<GhostReceiveSystem>().SpawnedGhostEntityMap;
+                clientSpawnMap = testWorld.ClientWorlds[0].EntityManager.GetComponentData<SpawnedGhostEntityMap>(recvGhostMapSingleton).Value;
                 //3 prespawn and 1 ghost for the list
                 Assert.AreEqual(4, clientSpawnMap.Count());
                 Assert.IsFalse(clientSpawnMap.ContainsKey(despawnedGhosts[2]));
                 Assert.IsFalse(clientSpawnMap.ContainsKey(despawnedGhosts[3]));
 
-                SubSceneHelper.LoadSubSceneAsync(testWorld.ClientWorlds[0], testWorld, subScenes[0].SceneGUID, 1.0f/60.0f, 32);
+                SubSceneHelper.LoadSubSceneAsync(testWorld.ClientWorlds[0], testWorld, subScenes[0].SceneGUID, 1.0f/60.0f);
                 for (int i = 0; i < 32; ++i)
                     testWorld.Tick(1.0f / 60.0f);
 
-                testWorld.ClientWorlds[0].GetExistingSystem<GhostReceiveSystem>().LastGhostMapWriter.Complete();
-                clientSpawnMap = testWorld.ClientWorlds[0].GetExistingSystem<GhostReceiveSystem>().SpawnedGhostEntityMap;
+                clientSpawnMap = testWorld.ClientWorlds[0].EntityManager.GetComponentData<SpawnedGhostEntityMap>(recvGhostMapSingleton).Value;
                 //6 prespawn and 1 ghost for the list
                 Assert.AreEqual(7, clientSpawnMap.Count());
                 Assert.IsFalse(clientSpawnMap.ContainsKey(despawnedGhosts[0]));

@@ -1,66 +1,146 @@
-using System.Diagnostics;
 using Unity.Entities;
 using Unity.Jobs;
-using Unity.Networking.Transport;
-using Unity.Networking.Transport.Utilities;
 using Unity.Collections;
+using Unity.Burst;
 
 namespace Unity.NetCode
 {
-    [UpdateInWorld(TargetWorld.Server)]
+    /// <summary>
+    /// Group that contains all systems that receives commands. Only present in server world.
+    /// </summary>
+    [WorldSystemFilter(WorldSystemFilterFlags.ServerSimulation, WorldSystemFilterFlags.ServerSimulation)]
     [UpdateInGroup(typeof(NetworkReceiveSystemGroup))]
     [UpdateAfter(typeof(NetworkStreamReceiveSystem))]
-    public class CommandReceiveSystemGroup : ComponentSystemGroup
+    public partial class CommandReceiveSystemGroup : ComponentSystemGroup
     {
     }
 
+    [RequireMatchingQueriesForUpdate]
     [UpdateInGroup(typeof(CommandReceiveSystemGroup), OrderLast = true)]
-    public partial class CommandReceiveClearSystem : SystemBase
+    [BurstCompile]
+    internal partial struct CommandReceiveClearSystem : ISystem
     {
-        ServerSimulationSystemGroup m_ServerSimulationSystemGroup;
-        protected override void OnCreate()
+        EntityQuery m_NetworkTimeSingleton;
+
+        [BurstCompile]
+        public void OnCreate(ref SystemState state)
         {
-            m_ServerSimulationSystemGroup = World.GetExistingSystem<ServerSimulationSystemGroup>();
+            m_NetworkTimeSingleton = state.GetEntityQuery(ComponentType.ReadOnly<NetworkTime>());
         }
-        protected override void OnUpdate()
+        [BurstCompile]
+        public void OnDestroy(ref SystemState state)
+        {}
+
+        partial struct CommandReceiveClearJob : IJobEntity
         {
-            var currentTick = m_ServerSimulationSystemGroup.ServerTick;
-            Entities.ForEach((DynamicBuffer<IncomingCommandDataStreamBufferComponent> buffer, ref NetworkSnapshotAckComponent snapshotAck) => {
+            public NetworkTick _currentTick;
+
+            public void Execute(DynamicBuffer<IncomingCommandDataStreamBufferComponent> buffer, ref NetworkSnapshotAckComponent snapshotAck)
+            {
                 buffer.Clear();
-                if (snapshotAck.LastReceivedSnapshotByLocal != 0)
+                if (snapshotAck.LastReceivedSnapshotByLocal.IsValid)
                 {
-                    int age = (int) (currentTick - snapshotAck.LastReceivedSnapshotByLocal);
+                    int age = _currentTick.TicksSince(snapshotAck.LastReceivedSnapshotByLocal);
                     age *= 256;
                     snapshotAck.ServerCommandAge = (snapshotAck.ServerCommandAge * 7 + age) / 8;
                 }
-            }).ScheduleParallel();
+            }
+        }
+
+        [BurstCompile]
+        public void OnUpdate(ref SystemState state)
+        {
+            var networkTime = m_NetworkTimeSingleton.GetSingleton<NetworkTime>();
+            var currentTick = networkTime.ServerTick;
+
+            var commandReceiveClearJob = new CommandReceiveClearJob() { _currentTick = currentTick };
+            commandReceiveClearJob.ScheduleParallel();
         }
     }
 
-
-    [UpdateInGroup(typeof(CommandReceiveSystemGroup))]
-    public abstract partial class CommandReceiveSystem<TCommandDataSerializer, TCommandData> : SystemBase
-        where TCommandData : struct, ICommandData
-        where TCommandDataSerializer : struct, ICommandDataSerializer<TCommandData>
+    /// <summary>
+    /// Helper struct for implementing systems to receive commands.
+    /// This is generally used by code-gen and should only be used directly in special cases.
+    /// </summary>
+    /// <typeparam name="TCommandDataSerializer">Unmanaged CommandDataSerializer of type ICommandDataSerializer.</typeparam>
+    /// <typeparam name="TCommandData">Unmanaged CommandData of type ICommandData.</typeparam>
+    public struct CommandReceiveSystem<TCommandDataSerializer, TCommandData>
+        where TCommandData : unmanaged, ICommandData
+        where TCommandDataSerializer : unmanaged, ICommandDataSerializer<TCommandData>
     {
-        protected struct ReceiveJobData
+        /// <summary>
+        /// Helper struct used by code-gen for implementing the Execute method of the the generated receiving job.
+        /// The ReceiveJobData implement the command deserialization logic, by reading from the data stream the
+        /// serialized commands and enqueuing them into the taget entity command buffer.
+        /// As part of the command deserialization, if a <see cref="CommandDataInterpolationDelay"/> component is present
+        /// on target entity, it will be updated with the latest reported interpolation delay.
+        /// </summary>
+        public struct ReceiveJobData
         {
-            public BufferFromEntity<TCommandData> commandData;
-            public ComponentDataFromEntity<CommandDataInterpolationDelay> delayFromEntity;
-            [ReadOnly] public ComponentDataFromEntity<GhostOwnerComponent> ghostOwnerFromEntity;
-            [ReadOnly] public ComponentDataFromEntity<AutoCommandTarget> autoCommandTargetFromEntity;
-            public NetworkCompressionModel compressionModel;
+            /// <summary>
+            /// The output command buffer where the deserialized command are added.
+            /// </summary>
+            public BufferLookup<TCommandData> commandData;
+            /// <summary>
+            /// Accessor for retrieving the optional <see cref="CommandDataInterpolationDelay"/> component from the target entity.
+            /// </summary>
+            public ComponentLookup<CommandDataInterpolationDelay> delayFromEntity;
+            /// <summary>
+            /// Accessor for retrieving the optional <see cref="GhostOwnerComponent"/> component,
+            /// and used for lookup the entity target when using <see cref="AutoCommandTarget"/>.
+            /// </summary>
+            [ReadOnly] public ComponentLookup<GhostOwnerComponent> ghostOwnerFromEntity;
+            /// <summary>
+            /// Accessor for retrieving the optional <see cref="AutoCommandTarget"/> component.
+            /// </summary>
+            [ReadOnly] public ComponentLookup<AutoCommandTarget> autoCommandTargetFromEntity;
+            /// <summary>
+            /// The compression model used for decoding the delta compressed commands.
+            /// </summary>
+            public StreamCompressionModel compressionModel;
+            /// <summary>
+            /// Read-only type handle for reading the data from the <see cref="IncomingCommandDataStreamBufferComponent"/> buffer.
+            /// </summary>
             [ReadOnly] public BufferTypeHandle<IncomingCommandDataStreamBufferComponent> cmdBufferType;
+            /// <summary>
+            /// Read-only type handle to get the <see cref="NetworkSnapshotAckComponent"/> for the connection.
+            /// </summary>
             [ReadOnly] public ComponentTypeHandle<NetworkSnapshotAckComponent> snapshotAckType;
+            /// <summary>
+            /// Read-only type handle to get the <see cref="NetworkIdComponent"/> for the connection.
+            /// </summary>
             [ReadOnly] public ComponentTypeHandle<NetworkIdComponent> networkIdType;
+            /// <summary>
+            /// Read-only type handle to get the <see cref="CommandTargetComponent"/> for the connection.
+            /// </summary>
             [ReadOnly] public ComponentTypeHandle<CommandTargetComponent> commmandTargetType;
-            [ReadOnly] public NativeParallelHashMap<SpawnedGhost, Entity> ghostMap;
-
-            public uint serverTick;
+            /// <summary>
+            /// A readonly mapping to retrieve a ghost entity instance from a <see cref="SpawnedGhost"/> identity.
+            /// See <see cref="SpawnedGhostEntityMap"/> for more information.
+            /// </summary>
+            [ReadOnly] public NativeParallelHashMap<SpawnedGhost, Entity>.ReadOnly ghostMap;
+            /// <summary>
+            /// The current server tick
+            /// </summary>
+            public NetworkTick serverTick;
+            /// <summary>
+            /// The <see cref="NetDebug"/> singleton component instance.
+            /// </summary>
             public NetDebug netDebug;
+            /// <summary>
+            /// The stable hash for the <see cref="ICommandData"/> type. Used to verify the commands are
+            /// consistent.
+            /// </summary>
             public ulong stableHash;
 
-            public unsafe void Deserialize(ref DataStreamReader reader, Entity targetEntity,
+            /// <summary>
+            /// Deserialize all commands present in the packet, and put all the inputs into the entity <see cref="ICommandData"/> buffer.
+            /// </summary>
+            /// <param name="reader"></param>
+            /// <param name="targetEntity"></param>
+            /// <param name="tick"></param>
+            /// <param name="snapshotAck"></param>
+            internal unsafe void Deserialize(ref DataStreamReader reader, Entity targetEntity,
                 uint tick, in NetworkSnapshotAckComponent snapshotAck)
             {
                 if (delayFromEntity.HasComponent(targetEntity))
@@ -71,7 +151,7 @@ namespace Unity.NetCode
                 var command = commandData[targetEntity];
                 var baselineReceivedCommand = default(TCommandData);
                 var serializer = default(TCommandDataSerializer);
-                baselineReceivedCommand.Tick = tick;
+                baselineReceivedCommand.Tick = new NetworkTick{SerializedData = reader.ReadUInt()};
                 serializer.Deserialize(ref reader, deserializeState, ref baselineReceivedCommand);
                 // Store received commands in the network command buffer
                 buffers[0] = baselineReceivedCommand;
@@ -79,7 +159,7 @@ namespace Unity.NetCode
                 for (uint i = 1; i < inputBufferSendSize; ++i)
                 {
                     var receivedCommand = default(TCommandData);
-                    receivedCommand.Tick = tick - i;
+                    receivedCommand.Tick = new NetworkTick{SerializedData = reader.ReadPackedUIntDelta(baselineReceivedCommand.Tick.SerializedData, compressionModel)};
                     serializer.Deserialize(ref reader, deserializeState, ref receivedCommand, baselineReceivedCommand,
                         compressionModel);
                     // Store received commands in the network command buffer
@@ -88,21 +168,30 @@ namespace Unity.NetCode
                 // Add the command in the order they were produces instead of the order they were sent
                 for (int i = (int)inputBufferSendSize - 1; i >= 0; --i)
                 {
-                    if (!SequenceHelpers.IsNewer(serverTick, buffers[i].Tick))
-                        command.AddCommandData(buffers[i]);
-                    else if (i == 0)
-                    {
-                        // This is a special case, since this is the latest tick we have for the current server tick
-                        // it must be stored somehow. Trying to get the data for previous tick also needs to return
-                        // what we actually used previous tick. So we fake the tick of the most recent input we got
-                        // to point at the current server tick, even though it was actually for a tick we already
-                        // simulated
-                        var input = buffers[0];
+                    if (!buffers[i].Tick.IsValid)
+                        continue;
+                    var input = buffers[i];
+                    // This is a special case, since this could be the latest tick we have for the current server tick
+                    // it must be stored somehow. Trying to get the data for previous tick also needs to return
+                    // what we actually used previous tick. So we fake the tick of the most recent input we got
+                    // to point at the current server tick, even though it was actually for a tick we already
+                    // simulated
+                    // If it turns out there is another tick which is newer and should be used for serverTick
+                    // that must be included in this packet and will overwrite the state for serverTick
+                    if (serverTick.IsNewerThan(buffers[i].Tick))
                         input.Tick = serverTick;
-                        command.AddCommandData(input);
-                    }
+                    command.AddCommandData(input);
                 }
             }
+
+            /// <summary>
+            /// Decode the commands present in the <see cref="IncomingCommandDataStreamBufferComponent"/> for all
+            /// the connections present in the chunk and lookup for the target entity where the command should be
+            /// enqueued by either using the <see cref="CommandTargetComponent"/> target entity or via
+            /// <see cref="AutoCommandTarget"/> if enabled.
+            /// </summary>
+            /// <param name="chunk"></param>
+            /// <param name="orderIndex"></param>
             public void Execute(ArchetypeChunk chunk, int orderIndex)
             {
                 var snapshotAcks = chunk.GetNativeArray(snapshotAckType);
@@ -110,7 +199,7 @@ namespace Unity.NetCode
                 var commandTargets = chunk.GetNativeArray(commmandTargetType);
                 var cmdBuffers = chunk.GetBufferAccessor(cmdBufferType);
 
-                for (int i = 0; i < chunk.Count; ++i)
+                for (int i = 0, chunkEntityCount = chunk.Count; i < chunkEntityCount; ++i)
                 {
                     var owner = networkIds[i].Value;
                     var snapshotAck = snapshotAcks[i];
@@ -128,7 +217,7 @@ namespace Unity.NetCode
                         {
                             // Read ghost id
                             var ghostId = reader.ReadInt();
-                            var spawnTick = reader.ReadUInt();
+                            var spawnTick = new NetworkTick{SerializedData = reader.ReadUInt()};
                             var targetEntity = commandTargets[i].targetEntity;
                             if (ghostId != 0)
                             {
@@ -140,7 +229,7 @@ namespace Unity.NetCode
                                         targetEntity = ghostEnt;
                                 }
                             }
-                            if (commandData.HasComponent(targetEntity))
+                            if (commandData.HasBuffer(targetEntity))
                             {
                                 Deserialize(ref reader, targetEntity, tick, snapshotAck);
                             }
@@ -151,64 +240,90 @@ namespace Unity.NetCode
             }
         }
 
+        /// <summary>
+        /// The query to use when scheduling the processing job.
+        /// </summary>
+        public EntityQuery Query => m_entityQuery;
         private EntityQuery m_entityQuery;
-        private ServerSimulationSystemGroup serverSimulationSystemGroup;
-        private GhostSimulationSystemGroup m_GhostSimulationGroup;
-        private NetworkCompressionModel m_CompressionModel;
-        private NetDebugSystem m_NetDebugSystem;
+        private EntityQuery m_SpawnedGhostEntityMapQuery;
+        private EntityQuery m_NetworkTimeQuery;
+        private EntityQuery m_NetDebugQuery;
+        private StreamCompressionModel m_CompressionModel;
 
-        protected override void OnCreate()
+        private BufferLookup<TCommandData> m_TCommandDataFromEntity;
+        private ComponentLookup<CommandDataInterpolationDelay> m_CommandDataInterpolationDelayFromEntity;
+        private ComponentLookup<GhostOwnerComponent> m_GhostOwnerComponentFromEntity;
+        private ComponentLookup<AutoCommandTarget> m_AutoCommandTargetFromEntity;
+        private BufferTypeHandle<IncomingCommandDataStreamBufferComponent> m_IncomingCommandDataStreamBufferComponentHandle;
+        private ComponentTypeHandle<NetworkSnapshotAckComponent> m_NetworkSnapshotAckComponentHandle;
+        private ComponentTypeHandle<NetworkIdComponent> m_NetworkIdComponentHandle;
+        private ComponentTypeHandle<CommandTargetComponent> m_CommandTargetComponentHandle;
+
+        /// <summary>
+        /// Initialize the helper struct, should be called from OnCreate in an ISystem.
+        /// </summary>
+        public void OnCreate(ref SystemState state)
         {
-            serverSimulationSystemGroup = World.GetExistingSystem<ServerSimulationSystemGroup>();
-            m_GhostSimulationGroup = World.GetExistingSystem<GhostSimulationSystemGroup>();
-            m_CompressionModel = new NetworkCompressionModel(Allocator.Persistent);
-            m_NetDebugSystem = World.GetExistingSystem<NetDebugSystem>();
-            m_entityQuery = GetEntityQuery(
-                ComponentType.ReadOnly<NetworkStreamInGame>(),
-                ComponentType.ReadOnly<NetworkSnapshotAckComponent>(),
-                ComponentType.ReadWrite<CommandTargetComponent>(),
-                ComponentType.Exclude<NetworkStreamDisconnected>());
+            m_CompressionModel = StreamCompressionModel.Default;
+            var builder = new EntityQueryBuilder(Allocator.Temp)
+                .WithAll<NetworkStreamInGame, IncomingCommandDataStreamBufferComponent, NetworkSnapshotAckComponent>()
+                .WithAllRW<CommandTargetComponent>();
+            m_entityQuery = state.GetEntityQuery(builder);
+            builder.Reset();
+            builder.WithAll<SpawnedGhostEntityMap>();
+            m_SpawnedGhostEntityMapQuery = state.GetEntityQuery(builder);
+            builder.Reset();
+            builder.WithAll<NetworkTime>();
+            m_NetworkTimeQuery = state.GetEntityQuery(builder);
+            builder.Reset();
+            builder.WithAll<NetDebug>();
+            m_NetDebugQuery = state.GetEntityQuery(builder);
 
-            RequireForUpdate(GetEntityQuery(
-                ComponentType.ReadOnly<NetworkStreamInGame>(),
-                ComponentType.ReadOnly<IncomingCommandDataStreamBufferComponent>(),
-                ComponentType.ReadOnly<NetworkSnapshotAckComponent>(),
-                ComponentType.ReadOnly<CommandTargetComponent>(),
-                ComponentType.Exclude<NetworkStreamDisconnected>()));
+            m_TCommandDataFromEntity = state.GetBufferLookup<TCommandData>();
+            m_CommandDataInterpolationDelayFromEntity = state.GetComponentLookup<CommandDataInterpolationDelay>();
+            m_GhostOwnerComponentFromEntity = state.GetComponentLookup<GhostOwnerComponent>(true);
+            m_AutoCommandTargetFromEntity = state.GetComponentLookup<AutoCommandTarget>(true);
+            m_IncomingCommandDataStreamBufferComponentHandle = state.GetBufferTypeHandle<IncomingCommandDataStreamBufferComponent>(true);
+            m_NetworkSnapshotAckComponentHandle = state.GetComponentTypeHandle<NetworkSnapshotAckComponent>(true);
+            m_NetworkIdComponentHandle = state.GetComponentTypeHandle<NetworkIdComponent>(true);
+            m_CommandTargetComponentHandle = state.GetComponentTypeHandle<CommandTargetComponent>(true);
 
-            RequireForUpdate(EntityManager.CreateEntityQuery(ComponentType.ReadWrite<TCommandData>()));
+            state.RequireForUpdate(m_entityQuery);
+            state.RequireForUpdate<TCommandData>();
         }
 
-        protected override void OnDestroy()
+        /// <summary>
+        /// Initialize the internal state of a processing job, should be called from OnUpdate of an ISystem.
+        /// </summary>
+        /// <param name="state">Raw entity system state.</param>
+        /// <returns>Constructed <see cref="ReceiveJobData"/> with initialized state.</returns>
+        public ReceiveJobData InitJobData(ref SystemState state)
         {
-            m_CompressionModel.Dispose();
-        }
-
-        protected ReceiveJobData InitJobData()
-        {
+            m_TCommandDataFromEntity.Update(ref state);
+            m_CommandDataInterpolationDelayFromEntity.Update(ref state);
+            m_GhostOwnerComponentFromEntity.Update(ref state);
+            m_AutoCommandTargetFromEntity.Update(ref state);
+            m_IncomingCommandDataStreamBufferComponentHandle.Update(ref state);
+            m_NetworkSnapshotAckComponentHandle.Update(ref state);
+            m_NetworkIdComponentHandle.Update(ref state);
+            m_CommandTargetComponentHandle.Update(ref state);
             var recvJob = new ReceiveJobData
             {
-                commandData = GetBufferFromEntity<TCommandData>(),
-                delayFromEntity = GetComponentDataFromEntity<CommandDataInterpolationDelay>(),
-                ghostOwnerFromEntity = GetComponentDataFromEntity<GhostOwnerComponent>(true),
-                autoCommandTargetFromEntity = GetComponentDataFromEntity<AutoCommandTarget>(true),
+                commandData = m_TCommandDataFromEntity,
+                delayFromEntity = m_CommandDataInterpolationDelayFromEntity,
+                ghostOwnerFromEntity = m_GhostOwnerComponentFromEntity,
+                autoCommandTargetFromEntity = m_AutoCommandTargetFromEntity,
                 compressionModel = m_CompressionModel,
-                cmdBufferType = GetBufferTypeHandle<IncomingCommandDataStreamBufferComponent>(true),
-                snapshotAckType = GetComponentTypeHandle<NetworkSnapshotAckComponent>(true),
-                networkIdType = GetComponentTypeHandle<NetworkIdComponent>(true),
-                commmandTargetType = GetComponentTypeHandle<CommandTargetComponent>(true),
-                ghostMap = m_GhostSimulationGroup.SpawnedGhostEntityMap,
-                serverTick = serverSimulationSystemGroup.ServerTick,
-                netDebug = m_NetDebugSystem.NetDebug,
+                cmdBufferType = m_IncomingCommandDataStreamBufferComponentHandle,
+                snapshotAckType = m_NetworkSnapshotAckComponentHandle,
+                networkIdType = m_NetworkIdComponentHandle,
+                commmandTargetType = m_CommandTargetComponentHandle,
+                ghostMap = m_SpawnedGhostEntityMapQuery.GetSingleton<SpawnedGhostEntityMap>().Value,
+                serverTick = m_NetworkTimeQuery.GetSingleton<NetworkTime>().ServerTick,
+                netDebug = m_NetDebugQuery.GetSingleton<NetDebug>(),
                 stableHash = TypeManager.GetTypeInfo<TCommandData>().StableTypeHash
             };
             return recvJob;
-        }
-        protected void ScheduleJobData<T>(in T recvJob) where T: struct, IJobEntityBatch
-        {
-            Dependency = JobHandle.CombineDependencies(Dependency, m_GhostSimulationGroup.LastGhostMapWriter);
-            Dependency = recvJob.Schedule(m_entityQuery, Dependency);
-            m_GhostSimulationGroup.LastGhostMapWriter = Dependency;
         }
     }
 }

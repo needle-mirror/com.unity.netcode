@@ -7,10 +7,12 @@ namespace Unity.NetCode
     /// and denotes a group of ghost children that should all be serialized as part of this ghost.
     /// Note: LinkedEntityGroup stores the root entity in the list, GhostGroup does not!
     /// </summary>
-    [GenerateAuthoringComponent]
     [InternalBufferCapacity(2)]
     public struct GhostGroup : IBufferElementData
     {
+        /// <summary>
+        /// A child entity.
+        /// </summary>
         public Entity Value;
     };
 }

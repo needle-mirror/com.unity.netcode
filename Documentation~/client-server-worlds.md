@@ -76,7 +76,7 @@ The default number of simulation ticks is 60. The component also has values for 
 * `Sleep` for `Application.TargetFrameRate` to reduce CPU load
 * `Auto` to use `Sleep` on headless servers and `BusyWait` otherwise
 
-The client updates at a dynamic time step, with the exception of prediction code which always runs at a fixed time step to match the server. The prediction runs in the [GhostPredictionSystemGroup](https://docs.unity3d.com/Packages/com.unity.netcode@latest/index.html?subfolder=/api/Unity.NetCode.GhostPredictionSystemGroup.html) and applies its own fixed time step for prediction.
+The client updates at a dynamic time step, with the exception of prediction code which always runs at a fixed time step to match the server. The prediction runs in the [PredictedSimulationSystemGroup](https://docs.unity3d.com/Packages/com.unity.netcode@latest/index.html?subfolder=/api/Unity.NetCode.PredictedSimulationSystemGroup.html) and applies its own fixed time step for prediction.
 
 ## Standalone builds
 
@@ -86,7 +86,7 @@ To build a client-only game, add the ```UNITY_CLIENT``` define to the __Scriptin
 
 ## World migration
 
-Sometimes you want to be able to destroy the world you are in and spin up another world without loosing your connection state. In order to do this we supply a DriverMigrationSystem, that allows a user to Store and Load Transport related information so a smooth world transition can be made. 
+Sometimes you want to be able to destroy the world you are in and spin up another world without loosing your connection state. In order to do this we supply a DriverMigrationSystem, that allows a user to Store and Load Transport related information so a smooth world transition can be made.
 
 ```
 public World MigrateWorld(World sourceWorld)
@@ -110,3 +110,15 @@ public World MigrateWorld(World sourceWorld)
     return ClientServerBootstrap.CreateServerWorld(DefaultWorld, newWorld.Name, newWorld);
 }
 ```
+
+## Thin Clients
+
+Thin clients are a tool to help test and debug in the editor by running simulated dummy clients with your normal client and server worlds. See the _Playmode Tools_ section above for how to configure them
+
+These clients are heavily stripped down and should run as little logic as possible so they don't put a heavy load on the CPU while testing. Each thin client added adds a little bit of extra work to be computed each frame.
+
+Only systems which have explicitly been set up to run on thin client worlds will run, marked with the `WorldSystemFilterFlags.ThinClientSimulation` flag on the `WorldSystemFilter` attribute. No rendering is done for thin client data so they are invisible to the presentation.
+
+In some cases like in `MonoBehaviour` scripts you might need to check if it's running on a thin client and then early out or cancel processing, the `World.IsThinClient()` can be used in those cases.
+
+Most commonly the only important work they need to do is generate random inputs for the server to process. These inputs usually need to be added to a manually created dummy entity as no ghost spawning is done on thin clients. Not even for it's own local ghost/player.

@@ -3,11 +3,15 @@ using UnityEngine;
 
 namespace Unity.NetCode.Tests
 {
-    public class NetCodePrespawnAuthoring : MonoBehaviour, IConvertGameObjectToEntity
+    public class NetCodePrespawnAuthoring : MonoBehaviour
     {
-        public void Convert(Entity entity, EntityManager dstManager, GameObjectConversionSystem conversionSystem)
+    }
+
+    class NetCodePrespawnAuthoringBaker : Baker<NetCodePrespawnAuthoring>
+    {
+        public override void Bake(NetCodePrespawnAuthoring authoring)
         {
-            dstManager.AddComponent<NetCodePrespawnTag>(entity);
+            AddComponent<NetCodePrespawnTag>();
         }
     }
 }

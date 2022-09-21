@@ -2,9 +2,12 @@ using Unity.Entities;
 
 namespace Unity.NetCode
 {
+    /// <summary>
+    /// The PrespawnGhostSystemGroup contains all the systems related to pre-spawned ghost.
+    /// </summary>
+    [WorldSystemFilter(WorldSystemFilterFlags.Default | WorldSystemFilterFlags.ThinClientSimulation)]
     [UpdateInGroup(typeof(GhostSimulationSystemGroup))]
     [UpdateAfter(typeof(GhostCollectionSystem))]
-    [UpdateBefore(typeof(GhostPredictionSystemGroup))]
     public class PrespawnGhostSystemGroup : ComponentSystemGroup
     {
     }

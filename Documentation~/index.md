@@ -18,3 +18,7 @@ This version of Unity NetCode is compatible with the following versions of the U
 * 2020.2.4f1-dots-5 and later (recommended) [Get From Here](unityhub://2020.2.4f1-dots.5/01acd19d2e17)
 
 This package uses Unity’s [Entity Component System (ECS)](https://docs.unity3d.com/Packages/com.unity.entities@latest) as a foundation. As such, you must know how to use ECS to use this package.
+
+## Known issues
+
+* Modifying a variant in the `GhostAuthoringInspectionComponent` back to the default variant throws the following error: `InvalidOperationException: Sequence contains no matching element`. To fix this, remove the override via the right click menu, or by setting the `VariantHash` to 0 in the prefab YAML.

@@ -76,7 +76,7 @@ namespace Unity.NetCode.Tests
                 var maxSteps = 4;
                 Assert.IsTrue(scenarioWorld.Connect(frameTime, maxSteps));
 
-                var ghostSendProxy = scenarioWorld.ServerWorld.GetExistingSystem<GhostSendSystemProxy>();
+                var ghostSendProxy = scenarioWorld.ServerWorld.GetOrCreateSystemManaged<GhostSendSystemProxy>();
                 // ForcePreSerialize must be set before going in-game or it will not be applied
                 ghostSendProxy.ConfigureSendSystem(parameters);
 
@@ -141,68 +141,68 @@ namespace Unity.NetCode.Tests
     }
 
     [DisableAutoCreation]
-    [UpdateInGroup(typeof(ServerSimulationSystemGroup), OrderLast = true)]
+    [WorldSystemFilter(WorldSystemFilterFlags.ServerSimulation)]
+    [UpdateInGroup(typeof(SimulationSystemGroup), OrderLast = true)]
     [UpdateBefore(typeof(GhostSendSystem))]
     [UpdateAfter(typeof(EndSimulationEntityCommandBufferSystem))]
-    public partial class GhostSendSystemProxy : SystemBase
+    public partial class GhostSendSystemProxy : ComponentSystemGroup
     {
-        private GhostSendSystem ghostSendSystem;
-        private ServerSimulationSystemGroup simGroup;
+        private List<SampleGroup> m_GhostSampleGroups;
+        private readonly SampleGroup m_SerializationGroup = new SampleGroup("SpeedOfLightGroup", SampleUnit.Nanosecond);
 
-        private List<SampleGroup> ghostSampleGroups;
-        private SampleGroup serializationGroup = new SampleGroup("SpeedOfLightGroup", SampleUnit.Nanosecond);
-
-        private int connectionCount;
-        private bool isSetup = false;
+        private int m_ConnectionCount;
+        private bool m_IsSetup;
 
         protected override void OnCreate()
         {
-            connectionCount = 0;
-            if (World.GetExistingSystem<GhostSendSystem>() != null)
-            {
-                ghostSendSystem = World.GetExistingSystem<GhostSendSystem>();
-                simGroup = World.GetExistingSystem<ServerSimulationSystemGroup>();
-                ghostSendSystem.Enabled = false;
-            }
-            RequireSingletonForUpdate<GhostCollection>();
-            RequireSingletonForUpdate<NetworkStreamInGame>();
+            base.OnCreate();
+            m_ConnectionCount = 0;
+            RequireForUpdate<GhostCollection>();
+            RequireForUpdate<NetworkStreamInGame>();
+        }
+
+        protected override void OnStartRunning()
+        {
+            base.OnStartRunning();
+
+            var ghostSendSystem = World.GetExistingSystem<GhostSendSystem>();
+            var simulationSystemGroup = World.GetExistingSystemManaged<SimulationSystemGroup>();
+            simulationSystemGroup.RemoveSystemFromUpdateList(ghostSendSystem);
+            AddSystemToUpdateList(ghostSendSystem);
         }
 
         public void ConfigureSendSystem(NetcodeScenarioUtils.ScenarioParams parameters)
         {
-            ghostSendSystem.ForceSingleBaseline = parameters.GhostSystemParams.ForceSingleBaseline;
-            ghostSendSystem.ForcePreSerialize = parameters.GhostSystemParams.ForcePreSerialize;
+            ref var ghostSendSystemData = ref GetSingletonRW<GhostSendSystemData>().ValueRW;
+            ghostSendSystemData.ForceSingleBaseline = parameters.GhostSystemParams.ForceSingleBaseline;
+            ghostSendSystemData.ForcePreSerialize = parameters.GhostSystemParams.ForcePreSerialize;
         }
+
         public void SetupStats(int prefabCount, NetcodeScenarioUtils.ScenarioParams parameters)
         {
-            this.connectionCount = parameters.NumClients;
+            this.m_ConnectionCount = parameters.NumClients;
 
             var capacity = 2 + (3 * prefabCount);
-            ghostSampleGroups = new List<SampleGroup>(capacity);
+            m_GhostSampleGroups = new List<SampleGroup>(capacity);
 
-            ghostSampleGroups.Add(new SampleGroup("Total Replicated Ghosts", SampleUnit.Undefined));
-            ghostSampleGroups.Add(new SampleGroup("Total Replicated Ghost Length in Bytes", SampleUnit.Byte));
+            m_GhostSampleGroups.Add(new SampleGroup("Total Replicated Ghosts", SampleUnit.Undefined));
+            m_GhostSampleGroups.Add(new SampleGroup("Total Replicated Ghost Length in Bytes", SampleUnit.Byte));
 
             var id = 0;
             for (int i = 2; i < capacity; i += 3)
             {
-                ghostSampleGroups.Add(new SampleGroup($"GhostType[{id}] Serialized Entities", SampleUnit.Undefined));
-                ghostSampleGroups.Add(new SampleGroup($"GhostType[{id}] Total Length in Bytes", SampleUnit.Byte));
-                ghostSampleGroups.Add(new SampleGroup($"GhostType[{id}] Bits / Entity", SampleUnit.Byte));
+                m_GhostSampleGroups.Add(new SampleGroup($"GhostType[{id}] Serialized Entities", SampleUnit.Undefined));
+                m_GhostSampleGroups.Add(new SampleGroup($"GhostType[{id}] Total Length in Bytes", SampleUnit.Byte));
+                m_GhostSampleGroups.Add(new SampleGroup($"GhostType[{id}] Bits / Entity", SampleUnit.Byte));
                 id++;
             }
 
-            isSetup = true;
+            m_IsSetup = true;
         }
 
         protected override void OnUpdate()
         {
             var numLoadedPrefabs= GetSingleton<GhostCollection>().NumLoadedPrefabs;
-            int netStatSize = 0;
-            int netStatStride = 0;
-            var intsPerCacheLine = JobsUtility.CacheLineSize/4;
-            netStatSize = numLoadedPrefabs * 3 + 3 + 1;
-            netStatStride = (netStatSize + intsPerCacheLine-1) & (~(intsPerCacheLine-1));
 
             var markers = new string[]
             {
@@ -211,9 +211,7 @@ namespace Unity.NetCode.Tests
                 "GhostSendSystem:SerializeJob (Burst)"
             };
 
-            ghostSendSystem.Enabled = true;
-
-            EntityManager.CompleteAllJobs();
+            EntityManager.CompleteAllTrackedJobs();
 
             var k_MarkerName = "GhostSendSystem:SerializeJob (Burst)";
             using (var recorder = new ProfilerRecorder(new ProfilerCategory("SpeedOfLight.GhostSendSystem"), k_MarkerName, 1,
@@ -221,68 +219,60 @@ namespace Unity.NetCode.Tests
             {
                 recorder.Reset();
                 recorder.Start();
-                if (isSetup)
+                if (m_IsSetup)
                 {
-                    var stats = ghostSendSystem.m_NetStats;
-                    var statsCache =
-                        new NativeArray<uint>(netStatStride * JobsUtility.MaxJobThreadCount, Allocator.Temp);
-                    for (int worker = 1; worker < JobsUtility.MaxJobThreadCount; ++worker)
-                    {
-                        int statOffset = worker * netStatStride;
-                        // First uint is tick
-                        if (stats[0] == 0)
-                            statsCache[0] += stats[statOffset];
-                        for (int i = 1; i < netStatSize; ++i)
-                        {
-                            statsCache[i] += stats[statOffset + i];
-                            statsCache[statOffset + i] = 0;
-                        }
-                    }
-
                     using (Measure.ProfilerMarkers(markers))
                     {
                         using (Measure.Scope("GhostSendSystem_OnUpdate"))
                         {
-                            ghostSendSystem.Update();
-                            EntityManager.CompleteAllJobs();
+                            base.OnUpdate();
+                            EntityManager.CompleteAllTrackedJobs();
 
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
+                            var netStats = GetSingletonRW<GhostStatsCollectionSnapshot>().ValueRW;
+                            for (int worker = 1; worker < netStats.Workers; ++worker)
+                            {
+                                int statOffset = worker * netStats.Stride;
+                                for (int i = 1; i < netStats.Size; ++i)
+                                {
+                                    netStats.Data[i] += netStats.Data[statOffset + i];
+                                    netStats.Data[statOffset + i] = 0;
+                                }
+                            }
 
-                    uint totalCount = 0;
-                    uint totalLength = 0;
+                            uint totalCount = 0;
+                            uint totalLength = 0;
 
-                    for (int i = 0; i < numLoadedPrefabs; ++i)
-                    {
-                        var count = statsCache[i * 3 + 4];
-                        var length = statsCache[i * 3 + 5];
-                        uint soloLength = 0;
-                        if (count > 0)
-                            soloLength = length / count;
+                            for (int i = 0; i < numLoadedPrefabs; ++i)
+                            {
+                                var count = netStats.Data[i * 3 + 4];
+                                var length = netStats.Data[i * 3 + 5];
+                                uint soloLength = 0;
+                                if (count > 0)
+                                    soloLength = length / count;
 
-                        Measure.Custom(ghostSampleGroups[2+3*i], count / connectionCount); // Serialized Entities
-                        Measure.Custom(ghostSampleGroups[2+3*i+1], length / connectionCount / 8); // Total Length in Bytes
-                        Measure.Custom(ghostSampleGroups[2+3*i+2], soloLength); // Bits / Entity
+                                Measure.Custom(m_GhostSampleGroups[2+3*i], count / m_ConnectionCount); // Serialized Entities
+                                Measure.Custom(m_GhostSampleGroups[2+3*i+1], length / m_ConnectionCount / 8); // Total Length in Bytes
+                                Measure.Custom(m_GhostSampleGroups[2+3*i+2], soloLength); // Bits / Entity
 
-                        totalCount += count;
-                        totalLength += length;
-                    }
-                    Measure.Custom(ghostSampleGroups[0], totalCount/ connectionCount);
-                    Measure.Custom(ghostSampleGroups[1], totalLength / connectionCount / 8);
+                                totalCount += count;
+                                totalLength += length;
+                            }
+                            Measure.Custom(m_GhostSampleGroups[0], totalCount/ m_ConnectionCount);
+                            Measure.Custom(m_GhostSampleGroups[1], totalLength / m_ConnectionCount / 8);
 #endif
                         }
                     }
                 }
                 else
                 {
-                    ghostSendSystem.Update();
-                    EntityManager.CompleteAllJobs();
+                    base.OnUpdate();
+                    EntityManager.CompleteAllTrackedJobs();
                 }
 
-                if (isSetup)
-                    Measure.Custom(serializationGroup, recorder.CurrentValueAsDouble / (1000*1000));
+                if (m_IsSetup)
+                    Measure.Custom(m_SerializationGroup, recorder.CurrentValueAsDouble / (1000*1000));
             }
-
-            ghostSendSystem.Enabled = false;
         }
     }
 #endif

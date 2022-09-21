@@ -2,6 +2,12 @@ using System;
 
 namespace Unity.NetCode
 {
+    /// <summary>
+    /// Attribute used to specify how and which fields and properties of <see cref="Unity.Entities.IComponentData"/> or
+    /// <see cref="Unity.Entities.IBufferElementData"/> should be replicated.
+    /// When a component or buffer contains at least one field that is annotated with a <see cref="GhostFieldAttribute"/>,
+    /// a struct implementing the component serialization is automatically code-generated.
+    /// </summary>
     [AttributeUsage(AttributeTargets.Field|AttributeTargets.Property)]
     public class GhostFieldAttribute : Attribute
     {
@@ -17,7 +23,7 @@ namespace Unity.NetCode
         /// Quantization=20 implies precision of 0.05f.
         /// Quantization=1000 implies precision of 0.001f.
         /// </summary>
-        public int Quantization { get; set; }
+        public int Quantization { get; set; } = -1;
 
         /// <summary>
         /// Only applicable on GhostFieldAttributes applied to a non primitive struct containing multiple fields.
@@ -28,23 +34,23 @@ namespace Unity.NetCode
         /// I.e. If any fields inside the sub-struct change, the single 'change bit' for the entire struct will be set.
         /// Check the Serialize/Deserialize code-generated methods in Library\NetCodeGenerated_Backup for examples.
         /// </summary>
-        public bool Composite { get; set; }
+        public bool Composite { get; set; } = false;
 
         /// <summary>
         /// <inheritdoc cref="SmoothingAction"/>
         /// Default is <see cref="SmoothingAction.Clamp"/>.
         /// </summary>
-        public SmoothingAction Smoothing { get; set; }
+        public SmoothingAction Smoothing { get; set; } = SmoothingAction.Clamp;
 
         /// <summary>Allows you to specify a custom serializer for this GhostField using the <see cref="GhostFieldSubType"/> API.</summary>
         /// <inheritdoc cref="GhostFieldSubType"/>
-        public int SubType { get; set; }
+        public int SubType { get; set; } = GhostFieldSubType.None;
         /// <summary>
         /// Default true. If unset (false), instructs code-generation to not include this field in the serialization data.
         /// I.e. Do not replicate this field.
         /// This is particularly useful for non primitive members (like structs), which will have all fields serialized by default.
         /// </summary>
-        public bool SendData { get; set; }
+        public bool SendData { get; set; } = true;
 
         /// <summary>
         /// The maximum distance between two snapshots for which smoothing will be applied.
@@ -55,17 +61,7 @@ namespace Unity.NetCode
         /// For quaternions the value specified should be sin(theta / 2) - where theta is the maximum angle
         /// you want to apply smoothing for.
         /// </remarks>
-        public float MaxSmoothingDistance { get; set; }
-
-        public GhostFieldAttribute()
-        {
-            Quantization = -1;
-            Smoothing = SmoothingAction.Clamp;
-            Composite = false;
-            SubType = GhostFieldSubType.None;
-            SendData = true;
-            MaxSmoothingDistance = 0;
-        }
+        public float MaxSmoothingDistance { get; set; } = 0;
     }
 
     /// <summary>

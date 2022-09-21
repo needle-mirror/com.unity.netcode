@@ -11,7 +11,7 @@ namespace Unity.NetCode.Generators
     /// </summary>
     public static partial class UserDefinedTemplates
     {
-        public static List<TypeRegistryEntry> Templates;
+        internal static List<TypeRegistryEntry> Templates;
 
         static UserDefinedTemplates()
         {

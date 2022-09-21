@@ -1,37 +1,75 @@
+using System;
 using AOT;
 using Unity.Burst;
 using Unity.Entities;
 using Unity.Mathematics;
-using System.Runtime.InteropServices;
+using Unity.NetCode.LowLevel.Unsafe;
 
 namespace Unity.NetCode
 {
+    /// <summary>
+    /// Add this component to each connection to determine which tile the connection should prioritize.
+    /// This will be passed as argument to the built-in scale function to compute Importance.
+    /// See <see cref="GhostDistanceImportance"/> implementation.
+    /// </summary>
     public struct GhostConnectionPosition : IComponentData
     {
+        /// <summary>
+        /// Position of the tile in world coordinates
+        /// </summary>
         public float3 Position;
+        /// <summary>
+        /// Currently not updated by any systems. Made available for custom importance implementations.
+        /// </summary>
         public quaternion Rotation;
+        /// <summary>
+        /// Currently not updated by any systems. Made available for custom importance implementations.
+        /// </summary>
         public float4 ViewSize;
     }
+
     /// <summary>
-    /// Singleton component used to control distance based importance settings
+    /// Add this component to each connection to determine the configuration per tile when computing Importance.
+    /// This will be passed as argument to the built-in scale function to compute Importance.
+    /// See <see cref="GhostDistanceImportance"/> implementation.
+    /// </summary>
+    public struct GhostDistanceData : IComponentData
+    {
+        /// <summary>
+        /// Dimensions of the tile.
+        /// </summary>
+        public int3 TileSize;
+        /// <summary>
+        /// Offset of the tile center
+        /// </summary>
+        public int3 TileCenter;
+        /// <summary>
+        /// Width of the tile border. When deciding whether an entity is on one or the other,
+        /// the border where it can enter is determined by this parameter.
+        /// </summary>
+        public float3 TileBorderWidth;
+    }
+
+    /// <summary>
+    /// Computes distance based importance scaling
     /// </summary>
     [BurstCompile]
-    public struct GhostDistanceImportance : IComponentData
+    public struct GhostDistanceImportance
     {
-        [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
-        public delegate int ScaleImportanceByDistanceDelegate(ref GhostConnectionPosition connectionPosition, ref int3 TileSize, ref int3 TileCenter, ref int3 chunkTile, int basePriority);
-        public static PortableFunctionPointer<GhostDistanceImportance.ScaleImportanceByDistanceDelegate> DefaultScaleFunctionPointer => s_DefaultScaleFunctionPointer;
-        public static PortableFunctionPointer<GhostDistanceImportance.ScaleImportanceByDistanceDelegate> NoScaleFunctionPointer => s_NoScaleFunctionPointer;
-        private static PortableFunctionPointer<GhostDistanceImportance.ScaleImportanceByDistanceDelegate> s_DefaultScaleFunctionPointer =
-            new PortableFunctionPointer<GhostDistanceImportance.ScaleImportanceByDistanceDelegate>(DefaultScale);
-        private static PortableFunctionPointer<GhostDistanceImportance.ScaleImportanceByDistanceDelegate> s_NoScaleFunctionPointer =
-            new PortableFunctionPointer<GhostDistanceImportance.ScaleImportanceByDistanceDelegate>(NoScale);
+        /// <summary>
+        /// Function pointer to <see cref="Scale"/> function implementation.
+        /// </summary>
+        public static readonly PortableFunctionPointer<GhostImportance.ScaleImportanceDelegate> ScaleFunctionPointer =
+            new PortableFunctionPointer<GhostImportance.ScaleImportanceDelegate>(Scale);
+
         [BurstCompile(DisableDirectCall = true)]
-        [MonoPInvokeCallback(typeof(ScaleImportanceByDistanceDelegate))]
-        private static int DefaultScale(ref GhostConnectionPosition connectionPosition, ref int3 TileSize, ref int3 TileCenter, ref int3 chunkTile, int basePriority)
+        [MonoPInvokeCallback(typeof(GhostImportance.ScaleImportanceDelegate))]
+        private static int Scale(IntPtr connectionDataPtr, IntPtr distanceDataPtr, IntPtr chunkTilePtr, int basePriority)
         {
-            var centerTile = ((int3) connectionPosition.Position - TileCenter) / TileSize;
-            var delta = chunkTile - centerTile;
+            var distanceData = GhostComponentSerializer.TypeCast<GhostDistanceData>(distanceDataPtr);
+            var centerTile = (int3)((GhostComponentSerializer.TypeCast<GhostConnectionPosition>(connectionDataPtr).Position - distanceData.TileCenter) / distanceData.TileSize);
+            var chunkTile = GhostComponentSerializer.TypeCast<GhostDistancePartitionShared>(chunkTilePtr);
+            var delta = chunkTile.Index - centerTile;
             var distSq = math.dot(delta, delta);
             basePriority *= 1000;
             // 3 makes sure all adjacent tiles are considered the same as the tile the connection is in - required since it might be close to the edge
@@ -39,16 +77,5 @@ namespace Unity.NetCode
                 basePriority /= distSq;
             return basePriority;
         }
-        [BurstCompile(DisableDirectCall = true)]
-        [MonoPInvokeCallback(typeof(ScaleImportanceByDistanceDelegate))]
-        private static int NoScale(ref GhostConnectionPosition connectionPosition, ref int3 TileSize, ref int3 TileCenter, ref int3 pos, int basePrio)
-        {
-            return basePrio;
-        }
-
-        public PortableFunctionPointer<ScaleImportanceByDistanceDelegate> ScaleImportanceByDistance;
-        public int3 TileSize;
-        public int3 TileCenter;
-        public float3 TileBorderWidth;
     }
 }

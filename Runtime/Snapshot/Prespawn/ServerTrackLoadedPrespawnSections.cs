@@ -3,6 +3,7 @@ using Unity.Entities;
 using Unity.Jobs;
 using Unity.Mathematics;
 using Unity.Scenes;
+using Unity.Burst;
 
 namespace Unity.NetCode
 {
@@ -10,72 +11,54 @@ namespace Unity.NetCode
     /// The ServerTrackLoadedPrespawnSections is responsible for tracking when an initialized prespawn sections is unloaded
     /// in order to release any allocated data and freeing ghost id ranges.
     /// </summary>
-    [UpdateInWorld(TargetWorld.Server)]
+    [WorldSystemFilter(WorldSystemFilterFlags.ServerSimulation)]
     [UpdateInGroup(typeof(PrespawnGhostSystemGroup))]
     [UpdateAfter(typeof(ServerPopulatePrespawnedGhostsSystem))]
-    public partial class ServerTrackLoadedPrespawnSections : SystemBase
+    [BurstCompile]
+    public partial struct ServerTrackLoadedPrespawnSections : ISystem
     {
-        private EntityQuery m_LoadedSubscenes;
-        private EntityQuery m_Prespawns;
-        private NetDebugSystem m_NetDebugSystem;
-        private EntityQuery m_DestroyedSubscenes;
-        private SceneSystem m_SceneSystem;
-        private BeginSimulationEntityCommandBufferSystem m_Barrier;
-        private GhostSendSystem m_GhostSendSystem;
-        private EntityQuery m_AllPrespawnScenes;
+        EntityQuery m_UnloadedSubscenes;
+        EntityQuery m_Prespawns;
+        EntityQuery m_AllPrespawnScenes;
 
-        protected override void OnCreate()
+        [BurstCompile]
+        public void OnCreate(ref SystemState state)
         {
-            m_LoadedSubscenes = GetEntityQuery(ComponentType.ReadOnly<PrespawnsSceneInitialized>());
-            m_DestroyedSubscenes = GetEntityQuery(
-                ComponentType.ReadOnly<SubSceneWithGhostStateComponent>(),
-                ComponentType.Exclude<PrespawnsSceneInitialized>());
-            m_Prespawns = EntityManager.CreateEntityQuery(
-                ComponentType.ReadOnly<PreSpawnedGhostIndex>(),
-                ComponentType.ReadOnly<SubSceneGhostComponentHash>());
-            m_AllPrespawnScenes = EntityManager.CreateEntityQuery(ComponentType.ReadOnly<SubSceneWithPrespawnGhosts>());
-            m_SceneSystem = World.GetExistingSystem<SceneSystem>();
-            m_Barrier = World.GetExistingSystem<BeginSimulationEntityCommandBufferSystem>();
-            m_GhostSendSystem = World.GetExistingSystem<GhostSendSystem>();
-            m_NetDebugSystem = World.GetExistingSystem<NetDebugSystem>();
-            RequireSingletonForUpdate<GhostCollection>();
+            var builder = new EntityQueryBuilder(Allocator.Temp)
+                .WithAll<SubSceneWithGhostStateComponent>()
+                .WithNone<IsSectionLoaded>();
+            m_UnloadedSubscenes = state.GetEntityQuery(builder);
+            builder.Reset();
+            builder.WithAll<PreSpawnedGhostIndex, SubSceneGhostComponentHash>();
+            m_Prespawns = state.GetEntityQuery(builder);
+            m_AllPrespawnScenes = state.GetEntityQuery(ComponentType.ReadOnly<SubSceneWithPrespawnGhosts>());
+
+            state.RequireForUpdate(m_UnloadedSubscenes);
+            state.RequireForUpdate<GhostCollection>();
         }
 
-        protected override void OnDestroy()
+        [BurstCompile]
+        public void OnDestroy(ref SystemState state)
         {
-            m_Prespawns.Dispose();
-            m_AllPrespawnScenes.Dispose();
         }
 
-        protected override void OnUpdate()
+        [BurstCompile]
+        public void OnUpdate(ref SystemState state)
         {
-            var entityCommandBuffer = m_Barrier.CreateCommandBuffer();
-            var unloadedSections = new NativeList<Entity>(16, Allocator.Temp);
-            using(var destroyedEntities = m_DestroyedSubscenes.ToEntityArray(Allocator.Temp))
-                unloadedSections.AddRange(destroyedEntities);
-
-            //Add all unloaded but not destroyed scenes to the list
-            using (var loadedSceneEntities = m_LoadedSubscenes.ToEntityArray(Allocator.Temp))
-            {
-                for (int i = 0; i < loadedSceneEntities.Length; ++i)
-                {
-                    if (!m_SceneSystem.IsSectionLoaded(loadedSceneEntities[i]))
-                    {
-                        unloadedSections.Add(loadedSceneEntities[i]);
-                    }
-                }
-            }
+            var unloadedSections = m_UnloadedSubscenes.ToEntityArray(Allocator.Temp);
 
             if (unloadedSections.Length == 0)
                 return;
 
+            var entityCommandBuffer = SystemAPI.GetSingleton<BeginSimulationEntityCommandBufferSystem.Singleton>().CreateCommandBuffer(state.WorldUnmanaged);
             //Only process scenes for wich all prefabs has been already destroyed
-            var subsceneCollection = EntityManager.GetBuffer<PrespawnSceneLoaded>(GetSingletonEntity<PrespawnSceneLoaded>());
-            var allocatedRanges = EntityManager.GetBuffer<PrespawnGhostIdRange>(GetSingletonEntity<PrespawnGhostIdRange>());
-            var unloadedGhostRange = new NativeList<int2>(Allocator.TempJob);
+            var subsceneCollection = SystemAPI.GetSingletonBuffer<PrespawnSceneLoaded>();
+            var allocatedRanges = SystemAPI.GetSingletonBuffer<PrespawnGhostIdRange>();
+            var netDebug = SystemAPI.GetSingleton<NetDebug>();
+            var unloadedGhostRange = new NativeList<int2>(state.WorldUnmanaged.UpdateAllocator.ToAllocator);
             for(int i=0;i<unloadedSections.Length;++i)
             {
-                var stateComponent = EntityManager.GetComponentData<SubSceneWithGhostStateComponent>(unloadedSections[i]);
+                var stateComponent = state.EntityManager.GetComponentData<SubSceneWithGhostStateComponent>(unloadedSections[i]);
                 m_Prespawns.SetSharedComponentFilter(new SubSceneGhostComponentHash { Value = stateComponent.SubSceneHash });
 
                 //If there are still some ghosts present, don't remove the scene from the scene list yet
@@ -99,7 +82,7 @@ namespace Unity.NetCode
                 }
                 else
                 {
-                    m_NetDebugSystem.NetDebug.LogError($"Scene with hash {stateComponent.SubSceneHash} not found in active subscene list");
+                    netDebug.LogError($"Scene with hash {stateComponent.SubSceneHash} not found in active subscene list");
                 }
                 //Release the id range for later reuse. For now we allow reuse the same ghost ids for the same scene
                 //for sake of simplicity
@@ -125,38 +108,39 @@ namespace Unity.NetCode
             }
 
             if (unloadedGhostRange.Length == 0)
-            {
-                m_Barrier.AddJobHandleForProducer(Dependency);
-                unloadedGhostRange.Dispose();
                 return;
-            }
             //Schedule a cleanup job for the despawn list in case there are prespawn present
             //Once the range has been release (Reserved == 0) the ghost witch belong to that range
             //are not added to the queue in the GhostSendSystem.
-            var despawns = m_GhostSendSystem.DestroyedPrespawns;
-            Dependency = Job
-                .WithDisposeOnCompletion(unloadedGhostRange)
-                .WithCode(() =>
-                {
-                    for (int i = 0; i < unloadedGhostRange.Length; ++i)
-                    {
-                        var firstId = unloadedGhostRange[i].x;
-                        for (int idx = 0; idx < unloadedGhostRange[i].y; ++idx)
-                        {
-                            var ghostId = PrespawnHelper.MakePrespawGhostId(firstId + idx);
-                            var found = despawns.IndexOf(ghostId);
-                            if (found != -1)
-                                despawns.RemoveAtSwapBack(found);
-                        }
-                    }
-                }).Schedule(JobHandle.CombineDependencies(Dependency, m_GhostSendSystem.LastGhostMapWriter));
-            m_GhostSendSystem.LastGhostMapWriter = Dependency;
+            var cleanupJob = new PrespawnSceneCleanup
+            {
+                unloadedGhostRange = unloadedGhostRange,
+                despawns = SystemAPI.GetSingletonRW<SpawnedGhostEntityMap>().ValueRO.ServerDestroyedPrespawns
+            };
+            state.Dependency = cleanupJob.Schedule(state.Dependency);
 
             //If no prespawn scenes present, destroy the prespawn scene list
             if(subsceneCollection.Length == 0 && m_AllPrespawnScenes.IsEmpty)
-                entityCommandBuffer.DestroyEntity(GetSingletonEntity<PrespawnSceneLoaded>());
-
-            m_Barrier.AddJobHandleForProducer(Dependency);
+                entityCommandBuffer.DestroyEntity(SystemAPI.GetSingletonEntity<PrespawnSceneLoaded>());
+        }
+        struct PrespawnSceneCleanup : IJob
+        {
+            public NativeList<int2> unloadedGhostRange;
+            public NativeList<int> despawns;
+            public void Execute()
+            {
+                for (int i = 0; i < unloadedGhostRange.Length; ++i)
+                {
+                    var firstId = unloadedGhostRange[i].x;
+                    for (int idx = 0; idx < unloadedGhostRange[i].y; ++idx)
+                    {
+                        var ghostId = PrespawnHelper.MakePrespawGhostId(firstId + idx);
+                        var found = despawns.IndexOf(ghostId);
+                        if (found != -1)
+                            despawns.RemoveAtSwapBack(found);
+                    }
+                }
+            }
         }
     }
 }

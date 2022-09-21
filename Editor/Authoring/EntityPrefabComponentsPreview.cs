@@ -2,11 +2,12 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
-using System.Runtime.CompilerServices;
 using Unity.Collections;
+using Unity.Collections.NotBurstCompatible;
 using Unity.Entities;
+using Unity.Entities.Conversion;
+using UnityEditor;
 using UnityEngine;
-using Unity.NetCode.LowLevel.Unsafe;
 
 namespace Unity.NetCode.Editor
 {
@@ -22,173 +23,187 @@ namespace Unity.NetCode.Editor
                 x.GetManagedType().FullName.CompareTo(y.GetManagedType().FullName);
         }
 
-        private GhostComponentVariantLookup variantLookup;
-
-        public EntityPrefabComponentsPreview(GhostComponentVariantLookup lookup)
+        /// <summary>Triggers the baking conversion process on the 'authoringComponent' and appends all resulting baked entities and components to the 'bakedDataMap'.</summary>
+        public void BakeEntireNetcodePrefab(GhostAuthoringComponent authoringComponent, Dictionary<GameObject, BakedGameObjectResult> bakedDataMap)
         {
-            variantLookup = lookup;
-        }
-
-        public List<ComponentItem> GetComponentsPreview(GhostAuthoringComponent authoringComponent)
-        {
-            using(var world = new World("TempGhostConversion"))
+            try
             {
-                using var blobAssetStore = new BlobAssetStore();
-                authoringComponent.ForcePrefabConversion = true;
-                var settings = GameObjectConversionSettings.FromWorld(world, blobAssetStore);
-                settings.ConversionFlags = GameObjectConversionUtility.ConversionFlags.AddEntityGUID;
-                var convertedEntity = GameObjectConversionUtility.ConvertGameObjectHierarchy(authoringComponent.gameObject, settings);
-                authoringComponent.ForcePrefabConversion = false;
+                EditorUtility.DisplayProgressBar($"Baking '{authoringComponent}'", "Baking allows you to view and modify ghost component meta-data.", .9f);
+                GhostAuthoringInspectionComponent.forceBake = false;
+                GhostAuthoringInspectionComponent.forceSave = true;
 
-                return GetComponentItems(authoringComponent, convertedEntity, world);
-            }
-        }
+                var allComponentOverrides = GhostAuthoringInspectionComponent.CollectAllComponentOverridesInInspectionComponents(authoringComponent);
 
-        public void RefreshComponentInfo(ComponentItem item)
-        {
-            //Get the correct serialization variant for the component.
-            var variantType = variantLookup.GetVariantForComponent(ComponentType.ReadWrite(item.comp.managedType), item.Variant);
-            if (variantType == null)
-                variantType = item.comp.managedType;
-            ExtractComponentInfo(item, variantType);
-        }
-
-        public List<ComponentItem> GetComponentItems(GhostAuthoringComponent authoringComponent, Entity convertedEntity, World world)
-        {
-            var newComponents = new List<ComponentItem>();
-            AddToComponentList(newComponents, world, convertedEntity, 0, authoringComponent);
-            if (world.EntityManager.HasComponent<LinkedEntityGroup>(convertedEntity))
-            {
-                var linkedEntityGroup = world.EntityManager.GetBuffer<LinkedEntityGroup>(convertedEntity);
-                for (int i = 1; i < linkedEntityGroup.Length; ++i)
+                // TODO - Handle exceptions due to invalid prefab setup. E.g.
+                // "InvalidOperationException: OwnerPrediction mode can only be used on prefabs which have a GhostOwnerComponent"
+                using(var world = new World(nameof(EntityPrefabComponentsPreview)))
                 {
-                    AddToComponentList(newComponents, world, linkedEntityGroup[i].Value, i, authoringComponent);
+                    using var blobAssetStore = new BlobAssetStore(128);
+                    authoringComponent.ForcePrefabConversion = true;
+
+                    var bakingSettings = new BakingSettings(BakingUtility.BakingFlags.AddEntityGUID, blobAssetStore);
+                    BakingUtility.BakeGameObjects(world, new[] {authoringComponent.gameObject}, bakingSettings);
+                    var bakingSystem = world.GetExistingSystemManaged<BakingSystem>();
+                    var primaryEntitiesMap = new HashSet<Entity>(16);
+
+                    CreatedBakedResultForPrimaryEntities(world, bakedDataMap, authoringComponent, bakingSystem, allComponentOverrides, primaryEntitiesMap);
+                    CreatedBakedResultForLinkedEntities(world, bakedDataMap, primaryEntitiesMap, allComponentOverrides);
                 }
             }
-
-            foreach (var compItem in newComponents)
+            finally
             {
-                var variantType = variantLookup.GetVariantForComponent(ComponentType.ReadWrite(compItem.comp.managedType), compItem.Variant);
-                if (variantType == null)
-                    variantType = compItem.comp.managedType;
-                ExtractComponentInfo(compItem, variantType);
+                EditorUtility.ClearProgressBar();
+                authoringComponent.ForcePrefabConversion = false;
             }
-
-            return newComponents;
         }
 
-       static void AddToComponentList(List<ComponentItem> newComponents, World world, Entity convertedEntity,
-           int entityIndex, GhostAuthoringComponent authoringComponent)
-       {
+        void CreatedBakedResultForPrimaryEntities(World world, Dictionary<GameObject, BakedGameObjectResult> bakedDataMap, GhostAuthoringComponent authoringComponent, BakingSystem bakingSystem, List<GhostAuthoringInspectionComponent.ComponentOverride> allComponentOverrides, HashSet<Entity> primaryEntitiesMap)
+        {
+            foreach (var t in authoringComponent.GetComponentsInChildren<Transform>())
+            {
+                var go = t.gameObject;
+
+                // I'd like to skip children that DONT have an Inspection component, but not possible as they may add one.
+
+                var result = new BakedGameObjectResult
+                {
+                    SourceGameObject = go,
+                    RootAuthoring = authoringComponent,
+                    BakedEntities = new List<BakedEntityResult>(1)
+                };
+
+                var primaryEntity = bakingSystem.GetEntity(go);
+                if (bakingSystem.EntityManager.Exists(primaryEntity))
+                {
+                    result.BakedEntities.Add(CreateBakedEntityResult(result, 0, world, primaryEntity, false));
+                    primaryEntitiesMap.Add(primaryEntity);
+                }
+                bakedDataMap[go] = result;
+            }
+        }
+
+        void CreatedBakedResultForLinkedEntities(World world, Dictionary<GameObject, BakedGameObjectResult> bakedDataMap, HashSet<Entity> primaryEntitiesMap, List<GhostAuthoringInspectionComponent.ComponentOverride> allComponentOverrides)
+        {
+            foreach (var kvp in bakedDataMap)
+            {
+                // TODO - Test-case to ensure the root entity does not contain ALL linked entities (even for children + additional).
+                for (int index = 0, max = kvp.Value.BakedEntities.Count; index < max; index++)
+                {
+                    var bakedEntityResult = kvp.Value.BakedEntities[index];
+                    var primaryEntity = bakedEntityResult.Entity;
+                    if (world.EntityManager.HasComponent<LinkedEntityGroup>(primaryEntity))
+                    {
+                        var linkedEntityGroup = world.EntityManager.GetBuffer<LinkedEntityGroup>(primaryEntity);
+                        for (int i = 1; i < linkedEntityGroup.Length; ++i)
+                        {
+                            var linkedEntity = linkedEntityGroup[i].Value;
+
+                            // Only show linked entities if they're not primary entities of child GameObjects.
+                            // I.e. Only possible if, during Baking, users call `CreateAdditionalEntity`.
+                            if (!primaryEntitiesMap.Contains(linkedEntity))
+                            {
+                                kvp.Value.BakedEntities.Add(CreateBakedEntityResult(kvp.Value, i, world, linkedEntity, true));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        BakedEntityResult CreateBakedEntityResult(BakedGameObjectResult parent, int entityIndex, World world, Entity convertedEntity, bool isLinkedEntity)
+        {
+            var isRoot = parent.SourceGameObject == parent.RootAuthoring.gameObject;
+            var result = new BakedEntityResult
+            {
+                GoParent = parent,
+                Entity = convertedEntity,
+                EntityName = world.EntityManager.GetName(convertedEntity),
+                EntityIndex = entityIndex,
+                BakedComponents = new List<BakedComponentItem>(16),
+                IsLinkedEntity = isLinkedEntity,
+                IsRoot = isRoot,
+            };
+
+            var collectionData = world.GetExistingSystemManaged<GhostComponentSerializerCollectionSystemGroup>().ghostComponentSerializerCollectionDataCache;
+
+            AddToComponentList(result, result.BakedComponents, in collectionData, world, convertedEntity, entityIndex);
+
+            var variantTypesList = new NativeList<VariantType>(4, Allocator.Temp);
+            foreach (var compItem in result.BakedComponents)
+            {
+                var searchHash = compItem.VariantHash;
+
+                variantTypesList.Clear();
+                for (int i = 0; i < compItem.availableVariants.Length; i++)
+                {
+                    variantTypesList.Add(compItem.availableVariants[i]);
+                }
+                compItem.variant = collectionData.GetCurrentVariantTypeForComponent(ComponentType.ReadWrite(compItem.managedType), searchHash, variantTypesList, isRoot);
+
+                if (compItem.anyVariantIsSerialized)
+                {
+                    compItem.SaveVariant(true, false);
+                }
+                else
+                {
+                    if (compItem.VariantHash != 0)
+                    {
+                        Debug.LogWarning($"`{compItem.fullname}` has Variant Hash '{compItem.VariantHash}' but this type is not a GhostComponent. Removing Variant!");
+                        compItem.ResetVariantToDefault();
+                    }
+                }
+            }
+            variantTypesList.Dispose();
+            return result;
+        }
+
+        static void AddToComponentList(BakedEntityResult parent, List<BakedComponentItem> newComponents, in GhostComponentSerializerCollectionData collectionData, World world, Entity convertedEntity, int entityIndex)
+        {
             var compTypes = world.EntityManager.GetComponentTypes(convertedEntity);
             compTypes.Sort(default(ComponentNameComparer));
 
             for (int i = 0; i < compTypes.Length; ++i)
             {
-                var managedType = compTypes[i].GetManagedType();
+                var componentType = compTypes[i];
+                var managedType = componentType.GetManagedType();
                 if (managedType == typeof(Prefab) || managedType == typeof(LinkedEntityGroup))
                     continue;
 
                 var guid = world.EntityManager.GetComponentData<EntityGuid>(convertedEntity);
-                var prefabModifier = authoringComponent.GetPrefabModifier(managedType.FullName, guid);
-                var compData = new GhostAuthoringComponentEditor.SerializedComponentData
+
+                using var availableVariants = collectionData.GetAllAvailableVariantsForType(managedType, parent.IsRoot);
+                var metaData = collectionData.GetOrCreateMetaData(managedType);
+                var canSerializeInAtLeastOneVariant = GhostComponentSerializerCollectionData.AnyVariantsAreSerialized(in availableVariants);
+                var defaultVariant = collectionData.GetCurrentVariantTypeForComponent(componentType, 0, availableVariants, parent.IsRoot);
+
+                var readableNames = new string[availableVariants.Length];
+                for (var j = 0; j < availableVariants.Length; j++)
                 {
-                    name = managedType.FullName,
+                    var vt = availableVariants[j];
+
+                    var readableName = vt.CreateReadableName(metaData);
+                    if (vt.Hash == defaultVariant.Hash)
+                        readableName += " (Default)";
+
+                    readableNames[j] = readableName;
+                }
+
+                var componentItem = new BakedComponentItem
+                {
+                    EntityParent = parent,
+                    fullname = managedType.FullName,
                     managedType = managedType,
-                    attribute = new GhostComponentAttribute()
+                    entityGuid = guid,
+                    entityIndex = entityIndex,
+                    ghostComponentAttribute = managedType.GetCustomAttribute<GhostComponentAttribute>() ?? new GhostComponentAttribute(),
+                    availableVariants = availableVariants.ToArrayNBC(),
+                    availableVariantReadableNames = readableNames,
+                    anyVariantIsSerialized = canSerializeInAtLeastOneVariant,
+                    metaData = metaData,
+                    defaultVariant = defaultVariant,
                 };
-                var componentItem = new ComponentItem(compData, prefabModifier, guid, entityIndex);
                 newComponents.Add(componentItem);
             }
-        }
-
-        static void ExtractComponentInfo(ComponentItem item, System.Type variantType)
-        {
-            item.UpdateGhostComponent(variantType.GetCustomAttribute<GhostComponentAttribute>());
-            var fields = new List<GhostAuthoringComponentEditor.ComponentField>();
-            foreach (var member in variantType.GetMembers(BindingFlags.Instance | BindingFlags.Public))
-            {
-                if(member.GetCustomAttribute<DefaultMemberAttribute>() != null ||
-                   member.GetCustomAttribute<CompilerGeneratedAttribute>() != null)
-                    continue;
-
-                var attr = member.GetCustomAttribute<GhostFieldAttribute>();
-                if (attr == null || !attr.SendData)
-                    continue;
-
-                switch (member.MemberType)
-                {
-                    case MemberTypes.Field:
-                        FillSubFields(member, ((FieldInfo) member).FieldType, attr.Quantization, attr.Smoothing, fields);
-                        break;
-                    case MemberTypes.Property:
-                    {
-                        if (IsValidProperty((PropertyInfo) member))
-                            FillSubFields(member, ((PropertyInfo) member).PropertyType, attr.Quantization, attr.Smoothing, fields);
-                        break;
-                    }
-                }
-            }
-
-            item.comp.fields = fields.ToArray();
-        }
-
-        static private void FillSubFields(MemberInfo field, System.Type memberType, int quantization,
-            SmoothingAction smoothing, List<GhostAuthoringComponentEditor.ComponentField> fieldsList, string parentPrefix = "")
-        {
-            if (!memberType.IsValueType)
-                return;
-
-            if (memberType.IsPrimitive || memberType.IsEnum)
-            {
-                fieldsList.Add(new GhostAuthoringComponentEditor.ComponentField
-                {
-                    name = parentPrefix + field.Name,
-                    quantization = quantization,
-                    smoothing = smoothing
-                });
-                return;
-            }
-
-            parentPrefix = parentPrefix + field.Name + "_";
-            foreach (var member in memberType.GetMembers(BindingFlags.Instance | BindingFlags.Public))
-            {
-                var fieldAttr = member.GetCustomAttribute<GhostFieldAttribute>();
-                if (fieldAttr != null && !fieldAttr.SendData)
-                    continue;
-                if (fieldAttr != null)
-                {
-                    quantization = fieldAttr.Quantization != -1
-                        ? fieldAttr.Quantization
-                        : quantization;
-                    smoothing = fieldAttr.Smoothing;
-                }
-                switch (member.MemberType)
-                {
-                    case MemberTypes.Field:
-                        FillSubFields(member, ((FieldInfo)member).FieldType, quantization, smoothing, fieldsList,
-                            parentPrefix);
-                        break;
-                    case MemberTypes.Property:
-                    {
-                        if (IsValidProperty((PropertyInfo) member))
-                            FillSubFields(member, ((PropertyInfo)member).PropertyType, quantization, smoothing, fieldsList,
-                                parentPrefix);
-                        break;
-                    }
-                }
-            }
-        }
-
-        static bool IsValidProperty(PropertyInfo propertyInfo)
-        {
-            //Skip indexer like properties or anything that return non primitive types
-            if (propertyInfo.GetIndexParameters()?.Length != 0)
-                return false;
-            if(!propertyInfo.PropertyType.IsPrimitive && !propertyInfo.PropertyType.IsEnum)
-                return false;
-            return (propertyInfo.GetMethod != null && propertyInfo.SetMethod != null &&
-                    propertyInfo.GetMethod.IsPublic && propertyInfo.SetMethod.IsPublic);
         }
     }
 }

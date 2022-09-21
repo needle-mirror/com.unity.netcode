@@ -1,8 +1,10 @@
 using AOT;
 using Unity.Burst;
+using Unity.Burst.Intrinsics;
 using Unity.Entities;
 using Unity.Networking.Transport;
 using Unity.Collections;
+using UnityEngine.Assertions;
 
 namespace Unity.NetCode.Tests
 {
@@ -29,7 +31,7 @@ namespace Unity.NetCode.Tests
             RpcExecutor.ExecuteCreateRequestComponent<SimpleRpcCommand, SimpleRpcCommand>(ref parameters);
         }
 
-        static PortableFunctionPointer<RpcExecutor.ExecuteDelegate> InvokeExecuteFunctionPointer =
+        static readonly PortableFunctionPointer<RpcExecutor.ExecuteDelegate> InvokeExecuteFunctionPointer =
             new PortableFunctionPointer<RpcExecutor.ExecuteDelegate>(InvokeExecute);
     }
 
@@ -72,7 +74,7 @@ namespace Unity.NetCode.Tests
             parameters.CommandBuffer.AddComponent(parameters.JobIndex, entity, serializedData);
         }
 
-        static PortableFunctionPointer<RpcExecutor.ExecuteDelegate> InvokeExecuteFunctionPointer =
+        static readonly PortableFunctionPointer<RpcExecutor.ExecuteDelegate> InvokeExecuteFunctionPointer =
             new PortableFunctionPointer<RpcExecutor.ExecuteDelegate>(InvokeExecute);
     }
 
@@ -109,7 +111,7 @@ namespace Unity.NetCode.Tests
             parameters.CommandBuffer.AddComponent(parameters.JobIndex, entity, serializedData);
         }
 
-        static PortableFunctionPointer<RpcExecutor.ExecuteDelegate> InvokeExecuteFunctionPointer =
+        static readonly PortableFunctionPointer<RpcExecutor.ExecuteDelegate> InvokeExecuteFunctionPointer =
             new PortableFunctionPointer<RpcExecutor.ExecuteDelegate>(InvokeExecute);
     }
 
@@ -146,7 +148,7 @@ namespace Unity.NetCode.Tests
             parameters.CommandBuffer.AddComponent(parameters.JobIndex, entity, serializedData);
         }
 
-        static PortableFunctionPointer<RpcExecutor.ExecuteDelegate> InvokeExecuteFunctionPointer =
+        static readonly PortableFunctionPointer<RpcExecutor.ExecuteDelegate> InvokeExecuteFunctionPointer =
             new PortableFunctionPointer<RpcExecutor.ExecuteDelegate>(InvokeExecute);
     }
 
@@ -177,21 +179,21 @@ namespace Unity.NetCode.Tests
             {
                 var ghostComponent = state.GhostFromEntity[data.entity];
                 writer.WriteInt(ghostComponent.ghostId);
-                writer.WriteUInt(ghostComponent.spawnTick);
+                writer.WriteUInt(ghostComponent.spawnTick.SerializedData);
             }
             else
             {
                 writer.WriteInt(0);
-                writer.WriteUInt(0);
+                writer.WriteUInt(NetworkTick.Invalid.SerializedData);
             }
         }
 
         public void Deserialize(ref DataStreamReader reader, in RpcDeserializerState state,  ref RpcWithEntity data)
         {
             var ghostId = reader.ReadInt();
-            var spawnTick = reader.ReadUInt();
+            var spawnTick = new NetworkTick{SerializedData = reader.ReadUInt()};
             data.entity = Entity.Null;
-            if (ghostId != 0 && spawnTick != 0)
+            if (ghostId != 0 && spawnTick.IsValid)
             {
                 if (state.ghostMap.TryGetValue(new SpawnedGhost{ghostId = ghostId, spawnTick = spawnTick}, out var ghostEnt))
                     data.entity = ghostEnt;
@@ -205,7 +207,7 @@ namespace Unity.NetCode.Tests
             RpcExecutor.ExecuteCreateRequestComponent<RpcWithEntity, RpcWithEntity>(ref parameters);
         }
 
-        static PortableFunctionPointer<RpcExecutor.ExecuteDelegate> InvokeExecuteFunctionPointer =
+        static readonly PortableFunctionPointer<RpcExecutor.ExecuteDelegate> InvokeExecuteFunctionPointer =
             new PortableFunctionPointer<RpcExecutor.ExecuteDelegate>(InvokeExecute);
         public PortableFunctionPointer<RpcExecutor.ExecuteDelegate> CompileExecute()
         {
@@ -215,7 +217,7 @@ namespace Unity.NetCode.Tests
 
     #region Send Systems
     [DisableAutoCreation]
-    [UpdateInGroup(typeof(ClientSimulationSystemGroup))]
+    [WorldSystemFilter(WorldSystemFilterFlags.ClientSimulation)]
     public partial class ClientRcpSendSystem : SystemBase
     {
         public static int SendCount = 0;
@@ -223,7 +225,7 @@ namespace Unity.NetCode.Tests
 
         protected override void OnCreate()
         {
-            RequireSingletonForUpdate<NetworkIdComponent>();
+            RequireForUpdate<NetworkIdComponent>();
         }
 
         protected override void OnUpdate()
@@ -239,8 +241,7 @@ namespace Unity.NetCode.Tests
     }
 
     [DisableAutoCreation]
-    [AlwaysUpdateSystem]
-    [UpdateInGroup(typeof(ServerSimulationSystemGroup))]
+    [WorldSystemFilter(WorldSystemFilterFlags.ServerSimulation)]
     public partial class ServerRpcBroadcastSendSystem : SystemBase
     {
         public static int SendCount = 0;
@@ -259,7 +260,7 @@ namespace Unity.NetCode.Tests
     }
 
     [DisableAutoCreation]
-    [UpdateInGroup(typeof(ClientSimulationSystemGroup))]
+    [WorldSystemFilter(WorldSystemFilterFlags.ClientSimulation)]
     public partial class MalformedClientRcpSendSystem : SystemBase
     {
         public static int[] SendCount = new int[2];
@@ -275,8 +276,7 @@ namespace Unity.NetCode.Tests
             //Even if we would tag the connection synchronously (in the middle of the frame)
             //if the client system is schedule to execute AFTER the RpcCommandRequestSystem (or the RpcSystem) or the system that
             //change the connection state, clients can still queue commands even though the connection will be closed.
-            var query = EntityManager.CreateEntityQuery(ComponentType.ReadOnly<NetworkIdComponent>(),
-                ComponentType.Exclude<NetworkStreamDisconnected>());
+            var query = EntityManager.CreateEntityQuery(ComponentType.ReadOnly<NetworkIdComponent>());
             RequireForUpdate(query);
 
             const int kStringLength = 10; // we name it ClientTest
@@ -297,7 +297,7 @@ namespace Unity.NetCode.Tests
     }
 
     [DisableAutoCreation]
-    [UpdateInGroup(typeof(ServerSimulationSystemGroup))]
+    [WorldSystemFilter(WorldSystemFilterFlags.ServerSimulation)]
     public partial class SerializedServerRcpSendSystem : SystemBase
     {
         public static int SendCount = 0;
@@ -305,7 +305,7 @@ namespace Unity.NetCode.Tests
 
         protected override void OnCreate()
         {
-            RequireSingletonForUpdate<NetworkIdComponent>();
+            RequireForUpdate<NetworkIdComponent>();
         }
 
         protected override void OnUpdate()
@@ -322,7 +322,7 @@ namespace Unity.NetCode.Tests
     }
 
     [DisableAutoCreation]
-    [UpdateInGroup(typeof(ClientSimulationSystemGroup))]
+    [WorldSystemFilter(WorldSystemFilterFlags.ClientSimulation)]
     public partial class SerializedClientRcpSendSystem : SystemBase
     {
         public static int SendCount = 0;
@@ -330,7 +330,7 @@ namespace Unity.NetCode.Tests
 
         protected override void OnCreate()
         {
-            RequireSingletonForUpdate<NetworkIdComponent>();
+            RequireForUpdate<NetworkIdComponent>();
         }
 
         protected override void OnUpdate()
@@ -347,7 +347,7 @@ namespace Unity.NetCode.Tests
     }
 
     [DisableAutoCreation]
-    [UpdateInGroup(typeof(ClientSimulationSystemGroup))]
+    [WorldSystemFilter(WorldSystemFilterFlags.ClientSimulation)]
     public partial class SerializedClientLargeRcpSendSystem : SystemBase
     {
         public static int SendCount = 0;
@@ -355,7 +355,7 @@ namespace Unity.NetCode.Tests
 
         protected override void OnCreate()
         {
-            RequireSingletonForUpdate<NetworkIdComponent>();
+            RequireForUpdate<NetworkIdComponent>();
         }
 
         protected override void OnUpdate()
@@ -372,8 +372,7 @@ namespace Unity.NetCode.Tests
     }
 
     [DisableAutoCreation]
-    [AlwaysUpdateSystem]
-    [UpdateInGroup(typeof(ClientSimulationSystemGroup))]
+    [WorldSystemFilter(WorldSystemFilterFlags.ClientSimulation)]
     public partial class FlawedClientRcpSendSystem : SystemBase
     {
         public static int SendCount = 0;
@@ -394,7 +393,8 @@ namespace Unity.NetCode.Tests
 
     #region Receive Systems
     [DisableAutoCreation]
-    [UpdateInGroup(typeof(ServerSimulationSystemGroup))]
+    [RequireMatchingQueriesForUpdate]
+    [WorldSystemFilter(WorldSystemFilterFlags.ServerSimulation)]
     public partial class ServerMultipleRpcReceiveSystem : SystemBase
     {
         public static int[] ReceivedCount = new int[2];
@@ -414,7 +414,7 @@ namespace Unity.NetCode.Tests
 
 
     [DisableAutoCreation]
-    [UpdateInGroup(typeof(ClientSimulationSystemGroup))]
+    [WorldSystemFilter(WorldSystemFilterFlags.ClientSimulation)]
     public partial class MultipleClientBroadcastRpcReceiveSystem : SystemBase
     {
         public static int[] ReceivedCount = new int[2];
@@ -423,7 +423,7 @@ namespace Unity.NetCode.Tests
 
         protected override void OnCreate()
         {
-            RequireSingletonForUpdate<NetworkIdComponent>();
+            RequireForUpdate<NetworkIdComponent>();
             worldId = int.Parse(World.Name.Substring(World.Name.Length - 1, 1));
         }
 
@@ -443,7 +443,8 @@ namespace Unity.NetCode.Tests
     }
 
     [DisableAutoCreation]
-    [UpdateInGroup(typeof(ServerSimulationSystemGroup))]
+    [RequireMatchingQueriesForUpdate]
+    [WorldSystemFilter(WorldSystemFilterFlags.ServerSimulation)]
     public partial class ServerRpcReceiveSystem : SystemBase
     {
         public static int ReceivedCount = 0;
@@ -463,7 +464,29 @@ namespace Unity.NetCode.Tests
     }
 
     [DisableAutoCreation]
-    [UpdateInGroup(typeof(ClientSimulationSystemGroup))]
+    [RequireMatchingQueriesForUpdate]
+    [WorldSystemFilter(WorldSystemFilterFlags.ClientSimulation)]
+    public partial class ClientRpcReceiveSystem : SystemBase
+    {
+        public int ReceivedCount = 0;
+
+        protected override void OnUpdate()
+        {
+            var PostUpdateCommands = new EntityCommandBuffer(Allocator.Temp);
+            Entities.WithoutBurst()
+                .WithAll<SimpleRpcCommand>()
+                .ForEach((Entity entity, ref ReceiveRpcCommandRequestComponent req) =>
+                {
+                    PostUpdateCommands.DestroyEntity(entity);
+                    ++ReceivedCount;
+                }).Run();
+            PostUpdateCommands.Playback(EntityManager);
+        }
+    }
+
+    [DisableAutoCreation]
+    [RequireMatchingQueriesForUpdate]
+    [WorldSystemFilter(WorldSystemFilterFlags.ClientSimulation)]
     public partial class SerializedClientRpcReceiveSystem : SystemBase
     {
         public static int ReceivedCount = 0;
@@ -483,7 +506,8 @@ namespace Unity.NetCode.Tests
     }
 
     [DisableAutoCreation]
-    [UpdateInGroup(typeof(ServerSimulationSystemGroup))]
+    [RequireMatchingQueriesForUpdate]
+    [WorldSystemFilter(WorldSystemFilterFlags.ServerSimulation)]
     public partial class SerializedServerRpcReceiveSystem : SystemBase
     {
         public static int ReceivedCount = 0;
@@ -502,7 +526,8 @@ namespace Unity.NetCode.Tests
         }
     }
     [DisableAutoCreation]
-    [UpdateInGroup(typeof(ServerSimulationSystemGroup))]
+    [RequireMatchingQueriesForUpdate]
+    [WorldSystemFilter(WorldSystemFilterFlags.ServerSimulation)]
     public partial class SerializedServerLargeRpcReceiveSystem : SystemBase
     {
         public static int ReceivedCount = 0;
@@ -523,115 +548,193 @@ namespace Unity.NetCode.Tests
     #endregion
 
     [DisableAutoCreation]
-    public class SerializedLargeRpcCommandRequestSystem : RpcCommandRequestSystem<SerializedLargeRpcCommand, SerializedLargeRpcCommand>
+    [UpdateInGroup(typeof(RpcCommandRequestSystemGroup))]
+    [CreateAfter(typeof(RpcSystem))]
+    [BurstCompile]
+    partial struct SerializedLargeRpcCommandRequestSystem : ISystem
     {
+        RpcCommandRequest<SerializedLargeRpcCommand, SerializedLargeRpcCommand> m_Request;
         [BurstCompile]
-        protected struct SendRpc : IJobEntityBatch
+        struct SendRpc : IJobChunk
         {
-            public SendRpcData data;
-            public void Execute(ArchetypeChunk chunk, int orderIndex)
+            public RpcCommandRequest<SerializedLargeRpcCommand, SerializedLargeRpcCommand>.SendRpcData data;
+            public void Execute(in ArchetypeChunk chunk, int unfilteredChunkIndex, bool useEnabledMask, in v128 chunkEnabledMask)
             {
-                data.Execute(chunk, orderIndex);
+                Assert.IsFalse(useEnabledMask);
+                data.Execute(chunk, unfilteredChunkIndex);
             }
         }
-        protected override void OnUpdate()
+        public void OnCreate(ref SystemState state)
         {
-            var sendJob = new SendRpc{data = InitJobData()};
-            ScheduleJobData(sendJob);
+            m_Request.OnCreate(ref state);
+        }
+        [BurstCompile]
+        public void OnDestroy(ref SystemState state)
+        {}
+        [BurstCompile]
+        public void OnUpdate(ref SystemState state)
+        {
+            var sendJob = new SendRpc{data = m_Request.InitJobData(ref state)};
+            state.Dependency = sendJob.Schedule(m_Request.Query, state.Dependency);
         }
     }
     [DisableAutoCreation]
-    public class SerializedRpcCommandRequestSystem : RpcCommandRequestSystem<SerializedRpcCommand, SerializedRpcCommand>
+    [UpdateInGroup(typeof(RpcCommandRequestSystemGroup))]
+    [CreateAfter(typeof(RpcSystem))]
+    [BurstCompile]
+    partial struct SerializedRpcCommandRequestSystem : ISystem
     {
+        RpcCommandRequest<SerializedRpcCommand, SerializedRpcCommand> m_Request;
         [BurstCompile]
-        protected struct SendRpc : IJobEntityBatch
+        struct SendRpc : IJobChunk
         {
-            public SendRpcData data;
-            public void Execute(ArchetypeChunk chunk, int orderIndex)
+            public RpcCommandRequest<SerializedRpcCommand, SerializedRpcCommand>.SendRpcData data;
+            public void Execute(in ArchetypeChunk chunk, int unfilteredChunkIndex, bool useEnabledMask, in v128 chunkEnabledMask)
             {
-                data.Execute(chunk, orderIndex);
+                Assert.IsFalse(useEnabledMask);
+                data.Execute(chunk, unfilteredChunkIndex);
             }
         }
-        protected override void OnUpdate()
+        public void OnCreate(ref SystemState state)
         {
-            var sendJob = new SendRpc{data = InitJobData()};
-            ScheduleJobData(sendJob);
+            m_Request.OnCreate(ref state);
         }
-    }
-
-    [DisableAutoCreation]
-    public class NonSerializedRpcCommandRequestSystem : RpcCommandRequestSystem<SimpleRpcCommand, SimpleRpcCommand>
-    {
         [BurstCompile]
-        protected struct SendRpc : IJobEntityBatch
-        {
-            public SendRpcData data;
-            public void Execute(ArchetypeChunk chunk, int orderIndex)
-            {
-                data.Execute(chunk, orderIndex);
-            }
-        }
-        protected override void OnUpdate()
-        {
-            var sendJob = new SendRpc{data = InitJobData()};
-            ScheduleJobData(sendJob);
-        }
-    }
-
-    [DisableAutoCreation]
-    public class MultipleClientSerializedRpcCommandRequestSystem : RpcCommandRequestSystem<ClientIdRpcCommand, ClientIdRpcCommand>
-    {
+        public void OnDestroy(ref SystemState state)
+        {}
         [BurstCompile]
-        protected struct SendRpc : IJobEntityBatch
+        public void OnUpdate(ref SystemState state)
         {
-            public SendRpcData data;
-            public void Execute(ArchetypeChunk chunk, int orderIndex)
-            {
-                data.Execute(chunk, orderIndex);
-            }
-        }
-        protected override void OnUpdate()
-        {
-            var sendJob = new SendRpc{data = InitJobData()};
-            ScheduleJobData(sendJob);
+            var sendJob = new SendRpc{data = m_Request.InitJobData(ref state)};
+            state.Dependency = sendJob.Schedule(m_Request.Query, state.Dependency);
         }
     }
 
     [DisableAutoCreation]
-    public class InvalidRpcCommandRequestSystem : RpcCommandRequestSystem<InvalidRpcCommand, InvalidRpcCommand>
+    [UpdateInGroup(typeof(RpcCommandRequestSystemGroup))]
+    [CreateAfter(typeof(RpcSystem))]
+    [BurstCompile]
+    partial struct NonSerializedRpcCommandRequestSystem : ISystem
     {
+        RpcCommandRequest<SimpleRpcCommand, SimpleRpcCommand> m_Request;
         [BurstCompile]
-        protected struct SendRpc : IJobEntityBatch
+        struct SendRpc : IJobChunk
         {
-            public SendRpcData data;
-            public void Execute(ArchetypeChunk chunk, int orderIndex)
+            public RpcCommandRequest<SimpleRpcCommand, SimpleRpcCommand>.SendRpcData data;
+            public void Execute(in ArchetypeChunk chunk, int unfilteredChunkIndex, bool useEnabledMask, in v128 chunkEnabledMask)
             {
-                data.Execute(chunk, orderIndex);
+                Assert.IsFalse(useEnabledMask);
+                data.Execute(chunk, unfilteredChunkIndex);
             }
         }
-        protected override void OnUpdate()
+        public void OnCreate(ref SystemState state)
         {
-            var sendJob = new SendRpc{data = InitJobData()};
-            ScheduleJobData(sendJob);
+            m_Request.OnCreate(ref state);
+        }
+        [BurstCompile]
+        public void OnDestroy(ref SystemState state)
+        {}
+        [BurstCompile]
+        public void OnUpdate(ref SystemState state)
+        {
+            var sendJob = new SendRpc{data = m_Request.InitJobData(ref state)};
+            state.Dependency = sendJob.Schedule(m_Request.Query, state.Dependency);
         }
     }
 
     [DisableAutoCreation]
-    class RpcWithEntityRpcCommandRequestSystem : RpcCommandRequestSystem<RpcWithEntity, RpcWithEntity>
+    [UpdateInGroup(typeof(RpcCommandRequestSystemGroup))]
+    [CreateAfter(typeof(RpcSystem))]
+    [BurstCompile]
+    partial struct MultipleClientSerializedRpcCommandRequestSystem : ISystem
     {
+        RpcCommandRequest<ClientIdRpcCommand, ClientIdRpcCommand> m_Request;
         [BurstCompile]
-        protected struct SendRpc : IJobEntityBatch
+        struct SendRpc : IJobChunk
         {
-            public SendRpcData data;
-            public void Execute(ArchetypeChunk chunk, int orderIndex)
+            public RpcCommandRequest<ClientIdRpcCommand, ClientIdRpcCommand>.SendRpcData data;
+            public void Execute(in ArchetypeChunk chunk, int unfilteredChunkIndex, bool useEnabledMask, in v128 chunkEnabledMask)
             {
-                data.Execute(chunk, orderIndex);
+                Assert.IsFalse(useEnabledMask);
+                data.Execute(chunk, unfilteredChunkIndex);
             }
         }
-        protected override void OnUpdate()
+        public void OnCreate(ref SystemState state)
         {
-            var sendJob = new SendRpc{data = InitJobData()};
-            ScheduleJobData(sendJob);
+            m_Request.OnCreate(ref state);
+        }
+        [BurstCompile]
+        public void OnDestroy(ref SystemState state)
+        {}
+        [BurstCompile]
+        public void OnUpdate(ref SystemState state)
+        {
+            var sendJob = new SendRpc{data = m_Request.InitJobData(ref state)};
+            state.Dependency = sendJob.Schedule(m_Request.Query, state.Dependency);
+        }
+    }
+
+    [DisableAutoCreation]
+    [UpdateInGroup(typeof(RpcCommandRequestSystemGroup))]
+    [CreateAfter(typeof(RpcSystem))]
+    [BurstCompile]
+    partial struct InvalidRpcCommandRequestSystem : ISystem
+    {
+        RpcCommandRequest<InvalidRpcCommand, InvalidRpcCommand> m_Request;
+        [BurstCompile]
+        struct SendRpc : IJobChunk
+        {
+            public RpcCommandRequest<InvalidRpcCommand, InvalidRpcCommand>.SendRpcData data;
+            public void Execute(in ArchetypeChunk chunk, int unfilteredChunkIndex, bool useEnabledMask, in v128 chunkEnabledMask)
+            {
+                Assert.IsFalse(useEnabledMask);
+                data.Execute(chunk, unfilteredChunkIndex);
+            }
+        }
+        public void OnCreate(ref SystemState state)
+        {
+            m_Request.OnCreate(ref state);
+        }
+        [BurstCompile]
+        public void OnDestroy(ref SystemState state)
+        {}
+        [BurstCompile]
+        public void OnUpdate(ref SystemState state)
+        {
+            var sendJob = new SendRpc{data = m_Request.InitJobData(ref state)};
+            state.Dependency = sendJob.Schedule(m_Request.Query, state.Dependency);
+        }
+    }
+
+    [DisableAutoCreation]
+    [UpdateInGroup(typeof(RpcCommandRequestSystemGroup))]
+    [CreateAfter(typeof(RpcSystem))]
+    [BurstCompile]
+    partial struct RpcWithEntityRpcCommandRequestSystem : ISystem
+    {
+        RpcCommandRequest<RpcWithEntity, RpcWithEntity> m_Request;
+        [BurstCompile]
+        struct SendRpc : IJobChunk
+        {
+            public RpcCommandRequest<RpcWithEntity, RpcWithEntity>.SendRpcData data;
+            public void Execute(in ArchetypeChunk chunk, int unfilteredChunkIndex, bool useEnabledMask, in v128 chunkEnabledMask)
+            {
+                Assert.IsFalse(useEnabledMask);
+                data.Execute(chunk, unfilteredChunkIndex);
+            }
+        }
+        public void OnCreate(ref SystemState state)
+        {
+            m_Request.OnCreate(ref state);
+        }
+        [BurstCompile]
+        public void OnDestroy(ref SystemState state)
+        {}
+        [BurstCompile]
+        public void OnUpdate(ref SystemState state)
+        {
+            var sendJob = new SendRpc{data = m_Request.InitJobData(ref state)};
+            state.Dependency = sendJob.Schedule(m_Request.Query, state.Dependency);
         }
     }
 }

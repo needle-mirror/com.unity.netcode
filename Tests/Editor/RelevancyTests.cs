@@ -14,37 +14,43 @@ namespace Unity.NetCode.Tests
 {
     public class GhostRelevancyTestConverter : TestNetCodeAuthoring.IConverter
     {
-        public void Convert(GameObject gameObject, Entity entity, EntityManager dstManager, GameObjectConversionSystem conversionSystem)
+        public void Bake(GameObject gameObject, IBaker baker)
         {
-            dstManager.AddComponentData(entity, new GhostOwnerComponent());
+            baker.AddComponent(new GhostOwnerComponent());
         }
     }
 
-    [UpdateInGroup(typeof(ServerSimulationSystemGroup))]
     [DisableAutoCreation]
+    [RequireMatchingQueriesForUpdate]
+    [WorldSystemFilter(WorldSystemFilterFlags.ServerSimulation)]
     internal partial class AutoMarkIrrelevantSystem : SystemBase
     {
-        public static int s_ConnectionId;
-        public static NativeParallelHashMap<int,int> s_IrrelevantGhosts;
-        GhostSendSystem m_GhostSendSystem;
+        public int ConnectionId;
+        public NativeHashSet<int> IrrelevantGhosts;
         protected override void OnCreate()
         {
-            m_GhostSendSystem = World.GetExistingSystem<GhostSendSystem>();
+            IrrelevantGhosts = new NativeHashSet<int>(100, Allocator.TempJob);
         }
+
+        protected override void OnDestroy()
+        {
+            IrrelevantGhosts.Dispose();
+        }
+
         protected override void OnUpdate()
         {
-            var relevancySet = m_GhostSendSystem.GhostRelevancySet;
+            ref var ghostRelevancy = ref GetSingletonRW<GhostRelevancy>().ValueRW;
+            var relevancySet = ghostRelevancy.GhostRelevancySet;
             var clearDep = Job.WithCode(() => {
                 relevancySet.Clear();
-            }).Schedule(m_GhostSendSystem.GhostRelevancySetWriteHandle);
+            }).Schedule(Dependency);
             Dependency = JobHandle.CombineDependencies(clearDep, Dependency);
-            var connectionId = s_ConnectionId;
-            var irrelevantGhosts = s_IrrelevantGhosts;
+            var connectionId = ConnectionId;
+            var irrelevantGhosts = IrrelevantGhosts;
             Entities.ForEach((in GhostComponent ghost, in GhostOwnerComponent owner) => {
-                if (irrelevantGhosts.TryGetValue(owner.NetworkId, out var temp))
+                if (irrelevantGhosts.Contains(owner.NetworkId))
                     relevancySet.TryAdd(new RelevantGhostForConnection(connectionId, ghost.ghostId), 1);
             }).Schedule();
-            m_GhostSendSystem.GhostRelevancySetWriteHandle = Dependency;
         }
     }
 
@@ -94,8 +100,8 @@ namespace Unity.NetCode.Tests
             {
                 var ghostGameObject = bootstrapAndSetup(testWorld);
 
-                var ghostSendSystem = testWorld.ServerWorld.GetExistingSystem<GhostSendSystem>();
-                ghostSendSystem.GhostRelevancyMode = GhostRelevancyMode.SetIsRelevant;
+                ref var ghostRelevancy = ref testWorld.GetSingletonRW<GhostRelevancy>(testWorld.ServerWorld).ValueRW;
+                ghostRelevancy.GhostRelevancyMode = GhostRelevancyMode.SetIsRelevant;
 
                 spawnAndSetId(testWorld, ghostGameObject, 1);
 
@@ -117,15 +123,15 @@ namespace Unity.NetCode.Tests
             {
                 var ghostGameObject = bootstrapAndSetup(testWorld);
 
-                var ghostSendSystem = testWorld.ServerWorld.GetExistingSystem<GhostSendSystem>();
-                ghostSendSystem.GhostRelevancyMode = GhostRelevancyMode.SetIsRelevant;
+                ref var ghostRelevancy = ref testWorld.GetSingletonRW<GhostRelevancy>(testWorld.ServerWorld).ValueRW;
+                ghostRelevancy.GhostRelevancyMode = GhostRelevancyMode.SetIsRelevant;
 
                 var serverConnectionId = connectAndGoInGame(testWorld);
 
                 var serverEnt = spawnAndSetId(testWorld, ghostGameObject, 1);
                 testWorld.Tick(frameTime);
                 var serverGhostId = testWorld.ServerWorld.EntityManager.GetComponentData<GhostComponent>(serverEnt).ghostId;
-                ghostSendSystem.GhostRelevancySet.TryAdd(new RelevantGhostForConnection(serverConnectionId, serverGhostId), 1);
+                ghostRelevancy.GhostRelevancySet.TryAdd(new RelevantGhostForConnection(serverConnectionId, serverGhostId), 1);
 
                 // Let the game run for a bit so the ghosts are spawned on the client
                 for (int i = 0; i < 16; ++i)
@@ -144,15 +150,15 @@ namespace Unity.NetCode.Tests
             {
                 var ghostGameObject = bootstrapAndSetup(testWorld);
 
-                var ghostSendSystem = testWorld.ServerWorld.GetExistingSystem<GhostSendSystem>();
-                ghostSendSystem.GhostRelevancyMode = GhostRelevancyMode.SetIsRelevant;
+                ref var ghostRelevancy = ref testWorld.GetSingletonRW<GhostRelevancy>(testWorld.ServerWorld).ValueRW;
+                ghostRelevancy.GhostRelevancyMode = GhostRelevancyMode.SetIsRelevant;
 
                 var serverConnectionId = connectAndGoInGame(testWorld);
 
                 var serverEnt = spawnAndSetId(testWorld, ghostGameObject, 1);
                 testWorld.Tick(frameTime);
                 var serverGhostId = testWorld.ServerWorld.EntityManager.GetComponentData<GhostComponent>(serverEnt).ghostId;
-                ghostSendSystem.GhostRelevancySet.TryAdd(new RelevantGhostForConnection(serverConnectionId, serverGhostId), 1);
+                ghostRelevancy.GhostRelevancySet.TryAdd(new RelevantGhostForConnection(serverConnectionId, serverGhostId), 1);
                 spawnAndSetId(testWorld, ghostGameObject, 2);
 
                 // Let the game run for a bit so the ghosts are spawned on the client
@@ -172,8 +178,8 @@ namespace Unity.NetCode.Tests
             {
                 var ghostGameObject = bootstrapAndSetup(testWorld);
 
-                var ghostSendSystem = testWorld.ServerWorld.GetExistingSystem<GhostSendSystem>();
-                ghostSendSystem.GhostRelevancyMode = GhostRelevancyMode.SetIsIrrelevant;
+                ref var ghostRelevancy = ref testWorld.GetSingletonRW<GhostRelevancy>(testWorld.ServerWorld).ValueRW;
+                ghostRelevancy.GhostRelevancyMode = GhostRelevancyMode.SetIsIrrelevant;
 
                 spawnAndSetId(testWorld, ghostGameObject, 1);
 
@@ -196,15 +202,15 @@ namespace Unity.NetCode.Tests
             {
                 var ghostGameObject = bootstrapAndSetup(testWorld);
 
-                var ghostSendSystem = testWorld.ServerWorld.GetExistingSystem<GhostSendSystem>();
-                ghostSendSystem.GhostRelevancyMode = GhostRelevancyMode.SetIsIrrelevant;
+                ref var ghostRelevancy = ref testWorld.GetSingletonRW<GhostRelevancy>(testWorld.ServerWorld).ValueRW;
+                ghostRelevancy.GhostRelevancyMode = GhostRelevancyMode.SetIsIrrelevant;
 
                 var serverConnectionId = connectAndGoInGame(testWorld);
 
                 var serverEnt = spawnAndSetId(testWorld, ghostGameObject, 1);
                 testWorld.Tick(frameTime);
                 var serverGhostId = testWorld.ServerWorld.EntityManager.GetComponentData<GhostComponent>(serverEnt).ghostId;
-                ghostSendSystem.GhostRelevancySet.TryAdd(new RelevantGhostForConnection(serverConnectionId, serverGhostId), 1);
+                ghostRelevancy.GhostRelevancySet.TryAdd(new RelevantGhostForConnection(serverConnectionId, serverGhostId), 1);
 
                 // Let the game run for a bit so the ghosts are spawned on the client
                 for (int i = 0; i < 16; ++i)
@@ -222,15 +228,15 @@ namespace Unity.NetCode.Tests
             {
                 var ghostGameObject = bootstrapAndSetup(testWorld);
 
-                var ghostSendSystem = testWorld.ServerWorld.GetExistingSystem<GhostSendSystem>();
-                ghostSendSystem.GhostRelevancyMode = GhostRelevancyMode.SetIsIrrelevant;
+                ref var ghostRelevancy = ref testWorld.GetSingletonRW<GhostRelevancy>(testWorld.ServerWorld).ValueRW;
+                ghostRelevancy.GhostRelevancyMode = GhostRelevancyMode.SetIsIrrelevant;
 
                 var serverConnectionId = connectAndGoInGame(testWorld);
 
                 var serverEnt = spawnAndSetId(testWorld, ghostGameObject, 1);
                 testWorld.Tick(frameTime);
                 var serverGhostId = testWorld.ServerWorld.EntityManager.GetComponentData<GhostComponent>(serverEnt).ghostId;
-                ghostSendSystem.GhostRelevancySet.TryAdd(new RelevantGhostForConnection(serverConnectionId, serverGhostId), 1);
+                ghostRelevancy.GhostRelevancySet.TryAdd(new RelevantGhostForConnection(serverConnectionId, serverGhostId), 1);
                 spawnAndSetId(testWorld, ghostGameObject, 2);
 
                 // Let the game run for a bit so the ghosts are spawned on the client
@@ -247,15 +253,14 @@ namespace Unity.NetCode.Tests
         public void MarkedIrrelevantAtSpawnIsNeverSeen()
         {
             using (var testWorld = new NetCodeTestWorld())
-            using (AutoMarkIrrelevantSystem.s_IrrelevantGhosts = new NativeParallelHashMap<int, int>(128, Allocator.TempJob))
             {
                 var ghostGameObject = bootstrapAndSetup(testWorld, typeof(AutoMarkIrrelevantSystem));
 
-                var ghostSendSystem = testWorld.ServerWorld.GetExistingSystem<GhostSendSystem>();
-                ghostSendSystem.GhostRelevancyMode = GhostRelevancyMode.SetIsIrrelevant;
+                ref var ghostRelevancy = ref testWorld.GetSingletonRW<GhostRelevancy>(testWorld.ServerWorld).ValueRW;
+                ghostRelevancy.GhostRelevancyMode = GhostRelevancyMode.SetIsIrrelevant;
 
                 var serverConnectionId = connectAndGoInGame(testWorld);
-                AutoMarkIrrelevantSystem.s_ConnectionId = serverConnectionId;
+                testWorld.ServerWorld.GetExistingSystemManaged<AutoMarkIrrelevantSystem>().ConnectionId = serverConnectionId;
 
                 for (int ghost = 0; ghost < 128; ++ghost)
                 {
@@ -266,7 +271,7 @@ namespace Unity.NetCode.Tests
                     testWorld.Tick(frameTime);
 
                 var serverEnt = spawnAndSetId(testWorld, ghostGameObject, 1);
-                AutoMarkIrrelevantSystem.s_IrrelevantGhosts.TryAdd(1, 1);
+                testWorld.ServerWorld.GetExistingSystemManaged<AutoMarkIrrelevantSystem>().IrrelevantGhosts.Add(1);
 
                 var query = testWorld.ClientWorlds[0].EntityManager.CreateEntityQuery(ComponentType.ReadOnly<GhostOwnerComponent>());
                 for (int i = 0; i < 16; ++i)
@@ -284,15 +289,15 @@ namespace Unity.NetCode.Tests
         public void MarkedIrrelevantIsDespawned()
         {
             using (var testWorld = new NetCodeTestWorld())
-            using (AutoMarkIrrelevantSystem.s_IrrelevantGhosts = new NativeParallelHashMap<int, int>(128, Allocator.TempJob))
             {
                 var ghostGameObject = bootstrapAndSetup(testWorld, typeof(AutoMarkIrrelevantSystem));
 
-                var ghostSendSystem = testWorld.ServerWorld.GetExistingSystem<GhostSendSystem>();
-                ghostSendSystem.GhostRelevancyMode = GhostRelevancyMode.SetIsIrrelevant;
+                ref var ghostRelevancy = ref testWorld.GetSingletonRW<GhostRelevancy>(testWorld.ServerWorld).ValueRW;
+                ghostRelevancy.GhostRelevancyMode = GhostRelevancyMode.SetIsIrrelevant;
 
                 var serverConnectionId = connectAndGoInGame(testWorld);
-                AutoMarkIrrelevantSystem.s_ConnectionId = serverConnectionId;
+                var autoMarkIrrelevantSystem = testWorld.ServerWorld.GetExistingSystemManaged<AutoMarkIrrelevantSystem>();
+                autoMarkIrrelevantSystem.ConnectionId = serverConnectionId;
 
                 for (int ghost = 0; ghost < 128; ++ghost)
                 {
@@ -316,7 +321,7 @@ namespace Unity.NetCode.Tests
                 }
                 Assert.IsTrue(foundOne);
 
-                AutoMarkIrrelevantSystem.s_IrrelevantGhosts.TryAdd(1, 1);
+                testWorld.ServerWorld.GetExistingSystemManaged<AutoMarkIrrelevantSystem>().IrrelevantGhosts.Add(1);
 
                 for (int i = 0; i < 16; ++i)
                     testWorld.Tick(frameTime);
@@ -345,15 +350,14 @@ namespace Unity.NetCode.Tests
         public void MarkIrrelevantAtRuntimeReachTheClient(int ghostsPerFrame)
         {
             using (var testWorld = new NetCodeTestWorld())
-            using (AutoMarkIrrelevantSystem.s_IrrelevantGhosts = new NativeParallelHashMap<int, int>(128, Allocator.TempJob))
             {
                 var ghostGameObject = bootstrapAndSetup(testWorld, typeof(AutoMarkIrrelevantSystem));
 
-                var ghostSendSystem = testWorld.ServerWorld.GetExistingSystem<GhostSendSystem>();
-                ghostSendSystem.GhostRelevancyMode = GhostRelevancyMode.SetIsIrrelevant;
+                ref var ghostRelevancy = ref testWorld.GetSingletonRW<GhostRelevancy>(testWorld.ServerWorld).ValueRW;
+                ghostRelevancy.GhostRelevancyMode = GhostRelevancyMode.SetIsIrrelevant;
 
                 var serverConnectionId = connectAndGoInGame(testWorld);
-                AutoMarkIrrelevantSystem.s_ConnectionId = serverConnectionId;
+                testWorld.ServerWorld.GetExistingSystemManaged<AutoMarkIrrelevantSystem>().ConnectionId = serverConnectionId;
 
                 for (int ghost = 0; ghost < 128; ++ghost)
                 {
@@ -372,9 +376,11 @@ namespace Unity.NetCode.Tests
                 // For every update we make ghostsPerFrame new ghosts irrelevant and check that the change was propagated
                 for (int start = 0; start+ghostsPerFrame < 128; start += ghostsPerFrame)
                 {
+                    var autoMarkIrrelevantSystem = testWorld.ServerWorld.GetExistingSystemManaged<AutoMarkIrrelevantSystem>();
                     for (int i = 0; i < ghostsPerFrame; ++i)
-                        AutoMarkIrrelevantSystem.s_IrrelevantGhosts.TryAdd(start+i+1, 1);
-                    for (int i = 0; i < 4; ++i)
+                        autoMarkIrrelevantSystem.IrrelevantGhosts.Add(start + i + 1);
+
+                    for (int i = 0; i < 6; ++i)
                         testWorld.Tick(frameTime);
 
                     clientValues = query.ToComponentDataArray<GhostOwnerComponent>(Allocator.Temp);
@@ -388,20 +394,20 @@ namespace Unity.NetCode.Tests
         public void MarkRelevantAtRuntimeReachTheClient(int ghostsPerFrame)
         {
             using (var testWorld = new NetCodeTestWorld())
-            using (AutoMarkIrrelevantSystem.s_IrrelevantGhosts = new NativeParallelHashMap<int, int>(128, Allocator.TempJob))
             {
                 var ghostGameObject = bootstrapAndSetup(testWorld, typeof(AutoMarkIrrelevantSystem));
 
-                var ghostSendSystem = testWorld.ServerWorld.GetExistingSystem<GhostSendSystem>();
-                ghostSendSystem.GhostRelevancyMode = GhostRelevancyMode.SetIsIrrelevant;
+                ref var ghostRelevancy = ref testWorld.GetSingletonRW<GhostRelevancy>(testWorld.ServerWorld).ValueRW;
+                ghostRelevancy.GhostRelevancyMode = GhostRelevancyMode.SetIsIrrelevant;
 
                 var serverConnectionId = connectAndGoInGame(testWorld);
-                AutoMarkIrrelevantSystem.s_ConnectionId = serverConnectionId;
+                var autoMarkIrrelevantSystem = testWorld.ServerWorld.GetExistingSystemManaged<AutoMarkIrrelevantSystem>();
+                autoMarkIrrelevantSystem.ConnectionId = serverConnectionId;
 
                 for (int ghost = 0; ghost < 128; ++ghost)
                 {
                     spawnAndSetId(testWorld, ghostGameObject, ghost+1);
-                    AutoMarkIrrelevantSystem.s_IrrelevantGhosts.TryAdd(ghost+1, 1);
+                    autoMarkIrrelevantSystem.IrrelevantGhosts.Add(ghost+1);
                 }
 
                 for (int i = 0; i < 16; ++i)
@@ -416,8 +422,10 @@ namespace Unity.NetCode.Tests
                 // For every update we make ghostsPerFrame new ghosts relevant and check that the change was propagated
                 for (int start = 0; start+ghostsPerFrame < 128; start += ghostsPerFrame)
                 {
+                    // Complete the dependency
+                    testWorld.ServerWorld.EntityManager.GetComponentData<GhostRelevancy>(testWorld.TryGetSingletonEntity<GhostRelevancy>(testWorld.ServerWorld));
                     for (int i = 0; i < ghostsPerFrame; ++i)
-                        AutoMarkIrrelevantSystem.s_IrrelevantGhosts.Remove(start+i+1);
+                        autoMarkIrrelevantSystem.IrrelevantGhosts.Remove(start+i+1);
                     for (int i = 0; i < 4; ++i)
                         testWorld.Tick(frameTime);
 
@@ -432,15 +440,15 @@ namespace Unity.NetCode.Tests
         public void ChangeRelevantSetAtRuntimeReachTheClient(int ghostsPerFrame)
         {
             using (var testWorld = new NetCodeTestWorld())
-            using (AutoMarkIrrelevantSystem.s_IrrelevantGhosts = new NativeParallelHashMap<int, int>(128, Allocator.TempJob))
             {
                 var ghostGameObject = bootstrapAndSetup(testWorld, typeof(AutoMarkIrrelevantSystem));
 
-                var ghostSendSystem = testWorld.ServerWorld.GetExistingSystem<GhostSendSystem>();
-                ghostSendSystem.GhostRelevancyMode = GhostRelevancyMode.SetIsIrrelevant;
+                ref var ghostRelevancy = ref testWorld.GetSingletonRW<GhostRelevancy>(testWorld.ServerWorld).ValueRW;
+                ghostRelevancy.GhostRelevancyMode = GhostRelevancyMode.SetIsIrrelevant;
 
                 var serverConnectionId = connectAndGoInGame(testWorld);
-                AutoMarkIrrelevantSystem.s_ConnectionId = serverConnectionId;
+                var autoMarkIrrelevantSystem = testWorld.ServerWorld.GetExistingSystemManaged<AutoMarkIrrelevantSystem>();
+                autoMarkIrrelevantSystem.ConnectionId = serverConnectionId;
 
                 // The relevant set is 3x the changes per frame, this means 1/3 is added, 1/3 is removed and 1/3 remains relevant
                 int end = ghostsPerFrame*3;
@@ -448,7 +456,7 @@ namespace Unity.NetCode.Tests
                 {
                     spawnAndSetId(testWorld, ghostGameObject, ghost+1);
                     if (ghost >= end)
-                        AutoMarkIrrelevantSystem.s_IrrelevantGhosts.TryAdd(ghost+1, 1);
+                        autoMarkIrrelevantSystem.IrrelevantGhosts.Add(ghost+1);
                 }
 
                 for (int i = 0; i < 16; ++i)
@@ -465,10 +473,10 @@ namespace Unity.NetCode.Tests
                 {
                     for (int i = 0; i < ghostsPerFrame; ++i)
                     {
-                        AutoMarkIrrelevantSystem.s_IrrelevantGhosts.TryAdd(start+i+1, 1);
-                        AutoMarkIrrelevantSystem.s_IrrelevantGhosts.Remove(end+i+1);
+                        autoMarkIrrelevantSystem.IrrelevantGhosts.Add(start+i+1);
+                        autoMarkIrrelevantSystem.IrrelevantGhosts.Remove(end+i+1);
                     }
-                    for (int i = 0; i < 4; ++i)
+                    for (int i = 0; i < 6; ++i)
                         testWorld.Tick(frameTime);
 
                     clientValues = query.ToComponentDataArray<GhostOwnerComponent>(Allocator.Temp);
@@ -480,16 +488,16 @@ namespace Unity.NetCode.Tests
         public void ToggleEveryFrameDoesNotRepetedlySpawn()
         {
             using (var testWorld = new NetCodeTestWorld())
-            using (AutoMarkIrrelevantSystem.s_IrrelevantGhosts = new NativeParallelHashMap<int, int>(128, Allocator.TempJob))
             {
                 testWorld.DriverSimulatedDelay = 10;
                 var ghostGameObject = bootstrapAndSetup(testWorld, typeof(AutoMarkIrrelevantSystem));
 
-                var ghostSendSystem = testWorld.ServerWorld.GetExistingSystem<GhostSendSystem>();
-                ghostSendSystem.GhostRelevancyMode = GhostRelevancyMode.SetIsIrrelevant;
+                ref var ghostRelevancy = ref testWorld.GetSingletonRW<GhostRelevancy>(testWorld.ServerWorld).ValueRW;
+                ghostRelevancy.GhostRelevancyMode = GhostRelevancyMode.SetIsIrrelevant;
 
                 var serverConnectionId = connectAndGoInGame(testWorld, 16);
-                AutoMarkIrrelevantSystem.s_ConnectionId = serverConnectionId;
+                var autoMarkIrrelevantSystem = testWorld.ServerWorld.GetExistingSystemManaged<AutoMarkIrrelevantSystem>();
+                autoMarkIrrelevantSystem.ConnectionId = serverConnectionId;
 
                 for (int ghost = 0; ghost < 128; ++ghost)
                 {
@@ -497,7 +505,7 @@ namespace Unity.NetCode.Tests
                 }
                 spawnAndSetId(testWorld, ghostGameObject, 1);
                 // Start with the ghost irrelevant
-                AutoMarkIrrelevantSystem.s_IrrelevantGhosts.TryAdd(1, 1);
+                autoMarkIrrelevantSystem.IrrelevantGhosts.Add(1);
 
                 for (int i = 0; i < 16; ++i)
                     testWorld.Tick(frameTime);
@@ -540,9 +548,9 @@ namespace Unity.NetCode.Tests
 
                     // Toggle the host between relevant and not relevant every frame
                     if ((i&1) == 0)
-                        AutoMarkIrrelevantSystem.s_IrrelevantGhosts.Remove(1);
+                        autoMarkIrrelevantSystem.IrrelevantGhosts.Remove(1);
                     else
-                        AutoMarkIrrelevantSystem.s_IrrelevantGhosts.TryAdd(1, 1);
+                        autoMarkIrrelevantSystem.IrrelevantGhosts.Add(1);
                     testWorld.Tick(frameTime);
                 }
                 // The ghost should have been relevant less than half the frames, since some spawns were skipped to to a pending despawn
@@ -592,16 +600,18 @@ namespace Unity.NetCode.Tests
                     for (int i = 0; i < 128; ++i)
                         testWorld.Tick(frameTime);
 
-                    Assert.AreEqual(10000, testWorld.ClientWorlds[0].GetExistingSystem<GhostReceiveSystem>().GhostCountOnClient);
+                    var ghostCount = testWorld.GetSingleton<GhostCount>(testWorld.ClientWorlds[0]);
+                    Assert.AreEqual(10000, ghostCount.GhostCountOnClient);
 
                     // Make all 10 000 ghosts irrelevant
-                    testWorld.ServerWorld.GetExistingSystem<GhostSendSystem>().GhostRelevancyMode = GhostRelevancyMode.SetIsRelevant;
+                    ref var ghostRelevancy = ref testWorld.GetSingletonRW<GhostRelevancy>(testWorld.ServerWorld).ValueRW;
+                    ghostRelevancy.GhostRelevancyMode = GhostRelevancyMode.SetIsRelevant;
 
                     for (int i = 0; i < 256; ++i)
                         testWorld.Tick(frameTime);
 
                     // Assert that replicated version is correct
-                    Assert.AreEqual(0, testWorld.ClientWorlds[0].GetExistingSystem<GhostReceiveSystem>().GhostCountOnClient);
+                    Assert.AreEqual(0, ghostCount.GhostCountOnClient);
 
                     testWorld.ServerWorld.EntityManager.DestroyEntity(entities);
 
@@ -609,7 +619,7 @@ namespace Unity.NetCode.Tests
                         testWorld.Tick(frameTime);
 
                     // Assert that replicated version is correct
-                    Assert.AreEqual(0, testWorld.ClientWorlds[0].GetExistingSystem<GhostReceiveSystem>().GhostCountOnClient);
+                    Assert.AreEqual(0, ghostCount.GhostCountOnClient);
                 }
             }
         }

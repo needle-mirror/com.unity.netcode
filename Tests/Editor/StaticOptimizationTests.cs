@@ -14,13 +14,15 @@ namespace Unity.NetCode.Tests
 {
     public class StaticOptimizationTestConverter : TestNetCodeAuthoring.IConverter
     {
-        public void Convert(GameObject gameObject, Entity entity, EntityManager dstManager, GameObjectConversionSystem conversionSystem)
+        public void Bake(GameObject gameObject, IBaker baker)
         {
-            dstManager.AddComponentData(entity, new GhostOwnerComponent());
+            baker.AddComponent(new GhostOwnerComponent());
         }
     }
 
     [DisableAutoCreation]
+    [RequireMatchingQueriesForUpdate]
+    [WorldSystemFilter(WorldSystemFilterFlags.ClientSimulation | WorldSystemFilterFlags.ServerSimulation)]
     public partial class StaticOptimizationTestSystem : SystemBase
     {
         public static int s_ModifyNetworkId;
@@ -43,7 +45,7 @@ namespace Unity.NetCode.Tests
             var ghostGameObject = new GameObject();
             ghostGameObject.AddComponent<TestNetCodeAuthoring>().Converter = new StaticOptimizationTestConverter();
             var ghostConfig = ghostGameObject.AddComponent<GhostAuthoringComponent>();
-            ghostConfig.OptimizationMode = GhostAuthoringComponent.GhostOptimizationMode.Static;
+            ghostConfig.OptimizationMode = GhostOptimizationMode.Static;
 
             Assert.IsTrue(testWorld.CreateGhostCollection(ghostGameObject));
 
@@ -80,7 +82,7 @@ namespace Unity.NetCode.Tests
                 {
                     Assert.AreEqual(16, clientEntities.Length);
 
-                    var lastSnapshot = new NativeArray<uint>(clientEntities.Length, Allocator.Temp);
+                    var lastSnapshot = new NativeArray<NetworkTick>(clientEntities.Length, Allocator.Temp);
                     for (int i = 0; i < clientEntities.Length; ++i)
                     {
                         var clientEnt = clientEntities[i];
@@ -122,7 +124,7 @@ namespace Unity.NetCode.Tests
                 {
                     Assert.AreEqual(16, clientEntities.Length);
 
-                    var lastSnapshot = new NativeArray<uint>(clientEntities.Length, Allocator.Temp);
+                    var lastSnapshot = new NativeArray<NetworkTick>(clientEntities.Length, Allocator.Temp);
                     for (int i = 0; i < clientEntities.Length; ++i)
                     {
                         var clientEnt = clientEntities[i];
@@ -307,10 +309,10 @@ namespace Unity.NetCode.Tests
 
 
                 // Make one of the ghosts irrelevant
-                var ghostSendSystem = testWorld.ServerWorld.GetExistingSystem<GhostSendSystem>();
-                ghostSendSystem.GhostRelevancyMode = GhostRelevancyMode.SetIsIrrelevant;
+                ref var ghostRelevancy = ref testWorld.GetSingletonRW<GhostRelevancy>(testWorld.ServerWorld).ValueRW;
+                ghostRelevancy.GhostRelevancyMode = GhostRelevancyMode.SetIsIrrelevant;
                 var key = new RelevantGhostForConnection{Connection = connectionId, Ghost = ghostId};
-                ghostSendSystem.GhostRelevancySet.TryAdd(key, 1);
+                ghostRelevancy.GhostRelevancySet.TryAdd(key, 1);
 
                 // Get the changes across to the client
                 for (int i = 0; i < 16; ++i)
@@ -320,7 +322,7 @@ namespace Unity.NetCode.Tests
                 Assert.AreEqual(15, clientEntities.Length);
 
                 // Allow it to spawn again
-                ghostSendSystem.GhostRelevancySet.Remove(key);
+                ghostRelevancy.GhostRelevancySet.Remove(key);
 
                 // Get the changes across to the client
                 for (int i = 0; i < 16; ++i)

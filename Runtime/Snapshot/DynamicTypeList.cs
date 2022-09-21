@@ -1,13 +1,12 @@
 using Unity.Entities;
 using Unity.Collections.LowLevel.Unsafe;
-using Unity.NetCode.LowLevel.Unsafe;
 using Unity.Collections;
 using System.Runtime.InteropServices;
 
 namespace Unity.NetCode
 {
     [StructLayout(LayoutKind.Sequential)]
-    public struct DynamicTypeList
+    internal struct DynamicTypeList
     {
         #if NETCODE_COMPONENTS_256
         public const int MaxCapacity = 256;
@@ -15,7 +14,7 @@ namespace Unity.NetCode
         public const int MaxCapacity = 128;
         #endif
 
-        public static unsafe void PopulateList(SystemBase system, DynamicBuffer<GhostCollectionComponentType> ghostComponentCollection, bool readOnly, ref DynamicTypeList list)
+        public static unsafe void PopulateList(ref SystemState system, DynamicBuffer<GhostCollectionComponentType> ghostComponentCollection, bool readOnly, ref DynamicTypeList list)
         {
 #if ENABLE_UNITY_COLLECTIONS_CHECKS
             if (UnsafeUtility.SizeOf<DynamicComponentTypeHandle32>() != UnsafeUtility.SizeOf<DynamicComponentTypeHandle>()*32)
@@ -37,7 +36,7 @@ namespace Unity.NetCode
             }
         }
 
-        public static unsafe void PopulateListFromArray(SystemBase system, NativeArray<ComponentType> componentTypes,  bool readOnly, ref DynamicTypeList list)
+        public static unsafe void PopulateListFromArray(ref SystemState system, NativeArray<ComponentType> componentTypes,  bool readOnly, ref DynamicTypeList list)
         {
 #if ENABLE_UNITY_COLLECTIONS_CHECKS
             if (UnsafeUtility.SizeOf<DynamicComponentTypeHandle32>() != UnsafeUtility.SizeOf<DynamicComponentTypeHandle>()*32)
@@ -83,7 +82,7 @@ namespace Unity.NetCode
     }
 
     [StructLayout(LayoutKind.Sequential)]
-    struct DynamicComponentTypeHandle32
+    internal struct DynamicComponentTypeHandle32
     {
         public DynamicComponentTypeHandle dynamicType00;
         public DynamicComponentTypeHandle dynamicType01;

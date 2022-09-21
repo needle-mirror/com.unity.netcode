@@ -10,7 +10,10 @@
         "Unity.Transforms",
         "Unity.Collections",
         "Unity.Build",
-        "Unity.Networking.Transport"
+        "Unity.Networking.Transport",
+        "Unity.NetCode.Hybrid",
+        "Unity.Burst",
+        "Unity.Entities.Build"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],

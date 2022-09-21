@@ -9,15 +9,15 @@ namespace Unity.NetCode.Tests
     {
         public class TestComponentConverter : TestNetCodeAuthoring.IConverter
         {
-            public void Convert(GameObject gameObject, Entity entity, EntityManager dstManager, GameObjectConversionSystem conversionSystem)
+            public void Bake(GameObject gameObject, IBaker baker)
             {
-                dstManager.AddComponent<GhostOwnerComponent>(entity);
-                dstManager.AddComponent<GhostPredictedOnly>(entity);
-                dstManager.AddComponent<GhostInterpolatedOnly>(entity);
-                dstManager.AddComponent<GhostGen_IntStruct>(entity);
-                dstManager.AddComponent<GhostTypeIndex>(entity);
-                dstManager.AddBuffer<GhostGenBuffer_ByteBuffer>(entity);
-                dstManager.AddBuffer<GhostGenTest_Buffer>(entity);
+                baker.AddComponent<GhostOwnerComponent>();
+                baker.AddComponent<GhostPredictedOnly>();
+                baker.AddComponent<GhostInterpolatedOnly>();
+                baker.AddComponent<GhostGen_IntStruct>();
+                baker.AddComponent<GhostTypeIndex>();
+                baker.AddBuffer<GhostGenBuffer_ByteBuffer>();
+                baker.AddBuffer<GhostGenTest_Buffer>();
             }
         }
 
@@ -57,12 +57,12 @@ namespace Unity.NetCode.Tests
         }
 
         [Test]
-        [TestCase(GhostAuthoringComponent.GhostModeMask.All, GhostAuthoringComponent.GhostMode.OwnerPredicted)]
-        [TestCase(GhostAuthoringComponent.GhostModeMask.All, GhostAuthoringComponent.GhostMode.Interpolated)]
-        [TestCase(GhostAuthoringComponent.GhostModeMask.All, GhostAuthoringComponent.GhostMode.Predicted)]
-        [TestCase(GhostAuthoringComponent.GhostModeMask.Interpolated, GhostAuthoringComponent.GhostMode.Interpolated)]
-        [TestCase(GhostAuthoringComponent.GhostModeMask.Predicted, GhostAuthoringComponent.GhostMode.Predicted)]
-        public void SendToOwner_Clients_ReceiveTheCorrectData(GhostAuthoringComponent.GhostModeMask modeMask, GhostAuthoringComponent.GhostMode mode)
+        [TestCase(GhostModeMask.All, GhostMode.OwnerPredicted)]
+        [TestCase(GhostModeMask.All, GhostMode.Interpolated)]
+        [TestCase(GhostModeMask.All, GhostMode.Predicted)]
+        [TestCase(GhostModeMask.Interpolated, GhostMode.Interpolated)]
+        [TestCase(GhostModeMask.Predicted, GhostMode.Predicted)]
+        public void SendToOwner_Clients_ReceiveTheCorrectData(GhostModeMask modeMask, GhostMode mode)
         {
             using (var testWorld = new NetCodeTestWorld())
             {
@@ -148,17 +148,17 @@ namespace Unity.NetCode.Tests
                     Assert.AreEqual(i==1,serverComp2.Value == clientComp2_NonOwner.Value,$"Client {i}");
 
                     //The component are sent to all the clients and only the SendToOwner matter
-                    if (mode == GhostAuthoringComponent.GhostMode.Predicted)
+                    if (mode == GhostMode.Predicted)
                     {
                         Assert.AreEqual(i==0,predictedOnly.Value == clientPredOnly.Value, $"Client {i}");
                         Assert.AreEqual(false,interpOnly.Value == clientInterpOnly.Value,  $"Client {i}");
                     }
-                    else if (mode == GhostAuthoringComponent.GhostMode.Interpolated)
+                    else if (mode == GhostMode.Interpolated)
                     {
                         Assert.AreEqual(false,predictedOnly.Value == clientPredOnly.Value, $"Client {i}");
                         Assert.AreEqual(i==1,interpOnly.Value == clientInterpOnly.Value, $"Client {i}");
                     }
-                    else if(mode == GhostAuthoringComponent.GhostMode.OwnerPredicted)
+                    else if(mode == GhostMode.OwnerPredicted)
                     {
                         Assert.AreEqual(i==0,predictedOnly.Value == clientPredOnly.Value,$"Client {i}");
                         Assert.AreEqual(i==1,interpOnly.Value == clientInterpOnly.Value,$"Client {i}");

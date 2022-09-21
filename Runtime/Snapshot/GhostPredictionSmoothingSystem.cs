@@ -1,3 +1,4 @@
+using System;
 using Unity.Entities;
 using Unity.Collections.LowLevel.Unsafe;
 using Unity.Collections;
@@ -5,23 +6,35 @@ using Unity.NetCode.LowLevel.Unsafe;
 using Unity.Burst;
 using Unity.Jobs;
 using System.Runtime.InteropServices;
+using Unity.Assertions;
+using Unity.Burst.Intrinsics;
 
 namespace Unity.NetCode
 {
-    [UpdateInWorld(TargetWorld.Client)]
-    [UpdateInGroup(typeof(GhostPredictionSystemGroup), OrderLast = true)]
-    [UpdateBefore(typeof(GhostPredictionHistorySystem))]
-    public unsafe partial class GhostPredictionSmoothingSystem : SystemBase
+
+    /// <summary>
+    /// Singleton used to register a <see cref="SmoothingAction"/> for a certain component type.
+    /// The <see cref="SmoothingAction"/> is used to change the component value over time correct misprediction. Two different types of
+    /// smoothing action can be registered:
+    /// <para>- A smoothing action without argument. See <see cref="RegisterSmoothingAction{T}"/></para>
+    /// <para>- A smoothing action that take a component data as argument. See <see cref="RegisterSmoothingAction{T,U}"/></para>
+    /// </summary>
+    public struct GhostPredictionSmoothing : IComponentData
     {
-        GhostPredictionSystemGroup m_GhostPredictionSystemGroup;
-        GhostPredictionHistorySystem m_GhostPredictionHistorySystem;
+        internal GhostPredictionSmoothing(NativeParallelHashMap<ComponentType, SmoothingActionState> actions, NativeList<ComponentType> userComp, EntityQuery singletonQuery)
+        {
+            m_SmoothingActions = actions;
+            m_UserSpecifiedComponentData = userComp;
+            m_SingletonQuery = singletonQuery;
+        }
 
-        EntityQuery m_PredictionQuery;
-
+        /// <summary>
+        /// All the smoothing action must have this signature. The smoothing actions must also be burst compatible.
+        /// </summary>
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
-        public delegate void SmoothingActionDelegate(void* currentData, void* previousData, void* userData);
+        public delegate void SmoothingActionDelegate(IntPtr currentData, IntPtr previousData, IntPtr userData);
 
-        struct SmoothingActionState
+        internal struct SmoothingActionState
         {
             public int compIndex;
             public int compSize;
@@ -35,11 +48,16 @@ namespace Unity.NetCode
 
         NativeList<ComponentType> m_UserSpecifiedComponentData;
         NativeParallelHashMap<ComponentType, SmoothingActionState> m_SmoothingActions;
+        EntityQuery m_SingletonQuery;
 
-        struct SmoothingAction : IComponentData {}
-        Entity m_HasSmoothingAction;
-
-        public bool RegisterSmoothingAction<T>(PortableFunctionPointer<SmoothingActionDelegate> action) where T : struct, IComponentData
+        /// <summary>
+        /// Register a smoothing function that does not take any argument for the specified component type.
+        /// </summary>
+        /// <param name="entityManager">The EntityManager in the destination world</param>
+        /// <param name="action">A burstable function pointer to the method that implement the smooting</param>
+        /// <typeparam name="T">The component type. Must implement the IComponentData interface</typeparam>
+        /// <returns>True if the action has been registered. False, in case of error or if the action has been already registered</returns>
+        public bool RegisterSmoothingAction<T>(EntityManager entityManager, PortableFunctionPointer<SmoothingActionDelegate> action) where T : struct, IComponentData
         {
             var type = ComponentType.ReadWrite<T>();
             if (type.IsBuffer)
@@ -66,18 +84,28 @@ namespace Unity.NetCode
             };
 
             m_SmoothingActions.Add(type, actionData);
-            if (m_HasSmoothingAction == Entity.Null)
+            if (!m_SingletonQuery.HasSingleton<GhostPredictionSmoothingSystem.SmoothingAction>())
             {
-                m_HasSmoothingAction = EntityManager.CreateEntity(ComponentType.ReadOnly<SmoothingAction>());
+                entityManager.CreateEntity(ComponentType.ReadOnly<GhostPredictionSmoothingSystem.SmoothingAction>());
             }
             return true;
         }
 
-        public bool RegisterSmoothingAction<T, U>(PortableFunctionPointer<SmoothingActionDelegate> action)
+        /// <summary>
+        /// Register a smoothing function that take a user specified component data as argument.
+        /// A maximum of 8 different component data type can be used to pass data to the smoothing functions.
+        /// There is no limitation in the number of smoothing action, component type pairs that can be registed.
+        /// </summary>
+        /// <param name="entityManager">The EntityManager in the destination world</param>
+        /// <param name="action">A burstable function pointer to the method that implement the smooting</param>
+        /// <typeparam name="T">The component type. Must implement the IComponentData interface</typeparam>
+        /// <typeparam name="U">The user data type that should be passed as argument to the function</typeparam>
+        /// <returns>True if the action has been registered. False, in case of error or if the action has been already registered</returns>
+        public bool RegisterSmoothingAction<T, U>(EntityManager entityManager, PortableFunctionPointer<SmoothingActionDelegate> action)
             where T : struct, IComponentData
             where U : struct, IComponentData
         {
-            if (!RegisterSmoothingAction<T>(action))
+            if (!RegisterSmoothingAction<T>(entityManager, action))
                 return false;
 
             var type = ComponentType.ReadWrite<T>();
@@ -98,8 +126,6 @@ namespace Unity.NetCode
                     UnityEngine.Debug.LogError("There can only be 8 components registered as user data.");
 
                     m_SmoothingActions.Remove(type);
-                    if (m_SmoothingActions.IsEmpty)
-                        EntityManager.DestroyEntity(m_HasSmoothingAction);
 
                     return false;
                 }
@@ -113,62 +139,120 @@ namespace Unity.NetCode
             m_SmoothingActions[type] = actionState;
             return true;
         }
+    }
 
-        protected override void OnCreate()
+    /// <summary>
+    /// System that corrects the client prediction errors, by applying the smoothing actions
+    /// registerd to the <see cref="GhostPredictionSmoothing"/> singleton to to all predicted ghost that miss-predict.
+    /// </summary>
+    [WorldSystemFilter(WorldSystemFilterFlags.ClientSimulation)]
+    [UpdateInGroup(typeof(PredictedSimulationSystemGroup), OrderLast = true)]
+    [UpdateBefore(typeof(GhostPredictionHistorySystem))]
+    [BurstCompile]
+    public partial struct GhostPredictionSmoothingSystem : ISystem
+    {
+
+        EntityQuery m_PredictionQuery;
+
+        NativeList<ComponentType> m_UserSpecifiedComponentData;
+        NativeParallelHashMap<ComponentType, GhostPredictionSmoothing.SmoothingActionState> m_SmoothingActions;
+
+        internal struct SmoothingAction : IComponentData {}
+
+        ComponentTypeHandle<GhostComponent> m_GhostComponentHandle;
+        ComponentTypeHandle<PredictedGhostComponent> m_PredictedGhostComponentHandle;
+        BufferTypeHandle<LinkedEntityGroup> m_LinkedEntityGroupHandle;
+        EntityTypeHandle m_EntityTypeHandle;
+
+        BufferLookup<GhostComponentSerializer.State> m_GhostComponentSerializerStateFromEntity;
+        BufferLookup<GhostCollectionPrefabSerializer> m_GhostCollectionPrefabSerializerFromEntity;
+        BufferLookup<GhostCollectionComponentIndex> m_GhostCollectionComponentIndexFromEntity;
+
+        [BurstCompile]
+        public void OnCreate(ref SystemState state)
         {
-            m_GhostPredictionSystemGroup = World.GetExistingSystem<GhostPredictionSystemGroup>();
-            m_GhostPredictionHistorySystem = World.GetExistingSystem<GhostPredictionHistorySystem>();
-
-            m_PredictionQuery = GetEntityQuery(ComponentType.ReadOnly<PredictedGhostComponent>(), ComponentType.ReadOnly<GhostComponent>());
+            var builder = new EntityQueryBuilder(Allocator.Temp).WithAll<PredictedGhostComponent, GhostComponent>();
+            m_PredictionQuery = state.GetEntityQuery(builder);
 
             m_UserSpecifiedComponentData = new NativeList<ComponentType>(8, Allocator.Persistent);
-            m_SmoothingActions = new NativeParallelHashMap<ComponentType, SmoothingActionState>(32, Allocator.Persistent);
+            m_SmoothingActions = new NativeParallelHashMap<ComponentType, GhostPredictionSmoothing.SmoothingActionState>(32, Allocator.Persistent);
 
-            RequireSingletonForUpdate<GhostCollection>();
-            RequireSingletonForUpdate<SmoothingAction>();
+            state.RequireForUpdate<GhostCollection>();
+            state.RequireForUpdate<SmoothingAction>();
+
+
+            m_GhostComponentHandle = state.GetComponentTypeHandle<GhostComponent>(true);
+            m_PredictedGhostComponentHandle = state.GetComponentTypeHandle<PredictedGhostComponent>(true);
+            m_LinkedEntityGroupHandle = state.GetBufferTypeHandle<LinkedEntityGroup>(true);
+            m_EntityTypeHandle = state.GetEntityTypeHandle();
+
+            m_GhostComponentSerializerStateFromEntity = state.GetBufferLookup<GhostComponentSerializer.State>(true);
+            m_GhostCollectionPrefabSerializerFromEntity = state.GetBufferLookup<GhostCollectionPrefabSerializer>(true);
+            m_GhostCollectionComponentIndexFromEntity = state.GetBufferLookup<GhostCollectionComponentIndex>(true);
+
+            builder = new EntityQueryBuilder(Allocator.Temp).WithAll<SmoothingAction>();
+            var enableQuery = state.GetEntityQuery(builder);
+            var atype = new NativeArray<ComponentType>(1, Allocator.Temp);
+            atype[0] = ComponentType.ReadWrite<GhostPredictionSmoothing>();
+            var smoothingSingleton = state.EntityManager.CreateEntity(state.EntityManager.CreateArchetype(atype));
+            FixedString64Bytes singletonName = "GhostPredictionSmoothing-Singleton";
+            state.EntityManager.SetName(smoothingSingleton, singletonName);
+            SystemAPI.SetSingleton(new GhostPredictionSmoothing(m_SmoothingActions, m_UserSpecifiedComponentData, enableQuery));
         }
-        protected override void OnDestroy()
+        [BurstCompile]
+        public void OnDestroy(ref SystemState state)
         {
             m_UserSpecifiedComponentData.Dispose();
             m_SmoothingActions.Dispose();
-
-            if (m_HasSmoothingAction != Entity.Null)
-                EntityManager.DestroyEntity(m_HasSmoothingAction);
         }
-        protected override void OnUpdate()
+        [BurstCompile]
+        public void OnUpdate(ref SystemState state)
         {
-            if (m_GhostPredictionSystemGroup.PredictingTick != m_GhostPredictionHistorySystem.LastBackupTick)
+            var newtorkTime = SystemAPI.GetSingleton<NetworkTime>();
+            var lastBackupTime = SystemAPI.GetSingleton<GhostSnapshotLastBackupTick>();
+
+            if (newtorkTime.ServerTick != lastBackupTime.Value)
                 return;
 
+            if (m_SmoothingActions.IsEmpty)
+            {
+                state.EntityManager.DestroyEntity(SystemAPI.GetSingletonEntity<SmoothingAction>());
+                return;
+            }
+
+
+            m_GhostComponentHandle.Update(ref state);
+            m_PredictedGhostComponentHandle.Update(ref state);
+            m_LinkedEntityGroupHandle.Update(ref state);
+            m_EntityTypeHandle.Update(ref state);
+
+            m_GhostComponentSerializerStateFromEntity.Update(ref state);
+            m_GhostCollectionPrefabSerializerFromEntity.Update(ref state);
+            m_GhostCollectionComponentIndexFromEntity.Update(ref state);
             var smoothingJob = new PredictionSmoothingJob
             {
-                predictionState = m_GhostPredictionHistorySystem.PredictionState,
-                ghostType = GetComponentTypeHandle<GhostComponent>(true),
-                predictedGhostType = GetComponentTypeHandle<PredictedGhostComponent>(true),
-                entityType = GetEntityTypeHandle(),
+                predictionState = SystemAPI.GetSingleton<GhostPredictionHistoryState>().PredictionState,
+                ghostType = m_GhostComponentHandle,
+                predictedGhostType = m_PredictedGhostComponentHandle,
+                entityType = m_EntityTypeHandle,
 
-                GhostCollectionSingleton = GetSingletonEntity<GhostCollection>(),
-                GhostComponentCollectionFromEntity = GetBufferFromEntity<GhostComponentSerializer.State>(true),
-                GhostTypeCollectionFromEntity = GetBufferFromEntity<GhostCollectionPrefabSerializer>(true),
-                GhostComponentIndexFromEntity = GetBufferFromEntity<GhostCollectionComponentIndex>(true),
+                GhostCollectionSingleton = SystemAPI.GetSingletonEntity<GhostCollection>(),
+                GhostComponentCollectionFromEntity = m_GhostComponentSerializerStateFromEntity,
+                GhostTypeCollectionFromEntity = m_GhostCollectionPrefabSerializerFromEntity,
+                GhostComponentIndexFromEntity = m_GhostCollectionComponentIndexFromEntity,
 
-                childEntityLookup = GetStorageInfoFromEntity(),
-                linkedEntityGroupType = GetBufferTypeHandle<LinkedEntityGroup>(),
-                tick = m_GhostPredictionSystemGroup.PredictingTick,
+                childEntityLookup = state.GetEntityStorageInfoLookup(),
+                linkedEntityGroupType = m_LinkedEntityGroupHandle,
+                tick = newtorkTime.ServerTick,
 
                 smoothingActions = m_SmoothingActions
             };
 
-            Dependency = JobHandle.CombineDependencies(Dependency,
-                m_GhostPredictionHistorySystem.PredictionStateWriteJobHandle);
+            var ghostComponentCollection = state.EntityManager.GetBuffer<GhostCollectionComponentType>(smoothingJob.GhostCollectionSingleton);
+            DynamicTypeList.PopulateList(ref state, ghostComponentCollection, false, ref smoothingJob.DynamicTypeList);
+            DynamicTypeList.PopulateListFromArray(ref state, m_UserSpecifiedComponentData, true, ref smoothingJob.UserList);
 
-            var ghostComponentCollection = EntityManager.GetBuffer<GhostCollectionComponentType>(smoothingJob.GhostCollectionSingleton);
-            DynamicTypeList.PopulateList(this, ghostComponentCollection, false, ref smoothingJob.DynamicTypeList);
-            DynamicTypeList.PopulateListFromArray(this, m_UserSpecifiedComponentData, true, ref smoothingJob.UserList);
-
-            Dependency = smoothingJob.ScheduleParallelByRef(m_PredictionQuery, Dependency);
-
-            m_GhostPredictionHistorySystem.AddPredictionStateReader(Dependency);
+            state.Dependency = smoothingJob.ScheduleParallelByRef(m_PredictionQuery, state.Dependency);
         }
 
         [BurstCompile]
@@ -176,27 +260,30 @@ namespace Unity.NetCode
         {
             public DynamicTypeList DynamicTypeList;
             public DynamicTypeList UserList;
-            [ReadOnly] public NativeParallelHashMap<ArchetypeChunk, System.IntPtr> predictionState;
+            public NativeParallelHashMap<ArchetypeChunk, System.IntPtr>.ReadOnly predictionState;
 
             [ReadOnly] public ComponentTypeHandle<GhostComponent> ghostType;
             [ReadOnly] public ComponentTypeHandle<PredictedGhostComponent> predictedGhostType;
             [ReadOnly] public EntityTypeHandle entityType;
 
             public Entity GhostCollectionSingleton;
-            [ReadOnly] public BufferFromEntity<GhostComponentSerializer.State> GhostComponentCollectionFromEntity;
-            [ReadOnly] public BufferFromEntity<GhostCollectionPrefabSerializer> GhostTypeCollectionFromEntity;
-            [ReadOnly] public BufferFromEntity<GhostCollectionComponentIndex> GhostComponentIndexFromEntity;
+            [ReadOnly] public BufferLookup<GhostComponentSerializer.State> GhostComponentCollectionFromEntity;
+            [ReadOnly] public BufferLookup<GhostCollectionPrefabSerializer> GhostTypeCollectionFromEntity;
+            [ReadOnly] public BufferLookup<GhostCollectionComponentIndex> GhostComponentIndexFromEntity;
 
-            [ReadOnly] public StorageInfoFromEntity childEntityLookup;
+            [ReadOnly] public EntityStorageInfoLookup childEntityLookup;
             [ReadOnly] public BufferTypeHandle<LinkedEntityGroup> linkedEntityGroupType;
 
-            [ReadOnly] public NativeParallelHashMap<ComponentType, SmoothingActionState> smoothingActions;
-            public uint tick;
+            [ReadOnly] public NativeParallelHashMap<ComponentType, GhostPredictionSmoothing.SmoothingActionState> smoothingActions;
+            public NetworkTick tick;
 
             const GhostComponentSerializer.SendMask requiredSendMask = GhostComponentSerializer.SendMask.Predicted;
 
-            public void Execute(ArchetypeChunk chunk, int chunkIndex, int firstEntityIndex)
+            public unsafe void Execute(in ArchetypeChunk chunk, int unfilteredChunkIndex, bool useEnabledMask, in v128 chunkEnabledMask)
             {
+                // This job is not written to support queries with enableable component types.
+                Assert.IsFalse(useEnabledMask);
+
                 if (!predictionState.TryGetValue(chunk, out var state) ||
                     (*(PredictionBackupState*)state).entityCapacity != chunk.Capacity)
                     return;
@@ -231,8 +318,8 @@ namespace Unity.NetCode
                 int numBaseComponents = typeData.NumComponents - typeData.NumChildComponents;
                 int baseOffset = typeData.FirstComponent;
 
-                var actions = new NativeList<SmoothingActionState>(Allocator.Temp);
-                var childActions = new NativeList<SmoothingActionState>(Allocator.Temp);
+                var actions = new NativeList<GhostPredictionSmoothing.SmoothingActionState>(Allocator.Temp);
+                var childActions = new NativeList<GhostPredictionSmoothing.SmoothingActionState>(Allocator.Temp);
 
                 int backupOffset = headerSize + entitySize;
 
@@ -280,7 +367,7 @@ namespace Unity.NetCode
                         for (int ent = 0; ent < entities.Length; ++ent)
                         {
                             // If this entity did not predict anything there was no rollback and no need to debug it
-                            if (!GhostPredictionSystemGroup.ShouldPredict(tick, predictedGhostComponents[ent]))
+                            if (!predictedGhostComponents[ent].ShouldPredict(tick))
                                 continue;
 
                             if (entities[ent] != backupEntities[ent])
@@ -296,8 +383,8 @@ namespace Unity.NetCode
                             }
 
                             byte* dataPtr = ((byte*) state) + action.compBackupOffset;
-                            action.action.Ptr.Invoke(compData + action.compSize * ent, dataPtr + action.compSize * ent,
-                                usrDataPtr);
+                            action.action.Ptr.Invoke((IntPtr)(compData + action.compSize * ent), (IntPtr)(dataPtr + action.compSize * ent),
+                                (IntPtr)usrDataPtr);
                         }
                     }
                 }
@@ -305,10 +392,10 @@ namespace Unity.NetCode
                 var linkedEntityGroupAccessor = chunk.GetBufferAccessor(linkedEntityGroupType);
                 foreach (var action in childActions)
                 {
-                    for (int ent = 0; ent < chunk.Count; ++ent)
+                    for (int ent = 0, chunkEntityCount = chunk.Count; ent < chunkEntityCount; ++ent)
                     {
                         // If this entity did not predict anything there was no rollback and no need to debug it
-                        if (!GhostPredictionSystemGroup.ShouldPredict(tick, predictedGhostComponents[ent]))
+                        if (!predictedGhostComponents[ent].ShouldPredict(tick))
                             continue;
                         if (entities[ent] != backupEntities[ent])
                             continue;
@@ -327,7 +414,7 @@ namespace Unity.NetCode
                             }
 
                             byte* dataPtr = ((byte*) state) + action.compBackupOffset;
-                            action.action.Ptr.Invoke(compData + action.compSize * childChunk.IndexInChunk, dataPtr + action.compSize * ent, usrDataPtr);
+                            action.action.Ptr.Invoke((IntPtr)(compData + action.compSize * childChunk.IndexInChunk), (IntPtr)(dataPtr + action.compSize * ent), (IntPtr)usrDataPtr);
                         }
                     }
                 }

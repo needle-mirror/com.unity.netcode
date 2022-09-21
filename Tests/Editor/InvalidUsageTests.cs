@@ -16,19 +16,19 @@ namespace Unity.NetCode.Tests
 {
     public class InvalidUsageConverter : TestNetCodeAuthoring.IConverter
     {
-        public void Convert(GameObject gameObject, Entity entity, EntityManager dstManager, GameObjectConversionSystem conversionSystem)
+        public void Bake(GameObject gameObject, IBaker baker)
         {
-            dstManager.AddComponentData(entity, new GhostOwnerComponent());
+            baker.AddComponent(new GhostOwnerComponent());
         }
     }
     [DisableAutoCreation]
-    [UpdateInGroup(typeof(ClientSimulationSystemGroup))]
+    [WorldSystemFilter(WorldSystemFilterFlags.ClientSimulation)]
     public partial class DeleteGhostOnClientSystem : SystemBase
     {
         public static int s_DeleteCount;
         protected override void OnCreate()
         {
-            RequireSingletonForUpdate<GhostOwnerComponent>();
+            RequireForUpdate<GhostOwnerComponent>();
         }
         protected override void OnUpdate()
         {
@@ -87,7 +87,7 @@ namespace Unity.NetCode.Tests
 
                 // Delete on server
                 testWorld.ServerWorld.EntityManager.DestroyEntity(serverEnt);
-                for (int i = 0; i < 4; ++i)
+                for (int i = 0; i < 5; ++i)
                     testWorld.Tick(frameTime);
                 clientEnt = testWorld.TryGetSingletonEntity<GhostOwnerComponent>(testWorld.ClientWorlds[0]);
                 Assert.AreEqual(Entity.Null, clientEnt);
@@ -102,7 +102,7 @@ namespace Unity.NetCode.Tests
 
                 var ghostGameObject = new GameObject();
                 ghostGameObject.AddComponent<TestNetCodeAuthoring>().Converter = new InvalidUsageConverter();
-                ghostGameObject.AddComponent<GhostAuthoringComponent>().DefaultGhostMode = GhostAuthoringComponent.GhostMode.OwnerPredicted;
+                ghostGameObject.AddComponent<GhostAuthoringComponent>().DefaultGhostMode = GhostMode.OwnerPredicted;
 
                 Assert.IsTrue(testWorld.CreateGhostCollection(ghostGameObject));
 

@@ -10,27 +10,27 @@ using UnityEngine.TestTools;
 
 namespace Unity.NetCode.Tests
 {
-    [GhostComponent(PrefabType = GhostPrefabType.All, OwnerPredictedSendType = GhostSendType.Predicted,
+    [GhostComponent(PrefabType = GhostPrefabType.All, SendTypeOptimization = GhostSendType.OnlyPredictedClients,
         OwnerSendType = SendToOwnerType.SendToNonOwner)]
     public struct TestInput : ICommandData
     {
-        [GhostField] public uint Tick { get; set; }
+        [GhostField] public NetworkTick Tick { get; set; }
         [GhostField] public int Value;
     }
 
     public struct TestInput2 : ICommandData
     {
-        [GhostField] public uint Tick { get; set; }
+        [GhostField] public NetworkTick Tick { get; set; }
         [GhostField] public int Value2;
     }
 
     public class TestInputConverter : TestNetCodeAuthoring.IConverter
     {
-        public void Convert(GameObject gameObject, Entity entity, EntityManager dstManager, GameObjectConversionSystem conversionSystem)
+        public void Bake(GameObject gameObject, IBaker baker)
         {
-            dstManager.AddComponentData(entity, new GhostOwnerComponent());
-            dstManager.AddComponent<GhostGen_IntStruct>(entity);
-            dstManager.AddBuffer<TestInput>(entity);
+            baker.AddComponent(new GhostOwnerComponent());
+            baker.AddComponent<GhostGen_IntStruct>();
+            baker.AddBuffer<TestInput>();
         }
     }
 
@@ -38,23 +38,18 @@ namespace Unity.NetCode.Tests
     [DisableAutoCreation]
     public partial class PredictionSystem : SystemBase
     {
-        private GhostPredictionSystemGroup predictionGroup;
         protected override void OnCreate()
         {
             base.OnCreate();
-            predictionGroup = World.GetExistingSystem<GhostPredictionSystemGroup>();
-            RequireSingletonForUpdate<NetworkStreamInGame>();
+            RequireForUpdate<NetworkStreamInGame>();
         }
         protected override void OnUpdate()
         {
-            var tick = predictionGroup.PredictingTick;
+            var tick = GetSingleton<NetworkTime>().ServerTick;
             Entities
-                .ForEach((Entity entity, ref Translation translation, in DynamicBuffer<TestInput> inputBuffer, in PredictedGhostComponent
-                    prediciton) =>
+                .WithAll<Simulate>()
+                .ForEach((Entity entity, ref Translation translation, in DynamicBuffer<TestInput> inputBuffer) =>
                 {
-                    if (!GhostPredictionSystemGroup.ShouldPredict(tick, prediciton))
-                        return;
-
                     if (!inputBuffer.GetDataAtTick(tick, out var input))
                         return;
 
@@ -65,15 +60,14 @@ namespace Unity.NetCode.Tests
 
     [UpdateInGroup(typeof(GhostInputSystemGroup))]
     [DisableAutoCreation]
+    [WorldSystemFilter(WorldSystemFilterFlags.ClientSimulation)]
     public partial class InputSystem : SystemBase
     {
-        private ClientSimulationSystemGroup clientSim;
         protected override void OnCreate()
         {
             base.OnCreate();
-            clientSim = World.GetExistingSystem<ClientSimulationSystemGroup>();
-            RequireSingletonForUpdate<NetworkStreamInGame>();
-            RequireSingletonForUpdate<GhostOwnerComponent>();
+            RequireForUpdate<NetworkStreamInGame>();
+            RequireForUpdate<GhostOwnerComponent>();
         }
         protected override void OnUpdate()
         {
@@ -84,7 +78,7 @@ namespace Unity.NetCode.Tests
             var inputBuffer = EntityManager.GetBuffer<TestInput>(commandTarget.targetEntity);
             inputBuffer.AddCommandData(new TestInput
             {
-                Tick = clientSim.ServerTick,
+                Tick = GetSingleton<NetworkTime>().ServerTick,
                 Value = 1
             });
         }
@@ -94,13 +88,13 @@ namespace Unity.NetCode.Tests
         private const float deltaTime = 1.0f / 60.0f;
 
         [Test]
-        [TestCase(GhostAuthoringComponent.GhostModeMask.All, GhostAuthoringComponent.GhostMode.OwnerPredicted)]
-        [TestCase(GhostAuthoringComponent.GhostModeMask.All, GhostAuthoringComponent.GhostMode.Interpolated)]
-        [TestCase(GhostAuthoringComponent.GhostModeMask.All, GhostAuthoringComponent.GhostMode.Predicted)]
-        [TestCase(GhostAuthoringComponent.GhostModeMask.Interpolated, GhostAuthoringComponent.GhostMode.Interpolated)]
-        [TestCase(GhostAuthoringComponent.GhostModeMask.Predicted, GhostAuthoringComponent.GhostMode.Predicted)]
-        public void CommandDataBuffer_GhostOwner_WillNotReceiveTheBuffer(GhostAuthoringComponent.GhostModeMask modeMask,
-            GhostAuthoringComponent.GhostMode mode)
+        [TestCase(GhostModeMask.All, GhostMode.OwnerPredicted)]
+        [TestCase(GhostModeMask.All, GhostMode.Interpolated)]
+        [TestCase(GhostModeMask.All, GhostMode.Predicted)]
+        [TestCase(GhostModeMask.Interpolated, GhostMode.Interpolated)]
+        [TestCase(GhostModeMask.Predicted, GhostMode.Predicted)]
+        public void CommandDataBuffer_GhostOwner_WillNotReceiveTheBuffer(GhostModeMask modeMask,
+            GhostMode mode)
         {
             using (var testWorld = new NetCodeTestWorld())
             {
@@ -124,15 +118,14 @@ namespace Unity.NetCode.Tests
 
                 var clientBuffer = testWorld.ClientWorlds[0].EntityManager.GetBuffer<TestInput>(clientEnt[0]);
                 var serverBuffer = testWorld.ServerWorld.EntityManager.GetBuffer<TestInput>(serverEnt);
-                //Server as always 3 more inputs)
-                Assert.GreaterOrEqual(serverBuffer.Length, clientBuffer.Length + 1);
+                // Server can drop commands which arrive too late, but it should get at least half of the commands
+                Assert.GreaterOrEqual(serverBuffer.Length, clientBuffer.Length / 2);
                 //Because of the redundancy the server always has more imputs
                 int firstServerTick = 0;
-                while (firstServerTick < serverBuffer.Length && serverBuffer[firstServerTick].Value == 0)
-                    ++firstServerTick;
-                Assert.Greater(firstServerTick, 0);
                 Assert.Less(firstServerTick, serverBuffer.Length);
-                Assert.AreEqual(clientBuffer[0].Tick, serverBuffer[firstServerTick].Tick);
+                Assert.AreNotEqual(0, serverBuffer[firstServerTick].Value);
+                // server cannot have commands which are older than what the client has
+                Assert.GreaterOrEqual(serverBuffer[firstServerTick].Tick.TicksSince(clientBuffer[0].Tick), 0);
                 for (int i = firstServerTick; i < serverBuffer.Length; ++i)
                     Assert.AreEqual(1, serverBuffer[i].Value);
                 for (int i = 0; i < clientBuffer.Length; ++i)
@@ -154,10 +147,10 @@ namespace Unity.NetCode.Tests
         }
 
         [Test]
-        [TestCase(GhostAuthoringComponent.GhostModeMask.All, GhostAuthoringComponent.GhostMode.Predicted)]
-        [TestCase(GhostAuthoringComponent.GhostModeMask.Predicted, GhostAuthoringComponent.GhostMode.Predicted)]
-        public void CommandDataBuffer_NonOwner_WillReceiveTheBuffer(GhostAuthoringComponent.GhostModeMask modeMask,
-            GhostAuthoringComponent.GhostMode mode)
+        [TestCase(GhostModeMask.All, GhostMode.Predicted)]
+        [TestCase(GhostModeMask.Predicted, GhostMode.Predicted)]
+        public void CommandDataBuffer_NonOwner_WillReceiveTheBuffer(GhostModeMask modeMask,
+            GhostMode mode)
         {
             using (var testWorld = new NetCodeTestWorld())
             {
@@ -185,8 +178,8 @@ namespace Unity.NetCode.Tests
                 var clientBuffer0 = testWorld.ClientWorlds[0].EntityManager.GetBuffer<TestInput>(clientEnt[0]);
                 var clientBuffer1 = testWorld.ClientWorlds[1].EntityManager.GetBuffer<TestInput>(clientEnt[1]);
                 var serverBuffer = testWorld.ServerWorld.EntityManager.GetBuffer<TestInput>(serverEnt);
-                Assert.AreEqual(serverBuffer.Length, clientBuffer1.Length);
-                Assert.Greater(serverBuffer.Length, clientBuffer0.Length);
+                Assert.GreaterOrEqual(serverBuffer.Length, clientBuffer1.Length/2);
+                Assert.GreaterOrEqual(serverBuffer.Length, clientBuffer0.Length/2);
                 for (int i = 4; i < serverBuffer.Length; ++i)
                     Assert.AreEqual(serverBuffer[i].Value, clientBuffer0[i-4].Value);
                 var bufferCopy = new TestInput[serverBuffer.Length];
@@ -210,11 +203,11 @@ namespace Unity.NetCode.Tests
 
 
         [Test]
-        [TestCase(GhostAuthoringComponent.GhostModeMask.All, GhostAuthoringComponent.GhostMode.OwnerPredicted)]
-        [TestCase(GhostAuthoringComponent.GhostModeMask.All, GhostAuthoringComponent.GhostMode.Interpolated)]
-        [TestCase(GhostAuthoringComponent.GhostModeMask.Interpolated, GhostAuthoringComponent.GhostMode.Interpolated)]
-        public void CommandDataBuffer_NonOwner_ShouldNotReceiveTheBuffer(GhostAuthoringComponent.GhostModeMask modeMask,
-            GhostAuthoringComponent.GhostMode mode)
+        [TestCase(GhostModeMask.All, GhostMode.OwnerPredicted)]
+        [TestCase(GhostModeMask.All, GhostMode.Interpolated)]
+        [TestCase(GhostModeMask.Interpolated, GhostMode.Interpolated)]
+        public void CommandDataBuffer_NonOwner_ShouldNotReceiveTheBuffer(GhostModeMask modeMask,
+            GhostMode mode)
         {
             using (var testWorld = new NetCodeTestWorld())
             {
@@ -264,8 +257,8 @@ namespace Unity.NetCode.Tests
                 var ghostGameObject = new GameObject();
                 ghostGameObject.AddComponent<TestNetCodeAuthoring>().Converter = new TestInputConverter();
                 var ghostConfig = ghostGameObject.AddComponent<GhostAuthoringComponent>();
-                ghostConfig.SupportedGhostModes = GhostAuthoringComponent.GhostModeMask.All;
-                ghostConfig.DefaultGhostMode = GhostAuthoringComponent.GhostMode.OwnerPredicted;
+                ghostConfig.SupportedGhostModes = GhostModeMask.All;
+                ghostConfig.DefaultGhostMode = GhostMode.OwnerPredicted;
 
                 Assert.IsTrue(testWorld.CreateGhostCollection(ghostGameObject));
                 int numClients = 3;

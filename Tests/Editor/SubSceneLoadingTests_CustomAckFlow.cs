@@ -14,7 +14,7 @@ namespace Unity.NetCode.Tests
     public struct RequestUnLoadScene : IRpcCommand
     {
         public ulong SceneHash;
-        public uint ServerTick;
+        public NetworkTick ServerTick;
     }
     public struct NotifySceneLoaded : IRpcCommand
     {
@@ -25,21 +25,21 @@ namespace Unity.NetCode.Tests
         public ulong SceneHash;
     }
 
-    [UpdateInGroup(typeof(ServerSimulationSystemGroup))]
     [DisableAutoCreation]
+    [WorldSystemFilter(WorldSystemFilterFlags.ServerSimulation)]
     partial class ServerSceneNotificationSystem : SystemBase
     {
         private EndSimulationEntityCommandBufferSystem m_Barrier;
         protected override void OnCreate()
         {
-            m_Barrier = World.GetExistingSystem<EndSimulationEntityCommandBufferSystem>();
-            RequireSingletonForUpdate<PrespawnSceneLoaded>();
+            m_Barrier = World.GetExistingSystemManaged<EndSimulationEntityCommandBufferSystem>();
+            RequireForUpdate<PrespawnSceneLoaded>();
         }
 
         protected override void OnUpdate()
         {
             var ecb = m_Barrier.CreateCommandBuffer();
-            var serverTick = World.GetExistingSystem<ServerSimulationSystemGroup>().ServerTick;
+            var serverTick = GetSingleton<NetworkTime>().ServerTick;
             Entities.ForEach((Entity entity, in NotifySceneLoaded streamingReq, in ReceiveRpcCommandRequestComponent requestComponent) =>
             {
                 var prespawnSceneAcks = GetBuffer<PrespawnSectionAck>(requestComponent.SourceConnection);
@@ -75,8 +75,9 @@ namespace Unity.NetCode.Tests
         }
     }
 
-    [UpdateInGroup(typeof(ClientSimulationSystemGroup))]
     [DisableAutoCreation]
+    [RequireMatchingQueriesForUpdate]
+    [WorldSystemFilter(WorldSystemFilterFlags.ClientSimulation)]
     partial class ClientUnloadSceneSystem : SystemBase
     {
         protected override void OnUpdate()
@@ -86,7 +87,7 @@ namespace Unity.NetCode.Tests
             {
                 hashmap[sub.SubSceneHash] =  entity;
             }).Run();
-            var barrier = World.GetExistingSystem<BeginSimulationEntityCommandBufferSystem>();
+            var barrier = World.GetExistingSystemManaged<BeginSimulationEntityCommandBufferSystem>();
             var ecb = barrier.CreateCommandBuffer();
             Entities
                 .WithDisposeOnCompletion(hashmap)
@@ -96,6 +97,7 @@ namespace Unity.NetCode.Tests
                     {
                         ecb.RemoveComponent<RequestSceneLoaded>(sceneEntity);
                     }
+                    ecb.DestroyEntity(entity);
                 }).Schedule();
             barrier.AddJobHandleForProducer(Dependency);
         }
@@ -113,12 +115,12 @@ namespace Unity.NetCode.Tests
             var subScenes = new SubScene[4];
             for(int i=0;i<4;++i)
             {
-                subScenes[i] = SubSceneHelper.AddSubSceneToParentScene(parentScene, SubSceneHelper.CreateSubSceneWithPrefabs(
+                subScenes[i] = SubSceneHelper.CreateSubSceneWithPrefabs(
+                    parentScene,
                     ScenePath, $"Sub{i}", new[]
                     {
                         ghostPrefab,
-                    }, numObjects)
-                );
+                    }, numObjects);
             }
             using (var testWorld = new NetCodeTestWorld())
             {
@@ -142,7 +144,7 @@ namespace Unity.NetCode.Tests
                 ulong lastLoadedSceneHash = 0ul;
                 for(int scene=0; scene<4; ++scene)
                 {
-                    var sceneEntity = SubSceneHelper.LoadSubSceneAsync(testWorld.ClientWorlds[0], testWorld, subScenes[scene].SceneGUID, frameTime, 16);
+                    var sceneEntity = SubSceneHelper.LoadSubSceneAsync(testWorld.ClientWorlds[0], testWorld, subScenes[scene].SceneGUID, frameTime);
                     //Run a bunch of frame so scene are initialized
                     for (int i = 0; i < 16; ++i)
                         testWorld.Tick(frameTime);

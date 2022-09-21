@@ -1,46 +1,21 @@
 using System.Collections.Generic;
 using Unity.Entities;
+using Unity.Transforms;
 
 namespace Unity.NetCode
 {
-    [DisableAutoCreation]
-    [AlwaysUpdateSystem]
-    public class ClientPresentationSystemGroup : PresentationSystemGroup
-    {
-#if !UNITY_SERVER
-        internal TickClientPresentationSystem ParentTickSystem;
-        protected override void OnDestroy()
-        {
-            if (ParentTickSystem != null)
-                ParentTickSystem.RemoveSystemFromUpdateList(this);
-        }
-#endif
-        protected override void OnUpdate()
-        {
-            if (HasSingleton<ThinClientComponent>())
-                return;
-            base.OnUpdate();
-        }
-    }
-
-#if !UNITY_SERVER
+    /// <summary>
+    /// Update the <see cref="PresentationSystemGroup"/> of a client world from another world (usually the default world)
+    /// Used only for DOTSRuntime and tests or other specific use cases.
+    /// </summary>
+#if !UNITY_SERVER || UNITY_EDITOR
 #if !UNITY_DOTSRUNTIME
     [DisableAutoCreation]
 #endif
     [UpdateInGroup(typeof(PresentationSystemGroup))]
-    [AlwaysUpdateSystem]
-    [UpdateInWorld(TargetWorld.Default)]
-    public class TickClientPresentationSystem : ComponentSystemGroup
+    [WorldSystemFilter(WorldSystemFilterFlags.LocalSimulation)]
+    internal class TickClientPresentationSystem : TickComponentSystemGroup
     {
-        protected override void OnDestroy()
-        {
-            foreach (var sys in Systems)
-            {
-                var grp = sys as ClientPresentationSystemGroup;
-                if (grp != null)
-                    grp.ParentTickSystem = null;
-            }
-        }
     }
 #endif
 }

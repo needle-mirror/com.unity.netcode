@@ -28,7 +28,7 @@ namespace Generated
             #endregion
         }
 
-        public void SerializeCommand(ref DataStreamWriter writer, in IComponentData data, in IComponentData baseline, NetworkCompressionModel compressionModel)
+        public void SerializeCommand(ref DataStreamWriter writer, in IComponentData data, in IComponentData baseline, StreamCompressionModel compressionModel)
         {
             #region __COMMAND_WRITE__
             writer.WriteUInt(data.__COMMAND_FIELD_NAME__ ? 1u : 0);
@@ -38,7 +38,7 @@ namespace Generated
             #endregion
         }
 
-        public void DeserializeCommand(ref DataStreamReader reader, ref IComponentData data, in IComponentData baseline, NetworkCompressionModel compressionModel)
+        public void DeserializeCommand(ref DataStreamReader reader, ref IComponentData data, in IComponentData baseline, StreamCompressionModel compressionModel)
         {
             #region __COMMAND_READ__
             data.__COMMAND_FIELD_NAME__ = (reader.ReadUInt() != 0) ? true : false;

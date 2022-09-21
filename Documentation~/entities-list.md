@@ -29,33 +29,36 @@ A connection entity is created for each network connection. You can think of the
 
 A ghost is an entity on the server which is ghosted (replicated) to the clients. It is always instantiated from a ghost prefab and has user defined data in addition to the components listed here which control its behavior.
 
-| Component | Description | Condition |
-| --------- | ----------- | --------- |
-|[__GhostComponent__](xref:Unity.NetCode.GhostComponent) | Identifying an entity as a ghost.
-|[__GhostTypeComponent__](xref:Unity.NetCode.GhostTypeComponent) | The type this ghost belongs to.
-|__GhostSystemStateComponent__| This component exists for only for internal use in the NetCode package. Used to track despawn of ghosts on the server. | Server only
-|[__SharedGhostTypeComponent__](xref:Unity.NetCode.SharedGhostTypeComponent) | A shared component version of the `GhostTypeComponent`, used on the server only to make sure different ghost types never share the same chunk. | Server only
-|[__SnapshotData__](xref:Unity.NetCode.SnapshotData) | A buffer with meta data about the snapshots received from the server. | Client only
-|[__SnapshotDataBuffer__](xref:Unity.NetCode.SnapshotDataBuffer) | A buffer with the raw snapshot data received from the server. | Client only
-|[__SnapshotDynamicDataBuffer__](xref:Unity.NetCode.SnapshotDynamicDataBuffer) | A buffer with the raw snapshot data for buffers received from the server. | Client only, ghosts with buffers only
-|[__PredictedGhostComponent__](xref:Unity.NetCode.PredictedGhostComponent) | Identify predicted ghosts. On the server all ghosts are considered predicted and have this component. | Predicted only
-|[__GhostDistancePartition__](xref:Unity.NetCode.GhostDistancePartition) | Added to all ghosts with a `Translation` when distance based importance is used. | Only for distance based importance
-|[__GhostDistancePartitionShared__](xref:Unity.NetCode.GhostDistancePartitionShared) | Added to all ghosts with a `Translation` when distance based importance is used. | Only for distance based importance
-|[__GhostPrefabMetaDataComponent__](xref:Unity.NetCode.GhostPrefabMetaDataComponent) | The meta data for a ghost, adding durin conversion and used to setup serialiation. This is not required on ghost instances, only on prefabs, but it is only removed from pre-spawned right now. | Not in pre-spawned
-|[__GhostChildEntityComponent__](xref:Unity.NetCode.GhostChildEntityComponent) | Disable the serialization of this entity because it is part of a ghost group and will be serialized as part of that. | Only children in ghost groups
-|[__GhostGroup__](xref:Unity.NetCode.GhostGroup) | Added to all ghosts which can be the owner of a ghost group. Must be added to the prefab at conversion time. | Only ghost group root
-|[__PredictedGhostSpawnRequestComponent__](xref:Unity.NetCode.PredictedGhostSpawnRequestComponent) | This instance is not a ghost received from the server, but a request to predictively spawn a ghost which the client expets the server to spawn soon. This should only be added by calling `GhostCollectionSystem.CreatePredictedSpawnPrefab` | Only predicted spawn requests
-|[__GhostOwnerComponent__](xref:Unity.NetCode.GhostOwnerComponent) | Identiy the owner of a ghost, specified as a network id. | Optional
-|[__AutoCommandTarget__](xref:Unity.NetCode.AutoCommandTarget) | Automatically send all `ICommandData` if the ghost is owned by the current connection, `AutoCommandTarget.Enabled` is true and the ghost is predicted. | Optional
-|[__SubSceneGhostComponentHash__](xref:Unity.NetCode.SubSceneGhostComponentHash) | The hash of all pre-spawned ghosts in a subscene, used for sorting and grouping. This is a shared component. | Only pre-spawned
-|[__PreSpawnedGhostIndex__](xref:Unity.NetCode.PreSpawnedGhostIndex) | Unique index of a pre-spawned ghost within a subscene. | Only pre-spawned
-|[__PrespawnGhostBaseline__](xref:Unity.NetCode.PrespawnGhostBaseline) | The snapshot data a pre-spawned ghost had in the scene data. Used as a fallback baseline. | Only pre-spawned
-|[__GhostPrefabRuntimeStrip__](xref:Unity.NetCode.GhostPrefabRuntimeStrip) | Added to prefabs and pre-spawned during conversion to client and server data to trigger runtime stripping of component. | Only on prefabs in client and server scenes before they are initialized
-|[__LiveLinkPrespawnSectionReference__](xref:Unity.NetCode.LiveLinkPrespawnSectionReference) | Component present in editor on the scene section entity when the sub-scene is open for edit. | Only in Editor
+| Component                                                                                         | Description | Condition |
+|---------------------------------------------------------------------------------------------------| ----------- | --------- |
+| [__GhostComponent__](xref:Unity.NetCode.GhostComponent)                                           | Identifying an entity as a ghost.
+| [__GhostTypeComponent__](xref:Unity.NetCode.GhostTypeComponent)                                   | The type this ghost belongs to.
+| __GhostCleanupComponent__                                                              | This component exists for only for internal use in the NetCode package. Used to track despawn of ghosts on the server. | Server only
+| [__SharedGhostTypeComponent__](xref:Unity.NetCode.SharedGhostTypeComponent)                       | A shared component version of the `GhostTypeComponent`, used on the server only to make sure different ghost types never share the same chunk. | Server only
+| [__SnapshotData__](xref:Unity.NetCode.SnapshotData)                                               | A buffer with meta data about the snapshots received from the server. | Client only
+| [__SnapshotDataBuffer__](xref:Unity.NetCode.SnapshotDataBuffer)                                   | A buffer with the raw snapshot data received from the server. | Client only
+| [__SnapshotDynamicDataBuffer__](xref:Unity.NetCode.SnapshotDynamicDataBuffer)                     | A buffer with the raw snapshot data for buffers received from the server. | Client only, ghosts with buffers only
+| [__PredictedGhostComponent__](xref:Unity.NetCode.PredictedGhostComponent)                         | Identify predicted ghosts. On the server all ghosts are considered predicted and have this component. | Predicted only
+| [__GhostDistancePartition__](xref:Unity.NetCode.GhostDistancePartition)                           | Added to all ghosts with a `Translation` when distance based importance is used. | Only for distance based importance
+| [__GhostDistancePartitionShared__](xref:Unity.NetCode.GhostDistancePartitionShared)               | Added to all ghosts with a `Translation` when distance based importance is used. | Only for distance based importance
+| [__GhostPrefabMetaDataComponent__](xref:Unity.NetCode.GhostPrefabMetaDataComponent)               | The meta data for a ghost, adding durin conversion and used to setup serialiation. This is not required on ghost instances, only on prefabs, but it is only removed from pre-spawned right now. | Not in pre-spawned
+| [__GhostChildEntityComponent__](xref:Unity.NetCode.GhostChildEntityComponent)                     | Disable the serialization of this entity because it is part of a ghost group and will be serialized as part of that. | Only children in ghost groups
+| [__GhostGroup__](xref:Unity.NetCode.GhostGroup)                                                   | Added to all ghosts which can be the owner of a ghost group. Must be added to the prefab at conversion time. | Only ghost group root
+| [__PredictedGhostSpawnRequestComponent__](xref:Unity.NetCode.PredictedGhostSpawnRequestComponent) | This instance is not a ghost received from the server, but a request to predictively spawn a ghost which the client expects the server to spawn soon. Prefab entity references on clients will have this component added automatically so anything they spawn themselves will be by default predict spawned.
+| [__GhostOwnerComponent__](xref:Unity.NetCode.GhostOwnerComponent)                                 | Identiy the owner of a ghost, specified as a network id. | Optional
+| [__AutoCommandTarget__](xref:Unity.NetCode.AutoCommandTarget)                                     | Automatically send all `ICommandData` if the ghost is owned by the current connection, `AutoCommandTarget.Enabled` is true and the ghost is predicted. | Optional
+| [__SubSceneGhostComponentHash__](xref:Unity.NetCode.SubSceneGhostComponentHash)                   | The hash of all pre-spawned ghosts in a subscene, used for sorting and grouping. This is a shared component. | Only pre-spawned
+| [__PreSpawnedGhostIndex__](xref:Unity.NetCode.PreSpawnedGhostIndex)                               | Unique index of a pre-spawned ghost within a subscene. | Only pre-spawned
+| [__PrespawnGhostBaseline__](xref:Unity.NetCode.PrespawnGhostBaseline)                             | The snapshot data a pre-spawned ghost had in the scene data. Used as a fallback baseline. | Only pre-spawned
+| [__GhostPrefabRuntimeStrip__](xref:Unity.NetCode.GhostPrefabRuntimeStrip)                         | Added to prefabs and pre-spawned during conversion to client and server data to trigger runtime stripping of component. | Only on prefabs in client and server scenes before they are initialized
+| [__LiveLinkPrespawnSectionReference__](xref:Unity.NetCode.LiveLinkPrespawnSectionReference)       | Component present in editor on the scene section entity when the sub-scene is open for edit. | Only in Editor
 
 |[__PreSerializedGhost__](xref:Unity.NetCode.PreSerializedGhost) | Enable pre-serialization for a ghost, added at conversion time based on ghost settings. | Only ghost using pre-serialization
 |[__SwitchPredictionSmoothing__](xref:Unity.NetCode.SwitchPredictionSmoothing) | Added temporarily when switching a ghost between predicted / interpolated with a transition time to handle transform smoothing. | Only ghost in the process of switching prediction mode
 |[__PrefabDebugName__](xref:Unity.NetCode.PrefabDebugName) | Name of the prefab used for debugging. | Only on prefabs when NETCODE_DEBUG is enabled
+|[__GhostPhysicsProxyReference__](xref:Unity.NetCode.GhostPhysicsProxyReference) | A reference to the client-only physics entity proxy. Add at runtime when Predicted Physics is enabled to all ghosts with a GenerateGhostPhysicsProxy when the proxy is spawned. | Client only.
+|[__GenerateGhostPhysicsProxy__](xref:Unity.NetCode.GenerateGhostPhysicsProxy) | Configure the physics proxy entity to spawn for a ghost when predicted physics is enabled. | Client only.
+
 
 ### Placeholder ghost
 
@@ -67,6 +70,14 @@ When a ghost is received but is not yet supposed to be spawned the client will c
 |[__SnapshotData__](xref:Unity.NetCode.SnapshotData) | A buffer with meta data about the snapshots received from the server. | Client only
 |[__SnapshotDataBuffer__](xref:Unity.NetCode.SnapshotDataBuffer) | A buffer with the raw snapshot data received from the server.
 |[__SnapshotDynamicDataBuffer__](xref:Unity.NetCode.SnapshotDynamicDataBuffer) | A buffer with the raw snapshot data for buffers received from the server. | Ghosts with buffers only
+
+
+### Client-Only physics proxy
+When predicted physics is enabled, it is possible to make physicallty simulated ghosts to interact with physics object present in only on the client (client-only physics world) by
+spawning kinematic enties the client-only physics world, driven by the simulated ghost.
+| Component | Description | Condition |
+| --------- | ----------- | --------- |
+[__PhysicsProxyGhostDriver__](xref:Unity.NetCode.PhysicsProxyGhostDriver) | A component that referene the ghost which drive the proxy and let configure how the ghost and the proxy are synched.
 
 ## RPC
 
@@ -174,11 +185,6 @@ This singleton is a special kind of ghost without a prefab asset.
 | Component | Description |
 | --------- | ----------- |
 |[__ClientTickRate__](xref:Unity.NetCode.ClientTickRate) | The tick rate settings for the client which are not controlled by the server (interpolation time etc.). Use the defaults from `NetworkTimeSystem.DefaultClientTickRate` instead of default values.
-
-### ThinClient
-| Component | Description |
-| --------- | ----------- |
-|[__ThinClientComponent__](xref:Unity.NetCode.ThinClientComponent) | The world is a thin client world and will not process incomming snapshots. Automatically create for thin client worlds, creating this singleton in a user spawned world makes it a thin client. |
 
 ### LagCompensationConfig
 | Component | Description |

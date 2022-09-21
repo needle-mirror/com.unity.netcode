@@ -1,16 +1,20 @@
 using UnityEngine;
 using Unity.Entities;
 
-public class TestNetCodeAuthoring : MonoBehaviour, IConvertGameObjectToEntity
+public class TestNetCodeAuthoring : MonoBehaviour
 {
     public interface IConverter
     {
-        void Convert(GameObject gameObject, Entity entity, EntityManager dstManager, GameObjectConversionSystem conversionSystem);
+        void Bake(GameObject gameObject, IBaker baker);
     }
     public IConverter Converter;
-    public void Convert(Entity entity, EntityManager dstManager, GameObjectConversionSystem conversionSystem)
+}
+
+class TestNetCodeAuthoringBaker : Baker<TestNetCodeAuthoring>
+{
+    public override void Bake(TestNetCodeAuthoring authoring)
     {
-        if (Converter != null)
-            Converter.Convert(gameObject, entity, dstManager, conversionSystem);
+        if (authoring.Converter != null)
+            authoring.Converter.Bake(authoring.gameObject, this);
     }
 }

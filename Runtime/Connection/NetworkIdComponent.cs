@@ -1,16 +1,29 @@
 using Unity.Burst;
 using Unity.Collections;
-using Unity.Collections.LowLevel.Unsafe;
 using Unity.Entities;
 using Unity.Networking.Transport;
 
 namespace Unity.NetCode
 {
+    /// <summary>
+    /// The connection identifier assigned by the server to the incoming client connection.
+    /// The NetworkIdComponent is used as temporary client identifier for the current session. When a client disconnects,
+    /// its network id can be reused by the server, and assigned to a new, incoming connection (on a a "first come, first serve" basis).
+    /// Thus, there is no guarantee that a disconnecting client will receive the same network id once reconnected.
+    /// As such, the network identifier should never be used to persist - and then retrieve - information for a given client/player.
+    /// </summary>
     public struct NetworkIdComponent : IComponentData
     {
+        /// <summary>
+        /// The network identifier assigned by the server. A valid identifier it is always greater than 0.
+        /// </summary>
         public int Value;
     }
 
+    /// <summary>
+    /// System RPC sent from the server to client to assign a newtork id  (see <see cref="NetworkIdComponent"/>) to a new
+    /// accepted connection.
+    /// </summary>
     [BurstCompile]
     internal struct RpcSetNetworkId : IComponentData, IRpcCommandSerializer<RpcSetNetworkId>
     {
@@ -53,12 +66,12 @@ namespace Unity.NetCode
                 MaxSimulationStepsPerFrame = rpcData.simMaxSteps,
                 NetworkTickRate = rpcData.netTickRate,
                 SimulationTickRate = rpcData.simTickRate,
-                MaxSimulationLongStepTimeMultiplier = rpcData.simMaxStepLength
+                MaxSimulationStepBatchSize = rpcData.simMaxStepLength
             });
             parameters.CommandBuffer.SetName(parameters.JobIndex, parameters.Connection, new FixedString64Bytes(FixedString.Format("NetworkConnection ({0})", rpcData.nid)));
         }
 
-        static PortableFunctionPointer<RpcExecutor.ExecuteDelegate> InvokeExecuteFunctionPointer =
+        static readonly PortableFunctionPointer<RpcExecutor.ExecuteDelegate> InvokeExecuteFunctionPointer =
             new PortableFunctionPointer<RpcExecutor.ExecuteDelegate>(InvokeExecute);
         public PortableFunctionPointer<RpcExecutor.ExecuteDelegate> CompileExecute()
         {

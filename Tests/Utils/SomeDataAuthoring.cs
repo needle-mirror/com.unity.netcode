@@ -3,12 +3,15 @@ using UnityEngine;
 
 namespace Unity.NetCode.Tests
 {
-    [ConverterVersion("cristian", 1)]
-    public class SomeDataAuthoring : MonoBehaviour, IConvertGameObjectToEntity
+    public class SomeDataAuthoring : MonoBehaviour
     {
-        public void Convert(Entity entity, EntityManager dstManager, GameObjectConversionSystem conversionSystem)
+    }
+
+    class SomeDataAuthoringBaker : Baker<SomeDataAuthoring>
+    {
+        public override void Bake(SomeDataAuthoring authoring)
         {
-            dstManager.AddComponentData(entity, new SomeData {Value = Random.Range(1, 100)});
+            AddComponent(new SomeData {Value = Random.Range(1, 100)});
         }
     }
 }

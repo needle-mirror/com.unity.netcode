@@ -27,14 +27,14 @@ namespace Unity.NetCode.LowLevel.Unsafe
         [StructLayout(LayoutKind.Sequential)]
         public struct MetaData
         {
-            public uint lastUpdate;
+            public NetworkTick lastUpdate;
             public int startIndex;
             public int snapshotWriteIndex;
             public uint orderChangeVersion;
-            public uint firstZeroChangeTick;
+            public NetworkTick firstZeroChangeTick;
             public uint firstZeroChangeVersion;
             public int allIrrelevant;
-            public uint lastValidTick;
+            public NetworkTick lastValidTick;
         }
 
         // The memory layout of the snapshot data is (all items are rounded up to an even 16 bytes)
@@ -105,7 +105,7 @@ namespace Unity.NetCode.LowLevel.Unsafe
         {
             ((MetaData*)snapshotData)->allIrrelevant = (irrelevant?1:0);
         }
-        public uint GetLastUpdate()
+        public NetworkTick GetLastUpdate()
         {
             return ((MetaData*)snapshotData)->lastUpdate;
         }
@@ -113,7 +113,7 @@ namespace Unity.NetCode.LowLevel.Unsafe
         {
             return ((MetaData*)snapshotData)->startIndex;
         }
-        public void SetLastUpdate(uint tick)
+        public void SetLastUpdate(NetworkTick tick)
         {
             ((MetaData*)snapshotData)->lastUpdate = tick;
             ((MetaData*)snapshotData)->startIndex = 0;
@@ -141,7 +141,7 @@ namespace Unity.NetCode.LowLevel.Unsafe
         {
             ((MetaData*)snapshotData)->orderChangeVersion = version;
         }
-        public uint GetFirstZeroChangeTick()
+        public NetworkTick GetFirstZeroChangeTick()
         {
             return ((MetaData*)snapshotData)->firstZeroChangeTick;
         }
@@ -149,16 +149,16 @@ namespace Unity.NetCode.LowLevel.Unsafe
         {
             return ((MetaData*)snapshotData)->firstZeroChangeVersion;
         }
-        public void SetFirstZeroChange(uint tick, uint version)
+        public void SetFirstZeroChange(NetworkTick tick, uint version)
         {
             ((MetaData*)snapshotData)->firstZeroChangeTick = tick;
             ((MetaData*)snapshotData)->firstZeroChangeVersion = version;
         }
-        public uint GetLastValidTick()
+        public NetworkTick GetLastValidTick()
         {
             return ((MetaData*)snapshotData)->lastValidTick;
         }
-        public void SetLastValidTick(uint tick)
+        public void SetLastValidTick(NetworkTick tick)
         {
             ((MetaData*)snapshotData)->lastValidTick = tick;
         }
@@ -252,14 +252,14 @@ namespace Unity.NetCode.LowLevel.Unsafe
 
         static public int GetDynamicDataHeaderSize(int chunkCapacity)
         {
-            return GhostCollectionSystem.SnapshotSizeAligned(sizeof(uint) * chunkCapacity);
+            return GhostComponentSerializer.SnapshotSizeAligned(sizeof(uint) * chunkCapacity);
         }
 
         public void EnsureDynamicDataCapacity(int historySlotCapacity, int chunkCapacity)
         {
             //Get the next pow2 that fit the required size
             var headerSize = GetDynamicDataHeaderSize(chunkCapacity);
-            var wantedSize = GhostCollectionSystem.SnapshotSizeAligned(historySlotCapacity + headerSize);
+            var wantedSize = GhostComponentSerializer.SnapshotSizeAligned(historySlotCapacity + headerSize);
             var newCapacity = math.ceilpow2(wantedSize * GhostSystemConstants.SnapshotHistorySize);
             if (snapshotDynamicCapacity < newCapacity)
             {
@@ -287,21 +287,21 @@ namespace Unity.NetCode.LowLevel.Unsafe
 
     static class ConnectionGhostStateExtensions
     {
-        public static ref ConnectionStateData.GhostState GetGhostState(ref this ConnectionStateData.GhostStateList self, in GhostSystemStateComponent systemState)
+        public static ref ConnectionStateData.GhostState GetGhostState(ref this ConnectionStateData.GhostStateList self, in GhostCleanupComponent cleanup)
         {
             //Map the right index by unmasking the prespawn bit (if present)
-            var index = (int)(systemState.ghostId & ~PrespawnHelper.PrespawnGhostIdBase);
-            var isPrespawnGhost = PrespawnHelper.IsPrespawGhostId(systemState.ghostId);
+            var index = (int)(cleanup.ghostId & ~PrespawnHelper.PrespawnGhostIdBase);
+            var isPrespawnGhost = PrespawnHelper.IsPrespawGhostId(cleanup.ghostId);
             var list = isPrespawnGhost ? self.PrespawnList : self.List;
             ref var state = ref list.ElementAt(index);
 
             //The initial state for pre-spawned ghosts must be set to relevant, otherwise clients may not received despawn messages
             //for prespawn that has been destroyed or marked as irrelevant. It is also mandatory for static optimization since
             //we never actually send information to the client until the prespawns changed state.
-            if (state.SpawnTick != systemState.spawnTick)
+            if (state.SpawnTick != cleanup.spawnTick)
                 state = new ConnectionStateData.GhostState
                 {
-                    SpawnTick = systemState.spawnTick,
+                    SpawnTick = cleanup.spawnTick,
                     Flags = isPrespawnGhost ? ConnectionStateData.GhostStateFlags.IsRelevant : 0
                 };
 
@@ -320,11 +320,11 @@ namespace Unity.NetCode.LowLevel.Unsafe
         [StructLayout(LayoutKind.Sequential)]
         public struct GhostState
         {
-            public uint SpawnTick;
+            public NetworkTick SpawnTick;
             public int LastIndexInChunk;
             public ArchetypeChunk LastChunk;
             public GhostStateFlags Flags;
-            public uint LastDespawnSendTick;
+            public NetworkTick LastDespawnSendTick;
         }
         public struct GhostStateList : IDisposable
         {
@@ -336,19 +336,19 @@ namespace Unity.NetCode.LowLevel.Unsafe
             {
                 get { return ref m_List[1]; }
             }
-            public uint AckedDespawnTick
+            public NetworkTick AckedDespawnTick
             {
                 get
                 {
                     byte* ptr = (byte*)m_List;
                     ptr += 2*UnsafeUtility.SizeOf<UnsafeList<GhostState>>();
-                    return *(uint*)ptr;
+                    return new NetworkTick{SerializedData = *(uint*)ptr};
                 }
                 set
                 {
                     byte* ptr = (byte*)m_List;
                     ptr += 2*UnsafeUtility.SizeOf<UnsafeList<GhostState>>();
-                    *(uint*)ptr = value;
+                    *(uint*)ptr = value.SerializedData;
                 }
             }
             public uint DespawnRepeatCount
@@ -378,7 +378,7 @@ namespace Unity.NetCode.LowLevel.Unsafe
                 m_List = (UnsafeList<GhostState>*)UnsafeUtility.Malloc(2*UnsafeUtility.SizeOf<UnsafeList<GhostState>>() + 2*UnsafeUtility.SizeOf<uint>(), UnsafeUtility.AlignOf<UnsafeList<GhostState>>(), allocator);
                 m_List[0] = new UnsafeList<GhostState>(CalculateStateListCapacity(capacity), allocator, NativeArrayOptions.ClearMemory);
                 m_List[1] = new UnsafeList<GhostState>(CalculateStateListCapacity(prespawnCapacity), allocator, NativeArrayOptions.ClearMemory);
-                AckedDespawnTick = 0;
+                AckedDespawnTick = NetworkTick.Invalid;
             }
             public void Dispose()
             {
@@ -407,9 +407,6 @@ namespace Unity.NetCode.LowLevel.Unsafe
             ClearHistory.Dispose();
             AckedPrespawnSceneMap.Dispose();
             UnsafeList<PrespawnHelper.GhostIdInterval>.Destroy(m_NewLoadedPrespawnRanges);
-#if NETCODE_DEBUG
-            NetDebugPacket.Dispose();
-#endif
             GhostStateData.Dispose();
         }
 
@@ -420,7 +417,7 @@ namespace Unity.NetCode.LowLevel.Unsafe
             {
                 Entity = connection,
                 SerializationState = new UnsafeParallelHashMap<ArchetypeChunk, GhostChunkSerializationState>(1024, Allocator.Persistent),
-                ClearHistory = new UnsafeParallelHashMap<int, uint>(256, Allocator.Persistent),
+                ClearHistory = new UnsafeParallelHashMap<int, NetworkTick>(256, Allocator.Persistent),
 #if NETCODE_DEBUG
                 NetDebugPacket = new NetDebugPacket(),
 #endif
@@ -432,7 +429,7 @@ namespace Unity.NetCode.LowLevel.Unsafe
 
         public Entity Entity;
         public UnsafeParallelHashMap<ArchetypeChunk, GhostChunkSerializationState> SerializationState;
-        public UnsafeParallelHashMap<int, uint> ClearHistory;
+        public UnsafeParallelHashMap<int, NetworkTick> ClearHistory;
 #if NETCODE_DEBUG
         public NetDebugPacket NetDebugPacket;
 #endif

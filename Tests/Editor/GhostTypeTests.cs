@@ -13,9 +13,10 @@ namespace Unity.NetCode.Tests
 {
     public class GhostTypeIndexConverter : TestNetCodeAuthoring.IConverter
     {
-        public void Convert(GameObject gameObject, Entity entity, EntityManager dstManager, GameObjectConversionSystem conversionSystem)
+        public void Bake(GameObject gameObject, IBaker baker)
         {
-            dstManager.AddComponentData(entity, new GhostTypeIndex {Value = gameObject.name == "GhostTypeIndex1Test" ? 1 : 0});
+            baker.DependsOn(gameObject);
+            baker.AddComponent(new GhostTypeIndex {Value = gameObject.name == "GhostTypeIndex1Test" ? 1 : 0});
         }
     }
 

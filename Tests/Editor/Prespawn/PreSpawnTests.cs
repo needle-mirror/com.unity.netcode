@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Text.RegularExpressions;
@@ -20,27 +20,25 @@ namespace Unity.NetCode.PrespawnTests
     {}
 
     [DisableAutoCreation]
+    [WorldSystemFilter(WorldSystemFilterFlags.ClientSimulation | WorldSystemFilterFlags.ServerSimulation)]
     public partial class VerifyGhostIds : SystemBase
     {
         public int Matches = 0;
         public static int GhostsPerScene = 7;
+        private EntityQuery _ghostComponentQuery;
+        private EntityQuery _preSpawnedGhostIdsQuery;
 
         protected override void OnCreate()
         {
-            RequireSingletonForUpdate<EnableVerifyGhostIds>();
+            RequireForUpdate<EnableVerifyGhostIds>();
+            _ghostComponentQuery = GetEntityQuery(typeof(GhostComponent), typeof(PreSpawnedGhostIndex));
+            _preSpawnedGhostIdsQuery = GetEntityQuery(typeof(GhostComponent), typeof(PreSpawnedGhostIndex));
         }
 
         protected override void OnUpdate()
         {
-            var ghosts = EntityManager.CreateEntityQuery(typeof(GhostComponent), typeof(PreSpawnedGhostIndex))
-                .ToEntityArrayAsync(Allocator.TempJob, out var ghostsJobHandle);
-            var ghostComponents = EntityManager.CreateEntityQuery(typeof(GhostComponent), typeof(PreSpawnedGhostIndex))
-                .ToComponentDataArrayAsync<GhostComponent>(Allocator.TempJob, out var ghostComponentsJobHandle);
-            var preSpawnedGhostIds = EntityManager.CreateEntityQuery(typeof(GhostComponent), typeof(PreSpawnedGhostIndex))
-                .ToComponentDataArrayAsync<PreSpawnedGhostIndex>(Allocator.TempJob, out var preSpawnedGhostIdsJobHandle);
-            JobHandle.CombineDependencies(ghostsJobHandle, ghostComponentsJobHandle, preSpawnedGhostIdsJobHandle)
-                .Complete();
-            using (ghosts)
+            var ghostComponents = _ghostComponentQuery.ToComponentDataArray<GhostComponent>(Allocator.TempJob);
+            var preSpawnedGhostIds = _preSpawnedGhostIdsQuery.ToComponentDataArray<PreSpawnedGhostIndex>(Allocator.TempJob);
             using (ghostComponents)
             using (preSpawnedGhostIds)
             {
@@ -72,40 +70,8 @@ namespace Unity.NetCode.PrespawnTests
         }
     }
 
-    public class PreSpawnTests
+    public class PreSpawnTests : TestWithSceneAsset
     {
-        private string m_TempAssetDir = "Assets/Tests/PreSpawn";
-        private List<string> m_ExistingCacheFiles;
-        private System.DateTime LastWriteTime;
-
-        [SetUp]
-        public void SetUp()
-        {
-            m_ExistingCacheFiles = new List<string>();
-            if (Directory.Exists(Application.dataPath + "/SceneDependencyCache"))
-            {
-                m_ExistingCacheFiles.AddRange(Directory.GetFiles(Application.dataPath + "/SceneDependencyCache"));
-            }
-            Directory.CreateDirectory(m_TempAssetDir);
-            LastWriteTime = Directory.GetLastWriteTime(Application.dataPath + m_TempAssetDir);
-        }
-
-        [TearDown]
-        public void Teardown()
-        {
-            AssetDatabase.DeleteAsset(m_TempAssetDir);
-            // Subscenes create these cache files, cleanup files newer than the test start timestamp
-            if (Directory.Exists(Application.dataPath + "/SceneDependencyCache"))
-            {
-                var currentCache = Directory.GetFiles(Application.dataPath + "/SceneDependencyCache");
-                foreach (var file in currentCache)
-                {
-                    if(File.GetCreationTime(file) > LastWriteTime)
-                        File.Delete(file);
-                }
-            }
-        }
-
         void CheckAllPrefabsInWorlds(NetCodeTestWorld testWorld)
         {
             CheckAllPrefabsInWorld(testWorld.ServerWorld);
@@ -118,13 +84,13 @@ namespace Unity.NetCode.PrespawnTests
             Assert.IsFalse(world.EntityManager.CreateEntityQuery(new EntityQueryDesc
                 {
                     All = new [] {ComponentType.ReadOnly<PreSpawnedGhostIndex>()},
-                    Options = EntityQueryOptions.IncludeDisabled
+                    Options = EntityQueryOptions.IncludeDisabledEntities
                 }).IsEmptyIgnoreFilter);
             Assert.IsFalse(world.EntityManager.CreateEntityQuery(
                 new EntityQueryDesc
                 {
                     All = new [] {ComponentType.ReadOnly<NetCodePrespawnTag>()},
-                    Options = EntityQueryOptions.IncludeDisabled
+                    Options = EntityQueryOptions.IncludeDisabledEntities
                 }).IsEmptyIgnoreFilter);
             //Check that prefab that does not have the NetCodePrespawnTag does not have any PreSpawnedGhostId
             var query = world.EntityManager.CreateEntityQuery(
@@ -139,7 +105,7 @@ namespace Unity.NetCode.PrespawnTests
                     {
                         ComponentType.ReadOnly<NetCodePrespawnTag>()
                     },
-                    Options = EntityQueryOptions.IncludeDisabled
+                    Options = EntityQueryOptions.IncludeDisabledEntities
                 });
             Assert.IsTrue(query.IsEmptyIgnoreFilter);
         }
@@ -148,11 +114,10 @@ namespace Unity.NetCode.PrespawnTests
         [Test]
         public void PrespawnIdComponentDoesntLeaksToOtherEntitiesInScene()
         {
-            var prefab = SubSceneHelper.CreateSimplePrefab(m_TempAssetDir, "nonghost");
-            var ghost = SubSceneHelper.CreateSimplePrefab(m_TempAssetDir, "ghost", typeof(GhostAuthoringComponent), typeof(NetCodePrespawnAuthoring));
-            var scene = SubSceneHelper.CreateEmptyScene(m_TempAssetDir, "Parent");
-            var subScene = SubSceneHelper.CreateSubScene(Path.GetDirectoryName(scene.path), "Sub0", 5, 5, ghost, Vector3.zero);
-            SubSceneHelper.AddSubSceneToParentScene(scene, subScene);
+            var prefab = SubSceneHelper.CreateSimplePrefab(ScenePath, "nonghost");
+            var ghost = SubSceneHelper.CreateSimplePrefab(ScenePath, "ghost", typeof(GhostAuthoringComponent), typeof(NetCodePrespawnAuthoring));
+            var scene = SubSceneHelper.CreateEmptyScene(ScenePath, "Parent");
+            var subScene = SubSceneHelper.CreateSubScene(scene, Path.GetDirectoryName(scene.path), "Sub0", 5, 5, ghost, Vector3.zero);
             for (int i = 0; i < 10; ++i)
             {
                 var go = (GameObject)PrefabUtility.InstantiatePrefab(prefab);
@@ -173,15 +138,13 @@ namespace Unity.NetCode.PrespawnTests
         [Test]
         public void PrespawnIdComponentDoesntLeaksToOtherEntitiesInSubScene()
         {
-            var prefab = SubSceneHelper.CreateSimplePrefab(m_TempAssetDir, "nonghost");
-            var ghost = SubSceneHelper.CreateSimplePrefab(m_TempAssetDir, "ghost", typeof(GhostAuthoringComponent), typeof(NetCodePrespawnAuthoring));
-            var scene = SubSceneHelper.CreateEmptyScene(m_TempAssetDir, "Parent");
-            var subScene0 = SubSceneHelper.CreateSubScene(Path.GetDirectoryName(scene.path), "Sub0", 5, 5, ghost,
+            var prefab = SubSceneHelper.CreateSimplePrefab(ScenePath, "nonghost");
+            var ghost = SubSceneHelper.CreateSimplePrefab(ScenePath, "ghost", typeof(GhostAuthoringComponent), typeof(NetCodePrespawnAuthoring));
+            var scene = SubSceneHelper.CreateEmptyScene(ScenePath, "Parent");
+            SubSceneHelper.CreateSubScene(scene,Path.GetDirectoryName(scene.path), "Sub0", 5, 5, ghost,
                 new Vector3(0f, 0f, 0f));
-            var subScene1 = SubSceneHelper.CreateSubScene(Path.GetDirectoryName(scene.path), "Sub1", 5, 5, prefab,
+            SubSceneHelper.CreateSubScene(scene,Path.GetDirectoryName(scene.path), "Sub1", 5, 5, prefab,
                 new Vector3(5f, 0f, 0f));
-            SubSceneHelper.AddSubSceneToParentScene(scene, subScene0);
-            SubSceneHelper.AddSubSceneToParentScene(scene, subScene1);
             SceneManager.SetActiveScene(scene);
             using (var testWorld = new NetCodeTestWorld())
             {
@@ -195,9 +158,8 @@ namespace Unity.NetCode.PrespawnTests
         [Test]
         public void WithNoPrespawnsScenesAreNotInitialized()
         {
-            var scene = SubSceneHelper.CreateEmptyScene(m_TempAssetDir, "Parent");
-            var subScene0 = SubSceneHelper.CreateSubScene(Path.GetDirectoryName(scene.path), "Sub0", 0, 0, null, Vector3.zero);
-            SubSceneHelper.AddSubSceneToParentScene(scene, subScene0);
+            var scene = SubSceneHelper.CreateEmptyScene(ScenePath, "Parent");
+            SubSceneHelper.CreateSubScene(scene,Path.GetDirectoryName(scene.path), "Sub0", 0, 0, null, Vector3.zero);
             SceneManager.SetActiveScene(scene);
             using (var testWorld = new NetCodeTestWorld())
             {
@@ -218,10 +180,9 @@ namespace Unity.NetCode.PrespawnTests
         public void VerifyPreSpawnIDsAreApplied()
         {
             VerifyGhostIds.GhostsPerScene = 25;
-            var ghost = SubSceneHelper.CreateSimplePrefab(m_TempAssetDir, "ghost", typeof(GhostAuthoringComponent));
-            var scene = SubSceneHelper.CreateEmptyScene(m_TempAssetDir, "Parent");
-            var subScene = SubSceneHelper.CreateSubScene(Path.GetDirectoryName(scene.path), "Sub0", 5, 5, ghost, Vector3.zero);
-            SubSceneHelper.AddSubSceneToParentScene(scene, subScene);
+            var ghost = SubSceneHelper.CreateSimplePrefab(ScenePath, "ghost", typeof(GhostAuthoringComponent));
+            var scene = SubSceneHelper.CreateEmptyScene(ScenePath, "Parent");
+            SubSceneHelper.CreateSubScene(scene,Path.GetDirectoryName(scene.path), "Sub0", 5, 5, ghost, Vector3.zero);
             SceneManager.SetActiveScene(scene);
             using (var testWorld = new NetCodeTestWorld())
             {
@@ -235,16 +196,16 @@ namespace Unity.NetCode.PrespawnTests
                 for(int i=0;i<64;++i)
                 {
                     testWorld.Tick(1.0f / 60f);
-                    if (testWorld.ServerWorld.GetExistingSystem<VerifyGhostIds>().Matches == VerifyGhostIds.GhostsPerScene &&
-                        testWorld.ClientWorlds[0].GetExistingSystem<VerifyGhostIds>().Matches == VerifyGhostIds.GhostsPerScene)
+                    if (testWorld.ServerWorld.GetExistingSystemManaged<VerifyGhostIds>().Matches == VerifyGhostIds.GhostsPerScene &&
+                        testWorld.ClientWorlds[0].GetExistingSystemManaged<VerifyGhostIds>().Matches == VerifyGhostIds.GhostsPerScene)
                         break;
                 }
                 var prespawned = testWorld.ServerWorld.EntityManager.CreateEntityQuery(typeof(PreSpawnedGhostIndex)).CalculateEntityCount();
                 Assert.AreEqual(VerifyGhostIds.GhostsPerScene, prespawned, "Didn't find expected amount of prespawned entities in the server subscene");
                 prespawned = testWorld.ClientWorlds[0].EntityManager.CreateEntityQuery(typeof(PreSpawnedGhostIndex)).CalculateEntityCount();
                 Assert.AreEqual(VerifyGhostIds.GhostsPerScene, prespawned, "Didn't find expected amount of prespawned entities in the client subscene");
-                Assert.AreEqual(VerifyGhostIds.GhostsPerScene, testWorld.ServerWorld.GetExistingSystem<VerifyGhostIds>().Matches, "Prespawn components added but didn't get ghost ID applied at runtime on server");
-                Assert.AreEqual(VerifyGhostIds.GhostsPerScene, testWorld.ClientWorlds[0].GetExistingSystem<VerifyGhostIds>().Matches, "Prespawn components added but didn't get ghost ID applied at runtime on client");
+                Assert.AreEqual(VerifyGhostIds.GhostsPerScene, testWorld.ServerWorld.GetExistingSystemManaged<VerifyGhostIds>().Matches, "Prespawn components added but didn't get ghost ID applied at runtime on server");
+                Assert.AreEqual(VerifyGhostIds.GhostsPerScene, testWorld.ClientWorlds[0].GetExistingSystemManaged<VerifyGhostIds>().Matches, "Prespawn components added but didn't get ghost ID applied at runtime on client");
             }
         }
 
@@ -252,11 +213,9 @@ namespace Unity.NetCode.PrespawnTests
         public void DestroyedPreSpawnedObjectsCleanup()
         {
             VerifyGhostIds.GhostsPerScene = 7;
-            var ghost = SubSceneHelper.CreateSimplePrefab(m_TempAssetDir, "ghost", typeof(GhostAuthoringComponent));
-            var scene = SubSceneHelper.CreateEmptyScene(m_TempAssetDir, "Parent");
-            var subScene = SubSceneHelper.CreateSubScene(Path.GetDirectoryName(scene.path), "Sub0", 1, VerifyGhostIds.GhostsPerScene,
-                ghost, Vector3.zero);
-            SubSceneHelper.AddSubSceneToParentScene(scene, subScene);
+            var ghost = SubSceneHelper.CreateSimplePrefab(ScenePath, "ghost", typeof(GhostAuthoringComponent));
+            var scene = SubSceneHelper.CreateEmptyScene(ScenePath, "Parent");
+            SubSceneHelper.CreateSubScene(scene,Path.GetDirectoryName(scene.path), "Sub0", 1, VerifyGhostIds.GhostsPerScene, ghost, Vector3.zero);
             SceneManager.SetActiveScene(scene);
 
             using (var testWorld = new NetCodeTestWorld())
@@ -295,7 +254,7 @@ namespace Unity.NetCode.PrespawnTests
                 var query = testWorld.ClientWorlds[1].EntityManager.CreateEntityQuery(new EntityQueryDesc
                 {
                     All = new [] {ComponentType.ReadOnly<PreSpawnedGhostIndex>()},
-                    Options = EntityQueryOptions.IncludeDisabled
+                    Options = EntityQueryOptions.IncludeDisabledEntities
                 });
                 prespawnedCount = query.CalculateEntityCount();
                 for (int i = 0; i < 128; ++i)
@@ -329,11 +288,10 @@ namespace Unity.NetCode.PrespawnTests
         public void GhostCleanup()
         {
             VerifyGhostIds.GhostsPerScene = 7;
-            var ghost = SubSceneHelper.CreateSimplePrefab(m_TempAssetDir, "ghost", typeof(GhostAuthoringComponent));
-            var scene = SubSceneHelper.CreateEmptyScene(m_TempAssetDir, "Parent");
-            var subScene = SubSceneHelper.CreateSubScene(Path.GetDirectoryName(scene.path), "Sub0", 1, VerifyGhostIds.GhostsPerScene,
+            var ghost = SubSceneHelper.CreateSimplePrefab(ScenePath, "ghost", typeof(GhostAuthoringComponent));
+            var scene = SubSceneHelper.CreateEmptyScene(ScenePath, "Parent");
+            SubSceneHelper.CreateSubScene(scene,Path.GetDirectoryName(scene.path), "Sub0", 1, VerifyGhostIds.GhostsPerScene,
                 ghost, Vector3.zero);
-            SubSceneHelper.AddSubSceneToParentScene(scene, subScene);
             SceneManager.SetActiveScene(scene);
 
             using (var testWorld = new NetCodeTestWorld())
@@ -409,14 +367,12 @@ namespace Unity.NetCode.PrespawnTests
         {
             const int GhostScenes = 3;
             VerifyGhostIds.GhostsPerScene = 4;
-            var ghost = SubSceneHelper.CreateSimplePrefab(m_TempAssetDir, "ghost", typeof(GhostAuthoringComponent));
-            var scene = SubSceneHelper.CreateEmptyScene(m_TempAssetDir, "Parent");
+            var ghost = SubSceneHelper.CreateSimplePrefab(ScenePath, "ghost", typeof(GhostAuthoringComponent));
+            var scene = SubSceneHelper.CreateEmptyScene(ScenePath, "Parent");
             for (int i = 0; i < GhostScenes; ++i)
             {
-                var subScene = SubSceneHelper.CreateSubScene(Path.GetDirectoryName(scene.path), $"Sub_{i}", 2, 2, ghost,
-                    new Vector3(i*2.0f, 0.0f, 0.0f));
-                SubSceneHelper.AddSubSceneToParentScene(scene, subScene);
-            }
+                SubSceneHelper.CreateSubScene(scene,Path.GetDirectoryName(scene.path), $"Sub_{i}", 2, 2, ghost,
+                    new Vector3(i*2.0f, 0.0f, 0.0f)); }
             SceneManager.SetActiveScene(scene);
             using (var testWorld = new NetCodeTestWorld())
             {
@@ -435,23 +391,23 @@ namespace Unity.NetCode.PrespawnTests
                 Assert.AreEqual(prespawnedGhostCount, prespawned, "Didn't find expected amount of prespawned entities in the server subscene");
                 prespawned = testWorld.ClientWorlds[0].EntityManager.CreateEntityQuery(typeof(PreSpawnedGhostIndex)).CalculateEntityCount();
                 Assert.AreEqual(prespawnedGhostCount, prespawned, "Didn't find expected amount of prespawned entities in the client subscene");
-                Assert.AreEqual(prespawnedGhostCount, testWorld.ServerWorld.GetExistingSystem<VerifyGhostIds>().Matches, "Prespawn components added but didn't get ghost ID applied at runtime on server");
-                Assert.AreEqual(prespawnedGhostCount, testWorld.ClientWorlds[0].GetExistingSystem<VerifyGhostIds>().Matches, "Prespawn components added but didn't get ghost ID applied at runtime on client");
+                Assert.AreEqual(prespawnedGhostCount, testWorld.ServerWorld.GetExistingSystemManaged<VerifyGhostIds>().Matches, "Prespawn components added but didn't get ghost ID applied at runtime on server");
+                Assert.AreEqual(prespawnedGhostCount, testWorld.ClientWorlds[0].GetExistingSystemManaged<VerifyGhostIds>().Matches, "Prespawn components added but didn't get ghost ID applied at runtime on client");
             }
         }
 
         [Test]
+        [Ignore("DOTS-6619 - Currently failing frequently in CI due to a timeout waiting for a UTP message")]
         public void ManyPrespawnedObjects()
         {
             const int SubSceneCount = 10;
             const int GhostsPerScene = 500;
-            var ghost = SubSceneHelper.CreateSimplePrefab(m_TempAssetDir, "ghost", typeof(GhostAuthoringComponent));
-            var scene = SubSceneHelper.CreateEmptyScene(m_TempAssetDir, "Parent");
+            var ghost = SubSceneHelper.CreateSimplePrefab(ScenePath, "ghost", typeof(GhostAuthoringComponent));
+            var scene = SubSceneHelper.CreateEmptyScene(ScenePath, "Parent");
             for (int i = 0; i < 10; ++i)
             {
-                var subScene = SubSceneHelper.CreateSubScene(Path.GetDirectoryName(scene.path), $"Sub_{i}", 10, 50, ghost,
+                SubSceneHelper.CreateSubScene(scene,Path.GetDirectoryName(scene.path), $"Sub_{i}", 10, 50, ghost,
                     new Vector3((i%5)*10f, 0.0f, (i/5)*50f));
-                SubSceneHelper.AddSubSceneToParentScene(scene, subScene);
             }
             SceneManager.SetActiveScene(scene);
             VerifyGhostIds.GhostsPerScene = GhostsPerScene;
@@ -468,8 +424,8 @@ namespace Unity.NetCode.PrespawnTests
                 for (int i=0; i<64;++i)
                 {
                     testWorld.Tick(1.0f / 60f);
-                    if (testWorld.ServerWorld.GetExistingSystem<VerifyGhostIds>().Matches == VerifyGhostIds.GhostsPerScene &&
-                        testWorld.ClientWorlds[0].GetExistingSystem<VerifyGhostIds>().Matches == VerifyGhostIds.GhostsPerScene)
+                    if (testWorld.ServerWorld.GetExistingSystemManaged<VerifyGhostIds>().Matches == VerifyGhostIds.GhostsPerScene &&
+                        testWorld.ClientWorlds[0].GetExistingSystemManaged<VerifyGhostIds>().Matches == VerifyGhostIds.GhostsPerScene)
                         break;
                 }
 
@@ -477,8 +433,8 @@ namespace Unity.NetCode.PrespawnTests
                 Assert.AreEqual(prespawnedGhostCount, prespawned, "Didn't find expected amount of prespawned entities in the server subscene");
                 prespawned = testWorld.ClientWorlds[0].EntityManager.CreateEntityQuery(typeof(PreSpawnedGhostIndex)).CalculateEntityCount();
                 Assert.AreEqual(prespawnedGhostCount, prespawned, "Didn't find expected amount of prespawned entities in the client subscene");
-                Assert.AreEqual(prespawnedGhostCount, testWorld.ServerWorld.GetExistingSystem<VerifyGhostIds>().Matches, "Prespawn components added but didn't get ghost ID applied at runtime on server");
-                Assert.AreEqual(prespawnedGhostCount, testWorld.ClientWorlds[0].GetExistingSystem<VerifyGhostIds>().Matches, "Prespawn components added but didn't get ghost ID applied at runtime on client");
+                Assert.AreEqual(prespawnedGhostCount, testWorld.ServerWorld.GetExistingSystemManaged<VerifyGhostIds>().Matches, "Prespawn components added but didn't get ghost ID applied at runtime on server");
+                Assert.AreEqual(prespawnedGhostCount, testWorld.ClientWorlds[0].GetExistingSystemManaged<VerifyGhostIds>().Matches, "Prespawn components added but didn't get ghost ID applied at runtime on client");
 
                 var clientGhosts = testWorld.ClientWorlds[0].EntityManager.CreateEntityQuery(typeof(GhostComponent), ComponentType.ReadOnly<PreSpawnedGhostIndex>())
                     .ToComponentDataArray<GhostComponent>(Allocator.Temp);
@@ -512,11 +468,10 @@ namespace Unity.NetCode.PrespawnTests
         [Test]
         public void PrefabVariantAreHandledCorrectly()
         {
-            var ghost = SubSceneHelper.CreateSimplePrefab(m_TempAssetDir, "ghost", typeof(GhostAuthoringComponent));
+            var ghost = SubSceneHelper.CreateSimplePrefab(ScenePath, "ghost", typeof(GhostAuthoringComponent));
             var variant = SubSceneHelper.CreatePrefabVariant(ghost);
-            var scene = SubSceneHelper.CreateEmptyScene(m_TempAssetDir, "Parent");
-            var subScene = SubSceneHelper.CreateSubSceneWithPrefabs(Path.GetDirectoryName(scene.path), "Sub0", new []{ghost, variant}, 5);
-            SubSceneHelper.AddSubSceneToParentScene(scene, subScene);
+            var scene = SubSceneHelper.CreateEmptyScene(ScenePath, "Parent");
+            SubSceneHelper.CreateSubSceneWithPrefabs(scene,Path.GetDirectoryName(scene.path), "Sub0", new []{ghost, variant}, 5);
             SceneManager.SetActiveScene(scene);
             VerifyGhostIds.GhostsPerScene = 10;
             using (var testWorld = new NetCodeTestWorld())
@@ -531,16 +486,16 @@ namespace Unity.NetCode.PrespawnTests
                 for(int i=0;i<64;++i)
                 {
                     testWorld.Tick(1.0f / 60f);
-                    if (testWorld.ServerWorld.GetExistingSystem<VerifyGhostIds>().Matches == VerifyGhostIds.GhostsPerScene &&
-                        testWorld.ClientWorlds[0].GetExistingSystem<VerifyGhostIds>().Matches == VerifyGhostIds.GhostsPerScene)
+                    if (testWorld.ServerWorld.GetExistingSystemManaged<VerifyGhostIds>().Matches == VerifyGhostIds.GhostsPerScene &&
+                        testWorld.ClientWorlds[0].GetExistingSystemManaged<VerifyGhostIds>().Matches == VerifyGhostIds.GhostsPerScene)
                         break;
                 }
                 var prespawned = testWorld.ServerWorld.EntityManager.CreateEntityQuery(typeof(PreSpawnedGhostIndex)).CalculateEntityCount();
                 Assert.AreEqual(VerifyGhostIds.GhostsPerScene, prespawned, "Didn't find expected amount of prespawned entities in the server subscene");
                 prespawned = testWorld.ClientWorlds[0].EntityManager.CreateEntityQuery(typeof(PreSpawnedGhostIndex)).CalculateEntityCount();
                 Assert.AreEqual(VerifyGhostIds.GhostsPerScene, prespawned, "Didn't find expected amount of prespawned entities in the client subscene");
-                Assert.AreEqual(VerifyGhostIds.GhostsPerScene, testWorld.ServerWorld.GetExistingSystem<VerifyGhostIds>().Matches, "Prespawn components added but didn't get ghost ID applied at runtime on server");
-                Assert.AreEqual(VerifyGhostIds.GhostsPerScene, testWorld.ClientWorlds[0].GetExistingSystem<VerifyGhostIds>().Matches, "Prespawn components added but didn't get ghost ID applied at runtime on client");
+                Assert.AreEqual(VerifyGhostIds.GhostsPerScene, testWorld.ServerWorld.GetExistingSystemManaged<VerifyGhostIds>().Matches, "Prespawn components added but didn't get ghost ID applied at runtime on server");
+                Assert.AreEqual(VerifyGhostIds.GhostsPerScene, testWorld.ClientWorlds[0].GetExistingSystemManaged<VerifyGhostIds>().Matches, "Prespawn components added but didn't get ghost ID applied at runtime on client");
             }
         }
 
@@ -550,9 +505,8 @@ namespace Unity.NetCode.PrespawnTests
         {
             var prefab = AssetDatabase.LoadAssetAtPath<GameObject>("Assets/Tests/PrespawnTests/Whitebox_Ground_1600x1600_A.prefab");
             var variant = AssetDatabase.LoadAssetAtPath<GameObject>("Assets/Tests/PrespawnTests/Whitebox_Ground_1600x1600_A Variant.prefab");
-            var scene = SubSceneHelper.CreateEmptyScene(m_TempAssetDir, "Parent");
-            var subScene = SubSceneHelper.CreateSubSceneWithPrefabs(Path.GetDirectoryName(scene.path), "Sub0", new []{prefab, variant}, 2);
-            SubSceneHelper.AddSubSceneToParentScene(scene, subScene);
+            var scene = SubSceneHelper.CreateEmptyScene(ScenePath, "Parent");
+            SubSceneHelper.CreateSubSceneWithPrefabs(scene,Path.GetDirectoryName(scene.path), "Sub0", new []{prefab, variant}, 2);
             SceneManager.SetActiveScene(scene);
             VerifyGhostIds.GhostsPerScene = 4;
             using (var testWorld = new NetCodeTestWorld())
@@ -567,28 +521,26 @@ namespace Unity.NetCode.PrespawnTests
                 for(int i=0;i<64;++i)
                 {
                     testWorld.Tick(1.0f / 60f);
-                    if (testWorld.ServerWorld.GetExistingSystem<VerifyGhostIds>().Matches == VerifyGhostIds.GhostsPerScene &&
-                        testWorld.ClientWorlds[0].GetExistingSystem<VerifyGhostIds>().Matches == VerifyGhostIds.GhostsPerScene)
+                    if (testWorld.ServerWorld.GetExistingSystemManaged<VerifyGhostIds>().Matches == VerifyGhostIds.GhostsPerScene &&
+                        testWorld.ClientWorlds[0].GetExistingSystemManaged<VerifyGhostIds>().Matches == VerifyGhostIds.GhostsPerScene)
                         break;
                 }
                 var prespawned = testWorld.ServerWorld.EntityManager.CreateEntityQuery(typeof(PreSpawnedGhostIndex)).CalculateEntityCount();
                 Assert.AreEqual(VerifyGhostIds.GhostsPerScene, prespawned, "Didn't find expected amount of prespawned entities in the server subscene");
                 prespawned = testWorld.ClientWorlds[0].EntityManager.CreateEntityQuery(typeof(PreSpawnedGhostIndex)).CalculateEntityCount();
                 Assert.AreEqual(VerifyGhostIds.GhostsPerScene, prespawned, "Didn't find expected amount of prespawned entities in the client subscene");
-                Assert.AreEqual(VerifyGhostIds.GhostsPerScene, testWorld.ServerWorld.GetExistingSystem<VerifyGhostIds>().Matches, "Prespawn components added but didn't get ghost ID applied at runtime on server");
-                Assert.AreEqual(VerifyGhostIds.GhostsPerScene, testWorld.ClientWorlds[0].GetExistingSystem<VerifyGhostIds>().Matches, "Prespawn components added but didn't get ghost ID applied at runtime on client");
+                Assert.AreEqual(VerifyGhostIds.GhostsPerScene, testWorld.ServerWorld.GetExistingSystemManaged<VerifyGhostIds>().Matches, "Prespawn components added but didn't get ghost ID applied at runtime on server");
+                Assert.AreEqual(VerifyGhostIds.GhostsPerScene, testWorld.ClientWorlds[0].GetExistingSystemManaged<VerifyGhostIds>().Matches, "Prespawn components added but didn't get ghost ID applied at runtime on client");
             }
         }
 
         [Test]
         public void MulitpleSubScenesWithSameObjectsPositionAreHandledCorrectly()
         {
-            var ghost = SubSceneHelper.CreateSimplePrefab(m_TempAssetDir, "ghost", typeof(GhostAuthoringComponent));
-            var scene = SubSceneHelper.CreateEmptyScene(m_TempAssetDir, "Parent");
-            var subScene0 = SubSceneHelper.CreateSubScene(Path.GetDirectoryName(scene.path), "Sub0", 1, 5, ghost, Vector3.zero);
-            var subScene1 = SubSceneHelper.CreateSubScene(Path.GetDirectoryName(scene.path), "Sub1", 1, 5, ghost, Vector3.zero);
-            SubSceneHelper.AddSubSceneToParentScene(scene, subScene0);
-            SubSceneHelper.AddSubSceneToParentScene(scene, subScene1);
+            var ghost = SubSceneHelper.CreateSimplePrefab(ScenePath, "ghost", typeof(GhostAuthoringComponent));
+            var scene = SubSceneHelper.CreateEmptyScene(ScenePath, "Parent");
+            SubSceneHelper.CreateSubScene(scene,Path.GetDirectoryName(scene.path), "Sub0", 1, 5, ghost, Vector3.zero);
+            SubSceneHelper.CreateSubScene(scene,Path.GetDirectoryName(scene.path), "Sub1", 1, 5, ghost, Vector3.zero);
             SceneManager.SetActiveScene(scene);
             VerifyGhostIds.GhostsPerScene = 5;
             var totalPrespawned = 2 * VerifyGhostIds.GhostsPerScene;
@@ -604,27 +556,26 @@ namespace Unity.NetCode.PrespawnTests
                 for(int i=0;i<64;++i)
                 {
                     testWorld.Tick(1.0f / 60f);
-                    if (testWorld.ServerWorld.GetExistingSystem<VerifyGhostIds>().Matches == VerifyGhostIds.GhostsPerScene &&
-                        testWorld.ClientWorlds[0].GetExistingSystem<VerifyGhostIds>().Matches == VerifyGhostIds.GhostsPerScene)
+                    if (testWorld.ServerWorld.GetExistingSystemManaged<VerifyGhostIds>().Matches == VerifyGhostIds.GhostsPerScene &&
+                        testWorld.ClientWorlds[0].GetExistingSystemManaged<VerifyGhostIds>().Matches == VerifyGhostIds.GhostsPerScene)
                         break;
                 }
                 var prespawned = testWorld.ServerWorld.EntityManager.CreateEntityQuery(typeof(PreSpawnedGhostIndex)).CalculateEntityCount();
                 Assert.AreEqual(totalPrespawned, prespawned, "Didn't find expected amount of prespawned entities in the server subscene");
                 prespawned = testWorld.ClientWorlds[0].EntityManager.CreateEntityQuery(typeof(PreSpawnedGhostIndex)).CalculateEntityCount();
                 Assert.AreEqual(totalPrespawned, prespawned, "Didn't find expected amount of prespawned entities in the client subscene");
-                Assert.AreEqual(totalPrespawned, testWorld.ServerWorld.GetExistingSystem<VerifyGhostIds>().Matches, "Prespawn components added but didn't get ghost ID applied at runtime on server");
-                Assert.AreEqual(totalPrespawned, testWorld.ClientWorlds[0].GetExistingSystem<VerifyGhostIds>().Matches, "Prespawn components added but didn't get ghost ID applied at runtime on client");
+                Assert.AreEqual(totalPrespawned, testWorld.ServerWorld.GetExistingSystemManaged<VerifyGhostIds>().Matches, "Prespawn components added but didn't get ghost ID applied at runtime on server");
+                Assert.AreEqual(totalPrespawned, testWorld.ClientWorlds[0].GetExistingSystemManaged<VerifyGhostIds>().Matches, "Prespawn components added but didn't get ghost ID applied at runtime on client");
             }
         }
 
         [Test]
         public void MismatchedPrespawnClientServerScenesCantConnect()
         {
-            var ghost = SubSceneHelper.CreateSimplePrefab(m_TempAssetDir, "ghost", typeof(GhostAuthoringComponent));
-            var parentScene = SubSceneHelper.CreateEmptyScene(m_TempAssetDir, "Scene1");
-            var scene = SubSceneHelper.CreateSubScene(Path.GetDirectoryName(parentScene.path), $"SubScene1", 10, 50, ghost,
+            var ghost = SubSceneHelper.CreateSimplePrefab(ScenePath, "ghost", typeof(GhostAuthoringComponent));
+            var parentScene = SubSceneHelper.CreateEmptyScene(ScenePath, "Scene1");
+            var subScene = SubSceneHelper.CreateSubScene(parentScene, Path.GetDirectoryName(parentScene.path), $"SubScene1", 10, 50, ghost,
                     Vector3.zero);
-            var subScene = SubSceneHelper.AddSubSceneToParentScene(parentScene, scene);
             SceneManager.SetActiveScene(parentScene);
 
             using (var testWorld = new NetCodeTestWorld())
@@ -664,10 +615,9 @@ namespace Unity.NetCode.PrespawnTests
         [Test]
         public void ServerTickWrapAroundDoesnNotCauseIssue()
         {
-            var ghost = SubSceneHelper.CreateSimplePrefab(m_TempAssetDir, "ghost", typeof(GhostAuthoringComponent));
-            var scene = SubSceneHelper.CreateEmptyScene(m_TempAssetDir, "Parent");
-            var subScene = SubSceneHelper.CreateSubSceneWithPrefabs(Path.GetDirectoryName(scene.path), "Sub0", new []{ghost}, 5);
-            SubSceneHelper.AddSubSceneToParentScene(scene, subScene);
+            var ghost = SubSceneHelper.CreateSimplePrefab(ScenePath, "ghost", typeof(GhostAuthoringComponent));
+            var scene = SubSceneHelper.CreateEmptyScene(ScenePath, "Parent");
+            SubSceneHelper.CreateSubSceneWithPrefabs(scene,Path.GetDirectoryName(scene.path), "Sub0", new []{ghost}, 5);
             SceneManager.SetActiveScene(scene);
             VerifyGhostIds.GhostsPerScene = 5;
             using (var testWorld = new NetCodeTestWorld())
@@ -675,26 +625,26 @@ namespace Unity.NetCode.PrespawnTests
                 testWorld.Bootstrap(true, typeof(VerifyGhostIds));
                 testWorld.CreateWorlds(true, 1);
                 SubSceneHelper.LoadSubSceneInWorlds(testWorld);
-                testWorld.SetServerTick(UInt32.MaxValue - 16);
+                testWorld.SetServerTick(new NetworkTick((UInt32.MaxValue>>1) - 16));
                 testWorld.ServerWorld.EntityManager.CreateEntity(typeof(EnableVerifyGhostIds));
                 testWorld.ClientWorlds[0].EntityManager.CreateEntity(typeof(EnableVerifyGhostIds));
                 testWorld.Connect(1.0f / 60f, 4);
                 testWorld.GoInGame();
                 for(int i=0;i<32;++i)
                 {
-                    if (testWorld.ServerWorld.GetExistingSystem<ServerSimulationSystemGroup>().ServerTick >= UInt32.MaxValue - 3)
+                    if (testWorld.GetNetworkTime(testWorld.ServerWorld).ServerTick.TickIndexForValidTick >= (UInt32.MaxValue>>1) - 3)
                         testWorld.SpawnOnServer(0);
                     testWorld.Tick(1.0f / 60f);
-                    if (testWorld.ServerWorld.GetExistingSystem<VerifyGhostIds>().Matches == VerifyGhostIds.GhostsPerScene &&
-                        testWorld.ClientWorlds[0].GetExistingSystem<VerifyGhostIds>().Matches == VerifyGhostIds.GhostsPerScene)
+                    if (testWorld.ServerWorld.GetExistingSystemManaged<VerifyGhostIds>().Matches == VerifyGhostIds.GhostsPerScene &&
+                        testWorld.ClientWorlds[0].GetExistingSystemManaged<VerifyGhostIds>().Matches == VerifyGhostIds.GhostsPerScene)
                         break;
                 }
                 var prespawned = testWorld.ServerWorld.EntityManager.CreateEntityQuery(typeof(PreSpawnedGhostIndex)).CalculateEntityCount();
                 Assert.AreEqual(VerifyGhostIds.GhostsPerScene, prespawned, "Didn't find expected amount of prespawned entities in the server subscene");
                 prespawned = testWorld.ClientWorlds[0].EntityManager.CreateEntityQuery(typeof(PreSpawnedGhostIndex)).CalculateEntityCount();
                 Assert.AreEqual(VerifyGhostIds.GhostsPerScene, prespawned, "Didn't find expected amount of prespawned entities in the client subscene");
-                Assert.AreEqual(VerifyGhostIds.GhostsPerScene, testWorld.ServerWorld.GetExistingSystem<VerifyGhostIds>().Matches, "Prespawn components added but didn't get ghost ID applied at runtime on server");
-                Assert.AreEqual(VerifyGhostIds.GhostsPerScene, testWorld.ClientWorlds[0].GetExistingSystem<VerifyGhostIds>().Matches, "Prespawn components added but didn't get ghost ID applied at runtime on client");
+                Assert.AreEqual(VerifyGhostIds.GhostsPerScene, testWorld.ServerWorld.GetExistingSystemManaged<VerifyGhostIds>().Matches, "Prespawn components added but didn't get ghost ID applied at runtime on server");
+                Assert.AreEqual(VerifyGhostIds.GhostsPerScene, testWorld.ClientWorlds[0].GetExistingSystemManaged<VerifyGhostIds>().Matches, "Prespawn components added but didn't get ghost ID applied at runtime on client");
             }
         }
 
@@ -703,11 +653,10 @@ namespace Unity.NetCode.PrespawnTests
         {
             int rows = 5;
             int columns = 2;
-            var ghost = SubSceneHelper.CreateSimplePrefab(m_TempAssetDir, "ghost", typeof(GhostAuthoringComponent));
-            var parentScene = SubSceneHelper.CreateEmptyScene(m_TempAssetDir, "Scene1");
-            var scene = SubSceneHelper.CreateSubScene(Path.GetDirectoryName(parentScene.path), $"SubScene1", rows, columns, ghost,
+            var ghost = SubSceneHelper.CreateSimplePrefab(ScenePath, "ghost", typeof(GhostAuthoringComponent));
+            var parentScene = SubSceneHelper.CreateEmptyScene(ScenePath, "Scene1");
+            var subScene = SubSceneHelper.CreateSubScene(parentScene, Path.GetDirectoryName(parentScene.path), $"SubScene1", rows, columns, ghost,
                     Vector3.zero);
-            var subScene = SubSceneHelper.AddSubSceneToParentScene(parentScene, scene);
             SceneManager.SetActiveScene(parentScene);
 
             using (var testWorld = new NetCodeTestWorld())
@@ -722,9 +671,9 @@ namespace Unity.NetCode.PrespawnTests
                 for(int i=0;i<16;++i)
                     testWorld.Tick(1.0f/60.0f);
 
-                testWorld.ServerWorld.GetExistingSystem<GhostSendSystem>().GhostRelevancyMode =
-                    GhostRelevancyMode.SetIsIrrelevant;
-                var relevancySet = testWorld.ServerWorld.GetExistingSystem<GhostSendSystem>().GhostRelevancySet;
+                ref var ghostRelevancy = ref testWorld.GetSingletonRW<GhostRelevancy>(testWorld.ServerWorld).ValueRW;
+                ghostRelevancy.GhostRelevancyMode = GhostRelevancyMode.SetIsIrrelevant;
+                var relevancySet = ghostRelevancy.GhostRelevancySet;
                 var query = testWorld.ServerWorld.EntityManager.CreateEntityQuery(
                     ComponentType.ReadOnly<GhostComponent>(), ComponentType.ReadOnly<PreSpawnedGhostIndex>());
                 var ghostComponents = query.ToComponentDataArray<GhostComponent>(Allocator.Temp);

@@ -1,77 +1,92 @@
-﻿using NUnit.Framework;
+﻿using System.Collections.Generic;
+using NUnit.Framework;
 using Unity.Collections;
 using Unity.Entities;
 using UnityEngine;
 
 namespace Unity.NetCode.Tests
 {
-    [GhostComponentVariation(typeof(HybridComponentWeWillOverride))]
+    [GhostComponentVariation(typeof(HybridComponentWeWillOverride), "Client Only")]
     [GhostComponent(PrefabType = GhostPrefabType.Client)]
     public struct HybridComponentWeWillOverrideVariant
     {
     }
+    [DisableAutoCreation]
+    class HybridComponentWeWillOverrideDefaultVariantSystem : DefaultVariantSystemBase
+    {
+        protected override void RegisterDefaultVariants(Dictionary<ComponentType, Rule> defaultVariants)
+        {
+            defaultVariants.Add(typeof(HybridComponentWeWillOverride), Rule.ForAll(typeof(HybridComponentWeWillOverrideVariant)));
+        }
+    }
 
     public class HybridComponentWeWillOverrideConverter : TestNetCodeAuthoring.IConverter
     {
-        public void Convert(GameObject gameObject, Entity entity, EntityManager dstManager, GameObjectConversionSystem conversionSystem)
+        public void Bake(GameObject gameObject, IBaker baker)
         {
-            dstManager.AddComponentObject(entity, gameObject.GetComponent<HybridComponentWeWillOverride>());
+#if !UNITY_DISABLE_MANAGED_COMPONENTS
+            baker.AddComponentObject(gameObject.GetComponent<HybridComponentWeWillOverride>());
+#endif
         }
     }
     public class ServerComponentDataConverter : TestNetCodeAuthoring.IConverter
     {
-        public void Convert(GameObject gameObject, Entity entity, EntityManager dstManager, GameObjectConversionSystem conversionSystem)
+        public void Bake(GameObject gameObject, IBaker baker)
         {
-            dstManager.AddComponentData(entity, new ServerComponentData {Value = 1});
+            baker.AddComponent(new ServerComponentData {Value = 1});
         }
     }
     public class ClientComponentDataConverter : TestNetCodeAuthoring.IConverter
     {
-        public void Convert(GameObject gameObject, Entity entity, EntityManager dstManager, GameObjectConversionSystem conversionSystem)
+        public void Bake(GameObject gameObject, IBaker baker)
         {
-            dstManager.AddComponentData(entity, new ClientComponentData {Value = 1});
+            baker.AddComponent(new ClientComponentData {Value = 1});
         }
     }
     public class InterpolatedClientComponentDataConverter : TestNetCodeAuthoring.IConverter
     {
-        public void Convert(GameObject gameObject, Entity entity, EntityManager dstManager, GameObjectConversionSystem conversionSystem)
+        public void Bake(GameObject gameObject, IBaker baker)
         {
-            dstManager.AddComponentData(entity, new InterpolatedClientComponentData {Value = 1});
+            baker.AddComponent(new InterpolatedClientComponentData {Value = 1});
         }
     }
     public class PredictedClientComponentDataConverter : TestNetCodeAuthoring.IConverter
     {
-        public void Convert(GameObject gameObject, Entity entity, EntityManager dstManager, GameObjectConversionSystem conversionSystem)
+        public void Bake(GameObject gameObject, IBaker baker)
         {
-            dstManager.AddComponentData(entity, new PredictedClientComponentData {Value = 1});
+            baker.AddComponent(new PredictedClientComponentData {Value = 1});
         }
     }
     public class AllPredictedComponentDataConverter : TestNetCodeAuthoring.IConverter
     {
-        public void Convert(GameObject gameObject, Entity entity, EntityManager dstManager, GameObjectConversionSystem conversionSystem)
+        public void Bake(GameObject gameObject, IBaker baker)
         {
-            dstManager.AddComponentData(entity, new AllPredictedComponentData {Value = 1});
+            baker.AddComponent(new AllPredictedComponentData {Value = 1});
         }
     }
     public class AllComponentDataConverter : TestNetCodeAuthoring.IConverter
     {
-        public void Convert(GameObject gameObject, Entity entity, EntityManager dstManager, GameObjectConversionSystem conversionSystem)
+        public void Bake(GameObject gameObject, IBaker baker)
         {
-            dstManager.AddComponentData(entity, new AllComponentData {Value = 1});
+            baker.AddComponent(new AllComponentData {Value = 1});
         }
     }
     public class ServerHybridComponentConverter : TestNetCodeAuthoring.IConverter
     {
-        public void Convert(GameObject gameObject, Entity entity, EntityManager dstManager, GameObjectConversionSystem conversionSystem)
+        public void Bake(GameObject gameObject, IBaker baker)
         {
-            dstManager.AddComponentObject(entity, gameObject.GetComponent<ServerHybridComponent>());
+#if !UNITY_DISABLE_MANAGED_COMPONENTS
+            baker.AddComponentObject(gameObject.GetComponent<ServerHybridComponent>());
+#endif
         }
     }
     public class ClientHybridComponentConverter : TestNetCodeAuthoring.IConverter
     {
-        public void Convert(GameObject gameObject, Entity entity, EntityManager dstManager, GameObjectConversionSystem conversionSystem)
+        public void Bake(GameObject gameObject, IBaker baker)
         {
-            dstManager.AddComponentObject(entity, gameObject.GetComponent<ClientHybridComponent>());
+#if !UNITY_DISABLE_MANAGED_COMPONENTS
+            baker.AddComponentObject(gameObject.GetComponent<ClientHybridComponent>());
+#endif
         }
     }
 
@@ -139,17 +154,20 @@ namespace Unity.NetCode.Tests
             }
         }
 
+
         [Test]
         public void ComponentsStrippedAccordingToGhostConfig()
         {
             using (var testWorld = new NetCodeTestWorld())
             {
+                testWorld.UserBakingSystems.Add(typeof(HybridComponentWeWillOverrideDefaultVariantSystem));
+
                 testWorld.Bootstrap(true);
 
                 var gameObject0 = new GameObject();
                 // SupportedGhostModes=All DefaultGhostMode=Interpolated
                 var ghostComponent = gameObject0.AddComponent<GhostAuthoringComponent>();
-                ghostComponent.SupportedGhostModes = GhostAuthoringComponent.GhostModeMask.All;
+                ghostComponent.SupportedGhostModes = GhostModeMask.All;
                 gameObject0.AddComponent<HybridComponentWeWillOverride>();
                 gameObject0.AddComponent<ClientHybridComponent>();
                 gameObject0.AddComponent<ServerHybridComponent>();
@@ -167,7 +185,7 @@ namespace Unity.NetCode.Tests
                 var gameObject1 = new GameObject();
                 // SupportedGhostModes=Predicted DefaultGhostMode=Interpolated
                 ghostComponent = gameObject1.AddComponent<GhostAuthoringComponent>();
-                ghostComponent.SupportedGhostModes = GhostAuthoringComponent.GhostModeMask.Predicted;
+                ghostComponent.SupportedGhostModes = GhostModeMask.Predicted;
                 gameObject1.AddComponent<ClientHybridComponent>();
                 gameObject1.AddComponent<ServerHybridComponent>();
                 gameObject1.AddComponent<TestNetCodeAuthoring>().Converter = new ServerHybridComponentConverter();
@@ -183,7 +201,7 @@ namespace Unity.NetCode.Tests
                 var gameObject2 = new GameObject();
                 // SupportedGhostModes=Interpolated DefaultGhostMode=Interpolated
                 ghostComponent = gameObject2.AddComponent<GhostAuthoringComponent>();
-                ghostComponent.SupportedGhostModes = GhostAuthoringComponent.GhostModeMask.Interpolated;
+                ghostComponent.SupportedGhostModes = GhostModeMask.Interpolated;
                 gameObject2.AddComponent<ClientHybridComponent>();
                 gameObject2.AddComponent<ServerHybridComponent>();
                 gameObject2.AddComponent<TestNetCodeAuthoring>().Converter = new ServerHybridComponentConverter();
@@ -205,18 +223,24 @@ namespace Unity.NetCode.Tests
                 testWorld.SpawnOnServer(gameObject1);
                 testWorld.SpawnOnServer(gameObject2);
 
+#if !UNITY_DISABLE_MANAGED_COMPONENTS
                 // HybridComponent which was configured as server but override changes it to client only
                 CheckComponent(testWorld.ServerWorld, ComponentType.ReadOnly<HybridComponentWeWillOverride>(), 0);
+#endif
 
                 // Server never has client type ghost components
                 CheckComponent(testWorld.ServerWorld, ComponentType.ReadOnly<ClientComponentData>(), 0);
+#if !UNITY_DISABLE_MANAGED_COMPONENTS
                 CheckComponent(testWorld.ServerWorld, ComponentType.ReadOnly<ClientHybridComponent>(), 0);
+#endif
                 CheckComponent(testWorld.ServerWorld, ComponentType.ReadOnly<InterpolatedClientComponentData>(), 0);
                 CheckComponent(testWorld.ServerWorld, ComponentType.ReadOnly<PredictedClientComponentData>(), 0);
 
                 // Server always has all+server type ghosts components
                 CheckComponent(testWorld.ServerWorld, ComponentType.ReadOnly<ServerComponentData>(), 3);
+#if !UNITY_DISABLE_MANAGED_COMPONENTS
                 CheckComponent(testWorld.ServerWorld, ComponentType.ReadOnly<ServerHybridComponent>(), 3);
+#endif
                 CheckComponent(testWorld.ServerWorld, ComponentType.ReadOnly<AllComponentData>(), 3);
                 CheckComponent(testWorld.ServerWorld, ComponentType.ReadOnly<AllPredictedComponentData>(), 3);
 
@@ -226,11 +250,15 @@ namespace Unity.NetCode.Tests
                 for (int i = 0; i < 64; ++i)
                     testWorld.Tick(frameTime);
 
+#if !UNITY_DISABLE_MANAGED_COMPONENTS
                 CheckComponent(testWorld.ClientWorlds[0], ComponentType.ReadOnly<HybridComponentWeWillOverride>(), 1);
+#endif
 
                 // On client, ghost never has server type components
                 CheckComponent(testWorld.ClientWorlds[0], ComponentType.ReadOnly<ServerComponentData>(), 0);
+#if !UNITY_DISABLE_MANAGED_COMPONENTS
                 CheckComponent(testWorld.ClientWorlds[0], ComponentType.ReadOnly<ServerHybridComponent>(), 0);
+#endif
 
                 // On client, ghost with Predicted SupportedGhostModes get the predicted components, DefaultGhostMode is Interpolated on the All type ghost
                 CheckComponent(testWorld.ClientWorlds[0], ComponentType.ReadOnly<PredictedClientComponentData>(), 1);
@@ -241,7 +269,9 @@ namespace Unity.NetCode.Tests
 
                 // All ghosts get the other type components
                 CheckComponent(testWorld.ClientWorlds[0], ComponentType.ReadOnly<ClientComponentData>(), 3);
+#if !UNITY_DISABLE_MANAGED_COMPONENTS
                 CheckComponent(testWorld.ClientWorlds[0], ComponentType.ReadOnly<ClientHybridComponent>(), 3);
+#endif
                 CheckComponent(testWorld.ClientWorlds[0], ComponentType.ReadOnly<AllComponentData>(), 3);
             }
         }

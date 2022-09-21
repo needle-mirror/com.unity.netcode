@@ -5,6 +5,8 @@ using System.Net;
 using System.Net.Sockets;
 using System.Security.Cryptography;
 using System.Text;
+using Unity.Collections;
+using Unity.Collections.LowLevel.Unsafe;
 
 namespace Unity.NetCode
 {
@@ -180,20 +182,20 @@ namespace Unity.NetCode
             m_connectionSocket = null;
         }
 
-        public void SendText(byte[] msg, int offset, int len)
+        public void SendText(NativeArray<byte> msg)
         {
             if (m_connectionSocket == null)
                 return;
             // Fin bit + text message
             m_frameHeader[0] = 0x81;
             int headerLen = 2;
-            if (len < 126)
-                m_frameHeader[1] = (byte) len;
-            else if (len <= ushort.MaxValue)
+            if (msg.Length < 126)
+                m_frameHeader[1] = (byte) msg.Length;
+            else if (msg.Length <= ushort.MaxValue)
             {
                 m_frameHeader[1] = 126;
-                m_frameHeader[2] = (byte) (len >> 8);
-                m_frameHeader[3] = (byte) (len);
+                m_frameHeader[2] = (byte) (msg.Length >> 8);
+                m_frameHeader[3] = (byte) (msg.Length);
                 headerLen = 4;
             }
             else
@@ -203,17 +205,20 @@ namespace Unity.NetCode
                 m_frameHeader[3] = 0;
                 m_frameHeader[4] = 0;
                 m_frameHeader[5] = 0;
-                m_frameHeader[6] = (byte) (len >> 24);
-                m_frameHeader[7] = (byte) (len >> 16);
-                m_frameHeader[8] = (byte) (len >> 8);
-                m_frameHeader[9] = (byte) (len);
+                m_frameHeader[6] = (byte) (msg.Length >> 24);
+                m_frameHeader[7] = (byte) (msg.Length >> 16);
+                m_frameHeader[8] = (byte) (msg.Length >> 8);
+                m_frameHeader[9] = (byte) (msg.Length);
                 headerLen = 10;
             }
 
             try
             {
                 m_connectionSocket.Send(m_frameHeader, headerLen, SocketFlags.None);
-                m_connectionSocket.Send(msg, offset, len, SocketFlags.None);
+                unsafe
+                {
+                    m_connectionSocket.Send(new ReadOnlySpan<byte>((byte*)msg.GetUnsafePtr(), msg.Length), SocketFlags.None);
+                }
             }
             catch (SocketException e)
             {
@@ -225,20 +230,20 @@ namespace Unity.NetCode
             }
         }
 
-        public void SendBinary(byte[] msg, int offset, int len)
+        public void SendBinary(NativeArray<byte> msg)
         {
             if (m_connectionSocket == null)
                 return;
             // Fin bit + binary message
             m_frameHeader[0] = 0x82;
             int headerLen = 2;
-            if (len < 126)
-                m_frameHeader[1] = (byte) len;
-            else if (len <= ushort.MaxValue)
+            if (msg.Length < 126)
+                m_frameHeader[1] = (byte) msg.Length;
+            else if (msg.Length <= ushort.MaxValue)
             {
                 m_frameHeader[1] = 126;
-                m_frameHeader[2] = (byte) (len >> 8);
-                m_frameHeader[3] = (byte) (len);
+                m_frameHeader[2] = (byte) (msg.Length >> 8);
+                m_frameHeader[3] = (byte) (msg.Length);
                 headerLen = 4;
             }
             else
@@ -248,17 +253,20 @@ namespace Unity.NetCode
                 m_frameHeader[3] = 0;
                 m_frameHeader[4] = 0;
                 m_frameHeader[5] = 0;
-                m_frameHeader[6] = (byte) (len >> 24);
-                m_frameHeader[7] = (byte) (len >> 16);
-                m_frameHeader[8] = (byte) (len >> 8);
-                m_frameHeader[9] = (byte) (len);
+                m_frameHeader[6] = (byte) (msg.Length >> 24);
+                m_frameHeader[7] = (byte) (msg.Length >> 16);
+                m_frameHeader[8] = (byte) (msg.Length >> 8);
+                m_frameHeader[9] = (byte) (msg.Length);
                 headerLen = 10;
             }
 
             try
             {
                 m_connectionSocket.Send(m_frameHeader, headerLen, SocketFlags.None);
-                m_connectionSocket.Send(msg, offset, len, SocketFlags.None);
+                unsafe
+                {
+                    m_connectionSocket.Send(new ReadOnlySpan<byte>((byte*)msg.GetUnsafePtr(), msg.Length), SocketFlags.None);
+                }
             }
             catch (SocketException e)
             {

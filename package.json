@@ -1,23 +1,21 @@
 {
   "name": "com.unity.netcode",
   "displayName": "Netcode for Entities",
-  "version": "0.51.1-preview.21",
-  "unity": "2020.3",
-  "unityRelease": "30f1",
+  "version": "1.0.0-exp.8",
+  "unity": "2022.2",
+  "unityRelease": "0b5",
   "description": "Unity's Data Oriented Technology Stack (DOTS) multiplayer netcode layer - a high level netcode system built on entities. This package provides a foundation for creating networked multiplayer applications within DOTS.",
   "dependencies": {
-    "com.unity.transport": "1.0.0",
-    "com.unity.entities": "0.51.1-preview.21"
-  },
-  "upm": {
-    "changelog": "### Changed\n\n* Package Dependencies\n    * `com.unity.entities` to version `0.51.1`"
+    "com.unity.transport": "2.0.0-exp.6",
+    "com.unity.entities": "1.0.0-exp.8",
+    "com.unity.logging": "1.0.0-exp.6"
   },
   "upmCi": {
-    "footprint": "4560f3164b740722da7230491329b59e4fdc473d"
+    "footprint": "c46eeca94df456f0416ead636fda178b4f95760b"
   },
   "repository": {
     "url": "https://github.cds.internal.unity3d.com/unity/dots.git",
     "type": "git",
-    "revision": "063a98897b40805f53b859bb426ce664229d0c00"
+    "revision": "7f4180a58b7e1c75f6375bd73fb80bd99d195d4e"
   }
 }

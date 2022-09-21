@@ -7,7 +7,7 @@ using Unity.NetCode.LowLevel.Unsafe;
 
 namespace Unity.NetCode
 {
-    static class PrespawnHelper
+    internal static class PrespawnHelper
     {
         public const uint PrespawnGhostIdBase = 0x80000000;
 
@@ -41,78 +41,26 @@ namespace Unity.NetCode
             return -1;
         }
 
-        static public Entity CreatePrespawnSceneListGhostPrefab(World world, EntityManager entityManager)
+        static public Entity CreatePrespawnSceneListGhostPrefab(EntityManager entityManager)
         {
             var e = entityManager.CreateEntity();
-            entityManager.AddComponent<Prefab>(e);
-            entityManager.AddComponent<GhostComponent>(e);
-            entityManager.AddComponent<GhostTypeComponent>(e);
             entityManager.AddBuffer<PrespawnSceneLoaded>(e);
-            var linkedEntities = entityManager.AddBuffer<LinkedEntityGroup>(e);
-            linkedEntities.Add(e);
+
+            // Use predicted ghost mode, so we always get the latest received value instead of waiting for the interpolation delay
+            var config = new GhostPrefabCreation.Config
+            {
+                Name = "PrespawnSceneList",
+                Importance = 1,
+                SupportedGhostModes = GhostModeMask.Predicted,
+                DefaultGhostMode = GhostMode.Predicted,
+                OptimizationMode = GhostOptimizationMode.Static,
+                UsePreSerialization = false
+            };
 
             //I need an unique identifier and should not clash with any loaded prefab.
-            var ghostType = new GhostTypeComponent
-            {
-                guid0 = 0,
-                guid1 = 0,
-                guid2 = 101,
-                guid3 = 0,
-            };
-            entityManager.SetComponentData(e, ghostType);
-
-            if (world.GetExistingSystem<ServerSimulationSystemGroup>() != null)
-            {
-                entityManager.AddSharedComponentData(e, new SharedGhostTypeComponent
-                {
-                    SharedValue = ghostType
-                });
-            }
-            else
-            {
-                entityManager.AddComponent<SnapshotData>(e);
-                entityManager.AddComponent<SnapshotDataBuffer>(e);
-                entityManager.AddComponent<SnapshotDynamicDataBuffer>(e);
-            }
-
-            using (var builder = new BlobBuilder(Allocator.Temp))
-            {
-                ref var root = ref builder.ConstructRoot<GhostPrefabMetaData>();
-                root.Importance = 1;
-                root.SupportedModes = GhostPrefabMetaData.GhostMode.Both;
-                root.DefaultMode = GhostPrefabMetaData.GhostMode.Interpolated;
-                root.StaticOptimization = false;
-                var numServerComponents = builder.Allocate(ref root.NumServerComponentsPerEntity, 1);
-                var blobServerComponents = builder.Allocate(ref root.ServerComponentList, 1);
-                numServerComponents[0] = 1;
-                blobServerComponents[0].StableHash = TypeManager.GetTypeInfo<PrespawnSceneLoaded>().StableTypeHash;
-                blobServerComponents[0].Variant = 0;
-                blobServerComponents[0].SendMaskOverride = -1;
-                blobServerComponents[0].SendToChildEntityOverride = -1;
-                builder.Allocate(ref root.RemoveOnServer, 0);
-                builder.Allocate(ref root.RemoveOnClient, 0);
-                builder.Allocate(ref root.DisableOnInterpolatedClient, 0);
-                builder.Allocate(ref root.DisableOnPredictedClient, 0);
-                var blobReference = builder.CreateBlobAssetReference<GhostPrefabMetaData>(Allocator.Persistent);
-
-                entityManager.AddComponentData(e, new GhostPrefabMetaDataComponent
-                {
-                    Value = blobReference
-                });
-            }
+            GhostPrefabCreation.ConvertToGhostPrefab(entityManager, e, config);
 
             return e;
-        }
-
-        static public void DisposeSceneListPrefab(Entity prefabEntity, EntityManager entityManager)
-        {
-            if(!entityManager.HasComponent<PrespawnSceneLoaded>(prefabEntity))
-                return;
-            if(!entityManager.HasComponent<GhostPrefabMetaDataComponent>(prefabEntity))
-                return;
-            var ghostMetadataRef = entityManager.GetComponentData<GhostPrefabMetaDataComponent>(prefabEntity);
-            ghostMetadataRef.Value.Dispose();
-            entityManager.DestroyEntity(prefabEntity);
         }
 
         public struct GhostIdInterval: IComparable<GhostIdInterval>
@@ -135,29 +83,29 @@ namespace Unity.NetCode
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         static public void PopulateSceneHashLookupTable(EntityQuery query, EntityManager entityManager, NativeParallelHashMap<int, ulong> hashMap)
         {
-            var chunks = query.CreateArchetypeChunkArray(Allocator.Temp);
-            var sharedComponentType = entityManager.GetSharedComponentTypeHandle<SubSceneGhostComponentHash>();
+            var chunks = query.ToArchetypeChunkArray(Allocator.Temp);
+            var sharedComponentType = entityManager.GetDynamicSharedComponentTypeHandle(ComponentType.ReadOnly<SubSceneGhostComponentHash>());
             hashMap.Clear();
-            for(int i=0;i<chunks.Length;++i)
+            for (int i = 0; i < chunks.Length; ++i)
             {
                 var sharedComponentIndex = chunks[i].GetSharedComponentIndex(sharedComponentType);
-                var sharedComponentValue = entityManager.GetSharedComponentData<SubSceneGhostComponentHash>(sharedComponentIndex);
+                var sharedComponentValue = entityManager.GetSharedComponent<SubSceneGhostComponentHash>(sharedComponentIndex);
                 hashMap.TryAdd(sharedComponentIndex, sharedComponentValue.Value);
-            };
+            }
         }
 
 
         static public void UpdatePrespawnAckSceneMap(ref ConnectionStateData connectionState,
             Entity PrespawnSceneLoadedEntity,
-            in BufferFromEntity<PrespawnSectionAck> prespawnAckFromEntity,
-            in BufferFromEntity<PrespawnSceneLoaded> prespawnSceneLoadedFromEntity)
+            in BufferLookup<PrespawnSectionAck> prespawnAckFromEntity,
+            in BufferLookup<PrespawnSceneLoaded> prespawnSceneLoadedFromEntity)
         {
             var connectionEntity = connectionState.Entity;
             var clientPrespawnSceneMap = connectionState.AckedPrespawnSceneMap;
             var prespawnSceneLoaded = prespawnSceneLoadedFromEntity[PrespawnSceneLoadedEntity];
             ref var newLoadedRanges = ref connectionState.NewLoadedPrespawnRanges;
             newLoadedRanges.Clear();
-            if (!prespawnAckFromEntity.HasComponent(connectionEntity))
+            if (!prespawnAckFromEntity.HasBuffer(connectionEntity))
             {
                 clientPrespawnSceneMap.Clear();
                 return;
@@ -190,9 +138,9 @@ namespace Unity.NetCode
         }
     }
 
-    public static class PrespawnSubsceneElementExtensions
+    internal static class PrespawnSubsceneElementExtensions
     {
-        internal static int IndexOf(this DynamicBuffer<PrespawnSceneLoaded> subsceneElements, ulong hash)
+        public static int IndexOf(this DynamicBuffer<PrespawnSceneLoaded> subsceneElements, ulong hash)
         {
             for (int i = 0; i < subsceneElements.Length; ++i)
             {
@@ -203,7 +151,7 @@ namespace Unity.NetCode
             return -1;
         }
 
-        internal static int IndexOf(this DynamicBuffer<PrespawnSectionAck> subsceneElements, ulong hash)
+        public static int IndexOf(this DynamicBuffer<PrespawnSectionAck> subsceneElements, ulong hash)
         {
             for (int i = 0; i < subsceneElements.Length; ++i)
             {
@@ -213,7 +161,7 @@ namespace Unity.NetCode
 
             return -1;
         }
-        internal static bool RemoveScene(this DynamicBuffer<PrespawnSectionAck> subsceneElements, ulong hash)
+        public static bool RemoveScene(this DynamicBuffer<PrespawnSectionAck> subsceneElements, ulong hash)
         {
             for (int i = 0; i < subsceneElements.Length; ++i)
             {

@@ -42,14 +42,15 @@ To change which versions of a Prefab a component is available on you use __Prefa
 
 For example, if you add `[GhostComponent(PrefabType=GhostPrefabType.Client)]` to RenderMesh, the ghost won’t have a RenderMesh when it is instantiated on the server, but it will have it when instantiated on the client.
 
-A component can set __OwnerPredictedSendType__ in the __GhostComponentAttribute__ to control which clients the component is sent to when it is owner predicted. The available modes are:
+A component can set __SendTypeOptimization__ in the __GhostComponentAttribute__ to control which clients the component is sent to whenever a ghost type is known at compile time. The available modes are:
+* __None__ - the component is never sent to any clients. NetCode will not modify the component on the clients which do not receive it.
 * __Interpolated__ - the component is only sent to clients which are interpolating the ghost.
 * __Predicted__ - the component is only sent to clients which are predicting the ghost.
 * __All__ - the component is sent to all clients.
 
 If a component is not sent to a client NetCode will not modify the component on the client which did not receive it.
 
-A component can also set __SendDataForChildEntity__ to true or false in order to control if the component it sent when it is part of a child entity of a ghost with multiple entities.
+A component can also set __SendDataForChildEntity__ to true in order to change the default (of not serializing children), allowing this component to be serialized when on a child.
 
 A component can also set __SendToOwner__ in the __GhostComponentAttribute__ to specify if the component should be sent to client who owns the entity. The available values are:
 * __SendToOwner__ - the component is only sent to the client who own the ghost
@@ -57,13 +58,16 @@ A component can also set __SendToOwner__ in the __GhostComponentAttribute__ to s
 * __All__ - the component is sent to all clients.
 
 ### Override GhostComponent properties on per prefab basis
-Using the __GhostAuthoringComponent__ editor it is possible to override the following components serialization properties on per prefab basis:
+It is possible to override the following meta-data on per-prefab basis, via the __GhostAuthoringInspectionComponent__ editor:
 * __PrefabType__
-* __SendToOwner__
-* __SendToChildEntity__
-* __OwnerPredictedSendType__
+* __SendToOptimization__
+* __Variant__
 
-Is possible to prevent a component from supporting per-prefab overrides by using the __DontSupportPrefabOverride__ attribute. When present, the component can't be further customized in the inspector.
+It is possible to prevent a component from supporting per-prefab overrides by using the __DontSupportPrefabOverride__ attribute. When present, the component can't be further customized in the inspector.
+
+To prevent a component from supporting per-prefab overrides, add the `[DontSupportPrefabOverride]` attribute to the component type.
+Example: The NetCode package requires the __GhostOwnerComponent__ to be added to all ghost types, sent for all ghost types, and serialized using the default variant. Thus, we add the `[DontSupportPrefabOverride]` attribute to it.
+When present, the component can't be customized in the inspector, nor can a programmer add custom or default variants for this type (as that will trigger errors during ghost validation).
 
 ### Authoring component serialization
 For each component you want to serialize, you need to add an attribute to the values you want to send. Add a `[GhostField]` attribute to the fields you want to send in an `IComponentData`. Both component fields and properties are supported. The following conditions apply in general for a component to support serialization:
@@ -111,7 +115,7 @@ The following properties are not inherited:
 Dynamic buffers serialization is natively supported. Like components, just add a `[GhostField]` attribute to the fields you want to serialize and the buffer will replicated to all the clients. Use the __GhostComponent__ attribute to specify other serialization behavior.
 Dynamic buffers fields don't support interpolation. The __GhostField__ `Smoothing` and `MaxSmoothingDistance` properties will be ignored.
 
-### ICommandData serialization
+### ICommandData and IInputComponentData serialization
 
 __ICommandData__, being a subclass of __IBufferElementData__, can also be serialized from server to clients. As such, the same rules for buffers apply: if the command buffer must be serialized, then all fields must be annotated.
 
@@ -119,7 +123,16 @@ __ICommandData__, being a subclass of __IBufferElementData__, can also be serial
     [GhostComponent()]
     public struct MyCommand : ICommandData
     {
-        [GhostField] public Tick {get; set;}
+        [GhostField] public NetworkTick Tick {get; set;}
+        [GhostField] public int Value;
+    }
+```
+
+The same applies when using automated input synchronization with __IInputComponentData__
+
+```c#
+    public struct MyCommand : IInputComponentData
+    {
         [GhostField] public int Value;
     }
 ```
@@ -143,18 +156,6 @@ For the netcode to work, the ghost collection must be part of the client and ser
 
 The codegen does not support all value types, but you can create an assembly with a name ending with `.NetCodeGen`. This assembly should contain a class implementing the interface __IGhostDefaultOverridesModifier__. Implement the method `public void ModifyTypeRegistry(TypeRegistry typeRegistry, string netCodeGenAssemblyPath)` and register additional types in the typeRegistry. The types you register will be used by the code-gen.
 
-
-## Importance
-The server operates on a fixed bandwidth, and sends a single packet with snapshot data of customizable size every network tick. It fills the packet with the entities of the highest importance. Several factors determine the importance of the entities: you can specify the base importance per ghost type, which Unity then scales by age. You can also supply your own method to scale the importance on a per-chunk basis.
-
-Once a packet is full, the server sends it and the remaining entities are missing from the snapshot. Because the age of the entity influences the importance, it is more likely that the server will include those entities in the next snapshot. The importance is only calculated per chunk, not per entity.
-
-
-### Distance based importance
-You can use a custom function to scale the importance per chunk. For example, if a singleton entity with the `GhostDistanceImportance` component on it exists on the server, the netcode makes sure that all the ghosts in the World are split into groups based on the tile size in that singleton.
-
-You must add a `GhostConnectionPosition` component to each connection to determine which tile the connection should prioritize. This `GhostSendSystem` passes this information to the `ScaleImportanceByDistance` in `GhostDistanceImportance` which then uses it to scale the importance of a chunk based on its distance in tiles or any other metric you define in your code.
-
 ## Entity spawning
 
 When the client side receives a new ghost, the ghost type is determined by a set of classification systems and then a spawn system spawns it. There is no specific spawn message, and when the client receives an unknown ghost ID, it counts as an implicit spawn.
@@ -166,11 +167,10 @@ Therefore normal spawns happen in a delayed manner. Spawning is split into three
 * __Predicted spawning for the client predicted player object.__ The object is predicted so the input handling applies immediately. Therefore, it doesn't need to be delay spawned. While the snapshot data for this object arrives, the update system applies the data directly to the object and then plays back the local inputs which have happened since that time, and corrects mistakes in the prediction.
 * __Predicted spawning for player spawned objects.__ These are objects that the player input spawns, like in-game bullets or rockets that the player fires.
 
-### Implement Predicted Spawning for player spawned objects  
-The spawn code needs to run on the client, in the client prediction system. The spawn should use the predicted client version of the ghost prefab and add a __PredictedGhostSpawnRequestComponent__ to it. Then, when the first snapshot update for the entity arrives it will apply to that predict spawned object (no new entity is created). After this, the snapshot updates are applied the same as in the predicted spawning for client predicted player object model.
-<br>To create the prefab for predicted spawning, you should use the utility method [GhostCollectionSystem.CreatePredictedSpawnPrefab](https://docs.unity3d.com/Packages/com.unity.netcode@latest/index.html?subfolder=/api/Unity.NetCode.GhostCollectionSystem.html).
+### Implement Predicted Spawning for player spawned objects
+The spawn code needs to run on the client, in the client prediction system. Any prefab ghost entity the client instantiates has the __PredictedGhostSpawnRequestComponent__ added to it and is therefore treated as a predict spawned entity by default. When the first snapshot update for the entity arrives it will apply to that predict spawned object (no new entity is created). After this, the snapshot updates are applied the same as in the predicted spawning for client predicted player object model.
 
-You need to implement some specific code to handle the predicted spawning for player spawned objects. You need to create a system updating in the __ClientSimulationSystemGroup__ after [GhostSpawnClassificationSystem](https://docs.unity3d.com/Packages/com.unity.netcode@latest/index.html?subfolder=/api/Unity.NetCode.GhostSpawnClassificationSystem.html). The system needs to go through the __GhostSpawnBuffer__ buffer stored on a singleton with a __GhostSpawnQueueComponent__. For each entry in that list it should compare to the entries in the __PredictedGhostSpawn__ buffer on the singleton with a __PredictedGhostSpawnList__ component. If the two entries are the same the classification system should set the __PredictedSpawnEntity__ property in the __GhostSpawnBuffer__ and remove the entry from __GhostSpawnBuffer__.
+These client spawned objects are automatically handled unless a custom classification system is implemented to handle that ghost type. The default system matches ghost types with a spawn tick within 5 ticks of new ghosts found in the ghost snapshot data. You can implement a custom classification with more advanced logic than this. To do that you create a system updating in the __ClientSimulationSystemGroup__ after [GhostSpawnClassificationSystem](https://docs.unity3d.com/Packages/com.unity.netcode@latest/index.html?subfolder=/api/Unity.NetCode.GhostSpawnClassificationSystem.html). The classification system needs to go through the __GhostSpawnBuffer__ buffer stored on a singleton with a __GhostSpawnQueueComponent__. For each entry in that list it should compare to the entries in the __PredictedGhostSpawn__ buffer on the singleton with a __PredictedGhostSpawnList__ component. If the two entries are the same the classification system should set the __PredictedSpawnEntity__ property in the __GhostSpawnBuffer__ and remove the entry from __GhostSpawnBuffer__.
 
 NetCode spawns entities on clients when there is a Prefab available for it. Pre spawned ghosts will work without any special consideration since they are referenced in a sub scene, but for manually spawned entities you must make sure that the prefabs exist on the client. You make sure that happens by having a component in a scene which references the prefab you want to spawn.
 
@@ -187,7 +187,7 @@ At runtime, when all subscenes have been loaded, there is a process which applie
 An alternative way to detect whether subscenes have finished loading without using tags is to check if the prespawn ghost count is correct. The following example shows one possible solution for checking this number, in this case testing for 7 ghosts across all loaded subscenes:
 
 ```c#
-[UpdateInGroup(typeof(ClientSimulationSystemGroup))]
+[WorldSystemFilter(WorldSystemFilterFlags.ClientSimulation)]
 public class GoInGameClientSystem : ComponentSystem
 {
     public int ExpectedGhostCount = 7;

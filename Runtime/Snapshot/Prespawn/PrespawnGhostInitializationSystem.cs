@@ -8,84 +8,109 @@ using Unity.Entities;
 using Unity.Jobs;
 using Unity.NetCode.LowLevel.Unsafe;
 using Unity.Scenes;
+using Unity.Burst;
 
 namespace Unity.NetCode
 {
     /// <summary>
-    /// InitializePrespawnGhostSystem systems is responsbile to prepare and initialize all sub-scenes pre-spawned ghosts
-    /// The initialization process is quite involved and neeed multiple steps:
+    /// InitializePrespawnGhostSystem systems is responsible to prepare and initialize all sub-scenes pre-spawned ghosts
+    /// The initialization process is quite involved and need multiple steps:
     /// - perform component stripping based on the ghost prefab metadata (MAJOR STRUCTURAL CHANGES)
     /// - kickoff baseline serialization
-    /// - compute and assingn the compound baseline hash to each subscene
+    /// - compute and assign the compound baseline hash to each subscene
     ///
     /// The process start by finding the subscenes subset that has all the ghost archetype serializer ready.
-    /// A component stripping, serialization and baseline assignement jobs is started for each subscene in parallel.
+    /// A component stripping, serialization and baseline assignment jobs is started for each subscene in parallel.
     /// </summary>
+    [WorldSystemFilter(WorldSystemFilterFlags.Default | WorldSystemFilterFlags.ThinClientSimulation)]
     [UpdateInGroup(typeof(PrespawnGhostSystemGroup))]
-    partial class PrespawnGhostInitializationSystem : SystemBase
+    [BurstCompile]
+    partial struct PrespawnGhostInitializationSystem : ISystem, ISystemStartStop
     {
-        private EntityQuery m_PrespawnBaselines;
-        private EntityQuery m_UninitializedScenes;
-        private EntityQuery m_Prespawns;
-        private NetDebugSystem m_NetDebugSystem;
-        private BeginSimulationEntityCommandBufferSystem m_Barrier;
-        private SceneSystem m_SceneSystem;
+        EntityQuery m_PrespawnBaselines;
+        EntityQuery m_UninitializedScenes;
+        EntityQuery m_Prespawns;
 
-        private Entity m_SubSceneListPrefab;
-        public Entity SubSceneListPrefab => m_SubSceneListPrefab;
+        Entity m_SubSceneListPrefab;
 
-        protected override void OnCreate()
+        ComponentLookup<GhostPrefabMetaDataComponent> m_GhostPrefabMetaDataComponentFromEntity;
+        BufferTypeHandle<LinkedEntityGroup> m_LinkedEntityGroupHandle;
+        ComponentTypeHandle<GhostTypeComponent> m_GhostTypeComponentHandle;
+
+        BufferLookup<GhostComponentSerializer.State> m_GhostComponentSerializerStateHandle;
+        BufferLookup<GhostCollectionPrefabSerializer> m_GhostCollectionPrefabSerializerHandle;
+        BufferLookup<GhostCollectionComponentIndex> m_GhostCollectionComponentIndexHandle;
+        BufferLookup<GhostCollectionPrefab> m_GhostCollectionPrefabHandle;
+        BufferTypeHandle<PrespawnGhostBaseline> m_PrespawnGhostBaselineHandle;
+        EntityTypeHandle m_EntityTypeHandle;
+        ComponentLookup<GhostComponent> m_GhostComponentFromEntity;
+        ComponentLookup<SubSceneWithPrespawnGhosts> m_SubSceneWithPrespawnGhostsFromEntity;
+
+
+        [BurstCompile]
+        public void OnCreate(ref SystemState state)
         {
-            m_Barrier = World.GetExistingSystem<BeginSimulationEntityCommandBufferSystem>();
-            m_PrespawnBaselines = EntityManager.CreateEntityQuery(
-                new EntityQueryDesc
-                {
-                    All = new []
-                    {
-                        ComponentType.ReadWrite<PrespawnGhostBaseline>(),
-                        ComponentType.ReadOnly<SubSceneGhostComponentHash>()
-                    },
-                    Options = EntityQueryOptions.IncludeDisabled
-                });
-            m_Prespawns = EntityManager.CreateEntityQuery(
-                new EntityQueryDesc
-                {
-                    All = new []
-                    {
-                        ComponentType.ReadWrite<PreSpawnedGhostIndex>(),
-                        ComponentType.ReadOnly<SubSceneGhostComponentHash>(),
-                        ComponentType.ReadOnly<GhostTypeComponent>()
-                    },
-                    Options = EntityQueryOptions.IncludeDisabled
-                });
-            m_UninitializedScenes = GetEntityQuery(ComponentType.ReadOnly<SubSceneWithPrespawnGhosts>(),
-                ComponentType.Exclude<SubScenePrespawnBaselineResolved>());
-            m_NetDebugSystem = World.GetExistingSystem<NetDebugSystem>();
-            m_SceneSystem = World.GetExistingSystem<SceneSystem>();
+            var builder = new EntityQueryBuilder(Allocator.Temp)
+                .WithAllRW<PrespawnGhostBaseline>()
+                .WithAll<SubSceneGhostComponentHash>()
+                .WithOptions(EntityQueryOptions.IncludeDisabledEntities);
+            m_PrespawnBaselines = state.GetEntityQuery(builder);
+            builder.Reset();
+            builder.WithAllRW<PreSpawnedGhostIndex>()
+                .WithAll<SubSceneGhostComponentHash, GhostTypeComponent>()
+                .WithOptions(EntityQueryOptions.IncludeDisabledEntities);
+            m_Prespawns = state.GetEntityQuery(builder);
+            builder.Reset();
+            builder.WithAll<SubSceneWithPrespawnGhosts, IsSectionLoaded>()
+                .WithNone<SubScenePrespawnBaselineResolved>();
+            m_UninitializedScenes = state.GetEntityQuery(builder);
 
-            RequireSingletonForUpdate<GhostCollection>();
-            RequireForUpdate(m_UninitializedScenes);
+            m_GhostPrefabMetaDataComponentFromEntity = state.GetComponentLookup<GhostPrefabMetaDataComponent>(true);
+            m_LinkedEntityGroupHandle = state.GetBufferTypeHandle<LinkedEntityGroup>(true);
+            m_GhostTypeComponentHandle = state.GetComponentTypeHandle<GhostTypeComponent>(true);
+            m_GhostComponentSerializerStateHandle = state.GetBufferLookup<GhostComponentSerializer.State>(true);
+            m_GhostCollectionPrefabSerializerHandle = state.GetBufferLookup<GhostCollectionPrefabSerializer>(true);
+            m_GhostCollectionComponentIndexHandle = state.GetBufferLookup<GhostCollectionComponentIndex>(true);
+            m_GhostCollectionPrefabHandle = state.GetBufferLookup<GhostCollectionPrefab>(true);
+            m_PrespawnGhostBaselineHandle = state.GetBufferTypeHandle<PrespawnGhostBaseline>();
+            m_EntityTypeHandle = state.GetEntityTypeHandle();
+            m_GhostComponentFromEntity = state.GetComponentLookup<GhostComponent>(true);
+            m_SubSceneWithPrespawnGhostsFromEntity = state.GetComponentLookup<SubSceneWithPrespawnGhosts>();
+
+            state.RequireForUpdate<GhostCollection>();
+            // Ignore scene loaded in the query for running so the singleton is created in time
+            builder.Reset();
+            builder.WithAll<SubSceneWithPrespawnGhosts>()
+                .WithNone<SubScenePrespawnBaselineResolved>();
+            state.RequireForUpdate(state.GetEntityQuery(builder));
         }
 
-        protected override void OnDestroy()
+        [BurstCompile]
+        public void OnDestroy(ref SystemState state)
         {
-            m_PrespawnBaselines.Dispose();
-            m_Prespawns.Dispose();
             if(m_SubSceneListPrefab != Entity.Null)
-                PrespawnHelper.DisposeSceneListPrefab(m_SubSceneListPrefab, EntityManager);
+                state.EntityManager.DestroyEntity(m_SubSceneListPrefab);
         }
 
-        protected override void OnUpdate()
+        public void OnStartRunning(ref SystemState state)
         {
             //This need to be delayed here to avoid creating this entity if not required (so no prespawn presents)
             if (m_SubSceneListPrefab == Entity.Null)
             {
-                m_SubSceneListPrefab = PrespawnHelper.CreatePrespawnSceneListGhostPrefab(World, EntityManager);
-                RequireForUpdate(m_Prespawns);
-                return;
+                m_SubSceneListPrefab = PrespawnHelper.CreatePrespawnSceneListGhostPrefab(state.EntityManager);
+                state.RequireForUpdate(m_Prespawns);
             }
-            var collectionEntity = GetSingletonEntity<GhostCollection>();
-            var GhostPrefabTypes = EntityManager.GetBuffer<GhostCollectionPrefab>(collectionEntity);
+        }
+        public void OnStopRunning(ref SystemState state)
+        {}
+
+        [BurstCompile]
+        public void OnUpdate(ref SystemState state)
+        {
+            if (m_UninitializedScenes.IsEmptyIgnoreFilter)
+                return;
+            var collectionEntity = SystemAPI.GetSingletonEntity<GhostCollection>();
+            var GhostPrefabTypes = state.EntityManager.GetBuffer<GhostCollectionPrefab>(collectionEntity);
             //No data loaded yet. This condition can be true for both client and server.
             //Server in particular can be in this state until at least one connection enter the in-game state.
             //Client can hit this until the receive the prefab to process from the Server.
@@ -108,9 +133,6 @@ namespace Unity.NetCode
             //(so we have the serializer ready)
             for (int i = 0; i < subScenesSections.Length; ++i)
             {
-                if(!m_SceneSystem.IsSectionLoaded(subScenesSections[i]))
-                    continue;
-
                 //For large number would make sense to schedule a job for that
                 var sharedFilter = new SubSceneGhostComponentHash {Value = subSceneWithPrespawnGhosts[i].SubSceneHash};
                 m_Prespawns.SetSharedComponentFilter(sharedFilter);
@@ -137,8 +159,12 @@ namespace Unity.NetCode
                 var sceneIndex = readySections[readyScene];
                 var sharedFilter = new SubSceneGhostComponentHash {Value = subSceneWithPrespawnGhosts[sceneIndex].SubSceneHash};
                 m_Prespawns.SetSharedComponentFilter(sharedFilter);
-                EntityManager.RemoveComponent<Disabled>(m_Prespawns);
+                state.EntityManager.RemoveComponent<Disabled>(m_Prespawns);
             }
+            var netDebug = SystemAPI.GetSingleton<NetDebug>();
+            m_GhostPrefabMetaDataComponentFromEntity.Update(ref state);
+            m_LinkedEntityGroupHandle.Update(ref state);
+            m_GhostTypeComponentHandle.Update(ref state);
             //kickoff strip components jobs on all the prefabs for each subscene
             var jobs = new NativeList<JobHandle>(readySections.Length, Allocator.Temp);
             for (int readyScene = 0; readyScene < readySections.Length; ++readyScene)
@@ -148,21 +174,21 @@ namespace Unity.NetCode
                 m_Prespawns.SetSharedComponentFilter(sharedFilter);
                 //Strip components this can be a large chunks of major structural changes and it is scheduled
                 //at the beginning of the next simulation update
-                var ecb = m_Barrier.CreateCommandBuffer();
-                LogStrippingPrespawn(subSceneWithPrespawnGhosts[sceneIndex]);
+                var ecb = SystemAPI.GetSingleton<BeginSimulationEntityCommandBufferSystem.Singleton>().CreateCommandBuffer(state.WorldUnmanaged);
+                LogStrippingPrespawn(ref netDebug, subSceneWithPrespawnGhosts[sceneIndex]);
                 var stripPrespawnGhostJob = new PrespawnGhostStripComponentsJob
                 {
-                    metaDataFromEntity = GetComponentDataFromEntity<GhostPrefabMetaDataComponent>(true),
-                    linkedEntityTypeHandle = GetBufferTypeHandle<LinkedEntityGroup>(true),
-                    ghostTypeHandle = GetComponentTypeHandle<GhostTypeComponent>(true),
+                    metaDataFromEntity = m_GhostPrefabMetaDataComponentFromEntity,
+                    linkedEntityTypeHandle = m_LinkedEntityGroupHandle,
+                    ghostTypeHandle = m_GhostTypeComponentHandle,
                     prefabFromType = processedPrefabs,
                     commandBuffer = ecb.AsParallelWriter(),
-                    netDebug = m_NetDebugSystem.NetDebug,
-                    server = World.GetExistingSystem<GhostSendSystem>() != null
+                    netDebug = netDebug,
+                    server = (byte) (state.WorldUnmanaged.IsServer() ? 1 : 0),
                 };
-                jobs.Add(stripPrespawnGhostJob.ScheduleParallel(m_Prespawns, Dependency));
+                jobs.Add(stripPrespawnGhostJob.ScheduleParallel(m_Prespawns, state.Dependency));
             }
-            Dependency = processedPrefabs.Dispose(JobHandle.CombineDependencies(jobs));
+            state.Dependency = processedPrefabs.Dispose(JobHandle.CombineDependencies(jobs));
             m_Prespawns.ResetFilter();
 
             //In case the prespawn baselines are not present just mark everything as resolved
@@ -172,80 +198,100 @@ namespace Unity.NetCode
                 {
                     var sceneIndex = readySections[readyScene];
                     var subScene = subScenesSections[sceneIndex];
-                    EntityManager.AddComponent<SubScenePrespawnBaselineResolved>(subScene);
+                    state.EntityManager.AddComponent<SubScenePrespawnBaselineResolved>(subScene);
                 }
-                m_Barrier.AddJobHandleForProducer(Dependency);
                 return;
             }
+
+            m_GhostComponentSerializerStateHandle.Update(ref state);
+            m_GhostCollectionPrefabSerializerHandle.Update(ref state);
+            m_GhostCollectionComponentIndexHandle.Update(ref state);
+            m_GhostCollectionPrefabHandle.Update(ref state);
+            m_PrespawnGhostBaselineHandle.Update(ref state);
+            m_EntityTypeHandle.Update(ref state);
+            m_GhostComponentFromEntity.Update(ref state);
 
             //Serialize the baseline and add the resolved tag.
             var serializerJob = new PrespawnGhostSerializer
             {
-                GhostComponentCollectionFromEntity = GetBufferFromEntity<GhostComponentSerializer.State>(true),
-                GhostTypeCollectionFromEntity = GetBufferFromEntity<GhostCollectionPrefabSerializer>(true),
-                GhostComponentIndexFromEntity = GetBufferFromEntity<GhostCollectionComponentIndex>(true),
-                GhostCollectionFromEntity = GetBufferFromEntity<GhostCollectionPrefab>(true),
-                ghostTypeComponentType = GetComponentTypeHandle<GhostTypeComponent>(true),
-                prespawnBaseline = GetBufferTypeHandle<PrespawnGhostBaseline>(),
-                entityType = GetEntityTypeHandle(),
-                childEntityLookup = GetStorageInfoFromEntity(),
-                linkedEntityGroupType = GetBufferTypeHandle<LinkedEntityGroup>(true),
-                ghostFromEntity = GetComponentDataFromEntity<GhostComponent>(true),
+                GhostComponentCollectionFromEntity = m_GhostComponentSerializerStateHandle,
+                GhostTypeCollectionFromEntity = m_GhostCollectionPrefabSerializerHandle,
+                GhostComponentIndexFromEntity = m_GhostCollectionComponentIndexHandle,
+                GhostCollectionFromEntity = m_GhostCollectionPrefabHandle,
+                ghostTypeComponentType = m_GhostTypeComponentHandle,
+                prespawnBaseline = m_PrespawnGhostBaselineHandle,
+                entityType = m_EntityTypeHandle,
+                childEntityLookup = state.GetEntityStorageInfoLookup(),
+                linkedEntityGroupType = m_LinkedEntityGroupHandle,
+                ghostFromEntity = m_GhostComponentFromEntity,
                 GhostCollectionSingleton = collectionEntity
             };
-            var ghostComponentCollection = EntityManager.GetBuffer<GhostCollectionComponentType>(collectionEntity);
-            DynamicTypeList.PopulateList(this, ghostComponentCollection, true, ref serializerJob.ghostChunkComponentTypes);
+            var ghostComponentCollection = state.EntityManager.GetBuffer<GhostCollectionComponentType>(collectionEntity);
+            DynamicTypeList.PopulateList(ref state, ghostComponentCollection, true, ref serializerJob.ghostChunkComponentTypes);
 
             var commandBuffer = new EntityCommandBuffer(Allocator.Temp);
+            m_SubSceneWithPrespawnGhostsFromEntity.Update(ref state);
             for (int readyScene = 0; readyScene < readySections.Length; ++readyScene)
             {
                 var sceneIndex = readySections[readyScene];
-                LogSerializingBaselines(subSceneWithPrespawnGhosts[sceneIndex]);
+                LogSerializingBaselines(ref netDebug, subSceneWithPrespawnGhosts[sceneIndex]);
                 var subScene = subScenesSections[sceneIndex];
                 var subSceneWithGhost = subSceneWithPrespawnGhosts[sceneIndex];
                 var sharedFilter = new SubSceneGhostComponentHash {Value = subSceneWithGhost.SubSceneHash};
                 m_PrespawnBaselines.SetSharedComponentFilter(sharedFilter);
                 // Serialize the baselines and store the baseline hashes
-                var baselinesHashes = new NativeArray<ulong>(subSceneWithGhost.PrespawnCount, Allocator.TempJob);
-                serializerJob.baselineHashes = baselinesHashes;
-                var serializeJobHandle = serializerJob.ScheduleParallelByRef(m_PrespawnBaselines, Dependency);
+                var baselinesHashes = new NativeList<ulong>(subSceneWithGhost.PrespawnCount, state.WorldUnmanaged.UpdateAllocator.ToAllocator);
+                serializerJob.baselineHashes = baselinesHashes.AsParallelWriter();
+                var serializeJobHandle = serializerJob.ScheduleParallelByRef(m_PrespawnBaselines, state.Dependency);
                 // Calculate the aggregate baseline hash for all the ghosts in the scene
-                var subSceneWithGhostFromEntity = GetComponentDataFromEntity<SubSceneWithPrespawnGhosts>();
-                Dependency = Job
-                    .WithDisposeOnCompletion(baselinesHashes)
-                    .WithCode(() =>
-                    {
-                        //Sort to maintain consistent order
-                        baselinesHashes.Sort();
-                        ulong baselineHash;
-                        unsafe
-                        {
-                            baselineHash = Unity.Core.XXHash.Hash64((byte*)baselinesHashes.GetUnsafeReadOnlyPtr(),
-                                baselinesHashes.Length * sizeof(ulong));
-                        }
-                        subSceneWithGhost.BaselinesHash = baselineHash;
-                        subSceneWithGhostFromEntity[subScene] = subSceneWithGhost;
-                    }).Schedule(serializeJobHandle);
+                var aggregateJob = new AggregateHash
+                {
+                    baselinesHashes = baselinesHashes,
+                    subSceneWithGhostFromEntity = m_SubSceneWithPrespawnGhostsFromEntity,
+                    subSceneWithGhost = subSceneWithGhost,
+                    subScene = subScene
+                };
+                state.Dependency = aggregateJob.Schedule(serializeJobHandle);
                 //mark as resolved
                 commandBuffer.AddComponent<SubScenePrespawnBaselineResolved>(subScene);
             }
-            m_Barrier.AddJobHandleForProducer(Dependency);
             //Playback immediately the resolved scenes
-            commandBuffer.Playback(EntityManager);
+            commandBuffer.Playback(state.EntityManager);
             commandBuffer.Dispose();
         }
 
-        [Conditional("NETCODE_DEBUG")]
-        private void LogStrippingPrespawn(in SubSceneWithPrespawnGhosts subSceneWithPrespawnGhosts)
+        struct AggregateHash : IJob
         {
-            m_NetDebugSystem.NetDebug.DebugLog(FixedString.Format("Initializing prespawn scene Hash:{0} Count:{1}",
+            public NativeList<ulong> baselinesHashes;
+            public ComponentLookup<SubSceneWithPrespawnGhosts> subSceneWithGhostFromEntity;
+            public SubSceneWithPrespawnGhosts subSceneWithGhost;
+            public Entity subScene;
+            public void Execute()
+            {
+                //Sort to maintain consistent order
+                baselinesHashes.Sort();
+                ulong baselineHash;
+                unsafe
+                {
+                    baselineHash = Unity.Core.XXHash.Hash64((byte*)baselinesHashes.GetUnsafeReadOnlyPtr(),
+                        baselinesHashes.Length * sizeof(ulong));
+                }
+                subSceneWithGhost.BaselinesHash = baselineHash;
+                subSceneWithGhostFromEntity[subScene] = subSceneWithGhost;
+            }
+        }
+
+        [Conditional("NETCODE_DEBUG")]
+        private void LogStrippingPrespawn(ref NetDebug netDebug, in SubSceneWithPrespawnGhosts subSceneWithPrespawnGhosts)
+        {
+            netDebug.DebugLog(FixedString.Format("Initializing prespawn scene Hash:{0} Count:{1}",
                 NetDebug.PrintHex(subSceneWithPrespawnGhosts.SubSceneHash),
                 subSceneWithPrespawnGhosts.PrespawnCount));
         }
         [Conditional("NETCODE_DEBUG")]
-        private void LogSerializingBaselines(in SubSceneWithPrespawnGhosts subSceneWithPrespawnGhosts)
+        private void LogSerializingBaselines(ref NetDebug netDebug, in SubSceneWithPrespawnGhosts subSceneWithPrespawnGhosts)
         {
-            m_NetDebugSystem.NetDebug.DebugLog(FixedString.Format("Serializing baselines for prespawn scene Hash:{0} Count:{1}",
+            netDebug.DebugLog(FixedString.Format("Serializing baselines for prespawn scene Hash:{0} Count:{1}",
                 NetDebug.PrintHex(subSceneWithPrespawnGhosts.SubSceneHash),
                 subSceneWithPrespawnGhosts.PrespawnCount));
         }

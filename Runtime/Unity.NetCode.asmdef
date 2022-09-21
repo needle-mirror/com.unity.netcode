@@ -22,12 +22,6 @@
     "precompiledReferences": [],
     "autoReferenced": true,
     "defineConstraints": [],
-    "versionDefines": [
-        {
-            "name": "com.unity.logging",
-            "expression": "0",
-            "define": "USE_UNITY_LOGGING"
-        }
-    ],
+    "versionDefines": [],
     "noEngineReferences": false
 }

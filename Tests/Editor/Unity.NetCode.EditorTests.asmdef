@@ -5,6 +5,7 @@
         "Unity.Burst",
         "Unity.Collections",
         "Unity.Mathematics",
+        "Unity.Mathematics.Extensions",
         "Unity.NetCode",
         "Unity.NetCode.Editor",
         "Unity.NetCode.TestsUtils",
@@ -16,7 +17,8 @@
         "Unity.Networking.Transport",
         "UnityEngine.TestRunner",
         "UnityEditor.TestRunner",
-        "Unity.Logging"
+        "Unity.Logging",
+        "Unity.Entities.Build"
     ],
     "includePlatforms": [
         "Editor"
@@ -31,12 +33,6 @@
     "defineConstraints": [
         "UNITY_INCLUDE_TESTS"
     ],
-    "versionDefines": [
-      {
-        "name": "com.unity.logging",
-        "expression": "0",
-        "define": "USE_UNITY_LOGGING"
-      }
-    ],
+    "versionDefines": [],
     "noEngineReferences": false
 }

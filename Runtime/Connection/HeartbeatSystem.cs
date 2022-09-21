@@ -1,93 +1,162 @@
+using Unity.Burst;
+using Unity.Collections;
 using Unity.Entities;
 using Unity.Jobs;
+using UnityEngine;
 
 namespace Unity.NetCode
 {
-    public struct HeartbeatComponent : IRpcCommand
+    /// <summary>
+    /// An RPC sent by both client and server to keep the connection alive when the client connection has not
+    /// been set "in-game" (see <see cref="NetworkStreamInGame"/>).
+    /// The client is always the initiator and send the heartbeat message every 10s. When the server receive the RPC,
+    /// it reply the message back to client.
+    /// </summary>
+    internal struct HeartbeatComponent : IRpcCommand
     {
     }
 
+    /// <summary>
+    /// System that keeps the non in-game connections alive by sending the <see cref="HeartbeatComponent"/> rpc message
+    /// at a constant interval (every 10 seconds).
+    /// </summary>
+    [BurstCompile]
     [UpdateInGroup(typeof(NetworkReceiveSystemGroup))]
-    [UpdateInWorld(TargetWorld.Client)]
-    public partial class HeartbeatSendSystem : SystemBase
+    [WorldSystemFilter(WorldSystemFilterFlags.ClientSimulation|WorldSystemFilterFlags.ThinClientSimulation)]
+    public partial struct HeartbeatSendSystem : ISystem
     {
         private uint m_LastSend;
-        private BeginSimulationEntityCommandBufferSystem m_CommandBufferSystem;
-        private EntityQuery m_ConnectionQuery;
 
-        protected override void OnCreate()
+        [BurstCompile]
+        public void OnCreate(ref SystemState state)
         {
-            m_CommandBufferSystem = World.GetOrCreateSystem<BeginSimulationEntityCommandBufferSystem>();
-            m_ConnectionQuery = EntityManager.CreateEntityQuery(ComponentType.ReadWrite<NetworkIdComponent>(),
-                ComponentType.Exclude<NetworkStreamDisconnected>(), ComponentType.Exclude<NetworkStreamInGame>());
+            var builder = new EntityQueryBuilder(Allocator.Temp)
+                .WithAll<NetworkIdComponent>()
+                .WithNone<NetworkStreamInGame>();
+            state.RequireForUpdate(state.GetEntityQuery(builder));
+
+            m_LastSend = NetworkTimeSystem.TimestampMS;
         }
 
-        protected override void OnUpdate()
+        [BurstCompile]
+        public void OnDestroy(ref SystemState state)
+        {
+        }
+
+        /// <summary>
+        /// Send the keep-alive <see cref="HeartbeatComponent"/> RPC to the server,
+        /// </summary>
+        [BurstCompile]
+        public void OnUpdate(ref SystemState state)
         {
             uint now = NetworkTimeSystem.TimestampMS;
             // Send a heartbeat every 10 seconds, but only to connections which are not ingame since ingame connections already has a constant stream of data
             if (now - m_LastSend >= 10000)
             {
-                if (!m_ConnectionQuery.IsEmptyIgnoreFilter)
-                {
-                    var commandBuffer = m_CommandBufferSystem.CreateCommandBuffer();
-                    var request = commandBuffer.CreateEntity();
-                    commandBuffer.AddComponent<HeartbeatComponent>(request);
-                    // Target = Entity.Null which means broadcast, client only ever has a single connection
-                    commandBuffer.AddComponent<SendRpcCommandRequestComponent>(request);
-                }
-
+                var ecb = SystemAPI.GetSingleton<BeginSimulationEntityCommandBufferSystem.Singleton>().CreateCommandBuffer(state.WorldUnmanaged);
+                var request = ecb.CreateEntity();
+                ecb.AddComponent<HeartbeatComponent>(request);
+                ecb.AddComponent<SendRpcCommandRequestComponent>(request);
                 m_LastSend = now;
             }
         }
     }
 
+    /// <summary>
+    /// System present on the server that receive the <see cref="HeartbeatComponent"/> rpc message and reply it back to the sender.
+    /// </summary>
+    [BurstCompile]
+    [RequireMatchingQueriesForUpdate]
     [UpdateInGroup(typeof(NetworkReceiveSystemGroup))]
-    [UpdateInWorld(TargetWorld.Server)]
-    public partial class HeartbeatReplySystem : SystemBase
+    [WorldSystemFilter(WorldSystemFilterFlags.ServerSimulation)]
+    public partial struct HeartbeatReplySystem : ISystem
     {
-        private BeginSimulationEntityCommandBufferSystem m_CommandBufferSystem;
-
-        protected override void OnCreate()
+        [BurstCompile]
+        public void OnCreate(ref SystemState state)
         {
-            m_CommandBufferSystem = World.GetOrCreateSystem<BeginSimulationEntityCommandBufferSystem>();
+            var builder = new EntityQueryBuilder(Allocator.Temp)
+                .WithAll<HeartbeatComponent, ReceiveRpcCommandRequestComponent>();
+            state.RequireForUpdate(state.GetEntityQuery(builder));
         }
 
-        protected override void OnUpdate()
+        [BurstCompile]
+        public void OnDestroy(ref SystemState state)
         {
-            var commandBuffer = m_CommandBufferSystem.CreateCommandBuffer();
-            Entities.ForEach(
-                (Entity entity, ref HeartbeatComponent heartbeat, ref ReceiveRpcCommandRequestComponent recv) =>
-                {
-                    // Re-use the same request entity, just add the send component to send it back
-                    commandBuffer.AddComponent(entity,
-                        new SendRpcCommandRequestComponent {TargetConnection = recv.SourceConnection});
-                }).Schedule();
-            m_CommandBufferSystem.AddJobHandleForProducer(Dependency);
+        }
+
+        /// <summary>
+        /// Receive and reply the <see cref="HeartbeatComponent"/> messages.
+        /// </summary>
+        /// <remarks>It reuse the entity with HeartbeatComponent for reply</remarks>
+        [BurstCompile]
+        public void OnUpdate(ref SystemState state)
+        {
+            var replyJob = new HeartbeatReplyJob()
+            {
+                ecb = SystemAPI.GetSingleton<BeginSimulationEntityCommandBufferSystem.Singleton>()
+                    .CreateCommandBuffer(state.WorldUnmanaged)
+            };
+            state.Dependency = replyJob.Schedule(state.Dependency);
+        }
+
+        [BurstCompile]
+        [WithAll(typeof(HeartbeatComponent))]
+        partial struct HeartbeatReplyJob : IJobEntity
+        {
+            public EntityCommandBuffer ecb;
+            public void Execute(Entity entity,
+                ref ReceiveRpcCommandRequestComponent recv)
+            {
+                ecb.AddComponent(entity,
+                    new SendRpcCommandRequestComponent {TargetConnection = recv.SourceConnection});
+                ecb.RemoveComponent<ReceiveRpcCommandRequestComponent>(entity);
+            }
         }
     }
 
+    /// <summary>
+    /// System present on the client that consume the received <see cref="HeartbeatComponent"/> messages.
+    /// </summary>
+    [BurstCompile]
+    [RequireMatchingQueriesForUpdate]
     [UpdateInGroup(typeof(NetworkReceiveSystemGroup))]
-    [UpdateInWorld(TargetWorld.Client)]
-    public partial class HeartbeatReceiveSystem : SystemBase
+    [WorldSystemFilter(WorldSystemFilterFlags.ClientSimulation|WorldSystemFilterFlags.ThinClientSimulation)]
+    public partial struct HeartbeatReceiveSystem : ISystem
     {
-        private BeginSimulationEntityCommandBufferSystem m_CommandBufferSystem;
-
-        protected override void OnCreate()
+        [BurstCompile]
+        public void OnCreate(ref SystemState state)
         {
-            m_CommandBufferSystem = World.GetOrCreateSystem<BeginSimulationEntityCommandBufferSystem>();
         }
 
-        protected override void OnUpdate()
+        [BurstCompile]
+        public void OnDestroy(ref SystemState state)
         {
-            var commandBuffer = m_CommandBufferSystem.CreateCommandBuffer();
-            Entities.WithNone<SendRpcCommandRequestComponent>().ForEach(
-                (Entity entity, ref HeartbeatComponent heartbeat) =>
-                {
-                    // Just make sure the request is destroyed
-                    commandBuffer.DestroyEntity(entity);
-                }).Schedule();
-            m_CommandBufferSystem.AddJobHandleForProducer(Dependency);
+        }
+
+        /// <summary>
+        /// Receive and destroy the <see cref="HeartbeatComponent"/> messages.
+        /// </summary>
+        [BurstCompile]
+        public void OnUpdate(ref SystemState state)
+        {
+            var deleteJob = new HeartbeatDeleteJob()
+            {
+                ecb = SystemAPI.GetSingleton<BeginSimulationEntityCommandBufferSystem.Singleton>()
+                    .CreateCommandBuffer(state.WorldUnmanaged)
+            };
+            state.Dependency = deleteJob.Schedule(state.Dependency);
+        }
+
+        [BurstCompile]
+        [WithAll(typeof(HeartbeatComponent))]
+        [WithNone(typeof(SendRpcCommandRequestComponent))]
+        partial struct HeartbeatDeleteJob : IJobEntity
+        {
+            public EntityCommandBuffer ecb;
+            public void Execute(Entity entity)
+            {
+                ecb.DestroyEntity(entity);
+            }
         }
     }
 }

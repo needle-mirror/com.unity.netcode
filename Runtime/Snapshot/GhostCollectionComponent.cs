@@ -1,5 +1,3 @@
-using System;
-using System.Collections.Generic;
 using System.Runtime.InteropServices;
 using Unity.Entities;
 using Unity.NetCode.LowLevel.Unsafe;
@@ -9,7 +7,7 @@ namespace Unity.NetCode
     /// <summary>
     /// A BlobAsset containing all the meta data required for ghosts.
     /// </summary>
-    public struct GhostPrefabMetaData
+    internal struct GhostPrefabMetaData
     {
         public enum GhostMode
         {
@@ -21,14 +19,13 @@ namespace Unity.NetCode
         [StructLayout(LayoutKind.Sequential)]
         public struct ComponentInfo
         {
-            //The Component StableTypeHash
+            ///<summary>The Component StableTypeHash.</summary>
             public ulong StableHash;
-            //Serializer variant to use. If 0, the default for that type is used.
+            //<summary>Serializer variant to use. If 0, the default for that type is used.
+            //Note: This also denotes if we should send to child.</summary>
             public ulong Variant;
-            //The SendMask override for the component if different than -1
+            //<summary>The SendMask override for the component if different than -1.</summary>
             public int SendMaskOverride;
-            //Override default SendToChildEntity for the component if different than -1
-            public int SendToChildEntityOverride;
         }
 
         [StructLayout(LayoutKind.Sequential)]
@@ -39,9 +36,9 @@ namespace Unity.NetCode
                 EntityIndex = index;
                 StableHash = hash;
             }
-            //The entity index in the linkedEntityGroup
+            ///<summary>The entity index in the linkedEntityGroup</summary>
             public int EntityIndex;
-            //The component stable hash
+            ///<summary>The component stable hash.</summary>
             public ulong StableHash;
         }
 
@@ -50,23 +47,23 @@ namespace Unity.NetCode
         public GhostMode DefaultMode;
         public bool StaticOptimization;
         public BlobString Name;
-        //Array of components for each children in the hierarchy
+        ///<summary>Array of components for each child in the hierarchy.</summary>
         public BlobArray<ComponentInfo> ServerComponentList;
         public BlobArray<int> NumServerComponentsPerEntity;
         /// <summary>
-        /// A list of (child index, components) pair which should be removed from the prefab when using it on the server. The main use-case is to support ClientAndServer data.
+        /// A list of (child index, components) pairs which should be removed from the prefab when using it on the server. The main use-case is to support ClientAndServer data.
         /// </summary>
         public BlobArray<ComponentReference> RemoveOnServer;
         /// <summary>
-        /// A list of (child index, components) pair  which should be removed from the prefab when using it on the client. The main use-case is to support ClientAndServer data.
+        /// A list of (child index, components) pairs which should be removed from the prefab when using it on the client. The main use-case is to support ClientAndServer data.
         /// </summary>
         public BlobArray<ComponentReference> RemoveOnClient;
         /// <summary>
-        /// A list of (child index, components) pair  which should be disabled when the prefab is used to instantiate a predicted ghost. This is used so we can have a single client prefab.
+        /// A list of (child index, components) pairs which should be disabled when the prefab is used to instantiate a predicted ghost. This is used so we can have a single client prefab.
         /// </summary>
         public BlobArray<ComponentReference> DisableOnPredictedClient;
         /// <summary>
-        /// A list of (child index, components) pair  which should be disabled when the prefab is used to instantiate an interpolated ghost. This is used so we can have a single client prefab.
+        /// A list of (child index, components) pairs which should be disabled when the prefab is used to instantiate an interpolated ghost. This is used so we can have a single client prefab.
         /// </summary>
         public BlobArray<ComponentReference> DisableOnInterpolatedClient;
     }
@@ -75,7 +72,8 @@ namespace Unity.NetCode
     /// A component added to all ghost prefabs. It contains the meta-data required to use the prefab as a ghost.
     /// </summary>
     [DontSupportPrefabOverrides]
-    public struct GhostPrefabMetaDataComponent : IComponentData
+    [GhostComponent(SendDataForChildEntity = false)]
+    internal struct GhostPrefabMetaDataComponent : IComponentData
     {
         public BlobAssetReference<GhostPrefabMetaData> Value;
     }
@@ -84,7 +82,7 @@ namespace Unity.NetCode
     /// A component added to ghost prefabs which require runtime stripping of components before they can be used.
     /// The component is removed when the runtime stripping is performed.
     /// </summary>
-    public struct GhostPrefabRuntimeStrip : IComponentData
+    internal struct GhostPrefabRuntimeStrip : IComponentData
     {}
 
     /// <summary>
@@ -94,10 +92,35 @@ namespace Unity.NetCode
     /// </summary>
     public struct GhostCollection : IComponentData
     {
+        /// <summary>
+        /// The number prefab that has been loaded into the <see cref="GhostCollectionPrefab"/> collection.
+        /// Use to determine which ghosts types the server can stream to the clients.
+        /// <para>
+        /// The server report to the client the list of loaded prefabs (with their see <see cref="GhostTypeComponent"/> guid)
+        /// as part of the snapshot protocol.
+        /// The list is dynamic; new prefabs can be added/loaded at runtime on the server, and the ones will be reported to the client.
+        /// </para>
+        /// <para>
+        /// Clients reports to the server the number of loaded prefab as part of the command protocol.
+        /// When the client receive a ghost snapshot, the ghost prefab list is processed and the <see cref="GhostCollectionPrefab"/> collection
+        /// is updated with any new ghost types not present in the collection.
+        /// <para>
+        /// The client is not required to have all prefab type in the <see cref="GhostCollectionPrefab"/> to be loaded into the world. They can
+        /// be loaded/added dynamically to the world (i.e when streaming a sub-scene), and the <see cref="GhostCollectionPrefab.Loading"/> state
+        /// should be used in that case to inform the <see cref="GhostCollection"/> that the specified prefabs are getting loaded into the world.
+        /// </para>
+        /// </para>
+        /// </summary>
         public int NumLoadedPrefabs;
         #if UNITY_EDITOR || DEVELOPMENT_BUILD
-        public int NumPredictionErrorNames;
+        /// <summary>
+        /// Only for debug, the current length of the predicted error names list. Used by the <see cref="GhostPredictionDebugSystem"/>.
+        /// </summary>
+        internal int NumPredictionErrors;
         #endif
+        /// <summary>
+        /// Flag set when there is at least one <see cref="NetworkStreamConnection"/> that is game.
+        /// </summary>
         public bool IsInGame;
     }
 
@@ -107,20 +130,50 @@ namespace Unity.NetCode
     /// for it yet.
     /// Added to the GhostCollection singleton entity.
     /// </summary>
+    /// <remarks>
+    /// The list is sorted by the value of the <see cref="GhostType"/> guid.
+    /// </remarks>
     [InternalBufferCapacity(ghostCollectionPrefabBufferSize)]
     public struct GhostCollectionPrefab : IBufferElementData
     {
         internal const int ghostCollectionPrefabBufferSize = 96;
 
+        /// <summary>
+        /// Ghost prefabs can be added dynamically to the ghost collection as soon as they are loaded from either a
+        /// sub-scene, or created dynamically at runtime.
+        /// This enum is used on the clients, to signal the ghost collection system that the <see cref="GhostCollectionPrefab"/>
+        /// type is being loaded into the world
+        /// </summary>
         public enum LoadingState
         {
+            /// <summary>
+            /// The default state. Prefab not loaded or present (if the <see cref="GhostCollectionPrefab.GhostPrefab"/> reference is not <see cref="Entity.Null"/>.
+            /// </summary>
             NotLoading = 0,
+            /// <summary>
+            /// Signal the the client has started loading prefab (i.e the client is streaming the subscene content). The <see cref="GhostCollectionSystem"/>
+            /// will start monitoring the state of the resource, see <see cref="GhostCollectionPrefab.GhostPrefab"/>.
+            /// </summary>
             LoadingActive,
+            /// <summary>
+            /// The prefab is currently being loaded but either the entity does not exist or the prefab has been not processed yet.
+            /// This state should only be set the <see cref="GhostCollectionSystem"/>, and when the <see cref="GhostCollectionPrefab.Loading"/> state was set
+            /// to <see cref="LoadingActive"/>.
+            /// </summary>
             LoadingNotActive
         }
+        /// <inheritdoc cref="GhostTypeComponent"/>
         public GhostTypeComponent GhostType;
+        /// <summary>
+        /// A reference to the prefab entity. The reference is initially equals to <see cref="Entity.Null"/> and assigned by
+        /// the <see cref="GhostCollectionSystem"/> when prefabs are processed.
+        /// </summary>
         public Entity GhostPrefab;
-        public ulong Hash;
+        /// <summary>
+        /// Calculated at runtime by the <see cref="GhostCollectionSystem"/> and used to for consistency check. In particular,
+        /// the hash to verify the ghost is serialized and deserialized in the same way.
+        /// </summary>
+        internal ulong Hash;
         /// <summary>
         /// Game code should set this to LoadingActive if the prefab is currently being loaded. The collection system
         /// will set it to LoadingNotActive every frame, so game code must reset it to LoadingActive every frame the
@@ -134,37 +187,115 @@ namespace Unity.NetCode
     /// Added to the GhostCollection singleton entity.
     /// </summary>
     [InternalBufferCapacity(GhostCollectionPrefab.ghostCollectionPrefabBufferSize)]
-    public struct GhostCollectionPrefabSerializer : IBufferElementData
+    internal struct GhostCollectionPrefabSerializer : IBufferElementData
     {
+        /// <summary>
+        /// The stable type hash of the component buffer. Used to retrieve the component type from the <see cref="Entities.TypeManager"/>.
+        /// </summary>
         public ulong TypeHash;
+        /// <summary>
+        /// The index of the first component serialization rule to use inside the <see cref="GhostCollectionComponentIndex"/>.
+        /// </summary>
         public int FirstComponent;
+        /// <summary>
+        /// The total number of serialized components. Include both root and child entities.
+        /// </summary>
         public int NumComponents;
+        /// <summary>
+        /// The total number of serialized components present only in the child entities.
+        /// </summary>
         public int NumChildComponents;
+        /// <summary>
+        /// The total size in bytes of the serialized component data.
+        /// </summary>
         public int SnapshotSize;
+        /// <summary>
+        /// The number of bits used by change mask bitarray.
+        /// </summary>
         public int ChangeMaskBits;
+        /// <summary>
+        /// Only set if the <see cref="GhostOwnerComponent"/> is present on the entity prefab,
+        /// is the offset in bytes, from the beginning of the snapshot data, in which the network id of the of client
+        /// owning the entity can be retrieved.
+        /// <code>
+        /// var ghostOwner = *(uint*)(snapshotDataPtr + PredictionOwnerOffset)
+        /// </code>
+        /// </summary>
         public int PredictionOwnerOffset;
+        /// <summary>
+        /// Flag stating if the ghost replication mode is set to owner predicted.
+        /// </summary>
         public int OwnerPredicted;
+        /// <summary>
+        /// Set to 1 when the ghost contains components with different <see cref="GhostComponentSerializer.SendMask"/>.
+        /// Based on the ghost replication mode (interpolated or predicted), some of these component should be not replicated,
+        /// and the decision must be made by the <see cref="GhostSendSystem"/> at runtime, when entities are serialized.
+        /// </summary>
         public byte PartialComponents;
+        /// <summary>
+        /// Set to 1 if the ghost has some components for which the <see cref="GhostComponentAttribute.OwnerSendType"/>
+        /// is different than <see cref="SendToOwnerType.All"/>. When the flag is set, the <see cref="GhostSendSystem"/>
+        /// will peform the necessary ghost owner checks.
+        /// </summary>
         public byte PartialSendToOwner;
+        /// <summary>
+        /// True if the <see cref="GhostOptimizationMode"/> is set to <see cref="GhostOptimizationMode.Static"/> in the
+        /// <see cref="GhostAuthoringComponent"/>.
+        /// </summary>
         public bool StaticOptimization;
+        /// <summary>
+        /// Reflect the importance value set in the <see cref="GhostAuthoringComponent"/>. Is used as the base value for the
+        /// scaled importance calculated at runtime.
+        /// </summary>
         public int BaseImportance;
+        /// <summary>
+        /// Used by the <see cref="GhostSpawnClassificationSystem"/> to assign the type of <see cref="GhostSpawnBuffer.Type"/> to use for this ghost,
+        /// if no other user-defined system has classified how the new ghost should be spawned.
+        /// </summary>
         public GhostSpawnBuffer.Type FallbackPredictionMode;
+        /// <summary>
+        /// Flag that indicates if the ghost prefab contains a <see cref="GhostGroup"/> component and can be used as root
+        /// of the group (see also <seealso cref="GhostChildEntityComponent"/>).
+        /// </summary>
         public int IsGhostGroup;
+        /// <summary>
+        /// The number of bits necessary to store the enabled state of all the enableable ghost components.
+        /// </summary>
+        public int EnableableBits;
+        /// <summary>
+        /// The size of the largest replicated <see cref="IBufferElementData"/> for this ghost. It is used to calculate the
+        /// necessary <see cref="SnapshotDynamicDataBuffer"/> capacity to hold the replicated buffer data.
+        /// </summary>
         public int MaxBufferSnapshotSize;
+        /// <summary>
+        /// The total number of replicated <see cref="IBufferElementData"/> for this ghost.
+        /// </summary>
         public int NumBuffers;
+        /// <summary>
+        /// A profile marker used to track serialization performance.
+        /// </summary>
         public Profiling.ProfilerMarker profilerMarker;
     }
 
     /// <summary>
-    /// This list contains the set of uniques component which support serialization. Used to map the DynamicComponentTypeHandle
+    /// This list contains the set of uniques components which support serialization. Used to map the DynamicComponentTypeHandle
     /// to a concrete ComponentType in jobs.
     /// Added to the GhostCollection singleton entity.
     /// </summary>
     [InternalBufferCapacity(128)]
-    public struct GhostCollectionComponentType : IBufferElementData
+    internal struct GhostCollectionComponentType : IBufferElementData
     {
+        /// <summary>
+        /// The type of the component. Must be either a <see cref="IComponentData"/> or a <see cref="IBufferElementData"/>.
+        /// </summary>
         public ComponentType Type;
+        /// <summary>
+        /// The index of the first serializer for this component type inside the <see cref="GhostComponentSerializer"/> collection
+        /// </summary>
         public int FirstSerializer;
+        /// <summary>
+        /// The index of the last (included) serializer for this component type inside the <see cref="GhostComponentSerializer"/> collection
+        /// </summary>
         public int LastSerializer;
     }
 
@@ -175,18 +306,17 @@ namespace Unity.NetCode
     /// Added to the GhostCollection singleton entity.
     /// </summary>
     [InternalBufferCapacity(128)]
-    public struct GhostCollectionComponentIndex : IBufferElementData
+    internal struct GhostCollectionComponentIndex : IBufferElementData
     {
+        /// <summary>Index of ghost entity the rule applies to.</summary>
         public int EntityIndex;
-        // index in the GhostComponentCollection, used to retrieve the component type from the DynamicTypeHandle
+        /// <summary>Index in the GhostComponentCollection, used to retrieve the component type from the DynamicTypeHandle.</summary>
         public int ComponentIndex;
-        // index in the GhostComponentSerializer.State collection, used to get the type of serializer to use
+        /// <summary>Index in the GhostComponentSerializer.State collection, used to get the type of serializer to use.</summary>
         public int SerializerIndex;
-        // current send mask for that component, used to not send/receive components in some configuration
+        /// <summary>Current send mask for that component, used to not send/receive components in some configuration.</summary>
         public GhostComponentSerializer.SendMask SendMask;
-        // state if the component can be sent or not for children entities. By default is set 1 (always send)
-        public int SendForChildEntity;
-        #if UNITY_EDITOR || DEVELOPMENT_BUILD
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
         public int PredictionErrorBaseIndex;
         #endif
     }

@@ -1,3 +1,4 @@
+using Unity.Burst;
 using Unity.Collections;
 using Unity.Entities;
 using Unity.Scenes;
@@ -11,83 +12,87 @@ namespace Unity.NetCode.Editor
     /// To overcome that, the SubSceneWithPrespawnGhosts is added at runtime here and a LiveLinkPrespawnSectionReference
     /// is also added ot the scene section enity to provide some misisng information about the section is referring to.
     /// </summary>
-    [UpdateInGroup(typeof(ClientAndServerInitializationSystemGroup))]
-    public partial class PrespawnedGhostPreprocessScene : SystemBase
+    [GenerateTestsForBurstCompatibility]
+    [BurstCompile]
+    [WorldSystemFilter(WorldSystemFilterFlags.ClientSimulation | WorldSystemFilterFlags.ServerSimulation | WorldSystemFilterFlags.ThinClientSimulation)]
+    [UpdateInGroup(typeof(InitializationSystemGroup))]
+    public partial struct PrespawnedGhostPreprocessScene : ISystem
     {
         struct PrespawnSceneExtracted : IComponentData
         {
         }
+        //SceneSystem.SectionLoadedFromEntity m_SectionLoadedFromEntity;
         private EntityQuery prespawnToPreprocess;
-        private EntityQuery subsceneToProcess;
-        private SceneSystem sceneSystem;
+        private EntityQuery sectionsToProcess;
+        private SharedComponentTypeHandle<SubSceneGhostComponentHash> prespawnHashTypeHandle;
+        private SharedComponentTypeHandle<SceneSection> sceneSectionTypeHandle;
 
-        protected override void OnCreate()
+        [BurstCompile]
+        public void OnCreate(ref SystemState state)
         {
-            prespawnToPreprocess = GetEntityQuery(new EntityQueryDesc
-            {
-                All = new []
-                {
-                    new ComponentType(typeof(PreSpawnedGhostIndex)),
-                    new ComponentType(typeof(SubSceneGhostComponentHash)),
-                    new ComponentType(typeof(SceneTag))
-                },
-                Options = EntityQueryOptions.IncludeDisabled
-            });
-            subsceneToProcess = GetEntityQuery(
-                ComponentType.ReadOnly<SceneEntityReference>(),
-                ComponentType.Exclude<PrespawnSceneExtracted>(),
-                ComponentType.Exclude<SceneSectionData>(),
-                ComponentType.Exclude<SubSceneWithPrespawnGhosts>());
-            sceneSystem = World.GetExistingSystem<SceneSystem>();
-            RequireForUpdate(prespawnToPreprocess);
-            RequireForUpdate(subsceneToProcess);
+            // Prerequisite: must exist some prespawn, otherwise no need to run
+            var builder = new EntityQueryBuilder(Allocator.Temp)
+                .WithAll<PreSpawnedGhostIndex, SceneTag>()
+                .WithAllRW<SubSceneGhostComponentHash>()
+                .WithOptions(EntityQueryOptions.IncludeDisabledEntities);
+            prespawnToPreprocess = state.GetEntityQuery(builder);
+
+            builder.Reset();
+            builder.WithAll<DisableSceneResolveAndLoad, SceneEntityReference>()
+                .WithNone<SceneSectionData, PrespawnSceneExtracted, SubSceneWithPrespawnGhosts>();
+            sectionsToProcess = state.GetEntityQuery(builder);
+
+            prespawnHashTypeHandle = state.GetSharedComponentTypeHandle<SubSceneGhostComponentHash>();
+            sceneSectionTypeHandle = state.GetSharedComponentTypeHandle<SceneSection>();
+            state.RequireForUpdate(prespawnToPreprocess);
+            state.RequireForUpdate(sectionsToProcess);
         }
 
+        [BurstCompile]
+        public void OnDestroy(ref SystemState state)
+        {
+        }
 
-        protected override void OnUpdate()
+        [BurstCompile]
+        public void OnUpdate(ref SystemState state)
         {
             //this is only valid in the editor
-            var prespawnGhostHashType = GetSharedComponentTypeHandle<SubSceneGhostComponentHash>();
-            var sceneSectionType = GetSharedComponentTypeHandle<SceneSection>();
-            var commandBuffer = new EntityCommandBuffer(Allocator.Temp);
-            Entities
-                .WithoutBurst()
-                .WithAll<DisableSceneResolveAndLoad>()
-                .WithAll<SceneEntityReference>()
-                .WithNone<SceneSectionData>()
-                .WithNone<PrespawnSceneExtracted>()
-                .ForEach((Entity sectionEntity) =>
+            prespawnHashTypeHandle.Update(ref state);
+            sceneSectionTypeHandle.Update(ref state);
+            prespawnToPreprocess.ResetFilter();
+            var sceneEntities = sectionsToProcess.ToEntityArray(Allocator.Temp);
+            foreach (var sectionEntity in sceneEntities)
             {
-                if(!sceneSystem.IsSectionLoaded(sectionEntity))
-                    return;
+                if(!state.EntityManager.HasComponent<IsSectionLoaded>(sectionEntity))
+                    continue;
 
                 prespawnToPreprocess.SetSharedComponentFilter(new SceneTag{SceneEntity = sectionEntity});
+                // Mark the scene as processed. All scene section must be marked
+                state.EntityManager.AddComponent<PrespawnSceneExtracted>(sectionEntity);
+                // Early exit if no prespawn are present
                 var count = prespawnToPreprocess.CalculateEntityCount();
-                if (count > 0)
+                if (count == 0)
+                    continue;
+
+                using var chunks = prespawnToPreprocess.ToArchetypeChunkArray(Allocator.Temp);
+                var prespawnGhostHash = chunks[0].GetSharedComponent(prespawnHashTypeHandle);
+                var sceneSection = chunks[0].GetSharedComponent(sceneSectionTypeHandle);
+                state.EntityManager.AddComponentData(sectionEntity, new SubSceneWithPrespawnGhosts
                 {
-                    using var chunks = prespawnToPreprocess.CreateArchetypeChunkArray(Allocator.Temp);
-                    var prespawnGhostHash = chunks[0].GetSharedComponentData(prespawnGhostHashType, EntityManager);
-                    var sceneSection = chunks[0].GetSharedComponentData(sceneSectionType, EntityManager);
-                    commandBuffer.AddComponent(sectionEntity, new SubSceneWithPrespawnGhosts
-                    {
-                        SubSceneHash = prespawnGhostHash.Value,
-                        BaselinesHash = 0,
-                        PrespawnCount = count
-                    });
-                    //Add this component to allow retrieve the section index and scene guid. This information are necessary
-                    //to correctly add the SceneSection component to the pre-spawned ghosts when they are re-spawned
-                    //FIXME: investigate if using the SceneTag may be sufficient to guaratee that re-spawned prespawned ghosts
-                    //are deleted when scenes are unloaded. We can the remove this component and further simplify other things
-                    commandBuffer.AddComponent(sectionEntity, new LiveLinkPrespawnSectionReference
-                    {
-                        SceneGUID = sceneSection.SceneGUID,
-                        Section = sceneSection.Section
-                    });
-                }
-                commandBuffer.AddComponent<PrespawnSceneExtracted>(sectionEntity);
-            }).Run();
-            commandBuffer.Playback(EntityManager);
-            prespawnToPreprocess.ResetFilter();
+                    SubSceneHash = prespawnGhostHash.Value,
+                    BaselinesHash = 0,
+                    PrespawnCount = count
+                });
+                //Add this component to allow retrieve the section index and scene guid. This information are necessary
+                //to correctly add the SceneSection component to the pre-spawned ghosts when they are re-spawned
+                //FIXME: investigate if using the SceneTag may be sufficient to guaratee that re-spawned prespawned ghosts
+                //are deleted when scenes are unloaded. We can the remove this component and further simplify other things
+                state.EntityManager.AddComponentData(sectionEntity, new LiveLinkPrespawnSectionReference
+                {
+                    SceneGUID = sceneSection.SceneGUID,
+                    Section = sceneSection.Section
+                });
+            }
         }
     }
 }

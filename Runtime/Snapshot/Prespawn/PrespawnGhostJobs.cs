@@ -1,4 +1,6 @@
+using Unity.Assertions;
 using Unity.Burst;
+using Unity.Burst.Intrinsics;
 using Unity.Collections;
 using Unity.Collections.LowLevel.Unsafe;
 using Unity.Entities;
@@ -18,27 +20,30 @@ namespace Unity.NetCode
     // -------------------------------------------------------------
     // [COMPONENT DATA][SIZE][PADDING (3UINT)][DYNAMIC BUFFER DATA]
     // -------------------------------------------------------------
-    [BurstCompatible]
+    [GenerateTestsForBurstCompatibility]
     [BurstCompile]
-    public struct PrespawnGhostSerializer : IJobChunk
+    internal struct PrespawnGhostSerializer : IJobChunk
     {
-        [ReadOnly] public BufferFromEntity<GhostComponentSerializer.State> GhostComponentCollectionFromEntity;
-        [ReadOnly] public BufferFromEntity<GhostCollectionPrefabSerializer> GhostTypeCollectionFromEntity;
-        [ReadOnly] public BufferFromEntity<GhostCollectionComponentIndex> GhostComponentIndexFromEntity;
-        [ReadOnly] public BufferFromEntity<GhostCollectionPrefab> GhostCollectionFromEntity;
+        [ReadOnly] public BufferLookup<GhostComponentSerializer.State> GhostComponentCollectionFromEntity;
+        [ReadOnly] public BufferLookup<GhostCollectionPrefabSerializer> GhostTypeCollectionFromEntity;
+        [ReadOnly] public BufferLookup<GhostCollectionComponentIndex> GhostComponentIndexFromEntity;
+        [ReadOnly] public BufferLookup<GhostCollectionPrefab> GhostCollectionFromEntity;
         [ReadOnly] public ComponentTypeHandle<GhostTypeComponent> ghostTypeComponentType;
         [ReadOnly] public EntityTypeHandle entityType;
-        [ReadOnly] public StorageInfoFromEntity childEntityLookup;
+        [ReadOnly] public EntityStorageInfoLookup childEntityLookup;
         [ReadOnly] public BufferTypeHandle<LinkedEntityGroup> linkedEntityGroupType;
-        [ReadOnly] public ComponentDataFromEntity<GhostComponent> ghostFromEntity;
+        [ReadOnly] public ComponentLookup<GhostComponent> ghostFromEntity;
         [ReadOnly] public DynamicTypeList ghostChunkComponentTypes;
-        public NativeArray<ulong> baselineHashes;
+        public NativeList<ulong>.ParallelWriter baselineHashes;
         [NativeDisableParallelForRestriction]
         public BufferTypeHandle<PrespawnGhostBaseline> prespawnBaseline;
         public Entity GhostCollectionSingleton;
 
-        public unsafe void Execute(ArchetypeChunk chunk, int chunkIndex, int firstEntityIndex)
+        public unsafe void Execute(in ArchetypeChunk chunk, int unfilteredChunkIndex, bool useEnabledMask, in v128 chunkEnabledMask)
         {
+            // This job is not written to support queries with enableable component types.
+            Assert.IsFalse(useEnabledMask);
+
             var entities = chunk.GetNativeArray(entityType);
             var GhostCollection = GhostCollectionFromEntity[GhostCollectionSingleton];
             var GhostTypeCollection = GhostTypeCollectionFromEntity[GhostCollectionSingleton];
@@ -52,7 +57,7 @@ namespace Unity.NetCode
             //the type has not been processed yet. There isn't much we can do about it
             if (ghostType >= GhostCollection.Length || ghostType >= GhostTypeCollection.Length)
             {
-                UnityEngine.Debug.LogError("Cannot serialize prespawn ghost baselines. GhostCollection didn't correctly process some prefabs");
+                UnityEngine.Debug.LogError($"Cannot serialize prespawn ghost baselines as the `GhostCollection` didn't correctly process some prefabs. GhostTypeCollection.Length: {GhostTypeCollection.Length}.");
                 return;
             }
 
@@ -75,30 +80,36 @@ namespace Unity.NetCode
                 helper.GatherBufferSize(chunk, 0, typeData, ref buffersSize);
 
             var snapshotSize = typeData.SnapshotSize;
-            int changeMaskUints = GhostCollectionSystem.ChangeMaskArraySizeInUInts(typeData.ChangeMaskBits);
-            var snapshotBaseOffset = GhostCollectionSystem.SnapshotSizeAligned(4 + changeMaskUints * 4);
+            int changeMaskUints = GhostComponentSerializer.ChangeMaskArraySizeInUInts(typeData.ChangeMaskBits);
+            int enableableMaskUints = GhostComponentSerializer.ChangeMaskArraySizeInUInts(typeData.EnableableBits);
+            var snapshotBaseOffset = GhostComponentSerializer.SnapshotSizeAligned(sizeof(uint) + changeMaskUints*sizeof(uint) + enableableMaskUints*sizeof(uint));
+
             var bufferAccessor = chunk.GetBufferAccessor(prespawnBaseline);
+            var chunkHashes = stackalloc ulong[entities.Length];
             for (int i = 0; i < entities.Length; ++i)
             {
                 //Initialize the baseline buffer. This will contains the component data
                 var baselineBuffer = bufferAccessor[i];
                 //The first 4 bytes are the size of the dynamic data
-                var dynamicDataCapacity = GhostCollectionSystem.SnapshotSizeAligned(sizeof(uint)) + buffersSize[i];
+                var dynamicDataCapacity = GhostComponentSerializer.SnapshotSizeAligned(sizeof(uint)) + buffersSize[i];
                 baselineBuffer.ResizeUninitialized(snapshotSize + dynamicDataCapacity);
                 var baselinePtr = baselineBuffer.GetUnsafePtr();
                 UnsafeUtility.MemClear(baselinePtr, baselineBuffer.Length);
 
+                helper.changeMaskUints = changeMaskUints;
                 helper.snapshotOffset = snapshotBaseOffset;
                 helper.snapshotPtr = (byte*) baselinePtr;
                 helper.snapshotDynamicPtr = (byte*) baselinePtr + snapshotSize;
-                helper.dynamicSnapshotDataOffset = GhostCollectionSystem.SnapshotSizeAligned(sizeof(uint));
-                helper.snapshotCapacity = snapshotSize;
+                helper.dynamicSnapshotDataOffset = GhostComponentSerializer.SnapshotSizeAligned(sizeof(uint));
+                helper.snapshotSize = snapshotSize;
                 helper.dynamicSnapshotCapacity = baselineBuffer.Length - snapshotSize;
                 helper.CopyEntityToSnapshot(chunk, i, typeData, GhostSerializeHelper.ClearOption.DontClear);
 
                 // Compute the hash for that baseline
-                baselineHashes[firstEntityIndex + i] =  Unity.Core.XXHash.Hash64((byte*) baselineBuffer.GetUnsafeReadOnlyPtr(), baselineBuffer.Length);
+                chunkHashes[i] =
+                    Unity.Core.XXHash.Hash64((byte*)baselineBuffer.GetUnsafeReadOnlyPtr(), baselineBuffer.Length);
             }
+            baselineHashes.AddRangeNoResize(chunkHashes, entities.Length);
 
             buffersSize.Dispose();
         }
@@ -110,18 +121,22 @@ namespace Unity.NetCode
     /// <remarks>
     /// This job is not burst compatbile since it uses TypeManager internal static members, that aren't SharedStatic.
     /// </remarks>
-    struct PrespawnGhostStripComponentsJob : IJobChunk
+    [BurstCompile]
+    internal struct PrespawnGhostStripComponentsJob : IJobChunk
     {
         [ReadOnly]public ComponentTypeHandle<GhostTypeComponent> ghostTypeHandle;
-        [ReadOnly]public ComponentDataFromEntity<GhostPrefabMetaDataComponent> metaDataFromEntity;
+        [ReadOnly]public ComponentLookup<GhostPrefabMetaDataComponent> metaDataFromEntity;
         [ReadOnly]public BufferTypeHandle<LinkedEntityGroup> linkedEntityTypeHandle;
         [ReadOnly]public NativeParallelHashMap<GhostTypeComponent, Entity> prefabFromType;
         public EntityCommandBuffer.ParallelWriter commandBuffer;
         public NetDebug netDebug;
-        public bool server;
+        public byte server;
 
-        public void Execute(ArchetypeChunk chunk, int chunkIndex, int firstEntityIndex)
+        public void Execute(in ArchetypeChunk chunk, int unfilteredChunkIndex, bool useEnabledMask, in v128 chunkEnabledMask)
         {
+            // This job is not written to support queries with enableable component types.
+            Assert.IsFalse(useEnabledMask);
+
             var ghostTypes = chunk.GetNativeArray(ghostTypeHandle);
             if (!prefabFromType.TryGetValue(ghostTypes[0], out var ghostPrefabEntity))
             {
@@ -138,16 +153,16 @@ namespace Unity.NetCode
             ref var ghostMetaData = ref metaDataFromEntity[ghostPrefabEntity].Value.Value;
             var linkedEntityBufferAccessor = chunk.GetBufferAccessor(linkedEntityTypeHandle);
 
-            for (int index = 0; index < chunk.Count; ++index)
+            for (int index = 0, chunkEntityCount = chunk.Count; index < chunkEntityCount; ++index)
             {
                 var linkedEntityGroup = linkedEntityBufferAccessor[index];
-                if (server)
+                if (server == 1)
                 {
                     for (int rm = 0; rm < ghostMetaData.RemoveOnServer.Length; ++rm)
                     {
                         var childIndexCompHashPair = ghostMetaData.RemoveOnServer[rm];
                         var rmCompType = ComponentType.ReadWrite(TypeManager.GetTypeIndexFromStableTypeHash(childIndexCompHashPair.StableHash));
-                        commandBuffer.RemoveComponent(chunkIndex, linkedEntityGroup[childIndexCompHashPair.EntityIndex].Value, rmCompType);
+                        commandBuffer.RemoveComponent(unfilteredChunkIndex, linkedEntityGroup[childIndexCompHashPair.EntityIndex].Value, rmCompType);
                     }
                 }
                 else
@@ -156,7 +171,7 @@ namespace Unity.NetCode
                     {
                         var childIndexCompHashPair = ghostMetaData.RemoveOnClient[rm];
                         var rmCompType = ComponentType.ReadWrite(TypeManager.GetTypeIndexFromStableTypeHash(childIndexCompHashPair.StableHash));
-                        commandBuffer.RemoveComponent(chunkIndex,linkedEntityGroup[childIndexCompHashPair.EntityIndex].Value, rmCompType);
+                        commandBuffer.RemoveComponent(unfilteredChunkIndex,linkedEntityGroup[childIndexCompHashPair.EntityIndex].Value, rmCompType);
                     }
                     // FIXME: should disable instead of removing once we have a way of doing that without structural changes
                     if (ghostMetaData.DefaultMode == GhostPrefabMetaData.GhostMode.Predicted)
@@ -165,7 +180,7 @@ namespace Unity.NetCode
                         {
                             var childIndexCompHashPair = ghostMetaData.DisableOnPredictedClient[rm];
                             var rmCompType = ComponentType.ReadWrite(TypeManager.GetTypeIndexFromStableTypeHash(childIndexCompHashPair.StableHash));
-                            commandBuffer.RemoveComponent(chunkIndex,linkedEntityGroup[childIndexCompHashPair.EntityIndex].Value, rmCompType);
+                            commandBuffer.RemoveComponent(unfilteredChunkIndex,linkedEntityGroup[childIndexCompHashPair.EntityIndex].Value, rmCompType);
                         }
                     }
                     else if (ghostMetaData.DefaultMode == GhostPrefabMetaData.GhostMode.Interpolated)
@@ -174,7 +189,7 @@ namespace Unity.NetCode
                         {
                             var childIndexCompHashPair = ghostMetaData.DisableOnInterpolatedClient[rm];
                             var rmCompType = ComponentType.ReadWrite(TypeManager.GetTypeIndexFromStableTypeHash(childIndexCompHashPair.StableHash));
-                            commandBuffer.RemoveComponent(chunkIndex,linkedEntityGroup[childIndexCompHashPair.EntityIndex].Value, rmCompType);
+                            commandBuffer.RemoveComponent(unfilteredChunkIndex,linkedEntityGroup[childIndexCompHashPair.EntityIndex].Value, rmCompType);
                         }
                     }
                 }
@@ -184,31 +199,36 @@ namespace Unity.NetCode
 
     /// <summary>
     /// Assign to GhostComponent and GhostStateSystemComponent the ghost ids for all the prespawn ghosts.
-    /// Also responsible to popule the SpawnedGhostMapping lists with all the spawned ghosts
+    /// Also responsible to populate the SpawnedGhostMapping lists with all the spawned ghosts
     /// </summary>
-    [BurstCompatible]
+    [GenerateTestsForBurstCompatibility]
     [BurstCompile]
-    struct AssignPrespawnGhostIdJob : IJobChunk
+    internal struct AssignPrespawnGhostIdJob : IJobChunk
     {
         [ReadOnly] public EntityTypeHandle entityType;
         [ReadOnly] public ComponentTypeHandle<PreSpawnedGhostIndex> prespawnIdType;
         [NativeDisableParallelForRestriction]
         public ComponentTypeHandle<GhostComponent> ghostComponentType;
         [NativeDisableParallelForRestriction]
-        public ComponentTypeHandle<GhostSystemStateComponent> ghostStateTypeHandle;
+        public ComponentTypeHandle<GhostCleanupComponent> ghostStateTypeHandle;
         [NativeDisableParallelForRestriction]
-        public NativeArray<SpawnedGhostMapping> spawnedGhosts;
+        public NativeList<SpawnedGhostMapping>.ParallelWriter spawnedGhosts;
         public int startGhostId;
         public NetDebug netDebug;
 
-        public void Execute(ArchetypeChunk chunk, int chunkIndex, int firstEntityIndex)
+        public unsafe void Execute(in ArchetypeChunk chunk, int unfilteredChunkIndex, bool useEnabledMask, in v128 chunkEnabledMask)
         {
+            // This job is not written to support queries with enableable component types.
+            Assert.IsFalse(useEnabledMask);
+
             var entities = chunk.GetNativeArray(entityType);
             var preSpawnedIds = chunk.GetNativeArray(prespawnIdType);
             var ghostComponents = chunk.GetNativeArray(ghostComponentType);
             var ghostStates = chunk.GetNativeArray(ghostStateTypeHandle);
 
-            for (int index = 0; index < chunk.Count; ++index)
+            var chunkSpawnedGhostMappings = stackalloc SpawnedGhostMapping[chunk.Count];
+            int spawnedGhostCount = 0;
+            for (int index = 0, chunkEntityCount = chunk.Count; index < chunkEntityCount; ++index)
             {
                 var entity = entities[index];
                 // Check if this entity has already been handled
@@ -220,18 +240,19 @@ namespace Unity.NetCode
                 //Special encoding for prespawnId (sort of "namespace").
                 var ghostId = PrespawnHelper.MakePrespawGhostId(preSpawnedIds[index].Value + startGhostId);
                 if (ghostStates.IsCreated && ghostStates.Length > 0)
-                    ghostStates[index] = new GhostSystemStateComponent {ghostId = ghostId, despawnTick = 0, spawnTick = 0};
+                    ghostStates[index] = new GhostCleanupComponent {ghostId = ghostId, despawnTick = NetworkTick.Invalid, spawnTick = NetworkTick.Invalid};
 
-                spawnedGhosts[firstEntityIndex + index] = new SpawnedGhostMapping
+                chunkSpawnedGhostMappings[spawnedGhostCount++] = new SpawnedGhostMapping
                 {
-                    ghost = new SpawnedGhost {ghostId = ghostId, spawnTick = 0}, entity = entity
+                    ghost = new SpawnedGhost {ghostId = ghostId, spawnTick = NetworkTick.Invalid}, entity = entity
                 };
                 // GhostType -1 is a special case for prespawned ghosts which is converted to a proper ghost id in the send / receive systems
                 // once the ghost ids are known
                 // Pre-spawned uses spawnTick = 0, if there is a reference to a ghost and it has spawnTick 0 the ref is always resolved
                 // This works because there despawns are high priority and we never create pre-spawned ghosts after connection
-                ghostComponents[index] = new GhostComponent {ghostId = ghostId, ghostType = -1, spawnTick = 0};
+                ghostComponents[index] = new GhostComponent {ghostId = ghostId, ghostType = -1, spawnTick = NetworkTick.Invalid};
             }
+            spawnedGhosts.AddRangeNoResize(chunkSpawnedGhostMappings, spawnedGhostCount);
         }
     }
 }

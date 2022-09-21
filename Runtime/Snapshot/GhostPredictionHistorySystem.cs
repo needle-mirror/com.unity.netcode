@@ -1,4 +1,5 @@
 using System;
+using Unity.Assertions;
 using Unity.Entities;
 using Unity.NetCode;
 using Unity.Mathematics;
@@ -7,6 +8,8 @@ using Unity.Collections.LowLevel.Unsafe;
 using Unity.Collections;
 using Unity.NetCode.LowLevel.Unsafe;
 using Unity.Burst;
+using Unity.Burst.Intrinsics;
+using Unity.Entities.LowLevel.Unsafe;
 using Unity.Jobs;
 
 namespace Unity.NetCode
@@ -14,6 +17,7 @@ namespace Unity.NetCode
     // The header of prediction backup state
     // The header is followed by:
     // Entity[Capacity] the entity this history applies to (to prevent errors on structural changes)
+    // ulong[Capacity*enabledBits] each enabled bit is stored as a contiguous array of all entities, aligned to ulong
     // byte*[Capacity * sizeof(IComponentData)] the raw backup data for all replicated components in this ghost type. For buffers an uint pair (size, offset) is stored instead.
     // [Opt]byte*[BuffersDataSize] the raw buffers element data present in the chunk if present. The total buffers size is computed at runtime and the
     // backup state resized accordingly. All buffers contents start to a 16 bytes aligned offset: Align(b1Elem*b1ElemSize, 16), Align(b2Elem*b2ElemSize, 16) ...
@@ -24,6 +28,8 @@ namespace Unity.NetCode
         public int ghostType;
         public int entityCapacity;
         public int entitiesOffset;
+        public int enabledBitOffset;
+        public int enabledBits;
         public int ghostOwnerOffset;
         //the ghost component serialized size
         public int dataOffset;
@@ -32,17 +38,21 @@ namespace Unity.NetCode
         public int bufferDataCapacity;
         public int bufferDataOffset;
 
-        public static IntPtr AllocNew(int ghostTypeId, int dataSize, int entityCapacity, int buffersDataCapacity, int predictionOwnerOffset)
+        public static IntPtr AllocNew(int ghostTypeId, int enabledBits, int dataSize, int entityCapacity, int buffersDataCapacity, int predictionOwnerOffset)
         {
             var entitiesSize = (ushort)GetEntitiesSize(entityCapacity, out var _);
             var headerSize = GetHeaderSize();
-            var state = (PredictionBackupState*)UnsafeUtility.Malloc(headerSize + entitiesSize + dataSize + buffersDataCapacity, 16, Allocator.Persistent);
+            // each enabled bit is a unique array big enough to fit all entities
+            var enabledBitSize = (((entityCapacity+63)&(~63))/8 * enabledBits + 15) & (~15);
+            var state = (PredictionBackupState*)UnsafeUtility.Malloc(headerSize + enabledBitSize + entitiesSize + dataSize + buffersDataCapacity, 16, Allocator.Persistent);
             state->ghostType = ghostTypeId;
             state->entityCapacity = entityCapacity;
             state->entitiesOffset = headerSize;
-            state->dataOffset = headerSize + entitiesSize;
-            state->dataSize = dataSize;
+            state->enabledBitOffset = headerSize + entitiesSize;
             state->ghostOwnerOffset = predictionOwnerOffset;
+            state->enabledBits = enabledBits;
+            state->dataOffset = headerSize + entitiesSize + enabledBitSize;
+            state->dataSize = dataSize;
             state->bufferDataCapacity = buffersDataCapacity;
             state->bufferDataOffset = headerSize + entitiesSize + dataSize;
             return (IntPtr)state;
@@ -84,6 +94,15 @@ namespace Unity.NetCode
         {
             return data + GetDataSize(componentSize, chunkCapacity);
         }
+        public static ulong* GetEnabledBits(IntPtr state)
+        {
+            var ps = ((PredictionBackupState*) state);
+            return (ulong*)(((byte*) state) + ps->enabledBitOffset);
+        }
+        public static ulong* GetNextEnabledBits(ulong* data, int chunkCapacity)
+        {
+            return data + (chunkCapacity+63)/64;
+        }
         public static int GetGhostOwner(IntPtr state)
         {
             var ps = ((PredictionBackupState*) state);
@@ -93,6 +112,20 @@ namespace Unity.NetCode
             return 0;
         }
     }
+
+    /// <summary>
+    /// The last full tick for which a snapshot backup is avaiable. Only present on the client world
+    /// </summary>
+    internal struct GhostSnapshotLastBackupTick : IComponentData
+    {
+        public NetworkTick Value;
+    }
+
+    internal struct GhostPredictionHistoryState : IComponentData
+    {
+        public NativeParallelHashMap<ArchetypeChunk, System.IntPtr>.ReadOnly PredictionState;
+    }
+
     /// <summary>
     /// A system used to make a backup o the current predicted state right after the last full (not fractional)
     /// tick in a prediction loop for a frame has been completed.
@@ -104,9 +137,10 @@ namespace Unity.NetCode
     /// The backup data is also used to detect errors in the prediction as well as to add smoothing of predicted
     /// values.
     /// </summary>
-    [UpdateInWorld(TargetWorld.Client)]
-    [UpdateInGroup(typeof(GhostPredictionSystemGroup), OrderLast = true)]
-    public unsafe partial class GhostPredictionHistorySystem : SystemBase
+    [WorldSystemFilter(WorldSystemFilterFlags.ClientSimulation)]
+    [UpdateInGroup(typeof(PredictedSimulationSystemGroup), OrderLast = true)]
+    //[BurstCompile] // TODO: Re-enable once Burst issue BUR-1971 is fixed.
+    public unsafe partial struct GhostPredictionHistorySystem : ISystem
     {
         struct PredictionStateEntry
         {
@@ -114,91 +148,139 @@ namespace Unity.NetCode
             public System.IntPtr data;
         }
 
-        internal NativeParallelHashMap<ArchetypeChunk, System.IntPtr> PredictionState;
-        internal JobHandle PredictionStateWriteJobHandle {get; private set;}
-        JobHandle m_PredictionStateReadJobHandle;
+        NativeParallelHashMap<ArchetypeChunk, System.IntPtr> m_PredictionState;
         NativeParallelHashMap<ArchetypeChunk, int> m_StillUsedPredictionState;
         NativeQueue<PredictionStateEntry> m_NewPredictionState;
         NativeQueue<PredictionStateEntry> m_UpdatedPredictionState;
         EntityQuery m_PredictionQuery;
 
-        GhostPredictionSystemGroup m_GhostPredictionSystemGroup;
-        ClientSimulationSystemGroup m_ClientSimulationSystemGroup;
-        public uint LastBackupTick;
-        internal void AddPredictionStateReader(JobHandle handle)
-        {
-            m_PredictionStateReadJobHandle = JobHandle.CombineDependencies(m_PredictionStateReadJobHandle, handle);
-        }
-        protected override void OnCreate()
-        {
-            m_GhostPredictionSystemGroup = World.GetExistingSystem<GhostPredictionSystemGroup>();
-            m_ClientSimulationSystemGroup = World.GetExistingSystem<ClientSimulationSystemGroup>();
+        ComponentTypeHandle<GhostComponent> m_GhostComponentHandle;
+        ComponentTypeHandle<GhostTypeComponent> m_GhostTypeComponentHandle;
+        ComponentTypeHandle<PreSpawnedGhostIndex> m_PreSpawnedGhostIndexHandle;
+        BufferTypeHandle<LinkedEntityGroup> m_LinkedEntityGroupHandle;
+        EntityTypeHandle m_EntityTypeHandle;
 
-            PredictionState = new NativeParallelHashMap<ArchetypeChunk, System.IntPtr>(128, Allocator.Persistent);
+        BufferLookup<GhostComponentSerializer.State> m_GhostComponentSerializerStateFromEntity;
+        BufferLookup<GhostCollectionPrefabSerializer> m_GhostCollectionPrefabSerializerFromEntity;
+        BufferLookup<GhostCollectionComponentIndex> m_GhostCollectionComponentIndexFromEntity;
+        BufferLookup<GhostCollectionPrefab> m_GhostCollectionPrefabFromEntity;
+
+        //[BurstCompile] // TODO: Re-enable once Burst issue BUR-1971 is fixed.
+        public void OnCreate(ref SystemState state)
+        {
+            m_PredictionState = new NativeParallelHashMap<ArchetypeChunk, System.IntPtr>(128, Allocator.Persistent);
             m_StillUsedPredictionState = new NativeParallelHashMap<ArchetypeChunk, int>(128, Allocator.Persistent);
             m_NewPredictionState = new NativeQueue<PredictionStateEntry>(Allocator.Persistent);
             m_UpdatedPredictionState = new NativeQueue<PredictionStateEntry>(Allocator.Persistent);
-            m_PredictionQuery = GetEntityQuery(ComponentType.ReadOnly<PredictedGhostComponent>(), ComponentType.ReadOnly<GhostComponent>());
+            var builder = new EntityQueryBuilder(Allocator.Temp)
+                .WithAll<PredictedGhostComponent, GhostComponent>();
+            m_PredictionQuery = state.GetEntityQuery(builder);
 
-            RequireSingletonForUpdate<GhostCollection>();
+            state.RequireForUpdate<GhostCollection>();
+
+            m_GhostComponentHandle = state.GetComponentTypeHandle<GhostComponent>(true);
+            m_GhostTypeComponentHandle = state.GetComponentTypeHandle<GhostTypeComponent>(true);
+            m_PreSpawnedGhostIndexHandle = state.GetComponentTypeHandle<PreSpawnedGhostIndex>(true);
+            m_LinkedEntityGroupHandle = state.GetBufferTypeHandle<LinkedEntityGroup>(true);
+            m_EntityTypeHandle = state.GetEntityTypeHandle();
+
+            m_GhostComponentSerializerStateFromEntity = state.GetBufferLookup<GhostComponentSerializer.State>(true);
+            m_GhostCollectionPrefabSerializerFromEntity = state.GetBufferLookup<GhostCollectionPrefabSerializer>(true);
+            m_GhostCollectionComponentIndexFromEntity = state.GetBufferLookup<GhostCollectionComponentIndex>(true);
+            m_GhostCollectionPrefabFromEntity = state.GetBufferLookup<GhostCollectionPrefab>(true);
+
+            var atype = new NativeArray<ComponentType>(1, Allocator.Temp);
+            atype[0] = ComponentType.ReadWrite<GhostPredictionHistoryState>();
+            var historySingleton = state.EntityManager.CreateEntity(state.EntityManager.CreateArchetype(atype));
+            FixedString64Bytes singletonName = "GhostPredictionHistoryState-Singleton";
+            state.EntityManager.SetName(historySingleton, singletonName);
+            // Declare that we are writing to GhostPredictionHistoryState, so we depend on all readers of this singleton during OnUpdate
+            SystemAPI.GetSingletonRW<GhostPredictionHistoryState>().ValueRW.PredictionState = m_PredictionState.AsReadOnly();
         }
-        protected override void OnDestroy()
+
+        //[BurstCompile] // TODO: Re-enable once Burst issue BUR-1971 is fixed.
+        public void OnDestroy(ref SystemState state)
         {
-            var values = PredictionState.GetValueArray(Allocator.Temp);
+            var values = m_PredictionState.GetValueArray(Allocator.Temp);
             for (int i = 0; i < values.Length; ++i)
             {
                 UnsafeUtility.Free((void*)values[i], Allocator.Persistent);
             }
-            PredictionState.Dispose();
+            m_PredictionState.Dispose();
             m_StillUsedPredictionState.Dispose();
             m_NewPredictionState.Dispose();
             m_UpdatedPredictionState.Dispose();
         }
-        protected override void OnUpdate()
-        {
-            var serverTick = m_ClientSimulationSystemGroup.ServerTick;
-            if (m_ClientSimulationSystemGroup.ServerTickFraction < 1)
-                --serverTick;
-            if (serverTick != m_GhostPredictionSystemGroup.PredictingTick)
-                return;
-            LastBackupTick = serverTick;
 
-            var predictionState = PredictionState;
+        //[BurstCompile] // TODO: Re-enable once Burst issue BUR-1971 is fixed.
+        public void OnUpdate(ref SystemState state)
+        {
+            var networkTime = SystemAPI.GetSingleton<NetworkTime>();
+            if (!networkTime.IsFinalFullPredictionTick)
+                return;
+            SystemAPI.SetSingleton(new GhostSnapshotLastBackupTick { Value = networkTime.ServerTick });
+
+            var predictionState = m_PredictionState;
             var newPredictionState = m_NewPredictionState;
             var stillUsedPredictionState = m_StillUsedPredictionState;
             var updatedPredictionState = m_UpdatedPredictionState;
             stillUsedPredictionState.Clear();
             if (stillUsedPredictionState.Capacity < predictionState.Capacity)
                 stillUsedPredictionState.Capacity = predictionState.Capacity;
+
+            m_GhostComponentHandle.Update(ref state);
+            m_GhostTypeComponentHandle.Update(ref state);
+            m_PreSpawnedGhostIndexHandle.Update(ref state);
+            m_LinkedEntityGroupHandle.Update(ref state);
+            m_EntityTypeHandle.Update(ref state);
+            m_GhostComponentSerializerStateFromEntity.Update(ref state);
+            m_GhostCollectionPrefabSerializerFromEntity.Update(ref state);
+            m_GhostCollectionComponentIndexFromEntity.Update(ref state);
+            m_GhostCollectionPrefabFromEntity.Update(ref state);
             var backupJob = new PredictionBackupJob
             {
                 predictionState = predictionState,
                 stillUsedPredictionState = stillUsedPredictionState.AsParallelWriter(),
                 newPredictionState = newPredictionState.AsParallelWriter(),
                 updatedPredictionState = updatedPredictionState.AsParallelWriter(),
-                ghostComponentType = GetComponentTypeHandle<GhostComponent>(true),
-                ghostType = GetComponentTypeHandle<GhostTypeComponent>(true),
-                prespawnIndexType = GetComponentTypeHandle<PreSpawnedGhostIndex>(true),
-                entityType = GetEntityTypeHandle(),
+                ghostComponentType = m_GhostComponentHandle,
+                ghostType = m_GhostTypeComponentHandle,
+                prespawnIndexType = m_PreSpawnedGhostIndexHandle,
+                entityType = m_EntityTypeHandle,
 
-                GhostCollectionSingleton = GetSingletonEntity<GhostCollection>(),
-                GhostComponentCollectionFromEntity = GetBufferFromEntity<GhostComponentSerializer.State>(true),
-                GhostTypeCollectionFromEntity = GetBufferFromEntity<GhostCollectionPrefabSerializer>(true),
-                GhostComponentIndexFromEntity = GetBufferFromEntity<GhostCollectionComponentIndex>(true),
-                GhostPrefabCollectionFromEntity = GetBufferFromEntity<GhostCollectionPrefab>(true),
+                GhostCollectionSingleton = SystemAPI.GetSingletonEntity<GhostCollection>(),
+                GhostComponentCollectionFromEntity = m_GhostComponentSerializerStateFromEntity,
+                GhostTypeCollectionFromEntity = m_GhostCollectionPrefabSerializerFromEntity,
+                GhostComponentIndexFromEntity = m_GhostCollectionComponentIndexFromEntity,
+                GhostPrefabCollectionFromEntity = m_GhostCollectionPrefabFromEntity,
 
-                childEntityLookup = GetStorageInfoFromEntity(),
-                linkedEntityGroupType = GetBufferTypeHandle<LinkedEntityGroup>(),
+                childEntityLookup = state.GetEntityStorageInfoLookup(),
+                linkedEntityGroupType = m_LinkedEntityGroupHandle,
             };
 
-            Dependency = JobHandle.CombineDependencies(Dependency, m_PredictionStateReadJobHandle);
-            m_PredictionStateReadJobHandle = default;
+            var ghostComponentCollection = state.EntityManager.GetBuffer<GhostCollectionComponentType>(backupJob.GhostCollectionSingleton);
+            DynamicTypeList.PopulateList(ref state, ghostComponentCollection, true, ref backupJob.DynamicTypeList);
+            state.Dependency = backupJob.ScheduleParallelByRef(m_PredictionQuery, state.Dependency);
 
-            var ghostComponentCollection = EntityManager.GetBuffer<GhostCollectionComponentType>(backupJob.GhostCollectionSingleton);
-            DynamicTypeList.PopulateList(this, ghostComponentCollection, true, ref backupJob.DynamicTypeList);
-            Dependency = backupJob.ScheduleParallelByRef(m_PredictionQuery, Dependency);
+            var cleanupJob = new CleanupPredictionStateJob
+            {
+                predictionState = predictionState,
+                stillUsedPredictionState = stillUsedPredictionState,
+                newPredictionState = newPredictionState,
+                updatedPredictionState = updatedPredictionState
+            };
+            state.Dependency = cleanupJob.Schedule(state.Dependency);
+        }
 
-            Job.WithCode(() => {
+        //[BurstCompile] // TODO: Re-enable once Burst issue BUR-1971 is fixed.
+        struct CleanupPredictionStateJob : IJob
+        {
+            public NativeParallelHashMap<ArchetypeChunk, System.IntPtr> predictionState;
+            [ReadOnly] public NativeParallelHashMap<ArchetypeChunk, int> stillUsedPredictionState;
+            public NativeQueue<PredictionStateEntry> newPredictionState;
+            public NativeQueue<PredictionStateEntry> updatedPredictionState;
+            public void Execute()
+            {
                 var keys = predictionState.GetKeyArray(Allocator.Temp);
                 for (int i = 0; i < keys.Length; ++i)
                 {
@@ -225,15 +307,13 @@ namespace Unity.NetCode
                 while (updatedPredictionState.TryDequeue(out var updatedState))
                 {
                     if(!predictionState.ContainsKey(updatedState.chunk))
-                        throw new InvalidOperationException("prediction backup state has been updated but is not present in the map");
+                        throw new InvalidOperationException($"Prediction backup state has been updated but is not present in the map.");
                     predictionState[updatedState.chunk] = updatedState.data;
                 }
-            }).Schedule();
-
-            PredictionStateWriteJobHandle = Dependency;
+            }
         }
 
-        [BurstCompile]
+        //[BurstCompile] // TODO: Re-enable once Burst issue BUR-1971 is fixed.
         struct PredictionBackupJob : IJobChunk
         {
             public DynamicTypeList DynamicTypeList;
@@ -248,13 +328,13 @@ namespace Unity.NetCode
             [ReadOnly] public EntityTypeHandle entityType;
 
             public Entity GhostCollectionSingleton;
-            [ReadOnly] public BufferFromEntity<GhostComponentSerializer.State> GhostComponentCollectionFromEntity;
-            [ReadOnly] public BufferFromEntity<GhostCollectionPrefabSerializer> GhostTypeCollectionFromEntity;
-            [ReadOnly] public BufferFromEntity<GhostCollectionComponentIndex> GhostComponentIndexFromEntity;
-            [ReadOnly] public BufferFromEntity<GhostCollectionPrefab> GhostPrefabCollectionFromEntity;
+            [ReadOnly] public BufferLookup<GhostComponentSerializer.State> GhostComponentCollectionFromEntity;
+            [ReadOnly] public BufferLookup<GhostCollectionPrefabSerializer> GhostTypeCollectionFromEntity;
+            [ReadOnly] public BufferLookup<GhostCollectionComponentIndex> GhostComponentIndexFromEntity;
+            [ReadOnly] public BufferLookup<GhostCollectionPrefab> GhostPrefabCollectionFromEntity;
 
 
-            [ReadOnly] public StorageInfoFromEntity childEntityLookup;
+            [ReadOnly] public EntityStorageInfoLookup childEntityLookup;
             [ReadOnly] public BufferTypeHandle<LinkedEntityGroup> linkedEntityGroupType;
 
             const GhostComponentSerializer.SendMask requiredSendMask = GhostComponentSerializer.SendMask.Predicted;
@@ -272,7 +352,7 @@ namespace Unity.NetCode
                     int serializerIdx = GhostComponentIndex[baseOffset + comp].SerializerIndex;
 #if ENABLE_UNITY_COLLECTIONS_CHECKS
                     if (compIdx >= ghostChunkComponentTypesLength)
-                        throw new System.InvalidOperationException("Component index out of range");
+                        throw new System.InvalidOperationException($"Component index {comp} (of numBaseComponents: {numBaseComponents}) out of range for root component in method 'GetChunkBuffersDataSize'. ghostChunkComponentTypesLength is {ghostChunkComponentTypesLength}.");
 #endif
                     if ((GhostComponentIndex[baseOffset + comp].SendMask & requiredSendMask) == 0)
                         continue;
@@ -287,7 +367,7 @@ namespace Unity.NetCode
                         {
                             bufferTotalSize += bufferData.GetBufferCapacity(i) * GhostComponentCollection[serializerIdx].ComponentSize;
                         }
-                        bufferTotalSize = GhostCollectionSystem.SnapshotSizeAligned(bufferTotalSize);
+                        bufferTotalSize = GhostComponentSerializer.SnapshotSizeAligned(bufferTotalSize);
                     }
                 }
 
@@ -300,7 +380,7 @@ namespace Unity.NetCode
                         int serializerIdx = GhostComponentIndex[baseOffset + comp].SerializerIndex;
 #if ENABLE_UNITY_COLLECTIONS_CHECKS
                         if (compIdx >= ghostChunkComponentTypesLength)
-                            throw new System.InvalidOperationException("Component index out of range");
+                            throw new System.InvalidOperationException($"Component index {comp} (of numBaseComponents: {numBaseComponents}) out of range for child component in method 'GetChunkBuffersDataSize'. ghostChunkComponentTypesLength is {ghostChunkComponentTypesLength}.");
 #endif
                         if ((GhostComponentIndex[baseOffset + comp].SendMask & requiredSendMask) == 0)
                             continue;
@@ -308,7 +388,7 @@ namespace Unity.NetCode
                         if (!GhostComponentCollection[serializerIdx].ComponentType.IsBuffer)
                             continue;
 
-                        for (int ent = 0; ent < chunk.Count; ++ent)
+                        for (int ent = 0, chunkEntityCount = chunk.Count; ent < chunkEntityCount; ++ent)
                         {
                             var linkedEntityGroup = linkedEntityGroupAccessor[ent];
                             var childEnt = linkedEntityGroup[GhostComponentIndex[baseOffset + comp].EntityIndex].Value;
@@ -317,7 +397,7 @@ namespace Unity.NetCode
                                 var bufferData = childChunk.Chunk.GetUntypedBufferAccessor(ref ghostChunkComponentTypesPtr[compIdx]);
                                 bufferTotalSize += bufferData.GetBufferCapacity(childChunk.IndexInChunk) * GhostComponentCollection[serializerIdx].ComponentSize;
                             }
-                            bufferTotalSize = GhostCollectionSystem.SnapshotSizeAligned(bufferTotalSize);
+                            bufferTotalSize = GhostComponentSerializer.SnapshotSizeAligned(bufferTotalSize);
                         }
                     }
                 }
@@ -325,8 +405,11 @@ namespace Unity.NetCode
                 return bufferTotalSize;
             }
 
-            public void Execute(ArchetypeChunk chunk, int chunkIndex, int firstEntityIndex)
+            public void Execute(in ArchetypeChunk chunk, int unfilteredChunkIndex, bool useEnabledMask, in v128 chunkEnabledMask)
             {
+                // This job is not written to support queries with enableable component types.
+                Assert.IsFalse(useEnabledMask);
+
                 DynamicComponentTypeHandle* ghostChunkComponentTypesPtr = DynamicTypeList.GetData();
                 int ghostChunkComponentTypesLength = DynamicTypeList.Length;
                 var GhostTypeCollection = GhostTypeCollectionFromEntity[GhostCollectionSingleton];
@@ -352,7 +435,7 @@ namespace Unity.NetCode
                     }
 
                     if (ghostTypeId < 0)
-                        throw new InvalidOperationException($"Cannot find ghost type in collection");
+                        throw new InvalidOperationException($"Cannot find ghostTypeId in GhostPrefabCollection as expected to match {ghostTypes[0]} but didn't. (GhostPrefabCollection.Length: {GhostPrefabCollection.Length}).");
                 }
 
                 var typeData = GhostTypeCollection[ghostTypeId];
@@ -366,6 +449,7 @@ namespace Unity.NetCode
                     (*(PredictionBackupState*)state).entityCapacity != chunk.Capacity)
                 {
                     int dataSize = 0;
+                    int enabledBits = 0;
                     // Sum up the size of all components rounded up
                     for (int comp = 0; comp < typeData.NumComponents; ++comp)
                     {
@@ -373,7 +457,7 @@ namespace Unity.NetCode
                         int serializerIdx = GhostComponentIndex[baseOffset + comp].SerializerIndex;
 #if ENABLE_UNITY_COLLECTIONS_CHECKS
                         if (compIdx >= ghostChunkComponentTypesLength)
-                            throw new System.InvalidOperationException("Component index out of range");
+                            throw new System.InvalidOperationException($"Component index {comp} (of numBaseComponents: {typeData.NumComponents}) out of range in method 'Execute'. ghostChunkComponentTypesLength is {ghostChunkComponentTypesLength}.");
 #endif
                         if ((GhostComponentIndex[baseOffset + comp].SendMask&requiredSendMask) == 0)
                             continue;
@@ -389,6 +473,8 @@ namespace Unity.NetCode
                                 GhostComponentCollection[serializerIdx].ComponentSize, chunk.Capacity);
                         else
                             dataSize += PredictionBackupState.GetDataSize(GhostSystemConstants.DynamicBufferComponentSnapshotSize, chunk.Capacity);
+                        if (GhostComponentCollection[serializerIdx].ComponentType.IsEnableable)
+                            ++enabledBits;
                     }
 
                     //compute the space necessary to store the dynamic buffers data for the chunk
@@ -397,7 +483,7 @@ namespace Unity.NetCode
                         buffersDataCapacity = GetChunkBuffersDataSize(typeData, chunk, ghostChunkComponentTypesPtr, ghostChunkComponentTypesLength, GhostComponentIndex, GhostComponentCollection);
 
                     // Chunk does not exist in the history, or has changed ghost type in which case we need to create a new one
-                    state = PredictionBackupState.AllocNew(ghostTypeId, dataSize, chunk.Capacity, buffersDataCapacity, predictionOwnerOffset);
+                    state = PredictionBackupState.AllocNew(ghostTypeId, enabledBits, dataSize, chunk.Capacity, buffersDataCapacity, predictionOwnerOffset);
                     newPredictionState.Enqueue(new PredictionStateEntry{chunk = chunk, data = state});
                 }
                 else
@@ -411,8 +497,9 @@ namespace Unity.NetCode
                         if (bufferBackupDataCapacity < buffersDataCapacity)
                         {
                             var dataSize = ((PredictionBackupState*)state)->dataSize;
+                            var enabledBits = ((PredictionBackupState*)state)->enabledBits;
                             var ghostOwnerOffset = ((PredictionBackupState*)state)->ghostOwnerOffset;
-                            var newState =  PredictionBackupState.AllocNew(ghostTypeId, dataSize, chunk.Capacity, buffersDataCapacity, ghostOwnerOffset);
+                            var newState =  PredictionBackupState.AllocNew(ghostTypeId, enabledBits, dataSize, chunk.Capacity, buffersDataCapacity, ghostOwnerOffset);
                             UnsafeUtility.Free((void*) state, Allocator.Persistent);
                             state = newState;
                             updatedPredictionState.Enqueue(new PredictionStateEntry{chunk = chunk, data = newState});
@@ -427,6 +514,7 @@ namespace Unity.NetCode
 
                 byte* dataPtr = PredictionBackupState.GetData(state);
                 byte* bufferBackupDataPtr = PredictionBackupState.GetBufferDataPtr(state);
+                ulong* enabledBitPtr = PredictionBackupState.GetEnabledBits(state);
 
                 int numBaseComponents = typeData.NumComponents - typeData.NumChildComponents;
                 int bufferBackupDataOffset = 0;
@@ -436,7 +524,7 @@ namespace Unity.NetCode
                     int serializerIdx = GhostComponentIndex[baseOffset + comp].SerializerIndex;
 #if ENABLE_UNITY_COLLECTIONS_CHECKS
                     if (compIdx >= ghostChunkComponentTypesLength)
-                        throw new System.InvalidOperationException("Component index out of range");
+                        throw new System.InvalidOperationException($"Component index {comp} (of numBaseComponents: {numBaseComponents}) out of range for root component in method 'Execute'. ghostChunkComponentTypesLength is {ghostChunkComponentTypesLength}.");
 #endif
                     if ((GhostComponentIndex[baseOffset + comp].SendMask&requiredSendMask) == 0)
                         continue;
@@ -445,6 +533,14 @@ namespace Unity.NetCode
                         ? GhostSystemConstants.DynamicBufferComponentSnapshotSize
                         : GhostComponentCollection[serializerIdx].ComponentSize;
 
+                    if (GhostComponentCollection[serializerIdx].ComponentType.IsEnableable)
+                    {
+                        var handle = ghostChunkComponentTypesPtr[compIdx];
+                        var bitArray = chunk.GetEnableableBits(ref handle);
+                        UnsafeUtility.MemCpy(enabledBitPtr, &bitArray, ((chunk.Count+63)&(~63))/8);
+
+                        enabledBitPtr = PredictionBackupState.GetNextEnabledBits(enabledBitPtr, chunk.Capacity);
+                    }
                     if (!chunk.Has(ghostChunkComponentTypesPtr[compIdx]))
                     {
                         UnsafeUtility.MemClear(dataPtr, chunk.Count * compSize);
@@ -472,7 +568,7 @@ namespace Unity.NetCode
                             bufferBackupDataOffset += size*bufElemSize;
                             tempDataPtr += compSize;
                         }
-                        bufferBackupDataOffset = GhostCollectionSystem.SnapshotSizeAligned(bufferBackupDataOffset);
+                        bufferBackupDataOffset = GhostComponentSerializer.SnapshotSizeAligned(bufferBackupDataOffset);
                     }
                     dataPtr = PredictionBackupState.GetNextData(dataPtr, compSize, chunk.Capacity);
                 }
@@ -485,11 +581,30 @@ namespace Unity.NetCode
                         int serializerIdx = GhostComponentIndex[baseOffset + comp].SerializerIndex;
 #if ENABLE_UNITY_COLLECTIONS_CHECKS
                         if (compIdx >= ghostChunkComponentTypesLength)
-                            throw new System.InvalidOperationException("Component index out of range");
+                            throw new System.InvalidOperationException($"Component index {comp} (of numBaseComponents: {numBaseComponents}) out of range for child component in method 'Execute'. ghostChunkComponentTypesLength is {ghostChunkComponentTypesLength}.");
 #endif
                         if ((GhostComponentIndex[baseOffset + comp].SendMask&requiredSendMask) == 0)
                             continue;
 
+                        if (GhostComponentCollection[serializerIdx].ComponentType.IsEnableable)
+                        {
+                            for (int ent = 0, chunkEntityCount = chunk.Count; ent < chunkEntityCount; ++ent)
+                            {
+                                ulong isSet = 0;
+                                var linkedEntityGroup = linkedEntityGroupAccessor[ent];
+                                var childEnt = linkedEntityGroup[GhostComponentIndex[baseOffset + comp].EntityIndex].Value;
+                                if (childEntityLookup.TryGetValue(childEnt, out var childChunk))
+                                {
+                                    var handle = ghostChunkComponentTypesPtr[compIdx];
+                                    var arr = chunk.GetEnableableBits(ref handle);
+                                    var bitArray = new UnsafeBitArray(&arr, sizeof(v128));
+                                    isSet = bitArray.IsSet(childChunk.IndexInChunk) ? 1u : 0u;
+                                }
+                                enabledBitPtr[ent>>6] &= ~(1ul<<(ent&0x3f));
+                                enabledBitPtr[ent>>6] |= (isSet<<(ent&0x3f));
+                            }
+                            enabledBitPtr = PredictionBackupState.GetNextEnabledBits(enabledBitPtr, chunk.Capacity);
+                        }
                         var isBuffer = GhostComponentCollection[serializerIdx].ComponentType.IsBuffer;
                         var compSize = isBuffer ? GhostSystemConstants.DynamicBufferComponentSnapshotSize : GhostComponentCollection[serializerIdx].ComponentSize;
                         if (!GhostComponentCollection[serializerIdx].ComponentType.IsBuffer)
@@ -497,7 +612,7 @@ namespace Unity.NetCode
                             //use a temporary for the iteration here. Otherwise when the dataptr is offset for the chunk, we
                             //end up in the wrong position
                             var tempDataPtr = dataPtr;
-                            for (int ent = 0; ent < chunk.Count; ++ent)
+                            for (int ent = 0, chunkEntityCount = chunk.Count; ent < chunkEntityCount; ++ent)
                             {
                                 var linkedEntityGroup = linkedEntityGroupAccessor[ent];
                                 var childEnt = linkedEntityGroup[GhostComponentIndex[baseOffset + comp].EntityIndex].Value;
@@ -515,7 +630,7 @@ namespace Unity.NetCode
                         {
                             var bufElemSize = GhostComponentCollection[serializerIdx].ComponentSize;
                             var tempDataPtr = dataPtr;
-                            for (int ent = 0; ent < chunk.Count; ++ent)
+                            for (int ent = 0, chunkEntityCount = chunk.Count; ent < chunkEntityCount; ++ent)
                             {
                                 var linkedEntityGroup = linkedEntityGroupAccessor[ent];
                                 var childEnt = linkedEntityGroup[GhostComponentIndex[baseOffset + comp].EntityIndex].Value;
@@ -537,7 +652,7 @@ namespace Unity.NetCode
                                 }
                                 tempDataPtr += compSize;
                             }
-                            bufferBackupDataOffset = GhostCollectionSystem.SnapshotSizeAligned(bufferBackupDataOffset);
+                            bufferBackupDataOffset = GhostComponentSerializer.SnapshotSizeAligned(bufferBackupDataOffset);
                         }
                         dataPtr = PredictionBackupState.GetNextData(dataPtr, compSize, chunk.Capacity);
                     }

@@ -3,36 +3,104 @@ using Unity.Burst;
 using Unity.Collections;
 using Unity.Collections.LowLevel.Unsafe;
 using Unity.Entities;
-using Unity.Jobs;
 using Unity.NetCode.LowLevel.Unsafe;
 using Unity.Networking.Transport;
 using System.Runtime.InteropServices;
+using Unity.Assertions;
+using Unity.Burst.Intrinsics;
 
 namespace Unity.NetCode
 {
+    /// <summary>
+    /// Struct that can be used to simplify writing systems and jobs that deserialize and execute received rpc commands.
+    /// </summary>
     public struct RpcExecutor
     {
+        /// <summary>
+        /// Struct used as argument to the rpc execute method (see the <see cref="ExecuteDelegate"/> delegate).
+        /// Contains the input data stream, the receiving connection, and other useful data that can be used
+        /// to decode and write your rpc logic.
+        /// </summary>
         public struct Parameters
         {
+            /// <summary>
+            /// The data-stream that contains the rpc data.
+            /// </summary>
             public DataStreamReader Reader;
+            /// <summary>
+            /// The connection that received the rpc.
+            /// </summary>
             public Entity Connection;
+            /// <summary>
+            /// A command buffer that be used to make structural changes.
+            /// </summary>
             public EntityCommandBuffer.ParallelWriter CommandBuffer;
+            /// <summary>
+            /// The sort order that must be used to add commands to command buffer.
+            /// </summary>
             public int JobIndex;
+            /// <summary>
+            /// A pointer to a <see cref="RpcDeserializerState"/> instance.
+            /// </summary>
             internal IntPtr State;
+            /// <summary>
+            /// An instance of <see cref="RpcDeserializerState"/> that can be used to deserialize the rpcs.
+            /// </summary>
             public RpcDeserializerState DeserializerState
             {
                 get { unsafe { return UnsafeUtility.AsRef<RpcDeserializerState>((void*)State); } }
             }
         }
 
+        /// <summary>
+        /// The reference to static burst-compatible method that is invoked when an rpc has been received.
+        /// For example:
+        /// <code>
+        ///     [BurstCompile(DisableDirectCall = true)]
+        ///     [AOT.MonoPInvokeCallback(typeof(RpcExecutor.ExecuteDelegate))]
+        ///     private static void InvokeExecute(ref RpcExecutor.Parameters parameters)
+        /// </code>
+        /// </summary>
+        /// <remarks>
+        /// The <code>DisableDirectCall = true</code> was necessary to workaround an issue with burst and function delegate.
+        /// If you are implementing your custom rpc serializer, please remember to disable the direct call.
+        /// </remarks>
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
         public delegate void ExecuteDelegate(ref Parameters parameters);
 
         /// <summary>
-        /// Helper method used to create a new entity for an RPC request T.
+        /// Helper method that can be used to implement the execute method for the <see cref="IRpcCommandSerializer{T}"/>
+        /// interface.
+        /// By calling the ExecuteCreateRequestComponent, a new entity (with a <typeparamref name="TActionRequest"/> and
+        /// a <see cref="ReceiveRpcCommandRequestComponent"/> component) is created.
+        /// It is the users responsibility to write a system that consumes the created rpcs entities. For example:
+        /// <code>
+        /// public struct MyRpcConsumeSystem : ISystem
+        /// {
+        ///    private Query rcpQuery;
+        ///    public void OnCreate(ref SystemState state)
+        ///    {
+        ///        var builder = new EntityQueryBuilder(Allocator.Temp).WithAll&lt;MyRpc, ReceiveRpcCommandRequestComponent&gt;();
+        ///        rcpQuery = state.GetEntityQuery(builder);
+        ///    }
+        ///    public void OnUpdate(ref SystemState state)
+        ///    {
+        ///         foreach(var rpc in SystemAPI.Query&lt;MyRpc&gt;().WithAll&lt;ReceiveRpcCommandRequestComponent&gt;())
+        ///         {
+        ///             //do something with the rpc
+        ///         }
+        ///         //Consumes all of them
+        ///         state.EntityManager.DestroyEntity(rpcQuery);
+        ///    }
+        /// }
+        /// </code>
         /// </summary>
+        /// <param name="parameters">Container for <see cref="EntityCommandBuffer"/>, JobIndex, as well as connection entity.</param>
+        /// <typeparam name="TActionSerializer">Struct of type <see cref="IRpcCommandSerializer{TActionRequest}"/>.</typeparam>
+        /// <typeparam name="TActionRequest">Unmanaged type of <see cref="IComponentData"/>.</typeparam>
+        /// <returns>Created entity for RPC request. Name of the Entity is set as 'NetCodeRPC'.</returns>
         public static Entity ExecuteCreateRequestComponent<TActionSerializer, TActionRequest>(ref Parameters parameters)
-            where TActionRequest : struct, IComponentData
+            where TActionRequest : unmanaged, IComponentData
             where TActionSerializer : struct, IRpcCommandSerializer<TActionRequest>
         {
             var rpcData = default(TActionRequest);
@@ -50,148 +118,102 @@ namespace Unity.NetCode
         }
     }
 
+    /// <summary>
+    /// <para>
+    /// The system responsible for sending and receiving RPCs.
+    /// </para>
+    /// <para>
+    /// The RpcSystem flushes all the outgoing RPCs scheduled in the <see cref="OutgoingRpcDataStreamBufferComponent"/> for all the active connections.
+    /// Multiple RPCs can be raised by a world (to be sent in a single frame) to each connection. Therefore, in order to reduce the number of in-flight reliable messages,
+    /// the system tries to coalesce multiple RPCs into a single packet.
+    /// </para>
+    /// <para>
+    /// Because packet queue size is limited (<see cref="NetworkParameterConstants.SendQueueCapacity"/> and <seealso cref="NetworkConfigParameter"/>), the
+    /// number of available packets may not be sufficient to flush the queue entirely. In that case, the pending messages are going to attempt to be
+    /// sent during the next frame (recursively) (or when a resource is available).
+    /// </para>
+    /// <para>
+    /// When an rpc packet is received, it is first handled by the <see cref="NetworkStreamReceiveSystem"/>, which decodes the incoming network packet
+    /// and appends it to the <see cref="IncomingRpcDataStreamBufferComponent"/> for the connection that received the message.
+    /// The RpcSystem will then dequeue all the received messages, and dispatch them by invoking their execute method (<see cref="IRpcCommandSerializer{T}"/>
+    /// and <see cref="RpcExecutor"/>).
+    /// </para>
+    /// </summary>
+    [WorldSystemFilter(WorldSystemFilterFlags.ServerSimulation | WorldSystemFilterFlags.ClientSimulation | WorldSystemFilterFlags.ThinClientSimulation)]
     [UpdateInGroup(typeof(SimulationSystemGroup), OrderLast = true)]
     [UpdateAfter(typeof(EndSimulationEntityCommandBufferSystem))]
-    public partial class RpcSystem : SystemBase
+    [BurstCompile]
+    public partial struct RpcSystem : ISystem
     {
-        public enum ErrorCodes
-        {
-            ProtocolMismatch = -1,
-            InvalidRpc = -2,
-            VersionNotReceived = -3
-        }
-
-        struct RpcReceiveError
+        /// <summary>
+        /// During the initial handshake, the client and server exchanges their respective <see cref="NetworkProtocolVersion"/> by using
+        /// a internal rpc.
+        /// When received, the RpcSystem will perform a protocol check, that verifies that the versions are compatible.
+        /// If the verification fails, a new entity with a <see cref="ProtocolVersionError"/> component is created;
+        /// the generated error is then handled by the <see cref="RpcSystemErrors"/> system.
+        /// </summary>
+        internal struct ProtocolVersionError : IComponentData
         {
             public Entity connection;
-            public ErrorCodes error;
+            public NetworkProtocolVersion remoteProtocol;
         }
 
-        struct RpcData : IComparable<RpcData>
-        {
-            public ulong TypeHash;
-            public PortableFunctionPointer<RpcExecutor.ExecuteDelegate> Execute;
-#if ENABLE_UNITY_COLLECTIONS_CHECKS
-            public ComponentType RpcType;
-#endif
-            public int CompareTo(RpcData other)
-            {
-                if (TypeHash < other.TypeHash)
-                    return -1;
-                if (TypeHash > other.TypeHash)
-                    return 1;
-                return 0;
-            }
-        }
-
-        /// <summary>
-        /// Treat the set of assemblies loaded on the client / server as dynamic or different. This is required if
-        /// assemblies containing ghost component serializers or RPC serializers are removed when building standalone.
-        /// This property is only read during system creation, so it must be set from the ClientServerBootstrap.
-        /// </summary>
-        public static bool DynamicAssemblyList;
-        private bool m_DynamicAssemblyList;
-        private NetworkStreamReceiveSystem m_ReceiveSystem;
-        private GhostSimulationSystemGroup m_GhostSimulationGroup;
-        private EntityQuery m_RpcBufferGroup;
-        private BeginSimulationEntityCommandBufferSystem m_Barrier;
-        private NativeList<RpcData> m_RpcData;
+        private NativeList<RpcCollection.RpcData> m_RpcData;
         private NativeParallelHashMap<ulong, int> m_RpcTypeHashToIndex;
-        private NativeQueue<RpcReceiveError> m_RpcErrors;
-        private bool m_CanRegister;
-        private NetDebugSystem m_NetDebugSystem;
+        private NativeReference<byte> m_DynamicAssemblyList;
 
-        public RpcSystem()
-        {
-            m_CanRegister = true;
-            m_RpcData = new NativeList<RpcData>(16, Allocator.Persistent);
-            m_RpcTypeHashToIndex = new NativeParallelHashMap<ulong, int>(16, Allocator.Persistent);
-            m_DynamicAssemblyList = DynamicAssemblyList;
-        }
+        private EntityQuery m_RpcBufferGroup;
 
-        protected override void OnCreate()
+        private EntityTypeHandle m_EntityTypeHandle;
+        private ComponentTypeHandle<NetworkStreamConnection> m_NetworkStreamConnectionHandle;
+        private BufferTypeHandle<IncomingRpcDataStreamBufferComponent> m_IncomingRpcDataStreamBufferComponentHandle;
+        private BufferTypeHandle<OutgoingRpcDataStreamBufferComponent> m_OutgoingRpcDataStreamBufferComponentHandle;
+        private ComponentTypeHandle<NetworkSnapshotAckComponent> m_NetworkSnapshotAckComponentHandle;
+
+        public void OnCreate(ref SystemState state)
         {
 #if ENABLE_UNITY_COLLECTIONS_CHECKS
             UnityEngine.Debug.Assert(UnsafeUtility.SizeOf<OutgoingRpcDataStreamBufferComponent>() == 1);
             UnityEngine.Debug.Assert(UnsafeUtility.SizeOf<IncomingRpcDataStreamBufferComponent>() == 1);
 #endif
-            m_Barrier = World.GetOrCreateSystem<BeginSimulationEntityCommandBufferSystem>();
-            m_RpcBufferGroup = GetEntityQuery(
+
+            m_RpcData = new NativeList<RpcCollection.RpcData>(16, Allocator.Persistent);
+            m_RpcTypeHashToIndex = new NativeParallelHashMap<ulong, int>(16, Allocator.Persistent);
+            m_DynamicAssemblyList = new NativeReference<byte>(Allocator.Persistent);
+            var rpcSingleton = state.EntityManager.CreateEntity(ComponentType.ReadWrite<RpcCollection>());
+            state.EntityManager.SetName(rpcSingleton, "RpcCollection-Singleton");
+            state.EntityManager.SetComponentData(rpcSingleton, new RpcCollection
+            {
+                m_DynamicAssemblyList = m_DynamicAssemblyList,
+                m_RpcData = m_RpcData,
+                m_RpcTypeHashToIndex = m_RpcTypeHashToIndex,
+                m_IsFinal = 0
+            });
+
+            m_RpcBufferGroup = state.GetEntityQuery(
                 ComponentType.ReadWrite<IncomingRpcDataStreamBufferComponent>(),
                 ComponentType.ReadWrite<OutgoingRpcDataStreamBufferComponent>(),
                 ComponentType.ReadWrite<NetworkStreamConnection>(),
-                ComponentType.ReadOnly<NetworkSnapshotAckComponent>(),
-                ComponentType.Exclude<NetworkStreamDisconnected>());
-            RequireForUpdate(m_RpcBufferGroup);
+                ComponentType.ReadOnly<NetworkSnapshotAckComponent>());
+            state.RequireForUpdate(m_RpcBufferGroup);
 
-            RegisterRpc(ComponentType.ReadWrite<RpcSetNetworkId>(), default(RpcSetNetworkId).CompileExecute());
-            m_ReceiveSystem = World.GetOrCreateSystem<NetworkStreamReceiveSystem>();
-            m_GhostSimulationGroup = World.GetExistingSystem<GhostSimulationSystemGroup>();
-            m_RpcErrors = new NativeQueue<RpcReceiveError>(Allocator.Persistent);
-            m_NetDebugSystem = World.GetOrCreateSystem<NetDebugSystem>();
+            m_EntityTypeHandle = state.GetEntityTypeHandle();
+            m_NetworkStreamConnectionHandle = state.GetComponentTypeHandle<NetworkStreamConnection>();
+            m_IncomingRpcDataStreamBufferComponentHandle = state.GetBufferTypeHandle<IncomingRpcDataStreamBufferComponent>();
+            m_OutgoingRpcDataStreamBufferComponentHandle = state.GetBufferTypeHandle<OutgoingRpcDataStreamBufferComponent>();
+            m_NetworkSnapshotAckComponentHandle = state.GetComponentTypeHandle<NetworkSnapshotAckComponent>(true);
+
+            SystemAPI.GetSingleton<RpcCollection>().RegisterRpc(ComponentType.ReadWrite<RpcSetNetworkId>(), default(RpcSetNetworkId).CompileExecute());
         }
 
-        protected override void OnDestroy()
+        [BurstCompile]
+        public void OnDestroy(ref SystemState state)
         {
             m_RpcData.Dispose();
             m_RpcTypeHashToIndex.Dispose();
-            m_RpcErrors.Dispose();
+            m_DynamicAssemblyList.Dispose();
         }
 
-        public void RegisterRpc<TActionSerializer, TActionRequest>()
-            where TActionRequest : struct, IComponentData
-            where TActionSerializer : struct, IRpcCommandSerializer<TActionRequest>
-        {
-            RegisterRpc(ComponentType.ReadWrite<TActionRequest>(), default(TActionSerializer).CompileExecute());
-        }
-        public void RegisterRpc(ComponentType type, PortableFunctionPointer<RpcExecutor.ExecuteDelegate> exec)
-        {
-            if (!m_CanRegister)
-                throw new InvalidOperationException("Cannot register new RPCs after the RpcSystem has started running");
-
-            if (!exec.Ptr.IsCreated)
-            {
-                throw new InvalidOperationException($"Cannot register RPC for type {type.GetManagedType()}: Ptr property is not created (null)" +
-                                                    "Check CompileExecute() and verify you are initializing the PortableFunctionPointer with a valid static function delegate, decorated with [BurstCompile(DisableDirectCall = true)] attribute");
-            }
-
-            var hash = TypeManager.GetTypeInfo(type.TypeIndex).StableTypeHash;
-            if (hash == 0)
-                throw new InvalidOperationException(String.Format("Unexpected 0 hash for type {0}", type.GetManagedType()));
-            if (m_RpcTypeHashToIndex.TryGetValue(hash, out var index))
-            {
-                var rpcData = m_RpcData[index];
-                if (rpcData.TypeHash != 0)
-                {
-#if ENABLE_UNITY_COLLECTIONS_CHECKS
-                    if (rpcData.RpcType == type)
-                        throw new InvalidOperationException(
-                            String.Format("Registering RPC {0} multiple times is not allowed", type.GetManagedType()));
-                    throw new InvalidOperationException(
-                        String.Format("Type hash collision between types {0} and {1}", type.GetManagedType(), rpcData.RpcType.GetManagedType()));
-#else
-                    throw new InvalidOperationException(
-                        String.Format("Hash collision or multiple registrations for {0}", type.GetManagedType()));
-#endif
-                }
-
-                rpcData.TypeHash = hash;
-                rpcData.Execute = exec;
-                m_RpcData[index] = rpcData;
-            }
-            else
-            {
-                m_RpcTypeHashToIndex.Add(hash, m_RpcData.Length);
-                m_RpcData.Add(new RpcData
-                {
-                    TypeHash = hash,
-                    Execute = exec,
-#if ENABLE_UNITY_COLLECTIONS_CHECKS
-                    RpcType = type
-#endif
-                });
-            }
-        }
         [BurstCompile]
         struct RpcExecJob : IJobChunk
         {
@@ -200,23 +222,24 @@ namespace Unity.NetCode
             public ComponentTypeHandle<NetworkStreamConnection> connectionType;
             public BufferTypeHandle<IncomingRpcDataStreamBufferComponent> inBufferType;
             public BufferTypeHandle<OutgoingRpcDataStreamBufferComponent> outBufferType;
-            public NativeQueue<RpcReceiveError>.ParallelWriter errors;
-            [ReadOnly] public NativeList<RpcData> execute;
+            [ReadOnly] public NativeList<RpcCollection.RpcData> execute;
             [ReadOnly] public NativeParallelHashMap<ulong, int> hashToIndex;
-            [ReadOnly] public NativeParallelHashMap<SpawnedGhost, Entity> ghostMap;
+            [ReadOnly] public NativeParallelHashMap<SpawnedGhost, Entity>.ReadOnly ghostMap;
 
             [ReadOnly] public ComponentTypeHandle<NetworkSnapshotAckComponent> ackType;
             public uint localTime;
 
-            public NetworkDriver.Concurrent driver;
-            public NetworkPipeline reliablePipeline;
-
+            public ConcurrentDriverStore concurrentDriverStore;
             public NetworkProtocolVersion protocolVersion;
-            public bool dynamicAssemblyList;
+            public byte dynamicAssemblyList;
+            public FixedString128Bytes worldName;
             public NetDebug netDebug;
 
-            public unsafe void Execute(ArchetypeChunk chunk, int chunkIndex, int firstEntityIndex)
+            public unsafe void Execute(in ArchetypeChunk chunk, int unfilteredChunkIndex, bool useEnabledMask, in v128 chunkEnabledMask)
             {
+                // This job is not written to support queries with enableable component types.
+                Assert.IsFalse(useEnabledMask);
+
                 var entities = chunk.GetNativeArray(entityType);
                 var rpcInBuffer = chunk.GetBufferAccessor(inBufferType);
                 var rpcOutBuffer = chunk.GetBufferAccessor(outBufferType);
@@ -225,8 +248,33 @@ namespace Unity.NetCode
                 var deserializeState = new RpcDeserializerState {ghostMap = ghostMap};
                 for (int i = 0; i < rpcInBuffer.Length; ++i)
                 {
-                    if (driver.GetConnectionState(connections[i].Value) != NetworkConnection.State.Connected)
+                    var concurrentDriver = concurrentDriverStore.GetConcurrentDriver(connections[i].DriverId);
+                    ref var driver = ref concurrentDriver.driver;
+                    var conState = concurrentDriver.driver.GetConnectionState(connections[i].Value);
+
+                    // If we're now in a disconnected state check if the protocol version RPC is in the incoming buffer so we can process it and report an error if it's mismatched (reason for the disconnect)
+                    if (conState == NetworkConnection.State.Disconnected && rpcInBuffer[i].Length > 0)
+                    {
+                        ushort rpcIndex = 0;
+                        if (dynamicAssemblyList == 1)
+                        {
+                            var rpcHashPeek = *(ulong*) rpcInBuffer[i].GetUnsafeReadOnlyPtr();
+                            rpcIndex = rpcHashPeek == 0 ? ushort.MaxValue : (ushort)0;
+                        }
+                        else
+                        {
+                            rpcIndex = *(ushort*) rpcInBuffer[i].GetUnsafeReadOnlyPtr();
+                        }
+
+                        if (rpcIndex == ushort.MaxValue)
+                            netDebug.DebugLog(FixedString.Format("[{0}] Connection {1} in disconnected state but allowing RPC protocol version message to get processed", worldName, connections[i].Value.InternalId));
+                        else
+                            continue;
+                    }
+                    else if (conState != NetworkConnection.State.Connected)
+                    {
                         continue;
+                    }
 
                     var dynArray = rpcInBuffer[i];
                     var parameters = new RpcExecutor.Parameters
@@ -235,13 +283,13 @@ namespace Unity.NetCode
                         CommandBuffer = commandBuffer,
                         State = (IntPtr)UnsafeUtility.AddressOf(ref deserializeState),
                         Connection = entities[i],
-                        JobIndex = chunkIndex
+                        JobIndex = unfilteredChunkIndex
                     };
-                    int msgHeaderLen = dynamicAssemblyList ? 10 : 4;
+                    int msgHeaderLen = (dynamicAssemblyList == 1) ? 10 : 4;
                     while (parameters.Reader.GetBytesRead() < parameters.Reader.Length)
                     {
                         int rpcIndex = 0;
-                        if (dynamicAssemblyList)
+                        if (dynamicAssemblyList == 1)
                         {
                             ulong rpcHash = parameters.Reader.ReadULong();
                             if (rpcHash == 0)
@@ -252,11 +300,10 @@ namespace Unity.NetCode
                             }
                             else if (rpcHash != 0 && !hashToIndex.TryGetValue(rpcHash, out rpcIndex))
                             {
-                                errors.Enqueue(new RpcReceiveError
-                                {
-                                    connection = entities[i],
-                                    error = ErrorCodes.InvalidRpc
-                                });
+                                netDebug.LogError(
+                                    FixedString.Format("[{0}] RpcSystem received rpc with invalid hash ({1}) from connection {2}", worldName, rpcHash, connections[i].Value.InternalId));
+                                commandBuffer.AddComponent(unfilteredChunkIndex, entities[i],
+                                    new NetworkStreamRequestDisconnect { Reason = NetworkStreamDisconnectReason.InvalidRpc });
                                 break;
                             }
                         }
@@ -278,10 +325,20 @@ namespace Unity.NetCode
                                 rpcVersion != protocolVersion.RpcCollectionVersion ||
                                 componentVersion != protocolVersion.ComponentCollectionVersion)
                             {
-                                errors.Enqueue(new RpcReceiveError
+                                var ent = commandBuffer.CreateEntity(unfilteredChunkIndex);
+                                var connectionEntity = entities[i];
+                                if (conState != NetworkConnection.State.Connected)
+                                    connectionEntity = Entity.Null;
+                                commandBuffer.AddComponent(unfilteredChunkIndex, ent, new ProtocolVersionError
                                 {
-                                    connection = entities[i],
-                                    error = ErrorCodes.ProtocolMismatch
+                                    connection = connectionEntity,
+                                    remoteProtocol = new NetworkProtocolVersion()
+                                    {
+                                        NetCodeVersion = netCodeVersion,
+                                        GameVersion = gameVersion,
+                                        RpcCollectionVersion = rpcVersion,
+                                        ComponentCollectionVersion = componentVersion
+                                    }
                                 });
                                 break;
                             }
@@ -294,20 +351,18 @@ namespace Unity.NetCode
                         else if (rpcIndex >= execute.Length)
                         {
                             //If this is the server, we must disconnect the connection
-                            errors.Enqueue(new RpcReceiveError
-                            {
-                                connection = entities[i],
-                                error = ErrorCodes.InvalidRpc
-                            });
+                            netDebug.LogError(
+                                FixedString.Format("[{0}] RpcSystem received invalid rpc (index {1} out of range) from connection {2}", worldName, rpcIndex, connections[i].Value.InternalId));
+                            commandBuffer.AddComponent(unfilteredChunkIndex, entities[i],
+                                new NetworkStreamRequestDisconnect { Reason = NetworkStreamDisconnectReason.InvalidRpc });
                             break;
                         }
                         else if (connections[i].ProtocolVersionReceived == 0)
                         {
-                            errors.Enqueue(new RpcReceiveError
-                            {
-                                connection = entities[i],
-                                error = ErrorCodes.VersionNotReceived
-                            });
+                            netDebug.LogError(
+                                FixedString.Format("[{0}] RpcSystem received illegal rpc as it has not yet received the protocol version {1}", worldName, connections[i].Value.InternalId));
+                            commandBuffer.AddComponent(unfilteredChunkIndex, entities[i],
+                                new NetworkStreamRequestDisconnect { Reason = NetworkStreamDisconnectReason.InvalidRpc });
                             break;
                         }
                         else
@@ -322,7 +377,7 @@ namespace Unity.NetCode
                     var ack = acks[i];
                     while (sendBuffer.Length > 0)
                     {
-                        if (driver.BeginSend(reliablePipeline, connections[i].Value, out var tmp) == 0)
+                        if (driver.BeginSend(concurrentDriver.reliablePipeline, connections[i].Value, out var tmp) == 0)
                         {
                             tmp.WriteByte((byte) NetworkStreamProtocol.Rpc);
                             tmp.WriteUInt(localTime);
@@ -341,7 +396,7 @@ namespace Unity.NetCode
                                 NativeArrayUnsafeUtility.SetAtomicSafetyHandle(ref sendArray, safety);
     #endif
                                 var reader = new DataStreamReader(sendArray);
-                                if (dynamicAssemblyList)
+                                if (dynamicAssemblyList == 1)
                                     reader.ReadULong();
                                 else
                                     reader.ReadUShort();
@@ -352,25 +407,25 @@ namespace Unity.NetCode
                                     // Could not fit a single message in the packet, this is a serious error
                                     throw new InvalidOperationException("An RPC was too big to be sent, reduce the size of your RPCs");
                                 }
-                                tmp.WriteBytes((byte*) sendBuffer.GetUnsafePtr(), len);
+                                tmp.WriteBytesUnsafe((byte*) sendBuffer.GetUnsafePtr(), len);
                                 // Try to fit a few more messages in this packet
                                 while (true)
                                 {
                                     var curTmpDataLength = tmp.Length - headerLength;
                                     var subArray = sendArray.GetSubArray(curTmpDataLength, sendArray.Length - curTmpDataLength);
                                     reader = new DataStreamReader(subArray);
-                                    if (dynamicAssemblyList)
+                                    if (dynamicAssemblyList == 1)
                                         reader.ReadULong();
                                     else
                                         reader.ReadUShort();
                                     len = reader.ReadUShort() + msgHeaderLen;
                                     if (tmp.Length + len > tmp.Capacity)
                                         break;
-                                    tmp.WriteBytes((byte*) subArray.GetUnsafeReadOnlyPtr(), len);
+                                    tmp.WriteBytesUnsafe((byte*) subArray.GetUnsafeReadOnlyPtr(), len);
                                 }
                             }
                             else
-                                tmp.WriteBytes((byte*) sendBuffer.GetUnsafePtr(), sendBuffer.Length);
+                                tmp.WriteBytesUnsafe((byte*) sendBuffer.GetUnsafePtr(), sendBuffer.Length);
                             // If sending failed we stop and wait until next frame
                             var result = 0;
                             if ((result = driver.EndSend(tmp)) <= 0)
@@ -389,174 +444,161 @@ namespace Unity.NetCode
                             else
                                 sendBuffer.Clear();
                         }
+                        else
+                        {
+                            netDebug.DebugLog(FixedString.Format("{0} RPCSystem failed to send message. Will retry later, but this could mean too many messages are being sent.", worldName));
+                        }
                     }
                 }
             }
         }
 
         [BurstCompile]
-        struct RpcErrorReportingJob : IJob
-        {
-            public EntityCommandBuffer commandBuffer;
-            public NativeQueue<RpcReceiveError> errors;
-            [ReadOnly] public ComponentDataFromEntity<NetworkStreamConnection> connections;
-            public NetDebug netDebug;
-
-            public void Execute()
-            {
-                while (errors.TryDequeue(out var rpcError))
-                {
-                    //Because errors are per connection it is safe to add the component like that here
-                    switch (rpcError.error)
-                    {
-                        case ErrorCodes.InvalidRpc:
-                        case ErrorCodes.VersionNotReceived:
-                            netDebug.LogError(FixedString.Format("RpcSystem received invalid rpc from connection {0}", connections[rpcError.connection].Value.InternalId));
-                            commandBuffer.AddComponent(rpcError.connection,
-                                new NetworkStreamRequestDisconnect
-                                    {Reason = NetworkStreamDisconnectReason.InvalidRpc});
-                            break;
-                        case ErrorCodes.ProtocolMismatch:
-                            commandBuffer.AddComponent(rpcError.connection,
-                                new NetworkStreamRequestDisconnect
-                                    {Reason = NetworkStreamDisconnectReason.BadProtocolVersion});
-                            netDebug.LogError(FixedString.Format("RpcSystem received bad protocol version from connection {0}", connections[rpcError.connection].Value.InternalId));
-                            break;
-                    }
-                }
-            }
-        }
-
-        public static unsafe void SendProtocolVersion(DynamicBuffer<OutgoingRpcDataStreamBufferComponent> buffer, NetworkProtocolVersion version)
-        {
-            bool dynamicAssemblyList = (version.RpcCollectionVersion == 0);
-            int msgHeaderLen = dynamicAssemblyList ? 10 : 4;
-            DataStreamWriter writer = new DataStreamWriter(UnsafeUtility.SizeOf<NetworkProtocolVersion>() + msgHeaderLen + 1, Allocator.Temp);
-#if ENABLE_UNITY_COLLECTIONS_CHECKS
-            if (buffer.Length != 0)
-                throw new InvalidOperationException("Protocol version must be the very first RPC sent");
-#endif
-            if (dynamicAssemblyList)
-                writer.WriteULong(0);
-            else
-                writer.WriteUShort(ushort.MaxValue);
-            var lenWriter = writer;
-            writer.WriteUShort((ushort)0);
-            writer.WriteInt(version.NetCodeVersion);
-            writer.WriteInt(version.GameVersion);
-            if (dynamicAssemblyList)
-            {
-                writer.WriteULong(0);
-                writer.WriteULong(0);
-            }
-            else
-            {
-                writer.WriteULong(version.RpcCollectionVersion);
-                writer.WriteULong(version.ComponentCollectionVersion);
-            }
-            lenWriter.WriteUShort((ushort)(writer.Length - msgHeaderLen - 1));
-            var prevLen = buffer.Length;
-            buffer.ResizeUninitialized(buffer.Length + writer.Length);
-            byte* ptr = (byte*) buffer.GetUnsafePtr();
-            ptr += prevLen;
-            UnsafeUtility.MemCpy(ptr, writer.AsNativeArray().GetUnsafeReadOnlyPtr(), writer.Length);
-        }
-        public ulong CalculateVersionHash()
-        {
-            if (m_RpcData.Length >= ushort.MaxValue)
-                throw new InvalidOperationException(String.Format("RpcSystem does not support more than {0} RPCs", ushort.MaxValue));
-            for (int i = 0; i < m_RpcData.Length; ++i)
-            {
-                if (m_RpcData[i].TypeHash == 0)
-#if ENABLE_UNITY_COLLECTIONS_CHECKS
-                    throw new InvalidOperationException(String.Format("Missing RPC registration for {0} which is used to send data", m_RpcData[i].RpcType.GetManagedType()));
-#else
-                    throw new InvalidOperationException("Missing RPC registration for RPC which is used to send");
-#endif
-            }
-            m_RpcData.Sort();
-            m_RpcTypeHashToIndex.Clear();
-            for (int i = 0; i < m_RpcData.Length; ++i)
-            {
-                m_RpcTypeHashToIndex.Add(m_RpcData[i].TypeHash, i);
-            }
-
-            ulong hash = m_RpcData[0].TypeHash;
-            for (int i = 0; i < m_RpcData.Length; ++i)
-                hash = TypeHash.CombineFNV1A64(hash, m_RpcData[i].TypeHash);
-            m_CanRegister = false;
-            return m_DynamicAssemblyList ? 0 : hash;
-        }
-        protected override void OnUpdate()
+        public void OnUpdate(ref SystemState state)
         {
             // Deserialize the command type from the reader stream
             // Execute the RPC
-            Dependency = JobHandle.CombineDependencies(Dependency, m_ReceiveSystem.LastDriverWriter, m_GhostSimulationGroup.LastGhostMapWriter);
+            ref readonly var networkStreamDriver = ref SystemAPI.GetSingletonRW<NetworkStreamDriver>().ValueRO;
+            m_EntityTypeHandle.Update(ref state);
+            m_NetworkStreamConnectionHandle.Update(ref state);
+            m_IncomingRpcDataStreamBufferComponentHandle.Update(ref state);
+            m_OutgoingRpcDataStreamBufferComponentHandle.Update(ref state);
+            m_NetworkSnapshotAckComponentHandle.Update(ref state);
             var execJob = new RpcExecJob
             {
-                commandBuffer = m_Barrier.CreateCommandBuffer()
-                    .AsParallelWriter(),
-                entityType = GetEntityTypeHandle(),
-                connectionType = GetComponentTypeHandle<NetworkStreamConnection>(),
-                inBufferType = GetBufferTypeHandle<IncomingRpcDataStreamBufferComponent>(),
-                outBufferType = GetBufferTypeHandle<OutgoingRpcDataStreamBufferComponent>(),
-                errors = m_RpcErrors.AsParallelWriter(),
+                commandBuffer = SystemAPI.GetSingleton<BeginSimulationEntityCommandBufferSystem.Singleton>().CreateCommandBuffer(state.WorldUnmanaged).AsParallelWriter(),
+                entityType = m_EntityTypeHandle,
+                connectionType = m_NetworkStreamConnectionHandle,
+                inBufferType = m_IncomingRpcDataStreamBufferComponentHandle,
+                outBufferType = m_OutgoingRpcDataStreamBufferComponentHandle,
                 execute = m_RpcData,
                 hashToIndex = m_RpcTypeHashToIndex,
-                ghostMap = m_GhostSimulationGroup.SpawnedGhostEntityMap,
-                ackType = GetComponentTypeHandle<NetworkSnapshotAckComponent>(true),
+                ghostMap = SystemAPI.GetSingleton<SpawnedGhostEntityMap>().Value,
+                ackType = m_NetworkSnapshotAckComponentHandle,
                 localTime = NetworkTimeSystem.TimestampMS,
-                driver = m_ReceiveSystem.ConcurrentDriver,
-                reliablePipeline = m_ReceiveSystem.ReliablePipeline,
-                protocolVersion = GetSingleton<NetworkProtocolVersion>(),
-                dynamicAssemblyList = m_DynamicAssemblyList,
-                netDebug = m_NetDebugSystem.NetDebug
+                concurrentDriverStore = networkStreamDriver.ConcurrentDriverStore,
+                protocolVersion = SystemAPI.GetSingleton<NetworkProtocolVersion>(),
+                dynamicAssemblyList = m_DynamicAssemblyList.Value,
+                netDebug = SystemAPI.GetSingleton<NetDebug>(),
+                worldName = state.WorldUnmanaged.Name
             };
-            Dependency = execJob.Schedule(m_RpcBufferGroup, Dependency);
-            m_GhostSimulationGroup.LastGhostMapWriter = Dependency;
-            m_Barrier.AddJobHandleForProducer(Dependency);
-            Dependency = new RpcErrorReportingJob
-            {
-                commandBuffer = m_Barrier.CreateCommandBuffer(),
-                connections = GetComponentDataFromEntity<NetworkStreamConnection>(),
-                errors = m_RpcErrors,
-                netDebug = m_NetDebugSystem.NetDebug
-            }.Schedule(Dependency);
-            m_Barrier.AddJobHandleForProducer(Dependency);
-            Dependency = m_ReceiveSystem.Driver.ScheduleFlushSend(Dependency);
-            m_ReceiveSystem.LastDriverWriter = Dependency;
+            state.Dependency = execJob.ScheduleParallel(m_RpcBufferGroup, state.Dependency);
+            state.Dependency = networkStreamDriver.DriverStore.ScheduleFlushSendAllDrivers(state.Dependency);
+        }
+    }
+
+    /// <summary>
+    /// A system responsible for handling all the <see cref="RpcSystem.ProtocolVersionError"/> created by the
+    /// <see cref="RpcSystem"/> while receiving rpcs.
+    /// <para>
+    /// The connection that generated the <see cref="RpcSystem.ProtocolVersionError"/> will be disconnected, by adding
+    /// a <see cref="NetworkStreamRequestDisconnect"/> component, and a verbose error message containing the following
+    /// is reported to the application:
+    /// <para> - The local protocol.</para>
+    /// <para> - The remote protocol.</para>
+    /// <para> - The list of all registered rpc.</para>
+    /// <para> - The list of all registered serializer.</para>
+    /// </para>
+    /// </summary>
+    [UpdateInGroup(typeof(GhostSimulationSystemGroup))]
+    [BurstCompile]
+    public partial struct RpcSystemErrors : ISystem
+    {
+        private EntityQuery m_ProtocolErrorQuery;
+        private ComponentLookup<NetworkStreamConnection> m_NetworkStreamConnectionFromEntity;
+
+        public void OnCreate(ref SystemState state)
+        {
+            m_ProtocolErrorQuery = state.GetEntityQuery(ComponentType.ReadOnly<RpcSystem.ProtocolVersionError>());
+            state.RequireForUpdate(m_ProtocolErrorQuery);
+            state.RequireForUpdate<GhostCollection>();
+
+            m_NetworkStreamConnectionFromEntity = state.GetComponentLookup<NetworkStreamConnection>(true);
         }
 
-        public RpcQueue<TActionSerializer, TActionRequest> GetRpcQueue<TActionSerializer, TActionRequest>()
-            where TActionRequest : struct, IComponentData
-            where TActionSerializer : struct, IRpcCommandSerializer<TActionRequest>
+        public void OnDestroy(ref SystemState state)
         {
-            if (!m_RpcTypeHashToIndex.IsCreated)
-                throw new InvalidOperationException($"The RPCSystem has not been created or has been destroyed");
+        }
 
-            var hash = TypeManager.GetTypeInfo(TypeManager.GetTypeIndex<TActionRequest>()).StableTypeHash;
-            if (hash == 0)
-                throw new InvalidOperationException(String.Format("Unexpected 0 hash for type {0}", typeof(TActionRequest)));
-            int index;
-            if (!m_RpcTypeHashToIndex.TryGetValue(hash, out index))
+        [BurstCompile]
+        partial struct ReportRpcErrors : IJobEntity
+        {
+            public EntityCommandBuffer commandBuffer;
+            [ReadOnly] public ComponentLookup<NetworkStreamConnection> connections;
+            [DeallocateOnJobCompletion] public NativeArray<FixedString128Bytes> rpcs;
+            [DeallocateOnJobCompletion] public NativeArray<FixedString128Bytes> componentInfo;
+            public NetDebug netDebug;
+            public NetworkProtocolVersion localProtocol;
+            public FixedString128Bytes worldName;
+            public void Execute(Entity entity, in RpcSystem.ProtocolVersionError rpcError)
             {
-                if (!m_CanRegister)
-                    throw new InvalidOperationException("Cannot register new RPCs after the RpcSystem has started running");
-                index = m_RpcData.Length;
-                m_RpcTypeHashToIndex.Add(hash, index);
-                m_RpcData.Add(new RpcData
+                var connection = -1;
+                if (rpcError.connection != Entity.Null)
                 {
-#if ENABLE_UNITY_COLLECTIONS_CHECKS
-                    RpcType = ComponentType.ReadWrite<TActionRequest>()
-#endif
-                });
+                    commandBuffer.AddComponent(rpcError.connection,
+                        new NetworkStreamRequestDisconnect
+                            { Reason = NetworkStreamDisconnectReason.InvalidRpc });
+                    connection = connections[rpcError.connection].Value.InternalId;
+                }
+                netDebug.LogError(
+                    FixedString.Format("[{0}] RpcSystem received bad protocol version from connection {1}", worldName, connection));
+                FixedString64Bytes prefix = "Local protocol: ";
+                NetDebug.PrintProtocolVersionError(netDebug, prefix, localProtocol);
+                prefix = "Remote protocol: ";
+                NetDebug.PrintProtocolVersionError(netDebug, prefix, rpcError.remoteProtocol);
+
+                var s = (FixedString512Bytes)"RPC List: ";
+                s.Append(rpcs.Length);
+                netDebug.LogError(s);
+
+                for (int i = 0; i < rpcs.Length; ++i)
+                    netDebug.LogError(rpcs[i]);
+
+                s = (FixedString512Bytes)"Component serializer data: ";
+                s.Append(componentInfo.Length);
+                netDebug.LogError(s);
+
+                for (int i = 0; i < componentInfo.Length; ++i)
+                    netDebug.LogError(componentInfo[i]);
+
+                commandBuffer.DestroyEntity(entity);
             }
-            return new RpcQueue<TActionSerializer, TActionRequest>
+        }
+        [BurstCompile]
+        public void OnUpdate(ref SystemState state)
+        {
+            m_NetworkStreamConnectionFromEntity.Update(ref state);
+
+            var collectionRpcs = SystemAPI.GetSingleton<RpcCollection>().Rpcs;
+            var rpcs = new NativeArray<FixedString128Bytes>(collectionRpcs.Length, Allocator.TempJob);
+            for (int i = 0; i < collectionRpcs.Length; ++i)
             {
-                rpcType = hash,
-                rpcTypeHashToIndex = m_RpcTypeHashToIndex,
-                dynamicAssemblyList = m_DynamicAssemblyList
+                var typeIndex = TypeManager.GetTypeIndexFromStableTypeHash(collectionRpcs[i].TypeHash);
+                rpcs[i] = new FixedString128Bytes(TypeManager.GetTypeInfo(typeIndex).DebugTypeName);
+            }
+            FixedString128Bytes serializerHashString = default;
+            var ghostSerializerCollection = SystemAPI.GetSingletonBuffer<GhostComponentSerializer.State>();
+            var componentInfo = new NativeArray<FixedString128Bytes>(ghostSerializerCollection.Length, Allocator.TempJob);
+            for (int serializerIndex = 0; serializerIndex < ghostSerializerCollection.Length; ++serializerIndex)
+            {
+                GhostCollectionSystem.GetSerializerHashString(ghostSerializerCollection[serializerIndex],
+                    ref serializerHashString);
+                componentInfo[serializerIndex] = serializerHashString;
+                serializerHashString.Clear();
+            }
+
+            var reportJob = new ReportRpcErrors
+            {
+                commandBuffer = SystemAPI.GetSingleton<BeginSimulationEntityCommandBufferSystem.Singleton>().CreateCommandBuffer(state.WorldUnmanaged),
+                connections = m_NetworkStreamConnectionFromEntity,
+                rpcs = rpcs,
+                componentInfo = componentInfo,
+                netDebug = SystemAPI.GetSingleton<NetDebug>(),
+                localProtocol = SystemAPI.GetSingleton<NetworkProtocolVersion>(),
+                worldName = state.WorldUnmanaged.Name
             };
+
+            state.Dependency = reportJob.Schedule(state.Dependency);
         }
     }
 }

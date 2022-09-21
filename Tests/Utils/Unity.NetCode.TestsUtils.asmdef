@@ -12,7 +12,9 @@
         "Unity.Networking.Transport",
         "Unity.NetCode.Authoring.Hybrid",
         "Unity.PerformanceTesting",
-        "Unity.Logging"
+        "Unity.Logging",
+        "Unity.Entities.Build",
+        "Unity.Scenes"
     ],
     "optionalUnityReferences": [
         "TestAssemblies"
@@ -22,12 +24,6 @@
     "allowUnsafeCode": true,
     "overrideReferences": true,
     "autoReferenced": false,
-    "versionDefines": [
-      {
-        "name": "com.unity.logging",
-        "expression": "0",
-        "define": "USE_UNITY_LOGGING"
-      }
-    ],
+    "versionDefines": [],
     "noEngineReferences": false
 }

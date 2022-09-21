@@ -1,43 +1,32 @@
 using NUnit.Framework;
 using Unity.Entities;
-using Unity.Networking.Transport;
-using Unity.NetCode.Tests;
-using Unity.Jobs;
 using UnityEngine;
-using Unity.NetCode;
 using Unity.Mathematics;
 using Unity.Transforms;
-using Unity.Collections;
-using System.Collections.Generic;
+
 
 namespace Unity.NetCode.Tests
 {
     public class PredictionTestConverter : TestNetCodeAuthoring.IConverter
     {
-        public void Convert(GameObject gameObject, Entity entity, EntityManager dstManager, GameObjectConversionSystem conversionSystem)
+        public void Bake(GameObject gameObject, IBaker baker)
         {
-            dstManager.AddComponentData(entity, new GhostOwnerComponent());
+            baker.AddComponent(new GhostOwnerComponent());
         }
     }
-    [UpdateInGroup(typeof(GhostPredictionSystemGroup))]
     [DisableAutoCreation]
+    [RequireMatchingQueriesForUpdate]
+    [UpdateInGroup(typeof(PredictedSimulationSystemGroup))]
+    [WorldSystemFilter(WorldSystemFilterFlags.ClientSimulation | WorldSystemFilterFlags.ServerSimulation)]
     public partial class PredictionTestPredictionSystem : SystemBase
     {
-        GhostPredictionSystemGroup m_GhostPredictionSystemGroup;
         public static bool s_IsEnabled;
-        protected override void OnCreate()
-        {
-            m_GhostPredictionSystemGroup = World.GetExistingSystem<GhostPredictionSystemGroup>();
-        }
         protected override void OnUpdate()
         {
             if (!s_IsEnabled)
                 return;
-            var tick = m_GhostPredictionSystemGroup.PredictingTick;
-            var deltaTime = Time.DeltaTime;
-            Entities.ForEach((ref Translation trans, in PredictedGhostComponent predictedGhost) => {
-                if (!GhostPredictionSystemGroup.ShouldPredict(tick, predictedGhost))
-                    return;
+            var deltaTime = SystemAPI.Time.DeltaTime;
+            Entities.WithAll<Simulate, GhostComponent>().ForEach((ref Translation trans) => {
                 // Make sure we advance by one unit per tick, makes it easier to debug the values
                 trans.Value.x += deltaTime * 60.0f;
             }).ScheduleParallel();
@@ -45,6 +34,34 @@ namespace Unity.NetCode.Tests
     }
     public class PredictionTests
     {
+        [TestCase((uint)0x229321)]
+        [TestCase((uint)100)]
+        [TestCase((uint)0x7FFF011F)]
+        [TestCase((uint)0x7FFFFF00)]
+        [TestCase((uint)0x7FFFFFF0)]
+        [TestCase((uint)0x7FFFF1F0)]
+        public void PredictionTickEvolveCorrectly(uint serverTickData)
+        {
+            var serverTick = new NetworkTick(serverTickData);
+            using (var testWorld = new NetCodeTestWorld())
+            {
+                testWorld.Bootstrap(true, typeof(PredictionTestPredictionSystem));
+                var ghostGameObject = new GameObject();
+                ghostGameObject.AddComponent<TestNetCodeAuthoring>().Converter = new PredictionTestConverter();
+                var ghostConfig = ghostGameObject.AddComponent<GhostAuthoringComponent>();
+                ghostConfig.DefaultGhostMode = GhostMode.Predicted;
+                Assert.IsTrue(testWorld.CreateGhostCollection(ghostGameObject));
+                testWorld.CreateWorlds(true, 1);
+                testWorld.SetServerTick(serverTick);
+                Assert.IsTrue(testWorld.Connect(frameTime, 4));
+                testWorld.GoInGame();
+                var serverEnt = testWorld.SpawnOnServer(0);
+                Assert.AreNotEqual(Entity.Null, serverEnt);
+                for(int i=0;i<256;++i)
+                    testWorld.Tick(1.0f/60f);
+            }
+        }
+
         const float frameTime = 1.0f / 60.0f;
         [Test]
         public void PartialPredictionTicksAreRolledBack()
@@ -57,7 +74,7 @@ namespace Unity.NetCode.Tests
                 var ghostGameObject = new GameObject();
                 ghostGameObject.AddComponent<TestNetCodeAuthoring>().Converter = new PredictionTestConverter();
                 var ghostConfig = ghostGameObject.AddComponent<GhostAuthoringComponent>();
-                ghostConfig.DefaultGhostMode = GhostAuthoringComponent.GhostMode.Predicted;
+                ghostConfig.DefaultGhostMode = GhostMode.Predicted;
 
                 Assert.IsTrue(testWorld.CreateGhostCollection(ghostGameObject));
 

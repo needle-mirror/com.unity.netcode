@@ -14,11 +14,11 @@ namespace Unity.NetCode.Tests
 {
     public class PredictionSwitchTestConverter : TestNetCodeAuthoring.IConverter
     {
-        public void Convert(GameObject gameObject, Entity entity, EntityManager dstManager, GameObjectConversionSystem conversionSystem)
+        public void Bake(GameObject gameObject, IBaker baker)
         {
-            dstManager.AddComponentData(entity, new GhostOwnerComponent());
-            dstManager.AddComponentData(entity, new PredictedOnlyTestComponent{Value = 42});
-            dstManager.AddComponentData(entity, new InterpolatedOnlyTestComponent{Value = 43});
+            baker.AddComponent(new GhostOwnerComponent());
+            baker.AddComponent(new PredictedOnlyTestComponent{Value = 42});
+            baker.AddComponent(new InterpolatedOnlyTestComponent{Value = 43});
         }
     }
 
@@ -63,26 +63,38 @@ namespace Unity.NetCode.Tests
                 for (int i = 0; i < 16; ++i)
                     testWorld.Tick(frameTime);
 
-                var clientEnt = testWorld.TryGetSingletonEntity<GhostOwnerComponent>(testWorld.ClientWorlds[0]);
+                var firstClientWorld = testWorld.ClientWorlds[0];
+                var clientEnt = testWorld.TryGetSingletonEntity<GhostOwnerComponent>(firstClientWorld);
                 Assert.AreNotEqual(Entity.Null, clientEnt);
 
                 // Validate that the entity is interpolated
-                var entityManager = testWorld.ClientWorlds[0].EntityManager;
-                var spawnSystem = testWorld.ClientWorlds[0].GetExistingSystem<GhostSpawnSystem>();
+                var entityManager = firstClientWorld.EntityManager;
+                ref var ghostPredictionSwitchingQueues = ref testWorld.GetSingletonRW<GhostPredictionSwitchingQueues>(firstClientWorld).ValueRW;
+
                 Assert.IsFalse(entityManager.HasComponent<PredictedGhostComponent>(clientEnt));
                 Assert.IsFalse(entityManager.HasComponent<PredictedOnlyTestComponent>(clientEnt));
                 Assert.IsTrue(entityManager.HasComponent<InterpolatedOnlyTestComponent>(clientEnt));
                 Assert.IsFalse(entityManager.HasComponent<SwitchPredictionSmoothing>(clientEnt));
                 Assert.AreEqual(43, entityManager.GetComponentData<InterpolatedOnlyTestComponent>(clientEnt).Value);
 
-                spawnSystem.ConvertGhostToPredicted(clientEnt);
+                ghostPredictionSwitchingQueues.ConvertToPredictedQueue.Enqueue(new ConvertPredictionEntry
+                {
+                    TargetEntity = clientEnt,
+                    TransitionDurationSeconds = 0f,
+                });
+                testWorld.Tick(frameTime);
                 Assert.IsTrue(entityManager.HasComponent<PredictedGhostComponent>(clientEnt));
                 Assert.IsTrue(entityManager.HasComponent<PredictedOnlyTestComponent>(clientEnt));
                 Assert.IsFalse(entityManager.HasComponent<InterpolatedOnlyTestComponent>(clientEnt));
                 Assert.IsFalse(entityManager.HasComponent<SwitchPredictionSmoothing>(clientEnt));
                 Assert.AreEqual(42, entityManager.GetComponentData<PredictedOnlyTestComponent>(clientEnt).Value);
 
-                spawnSystem.ConvertGhostToInterpolated(clientEnt, 0.1f);
+                ghostPredictionSwitchingQueues.ConvertToInterpolatedQueue.Enqueue(new ConvertPredictionEntry
+                {
+                    TargetEntity = clientEnt,
+                    TransitionDurationSeconds = 2f,
+                });
+                testWorld.Tick(frameTime);
                 Assert.IsFalse(entityManager.HasComponent<PredictedGhostComponent>(clientEnt));
                 Assert.IsFalse(entityManager.HasComponent<PredictedOnlyTestComponent>(clientEnt));
                 Assert.IsTrue(entityManager.HasComponent<InterpolatedOnlyTestComponent>(clientEnt));

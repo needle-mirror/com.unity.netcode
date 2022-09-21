@@ -89,19 +89,19 @@ namespace Generated
             #endregion
         }
 
-        public void Serialize(int networkId, ref GhostSnapshotData baseline, ref DataStreamWriter writer, NetworkCompressionModel compressionModel)
+        public void Serialize(int networkId, ref GhostSnapshotData baseline, ref DataStreamWriter writer, StreamCompressionModel compressionModel)
         {
             #region __GHOST_WRITE__
-            if ((changeMask__GHOST_MASK_BATCH__ & (1 << __GHOST_MASK_INDEX__)) != 0)
+            if ((changeMask & (1 << __GHOST_MASK_INDEX__)) != 0)
                 writer.WritePackedIntDelta(snapshot.__GHOST_FIELD_NAME__, baseline.__GHOST_FIELD_NAME__, compressionModel);
             #endregion
         }
 
         public void Deserialize(uint tick, ref GhostSnapshotData baseline, ref DataStreamReader reader,
-            NetworkCompressionModel compressionModel)
+            StreamCompressionModel compressionModel)
         {
             #region __GHOST_READ__
-            if ((changeMask__GHOST_MASK_BATCH__ & (1 << __GHOST_MASK_INDEX__)) != 0)
+            if ((changeMask & (1 << __GHOST_MASK_INDEX__)) != 0)
                 snapshot.__GHOST_FIELD_NAME__ = reader.ReadPackedIntDelta(baseline.__GHOST_FIELD_NAME__, compressionModel);
             else
                 snapshot.__GHOST_FIELD_NAME__ = baseline.__GHOST_FIELD_NAME__;
@@ -266,7 +266,7 @@ An example of a variant would be:
 
 ```c#
     [GhostComponentVariation(typeof(Transforms.Translation))]
-    [GhostComponent(PrefabType=GhostPrefabType.All, OwnerPredictedSendType=GhostSendType.All, SendDataForChildEntity = false)]
+    [GhostComponent(PrefabType=GhostPrefabType.All, SendTypeOptimization=GhostSendType.All)]
     public struct TranslationVariant
     {
         [GhostField(Composite=true, Quantization=100, Interpolate=true)] public float3 Value;
@@ -305,10 +305,10 @@ namespace Unity.NetCode.Samples
 {
     sealed class DefaultVariantSystem : DefaultVariantSystemBase
     {
-        protected override void RegisterDefaultVariants(Dictionary<ComponentType, System.Type> defaultVariants)
+        protected override void RegisterDefaultVariants(Dictionary<ComponentType, Rule> defaultVariants)
         {
-            defaultVariants.Add(new ComponentType(typeof(Rotation)), typeof(RotationDefault));
-            defaultVariants.Add(new ComponentType(typeof(Translation)), typeof(TranslationDefault));
+            defaultVariants.Add(typeof(Rotation), Rule.OnlyParents(typeof(RotationDefault)));
+            defaultVariants.Add(typeof(Translation), Rule.OnlyParents(typeof(TranslationDefault)));
         }
     }
 }
@@ -333,15 +333,18 @@ namespace Unity.NetCode.Samples
 {
     sealed class DefaultVariantSystem : DefaultVariantSystemBase
     {
-        protected override void RegisterDefaultVariants(Dictionary<ComponentType, System.Type> defaultVariants)
+        protected override void RegisterDefaultVariants(Dictionary<ComponentType, Rule> defaultVariants)
         {
-            defaultVariants.Add(new ComponentType(typeof(SomeClientOnlyThing)), typeof(ClientOnlyVariant));
-            defaultVariants.Add(new ComponentType(typeof(NoNeedToSyncThis)), typeof(DontSerializeVariant));
+            defaultVariants.Add(typeof(SomeClientOnlyThing), Rule.OnlyParents(typeof(ClientOnlyVariant)));
+            defaultVariants.Add(typeof(NoNeedToSyncThis), Rule.ForAll(typeof(DontSerializeVariant)));
         }
     }
 }
 ```
 
 You can also pick the `DontSerializeVariant` in the ghost component on prefabs.
+Reminder: Components on child entities default to `DontSerializeVariant`. Thus: `Rule.ForAll(typeof(DontSerializeVariant))` could also be `Rule.OnlyParents(typeof(DontSerializeVariant))` (although this way is more explicit).
+
+TODO: Update images for 1.0.
 
 ![DontSerializeVariant](images/dontserialize-variant.png)

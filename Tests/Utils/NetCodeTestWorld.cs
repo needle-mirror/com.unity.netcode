@@ -1,7 +1,8 @@
 using System;
 using System.Collections.Generic;
-using NUnit.Framework;
 using System.Diagnostics;
+using System.Linq;
+using NUnit.Framework;
 using Unity.Core;
 using Unity.Entities;
 using Unity.NetCode;
@@ -9,11 +10,9 @@ using Unity.Networking.Transport;
 using Unity.Networking.Transport.Utilities;
 using Unity.Collections;
 
-#if USE_UNITY_LOGGING
 using Unity.Logging;
 using Unity.Logging.Sinks;
-#endif
-
+using Unity.Transforms;
 using Debug = UnityEngine.Debug;
 #if UNITY_EDITOR
 using Unity.NetCode.Editor;
@@ -28,6 +27,7 @@ namespace Unity.NetCode.Tests
     {
         public Entity Value;
     }
+
     public class NetCodeTestWorld : IDisposable, INetworkStreamDriverConstructor
     {
         public bool DebugPackets = false;
@@ -39,12 +39,16 @@ namespace Unity.NetCode.Tests
         private World m_DefaultWorld;
         private World[] m_ClientWorlds;
         private World m_ServerWorld;
-        private ClientServerBootstrap.State m_OldBootstrapState;
         private ushort m_OldBootstrapAutoConnectPort;
         private bool m_DefaultWorldInitialized;
         private double m_ElapsedTime;
         public int DriverFixedTime = 16;
         public int DriverSimulatedDelay = 0;
+        public int DriverSimulatedJitter = 0;
+        public int DriverSimulatedDrop = 0;
+        public int UseMultipleDrivers = 0;
+        public int UseFakeSocketConnection = 1;
+        private int WorldCreationIndex = 0;
 
         public int[] DriverFuzzFactor;
         public int DriverFuzzOffset = 0;
@@ -54,20 +58,14 @@ namespace Unity.NetCode.Tests
         private List<GameObject> m_GhostCollection;
         private BlobAssetStore m_BlobAssetStore;
 #endif
-        public List<string> NetCodeAssemblies = new List<string>{
-        };
+        public List<string> NetCodeAssemblies = new List<string> { };
 
-        [Conditional("USE_UNITY_LOGGING")]
         private static void ForwardUnityLoggingToDebugLog()
         {
-#if USE_UNITY_LOGGING
             static void AddUnityDebugLogSink(Unity.Logging.Logger logger)
             {
-                logger.GetOrCreateSink(new SinkConfiguration<UnityDebugLogSink>
-                {
-                    MinLevelOverride = logger.MinimalLogLevelAcrossAllSystems,
-                    OutputTemplateOverride = "{Message}"
-                });
+                logger.GetOrCreateSink<UnityDebugLogSink>(new UnityDebugLogSink.Configuration(logger.Config.WriteTo, LogFormatterText.Formatter,
+                    minLevelOverride: logger.MinimalLogLevelAcrossAllSystems, outputTemplateOverride: "{Message}"));
             }
 
             Unity.Logging.Internal.LoggerManager.OnNewLoggerCreated(AddUnityDebugLogSink);
@@ -75,17 +73,15 @@ namespace Unity.NetCode.Tests
 
             // Self log enabled, so any error inside logging will cause Debug.LogError -> failed test
             Unity.Logging.Internal.Debug.SelfLog.SetMode(Unity.Logging.Internal.Debug.SelfLog.Mode.EnabledInUnityEngineDebugLogError);
-#endif
         }
 
         public NetCodeTestWorld()
         {
 #if UNITY_EDITOR
+
             // Not having a default world means RegisterUnloadOrPlayModeChangeShutdown has not been called which causes memory leaks
             DefaultWorldInitialization.DefaultLazyEditModeInitialize();
 #endif
-            m_OldBootstrapState = ClientServerBootstrap.s_State;
-            ClientServerBootstrap.s_State = default;
             m_OldBootstrapAutoConnectPort = ClientServerBootstrap.AutoConnectPort;
             ClientServerBootstrap.AutoConnectPort = 0;
             m_DefaultWorld = new World("NetCodeTest");
@@ -93,6 +89,7 @@ namespace Unity.NetCode.Tests
 
             ForwardUnityLoggingToDebugLog();
         }
+
         public void Dispose()
         {
             if (m_ClientWorlds != null)
@@ -105,6 +102,7 @@ namespace Unity.NetCode.Tests
                     }
                 }
             }
+
             if (m_ServerWorld != null)
                 m_ServerWorld.Dispose();
             if (m_DefaultWorld != null)
@@ -112,7 +110,6 @@ namespace Unity.NetCode.Tests
             m_ClientWorlds = null;
             m_ServerWorld = null;
             m_DefaultWorld = null;
-            ClientServerBootstrap.s_State = m_OldBootstrapState;
             ClientServerBootstrap.AutoConnectPort = m_OldBootstrapAutoConnectPort;
 
 #if UNITY_EDITOR
@@ -127,87 +124,200 @@ namespace Unity.NetCode.Tests
             {
                 m_ClientWorlds[i].Dispose();
             }
+
             m_ClientWorlds = null;
         }
+
         public void DisposeServerWorld()
         {
             m_ServerWorld.Dispose();
             m_ServerWorld = null;
         }
+
         public void DisposeDefaultWorld()
         {
             m_DefaultWorld.Dispose();
             m_DefaultWorld = null;
         }
 
-        public void SetServerTick(uint tick)
+        public void SetServerTick(NetworkTick tick)
         {
-            m_ServerWorld.GetExistingSystem<ServerSimulationSystemGroup>().ServerTick = tick;
+            var ent = TryGetSingletonEntity<NetworkTime>(m_ServerWorld);
+            var networkTime = m_ServerWorld.EntityManager.GetComponentData<NetworkTime>(ent);
+            networkTime.ServerTick = tick;
+            m_ServerWorld.EntityManager.SetComponentData(ent, networkTime);
         }
 
-        private static List<Type> s_NetCodeSystems;
+        public NetworkTime GetNetworkTime(World world)
+        {
+            var ent = TryGetSingletonEntity<NetworkTime>(world);
+            return world.EntityManager.GetComponentData<NetworkTime>(ent);
+        }
+
+        private static IReadOnlyList<Type> s_AllClientSystems;
+        private static IReadOnlyList<Type> s_AllThinClientSystems;
+        private static IReadOnlyList<Type> s_AllServerSystems;
+        private static List<Type> s_NetCodeClientSystems;
+        private static List<Type> s_NetCodeThinClientSystems;
+        private static List<Type> s_NetCodeServerSystems;
+
+        private static List<Type> m_ControlSystems;
+        private static List<Type> m_ClientSystems;
+        private static List<Type> m_ThinClientSystems;
+        private static List<Type> m_ServerSystems;
+
+        public List<Type> UserBakingSystems = new List<Type>();
+
+        private static bool IsFromNetCodeAssembly(Type sys)
+        {
+            return sys.Assembly.FullName.StartsWith("Unity.NetCode,") ||
+                sys.Assembly.FullName.StartsWith("Unity.Entities,") ||
+                sys.Assembly.FullName.StartsWith("Unity.Transforms,") ||
+                sys.Assembly.FullName.StartsWith("Unity.Scenes,") ||
+                sys.Assembly.FullName.StartsWith("Unity.NetCode.EditorTests,") ||
+                sys.Assembly.FullName.StartsWith("Unity.NetCode.TestsUtils,") ||
+                sys.Assembly.FullName.StartsWith("Unity.NetCode.Physics.EditorTests,") ||
+                typeof(GhostComponentSerializerRegistrationSystemBase).IsAssignableFrom(sys);
+        }
+
         public void Bootstrap(bool includeNetCodeSystems, params Type[] userSystems)
         {
-            var systems = new List<Type>();
-            systems.Add(typeof(TickClientInitializationSystem));
-            systems.Add(typeof(TickClientSimulationSystem));
-            systems.Add(typeof(TickClientPresentationSystem));
-            systems.Add(typeof(TickServerInitializationSystem));
-            systems.Add(typeof(TickServerSimulationSystem));
+            m_ControlSystems = new List<Type>();
+            m_ClientSystems = new List<Type>();
+            m_ThinClientSystems = new List<Type>();
+            m_ServerSystems = new List<Type>();
+
+            m_ControlSystems.Add(typeof(TickClientInitializationSystem));
+            m_ControlSystems.Add(typeof(TickClientSimulationSystem));
+            m_ControlSystems.Add(typeof(TickClientPresentationSystem));
+            m_ControlSystems.Add(typeof(TickServerInitializationSystem));
+            m_ControlSystems.Add(typeof(TickServerSimulationSystem));
+            m_ControlSystems.Add(typeof(DriverMigrationSystem));
+
+            UserBakingSystems.Add(typeof(TestWorldDefaultVariantSystem));
+            m_ClientSystems.Add(typeof(TestWorldDefaultVariantSystem));
+            m_ThinClientSystems.Add(typeof(TestWorldDefaultVariantSystem));
+            m_ServerSystems.Add(typeof(TestWorldDefaultVariantSystem));
+
+            if (s_NetCodeClientSystems == null)
+            {
+                s_NetCodeClientSystems = new List<Type>();
+                s_AllClientSystems = DefaultWorldInitialization.GetAllSystems(WorldSystemFilterFlags.ClientSimulation);
+                foreach (var sys in s_AllClientSystems)
+                {
+                    if (IsFromNetCodeAssembly(sys))
+                        s_NetCodeClientSystems.Add(sys);
+                }
+            }
+
+            if (s_NetCodeThinClientSystems == null)
+            {
+                s_NetCodeThinClientSystems = new List<Type>();
+                s_AllThinClientSystems = DefaultWorldInitialization.GetAllSystems(WorldSystemFilterFlags.ThinClientSimulation);
+                foreach (var sys in s_AllThinClientSystems)
+                {
+                    if (IsFromNetCodeAssembly(sys))
+                        s_NetCodeThinClientSystems.Add(sys);
+                }
+            }
+
+            if (s_NetCodeServerSystems == null)
+            {
+                s_NetCodeServerSystems = new List<Type>();
+                s_AllServerSystems = DefaultWorldInitialization.GetAllSystems(WorldSystemFilterFlags.ServerSimulation);
+                foreach (var sys in s_AllServerSystems)
+                {
+                    if (IsFromNetCodeAssembly(sys))
+                        s_NetCodeServerSystems.Add(sys);
+                }
+            }
+
             if (includeNetCodeSystems)
             {
-                if (s_NetCodeSystems == null)
-                {
-                    s_NetCodeSystems = new List<Type>();
-                    var sysList = DefaultWorldInitialization.GetAllSystems(WorldSystemFilterFlags.Default);
-                    foreach (var sys in sysList)
-                    {
-                        if (sys.Assembly.FullName.StartsWith("Unity.NetCode,") ||
-                            sys.Assembly.FullName.StartsWith("Unity.Entities,") ||
-                            sys.Assembly.FullName.StartsWith("Unity.Transforms,") ||
-                            sys.Assembly.FullName.StartsWith("Unity.Scenes,") ||
-                            sys.Assembly.FullName.StartsWith("Unity.NetCode.EditorTests,") ||
-                            sys.Assembly.FullName.StartsWith("Unity.NetCode.TestsUtils,") ||
-                            sys.Assembly.FullName.StartsWith("Unity.NetCode.Physics.EditorTests,") ||
-                            typeof(GhostComponentSerializerRegistrationSystemBase).IsAssignableFrom(sys))
-                        {
-                            s_NetCodeSystems.Add(sys);
-                        }
-                    }
-                }
-                systems.AddRange(s_NetCodeSystems);
+                m_ClientSystems.AddRange(s_NetCodeClientSystems);
+                m_ThinClientSystems.AddRange(s_NetCodeThinClientSystems);
+                m_ServerSystems.AddRange(s_NetCodeServerSystems);
             }
+
             if (NetCodeAssemblies.Count > 0)
             {
-                var sysList = DefaultWorldInitialization.GetAllSystems(WorldSystemFilterFlags.Default);
-                foreach (var sys in sysList)
+                foreach (var sys in s_AllClientSystems)
                 {
                     bool shouldAdd = false;
                     var sysName = sys.Assembly.FullName;
                     foreach (var asm in NetCodeAssemblies)
-                    {
                         shouldAdd |= sysName.StartsWith(asm);
-                    }
                     if (shouldAdd)
-                    {
-                        systems.Add(sys);
-                    }
+                        m_ClientSystems.Add(sys);
+                }
+
+                foreach (var sys in s_AllThinClientSystems)
+                {
+                    bool shouldAdd = false;
+                    var sysName = sys.Assembly.FullName;
+                    foreach (var asm in NetCodeAssemblies)
+                        shouldAdd |= sysName.StartsWith(asm);
+                    if (shouldAdd)
+                        m_ThinClientSystems.Add(sys);
+                }
+
+                foreach (var sys in s_AllServerSystems)
+                {
+                    bool shouldAdd = false;
+                    var sysName = sys.Assembly.FullName;
+                    foreach (var asm in NetCodeAssemblies)
+                        shouldAdd |= sysName.StartsWith(asm);
+                    if (shouldAdd)
+                        m_ServerSystems.Add(sys);
                 }
             }
-            systems.AddRange(userSystems);
-            ClientServerBootstrap.GenerateSystemLists(systems);
+
+            foreach (var sys in userSystems)
+            {
+                var flags = WorldSystemFilterFlags.Default;
+                var attrs = TypeManager.GetSystemAttributes(sys, typeof(WorldSystemFilterAttribute));
+                if (attrs != null && attrs.Length == 1)
+                    flags = ((WorldSystemFilterAttribute) attrs[0]).FilterFlags;
+                var grp = sys;
+                while ((flags & WorldSystemFilterFlags.Default) != 0)
+                {
+                    attrs = TypeManager.GetSystemAttributes(grp, typeof(UpdateInGroupAttribute));
+                    if (attrs != null && attrs.Length == 1)
+                        grp = ((UpdateInGroupAttribute) attrs[0]).GroupType;
+                    else
+                    {
+                        flags &= ~WorldSystemFilterFlags.Default;
+                        flags |= WorldSystemFilterFlags.LocalSimulation | WorldSystemFilterFlags.ClientSimulation | WorldSystemFilterFlags.ServerSimulation;
+                        break;
+                    }
+
+                    attrs = TypeManager.GetSystemAttributes(grp, typeof(WorldSystemFilterAttribute));
+                    if (attrs != null && attrs.Length == 1)
+                    {
+                        flags &= ~WorldSystemFilterFlags.Default;
+                        flags |= ((WorldSystemFilterAttribute) attrs[0]).ChildDefaultFilterFlags;
+                    }
+                }
+
+                if ((flags & WorldSystemFilterFlags.ClientSimulation) != 0)
+                    m_ClientSystems.Add(sys);
+                if ((flags & WorldSystemFilterFlags.ThinClientSimulation) != 0)
+                    m_ThinClientSystems.Add(sys);
+                if ((flags & WorldSystemFilterFlags.ServerSimulation) != 0)
+                    m_ServerSystems.Add(sys);
+            }
         }
 
         public void CreateWorlds(bool server, int numClients, bool tickWorldAfterCreation = true, bool useThinClients = false)
         {
-            var oldConstructor = NetworkStreamReceiveSystem.s_DriverConstructor;
-            NetworkStreamReceiveSystem.s_DriverConstructor = this;
-            var oldDebugPort = GhostStatsSystem.Port;
-            GhostStatsSystem.Port = 0;
+            var oldConstructor = NetworkStreamReceiveSystem.DriverConstructor;
+            NetworkStreamReceiveSystem.DriverConstructor = this;
+            var oldDebugPort = GhostStatsConnection.Port;
+            GhostStatsConnection.Port = 0;
             if (!m_DefaultWorldInitialized)
             {
                 DefaultWorldInitialization.AddSystemsToRootLevelSystemGroups(m_DefaultWorld,
-                    ClientServerBootstrap.ExplicitDefaultWorldSystems);
+                    m_ControlSystems);
                 m_DefaultWorldInitialized = true;
             }
 
@@ -215,14 +325,14 @@ namespace Unity.NetCode.Tests
             {
                 if (m_ServerWorld != null)
                     throw new InvalidOperationException("Server world already created");
-                m_ServerWorld = ClientServerBootstrap.CreateServerWorld(m_DefaultWorld, "ServerTest");
+                m_ServerWorld = CreateServerWorld("ServerTest");
 #if UNITY_EDITOR
-                ConvertGhostCollection(m_ServerWorld);
+                BakeGhostCollection(m_ServerWorld);
 #endif
                 if (DebugPackets)
                 {
                     var dbg = m_ServerWorld.EntityManager.CreateEntity(ComponentType.ReadWrite<NetCodeDebugConfig>());
-                    m_ServerWorld.EntityManager.SetComponentData(dbg, new NetCodeDebugConfig{LogLevel = NetDebug.LogLevelType.Debug, DumpPackets = true});
+                    m_ServerWorld.EntityManager.SetComponentData(dbg, new NetCodeDebugConfig {LogLevel = NetDebug.LogLevelType.Debug, DumpPackets = true});
                 }
             }
 
@@ -230,17 +340,19 @@ namespace Unity.NetCode.Tests
             {
                 if (m_ClientWorlds != null)
                     throw new InvalidOperationException("Client worlds already created");
+                WorldCreationIndex = 0;
                 m_ClientWorlds = new World[numClients];
                 for (int i = 0; i < numClients; ++i)
                 {
                     try
                     {
-                        m_ClientWorlds[i] = ClientServerBootstrap.CreateClientWorld(m_DefaultWorld, $"ClientTest{i}");
-                        if (useThinClients) m_ClientWorlds[i].EntityManager.CreateEntity(typeof(ThinClientComponent));
+                        WorldCreationIndex = i;
+                        m_ClientWorlds[i] = CreateClientWorld($"ClientTest{i}", useThinClients);
+
                         if (DebugPackets)
                         {
                             var dbg = m_ClientWorlds[i].EntityManager.CreateEntity(ComponentType.ReadWrite<NetCodeDebugConfig>());
-                            m_ClientWorlds[i].EntityManager.SetComponentData(dbg, new NetCodeDebugConfig{LogLevel = NetDebug.LogLevelType.Debug, DumpPackets = true});
+                            m_ClientWorlds[i].EntityManager.SetComponentData(dbg, new NetCodeDebugConfig {LogLevel = NetDebug.LogLevelType.Debug, DumpPackets = true});
                         }
                     }
                     catch (Exception)
@@ -249,21 +361,60 @@ namespace Unity.NetCode.Tests
                         throw;
                     }
 #if UNITY_EDITOR
-                    ConvertGhostCollection(m_ClientWorlds[i]);
+                    BakeGhostCollection(m_ClientWorlds[i]);
 #endif
                 }
             }
-            GhostStatsSystem.Port = oldDebugPort;
-            NetworkStreamReceiveSystem.s_DriverConstructor = oldConstructor;
+
+            GhostStatsConnection.Port = oldDebugPort;
+            NetworkStreamReceiveSystem.DriverConstructor = oldConstructor;
+
             //Run 1 tick so that all the ghost collection and the ghost collection component run once.
-            if(tickWorldAfterCreation)
-                Tick(1.0f/60.0f);
+            if (tickWorldAfterCreation)
+                Tick(1.0f / 60.0f);
+        }
+
+        private World CreateServerWorld(string name, World world = null)
+        {
+            if (world == null)
+                world = new World(name, WorldFlags.GameServer);
+            DefaultWorldInitialization.AddSystemsToRootLevelSystemGroups(world, m_ServerSystems);
+            var initializationGroup = world.GetExistingSystemManaged<InitializationSystemGroup>();
+            var simulationGroup = world.GetExistingSystemManaged<SimulationSystemGroup>();
+            var presentationGroup = world.GetExistingSystemManaged<PresentationSystemGroup>();
+            var initializationTickSystem = m_DefaultWorld.GetExistingSystemManaged<TickClientInitializationSystem>();
+            var simulationTickSystem = m_DefaultWorld.GetExistingSystemManaged<TickClientSimulationSystem>();
+            var presentationTickSystem = m_DefaultWorld.GetExistingSystemManaged<TickClientPresentationSystem>();
+            initializationTickSystem.AddSystemGroupToTickList(initializationGroup);
+            simulationTickSystem.AddSystemGroupToTickList(simulationGroup);
+            presentationTickSystem.AddSystemGroupToTickList(presentationGroup);
+            return world;
+        }
+
+        private World CreateClientWorld(string name, bool thinClient, World world = null)
+        {
+            if (world == null)
+                world = new World(name, thinClient ? WorldFlags.GameThinClient : WorldFlags.GameClient);
+
+            // TODO: GameThinClient for ThinClientSystem for ultra thin
+            DefaultWorldInitialization.AddSystemsToRootLevelSystemGroups(world, m_ClientSystems);
+            var initializationGroup = world.GetExistingSystemManaged<InitializationSystemGroup>();
+            var simulationGroup = world.GetExistingSystemManaged<SimulationSystemGroup>();
+            var presentationGroup = world.GetExistingSystemManaged<PresentationSystemGroup>();
+
+            var initializationTickSystem = m_DefaultWorld.GetExistingSystemManaged<TickClientInitializationSystem>();
+            var simulationTickSystem = m_DefaultWorld.GetExistingSystemManaged<TickClientSimulationSystem>();
+            var presentationTickSystem = m_DefaultWorld.GetExistingSystemManaged<TickClientPresentationSystem>();
+            initializationTickSystem.AddSystemGroupToTickList(initializationGroup);
+            simulationTickSystem.AddSystemGroupToTickList(simulationGroup);
+            presentationTickSystem.AddSystemGroupToTickList(presentationGroup);
+            return world;
         }
 
         public void Tick(float dt)
         {
             // Use fixed timestep in network time system to prevent time dependencies in tests
-            NetworkTimeSystem.s_FixedTimestampMS += (uint)(dt*1000.0f);
+            NetworkTimeSystem.s_FixedTimestampMS += (uint) (dt * 1000.0f);
             m_ElapsedTime += dt;
             m_DefaultWorld.SetTime(new TimeData(m_ElapsedTime, dt));
             if (m_ServerWorld != null)
@@ -273,15 +424,16 @@ namespace Unity.NetCode.Tests
                 for (int i = 0; i < m_ClientWorlds.Length; ++i)
                     m_ClientWorlds[i].SetTime(new TimeData(m_ElapsedTime, dt));
             }
-            m_DefaultWorld.GetExistingSystem<TickServerInitializationSystem>().Update();
-            m_DefaultWorld.GetExistingSystem<TickClientInitializationSystem>().Update();
-            m_DefaultWorld.GetExistingSystem<TickServerSimulationSystem>().Update();
-            m_DefaultWorld.GetExistingSystem<TickClientSimulationSystem>().Update();
-            m_DefaultWorld.GetExistingSystem<TickClientPresentationSystem>().Update();
-#if USE_UNITY_LOGGING
+
+            // Make sure the log flush does not run
+            m_DefaultWorld.GetExistingSystemManaged<TickServerInitializationSystem>().Update();
+            m_DefaultWorld.GetExistingSystemManaged<TickClientInitializationSystem>().Update();
+            m_DefaultWorld.GetExistingSystemManaged<TickServerSimulationSystem>().Update();
+            m_DefaultWorld.GetExistingSystemManaged<TickClientSimulationSystem>().Update();
+            m_DefaultWorld.GetExistingSystemManaged<TickClientPresentationSystem>().Update();
+
             // Flush the pending logs since the system doing that might not have run yet which means Log.Expect does not work
             Logging.Internal.LoggerManager.ScheduleUpdateLoggers().Complete();
-#endif
         }
 
         public void MigrateServerWorld(World suppliedWorld = null)
@@ -290,15 +442,16 @@ namespace Unity.NetCode.Tests
 
             foreach (var world in World.All)
             {
-                if ((migrationSystem = world.GetExistingSystem<DriverMigrationSystem>()) != null)
+                if ((migrationSystem = world.GetExistingSystemManaged<DriverMigrationSystem>()) != null)
                     break;
             }
 
             var ticket = migrationSystem.StoreWorld(ServerWorld);
             ServerWorld.Dispose();
 
+            Assert.True(suppliedWorld == null || suppliedWorld.IsServer());
             var newWorld = migrationSystem.LoadWorld(ticket, suppliedWorld);
-            m_ServerWorld = ClientServerBootstrap.CreateServerWorld(DefaultWorld, newWorld.Name, newWorld);
+            m_ServerWorld = CreateServerWorld(newWorld.Name, newWorld);
 
             Assert.True(newWorld.Name == m_ServerWorld.Name);
         }
@@ -312,7 +465,7 @@ namespace Unity.NetCode.Tests
 
             foreach (var world in World.All)
             {
-                if ((migrationSystem = world.GetExistingSystem<DriverMigrationSystem>()) != null)
+                if ((migrationSystem = world.GetExistingSystemManaged<DriverMigrationSystem>()) != null)
                     break;
             }
 
@@ -320,40 +473,31 @@ namespace Unity.NetCode.Tests
             ClientWorlds[index].Dispose();
 
             var newWorld = migrationSystem.LoadWorld(ticket, suppliedWorld);
-            m_ClientWorlds[index] = ClientServerBootstrap.CreateClientWorld(DefaultWorld, newWorld.Name, newWorld);
+            m_ClientWorlds[index] = CreateClientWorld(newWorld.Name, false, newWorld);
 
             Assert.True(newWorld.Name == m_ClientWorlds[index].Name);
         }
 
         public void RestartClientWorld(int index)
         {
-            var oldConstructor = NetworkStreamReceiveSystem.s_DriverConstructor;
-            NetworkStreamReceiveSystem.s_DriverConstructor = this;
+            var oldConstructor = NetworkStreamReceiveSystem.DriverConstructor;
+            NetworkStreamReceiveSystem.DriverConstructor = this;
 
             var name = m_ClientWorlds[index].Name;
             m_ClientWorlds[index].Dispose();
 
-            m_ClientWorlds[index] = ClientServerBootstrap.CreateClientWorld(DefaultWorld, name);
-            NetworkStreamReceiveSystem.s_DriverConstructor = oldConstructor;
+            m_ClientWorlds[index] = CreateClientWorld(name, false);
+            NetworkStreamReceiveSystem.DriverConstructor = oldConstructor;
         }
 
-
-        public void CreateClientDriver(World world, out NetworkDriver driver, out NetworkPipeline unreliablePipeline, out NetworkPipeline reliablePipeline, out NetworkPipeline unreliableFragmentedPipeline)
+        public void CreateClientDriver(World world, ref NetworkDriverStore driverStore, NetDebug netDebug)
         {
             var reliabilityParams = new ReliableUtility.Parameters {WindowSize = 32};
-
-            var netParams = new NetworkConfigParameter
-            {
-                maxConnectAttempts = NetworkParameterConstants.MaxConnectAttempts,
-                connectTimeoutMS = NetworkParameterConstants.ConnectTimeoutMS,
-                disconnectTimeoutMS = NetworkParameterConstants.DisconnectTimeoutMS,
-                maxFrameTimeMS = 100,
-                fixedFrameTimeMS = DriverFixedTime
-            };
             var packetDelay = DriverSimulatedDelay;
             int networkRate = 60;
+
             // All 3 packet types every frame stored for maximum delay, doubled for safety margin
-            int maxPackets = 2 * (networkRate * 3 * packetDelay + 999) / 1000;
+            int maxPackets = 2 * (networkRate * 3 * (packetDelay + DriverSimulatedJitter) + 999) / 1000;
 
             var fuzzFactor = 0;
             const int kStringLength = 10; // we name it ClientTest e.g. 10 bytes long.
@@ -365,61 +509,92 @@ namespace Unity.NetCode.Tests
 
             var simParams = new SimulatorUtility.Parameters
             {
+                Mode = ApplyMode.AllPackets,
                 MaxPacketSize = NetworkParameterConstants.MTU, MaxPacketCount = maxPackets,
                 PacketDelayMs = packetDelay,
+                PacketJitterMs = DriverSimulatedJitter,
+                PacketDropInterval = DriverSimulatedDrop,
                 FuzzFactor = fuzzFactor,
                 FuzzOffset = DriverFuzzOffset,
                 RandomSeed = DriverRandomSeed
             };
-            driver = new NetworkDriver(new IPCNetworkInterface(), netParams, reliabilityParams, simParams);
+            var networkSettings = new NetworkSettings();
+            networkSettings.WithNetworkConfigParameters
+            (
+                maxFrameTimeMS: 100,
+                fixedFrameTimeMS: DriverFixedTime
+            );
+            networkSettings.AddRawParameterStruct(ref reliabilityParams);
+            networkSettings.AddRawParameterStruct(ref simParams);
+
+            //We are forcing here the connection type to be a socket but the connection is instead based on IPC.
+            //The reason for that is that we want to be able to disable any check/logic that optimise for that use case
+            //by default in the test.
+            //It is possible however to disable this behavior using the provided opt
+            var transportType = UseFakeSocketConnection == 1 ? TransportType.Socket : TransportType.IPC;
+
+            var driverInstance = new NetworkDriverStore.NetworkDriverInstance();
+            if (UseMultipleDrivers == 0)
+                driverInstance.driver = NetworkDriver.Create(new IPCNetworkInterface(), networkSettings);
+            else
+            {
+                if ((WorldCreationIndex & 0x1) == 0)
+                {
+                    driverInstance.driver = NetworkDriver.Create(new IPCNetworkInterface(), networkSettings);
+                }
+                else
+                {
+                    driverInstance.driver = NetworkDriver.Create(new UDPNetworkInterface(), networkSettings);
+                }
+
+            }
+
+            //Fake the driver as it is always using a socket, even though we are also using IPC as a transport medium
 
             if (DriverSimulatedDelay + fuzzFactor > 0)
             {
-                unreliablePipeline = driver.CreatePipeline(
-                    typeof(SimulatorPipelineStage),
-                    typeof(SimulatorPipelineStageInSend));
-                reliablePipeline = driver.CreatePipeline(
-                    typeof(ReliableSequencedPipelineStage),
-                    typeof(SimulatorPipelineStage),
-                    typeof(SimulatorPipelineStageInSend));
-                unreliableFragmentedPipeline = driver.CreatePipeline(
-                    typeof(FragmentationPipelineStage),
-                    typeof(SimulatorPipelineStage),
-                    typeof(SimulatorPipelineStageInSend));
+                DefaultDriverBuilder.CreateClientSimulatorPipelines(ref driverInstance);
+                driverStore.RegisterDriver(transportType, driverInstance);
             }
             else
             {
-                unreliablePipeline = driver.CreatePipeline(typeof(NullPipelineStage));
-                reliablePipeline = driver.CreatePipeline(typeof(ReliableSequencedPipelineStage));
-                unreliableFragmentedPipeline = driver.CreatePipeline(typeof(FragmentationPipelineStage));
+                DefaultDriverBuilder.CreateClientPipelines(ref driverInstance);
+                driverStore.RegisterDriver(transportType, driverInstance);
             }
         }
-        public void CreateServerDriver(World world, out NetworkDriver driver, out NetworkPipeline unreliablePipeline, out NetworkPipeline reliablePipeline, out NetworkPipeline unreliableFragmentedPipeline)
+
+        public void CreateServerDriver(World world, ref NetworkDriverStore driverStore, NetDebug netDebug)
         {
             var reliabilityParams = new ReliableUtility.Parameters {WindowSize = 32};
 
-            var netParams = new NetworkConfigParameter
-            {
-                maxConnectAttempts = NetworkParameterConstants.MaxConnectAttempts,
-                connectTimeoutMS = NetworkParameterConstants.ConnectTimeoutMS,
-                disconnectTimeoutMS = NetworkParameterConstants.DisconnectTimeoutMS,
-                maxFrameTimeMS = 100,
-                fixedFrameTimeMS = DriverFixedTime
-            };
-            driver = new NetworkDriver(new IPCNetworkInterface(), netParams, reliabilityParams);
+            var networkSettings = new NetworkSettings();
+            networkSettings.WithNetworkConfigParameters(
+                maxFrameTimeMS: 100,
+                fixedFrameTimeMS: DriverFixedTime
+            );
 
-            unreliablePipeline = driver.CreatePipeline(typeof(NullPipelineStage));
-            reliablePipeline = driver.CreatePipeline(typeof(ReliableSequencedPipelineStage));
-            unreliableFragmentedPipeline = driver.CreatePipeline(typeof(FragmentationPipelineStage));
+            networkSettings.AddRawParameterStruct(ref reliabilityParams);
+
+            var driverInstance = new NetworkDriverStore.NetworkDriverInstance();
+            driverInstance.driver = NetworkDriver.Create(new IPCNetworkInterface(), networkSettings);
+            DefaultDriverBuilder.CreateServerPipelines(ref driverInstance);
+            driverStore.RegisterDriver(TransportType.IPC, driverInstance);
+            if (UseMultipleDrivers != 0)
+            {
+                var socketInstance = new NetworkDriverStore.NetworkDriverInstance();
+                socketInstance.driver = NetworkDriver.Create(new UDPNetworkInterface(), networkSettings);
+                DefaultDriverBuilder.CreateServerPipelines(ref socketInstance);
+                driverStore.RegisterDriver(TransportType.Socket, socketInstance);
+            }
         }
 
         public bool Connect(float dt, int maxSteps)
         {
-            var ep = NetworkEndPoint.LoopbackIpv4;
+            var ep = NetworkEndpoint.LoopbackIpv4;
             ep.Port = 7979;
-            ServerWorld.GetExistingSystem<NetworkStreamReceiveSystem>().Listen(ep);
+            GetSingletonRW<NetworkStreamDriver>(ServerWorld).ValueRW.Listen(ep);
             for (int i = 0; i < ClientWorlds.Length; ++i)
-                ClientWorlds[i].GetExistingSystem<NetworkStreamReceiveSystem>().Connect(ep);
+                GetSingletonRW<NetworkStreamDriver>(ClientWorlds[i]).ValueRW.Connect(ClientWorlds[i].EntityManager, ep);
             for (int i = 0; i < ClientWorlds.Length; ++i)
             {
                 while (TryGetSingletonEntity<NetworkIdComponent>(ClientWorlds[i]) == Entity.Null)
@@ -430,6 +605,7 @@ namespace Unity.NetCode.Tests
                     Tick(dt);
                 }
             }
+
             return true;
         }
 
@@ -444,8 +620,10 @@ namespace Unity.NetCode.Tests
                     for (int i = 0; i < ClientWorlds.Length; ++i)
                         GoInGame(ClientWorlds[i]);
                 }
+
                 return;
             }
+
             var type = ComponentType.ReadOnly<NetworkIdComponent>();
             var query = w.EntityManager.CreateEntityQuery(type);
             var connections = query.ToEntityArray(Allocator.TempJob);
@@ -465,6 +643,7 @@ namespace Unity.NetCode.Tests
                 {
                     world.EntityManager.RemoveComponent<NetworkStreamInGame>(connections[i]);
                 }
+
                 connections.Dispose();
             }
 
@@ -495,10 +674,11 @@ namespace Unity.NetCode.Tests
                     break;
                 }
             }
+
             connections.Dispose();
         }
 
-        public void RemoveFroGame(int client)
+        public void RemoveFromGame(int client)
         {
             var type = ComponentType.ReadOnly<NetworkIdComponent>();
             var clientQuery = ClientWorlds[client].EntityManager.CreateEntityQuery(type);
@@ -518,21 +698,51 @@ namespace Unity.NetCode.Tests
                     break;
                 }
             }
+
             connections.Dispose();
         }
 
-        public unsafe Entity TryGetSingletonEntity<T>(World w)
+        public Entity TryGetSingletonEntity<T>(World w)
         {
             var type = ComponentType.ReadOnly<T>();
-            var query = w.EntityManager.CreateEntityQuery(type);
-            int entCount = query.CalculateEntityCount();
+            using (var query = w.EntityManager.CreateEntityQuery(type))
+            {
+                int entCount = query.CalculateEntityCount();
 #if UNITY_EDITOR
-            if (entCount >= 2)
-                Debug.LogError("Trying to get singleton, but there are multiple matching entities");
+                if (entCount >= 2)
+                    Debug.LogError("Trying to get singleton, but there are multiple matching entities");
 #endif
-            if (entCount != 1)
-                return Entity.Null;
-            return query.GetSingletonEntity();
+                if (entCount != 1)
+                    return Entity.Null;
+                return query.GetSingletonEntity();
+            }
+        }
+
+        public T GetSingleton<T>(World w) where T : unmanaged, IComponentData
+        {
+            var type = ComponentType.ReadOnly<T>();
+            using (var query = w.EntityManager.CreateEntityQuery(type))
+            {
+                return query.GetSingleton<T>();
+            }
+        }
+
+        public RefRW<T> GetSingletonRW<T>(World w) where T : unmanaged, IComponentData
+        {
+            var type = ComponentType.ReadWrite<T>();
+            using (var query = w.EntityManager.CreateEntityQuery(type))
+            {
+                return query.GetSingletonRW<T>();
+            }
+        }
+
+        public DynamicBuffer<T> GetSingletonBuffer<T>(World w) where T : unmanaged, IBufferElementData
+        {
+            var type = ComponentType.ReadOnly<T>();
+            using (var query = w.EntityManager.CreateEntityQuery(type))
+            {
+                return query.GetSingletonBuffer<T>();
+            }
         }
 
 #if UNITY_EDITOR
@@ -546,12 +756,11 @@ namespace Unity.NetCode.Tests
             {
                 var ghost = ghostObject.GetComponent<GhostAuthoringComponent>();
                 if (ghost == null)
-                    ghost = ghostObject.AddComponent<GhostAuthoringComponent>();
-                ghost.Name = ghostObject.name;
+                    {ghost = ghostObject.AddComponent<GhostAuthoringComponent>();}
                 ghost.prefabId = Guid.NewGuid().ToString().Replace("-", "");
                 m_GhostCollection.Add(ghostObject);
             }
-            m_BlobAssetStore = new BlobAssetStore();
+            m_BlobAssetStore = new BlobAssetStore(128);
             return true;
         }
 
@@ -565,6 +774,42 @@ namespace Unity.NetCode.Tests
             var prefabBuffers = ServerWorld.EntityManager.GetBuffer<NetCodeTestPrefab>(prefabCollection);
             return ServerWorld.EntityManager.Instantiate(prefabBuffers[prefabIndex].Value);
         }
+
+        private Entity BakeGameObject(GameObject go, World world, BlobAssetStore blobAssetStore)
+        {
+            // We need to use an intermediate world as BakingUtility.BakeGameObjects cleans up previously baked
+            // entities. This means that we need to move the entities from the intermediate world into the final
+            // world. As BakeGameObject returns the main baked entity, we use the EntityGUID to find that
+            // entity in the final world
+            using var intermediateWorld = new World("NetCodeBakingWorld");
+
+            var bakingSettings = new BakingSettings(BakingUtility.BakingFlags.AddEntityGUID, blobAssetStore);
+            bakingSettings.ExtraSystems.AddRange(UserBakingSystems);
+            BakingUtility.BakeGameObjects(intermediateWorld, new GameObject[] {go}, bakingSettings);
+
+            var bakingSystem = intermediateWorld.GetExistingSystemManaged<BakingSystem>();
+            var intermediateEntity = bakingSystem.GetEntity(go);
+            var intermediateEntityGuid = intermediateWorld.EntityManager.GetComponentData<EntityGuid>(intermediateEntity);
+
+            // Copy the world
+            world.EntityManager.MoveEntitiesFrom(intermediateWorld.EntityManager);
+
+            // Search for the entity in the final world by comparing the EntityGuid from entity in the intermediate world
+            var query = world.EntityManager.CreateEntityQuery(new ComponentType[] {typeof(EntityGuid)});
+            using var entityArray = query.ToEntityArray(Allocator.TempJob);
+            using var entityGUIDs = query.ToComponentDataArray<EntityGuid>(Allocator.TempJob);
+            for (int index = 0; index < entityGUIDs.Length; ++index)
+            {
+                if (entityGUIDs[index] == intermediateEntityGuid)
+                {
+                    return entityArray[index];
+                }
+            }
+
+            Debug.LogError($"Copied Entity {intermediateEntityGuid} not found");
+            return Entity.Null;
+        }
+
         public Entity SpawnOnServer(GameObject go)
         {
             if (m_GhostCollection == null)
@@ -572,9 +817,11 @@ namespace Unity.NetCode.Tests
             int index = m_GhostCollection.IndexOf(go);
             if (index >= 0)
                 return SpawnOnServer(index);
-            return GameObjectConversionUtility.ConvertGameObjectHierarchy(go, GameObjectConversionSettings.FromWorld(ServerWorld, m_BlobAssetStore));
+
+            return BakeGameObject(go, ServerWorld, m_BlobAssetStore);
         }
-        public Entity ConvertGhostCollection(World world)
+
+        public Entity BakeGhostCollection(World world)
         {
             if (m_GhostCollection == null)
                 return Entity.Null;
@@ -583,18 +830,30 @@ namespace Unity.NetCode.Tests
             {
                 var ghostAuth = prefab.GetComponent<GhostAuthoringComponent>();
                 ghostAuth.ForcePrefabConversion = true;
-                var prefabEnt = GameObjectConversionUtility.ConvertGameObjectHierarchy(prefab, GameObjectConversionSettings.FromWorld(world, m_BlobAssetStore));
+                var prefabEnt = BakeGameObject(prefab, world, m_BlobAssetStore);
                 ghostAuth.ForcePrefabConversion = false;
                 world.EntityManager.AddComponentData(prefabEnt, default(Prefab));
                 prefabs.Add(prefabEnt);
             }
+
             var collection = world.EntityManager.CreateEntity();
             world.EntityManager.AddComponentData(collection, default(NetCodeTestPrefabCollection));
             var prefabBuffer = world.EntityManager.AddBuffer<NetCodeTestPrefab>(collection);
             foreach (var prefab in prefabs)
-                prefabBuffer.Add(new NetCodeTestPrefab{Value = prefab});
+                prefabBuffer.Add(new NetCodeTestPrefab {Value = prefab});
             return collection;
         }
 #endif
+    }
+
+    /// <summary>Register variants for test world.</summary>
+    [DisableAutoCreation]
+    public sealed class TestWorldDefaultVariantSystem : DefaultVariantSystemBase
+    {
+        protected override void RegisterDefaultVariants(Dictionary<ComponentType, Rule> defaultVariants)
+        {
+            defaultVariants.Add(typeof(Rotation), Rule.OnlyParents(typeof(RotationDefaultVariant)));
+            defaultVariants.Add(typeof(Translation), Rule.OnlyParents(typeof(TranslationDefaultVariant)));
+        }
     }
 }

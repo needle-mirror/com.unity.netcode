@@ -21,7 +21,7 @@ namespace Generated
             #endregion
         }
 
-        public void SerializeCommand(ref DataStreamWriter writer, in IComponentData data, in IComponentData baseline, NetworkCompressionModel compressionModel)
+        public void SerializeCommand(ref DataStreamWriter writer, in IComponentData data, in IComponentData baseline, StreamCompressionModel compressionModel)
         {
             #region __COMMAND_WRITE__
             writer.WriteFloat(data.__COMMAND_FIELD_NAME__.value.x);
@@ -37,7 +37,7 @@ namespace Generated
             #endregion
         }
 
-        public void DeserializeCommand(ref DataStreamReader reader, ref IComponentData data, in IComponentData baseline, NetworkCompressionModel compressionModel)
+        public void DeserializeCommand(ref DataStreamReader reader, ref IComponentData data, in IComponentData baseline, StreamCompressionModel compressionModel)
         {
             #region __COMMAND_READ__
             data.__COMMAND_FIELD_NAME__.value.x = reader.ReadFloat();
@@ -52,10 +52,10 @@ namespace Generated
             data.__COMMAND_FIELD_NAME__.value.w = reader.ReadPackedFloatDelta(baseline.__COMMAND_FIELD_NAME__.value.w, compressionModel);
             #endregion
         }
-        public void Serialize(ref Snapshot snapshot, ref Snapshot baseline, ref DataStreamWriter writer, ref NetworkCompressionModel compressionModel, uint changeMask)
+        public void Serialize(ref Snapshot snapshot, ref Snapshot baseline, ref DataStreamWriter writer, ref StreamCompressionModel compressionModel, uint changeMask)
         {
             #region __GHOST_WRITE__
-            if ((changeMask__GHOST_MASK_BATCH__ & (1 << __GHOST_MASK_INDEX__)) != 0)
+            if ((changeMask & (1 << __GHOST_MASK_INDEX__)) != 0)
             {
                 writer.WritePackedFloatDelta(snapshot.__GHOST_FIELD_NAME__X, baseline.__GHOST_FIELD_NAME__X, compressionModel);
                 writer.WritePackedFloatDelta(snapshot.__GHOST_FIELD_NAME__Y, baseline.__GHOST_FIELD_NAME__Y, compressionModel);
@@ -65,10 +65,10 @@ namespace Generated
             #endregion
         }
 
-        public void Deserialize(ref Snapshot snapshot, ref Snapshot baseline, ref DataStreamReader reader, ref NetworkCompressionModel compressionModel, uint changeMask)
+        public void Deserialize(ref Snapshot snapshot, ref Snapshot baseline, ref DataStreamReader reader, ref StreamCompressionModel compressionModel, uint changeMask)
         {
             #region __GHOST_READ__
-            if ((changeMask__GHOST_MASK_BATCH__ & (1 << __GHOST_MASK_INDEX__)) != 0)
+            if ((changeMask & (1 << __GHOST_MASK_INDEX__)) != 0)
             {
                 snapshot.__GHOST_FIELD_NAME__X = reader.ReadPackedFloatDelta(baseline.__GHOST_FIELD_NAME__X, compressionModel);
                 snapshot.__GHOST_FIELD_NAME__Y = reader.ReadPackedFloatDelta(baseline.__GHOST_FIELD_NAME__Y, compressionModel);

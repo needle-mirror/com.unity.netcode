@@ -109,7 +109,7 @@ namespace Unity.NetCode.Tests
                 var sseqn = testWorld.ServerWorld.SequenceNumber;
                 var cseqn = testWorld.ClientWorlds[0].SequenceNumber;
 
-                var bananaWorld = new World("BananaWorld", WorldFlags.Game);
+                var bananaWorld = new World("BananaWorld", WorldFlags.GameServer);
                 var oldName = testWorld.ServerWorld.Name;
 
                 testWorld.MigrateServerWorld(bananaWorld);
@@ -161,9 +161,9 @@ namespace Unity.NetCode.Tests
 
                 StepTicks(testWorld, 5, frameTime);
 
-                var ep = NetworkEndPoint.LoopbackIpv4;
+                var ep = NetworkEndpoint.LoopbackIpv4;
                 ep.Port = 7979;
-                testWorld.ClientWorlds[rndClient].GetExistingSystem<NetworkStreamReceiveSystem>().Connect(ep);
+                testWorld.GetSingletonRW<NetworkStreamDriver>(testWorld.ClientWorlds[rndClient]).ValueRW.Connect(testWorld.ClientWorlds[rndClient].EntityManager, ep);
 
                 var con = Entity.Null;
                 for (int i = 0;

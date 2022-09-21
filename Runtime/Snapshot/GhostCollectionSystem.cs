@@ -1,15 +1,44 @@
+#if (UNITY_EDITOR || DEVELOPMENT_BUILD) && !NETCODE_NDEBUG
+#define NETCODE_DEBUG
+#endif
+
 using System;
 using System.Diagnostics;
 using Unity.Entities;
 using Unity.Collections;
 using Unity.NetCode.LowLevel.Unsafe;
 using System.Collections.Generic;
+using Unity.Assertions;
+using Unity.Burst;
+using Unity.Collections.LowLevel.Unsafe;
 using Unity.Mathematics;
+using Unity.Profiling;
 
 namespace Unity.NetCode
 {
+    /// <summary>
+    /// A list of ghost prefabs created from code.
+    /// </summary>
+    struct CodeGhostPrefab : IBufferElementData
+    {
+        public Entity entity;
+        public BlobAssetReference<GhostPrefabMetaData> blob;
+    }
+
+    /// <summary>
+    /// System responsible to construct and manage the <see cref="GhostCollection"/> singleton data.
+    /// <para>
+    /// The system processes all the ghost prefabs present in the world by:
+    /// <para>- stripping and removing components from the entity prefab based on <see cref="GhostPrefabType"/></para>
+    /// <para>- populating the <see cref="GhostCollectionPrefab"/></para>
+    /// <para>- preparing and constructing all the necessary data structure (<see cref="GhostCollectionPrefabSerializer"/>, <see cref="GhostCollectionComponentIndex"/> and
+    /// <see cref="GhostCollectionComponentType"/>) for serializing ghosts</para>
+    /// </para>
+    /// </summary>
+    [BurstCompile]
     [UpdateInGroup(typeof(GhostSimulationSystemGroup))]
-    public partial class GhostCollectionSystem : SystemBase
+    [WorldSystemFilter(WorldSystemFilterFlags.Default | WorldSystemFilterFlags.ThinClientSimulation)]
+    public partial struct GhostCollectionSystem : ISystem
     {
         struct ComponentHashComparer : IComparer<GhostComponentSerializer.State>
         {
@@ -31,64 +60,46 @@ namespace Unity.NetCode
                     return 0;
             }
         }
-        private bool m_ComponentCollectionInitialized;
+        private byte m_ComponentCollectionInitialized;
         private Entity m_CollectionSingleton;
-        #if UNITY_EDITOR || DEVELOPMENT_BUILD
-        private NativeList<FixedString512Bytes> m_PredictionErrorNames;
-        private NativeList<FixedString128Bytes> m_GhostNames;
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+        private NativeList<PredictionErrorNames> m_PredictionErrorNames;
+        private NativeList<FixedString64Bytes> m_GhostNames;
+
+        //Cache all component prediction error names, by parsing the GhostComponentSerializer.State.PredictionErrorName list)
+        private UnsafeList<(short, short)> m_PredictionErrorNamesStartEndCache;
+        private NativeList<PendingNameAssignment> m_PendingNameAssignments;
+        private int m_currentPredictionErrorNamesCount;
+        private int m_currentPredictionErrorCount;
+
         private int m_PrevPredictionErrorNamesCount;
         private int m_PrevGhostNamesCount;
-        #endif
+#endif
 
         private EntityQuery m_InGameQuery;
         private EntityQuery m_AllConnectionsQuery;
         private EntityQuery m_RuntimeStripQuery;
-        private NetDebugSystem m_NetDebugSystem;
-        private GhostComponentSerializerCollectionSystemGroup m_GhostComponentSerializerCollectionSystemGroup;
-        private bool m_IsServer;
 
-        /// <summary>
-        /// Compute the number of uint necessary to encode the required number of bits
-        /// </summary>
-        /// <param name="numBits"></param>
-        /// <returns></returns>
-        public static int ChangeMaskArraySizeInUInts(int numBits)
+        private struct UsedComponentType
         {
-            return (numBits + 31)>>5;
+            public int UsedIndex;
+            public GhostCollectionComponentType ComponentType;
         }
-        /// <summary>
-        /// Align the give size to 16 byte boundary
-        /// </summary>
-        /// <param name="size"></param>
-        /// <returns></returns>
-        public static int SnapshotSizeAligned(int size)
-        {
-            return (size + 15) & (~15);
-        }
-        /// <summary>
-        /// Align the give size to 16 byte boundary
-        /// </summary>
-        /// <param name="size"></param>
-        /// <returns></returns>
-        public static uint SnapshotSizeAligned(uint size)
-        {
-            return (size + 15u) & (~15u);
-        }
+        private NativeList<UsedComponentType> m_AllComponentTypes;
+        //retrieve the index inside the GhostCollectionComponentIndex for a component, given its stable hash.
+        private NativeHashMap<ulong, int> m_StableHashToComponentTypeIndex;
+
+        private Entity m_CodePrefabSingleton;
+        EntityQuery m_RegisterGhostTypesQuery;
 
         //Hash requirements:
         // R0: if components are different or in different order the hash should change
         // R1: different size, owneroffsets, maskbits, partialcomponents etc must result in a different hash
         // R2: if a ghost present the same components, with the same fields but different [GhostField] attributes (such as, subType, interpoled, composite)
         //     must result in a different hash, even though the resulting serialization sizes and masks are the same
-        public ulong CalculateComponentCollectionHash()
+        internal static ulong CalculateComponentCollectionHash(DynamicBuffer<GhostComponentSerializer.State> ghostComponentCollection)
         {
-            //Lazy create the component collection if not created when we want to compute the component collection hash
-            if (!m_ComponentCollectionInitialized)
-            {
-                CreateComponentCollection();
-            }
             ulong componentCollectionHash = 0;
-            var ghostComponentCollection = EntityManager.GetBuffer<GhostComponentSerializer.State>(m_CollectionSingleton);
             for (int i = 0; i < ghostComponentCollection.Length; ++i)
             {
                 var comp = ghostComponentCollection[i];
@@ -100,11 +111,33 @@ namespace Unity.NetCode
             return componentCollectionHash;
         }
 
-        private ulong HashGhostType(in GhostCollectionPrefabSerializer ghostType)
+        internal static void GetSerializerHashString(in GhostComponentSerializer.State comp, ref FixedString128Bytes hashString)
+        {
+            FixedString32Bytes title = "Type: ";
+            hashString.Append(title);
+            hashString.Append(TypeManager.GetTypeInfo(comp.ComponentType.TypeIndex).DebugTypeName);
+            // GhostFieldsHash hashes the composite/smoothing/subtype/quantization parameters for each GhostField inside the component
+            // This hash is determined at build time from generated code
+            title = " GhostFieldHash: ";
+            hashString.Append(title);
+            hashString.Append(comp.GhostFieldsHash);
+            title = " SnapshotSize: ";
+            hashString.Append(title);
+            hashString.Append(comp.SnapshotSize);
+            title = " ChangeMaskBits: ";
+            hashString.Append(title);
+            hashString.Append(NetDebug.PrintMask((uint)comp.SnapshotSize));
+            title = " SendToOwner: ";
+            hashString.Append(title);
+            hashString.Append((int)comp.SendToOwner);
+        }
+
+        private ulong HashGhostType(in GhostCollectionPrefabSerializer ghostType, in NetDebug netDebug)
         {
             ulong ghostTypeHash = ghostType.TypeHash;
             if (ghostTypeHash == 0)
-                throw new InvalidOperationException($"Unexpected 0 hash for ghosttype");
+                throw new InvalidOperationException($"Unexpected 0 hash for ghostType.");
+
             ghostTypeHash = TypeHash.CombineFNV1A64(ghostTypeHash, TypeHash.FNV1A64(ghostType.FirstComponent));
             ghostTypeHash = TypeHash.CombineFNV1A64(ghostTypeHash, TypeHash.FNV1A64(ghostType.NumComponents));
             ghostTypeHash = TypeHash.CombineFNV1A64(ghostTypeHash, TypeHash.FNV1A64(ghostType.NumChildComponents));
@@ -113,75 +146,130 @@ namespace Unity.NetCode
             ghostTypeHash = TypeHash.CombineFNV1A64(ghostTypeHash, TypeHash.FNV1A64(ghostType.PredictionOwnerOffset));
             ghostTypeHash = TypeHash.CombineFNV1A64(ghostTypeHash, TypeHash.FNV1A64(ghostType.OwnerPredicted));
             ghostTypeHash = TypeHash.CombineFNV1A64(ghostTypeHash, TypeHash.FNV1A64(ghostType.IsGhostGroup));
+            ghostTypeHash = TypeHash.CombineFNV1A64(ghostTypeHash, TypeHash.FNV1A64(ghostType.EnableableBits));
             return ghostTypeHash;
         }
 
-        protected override void OnCreate()
+        [BurstCompile]
+        public void OnCreate(ref SystemState state)
         {
-            RequireSingletonForUpdate<GhostCollection>();
-            m_CollectionSingleton = EntityManager.CreateEntity(ComponentType.ReadWrite<GhostCollection>());
-            EntityManager.SetName(m_CollectionSingleton, "Ghost Collection");
-            EntityManager.AddBuffer<GhostCollectionPrefab>(m_CollectionSingleton);
-            EntityManager.AddBuffer<GhostCollectionPrefabSerializer>(m_CollectionSingleton);
-            EntityManager.AddBuffer<GhostCollectionComponentIndex>(m_CollectionSingleton);
-            EntityManager.AddBuffer<GhostCollectionPrefab>(m_CollectionSingleton);
-            EntityManager.AddBuffer<GhostComponentSerializer.State>(m_CollectionSingleton);
-            EntityManager.AddBuffer<GhostCollectionComponentType>(m_CollectionSingleton);
+            using var entityQueryBuilder = new EntityQueryBuilder(Allocator.Temp).WithAll<GhostPrefabMetaDataComponent, Prefab, GhostPrefabRuntimeStrip>();
+            m_RuntimeStripQuery = state.GetEntityQuery(entityQueryBuilder);
 
-            #if UNITY_EDITOR || DEVELOPMENT_BUILD
-            m_PredictionErrorNames = new NativeList<FixedString512Bytes>(16, Allocator.Persistent);
-            m_GhostNames = new NativeList<FixedString128Bytes>(16, Allocator.Persistent);
-            #endif
+            state.RequireForUpdate<GhostCollection>();
+            m_CollectionSingleton = state.EntityManager.CreateSingleton<GhostCollection>("Ghost Collection");
+            state.EntityManager.AddBuffer<GhostCollectionPrefabSerializer>(m_CollectionSingleton);
+            state.EntityManager.AddBuffer<GhostCollectionComponentIndex>(m_CollectionSingleton);
+            state.EntityManager.AddBuffer<GhostCollectionPrefab>(m_CollectionSingleton);
+            state.EntityManager.AddBuffer<GhostComponentSerializer.State>(m_CollectionSingleton);
+            state.EntityManager.AddBuffer<GhostCollectionComponentType>(m_CollectionSingleton);
 
-            m_InGameQuery = EntityManager.CreateEntityQuery(ComponentType.ReadOnly<NetworkStreamInGame>());
-            m_AllConnectionsQuery = EntityManager.CreateEntityQuery(ComponentType.ReadOnly<NetworkIdComponent>(),
-                ComponentType.Exclude<NetworkStreamDisconnected>());
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+            m_PredictionErrorNames = new NativeList<PredictionErrorNames>(16, Allocator.Persistent);
+            m_GhostNames = new NativeList<FixedString64Bytes>(16, Allocator.Persistent);
+            m_PendingNameAssignments = new NativeList<PendingNameAssignment>(256, Allocator.Persistent);
+            m_PredictionErrorNamesStartEndCache = new UnsafeList<(short, short)>(256, Allocator.Persistent);
+#endif
 
-            m_NetDebugSystem = World.GetOrCreateSystem<NetDebugSystem>();
-            m_GhostComponentSerializerCollectionSystemGroup = World.GetExistingSystem<GhostComponentSerializerCollectionSystemGroup>();
-            m_IsServer = World.GetExistingSystem<ServerSimulationSystemGroup>() != null;
+            entityQueryBuilder.Reset();
+            entityQueryBuilder.WithAll<NetworkStreamInGame>();
+            m_InGameQuery = state.EntityManager.CreateEntityQuery(entityQueryBuilder);
+            entityQueryBuilder.Reset();
+            entityQueryBuilder.WithAll<NetworkIdComponent>();
+            m_AllConnectionsQuery = state.EntityManager.CreateEntityQuery(entityQueryBuilder);
+            entityQueryBuilder.Reset();
+            entityQueryBuilder.WithAll<Prefab, GhostTypeComponent>().WithNone<GhostPrefabRuntimeStrip, PredictedGhostSpawnRequestComponent>();
+            m_RegisterGhostTypesQuery = state.EntityManager.CreateEntityQuery(entityQueryBuilder);
+
+            if (!SystemAPI.TryGetSingletonEntity<CodeGhostPrefab>(out m_CodePrefabSingleton))
+                m_CodePrefabSingleton = state.EntityManager.CreateSingletonBuffer<CodeGhostPrefab>();
         }
-        protected override void OnDestroy()
+
+        [BurstCompile]
+        public void OnDestroy(ref SystemState state)
         {
+            var codePrefabs = state.EntityManager.GetBuffer<CodeGhostPrefab>(m_CodePrefabSingleton);
+            for (var i = 0; i < codePrefabs.Length; ++i)
+            {
+                codePrefabs[i].blob.Dispose();
+            }
+            state.EntityManager.DestroyEntity(m_CodePrefabSingleton);
+            if (m_AllComponentTypes.IsCreated)
+                m_AllComponentTypes.Dispose();
+            if (m_StableHashToComponentTypeIndex.IsCreated)
+                m_StableHashToComponentTypeIndex.Dispose();
             m_InGameQuery.Dispose();
             m_AllConnectionsQuery.Dispose();
-            EntityManager.DestroyEntity(m_CollectionSingleton);
-            #if UNITY_EDITOR || DEVELOPMENT_BUILD
+            state.EntityManager.DestroyEntity(m_CollectionSingleton);
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
             m_PredictionErrorNames.Dispose();
             m_GhostNames.Dispose();
-            #endif
+            m_PendingNameAssignments.Dispose();
+            m_PredictionErrorNamesStartEndCache.Dispose();
+#endif
         }
-        protected override void OnUpdate()
+
+        struct AddComponentCtx
         {
-            if (!m_ComponentCollectionInitialized)
+            public DynamicBuffer<GhostComponentSerializer.State> ghostSerializerCollection;
+            public DynamicBuffer<GhostCollectionPrefabSerializer> ghostPrefabSerializerCollection;
+            public DynamicBuffer<GhostCollectionComponentType> ghostComponentCollection;
+            public DynamicBuffer<GhostCollectionComponentIndex> ghostComponentIndex;
+            public DynamicBuffer<GhostCollectionPrefab> ghostPrefabCollection;
+            public int ghostChildIndex;
+            public int childOffset;
+            public FixedString64Bytes ghostName;
+            public NetDebug netDebug;
+        }
+
+        [BurstCompile]
+        public void OnUpdate(ref SystemState state)
+        {
+            var netDebug = SystemAPI.GetSingleton<NetDebug>();
+
+            if (m_ComponentCollectionInitialized == 0)
             {
-                CreateComponentCollection();
+                CreateComponentCollection(ref state);
             }
-            RuntimeStripPrefabs();
+            RuntimeStripPrefabs(ref state, in netDebug);
 
             // if not in game clear the ghost collections
             if (m_InGameQuery.IsEmptyIgnoreFilter)
             {
-                EntityManager.GetBuffer<GhostCollectionPrefab>(m_CollectionSingleton).Clear();
-                EntityManager.GetBuffer<GhostCollectionPrefabSerializer>(m_CollectionSingleton).Clear();
-                EntityManager.GetBuffer<GhostCollectionComponentIndex>(m_CollectionSingleton).Clear();
+                state.EntityManager.GetBuffer<GhostCollectionPrefab>(m_CollectionSingleton).Clear();
+                state.EntityManager.GetBuffer<GhostCollectionPrefabSerializer>(m_CollectionSingleton).Clear();
+                state.EntityManager.GetBuffer<GhostCollectionComponentIndex>(m_CollectionSingleton).Clear();
+                state.EntityManager.GetBuffer<GhostCollectionComponentType>(m_CollectionSingleton).Clear();
+                for (int i = 0; i < m_AllComponentTypes.Length; ++i)
+                {
+                    var ctype = m_AllComponentTypes[i];
+                    ctype.UsedIndex = -1;
+                    m_AllComponentTypes[i] = ctype;
+                }
 
-                #if UNITY_EDITOR || DEVELOPMENT_BUILD
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+                m_PendingNameAssignments.Clear();
                 m_PredictionErrorNames.Clear();
                 m_GhostNames.Clear();
+                m_currentPredictionErrorNamesCount = 0;
+                m_currentPredictionErrorCount = 0;
                 if (m_PrevPredictionErrorNamesCount > 0 || m_PrevGhostNamesCount > 0)
                 {
-                    World.GetExistingSystem<GhostStatsCollectionSystem>().SetGhostNames(m_GhostNames, m_PredictionErrorNames);
+                    SystemAPI.GetSingletonRW<GhostStatsCollectionData>().ValueRW.SetGhostNames(state.WorldUnmanaged.Name, m_GhostNames, m_PredictionErrorNames);
+                    if (SystemAPI.TryGetSingletonBuffer<GhostNames>(out var ghosts))
+                        UpdateGhostNames(ghosts, m_GhostNames);
+                    if (SystemAPI.TryGetSingletonBuffer<PredictionErrorNames>(out var predictionErrors))
+                        UpdatePredictionErrorNames(predictionErrors, m_PredictionErrorNames);
                     m_PrevPredictionErrorNamesCount = 0;
                     m_PrevGhostNamesCount = 0;
                 }
-                #endif
-                SetSingleton(default(GhostCollection));
+#endif
+                SystemAPI.SetSingleton(default(GhostCollection));
                 return;
             }
 
             // TODO: Using run on these is only required because the prefab processing cannot run in a job yet
-            var ghostCollectionFromEntity = GetBufferFromEntity<GhostCollectionPrefab>();
+            var ghostCollectionFromEntity = SystemAPI.GetBufferLookup<GhostCollectionPrefab>();
             var collectionSingleton = m_CollectionSingleton;
 
             {
@@ -189,7 +277,7 @@ namespace Unity.NetCode
                 for (int i = 0; i < ghostCollectionList.Length; ++i)
                 {
                     var ghost = ghostCollectionList[i];
-                    if (!EntityManager.Exists(ghost.GhostPrefab))
+                    if (!state.EntityManager.Exists(ghost.GhostPrefab))
                     {
                         ghost.GhostPrefab = Entity.Null;
                         ghostCollectionList[i] = ghost;
@@ -197,54 +285,76 @@ namespace Unity.NetCode
                 }
             }
 
+#if NETCODE_DEBUG
+            var codePrefabs = state.EntityManager.GetBuffer<CodeGhostPrefab>(m_CodePrefabSingleton);
+            var ghostTypeFromEntity = SystemAPI.GetComponentLookup<GhostTypeComponent>(true);
+#endif
             // Update the list of available prefabs
-            if (m_IsServer)
+            if (!m_RegisterGhostTypesQuery.IsEmptyIgnoreFilter)
             {
-                // The server adds all ghost prefabs to the ghost collection if they are not already there
-                Entities.WithNone<GhostPrefabRuntimeStrip>().WithAll<Prefab>().ForEach((Entity ent, in GhostTypeComponent ghostType) =>
+                using var ghostEntities = m_RegisterGhostTypesQuery.ToEntityArray(Allocator.Temp);
+                using var ghostTypes = m_RegisterGhostTypesQuery.ToComponentDataArray<GhostTypeComponent>(Allocator.Temp);
+                var ghostCollectionList = ghostCollectionFromEntity[collectionSingleton];
+
+                if (state.WorldUnmanaged.IsServer())
                 {
-                    var ghostCollectionList = ghostCollectionFromEntity[collectionSingleton];
-                    for (int i = 0; i < ghostCollectionList.Length; ++i)
+                    // The server adds all ghost prefabs to the ghost collection if they are not already there
+                    for (int i = 0; i < ghostEntities.Length; i++)
                     {
-                        var ghost = ghostCollectionList[i];
-                        if (ghost.GhostType == ghostType)
+                        var ent = ghostEntities[i];
+                        var ghostType = ghostTypes[i];
+
+                        TrySetupInsideCollection(ghostCollectionList, ghostType, ent, out var isInCollection);
+                        if (!isInCollection)
                         {
-                            if (ghost.GhostPrefab == Entity.Null)
+                            // The #if is there because the variables passed to the conditional method are protected by an #if
+#if NETCODE_DEBUG
+                            ValidatePrefabGUID(ent, ghostType, codePrefabs, ghostTypeFromEntity);
+#endif
+                            ghostCollectionList.Add(new GhostCollectionPrefab {GhostType = ghostType, GhostPrefab = ent});
+                        }
+                    }
+                }
+                else
+                {
+                    // The client scans for Entity.Null and sets up the correct prefab
+                    for (int i = 0; i < ghostEntities.Length; i++)
+                    {
+                        var ent = ghostEntities[i];
+                        var ghostType = ghostTypes[i];
+                        for (int j = 0; j < ghostCollectionList.Length; ++j)
+                        {
+                            var ghost = ghostCollectionList[j];
+                            if (ghost.GhostPrefab == Entity.Null && ghost.GhostType == ghostType)
                             {
+#if NETCODE_DEBUG
+                                ValidatePrefabGUID(ent, ghostType, codePrefabs, ghostTypeFromEntity);
+#endif
                                 ghost.GhostPrefab = ent;
-                                ghostCollectionList[i] = ghost;
+                                ghostCollectionList[j] = ghost;
                             }
-                            return;
                         }
                     }
-                    ghostCollectionList.Add(new GhostCollectionPrefab{GhostType = ghostType, GhostPrefab = ent});
-                }).Run();
-            }
-            else
-            {
-                // The client scans for Entity.Null and sets up the correct prefab
-                Entities.WithNone<GhostPrefabRuntimeStrip>().WithAll<Prefab>().ForEach((Entity ent, in GhostTypeComponent ghostType) =>
-                {
-                    var ghostCollectionList = ghostCollectionFromEntity[collectionSingleton];
-                    for (int i = 0; i < ghostCollectionList.Length; ++i)
-                    {
-                        var ghost = ghostCollectionList[i];
-                        if (ghost.GhostPrefab == Entity.Null && ghost.GhostType == ghostType)
-                        {
-                            ghost.GhostPrefab = ent;
-                            ghostCollectionList[i] = ghost;
-                        }
-                    }
-                }).Run();
+                }
             }
 
-            var ghostCollection = EntityManager.GetBuffer<GhostCollectionPrefab>(m_CollectionSingleton);
-            var ghostSerializerCollection = EntityManager.GetBuffer<GhostCollectionPrefabSerializer>(m_CollectionSingleton);
+            var prefabSerializerCollection = state.EntityManager.GetBuffer<GhostCollectionPrefabSerializer>(m_CollectionSingleton);
 
-            // This must be done on the main thread for now
-            for (int i = ghostSerializerCollection.Length; i < ghostCollection.Length; ++i)
+            var ctx = new AddComponentCtx
             {
-                var ghost = ghostCollection[i];
+                ghostPrefabCollection = state.EntityManager.GetBuffer<GhostCollectionPrefab>(m_CollectionSingleton),
+                ghostSerializerCollection = state.EntityManager.GetBuffer<GhostComponentSerializer.State>(m_CollectionSingleton),
+                ghostPrefabSerializerCollection = prefabSerializerCollection,
+                ghostComponentCollection = state.EntityManager.GetBuffer<GhostCollectionComponentType>(m_CollectionSingleton),
+                ghostComponentIndex = state.EntityManager.GetBuffer<GhostCollectionComponentIndex>(m_CollectionSingleton),
+                netDebug = netDebug,
+            };
+
+            var data = SystemAPI.GetSingletonRW<GhostComponentSerializerCollectionData>().ValueRW;
+
+            for (int i = ctx.ghostPrefabSerializerCollection.Length; i < ctx.ghostPrefabCollection.Length; ++i)
+            {
+                var ghost = ctx.ghostPrefabCollection[i];
                 // Load each ghost in this set and add it to m_GhostTypeCollection
                 // If the prefab is not loaded yet, do not process any more ghosts
 
@@ -252,80 +362,141 @@ namespace Unity.NetCode
                 if (ghost.GhostPrefab == Entity.Null && ghost.Loading == GhostCollectionPrefab.LoadingState.LoadingActive)
                 {
                     ghost.Loading = GhostCollectionPrefab.LoadingState.LoadingNotActive;
-                    ghostCollection[i] = ghost;
+                    ctx.ghostPrefabCollection[i] = ghost;
                     break;
                 }
                 ulong hash = 0;
                 if (ghost.GhostPrefab != Entity.Null)
                 {
                     // This can be setup - do so
-                    ProcessGhostPrefab(ghostSerializerCollection, ghost.GhostPrefab);
-                    hash = HashGhostType(ghostSerializerCollection[i]);
+                    ProcessGhostPrefab(ref state, ref data, ref ctx, ghost.GhostPrefab);
+                    hash = HashGhostType(ctx.ghostPrefabSerializerCollection[i], in netDebug);
                 }
                 if ((ghost.Hash != 0 && ghost.Hash != hash) || hash == 0)
                 {
                     if (hash == 0)
-                        m_NetDebugSystem.NetDebug.LogError($"The ghost collection contains a ghost which does not have a valid prefab on the client");
+                        netDebug.LogError($"The ghost collection contains a ghost which does not have a valid prefab on the client");
                     else
                     {
-                        ref var ghostMetaData = ref EntityManager.GetComponentData<GhostPrefabMetaDataComponent>(ghost.GhostPrefab).Value.Value;
-                        m_NetDebugSystem.NetDebug.LogError($"Received a ghost - {ghostMetaData.Name.ToString()} - from the server which has a different hash on the client (got {ghost.Hash} but expected {hash})");
+                        netDebug.LogError($"Received a ghost - {ctx.ghostName} - from the server which has a different hash on the client (got {ghost.Hash} but expected {hash}).");
                     }
                     // This cannot be jobified because the query is created to avoid a dependency on these entities
                     var connections = m_AllConnectionsQuery.ToEntityArray(Allocator.Temp);
                     for (int con = 0; con < connections.Length; ++con)
-                        EntityManager.AddComponentData(connections[con], new NetworkStreamRequestDisconnect{Reason = NetworkStreamDisconnectReason.BadProtocolVersion});
-                    ghostCollection = EntityManager.GetBuffer<GhostCollectionPrefab>(m_CollectionSingleton);
-                    ghostSerializerCollection = EntityManager.GetBuffer<GhostCollectionPrefabSerializer>(m_CollectionSingleton);
+                        state.EntityManager.AddComponentData(connections[con], new NetworkStreamRequestDisconnect{Reason = NetworkStreamDisconnectReason.BadProtocolVersion});
+                    ctx.ghostPrefabCollection = state.EntityManager.GetBuffer<GhostCollectionPrefab>(m_CollectionSingleton);
+                    ctx.ghostPrefabSerializerCollection = state.EntityManager.GetBuffer<GhostCollectionPrefabSerializer>(m_CollectionSingleton);
                     //contnue and log all the errors
                     continue;
                 }
                 ghost.Hash = hash;
-                ghostCollection[i] = ghost;
+#if ENABLE_UNITY_COLLECTIONS_CHECKS
+                if (state.EntityManager.HasComponent<SharedGhostTypeComponent>(ghost.GhostPrefab) &&
+                    state.EntityManager.GetSharedComponent<SharedGhostTypeComponent>(ghost.GhostPrefab).SharedValue == default)
+                {
+                    netDebug.LogError($"ghost {ctx.ghostName} has an invalid SharedGhostTypeComponent value.");
+                }
+#endif
+                ctx.ghostPrefabCollection[i] = ghost;
             }
-            #if UNITY_EDITOR || DEVELOPMENT_BUILD
-            if (m_PrevPredictionErrorNamesCount < m_PredictionErrorNames.Length || m_PrevGhostNamesCount < m_GhostNames.Length)
+
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+            if (m_PrevPredictionErrorNamesCount < m_currentPredictionErrorNamesCount || m_PrevGhostNamesCount < m_GhostNames.Length)
             {
-                World.GetExistingSystem<GhostStatsCollectionSystem>().SetGhostNames(m_GhostNames, m_PredictionErrorNames);
+                ProcessPendingNameAssignments(ctx.ghostSerializerCollection);
+                SystemAPI.GetSingletonRW<GhostStatsCollectionData>().ValueRW.SetGhostNames(state.WorldUnmanaged.Name, m_GhostNames, m_PredictionErrorNames);
+                if (SystemAPI.TryGetSingletonBuffer<GhostNames>(out var ghosts))
+                    UpdateGhostNames(ghosts, m_GhostNames);
+                if (SystemAPI.TryGetSingletonBuffer<PredictionErrorNames>(out var predictionErrors))
+                    UpdatePredictionErrorNames(predictionErrors, m_PredictionErrorNames);
+#if ENABLE_UNITY_COLLECTIONS_CHECKS
+                Assertions.Assert.AreEqual(m_PredictionErrorNames.Length, m_currentPredictionErrorNamesCount);
+#endif
                 m_PrevPredictionErrorNamesCount = m_PredictionErrorNames.Length;
                 m_PrevGhostNamesCount = m_GhostNames.Length;
             }
-            #endif
-            #if UNITY_EDITOR || DEVELOPMENT_BUILD
-            SetSingleton(new GhostCollection
+#endif
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+            SystemAPI.SetSingleton(new GhostCollection
             {
-                NumLoadedPrefabs = ghostSerializerCollection.Length,
-                NumPredictionErrorNames = m_PredictionErrorNames.Length,
+                NumLoadedPrefabs = ctx.ghostPrefabSerializerCollection.Length,
+                NumPredictionErrors = m_currentPredictionErrorCount,
                 IsInGame = true
             });
-            #else
-            SetSingleton(new GhostCollection
+#else
+            SystemAPI.SetSingleton(new GhostCollection
             {
-                NumLoadedPrefabs = ghostSerializerCollection.Length,
+                NumLoadedPrefabs = ctx.ghostPrefabSerializerCollection.Length,
                 IsInGame = true
             });
-            #endif
+#endif
         }
-        private void ProcessGhostPrefab(DynamicBuffer<GhostCollectionPrefabSerializer> ghostSerializerCollection, Entity prefabEntity)
+
+        static void TrySetupInsideCollection(DynamicBuffer<GhostCollectionPrefab> ghostCollectionList, GhostTypeComponent ghostType, Entity ent, out bool found)
         {
-            ref var ghostMetaData = ref EntityManager.GetComponentData<GhostPrefabMetaDataComponent>(prefabEntity).Value.Value;
+            for (int j = 0; j < ghostCollectionList.Length; ++j)
+            {
+                var ghost = ghostCollectionList[j];
+                if (ghost.GhostType == ghostType)
+                {
+                    if (ghost.GhostPrefab == Entity.Null)
+                    {
+                        ghost.GhostPrefab = ent;
+                        ghostCollectionList[j] = ghost;
+                    }
+                    found = true;
+                    return;
+                }
+            }
+            found = false;
+        }
+
+#if NETCODE_DEBUG
+        private static void ValidatePrefabGUID(Entity ent, in GhostTypeComponent ghostType, DynamicBuffer<CodeGhostPrefab> codePrefabs, ComponentLookup<GhostTypeComponent> ghostTypeFromEntity)
+        {
+            // Check for collisions with code prefabs
+            for (int codePrefabIdx = 0; codePrefabIdx < codePrefabs.Length; ++codePrefabIdx)
+            {
+                if (ent != codePrefabs[codePrefabIdx].entity && ghostTypeFromEntity[codePrefabs[codePrefabIdx].entity] == ghostType)
+                {
+                    var ghostNameFs = new FixedString64Bytes();
+                    ref var blobString = ref codePrefabs[codePrefabIdx].blob.Value.Name;
+                    blobString.CopyTo(ref ghostNameFs);
+                    throw new InvalidOperationException($"Duplicate ghost prefab found at codePrefabIdx {codePrefabIdx} ('{ghostNameFs}'). All ghost prefabs must have a unique name (and thus GhostTypeComponent hash).");
+                }
+            }
+        }
+#endif
+
+        private void ProcessGhostPrefab(ref SystemState state, ref GhostComponentSerializerCollectionData data, ref AddComponentCtx ctx, Entity prefabEntity)
+        {
+            var ghostPrefabMetaDataComponent = state.EntityManager.GetComponentData<GhostPrefabMetaDataComponent>(prefabEntity);
+            ref var ghostMetaData = ref ghostPrefabMetaDataComponent.Value.Value;
             ref var componentInfoLen = ref ghostMetaData.NumServerComponentsPerEntity;
-            var ghostName = ghostMetaData.Name.ToString();
+            var nameCopyError = ghostMetaData.Name.CopyTo(ref ctx.ghostName);
+            if (nameCopyError != ConversionError.None)
+            {
+                ctx.netDebug.LogWarning($"Copy error '{(int) nameCopyError}' when attempting to save ghostName `{ctx.ghostName}` into FixedString!");
+            }
+
             //Compute the total number of components that include also all entities children.
             //The blob array contains for each entity child a list of component hashes
-            var hasLinkedGroup = EntityManager.HasComponent<LinkedEntityGroup>(prefabEntity);
+            var hasLinkedGroup = state.EntityManager.HasComponent<LinkedEntityGroup>(prefabEntity);
 #if ENABLE_UNITY_COLLECTIONS_CHECKS
             if (ghostMetaData.SupportedModes != GhostPrefabMetaData.GhostMode.Both && ghostMetaData.SupportedModes != ghostMetaData.DefaultMode)
-                throw new InvalidOperationException($"The ghost {ghostName} has a default mode which is not supported");
+            {
+                ctx.netDebug.LogError($"The ghost {ctx.ghostName} has a default mode which is not supported");
+                return;
+            }
 #endif
             var fallbackPredictionMode = GhostSpawnBuffer.Type.Interpolated;
             if (ghostMetaData.DefaultMode == GhostPrefabMetaData.GhostMode.Predicted)
                 fallbackPredictionMode = GhostSpawnBuffer.Type.Predicted;
-            var ghostComponentIndex = EntityManager.GetBuffer<GhostCollectionComponentIndex>(GetSingletonEntity<GhostCollection>());
+
             var ghostType = new GhostCollectionPrefabSerializer
             {
-                TypeHash = TypeHash.FNV1A64(ghostName),
-                FirstComponent = ghostComponentIndex.Length,
+                TypeHash = TypeHash.FNV1A64(ctx.ghostName),
+                FirstComponent = ctx.ghostComponentIndex.Length,
                 NumComponents = 0,
                 NumChildComponents = 0,
                 SnapshotSize = 0,
@@ -335,35 +506,49 @@ namespace Unity.NetCode
                 PartialComponents = 0,
                 BaseImportance = ghostMetaData.Importance,
                 FallbackPredictionMode = fallbackPredictionMode,
-                IsGhostGroup = EntityManager.HasComponent<GhostGroup>(prefabEntity) ? 1 : 0,
+                IsGhostGroup = state.EntityManager.HasComponent<GhostGroup>(prefabEntity) ? 1 : 0,
                 StaticOptimization = ghostMetaData.StaticOptimization,
                 NumBuffers = 0,
                 MaxBufferSnapshotSize = 0,
-                profilerMarker = new Unity.Profiling.ProfilerMarker(ghostName)
+                // Burst hack: Convert the FS into an unmanaged string (via an interpolated string) so it can be passed into ProfilerMarker (which has an explicit constructor override supporting unmanaged strings).
+                profilerMarker = new ProfilerMarker($"{ctx.ghostName}"),
             };
-            int childOffset = 0;
 
+
+            ctx.childOffset = 0;
+            ctx.ghostChildIndex = 0;
             // Map the component types to things in the collection and create lists of function pointers
-            AddComponents(ref ghostMetaData, 0, childOffset, ref ghostType, ghostName);
+            AddComponents(ref ctx, ref data, ref ghostMetaData, ref ghostType);
+
 #if ENABLE_UNITY_COLLECTIONS_CHECKS
-            if (componentInfoLen.Length  > 1 && !hasLinkedGroup)
-                throw new InvalidOperationException($"The ghost {ghostName} expect {componentInfoLen.Length} child entities byt no LinkedEntityGroup is present");
+            if (componentInfoLen.Length > 1 && !hasLinkedGroup)
+            {
+                ctx.netDebug.LogError($"The ghost {ctx.ghostName} expect {componentInfoLen.Length} child entities byt no LinkedEntityGroup is present");
+                return;
+            }
 #endif
             if (hasLinkedGroup)
             {
-                var linkedEntityGroup = EntityManager.GetBuffer<LinkedEntityGroup>(prefabEntity);
+                var linkedEntityGroup = state.EntityManager.GetBuffer<LinkedEntityGroup>(prefabEntity);
 #if ENABLE_UNITY_COLLECTIONS_CHECKS
-                if (componentInfoLen.Length  != linkedEntityGroup.Length)
-                    throw new InvalidOperationException($"The ghost {ghostName} expect {componentInfoLen.Length} child entities but {linkedEntityGroup.Length} are present.");
+                if (componentInfoLen.Length != linkedEntityGroup.Length)
+                {
+                    ctx.netDebug.LogError($"The ghost {ctx.ghostName} expect {componentInfoLen.Length} child entities but {linkedEntityGroup.Length} are present.");
+                    return;
+                }
 #endif
                 for (var entityIndex = 1; entityIndex < linkedEntityGroup.Length; ++entityIndex)
                 {
-                    childOffset += componentInfoLen[entityIndex-1];
+                    ctx.childOffset += componentInfoLen[entityIndex-1];
+                    ctx.ghostChildIndex = entityIndex;
 #if ENABLE_UNITY_COLLECTIONS_CHECKS
-                    if (!EntityManager.HasComponent<GhostChildEntityComponent>(linkedEntityGroup[entityIndex].Value))
-                        throw new InvalidOperationException($"The ghost {ghostName} has a child entity without the GhostChildEntityComponent");
+                    if (!state.EntityManager.HasComponent<GhostChildEntityComponent>(linkedEntityGroup[entityIndex].Value))
+                    {
+                        ctx.netDebug.LogError($"The ghost {ctx.ghostName} has a child entity without the GhostChildEntityComponent");
+                        return;
+                    }
 #endif
-                    AddComponents(ref ghostMetaData, entityIndex, childOffset, ref ghostType, ghostName);
+                    AddComponents(ref ctx, ref data, ref ghostMetaData, ref ghostType);
                 }
             }
             if (ghostType.PredictionOwnerOffset < 0)
@@ -372,195 +557,187 @@ namespace Unity.NetCode
 #if ENABLE_UNITY_COLLECTIONS_CHECKS
                 if (ghostType.OwnerPredicted != 0)
                 {
-                    throw new InvalidOperationException(
-                        $"The ghost {ghostName} is owner predicted, but the ghost owner component could not be found");
+                    ctx.netDebug.LogError($"The ghost {ctx.ghostName} is owner predicted, but the ghost owner component could not be found.");
+                    return;
                 }
                 if(ghostType.PartialSendToOwner != 0)
-                    m_NetDebugSystem.NetDebug.DebugLog($"Ghost {ghostName} has some components that have SendToOwner != All but not GhostOwnerComponent is present.\nThe flag will be ignored at runtime");
+                    ctx.netDebug.DebugLog($"Ghost {ctx.ghostName} has some components that have SendToOwner != All but not GhostOwnerComponent is present.\nThe flag will be ignored at runtime");
 #endif
             }
             else
             {
-                ghostType.PredictionOwnerOffset += SnapshotSizeAligned(4 + ChangeMaskArraySizeInUInts(ghostType.ChangeMaskBits)*4);
+                ghostType.PredictionOwnerOffset += GhostComponentSerializer.SnapshotSizeAligned(sizeof(uint) + GhostComponentSerializer.ChangeMaskArraySizeInUInts(ghostType.ChangeMaskBits)*sizeof(uint) + GhostComponentSerializer.ChangeMaskArraySizeInUInts(ghostType.EnableableBits)*sizeof(uint));
             }
             // Reserve space for tick and change mask in the snapshot
-            ghostType.SnapshotSize += SnapshotSizeAligned(4 + ChangeMaskArraySizeInUInts(ghostType.ChangeMaskBits)*4);
-            ghostSerializerCollection.Add(ghostType);
-            #if UNITY_EDITOR || DEVELOPMENT_BUILD
-            m_GhostNames.Add(ghostName);
-            #endif
+
+            var enabledBitsInBytes = GhostComponentSerializer.ChangeMaskArraySizeInUInts(ghostType.EnableableBits) * sizeof(uint);
+            var changeMaskBitsInBytes = GhostComponentSerializer.ChangeMaskArraySizeInUInts(ghostType.ChangeMaskBits) * sizeof(uint);
+            ghostType.SnapshotSize += GhostComponentSerializer.SnapshotSizeAligned(sizeof(uint) + changeMaskBitsInBytes + enabledBitsInBytes);
+
+            ctx.ghostPrefabSerializerCollection.Add(ghostType);
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+            m_GhostNames.Add(ctx.ghostName);
+#endif
         }
-        private void RuntimeStripPrefabs()
+
+        /// <summary>Perform runtime stripping of all prefabs which need it.</summary>
+        /// <param name="state"></param>
+        /// <exception cref="InvalidOperationException"></exception>
+        private void RuntimeStripPrefabs(ref SystemState state, in NetDebug netDebug)
         {
             if (m_RuntimeStripQuery.IsEmptyIgnoreFilter)
                 return;
-            bool isServer = m_IsServer;
 
-            // Perform runtime stripping of all prefabs which need it
-            Entities
-                .WithStoreEntityQueryInField(ref m_RuntimeStripQuery)
-                .WithStructuralChanges()
-                .WithoutBurst()
-                .WithAll<GhostPrefabRuntimeStrip>()
-                .WithAll<Prefab>()
-                .ForEach((Entity prefabEntity, in GhostPrefabMetaDataComponent metaData) =>
+            bool isServer = state.WorldUnmanaged.IsServer();
+            using var prefabEntities = m_RuntimeStripQuery.ToEntityArray(Allocator.Temp);
+            using var metaDatas = m_RuntimeStripQuery.ToComponentDataArray<GhostPrefabMetaDataComponent>(Allocator.Temp);
+            for (int i = 0; i < prefabEntities.Length; i++)
             {
-                ref var ghostMetaData = ref metaData.Value.Value;
+                var prefabEntity = prefabEntities[i];
+                ref var ghostMetaData = ref metaDatas[i].Value.Value;
+
                 // Delete everything from toBeDeleted from the prefab
-                if (isServer)
+                ref var removeOnWorld = ref GetRemoveOnWorldList(ref ghostMetaData);
+                if (removeOnWorld.Length > 0)
                 {
-                    var entities = default(NativeArray<LinkedEntityGroup>);
                     //Need to make a copy since we are making structural changes (removing components). The entity values
                     //remains the same but the chunks (and so the memory) they pertains does not.
-                    if(ghostMetaData.RemoveOnServer.Length > 0)
-                        entities = EntityManager.GetBuffer<LinkedEntityGroup>(prefabEntity).ToNativeArray(Allocator.Temp);
-                    for (int rm = 0; rm < ghostMetaData.RemoveOnServer.Length; ++rm)
+                    var entities = state.EntityManager.GetBuffer<LinkedEntityGroup>(prefabEntity).ToNativeArray(Allocator.Temp);
+                    for (int rm = 0; rm < removeOnWorld.Length; ++rm)
                     {
-                        var indexHashPair = ghostMetaData.RemoveOnServer[rm];
+                        var indexHashPair = removeOnWorld[rm];
                         var compType = ComponentType.ReadWrite(TypeManager.GetTypeIndexFromStableTypeHash(indexHashPair.StableHash));
 #if ENABLE_UNITY_COLLECTIONS_CHECKS
                         if (indexHashPair.EntityIndex >= entities.Length)
-                            throw new InvalidOperationException($"Cannot remove server component from child entity {indexHashPair.EntityIndex} for ghost {ghostMetaData.Name.ToString()}. Child index out of bound");
+                        {
+                            ref var ghostName = ref ghostMetaData.Name;
+                            var ghostNameFs = new FixedString64Bytes();
+                            ghostName.CopyTo(ref ghostNameFs);
+                            netDebug.LogError($"Cannot remove component from child entity {indexHashPair.EntityIndex} for ghost {ghostNameFs}. Child index out of bound");
+                            return;
+                        }
 #endif
                         var ent = entities[indexHashPair.EntityIndex].Value;
-                        if (EntityManager.HasComponent(ent, compType))
-                            EntityManager.RemoveComponent(ent, compType);
+                        if (state.EntityManager.HasComponent(ent, compType))
+                            state.EntityManager.RemoveComponent(ent, compType);
                     }
                 }
-                else
-                {
-                    var entities = default(NativeArray<LinkedEntityGroup>);
-                    //Need to make a copy since we are making structural changes (removing components). The entity values
-                    //remains the same but the chunks (and so the memory) they pertains does not.
-                    if(ghostMetaData.RemoveOnClient.Length > 0)
-                        entities = EntityManager.GetBuffer<LinkedEntityGroup>(prefabEntity).ToNativeArray(Allocator.Temp);
-                    for (int rm = 0; rm < ghostMetaData.RemoveOnClient.Length; ++rm)
-                    {
-                        var indexHashPair = ghostMetaData.RemoveOnClient[rm];
-                        var compType = ComponentType.ReadWrite(TypeManager.GetTypeIndexFromStableTypeHash(indexHashPair.StableHash));
-#if ENABLE_UNITY_COLLECTIONS_CHECKS
-                        if(indexHashPair.EntityIndex >= entities.Length)
-                            throw new InvalidOperationException($"Cannot remove client component from child entity {indexHashPair.EntityIndex} for ghost {ghostMetaData.Name.ToString()}. Child index out of bound");
-#endif
-                        var ent = entities[indexHashPair.EntityIndex].Value;
-                        if (EntityManager.HasComponent(ent, compType))
-                            EntityManager.RemoveComponent(ent, compType);
-                    }
-                }
-                EntityManager.RemoveComponent<GhostPrefabRuntimeStrip>(prefabEntity);
-            }).Run();
+            }
+            state.EntityManager.RemoveComponent<GhostPrefabRuntimeStrip>(m_RuntimeStripQuery);
+
+            ref BlobArray<GhostPrefabMetaData.ComponentReference> GetRemoveOnWorldList(ref GhostPrefabMetaData ghostMetaData)
+            {
+                if (isServer)
+                    return ref ghostMetaData.RemoveOnServer;
+                return ref ghostMetaData.RemoveOnClient;
+            }
         }
-        private void CreateComponentCollection()
+
+        private void CreateComponentCollection(ref SystemState state)
         {
-            var collection = m_GhostComponentSerializerCollectionSystemGroup;
+            var data = SystemAPI.GetSingletonRW<GhostComponentSerializerCollectionData>().ValueRW;
 
-            var collectionSingleton = GetSingletonEntity<GhostCollection>();
-            var ghostSerializerCollection = EntityManager.GetBuffer<GhostComponentSerializer.State>(collectionSingleton);
-            var ghostComponentCollection = EntityManager.GetBuffer<GhostCollectionComponentType>(collectionSingleton);
-            ghostSerializerCollection.ResizeUninitialized(collection.GhostComponentCollection.Count);
-            ghostComponentCollection.Capacity = collection.GhostComponentCollection.Count;
+            var ghostComponentCollectionCount = data.GhostComponentCollection.Count();
+            m_StableHashToComponentTypeIndex = new NativeHashMap<ulong, int>(ghostComponentCollectionCount, Allocator.Persistent);
 
-            //Create the ghost serializer collection and unique list of component types
-            //that also provide an inverse mapping into the ghost serializer list
-            for (int i = 0; i < collection.GhostComponentCollection.Count; ++i)
-                ghostSerializerCollection[i] = collection.GhostComponentCollection[i];
-            ghostSerializerCollection.AsNativeArray().Sort(default(ComponentHashComparer));
+            var tempGhostComponentCollectionArray = data.GhostComponentCollection.GetValueArray(Allocator.Temp);
+            tempGhostComponentCollectionArray.Sort(default(ComponentHashComparer));
 
-            for (int i = 0; i < ghostSerializerCollection.Length;)
+            // Populate the ghost serializer collection buffer with all states.
+            var ghostSerializerCollection = state.EntityManager.GetBuffer<GhostComponentSerializer.State>(m_CollectionSingleton);
+            ghostSerializerCollection.Clear();
+            ghostSerializerCollection.AddRange(tempGhostComponentCollectionArray);
+
+            // Reset & resize the following buffer so that we can write into it later.
+            {
+                var ghostComponentCollection = state.EntityManager.GetBuffer<GhostCollectionComponentType>(m_CollectionSingleton);
+                ghostComponentCollection.Clear();
+                ghostComponentCollection.Capacity = tempGhostComponentCollectionArray.Length;
+            }
+
+            // Create the unique list of component types that provide an inverse mapping into the ghost serializer list.
+            m_AllComponentTypes = new NativeList<UsedComponentType>(tempGhostComponentCollectionArray.Length, Allocator.Persistent);
+            for (int i = 0; i < tempGhostComponentCollectionArray.Length;)
             {
                 int firstSerializer = i;
-                var compType = ghostSerializerCollection[i].ComponentType;
+                var compType = tempGhostComponentCollectionArray[i].ComponentType;
                 do
                 {
                     ++i;
-                } while (i < ghostSerializerCollection.Length && ghostSerializerCollection[i].ComponentType == compType);
-                ghostComponentCollection.Add(new GhostCollectionComponentType
+                } while (i < tempGhostComponentCollectionArray.Length && tempGhostComponentCollectionArray[i].ComponentType == compType);
+                m_AllComponentTypes.Add(new UsedComponentType
                 {
-                    Type = compType,
-                    FirstSerializer = firstSerializer,
-                    LastSerializer = i-1
+                    UsedIndex = -1,
+                    ComponentType = new GhostCollectionComponentType
+                    {
+                        Type = compType,
+                        FirstSerializer = firstSerializer,
+                        LastSerializer = i - 1
+                    }
                 });
+
+                m_StableHashToComponentTypeIndex.Add(TypeManager.GetTypeInfo(compType.TypeIndex).StableTypeHash, m_AllComponentTypes.Length - 1);
             }
-            m_ComponentCollectionInitialized = true;
-            collection.CollectionInitialized = true;
+            //This list does not depend on the number of prefabs but only on the number of serializers avaialble in the project.
+            //The construction time is linear in number of predicted fields, instead of becoming "quadratic" (number of prefabs x number of predicted fields)
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+            PrecomputeComponentErrorNameList(ref ghostSerializerCollection);
+#endif
+            m_ComponentCollectionInitialized = 1;
+            data.CollectionInitialized = 1;
+            tempGhostComponentCollectionArray.Dispose();
         }
 
-        private void AddComponents(ref GhostPrefabMetaData ghostMeta, int ghostChildIndex, int childOffset, ref GhostCollectionPrefabSerializer ghostType, string ghostName)
+        private unsafe void AddComponents(ref AddComponentCtx ctx, ref GhostComponentSerializerCollectionData data, ref GhostPrefabMetaData ghostMeta, ref GhostCollectionPrefabSerializer ghostType)
         {
-            var ghostSerializerCollection = EntityManager.GetBuffer<GhostComponentSerializer.State>(GetSingletonEntity<GhostCollection>());
-            var ghostComponentCollection = EntityManager.GetBuffer<GhostCollectionComponentType>(GetSingletonEntity<GhostCollection>());
-
+            var isRoot = ctx.ghostChildIndex == 0;
+            var allComponentTypes = m_AllComponentTypes;
             ref var serverComponents = ref ghostMeta.ServerComponentList;
-            var componentCount = ghostMeta.NumServerComponentsPerEntity[ghostChildIndex];
-            var ghostComponentIndex = EntityManager.GetBuffer<GhostCollectionComponentIndex>(GetSingletonEntity<GhostCollection>());
+            var componentCount = ghostMeta.NumServerComponentsPerEntity[ctx.ghostChildIndex];
+            var ghostOwnerHash = TypeManager.GetTypeInfo<GhostOwnerComponent>().StableTypeHash;
             for (var i = 0; i < componentCount; ++i)
             {
-                var type = ComponentType.ReadWrite(
-                    TypeManager.GetTypeIndexFromStableTypeHash(serverComponents[childOffset + i].StableHash));
-                if (ghostChildIndex == 0)
+                ref var componentInfo = ref serverComponents[ctx.childOffset + i];
+                if (isRoot && componentInfo.StableHash == ghostOwnerHash)
+                    ghostType.PredictionOwnerOffset = ghostType.SnapshotSize;
+
+                if(!m_StableHashToComponentTypeIndex.TryGetValue(componentInfo.StableHash, out var componentIndex))
+                    continue;
+
+                ref var usedComponent = ref allComponentTypes.ElementAt(componentIndex);
+                var type = usedComponent.ComponentType.Type;
+                var variant = data.GetCurrentVariantTypeForComponentCached(type, componentInfo.Variant, isRoot);
+                // Skip component if client only or don't send variants are selected.
+                // This handles children that shouldn't be serialized too.
+                if (!variant.IsSerialized)
                 {
-                    if (type == ComponentType.ReadWrite<GhostOwnerComponent>())
-                        ghostType.PredictionOwnerOffset = ghostType.SnapshotSize;
+                    continue;
                 }
 
-                int componentIndex = 0;
-                while(componentIndex < ghostComponentCollection.Length &&
-                      ghostComponentCollection[componentIndex].Type.TypeIndex != type.TypeIndex)
-                    ++componentIndex;
-
-                if(componentIndex >= ghostComponentCollection.Length)
-                    continue;
-
-                var componentInfo = serverComponents[childOffset + i];
-
-                var variant = m_GhostComponentSerializerCollectionSystemGroup.GetVariantType(type, componentInfo.Variant);
-                //skip component if client only or don't send variants are selected.
-                if (!variant.IsSerialized)
-                    continue;
-
-                int serializerIndex = ghostComponentCollection[componentIndex].FirstSerializer;
-                while (serializerIndex <= ghostComponentCollection[componentIndex].LastSerializer &&
-                       ghostSerializerCollection[serializerIndex].VariantHash != variant.Hash)
+                //The search is sub-linear, since this is a sort of multi-hashmap (O(1) on average), but the
+                //cache misses (component indices) are random are the dominating factor.
+                int serializerIndex = usedComponent.ComponentType.FirstSerializer;
+                while (serializerIndex <= usedComponent.ComponentType.LastSerializer &&
+                       ctx.ghostSerializerCollection.ElementAt(serializerIndex).VariantHash != variant.Hash)
                     ++serializerIndex;
 
-                //If the component look for the default but no serializer is present with hash = 0 we will grab the first variation in the list
-                //In case multiple variants exists (with hash != 0) and no default has been selected then an error is reported
-                if (variant.Hash == 0 &&
-                    (serializerIndex > ghostComponentCollection[componentIndex].LastSerializer))
+#if ENABLE_UNITY_COLLECTIONS_CHECKS
+                if (serializerIndex > usedComponent.ComponentType.LastSerializer)
                 {
-                    if ((ghostComponentCollection[componentIndex].LastSerializer -
-                         ghostComponentCollection[componentIndex].FirstSerializer) > 0)
-                    {
-                        UnityEngine.Debug.LogError(
-                            $"Conflict for {componentInfo} detected. Impossible to select a serialization for the component type.\n" +
-                            "Multiple GhostComponentVarition are presents but the component does not present ghostfields or a default serialization has not been generated\n" +
-                            "Please assign a default variant to use for the type");
-#if ENABLE_UNITY_COLLECTIONS_CHECKS
-                        throw new InvalidOperationException(
-                            $"Cannot assign a default serialization for component {componentInfo}");
-#endif
-                    }
-
-                    serializerIndex = ghostComponentCollection[componentIndex].FirstSerializer;
+                    FixedString512Bytes errorMsg = $"Cannot find serializer for componentIndex {componentIndex} with componentInfo (with variant: '{componentInfo.Variant}') with '{variant}' type returned, for ghost '";
+                    errorMsg.Append(ctx.ghostName);
+                    errorMsg.Append((FixedString128Bytes)$"'. serializerIndex: {serializerIndex} vs f:{allComponentTypes[componentIndex].ComponentType.FirstSerializer} l:{allComponentTypes[componentIndex].ComponentType.LastSerializer}!");
+                    ctx.netDebug.LogError(errorMsg);
+                    return;
                 }
-
-#if ENABLE_UNITY_COLLECTIONS_CHECKS
-                if (serializerIndex > ghostComponentCollection[componentIndex].LastSerializer)
-                    throw new InvalidOperationException(
-                        $"Cannot find serializer for {componentInfo} with hash {variant.Hash} for ghost {ghostName}");
 #endif
 
                 //Apply prefab overrides if any
-                var compState = ghostSerializerCollection[serializerIndex];
-                var sendToChildEntity = componentInfo.SendToChildEntityOverride >= 0
-                    ? componentInfo.SendToChildEntityOverride
-                    : compState.SendForChildEntities;
+                ref var compState = ref ctx.ghostSerializerCollection.ElementAt(serializerIndex);
                 var sendMask = componentInfo.SendMaskOverride >= 0
                     ? (GhostComponentSerializer.SendMask) componentInfo.SendMaskOverride
                     : compState.SendMask;
 
-                if (ghostChildIndex != 0 && sendToChildEntity == 0)
-                    continue;
                 if (sendMask == 0)
                     continue;
                 var supportedModes = ghostMeta.SupportedModes;
@@ -573,105 +750,170 @@ namespace Unity.NetCode
 
                 // Found something
                 ++ghostType.NumComponents;
-                if (ghostChildIndex != 0)
+                if (!isRoot)
                     ++ghostType.NumChildComponents;
                 if (!type.IsBuffer)
                 {
-                    ghostType.SnapshotSize += SnapshotSizeAligned(compState.SnapshotSize);
+                    ghostType.SnapshotSize += GhostComponentSerializer.SnapshotSizeAligned(compState.SnapshotSize);
                     ghostType.ChangeMaskBits += compState.ChangeMaskBits;
                 }
                 else
                 {
-                    ghostType.SnapshotSize += SnapshotSizeAligned(GhostSystemConstants.DynamicBufferComponentSnapshotSize);
+                    ghostType.SnapshotSize += GhostComponentSerializer.SnapshotSizeAligned(GhostSystemConstants.DynamicBufferComponentSnapshotSize);
                     ghostType.ChangeMaskBits += GhostSystemConstants.DynamicBufferComponentMaskBits; //1bit for the content and 1 bit for the len
                     ghostType.MaxBufferSnapshotSize = math.max(compState.SnapshotSize, ghostType.MaxBufferSnapshotSize);
                     ++ghostType.NumBuffers;
                 }
+                ghostType.EnableableBits += type.IsEnableable ? 1:0;
 
-                ghostComponentIndex.Add(new GhostCollectionComponentIndex
+                // Make sure the component is now in use
+                if (usedComponent.UsedIndex < 0)
                 {
-                    EntityIndex = ghostChildIndex,
-                    ComponentIndex = componentIndex,
+                    usedComponent.UsedIndex = ctx.ghostComponentCollection.Length;
+                    ctx.ghostComponentCollection.Add(usedComponent.ComponentType);
+                }
+                ctx.ghostComponentIndex.Add(new GhostCollectionComponentIndex
+                {
+                    EntityIndex = ctx.ghostChildIndex,
+                    ComponentIndex = usedComponent.UsedIndex,
                     SerializerIndex = serializerIndex,
                     SendMask = sendMask,
-                    SendForChildEntity = sendToChildEntity,
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
-                    PredictionErrorBaseIndex = m_PredictionErrorNames.Length
+                    PredictionErrorBaseIndex = m_currentPredictionErrorCount
 #endif
                 });
                 if (sendMask != (GhostComponentSerializer.SendMask.Interpolated |
-                                 GhostComponentSerializer.SendMask.Predicted))
+                        GhostComponentSerializer.SendMask.Predicted))
                     ghostType.PartialComponents = 1;
 
                 if (compState.SendToOwner != SendToOwnerType.All)
                     ghostType.PartialSendToOwner = 1;
 
-                AppendPredictionErrorNames(ghostName, ghostChildIndex, compState);
-
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+                m_currentPredictionErrorCount += compState.NumPredictionErrors;
+                if (compState.NumPredictionErrorNames > 0)
+                {
+                    m_currentPredictionErrorNamesCount += compState.NumPredictionErrorNames;
+                    m_PendingNameAssignments.Add(new PendingNameAssignment(m_GhostNames.Length, ctx.ghostChildIndex, serializerIndex));
+                }
+#endif
                 var serializationHash =
                     TypeHash.CombineFNV1A64(compState.SerializerHash, TypeHash.FNV1A64((int) sendMask));
-                serializationHash = TypeHash.CombineFNV1A64(serializationHash, TypeHash.FNV1A64(sendToChildEntity));
+                serializationHash = TypeHash.CombineFNV1A64(serializationHash, variant.Hash);
                 ghostType.TypeHash = TypeHash.CombineFNV1A64(ghostType.TypeHash, serializationHash);
             }
         }
 
-        [Conditional("UNITY_EDITOR"), Conditional("DEVELOPMENT_BUILD")]
-        private unsafe void AppendPredictionErrorNames(string ghostName, int ghostChildIndex, in GhostComponentSerializer.State compState)
-        {
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
-            int strStart = 0;
-            int strEnd = 0;
-            int strLen = compState.PredictionErrorNames.Length;
-            FixedString512Bytes errorName = default;
-            while (strStart < strLen)
-            {
-                strEnd = strStart;
-                while (strEnd < strLen && compState.PredictionErrorNames[strEnd] != ',')
-                    ++strEnd;
-                errorName = ghostName;
-                if (ghostChildIndex != 0)
-                {
-                    errorName.Append('[');
-                    errorName.Append(ghostChildIndex);
-                    errorName.Append(']');
-                }
-                errorName.Append('.');
-                errorName.Append(compState.ComponentType.GetDebugTypeName());
-                errorName.Append('.');
-                errorName.Append(compState.PredictionErrorNames.GetUnsafePtr() + strStart, strEnd-strStart);
-                m_PredictionErrorNames.Add(errorName);
-                // Skip the ,
-                strStart = strEnd + 1;
-            }
-#endif
-        }
-
-
         /// <summary>
-        /// Convert a prefab from the prefab collection to a predictive spawn version of the prefab. This will not modify the prefab on the server,
-        /// so it is safe to unconditionally call this method to get a prefab that can be used for predictive spawning in a prediction system.
+        /// Internal structure used to track to which component serialization, ghost, child tuple we need
+        /// to process and append prediction error names.
         /// </summary>
-        public static Entity CreatePredictedSpawnPrefab(EntityManager entityManager, Entity prefab)
+        internal struct PendingNameAssignment
         {
-            if (entityManager.World.GetExistingSystem<ServerSimulationSystemGroup>() != null)
-                return prefab;
-            ref var toRemove = ref entityManager.GetComponentData<GhostPrefabMetaDataComponent>(prefab).Value.Value.DisableOnPredictedClient;
-            prefab = entityManager.Instantiate(prefab);
-            entityManager.AddComponentData(prefab, default(Prefab));
-            entityManager.AddComponentData(prefab, default(PredictedGhostSpawnRequestComponent));
-            // TODO: disable instead of deleting
-            //Need copy because removing component will invalidate the buffer pointer, since introduce structural changes
-            var linkedEntityGroup = entityManager.GetBuffer<LinkedEntityGroup>(prefab).ToNativeArray(Allocator.Temp);
-            for (int child = 1; child < linkedEntityGroup.Length; ++child)
+            public PendingNameAssignment(int nameIndex, int childIndex, int serializer)
             {
-                entityManager.AddComponentData(linkedEntityGroup[child].Value, default(Prefab));
+                ghostName = nameIndex;
+                ghostChildIndex = childIndex;
+                serializerIndex = serializer;
             }
-            for (int rm = 0; rm < toRemove.Length; ++rm)
-            {
-                var compType = ComponentType.ReadWrite(TypeManager.GetTypeIndexFromStableTypeHash(toRemove[rm].StableHash));
-                entityManager.RemoveComponent(linkedEntityGroup[toRemove[rm].EntityIndex].Value, compType);
-            }
-            return prefab;
+            /// <summary>
+            /// The index in the GhostName collection array
+            /// </summary>
+            public int ghostName;
+            /// <summary>
+            /// The child index in the prefab
+            /// </summary>
+            public int ghostChildIndex;
+            /// <summary>
+            /// The index in the ghost component serializer collection
+            /// </summary>
+            public int serializerIndex;
         }
+
+        private void ProcessPendingNameAssignments(DynamicBuffer<GhostComponentSerializer.State> ghostComponentSerializers)
+        {
+            int appendIndex = m_PredictionErrorNames.Length;
+            Assertions.Assert.IsTrue(m_currentPredictionErrorNamesCount > m_PredictionErrorNames.Length);
+            m_PredictionErrorNames.ResizeUninitialized(m_currentPredictionErrorNamesCount);
+            foreach (var nameToAssign in m_PendingNameAssignments)
+            {
+                ref var ghostName = ref m_GhostNames.ElementAt(nameToAssign.ghostName);
+                ref var compState = ref ghostComponentSerializers.ElementAt(nameToAssign.serializerIndex);
+                int ghostChildIndex = nameToAssign.ghostChildIndex;
+                for (int i = 0; i < compState.NumPredictionErrorNames; ++i)
+                {
+                    ref var errorName = ref m_PredictionErrorNames.ElementAt(appendIndex).Name;
+                    var compStartEnd = m_PredictionErrorNamesStartEndCache[compState.FirstNameIndex + i];
+                    errorName = ghostName;
+                    if (ghostChildIndex != 0)
+                    {
+                        errorName.Append('[');
+                        errorName.Append(ghostChildIndex);
+                        errorName.Append(']');
+                    }
+                    errorName.Append('.');
+                    errorName.Append(compState.ComponentType.GetDebugTypeName());
+                    errorName.Append('.');
+                    unsafe
+                    {
+                        errorName.Append(compState.PredictionErrorNames.GetUnsafePtr() + compStartEnd.Item1, compStartEnd.Item2 - compStartEnd.Item1);
+                    }
+                    ++appendIndex;
+                }
+            }
+            m_PendingNameAssignments.Clear();
+        }
+        static private void UpdateGhostNames(DynamicBuffer<GhostNames> ghosts, NativeList<FixedString64Bytes> ghostNames)
+        {
+            ghosts.Clear();
+            ghosts.ResizeUninitialized(ghostNames.Length);
+            unsafe
+            {
+                UnsafeUtility.MemCpy(ghosts.GetUnsafePtr(), ghostNames.GetUnsafeReadOnlyPtr(), sizeof(FixedString64Bytes) * ghostNames.Length);
+            }
+        }
+        static private void UpdatePredictionErrorNames(DynamicBuffer<PredictionErrorNames> predictionErrors, NativeList<PredictionErrorNames> predictionErrorNames)
+        {
+            predictionErrors.Clear();
+            predictionErrors.AddRange(predictionErrorNames);
+        }
+        /// <summary>
+        /// Pre-process the GhostComponentSerializer.State collection and pre-parse the PredictionErrorNames for all the
+        /// serializers.
+        /// </summary>
+        /// <param name="serializers"></param>
+        private void PrecomputeComponentErrorNameList(ref DynamicBuffer<GhostComponentSerializer.State> serializers)
+        {
+            int totalNameCount = 0;
+            //calculated how many names are necessary. This is the upperbound.
+            for (int i = 0; i < serializers.Length; ++i)
+            {
+                ref var serializer = ref serializers.ElementAt(i);
+                totalNameCount += serializer.NumPredictionErrors;
+            }
+            m_PredictionErrorNamesStartEndCache.Clear();
+            m_PredictionErrorNamesStartEndCache.Capacity = totalNameCount;
+            for(int i=0;i<serializers.Length;++i)
+            {
+                ref var serializer = ref serializers.ElementAt(i);
+                serializer.FirstNameIndex = m_PredictionErrorNamesStartEndCache.Length;
+                short strStart = 0;
+                short strEnd = 0;
+                int strLen = serializer.PredictionErrorNames.Length;
+                while (strStart < strLen)
+                {
+                    strEnd = strStart;
+                    while (strEnd < strLen && serializer.PredictionErrorNames[strEnd] != ',')
+                        ++strEnd;
+                    m_PredictionErrorNamesStartEndCache.Add(ValueTuple.Create(strStart, strEnd));
+                    strStart = (short)(strEnd + 1);
+                }
+                //Assign the subset of names available. This must be always less or equals
+                serializer.NumPredictionErrorNames = m_PredictionErrorNamesStartEndCache.Length - serializer.FirstNameIndex;
+                Assert.IsTrue(serializer.NumPredictionErrorNames <= serializer.NumPredictionErrors);
+            }
+        }
+#endif
     }
 }

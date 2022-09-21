@@ -1,145 +1,59 @@
-using System;
-using System.Collections.Generic;
 using Unity.Core;
 using Unity.Entities;
 using Unity.Profiling;
 
 namespace Unity.NetCode
 {
-    // Update loop for client and server worlds
-    [DisableAutoCreation]
-    [AlwaysUpdateSystem]
-    public class ServerSimulationSystemGroup : SimulationSystemGroup
+    class NetcodeServerRateManager : IRateManager
     {
-#if !UNITY_CLIENT || UNITY_SERVER || UNITY_EDITOR
-        internal TickServerSimulationSystem ParentTickSystem;
-        protected override void OnDestroy()
-        {
-            if (ParentTickSystem != null)
-                ParentTickSystem.RemoveSystemFromUpdateList(this);
-        }
-#endif
-        private struct FixedTimeLoop
-        {
-            public float accumulatedTime;
-            public float fixedTimeStep;
-            public int maxTimeSteps;
-            public int maxTimeStepLength;
-
-            public struct Count
-            {
-                // The total number of step the simulation should take
-                public int Total;
-                // The number of short steps, if for example Total is 4 and Short is 1 the update will
-                // take 3 long steps followed by on short step
-                public int Short;
-                // The length of the long steps, if this is for example 3 the long steps should use deltaTime*3
-                // while the short steps should reduce it by one and use deltaTime*2
-                public int Length;
-            }
-
-            public Count GetUpdateCount(float deltaTime)
-            {
-                accumulatedTime += deltaTime;
-                int updateCount = (int)(accumulatedTime / fixedTimeStep);
-                accumulatedTime = accumulatedTime % fixedTimeStep;
-                int shortSteps = 0;
-                int length = 1;
-                if (updateCount > maxTimeSteps)
-                {
-                    // Required length
-                    length = (updateCount + maxTimeSteps - 1) / maxTimeSteps;
-                    if (length > maxTimeStepLength)
-                        length = maxTimeStepLength;
-                    else
-                    {
-                        // Check how many will need to be long vs short
-                        shortSteps = length * maxTimeSteps - updateCount;
-                    }
-                    updateCount = maxTimeSteps;
-                }
-                return new Count
-                {
-                    Total = updateCount,
-                    Short = shortSteps,
-                    Length = length
-                };
-            }
-
-        }
-
-        private uint m_ServerTick;
-        public uint ServerTick
-        {
-            get { return m_ServerTick; }
-            internal set { m_ServerTick = value; }
-        }
-        public bool IsCatchUpTick {get; private set;}
-
-        private FixedTimeLoop m_fixedTimeLoop;
+        private EntityQuery m_NetworkTimeQuery;
+        private EntityQuery m_ClientSeverTickRateQuery;
         private ProfilerMarker m_fixedUpdateMarker;
-        private double m_currentTime;
+        private float m_AccumulatedTime;
 
-        protected override void OnCreate()
+        private Count m_UpdateCount;
+        private int m_CurrentTickAge;
+        private bool m_DidPushTime;
+        private struct Count
         {
-            base.OnCreate();
-            m_ServerTick = 1;
-            m_fixedUpdateMarker = new ProfilerMarker("ServerFixedUpdate");
-            m_currentTime = Time.ElapsedTime;
+            // The total number of step the simulation should take
+            public int Total;
+            // The number of short steps, if for example Total is 4 and Short is 1 the update will
+            // take 3 long steps followed by on short step
+            public int Short;
+            // The length of the long steps, if this is for example 3 the long steps should use deltaTime*3
+            // while the short steps should reduce it by one and use deltaTime*2
+            public int Length;
         }
 
-        protected override void OnUpdate()
+        private Count GetUpdateCount(float deltaTime, float fixedTimeStep, int maxTimeSteps, int maxTimeStepLength)
         {
-            var tickRate = default(ClientServerTickRate);
-            if (HasSingleton<ClientServerTickRate>())
+            m_AccumulatedTime += deltaTime;
+            int updateCount = (int)(m_AccumulatedTime / fixedTimeStep);
+            m_AccumulatedTime = m_AccumulatedTime % fixedTimeStep;
+            int shortSteps = 0;
+            int length = 1;
+            if (updateCount > maxTimeSteps)
             {
-                tickRate = GetSingleton<ClientServerTickRate>();
-            }
-
-            tickRate.ResolveDefaults();
-
-            var previousTime = Time;
-
-            m_fixedTimeLoop.maxTimeSteps = tickRate.MaxSimulationStepsPerFrame;
-            m_fixedTimeLoop.maxTimeStepLength = tickRate.MaxSimulationLongStepTimeMultiplier;
-            m_fixedTimeLoop.fixedTimeStep = 1.0f / (float) tickRate.SimulationTickRate;
-            var updateCount = m_fixedTimeLoop.GetUpdateCount(Time.DeltaTime);
-            for (int tickAge = updateCount.Total-1; tickAge >= 0; --tickAge)
-            {
-                using (m_fixedUpdateMarker.Auto())
+                // Required length
+                length = (updateCount + maxTimeSteps - 1) / maxTimeSteps;
+                if (length > maxTimeStepLength)
+                    length = maxTimeStepLength;
+                else
                 {
-                    if (tickAge == (updateCount.Short - 1))
-                        --updateCount.Length;
-
-                    // Check for wrap around
-                    uint curTick = m_ServerTick + (uint)(updateCount.Length - 1);
-                    if (m_ServerTick < curTick)
-                        ++m_ServerTick;
-                    m_ServerTick = curTick;
-
-                    var dt = m_fixedTimeLoop.fixedTimeStep * updateCount.Length;
-                    m_currentTime += dt;
-                    World.SetTime(new TimeData(m_currentTime, dt));
-                    IsCatchUpTick = (tickAge != 0);
-                    base.OnUpdate();
-                    ++m_ServerTick;
-                    if (m_ServerTick == 0)
-                        ++m_ServerTick;
+                    // Check how many will need to be long vs short
+                    shortSteps = length * maxTimeSteps - updateCount;
                 }
+                updateCount = maxTimeSteps;
             }
-
-            World.SetTime(previousTime);
-#if UNITY_SERVER
-            if (tickRate.TargetFrameRateMode != ClientServerTickRate.FrameRateMode.BusyWait)
-#else
-            if (tickRate.TargetFrameRateMode == ClientServerTickRate.FrameRateMode.Sleep)
-#endif
+            return new Count
             {
-                AdjustTargetFrameRate(tickRate.SimulationTickRate);
-            }
+                Total = updateCount,
+                Short = shortSteps,
+                Length = length
+            };
         }
-
-        void AdjustTargetFrameRate(int tickRate)
+        private void AdjustTargetFrameRate(int tickRate, float fixedTimeStep)
         {
             //
             // If running as headless we nudge the Application.targetFramerate back and forth
@@ -150,9 +64,9 @@ namespace Unity.NetCode
             // reducing cpu usage on server.
             //
             int rate = tickRate;
-            if (m_fixedTimeLoop.accumulatedTime > 0.75f * m_fixedTimeLoop.fixedTimeStep)
+            if (m_AccumulatedTime > 0.75f * fixedTimeStep)
                 rate += 2; // higher rate means smaller deltaTime which means remaining accumulatedTime gets smaller
-            else if (m_fixedTimeLoop.accumulatedTime < 0.25f * m_fixedTimeLoop.fixedTimeStep)
+            else if (m_AccumulatedTime < 0.25f * fixedTimeStep)
                 rate -= 2; // lower rate means bigger deltaTime which means remaining accumulatedTime gets bigger
 
             // TODO: need to do solve this for dots runtime. For now just do nothing
@@ -160,26 +74,98 @@ namespace Unity.NetCode
             UnityEngine.Application.targetFrameRate = rate;
             #endif
         }
+        internal NetcodeServerRateManager(ComponentSystemGroup group)
+        {
+            // Create the queries for singletons
+            m_NetworkTimeQuery = group.World.EntityManager.CreateEntityQuery(ComponentType.ReadWrite<NetworkTime>());
+            m_ClientSeverTickRateQuery = group.World.EntityManager.CreateEntityQuery(ComponentType.ReadWrite<ClientServerTickRate>());
 
+            m_fixedUpdateMarker = new ProfilerMarker("ServerFixedUpdate");
+
+            var netTimeEntity = group.World.EntityManager.CreateEntity(ComponentType.ReadWrite<NetworkTime>());
+            group.World.EntityManager.SetName(netTimeEntity, "NetworkTimeSingleton");
+            m_NetworkTimeQuery.SetSingleton(new NetworkTime
+            {
+                ServerTick = new NetworkTick(0),
+                ServerTickFraction = 1f,
+            });
+        }
+        public bool ShouldGroupUpdate(ComponentSystemGroup group)
+        {
+            m_ClientSeverTickRateQuery.TryGetSingleton<ClientServerTickRate>(out var tickRate);
+            tickRate.ResolveDefaults();
+
+            var fixedTimeStep = tickRate.SimulationFixedTimeStep;
+            if (m_DidPushTime)
+            {
+                group.World.PopTime();
+                m_fixedUpdateMarker.End();
+            }
+            else
+            {
+                m_UpdateCount = GetUpdateCount(group.World.Time.DeltaTime, fixedTimeStep, tickRate.MaxSimulationStepsPerFrame, tickRate.MaxSimulationStepBatchSize);
+                m_CurrentTickAge = m_UpdateCount.Total-1;
+
+#if UNITY_SERVER && !UNITY_EDITOR
+                if (tickRate.TargetFrameRateMode != ClientServerTickRate.FrameRateMode.BusyWait)
+#else
+                if (tickRate.TargetFrameRateMode == ClientServerTickRate.FrameRateMode.Sleep)
+#endif
+                {
+                    AdjustTargetFrameRate(tickRate.SimulationTickRate, fixedTimeStep);
+                }
+            }
+            if (m_CurrentTickAge < 0)
+            {
+                m_DidPushTime = false;
+                return false;
+            }
+            if (m_CurrentTickAge == (m_UpdateCount.Short - 1))
+                --m_UpdateCount.Length;
+            var dt = fixedTimeStep * m_UpdateCount.Length;
+            // Check for wrap around
+            ref var networkTime = ref m_NetworkTimeQuery.GetSingletonRW<NetworkTime>().ValueRW;
+            var currentServerTick = networkTime.ServerTick;
+            currentServerTick.Increment();
+            var nextTick = currentServerTick;
+            nextTick.Add((uint)(m_UpdateCount.Length - 1));
+            networkTime.ServerTick = nextTick;
+            networkTime.SimulationStepBatchSize = m_UpdateCount.Length;
+            if (m_CurrentTickAge == 0)
+                networkTime.Flags &= ~NetworkTimeFlags.IsCatchUpTick;
+            else
+                networkTime.Flags |= NetworkTimeFlags.IsCatchUpTick;
+            networkTime.ElapsedNetworkTime += dt;
+            group.World.PushTime(new TimeData(networkTime.ElapsedNetworkTime, dt));
+            m_DidPushTime = true;
+            --m_CurrentTickAge;
+            m_fixedUpdateMarker.Begin();
+            return true;
+        }
+        public float Timestep
+        {
+            get
+            {
+                throw new System.NotImplementedException();
+            }
+            set
+            {
+                throw new System.NotImplementedException();
+            }
+        }
     }
 
+    /// <summary>
+    /// Update the <see cref="SimulationSystemGroup"/> of a client world from another world (usually the default world)
+    /// Used only for DOTSRuntime and tests or other specific use cases.
+    /// </summary>
 #if !UNITY_CLIENT || UNITY_SERVER || UNITY_EDITOR
 #if !UNITY_DOTSRUNTIME
     [DisableAutoCreation]
 #endif
-    [AlwaysUpdateSystem]
-    [UpdateInWorld(TargetWorld.Default)]
-    public class TickServerSimulationSystem : ComponentSystemGroup
+    [WorldSystemFilter(WorldSystemFilterFlags.LocalSimulation)]
+    internal class TickServerSimulationSystem : TickComponentSystemGroup
     {
-        protected override void OnDestroy()
-        {
-            foreach (var sys in Systems)
-            {
-                var grp = sys as ServerSimulationSystemGroup;
-                if (grp != null)
-                    grp.ParentTickSystem = null;
-            }
-        }
     }
 #endif
 }

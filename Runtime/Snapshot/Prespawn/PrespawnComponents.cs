@@ -11,6 +11,9 @@ namespace Unity.NetCode
     /// </summary>
     public struct SubSceneGhostComponentHash : ISharedComponentData
     {
+        /// <summary>
+        /// The value of the unique hash computed by the <see cref="Unity.NetCode.PreSpawnedGhostsConversion"/> system.
+        /// </summary>
         public ulong Value;
     }
 
@@ -19,13 +22,16 @@ namespace Unity.NetCode
     /// </summary>
     public struct PreSpawnedGhostIndex : IComponentData
     {
+        /// <summary>
+        /// The pre-sorted prespawned ghost index assigned to the ghost as part of the conversion.
+        /// </summary>
         public int Value;
     }
 
     /// <summary>
     /// Added to SubScene entity when all the baselines and the pre-spawned ghosts has been processed.
     /// </summary>
-    public struct PrespawnsSceneInitialized : IComponentData
+    internal struct PrespawnsSceneInitialized : IComponentData
     {
     }
 
@@ -55,9 +61,15 @@ namespace Unity.NetCode
     // This component is added instead to these entity to track which section they are referring to.
     // The SceneGUI and Section are necessary to correctly add the SceneSection component to the pre-spawned ghosts when
     // they are re-spawned (because of relevancy for example)
-    public struct LiveLinkPrespawnSectionReference : IComponentData
+    internal struct LiveLinkPrespawnSectionReference : IComponentData
     {
+        /// <summary>
+        /// The GUID of the scene
+        /// </summary>
         public Hash128 SceneGUID;
+        /// <summary>
+        /// The section index
+        /// </summary>
         public int Section;
     }
 #endif
@@ -65,7 +77,7 @@ namespace Unity.NetCode
     /// <summary>
     /// Tag component added to subscene entity when the prespawn baselines has been serialized.
     /// </summary>
-    public struct SubScenePrespawnBaselineResolved : IComponentData
+    internal struct SubScenePrespawnBaselineResolved : IComponentData
     {
     }
 
@@ -77,7 +89,7 @@ namespace Unity.NetCode
     /// prespawn ghost that has changed in respect to that baseline to the new client.
     /// </summary>
     [InternalBufferCapacity(0)]
-    public struct PrespawnGhostBaseline : IBufferElementData
+    internal struct PrespawnGhostBaseline : IBufferElementData
     {
         public byte Value;
     }
@@ -91,12 +103,24 @@ namespace Unity.NetCode
     /// InternalBufferCapacity allocated to almost max out chunk memory.
     /// </summary>
     [InternalBufferCapacity(600)]
-    [GhostComponent(PrefabType = GhostPrefabType.All, SendDataForChildEntity = false)]
-    public struct PrespawnSceneLoaded : IBufferElementData
+    [GhostComponent(PrefabType = GhostPrefabType.All)]
+    internal struct PrespawnSceneLoaded : IBufferElementData
     {
+        /// <summary>
+        /// The unique sub-scene hash <see cref="SubSceneWithPrespawnGhosts"/> loaded
+        /// </summary>
         [GhostField]public ulong SubSceneHash;
+        /// <summary>
+        /// The hash of all pre-spawned ghosts baselines. Used to verify data consistency
+        /// </summary>
         [GhostField]public ulong BaselineHash;
+        /// <summary>
+        /// The fist ghost id assigned by the server to the ghosts in this scene.
+        /// </summary>
         [GhostField]public int FirstGhostId;
+        /// <summary>
+        /// Number of ghosts in the scene. Used for consistency checks.
+        /// </summary>
         [GhostField]public int PrespawnCount;
     }
 
@@ -107,9 +131,11 @@ namespace Unity.NetCode
     /// InternalBufferCapacity is set to (approximately) max out the chunk.
     /// </summary>
     [InternalBufferCapacity(950)]
-    public struct PrespawnGhostIdRange : IBufferElementData
+    internal struct PrespawnGhostIdRange : IBufferElementData
     {
+        //the scene for witch the range apply to
         public ulong SubSceneHash;
+        //the first id in the range
         public int FirstGhostId;
         //the number of prespawns
         public short Count;
@@ -118,15 +144,33 @@ namespace Unity.NetCode
     }
 
     /// <summary>
-    /// System state component added to all subscenes with ghost. Used for tracking when a subscene is unloaded on both client and server
+    /// Cleanup component added to all subscenes with ghost. Used for tracking when a subscene is unloaded on both client and server
     /// </summary>
-    struct SubSceneWithGhostStateComponent : ISystemStateComponentData
+    internal struct SubSceneWithGhostStateComponent : ICleanupComponentData
     {
+        /// <summary>
+        /// The sub-scene hash <see cref="SubSceneWithPrespawnGhosts"/>
+        /// </summary>
         public ulong SubSceneHash;
+        /// <summary>
+        /// The unity scene GUID
+        /// </summary>
         public Hash128 SceneGUID;
+        /// <summary>
+        /// The scene section that contains the pre-spawned ghosts
+        /// </summary>
         public int SectionIndex;
+        /// <summary>
+        /// The first ghost id assigned to the ghost in scene
+        /// </summary>
         public int FirstGhostId;
+        /// <summary>
+        /// The number of ghost present in the scene.
+        /// </summary>
         public int PrespawnCount;
+        /// <summary>
+        /// Used only on client, On/Off flag to request start/stop scene streaming.
+        /// </summary>
         public int Streaming;
     }
 
@@ -138,6 +182,9 @@ namespace Unity.NetCode
     [InternalBufferCapacity(0)]
     public struct PrespawnSectionAck : IBufferElementData
     {
+        /// <summary>
+        /// Deterministic unique Hash for each sub-scene that contains pre-spawned ghost. See <see cref="SubSceneWithPrespawnGhosts"/>
+        /// </summary>
         public ulong SceneHash;
     }
 }

@@ -1,23 +1,15 @@
 using NUnit.Framework;
 using Unity.Entities;
-using Unity.Networking.Transport;
-using Unity.NetCode.Tests;
-using Unity.Jobs;
 using UnityEngine;
-using UnityEngine.TestTools;
-using Unity.NetCode;
-using Unity.Mathematics;
-using Unity.Transforms;
 using Unity.Collections;
-using System.Text.RegularExpressions;
 
 namespace Unity.NetCode.Tests
 {
     public class LateJoinCompletionConverter : TestNetCodeAuthoring.IConverter
     {
-        public void Convert(GameObject gameObject, Entity entity, EntityManager dstManager, GameObjectConversionSystem conversionSystem)
+        public void Bake(GameObject gameObject, IBaker baker)
         {
-            dstManager.AddComponentData(entity, new GhostOwnerComponent());
+            baker.AddComponent( new GhostOwnerComponent());
         }
     }
     public class LateJoinCompletionTests
@@ -50,18 +42,18 @@ namespace Unity.NetCode.Tests
                 for (int i = 0; i < 4; ++i)
                     testWorld.Tick(frameTime);
 
-                var ghostReceiveSystem = testWorld.ClientWorlds[0].GetExistingSystem<GhostReceiveSystem>();
+                var ghostCount = testWorld.GetSingleton<GhostCount>(testWorld.ClientWorlds[0]);
                 // Validate that the ghost was deleted on the cliet
-                Assert.AreEqual(8, ghostReceiveSystem.GhostCountOnServer);
-                Assert.AreEqual(8, ghostReceiveSystem.GhostCountOnClient);
+                Assert.AreEqual(8, ghostCount.GhostCountOnServer);
+                Assert.AreEqual(8, ghostCount.GhostCountOnClient);
 
                 // Spawn a few more and verify taht the count is updated
                 for (int i = 0; i < 8; ++i)
                     testWorld.SpawnOnServer(ghostGameObject);
                 for (int i = 0; i < 4; ++i)
                     testWorld.Tick(frameTime);
-                Assert.AreEqual(16, ghostReceiveSystem.GhostCountOnServer);
-                Assert.AreEqual(16, ghostReceiveSystem.GhostCountOnClient);
+                Assert.AreEqual(16, ghostCount.GhostCountOnServer);
+                Assert.AreEqual(16, ghostCount.GhostCountOnClient);
             }
         }
         [Test]
@@ -91,32 +83,32 @@ namespace Unity.NetCode.Tests
                 testWorld.Tick(frameTime);
 
                 // Setup relevancy
-                var ghostSendSystem = testWorld.ServerWorld.GetExistingSystem<GhostSendSystem>();
-                ghostSendSystem.GhostRelevancyMode = GhostRelevancyMode.SetIsRelevant;
+                ref var ghostRelevancy = ref testWorld.GetSingletonRW<GhostRelevancy>(testWorld.ServerWorld).ValueRW;
+                ghostRelevancy.GhostRelevancyMode = GhostRelevancyMode.SetIsRelevant;
                 var serverConnectionEnt = testWorld.TryGetSingletonEntity<NetworkIdComponent>(testWorld.ServerWorld);
                 var serverConnectionId = testWorld.ServerWorld.EntityManager.GetComponentData<NetworkIdComponent>(serverConnectionEnt).Value;
                 var query = testWorld.ServerWorld.EntityManager.CreateEntityQuery(ComponentType.ReadWrite<GhostComponent>());
                 var ghosts = query.ToComponentDataArray<GhostComponent>(Allocator.Temp);
                 Assert.AreEqual(ghosts.Length, 8);
                 for (int i = 0; i < 6; ++i)
-                    ghostSendSystem.GhostRelevancySet.TryAdd(new RelevantGhostForConnection{Ghost = ghosts[i].ghostId, Connection = serverConnectionId}, 1);
+                    ghostRelevancy.GhostRelevancySet.TryAdd(new RelevantGhostForConnection{Ghost = ghosts[i].ghostId, Connection = serverConnectionId}, 1);
 
                 // Let the game run for a bit so the ghosts are spawned on the client
                 for (int i = 0; i < 4; ++i)
                     testWorld.Tick(frameTime);
 
-                var ghostReceiveSystem = testWorld.ClientWorlds[0].GetExistingSystem<GhostReceiveSystem>();
+                var ghostCount = testWorld.GetSingleton<GhostCount>(testWorld.ClientWorlds[0]);
                 // Validate that the ghost was deleted on the cliet
-                Assert.AreEqual(6, ghostReceiveSystem.GhostCountOnServer);
-                Assert.AreEqual(6, ghostReceiveSystem.GhostCountOnClient);
+                Assert.AreEqual(6, ghostCount.GhostCountOnServer);
+                Assert.AreEqual(6, ghostCount.GhostCountOnClient);
 
                 // Spawn a few more and verify taht the count is updated
                 for (int i = 0; i < 8; ++i)
                     testWorld.SpawnOnServer(ghostGameObject);
                 for (int i = 0; i < 4; ++i)
                     testWorld.Tick(frameTime);
-                Assert.AreEqual(6, ghostReceiveSystem.GhostCountOnServer);
-                Assert.AreEqual(6, ghostReceiveSystem.GhostCountOnClient);
+                Assert.AreEqual(6, ghostCount.GhostCountOnServer);
+                Assert.AreEqual(6, ghostCount.GhostCountOnClient);
             }
         }
         [Test]
@@ -146,32 +138,32 @@ namespace Unity.NetCode.Tests
                 testWorld.Tick(frameTime);
 
                 // Setup relevancy
-                var ghostSendSystem = testWorld.ServerWorld.GetExistingSystem<GhostSendSystem>();
-                ghostSendSystem.GhostRelevancyMode = GhostRelevancyMode.SetIsIrrelevant;
+                ref var ghostRelevancy = ref testWorld.GetSingletonRW<GhostRelevancy>(testWorld.ServerWorld).ValueRW;
+                ghostRelevancy.GhostRelevancyMode = GhostRelevancyMode.SetIsIrrelevant;
                 var serverConnectionEnt = testWorld.TryGetSingletonEntity<NetworkIdComponent>(testWorld.ServerWorld);
                 var serverConnectionId = testWorld.ServerWorld.EntityManager.GetComponentData<NetworkIdComponent>(serverConnectionEnt).Value;
                 var query = testWorld.ServerWorld.EntityManager.CreateEntityQuery(ComponentType.ReadWrite<GhostComponent>());
                 var ghosts = query.ToComponentDataArray<GhostComponent>(Allocator.Temp);
                 Assert.AreEqual(ghosts.Length, 8);
                 for (int i = 0; i < 6; ++i)
-                    ghostSendSystem.GhostRelevancySet.TryAdd(new RelevantGhostForConnection{Ghost = ghosts[i].ghostId, Connection = serverConnectionId}, 1);
+                    ghostRelevancy.GhostRelevancySet.TryAdd(new RelevantGhostForConnection{Ghost = ghosts[i].ghostId, Connection = serverConnectionId}, 1);
 
                 // Let the game run for a bit so the ghosts are spawned on the client
                 for (int i = 0; i < 4; ++i)
                     testWorld.Tick(frameTime);
 
-                var ghostReceiveSystem = testWorld.ClientWorlds[0].GetExistingSystem<GhostReceiveSystem>();
+                var ghostCount = testWorld.GetSingleton<GhostCount>(testWorld.ClientWorlds[0]);
                 // Validate that the ghost was deleted on the cliet
-                Assert.AreEqual(2, ghostReceiveSystem.GhostCountOnServer);
-                Assert.AreEqual(2, ghostReceiveSystem.GhostCountOnClient);
+                Assert.AreEqual(2, ghostCount.GhostCountOnServer);
+                Assert.AreEqual(2, ghostCount.GhostCountOnClient);
 
                 // Spawn a few more and verify taht the count is updated
                 for (int i = 0; i < 8; ++i)
                     testWorld.SpawnOnServer(ghostGameObject);
                 for (int i = 0; i < 4; ++i)
                     testWorld.Tick(frameTime);
-                Assert.AreEqual(10, ghostReceiveSystem.GhostCountOnServer);
-                Assert.AreEqual(10, ghostReceiveSystem.GhostCountOnClient);
+                Assert.AreEqual(10, ghostCount.GhostCountOnServer);
+                Assert.AreEqual(10, ghostCount.GhostCountOnClient);
             }
         }
     }

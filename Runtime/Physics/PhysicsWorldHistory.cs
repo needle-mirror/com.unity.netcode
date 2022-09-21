@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using Unity.Burst;
@@ -8,12 +8,42 @@ using Unity.Entities;
 using Unity.Jobs;
 using Unity.Physics;
 using Unity.Physics.Systems;
-using Unity.Networking.Transport.Utilities;
 using Unity.Mathematics;
 
 [assembly: InternalsVisibleTo("Unity.NetCode.Physics.EditorTests")]
 namespace Unity.NetCode
 {
+
+    /// <summary>
+    /// A singleton component from which you can get a physics collision world for a previous tick.
+    /// </summary>
+    public partial struct PhysicsWorldHistorySingleton : IComponentData
+    {
+        /// <summary>
+        /// Get the <see cref="CollisionWorld"/> state for the given tick and interpolation delay.
+        /// </summary>
+        /// <param name="tick">The server tick we are simulating.</param>
+        /// <param name="interpolationDelay">The client interpolation delay, measured in ticks. This is used to look back in time
+        /// and retrieve the state of the collision world at tick - interpolationDelay.
+        /// The interpolation delay is internally clamped to the current collision history size (the number of saved history state).</param>
+        /// <param name="physicsWorld">The physics world which is use to get collision worlds for ticks which are not yet in the history buffer.</param>
+        /// <param name="collWorld">The <see cref="CollisionWorld"/> state retrieved from the history.</param>
+        public void GetCollisionWorldFromTick(NetworkTick tick, uint interpolationDelay, ref PhysicsWorld physicsWorld, out CollisionWorld collWorld)
+        {
+            var delayedTick = tick;
+            delayedTick.Subtract(interpolationDelay);
+            if (!m_LastStoreTick.IsValid || delayedTick.IsNewerThan(m_LastStoreTick))
+            {
+                collWorld = physicsWorld.CollisionWorld;
+                return;
+            }
+            m_History.GetCollisionWorldFromTick(tick, interpolationDelay, out collWorld);
+        }
+
+        internal NetworkTick m_LastStoreTick;
+        internal CollisionHistoryBufferRef m_History;
+    }
+
     [StructLayout(LayoutKind.Sequential)]
     internal struct RawHistoryBuffer
     {
@@ -96,7 +126,7 @@ namespace Unity.NetCode
         public int Size => m_size;
         public unsafe bool IsCreated => m_bufferCopyPtr != null;
         private int m_size;
-        internal uint m_lastStoredTick;
+        internal NetworkTick m_lastStoredTick;
 
         private RawHistoryBuffer m_buffer;
         [NativeDisableUnsafePtrRestriction]
@@ -105,16 +135,7 @@ namespace Unity.NetCode
         //For job checks
         private AtomicSafetyHandle m_Safety;
         //To avoid accessing the buffer if already disposed
-        [NativeSetClassTypeToNullOnSchedule]
-        private DisposeSentinel m_DisposeSentinel;
-#if UNITY_2020_1_OR_NEWER
-        private static readonly SharedStatic<int> s_staticSafetyId = SharedStatic<int>.GetOrCreate<CollisionHistoryBufferRef>();
-        [BurstDiscard]
-        private static void CreateStaticSafetyId()
-        {
-            s_staticSafetyId.Data = AtomicSafetyHandle.NewStaticSafetyId<CollisionHistoryBuffer>();
-        }
-#endif
+        private static readonly SharedStatic<int> s_staticSafetyId = SharedStatic<int>.GetOrCreate<CollisionHistoryBuffer>();
 #endif
 
         public CollisionHistoryBuffer(int size)
@@ -122,7 +143,7 @@ namespace Unity.NetCode
             if (size > Capacity)
                 throw new ArgumentOutOfRangeException($"Invalid size {size}. Must be <= {Capacity}");
             m_size = size;
-            m_lastStoredTick = 0;
+            m_lastStoredTick = NetworkTick.Invalid;
             var defaultWorld = default(CollisionWorld);
             m_buffer = new RawHistoryBuffer();
             for(int i=0;i<Capacity;++i)
@@ -135,18 +156,12 @@ namespace Unity.NetCode
                 m_bufferCopyPtr = UnsafeUtility.Malloc(UnsafeUtility.SizeOf<RawHistoryBuffer>(), 8, Allocator.Persistent);
             }
 #if ENABLE_UNITY_COLLECTIONS_CHECKS
-            DisposeSentinel.Create(out this.m_Safety, out this.m_DisposeSentinel, 10, Allocator.Persistent);
-#if UNITY_2020_1_OR_NEWER
-            if (s_staticSafetyId.Data == 0)
-            {
-                CreateStaticSafetyId();
-            }
-            AtomicSafetyHandle.SetStaticSafetyId(ref m_Safety, s_staticSafetyId.Data);
-#endif
+            m_Safety = AtomicSafetyHandle.Create();
+            CollectionHelper.SetStaticSafetyId<CollisionHistoryBuffer>(ref m_Safety, ref s_staticSafetyId.Data);
 #endif
         }
 
-        public void GetCollisionWorldFromTick(uint tick, uint interpolationDelay, out CollisionWorld collWorld)
+        public void GetCollisionWorldFromTick(NetworkTick tick, uint interpolationDelay, out CollisionWorld collWorld)
         {
 #if ENABLE_UNITY_COLLECTIONS_CHECKS
             AtomicSafetyHandle.CheckExistsAndThrow(m_Safety);
@@ -155,10 +170,10 @@ namespace Unity.NetCode
             // Clamp to oldest physics copy when requesting older data than supported
             if (interpolationDelay > m_size-1)
                 interpolationDelay = (uint)m_size-1;
-            tick -= interpolationDelay;
-            if (SequenceHelpers.IsNewer(tick, m_lastStoredTick))
+            tick.Subtract(interpolationDelay);
+            if (m_lastStoredTick.IsValid && tick.IsNewerThan(m_lastStoredTick))
                 tick = m_lastStoredTick;
-            var index = (int)(tick % m_size);
+            var index = (int)(tick.TickIndexForValidTick % m_size);
             GetCollisionWorldFromIndex(index, out collWorld);
         }
 
@@ -190,6 +205,8 @@ namespace Unity.NetCode
             {
                 throw new IndexOutOfRangeException();
             }
+            //Always dispose the current world
+            m_buffer.GetWorldAt(index).Dispose();
             m_buffer.SetWorldAt(index, collWorld.Clone());
         }
 
@@ -218,7 +235,8 @@ namespace Unity.NetCode
         public void Dispose()
         {
 #if ENABLE_UNITY_COLLECTIONS_CHECKS
-            DisposeSentinel.Dispose(ref m_Safety, ref m_DisposeSentinel);
+            AtomicSafetyHandle.CheckDeallocateAndThrow(m_Safety);
+            AtomicSafetyHandle.Release(m_Safety);
 #endif
             unsafe
             {
@@ -235,16 +253,29 @@ namespace Unity.NetCode
         }
     }
 
-    public struct CollisionHistoryBufferRef
+    /// <summary>
+    /// A safe reference to the <see cref="CollisionHistoryBuffer"/>.
+    /// Avoid copying the large world history data structure when accessing the buffer, and because of that
+    /// can easily passed around in function, jobs or used on the main thread without consuming to much stack space.
+    /// </summary>
+    internal struct CollisionHistoryBufferRef
     {
         [NativeDisableUnsafePtrRestriction]
         unsafe internal void *m_ptr;
-        internal uint m_lastStoredTick;
+        internal NetworkTick m_lastStoredTick;
         internal int m_size;
 #if ENABLE_UNITY_COLLECTIONS_CHECKS
         internal AtomicSafetyHandle m_Safety;
 #endif
-        public void GetCollisionWorldFromTick(uint tick, uint interpolationDelay, out CollisionWorld collWorld)
+        /// <summary>
+        /// Get the <see cref="CollisionWorld"/> state for the given tick and interpolation delay.
+        /// </summary>
+        /// <param name="tick">The server tick we are simulating</param>
+        /// <param name="interpolationDelay">The client interpolation delay, measured in ticks. This is used to look back in time
+        /// and retrieve the state of the collision world at tick - interpolationDelay.
+        /// The interpolation delay is internally clamped to the current collision history size (the number of saved history state)</param>
+        /// <param name="collWorld">The <see cref="CollisionWorld"/> state retrieved from the history</param>
+        public void GetCollisionWorldFromTick(NetworkTick tick, uint interpolationDelay, out CollisionWorld collWorld)
         {
 #if ENABLE_UNITY_COLLECTIONS_CHECKS
             //The error will be misleading (is going to mention a NativeArray) but at least is more consistent
@@ -255,10 +286,10 @@ namespace Unity.NetCode
             // Clamp to oldest physics copy when requesting older data than supported
             if (interpolationDelay > m_size-1)
                 interpolationDelay = (uint)m_size-1;
-            tick -= interpolationDelay;
-            if (SequenceHelpers.IsNewer(tick, m_lastStoredTick))
+            tick.Subtract(interpolationDelay);
+            if (m_lastStoredTick.IsValid && tick.IsNewerThan(m_lastStoredTick))
                 tick = m_lastStoredTick;
-            var index = (int)(tick % m_size);
+            var index = (int)(tick.TickIndexForValidTick % m_size);
 
             unsafe
             {
@@ -267,73 +298,56 @@ namespace Unity.NetCode
         }
     }
 
-    [UpdateInGroup(typeof(GhostSimulationSystemGroup), OrderFirst = true)]
-    [AlwaysSynchronizeSystem]
     /// <summary>
     /// A system used to store old state of the physics world for lag compensation.
-    /// You can get a CollisionHistoryBuffer from this system and from that you can
+    /// This system creates a PhysicsWorldHisotrySingleton and from that you can
     /// get a physics collision world for a previous tick.
-    /// When passing the collision history to a job you must set LastPhysicsJobHandle to
-    /// the handle for that job.
     /// </summary>
-    public partial class PhysicsWorldHistory : SystemBase
+    [UpdateInGroup(typeof(PredictedSimulationSystemGroup), OrderFirst = true)]
+    [UpdateBefore(typeof(PredictedFixedStepSimulationSystemGroup))]
+    [BurstCompile]
+    public partial struct PhysicsWorldHistory : ISystem
     {
-        private bool m_initialized;
-        private uint m_lastStoredTick;
-
-        public CollisionHistoryBufferRef CollisionHistory
-        {
-            get
-            {
-                if (!m_CollisionHistory.IsCreated || !m_initialized)
-                    throw new InvalidOperationException("Cannot retrieve the physics history buffer. The buffer is not initialized yet. Please check that the PhysicsWorldHistory is initialized using the IsInitialized method.");
-                return m_CollisionHistory.AsCollisionHistoryBufferRef();
-            }
-        }
+        private NetworkTick m_nextStoreTick;
 
         CollisionHistoryBuffer m_CollisionHistory;
 
-        BuildPhysicsWorld m_BuildPhysicsWorld;
-        ServerSimulationSystemGroup m_ServerSimulationSystemGroup;
-        ClientSimulationSystemGroup m_ClientSimulationSystemGroup;
-
-        public JobHandle LastPhysicsJobHandle;
-        public uint LastStoreTick => m_lastStoredTick;
-        public bool IsInitialized => m_initialized;
-
-        protected override void OnCreate()
+        public void OnCreate(ref SystemState state)
         {
-            m_ServerSimulationSystemGroup = World.GetExistingSystem<ServerSimulationSystemGroup>();
-            m_ClientSimulationSystemGroup = World.GetExistingSystem<ClientSimulationSystemGroup>();
-            m_BuildPhysicsWorld = World.GetExistingSystem<BuildPhysicsWorld>();
-            RequireSingletonForUpdate<LagCompensationConfig>();
-            RequireForUpdate(GetEntityQuery(ComponentType.ReadOnly<NetworkIdComponent>()));
+            state.RequireForUpdate<LagCompensationConfig>();
+            state.RequireForUpdate<NetworkIdComponent>();
+            state.EntityManager.CreateEntity(ComponentType.ReadWrite<PhysicsWorldHistorySingleton>());
+            SystemAPI.SetSingleton(default(PhysicsWorldHistorySingleton));
         }
-        protected override void OnDestroy()
+        [BurstCompile]
+        public void OnDestroy(ref SystemState state)
         {
             if (m_CollisionHistory.IsCreated)
                 m_CollisionHistory.Dispose();
-            m_initialized = false;
+            m_nextStoreTick = NetworkTick.Invalid;
         }
 
-        protected override void OnStartRunning()
+        [BurstCompile]
+        public void OnUpdate(ref SystemState state)
         {
-            this.RegisterPhysicsRuntimeSystemReadOnly();
-        }
+            var networkTime = SystemAPI.GetSingleton<NetworkTime>();
+            var serverTick = networkTime.ServerTick;
+            if (!serverTick.IsValid || !networkTime.IsFirstTimeFullyPredictingTick)
+                return;
 
-        protected override void OnUpdate()
-        {
             if (!m_CollisionHistory.IsCreated)
             {
-                var config = GetSingleton<LagCompensationConfig>();
+                var config = SystemAPI.GetSingleton<LagCompensationConfig>();
                 int historySize;
-                if (World.GetExistingSystem<ServerSimulationSystemGroup>()!=null)
+                if (state.WorldUnmanaged.IsServer())
                     historySize = config.ServerHistorySize!=0 ? config.ServerHistorySize : RawHistoryBuffer.Capacity;
                 else
-                    historySize = config.ClientHistorySize!=0 ? config.ClientHistorySize : 1;
+                    historySize = config.ClientHistorySize;
+                if (historySize == 0)
+                    return;
                 if (historySize < 0 || historySize > RawHistoryBuffer.Capacity)
                 {
-                    World.GetExistingSystem<NetDebugSystem>().NetDebug.LogWarning($"Invalid LagCompensationConfig, history size ({historySize}) must be > 0 <= {RawHistoryBuffer.Capacity}. Clamping hte value to the valid range.");
+                    SystemAPI.GetSingleton<NetDebug>().LogWarning($"Invalid LagCompensationConfig, history size ({historySize}) must be > 0 <= {RawHistoryBuffer.Capacity}. Clamping hte value to the valid range.");
                     historySize = math.clamp(historySize, 1, RawHistoryBuffer.Capacity);
                 }
 
@@ -341,45 +355,43 @@ namespace Unity.NetCode
             }
 
 
-            var serverTick = (m_ServerSimulationSystemGroup != null) ? m_ServerSimulationSystemGroup.ServerTick : m_ClientSimulationSystemGroup.ServerTick;
-            if (serverTick == 0)
-                return;
+            state.CompleteDependency();
 
-            Dependency.Complete();
-            LastPhysicsJobHandle.Complete();
-
-            if (!m_initialized)
+            //We need to grab the physics world from a different source based on the physics configuration present or not
+            var physicsWorld = SystemAPI.GetSingleton<PhysicsWorldSingleton>().PhysicsWorld;
+            // The current server tick will generate a new physics world since it is a new full tick
+            // Copy all ticks before this one to the buffer using the most recent physics world - which will be what that simulation used
+            var lastStoreTick = serverTick;
+            lastStoreTick.Decrement();
+            if (!m_nextStoreTick.IsValid)
             {
                 for (int i = 0; i < CollisionHistoryBuffer.Capacity; i++)
                 {
-                    m_CollisionHistory.CloneCollisionWorld(i, in m_BuildPhysicsWorld.PhysicsWorld.CollisionWorld);
+                    m_CollisionHistory.CloneCollisionWorld(i, in physicsWorld.CollisionWorld);
                 }
-
-                m_lastStoredTick = serverTick;
-                m_initialized = true;
             }
             else
             {
-                if (!SequenceHelpers.IsNewer(serverTick, m_lastStoredTick))
+                if (!lastStoreTick.IsNewerThan(m_nextStoreTick))
                     return;
 
                 // Store world for each tick that has not been stored yet (framerate might be lower than tickrate)
-                var startStoreTick = (m_lastStoredTick != 0) ? (m_lastStoredTick + 1) : serverTick;
+                var startStoreTick = m_nextStoreTick;
                 // Copying more than m_CollisionHistory.Size would mean we overwrite a tick we copied this frame
-                var oldestTickWithUniqueIndex = (serverTick + 1u - (uint)m_CollisionHistory.Size);
-                if (SequenceHelpers.IsNewer(oldestTickWithUniqueIndex, startStoreTick))
+                var oldestTickWithUniqueIndex = lastStoreTick;
+                oldestTickWithUniqueIndex.Increment();
+                oldestTickWithUniqueIndex.Subtract((uint)m_CollisionHistory.Size);
+                if (oldestTickWithUniqueIndex.IsNewerThan(startStoreTick))
                     startStoreTick = oldestTickWithUniqueIndex;
-                for (var storeTick = startStoreTick; !SequenceHelpers.IsNewer(storeTick, serverTick); storeTick++)
+                for (var storeTick = startStoreTick; !storeTick.IsNewerThan(lastStoreTick); storeTick.Increment())
                 {
-                    var index = (int)(storeTick % m_CollisionHistory.Size);
-
-                    m_CollisionHistory.DisposeIndex(index);
-                    m_CollisionHistory.CloneCollisionWorld(index, in m_BuildPhysicsWorld.PhysicsWorld.CollisionWorld);
+                    var index = (int)(storeTick.TickIndexForValidTick % m_CollisionHistory.Size);
+                    m_CollisionHistory.CloneCollisionWorld(index, in physicsWorld.CollisionWorld);
                 }
-
-                m_lastStoredTick = serverTick;
             }
-            m_CollisionHistory.m_lastStoredTick = m_lastStoredTick;
+            m_CollisionHistory.m_lastStoredTick = lastStoreTick;
+            SystemAPI.SetSingleton(new PhysicsWorldHistorySingleton{m_LastStoreTick = lastStoreTick, m_History = m_CollisionHistory.AsCollisionHistoryBufferRef()});
+            m_nextStoreTick = serverTick;
         }
     }
 }

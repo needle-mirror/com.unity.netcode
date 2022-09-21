@@ -1,47 +1,36 @@
-#if ENABLE_UNITY_COLLECTIONS_CHECKS
+#if (UNITY_EDITOR || DEVELOPMENT_BUILD) && !NETCODE_NDEBUG
+#define NETCODE_DEBUG
+#endif
+#if NETCODE_DEBUG
 using System;
 using Unity.Collections;
 using Unity.Entities;
-using UnityEngine;
+using Unity.Burst;
 
 namespace Unity.NetCode
 {
-    [UpdateInWorld(TargetWorld.ClientAndServer)]
+    [RequireMatchingQueriesForUpdate]
+    [WorldSystemFilter(WorldSystemFilterFlags.ClientSimulation | WorldSystemFilterFlags.ServerSimulation)]
     [UpdateInGroup(typeof(SimulationSystemGroup), OrderLast = true)]
-    public partial class WarnAboutStaleRpcSystem : SystemBase
+    [BurstCompile]
+    public partial struct WarnAboutStaleRpcSystem : ISystem
     {
-        NetDebugSystem m_NetDebugSystem;
-        ushort m_MaxRpcAgeFrames = 4;
-
-        /// <summary>
-        ///     A NetCode RPC will trigger a warning if it hasn't been consumed or destroyed (which is a proxy for 'handled') after
-        ///     this many simulation frames (inclusive).
-        ///     <see cref="ReceiveRpcCommandRequestComponent.Age" />.
-        ///     Set to 0 to opt out.
-        /// </summary>
-        public ushort MaxRpcAgeFrames
+        public void OnCreate(ref SystemState state)
         {
-            get => m_MaxRpcAgeFrames;
-            set
-            {
-                m_MaxRpcAgeFrames = value;
-                Enabled = value > 0;
-            }
+            state.RequireForUpdate<ReceiveRpcCommandRequestComponent>();
+        }
+        [BurstCompile]
+        public void OnDestroy(ref SystemState state)
+        {
         }
 
-        protected override void OnCreate()
+        partial struct WarnAboutStaleRpc : IJobEntity
         {
-            m_NetDebugSystem = World.GetExistingSystem<NetDebugSystem>();
-        }
-
-        protected override void OnUpdate()
-        {
-            var worldName = new FixedString32Bytes(World.Name);
-            var maxRpcAgeFrames = MaxRpcAgeFrames;
-            var netDebug = m_NetDebugSystem.NetDebug;
-            Entities.ForEach((Entity entity, ref ReceiveRpcCommandRequestComponent command) =>
+            public NetDebug netDebug;
+            public FixedString128Bytes worldName;
+            public void Execute(Entity entity, ref ReceiveRpcCommandRequestComponent command)
             {
-                if (!command.IsConsumed && ++command.Age >= maxRpcAgeFrames)
+                if (!command.IsConsumed && ++command.Age >= netDebug.MaxRpcAgeFrames)
                 {
                     var warning = (FixedString512Bytes)FixedString.Format("In '{0}', NetCode RPC {1} has not been consumed or destroyed for '{2}' (MaxRpcAgeFrames) frames!", worldName, entity.ToFixedString(), command.Age);
                     warning.Append((FixedString128Bytes)" Assumed unhandled. Call .Consume(), or remove the RPC component, or destroy the entity.");
@@ -49,7 +38,17 @@ namespace Unity.NetCode
 
                     command.Consume();
                 }
-            }).Run();
+            }
+        }
+        [BurstCompile]
+        public void OnUpdate(ref SystemState state)
+        {
+            var warnJob = new WarnAboutStaleRpc
+            {
+                netDebug = SystemAPI.GetSingleton<NetDebug>(),
+                worldName = state.WorldUnmanaged.Name
+            };
+            state.Dependency = warnJob.Schedule(state.Dependency);
         }
     }
 }

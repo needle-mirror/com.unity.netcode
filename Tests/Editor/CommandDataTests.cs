@@ -12,29 +12,28 @@ namespace Unity.NetCode.Tests
 {
     public struct CommandDataTestsTickInput : ICommandData
     {
-        public uint Tick { get; set; }
+        public NetworkTick Tick { get; set; }
         public int Value;
     }
     public struct CommandDataTestsTickInput2 : ICommandData
     {
-        public uint Tick { get; set; }
+        public NetworkTick Tick { get; set; }
         public int Value;
     }
 
     [UpdateInGroup(typeof(GhostInputSystemGroup))]
     [DisableAutoCreation]
+    [WorldSystemFilter(WorldSystemFilterFlags.ClientSimulation)]
     public partial class CommandDataTestsTickInputSystem : SystemBase
     {
-        private ClientSimulationSystemGroup clientSim;
         protected override void OnCreate()
         {
-            clientSim = World.GetExistingSystem<ClientSimulationSystemGroup>();
-            RequireSingletonForUpdate<NetworkStreamInGame>();
+            RequireForUpdate<NetworkStreamInGame>();
             RequireForUpdate(GetEntityQuery(ComponentType.ReadWrite<CommandDataTestsTickInput>()));
         }
         protected override void OnUpdate()
         {
-            var tick = clientSim.ServerTick;
+            var tick = GetSingleton<NetworkTime>().ServerTick;
             Entities.ForEach((DynamicBuffer<CommandDataTestsTickInput> inputBuffer) => {
                 inputBuffer.AddCommandData(new CommandDataTestsTickInput
                 {
@@ -46,18 +45,17 @@ namespace Unity.NetCode.Tests
     }
     [UpdateInGroup(typeof(GhostInputSystemGroup))]
     [DisableAutoCreation]
+    [WorldSystemFilter(WorldSystemFilterFlags.ClientSimulation)]
     public partial class CommandDataTestsTickInput2System : SystemBase
     {
-        private ClientSimulationSystemGroup clientSim;
         protected override void OnCreate()
         {
-            clientSim = World.GetExistingSystem<ClientSimulationSystemGroup>();
-            RequireSingletonForUpdate<NetworkStreamInGame>();
+            RequireForUpdate<NetworkStreamInGame>();
             RequireForUpdate(GetEntityQuery(ComponentType.ReadWrite<CommandDataTestsTickInput2>()));
         }
         protected override void OnUpdate()
         {
-            var tick = clientSim.ServerTick;
+            var tick = GetSingleton<NetworkTime>().ServerTick;
             Entities.ForEach((DynamicBuffer<CommandDataTestsTickInput2> inputBuffer) => {
                 inputBuffer.AddCommandData(new CommandDataTestsTickInput2
                 {
@@ -95,9 +93,18 @@ namespace Unity.NetCode.Tests
                 var serverAck = testWorld.ServerWorld.EntityManager.GetComponentData<NetworkSnapshotAckComponent>(serverConnectionEnt);
                 var clientAck = testWorld.ClientWorlds[0].EntityManager.GetComponentData<NetworkSnapshotAckComponent>(clientConnectionEnt);
 
-                Assert.Less(testWorld.ServerWorld.GetExistingSystem<ServerSimulationSystemGroup>().ServerTick - serverAck.LastReceivedSnapshotByRemote, 4);
-                Assert.Less(clientAck.ServerCommandAge / 256.0f, -1.5f);
-                Assert.Greater(clientAck.ServerCommandAge / 256.0f, -2.5f);
+                Assert.Less(testWorld.GetNetworkTime(testWorld.ServerWorld).ServerTick.TicksSince(serverAck.LastReceivedSnapshotByRemote), 4);
+                var driverType = testWorld.GetSingleton<NetworkStreamDriver>(testWorld.ClientWorlds[0]).DriverStore.GetDriverType(NetworkDriverStore.FirstDriverId);
+                if (driverType == TransportType.Socket)
+                {
+                    Assert.Less(clientAck.ServerCommandAge / 256.0f, -1.6f);
+                    Assert.Greater(clientAck.ServerCommandAge / 256.0f, -2.6f);
+                }
+                else
+                {
+                    Assert.Less(clientAck.ServerCommandAge / 256.0f, -.25f);
+                    Assert.Greater(clientAck.ServerCommandAge / 256.0f, -0.75f);
+                }
             }
         }
         [Test]
@@ -211,7 +218,7 @@ namespace Unity.NetCode.Tests
                 Assert.AreNotEqual(0, serverBuffer2.Length);
                 Assert.AreNotEqual(0, clientBuffer2.Length);
 
-                var serverTick = testWorld.ServerWorld.GetExistingSystem<ServerSimulationSystemGroup>().ServerTick;
+                var serverTick = testWorld.GetNetworkTime(testWorld.ServerWorld).ServerTick;
                 Assert.IsTrue(serverBuffer.GetDataAtTick(serverTick, out var sin1));
                 Assert.IsTrue(serverBuffer2.GetDataAtTick(serverTick, out var sin2));
                 Assert.AreEqual(1, sin1.Value);
@@ -229,7 +236,7 @@ namespace Unity.NetCode.Tests
                 var ghostConfig = ghostGameObject.AddComponent<GhostAuthoringComponent>();
                 ghostConfig.HasOwner = true;
                 ghostConfig.SupportAutoCommandTarget = true;
-                ghostConfig.DefaultGhostMode = GhostAuthoringComponent.GhostMode.OwnerPredicted;
+                ghostConfig.DefaultGhostMode = GhostMode.OwnerPredicted;
                 Assert.IsTrue(testWorld.CreateGhostCollection(ghostGameObject));
                 testWorld.CreateWorlds(true, 1);
                 Assert.IsTrue(testWorld.Connect(deltaTime, 4));
@@ -271,7 +278,7 @@ namespace Unity.NetCode.Tests
                 var ghostConfig = ghostGameObject.AddComponent<GhostAuthoringComponent>();
                 ghostConfig.HasOwner = true;
                 ghostConfig.SupportAutoCommandTarget = true;
-                ghostConfig.DefaultGhostMode = GhostAuthoringComponent.GhostMode.OwnerPredicted;
+                ghostConfig.DefaultGhostMode = GhostMode.OwnerPredicted;
                 Assert.IsTrue(testWorld.CreateGhostCollection(ghostGameObject));
                 testWorld.CreateWorlds(true, 1);
                 Assert.IsTrue(testWorld.Connect(deltaTime, 4));
@@ -307,7 +314,7 @@ namespace Unity.NetCode.Tests
                 Assert.AreNotEqual(0, serverBuffer2.Length);
                 Assert.AreNotEqual(0, clientBuffer2.Length);
 
-                var serverTick = testWorld.ServerWorld.GetExistingSystem<ServerSimulationSystemGroup>().ServerTick;
+                var serverTick = testWorld.GetNetworkTime(testWorld.ServerWorld).ServerTick;
                 Assert.IsTrue(serverBuffer.GetDataAtTick(serverTick, out var sin1));
                 Assert.IsTrue(serverBuffer2.GetDataAtTick(serverTick, out var sin2));
                 Assert.AreEqual(1, sin1.Value);
@@ -325,7 +332,7 @@ namespace Unity.NetCode.Tests
                 var ghostConfig = ghostGameObject.AddComponent<GhostAuthoringComponent>();
                 ghostConfig.HasOwner = true;
                 ghostConfig.SupportAutoCommandTarget = true;
-                ghostConfig.DefaultGhostMode = GhostAuthoringComponent.GhostMode.OwnerPredicted;
+                ghostConfig.DefaultGhostMode = GhostMode.OwnerPredicted;
                 Assert.IsTrue(testWorld.CreateGhostCollection(ghostGameObject));
                 testWorld.CreateWorlds(true, 1);
                 Assert.IsTrue(testWorld.Connect(deltaTime, 4));
@@ -373,7 +380,7 @@ namespace Unity.NetCode.Tests
                 Assert.AreNotEqual(0, serverBuffer2.Length);
                 Assert.AreNotEqual(0, clientBuffer2.Length);
 
-                var serverTick = testWorld.ServerWorld.GetExistingSystem<ServerSimulationSystemGroup>().ServerTick;
+                var serverTick = testWorld.GetNetworkTime(testWorld.ServerWorld).ServerTick;
                 Assert.IsTrue(serverBuffer.GetDataAtTick(serverTick, out var sin1));
                 Assert.IsTrue(serverBuffer2.GetDataAtTick(serverTick, out var sin2));
                 Assert.AreEqual(1, sin1.Value);
@@ -391,7 +398,7 @@ namespace Unity.NetCode.Tests
                 var ghostConfig = ghostGameObject.AddComponent<GhostAuthoringComponent>();
                 ghostConfig.HasOwner = true;
                 ghostConfig.SupportAutoCommandTarget = true;
-                ghostConfig.DefaultGhostMode = GhostAuthoringComponent.GhostMode.OwnerPredicted;
+                ghostConfig.DefaultGhostMode = GhostMode.OwnerPredicted;
                 Assert.IsTrue(testWorld.CreateGhostCollection(ghostGameObject));
                 testWorld.CreateWorlds(true, 1);
                 Assert.IsTrue(testWorld.Connect(deltaTime, 4));
@@ -431,7 +438,7 @@ namespace Unity.NetCode.Tests
                 Assert.AreNotEqual(0, serverBuffer2.Length);
                 Assert.AreNotEqual(0, clientBuffer2.Length);
 
-                var serverTick = testWorld.ServerWorld.GetExistingSystem<ServerSimulationSystemGroup>().ServerTick;
+                var serverTick = testWorld.GetNetworkTime(testWorld.ServerWorld).ServerTick;
                 Assert.IsTrue(serverBuffer.GetDataAtTick(serverTick, out var sin1));
                 Assert.IsTrue(serverBuffer2.GetDataAtTick(serverTick, out var sin2));
                 Assert.AreEqual(1, sin1.Value);
@@ -449,7 +456,7 @@ namespace Unity.NetCode.Tests
                 var ghostConfig = ghostGameObject.AddComponent<GhostAuthoringComponent>();
                 ghostConfig.HasOwner = true;
                 ghostConfig.SupportAutoCommandTarget = true;
-                ghostConfig.DefaultGhostMode = GhostAuthoringComponent.GhostMode.OwnerPredicted;
+                ghostConfig.DefaultGhostMode = GhostMode.OwnerPredicted;
                 Assert.IsTrue(testWorld.CreateGhostCollection(ghostGameObject));
                 testWorld.CreateWorlds(true, 1);
                 Assert.IsTrue(testWorld.Connect(deltaTime, 4));
@@ -492,7 +499,7 @@ namespace Unity.NetCode.Tests
                 var ghostConfig = ghostGameObject.AddComponent<GhostAuthoringComponent>();
                 ghostConfig.HasOwner = true;
                 ghostConfig.SupportAutoCommandTarget = true;
-                ghostConfig.DefaultGhostMode = GhostAuthoringComponent.GhostMode.Interpolated;
+                ghostConfig.DefaultGhostMode = GhostMode.Interpolated;
                 Assert.IsTrue(testWorld.CreateGhostCollection(ghostGameObject));
                 testWorld.CreateWorlds(true, 1);
                 Assert.IsTrue(testWorld.Connect(deltaTime, 4));
@@ -534,7 +541,7 @@ namespace Unity.NetCode.Tests
                 var ghostConfig = ghostGameObject.AddComponent<GhostAuthoringComponent>();
                 ghostConfig.HasOwner = true;
                 ghostConfig.SupportAutoCommandTarget = true;
-                ghostConfig.DefaultGhostMode = GhostAuthoringComponent.GhostMode.Predicted;
+                ghostConfig.DefaultGhostMode = GhostMode.Predicted;
                 Assert.IsTrue(testWorld.CreateGhostCollection(ghostGameObject));
                 testWorld.CreateWorlds(true, 1);
                 Assert.IsTrue(testWorld.Connect(deltaTime, 4));

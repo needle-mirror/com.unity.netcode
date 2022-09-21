@@ -13,20 +13,20 @@ namespace Unity.NetCode.Tests
 {
     public class GhostPredictedOnlyConverter : TestNetCodeAuthoring.IConverter
     {
-        public void Convert(GameObject gameObject, Entity entity, EntityManager dstManager, GameObjectConversionSystem conversionSystem)
+        public void Bake(GameObject gameObject, IBaker baker)
         {
-            dstManager.AddComponentData(entity, new GhostPredictedOnly());
-            dstManager.AddComponentData(entity, new GhostInterpolatedOnly());
-            dstManager.AddComponentData(entity, new GhostOwnerComponent());
+            baker.AddComponent(new GhostPredictedOnly());
+            baker.AddComponent(new GhostInterpolatedOnly());
+            baker.AddComponent(new GhostOwnerComponent());
         }
     }
 
-    [GhostComponent(OwnerPredictedSendType = GhostSendType.Predicted)]
+    [GhostComponent(SendTypeOptimization = GhostSendType.OnlyPredictedClients)]
     public struct GhostPredictedOnly : IComponentData
     {
         [GhostField] public int Value;
     }
-    [GhostComponent(OwnerPredictedSendType = GhostSendType.Interpolated)]
+    [GhostComponent(SendTypeOptimization = GhostSendType.OnlyInterpolatedClients)]
     public struct GhostInterpolatedOnly : IComponentData
     {
         [GhostField] public int Value;
@@ -64,11 +64,11 @@ namespace Unity.NetCode.Tests
                 var ghostConfig = ghostGameObject.AddComponent<GhostAuthoringComponent>();
                 if (ownerPrediction)
                 {
-                    ghostConfig.DefaultGhostMode = GhostAuthoringComponent.GhostMode.OwnerPredicted;
+                    ghostConfig.DefaultGhostMode = GhostMode.OwnerPredicted;
                 }
                 else
                 {
-                    ghostConfig.SupportedGhostModes = predicted ? GhostAuthoringComponent.GhostModeMask.Predicted : GhostAuthoringComponent.GhostModeMask.Interpolated;
+                    ghostConfig.SupportedGhostModes = predicted ? GhostModeMask.Predicted : GhostModeMask.Interpolated;
                 }
 
                 Assert.IsTrue(testWorld.CreateGhostCollection(ghostGameObject));

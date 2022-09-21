@@ -6,8 +6,10 @@
         "Unity.Mathematics",
         "Unity.NetCode",
         "Unity.NetCode.Physics",
+        "Unity.NetCode.Physics.Hybrid",
         "Unity.NetCode.Editor",
         "Unity.Physics",
+        "Unity.Physics.Hybrid",
         "Unity.Entities",
         "Unity.Entities.Hybrid",
         "Unity.Transforms",
@@ -36,13 +38,8 @@
     "versionDefines": [
         {
             "name": "com.unity.physics",
-            "expression": "0.2.4",
+            "expression": "0.10.0-preview.1",
             "define": "ENABLE_UNITY_NETCODE_PHYSICS"
-        },
-        {
-          "name": "com.unity.logging",
-          "expression": "0",
-          "define": "USE_UNITY_LOGGING"
         }
     ],
     "noEngineReferences": false

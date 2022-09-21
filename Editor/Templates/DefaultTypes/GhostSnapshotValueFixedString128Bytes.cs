@@ -9,25 +9,25 @@ namespace Generated
             #endregion
         }
 
-        public void Serialize(ref Snapshot snapshot, ref Snapshot baseline, ref DataStreamWriter writer, ref NetworkCompressionModel compressionModel, uint changeMask)
+        public void Serialize(ref Snapshot snapshot, ref Snapshot baseline, ref DataStreamWriter writer, ref StreamCompressionModel compressionModel, uint changeMask)
         {
             #region __GHOST_WRITE__
-            if ((changeMask__GHOST_MASK_BATCH__ & (1 << __GHOST_MASK_INDEX__)) != 0)
+            if ((changeMask & (1 << __GHOST_MASK_INDEX__)) != 0)
                 writer.WritePackedFixedString128Delta(snapshot.__GHOST_FIELD_NAME__, baseline.__GHOST_FIELD_NAME__, compressionModel);
             #endregion
         }
 
-        public void Deserialize(ref Snapshot snapshot, ref Snapshot baseline, ref DataStreamReader reader, ref NetworkCompressionModel compressionModel, uint changeMask)
+        public void Deserialize(ref Snapshot snapshot, ref Snapshot baseline, ref DataStreamReader reader, ref StreamCompressionModel compressionModel, uint changeMask)
         {
             #region __GHOST_READ__
-            if ((changeMask__GHOST_MASK_BATCH__ & (1 << __GHOST_MASK_INDEX__)) != 0)
+            if ((changeMask & (1 << __GHOST_MASK_INDEX__)) != 0)
                 snapshot.__GHOST_FIELD_NAME__ = reader.ReadPackedFixedString128Delta(baseline.__GHOST_FIELD_NAME__, compressionModel);
             else
                 snapshot.__GHOST_FIELD_NAME__ = baseline.__GHOST_FIELD_NAME__;
             #endregion
         }
 
-        public void SerializeCommand(ref DataStreamWriter writer, in IComponentData data, in IComponentData baseline, NetworkCompressionModel compressionModel)
+        public void SerializeCommand(ref DataStreamWriter writer, in IComponentData data, in IComponentData baseline, StreamCompressionModel compressionModel)
         {
             #region __COMMAND_WRITE__
             writer.WriteFixedString128(data.__COMMAND_FIELD_NAME__);
@@ -37,7 +37,7 @@ namespace Generated
             #endregion
         }
 
-        public void DeserializeCommand(ref DataStreamReader reader, ref IComponentData data, in IComponentData baseline, NetworkCompressionModel compressionModel)
+        public void DeserializeCommand(ref DataStreamReader reader, ref IComponentData data, in IComponentData baseline, StreamCompressionModel compressionModel)
         {
             #region __COMMAND_READ__
             data.__COMMAND_FIELD_NAME__ = reader.ReadFixedString128();

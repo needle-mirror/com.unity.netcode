@@ -1,0 +1,38 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>netstandard2.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <PublishDir>..\..</PublishDir>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference ExcludeAssets="runtime" Include="Microsoft.CodeAnalysis.CSharp" Version="3.8.0" />
+    <EmbeddedResource Include="../../../../Editor/Templates/CommandDataSerializer.cs" Link="../../../../Editor/Templates/CommandDataSerializer.cs" LogicalName="NetCode.CommandDataSerializer.cs" />
+    <EmbeddedResource Include="../../../../Editor/Templates/GhostComponentSerializer.cs" Link="../../../../Editor/Templates/GhostComponentSerializer.cs" LogicalName="NetCode.GhostComponentSerializer.cs" />
+    <EmbeddedResource Include="../../../../Editor/Templates/GhostComponentSerializerRegistrationSystem.cs" Link="../../../../Editor/Templates/GhostComponentSerializerRegistrationSystem.cs" LogicalName="NetCode.GhostComponentSerializerRegistrationSystem.cs" />
+    <EmbeddedResource Include="../../../../Editor/Templates/GhostComponentMetaDataRegistrationSystem.cs" Link="../../../../Editor/Templates/GhostComponentMetaDataRegistrationSystem.cs" LogicalName="NetCode.GhostComponentMetaDataRegistrationSystem.cs" />
+    <EmbeddedResource Include="../../../../Editor/Templates/InputSynchronization.cs" Link="../../../../Editor/Templates/InputSynchronization.cs" LogicalName="NetCode.InputSynchronization.cs" />
+    <EmbeddedResource Include="../../../../Editor/Templates/RpcCommandSerializer.cs" Link="../../../../Editor/Templates/RpcCommandSerializer.cs" LogicalName="NetCode.RpcCommandSerializer.cs" />
+    <EmbeddedResource Include="../../../../Editor/Templates/DefaultTypes/GhostSnapshotValueBool.cs" Link="../../../../Editor/Templates/DefaultTypes/GhostSnapshotValueBool.cs" LogicalName="NetCode.GhostSnapshotValueBool.cs" />
+    <EmbeddedResource Include="../../../../Editor/Templates/DefaultTypes/GhostSnapshotValueEntity.cs" Link="../../../../Editor/Templates/DefaultTypes/GhostSnapshotValueEntity.cs" LogicalName="NetCode.GhostSnapshotValueEntity.cs" />
+    <EmbeddedResource Include="../../../../Editor/Templates/DefaultTypes/GhostSnapshotValueFixedString128Bytes.cs" Link="../../../../Editor/Templates/DefaultTypes/GhostSnapshotValueFixedString128Bytes.cs" LogicalName="NetCode.GhostSnapshotValueFixedString128Bytes.cs" />
+    <EmbeddedResource Include="../../../../Editor/Templates/DefaultTypes/GhostSnapshotValueFixedString32Bytes.cs" Link="../../../../Editor/Templates/DefaultTypes/GhostSnapshotValueFixedString32Bytes.cs" LogicalName="NetCode.GhostSnapshotValueFixedString32Bytes.cs" />
+    <EmbeddedResource Include="../../../../Editor/Templates/DefaultTypes/GhostSnapshotValueFixedString4096Bytes.cs" Link="../../../../Editor/Templates/DefaultTypes/GhostSnapshotValueFixedString4096Bytes.cs" LogicalName="NetCode.GhostSnapshotValueFixedString4096Bytes.cs" />
+    <EmbeddedResource Include="../../../../Editor/Templates/DefaultTypes/GhostSnapshotValueFixedString512Bytes.cs" Link="../../../../Editor/Templates/DefaultTypes/GhostSnapshotValueFixedString512Bytes.cs" LogicalName="NetCode.GhostSnapshotValueFixedString512Bytes.cs" />
+    <EmbeddedResource Include="../../../../Editor/Templates/DefaultTypes/GhostSnapshotValueFixedString64Bytes.cs" Link="../../../../Editor/Templates/DefaultTypes/GhostSnapshotValueFixedString64Bytes.cs" LogicalName="NetCode.GhostSnapshotValueFixedString64Bytes.cs" />
+    <EmbeddedResource Include="../../../../Editor/Templates/DefaultTypes/GhostSnapshotValueFloat.cs" Link="../../../../Editor/Templates/DefaultTypes/GhostSnapshotValueFloat.cs" LogicalName="NetCode.GhostSnapshotValueFloat.cs" />
+    <EmbeddedResource Include="../../../../Editor/Templates/DefaultTypes/GhostSnapshotValueFloat2.cs" Link="../../../../Editor/Templates/DefaultTypes/GhostSnapshotValueFloat2.cs" LogicalName="NetCode.GhostSnapshotValueFloat2.cs" />
+    <EmbeddedResource Include="../../../../Editor/Templates/DefaultTypes/GhostSnapshotValueFloat2Unquantized.cs" Link="../../../../Editor/Templates/DefaultTypes/GhostSnapshotValueFloat2Unquantized.cs" LogicalName="NetCode.GhostSnapshotValueFloat2Unquantized.cs" />
+    <EmbeddedResource Include="../../../../Editor/Templates/DefaultTypes/GhostSnapshotValueFloat3.cs" Link="../../../../Editor/Templates/DefaultTypes/GhostSnapshotValueFloat3.cs" LogicalName="NetCode.GhostSnapshotValueFloat3.cs" />
+    <EmbeddedResource Include="../../../../Editor/Templates/DefaultTypes/GhostSnapshotValueFloat3Unquantized.cs" Link="../../../../Editor/Templates/DefaultTypes/GhostSnapshotValueFloat3Unquantized.cs" LogicalName="NetCode.GhostSnapshotValueFloat3Unquantized.cs" />
+    <EmbeddedResource Include="../../../../Editor/Templates/DefaultTypes/GhostSnapshotValueFloat4.cs" Link="../../../../Editor/Templates/DefaultTypes/GhostSnapshotValueFloat4.cs" LogicalName="NetCode.GhostSnapshotValueFloat4.cs" />
+    <EmbeddedResource Include="../../../../Editor/Templates/DefaultTypes/GhostSnapshotValueFloat4Unquantized.cs" Link="../../../../Editor/Templates/DefaultTypes/GhostSnapshotValueFloat4Unquantized.cs" LogicalName="NetCode.GhostSnapshotValueFloat4Unquantized.cs" />
+    <EmbeddedResource Include="../../../../Editor/Templates/DefaultTypes/GhostSnapshotValueFloatUnquantized.cs" Link="../../../../Editor/Templates/DefaultTypes/GhostSnapshotValueFloatUnquantized.cs" LogicalName="NetCode.GhostSnapshotValueFloatUnquantized.cs" />
+    <EmbeddedResource Include="../../../../Editor/Templates/DefaultTypes/GhostSnapshotValueInt.cs" Link="../../../../Editor/Templates/DefaultTypes/GhostSnapshotValueInt.cs" LogicalName="NetCode.GhostSnapshotValueInt.cs" />
+    <EmbeddedResource Include="../../../../Editor/Templates/DefaultTypes/GhostSnapshotValueLong.cs" Link="../../../../Editor/Templates/DefaultTypes/GhostSnapshotValueLong.cs" LogicalName="NetCode.GhostSnapshotValueLong.cs" />
+    <EmbeddedResource Include="../../../../Editor/Templates/DefaultTypes/GhostSnapshotValueQuaternion.cs" Link="../../../../Editor/Templates/DefaultTypes/GhostSnapshotValueQuaternion.cs" LogicalName="NetCode.GhostSnapshotValueQuaternion.cs" />
+    <EmbeddedResource Include="../../../../Editor/Templates/DefaultTypes/GhostSnapshotValueQuaternionUnquantized.cs" Link="../../../../Editor/Templates/DefaultTypes/GhostSnapshotValueQuaternionUnquantized.cs" LogicalName="NetCode.GhostSnapshotValueQuaternionUnquantized.cs" />
+    <EmbeddedResource Include="../../../../Editor/Templates/DefaultTypes/GhostSnapshotValueUInt.cs" Link="../../../../Editor/Templates/DefaultTypes/GhostSnapshotValueUInt.cs" LogicalName="NetCode.GhostSnapshotValueUInt.cs" />
+    <EmbeddedResource Include="../../../../Editor/Templates/DefaultTypes/GhostSnapshotValueULong.cs" Link="../../../../Editor/Templates/DefaultTypes/GhostSnapshotValueULong.cs" LogicalName="NetCode.GhostSnapshotValueULong.cs" />
+    <EmbeddedResource Include="../../../../Editor/Templates/DefaultTypes/GhostSnapshotValueNetworkTick.cs" Link="../../../../Editor/Templates/DefaultTypes/GhostSnapshotValueNetworkTick.cs" LogicalName="NetCode.GhostSnapshotValueNetworkTick.cs" />
+  </ItemGroup>
+</Project>

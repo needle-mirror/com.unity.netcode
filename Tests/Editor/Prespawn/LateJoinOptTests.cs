@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using NUnit.Framework;
 using Unity.Collections;
@@ -7,6 +8,7 @@ using Unity.NetCode.LowLevel.Unsafe;
 using UnityEditor;
 using UnityEngine;
 using Unity.NetCode.Tests;
+using Unity.Transforms;
 using UnityEngine.SceneManagement;
 
 namespace Unity.NetCode.PrespawnTests
@@ -14,18 +16,16 @@ namespace Unity.NetCode.PrespawnTests
     struct ServerOnlyTag : IComponentData
     {
     }
-    public class LateJoinOptTests
-    {
-        private string ScenePath = "Assets/TestScenes";
-        private DateTime LastWriteTime;
 
+    public class LateJoinOptTests : TestWithSceneAsset
+    {
         private static void CheckPrespawnArePresent(int numObjects, NetCodeTestWorld testWorld)
         {
             //Before going in game there should N prespawned objects
             var serverGhosts = testWorld.ServerWorld.EntityManager.CreateEntityQuery(new EntityQueryDesc
             {
                 All = new [] { ComponentType.ReadOnly(typeof(PreSpawnedGhostIndex))},
-                Options = EntityQueryOptions.IncludeDisabled
+                Options = EntityQueryOptions.IncludeDisabledEntities
             });
             Assert.AreEqual(numObjects, serverGhosts.CalculateEntityCount());
             for (int i = 0; i < testWorld.ClientWorlds.Length; ++i)
@@ -33,7 +33,7 @@ namespace Unity.NetCode.PrespawnTests
                 var clientGhosts = testWorld.ClientWorlds[i].EntityManager.CreateEntityQuery(new EntityQueryDesc
                 {
                     All = new [] { ComponentType.ReadOnly(typeof(PreSpawnedGhostIndex))},
-                    Options = EntityQueryOptions.IncludeDisabled
+                    Options = EntityQueryOptions.IncludeDisabledEntities
                 });
                 Assert.AreEqual(numObjects, clientGhosts.CalculateEntityCount());
             }
@@ -92,8 +92,8 @@ namespace Unity.NetCode.PrespawnTests
                     //Need to lookup who is it
                     var typeData = ghostCollection[idx];
                     byte* snapshotPtr = (byte*) buffer.GetUnsafeReadOnlyPtr();
-                    int changeMaskUints = GhostCollectionSystem.ChangeMaskArraySizeInUInts(typeData.ChangeMaskBits);
-                    var snapshotOffset = GhostCollectionSystem.SnapshotSizeAligned(4 + changeMaskUints * 4);
+                    int changeMaskUints = GhostComponentSerializer.ChangeMaskArraySizeInUInts(typeData.ChangeMaskBits);
+                    var snapshotOffset = GhostComponentSerializer.SnapshotSizeAligned(4 + changeMaskUints * 4);
                     for (int cm = 0; cm < changeMaskUints; ++cm)
                         Assert.AreEqual(0, ((uint*)snapshotPtr)[cm]);
                     var offset = snapshotOffset;
@@ -103,7 +103,7 @@ namespace Unity.NetCode.PrespawnTests
                         if (ghostSerializers[serializerIdx].ComponentType.IsBuffer)
                         {
                             Assert.AreEqual(16, ((uint*)(snapshotPtr + offset))[0]);
-                            Assert.AreEqual(GhostCollectionSystem.SnapshotSizeAligned(sizeof(uint)), ((uint*)(snapshotPtr + offset))[1]);
+                            Assert.AreEqual(GhostComponentSerializer.SnapshotSizeAligned(sizeof(uint)), ((uint*)(snapshotPtr + offset))[1]);
                         }
                         offset += GhostComponentSerializer.SizeInSnapshot(ghostSerializers[serializerIdx]);
                     }
@@ -111,8 +111,8 @@ namespace Unity.NetCode.PrespawnTests
                     {
                         var dynamicDataPtr = snapshotPtr + typeData.SnapshotSize;
                         var bufferSize = ((uint*)dynamicDataPtr)[0];
-                        Assert.AreEqual(GhostCollectionSystem.SnapshotSizeAligned(sizeof(uint)) +
-                                        GhostCollectionSystem.SnapshotSizeAligned(16*sizeof(uint)), bufferSize);
+                        Assert.AreEqual(GhostComponentSerializer.SnapshotSizeAligned(sizeof(uint)) +
+                                        GhostComponentSerializer.SnapshotSizeAligned(16*sizeof(uint)), bufferSize);
                     }
                 }
             }
@@ -138,9 +138,9 @@ namespace Unity.NetCode.PrespawnTests
                     var snapshotBuffer = clientWorld.EntityManager.GetBuffer<SnapshotDataBuffer>(entities[i]);
 
                     byte* snapshotPtr = (byte*)snapshotBuffer.GetUnsafeReadOnlyPtr();
-                    int changeMaskUints = GhostCollectionSystem.ChangeMaskArraySizeInUInts(typeData.ChangeMaskBits);
+                    int changeMaskUints = GhostComponentSerializer.ChangeMaskArraySizeInUInts(typeData.ChangeMaskBits);
                     int snapshotSize = typeData.SnapshotSize;
-                    var snapshotOffset = GhostCollectionSystem.SnapshotSizeAligned(4 + changeMaskUints*4);
+                    var snapshotOffset = GhostComponentSerializer.SnapshotSizeAligned(4 + changeMaskUints*4);
                     snapshotPtr += snapshotSize * snapshotData.LatestIndex;
                     uint* changeMask = (uint*)(snapshotPtr+4);
 
@@ -164,34 +164,10 @@ namespace Unity.NetCode.PrespawnTests
                         var dynamicData = clientWorld.EntityManager.GetBuffer<SnapshotDynamicDataBuffer>(entities[i]);
                         byte* dynamicPtr = (byte*) dynamicData.GetUnsafeReadOnlyPtr();
                         var bufferSize = ((uint*) dynamicPtr)[snapshotData.LatestIndex];
-                        Assert.AreEqual(GhostCollectionSystem.SnapshotSizeAligned(sizeof(uint)) +
-                                        GhostCollectionSystem.SnapshotSizeAligned(16*sizeof(uint)), bufferSize);
+                        Assert.AreEqual(GhostComponentSerializer.SnapshotSizeAligned(sizeof(uint)) +
+                                        GhostComponentSerializer.SnapshotSizeAligned(16*sizeof(uint)), bufferSize);
                     }
                 }
-            }
-        }
-
-        [SetUp]
-        public void SetupScene()
-        {
-            if (!Directory.Exists(ScenePath))
-                Directory.CreateDirectory(ScenePath);
-            Directory.CreateDirectory(ScenePath);
-            LastWriteTime = Directory.GetLastWriteTime(Application.dataPath + ScenePath);
-        }
-
-        [TearDown]
-        public void DestroyScenes()
-        {
-            foreach (var go in SceneManager.GetActiveScene().GetRootGameObjects())
-                UnityEngine.Object.DestroyImmediate(go);
-
-            AssetDatabase.DeleteAsset(ScenePath);
-            var currentCache = Directory.GetFiles(Application.dataPath + "/SceneDependencyCache");
-            foreach (var file in currentCache)
-            {
-                if(File.GetCreationTime(file) > LastWriteTime)
-                    File.Delete(file);
             }
         }
 
@@ -256,9 +232,7 @@ namespace Unity.NetCode.PrespawnTests
                     testWorld.Tick(frameTime);
                     for (int i = 0; i < testWorld.ClientWorlds.Length; ++i)
                     {
-                        var receiveSystem = testWorld.ClientWorlds[i].GetExistingSystem<GhostReceiveSystem>();
-                        receiveSystem.LastGhostMapWriter.Complete();
-                        var netStats = receiveSystem.NetStats;
+                        var netStats = testWorld.ClientWorlds[i].EntityManager.GetComponentData<GhostStatsCollectionSnapshot>(testWorld.TryGetSingletonEntity<GhostStatsCollectionSnapshot>(testWorld.ClientWorlds[i])).Data;
                         totalSceneData += netStats[5];
                         for (int gtype = 0; gtype < numPrefabs; ++gtype)
                         {
@@ -297,9 +271,7 @@ namespace Unity.NetCode.PrespawnTests
                     testWorld.Tick(frameTime);
                     for (int i = 0; i < testWorld.ClientWorlds.Length; ++i)
                     {
-                        var receiveSystem = testWorld.ClientWorlds[i].GetExistingSystem<GhostReceiveSystem>();
-                        receiveSystem.LastGhostMapWriter.Complete();
-                        var netStats = receiveSystem.NetStats;
+                        var netStats = testWorld.ClientWorlds[i].EntityManager.GetComponentData<GhostStatsCollectionSnapshot>(testWorld.TryGetSingletonEntity<GhostStatsCollectionSnapshot>(testWorld.ClientWorlds[i])).Data;
                         for (int gtype = 0; gtype < numPrefabs; ++gtype)
                         {
                             Assert.AreEqual(0, netStats[3*gtype + 9]); //No new object
@@ -339,15 +311,13 @@ namespace Unity.NetCode.PrespawnTests
             var prefab4 = SubSceneHelper.CreatePrefab(ScenePath, withChildren);
 
             var parentScene = SubSceneHelper.CreateEmptyScene(ScenePath, "LateJoinTest");
-            var subScene = SubSceneHelper.CreateSubSceneWithPrefabs(ScenePath, "subscene", new[]
+            SubSceneHelper.CreateSubSceneWithPrefabs(parentScene, ScenePath, "subscene", new[]
             {
                 prefab1,
                 prefab2,
                 prefab3,
                 prefab4,
             }, numObjectsPerPrefab);
-            SubSceneHelper.AddSubSceneToParentScene(parentScene, subScene);
-
             var initialDataSize = new uint[numClients];
             var initialAvgBitsPerEntity = new uint[numClients];
             var averageEntityBits = new uint[numClients];
@@ -378,12 +348,11 @@ namespace Unity.NetCode.PrespawnTests
             var prefab2 = SubSceneHelper.CreateSimplePrefab(ScenePath, "WithBuffer", typeof(GhostAuthoringComponent),
                 typeof(SomeDataElementAuthoring));
             var parentScene = SubSceneHelper.CreateEmptyScene(ScenePath, "LateJoinTest");
-            var subScene = SubSceneHelper.CreateSubSceneWithPrefabs(ScenePath, "subscene", new[]
+            SubSceneHelper.CreateSubSceneWithPrefabs(parentScene, ScenePath, "subscene", new[]
             {
                 prefab1,
                 prefab2
             }, numObjects);
-            SubSceneHelper.AddSubSceneToParentScene(parentScene, subScene);
 
             using (var testWorld = new NetCodeTestWorld())
             {
@@ -397,7 +366,7 @@ namespace Unity.NetCode.PrespawnTests
                 CheckComponents(numObjects*2, testWorld);
                 testWorld.GoInGame();
                 //Run some another tick to retrieve and process the prefabs and initialize the baselines
-                for(int i=0;i<8;++i)
+                for(int i=0;i<2;++i)
                     testWorld.Tick(frameTime);
                 CheckBaselineAreCreated(testWorld.ServerWorld);
                 for (int i = 0; i < testWorld.ClientWorlds.Length; ++i)
@@ -414,15 +383,14 @@ namespace Unity.NetCode.PrespawnTests
             //Set the scene with multiple prefab types
             var prefab = SubSceneHelper.CreateSimplePrefab(ScenePath, "WithData", typeof(GhostAuthoringComponent),
                 typeof(SomeDataAuthoring));
-            prefab.GetComponent<GhostAuthoringComponent>().OptimizationMode = GhostAuthoringComponent.GhostOptimizationMode.Static;
+            prefab.GetComponent<GhostAuthoringComponent>().OptimizationMode = GhostOptimizationMode.Static;
             PrefabUtility.SavePrefabAsset(prefab);
 
             var parentScene = SubSceneHelper.CreateEmptyScene(ScenePath, "LateJoinTest");
-            var subScene = SubSceneHelper.CreateSubSceneWithPrefabs(ScenePath, "subscene", new[]
+            SubSceneHelper.CreateSubSceneWithPrefabs(parentScene, ScenePath, "subscene", new[]
             {
                 prefab,
             }, numObjects);
-            SubSceneHelper.AddSubSceneToParentScene(parentScene, subScene);
 
             using (var testWorld = new NetCodeTestWorld())
             {
@@ -440,17 +408,18 @@ namespace Unity.NetCode.PrespawnTests
                 uint uncompressed = 0;
                 uint totalDataReceived = 0;
                 uint numReceived = 0;
-                var receiveSystem = testWorld.ClientWorlds[0].GetExistingSystem<GhostReceiveSystem>();
+                var collection = testWorld.TryGetSingletonEntity<GhostCollection>(testWorld.ClientWorlds[0]);
+                var recvGhostMapSingleton = testWorld.TryGetSingletonEntity<SpawnedGhostEntityMap>(testWorld.ClientWorlds[0]);
                 for(int tick=0;tick<16;++tick)
                 {
                     testWorld.Tick(frameTime);
-                    receiveSystem.LastGhostMapWriter.Complete();
-                    //Skip the last ghost type (is the subscene list)
-                    if (receiveSystem.NetStats.Length > 6)
+                    var netStats = testWorld.ClientWorlds[0].EntityManager.GetComponentData<GhostStatsCollectionSnapshot>(testWorld.TryGetSingletonEntity<GhostStatsCollectionSnapshot>(testWorld.ClientWorlds[0])).Data;
+                    //Skip the frist ghost type (is be the subscene list)
+                    if (netStats.Length > 6)
                     {
-                        numReceived += receiveSystem.NetStats[4];
-                        totalDataReceived += receiveSystem.NetStats[5];
-                        uncompressed += receiveSystem.NetStats[6];
+                        numReceived += netStats[7];
+                        totalDataReceived += netStats[8];
+                        uncompressed += netStats[9];
                     }
                 }
                 Assert.AreEqual(0, numReceived);
@@ -460,7 +429,6 @@ namespace Unity.NetCode.PrespawnTests
                 var serverGhosts = serverQuery.ToComponentDataArray<GhostComponent>(Allocator.Temp);
                 var serverEntities = serverQuery.ToEntityArray(Allocator.Temp);
                 var ghostCollectionEntity = testWorld.ClientWorlds[0].EntityManager.CreateEntityQuery(typeof(GhostCollection)).GetSingletonEntity();
-                var ghostCollection = testWorld.ClientWorlds[0].EntityManager.GetBuffer<GhostCollectionPrefabSerializer>(ghostCollectionEntity);
 
                 //Make a structural change and verify that entities are not sent (no changes in respect to the 0 baselines)
                 for (int i = 8; i < 10; ++i)
@@ -481,12 +449,12 @@ namespace Unity.NetCode.PrespawnTests
                 for (int i = 0; i < 16; ++i)
                 {
                     testWorld.Tick(frameTime);
-                    receiveSystem.LastGhostMapWriter.Complete();
-                    if (receiveSystem.NetStats.Length > 6)
+                    var netStats = testWorld.ClientWorlds[0].EntityManager.GetComponentData<GhostStatsCollectionSnapshot>(testWorld.TryGetSingletonEntity<GhostStatsCollectionSnapshot>(testWorld.ClientWorlds[0])).Data;
+                    if (netStats.Length > 6)
                     {
-                        numReceived += receiveSystem.NetStats[4];
-                        totalDataReceived += receiveSystem.NetStats[5];
-                        uncompressed += receiveSystem.NetStats[6];
+                        numReceived += netStats[7];
+                        totalDataReceived += netStats[8];
+                        uncompressed += netStats[9];
                     }
                 }
                 Assert.AreEqual(0, numReceived);
@@ -505,49 +473,53 @@ namespace Unity.NetCode.PrespawnTests
                 for (int i = 0; i < 2; ++i)
                 {
                     testWorld.Tick(frameTime);
-                    receiveSystem.LastGhostMapWriter.Complete();
-                    if (receiveSystem.NetStats.Length > 7)
+                    var netStats = testWorld.ClientWorlds[0].EntityManager.GetComponentData<GhostStatsCollectionSnapshot>(testWorld.TryGetSingletonEntity<GhostStatsCollectionSnapshot>(testWorld.ClientWorlds[0])).Data;
+                    if (netStats.Length > 7)
                     {
                         //Even if I change 3 entities, I still receive the full chunk (8 now) delta compressed, but only once.
-                        Assert.AreEqual(8, receiveSystem.NetStats[4]);
-                        Assert.GreaterOrEqual(receiveSystem.NetStats[5], 0);
-                        Assert.AreEqual(0, receiveSystem.NetStats[6]);
+                        Assert.AreEqual(8, netStats[7]);
+                        Assert.GreaterOrEqual(netStats[8], 0);
+                        Assert.AreEqual(0, netStats[9]);
                     }
                 }
                 for (int i = 0; i < 3; ++i)
                 {
                     var ghost = new SpawnedGhost{ghostId = serverGhosts[i].ghostId, spawnTick = serverGhosts[i].spawnTick};
-                    var ent = receiveSystem.SpawnedGhostEntityMap[ghost];
+                    var ent = testWorld.ClientWorlds[0].EntityManager.GetComponentData<SpawnedGhostEntityMap>(recvGhostMapSingleton).Value[ghost];
                     var serverData = testWorld.ServerWorld.EntityManager.GetComponentData<SomeData>(serverEntities[i]);
                     var clientdata = testWorld.ClientWorlds[0].EntityManager.GetComponentData<SomeData>(ent);
                     Assert.AreEqual(serverData.Value, clientdata.Value);
                 }
-                //Check that the change masks for the other entities are still 0
-                for (int i = 3; i < 8; ++i)
+
                 {
-                    var ghost = new SpawnedGhost{ghostId = serverGhosts[i].ghostId, spawnTick = serverGhosts[i].spawnTick};
-                    var ent = receiveSystem.SpawnedGhostEntityMap[ghost];
-                    var snapshotData = testWorld.ClientWorlds[0].EntityManager.GetComponentData<SnapshotData>(ent);
-                    var snapshotBuffer = testWorld.ClientWorlds[0].EntityManager.GetBuffer<SnapshotDataBuffer>(ent);
-                    var ghostType = testWorld.ClientWorlds[0].EntityManager.GetComponentData<GhostComponent>(ent).ghostType;
-                    var typeData = ghostCollection[ghostType];
-                    int snapshotSize = typeData.SnapshotSize;
-                    unsafe
+                    var ghostCollection = testWorld.ClientWorlds[0].EntityManager.GetBuffer<GhostCollectionPrefabSerializer>(ghostCollectionEntity);
+                    //Check that the change masks for the other entities are still 0
+                    for (int i = 3; i < 8; ++i)
                     {
-                        byte* snapshotPtr = (byte*)snapshotBuffer.GetUnsafeReadOnlyPtr();
-                        snapshotPtr += snapshotSize * snapshotData.LatestIndex;
-                        int changeMaskUints = GhostCollectionSystem.ChangeMaskArraySizeInUInts(typeData.ChangeMaskBits);
-                        uint* changeMask = (uint*)(snapshotPtr+4);
-                        //Check that all the masks are zero
-                        for (int cm = 0; cm < changeMaskUints; ++cm)
-                            Assert.AreEqual(0, changeMask[cm]);
+                        var ghost = new SpawnedGhost{ghostId = serverGhosts[i].ghostId, spawnTick = serverGhosts[i].spawnTick};
+                        var ent = testWorld.ClientWorlds[0].EntityManager.GetComponentData<SpawnedGhostEntityMap>(recvGhostMapSingleton).Value[ghost];
+                        var snapshotData = testWorld.ClientWorlds[0].EntityManager.GetComponentData<SnapshotData>(ent);
+                        var snapshotBuffer = testWorld.ClientWorlds[0].EntityManager.GetBuffer<SnapshotDataBuffer>(ent);
+                        var ghostType = testWorld.ClientWorlds[0].EntityManager.GetComponentData<GhostComponent>(ent).ghostType;
+                        var typeData = ghostCollection[ghostType];
+                        int snapshotSize = typeData.SnapshotSize;
+                        unsafe
+                        {
+                            byte* snapshotPtr = (byte*)snapshotBuffer.GetUnsafeReadOnlyPtr();
+                            snapshotPtr += snapshotSize * snapshotData.LatestIndex;
+                            int changeMaskUints = GhostComponentSerializer.ChangeMaskArraySizeInUInts(typeData.ChangeMaskBits);
+                            uint* changeMask = (uint*)(snapshotPtr+4);
+                            //Check that all the masks are zero
+                            for (int cm = 0; cm < changeMaskUints; ++cm)
+                                Assert.AreEqual(0, changeMask[cm]);
+                        }
                     }
                 }
                 //Entities 8,9 are still not received
                 for (int i = 8; i < 10; ++i)
                 {
                     var ghost = new SpawnedGhost{ghostId = serverGhosts[i].ghostId, spawnTick = serverGhosts[i].spawnTick};
-                    var ent = receiveSystem.SpawnedGhostEntityMap[ghost];
+                    var ent = testWorld.ClientWorlds[0].EntityManager.GetComponentData<SpawnedGhostEntityMap>(recvGhostMapSingleton).Value[ghost];
                     var ghostType = testWorld.ClientWorlds[0].EntityManager.GetComponentData<GhostComponent>(ent).ghostType;
                     Assert.AreEqual(-1, ghostType);
                 }
@@ -557,12 +529,12 @@ namespace Unity.NetCode.PrespawnTests
                 for (int i = 0; i < 16; ++i)
                 {
                     testWorld.Tick(frameTime);
-                    receiveSystem.LastGhostMapWriter.Complete();
-                    if (receiveSystem.NetStats.Length > 6)
+                    var netStats = testWorld.ClientWorlds[0].EntityManager.GetComponentData<GhostStatsCollectionSnapshot>(testWorld.TryGetSingletonEntity<GhostStatsCollectionSnapshot>(testWorld.ClientWorlds[0])).Data;
+                    if (netStats.Length > 6)
                     {
-                        numReceived += receiveSystem.NetStats[4];
-                        totalDataReceived += receiveSystem.NetStats[5];
-                        uncompressed += receiveSystem.NetStats[6];
+                        numReceived += netStats[7];
+                        totalDataReceived += netStats[8];
+                        uncompressed += netStats[9];
                     }
                     Assert.AreEqual(0, numReceived);
                     Assert.AreEqual(0, uncompressed);
@@ -588,12 +560,12 @@ namespace Unity.NetCode.PrespawnTests
                 for (int i = 0; i < 4; ++i)
                 {
                     testWorld.Tick(frameTime);
-                    receiveSystem.LastGhostMapWriter.Complete();
-                    if (receiveSystem.NetStats.Length > 6)
+                    var netStats = testWorld.ClientWorlds[0].EntityManager.GetComponentData<GhostStatsCollectionSnapshot>(testWorld.TryGetSingletonEntity<GhostStatsCollectionSnapshot>(testWorld.ClientWorlds[0])).Data;
+                    if (netStats.Length > 6)
                     {
-                        numReceived += receiveSystem.NetStats[4];
-                        totalDataReceived += receiveSystem.NetStats[5];
-                        uncompressed += receiveSystem.NetStats[6];
+                        numReceived += netStats[7];
+                        totalDataReceived += netStats[8];
+                        uncompressed += netStats[9];
                     }
                 }
                 Assert.AreEqual(5, numReceived);
@@ -603,29 +575,33 @@ namespace Unity.NetCode.PrespawnTests
                 for (int i = 8; i < 10; ++i)
                 {
                     var ghost = new SpawnedGhost{ghostId = serverGhosts[i].ghostId, spawnTick = serverGhosts[i].spawnTick};
-                    var ent = receiveSystem.SpawnedGhostEntityMap[ghost];
+                    var ent = testWorld.ClientWorlds[0].EntityManager.GetComponentData<SpawnedGhostEntityMap>(recvGhostMapSingleton).Value[ghost];
                     var ghostType = testWorld.ClientWorlds[0].EntityManager.GetComponentData<GhostComponent>(ent).ghostType;
                     Assert.AreEqual(-1, ghostType);
                 }
-                //And all change masks for the received entities are 0
-                for (int i = 0; i < 8; ++i)
+
                 {
-                    var ghost = new SpawnedGhost{ghostId = serverGhosts[i].ghostId, spawnTick = serverGhosts[i].spawnTick};
-                    var ent = receiveSystem.SpawnedGhostEntityMap[ghost];
-                    var snapshotData = testWorld.ClientWorlds[0].EntityManager.GetComponentData<SnapshotData>(ent);
-                    var snapshotBuffer = testWorld.ClientWorlds[0].EntityManager.GetBuffer<SnapshotDataBuffer>(ent);
-                    var ghostType = testWorld.ClientWorlds[0].EntityManager.GetComponentData<GhostComponent>(ent).ghostType;
-                    var typeData = ghostCollection[ghostType];
-                    int snapshotSize = typeData.SnapshotSize;
-                    unsafe
+                    //And all change masks for the received entities are 0
+                    var ghostCollection = testWorld.ClientWorlds[0].EntityManager.GetBuffer<GhostCollectionPrefabSerializer>(ghostCollectionEntity);
+                    for (int i = 0; i < 8; ++i)
                     {
-                        byte* snapshotPtr = (byte*)snapshotBuffer.GetUnsafeReadOnlyPtr();
-                        snapshotPtr += snapshotSize * snapshotData.LatestIndex;
-                        int changeMaskUints = GhostCollectionSystem.ChangeMaskArraySizeInUInts(typeData.ChangeMaskBits);
-                        uint* changeMask = (uint*)(snapshotPtr+4);
-                        //Check that all the masks are zero
-                        for (int cm = 0; cm < changeMaskUints; ++cm)
-                            Assert.AreEqual(0, changeMask[cm]);
+                        var ghost = new SpawnedGhost { ghostId = serverGhosts[i].ghostId, spawnTick = serverGhosts[i].spawnTick };
+                        var ent = testWorld.ClientWorlds[0].EntityManager.GetComponentData<SpawnedGhostEntityMap>(recvGhostMapSingleton).Value[ghost];
+                        var snapshotData = testWorld.ClientWorlds[0].EntityManager.GetComponentData<SnapshotData>(ent);
+                        var snapshotBuffer = testWorld.ClientWorlds[0].EntityManager.GetBuffer<SnapshotDataBuffer>(ent);
+                        var ghostType = testWorld.ClientWorlds[0].EntityManager.GetComponentData<GhostComponent>(ent)                            .ghostType;
+                        var typeData = ghostCollection[ghostType];
+                        int snapshotSize = typeData.SnapshotSize;
+                        unsafe
+                        {
+                            byte* snapshotPtr = (byte*)snapshotBuffer.GetUnsafeReadOnlyPtr();
+                            snapshotPtr += snapshotSize * snapshotData.LatestIndex;
+                            int changeMaskUints = GhostComponentSerializer.ChangeMaskArraySizeInUInts(typeData.ChangeMaskBits);
+                            uint* changeMask = (uint*)(snapshotPtr + 4);
+                            //Check that all the masks are zero
+                            for (int cm = 0; cm < changeMaskUints; ++cm)
+                                Assert.AreEqual(0, changeMask[cm]);
+                        }
                     }
                 }
                 //Finally change two entities in the second chunk
@@ -640,42 +616,45 @@ namespace Unity.NetCode.PrespawnTests
                 for (int i = 0; i < 4; ++i)
                 {
                     testWorld.Tick(frameTime);
-                    receiveSystem.LastGhostMapWriter.Complete();
-                    if (receiveSystem.NetStats.Length > 6)
+                    var netStats = testWorld.ClientWorlds[0].EntityManager.GetComponentData<GhostStatsCollectionSnapshot>(testWorld.TryGetSingletonEntity<GhostStatsCollectionSnapshot>(testWorld.ClientWorlds[0])).Data;
+                    if (netStats.Length > 6)
                     {
-                        numReceived += receiveSystem.NetStats[4];
-                        totalDataReceived += receiveSystem.NetStats[5];
-                        uncompressed += receiveSystem.NetStats[6];
+                        numReceived += netStats[7];
+                        totalDataReceived += netStats[8];
+                        uncompressed += netStats[9];
                     }
                 }
                 //2x5
                 Assert.AreEqual(10, numReceived);
-                //Entities 8,9 received but with no changes
-                for (int i = 8; i < 10; ++i)
                 {
-                    var ghost = new SpawnedGhost{ghostId = serverGhosts[i].ghostId, spawnTick = serverGhosts[i].spawnTick};
-                    var ent = receiveSystem.SpawnedGhostEntityMap[ghost];
-                    var ghostType = testWorld.ClientWorlds[0].EntityManager.GetComponentData<GhostComponent>(ent).ghostType;
-                    Assert.AreNotEqual(-1, ghostType);
-                    var snapshotData = testWorld.ClientWorlds[0].EntityManager.GetComponentData<SnapshotData>(ent);
-                    var snapshotBuffer = testWorld.ClientWorlds[0].EntityManager.GetBuffer<SnapshotDataBuffer>(ent);
-                    var typeData = ghostCollection[ghostType];
-                    int snapshotSize = typeData.SnapshotSize;
-                    unsafe
+                    //Entities 8,9 received but with no changes
+                    var ghostCollection = testWorld.ClientWorlds[0].EntityManager.GetBuffer<GhostCollectionPrefabSerializer>(ghostCollectionEntity);
+                    for (int i = 8; i < 10; ++i)
                     {
-                        byte* snapshotPtr = (byte*)snapshotBuffer.GetUnsafeReadOnlyPtr();
-                        snapshotPtr += snapshotSize * snapshotData.LatestIndex;
-                        int changeMaskUints = GhostCollectionSystem.ChangeMaskArraySizeInUInts(typeData.ChangeMaskBits);
-                        uint* changeMask = (uint*)(snapshotPtr+4);
-                        //Check that all the masks are zero
-                        for (int cm = 0; cm < changeMaskUints; ++cm)
-                            Assert.AreEqual(0, changeMask[cm]);
+                        var ghost = new SpawnedGhost { ghostId = serverGhosts[i].ghostId, spawnTick = serverGhosts[i].spawnTick };
+                        var ent = testWorld.ClientWorlds[0].EntityManager.GetComponentData<SpawnedGhostEntityMap>(recvGhostMapSingleton).Value[ghost];
+                        var ghostType = testWorld.ClientWorlds[0].EntityManager.GetComponentData<GhostComponent>(ent).ghostType;
+                        Assert.AreNotEqual(-1, ghostType);
+                        var snapshotData = testWorld.ClientWorlds[0].EntityManager.GetComponentData<SnapshotData>(ent);
+                        var snapshotBuffer = testWorld.ClientWorlds[0].EntityManager.GetBuffer<SnapshotDataBuffer>(ent);
+                        var typeData = ghostCollection[ghostType];
+                        int snapshotSize = typeData.SnapshotSize;
+                        unsafe
+                        {
+                            byte* snapshotPtr = (byte*)snapshotBuffer.GetUnsafeReadOnlyPtr();
+                            snapshotPtr += snapshotSize * snapshotData.LatestIndex;
+                            int changeMaskUints = GhostComponentSerializer.ChangeMaskArraySizeInUInts(typeData.ChangeMaskBits);
+                            uint* changeMask = (uint*)(snapshotPtr + 4);
+                            //Check that all the masks are zero
+                            for (int cm = 0; cm < changeMaskUints; ++cm)
+                                Assert.AreEqual(0, changeMask[cm]);
+                        }
                     }
                 }
                 for (int i = 3; i < 5; ++i)
                 {
                     var ghost = new SpawnedGhost{ghostId = serverGhosts[i].ghostId, spawnTick = serverGhosts[i].spawnTick};
-                    var ent = receiveSystem.SpawnedGhostEntityMap[ghost];
+                    var ent = testWorld.ClientWorlds[0].EntityManager.GetComponentData<SpawnedGhostEntityMap>(recvGhostMapSingleton).Value[ghost];
                     var serverData = testWorld.ServerWorld.EntityManager.GetComponentData<SomeData>(serverEntities[i]);
                     var clientdata = testWorld.ClientWorlds[0].EntityManager.GetComponentData<SomeData>(ent);
                     Assert.AreEqual(serverData.Value, clientdata.Value);

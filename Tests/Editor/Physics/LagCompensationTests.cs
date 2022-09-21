@@ -8,18 +8,20 @@ using Unity.Mathematics;
 using Unity.Transforms;
 using UnityEngine.TestTools;
 using Unity.Burst;
+using Unity.Burst.Intrinsics;
 using Unity.Collections;
+using Unity.Physics;
 
 namespace Unity.NetCode.Physics.Tests
 {
     public class LagCompensationTestPlayerConverter : TestNetCodeAuthoring.IConverter
     {
-        public void Convert(GameObject gameObject, Entity entity, EntityManager dstManager, GameObjectConversionSystem conversionSystem)
+        public void Bake(GameObject gameObject, IBaker baker)
         {
-            dstManager.AddBuffer<LagCompensationTestCommand>(entity);
-            dstManager.AddComponentData(entity, new CommandDataInterpolationDelay());
-            dstManager.AddComponentData(entity, new LagCompensationTestPlayer());
-            dstManager.AddComponentData(entity, new GhostOwnerComponent());
+            baker.AddBuffer<LagCompensationTestCommand>();
+            baker.AddComponent(new CommandDataInterpolationDelay());
+            baker.AddComponent(new LagCompensationTestPlayer());
+            baker.AddComponent(new GhostOwnerComponent());
         }
     }
 
@@ -30,10 +32,10 @@ namespace Unity.NetCode.Physics.Tests
     [NetCodeDisableCommandCodeGen]
     public struct LagCompensationTestCommand : ICommandData, ICommandDataSerializer<LagCompensationTestCommand>
     {
-        public uint Tick {get; set;}
+        public NetworkTick Tick {get; set;}
         public float3 origin;
         public float3 direction;
-        public uint lastFire;
+        public NetworkTick lastFire;
 
         public void Serialize(ref DataStreamWriter writer, in RpcSerializerState state, in LagCompensationTestCommand data)
         {
@@ -43,9 +45,9 @@ namespace Unity.NetCode.Physics.Tests
             writer.WriteFloat(data.direction.x);
             writer.WriteFloat(data.direction.y);
             writer.WriteFloat(data.direction.z);
-            writer.WriteUInt(data.lastFire);
+            writer.WriteUInt(data.lastFire.SerializedData);
         }
-        public void Serialize(ref DataStreamWriter writer, in RpcSerializerState state, in LagCompensationTestCommand data, in LagCompensationTestCommand baseline, NetworkCompressionModel model)
+        public void Serialize(ref DataStreamWriter writer, in RpcSerializerState state, in LagCompensationTestCommand data, in LagCompensationTestCommand baseline, StreamCompressionModel model)
         {
             Serialize(ref writer, state, data);
         }
@@ -57,25 +59,23 @@ namespace Unity.NetCode.Physics.Tests
             data.direction.x = reader.ReadFloat();
             data.direction.y = reader.ReadFloat();
             data.direction.z = reader.ReadFloat();
-            data.lastFire = reader.ReadUInt();
+            data.lastFire = new NetworkTick{SerializedData = reader.ReadUInt()};
         }
-        public void Deserialize(ref DataStreamReader reader, in RpcDeserializerState state, ref LagCompensationTestCommand data, in LagCompensationTestCommand baseline, NetworkCompressionModel model)
+        public void Deserialize(ref DataStreamReader reader, in RpcDeserializerState state, ref LagCompensationTestCommand data, in LagCompensationTestCommand baseline, StreamCompressionModel model)
         {
             Deserialize(ref reader, state, ref data);
         }
     }
     [DisableAutoCreation]
-    [AlwaysUpdateSystem]
+    [WorldSystemFilter(WorldSystemFilterFlags.ClientSimulation|WorldSystemFilterFlags.ServerSimulation)]
     public partial class TestAutoInGameSystem : SystemBase
     {
         BeginSimulationEntityCommandBufferSystem m_BeginSimulationCommandBufferSystem;
-        bool m_IsServer;
         EntityQuery m_PlayerPrefabQuery;
         EntityQuery m_CubePrefabQuery;
         protected override void OnCreate()
         {
-            m_BeginSimulationCommandBufferSystem = World.GetOrCreateSystem<BeginSimulationEntityCommandBufferSystem>();
-            m_IsServer = World.GetExistingSystem<ServerSimulationSystemGroup>()!=null;
+            m_BeginSimulationCommandBufferSystem = World.GetOrCreateSystemManaged<BeginSimulationEntityCommandBufferSystem>();
             m_PlayerPrefabQuery = GetEntityQuery(ComponentType.ReadOnly<Prefab>(), ComponentType.ReadOnly<GhostComponent>(), ComponentType.ReadOnly<LagCompensationTestPlayer>());
             m_CubePrefabQuery = GetEntityQuery(ComponentType.ReadOnly<Prefab>(), ComponentType.ReadOnly<GhostComponent>(), ComponentType.Exclude<LagCompensationTestPlayer>());
         }
@@ -83,9 +83,9 @@ namespace Unity.NetCode.Physics.Tests
         {
             var commandBuffer = m_BeginSimulationCommandBufferSystem.CreateCommandBuffer().AsParallelWriter();
 
-            bool isServer = m_IsServer;
-            var playerPrefab = m_PlayerPrefabQuery.GetSingletonEntity();
-            var cubePrefab = m_CubePrefabQuery.GetSingletonEntity();
+            bool isServer = World.IsServer();
+            var playerPrefab = m_PlayerPrefabQuery.ToEntityArray(Allocator.Temp)[0];
+            var cubePrefab = m_CubePrefabQuery.ToEntityArray(Allocator.Temp)[0];
             Entities.WithNone<NetworkStreamInGame>().WithoutBurst().ForEach((int entityInQueryIndex, Entity ent, in NetworkIdComponent id) =>
             {
                 commandBuffer.AddComponent(entityInQueryIndex, ent, new NetworkStreamInGame());
@@ -103,44 +103,74 @@ namespace Unity.NetCode.Physics.Tests
         }
     }
     [DisableAutoCreation]
-    public class LagCompensationTestCommandCommandSendSystem : CommandSendSystem<LagCompensationTestCommand, LagCompensationTestCommand>
+    [UpdateInGroup(typeof(CommandSendSystemGroup))]
+    [BurstCompile]
+    public partial struct LagCompensationTestCommandCommandSendSystem : ISystem
     {
+        CommandSendSystem<LagCompensationTestCommand, LagCompensationTestCommand> m_CommandSend;
         [BurstCompile]
-        struct SendJob : IJobEntityBatch
+        struct SendJob : IJobChunk
         {
-            public SendJobData data;
-            public void Execute(ArchetypeChunk chunk, int orderIndex)
+            public CommandSendSystem<LagCompensationTestCommand, LagCompensationTestCommand>.SendJobData data;
+            public void Execute(in ArchetypeChunk chunk, int unfilteredChunkIndex, bool useEnabledMask, in v128 chunkEnabledMask)
             {
-                data.Execute(chunk, orderIndex);
+                Assert.IsFalse(useEnabledMask);
+                data.Execute(chunk, unfilteredChunkIndex);
             }
         }
-        protected override void OnUpdate()
+        [BurstCompile]
+        public void OnCreate(ref SystemState state)
         {
-            var sendJob = new SendJob{data = InitJobData()};
-            ScheduleJobData(sendJob);
+            m_CommandSend.OnCreate(ref state);
+        }
+        [BurstCompile]
+        public void OnDestroy(ref SystemState state)
+        {}
+        [BurstCompile]
+        public void OnUpdate(ref SystemState state)
+        {
+            if (!m_CommandSend.ShouldRunCommandJob(ref state))
+                return;
+            var sendJob = new SendJob{data = m_CommandSend.InitJobData(ref state)};
+            state.Dependency = sendJob.Schedule(m_CommandSend.Query, state.Dependency);
         }
     }
     [DisableAutoCreation]
-    public class LagCompensationTestCommandCommandReceiveSystem : CommandReceiveSystem<LagCompensationTestCommand, LagCompensationTestCommand>
+    [WorldSystemFilter(WorldSystemFilterFlags.ServerSimulation)]
+    [UpdateInGroup(typeof(CommandReceiveSystemGroup))]
+    [BurstCompile]
+    public partial struct LagCompensationTestCommandCommandReceiveSystem : ISystem
     {
+        CommandReceiveSystem<LagCompensationTestCommand, LagCompensationTestCommand> m_CommandRecv;
         [BurstCompile]
-        struct ReceiveJob : IJobEntityBatch
+        struct ReceiveJob : IJobChunk
         {
-            public ReceiveJobData data;
-            public void Execute(ArchetypeChunk chunk, int orderIndex)
+            public CommandReceiveSystem<LagCompensationTestCommand, LagCompensationTestCommand>.ReceiveJobData data;
+            public void Execute(in ArchetypeChunk chunk, int unfilteredChunkIndex, bool useEnabledMask, in v128 chunkEnabledMask)
             {
-                data.Execute(chunk, orderIndex);
+                Assert.IsFalse(useEnabledMask);
+                data.Execute(chunk, unfilteredChunkIndex);
             }
         }
-        protected override void OnUpdate()
+        [BurstCompile]
+        public void OnCreate(ref SystemState state)
         {
-            var recvJob = new ReceiveJob{data = InitJobData()};
-            ScheduleJobData(recvJob);
+            m_CommandRecv.OnCreate(ref state);
+        }
+        [BurstCompile]
+        public void OnDestroy(ref SystemState state)
+        {}
+        [BurstCompile]
+        public void OnUpdate(ref SystemState state)
+        {
+            var recvJob = new ReceiveJob{data = m_CommandRecv.InitJobData(ref state)};
+            state.Dependency = recvJob.Schedule(m_CommandRecv.Query, state.Dependency);
         }
     }
 
     [DisableAutoCreation]
-    [UpdateInGroup(typeof(ServerSimulationSystemGroup))]
+    [RequireMatchingQueriesForUpdate]
+    [WorldSystemFilter(WorldSystemFilterFlags.ServerSimulation)]
     public partial class LagCompensationTestCubeMoveSystem : SystemBase
     {
         protected override void OnUpdate()
@@ -154,33 +184,27 @@ namespace Unity.NetCode.Physics.Tests
     }
 
     [DisableAutoCreation]
-    [UpdateInGroup(typeof(GhostPredictionSystemGroup))]
+    [RequireMatchingQueriesForUpdate]
+    [UpdateInGroup(typeof(PredictedSimulationSystemGroup))]
+    [WorldSystemFilter(WorldSystemFilterFlags.ClientSimulation|WorldSystemFilterFlags.ServerSimulation)]
     public partial class LagCompensationTestHitScanSystem : SystemBase
     {
-        private PhysicsWorldHistory m_physicsHistory;
-        private GhostPredictionSystemGroup m_predictionGroup;
-        private bool m_IsServer;
         public static int HitStatus = 0;
         public static bool EnableLagCompensation = true;
-        protected override void OnCreate()
-        {
-            m_physicsHistory = World.GetOrCreateSystem<PhysicsWorldHistory>();
-            m_predictionGroup = World.GetOrCreateSystem<GhostPredictionSystemGroup>();
-            m_IsServer = World.GetExistingSystem<ServerSimulationSystemGroup>() != null;
-        }
         protected override void OnUpdate()
         {
-            var collisionHistory = m_physicsHistory.CollisionHistory;
-            if (!m_physicsHistory.IsInitialized)
-                return;
-            uint predictingTick = m_predictionGroup.PredictingTick;
+            var networkTime = GetSingleton<NetworkTime>();
             // Do not perform hit-scan when rolling back, only when simulating the latest tick
-            if (!m_predictionGroup.IsFinalPredictionTick)
+            if (!networkTime.IsFirstTimeFullyPredictingTick)
                 return;
-            var isServer = m_IsServer;
+            var collisionHistory = GetSingleton<PhysicsWorldHistorySingleton>();
+            var physicsWorld = GetSingleton<PhysicsWorldSingleton>().PhysicsWorld;
+            var predictingTick = networkTime.ServerTick;
+            var isServer = World.IsServer();
             // Not using burst since there is a static used to update the UI
             Dependency = Entities
                 .WithoutBurst()
+                .WithReadOnly(physicsWorld)
                 .ForEach((DynamicBuffer<LagCompensationTestCommand> commands, in CommandDataInterpolationDelay delay) =>
             {
                 // If there is no data for the tick or a fire was not requested - do not process anything
@@ -191,37 +215,35 @@ namespace Unity.NetCode.Physics.Tests
                 var interpolDelay = EnableLagCompensation ? delay.Delay : 0;
 
                 // Get the collision world to use given the tick currently being predicted and the interpolation delay for the connection
-                collisionHistory.GetCollisionWorldFromTick(predictingTick, interpolDelay, out var collWorld);
+                collisionHistory.GetCollisionWorldFromTick(predictingTick, interpolDelay, ref physicsWorld, out var collWorld);
                 var rayInput = new Unity.Physics.RaycastInput();
                 rayInput.Start = cmd.origin;
                 rayInput.End = cmd.origin + cmd.direction * 100;
                 rayInput.Filter = Unity.Physics.CollisionFilter.Default;
                 bool hit = collWorld.CastRay(rayInput);
+                Debug.Log($"LagCompensationTest result on {(isServer ? "SERVER" : "CLIENT")} is {hit} ({cmd.Tick})");
                 if (hit)
                 {
                     HitStatus |= isServer?1:2;
                 }
-            }).Schedule(JobHandle.CombineDependencies(Dependency, m_physicsHistory.LastPhysicsJobHandle));
-
-            m_physicsHistory.LastPhysicsJobHandle = Dependency;
+            }).Schedule(Dependency);
         }
     }
-    [UpdateInWorld(TargetWorld.Client)]
-    [UpdateInGroup(typeof(GhostSimulationSystemGroup), OrderFirst = true)]
+    [WorldSystemFilter(WorldSystemFilterFlags.ClientSimulation)]
+    [UpdateInGroup(typeof(GhostInputSystemGroup))]
     [AlwaysSynchronizeSystem]
     [DisableAutoCreation]
     public partial class LagCompensationTestCommandSystem : SystemBase
     {
         public static float3 Target;
-        ClientSimulationSystemGroup m_systemGroup;
         protected override void OnCreate()
         {
-            RequireSingletonForUpdate<CommandTargetComponent>();
-            m_systemGroup = World.GetExistingSystem<ClientSimulationSystemGroup>();
+            RequireForUpdate<CommandTargetComponent>();
         }
         protected override void OnUpdate()
         {
             var target = GetSingleton<CommandTargetComponent>();
+            var networkTime = GetSingleton<NetworkTime>();
             if (target.targetEntity == Entity.Null)
             {
                 Entities.WithoutBurst().WithAll<PredictedGhostComponent>().ForEach((Entity entity, in LagCompensationTestPlayer player) => {
@@ -229,12 +251,12 @@ namespace Unity.NetCode.Physics.Tests
                     SetSingleton(target);
                 }).Run();
             }
-            if (target.targetEntity == Entity.Null || m_systemGroup.ServerTick == 0 || !EntityManager.HasComponent<LagCompensationTestCommand>(target.targetEntity))
+            if (target.targetEntity == Entity.Null || !networkTime.ServerTick.IsValid || !EntityManager.HasComponent<LagCompensationTestCommand>(target.targetEntity))
                 return;
 
             var buffer = EntityManager.GetBuffer<LagCompensationTestCommand>(target.targetEntity);
             var cmd = default(LagCompensationTestCommand);
-            cmd.Tick = m_systemGroup.ServerTick;
+            cmd.Tick = networkTime.ServerTick;
             if (math.any(Target != default))
             {
                 Entities.WithoutBurst().WithNone<PredictedGhostComponent>().WithAll<GhostComponent>().ForEach((in Translation pos) => {
@@ -276,20 +298,18 @@ namespace Unity.NetCode.Physics.Tests
                 Assert.IsFalse(testWorld.TryGetSingletonEntity<LagCompensationConfig>(testWorld.ServerWorld) != Entity.Null);
                 Assert.IsFalse(testWorld.TryGetSingletonEntity<LagCompensationConfig>(testWorld.ClientWorlds[0]) != Entity.Null);
 
-                var ep = NetworkEndPoint.LoopbackIpv4;
+                var ep = NetworkEndpoint.LoopbackIpv4;
                 ep.Port = 7979;
-                testWorld.ServerWorld.GetExistingSystem<NetworkStreamReceiveSystem>().Listen(ep);
-                testWorld.ClientWorlds[0].GetExistingSystem<NetworkStreamReceiveSystem>().Connect(ep);
+                testWorld.GetSingletonRW<NetworkStreamDriver>(testWorld.ServerWorld).ValueRW.Listen(ep);
+                testWorld.GetSingletonRW<NetworkStreamDriver>(testWorld.ClientWorlds[0]).ValueRW.Connect(testWorld.ClientWorlds[0].EntityManager, ep);
 
                 for (int i = 0; i < 16; ++i)
                     testWorld.Tick(16f/1000f);
 
-                var serverPhy = testWorld.ServerWorld.GetExistingSystem<PhysicsWorldHistory>();
-                Assert.IsFalse(serverPhy.IsInitialized);
-                Assert.AreEqual(0, serverPhy.LastStoreTick);
-                var clientPhy = testWorld.ServerWorld.GetExistingSystem<PhysicsWorldHistory>();
-                Assert.IsFalse(clientPhy.IsInitialized);
-                Assert.AreEqual(0, clientPhy.LastStoreTick);
+                var serverPhy = testWorld.GetSingleton<PhysicsWorldHistorySingleton>(testWorld.ServerWorld);
+                Assert.AreEqual(NetworkTick.Invalid, serverPhy.m_LastStoreTick);
+                var clientPhy = testWorld.GetSingleton<PhysicsWorldHistorySingleton>(testWorld.ClientWorlds[0]);
+                Assert.AreEqual(NetworkTick.Invalid, clientPhy.m_LastStoreTick);
             }
         }
 
@@ -316,10 +336,10 @@ namespace Unity.NetCode.Physics.Tests
                 playerGameObject.AddComponent<TestNetCodeAuthoring>().Converter = new LagCompensationTestPlayerConverter();
                 playerGameObject.name = "LagCompensationTestPlayer";
                 var ghostAuth = playerGameObject.AddComponent<GhostAuthoringComponent>();
-                ghostAuth.DefaultGhostMode = GhostAuthoringComponent.GhostMode.OwnerPredicted;
+                ghostAuth.DefaultGhostMode = GhostMode.OwnerPredicted;
                 var cubeGameObject = new GameObject();
                 cubeGameObject.name = "LagCompensationTestCube";
-                var collider = cubeGameObject.AddComponent<BoxCollider>();
+                var collider = cubeGameObject.AddComponent<UnityEngine.BoxCollider>();
                 collider.size = new Vector3(1,1,1);
 
                 Assert.IsTrue(testWorld.CreateGhostCollection(
@@ -327,15 +347,12 @@ namespace Unity.NetCode.Physics.Tests
 
                 testWorld.CreateWorlds(true, 1);
 
-                var serverConfig = testWorld.ServerWorld.EntityManager.CreateEntity(typeof(LagCompensationConfig));
-                var clientConfig = testWorld.ClientWorlds[0].EntityManager.CreateEntity(typeof(LagCompensationConfig));
-                Assert.IsTrue(testWorld.TryGetSingletonEntity<LagCompensationConfig>(testWorld.ServerWorld) != Entity.Null);
-                Assert.IsTrue(testWorld.TryGetSingletonEntity<LagCompensationConfig>(testWorld.ClientWorlds[0]) != Entity.Null);
-
-                var ep = NetworkEndPoint.LoopbackIpv4;
+                testWorld.ServerWorld.EntityManager.CreateEntity(typeof(LagCompensationConfig));
+                testWorld.ClientWorlds[0].EntityManager.CreateEntity(typeof(LagCompensationConfig));
+                var ep = NetworkEndpoint.LoopbackIpv4;
                 ep.Port = 7979;
-                testWorld.ServerWorld.GetExistingSystem<NetworkStreamReceiveSystem>().Listen(ep);
-                testWorld.ClientWorlds[0].GetExistingSystem<NetworkStreamReceiveSystem>().Connect(ep);
+                testWorld.GetSingletonRW<NetworkStreamDriver>(testWorld.ServerWorld).ValueRW.Listen(ep);
+                testWorld.GetSingletonRW<NetworkStreamDriver>(testWorld.ClientWorlds[0]).ValueRW.Connect(testWorld.ClientWorlds[0].EntityManager, ep);
 
                 LagCompensationTestHitScanSystem.HitStatus = 0;
                 LagCompensationTestHitScanSystem.EnableLagCompensation = true;
@@ -343,7 +360,7 @@ namespace Unity.NetCode.Physics.Tests
                 // Give the netcode some time to spawn entities and settle on a good time synchronization
                 for (int i = 0; i < 128; ++i)
                     testWorld.Tick(1f/60f);
-                LagCompensationTestCommandSystem.Target = new float3(-0.45f,0,-0.5f);
+                LagCompensationTestCommandSystem.Target = new float3(-0.35f,0,-0.5f);
                 for (int i = 0; i < 32; ++i)
                     testWorld.Tick(1f/60f);
                 Assert.AreEqual(3, LagCompensationTestHitScanSystem.HitStatus);
@@ -358,7 +375,7 @@ namespace Unity.NetCode.Physics.Tests
                 // Make sure there is no hit without lag compensation
                 LagCompensationTestHitScanSystem.HitStatus = 0;
                 LagCompensationTestHitScanSystem.EnableLagCompensation = false;
-                LagCompensationTestCommandSystem.Target = new float3(-0.45f,0,-0.5f);
+                LagCompensationTestCommandSystem.Target = new float3(-0.35f,0,-0.5f);
                 for (int i = 0; i < 32; ++i)
                     testWorld.Tick(1f/60f);
                 Assert.AreEqual(2, LagCompensationTestHitScanSystem.HitStatus);

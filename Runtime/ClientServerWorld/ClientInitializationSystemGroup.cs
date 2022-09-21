@@ -3,41 +3,18 @@ using Unity.Entities;
 
 namespace Unity.NetCode
 {
-    [DisableAutoCreation]
-    [AlwaysUpdateSystem]
-    public class ClientInitializationSystemGroup : InitializationSystemGroup
-    {
-#if !UNITY_SERVER
-        internal TickClientInitializationSystem ParentTickSystem;
-        protected override void OnDestroy()
-        {
-            if (ParentTickSystem != null)
-                ParentTickSystem.RemoveSystemFromUpdateList(this);
-#if !UNITY_DOTSRUNTIME
-            ScriptBehaviourUpdateOrder.RemoveWorldFromCurrentPlayerLoop(World);
-#endif
-        }
-#endif
-    }
-
-#if !UNITY_SERVER
+    /// <summary>
+    /// Update the <see cref="InitializationSystemGroup"/> of a client world from another world (usually the default world)
+    /// Used only for DOTSRuntime and tests or other specific use cases.
+    /// </summary>
+#if !UNITY_SERVER || UNITY_EDITOR
 #if !UNITY_DOTSRUNTIME
     [DisableAutoCreation]
 #endif
     [UpdateInGroup(typeof(InitializationSystemGroup))]
-    [AlwaysUpdateSystem]
-    [UpdateInWorld(TargetWorld.Default)]
-    public class TickClientInitializationSystem : ComponentSystemGroup
+    [WorldSystemFilter(WorldSystemFilterFlags.LocalSimulation)]
+    internal class TickClientInitializationSystem : TickComponentSystemGroup
     {
-        protected override void OnDestroy()
-        {
-            foreach (var sys in Systems)
-            {
-                var grp = sys as ClientInitializationSystemGroup;
-                if (grp != null)
-                    grp.ParentTickSystem = null;
-            }
-        }
     }
 #endif
 }

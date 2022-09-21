@@ -19,19 +19,19 @@ namespace Generated
             #endregion
         }
 
-        public void Serialize(int networkId, ref GhostSnapshotData baseline, ref DataStreamWriter writer, NetworkCompressionModel compressionModel)
+        public void Serialize(int networkId, ref GhostSnapshotData baseline, ref DataStreamWriter writer, StreamCompressionModel compressionModel)
         {
             #region __GHOST_WRITE__
-            if ((changeMask__GHOST_MASK_BATCH__ & (1 << __GHOST_MASK_INDEX__)) != 0)
+            if ((changeMask & (1 << __GHOST_MASK_INDEX__)) != 0)
                 writer.WritePackedUIntDelta(snapshot.__GHOST_FIELD_NAME__, baseline.__GHOST_FIELD_NAME__, compressionModel);
             #endregion
         }
 
         public void Deserialize(uint tick, ref GhostSnapshotData baseline, ref DataStreamReader reader,
-            NetworkCompressionModel compressionModel)
+            StreamCompressionModel compressionModel)
         {
             #region __GHOST_READ__
-            if ((changeMask__GHOST_MASK_BATCH__ & (1 << __GHOST_MASK_INDEX__)) != 0)
+            if ((changeMask & (1 << __GHOST_MASK_INDEX__)) != 0)
                 snapshot.__GHOST_FIELD_NAME__ = reader.ReadPackedUIntDelta(baseline.__GHOST_FIELD_NAME__, compressionModel);
             else
                 snapshot.__GHOST_FIELD_NAME__ = baseline.__GHOST_FIELD_NAME__;
@@ -70,7 +70,7 @@ namespace Generated
             changeMask |= (snapshot.__GHOST_FIELD_NAME__ != baseline.__GHOST_FIELD_NAME__) ? (1u<<__GHOST_MASK_INDEX__) : 0;
             #endregion
         }
-        public void SerializeCommand(ref DataStreamWriter writer, in IComponentData data, in IComponentData baseline, NetworkCompressionModel compressionModel)
+        public void SerializeCommand(ref DataStreamWriter writer, in IComponentData data, in IComponentData baseline, StreamCompressionModel compressionModel)
         {
             #region __COMMAND_WRITE__
             writer.WriteUInt((uint)data.__COMMAND_FIELD_NAME__);
@@ -80,7 +80,7 @@ namespace Generated
             #endregion
         }
 
-        public void DeserializeCommand(ref DataStreamReader reader, ref IComponentData data, in IComponentData baseline, NetworkCompressionModel compressionModel)
+        public void DeserializeCommand(ref DataStreamReader reader, ref IComponentData data, in IComponentData baseline, StreamCompressionModel compressionModel)
         {
             #region __COMMAND_READ__
             data.__COMMAND_FIELD_NAME__ = (__COMMAND_FIELD_TYPE_NAME__) reader.ReadUInt();

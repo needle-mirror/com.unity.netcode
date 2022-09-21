@@ -5,8 +5,5 @@ namespace Unity.NetCode
     /// <summary>
     /// Singleton component used to enable/disable the built-in scene auto-tracking.
     /// </summary>
-    [GenerateAuthoringComponent]
-    public struct DisableAutomaticPrespawnSectionReporting : IComponentData
-    {
-    }
+    public struct DisableAutomaticPrespawnSectionReporting : IComponentData {}
 }

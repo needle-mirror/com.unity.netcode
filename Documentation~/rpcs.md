@@ -37,12 +37,12 @@ To complete the example, you must create some entities to send and recieve the c
 The following is an example of a simple send system:
 
 ```c#
-[UpdateInGroup(typeof(ClientSimulationSystemGroup))]
-public class ClientRcpSendSystem : ComponentSystem
+[WorldSystemFilter(WorldSystemFilterFlags.ClientSimulation)]
+public class ClientRpcSendSystem : ComponentSystem
 {
     protected override void OnCreate()
     {
-        RequireSingletonForUpdate<NetworkIdComponent>();
+        RequireForUpdate<NetworkIdComponent>();
     }
 
     protected override void OnUpdate()
@@ -62,7 +62,7 @@ This system sends a command if the user presses the space bar on their keyboard.
 When the rpc is received, an entity that you can filter on is created by a code-generated system. To test if this works, the following example creates a system that receives the `OurRpcCommand`:
 
 ```c#
-[UpdateInGroup(typeof(ServerSimulationSystemGroup))]
+[WorldSystemFilter(WorldSystemFilterFlags.ServerSimulation)]
 public class ServerRpcReceiveSystem : ComponentSystem
 {
     protected override void OnUpdate()
@@ -103,7 +103,7 @@ public struct OurRpcCommand : IComponentData, IRpcCommandSerializer<OurRpcComman
     {
     }
 
-    static PortableFunctionPointer<RpcExecutor.ExecuteDelegate> InvokeExecuteFunctionPointer = new PortableFunctionPointer<RpcExecutor.ExecuteDelegate>(InvokeExecute);
+    static readonly PortableFunctionPointer<RpcExecutor.ExecuteDelegate> InvokeExecuteFunctionPointer = new PortableFunctionPointer<RpcExecutor.ExecuteDelegate>(InvokeExecute);
 }
 ```
 
@@ -128,25 +128,38 @@ private static void InvokeExecute(ref RpcExecutor.Parameters parameters)
 
 This creates an entity with a [ReceiveRpcCommandRequestComponent](https://docs.unity3d.com/Packages/com.unity.netcode@latest/index.html?subfolder=/api/Unity.NetCode.ReceiveRpcCommandRequestComponent.html) and `OurRpcCommand` components.
 
-Once you create an [IRpcCommandSerializer](https://docs.unity3d.com/Packages/com.unity.netcode@latest/index.html?subfolder=/api/Unity.NetCode.IRpcCommanSerializer.html), you need to make sure that the [RpcCommandRequest](https://docs.unity3d.com/Packages/com.unity.netcode@latest/index.html?subfolder=/api/Unity.NetCode.RpcCommandRequestSystem-1.html) system picks it up. To do this, you can create a system that extends the `RpcCommandRequest` system, as follows:
+Once you create an [IRpcCommandSerializer](https://docs.unity3d.com/Packages/com.unity.netcode@latest/index.html?subfolder=/api/Unity.NetCode.IRpcCommanSerializer.html), you need to make sure that the [RpcCommandRequest](https://docs.unity3d.com/Packages/com.unity.netcode@latest/index.html?subfolder=/api/Unity.NetCode.RpcCommandRequestSystem-1.html) system picks it up. To do this, you can create a system that invokes the `RpcCommandRequest`, as follows:
 
 ```c#
-public class OurRpcCommandRequestSystem : RpcCommandRequestSystem<OurRpcCommand, OurRpcCommand>
+[UpdateInGroup(typeof(RpcCommandRequestSystemGroup))]
+[CreateAfter(typeof(RpcSystem))]
+[BurstCompile]
+partial struct OurRpcCommandRequestSystem : ISystem
 {
+    RpcCommandRequest<OurRpcCommand, OurRpcCommand> m_Request;
     [BurstCompile]
-    protected struct SendRpc : IJobEntityBatch
+    struct SendRpc : IJobChunk
     {
-        public SendRpcData data;
-        public void Execute(ArchetypeChunk chunk, int orderIndex)
+        public RpcCommandRequest<OurRpcCommand, OurRpcCommand>.SendRpcData data;
+        public void Execute(in ArchetypeChunk chunk, int unfilteredChunkIndex, bool useEnabledMask, in v128 chunkEnabledMask)
         {
-            data.Execute(chunk, orderIndex);
+            Assert.IsFalse(useEnabledMask);
+            data.Execute(chunk, unfilteredChunkIndex);
         }
     }
-    protected override void OnUpdate()
-    {
-        var sendJob = new SendRpc{data = InitJobData()};
-        ScheduleJobData(sendJob);
-    }
+        public void OnCreate(ref SystemState state)
+        {
+            m_Request.OnCreate(ref state);
+        }
+        [BurstCompile]
+        public void OnDestroy(ref SystemState state)
+        {}
+        [BurstCompile]
+        public void OnUpdate(ref SystemState state)
+        {
+            var sendJob = new SendRpc{data = m_Request.InitJobData(ref state)};
+            state.Dependency = sendJob.Schedule(m_Request.Query, state.Dependency);
+        }
 }
 ```
 
@@ -185,7 +198,7 @@ public struct OurDataRpcCommand : IComponentData, IRpcCommandSerializer<OurDataR
         RpcExecutor.ExecuteCreateRequestComponent<OurDataRpcCommand, OurDataRpcCommand>(ref parameters);
     }
 
-    static PortableFunctionPointer<RpcExecutor.ExecuteDelegate> InvokeExecuteFunctionPointer = new PortableFunctionPointer<RpcExecutor.ExecuteDelegate>(InvokeExecute);
+    static readonly PortableFunctionPointer<RpcExecutor.ExecuteDelegate> InvokeExecuteFunctionPointer = new PortableFunctionPointer<RpcExecutor.ExecuteDelegate>(InvokeExecute);
 }
 ```
 
@@ -195,26 +208,25 @@ public struct OurDataRpcCommand : IComponentData, IRpcCommandSerializer<OurDataR
 
 ## RpcQueue
 
-The [RpcQueue](https://docs.unity3d.com/Packages/com.unity.netcode@latest/index.html?subfolder=/api/Unity.NetCode.RpcQueue-1.html) is used internally to schedule outgoing RPCs. However, you can use `OnGetOrCreateManager` to manually create your own schedule. To do this, call `m_RpcQueue = World.GetOrCreateManager<RpcSystem>().GetRpcQueue<OurRpcCommand>();` and cache it through the lifetime of your application. When you have the queue, get the `OutgoingRpcDataStreamBufferComponent` from an entity to schedule events in the queue and then call `rpcQueue.Schedule(rpcBuffer, new OurRpcCommand);`, as follows:
+The [RpcQueue](https://docs.unity3d.com/Packages/com.unity.netcode@latest/index.html?subfolder=/api/Unity.NetCode.RpcQueue-1.html) is used internally to schedule outgoing RPCs. However, you can manually create your own queue and use it to schedule RPCs. To do this, call `GetSingleton<RpcCollection>().GetRpcQueue<OurRpcCommand>();`. You can either call it in `OnUpdate` or call it in `OnCreate` and cache the value through the lifetime of your application. If you do call it in `OnCreate` you must make sure that the system calling it is created after `RpcSystem`. When you have the queue, get the `OutgoingRpcDataStreamBufferComponent` from an entity to schedule events in the queue and then call `rpcQueue.Schedule(rpcBuffer, new OurRpcCommand);`, as follows:
 
 ```c#
-[UpdateInGroup(typeof(ClientSimulationSystemGroup))]
-public class ClientQueueRcpSendSystem : ComponentSystem
+[WorldSystemFilter(WorldSystemFilterFlags.ClientSimulation)]
+public class ClientQueueRpcSendSystem : ComponentSystem
 {
-    private RpcQueue<OurRpcCommand, OurRpcCommand> rpcQueue;
     protected override void OnCreate()
     {
-        RequireSingletonForUpdate<NetworkIdComponent>();
-        rpcQueue = World.GetOrCreateSystem<RpcSystem>().GetRpcQueue<OurRpcCommand, OurRpcCommand>();
+        RequireForUpdate<NetworkIdComponent>();
     }
 
     protected override void OnUpdate()
     {
         if (Input.GetKey("space"))
         {
+            var rpcQueue = GetSingleton<RpcCollection>().GetRpcQueue<OurRpcCommand, OurRpcCommand>();
             Entities.ForEach((Entity entity, ref NetworkStreamConnection connection) =>
             {
-            	var rpcFromEntity = GetBufferFromEntity<OutgoingRpcDataStreamBufferComponent>();
+            	var rpcFromEntity = GetBufferLookup<OutgoingRpcDataStreamBufferComponent>();
                 if (rpcFromEntity.Exists(entity))
                 {
                     var buffer = rpcFromEntity[entity];

@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using NUnit.Framework;
 using Unity.Entities;
 using Unity.Networking.Transport;
@@ -13,12 +14,14 @@ namespace Unity.NetCode.Tests
 {
     public class MultiEntityGhostConverter : TestNetCodeAuthoring.IConverter
     {
-        public void Convert(GameObject gameObject, Entity entity, EntityManager dstManager, GameObjectConversionSystem conversionSystem)
+        public void Bake(GameObject gameObject, IBaker baker)
         {
-            dstManager.AddComponentData(entity, new GhostOwnerComponent());
-            dstManager.AddComponentData(entity, new ChildLevelComponent());
-            if (gameObject.transform.parent == null)
-                dstManager.AddComponentData(entity, new TopLevelGhostEntity());
+            baker.AddComponent(new GhostOwnerComponent());
+            baker.AddComponent(new ChildLevelComponent());
+            var transform = baker.GetComponent<Transform>();
+            baker.DependsOn(transform.parent);
+            if (transform.parent == null)
+                baker.AddComponent(new TopLevelGhostEntity());
         }
     }
     public struct TopLevelGhostEntity : IComponentData
@@ -31,7 +34,7 @@ namespace Unity.NetCode.Tests
     public class MultiEntityGhostTests
     {
         [Test]
-        public void ChildEntityDataReplicationCanBeDisabled()
+        public void ChildEntityDataReplicationCanBeDisabledViaFlagOnGhostComponentAttribute()
         {
             using (var testWorld = new NetCodeTestWorld())
             {
@@ -77,7 +80,7 @@ namespace Unity.NetCode.Tests
             }
         }
         [Test]
-        public void ChildEntityDataIsReplicated()
+        public void ChildEntityDataCanBeReplicatedViaFlagOnGhostComponentAttribute()
         {
             using (var testWorld = new NetCodeTestWorld())
             {

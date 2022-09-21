@@ -89,9 +89,9 @@ namespace Unity.NetCode.Tests
 
     public class GhostGenTestTypesConverter : TestNetCodeAuthoring.IConverter
     {
-        public void Convert(GameObject gameObject, Entity entity, EntityManager dstManager, GameObjectConversionSystem conversionSystem)
+        public void Bake(GameObject gameObject, IBaker baker)
         {
-            dstManager.AddComponentData(entity, new GhostGenTestTypeFlat {});
+            baker.AddComponent(new GhostGenTestTypeFlat {});
         }
     }
 
@@ -410,9 +410,9 @@ namespace Unity.NetCode.Tests
 
         public class GhostGenBigStructConverter : TestNetCodeAuthoring.IConverter
         {
-            public void Convert(GameObject gameObject, Entity entity, EntityManager dstManager, GameObjectConversionSystem conversionSystem)
+            public void Bake(GameObject gameObject, IBaker baker)
             {
-                dstManager.AddComponentData(entity, new GhostGenBigStruct {});
+                baker.AddComponent(new GhostGenBigStruct {});
             }
         }
 

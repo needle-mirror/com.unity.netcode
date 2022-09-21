@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Reflection.Emit;
 using NUnit.Framework;
@@ -9,7 +10,6 @@ using Unity.Mathematics;
 using UnityEngine;
 using Unity.NetCode.Editor;
 using Unity.NetCode.LowLevel.Unsafe;
-using Unity.Networking.Transport.Utilities;
 using UnityEditor.Compilation;
 
 namespace Unity.NetCode.Tests
@@ -56,21 +56,29 @@ namespace Unity.NetCode.Tests
         [GhostField] public byte Value;
     }
 
-    public class GhostByteBufferAuthoringComponent : MonoBehaviour, IConvertGameObjectToEntity
+    public class GhostByteBufferAuthoringComponent : MonoBehaviour
     {
-        public void Convert(Entity entity, EntityManager dstManager, GameObjectConversionSystem conversionSystem)
-        {
-            dstManager.AddBuffer<GhostGenBuffer_ByteBuffer>(entity);
-        }
     }
-    public class GhostGenBufferAuthoringComponent : MonoBehaviour, IConvertGameObjectToEntity
+
+    class GhostByteBufferAuthoringComponentBaker : Baker<GhostByteBufferAuthoringComponent>
     {
-        public void Convert(Entity entity, EntityManager dstManager, GameObjectConversionSystem conversionSystem)
+        public override void Bake(GhostByteBufferAuthoringComponent authoring)
         {
-            dstManager.AddBuffer<GhostGenTest_Buffer>(entity);
+            AddBuffer<GhostGenBuffer_ByteBuffer>();
         }
     }
 
+    public class GhostGenBufferAuthoringComponent : MonoBehaviour
+    {
+    }
+
+    class GhostGenBufferAuthoringComponentBaker : Baker<GhostGenBufferAuthoringComponent>
+    {
+        public override void Bake(GhostGenBufferAuthoringComponent authoring)
+        {
+            AddBuffer<GhostGenTest_Buffer>();
+        }
+    }
 
     static class BufferTestHelper
     {
@@ -99,21 +107,38 @@ namespace Unity.NetCode.Tests
                 buffer[i] = new GhostGenBuffer_ByteBuffer {Value = (byte) (baseBalue * (i + 1))};
         }
 
-        public static void CheckBuffersValues(NetCodeTestWorld testWorld, Entity serverEntity, Entity clientEntity)
+        public static void CheckBuffersValues(NetCodeTestWorld testWorld, Entity serverEntity, Entity clientEntity, bool shouldMatch)
         {
             Assert.AreNotEqual(Entity.Null, serverEntity);
             Assert.AreNotEqual(Entity.Null, clientEntity);
             var serverBuffer = testWorld.ServerWorld.EntityManager.GetBuffer<GhostGenTest_Buffer>(serverEntity);
             var clientBuffer = testWorld.ClientWorlds[0].EntityManager.GetBuffer<GhostGenTest_Buffer>(clientEntity);
-            Assert.AreEqual(serverBuffer.Length, clientBuffer.Length);
-            for (int i = 0; i < serverBuffer.Length; ++i)
+
+            if (shouldMatch)
             {
-                var bs = serverBuffer[i];
-                var cs = clientBuffer[i];
-                Assert.AreEqual(bs.IntValue, cs.IntValue);
-                Assert.AreEqual(bs.UIntValue, cs.UIntValue);
-                Assert.AreEqual(bs.BoolValue, cs.BoolValue);
-                Assert.AreEqual(bs.FloatValue, cs.FloatValue);
+                Assert.AreEqual(serverBuffer.Length, clientBuffer.Length);
+                for (int i = 0; i < serverBuffer.Length; ++i)
+                {
+                    var bs = serverBuffer[i];
+                    var cs = clientBuffer[i];
+                    Assert.AreEqual(bs.IntValue, cs.IntValue);
+                    Assert.AreEqual(bs.UIntValue, cs.UIntValue);
+                    Assert.AreEqual(bs.BoolValue, cs.BoolValue);
+                    Assert.AreEqual(bs.FloatValue, cs.FloatValue);
+                }
+            }
+            else
+            {
+                // TODO: Seems like buffers sometimes have the same buffer length even when unsent. Assert.AreNotEqual(serverBuffer.Length, clientBuffer.Length);
+                for (int i = 0; i < serverBuffer.Length && i < clientBuffer.Length; ++i)
+                {
+                    var bs = serverBuffer[i];
+                    var cs = clientBuffer[i];
+                    Assert.AreNotEqual(bs.IntValue, cs.IntValue);
+                    Assert.AreNotEqual(bs.UIntValue, cs.UIntValue);
+                    Assert.AreNotEqual(bs.BoolValue, cs.BoolValue);
+                    Assert.AreNotEqual(bs.FloatValue, cs.FloatValue);
+                }
             }
         }
 
@@ -128,8 +153,8 @@ namespace Unity.NetCode.Tests
 
         public static Entity[] GetClientEntities(NetCodeTestWorld testWorld, Entity[] entities)
         {
-            testWorld.ClientWorlds[0].GetExistingSystem<GhostReceiveSystem>().LastGhostMapWriter.Complete();
-            var entityMap = testWorld.ClientWorlds[0].GetExistingSystem<GhostReceiveSystem>().SpawnedGhostEntityMap;
+            var ghostMapSingleton = testWorld.TryGetSingletonEntity<SpawnedGhostEntityMap>(testWorld.ClientWorlds[0]);
+            var entityMap = testWorld.ClientWorlds[0].EntityManager.GetComponentData<SpawnedGhostEntityMap>(ghostMapSingleton).Value;
             var clientEntities = new Entity[entities.Length];
             for (int i = 0; i < entities.Length; ++i)
             {
@@ -140,7 +165,7 @@ namespace Unity.NetCode.Tests
             return clientEntities;
         }
 
-        //Valide that client dynamic snapshot data as the content layout has we expect
+        //Validate that client dynamic snapshot data as the content layout has we expect
         public static void ValidateMultiBufferSnapshotDataContents(in DynamicBuffer<SnapshotDynamicDataBuffer> dynamicBuffer,
             int structBufLen, int b1, int byteBufLen, int b2)
         {
@@ -149,7 +174,7 @@ namespace Unity.NetCode.Tests
             unsafe
             {
                 var pointer = (uint*) dynamicBuffer.GetUnsafeReadOnlyPtr();
-                var expectedSize = GhostCollectionSystem.SnapshotSizeAligned((structBufLen * 16 + 16) + (16 + 4 * byteBufLen));
+                var expectedSize = GhostComponentSerializer.SnapshotSizeAligned((structBufLen * 16 + 16) + (16 + 4 * byteBufLen));
                 for (int i = 0; i < 32; ++i)
                 {
                     var dataSize = pointer[i];
@@ -186,10 +211,10 @@ namespace Unity.NetCode.Tests
                     var oldPtr = pointer;
                     pointer += maskUints2;
                     CheckByteBuffer(pointer, byteBufLen);
-                    pointer += GhostCollectionSystem.SnapshotSizeAligned(4*byteBufLen)/4;
+                    pointer += GhostComponentSerializer.SnapshotSizeAligned(4*byteBufLen)/4;
                     pointer += maskUints1;
                     CheckStructBuffer(pointer, structBufLen);
-                    pointer += GhostCollectionSystem.SnapshotSizeAligned(16 * structBufLen)/4;
+                    pointer += GhostComponentSerializer.SnapshotSizeAligned(16 * structBufLen)/4;
                     pointer = oldPtr + stride / 4;
                 }
             }
@@ -227,11 +252,11 @@ namespace Unity.NetCode.Tests
                     testWorld.Tick(frameTime);
 
                 var clientEntities = BufferTestHelper.GetClientEntities(testWorld, new [] {serverEntity});
-                BufferTestHelper.CheckBuffersValues(testWorld, serverEntity, clientEntities[0]);
+                BufferTestHelper.CheckBuffersValues(testWorld, serverEntity, clientEntities[0], true);
                 BufferTestHelper.SetBufferValues(testWorld.ServerWorld, serverEntity, 3, 10);
                 for (int i = 0; i < 8; ++i)
                     testWorld.Tick(frameTime);
-                BufferTestHelper.CheckBuffersValues(testWorld, serverEntity, clientEntities[0]);
+                BufferTestHelper.CheckBuffersValues(testWorld, serverEntity, clientEntities[0], true);
             }
         }
 
@@ -263,22 +288,22 @@ namespace Unity.NetCode.Tests
 
                 var clientEntities = BufferTestHelper.GetClientEntities(testWorld, new [] {serverEntity});
                 //Buffer are empty on both sides
-                BufferTestHelper.CheckBuffersValues(testWorld, serverEntity, clientEntities[0]);
+                BufferTestHelper.CheckBuffersValues(testWorld, serverEntity, clientEntities[0], true);
                 //Set bufferrs
                 BufferTestHelper.SetBufferValues(testWorld.ServerWorld, serverEntity, 3, 10);
                 for (int i = 0; i < 32; ++i)
                     testWorld.Tick(frameTime);
-                BufferTestHelper.CheckBuffersValues(testWorld, serverEntity, clientEntities[0]);
+                BufferTestHelper.CheckBuffersValues(testWorld, serverEntity, clientEntities[0], true);
                 //Shrink
                 BufferTestHelper.SetBufferValues(testWorld.ServerWorld, serverEntity, 2, 20);
                 for (int i = 0; i < 32; ++i)
                     testWorld.Tick(frameTime);
-                BufferTestHelper.CheckBuffersValues(testWorld, serverEntity, clientEntities[0]);
+                BufferTestHelper.CheckBuffersValues(testWorld, serverEntity, clientEntities[0], true);
                 //Resize larger
                 BufferTestHelper.SetBufferValues(testWorld.ServerWorld, serverEntity, 5, 30);
                 for (int i = 0; i < 32; ++i)
                     testWorld.Tick(frameTime);
-                BufferTestHelper.CheckBuffersValues(testWorld, serverEntity, clientEntities[0]);
+                BufferTestHelper.CheckBuffersValues(testWorld, serverEntity, clientEntities[0], true);
             }
         }
 
@@ -316,7 +341,7 @@ namespace Unity.NetCode.Tests
                     var dynamicBuffer = testWorld.ClientWorlds[0].EntityManager
                         .GetBuffer<NetCode.SnapshotDynamicDataBuffer>(clientEntities[0]);
                     BufferTestHelper.ValidateMultiBufferSnapshotDataContents(dynamicBuffer, len1, b1, len2, b2);
-                    BufferTestHelper.CheckBuffersValues(testWorld, serverEntity, clientEntities[0]);
+                    BufferTestHelper.CheckBuffersValues(testWorld, serverEntity, clientEntities[0], true);
                 }
 
                 //Set buffers values
@@ -351,14 +376,13 @@ namespace Unity.NetCode.Tests
 
         public class GhostBufferMixedTypesConverter : TestNetCodeAuthoring.IConverter
         {
-            public void Convert(GameObject gameObject, Entity entity, EntityManager dstManager,
-                GameObjectConversionSystem conversionSystem)
+            public void Bake(GameObject gameObject, IBaker baker)
             {
-                dstManager.AddComponent<GhostGen_IntStruct>(entity);
-                dstManager.AddComponent<GhostGen_InterpolatedStruct>(entity);
-                dstManager.AddBuffer<GhostGen_BufferInterpolated>(entity);
-                dstManager.AddBuffer<GhostGenTest_Buffer>(entity);
-                dstManager.AddBuffer<GhostGenBuffer_BufferComposite>(entity);
+                baker.AddComponent<GhostGen_IntStruct>();
+                baker.AddComponent<GhostGen_InterpolatedStruct>();
+                baker.AddBuffer<GhostGen_BufferInterpolated>();
+                baker.AddBuffer<GhostGenTest_Buffer>();
+                baker.AddBuffer<GhostGenBuffer_BufferComposite>();
             }
         }
 
@@ -555,7 +579,6 @@ namespace Unity.NetCode.Tests
                     testWorld.Tick(frameTime);
 
                 var clientEntities = BufferTestHelper.GetClientEntities(testWorld, serverEntities);
-                testWorld.ClientWorlds[0].GetExistingSystem<GhostReceiveSystem>().LastGhostMapWriter.Complete();
                 for (int i = 0; i < serverEntities.Length; ++i)
                 {
                     BufferTestHelper.CheckByteBufferValues(testWorld, serverEntities[i], clientEntities[i]);
@@ -563,11 +586,23 @@ namespace Unity.NetCode.Tests
             }
         }
 
+        [DisableAutoCreation]
+        class TestAddBufferToDefaultSerializationSystem : DefaultVariantSystemBase
+        {
+            protected override void RegisterDefaultVariants(Dictionary<ComponentType, Rule> defaultVariants)
+            {
+                defaultVariants.Add(typeof(GhostGenTest_Buffer), Rule.ForAll(typeof(GhostGenTest_Buffer)));
+            }
+        }
+
         [Test]
-        public void ChildEntitiesBuffersAreSerialized()
+        public void ChildEntitiesBuffersAreSerializedCorrectly([Values]SendForChildrenTestCase sendForChildrenTestCase)
         {
             using (var testWorld = new NetCodeTestWorld())
             {
+                if (sendForChildrenTestCase == SendForChildrenTestCase.YesViaDefaultNameDictionary)
+                    testWorld.UserBakingSystems.Add(typeof(TestAddBufferToDefaultSerializationSystem));
+
                 testWorld.Bootstrap(true);
 
                 var ghostGameObject = new GameObject();
@@ -576,9 +611,27 @@ namespace Unity.NetCode.Tests
                 int numChild = 1;
                 for (int i = 0; i < numChild; ++i)
                 {
-                    var go = new GameObject("child");
-                    go.AddComponent<GhostGenBufferAuthoringComponent>();
-                    go.transform.parent = ghostGameObject.transform;
+                    var childGo = new GameObject("child");
+                    childGo.AddComponent<GhostGenBufferAuthoringComponent>();
+                    childGo.transform.parent = ghostGameObject.transform;
+
+                    // Ensure the buffer on the child is serialized:
+                    if (sendForChildrenTestCase == SendForChildrenTestCase.YesViaInspectionComponentOverride)
+                    {
+                        var childInspectionComponent = childGo.AddComponent<GhostAuthoringInspectionComponent>();
+                        var fullTypeName = typeof(GhostGenTest_Buffer).FullName;
+                        childInspectionComponent.ComponentOverrides = new[]
+                        {
+                            new GhostAuthoringInspectionComponent.ComponentOverride
+                            {
+                                FullTypeName = fullTypeName,
+                                GameObject = childGo,
+                                PrefabType = GhostPrefabType.All,
+                                SendTypeOptimization = GhostSendType.AllClients,
+                                VariantHash = GhostVariantsUtility.UncheckedVariantHashNBC(fullTypeName, fullTypeName),
+                            },
+                        };
+                    }
                 }
 
                 Assert.IsTrue(testWorld.CreateGhostCollection(ghostGameObject));
@@ -609,12 +662,14 @@ namespace Unity.NetCode.Tests
                 Assert.AreEqual(2, clientEntityGroup.Length);
                 Assert.AreEqual(2, serverEntityGroup.Length);
 
-                //Vertfy that the client snapshot data contains the right things
+                //Verify that the client snapshot data contains the right things
+                var shouldChildReceiveData = sendForChildrenTestCase != SendForChildrenTestCase.NoViaDontSerializeVariantDefault;
                 var dynamicBuffer = testWorld.ClientWorlds[0].EntityManager.GetBuffer<NetCode.SnapshotDynamicDataBuffer>(clientEntities[0]);
-                BufferTestHelper.ValidateMultiBufferSnapshotDataContents(dynamicBuffer, 3, 0, 10, 10);
+                if(shouldChildReceiveData)
+                    BufferTestHelper.ValidateMultiBufferSnapshotDataContents(dynamicBuffer, 3, 0, 10, 10);
                 BufferTestHelper.CheckByteBufferValues(testWorld, serverEntityGroup[0].Value,
                     clientEntityGroup[0].Value);
-                BufferTestHelper.CheckBuffersValues(testWorld, serverEntityGroup[1].Value, clientEntityGroup[1].Value);
+                BufferTestHelper.CheckBuffersValues(testWorld, serverEntityGroup[1].Value, clientEntityGroup[1].Value, shouldChildReceiveData);
                 //Change values
                 BufferTestHelper.SetByteBufferValues(testWorld.ServerWorld, serverEntityGroup[0].Value, 10, 30);
                 BufferTestHelper.SetBufferValues(testWorld.ServerWorld, serverEntityGroup[1].Value, 3, 5);
@@ -622,51 +677,52 @@ namespace Unity.NetCode.Tests
                     testWorld.Tick(frameTime);
                 BufferTestHelper.CheckByteBufferValues(testWorld, serverEntityGroup[0].Value,
                     clientEntityGroup[0].Value);
-                BufferTestHelper.CheckBuffersValues(testWorld, serverEntityGroup[1].Value, clientEntityGroup[1].Value);
+                BufferTestHelper.CheckBuffersValues(testWorld, serverEntityGroup[1].Value, clientEntityGroup[1].Value, shouldChildReceiveData);
                 //Shrink child buffer
                 BufferTestHelper.SetBufferValues(testWorld.ServerWorld, serverEntityGroup[1].Value, 2, 20);
                 for (int i = 0; i < sendIterationCount; ++i)
                     testWorld.Tick(frameTime);
                 BufferTestHelper.CheckByteBufferValues(testWorld, serverEntityGroup[0].Value,
                     clientEntityGroup[0].Value);
-                BufferTestHelper.CheckBuffersValues(testWorld, serverEntityGroup[1].Value, clientEntityGroup[1].Value);
+                BufferTestHelper.CheckBuffersValues(testWorld, serverEntityGroup[1].Value, clientEntityGroup[1].Value, shouldChildReceiveData);
                 //Grow child buffer
                 BufferTestHelper.SetBufferValues(testWorld.ServerWorld, serverEntityGroup[1].Value, 5, 30);
                 for (int i = 0; i < sendIterationCount; ++i)
                     testWorld.Tick(frameTime);
                 BufferTestHelper.CheckByteBufferValues(testWorld, serverEntityGroup[0].Value,
                     clientEntityGroup[0].Value);
-                BufferTestHelper.CheckBuffersValues(testWorld, serverEntityGroup[1].Value, clientEntityGroup[1].Value);
+                BufferTestHelper.CheckBuffersValues(testWorld, serverEntityGroup[1].Value, clientEntityGroup[1].Value, shouldChildReceiveData);
                 //Shrink root buffer
                 BufferTestHelper.SetByteBufferValues(testWorld.ServerWorld, serverEntityGroup[0].Value, 5, 50);
                 for (int i = 0; i < sendIterationCount; ++i)
                     testWorld.Tick(frameTime);
                 BufferTestHelper.CheckByteBufferValues(testWorld, serverEntityGroup[0].Value,
                     clientEntityGroup[0].Value);
-                BufferTestHelper.CheckBuffersValues(testWorld, serverEntityGroup[1].Value, clientEntityGroup[1].Value);
+                BufferTestHelper.CheckBuffersValues(testWorld, serverEntityGroup[1].Value, clientEntityGroup[1].Value, shouldChildReceiveData);
                 //grow root buffer
                 BufferTestHelper.SetByteBufferValues(testWorld.ServerWorld, serverEntityGroup[0].Value, 15, 100);
                 for (int i = 0; i < sendIterationCount; ++i)
                     testWorld.Tick(frameTime);
                 BufferTestHelper.CheckByteBufferValues(testWorld, serverEntityGroup[0].Value, clientEntityGroup[0].Value);
-                BufferTestHelper.CheckBuffersValues(testWorld, serverEntityGroup[1].Value, clientEntityGroup[1].Value);
+                BufferTestHelper.CheckBuffersValues(testWorld, serverEntityGroup[1].Value, clientEntityGroup[1].Value, shouldChildReceiveData);
             }
         }
 
 
         public class GhostGroupGhostConverter : TestNetCodeAuthoring.IConverter
         {
-            public void Convert(GameObject gameObject, Entity entity, EntityManager dstManager, GameObjectConversionSystem conversionSystem)
+            public void Bake(GameObject gameObject, IBaker baker)
             {
-                dstManager.AddComponentData(entity, new GhostOwnerComponent());
+                baker.AddComponent(new GhostOwnerComponent());
+                baker.DependsOn(gameObject);
                 if (gameObject.name == "ParentGhost")
                 {
-                    dstManager.AddBuffer<GhostGroup>(entity);
+                    baker.AddBuffer<GhostGroup>();
                 }
                 else
                 {
-                    dstManager.AddComponentData(entity, default(GhostChildEntityComponent));
-                    dstManager.AddBuffer<GhostGenBuffer_ByteBuffer>(entity);
+                    baker.AddComponent(default(GhostChildEntityComponent));
+                    baker.AddBuffer<GhostGenBuffer_ByteBuffer>();
                 }
             }
         }
@@ -717,23 +773,23 @@ namespace Unity.NetCode.Tests
             [GhostField] public byte Value;
         }
 
-        [GhostComponent(PrefabType = GhostPrefabType.AllPredicted)]
+        [GhostComponent(PrefabType = GhostPrefabType.AllPredicted, SendDataForChildEntity = true)]
         public struct GhostPredictedOnlyBuffer : IBufferElementData
         {
             [GhostField] public float Value;
         }
 
-        [GhostComponent(PrefabType = GhostPrefabType.InterpolatedClient)]
+        [GhostComponent(PrefabType = GhostPrefabType.InterpolatedClient, SendDataForChildEntity = true)]
         public struct GhostInterpolatedOnlyBuffer : IBufferElementData
         {
             [GhostField] public byte Value;
         }
 
-        unsafe struct GenericConverter<T>: TestNetCodeAuthoring.IConverter where T: struct, IBufferElementData
+        unsafe struct GenericConverter<T>: TestNetCodeAuthoring.IConverter where T: unmanaged, IBufferElementData
         {
-            public void Convert(GameObject gameObject, Entity entity, EntityManager dstManager, GameObjectConversionSystem conversionSystem)
+            public void Bake(GameObject gameObject, IBaker baker)
             {
-                dstManager.AddBuffer<T>(entity);
+                baker.AddBuffer<T>();
             }
         }
 
@@ -754,8 +810,8 @@ namespace Unity.NetCode.Tests
                 var ghostGameObject = new GameObject();
                 var ghostConfig = ghostGameObject.AddComponent<GhostAuthoringComponent>();
                 ghostGameObject.AddComponent<TestNetCodeAuthoring>().Converter = converter;
-                ghostConfig.DefaultGhostMode = GhostAuthoringComponent.GhostMode.Interpolated;
-                ghostConfig.SupportedGhostModes = GhostAuthoringComponent.GhostModeMask.Interpolated;
+                ghostConfig.DefaultGhostMode = GhostMode.Interpolated;
+                ghostConfig.SupportedGhostModes = GhostModeMask.Interpolated;
 
                 Assert.IsTrue(testWorld.CreateGhostCollection(ghostGameObject));
 
@@ -789,31 +845,25 @@ namespace Unity.NetCode.Tests
         }
 
 
-        [UpdateInGroup(typeof(GhostPredictionSystemGroup))]
         [DisableAutoCreation]
+        [RequireMatchingQueriesForUpdate]
+        [UpdateInGroup(typeof(PredictedSimulationSystemGroup))]
+        [WorldSystemFilter(WorldSystemFilterFlags.ClientSimulation | WorldSystemFilterFlags.ServerSimulation)]
         public partial class BufferTestPredictionSystem : SystemBase
         {
-            GhostPredictionSystemGroup m_GhostPredictionSystemGroup;
-            protected override void OnCreate()
-            {
-                m_GhostPredictionSystemGroup = World.GetExistingSystem<GhostPredictionSystemGroup>();
-            }
             protected override void OnUpdate()
             {
-                var tick = m_GhostPredictionSystemGroup.PredictingTick;
-                var deltaTime = Time.DeltaTime;
-                var bufferFromEntity = GetBufferFromEntity<GhostPredictedOnlyBuffer>();
+                var tick = GetSingleton<NetworkTime>().ServerTick;
+                var deltaTime = SystemAPI.Time.DeltaTime;
+                var bufferFromEntity = GetBufferLookup<GhostPredictedOnlyBuffer>();
                 //FIXME: updating child entities is not efficient this way.
-                Entities.ForEach((in PredictedGhostComponent predictedGhost, in DynamicBuffer<LinkedEntityGroup> group) =>
+                Entities.WithAll<Simulate, GhostComponent>().ForEach((in DynamicBuffer<LinkedEntityGroup> group) =>
                 {
-                    if (!GhostPredictionSystemGroup.ShouldPredict(tick, predictedGhost))
-                        return;
-
                     for (int i = 0; i < group.Length; ++i)
                     {
                         var e = group[i];
                         var buf = bufferFromEntity[e.Value];
-                        var t = (int) (tick % buf.Length);
+                        var t = (int) (tick.TickIndexForValidTick % buf.Length);
                         var v = buf[t];
                         v.Value += deltaTime * 60.0f;
                         buf[t] = v;
@@ -830,14 +880,14 @@ namespace Unity.NetCode.Tests
                 testWorld.Bootstrap(true,  typeof(BufferTestPredictionSystem));
 
                 var ghostGameObject = new GameObject();
-                ghostGameObject.AddComponent<GhostOwnerComponentAuthoring>();
                 ghostGameObject.AddComponent<TestNetCodeAuthoring>().Converter = new GenericConverter<GhostPredictedOnlyBuffer>();
                 var child = new GameObject();
                 child.AddComponent<TestNetCodeAuthoring>().Converter = new GenericConverter<GhostPredictedOnlyBuffer>();
                 child.transform.parent = ghostGameObject.transform;
                 var ghostConfig = ghostGameObject.AddComponent<GhostAuthoringComponent>();
-                ghostConfig.DefaultGhostMode = GhostAuthoringComponent.GhostMode.Predicted;
-                ghostConfig.SupportedGhostModes = GhostAuthoringComponent.GhostModeMask.Predicted;
+                ghostConfig.DefaultGhostMode = GhostMode.Predicted;
+                ghostConfig.SupportedGhostModes = GhostModeMask.Predicted;
+                ghostConfig.HasOwner = true;
 
                 Assert.IsTrue(testWorld.CreateGhostCollection(ghostGameObject));
 
@@ -848,8 +898,8 @@ namespace Unity.NetCode.Tests
                 testWorld.GoInGame();
 
                 //Disable the prediction logic
-                testWorld.ServerWorld.GetExistingSystem<BufferTestPredictionSystem>().Enabled = false;
-                testWorld.ClientWorlds[0].GetExistingSystem<BufferTestPredictionSystem>().Enabled = false;
+                testWorld.ServerWorld.GetExistingSystemManaged<BufferTestPredictionSystem>().Enabled = false;
+                testWorld.ClientWorlds[0].GetExistingSystemManaged<BufferTestPredictionSystem>().Enabled = false;
 
                 //Spawn the entity and init the buffer
                 var serverEntity = testWorld.SpawnOnServer(ghostGameObject);
@@ -888,18 +938,19 @@ namespace Unity.NetCode.Tests
                 Assert.AreEqual(serverBuffers[0].Length, clientBuffers[0].Length);
                 Assert.AreEqual(serverBuffers[1].Length, clientBuffers[1].Length);
 
-                testWorld.ServerWorld.GetExistingSystem<BufferTestPredictionSystem>().Enabled = true;
-                testWorld.ClientWorlds[0].GetExistingSystem<BufferTestPredictionSystem>().Enabled = true;
-                var predictionSystemServer = testWorld.ServerWorld.GetExistingSystem<GhostPredictionSystemGroup>();
-                var predictionSystemClient = testWorld.ClientWorlds[0].GetExistingSystem<GhostPredictionSystemGroup>();
-                var firstPredTick = (int)predictionSystemServer.PredictingTick + 1;
+                testWorld.ServerWorld.GetExistingSystemManaged<BufferTestPredictionSystem>().Enabled = true;
+                testWorld.ClientWorlds[0].GetExistingSystemManaged<BufferTestPredictionSystem>().Enabled = true;
+                var firstPredTick = testWorld.GetNetworkTime(testWorld.ServerWorld).ServerTick;
+                firstPredTick.Increment();
                 for (int i = 0; i < 32; ++i)
                 {
                     testWorld.Tick(frameTime / 4.0f);
                 }
-                testWorld.ServerWorld.GetExistingSystem<BufferTestPredictionSystem>().Enabled = false;
-                testWorld.ClientWorlds[0].GetExistingSystem<BufferTestPredictionSystem>().Enabled = false;
-                var curTick = (int)predictionSystemClient.PredictingTick;
+                testWorld.ServerWorld.GetExistingSystemManaged<BufferTestPredictionSystem>().Enabled = false;
+                testWorld.ClientWorlds[0].GetExistingSystemManaged<BufferTestPredictionSystem>().Enabled = false;
+
+                var networkTimeClient = testWorld.GetNetworkTime(testWorld.ClientWorlds[0]);
+                var curTick = networkTimeClient.ServerTick;
 
                 serverBuffers = new[]
                 {
@@ -912,15 +963,16 @@ namespace Unity.NetCode.Tests
                     testWorld.ClientWorlds[0].EntityManager.GetBuffer<GhostPredictedOnlyBuffer>(clientEntityGroup[1].Value)
                 };
 
-                for (var i = firstPredTick; i < curTick; ++i)
+                var networkTimeServer = testWorld.GetNetworkTime(testWorld.ServerWorld);
+                for (var i = firstPredTick; i != curTick; i.Increment())
                 {
-                    var expected = (i % clientBuffers[0].Length)*10.0f + 1.0f;
-                    Assert.AreEqual(expected, clientBuffers[0][i%clientBuffers[0].Length].Value);
-                    Assert.AreEqual(expected, clientBuffers[1][i%clientBuffers[1].Length].Value);
-                    if (curTick < predictionSystemServer.PredictingTick)
+                    var expected = ((int)i.TickIndexForValidTick % clientBuffers[0].Length)*10.0f + 1.0f;
+                    Assert.AreEqual(expected, clientBuffers[0][(int)i.TickIndexForValidTick%clientBuffers[0].Length].Value);
+                    Assert.AreEqual(expected, clientBuffers[1][(int)i.TickIndexForValidTick%clientBuffers[1].Length].Value);
+                    if (networkTimeServer.ServerTick.IsNewerThan(curTick))
                     {
-                        Assert.AreEqual(expected, serverBuffers[0][i%serverBuffers[0].Length].Value);
-                        Assert.AreEqual(expected, serverBuffers[1][i%serverBuffers[1].Length].Value);
+                        Assert.AreEqual(expected, serverBuffers[0][(int)i.TickIndexForValidTick%serverBuffers[0].Length].Value);
+                        Assert.AreEqual(expected, serverBuffers[1][(int)i.TickIndexForValidTick%serverBuffers[1].Length].Value);
                     }
                 }
                 //run a bit and check everything is in sync
@@ -963,16 +1015,17 @@ namespace Unity.NetCode.Tests
             }
         }
 
-        [UpdateInGroup(typeof(ClientSimulationSystemGroup))]
+        [UpdateInGroup(typeof(GhostSimulationSystemGroup))]
         [UpdateAfter(typeof(GhostSpawnClassificationSystem))]
         [DisableAutoCreation]
+        [WorldSystemFilter(WorldSystemFilterFlags.ClientSimulation)]
         public partial class TestSpawnClassificationSystem : SystemBase
         {
             public NativeList<Entity> m_PredictedEntities;
             protected override void OnCreate()
             {
-                RequireSingletonForUpdate<GhostSpawnQueueComponent>();
-                RequireSingletonForUpdate<PredictedGhostSpawnList>();
+                RequireForUpdate<GhostSpawnQueueComponent>();
+                RequireForUpdate<PredictedGhostSpawnList>();
                 m_PredictedEntities = new NativeList<Entity>(5,Allocator.Persistent);
             }
 
@@ -984,7 +1037,7 @@ namespace Unity.NetCode.Tests
             protected override void OnUpdate()
             {
                 var spawnListEntity = GetSingletonEntity<PredictedGhostSpawnList>();
-                var spawnListFromEntity = GetBufferFromEntity<PredictedGhostSpawn>();
+                var spawnListFromEntity = GetBufferLookup<PredictedGhostSpawn>();
                 var predictedEntities = m_PredictedEntities;
                 Entities
                     .WithAll<GhostSpawnQueueComponent>()
@@ -998,9 +1051,8 @@ namespace Unity.NetCode.Tests
                                 continue;
                             for (int j = 0; j < spawnList.Length; ++j)
                             {
-                                if (ghost.GhostType == spawnList[j].ghostType && !
-                                        SequenceHelpers.IsNewer(spawnList[j].spawnTick, ghost.ServerSpawnTick + 5) &&
-                                    SequenceHelpers.IsNewer(spawnList[j].spawnTick + 5, ghost.ServerSpawnTick))
+                                if (ghost.GhostType == spawnList[j].ghostType &&
+                                    math.abs(ghost.ServerSpawnTick.TicksSince(spawnList[j].spawnTick)) < 5)
                                 {
                                     ghost.PredictedSpawnEntity = spawnList[j].entity;
                                     spawnList[j] = spawnList[spawnList.Length-1];
@@ -1015,28 +1067,49 @@ namespace Unity.NetCode.Tests
             }
         }
 
+        [DisableAutoCreation]
+        [RequireMatchingQueriesForUpdate]
+        [WorldSystemFilter(WorldSystemFilterFlags.ClientSimulation | WorldSystemFilterFlags.ServerSimulation)]
+        public partial class SpawnPredictedGhost : SystemBase
+        {
+            public NetworkTick spawnAtTick = NetworkTick.Invalid;
+            public Entity spawnedEntity;
+            Entity SpawnPredictedEntity(int baseValue)
+            {
+                var prefabsList = GetSingletonEntity<NetCodeTestPrefabCollection>();
+                var prefabs = EntityManager.GetBuffer<NetCodeTestPrefab>(prefabsList);
+                var entity = EntityManager.Instantiate(prefabs[0].Value);
+                BufferTestHelper.SetByteBufferValues(World, entity, 5, baseValue);
+                return entity;
+            }
+            protected override void OnUpdate()
+            {
+                var netTime = GetSingleton<NetworkTime>();
+                if (spawnAtTick.IsValid && !spawnAtTick.IsNewerThan(NetworkTimeHelper.LastFullServerTick(netTime)))
+                {
+                    if(HasSingleton<UnscaledClientTime>())
+                        spawnedEntity = SpawnPredictedEntity(10);
+                    else
+                        spawnedEntity = SpawnPredictedEntity(100);
+                    spawnAtTick = NetworkTick.Invalid;
+                }
+            }
+        }
+
         [Test]
         public void PredictedSpawnedGhostSerializeBufferCorrectly()
         {
-            Entity SpawnPredictedEntity(NetCodeTestWorld testWorld, World world, int baseValue)
-            {
-                var prefabsList = testWorld.TryGetSingletonEntity<NetCodeTestPrefabCollection>(world);
-                var prefabs = world.EntityManager.GetBuffer<NetCodeTestPrefab>(prefabsList);
-                var entityPrefab = GhostCollectionSystem.CreatePredictedSpawnPrefab(world.EntityManager, prefabs[0].Value);
-                var entity = world.EntityManager.Instantiate(entityPrefab);
-                BufferTestHelper.SetByteBufferValues(world, entity, 5, baseValue);
-                return entity;
-            }
+
             using (var testWorld = new NetCodeTestWorld())
             {
-                testWorld.Bootstrap(true, typeof(TestSpawnClassificationSystem));
+                testWorld.Bootstrap(true, typeof(TestSpawnClassificationSystem), typeof(SpawnPredictedGhost));
 
-                var ghostGameObject = new GameObject();
-                ghostGameObject.AddComponent<GhostOwnerComponentAuthoring>();
+                var ghostGameObject = new GameObject("PredictedSpawnedTestGhost");
                 ghostGameObject.AddComponent<TestNetCodeAuthoring>().Converter = new GenericConverter<GhostGenBuffer_ByteBuffer>();
                 var ghostConfig = ghostGameObject.AddComponent<GhostAuthoringComponent>();
-                ghostConfig.DefaultGhostMode = GhostAuthoringComponent.GhostMode.OwnerPredicted;
-                ghostConfig.SupportedGhostModes = GhostAuthoringComponent.GhostModeMask.Predicted;
+                ghostConfig.DefaultGhostMode = GhostMode.OwnerPredicted;
+                ghostConfig.SupportedGhostModes = GhostModeMask.Predicted;
+                ghostConfig.HasOwner = true;
 
                 Assert.IsTrue(testWorld.CreateGhostCollection(ghostGameObject));
 
@@ -1046,32 +1119,36 @@ namespace Unity.NetCode.Tests
                 Assert.IsTrue(testWorld.Connect(frameTime, 4));
                 testWorld.GoInGame();
 
+                //run for a bit to sync server time and ghost collections
+                for (int i = 0; i < 32; ++i)
+                    testWorld.Tick(frameTime);
+
                 //Spawn entity on both client and server
-                var serverPredictionGroup = testWorld.ServerWorld.GetExistingSystem<GhostPredictionSystemGroup>();
-                var clientPredictionGroup = testWorld.ServerWorld.GetExistingSystem<GhostPredictionSystemGroup>();
-                var spawnTick = math.max(serverPredictionGroup.PredictingTick + 5, clientPredictionGroup.PredictingTick + 1);
                 Entity clientEntity = Entity.Null;
                 Entity serverEntity = Entity.Null;
+                var networkTimeServer = testWorld.GetNetworkTime(testWorld.ServerWorld);
+                var clientWorld = testWorld.ClientWorlds[0];
+                var networkTimeClient = testWorld.GetNetworkTime(clientWorld);
+                var spawnTick = networkTimeServer.ServerTick;
+                spawnTick.Add(5);
+                var clientSpawnTick = networkTimeClient.ServerTick;
+                clientSpawnTick.Increment();
+                if (clientSpawnTick.IsNewerThan(spawnTick))
+                    spawnTick = clientSpawnTick;
+                testWorld.ServerWorld.GetExistingSystemManaged<SpawnPredictedGhost>().spawnAtTick = spawnTick;
+                clientWorld.GetExistingSystemManaged<SpawnPredictedGhost>().spawnAtTick = spawnTick;
                 for (int i = 0; i < 32; ++i)
-                {
-                    if (clientPredictionGroup.PredictingTick == spawnTick)
-                    {
-                        clientEntity = SpawnPredictedEntity(testWorld, testWorld.ClientWorlds[0], 10);
-                    }
-                    if (serverPredictionGroup.PredictingTick == spawnTick)
-                    {
-                        //override predicted values
-                        serverEntity = SpawnPredictedEntity(testWorld, testWorld.ServerWorld, 100);
-                    }
                     testWorld.Tick(frameTime);
-                }
+
+                serverEntity = testWorld.ServerWorld.GetExistingSystemManaged<SpawnPredictedGhost>().spawnedEntity;
+                clientEntity = clientWorld.GetExistingSystemManaged<SpawnPredictedGhost>().spawnedEntity;
                 //Check that entities match
                 Assert.AreNotEqual(serverEntity, Entity.Null);
                 Assert.AreNotEqual(clientEntity, Entity.Null);
                 var clientEntities = BufferTestHelper.GetClientEntities(testWorld, new [] {serverEntity});
                 Assert.AreEqual(clientEntity, clientEntities[0]);
                 //Check we classified correctly
-                var classificationSystem = testWorld.ClientWorlds[0].GetExistingSystem<TestSpawnClassificationSystem>();
+                var classificationSystem = clientWorld.GetExistingSystemManaged<TestSpawnClassificationSystem>();
                 Assert.AreEqual(1, classificationSystem.m_PredictedEntities.Length);
                 Assert.AreEqual(clientEntity, classificationSystem.m_PredictedEntities[0]);
                 //And buffers are the same

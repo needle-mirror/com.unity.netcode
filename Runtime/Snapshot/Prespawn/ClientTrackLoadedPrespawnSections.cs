@@ -2,6 +2,7 @@ using Unity.Collections;
 using Unity.Entities;
 using Unity.Jobs;
 using Unity.Scenes;
+using Unity.Burst;
 
 namespace Unity.NetCode
 {
@@ -9,60 +10,49 @@ namespace Unity.NetCode
     /// The ClientTrackLoadedPrespawnSections is responsible for tracking when a scene section is unloaded and
     /// removing the pre-spawned ghosts from the client ghosts maps
     /// </summary>
-    [UpdateInWorld(TargetWorld.Client)]
+    [WorldSystemFilter(WorldSystemFilterFlags.ClientSimulation | WorldSystemFilterFlags.ThinClientSimulation)]
     [UpdateInGroup(typeof(PrespawnGhostSystemGroup))]
     [UpdateAfter(typeof(PrespawnGhostInitializationSystem))]
-    public partial class ClientTrackLoadedPrespawnSections : SystemBase
+    [BurstCompile]
+    public partial struct ClientTrackLoadedPrespawnSections : ISystem
     {
-        private EntityQuery m_InitializedSceneSections;
-        private EntityQuery m_DestroyedSubscenes;
+        private EntityQuery m_UnloadedSubscenes;
         private EntityQuery m_Prespawns;
-        private GhostReceiveSystem m_GhostReceiveSystem;
-        private SceneSystem m_SceneSystem;
 
-        protected override void OnCreate()
+        [BurstCompile]
+        public void OnCreate(ref SystemState state)
         {
-            m_InitializedSceneSections = GetEntityQuery(
-                ComponentType.ReadOnly<SubSceneWithPrespawnGhosts>(),
-                ComponentType.ReadWrite<SubSceneWithGhostStateComponent>());
-            m_DestroyedSubscenes = GetEntityQuery(
-                ComponentType.ReadOnly<SubSceneWithGhostStateComponent>(),
-                ComponentType.Exclude<SubSceneWithPrespawnGhosts>());
-            m_Prespawns = EntityManager.CreateEntityQuery(
-                ComponentType.ReadOnly<PreSpawnedGhostIndex>(),
-                ComponentType.ReadOnly<SubSceneGhostComponentHash>());
-            m_GhostReceiveSystem = World.GetExistingSystem<GhostReceiveSystem>();
-            m_SceneSystem = World.GetExistingSystem<SceneSystem>();
-            RequireSingletonForUpdate<GhostCollection>();
-            RequireForUpdate(GetEntityQuery(ComponentType.ReadOnly<SubSceneWithGhostStateComponent>()));
+            var builder = new EntityQueryBuilder(Allocator.Temp)
+                .WithAll<SubSceneWithGhostStateComponent>()
+                .WithNone<IsSectionLoaded>();
+            m_UnloadedSubscenes = state.GetEntityQuery(builder);
+            builder.Reset();
+            builder.WithAll<PreSpawnedGhostIndex, SubSceneGhostComponentHash>();
+            m_Prespawns = state.GetEntityQuery(builder);
+
+            state.RequireForUpdate<GhostCollection>();
+            state.RequireForUpdate(m_UnloadedSubscenes);
         }
 
-        protected override void OnDestroy()
+        [BurstCompile]
+        public void OnDestroy(ref SystemState state)
         {
-            m_Prespawns.Dispose();
         }
 
-        protected override void OnUpdate()
+        [BurstCompile]
+        public void OnUpdate(ref SystemState state)
         {
-            var unloadedScenes = new NativeList<Entity>(16, Allocator.Temp);
-            using(var destroyedEntities = m_DestroyedSubscenes.ToEntityArray(Allocator.Temp))
-                unloadedScenes.AddRange(destroyedEntities);
-            var initializedSections = m_InitializedSceneSections.ToEntityArray(Allocator.Temp);
-            for (int i = 0; i < initializedSections.Length; ++i)
-            {
-                if (!m_SceneSystem.IsSectionLoaded(initializedSections[i]))
-                    unloadedScenes.Add(initializedSections[i]);
-            }
+            var unloadedScenes = m_UnloadedSubscenes.ToEntityArray(Allocator.Temp);
 
             if(unloadedScenes.Length == 0)
                 return;
 
             //Only process scenes for wich all prefabs has been already destroyed
-            var ghostsToRemove = new NativeList<SpawnedGhost>(128, Allocator.TempJob);
+            var ghostsToRemove = new NativeList<SpawnedGhost>(128, state.WorldUnmanaged.UpdateAllocator.ToAllocator);
             var entityCommandBuffer = new EntityCommandBuffer(Allocator.Temp);
             for(int i=0;i<unloadedScenes.Length;++i)
             {
-                var stateComponent = GetComponent<SubSceneWithGhostStateComponent>(unloadedScenes[i]);
+                var stateComponent = state.EntityManager.GetComponentData<SubSceneWithGhostStateComponent>(unloadedScenes[i]);
                 m_Prespawns.SetSharedComponentFilter(new SubSceneGhostComponentHash { Value = stateComponent.SubSceneHash });
                 if (m_Prespawns.IsEmpty)
                 {
@@ -72,7 +62,7 @@ namespace Unity.NetCode
                         ghostsToRemove.Add(new SpawnedGhost
                         {
                             ghostId = (int) (firstId + p),
-                            spawnTick = 0
+                            spawnTick = NetworkTick.Invalid
                         });
                     }
 
@@ -81,29 +71,34 @@ namespace Unity.NetCode
                     entityCommandBuffer.RemoveComponent<SubSceneWithGhostStateComponent>(unloadedScenes[i]);
                 }
             }
-            entityCommandBuffer.Playback(EntityManager);
+            entityCommandBuffer.Playback(state.EntityManager);
 
             if (ghostsToRemove.Length == 0)
-            {
-                ghostsToRemove.Dispose();
                 return;
-            }
 
             //Remove the ghosts from the spawn maps
-            var spawnedGhostEntityMap = m_GhostReceiveSystem.SpawnedGhostEntityMap;
-            var ghostEntityMap = m_GhostReceiveSystem.GhostEntityMap;
-            Dependency = Job
-                .WithDisposeOnCompletion(ghostsToRemove)
-                .WithCode(() =>
+            ref readonly var ghostMapSingleton = ref SystemAPI.GetSingletonRW<SpawnedGhostEntityMap>().ValueRO;
+            var removeJob = new RemovePrespawnedGhosts
+            {
+                ghostsToRemove = ghostsToRemove,
+                spawnedGhostEntityMap = ghostMapSingleton.SpawnedGhostMapRW,
+                ghostEntityMap = ghostMapSingleton.ClientGhostEntityMap
+            };
+            state.Dependency = removeJob.Schedule(state.Dependency);
+        }
+        struct RemovePrespawnedGhosts : IJob
+        {
+            public NativeList<SpawnedGhost> ghostsToRemove;
+            public NativeParallelHashMap<SpawnedGhost, Entity> spawnedGhostEntityMap;
+            public NativeParallelHashMap<int, Entity> ghostEntityMap;
+            public void Execute()
+            {
+                for(int i=0;i<ghostsToRemove.Length;++i)
                 {
-                    for(int i=0;i<ghostsToRemove.Length;++i)
-                    {
-                        spawnedGhostEntityMap.Remove(ghostsToRemove[i]);
-                        ghostEntityMap.Remove(ghostsToRemove[i].ghostId);
-                    }
-                }).Schedule(JobHandle.CombineDependencies(Dependency, m_GhostReceiveSystem.LastGhostMapWriter));
-
-            m_GhostReceiveSystem.LastGhostMapWriter = Dependency;
+                    spawnedGhostEntityMap.Remove(ghostsToRemove[i]);
+                    ghostEntityMap.Remove(ghostsToRemove[i].ghostId);
+                }
+            }
         }
     }
 }

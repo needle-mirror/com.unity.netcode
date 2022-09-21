@@ -1,43 +1,148 @@
 # Changelog
 
-## [0.51.1] - 2022-06-27
-
-### Changed
-
-* Package Dependencies
-    * `com.unity.entities` to version `0.51.1`
-
-## [0.51.0] - 2022-05-04
-
-### Changed
-
-* Package Dependencies
-    * `com.unity.entities` to version `0.51.0`
-* Updated transport dependency to 1.0.0.
+## [1.0.0-exp.8] - 2022-09-21
 
 ### Added
 
-* prevent the netcode generator running if the assembly compilation that does not references netcode package.
-
-
-
-## [0.50.1] - 2022-03-18
-
-### Added
-
+* Added a new unified `NetCodePhysicsConfig` to configure in one place all the netcode physics settings. LagCompensationConfig and PredictedPhysicsConfig are generated from these settings at conversion time.
+* Predicted ghost physics now use multiple physics world: A predicted physics wold simulated the ghost physics and a client-only physics world can be used for effect. For more information please refer to the predicted physics documentation.
+* When there is a protocol version mismatch error when connecting, the versions and hashes used for the protocol are dumped to the log so it's easier to see why the versions don't match
+* added some sanity check to prevent updating invalid ghosts
+* Added a new method, `GhostPrefabCreation.ConvertToGhostPrefab` which can be used to create ghost prefabs from code without having an asset for them.
+* Added a support for creating multiple network drivers. It is now possible to have a server that listen to the same port using different network interfaces (ex: IPC, Socket, WebSocket at the same time).
 * Hybrid assemblies will not be included in DOTS Runtime builds.
+* code generation documentation
+* RegisterPredictedPhysicsRuntimeSystemReadWrite and RegisterPredictedPhysicsRuntimeSystemReadOnly extension methods, for tracking dependencies when using predicted networked physics systems.
+* Support for runtime editing the number of ThinClients.
+* Added: A new NetworkTime component that contains all the time and tick information for the client/server simulation. Please look at the upgrade guide for more information on how to update your project.
+* Support for enabledbits.
+* An input interface, IInputData, has been added which can be used to automatically handle input data as networked command data. The input is automatically copied into the command buffer and retrieved from it as appropriate given the current tick. Also added an InputEvent type which can be used inside such an input component to reliably synchronize single event type things.
+* Added support for running the prediction loop in batches by setting `ClientTickRate.MaxPredictionStepBatchSizeRepeatedTick` and `ClientTickRate.MaxPredictionStepBatchSizeFirstTimeTick`. The batches will be broken on input changes unless the input data that changes is marked with `[BatchPredict]`.
+* Some optimisation to reduce the number of predicted tick and interpolation frames when using InProc client/server and IPC connection.
+* Added a `ConnectionState` system state component which can be added to connection to track state changes, new connections and disconnects.
+* Added a `NetworkStreamRequestConnect` component which can be added to a new entity to create a new connection sintead of calling `Connect`.
+* Added `IsClient`, `IsServer` and `IsThinClient` helper methods to `World` and `WorldUnmanaged`.
+* Dependency on Unity.Logging package.
+* Ghosts are now marked-up as Ghosts in the DOTS Hierarchy (Pink = Replicated, Blue = Prefab). The built-in Unity Hierarchy has a similar markup, although limited due to API limitations.
+* The GhostAuthoringComponent now uses a ghost icon.
+* Update API documentation for importance scaling functions and types
+* Predicted Physics API documentation
+* Helper methods to DefaultDriverBuilder, these allows creation and registering IPC- and Socket drivers. On the server both are used for the editor and only socket for player build. On the client either IPC if server and client is in the same process or socket otherwise.
+* A Singleton API for Ghost Metrics.
+* Helper methods RegisterClientDriver and RegisterServerDriver added to DefaultDriverBuilder. These takes certificate and keys necessary to initialize a secure connection.
+* Improved the `GhostAuthoringComponent` window, and moved `ComponentOverrides` to a new, optional component; `GhostAuthoringInspectionComponent`.
+* Source generators now use a CancellationToken to early exit execution when cancellation is requested.
+* NetworkStreamRequestListen to start listening to a new connection instead of invoking NetworkStreamDriver.Listen
+* Helper methods RegisterClientDriver and RegisterServerDriver added to DefaultDriverBuilder. These takes relay server data to connect using a relay server.
+* Analytics callback for ghost configuration as well as scene setup scaling.
+* A default spawn classification system is will now handle client predicted spawns if the spawn isn't handled by a user system first (matches spawns of ghost types within 5 ticks of the spawn tick).
+* GhostCollectionSystem optimisation when importing and processing ghost prefabs.
+* A new sample that show how to backup/rollback non replicated components as part of the prediction loop.
+* ChangeMaskArraySizeInBytes and SnapshotHeaderSizeInBytes utility methods
+* internal extension to dynamic buffer, ElementAtRO, that let to get a readonly reference for a buffer element.
 
 ### Changed
 
-* Changed: Tick systems (Initialization, Simulation, Presentation) are not created as part of the default client-server bootstrap for Hybrid and the Client and Server worlds are updated by the PlayerLoop instead.
+* hybrid will tick the client and server world using the player loop instead of relying on the default world updating the client and server world via the Tick systems.
+* Predicted ghost physics now use custom system to update the physics simulation. The built-in system are instead used for updating the client-only simulatiom.
+* The limit of 128 components with serialization is now for actively used components instead of components in the project.
+* all errors are now reporting the location and is possible to go the offending source code file / class by clicking the error in the console log.
+* removed unused __GHOST_MASK_BATCH__ region from all templates
+* PhysicsWorldHistory register readonly dependencies to the predicted runtime physics data when predicted physics is enabled.
+* fixed crash in source generator if package cache folder contains temporary or invalid directory names.
+* refactored source generators and added support for .additionalfile (2021.2+)
+* Renamed `ClientServerTickRate.MaxSimulationLongStepTimeMultiplier` to `ClientServerTickRate.MaxSimulationStepBatchSize`
+* `NetDebugSystem.NetDebug` has been replaced by a `NetDebug` singleton.
+* `GhostSimulationSystemGroup.SpawnedGhostEntityMap` has been replaced by a `SpawnedGhostEntityMap` singleton.
+* The interpolation delay is now calculated based on the perceived average snapshot ratio perceived by client, that help compensate for packet loss and jitter.
+* Update to use StreamCompressionModel rather than deprecated type NetworkCompressionModel.
+* Various improvements to the `Multiplayer PlayMode Tools Window`, including; simulator "profiles" (which are representative of real-world speeds), runtime thin client creation/destruction support, live modification of simulator parameters, and a tool to simulate lag spikes via shortcut key.
+* The ghost relevancy map and mode has moved from the `GhostSendSystem` to a `GhostRelevancy` singleton.
+* The `Connect` and `Listen` methods have moved to the `NetworkStreamDriver` singleton.
+* The utility method `GhostPredictionSystemGroup.ShouldPredict` has been moved to the `PredictedGhostComponent`.
+* `GhostCountOnServer` and `GhostCountOnClient` has been moved from `GhostReceiveSystem` to a singleton API `GhostCount`
+* The API to register smoothing functions for prediction has moved from the `GhostPredictionSmoothingSystem` system to the `GhostPredictionSmoothing` singleton.
+* The API to register RPCs and get RPC queues has moved from `RpcSystem` to the singleton `RpcCollection`
+* Removed use of the obsolete AlwaysUpdateSystem attribute. The new RequireMatchingQueriesForUpdate attribute has been added where appropriate.
+* Convert GhostDistancePartitioningSystem to ISystem
+* GhostReceiveSystem converted to ISystem.
+* Convert GhostSendSystem to ISystem. Public APIs have been moved to SingletonEntity named GhostSendSystemData
+* PredictedPhysicsWorldHelper class visibility is internal.
+* CommandReceiveClearSystem and CommandSendPacketSystem are not internal
+* StartStreamingSceneGhosts and StopStreamingSceneGhosts to be internal RPC. If user wants to customise the prespawn scene flow, they need to add their own RPC.
+* PrespawnsSceneInitialized, SubScenePrespawnBaselineResolved, PrespawnGhostBaseline,PrespawnSceneLoaded, PrespawnGhostIdRange have internal visibility.
+* PrespawnSubsceneElementExtensions has internal visibility.
+* LiveLinkPrespawnSectionReference are now internal. Used only in the Editor as a work around to entities conversion limitation. It should not be a public component that can be added by the user.
+* Serialization code is now generated also for Component/Buffers/Commands/Rpcs that have internal visibility.
+* The GhostCollectionSystem.CreatePredictedSpawnPrefab API is deprecated as clients will now automatically have predict spawned ghost prefabs set up for them. They can instantiate prefabs the normal way and don't need to call this API.
+* Child entities in Ghosts now default to the `DontSerializeVariant` as serializing child ghosts is relatively expensive (due to poor 'locality of reference' of child entities in other chunks, and the random-access nature of iterating child entities). Thus, `GhostComponentAttribute.SendDataForChildEntity = false` is now the default, and you'll need to set this flag to true for all types that should be sent for children. If you'd like to replicate hierarchies, we strongly encourage you to create multiple ghost prefabs, with custom, faked transform parenting logic that keeps the hierarchy flat. Explicit child hierarchies should only be used if the snapshot updates of one hierarchy must be in sync.
+* `RegisterDefaultVariants` has changed signature to now use a `Rule`. This forces users to be explicit about whether or not they want their user-defined defaults to apply to child entities too.
+* You must now opt-into "Prefab Override" customization for a specific type, via either:
+  **a)** Explicitly adding the `[SupportPrefabOverride]` attribute to the component.
+  **b)** Explicitly adding a custom variant of a Component via `[GhostComponentVariation]`.
+  **c)** Explicitly adding a default variant via `DefaultVariantSystemBase.RegisterDefaultVariant`.
+  **Note:** You may also explicitly ban all overrides via the `[DontSupportPrefabOverride]` attribute.
+* `GhostComponentAttribute.OwnerPredictedSendType` has been renamed to `GhostComponentAttribute.SendTypeOptimization`.
+* Replaced obsolete EntityQueryBuilder APIs with current ones.
+* SnapshotSizeAligned, ChangeMaskArraySizeInUInts moved to the GhostComponentSerializer class.
+* DefaultUserParams has been renamed to DefaultSmoothingActionUserParams.
+* DefaultTranslateSmoothingAction has been renamed to DefaultTranslationSmoothingAction.
+
+### Deprecated
+
+
+### Removed
+
+* The static bool `RpcSystem.DynamicAssemblyList` has been removed, replaced by a non-static property with the same name. See upgrade guide (below).
+* `ClientServerBootstrap.RequestedAutoConnect` (an editor only property) has been replaced with `ClientServerBootstrap.TryFindAutoConnectEndPoint`.
+* The custom client/server top-level groups `ClientSimulationSystemGroup` and similar have been removed, use `[WorldSystemFilter]` and the built-in top-level groups instead.
+* `[UpdateInWorld]` has been removed, use `[WorldSystemFilter]` instead.
+* `ThinClientComponent` has been removed, use `World.IsThinClient()` instead.
+* PopulateList overload taking SystemBase, calls should use ref SystemState instead from ISystem. Internalized DynamicTypeList, this should not be used in user code.
 
 ### Fixed
 
-* Fixed an exception in `PhysicsWorldHistory` when enabling lag compensation.
-* Fixed a rare compile error when source generators found invalid data in the package cache.
-* Fixed issue that prevent systems been shown in System Hierarchy window.
-* Fixed an issue where RPCs could be lost in rare cases when sending too many of them.
-* Fix an incorrect overflow exception when pre-spawned or predicted spawned ghost serialize a subset of the fields.
+* An issue with prediction system that calculate on client the wrong number of tick to predict when a rollback occurs and the predicting tick wraps around 0. - A sudden increment in delta time and elapsed time when the client exit from game our disconnect from the server.
+* SourceGenerator errors not showing in the editor
+* Ghost physics proxy rotation not synched correctly in some cases (large angles)
+* A rare issue where predicted ghost entities might be spawned on a client before it had reached the correct predicted tick
+* Some rare interpolation tick rollback
+* restoring components and buffers from the backup didn't check the SendToOnwer settings.
+* Crash on Android/iOS when using il2cpp, caused by packet logger
+* OnUpdate for GhostSendSystem is now burst compiled
+* Ensure unique serial number when patching up entity guids
+* Ensure that we do not count zero update length in analytic results. Fix assertion error when entering and exiting playmode
+* Compilation errors when the DedicatedServer platform is selected. NOTE: this does not imply the dedicated server platform is supported by the NetCode package or any other packages dependencies.
+
+### Security
+
+
+### Upgrade guide
+
+* Prefer using the new unified `NetCodePhysicsConfig` authoring component instead of using the `LagCompensationConfig` authoring component to enable lag compensation.
+* Any calls to the static `RpcSystem.DynamicAssemblyList` should be replaced with instanced calls to the property with the same name. Ensure you do so during world creation, before `RpcSystem.OnUpdate` is called.   See `SetRpcSystemDynamicAssemblyListSystem` for an example of this.
+* `ClientServerTickRate.MaxSimulationLongStepTimeMultiplier` is renamed to `ClientServerTickRate.MaxSimulationStepBatchSize`.
+* Any editor-only calls to `ClientServerBootstrap.RequestedAutoConnect` should be replaced with `ClientServerBootstrap.TryFindAutoConnectEndPoint`, which handles all `PlayTypes`.
+* The `NetworkStreamDisconnected` component has been removed, add a `ConnectionState` component to connections you want to detect disconnects for and use a reactive system.
+* When using the netcode logging system calls to `GetExistingSystem<NetDebugSystem>().NetDebug` must be replaced with `GetSingleton<NetDebug>()`, or `GetSingletonRW<NetDebug>` if you are changing the log level.
+* Calls to `GetExistingSystem<GhostSimulationSystemGroup>().SpawnedGhostEntityMap` must be replaced with `GetSingleton<SpawnedGhostEntityMap>().Value`. Waiting for or setting `LastGhostMapWriter` is no longer required and should be removed.
+* Calls to `GetExistingSystem<GhostSendSystem>().GhostRelevancySet` and `GetExistingSystem<GhostSendSystem>().GhostRelevancyMode` must be replaced with `GetSingletonRW<GhostRelevancy>.GhostRelevancySet` and `GetSingletonRW<GhostRelevancy>.GhostRelevancyMode`. Waiting for or setting `GhostRelevancySetWriteHandle` is no longer required and should be removed.
+* Calls to `GetExistingSystem<NetworkStreamReceiveSystem>().Connect` and `GetExistingSystem<NetworkStreamReceiveSystem>().Listen` must be replaced with `GetSingletonRW<NetworkStreamDriver>.Connect` and `GetSingletonRW<NetworkStreamDriver>.Listen`.
+* Usage of `ThinClientComponent` must be replaced with calls to `World.IsThinClient()`.
+* The netcode specific top-level system groups and `[UpdateInWorld]` have been removed, the replacement is `[WorldSystemFilter]` and the mappings are   * `[UpdateInGroup(typeof(ClientInitializationSystemGroup))]` => `[UpdateInGroup(typeof(InitializationSystemGroup))][WorldSystemFilter(WorldSystemFilterFlags.ClientSimulation)]`   * `[UpdateInGroup(typeof(ClientSimulationSystemGroup))]` => `[WorldSystemFilter(WorldSystemFilterFlags.ClientSimulation)]`   * `[UpdateInGroup(typeof(ClientPresentationSystemGroup))]` => `[UpdateInGroup(typeof(PresentationSystemGroup)]`   * `[UpdateInGroup(typeof(ServerInitializationSystemGroup))]` => `[UpdateInGroup(typeof(InitializationSystemGroup))][WorldSystemFilter(WorldSystemFilterFlags.ServerSimulation)]`   * `[UpdateInGroup(typeof(ServerSimulationSystemGroup))]` => `[WorldSystemFilter(WorldSystemFilterFlags.ServerSimulation)]`   * `[UpdateInGroup(typeof(ClientAndServerInitializationSystemGroup))]` => `[UpdateInGroup(typeof(InitializationSystemGroup))][WorldSystemFilter(WorldSystemFilterFlags.ServerSimulation | WorldSystemFilterFlags.ClientSimulation)]`   * `[UpdateInGroup(typeof(ClientAndServerSimulationSystemGroup))]` => `[WorldSystemFilter(WorldSystemFilterFlags.ServerSimulation | WorldSystemFilterFlags.ClientSimulation)]`   * `[UpdateInWorld(TargetWorld.Client)]` => `[WorldSystemFilter(WorldSystemFilterFlags.ClientSimulation)]`   * `[UpdateInWorld(TargetWorld.Server)]` => `[WorldSystemFilter(WorldSystemFilterFlags.ServerSimulation)]`   * `[UpdateInWorld(TargetWorld.ClientAndServer)]` => `[WorldSystemFilter(WorldSystemFilterFlags.ServerSimulation | WorldSystemFilterFlags.ClientSimulation)]`   * `[UpdateInWorld(TargetWorld.Default)]` => `[WorldSystemFilter(WorldSystemFilterFlags.LocalSimulation)]`   * `if (World.GetExistingSystem<ServerSimulationSystemGroup>()!=null)` => `if (World.IsServer())`   * `if (World.GetExistingSystem<ClientSimulationSystemGroup>()!=null)` => `if (World.IsClient())`
+* The `GhostCollectionSystem.CreatePredictedSpawnPrefab` API has been removed as clients will now automatically have predict spawned ghost prefabs set up for them. They can instantiate prefabs the normal way and don't need to call this API.
+* `GhostPredictionSystemGroup` has been renamed to `PredictedSimulationSystemGroup`.
+* All `GhostAuthoringComponent` `ComponentOverrides` have been clobbered during the upgrade (apologies!). Please re-apply all `ComponentOverrides` via the new (optional) `GhostAuthoringInspectionComponent`. Caveat: Prefer to use attributes wherever possible, as this "manual" form of overriding should only be used for one-off differences that you're unable to express via attributes.
+* Inside your `RegisterDefaultVariants` method, replace all `defaultVariants.Add(new ComponentType(typeof(SomeType)), typeof(SomeTypeDefaultVariant));` with `defaultVariants.Add(new ComponentType(typeof(SomeType)), Rule.OnlyParent(typeof(SomeTypeDefaultVariant)));`, unless you _also_ want this variant to be applied to children (in which case, use `Rule.ParentAndChildren(typeof(SomeTypeDefaultVariant))`).
+
+###  Use the new NetworkTime component
+
+                                       All the information in regards the current simulated tick MUST be retrieved from the singleton NetworkTime. In particular:
+* The GhostPredictionSystemGroup.PredictedTick has been removed. You must always use the NetworkTime.ServerTick instead. The ServerTick value will correcly reflect the current predicted tick when inspected inside the prediction loop.
+* The GhostPredictionSystemGroup.IsFinalPredictionTick has been removed. Use the NetworkTime.IsFinalPredictionTick property instead.
+* The ClientSimulationSystemGroup ServerTick, ServerTickFraction, InterpolationTick and InterpolationTickFraction has been removed. You can retrieve the same properties from the NetworkTime singleton. Please refer to the `NetworkTime` component documentation for further information about the different timing properties and the flags behaviours.
+
+
 
 ## [0.50.0] - 2021-09-17
 
@@ -218,7 +323,7 @@ you are going to add variation for. Then for each modifier you had before, just 
   new GhostComponentModifier
   {
       typeFullName = "Unity.Transforms.Translation",
-      attribute = new GhostComponentAttribute{PrefabType = GhostPrefabType.All, OwnerPredictedSendType = GhostSendType.All, SendDataForChildEntity = false},
+      attribute = new GhostComponentAttribute{PrefabType = GhostPrefabType.All, SendTypeOptimization = GhostSendType.All, SendDataForChildEntity = false},
       fields = new[]
       {
           new GhostFieldModifier
@@ -232,7 +337,6 @@ you are going to add variation for. Then for each modifier you had before, just 
 
 // The new variant
 [GhostComponentVariation(typeof(Translation))]
-[GhostComponent(SendDataForChildEntity = false)]
 public struct MyTranslationVariant
 {
   [GhostField(Quantization=100, Smoothing=SmoothingAction.InterpolateAndExtrapolate)] public float3 Value;

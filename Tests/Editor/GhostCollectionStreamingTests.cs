@@ -15,13 +15,14 @@ namespace Unity.NetCode.Tests
 {
     public class GhostCollectionStreamingConverter : TestNetCodeAuthoring.IConverter
     {
-        public void Convert(GameObject gameObject, Entity entity, EntityManager dstManager, GameObjectConversionSystem conversionSystem)
+        public void Bake(GameObject gameObject, IBaker baker)
         {
-            dstManager.AddComponentData(entity, new GhostOwnerComponent());
+            baker.AddComponent(new GhostOwnerComponent());
         }
     }
     [DisableAutoCreation]
-    [UpdateInWorld(TargetWorld.Client)]
+    [RequireMatchingQueriesForUpdate]
+    [WorldSystemFilter(WorldSystemFilterFlags.ClientSimulation)]
     public partial class OnDemandLoadTestSystem : SystemBase
     {
         public bool IsLoading = false;
@@ -58,8 +59,8 @@ namespace Unity.NetCode.Tests
 
                 // Create the ghost colleciton after the worlds so we can control when they are converted
                 Assert.IsTrue(testWorld.CreateGhostCollection(ghostGameObject));
-                testWorld.ConvertGhostCollection(testWorld.ServerWorld);
-                var onDemandSystem = testWorld.ClientWorlds[0].GetExistingSystem<OnDemandLoadTestSystem>();
+                testWorld.BakeGhostCollection(testWorld.ServerWorld);
+                var onDemandSystem = testWorld.ClientWorlds[0].GetExistingSystemManaged<OnDemandLoadTestSystem>();
                 onDemandSystem.IsLoading = true;
 
                 for (int i = 0; i < 8; ++i)
@@ -77,18 +78,18 @@ namespace Unity.NetCode.Tests
                 for (int i = 0; i < 4; ++i)
                     testWorld.Tick(frameTime);
 
-                var ghostReceiveSystem = testWorld.ClientWorlds[0].GetExistingSystem<GhostReceiveSystem>();
+                var ghostCount = testWorld.GetSingleton<GhostCount>(testWorld.ClientWorlds[0]);
                 // Validate that the ghost was deleted on the client
-                Assert.AreEqual(8, ghostReceiveSystem.GhostCountOnServer);
-                Assert.AreEqual(0, ghostReceiveSystem.GhostCountOnClient);
+                Assert.AreEqual(8, ghostCount.GhostCountOnServer);
+                Assert.AreEqual(0, ghostCount.GhostCountOnClient);
 
-                testWorld.ConvertGhostCollection(testWorld.ClientWorlds[0]);
+                testWorld.BakeGhostCollection(testWorld.ClientWorlds[0]);
                 onDemandSystem.IsLoading = false;
                 for (int i = 0; i < 4; ++i)
                     testWorld.Tick(frameTime);
                 // Validate that the ghost was deleted on the client
-                Assert.AreEqual(8, ghostReceiveSystem.GhostCountOnServer);
-                Assert.AreEqual(8, ghostReceiveSystem.GhostCountOnClient);
+                Assert.AreEqual(8, ghostCount.GhostCountOnServer);
+                Assert.AreEqual(8, ghostCount.GhostCountOnClient);
             }
         }
         [Test]
@@ -105,8 +106,8 @@ namespace Unity.NetCode.Tests
 
                 // Create the ghost colleciton after the worlds so we can control when they are converted
                 Assert.IsTrue(testWorld.CreateGhostCollection(ghostGameObject));
-                testWorld.ConvertGhostCollection(testWorld.ServerWorld);
-                var onDemandSystem = testWorld.ClientWorlds[0].GetExistingSystem<OnDemandLoadTestSystem>();
+                testWorld.BakeGhostCollection(testWorld.ServerWorld);
+                var onDemandSystem = testWorld.ClientWorlds[0].GetExistingSystemManaged<OnDemandLoadTestSystem>();
                 onDemandSystem.IsLoading = true;
 
                 for (int i = 0; i < 8; ++i)
@@ -124,10 +125,10 @@ namespace Unity.NetCode.Tests
                 for (int i = 0; i < 4; ++i)
                     testWorld.Tick(frameTime);
 
-                var ghostReceiveSystem = testWorld.ClientWorlds[0].GetExistingSystem<GhostReceiveSystem>();
+                var ghostCount = testWorld.GetSingleton<GhostCount>(testWorld.ClientWorlds[0]);
                 // Validate that the ghost was deleted on the client
-                Assert.AreEqual(8, ghostReceiveSystem.GhostCountOnServer);
-                Assert.AreEqual(0, ghostReceiveSystem.GhostCountOnClient);
+                Assert.AreEqual(8, ghostCount.GhostCountOnServer);
+                Assert.AreEqual(0, ghostCount.GhostCountOnClient);
 
                 //testWorld.ConvertGhostCollection(testWorld.ClientWorlds[0]);
                 onDemandSystem.IsLoading = false;

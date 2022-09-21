@@ -19,12 +19,14 @@ function NetDbg() {
 	var showJitter = document.getElementById("showJitterLabel")
 	var showCommandAge = document.getElementById("showCommandAgeLabel");
 	var showSnapshotAge = document.getElementById("showSnapshotAgeLabel");
+	var showInterpolationTimeScale = document.getElementById("showInterpolationTimeScaleLabel");
 	showInterpolationDelay.style.backgroundColor = this.Colors[0];
 	showTimeScale.style.backgroundColor = this.Colors[1];
 	showRTT.style.backgroundColor = this.Colors[2];
 	showJitter.style.backgroundColor = this.Colors[3];
 	showCommandAge.style.backgroundColor = this.Colors[4];
 	showSnapshotAge.style.backgroundColor = this.Colors[5];
+	showInterpolationTimeScale.style.backgroundColor = this.Colors[6]
 
 
 	/*var loader = new XMLHttpRequest();
@@ -155,14 +157,7 @@ NetDbg.prototype.connect = function(host) {
 	console.log(`'${this.constructor.name}' connecting to websocket ${host}...`);
 
 	document.getElementById('connectDlg').className = "NetDbgConnecting";
-	// Clear the existing data
-	this.content = [];
-	var container = document.getElementById("connectionContainer");
-	while (container.firstChild)
-		container.removeChild(container.firstChild);
-	this.selection = -1;
-	this.offsetX = -1;
-	document.getElementById("liveUpdate").checked = true;
+
 	// Connect to unity
 	this.ws = new WebSocket("ws://" + host);
 	this.ws.binaryType = "arraybuffer";
@@ -181,7 +176,16 @@ NetDbg.prototype.disconnect = function() {
 NetDbg.prototype.wsOpen = function(evt) {
 	this.autoReconnect = true;
 	document.getElementById('connectDlg').className = "NetDbgConnected";
-	console.log(`'${this.constructor.name}' connected to '${this.ws.url}'!`)
+	console.log(`'${this.constructor.name}' successfully connected to '${this.ws.url}', resetting data!`)
+
+	// Clear the existing data as we now have new data (i.e. a new run) to show.
+	this.content = [];
+	var container = document.getElementById("connectionContainer");
+	while (container.firstChild)
+		container.removeChild(container.firstChild);
+	this.selection = -1;
+	this.offsetX = -1;
+	document.getElementById("liveUpdate").checked = true;
 }
 
 NetDbg.prototype.wsClose = function(evt) {
@@ -211,18 +215,19 @@ NetDbg.prototype.wsReceive = function(evt) {
 		var timeArr = new Float32Array(evt.data, dataOffset);
 		for (var i = 0; i < timeLen; ++i) {
 			time.push({
-				fraction: timeArr[i*8],
-				scale: timeArr[i*8 + 1],
-				interpolation: timeArr[i*8 + 2],
-				commandAge: timeArr[i*8 + 3],
-				rtt: timeArr[i*8 + 4],
-				jitter: timeArr[i*8 + 5],
-				snapshotAgeMin: timeArr[i*8 + 6],
-				snapshotAgeMax: timeArr[i*8 + 7]
+				fraction: timeArr[i*9],
+				scale: timeArr[i*9 + 1],
+				interpolation: timeArr[i*9 + 2],
+				interpolationScale: timeArr[i*9 + 3],
+				commandAge: timeArr[i*9 + 4],
+				rtt: timeArr[i*9 + 5],
+				jitter: timeArr[i*9 + 6],
+				snapshotAgeMin: timeArr[i*9 + 7],
+				snapshotAgeMax: timeArr[i*9 + 8]
 			});
 		}
 
-		dataOffset += timeLen * 32;
+		dataOffset += timeLen * 36;
 
 		var snapTickArr = new Uint32Array(evt.data, dataOffset);
 		var snapshotTicks = [];
@@ -474,6 +479,7 @@ NetDbg.prototype.select = function(evt) {
 			var avgCommandAge = 0;
 			var avgTimeScale = 0;
 			var avgInterpolation = 0;
+			var avgInterpolationScale = 0;
 			var avgRTT = 0;
 			var avgJitter = 0;
 			var avgSnapshotAgeMin = 0;
@@ -482,6 +488,7 @@ NetDbg.prototype.select = function(evt) {
 				avgCommandAge += content.frames[this.selection].time[t].commandAge / content.frames[this.selection].time.length;
 				avgTimeScale += content.frames[this.selection].time[t].scale / content.frames[this.selection].time.length;
 				avgInterpolation += content.frames[this.selection].time[t].interpolation / content.frames[this.selection].time.length;
+				avgInterpolationScale += content.frames[this.selection].time[t].interpolationScale / content.frames[this.selection].time.length;
 				avgRTT += content.frames[this.selection].time[t].rtt / content.frames[this.selection].time.length;
 				avgJitter += content.frames[this.selection].time[t].jitter / content.frames[this.selection].time.length;
 				avgSnapshotAgeMin += content.frames[this.selection].time[t].snapshotAgeMin / content.frames[this.selection].time.length;
@@ -502,6 +509,7 @@ NetDbg.prototype.select = function(evt) {
 			//var ageText = "Snapshot age " + content.frames[this.selection].snapshotAge.toFixed(2);
 			var ageText = "Snapshot age " + avgSnapshotAgeMin + " - " + avgSnapshotAgeMax;
 			ageText += " Interpolation delay " + avgInterpolation.toFixed(2);
+			ageText += " Interpolation Scale " + avgInterpolationScale.toFixed(2);
 			ageText += " Command age " + avgCommandAge.toFixed(2);
 			ageText += " RTT " + avgRTT.toFixed(2) + " +/- " + avgJitter.toFixed(2);
 			age.appendChild(document.createTextNode(ageText));
@@ -561,8 +569,9 @@ NetDbg.prototype.present = function() {
 	var showJitter = document.getElementById("showJitter").checked
 	var showCommandAge = document.getElementById("showCommandAge").checked;
 	var showSnapshotAge = document.getElementById("showSnapshotAge").checked;
+	var showInterpolationTimeScale = document.getElementById("showInterpolationTimeScale").checked;
 	var defaultDtHeight = 0;
-	if (showInterpolationDelay || showTimeScale || showRTT || showJitter || showCommandAge || showSnapshotAge)
+	if (showInterpolationDelay || showTimeScale || showRTT || showJitter || showCommandAge || showSnapshotAge || showInterpolationTimeScale)
 		defaultDtHeight = 80;
 	for (var con = 0; con < this.content.length; ++con) {
 		var content = this.content[con];
@@ -683,6 +692,19 @@ NetDbg.prototype.present = function() {
 				}
 			}
 			content.ctx.strokeStyle = this.Colors[1];
+			content.ctx.stroke();
+		}
+
+		if (showInterpolationTimeScale && content.hasTimeData) {
+			content.ctx.beginPath();
+			for (var i = 0; i < content.frames.length; ++i) {
+				for (var frac = 0; frac < content.frames[i].time.length; ++frac) {
+					var frameOffset = i + content.frames[i].time[frac].fraction;
+					var xpos = frameOffset*this.SnapshotWidth-this.SnapshotMargin/2 - currentOffset;
+					content.ctx.lineTo(xpos, snapshotHeight + commandHeight + dtHeight/2 - (content.frames[i].time[frac].interpolationScale-1)*10 * dtHeight/2);
+				}
+			}
+			content.ctx.strokeStyle = this.Colors[6];
 			content.ctx.stroke();
 		}
 

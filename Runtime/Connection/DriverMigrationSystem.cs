@@ -7,30 +7,74 @@ using Debug = UnityEngine.Debug;
 
 namespace Unity.NetCode
 {
+    /// <summary>
+    /// Am singleton entity returned by the <see cref="DriverMigrationSystem.StoreWorld"/>
+    /// that can be used to load a previously stored driver state into another world.
+    /// </summary>
     public struct MigrationTicket : IComponentData
     {
+        /// <summary>
+        /// A unique value for the ticket.
+        /// </summary>
         public int Value;
     }
 
+    /// <summary>
+    /// A system that should be used to temporarly keep the internal transport connections alive while transferring then
+    /// to another world.
+    /// For example, you can rely on the DriverMigrationSystem to re-use the same connections in between a lobby world and the game world.
+    /// </summary>
     [DisableAutoCreation]
-    [UpdateInWorld(TargetWorld.Default)]
+    [WorldSystemFilter(WorldSystemFilterFlags.LocalSimulation)]
     public partial class DriverMigrationSystem : SystemBase
     {
-        public struct DriverState
+        /// <summary>
+        /// The minimal  internal state necessary to restore all the <see cref="NetworkStreamConnection"/> when the
+        /// drivers are migrated to the new world.
+        /// </summary>
+        internal struct DriverStoreState
         {
-            public NetworkDriver Driver;
-            public NetworkPipeline UnreliablePipeline;
-            public NetworkPipeline ReliablePipeline;
-            public NetworkPipeline UnreliableFragmentedPipeline;
-
-            public bool Listening;
+            /// <summary>
+            /// A copy of the <see cref="NetworkDriverStore"/>
+            /// </summary>
+            public NetworkDriverStore DriverStore;
+            /// <summary>
+            /// The next network id that should be assigned to a new incoming connection when there are no free
+            /// network id that be reuse.
+            /// </summary>
             public int NextId;
+            /// <summary>
+            /// A list of reusable network id for the incoming connections.
+            /// </summary>
             public NativeArray<int> FreeList;
+            /// <summary>
+            /// The last <see cref="NetworkEndpoint"/> used to either connect to the server or to listen for incoming connections.
+            /// </summary>
+            public NetworkEndpoint LastEp;
+            /// <summary>
+            /// Destroy all the allocated resources.
+            /// </summary>
+            /// <returns></returns>
+            public void Dispose()
+            {
+                DriverStore.Dispose();
+                if (FreeList.IsCreated)
+                    FreeList.Dispose();
+            }
         }
 
-        public struct WorldState
+        /// <summary>
+        /// Contains the state of drivers and the backup world in which they have been temporary transferred.
+        /// </summary>
+        internal struct WorldState
         {
-            public DriverState DriverState;
+            /// <summary>
+            /// The internal state of the drivers.
+            /// </summary>
+            public DriverStoreState DriverStoreState;
+            /// <summary>
+            /// A temporary backup world, constructed when the driver state is saved. See <see cref="DriverMigrationSystem.StoreWorld"/>.
+            /// </summary>
             public World BackupWorld;
         }
 
@@ -58,11 +102,14 @@ namespace Unity.NetCode
 
             driverMap.Add(ticket, default);
 
-            var system = sourceWorld.GetExistingSystem<NetworkStreamReceiveSystem>();
-            system.StoreMigrationState(ticket);
+            var driverSingletonQuery = sourceWorld.EntityManager.CreateEntityQuery(ComponentType.ReadWrite<NetworkStreamDriver>());
+            ref var driverSingleton = ref driverSingletonQuery.GetSingletonRW<NetworkStreamDriver>().ValueRW;
+            driverSingletonQuery.CompleteDependency();
+            driverSingletonQuery.Dispose();
+            Store(driverSingleton.StoreMigrationState(), ticket);
 
             var filter = sourceWorld.EntityManager.CreateEntityQuery(typeof(NetworkStreamConnection));
-            var backupWorld = new World(sourceWorld.Name);
+            var backupWorld = new World(sourceWorld.Name, sourceWorld.Flags);
 
             backupWorld.EntityManager.MoveEntitiesFrom(sourceWorld.EntityManager, filter);
 
@@ -92,7 +139,7 @@ namespace Unity.NetCode
                     newWorld = driver.BackupWorld;
                 else
                 {
-                    Debug.Assert(null == newWorld.GetExistingSystem<NetworkStreamReceiveSystem>());
+                    //Debug.Assert(null == newWorld.GetExistingSystem<NetworkStreamReceiveSystem>());
 
                     var filter = driver.BackupWorld.EntityManager.CreateEntityQuery(typeof(NetworkStreamConnection));
                     newWorld.EntityManager.MoveEntitiesFrom(driver.BackupWorld.EntityManager, filter);
@@ -107,22 +154,22 @@ namespace Unity.NetCode
             throw new ArgumentException("You can only migrate a world created by netcode. Make sure you are creating your worlds correctly.");
         }
 
-        internal DriverState Load(int ticket)
+        internal DriverStoreState Load(int ticket)
         {
             if (driverMap.TryGetValue(ticket, out var driver))
             {
                 driverMap.Remove(ticket);
-                return driver.DriverState;
+                return driver.DriverStoreState;
             }
             throw new ArgumentException("You can only migrate a world created by netcode. Make sure you are creating your worlds correctly.");
         }
 
-        internal void Store(DriverState state, int ticket)
+        internal void Store(DriverStoreState state, int ticket)
         {
             Debug.Assert(driverMap.ContainsKey(ticket));
             var worldState = driverMap[ticket];
 
-            worldState.DriverState = state;
+            worldState.DriverStoreState = state;
 
             driverMap[ticket] = worldState;
         }
@@ -133,11 +180,9 @@ namespace Unity.NetCode
             foreach (var keyValue in driverMap)
             {
                 var state = keyValue.Value;
-                state.DriverState.Driver.Dispose();
+                state.DriverStoreState.Dispose();
                 if (state.BackupWorld.IsCreated)
                     state.BackupWorld.Dispose();
-                if (state.DriverState.FreeList.IsCreated)
-                    state.DriverState.FreeList.Dispose();
             }
         }
 
