@@ -236,7 +236,7 @@ namespace Unity.NetCode
             }
 #else
             netDebug.DebugLog("Create client default socket network interface driver");
-            var driverInstance = DefaultDriverBuilder.CreateClientNetworkDriver(new BaselibNetworkInterface(), settings);
+            var driverInstance = DefaultDriverBuilder.CreateClientNetworkDriver(new UDPNetworkInterface(), settings);
             driverStore.RegisterDriver(TransportType.Socket, driverInstance);
 #endif
         }

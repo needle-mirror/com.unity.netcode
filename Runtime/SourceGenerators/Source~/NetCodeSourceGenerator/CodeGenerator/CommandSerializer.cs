@@ -95,7 +95,12 @@ namespace Unity.NetCode.Generators
                 {
                     generator.Replacements.Add("GHOST_MASK_INDEX", "0");
                     generator.Replacements.Add("GHOST_FIELD_NAME", fieldName);
-                    generator.GenerateFragment("GHOST_CALCULATE_CHANGE_MASK", generator.Replacements, m_CommandGenerator);
+                    if(generator.HasFragment("GHOST_CALCULATE_INPUT_CHANGE_MASK"))
+                        generator.GenerateFragment("GHOST_CALCULATE_INPUT_CHANGE_MASK", generator.Replacements, m_CommandGenerator,
+                            "GHOST_COMPARE_INPUTS");
+                    else
+                        generator.GenerateFragment("GHOST_CALCULATE_CHANGE_MASK", generator.Replacements, m_CommandGenerator,
+                            "GHOST_COMPARE_INPUTS");
                 }
             }
         }

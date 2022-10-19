@@ -462,7 +462,7 @@ namespace Unity.NetCode
             if (!state.World.IsServer())
                 throw new InvalidOperationException("Server worlds must be created with the WorldFlags.GameServer flag");
             var simulationGroup = state.World.GetExistingSystemManaged<SimulationSystemGroup>();
-            simulationGroup.RateManager = new NetcodeServerRateManager(simulationGroup);
+            simulationGroup.SetRateManagerCreateAllocator(new NetcodeServerRateManager(simulationGroup));
 
             var predictionGroup = state.World.GetExistingSystemManaged<PredictedSimulationSystemGroup>();
             predictionGroup.RateManager = new NetcodeServerPredictionRateManager(predictionGroup);
@@ -495,7 +495,7 @@ namespace Unity.NetCode
             simulationGroup.RateManager = new NetcodeClientRateManager(simulationGroup);
 
             var predictionGroup = state.World.GetExistingSystemManaged<PredictedSimulationSystemGroup>();
-            predictionGroup.RateManager = new NetcodeClientPredictionRateManager(predictionGroup);
+            predictionGroup.SetRateManagerCreateAllocator(new NetcodeClientPredictionRateManager(predictionGroup));
 
             ++ClientServerBootstrap.HasClientWorlds.Data;
             if (ClientServerBootstrap.TryFindAutoConnectEndPoint(out var autoConnectEp))

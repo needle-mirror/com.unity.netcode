@@ -2,7 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using Unity.Entities.Conversion;
+using Unity.Entities.Editor;
 using UnityEditor;
 using UnityEditor.SceneManagement;
 using UnityEngine;
@@ -21,7 +21,6 @@ namespace Unity.NetCode.Editor
     {
         const string k_ShowDisabledComponentsMetaDataKey = "NetCode.Inspection.ShowDisabledComponentsMetaDataKey";
         const string k_PackageId = "Packages/com.unity.netcode";
-        const int k_ComponentLabelMinWidth = 60;
 
         // TODO - Manually loaded prefabs as uss is not working.
         static Texture2D PrefabEntityIcon => AssetDatabase.LoadAssetAtPath<Texture2D>("Packages/com.unity.entities/Editor Default Resources/icons/dark/Entity/EntityPrefab.png");
@@ -99,6 +98,8 @@ namespace Unity.NetCode.Editor
         public override VisualElement CreateInspectorGUI()
         {
             m_Root = new VisualElement();
+            m_Root.style.overflow = new StyleEnum<Overflow>(Overflow.Hidden);
+            m_Root.style.flexShrink = 1;
 
             var ss = AssetDatabase.LoadAssetAtPath<StyleSheet>(Path.Combine(k_PackageId, "Editor/Authoring/GhostAuthoringEditor.uss"));
             m_Root.styleSheets.Add(ss);
@@ -152,7 +153,7 @@ namespace Unity.NetCode.Editor
             foreach (var bakedEntityResult in bakedGameObjectResult.BakedEntities)
             {
                 var entityHeader = new FoldoutHeaderElement("EntityLabel", bakedEntityResult.EntityName,
-                    $"{bakedEntityResult.Entity} ({(bakedEntityResult.EntityIndex + 1)} / {bakedGameObjectResult.BakedEntities.Count})",
+                    $"({(bakedEntityResult.EntityIndex + 1)} / {bakedGameObjectResult.BakedEntities.Count})",
                     "Displays the entity or entities created during Baking of this GameObject.");
 
                 entityHeader.AddToClassList("ghost-inspection-entity-header");
@@ -167,7 +168,7 @@ namespace Unity.NetCode.Editor
                 var nonReplicated = new List<BakedComponentItem>(allComponents.Count);
                 foreach (var component in allComponents)
                 {
-                    if (!component.DoesAllowModification && !ShowDisabledComponentsMetaData)
+                    if (!component.DoesAllowPrefabTypeModification && !component.DoesAllowVariantModification && !ShowDisabledComponentsMetaData)
                         continue;
                     if (component.anyVariantIsSerialized)
                         replicated.Add(component);
@@ -181,9 +182,9 @@ namespace Unity.NetCode.Editor
                 if (bakedEntityResult.GoParent.SourceInspection.ComponentOverrides.Length > 0)
                 {
                     replicatedContainer.contentContainer.Add(
-                        new HelpBox($"If you intend to use a Variant of a component in all Ghosts, prefer to set it as the \"Default Variant\" by implementing `RegisterDefaultVariants` " +
-                            $"in your own class derived from `DefaultVariantSystemBase`, rather than using these controls. " +
-                            $"You can also set defaults for GhostPrefabTypes via the GhostComponentAttribute.", HelpBoxMessageType.Info));
+                        new HelpBox($"If you intend to use one Variant across <b>all Ghosts</b> (e.g. `Translation - 2D` for a 2D game), prefer to set it as the \"Default Variant\" by implementing `RegisterDefaultVariants` " +
+                            "in your own system (derived from `DefaultVariantSystemBase`), rather than using these controls. " +
+                            "You can also set defaults for `GhostPrefabTypes` via the `GhostComponentAttribute`.", HelpBoxMessageType.Info));
                 }
                 else
                 {
@@ -193,7 +194,7 @@ namespace Unity.NetCode.Editor
                 // Warn about replicating child components:
                 if (!bakedEntityResult.IsRoot)
                 {
-                    if (replicated.Any(x => !x.isDontSerializeVariant))
+                    if (replicated.Any(x => x.variant.IsSerialized))
                     {
                         replicatedContainer.contentContainer.Add(new HelpBox("Note: Serializing child entities is relatively slow. " +
                             "Prefer to have multiple Ghosts with faked parenting, if possible.", HelpBoxMessageType.Warning));
@@ -230,7 +231,6 @@ namespace Unity.NetCode.Editor
                 {
                     var metaData = bakedComponents[i];
                     var metaDataRootElement = CreateMetaDataInspector(metaData, i);
-                    metaDataRootElement.SetEnabled(metaData.DoesAllowModification);
                     componentListView.Add(metaDataRootElement);
                 }
             }
@@ -250,7 +250,7 @@ namespace Unity.NetCode.Editor
             static OverrideTracking CreateOverrideTracking(BakedComponentItem bakedComponentItem, VisualElement insertIntoOverrideTracking)
             {
                 return new OverrideTracking("MetaDataInspector", insertIntoOverrideTracking, bakedComponentItem.HasPrefabOverride(),
-                    "Reset Entire Component", bakedComponentItem.RemoveEntirePrefabOverride);
+                    "Reset Entire Component", bakedComponentItem.RemoveEntirePrefabOverride, true);
             }
 
             if (bakedComponent.anyVariantIsSerialized || bakedComponent.HasMultipleVariants)
@@ -259,32 +259,30 @@ namespace Unity.NetCode.Editor
                 componentMetaDataFoldout.name = "ComponentMetaDataFoldout";
                 componentMetaDataFoldout.text = bakedComponent.managedType.Name;
                 componentMetaDataFoldout.style.alignContent = new StyleEnum<Align>(Align.Center);
+                componentMetaDataFoldout.style.marginBottom = 3;
+                componentMetaDataFoldout.style.flexShrink = 1;
                 componentMetaDataFoldout.SetValueWithoutNotify(true);
                 componentMetaDataFoldout.focusable = false;
 
                 var toggle = componentMetaDataFoldout.Q<Toggle>();
                 toggle.tooltip = bakedComponent.fullname;
+                toggle.style.flexShrink = 1;
+                var foldoutLabel = toggle.Q<Label>(className: UssClasses.UIToolkit.Toggle.Text); // TODO - DropdownField should expose!
+                LabelStyle(foldoutLabel);
 
-                var toggleChild = toggle[0];
+                var toggleChild = toggle.Q<VisualElement>(className: UssClasses.UIToolkit.BaseField.Input); // TODO - DropdownField should expose!;
                 InsertGhostModeToggles(bakedComponent, toggleChild);
-                var label = toggleChild.Q<Label>();
-                label.style.minWidth = k_ComponentLabelMinWidth;
 
-
-                if (bakedComponent.anyVariantIsSerialized && !bakedComponent.isDontSerializeVariant && bakedComponent.EntityParent.GoParent.RootAuthoring.SupportsSendTypeOptimization)
-                {
-                    var sendToDropdown = CreateSentToDropdown(bakedComponent);
-                    componentMetaDataFoldout.Add(sendToDropdown);
-                }
-
+                var sendToDropdown = CreateSentToDropdown(bakedComponent);
+                componentMetaDataFoldout.Add(sendToDropdown);
 
                 var variantDropdown = CreateVariantDropdown(bakedComponent);
-                variantDropdown.SetEnabled(bakedComponent.HasMultipleVariants);
+                variantDropdown.SetEnabled(bakedComponent.DoesAllowVariantModification);
                 componentMetaDataFoldout.Add(variantDropdown);
 
-                var parent = label.parent;
-                var parentIndex = label.parent.IndexOf(label);
-                var overrideTracking = CreateOverrideTracking(bakedComponent, label);
+                var parent = foldoutLabel.parent;
+                var parentIndex = foldoutLabel.parent.IndexOf(foldoutLabel);
+                var overrideTracking = CreateOverrideTracking(bakedComponent, foldoutLabel);
                 parent.Insert(parentIndex, overrideTracking);
                 return componentMetaDataFoldout;
             }
@@ -295,9 +293,17 @@ namespace Unity.NetCode.Editor
             componentMetaDataLabel.text = bakedComponent.managedType.Name;
             componentMetaDataLabel.tooltip = tooltip;
             componentMetaDataLabel.style.unityTextAlign = new StyleEnum<TextAnchor>(TextAnchor.MiddleLeft);
-            componentMetaDataLabel.style.minWidth = k_ComponentLabelMinWidth;
+            // TODO - The text here doesn't clip properly because the buttons are CHILDREN of the label. I.e. The buttons are INSIDE the labels rect.
+            LabelStyle(componentMetaDataLabel);
 
             return CreateOverrideTracking(bakedComponent, componentMetaDataLabel);
+        }
+
+        static void LabelStyle(Label label)
+        {
+            label.style.flexShrink = 1;
+            label.style.minWidth = 1;
+            label.style.overflow = new StyleEnum<Overflow>(Overflow.Hidden);
         }
 
         static VisualElement CreateVariantDropdown(BakedComponentItem bakedComponent)
@@ -307,22 +313,19 @@ namespace Unity.NetCode.Editor
                 name = "VariantDropdownField",
                 label = "Variant",
                 tooltip = @"Variants change how a components fields are serialized (i.e. replicated).
-Use this dropdown to select which variant is used for this component on this entity, on this Ghost Prefab.
+Use this dropdown to select which variant is used on this component (on this specific ghost entity, and thus; ghost type).
 
-By default:
+Note that:
 
- - Root level entities will use the default Variant (which represents the default serialization strategy generated by the SourceGenerators), unless a custom default is set
+ - <b>Components added to the root entity</b> will default to the ""Default Serializer"" (the serializer generated by the SourceGenerators), unless you have modified the default (via a `DefaultVariantSystemBase` derived system).
 
- - Child entities default to 'DoNotSerialize', as this serializing children involves entity memory random-access, which is expensive."
+ - <b>Components added to child entities</b> will default to the `DontSerializeVariant` global variant, as serializing children involves entity memory random-access, which is expensive.",
             };
+            DropdownStyle(dropdown);
 
             for (var i = 0; i < bakedComponent.availableVariants.Length; i++)
             {
-                var variant = bakedComponent.availableVariants[i];
-                if (!variant.IsTestVariant)
-                {
-                    dropdown.choices.Add(bakedComponent.availableVariantReadableNames[i]);
-                }
+                dropdown.choices.Add(bakedComponent.availableVariantReadableNames[i]);
             }
 
             // Set current value:
@@ -335,8 +338,7 @@ By default:
                 }
                 else
                 {
-                    var unknownVariantName = bakedComponent.variant.CreateReadableName(bakedComponent.metaData);
-                    dropdown.SetValueWithoutNotify($"!! {unknownVariantName} !!");
+                    dropdown.SetValueWithoutNotify($"!! Unknown Variant Hash {bakedComponent.VariantHash} !! (Fallback: {bakedComponent.variant.CreateReadableName(bakedComponent.metaData)})");
                     dropdown.style.backgroundColor = GhostAuthoringComponentEditor.brokenColor;
                 }
             }
@@ -344,13 +346,21 @@ By default:
             // Handle value changed.
             dropdown.RegisterValueChangedCallback(evt =>
             {
-                bakedComponent.variant = bakedComponent.availableVariants.First(x => string.Equals(x.CreateReadableName(bakedComponent.metaData).ToString(), evt.newValue, StringComparison.OrdinalIgnoreCase));
-                bakedComponent.SaveVariant(false, false);
-                dropdown.style.color = new StyleColor(StyleKeyword.Null);
+                var indexOf = Array.IndexOf(bakedComponent.availableVariantReadableNames, evt.newValue);
+                if (indexOf >= 0)
+                {
+                    bakedComponent.variant = bakedComponent.availableVariants[indexOf];
+                    bakedComponent.SaveVariant(false, false);
+                    dropdown.style.color = new StyleColor(StyleKeyword.Null);
+                }
+                else
+                {
+                    Debug.LogError($"Unable to find variant `{evt.newValue}` to select it! Keeping existing!");
+                }
             });
 
             var isOverridenFromDefault = bakedComponent.HasPrefabOverride() && bakedComponent.GetPrefabOverride().IsVariantOverriden;
-            var overrideTracking = new OverrideTracking("VariantDropdown", dropdown, isOverridenFromDefault, "Reset Variant", x => bakedComponent.ResetVariantToDefault());
+            var overrideTracking = new OverrideTracking("VariantDropdown", dropdown, isOverridenFromDefault, "Reset Variant", x => bakedComponent.ResetVariantToDefault(), true);
             return overrideTracking;
         }
 
@@ -360,15 +370,17 @@ By default:
             public VisualElement MainField;
             public VisualElement Override;
 
-            public OverrideTracking(string prefabType, VisualElement mainField, bool defaultOverride, string rightClickResetTitle, Action<DropdownMenuAction> rightClickResetAction)
+            public OverrideTracking(string prefabType, VisualElement mainField, bool defaultOverride, string rightClickResetTitle, Action<DropdownMenuAction> rightClickResetAction, bool shrink)
             {
                 name = $"{prefabType}OverrideTracking";
                 style.flexDirection = new StyleEnum<FlexDirection>(FlexDirection.Column);
                 style.alignItems = new StyleEnum<Align>(Align.Center);
                 style.flexGrow = 0;
-                style.flexShrink = 0;
+                style.flexShrink = shrink ? 1 : 0;
 
                 mainField.style.flexGrow = 1;
+                mainField.style.flexShrink = 1;
+                mainField.style.overflow = new StyleEnum<Overflow>(Overflow.Hidden);
                 Add(mainField);
 
                 Override = new VisualElement
@@ -378,10 +390,10 @@ By default:
                 Override.style.height = Override.style.maxHeight = 2;
                 Override.style.minWidth = 15;
                 Override.style.marginLeft = Override.style.marginRight = 2;
-                Override.style.marginTop = Override.style.marginBottom = 1;
+                Override.style.paddingTop = Override.style.paddingBottom = 1;
 
                 Override.style.flexGrow = 1;
-                Override.style.flexShrink = 0;
+                Override.style.flexShrink = 1;
                 Override.style.alignSelf = new StyleEnum<Align>(Align.Stretch);
                 Override.style.backgroundColor = Color.white;
                 Add(Override);
@@ -405,15 +417,25 @@ By default:
 
         static VisualElement CreateSentToDropdown(BakedComponentItem bakedComponent)
         {
+            var doesAllowSendTypeOptimizationModification = bakedComponent.DoesAllowSendTypeOptimizationModification;
+
             var dropdown = new DropdownField();
             dropdown.name = "SendToDropdownField";
-            dropdown.label = "Send Type Optimization";
+            dropdown.label = "Send Optimization";
 
-            dropdown.choices.Add(GetNameForGhostSendType(GhostSendType.DontSend));
-            dropdown.choices.Add(GetNameForGhostSendType(GhostSendType.OnlyPredictedClients));
-            dropdown.choices.Add(GetNameForGhostSendType(GhostSendType.OnlyInterpolatedClients));
-            dropdown.choices.Add(GetNameForGhostSendType(GhostSendType.AllClients));
-            dropdown.RegisterValueChangedCallback(OnSendToChanged);
+            dropdown.SetEnabled(doesAllowSendTypeOptimizationModification);
+
+            DropdownStyle(dropdown);
+
+            if (doesAllowSendTypeOptimizationModification)
+            {
+                dropdown.choices.Add(GetNameForGhostSendType(GhostSendType.DontSend));
+                dropdown.choices.Add(GetNameForGhostSendType(GhostSendType.OnlyPredictedClients));
+                dropdown.choices.Add(GetNameForGhostSendType(GhostSendType.OnlyInterpolatedClients));
+                dropdown.choices.Add(GetNameForGhostSendType(GhostSendType.AllClients));
+                dropdown.RegisterValueChangedCallback(OnSendToChanged);
+            }
+
             UpdateUi(GetNameForGhostSendType(bakedComponent.SendTypeOptimization));
 
             // Handle value changed.
@@ -427,17 +449,43 @@ By default:
             void UpdateUi(string buttonValue)
             {
                 dropdown.tooltip = $"Optimization that allows you to specify whether or not the server should send (i.e. replicate) the `{bakedComponent.fullname}` component to client ghosts, " +
-                    "depending on whether or not the client is Predicted or Interpolated. Note: This optimization only works on Ghosts that NetCode can infer GhostMode at compile time." +
-                    "I.e. Owner Predicted ghosts and ghosts with their `SupportedGhostMode` set to either `Interpolated` or `Predicted` (but not `All`)." +
-                    $"\n\n<color=yellow>The current setting means that {GetTooltipForGhostSendType(bakedComponent.SendTypeOptimization)}</color>\n\nOther send rules may still apply. " +
-                    "See documentation for further details.";
-                dropdown.value = buttonValue;
+                    "depending on whether or not a given client is Predicting or Interpolating this ghost." +
+                    "\n\nE.g. Only sending the `PhysicsVelocity` component for \"known always predicted\" ghosts, as interpolated ghosts don't use (read) the PhysicsVelocity Component." +
+                    "\n\nNote: This optimization is only possible when we can infer the GhostMode at compile time: I.e. When the GhostAuthoringComponent has `OwnerPredicted` selected, or when `SupportedGhostModes` is set to either `Interpolated` or `Predicted` (but not both).";
+
+                dropdown.tooltip += doesAllowSendTypeOptimizationModification
+                    ? $"\n\n<color=yellow>The current setting means that {GetTooltipForGhostSendType(bakedComponent.SendTypeOptimization)}</color>"
+                    : "\n\n<color=grey>This dropdown is currently disabled as we cannot infer GhostMode, or it's not currently applicable to this specific component.</color>";
+                dropdown.tooltip += "\n\nOther send rules may still apply. See documentation for further details.";
+
+                dropdown.value = doesAllowSendTypeOptimizationModification ? buttonValue : "n/a";
                 dropdown.MarkDirtyRepaint();
             }
 
             var isOverridenFromDefault = bakedComponent.HasPrefabOverride() && bakedComponent.GetPrefabOverride().IsSendTypeOptimizationOverriden;
-            var overrideTracking = new OverrideTracking("SendToDropdown", dropdown, isOverridenFromDefault, "Reset SendType Override", bakedComponent.ResetSendTypeToDefault);
+            var overrideTracking = new OverrideTracking("SendToDropdown", dropdown, isOverridenFromDefault, "Reset SendType Override", bakedComponent.ResetSendTypeToDefault, true);
             return overrideTracking;
+        }
+
+        static void DropdownStyle(DropdownField dropdownRoot)
+        {
+            dropdownRoot.style.flexGrow = 0;
+            dropdownRoot.style.flexShrink = 1;
+
+            // Label:
+            var label = dropdownRoot.Q<Label>();
+            label.style.flexGrow = 0;
+            label.style.flexShrink = 1;
+
+            label.style.minWidth = 15;
+            label.style.width = 110;
+
+            // Dropdown widget:
+            var dropdownWidget = dropdownRoot.Q<VisualElement>(className: UssClasses.UIToolkit.BaseField.Input); // TODO - DropdownField should expose!
+            dropdownWidget.style.flexGrow = 1;
+            dropdownWidget.style.flexShrink = 1;
+            dropdownWidget.style.minWidth = 45;
+            dropdownWidget.style.width = 100;
         }
 
         static string GetTooltipForGhostSendType(GhostSendType ghostSendType)
@@ -458,10 +506,9 @@ By default:
             switch (ghostSendType)
             {
                 case GhostSendType.DontSend: return "Never Send";
-                case GhostSendType.AllClients: return "Either";
-                case GhostSendType.OnlyInterpolatedClients:
-                case GhostSendType.OnlyPredictedClients:
-                    return ghostSendType.ToString();
+                case GhostSendType.AllClients: return "Always Send";
+                case GhostSendType.OnlyInterpolatedClients: return "Only Send when \"Known Interpolated\"";
+                case GhostSendType.OnlyPredictedClients: return "Only Send when \"Known Predicted\"";
                 default:
                     throw new ArgumentOutOfRangeException(nameof(ghostSendType), ghostSendType, null);
             }
@@ -481,23 +528,25 @@ By default:
         void InsertGhostModeToggles(BakedComponentItem bakedComponent, VisualElement parent)
         {
             parent.style.flexDirection = new StyleEnum<FlexDirection>(FlexDirection.Row);
+            parent.style.flexShrink = 1;
 
             var separator = new VisualElement();
             separator.name = nameof(separator);
             separator.style.flexGrow = 1;
-            separator.style.flexShrink = 0;
+            separator.style.flexShrink = 1;
             parent.Add(separator);
 
             var buttonContainer = new VisualElement();
             buttonContainer.name = "GhostPrefabTypeButtons";
             buttonContainer.style.flexDirection = new StyleEnum<FlexDirection>(FlexDirection.Row);
+            buttonContainer.SetEnabled(bakedComponent.DoesAllowPrefabTypeModification);
 
             buttonContainer.Add(CreateButton("S",  GhostPrefabType.Server, "Server"));
             buttonContainer.Add(CreateButton("IC", GhostPrefabType.InterpolatedClient, "Interpolated Client"));
             buttonContainer.Add(CreateButton("PC", GhostPrefabType.PredictedClient, "Predicted Client"));
 
             var isOverridenFromDefault = bakedComponent.HasPrefabOverride() && bakedComponent.GetPrefabOverride().IsPrefabTypeOverriden;
-            var overrideTracking = new OverrideTracking("PrefabType", buttonContainer, isOverridenFromDefault, $"Reset PrefabType Override", bakedComponent.ResetPrefabTypeToDefault);
+            var overrideTracking = new OverrideTracking("PrefabType", buttonContainer, isOverridenFromDefault, $"Reset PrefabType Override", bakedComponent.ResetPrefabTypeToDefault, false);
 
             parent.Add(overrideTracking);
 
@@ -507,7 +556,7 @@ By default:
                 //button.Q<Label>().style.alignContent = new StyleEnum<Align>(Align.Center);
 
                 button.text = abbreviation;
-                button.style.width = 35;
+                button.style.width = 36;
                 button.style.height = 22;
                 button.style.marginLeft = 1;
                 button.style.marginRight = 1;
@@ -528,15 +577,16 @@ By default:
                 }
                 void UpdateUi()
                 {
-                    var defaultValue = (bakedComponent.ghostComponentAttribute.PrefabType & type) != 0;
+                    var defaultValue = (bakedComponent.defaultVariant.PrefabType & type) != 0;
                     var isSet = (bakedComponent.PrefabType & type) != 0;
                     button.style.backgroundColor = isSet ? new Color(0.17f, 0.17f, 0.17f) : new Color(0.48f, 0.15f, 0.15f);
 
                     //button.style.color = isSet ? Color.cyan : Color.red;
-                    button.tooltip = $"NetCode has multiple versions of the '{bakedComponent.EntityParent.EntityName}' ghost prefab." +
-                        $"\n\nThis toggle determines if the `{bakedComponent.fullname}` component should be added to the `{prefabType}` version of this ghost. " +
-                        $"Current value indicates {(isSet ? "<color=cyan>YES</color>" : "<color=red>NO</color>")} and thus <color=yellow>PrefabType is `{bakedComponent.PrefabType}`</color>." +
-                        $"\n\nDefault value is: {(defaultValue ? "YES" : "NO")}";
+                    button.tooltip = $"NetCode creates multiple versions of the '{bakedComponent.EntityParent.EntityName}' ghost prefab (one for each mode [Server, Interpolated Client, PredictedClient])." +
+                        $"\n\nThis toggle determines if the `{bakedComponent.fullname}` component should be added to the `{prefabType}` version of this ghost." +
+                        $" Current value indicates {(isSet ? "<color=cyan>YES</color>" : "<color=red>NO</color>")} and thus <color=yellow>PrefabType is `{bakedComponent.PrefabType}`</color>." +
+                        $"\n\nDefault value is: {(defaultValue ? "YES" : "NO")}\n\nTo enable write-access to this toggle, add a `SupportsPrefabOverrides` attribute to your component type." +
+                        " <b>Note: It's better practice to create a custom Variant that sets the desired PrefabType (and apply it as the default variant).</b>";
                     button.MarkDirtyRepaint();
                 }
 

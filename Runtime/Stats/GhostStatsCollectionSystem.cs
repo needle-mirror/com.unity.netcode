@@ -228,7 +228,7 @@ namespace Unity.NetCode
                         m_SnapshotStatsData[statOffset+i] = 0;
                     }
                 }
-                AddSnapshotStats(((NativeArray<uint>)m_SnapshotStatsData).GetSubArray(0, snapshotStats.Size), collectionData);
+                AddSnapshotStats(m_SnapshotStatsData.AsArray().GetSubArray(0, snapshotStats.Size), collectionData);
                 for (int i = 0; i < snapshotStats.Size; ++i)
                 {
                     m_SnapshotStatsData[i] = 0;
@@ -236,7 +236,7 @@ namespace Unity.NetCode
             }
             if (m_PredictionErrorStatsData.Length > 0)
             {
-                AddPredictionErrorStats(m_PredictionErrorStatsData, collectionData);
+                AddPredictionErrorStats(m_PredictionErrorStatsData.AsArray(), collectionData);
                 m_PredictionErrorStatsData.Clear();
             }
 

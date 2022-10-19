@@ -241,7 +241,7 @@ namespace Unity.NetCode
             m_TActionRequestHandle.Update(ref state);
             m_GhostComponentFromEntity.Update(ref state);
             m_OutgoingRpcDataStreamBufferComponentFromEntity.Update(ref state);
-            var connections = m_ConnectionsQuery.ToEntityListAsync(state.WorldUnmanaged.UpdateAllocator.ToAllocator,
+            var connections = m_ConnectionsQuery.ToEntityListAsync(state.WorldUpdateAllocator,
                 out var connectionsHandle);
             var sendJob = new SendRpcData
             {

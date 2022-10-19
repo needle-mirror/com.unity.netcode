@@ -1,10 +1,11 @@
 using Unity.Core;
 using Unity.Entities;
 using Unity.Profiling;
+using Unity.Collections;
 
 namespace Unity.NetCode
 {
-    class NetcodeServerRateManager : IRateManager
+    unsafe class NetcodeServerRateManager : IRateManager
     {
         private EntityQuery m_NetworkTimeQuery;
         private EntityQuery m_ClientSeverTickRateQuery;
@@ -14,6 +15,7 @@ namespace Unity.NetCode
         private Count m_UpdateCount;
         private int m_CurrentTickAge;
         private bool m_DidPushTime;
+        DoubleRewindableAllocators* m_OldGroupAllocators = null;
         private struct Count
         {
             // The total number of step the simulation should take
@@ -99,6 +101,7 @@ namespace Unity.NetCode
             if (m_DidPushTime)
             {
                 group.World.PopTime();
+                group.World.RestoreGroupAllocator(m_OldGroupAllocators);
                 m_fixedUpdateMarker.End();
             }
             else
@@ -138,6 +141,8 @@ namespace Unity.NetCode
             networkTime.ElapsedNetworkTime += dt;
             group.World.PushTime(new TimeData(networkTime.ElapsedNetworkTime, dt));
             m_DidPushTime = true;
+            m_OldGroupAllocators = group.World.CurrentGroupAllocators;
+            group.World.SetGroupAllocator(group.RateGroupAllocators);
             --m_CurrentTickAge;
             m_fixedUpdateMarker.Begin();
             return true;

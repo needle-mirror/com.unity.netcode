@@ -114,7 +114,7 @@ namespace Unity.NetCode
             var totalPrespawns = 0;
             for (int i = 0; i < subScenesWithGhosts.Length; ++i)
                 totalPrespawns += subScenesWithGhosts[i].PrespawnCount;
-            var spawnedGhosts = new NativeList<SpawnedGhostMapping>(totalPrespawns, state.WorldUnmanaged.UpdateAllocator.ToAllocator);
+            var spawnedGhosts = new NativeList<SpawnedGhostMapping>(totalPrespawns, state.WorldUpdateAllocator);
             //Kick a job for each sub-scene that assign the ghost id to all scene prespawn ghosts.
             //It also fill the array of prespawned ghosts that is going to be used to populate the ghost maps in the send/receive systems.
             var scenePadding = 0;

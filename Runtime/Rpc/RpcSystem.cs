@@ -525,8 +525,8 @@ namespace Unity.NetCode
         {
             public EntityCommandBuffer commandBuffer;
             [ReadOnly] public ComponentLookup<NetworkStreamConnection> connections;
-            [DeallocateOnJobCompletion] public NativeArray<FixedString128Bytes> rpcs;
-            [DeallocateOnJobCompletion] public NativeArray<FixedString128Bytes> componentInfo;
+            public NativeArray<FixedString128Bytes> rpcs;
+            public NativeArray<FixedString128Bytes> componentInfo;
             public NetDebug netDebug;
             public NetworkProtocolVersion localProtocol;
             public FixedString128Bytes worldName;
@@ -570,7 +570,7 @@ namespace Unity.NetCode
             m_NetworkStreamConnectionFromEntity.Update(ref state);
 
             var collectionRpcs = SystemAPI.GetSingleton<RpcCollection>().Rpcs;
-            var rpcs = new NativeArray<FixedString128Bytes>(collectionRpcs.Length, Allocator.TempJob);
+            var rpcs = CollectionHelper.CreateNativeArray<FixedString128Bytes>(collectionRpcs.Length, state.WorldUpdateAllocator);
             for (int i = 0; i < collectionRpcs.Length; ++i)
             {
                 var typeIndex = TypeManager.GetTypeIndexFromStableTypeHash(collectionRpcs[i].TypeHash);
@@ -578,7 +578,7 @@ namespace Unity.NetCode
             }
             FixedString128Bytes serializerHashString = default;
             var ghostSerializerCollection = SystemAPI.GetSingletonBuffer<GhostComponentSerializer.State>();
-            var componentInfo = new NativeArray<FixedString128Bytes>(ghostSerializerCollection.Length, Allocator.TempJob);
+            var componentInfo = CollectionHelper.CreateNativeArray<FixedString128Bytes>(ghostSerializerCollection.Length, state.WorldUpdateAllocator);
             for (int serializerIndex = 0; serializerIndex < ghostSerializerCollection.Length; ++serializerIndex)
             {
                 GhostCollectionSystem.GetSerializerHashString(ghostSerializerCollection[serializerIndex],

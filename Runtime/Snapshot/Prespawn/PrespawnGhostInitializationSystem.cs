@@ -117,7 +117,7 @@ namespace Unity.NetCode
             if(GhostPrefabTypes.Length == 0)
                 return;
 
-            var processedPrefabs = new NativeParallelHashMap<GhostTypeComponent, Entity>(256, Allocator.TempJob);
+            var processedPrefabs = new NativeParallelHashMap<GhostTypeComponent, Entity>(256, state.WorldUpdateAllocator);
             var subSceneWithPrespawnGhosts = m_UninitializedScenes.ToComponentDataArray<SubSceneWithPrespawnGhosts>(Allocator.Temp);
             var subScenesSections = m_UninitializedScenes.ToEntityArray(Allocator.Temp);
             var readySections = new NativeList<int>(subScenesSections.Length, Allocator.Temp);
@@ -147,10 +147,7 @@ namespace Unity.NetCode
 
             //If not scene has resolved the ghost prefab, or has been loaded early exit
             if (readySections.Length == 0)
-            {
-                processedPrefabs.Dispose();
                 return;
-            }
 
             //Remove the disable components. Is faster this way than using command buffers because this
             //will affect the whole chunk at once
@@ -188,7 +185,7 @@ namespace Unity.NetCode
                 };
                 jobs.Add(stripPrespawnGhostJob.ScheduleParallel(m_Prespawns, state.Dependency));
             }
-            state.Dependency = processedPrefabs.Dispose(JobHandle.CombineDependencies(jobs));
+            state.Dependency = JobHandle.CombineDependencies(jobs.AsArray());
             m_Prespawns.ResetFilter();
 
             //In case the prespawn baselines are not present just mark everything as resolved
@@ -240,7 +237,7 @@ namespace Unity.NetCode
                 var sharedFilter = new SubSceneGhostComponentHash {Value = subSceneWithGhost.SubSceneHash};
                 m_PrespawnBaselines.SetSharedComponentFilter(sharedFilter);
                 // Serialize the baselines and store the baseline hashes
-                var baselinesHashes = new NativeList<ulong>(subSceneWithGhost.PrespawnCount, state.WorldUnmanaged.UpdateAllocator.ToAllocator);
+                var baselinesHashes = new NativeList<ulong>(subSceneWithGhost.PrespawnCount, state.WorldUpdateAllocator);
                 serializerJob.baselineHashes = baselinesHashes.AsParallelWriter();
                 var serializeJobHandle = serializerJob.ScheduleParallelByRef(m_PrespawnBaselines, state.Dependency);
                 // Calculate the aggregate baseline hash for all the ghosts in the scene

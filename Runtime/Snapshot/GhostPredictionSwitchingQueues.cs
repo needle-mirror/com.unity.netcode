@@ -73,7 +73,7 @@ namespace Unity.NetCode
             {
                 var netDebug = SystemAPI.GetSingleton<NetDebug>();
                 var ghostUpdateVersion = SystemAPI.GetSingleton<GhostUpdateVersion>();
-                var prefabs = SystemAPI.GetSingletonBuffer<GhostCollectionPrefab>().ToNativeArray(Allocator.TempJob);
+                var prefabs = SystemAPI.GetSingletonBuffer<GhostCollectionPrefab>().ToNativeArray(Allocator.Temp);
 
                 while (m_ConvertToPredictedQueue.TryDequeue(out var conversion))
                 {
@@ -84,8 +84,6 @@ namespace Unity.NetCode
                 {
                     ConvertGhostToInterpolated(state.EntityManager, ghostUpdateVersion, netDebug, prefabs, conversion.TargetEntity, conversion.TransitionDurationSeconds);
                 }
-
-                prefabs.Dispose();
             }
         }
 

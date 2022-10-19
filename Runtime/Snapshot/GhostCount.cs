@@ -20,13 +20,13 @@ namespace Unity.NetCode
         /// </summary>
         public int GhostCountOnClient => m_GhostCompletionCount[1];
 
-        private NativeList<int> m_GhostCompletionCount;
+        private NativeArray<int> m_GhostCompletionCount;
 
         /// <summary>
         /// Construct and initialize the new ghost count instance.
         /// </summary>
         /// <param name="ghostCompletionCount"></param>
-        internal GhostCount(NativeList<int> ghostCompletionCount)
+        internal GhostCount(NativeArray<int> ghostCompletionCount)
         {
             m_GhostCompletionCount = ghostCompletionCount;
         }

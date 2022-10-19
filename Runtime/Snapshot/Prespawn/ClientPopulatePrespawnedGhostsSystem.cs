@@ -138,7 +138,7 @@ namespace Unity.NetCode
             var subscenes = m_UninitializedScenes.ToEntityArray(Allocator.Temp);
             var entityCommandBuffer = SystemAPI.GetSingleton<BeginSimulationEntityCommandBufferSystem.Singleton>().CreateCommandBuffer(state.WorldUnmanaged);
             //This temporary list is necessary because we forcibly re-assign the entity to spawn maps in case the ghost is already registered.
-            var spawnedGhosts = new NativeList<SpawnedGhostMapping>(totalValidPrespawns, state.WorldUnmanaged.UpdateAllocator.ToAllocator);
+            var spawnedGhosts = new NativeList<SpawnedGhostMapping>(totalValidPrespawns, state.WorldUpdateAllocator);
             m_EntityTypeHandle.Update(ref state);
             m_PreSpawnedGhostIndexHandle.Update(ref state);
             m_GhostComponentHandle.Update(ref state);

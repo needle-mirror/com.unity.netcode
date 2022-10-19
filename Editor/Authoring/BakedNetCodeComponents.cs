@@ -78,10 +78,20 @@ namespace Unity.NetCode.Editor
         }
 
         /// <summary>
-        /// Checks attributes to denote if users are allowed to create an override of this via a <see cref="GhostAuthoringInspectionComponent"/>.
-        /// We support prefab overrides "implicitly" if we have multiple variant types.
+        /// Denotes if this type supports user modification of <see cref="VariantType"/>.
+        /// We obviously support it "implicitly" if we have multiple variant types.
         /// </summary>
-        public bool DoesAllowModification => !metaData.HasDontSupportPrefabOverridesAttribute && (metaData.HasSupportsPrefabOverridesAttribute || HasMultipleVariants);
+        public bool DoesAllowVariantModification => !metaData.HasDontSupportPrefabOverridesAttribute && (metaData.HasSupportsPrefabOverridesAttribute || HasMultipleVariants);
+
+        /// <summary>
+        /// Denotes if this type supports user modification of <see cref="SendTypeOptimization"/>.
+        /// </summary>
+        public bool DoesAllowSendTypeOptimizationModification => !metaData.HasDontSupportPrefabOverridesAttribute && anyVariantIsSerialized && variant.Source != VariantType.VariantSource.ManualDontSerializeVariant && EntityParent.GoParent.RootAuthoring.SupportsSendTypeOptimization;
+
+        /// <summary>
+        /// Denotes if this type supports user modification of <see cref="GhostAuthoringInspectionComponent.ComponentOverride.PrefabType"/>.
+        /// </summary>
+        public bool DoesAllowPrefabTypeModification => !metaData.HasDontSupportPrefabOverridesAttribute && metaData.HasSupportsPrefabOverridesAttribute;
 
         /// <summary>I.e. Implicitly supports prefab overrides.</summary>
         internal bool HasMultipleVariants => availableVariants.Length > 1;

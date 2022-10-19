@@ -912,7 +912,7 @@ namespace Unity.NetCode
                 //@TODO: Use BufferFromEntity
                 var ghostComponentCollection = systemState.EntityManager.GetBuffer<GhostCollectionComponentType>(updateJob.GhostCollectionSingleton);
                 DynamicTypeList.PopulateList(ref systemState, ghostComponentCollection, false, ref updateJob.DynamicTypeList);
-                systemState.Dependency = updateJob.ScheduleParallel(m_ghostQuery, systemState.Dependency);
+                systemState.Dependency = updateJob.ScheduleParallelByRef(m_ghostQuery, systemState.Dependency);
 
                 m_GhostOwnerType.Update(ref systemState);
                 m_GhostOwnerIsLocalType.Update(ref systemState);

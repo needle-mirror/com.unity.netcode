@@ -134,7 +134,7 @@ namespace __COMMAND_NAMESPACE__
                         uint changeMask = 0;
                         var snapshot = curInput;
                         var baseline = prevInput;
-#region __GHOST_CALCULATE_CHANGE_MASK__
+#region __GHOST_COMPARE_INPUTS__
 #endregion
 
                         if (changeMask != 0u)

@@ -876,7 +876,7 @@ namespace Unity.NetCode
         static private void UpdatePredictionErrorNames(DynamicBuffer<PredictionErrorNames> predictionErrors, NativeList<PredictionErrorNames> predictionErrorNames)
         {
             predictionErrors.Clear();
-            predictionErrors.AddRange(predictionErrorNames);
+            predictionErrors.AddRange(predictionErrorNames.AsArray());
         }
         /// <summary>
         /// Pre-process the GhostComponentSerializer.State collection and pre-parse the PredictionErrorNames for all the

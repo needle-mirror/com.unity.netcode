@@ -250,7 +250,7 @@ namespace Unity.NetCode
 
             var ghostComponentCollection = state.EntityManager.GetBuffer<GhostCollectionComponentType>(smoothingJob.GhostCollectionSingleton);
             DynamicTypeList.PopulateList(ref state, ghostComponentCollection, false, ref smoothingJob.DynamicTypeList);
-            DynamicTypeList.PopulateListFromArray(ref state, m_UserSpecifiedComponentData, true, ref smoothingJob.UserList);
+            DynamicTypeList.PopulateListFromArray(ref state, m_UserSpecifiedComponentData.AsArray(), true, ref smoothingJob.UserList);
 
             state.Dependency = smoothingJob.ScheduleParallelByRef(m_PredictionQuery, state.Dependency);
         }

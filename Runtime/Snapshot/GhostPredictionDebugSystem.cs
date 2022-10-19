@@ -98,7 +98,7 @@ namespace Unity.NetCode
                 tick = networkTime.ServerTick,
                 translationType = ComponentType.ReadWrite<Translation>(),
 
-                predictionErrors = m_PredictionErrors,
+                predictionErrors = m_PredictionErrors.AsArray(),
                 numPredictionErrors = predictionErrorCount
             };
 
@@ -118,7 +118,7 @@ namespace Unity.NetCode
             var combineJob = new CombinePredictionErrors
             {
                 PredictionErrorsOutput = predictionErrorStats.Data,
-                PredictionErrors = m_PredictionErrors,
+                PredictionErrors = m_PredictionErrors.AsArray(),
                 predictionErrorCount = predictionErrorCount,
 
             };

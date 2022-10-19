@@ -151,7 +151,7 @@ namespace Unity.NetCode
             }
         }
     }
-    class NetcodeClientPredictionRateManager : IRateManager
+    unsafe class NetcodeClientPredictionRateManager : IRateManager
     {
         private EntityQuery m_NetworkTimeQuery;
         private EntityQuery m_ClientServerTickRateQuery;
@@ -176,6 +176,7 @@ namespace Unity.NetCode
 
         private uint m_MaxBatchSize;
         private uint m_MaxBatchSizeFirstTimeTick;
+        private DoubleRewindableAllocators* m_OldGroupAllocators = null;
 
         public struct TickComparer : IComparer<NetworkTick>
         {
@@ -324,6 +325,7 @@ namespace Unity.NetCode
             {
                 networkTime.Flags &= ~NetworkTimeFlags.IsFirstPredictionTick;
                 group.World.PopTime();
+                group.World.RestoreGroupAllocator(m_OldGroupAllocators);
             }
             if (m_TickIdx < m_NumAppliedPredictedTicks)
             {
@@ -360,6 +362,8 @@ namespace Unity.NetCode
                 networkTime.SimulationStepBatchSize = (int)batchSize;
                 networkTime.ServerTickFraction = 1f;
                 group.World.PushTime(new TimeData(m_ElapsedTime - m_FixedTimeStep*tickAge, m_FixedTimeStep*batchSize));
+                m_OldGroupAllocators = group.World.CurrentGroupAllocators;
+                group.World.SetGroupAllocator(group.RateGroupAllocators);
                 return true;
             }
 
@@ -375,6 +379,8 @@ namespace Unity.NetCode
                 networkTime.Flags |= NetworkTimeFlags.IsFinalPredictionTick;
                 networkTime.Flags &= ~(NetworkTimeFlags.IsFinalFullPredictionTick | NetworkTimeFlags.IsFirstTimeFullyPredictingTick);
                 group.World.PushTime(new TimeData(group.World.Time.ElapsedTime, m_FixedTimeStep * m_CurrentTime.ServerTickFraction));
+                m_OldGroupAllocators = group.World.CurrentGroupAllocators;
+                group.World.SetGroupAllocator(group.RateGroupAllocators);
                 ++m_TickIdx;
                 return true;
             }
@@ -411,7 +417,7 @@ namespace Unity.NetCode
         }
     }
 
-    class NetcodePredictionFixedRateManager : IRateManager
+    unsafe class NetcodePredictionFixedRateManager : IRateManager
     {
         public float Timestep
         {
@@ -420,6 +426,7 @@ namespace Unity.NetCode
         }
 
         int m_RemainingUpdates;
+        DoubleRewindableAllocators* m_OldGroupAllocators = null;
 
         public NetcodePredictionFixedRateManager(float fixedDeltaTime)
         {
@@ -432,6 +439,7 @@ namespace Unity.NetCode
             if (m_RemainingUpdates > 0)
             {
                 group.World.PopTime();
+                group.World.RestoreGroupAllocator(m_OldGroupAllocators);
                 --m_RemainingUpdates;
             }
             else
@@ -444,6 +452,8 @@ namespace Unity.NetCode
             group.World.PushTime(new TimeData(
                 elapsedTime: group.World.Time.ElapsedTime - (m_RemainingUpdates-1)*Timestep,
                 deltaTime: Timestep));
+            m_OldGroupAllocators = group.World.CurrentGroupAllocators;
+            group.World.SetGroupAllocator(group.RateGroupAllocators);
             return true;
         }
     }
@@ -525,7 +535,7 @@ namespace Unity.NetCode
         public PredictedFixedStepSimulationSystemGroup()
         {
             float defaultFixedTimestep = 1.0f / 60.0f;
-            RateManager = new NetcodePredictionFixedRateManager(defaultFixedTimestep);
+            SetRateManagerCreateAllocator(new NetcodePredictionFixedRateManager(defaultFixedTimestep));
         }
         protected override void OnCreate()
         {

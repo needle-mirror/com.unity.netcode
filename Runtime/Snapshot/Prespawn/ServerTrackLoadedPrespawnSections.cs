@@ -55,7 +55,7 @@ namespace Unity.NetCode
             var subsceneCollection = SystemAPI.GetSingletonBuffer<PrespawnSceneLoaded>();
             var allocatedRanges = SystemAPI.GetSingletonBuffer<PrespawnGhostIdRange>();
             var netDebug = SystemAPI.GetSingleton<NetDebug>();
-            var unloadedGhostRange = new NativeList<int2>(state.WorldUnmanaged.UpdateAllocator.ToAllocator);
+            var unloadedGhostRange = new NativeList<int2>(state.WorldUpdateAllocator);
             for(int i=0;i<unloadedSections.Length;++i)
             {
                 var stateComponent = state.EntityManager.GetComponentData<SubSceneWithGhostStateComponent>(unloadedSections[i]);

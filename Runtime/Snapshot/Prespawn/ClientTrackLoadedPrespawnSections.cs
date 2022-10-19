@@ -48,7 +48,7 @@ namespace Unity.NetCode
                 return;
 
             //Only process scenes for wich all prefabs has been already destroyed
-            var ghostsToRemove = new NativeList<SpawnedGhost>(128, state.WorldUnmanaged.UpdateAllocator.ToAllocator);
+            var ghostsToRemove = new NativeList<SpawnedGhost>(128, state.WorldUpdateAllocator);
             var entityCommandBuffer = new EntityCommandBuffer(Allocator.Temp);
             for(int i=0;i<unloadedScenes.Length;++i)
             {

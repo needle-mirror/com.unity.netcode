@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.0.0-exp.13] - 2022-10-19
+
+### Fixed
+
+* quaternion cannot be added as field in ICommandData and/or IInputComponentData. A new region has been added to the code-generation templates for handling similar other cases.
+* Removed the deprecated NativeList to NativeArray implicit cast and use NativeList.AsArray instead.
+* fixed a NotImplementedException thrown in standalone player client build.
+
+
+
+
+
 ## [1.0.0-exp.8] - 2022-09-21
 
 ### Added

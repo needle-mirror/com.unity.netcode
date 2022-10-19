@@ -452,7 +452,7 @@ namespace Unity.NetCode
 
             var clientNetTime = m_networkTimeQuery.GetSingleton<NetworkTime>();
             var targetTick = NetworkTimeHelper.LastFullServerTick(clientNetTime);
-            var targetEntities = m_autoTargetQuery.ToEntityListAsync(state.WorldUnmanaged.UpdateAllocator.ToAllocator, out var autoHandle);
+            var targetEntities = m_autoTargetQuery.ToEntityListAsync(state.WorldUpdateAllocator, out var autoHandle);
             var sendJob = new SendJobData
             {
                 commmandTargetType = m_CommandTargetComponentHandle,

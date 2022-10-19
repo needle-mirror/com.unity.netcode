@@ -118,7 +118,7 @@ namespace Unity.NetCode
         private NativeParallelHashMap<SpawnedGhost, Entity> m_SpawnedGhostEntityMap;
         private NativeList<byte> m_TempDynamicData;
 
-        private NativeList<int> m_GhostCompletionCount;
+        private NativeArray<int> m_GhostCompletionCount;
         private StreamCompressionModel m_CompressionModel;
 
         EntityTypeHandle m_EntityTypeHandle;
@@ -157,9 +157,7 @@ namespace Unity.NetCode
 #endif
             m_GhostEntityMap = new NativeParallelHashMap<int, Entity>(2048, Allocator.Persistent);
             m_SpawnedGhostEntityMap = new NativeParallelHashMap<SpawnedGhost, Entity>(2048, Allocator.Persistent);
-            m_GhostCompletionCount = new NativeList<int>(Allocator.Persistent);
-            m_GhostCompletionCount.Add(0); // Server count
-            m_GhostCompletionCount.Add(0); // Client count
+            m_GhostCompletionCount = new NativeArray<int>(2, Allocator.Persistent);
 
             var componentTypes = new NativeArray<ComponentType>(1, Allocator.Temp);
             componentTypes[0] = ComponentType.ReadWrite<SpawnedGhostEntityMap>();
@@ -1314,9 +1312,9 @@ namespace Unity.NetCode
             }
 #endif
 
-            var players = m_PlayerGroup.ToEntityListAsync(state.WorldUnmanaged.UpdateAllocator.ToAllocator, out var playerHandle);
+            var players = m_PlayerGroup.ToEntityListAsync(state.WorldUpdateAllocator, out var playerHandle);
             var prespawnSceneStateArray =
-                m_SubSceneGroup.ToComponentDataListAsync<SubSceneWithGhostStateComponent>(state.WorldUnmanaged.UpdateAllocator.ToAllocator,
+                m_SubSceneGroup.ToComponentDataListAsync<SubSceneWithGhostStateComponent>(state.WorldUpdateAllocator,
                     out var prespawnHandle);
             ref readonly var ghostDespawnQueues = ref SystemAPI.GetSingletonRW<GhostDespawnQueues>().ValueRO;
             UpdateLookupsForReadStreamJob(ref state);
@@ -1338,7 +1336,7 @@ namespace Unity.NetCode
                 GhostEntityMap = m_GhostEntityMap,
                 CompressionModel = m_CompressionModel,
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
-                NetStats = netStats.Data,
+                NetStats = netStats.Data.AsArray(),
 #endif
                 InterpolatedDespawnQueue = ghostDespawnQueues.InterpolatedDespawnQueue,
                 PredictedDespawnQueue = ghostDespawnQueues.PredictedDespawnQueue,

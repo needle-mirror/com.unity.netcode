@@ -196,8 +196,8 @@ namespace Unity.NetCode
             }
             var netDebug = SystemAPI.GetSingleton<NetDebug>();
             ref var ghostEntityMap = ref SystemAPI.GetSingletonRW<SpawnedGhostEntityMap>().ValueRW;
-            ghostEntityMap.AddClientNonSpawnedGhosts(nonSpawnedGhosts, netDebug);
-            ghostEntityMap.AddClientSpawnedGhosts(spawnedGhosts, netDebug);
+            ghostEntityMap.AddClientNonSpawnedGhosts(nonSpawnedGhosts.AsArray(), netDebug);
+            ghostEntityMap.AddClientSpawnedGhosts(spawnedGhosts.AsArray(), netDebug);
 
             spawnedGhosts.Clear();
             while (m_DelayedInterpolatedGhostSpawnQueue.Count > 0 &&
@@ -218,7 +218,7 @@ namespace Unity.NetCode
                     spawnedGhosts.Add(new SpawnedGhostMapping { ghost = new SpawnedGhost { ghostId = ghost.ghostId, spawnTick = ghost.serverSpawnTick }, entity = entity, previousEntity = ghost.oldEntity });
                 }
             }
-            ghostEntityMap.UpdateClientSpawnedGhosts(spawnedGhosts, netDebug);
+            ghostEntityMap.UpdateClientSpawnedGhosts(spawnedGhosts.AsArray(), netDebug);
         }
 
         void ConfigurePrespawnGhost(ref EntityManager entityManager, Entity entity, in GhostSpawnBuffer ghost)

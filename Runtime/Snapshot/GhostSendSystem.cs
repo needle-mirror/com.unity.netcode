@@ -1382,7 +1382,7 @@ namespace Unity.NetCode
 #endif
                 }
 
-                NativeArray<PrioChunk> serialChunkArray = serialChunks;
+                var serialChunkArray = serialChunks.AsArray();
                 serialChunkArray.Sort();
                 return serialChunks;
             }
@@ -1490,7 +1490,7 @@ namespace Unity.NetCode
                 ++m_SentSnapshots;
 
             // Make sure the list of connections and connection state is up to date
-            var connections = connectionQuery.ToEntityListAsync(state.WorldUnmanaged.UpdateAllocator.ToAllocator, out var connectionHandle);
+            var connections = connectionQuery.ToEntityListAsync(state.WorldUpdateAllocator, out var connectionHandle);
 
             var relevancyMode = SystemAPI.GetSingleton<GhostRelevancy>().GhostRelevancyMode;
             bool relevancyEnabled = (relevancyMode != GhostRelevancyMode.Disabled);
@@ -1597,7 +1597,7 @@ namespace Unity.NetCode
 
             // Extract all newly spawned ghosts and set their ghost ids
             var ghostCollectionSingleton = SystemAPI.GetSingletonEntity<GhostCollection>();
-            var spawnChunks = ghostSpawnQuery.ToArchetypeChunkListAsync(state.WorldUnmanaged.UpdateAllocator.ToAllocator, out var spawnChunkHandle);
+            var spawnChunks = ghostSpawnQuery.ToArchetypeChunkListAsync(state.WorldUpdateAllocator, out var spawnChunkHandle);
             var netDebug = SystemAPI.GetSingleton<NetDebug>();
 #if NETCODE_DEBUG
             m_PrefabDebugNameFromEntity.Update(ref state);
@@ -1635,8 +1635,8 @@ namespace Unity.NetCode
             state.Dependency = spawnJob.Schedule(JobHandle.CombineDependencies(state.Dependency, spawnChunkHandle));
 
             // Create chunk arrays for ghosts and despawned ghosts
-            var despawnChunks = ghostDespawnQuery.ToArchetypeChunkListAsync(state.WorldUnmanaged.UpdateAllocator.ToAllocator, out var despawnChunksHandle);
-            var ghostChunks = ghostQuery.ToArchetypeChunkListAsync(state.WorldUnmanaged.UpdateAllocator.ToAllocator, out var ghostChunksHandle);
+            var despawnChunks = ghostDespawnQuery.ToArchetypeChunkListAsync(state.WorldUpdateAllocator, out var despawnChunksHandle);
+            var ghostChunks = ghostQuery.ToArchetypeChunkListAsync(state.WorldUpdateAllocator, out var ghostChunksHandle);
             state.Dependency = JobHandle.CombineDependencies(state.Dependency, despawnChunksHandle, ghostChunksHandle);
 
             SystemAPI.TryGetSingletonEntity<PrespawnSceneLoaded>(out var prespawnSceneLoadedEntity);
@@ -1671,7 +1671,7 @@ namespace Unity.NetCode
                 relevancyMode = relevancyMode,
                 relevantGhostCountForConnection = m_ConnectionRelevantCount.AsDeferredJobArray(),
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
-                netStatsBuffer = netStats.Data,
+                netStatsBuffer = netStats.Data.AsArray(),
                 netStatSize = netStats.Size,
                 netStatStride = netStats.Stride,
 #endif
