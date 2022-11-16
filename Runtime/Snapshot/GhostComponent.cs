@@ -1,6 +1,7 @@
 using Unity.Entities;
 using Unity.Collections;
 using System;
+using Unity.Burst;
 
 namespace Unity.NetCode
 {
@@ -73,6 +74,52 @@ namespace Unity.NetCode
         /// </summary>
         [UnityEngine.SerializeField]
         internal uint guid3;
+
+        /// <summary>
+        /// Construct a new <see cref="GhostTypeComponent"/> from a <see cref="Hash128"/> guid string.
+        /// </summary>
+        /// <param name="guid">a guid string. Either Hash128 or Unity.Engine.GUID strings are valid.</param>
+        /// <returns>a new GhostTypeComponent instance</returns>
+        [BurstDiscard]
+        internal static GhostTypeComponent FromHash128String(string guid)
+        {
+            var hash = new Hash128(guid);
+            return new GhostTypeComponent
+            {
+                guid0 = hash.Value.x,
+                guid1 = hash.Value.y,
+                guid2 = hash.Value.z,
+                guid3 = hash.Value.w,
+            };
+        }
+
+        /// <summary>
+        /// Create a new <see cref="GhostTypeComponent"/> from the give <see cref="Hash128"/> guid.
+        /// </summary>
+        /// <param name="guid"></param>
+        /// <returns></returns>
+        internal static GhostTypeComponent FromHash128(Hash128 guid)
+        {
+            return new GhostTypeComponent
+            {
+                guid0 = guid.Value.x,
+                guid1 = guid.Value.y,
+                guid2 = guid.Value.z,
+                guid3 = guid.Value.w,
+            };
+        }
+
+        /// <summary>
+        /// Convert a <see cref="GhostTypeComponent"/> to a <see cref="Hash128"/> instance. The hash will always match the prefab guid
+        /// from which the ghost has been created.
+        /// </summary>
+        /// <param name="ghostType"></param>
+        /// <returns></returns>
+        public static explicit operator Hash128(GhostTypeComponent ghostType)
+        {
+            return new Hash128(ghostType.guid0, ghostType.guid1, ghostType.guid2, ghostType.guid3);
+
+        }
 
         /// <summary>
         /// Returns whether or not two GhostTypeComponent are identical.

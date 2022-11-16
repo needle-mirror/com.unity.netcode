@@ -124,21 +124,22 @@ namespace Unity.NetCode.Editor
                 IsRoot = isRoot,
             };
 
-            var collectionData = world.GetExistingSystemManaged<GhostComponentSerializerCollectionSystemGroup>().ghostComponentSerializerCollectionDataCache;
+            using var query = world.EntityManager.CreateEntityQuery(ComponentType.ReadOnly<GhostComponentSerializerCollectionData>());
+            var collectionData = query.GetSingleton<GhostComponentSerializerCollectionData>();
 
             AddToComponentList(result, result.BakedComponents, in collectionData, world, convertedEntity, entityIndex);
 
-            var variantTypesList = new NativeList<VariantType>(4, Allocator.Temp);
+            var variantTypesList = new NativeList<ComponentTypeSerializationStrategy>(4, Allocator.Temp);
             foreach (var compItem in result.BakedComponents)
             {
                 var searchHash = compItem.VariantHash;
 
                 variantTypesList.Clear();
-                for (int i = 0; i < compItem.availableVariants.Length; i++)
+                for (int i = 0; i < compItem.availableSerializationStrategies.Length; i++)
                 {
-                    variantTypesList.Add(compItem.availableVariants[i]);
+                    variantTypesList.Add(compItem.availableSerializationStrategies[i]);
                 }
-                compItem.variant = collectionData.GetCurrentVariantTypeForComponent(ComponentType.ReadWrite(compItem.managedType), searchHash, variantTypesList, isRoot);
+                compItem.serializationStrategy = collectionData.SelectSerializationStrategyForComponentWithHash(ComponentType.ReadWrite(compItem.managedType), searchHash, variantTypesList, isRoot);
 
                 if (compItem.anyVariantIsSerialized)
                 {
@@ -171,21 +172,26 @@ namespace Unity.NetCode.Editor
 
                 var guid = world.EntityManager.GetComponentData<EntityGuid>(convertedEntity);
 
-                using var availableVariants = collectionData.GetAllAvailableVariantsForType(managedType, parent.IsRoot);
-                var metaData = collectionData.GetOrCreateMetaData(managedType);
-                var canSerializeInAtLeastOneVariant = GhostComponentSerializerCollectionData.AnyVariantsAreSerialized(in availableVariants);
-                var defaultVariant = collectionData.GetCurrentVariantTypeForComponent(componentType, 0, availableVariants, parent.IsRoot);
+                using var availableSs = collectionData.GetAllAvailableSerializationStrategiesForType(managedType, parent.IsRoot);
+                var canSerializeInAtLeastOneVariant = GhostComponentSerializerCollectionData.AnyVariantsAreSerialized(in availableSs);
+                var defaultVariant = collectionData.SelectSerializationStrategyForComponentWithHash(componentType, 0, availableSs, parent.IsRoot);
 
-                var readableNames = new string[availableVariants.Length];
-                for (var j = 0; j < availableVariants.Length; j++)
+                // Remove test variants as they cannot be selected:
+                for (var j = availableSs.Length - 1; j >= 0; j--)
                 {
-                    var vt = availableVariants[j];
+                    var ss = availableSs[j];
+                    if(ss.IsTestVariant != 0)
+                        availableSs.RemoveAt(j);
+                }
 
-                    var readableName = vt.CreateReadableName(metaData);
+                // Cache the availableVariants names.
+                var ssDisplayNames = new string[availableSs.Length];
+                for (var j = 0; j < availableSs.Length; j++)
+                {
+                    var vt = availableSs[j];
+                    ssDisplayNames[j] = vt.DisplayName.ToString();
                     if (vt.Hash == defaultVariant.Hash)
-                        readableName += " (Default)";
-
-                    readableNames[j] = readableName;
+                        ssDisplayNames[j] += " (Default)";
                 }
 
                 var componentItem = new BakedComponentItem
@@ -195,12 +201,10 @@ namespace Unity.NetCode.Editor
                     managedType = managedType,
                     entityGuid = guid,
                     entityIndex = entityIndex,
-                    ghostComponentAttribute = managedType.GetCustomAttribute<GhostComponentAttribute>() ?? new GhostComponentAttribute(),
-                    availableVariants = availableVariants.ToArrayNBC(),
-                    availableVariantReadableNames = readableNames,
+                    availableSerializationStrategies = availableSs.ToArrayNBC(),
+                    availableSerializationStrategyDisplayNames = ssDisplayNames,
                     anyVariantIsSerialized = canSerializeInAtLeastOneVariant,
-                    metaData = metaData,
-                    defaultVariant = defaultVariant,
+                    defaultSerializationStrategy = defaultVariant,
                 };
                 newComponents.Add(componentItem);
             }

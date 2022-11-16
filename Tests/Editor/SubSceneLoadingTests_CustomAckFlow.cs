@@ -39,10 +39,10 @@ namespace Unity.NetCode.Tests
         protected override void OnUpdate()
         {
             var ecb = m_Barrier.CreateCommandBuffer();
-            var serverTick = GetSingleton<NetworkTime>().ServerTick;
+            var serverTick = SystemAPI.GetSingleton<NetworkTime>().ServerTick;
             Entities.ForEach((Entity entity, in NotifySceneLoaded streamingReq, in ReceiveRpcCommandRequestComponent requestComponent) =>
             {
-                var prespawnSceneAcks = GetBuffer<PrespawnSectionAck>(requestComponent.SourceConnection);
+                var prespawnSceneAcks = SystemAPI.GetBuffer<PrespawnSectionAck>(requestComponent.SourceConnection);
                 int ackIdx = prespawnSceneAcks.IndexOf(streamingReq.SceneHash);
                 if (ackIdx == -1)
                     prespawnSceneAcks.Add(new PrespawnSectionAck { SceneHash = streamingReq.SceneHash });
@@ -51,7 +51,7 @@ namespace Unity.NetCode.Tests
 
             Entities.ForEach((Entity entity, in NotifyUnloadingScene streamingReq, in ReceiveRpcCommandRequestComponent requestComponent) =>
             {
-                var prespawnSceneAcks = GetBuffer<PrespawnSectionAck>(requestComponent.SourceConnection);
+                var prespawnSceneAcks = SystemAPI.GetBuffer<PrespawnSectionAck>(requestComponent.SourceConnection);
                 int ackIdx = prespawnSceneAcks.IndexOf(streamingReq.SceneHash);
                 if (ackIdx != -1)
                 {

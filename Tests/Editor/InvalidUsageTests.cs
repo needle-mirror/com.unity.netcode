@@ -35,7 +35,7 @@ namespace Unity.NetCode.Tests
             if (s_DeleteCount > 0)
             {
                 --s_DeleteCount;
-                EntityManager.DestroyEntity(GetSingletonEntity<GhostOwnerComponent>());
+                EntityManager.DestroyEntity(SystemAPI.GetSingletonEntity<GhostOwnerComponent>());
             }
         }
     }

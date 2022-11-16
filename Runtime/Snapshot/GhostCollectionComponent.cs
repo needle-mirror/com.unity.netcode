@@ -133,11 +133,9 @@ namespace Unity.NetCode
     /// <remarks>
     /// The list is sorted by the value of the <see cref="GhostType"/> guid.
     /// </remarks>
-    [InternalBufferCapacity(ghostCollectionPrefabBufferSize)]
+    [InternalBufferCapacity(0)]
     public struct GhostCollectionPrefab : IBufferElementData
     {
-        internal const int ghostCollectionPrefabBufferSize = 96;
-
         /// <summary>
         /// Ghost prefabs can be added dynamically to the ghost collection as soon as they are loaded from either a
         /// sub-scene, or created dynamically at runtime.
@@ -186,7 +184,7 @@ namespace Unity.NetCode
     /// serializers are created yet.
     /// Added to the GhostCollection singleton entity.
     /// </summary>
-    [InternalBufferCapacity(GhostCollectionPrefab.ghostCollectionPrefabBufferSize)]
+    [InternalBufferCapacity(0)]
     internal struct GhostCollectionPrefabSerializer : IBufferElementData
     {
         /// <summary>
@@ -259,7 +257,7 @@ namespace Unity.NetCode
         /// </summary>
         public int IsGhostGroup;
         /// <summary>
-        /// The number of bits necessary to store the enabled state of all the enableable ghost components.
+        /// The number of bits necessary to store the enabled state of all the enableable ghost components (that are flagged with <see cref="GhostEnabledBitAttribute"/>).
         /// </summary>
         public int EnableableBits;
         /// <summary>
@@ -282,7 +280,7 @@ namespace Unity.NetCode
     /// to a concrete ComponentType in jobs.
     /// Added to the GhostCollection singleton entity.
     /// </summary>
-    [InternalBufferCapacity(128)]
+    [InternalBufferCapacity(0)]
     internal struct GhostCollectionComponentType : IBufferElementData
     {
         /// <summary>
@@ -305,7 +303,7 @@ namespace Unity.NetCode
     /// to use from this array.
     /// Added to the GhostCollection singleton entity.
     /// </summary>
-    [InternalBufferCapacity(128)]
+    [InternalBufferCapacity(0)]
     internal struct GhostCollectionComponentIndex : IBufferElementData
     {
         /// <summary>Index of ghost entity the rule applies to.</summary>

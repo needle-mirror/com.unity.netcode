@@ -17,6 +17,7 @@ namespace Unity.NetCode
     /// </summary>
     [RequireComponent(typeof(LinkedEntityGroupAuthoring))]
     [DisallowMultipleComponent]
+    [HelpURL(Authoring.HelpURLs.GhostAuthoringComponent)]
     public class GhostAuthoringComponent : MonoBehaviour
     {
 #if UNITY_EDITOR
@@ -51,18 +52,18 @@ namespace Unity.NetCode
         /// <summary>
         /// The ghost modes supported by this ghost. This will perform some more optimizations at authoring time but make it impossible to change ghost mode at runtime.
         /// </summary>
-        [Tooltip("The ghost modes supported by this ghost. This will perform some more optimizations at authoring time but make it impossible to change ghost mode at runtime.")]
+        [Tooltip("The ghost modes supported by this ghost. Setting to anything other than All will allow NetCode to perform some more optimizations at authoring time. However, it makes it impossible to change ghost mode at runtime.")]
         public GhostModeMask SupportedGhostModes = GhostModeMask.All;
         /// <summary>
         /// This setting is only for optimization, the ghost will be sent when modified regardless of this setting.
         /// Optimizing for static makes snapshots slightly larger when they change, but smaller when they do not change.
         /// </summary>
-        [Tooltip("This setting is only for optimization, the ghost will be sent when modified regardless of this setting. Optimizing for static makes snapshots slightly larger when they change, but smaller when they do not change.")]
+        [Tooltip("Optimization: Marking as `Static` makes snapshots slightly larger when GhostField values change, but smaller when they do not change.\n\n<b>Note: This is just an optimization. I.e. Changes to GhostFields will always be replicated (it's just a question of how).</b>")]
         public GhostOptimizationMode OptimizationMode = GhostOptimizationMode.Dynamic;
         /// <summary>
         /// If not all ghosts can fit in a snapshot only the most important ghosts will be sent. Higher importance means the ghost is more likely to be sent.
         /// </summary>
-        [Tooltip("If not all ghosts can fit in a snapshot only the most important ghosts will be sent. Higher importance means the ghost is more likely to be sent.")]
+        [Tooltip("If not all ghosts can fit in a snapshot, only the most important ghosts will be sent. Higher importance means the ghost is more likely to be sent.")]
         public int Importance = 1;
         /// <summary>
         /// For internal use only, the prefab GUID used to distinguish between different variant of the same prefab.
@@ -72,13 +73,13 @@ namespace Unity.NetCode
         /// Add a GhostOwnerComponent tracking which connection owns this component.
         /// You must set the GhostOwnerComponent to a valid NetworkIdComponent.Value at runtime.
         /// </summary>
-        [Tooltip("Add a GhostOwnerComponent tracking which connection owns this component. You must set the GhostOwnerComponent to a valid NetworkIdComponent.Value at runtime.")]
+        [Tooltip("Automatically adds a GhostOwnerComponent, which allows the server to set (and track) which connection owns this ghost. In your server code, you must set the GhostOwnerComponent to a valid NetworkIdComponent.Value at runtime.")]
         public bool HasOwner;
         /// <summary>
         /// Automatically send all ICommandData buffers if the ghost is owned by the current connection,
         /// AutoCommandTarget.Enabled is true and the ghost is predicted.
         /// </summary>
-        [Tooltip("Automatically send all ICommandData buffers if the ghost is owned by the current connection, AutoCommandTarget.Enabled is true and the ghost is predicted.")]
+        [Tooltip("Automatically sends all ICommandData buffers when the following conditions are met: \n\n - The ghost is owned by the current connection.\n\n - AutoCommandTarget is added, and Enabled is true.\n\n - The ghost is predicted.")]
         public bool SupportAutoCommandTarget = true;
         /// <summary>
         /// Add a CommandDataInterpolationDelay component so the interpolation delay of each client is tracked.
@@ -98,11 +99,13 @@ namespace Unity.NetCode
         /// components on child entities or serialized buffers. A common case where this can be useful is the ghost
         /// for the character / player.
         /// </summary>
-        [Tooltip("Force this ghost to be quantized and copied to the snapshot format once for all connections instead of once per connection. This can save CPU time in the ghost send system if the ghost is almost always sent to at least one connection, and it contains many serialized components, serialized components on child entities or serialized buffers. A common case where this can be useful is the ghost for the character / player.")]
+        [Tooltip("Force this ghost to be quantized and copied to the snapshot format once for all connections instead of once per connection. This can save CPU time in the ghost send system if the ghost is almost always sent to at least one connection, and it contains many serialized components, serialized components on child entities, or serialized buffers. A common case where this can be useful is the ghost for the character / player.")]
         public bool UsePreSerialization;
         /// <summary>
-        /// The name of the GameObject prefab.
+        /// Validate the name of the GameObject prefab.
         /// </summary>
+        /// <param name="ghostNameHash">Outputs the hash generated from the name.</param>
+        /// <returns>The FS equivalent of the gameObject.name.</returns>
         public FixedString64Bytes GetAndValidateGhostName(out ulong ghostNameHash)
         {
             var ghostName = gameObject.name;

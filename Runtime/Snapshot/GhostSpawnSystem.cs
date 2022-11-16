@@ -9,8 +9,7 @@ namespace Unity.NetCode
     /// <summary>
     /// System responsible for spawning all the ghost entities for the client world.
     /// <para>
-    /// When a ghost snapshost that contains new ghost data is received from the server, the <see cref="GhostReceiveSystem"/>
-    /// add a spawning request to the <see cref="GhostSpawnBuffer"/>.
+    /// When a ghost snapshot is received from the server, the <see cref="GhostReceiveSystem"/> add a spawning request to the <see cref="GhostSpawnBuffer"/>.
     /// After the spawning requests has been classified (see <see cref="GhostSpawnClassificationSystem"/>),
     /// the <see cref="GhostSpawnSystem"/> start processing the spawning queue.
     /// </para>
@@ -19,7 +18,7 @@ namespace Unity.NetCode
     /// <para>When the mode is set to <see cref="GhostSpawnBuffer.Type.Interpolated"/>, the ghost creation is delayed
     /// until the <see cref="NetworkTime.InterpolationTick"/> match (or is greater) the actual spawning tick on the server.
     /// A temporary entity, holding the spawning information, the received snapshot data from the server, and tagged with the <seealso cref="PendingSpawnPlaceholderComponent"/>
-    /// is created. The entity will exists until the real ghost instance is spawned (or a despawn request has been received),
+    /// is created. The entity will exists until the real ghost instance is spawned (or a de-spawn request has been received),
     /// and its sole purpose of receiving new incoming snapshots (even though they are not applied to the entity, since it is not a real ghost).
     /// </para>
     /// <para>
@@ -57,17 +56,16 @@ namespace Unity.NetCode
 
         public void OnCreate(ref SystemState state)
         {
-            var ent = state.EntityManager.CreateEntity();
-            state.EntityManager.SetName(ent, "GhostSpawnQueue");
-            state.EntityManager.AddComponentData(ent, default(GhostSpawnQueueComponent));
-            state.EntityManager.AddBuffer<GhostSpawnBuffer>(ent);
-            state.EntityManager.AddBuffer<SnapshotDataBuffer>(ent);
-
             m_DelayedInterpolatedGhostSpawnQueue = new NativeQueue<DelayedSpawnGhost>(Allocator.Persistent);
             m_DelayedPredictedGhostSpawnQueue = new NativeQueue<DelayedSpawnGhost>(Allocator.Persistent);
             m_InGameGroup = state.GetEntityQuery(ComponentType.ReadOnly<NetworkStreamInGame>());
             m_NetworkIdQuery = state.GetEntityQuery(ComponentType.ReadOnly<NetworkIdComponent>(), ComponentType.Exclude<NetworkStreamRequestDisconnect>());
 
+            var ent = state.EntityManager.CreateEntity();
+            state.EntityManager.SetName(ent, "GhostSpawnQueue");
+            state.EntityManager.AddComponentData(ent, default(GhostSpawnQueueComponent));
+            state.EntityManager.AddBuffer<GhostSpawnBuffer>(ent);
+            state.EntityManager.AddBuffer<SnapshotDataBuffer>(ent);
             state.RequireForUpdate<GhostCollection>();
             state.RequireForUpdate<GhostSpawnQueueComponent>();
         }

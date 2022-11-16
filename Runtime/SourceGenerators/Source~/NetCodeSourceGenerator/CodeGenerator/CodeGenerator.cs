@@ -78,7 +78,7 @@ namespace Unity.NetCode.Generators
         public static void GenerateRegistrationSystem(Context context)
         {
             //There is nothing to generate in that case. Skip creating an empty system
-            if(context.generatedTypes.Count == 0 && context.emptyVariantTypes.Count == 0)
+            if(context.generatedTypes.Count == 0 && context.serializationStrategies.Count == 0)
                 return;
 
             using (new Profiler.Auto("GenerateRegistrationSystem"))
@@ -93,19 +93,61 @@ namespace Unity.NetCode.Generators
                     replacements["GHOST_NAME"] = t;
                     registrationSystemCodeGen.GenerateFragment("GHOST_COMPONENT_LIST", replacements);
                 }
-                foreach (var t in context.emptyVariantTypes)
-                {
-                    if(t.Hash == "0")
-                        context.diagnostic.LogError($"Setting invalid hash on variantType {t.VariantType} to {t.Hash}!");
 
-                    replacements["VARIANT_TYPE"] = t.VariantType;
-                    replacements["GHOST_COMPONENT_TYPE"] = t.ComponentType;
-                    replacements["GHOST_VARIANT_HASH"] = t.Hash;
-                    if (t.GhostAttribute != null)
-                        replacements["GHOST_PREFAB_TYPE"] = $"GhostPrefabType.{t.GhostAttribute.PrefabType.ToString()}";
+                int selfIndex = 0;
+                foreach (var ss in context.serializationStrategies)
+                {
+                    var typeInfo = ss.TypeInfo;
+
+                    if (typeInfo == null)
+                        throw new InvalidOperationException("Must define TypeInfo when using `serializationStrategies.Add`!");
+
+                    if(ss.Hash == "0")
+                        context.diagnostic.LogError($"Setting invalid hash on variantType {ss.VariantTypeName} to {ss.Hash}!");
+
+                    var displayName = ss.DisplayName ?? ss.VariantTypeName;
+                    displayName = SmartTruncateDisplayName(displayName);
+
+                    var isDefaultSerializer = string.IsNullOrWhiteSpace(ss.VariantTypeName) || ss.VariantTypeName == ss.ComponentTypeName;
+
+                    replacements["VARIANT_TYPE"] = ss.VariantTypeName;
+                    replacements["GHOST_COMPONENT_TYPE"] = ss.ComponentTypeName;
+                    replacements["GHOST_VARIANT_DISPLAY_NAME"] = displayName;
+                    replacements["GHOST_VARIANT_HASH"] = ss.Hash;
+                    replacements["SELF_INDEX"] = selfIndex++.ToString();
+                    replacements["VARIANT_IS_SERIALIZED"] = ss.IsSerialized ? "1" : "0";
+                    replacements["GHOST_IS_DEFAULT_SERIALIZER"] = isDefaultSerializer ? "1" : "0";
+                    replacements["GHOST_SEND_CHILD_ENTITY"] = typeInfo.GhostAttribute != null && typeInfo.GhostAttribute.SendDataForChildEntity ? "1" : "0";
+                    replacements["TYPE_IS_INPUT_COMPONENT"] = typeInfo.ComponentType == ComponentType.Input ? "1" : "0";
+                    replacements["TYPE_IS_INPUT_BUFFER"] = typeInfo.ComponentType == ComponentType.CommandData ? "1" : "0";
+                    replacements["TYPE_IS_TEST_VARIANT"] = typeInfo.IsTestVariant ? "1" : "0";
+                    replacements["TYPE_HAS_DONT_SUPPORT_PREFAB_OVERRIDES_ATTRIBUTE"] = typeInfo.HasDontSupportPrefabOverridesAttribute ? "1" : "0";
+                    replacements["TYPE_HAS_SUPPORTS_PREFAB_OVERRIDES_ATTRIBUTE"] = typeInfo.HasSupportsPrefabOverridesAttribute ? "1" : "0";
+                    replacements["GHOST_PREFAB_TYPE"] = ss.GhostAttribute != null ? $"GhostPrefabType.{ss.GhostAttribute.PrefabType.ToString()}" : "GhostPrefabType.All";
+
+                    if (typeInfo.GhostAttribute != null)
+                    {
+                        if ((typeInfo.GhostAttribute.PrefabType & GhostPrefabType.Client) == GhostPrefabType.InterpolatedClient)
+                            replacements["GHOST_SEND_MASK"] = "GhostSendType.OnlyInterpolatedClients";
+                        else if ((typeInfo.GhostAttribute.PrefabType & GhostPrefabType.Client) == GhostPrefabType.PredictedClient)
+                            replacements["GHOST_SEND_MASK"] = "GhostSendType.OnlyPredictedClients";
+                        else if (typeInfo.GhostAttribute.PrefabType == GhostPrefabType.Server)
+                            replacements["GHOST_SEND_MASK"] = "GhostSendType.DontSend";
+                        else if (typeInfo.GhostAttribute.SendTypeOptimization == GhostSendType.OnlyInterpolatedClients)
+                            replacements["GHOST_SEND_MASK"] = "GhostSendType.OnlyInterpolatedClients";
+                        else if (typeInfo.GhostAttribute.SendTypeOptimization == GhostSendType.OnlyPredictedClients)
+                            replacements["GHOST_SEND_MASK"] = "GhostSendType.OnlyPredictedClients";
+                        else if (typeInfo.GhostAttribute.SendTypeOptimization == GhostSendType.AllClients)
+                            replacements["GHOST_SEND_MASK"] = "GhostSendType.AllClients";
+                        else
+                            replacements["GHOST_SEND_MASK"] = "GhostComponentSerializer.SendMask.DontSend";
+                    }
                     else
-                        replacements["GHOST_PREFAB_TYPE"] = "GhostPrefabType.All";
-                    registrationSystemCodeGen.GenerateFragment("GHOST_EMPTY_VARIANT_LIST", replacements);
+                    {
+                        replacements["GHOST_SEND_MASK"] = "GhostSendType.AllClients";
+                    }
+
+                    registrationSystemCodeGen.GenerateFragment("GHOST_SERIALIZATION_STRATEGY_LIST", replacements);
                 }
 
                 replacements.Clear();
@@ -114,8 +156,27 @@ namespace Unity.NetCode.Generators
 
                 replacements.Clear();
                 replacements.Add("GHOST_NAMESPACE", context.generatedNs);
-                registrationSystemCodeGen.GenerateFile("GhostComponentSerializerCollection.cs", string.Empty,replacements, context.batch);
+                registrationSystemCodeGen.GenerateFile("GhostComponentSerializerCollection.cs", string.Empty, replacements, context.batch);
             }
+        }
+
+        /// <summary>Long display names like "Some.Very.Long.Namespace.WithAMassiveStructNameAtTheEnd" will be truncated from the back.
+        /// E.g. Removing "Some", then "Very" etc. It must fit into the FixedString capacity, otherwise we'll get runtime exceptions during Registration.</summary>
+        static string SmartTruncateDisplayName(string displayName)
+        {
+            int indexOf = 0;
+            const int fixedString64BytesCapacity = 61;
+            while (displayName.Length - indexOf > fixedString64BytesCapacity && indexOf < displayName.Length)
+            {
+                int newIndexOf = displayName.IndexOf('.', indexOf);
+                if (newIndexOf < 0) newIndexOf = displayName.IndexOf(',', indexOf);
+
+                // We may have to just truncate in the middle of a word.
+                if (newIndexOf < 0 || newIndexOf >= displayName.Length - 1)
+                    indexOf = Math.Max(0, displayName.Length - fixedString64BytesCapacity);
+                else indexOf = newIndexOf + 1;
+            }
+            return displayName.Substring(indexOf, displayName.Length - indexOf);
         }
 
         public static void GenerateGhost(Context context, TypeInformation typeTree)
@@ -131,7 +192,7 @@ namespace Unity.NetCode.Generators
             }
         }
 
-        public static void GenerateCommand(Context context, TypeInformation typeTree, CommandSerializer.Type commandType)
+        public static void GenerateCommand(Context context, TypeInformation typeInfo, CommandSerializer.Type commandType)
         {
             void BuildGenerator(Context ctx, TypeInformation typeInfo, CommandSerializer parentGenerator)
             {
@@ -153,7 +214,7 @@ namespace Unity.NetCode.Generators
                         return;
                     }
                 }
-                foreach (var field in typeInfo.Fields)
+                foreach (var field in typeInfo.GhostFields)
                     BuildGenerator(ctx, field, fieldGen);
                 fieldGen.AppendTarget(parentGenerator);
             }
@@ -161,21 +222,21 @@ namespace Unity.NetCode.Generators
             using(new Profiler.Auto("CodeGen"))
             {
                 var serializeGenerator = new CommandSerializer(context, commandType);
-                BuildGenerator(context, typeTree, serializeGenerator);
-                serializeGenerator.GenerateSerializer(context, typeTree);
+                BuildGenerator(context, typeInfo, serializeGenerator);
+                serializeGenerator.GenerateSerializer(context, typeInfo);
                 if (commandType == Generators.CommandSerializer.Type.Input)
                 {
                     // The input component needs to be registered as an empty type variant so that the
                     // ghost component attributes placed on it can be parsed during ghost conversion
-                    var inputGhostAttributes = ComponentFactory.TryGetGhostComponent(typeTree.Symbol);
+                    var inputGhostAttributes = ComponentFactory.TryGetGhostComponent(typeInfo.Symbol);
                     if (inputGhostAttributes == null)
                         inputGhostAttributes = new GhostComponentAttribute();
-                    var variantHash = Helpers.ComputeVariantHash(typeTree.Symbol, typeTree.Symbol);
-                    context.emptyVariantTypeInfo.Add(typeTree);
-                    context.emptyVariantTypes.Add(new CodeGenerator.Context.EmptyVariant
+                    var variantHash = Helpers.ComputeVariantHash(typeInfo.Symbol, typeInfo.Symbol);
+                    context.serializationStrategies.Add(new CodeGenerator.Context.SerializationStrategyCodeGen
                     {
-                        VariantType = typeTree.TypeFullName.Replace("+", "."),
-                        ComponentType = typeTree.TypeFullName.Replace("+", "."),
+                        TypeInfo = typeInfo,
+                        VariantTypeName = typeInfo.TypeFullName.Replace("+", "."),
+                        ComponentTypeName = typeInfo.TypeFullName.Replace("+", "."),
                         Hash = variantHash.ToString(),
                         GhostAttribute = inputGhostAttributes
                     });
@@ -185,7 +246,7 @@ namespace Unity.NetCode.Generators
                     string bufferName;
                     using (new Profiler.Auto("GenerateInputBufferType"))
                     {
-                        if (!GenerateInputBufferType(context, typeTree, out bufferTypeTree,
+                        if (!GenerateInputBufferType(context, typeInfo, out bufferTypeTree,
                                 out bufferSymbol, out bufferName))
                             return;
                     }
@@ -201,119 +262,43 @@ namespace Unity.NetCode.Generators
                     {
                         // Check if the input type has any GhostField attributes, needs to first
                         // lookup the symbol from the candidates list and get the field members from there
-                        bool hasGhostField = false;
-                        foreach (var member in typeTree.Symbol.GetMembers())
+                        bool hasGhostFields = false;
+                        foreach (var member in typeInfo.Symbol.GetMembers())
                         {
                             foreach (var attribute in member.GetAttributes())
                             {
                                 if (attribute.AttributeClass != null &&
                                     attribute.AttributeClass.Name is "GhostFieldAttribute" or "GhostField")
-                                    hasGhostField = true;
+                                    hasGhostFields = true;
                             }
                         }
 
-                        // Parse the generated input buffer as a component so it will be included in snapshot replication
+
+                        // Parse the generated input buffer as a component so it will be included in snapshot replication.
                         // This only needs to be done if the input struct has ghost fields inside as the generated input
-                        // buffer should then be replicated to remote players
-                        if (hasGhostField)
+                        // buffer should then be replicated to remote players.
+                        if (hasGhostFields) // Ignore GhostEnabledBit here as inputs cannot have them.
                         {
-                            GenerateInputBufferGhostComponent(context, typeTree, bufferName, bufferSymbol);
+                            GenerateInputBufferGhostComponent(context, typeInfo, bufferName, bufferSymbol);
                         }
                         else
                         {
-                            // If there are no ghost fields we need to add the buffer to the empty variant
-                            // list to save the ghost component attributes
+                            // We must add the serialization strategy even if there are no ghost fields, as empty variants
+                            // still save the ghost component attributes.
                             var bufferVariantHash = Helpers.ComputeVariantHash(bufferTypeTree.Symbol, bufferTypeTree.Symbol);
-                            context.emptyVariantTypeInfo.Add(typeTree);
-                            context.emptyVariantTypes.Add(new CodeGenerator.Context.EmptyVariant
+                            context.diagnostic.LogInfo($"Adding SerializationStrategy for input buffer {bufferTypeTree.TypeFullName}, which doesn't have any GhostFields, as we still need to store the GhostComponentAttribute data.");
+                            context.serializationStrategies.Add(new CodeGenerator.Context.SerializationStrategyCodeGen
                             {
-                                VariantType = bufferTypeTree.TypeFullName.Replace("+", "."),
-                                ComponentType = bufferTypeTree.TypeFullName.Replace("+", "."),
+                                TypeInfo = typeInfo,
+                                IsSerialized = false,
+                                VariantTypeName = bufferTypeTree.TypeFullName.Replace("+", "."),
+                                ComponentTypeName = bufferTypeTree.TypeFullName.Replace("+", "."),
                                 Hash = bufferVariantHash.ToString(),
                                 GhostAttribute = inputGhostAttributes
                             });
-
                         }
                     }
                 }
-            }
-        }
-
-        public static void GenerateMetaData(Context context, TypeInformation[] allTypes)
-        {
-            using (new Profiler.Auto("GenerateMetaDataRegistrationSystem"))
-            {
-                context.ResetState();
-                var assemblyNameSanitized = context.executionContext.Compilation.Assembly.Name.Replace(".", "").Replace("+", "_").Replace("-", "_");
-                context.generatorName = $"NetCodeTypeMetaDataRegistrationSystem_{assemblyNameSanitized}";
-                context.diagnostic.LogInfo($"Begun generation of '{context.generatorName}', checking {allTypes.Length} types.");
-
-                var metaDataRegistrationSystemCodeGen = context.codeGenCache.GetTemplate(MetaDataRegistrationSystem);
-                metaDataRegistrationSystemCodeGen = metaDataRegistrationSystemCodeGen.Clone();
-
-                var replacements = new Dictionary<string, string>(8);
-                replacements["REGISTRATION_SYSTEM_FILE_NAME"] = context.generatorName;
-
-                var alreadyAddedNamespaces = new HashSet<string>
-                {
-                    // Rule out the erroneous ones.
-                    string.Empty,
-                    null,
-                    " ",
-                };
-
-                const string unityCodeGenNamespace = "Unity.NetCode.Generated";
-                replacements["GHOST_NAMESPACE"] = unityCodeGenNamespace;
-
-                int numTypesAdded = 0;
-                foreach (var ns in context.imports)
-                {
-                    var validNamespaceForType = GetValidNamespaceForType(context.generatedNs, ns);
-                    if (!alreadyAddedNamespaces.Contains(validNamespaceForType))
-                    {
-                        alreadyAddedNamespaces.Add(validNamespaceForType);
-                        replacements["GHOST_USING"] = validNamespaceForType;
-                        metaDataRegistrationSystemCodeGen.GenerateFragment("GHOST_USING_STATEMENT", replacements);
-                    }
-                }
-
-                foreach (var typeInfo in allTypes)
-                {
-                    context.executionContext.CancellationToken.ThrowIfCancellationRequested();
-
-                    if (!typeInfo.IsValid)
-                    {
-                        context.diagnostic.LogInfo($"NOT generating meta-data for ${typeInfo.TypeFullName} as not a valid NetCode type.");
-                        continue;
-                    }
-                    context.diagnostic.LogInfo($"Generating meta-data for ${typeInfo.TypeFullName}");
-
-                    if (!alreadyAddedNamespaces.Contains(typeInfo.Namespace))
-                    {
-                        alreadyAddedNamespaces.Add(typeInfo.Namespace);
-                        replacements["GHOST_USING"] = typeInfo.Namespace;
-                        metaDataRegistrationSystemCodeGen.GenerateFragment("GHOST_USING_STATEMENT", replacements);
-                    }
-
-                    // If this is a variant, we need to parse out the type it's for, and ensure we use that in the hash below.
-                    var variantTypeFullName = typeInfo.TypeFullName.Replace("+", ".");
-                    var componentTypeFullName = typeInfo.Symbol.GetFullTypeName().Replace("+", ".");
-
-                    replacements["VARIANT_TYPE_HASH"] = Helpers.ComputeVariantHash(variantTypeFullName, componentTypeFullName).ToString();
-                    replacements["TYPE_IS_INPUT_COMPONENT"] = typeInfo.ComponentType == ComponentType.Input ? "true" : "false";
-                    replacements["TYPE_IS_INPUT_BUFFER"] = typeInfo.ComponentType == ComponentType.CommandData ? "true" : "false";
-                    replacements["TYPE_IS_TEST_VARIANT"] = typeInfo.IsTestVariant ? "true" : "false";
-                    replacements["TYPE_HAS_DONT_SUPPORT_PREFAB_OVERRIDES_ATTRIBUTE"] = typeInfo.HasDontSupportPrefabOverridesAttribute ? "true" : "false";
-                    replacements["TYPE_HAS_SUPPORTS_PREFAB_OVERRIDES_ATTRIBUTE"] = typeInfo.HasSupportsPrefabOverridesAttribute ? "true" : "false";
-                    metaDataRegistrationSystemCodeGen.GenerateFragment("GHOST_META_DATA_LIST", replacements);
-                    numTypesAdded++;
-                }
-
-                context.diagnostic.LogInfo($"Completed generation of meta-data registration system, {numTypesAdded} of {allTypes.Length} types total.");
-
-                if(numTypesAdded > 0)
-                    metaDataRegistrationSystemCodeGen.GenerateFile(context.generatorName + ".cs", unityCodeGenNamespace, replacements, context.batch);
-                else context.diagnostic.LogInfo("Meta-data registration file will not be created as no types to register!");
             }
         }
 
@@ -321,6 +306,8 @@ namespace Unity.NetCode.Generators
 
         private static bool GenerateInputBufferType(Context context, TypeInformation typeTree, out TypeInformation bufferTypeTree, out ITypeSymbol bufferSymbol, out string bufferName)
         {
+            // TODO - Code gen should handle throwing an exception for a zero-sized buffer with [GhostEnabledBit].
+
             // Add the generated code for the command type to the compilation syntax tree and
             // fetch its symbol for further processing
             var nameAndSource = context.batch[context.batch.Count - 1];
@@ -346,7 +333,7 @@ namespace Unity.NetCode.Generators
             bufferTypeTree = typeBuilder.BuildTypeInformation(bufferSymbol, null);
             if (bufferTypeTree == null)
             {
-                context.diagnostic.LogError($"Failed to generate type information for symbol ${bufferSymbol.ToDisplayString()}");
+                context.diagnostic.LogError($"Failed to generate type information for symbol ${bufferSymbol.ToDisplayString()}!");
                 return false;
             }
             context.types.Add(bufferTypeTree);
@@ -365,7 +352,10 @@ namespace Unity.NetCode.Generators
             context.ResetState();
             var bufferTypeTree = typeBuilder.BuildTypeInformation(bufferSymbol, null, ghostFieldOverride);
             if (bufferTypeTree == null)
+            {
+                context.diagnostic.LogError($"Failed to generate type information for symbol ${bufferSymbol.ToDisplayString()}!");
                 return;
+            }
             // Set ghost component attribute from values set on the input component source, or defaults
             // if not present, except for the OwnerSendType which can only be SendToNonOwner since it's
             // a dynamic buffer
@@ -383,8 +373,19 @@ namespace Unity.NetCode.Generators
             else
                 bufferTypeTree.GhostAttribute = new GhostComponentAttribute { OwnerSendType = SendToOwnerType.SendToNonOwner };
 
+            var variantHash = Helpers.ComputeVariantHash(bufferTypeTree.Symbol, bufferTypeTree.Symbol);
+            context.serializationStrategies.Add(new CodeGenerator.Context.SerializationStrategyCodeGen
+            {
+                TypeInfo = bufferTypeTree,
+                VariantTypeName = bufferTypeTree.TypeFullName.Replace("+", "."),
+                ComponentTypeName = bufferTypeTree.TypeFullName.Replace("+", "."),
+                Hash = variantHash.ToString(),
+                GhostAttribute = bufferTypeTree.GhostAttribute,
+                IsSerialized = true,
+            });
+
             context.types.Add(bufferTypeTree);
-            context.diagnostic.LogInfo($"Generating ghost for {bufferTypeTree.TypeFullName}");
+            context.diagnostic.LogInfo($"Generating ghost for input buffer {bufferTypeTree.TypeFullName}");
             GenerateGhost(context, bufferTypeTree);
         }
 
@@ -441,7 +442,7 @@ namespace Unity.NetCode.Generators
             bool composite = type.Attribute.composite;
             int index = 0;
 
-            foreach (var field in type.Fields)
+            foreach (var field in type.GhostFields)
             {
                 var generator = InternalGenerateType(context, field, $"{field.DeclaringTypeFullName}.{field.FieldName}");
                 //Type not found. (error should be already logged.
@@ -454,7 +455,7 @@ namespace Unity.NetCode.Generators
                     var overrides = generator.GenerateCompositeOverrides(context, field.Parent);
                     if (overrides != null)
                         generator.AppendTarget(typeGenerator);
-                    foreach (var f in generator.TypeInformation.Fields)
+                    foreach (var f in generator.TypeInformation.GhostFields)
                     {
                         var g = InternalGenerateType(context, f, $"{f.DeclaringTypeFullName}.{f.FieldName}");
                         g?.GenerateFields(context, f.Parent, overrides);
@@ -478,8 +479,8 @@ namespace Unity.NetCode.Generators
                 }
             }
 
-            if (type.Fields.Count == 0)
-                context.diagnostic.LogError($"Couldn't find the TypeDescriptor for the type {type.Description} when processing {fullFieldName}", type.Location);
+            if (type.GhostFields.Count == 0 && !type.ShouldSerializeEnabledBit)
+                context.diagnostic.LogError($"Couldn't find the TypeDescriptor for the type {type.Description} when processing {fullFieldName}! Types must have either valid [GhostField] attributes, or a [GhostEnabledBit] (on an IEnableableComponent).", type.Location);
 
             if (composite)
             {
@@ -561,15 +562,18 @@ namespace Unity.NetCode.Generators
             public List<TypeInformation> types;
             public HashSet<string> imports;
             public HashSet<string> generatedTypes;
-            public struct EmptyVariant
+            public struct SerializationStrategyCodeGen
             {
-                public string ComponentType;
-                public string VariantType;
+                public TypeInformation TypeInfo;
+                public string DisplayName;
+                public string ComponentTypeName;
+                public string VariantTypeName;
                 public string Hash;
+                public bool IsSerialized;
                 public GhostComponentAttribute GhostAttribute;
+
             }
-            public List<TypeInformation> emptyVariantTypeInfo;
-            public HashSet<EmptyVariant> emptyVariantTypes;
+            public List<SerializationStrategyCodeGen> serializationStrategies;
             public string variantType;
             public ulong variantHash;
             public string generatorName;
@@ -578,14 +582,15 @@ namespace Unity.NetCode.Generators
             {
                 public int numFields;
                 public int curChangeMask;
-                public ulong ghostfieldHash;
+                public ulong ghostFieldHash;
             }
             public CurrentFieldState FieldState;
+
             public void ResetState()
             {
                 FieldState.numFields = 0;
                 FieldState.curChangeMask = 0;
-                FieldState.ghostfieldHash = 0;
+                FieldState.ghostFieldHash = 0;
                 variantType = null;
                 variantHash = 0;
                 imports.Clear();
@@ -606,12 +611,11 @@ namespace Unity.NetCode.Generators
             {
                 executionContext = context;
                 types = new List<TypeInformation>(16);
-                emptyVariantTypeInfo = new List<TypeInformation>(16);
+                serializationStrategies = new List<SerializationStrategyCodeGen>(32);
                 codeGenCache = new CodeGenCache(templateFileProvider, reporter);
                 batch = new List<GeneratedFile>(256);
                 imports = new HashSet<string>();
                 generatedTypes = new HashSet<string>();
-                emptyVariantTypes = new HashSet<EmptyVariant>();
                 diagnostic = reporter;
                 generatedNs = GenerateNamespaceFromAssemblyName(assemblyName);
                 registry = typeRegistry;

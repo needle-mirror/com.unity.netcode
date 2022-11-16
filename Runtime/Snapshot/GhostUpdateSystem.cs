@@ -1,3 +1,4 @@
+using System;
 using Unity.Assertions;
 using Unity.Entities;
 using Unity.Collections;
@@ -106,7 +107,7 @@ namespace Unity.NetCode
                 GhostTypeCollection = GhostTypeCollectionFromEntity[GhostCollectionSingleton];
                 GhostComponentIndex = GhostComponentIndexFromEntity[GhostCollectionSingleton];
 
-                bool predicted = chunk.Has(predictedGhostComponentType);
+                bool predicted = chunk.Has(ref predictedGhostComponentType);
                 NetworkTick targetTick = predicted ? predictedTargetTick : interpolatedTargetTick;
                 float targetTickFraction = predicted ? predictedTargetTickFraction : interpolatedTargetTickFraction;
 
@@ -116,16 +117,16 @@ namespace Unity.NetCode
                     GhostOwner = ghostOwnerId,
                     SendToOwner = SendToOwnerType.All
                 };
-                var ghostComponents = chunk.GetNativeArray(ghostType);
+                var ghostComponents = chunk.GetNativeArray(ref ghostType);
                 int ghostTypeId = ghostComponents.GetFirstGhostTypeId(out var firstGhost);
                 if (ghostTypeId < 0)
                     return;
                 if (ghostTypeId >= GhostTypeCollection.Length)
                     return; // serialization data has not been loaded yet. This can only happen for prespawn objects
                 var typeData = GhostTypeCollection[ghostTypeId];
-                var ghostSnapshotDataArray = chunk.GetNativeArray(ghostSnapshotDataType);
-                var ghostSnapshotDataBufferArray = chunk.GetBufferAccessor(ghostSnapshotDataBufferType);
-                var ghostSnapshotDynamicBufferArray = chunk.GetBufferAccessor(ghostSnapshotDynamicDataBufferType);
+                var ghostSnapshotDataArray = chunk.GetNativeArray(ref ghostSnapshotDataType);
+                var ghostSnapshotDataBufferArray = chunk.GetBufferAccessor(ref ghostSnapshotDataBufferType);
+                var ghostSnapshotDynamicBufferArray = chunk.GetBufferAccessor(ref ghostSnapshotDynamicDataBufferType);
 
                 int changeMaskUints = GhostComponentSerializer.ChangeMaskArraySizeInUInts(typeData.ChangeMaskBits);
                 int enableableMaskUints = GhostComponentSerializer.ChangeMaskArraySizeInUInts(typeData.EnableableBits);
@@ -140,9 +141,9 @@ namespace Unity.NetCode
                 var dataAtTick = new NativeArray<SnapshotData.DataAtTick>(ghostComponents.Length, Allocator.Temp);
                 var entityRange = new NativeList<int2>(ghostComponents.Length, Allocator.Temp);
                 int2 nextRange = default;
-                var predictedGhostComponentArray = chunk.GetNativeArray(predictedGhostComponentType);
+                var predictedGhostComponentArray = chunk.GetNativeArray(ref predictedGhostComponentType);
                 bool canBeStatic = typeData.StaticOptimization;
-                bool isPrespawn = chunk.Has(prespawnGhostIndexType);
+                bool isPrespawn = chunk.Has(ref prespawnGhostIndexType);
                 // Find the ranges of entities which have data to apply, store the data to apply in an array while doing so
                 for (int ent = firstGhost; ent < ghostComponents.Length; ++ent)
                 {
@@ -307,7 +308,7 @@ namespace Unity.NetCode
                     var snapshotSize = GhostComponentCollection[serializerIdx].ComponentType.IsBuffer
                         ? GhostComponentSerializer.SnapshotSizeAligned(GhostSystemConstants.DynamicBufferComponentSnapshotSize)
                         : GhostComponentSerializer.SnapshotSizeAligned(GhostComponentCollection[serializerIdx].SnapshotSize);
-                    if (!chunk.Has(ghostChunkComponentTypesPtr[compIdx]) || (GhostComponentIndex[typeData.FirstComponent + comp].SendMask&requiredSendMask) == 0)
+                    if (!chunk.Has(ref ghostChunkComponentTypesPtr[compIdx]) || (GhostComponentIndex[typeData.FirstComponent + comp].SendMask&requiredSendMask) == 0)
                     {
                         snapshotDataOffset += snapshotSize;
                         continue;
@@ -315,7 +316,9 @@ namespace Unity.NetCode
                     var compSize = GhostComponentCollection[serializerIdx].ComponentSize;
                     if (!GhostComponentCollection[serializerIdx].ComponentType.IsBuffer)
                     {
-                        var compData = (byte*)chunk.GetDynamicComponentDataArrayReinterpret<byte>(ghostChunkComponentTypesPtr[compIdx], compSize).GetUnsafeReadOnlyPtr();
+                        var compData = GhostComponentCollection[serializerIdx].HasGhostFields
+                            ? (byte*)chunk.GetDynamicComponentDataArrayReinterpret<byte>(ref ghostChunkComponentTypesPtr[compIdx], compSize).GetUnsafeReadOnlyPtr()
+                            : null;
                         deserializerState.SendToOwner = GhostComponentCollection[serializerIdx].SendToOwner;
                         for (var rangeIdx = 0; rangeIdx < entityRange.Length; ++rangeIdx)
                         {
@@ -326,7 +329,8 @@ namespace Unity.NetCode
 
                             GhostComponentCollection[serializerIdx].CopyFromSnapshot.Ptr.Invoke((System.IntPtr)UnsafeUtility.AddressOf(ref deserializerState), (System.IntPtr)snapshotData, snapshotDataOffset, snapshotDataAtTickSize, (System.IntPtr)(compData + range.x*compSize), compSize, range.y-range.x);
 
-                            if (typeData.EnableableBits > 0 && GhostComponentCollection[serializerIdx].ComponentType.IsEnableable)
+                            // TODO - Move this outside the for loop. It's a batched call, so calling it n times is unnecessary.
+                            if (typeData.EnableableBits > 0 && GhostComponentCollection[serializerIdx].SerializesEnabledBit != 0)
                             {
                                 enableableMaskOffset = UpdateEnableableMask(chunk, dataAtTickPtr, changeMaskUints, enableableMaskOffset, range, ghostChunkComponentTypesPtr, compIdx);
                             }
@@ -368,7 +372,7 @@ namespace Unity.NetCode
                             var snapshotData = (byte*)dataAtTick.GetUnsafeReadOnlyPtr();
                             snapshotData += snapshotDataAtTickSize * range.x;
                             var dataAtTickPtr = (SnapshotData.DataAtTick*) snapshotData;
-                            if (typeData.EnableableBits > 0 && GhostComponentCollection[serializerIdx].ComponentType.IsEnableable)
+                            if (typeData.EnableableBits > 0 && GhostComponentCollection[serializerIdx].SerializesEnabledBit != 0)
                             {
                                 enableableMaskOffset = UpdateEnableableMask(chunk, dataAtTickPtr, changeMaskUints, enableableMaskOffset, range, ghostChunkComponentTypesPtr, compIdx);
                             }
@@ -378,7 +382,7 @@ namespace Unity.NetCode
                 }
                 if (typeData.NumChildComponents > 0)
                 {
-                    var linkedEntityGroupAccessor = chunk.GetBufferAccessor(linkedEntityGroupType);
+                    var linkedEntityGroupAccessor = chunk.GetBufferAccessor(ref linkedEntityGroupType);
                     for (int comp = numBaseComponents; comp < typeData.NumComponents; ++comp)
                     {
                         int compIdx = GhostComponentIndex[typeData.FirstComponent + comp].ComponentIndex;
@@ -413,13 +417,16 @@ namespace Unity.NetCode
                                     var childChunk = childEntityLookup[childEntity];
                                     if (!childChunk.Chunk.Has(ghostChunkComponentTypesPtr[compIdx]))
                                         continue;
-                                    var compData = (byte*)childChunk.Chunk.GetDynamicComponentDataArrayReinterpret<byte>(ghostChunkComponentTypesPtr[compIdx], compSize).GetUnsafeReadOnlyPtr();
+                                    // We fetch these via `GetUnsafeReadOnlyPtr` only for performance reasons. It's safe.
+                                    var compData = GhostComponentCollection[serializerIdx].HasGhostFields
+                                        ? (byte*)childChunk.Chunk.GetDynamicComponentDataArrayReinterpret<byte>(ref ghostChunkComponentTypesPtr[compIdx], compSize).GetUnsafeReadOnlyPtr()
+                                        : null;
                                     var snapshotData = (byte*)dataAtTick.GetUnsafeReadOnlyPtr();
                                     snapshotData += snapshotDataAtTickSize * ent;
                                     GhostComponentCollection[serializerIdx].CopyFromSnapshot.Ptr.Invoke((System.IntPtr)UnsafeUtility.AddressOf(ref deserializerState), (System.IntPtr)snapshotData, snapshotDataOffset, snapshotDataAtTickSize, (System.IntPtr)(compData + childChunk.IndexInChunk*compSize), compSize, 1);
 
                                     var dataAtTickPtr = (SnapshotData.DataAtTick*) snapshotData;
-                                    if (typeData.EnableableBits > 0 && GhostComponentCollection[serializerIdx].ComponentType.IsEnableable)
+                                    if (typeData.EnableableBits > 0 && GhostComponentCollection[serializerIdx].SerializesEnabledBit != 0)
                                     {
                                         var childRange = new int2 { x = childChunk.IndexInChunk, y = childChunk.IndexInChunk + 1 };
                                         UpdateEnableableMask(childChunk.Chunk, dataAtTickPtr, changeMaskUints, maskOffset, childRange, ghostChunkComponentTypesPtr, compIdx);
@@ -445,7 +452,7 @@ namespace Unity.NetCode
                                     if (!childEntityLookup.Exists(childEntity))
                                         continue;
                                     var childChunk = childEntityLookup[childEntity];
-                                    if (!childChunk.Chunk.Has(ghostChunkComponentTypesPtr[compIdx]))
+                                    if (!childChunk.Chunk.Has(ref ghostChunkComponentTypesPtr[compIdx]))
                                         continue;
 
                                     //Compute the required owner mask for the buffers and skip the copyfromsnapshot. The check must be done
@@ -468,7 +475,7 @@ namespace Unity.NetCode
                                         (System.IntPtr) UnsafeUtility.AddressOf(ref dynamicDataAtTick), 0, dynamicDataSize,
                                         componentData, compSize, bufLen);
 
-                                    if (typeData.EnableableBits > 0 && GhostComponentCollection[serializerIdx].ComponentType.IsEnableable)
+                                    if (typeData.EnableableBits > 0 && GhostComponentCollection[serializerIdx].SerializesEnabledBit != 0)
                                     {
                                         var snapshotData = (byte*)dataAtTick.GetUnsafeReadOnlyPtr();
                                         snapshotData += snapshotDataAtTickSize * ent;
@@ -486,6 +493,7 @@ namespace Unity.NetCode
                 }
             }
 
+            // TODO - We can perform this logic faster using the EnabledMask.
             private static int UpdateEnableableMask(ArchetypeChunk chunk, SnapshotData.DataAtTick* dataAtTickPtr,
                 int changeMaskUints, int enableableMaskOffset, int2 range,
                 DynamicComponentTypeHandle* ghostChunkComponentTypesPtr, int compIdx)
@@ -579,9 +587,9 @@ namespace Unity.NetCode
                     if ((GhostComponentIndex[baseOffset + comp].SendMask&requiredSendMask) == 0)
                         continue;
 
-                    if (GhostComponentCollection[serializerIdx].ComponentType.IsEnableable)
+                    if (GhostComponentCollection[serializerIdx].SerializesEnabledBit != 0)
                     {
-                        if (chunk.Has(ghostChunkComponentTypesPtr[compIdx]))
+                        if (chunk.Has(ref ghostChunkComponentTypesPtr[compIdx]))
                         {
                             bool isSet = (enabledBitPtr[ent>>6] & (1ul<<(ent&0x3f))) != 0;
                             chunk.SetComponentEnabled(ref ghostChunkComponentTypesPtr[compIdx], ent, isSet);
@@ -592,7 +600,7 @@ namespace Unity.NetCode
                     var compSize = GhostComponentCollection[serializerIdx].ComponentType.IsBuffer
                         ? GhostSystemConstants.DynamicBufferComponentSnapshotSize
                         : GhostComponentCollection[serializerIdx].ComponentSize;
-                    if (!chunk.Has(ghostChunkComponentTypesPtr[compIdx]))
+                    if (compSize == 0 || !chunk.Has(ref ghostChunkComponentTypesPtr[compIdx]))
                     {
                         dataPtr = PredictionBackupState.GetNextData(dataPtr, compSize, chunk.Capacity);
                         continue;
@@ -606,7 +614,7 @@ namespace Unity.NetCode
 
                     if (!GhostComponentCollection[serializerIdx].ComponentType.IsBuffer)
                     {
-                        var compData = (byte*)chunk.GetDynamicComponentDataArrayReinterpret<byte>(ghostChunkComponentTypesPtr[compIdx], compSize).GetUnsafeReadOnlyPtr();
+                        var compData = (byte*)chunk.GetDynamicComponentDataArrayReinterpret<byte>(ref ghostChunkComponentTypesPtr[compIdx], compSize).GetUnsafeReadOnlyPtr();
                         GhostComponentCollection[serializerIdx].RestoreFromBackup.Ptr.Invoke((System.IntPtr)(compData + ent * compSize), (System.IntPtr)(dataPtr + ent * compSize));
                     }
                     else
@@ -643,7 +651,7 @@ namespace Unity.NetCode
                 }
                 if (typeData.NumChildComponents > 0)
                 {
-                    var linkedEntityGroupAccessor = chunk.GetBufferAccessor(linkedEntityGroupType);
+                    var linkedEntityGroupAccessor = chunk.GetBufferAccessor(ref linkedEntityGroupType);
                     for (int comp = numBaseComponents; comp < typeData.NumComponents; ++comp)
                     {
                         int compIdx = GhostComponentIndex[baseOffset + comp].ComponentIndex;
@@ -662,10 +670,10 @@ namespace Unity.NetCode
                         var linkedEntityGroup = linkedEntityGroupAccessor[ent];
                         var childEnt = linkedEntityGroup[GhostComponentIndex[typeData.FirstComponent + comp].EntityIndex].Value;
 
-                        if (GhostComponentCollection[serializerIdx].ComponentType.IsEnableable)
+                        if (GhostComponentCollection[serializerIdx].SerializesEnabledBit != 0)
                         {
                             if (childEntityLookup.TryGetValue(childEnt, out var enabledChildChunk) &&
-                                enabledChildChunk.Chunk.Has(ghostChunkComponentTypesPtr[compIdx]))
+                                enabledChildChunk.Chunk.Has(ref ghostChunkComponentTypesPtr[compIdx]))
                             {
                                 bool isSet = (enabledBitPtr[ent>>6] & (1ul<<(ent&0x3f))) != 0;
                                 enabledChildChunk.Chunk.SetComponentEnabled(ref ghostChunkComponentTypesPtr[compIdx], enabledChildChunk.IndexInChunk, isSet);
@@ -673,18 +681,18 @@ namespace Unity.NetCode
                             enabledBitPtr = PredictionBackupState.GetNextEnabledBits(enabledBitPtr, chunk.Capacity);
                         }
 
-                        if ((GhostComponentCollection[serializerIdx].SendToOwner & requiredOwnerMask) == 0)
+                        if (compSize == 0 || (GhostComponentCollection[serializerIdx].SendToOwner & requiredOwnerMask) == 0)
                         {
                             dataPtr = PredictionBackupState.GetNextData(dataPtr, compSize, chunk.Capacity);
                             continue;
                         }
 
                         if (childEntityLookup.TryGetValue(childEnt, out var childChunk) &&
-                            childChunk.Chunk.Has(ghostChunkComponentTypesPtr[compIdx]))
+                            childChunk.Chunk.Has(ref ghostChunkComponentTypesPtr[compIdx]))
                         {
                             if (!GhostComponentCollection[serializerIdx].ComponentType.IsBuffer)
                             {
-                                var compData = (byte*)childChunk.Chunk.GetDynamicComponentDataArrayReinterpret<byte>(ghostChunkComponentTypesPtr[compIdx], compSize).GetUnsafeReadOnlyPtr();
+                                var compData = (byte*)childChunk.Chunk.GetDynamicComponentDataArrayReinterpret<byte>(ref ghostChunkComponentTypesPtr[compIdx], compSize).GetUnsafeReadOnlyPtr();
                                 GhostComponentCollection[serializerIdx].RestoreFromBackup.Ptr.Invoke((System.IntPtr)(compData + childChunk.IndexInChunk * compSize), (System.IntPtr)(dataPtr + ent * compSize));
                             }
                             else
@@ -727,9 +735,9 @@ namespace Unity.NetCode
                 // This job is not written to support queries with enableable component types.
                 Assert.IsFalse(useEnabledMask);
 
-                var owners = chunk.GetNativeArray(ghostOwnerType);
+                var owners = chunk.GetNativeArray(ref ghostOwnerType);
                 for (int i = 0; i < owners.Length; ++i)
-                    chunk.SetComponentEnabled(ghostOwnerIsLocalType, i, owners[i].NetworkId == localNetworkId);
+                    chunk.SetComponentEnabled(ref ghostOwnerIsLocalType, i, owners[i].NetworkId == localNetworkId);
             }
         }
 

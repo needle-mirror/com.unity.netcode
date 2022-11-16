@@ -106,9 +106,9 @@ namespace Unity.NetCode
 
                 DynamicComponentTypeHandle* ghostChunkComponentTypesPtr = DynamicTypeList.GetData();
                 var entityList = chunk.GetNativeArray(entityType);
-                var snapshotDataList = chunk.GetNativeArray(snapshotDataType);
-                var snapshotDataBufferList = chunk.GetBufferAccessor(snapshotDataBufferType);
-                var snapshotDynamicDataBufferList = chunk.GetBufferAccessor(snapshotDynamicDataBufferType);
+                var snapshotDataList = chunk.GetNativeArray(ref snapshotDataType);
+                var snapshotDataBufferList = chunk.GetBufferAccessor(ref snapshotDataBufferType);
+                var snapshotDynamicDataBufferList = chunk.GetBufferAccessor(ref snapshotDynamicDataBufferType);
 
                 var GhostCollection = GhostCollectionFromEntity[GhostCollectionSingleton];
                 var GhostTypeCollection = GhostTypeCollectionFromEntity[GhostCollectionSingleton];

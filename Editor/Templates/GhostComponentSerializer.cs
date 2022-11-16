@@ -2,6 +2,10 @@
 #region __GHOST_COMPONENT_IS_BUFFER__
 #define COMPONENT_IS_BUFFER
 #endregion
+#region __GHOST_COMPONENT_HAS_FIELDS__
+#define COMPONENT_HAS_GHOST_FIELDS
+#endregion
+
 using System;
 using System.Diagnostics;
 using AOT;
@@ -24,23 +28,23 @@ namespace __GHOST_NAMESPACE__
     {
         static GhostComponentSerializer.State GetState()
         {
-            // This needs to be lazy initialized because otherwise there is a depenency on the static initialization order which breaks il2cpp builds due to TYpeManager not being initialized yet
+            // This needs to be lazy initialized because otherwise there is a depenency on the static initialization order which breaks il2cpp builds, due to TypeManager not being initialized yet.
+            // Also, Burst function pointer compilation can take a while.
             if (!s_StateInitialized)
             {
                 s_State = new GhostComponentSerializer.State
                 {
                     GhostFieldsHash = __GHOST_FIELD_HASH__,
                     ComponentType = ComponentType.ReadWrite<__GHOST_COMPONENT_TYPE__>(),
-                    VariantTypeIndex = GhostComponentSerializer.VariantTypes.Count,
                     ComponentSize = UnsafeUtility.SizeOf<__GHOST_COMPONENT_TYPE__>(),
                     SnapshotSize = UnsafeUtility.SizeOf<Snapshot>(),
                     ChangeMaskBits = ChangeMaskBits,
                     PrefabType = __GHOST_PREFAB_TYPE__,
                     SendMask = __GHOST_SEND_MASK__,
                     SendToOwner = __GHOST_SEND_OWNER__,
-                    SendForChildEntities = __GHOST_SEND_CHILD_ENTITY__,
                     VariantHash = __GHOST_VARIANT_HASH__,
-                    IsDefaultSerializer = __GHOST_IS_DEFAULT_SERIALIZER__,
+                    SerializationStrategyIndex = -1,
+                    SerializesEnabledBit = __GHOST_SERIALIZES_ENABLED_BIT__,
                     #if COMPONENT_IS_BUFFER
                     PostSerializeBuffer =
                         new PortableFunctionPointer<GhostComponentSerializer.PostSerializeBufferDelegate>(PostSerializeBuffer),
@@ -67,7 +71,15 @@ namespace __GHOST_NAMESPACE__
                     ProfilerMarker = new Unity.Profiling.ProfilerMarker("__GHOST_COMPONENT_TYPE__")
                     #endif
                 };
-                GhostComponentSerializer.VariantTypes.Add(typeof(__GHOST_VARIANT_TYPE__));
+                // UnsafeUtility.SizeOf<T> reports 1 with zero-sized components.
+                if (s_State.ComponentType.IsZeroSized)
+                {
+                    s_State.ComponentSize = 0;
+                }
+#region __GHOST_HAS_NO_GHOST_FIELDS__
+                s_State.SnapshotSize = 0;
+#endregion
+
                 #if UNITY_EDITOR || DEVELOPMENT_BUILD || NETCODE_DEBUG
                 s_State.NumPredictionErrors = GetPredictionErrorNames(ref s_State.PredictionErrorNames);
                 #endif
@@ -104,6 +116,7 @@ namespace __GHOST_NAMESPACE__
             IntPtr snapshotDynamicDataPtr, IntPtr dynamicSizePerEntity, int dynamicSnapshotMaxOffset,
             int len, ref int dynamicSnapshotDataOffset, int dynamicDataSize, int maskSize)
         {
+    #if COMPONENT_HAS_GHOST_FIELDS
             int PtrSize = UnsafeUtility.SizeOf<IntPtr>();
             const int IntSize = 4;
             const int BaselinesPerEntity = 4;
@@ -194,7 +207,7 @@ namespace __GHOST_NAMESPACE__
             {
                 if (baselineDynamicDataPtr != IntPtr.Zero)
                     baselineData = GhostComponentSerializer.TypeCast<Snapshot>(baselineDynamicDataPtr, maskSize + bOffset);
-                Serialize(GhostComponentSerializer.TypeCast<Snapshot>(snapshotDynamicDataPtr, maskSize + offset),
+                SerializeSnapshot(GhostComponentSerializer.TypeCast<Snapshot>(snapshotDynamicDataPtr, maskSize + offset),
                     baselineData,
                     ref writer,
                     ref compressionModel,
@@ -213,11 +226,13 @@ namespace __GHOST_NAMESPACE__
             var missing = 32-writer.LengthInBits&31;
             if (missing < 32)
                 writer.WriteRawBits(0, missing);
+    #endif
         }
         [BurstCompile(DisableDirectCall = true)]
         [MonoPInvokeCallback(typeof(GhostComponentSerializer.PostSerializeBufferDelegate))]
         public static void PostSerializeBuffer(IntPtr snapshotData, int snapshotOffset, int snapshotStride, int maskOffsetInBits, int count, IntPtr baselines, ref DataStreamWriter writer, ref StreamCompressionModel compressionModel, IntPtr entityStartBit, IntPtr snapshotDynamicDataPtr, IntPtr dynamicSizePerEntity, int dynamicSnapshotMaxOffset)
         {
+    #if COMPONENT_HAS_GHOST_FIELDS
             int dynamicDataSize = UnsafeUtility.SizeOf<Snapshot>();
             for (int i = 0; i < count; ++i)
             {
@@ -228,6 +243,7 @@ namespace __GHOST_NAMESPACE__
                 CheckDynamicDataRange(dynamicSnapshotDataOffset, maskSize, len, dynamicDataSize, dynamicSnapshotMaxOffset);
                 SerializeOneBuffer(i, snapshotData, snapshotOffset, snapshotStride, maskOffsetInBits, baselines, ref writer, ref compressionModel, entityStartBit, snapshotDynamicDataPtr, dynamicSizePerEntity, dynamicSnapshotMaxOffset, len, ref dynamicSnapshotDataOffset, dynamicDataSize, maskSize);
             }
+    #endif
         }
         [BurstCompile(DisableDirectCall = true)]
         [MonoPInvokeCallback(typeof(GhostComponentSerializer.SerializeBufferDelegate))]
@@ -238,6 +254,7 @@ namespace __GHOST_NAMESPACE__
             IntPtr entityStartBit, IntPtr snapshotDynamicDataPtr, ref int dynamicSnapshotDataOffset,
             IntPtr dynamicSizePerEntity, int dynamicSnapshotMaxOffset)
         {
+    #if COMPONENT_HAS_GHOST_FIELDS
             int dynamicDataSize = UnsafeUtility.SizeOf<Snapshot>();
             for (int i = 0; i < count; ++i)
             {
@@ -257,12 +274,14 @@ namespace __GHOST_NAMESPACE__
                 }
                 SerializeOneBuffer(i, snapshotData, snapshotOffset, snapshotStride, maskOffsetInBits, baselines, ref writer, ref compressionModel, entityStartBit, snapshotDynamicDataPtr, dynamicSizePerEntity, dynamicSnapshotMaxOffset, len, ref dynamicSnapshotDataOffset, dynamicDataSize, maskSize);
             }
+    #endif
         }
 #else
         private static void SerializeOneEntity(int ent,
             IntPtr snapshotData, int snapshotOffset, int snapshotStride, int maskOffsetInBits, IntPtr baselines,
             ref DataStreamWriter writer, ref StreamCompressionModel compressionModel, IntPtr entityStartBit)
         {
+    #if COMPONENT_HAS_GHOST_FIELDS
             int PtrSize = UnsafeUtility.SizeOf<IntPtr>();
             const int IntSize = 4;
             const int BaselinesPerEntity = 4;
@@ -290,21 +309,42 @@ namespace __GHOST_NAMESPACE__
             ref Snapshot snapshot =ref GhostComponentSerializer.TypeCast<Snapshot>(snapshotData, snapshotOffset + snapshotStride*ent);
             CalculateChangeMask(ref snapshot, baseline, snapshotData+IntSize + snapshotStride*ent, maskOffsetInBits);
 
-            Serialize(snapshot, baseline, ref writer, ref compressionModel, snapshotData+IntSize + snapshotStride*ent, maskOffsetInBits);
+            SerializeSnapshot(snapshot, baseline, ref writer, ref compressionModel, snapshotData+IntSize + snapshotStride*ent, maskOffsetInBits);
             ref var sbit = ref GhostComponentSerializer.TypeCast<int>(entityStartBit, IntSize*2*ent+IntSize);
             sbit = writer.LengthInBits - startuint*32;
             var missing = 32-writer.LengthInBits&31;
             if (missing < 32)
                 writer.WriteRawBits(0, missing);
+    #else
+
+            // TODO: Move this outside code-gen, as we really dont need to do this here!
+            const int IntSize = 4;
+            ref var startuint = ref GhostComponentSerializer.TypeCast<int>(entityStartBit, IntSize*2*ent);
+            startuint = writer.Length/IntSize;
+            startuint = ref GhostComponentSerializer.TypeCast<int>(entityStartBit, IntSize*2*ent+IntSize);
+            startuint = 0;
+    #endif
         }
         [BurstCompile(DisableDirectCall = true)]
         [MonoPInvokeCallback(typeof(GhostComponentSerializer.PostSerializeDelegate))]
         public static void PostSerialize(IntPtr snapshotData, int snapshotOffset, int snapshotStride, int maskOffsetInBits, int count, IntPtr baselines, ref DataStreamWriter writer, ref StreamCompressionModel compressionModel, IntPtr entityStartBit)
         {
+    #if COMPONENT_HAS_GHOST_FIELDS
             for (int i = 0; i < count; ++i)
             {
                 SerializeOneEntity(i, snapshotData, snapshotOffset, snapshotStride, maskOffsetInBits, baselines, ref writer, ref compressionModel, entityStartBit);
             }
+    #else
+            // TODO: Move this outside code-gen, as we really dont need to do this here!
+            for (int i = 0; i < count; ++i)
+            {
+                const int IntSize = 4;
+                ref var startuint = ref GhostComponentSerializer.TypeCast<int>(entityStartBit, IntSize*2*i);
+                startuint = writer.Length/IntSize;
+                startuint = ref GhostComponentSerializer.TypeCast<int>(entityStartBit, IntSize*2*i+IntSize);
+                startuint = 0;
+            }
+    #endif
         }
         [BurstCompile(DisableDirectCall = true)]
         [MonoPInvokeCallback(typeof(GhostComponentSerializer.SerializeDelegate))]
@@ -313,6 +353,7 @@ namespace __GHOST_NAMESPACE__
             IntPtr componentData, int componentStride, int count, IntPtr baselines,
             ref DataStreamWriter writer, ref StreamCompressionModel compressionModel, IntPtr entityStartBit)
         {
+    #if COMPONENT_HAS_GHOST_FIELDS
             ref var serializerState = ref GhostComponentSerializer.TypeCast<GhostSerializerState>(stateData, 0);
             for (int i = 0; i < count; ++i)
             {
@@ -327,6 +368,17 @@ namespace __GHOST_NAMESPACE__
 
                 SerializeOneEntity(i, snapshotData, snapshotOffset, snapshotStride, maskOffsetInBits, baselines, ref writer, ref compressionModel, entityStartBit);
             }
+    #else
+            // TODO: Move this outside code-gen, as we really dont need to do this here!
+            for (int i = 0; i < count; ++i)
+            {
+                const int IntSize = 4;
+                ref var startuint = ref GhostComponentSerializer.TypeCast<int>(entityStartBit, IntSize*2*i);
+                startuint = writer.Length/IntSize;
+                startuint = ref GhostComponentSerializer.TypeCast<int>(entityStartBit, IntSize*2*i+IntSize);
+                startuint = 0;
+            }
+    #endif
         }
         [BurstCompile(DisableDirectCall = true)]
         [MonoPInvokeCallback(typeof(GhostComponentSerializer.SerializeChildDelegate))]
@@ -335,6 +387,7 @@ namespace __GHOST_NAMESPACE__
             IntPtr componentData, int count, IntPtr baselines,
             ref DataStreamWriter writer, ref StreamCompressionModel compressionModel, IntPtr entityStartBit)
         {
+    #if COMPONENT_HAS_GHOST_FIELDS
             ref var serializerState = ref GhostComponentSerializer.TypeCast<GhostSerializerState>(stateData, 0);
             for (int i = 0; i < count; ++i)
             {
@@ -350,18 +403,32 @@ namespace __GHOST_NAMESPACE__
 
                 SerializeOneEntity(i, snapshotData, snapshotOffset, snapshotStride, maskOffsetInBits, baselines, ref writer, ref compressionModel, entityStartBit);
             }
+    #else
+            // TODO: Move this outside code-gen, as we really dont need to do this here!
+            for (int i = 0; i < count; ++i)
+            {
+                const int IntSize = 4;
+                ref var startuint = ref GhostComponentSerializer.TypeCast<int>(entityStartBit, IntSize*2*i);
+                startuint = writer.Length/IntSize;
+            startuint = ref GhostComponentSerializer.TypeCast<int>(entityStartBit, IntSize*2*i+IntSize);
+            startuint = 0;
+            }
+    #endif
         }
 #endif
 
         private static void CopyToSnapshot(in GhostSerializerState serializerState, ref Snapshot snapshot, in __GHOST_COMPONENT_TYPE__ component)
         {
+#if COMPONENT_HAS_GHOST_FIELDS
             #region __GHOST_COPY_TO_SNAPSHOT__
             #endregion
+#endif
         }
         [BurstCompile(DisableDirectCall = true)]
         [MonoPInvokeCallback(typeof(GhostComponentSerializer.CopyToFromSnapshotDelegate))]
         public static void CopyToSnapshot(IntPtr stateData, IntPtr snapshotData, int snapshotOffset, int snapshotStride, IntPtr componentData, int componentStride, int count)
         {
+#if COMPONENT_HAS_GHOST_FIELDS
             for (int i = 0; i < count; ++i)
             {
                 ref var snapshot = ref GhostComponentSerializer.TypeCast<Snapshot>(snapshotData, snapshotOffset + snapshotStride*i);
@@ -369,11 +436,13 @@ namespace __GHOST_NAMESPACE__
                 ref var serializerState = ref GhostComponentSerializer.TypeCast<GhostSerializerState>(stateData, 0);
                 CopyToSnapshot(serializerState, ref snapshot, component);
             }
+#endif
         }
         [BurstCompile(DisableDirectCall = true)]
         [MonoPInvokeCallback(typeof(GhostComponentSerializer.CopyToFromSnapshotDelegate))]
         public static void CopyFromSnapshot(IntPtr stateData, IntPtr snapshotData, int snapshotOffset, int snapshotStride, IntPtr componentData, int componentStride, int count)
         {
+#if COMPONENT_HAS_GHOST_FIELDS
             for (int i = 0; i < count; ++i)
             {
                 var deserializerState = GhostComponentSerializer.TypeCast<GhostDeserializerState>(stateData, 0);
@@ -417,6 +486,7 @@ namespace __GHOST_NAMESPACE__
                     snapshotInterpolationFactor = 0;
                 #endregion
             }
+#endif
         }
 
 
@@ -424,24 +494,29 @@ namespace __GHOST_NAMESPACE__
         [MonoPInvokeCallback(typeof(GhostComponentSerializer.RestoreFromBackupDelegate))]
         public static void RestoreFromBackup(IntPtr componentData, IntPtr backupData)
         {
+#if COMPONENT_HAS_GHOST_FIELDS
             ref var component = ref GhostComponentSerializer.TypeCast<__GHOST_COMPONENT_TYPE__>(componentData, 0);
             ref var backup = ref GhostComponentSerializer.TypeCast<__GHOST_COMPONENT_TYPE__>(backupData, 0);
             #region __GHOST_RESTORE_FROM_BACKUP__
             #endregion
+#endif
         }
 
         [BurstCompile(DisableDirectCall = true)]
         [MonoPInvokeCallback(typeof(GhostComponentSerializer.PredictDeltaDelegate))]
         public static void PredictDelta(IntPtr snapshotData, IntPtr baseline1Data, IntPtr baseline2Data, ref GhostDeltaPredictor predictor)
         {
+#if COMPONENT_HAS_GHOST_FIELDS
             ref var snapshot = ref GhostComponentSerializer.TypeCast<Snapshot>(snapshotData);
             ref var baseline1 = ref GhostComponentSerializer.TypeCast<Snapshot>(baseline1Data);
             ref var baseline2 = ref GhostComponentSerializer.TypeCast<Snapshot>(baseline2Data);
             #region __GHOST_PREDICT__
             #endregion
+#endif
         }
         private static void CalculateChangeMask(ref Snapshot snapshot, in Snapshot baseline, IntPtr bits, int startOffset)
         {
+#if COMPONENT_HAS_GHOST_FIELDS
             uint changeMask;
             #region __GHOST_CALCULATE_CHANGE_MASK__
             #endregion
@@ -452,31 +527,37 @@ namespace __GHOST_NAMESPACE__
             #region __GHOST_FLUSH_FINAL_COMPONENT_CHANGE_MASK__
             GhostComponentSerializer.CopyToChangeMask(bits, changeMask, startOffset, __GHOST_CHANGE_MASK_BITS__);
             #endregion
+#endif
         }
-        private static void Serialize(in Snapshot snapshot, in Snapshot baseline, ref DataStreamWriter writer, ref StreamCompressionModel compressionModel, IntPtr changeMaskData, int startOffset)
+        private static void SerializeSnapshot(in Snapshot snapshot, in Snapshot baseline, ref DataStreamWriter writer, ref StreamCompressionModel compressionModel, IntPtr changeMaskData, int startOffset)
         {
+#if COMPONENT_HAS_GHOST_FIELDS
             uint changeMask = GhostComponentSerializer.CopyFromChangeMask(changeMaskData, startOffset, ChangeMaskBits);
             #region __GHOST_WRITE__
             #endregion
             #region __GHOST_REFRESH_CHANGE_MASK__
             changeMask = GhostComponentSerializer.CopyFromChangeMask(changeMaskData, startOffset + __GHOST_CHANGE_MASK_BITS__, ChangeMaskBits - __GHOST_CHANGE_MASK_BITS__);
             #endregion
+#endif
         }
         [BurstCompile(DisableDirectCall = true)]
         [MonoPInvokeCallback(typeof(GhostComponentSerializer.DeserializeDelegate))]
         public static void Deserialize(IntPtr snapshotData, IntPtr baselineData, ref DataStreamReader reader, ref StreamCompressionModel compressionModel, IntPtr changeMaskData, int startOffset)
         {
+#if COMPONENT_HAS_GHOST_FIELDS
             ref var snapshot = ref GhostComponentSerializer.TypeCast<Snapshot>(snapshotData);
             ref var baseline = ref GhostComponentSerializer.TypeCast<Snapshot>(baselineData);
             uint changeMask = GhostComponentSerializer.CopyFromChangeMask(changeMaskData, startOffset, ChangeMaskBits);
             #region __GHOST_READ__
             #endregion
+#endif
         }
         #if UNITY_EDITOR || DEVELOPMENT_BUILD
         [BurstCompile(DisableDirectCall = true)]
         [MonoPInvokeCallback(typeof(GhostComponentSerializer.ReportPredictionErrorsDelegate))]
         public static void ReportPredictionErrors(IntPtr componentData, IntPtr backupData, IntPtr errorsList, int errorsCount)
         {
+#if COMPONENT_HAS_GHOST_FIELDS
             #region __GHOST_PREDICTION_ERROR_HEADER__
             ref var component = ref GhostComponentSerializer.TypeCast<__GHOST_COMPONENT_TYPE__>(componentData, 0);
             ref var backup = ref GhostComponentSerializer.TypeCast<__GHOST_COMPONENT_TYPE__>(backupData, 0);
@@ -485,6 +566,7 @@ namespace __GHOST_NAMESPACE__
             #endregion
             #region __GHOST_REPORT_PREDICTION_ERROR__
             #endregion
+#endif
         }
         #endif
         #if UNITY_EDITOR || DEVELOPMENT_BUILD || NETCODE_DEBUG

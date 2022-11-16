@@ -102,9 +102,9 @@ namespace Unity.NetCode
             if (NetworkTickRate <= 0)
                 NetworkTickRate = SimulationTickRate;
             if (MaxSimulationStepsPerFrame <= 0)
-                MaxSimulationStepsPerFrame = 4;
+                MaxSimulationStepsPerFrame = 1;
             if (MaxSimulationStepBatchSize <= 0)
-                MaxSimulationStepBatchSize = 1;
+                MaxSimulationStepBatchSize = 4;
         }
     }
 

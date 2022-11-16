@@ -272,7 +272,7 @@ namespace Unity.NetCode
             state.Dependency = cleanupJob.Schedule(state.Dependency);
         }
 
-        //[BurstCompile] // TODO: Re-enable once Burst issue BUR-1971 is fixed.
+        [BurstCompile]
         struct CleanupPredictionStateJob : IJob
         {
             public NativeParallelHashMap<ArchetypeChunk, System.IntPtr> predictionState;
@@ -313,7 +313,7 @@ namespace Unity.NetCode
             }
         }
 
-        //[BurstCompile] // TODO: Re-enable once Burst issue BUR-1971 is fixed.
+        [BurstCompile]
         struct PredictionBackupJob : IJobChunk
         {
             public DynamicTypeList DynamicTypeList;
@@ -360,7 +360,7 @@ namespace Unity.NetCode
                     if (!GhostComponentCollection[serializerIdx].ComponentType.IsBuffer)
                         continue;
 
-                    if (chunk.Has(ghostChunkComponentTypesPtr[compIdx]))
+                    if (chunk.Has(ref ghostChunkComponentTypesPtr[compIdx]))
                     {
                         var bufferData = chunk.GetUntypedBufferAccessor(ref ghostChunkComponentTypesPtr[compIdx]);
                         for (int i = 0; i < bufferData.Length; ++i)
@@ -373,7 +373,7 @@ namespace Unity.NetCode
 
                 if (typeData.NumChildComponents > 0)
                 {
-                    var linkedEntityGroupAccessor = chunk.GetBufferAccessor(linkedEntityGroupType);
+                    var linkedEntityGroupAccessor = chunk.GetBufferAccessor(ref linkedEntityGroupType);
                     for (int comp = numBaseComponents; comp < typeData.NumComponents; ++comp)
                     {
                         int compIdx = GhostComponentIndex[baseOffset + comp].ComponentIndex;
@@ -392,7 +392,7 @@ namespace Unity.NetCode
                         {
                             var linkedEntityGroup = linkedEntityGroupAccessor[ent];
                             var childEnt = linkedEntityGroup[GhostComponentIndex[baseOffset + comp].EntityIndex].Value;
-                            if (childEntityLookup.TryGetValue(childEnt, out var childChunk) && childChunk.Chunk.Has(ghostChunkComponentTypesPtr[compIdx]))
+                            if (childEntityLookup.TryGetValue(childEnt, out var childChunk) && childChunk.Chunk.Has(ref ghostChunkComponentTypesPtr[compIdx]))
                             {
                                 var bufferData = childChunk.Chunk.GetUntypedBufferAccessor(ref ghostChunkComponentTypesPtr[compIdx]);
                                 bufferTotalSize += bufferData.GetBufferCapacity(childChunk.IndexInChunk) * GhostComponentCollection[serializerIdx].ComponentSize;
@@ -417,12 +417,12 @@ namespace Unity.NetCode
                 var GhostComponentCollection = GhostComponentCollectionFromEntity[GhostCollectionSingleton];
                 var GhostPrefabCollection = GhostPrefabCollectionFromEntity[GhostCollectionSingleton];
 
-                var ghostComponents = chunk.GetNativeArray(ghostComponentType);
-                var ghostTypes = chunk.GetNativeArray(ghostType);
+                var ghostComponents = chunk.GetNativeArray(ref ghostComponentType);
+                var ghostTypes = chunk.GetNativeArray(ref ghostType);
                 int ghostTypeId = ghostComponents.GetFirstGhostTypeId();
                 if (ghostTypeId < 0)
                 {
-                    if(!chunk.Has(prespawnIndexType))
+                    if(!chunk.Has(ref prespawnIndexType))
                         return;
 
                     //Prespawn chunk that hasn't been received/processed yet. Since it is predicted we still
@@ -473,7 +473,7 @@ namespace Unity.NetCode
                                 GhostComponentCollection[serializerIdx].ComponentSize, chunk.Capacity);
                         else
                             dataSize += PredictionBackupState.GetDataSize(GhostSystemConstants.DynamicBufferComponentSnapshotSize, chunk.Capacity);
-                        if (GhostComponentCollection[serializerIdx].ComponentType.IsEnableable)
+                        if (GhostComponentCollection[serializerIdx].SerializesEnabledBit != 0)
                             ++enabledBits;
                     }
 
@@ -533,7 +533,7 @@ namespace Unity.NetCode
                         ? GhostSystemConstants.DynamicBufferComponentSnapshotSize
                         : GhostComponentCollection[serializerIdx].ComponentSize;
 
-                    if (GhostComponentCollection[serializerIdx].ComponentType.IsEnableable)
+                    if (GhostComponentCollection[serializerIdx].SerializesEnabledBit != 0)
                     {
                         var handle = ghostChunkComponentTypesPtr[compIdx];
                         var bitArray = chunk.GetEnableableBits(ref handle);
@@ -541,13 +541,13 @@ namespace Unity.NetCode
 
                         enabledBitPtr = PredictionBackupState.GetNextEnabledBits(enabledBitPtr, chunk.Capacity);
                     }
-                    if (!chunk.Has(ghostChunkComponentTypesPtr[compIdx]))
+                    if (!chunk.Has(ref ghostChunkComponentTypesPtr[compIdx]))
                     {
                         UnsafeUtility.MemClear(dataPtr, chunk.Count * compSize);
                     }
                     else if (!GhostComponentCollection[serializerIdx].ComponentType.IsBuffer)
                     {
-                        var compData = (byte*)chunk.GetDynamicComponentDataArrayReinterpret<byte>(ghostChunkComponentTypesPtr[compIdx], compSize).GetUnsafeReadOnlyPtr();
+                        var compData = (byte*)chunk.GetDynamicComponentDataArrayReinterpret<byte>(ref ghostChunkComponentTypesPtr[compIdx], compSize).GetUnsafeReadOnlyPtr();
                         UnsafeUtility.MemCpy(dataPtr, compData, chunk.Count * compSize);
                     }
                     else
@@ -574,7 +574,7 @@ namespace Unity.NetCode
                 }
                 if (typeData.NumChildComponents > 0)
                 {
-                    var linkedEntityGroupAccessor = chunk.GetBufferAccessor(linkedEntityGroupType);
+                    var linkedEntityGroupAccessor = chunk.GetBufferAccessor(ref linkedEntityGroupType);
                     for (int comp = numBaseComponents; comp < typeData.NumComponents; ++comp)
                     {
                         int compIdx = GhostComponentIndex[baseOffset + comp].ComponentIndex;
@@ -586,7 +586,7 @@ namespace Unity.NetCode
                         if ((GhostComponentIndex[baseOffset + comp].SendMask&requiredSendMask) == 0)
                             continue;
 
-                        if (GhostComponentCollection[serializerIdx].ComponentType.IsEnableable)
+                        if (GhostComponentCollection[serializerIdx].SerializesEnabledBit != 0)
                         {
                             for (int ent = 0, chunkEntityCount = chunk.Count; ent < chunkEntityCount; ++ent)
                             {
@@ -616,9 +616,9 @@ namespace Unity.NetCode
                             {
                                 var linkedEntityGroup = linkedEntityGroupAccessor[ent];
                                 var childEnt = linkedEntityGroup[GhostComponentIndex[baseOffset + comp].EntityIndex].Value;
-                                if (childEntityLookup.TryGetValue(childEnt, out var childChunk) && childChunk.Chunk.Has(ghostChunkComponentTypesPtr[compIdx]))
+                                if (childEntityLookup.TryGetValue(childEnt, out var childChunk) && childChunk.Chunk.Has(ref ghostChunkComponentTypesPtr[compIdx]))
                                 {
-                                    var compData = (byte*)childChunk.Chunk.GetDynamicComponentDataArrayReinterpret<byte>(ghostChunkComponentTypesPtr[compIdx], compSize).GetUnsafeReadOnlyPtr();
+                                    var compData = (byte*)childChunk.Chunk.GetDynamicComponentDataArrayReinterpret<byte>(ref ghostChunkComponentTypesPtr[compIdx], compSize).GetUnsafeReadOnlyPtr();
                                     UnsafeUtility.MemCpy(tempDataPtr, compData + childChunk.IndexInChunk * compSize, compSize);
                                 }
                                 else
@@ -634,7 +634,7 @@ namespace Unity.NetCode
                             {
                                 var linkedEntityGroup = linkedEntityGroupAccessor[ent];
                                 var childEnt = linkedEntityGroup[GhostComponentIndex[baseOffset + comp].EntityIndex].Value;
-                                if (childEntityLookup.TryGetValue(childEnt, out var childChunk) && childChunk.Chunk.Has(ghostChunkComponentTypesPtr[compIdx]))
+                                if (childEntityLookup.TryGetValue(childEnt, out var childChunk) && childChunk.Chunk.Has(ref ghostChunkComponentTypesPtr[compIdx]))
                                 {
                                     var bufferData = childChunk.Chunk.GetUntypedBufferAccessor(ref ghostChunkComponentTypesPtr[compIdx]);
                                     //Retrieve an copy each buffer data. Set size and offset in the backup buffer in the component backup

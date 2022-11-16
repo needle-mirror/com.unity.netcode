@@ -241,10 +241,10 @@ namespace Unity.NetCode
                 Assert.IsFalse(useEnabledMask);
 
                 var entities = chunk.GetNativeArray(entityType);
-                var rpcInBuffer = chunk.GetBufferAccessor(inBufferType);
-                var rpcOutBuffer = chunk.GetBufferAccessor(outBufferType);
-                var connections = chunk.GetNativeArray(connectionType);
-                var acks = chunk.GetNativeArray(ackType);
+                var rpcInBuffer = chunk.GetBufferAccessor(ref inBufferType);
+                var rpcOutBuffer = chunk.GetBufferAccessor(ref outBufferType);
+                var connections = chunk.GetNativeArray(ref connectionType);
+                var acks = chunk.GetNativeArray(ref ackType);
                 var deserializeState = new RpcDeserializerState {ghostMap = ghostMap};
                 for (int i = 0; i < rpcInBuffer.Length; ++i)
                 {

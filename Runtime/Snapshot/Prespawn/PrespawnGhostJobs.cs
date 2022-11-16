@@ -47,7 +47,7 @@ namespace Unity.NetCode
             var entities = chunk.GetNativeArray(entityType);
             var GhostCollection = GhostCollectionFromEntity[GhostCollectionSingleton];
             var GhostTypeCollection = GhostTypeCollectionFromEntity[GhostCollectionSingleton];
-            var ghostTypeComponent = chunk.GetNativeArray(ghostTypeComponentType)[0];
+            var ghostTypeComponent = chunk.GetNativeArray(ref ghostTypeComponentType)[0];
             int ghostType;
             for (ghostType = 0; ghostType < GhostCollection.Length; ++ghostType)
             {
@@ -84,7 +84,7 @@ namespace Unity.NetCode
             int enableableMaskUints = GhostComponentSerializer.ChangeMaskArraySizeInUInts(typeData.EnableableBits);
             var snapshotBaseOffset = GhostComponentSerializer.SnapshotSizeAligned(sizeof(uint) + changeMaskUints*sizeof(uint) + enableableMaskUints*sizeof(uint));
 
-            var bufferAccessor = chunk.GetBufferAccessor(prespawnBaseline);
+            var bufferAccessor = chunk.GetBufferAccessor(ref prespawnBaseline);
             var chunkHashes = stackalloc ulong[entities.Length];
             for (int i = 0; i < entities.Length; ++i)
             {
@@ -137,7 +137,7 @@ namespace Unity.NetCode
             // This job is not written to support queries with enableable component types.
             Assert.IsFalse(useEnabledMask);
 
-            var ghostTypes = chunk.GetNativeArray(ghostTypeHandle);
+            var ghostTypes = chunk.GetNativeArray(ref ghostTypeHandle);
             if (!prefabFromType.TryGetValue(ghostTypes[0], out var ghostPrefabEntity))
             {
                 netDebug.LogError("Failed to look up ghost type");
@@ -151,7 +151,7 @@ namespace Unity.NetCode
             }
 
             ref var ghostMetaData = ref metaDataFromEntity[ghostPrefabEntity].Value.Value;
-            var linkedEntityBufferAccessor = chunk.GetBufferAccessor(linkedEntityTypeHandle);
+            var linkedEntityBufferAccessor = chunk.GetBufferAccessor(ref linkedEntityTypeHandle);
 
             for (int index = 0, chunkEntityCount = chunk.Count; index < chunkEntityCount; ++index)
             {
@@ -222,9 +222,9 @@ namespace Unity.NetCode
             Assert.IsFalse(useEnabledMask);
 
             var entities = chunk.GetNativeArray(entityType);
-            var preSpawnedIds = chunk.GetNativeArray(prespawnIdType);
-            var ghostComponents = chunk.GetNativeArray(ghostComponentType);
-            var ghostStates = chunk.GetNativeArray(ghostStateTypeHandle);
+            var preSpawnedIds = chunk.GetNativeArray(ref prespawnIdType);
+            var ghostComponents = chunk.GetNativeArray(ref ghostComponentType);
+            var ghostStates = chunk.GetNativeArray(ref ghostStateTypeHandle);
 
             var chunkSpawnedGhostMappings = stackalloc SpawnedGhostMapping[chunk.Count];
             int spawnedGhostCount = 0;

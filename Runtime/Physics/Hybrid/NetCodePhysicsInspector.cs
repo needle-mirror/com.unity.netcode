@@ -23,6 +23,8 @@ namespace Unity.NetCode.Editor
         public override void OnInspectorGUI()
         {
             serializedObject.Update();
+            using (new EditorGUI.DisabledScope(true))
+                EditorGUILayout.PropertyField(serializedObject.FindProperty("m_Script"), true);
             EditorGUILayout.PropertyField(EnableLagCompensation, new GUIContent("Lag Compensation"));
             if (EnableLagCompensation.boolValue)
             {

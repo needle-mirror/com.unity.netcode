@@ -7,6 +7,7 @@ namespace Unity.NetCode
     /// Add this component to a gameobject present in a sub-scene to configure the <see cref="NetDebug"/> logging level and
     /// enable packet dumps.
     /// </summary>
+    [HelpURL(Authoring.HelpURLs.NetCodeDebugConfigAuthoring)]
     public class NetCodeDebugConfigAuthoring : MonoBehaviour
     {
         /// <summary>

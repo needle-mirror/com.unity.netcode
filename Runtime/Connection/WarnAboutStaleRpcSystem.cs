@@ -15,6 +15,7 @@ namespace Unity.NetCode
     [BurstCompile]
     public partial struct WarnAboutStaleRpcSystem : ISystem
     {
+        [BurstCompile]
         public void OnCreate(ref SystemState state)
         {
             state.RequireForUpdate<ReceiveRpcCommandRequestComponent>();
@@ -24,6 +25,7 @@ namespace Unity.NetCode
         {
         }
 
+        [BurstCompile]
         partial struct WarnAboutStaleRpc : IJobEntity
         {
             public NetDebug netDebug;

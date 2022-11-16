@@ -257,6 +257,7 @@ namespace Unity.NetCode
             commandBuffer.Dispose();
         }
 
+        [BurstCompile]
         struct AggregateHash : IJob
         {
             public NativeList<ulong> baselinesHashes;

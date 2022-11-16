@@ -9,6 +9,7 @@ namespace Unity.NetCode.Hybrid
     /// instance.
     /// </summary>
     [DisallowMultipleComponent]
+    [HelpURL(HelpURLs.GhostPresentationGameObjectEntityOwner)]
     public class GhostPresentationGameObjectEntityOwner : MonoBehaviour
     {
         /// <summary>

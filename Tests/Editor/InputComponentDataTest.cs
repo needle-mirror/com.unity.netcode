@@ -129,18 +129,16 @@ namespace Unity.NetCode.Tests
         protected override void OnCreate()
         {
             RequireForUpdate<InputComponentData>();
-            RequireForUpdate<NetworkIdComponent>();
+            RequireForUpdate<NetworkStreamInGame>();
         }
         protected override void OnUpdate()
         {
-            var networkId = GetSingleton<NetworkIdComponent>().Value;
             var didSetEvent = m_DidSetEvent;
             var waitTicks = m_WaitTicks;
             Entities
-                .ForEach((ref InputComponentData inputData, ref GhostOwnerComponent owner) =>
+                .WithAll<GhostOwnerIsLocal>()
+                .ForEach((ref InputComponentData inputData) =>
                 {
-                    if (owner.NetworkId != networkId)
-                        return;
                     inputData = default;
                     inputData.Horizontal = 1;
                     inputData.Vertical = 1;
@@ -169,18 +167,16 @@ namespace Unity.NetCode.Tests
         protected override void OnCreate()
         {
             RequireForUpdate<InputRemoteTestComponentData>();
-            RequireForUpdate<NetworkIdComponent>();
+            RequireForUpdate<NetworkStreamInGame>();
         }
         protected override void OnUpdate()
         {
-            var networkId = GetSingleton<NetworkIdComponent>().Value;
+            // Inputs are only gathered on the local player, so if any inputs are set on
+            // the remote player it's because they were fetched from the buffer (replicated via ghost system)
             Entities
-                .ForEach((ref InputRemoteTestComponentData inputData, ref GhostOwnerComponent owner) =>
+                .WithAll<GhostOwnerIsLocal>()
+                .ForEach((ref InputRemoteTestComponentData inputData) =>
                 {
-                    // Inputs are only gathered on the local player, so if any inputs are set on
-                    // the remote player it's because they were fetched from the buffer (replicated via ghost system)
-                    if (owner.NetworkId != networkId)
-                        return;
                     inputData = default;
                     inputData.Horizontal = 1;
                     inputData.Vertical = 1;
@@ -200,7 +196,19 @@ namespace Unity.NetCode.Tests
         {
             var eventCounter = EventCounter;
             FixedString32Bytes world = World.Name;
-            var tick = GetSingleton<NetworkTime>().ServerTick;
+            var tick = SystemAPI.GetSingleton<NetworkTime>().ServerTick;
+#if !ENABLE_TRANSFORM_V1
+            Entities.WithAll<Simulate>().ForEach(
+                (ref InputComponentData input, ref LocalTransform trans) =>
+                {
+                    var newPosition = new float3();
+                    if (input.Jump.IsSet)
+                        eventCounter++;
+                    newPosition.x = input.Horizontal;
+                    newPosition.z = input.Vertical;
+                    trans = trans.WithPosition(newPosition);
+                }).Run();
+#else
             Entities.WithAll<Simulate>().ForEach(
                 (ref InputComponentData input, ref Translation trans) =>
                 {
@@ -211,6 +219,7 @@ namespace Unity.NetCode.Tests
                     newPosition.z = input.Vertical;
                     trans = new Translation() { Value = newPosition };
                 }).Run();
+#endif
             EventCounter = eventCounter;
         }
     }
@@ -261,11 +270,19 @@ namespace Unity.NetCode.Tests
                 for (int i = 0; i < 16; ++i)
                     testWorld.Tick(m_DeltaTime);
 
+#if !ENABLE_TRANSFORM_V1
+                // The IInputComponentData should have been copied to buffer, sent to server, and then transform
+                // result sent back to the client.
+                var transform = testWorld.ClientWorlds[0].EntityManager.GetComponentData<LocalTransform>(clientEnt);
+                Assert.AreEqual(1f, transform.Position.x);
+                Assert.AreEqual(1f, transform.Position.z);
+#else
                 // The IInputComponentData should have been copied to buffer, sent to server, and then translation
                 // result sent back to the client.
                 var translation = testWorld.ClientWorlds[0].EntityManager.GetComponentData<Translation>(clientEnt);
                 Assert.AreEqual(1f, translation.Value.x);
                 Assert.AreEqual(1f, translation.Value.z);
+#endif
 
                 // Event should only fire once on the server (but can multiple times on client because of prediction loop)
                 var serverInputSystem = testWorld.ServerWorld.GetExistingSystemManaged<ProcessInputsSystem>();
@@ -530,43 +547,41 @@ namespace Unity.NetCode.Tests
                 // synced in snapshots) but is just handled as a command is
                 using var collectionQuery = testWorld.ServerWorld.EntityManager.CreateEntityQuery(ComponentType.ReadOnly<GhostComponentSerializerCollectionData>());
                 var collectionData = collectionQuery.GetSingleton<GhostComponentSerializerCollectionData>();
-                var collection = collectionData.GhostComponentCollection.GetValueArray(Allocator.Temp);
                 GhostComponentSerializer.State inputBufferWithGhostFieldsSerializerState = default;
                 var inputBufferType = GetComponentType(testWorld.ServerWorld, nameof(InputComponentDataWithGhostComponent));
                 var inputBufferWithFieldsType = GetComponentType(testWorld.ServerWorld, nameof(InputComponentDataWithGhostComponentAndGhostFields));
-                foreach (var state in collection)
+                foreach (var state in collectionData.Serializers)
                 {
                     if (state.ComponentType.CompareTo(inputBufferWithFieldsType) == 0)
                         inputBufferWithGhostFieldsSerializerState = state;
                 }
-                collection.Dispose();
 
                 // There should be empty variant configs for all the other types (input components and buffer without ghost fields)
                 // where we'll find the prefab type registered
-                var emptyVariants = collectionData.EmptyVariants.GetValueArray(Allocator.Temp);
                 var foundVariantForInputBuffer = false;
                 var foundVariantForInputComponent = false;
                 var foundVariantForInputComponentWithFields = false;
-                foreach (var variant in emptyVariants)
+                foreach (var nonSerializedStrategies in collectionData.SerializationStrategies)
                 {
-                    if (variant.Component.CompareTo(inputBufferType) == 0)
+                    if (nonSerializedStrategies.IsSerialized != 0)
+                        continue;
+
+                    if (nonSerializedStrategies.Component.CompareTo(inputBufferType) == 0)
                     {
                         foundVariantForInputBuffer = true;
-                        Assert.AreEqual(GhostPrefabType.Client, variant.PrefabType);
+                        Assert.AreEqual(GhostPrefabType.Client, nonSerializedStrategies.PrefabType);
                     }
-                    if (variant.Component.CompareTo(ComponentType.ReadWrite<InputComponentDataWithGhostComponent>()) == 0)
+                    if (nonSerializedStrategies.Component.CompareTo(ComponentType.ReadWrite<InputComponentDataWithGhostComponent>()) == 0)
                     {
                         foundVariantForInputComponent = true;
-                        Assert.AreEqual(GhostPrefabType.Client, variant.PrefabType);
+                        Assert.AreEqual(GhostPrefabType.Client, nonSerializedStrategies.PrefabType);
                     }
-                    if (variant.Component.CompareTo(ComponentType.ReadWrite<InputComponentDataWithGhostComponentAndGhostFields>()) == 0)
+                    if (nonSerializedStrategies.Component.CompareTo(ComponentType.ReadWrite<InputComponentDataWithGhostComponentAndGhostFields>()) == 0)
                     {
                         foundVariantForInputComponentWithFields = true;
-                        Assert.AreEqual(GhostPrefabType.Client, variant.PrefabType);
+                        Assert.AreEqual(GhostPrefabType.Client, nonSerializedStrategies.PrefabType);
                     }
                 }
-                emptyVariants.Dispose();
-
                 Assert.IsTrue(foundVariantForInputBuffer);
                 Assert.IsTrue(foundVariantForInputComponent);
                 Assert.IsTrue(foundVariantForInputComponentWithFields);

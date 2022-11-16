@@ -1,3 +1,4 @@
+#if USING_PLATFORMS_PACKAGE
 #if UNITY_EDITOR
 using Unity.Build;
 #endif
@@ -15,4 +16,5 @@ public class NetCodeConversionSettings : IBuildComponent
         return UnityEditor.EditorGUI.EndChangeCheck();
     }
 }
+#endif
 #endif

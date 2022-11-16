@@ -587,11 +587,20 @@ namespace Unity.NetCode.Tests
         }
 
         [DisableAutoCreation]
-        class TestAddBufferToDefaultSerializationSystem : DefaultVariantSystemBase
+        class ForceSerializeBufferSystem : DefaultVariantSystemBase
         {
             protected override void RegisterDefaultVariants(Dictionary<ComponentType, Rule> defaultVariants)
             {
                 defaultVariants.Add(typeof(GhostGenTest_Buffer), Rule.ForAll(typeof(GhostGenTest_Buffer)));
+            }
+        }
+
+        [DisableAutoCreation]
+        class ForceDontSerializeBufferSystem : DefaultVariantSystemBase
+        {
+            protected override void RegisterDefaultVariants(Dictionary<ComponentType, Rule> defaultVariants)
+            {
+                defaultVariants.Add(typeof(GhostGenTest_Buffer), Rule.ForAll(typeof(DontSerializeVariant)));
             }
         }
 
@@ -600,9 +609,15 @@ namespace Unity.NetCode.Tests
         {
             using (var testWorld = new NetCodeTestWorld())
             {
-                if (sendForChildrenTestCase == SendForChildrenTestCase.YesViaDefaultNameDictionary)
-                    testWorld.UserBakingSystems.Add(typeof(TestAddBufferToDefaultSerializationSystem));
-
+                switch (sendForChildrenTestCase)
+                {
+                    case SendForChildrenTestCase.YesViaDefaultVariantMap:
+                        testWorld.UserBakingSystems.Add(typeof(ForceSerializeBufferSystem));
+                        break;
+                    case SendForChildrenTestCase.NoViaDefaultVariantMap:
+                        testWorld.UserBakingSystems.Add(typeof(ForceDontSerializeBufferSystem));
+                        break;
+                }
                 testWorld.Bootstrap(true);
 
                 var ghostGameObject = new GameObject();
@@ -663,7 +678,7 @@ namespace Unity.NetCode.Tests
                 Assert.AreEqual(2, serverEntityGroup.Length);
 
                 //Verify that the client snapshot data contains the right things
-                var shouldChildReceiveData = sendForChildrenTestCase != SendForChildrenTestCase.NoViaDontSerializeVariantDefault;
+                var shouldChildReceiveData = BootstrapTests.IsExpectedToBeReplicated(sendForChildrenTestCase, false);
                 var dynamicBuffer = testWorld.ClientWorlds[0].EntityManager.GetBuffer<NetCode.SnapshotDynamicDataBuffer>(clientEntities[0]);
                 if(shouldChildReceiveData)
                     BufferTestHelper.ValidateMultiBufferSnapshotDataContents(dynamicBuffer, 3, 0, 10, 10);
@@ -853,7 +868,7 @@ namespace Unity.NetCode.Tests
         {
             protected override void OnUpdate()
             {
-                var tick = GetSingleton<NetworkTime>().ServerTick;
+                var tick = SystemAPI.GetSingleton<NetworkTime>().ServerTick;
                 var deltaTime = SystemAPI.Time.DeltaTime;
                 var bufferFromEntity = GetBufferLookup<GhostPredictedOnlyBuffer>();
                 //FIXME: updating child entities is not efficient this way.
@@ -1036,7 +1051,7 @@ namespace Unity.NetCode.Tests
 
             protected override void OnUpdate()
             {
-                var spawnListEntity = GetSingletonEntity<PredictedGhostSpawnList>();
+                var spawnListEntity = SystemAPI.GetSingletonEntity<PredictedGhostSpawnList>();
                 var spawnListFromEntity = GetBufferLookup<PredictedGhostSpawn>();
                 var predictedEntities = m_PredictedEntities;
                 Entities
@@ -1076,7 +1091,7 @@ namespace Unity.NetCode.Tests
             public Entity spawnedEntity;
             Entity SpawnPredictedEntity(int baseValue)
             {
-                var prefabsList = GetSingletonEntity<NetCodeTestPrefabCollection>();
+                var prefabsList = SystemAPI.GetSingletonEntity<NetCodeTestPrefabCollection>();
                 var prefabs = EntityManager.GetBuffer<NetCodeTestPrefab>(prefabsList);
                 var entity = EntityManager.Instantiate(prefabs[0].Value);
                 BufferTestHelper.SetByteBufferValues(World, entity, 5, baseValue);
@@ -1084,10 +1099,10 @@ namespace Unity.NetCode.Tests
             }
             protected override void OnUpdate()
             {
-                var netTime = GetSingleton<NetworkTime>();
+                var netTime = SystemAPI.GetSingleton<NetworkTime>();
                 if (spawnAtTick.IsValid && !spawnAtTick.IsNewerThan(NetworkTimeHelper.LastFullServerTick(netTime)))
                 {
-                    if(HasSingleton<UnscaledClientTime>())
+                    if(SystemAPI.HasSingleton<UnscaledClientTime>())
                         spawnedEntity = SpawnPredictedEntity(10);
                     else
                         spawnedEntity = SpawnPredictedEntity(100);

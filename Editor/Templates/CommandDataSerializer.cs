@@ -114,7 +114,7 @@ namespace __COMMAND_NAMESPACE__
             [ReadOnly] public BufferTypeHandle<__COMMAND_COMPONENT_TYPE__> inputHandle;
             public void Execute(in ArchetypeChunk chunk, int unfilteredChunkIndex, bool useEnabledMask, in v128 chunkEnabledMask)
             {
-                var inputBufferAccessor = chunk.GetBufferAccessor(inputHandle);
+                var inputBufferAccessor = chunk.GetBufferAccessor(ref inputHandle);
                 for (int entIdx = 0; entIdx < chunk.Count; ++entIdx)
                 {
                     var inputBuffer = inputBufferAccessor[entIdx];

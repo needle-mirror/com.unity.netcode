@@ -460,12 +460,28 @@ namespace Unity.NetCode.Tests
         }
 
         /// <summary>A client only variant we can assign.</summary>
-        [GhostComponentVariation(typeof(Transforms.Translation), "TranslationVariantTest", true)]
+#if !ENABLE_TRANSFORM_V1
+        [GhostComponentVariation(typeof(Transforms.LocalTransform), nameof(TransformVariantTest))]
+        [GhostComponent(PrefabType=GhostPrefabType.All, SendTypeOptimization=GhostSendType.AllClients)]
+        public struct TransformVariantTest
+        {
+            [GhostField(Quantization=100, Smoothing=SmoothingAction.InterpolateAndExtrapolate)]
+            public float3 Position;
+
+            [GhostField(Quantization=100, Smoothing=SmoothingAction.InterpolateAndExtrapolate)]
+            public float Scale;
+
+            [GhostField(Quantization=1000, Smoothing=SmoothingAction.InterpolateAndExtrapolate)]
+            public quaternion Rotation;
+        }
+#else
+        [GhostComponentVariation(typeof(Transforms.Translation), nameof(TranslationVariantTest), true)]
         [GhostComponent(PrefabType = GhostPrefabType.All, SendTypeOptimization = GhostSendType.AllClients)]
         public struct TranslationVariantTest
         {
             [GhostField(Quantization=1000, Smoothing=SmoothingAction.Interpolate, SubType=0)] public float3 Value;
         }
+#endif
 
         [Test]
         public void SerializationVariant_AreAppliedToBothRootAndChildEntities()
@@ -485,25 +501,45 @@ namespace Unity.NetCode.Tests
                 authoring.SupportedGhostModes = GhostModeMask.All;
 
                 //Setup a variant for both root and child entity and check that the runtime serializer use this one to serialize data
+#if !ENABLE_TRANSFORM_V1
+                var attrType = typeof(TransformVariantTest).GetCustomAttribute<GhostComponentVariationAttribute>();
+#else
                 var attrType = typeof(TranslationVariantTest).GetCustomAttribute<GhostComponentVariationAttribute>();
+#endif
                 ulong hash = 0;
 
                 using var collectionQuery = testWorld.ServerWorld.EntityManager.CreateEntityQuery(ComponentType.ReadOnly<GhostComponentSerializerCollectionData>());
                 var collectionData = collectionQuery.GetSingleton<GhostComponentSerializerCollectionData>();
-                var serializers = collectionData.GhostComponentCollection.GetValueArray(Allocator.Temp);
-                foreach (var serializer in serializers)
+                foreach (var ssIndex in collectionData.SerializationStrategiesComponentTypeMap.GetValuesForKey(attrType.ComponentType))
                 {
-                    if (serializer.ComponentType == attrType.ComponentType && GhostComponentSerializer.VariantTypes[serializer.VariantTypeIndex] == typeof(TranslationVariantTest))
-                        hash = serializer.VariantHash;
+                    var ss = collectionData.SerializationStrategies[ssIndex];
+#if !ENABLE_TRANSFORM_V1
+                    if (ss.DisplayName.ToString().Contains(nameof(TransformVariantTest)))
+#else
+                    if (ss.DisplayName.ToString().Contains(nameof(TranslationVariantTest)))
+#endif
+                    {
+                        hash = ss.Hash;
+                        goto found;
+                    }
                 }
-                serializers.Dispose();
+#if !ENABLE_TRANSFORM_V1
+                Assert.Fail($"Couldn't find {nameof(TransformVariantTest)} to apply it!");
+#else
+                Assert.Fail($"Couldn't find {nameof(TranslationVariantTest)} to apply it!");
+#endif
 
+                found:
                 Assert.AreNotEqual(0, hash);
                 inspection.ComponentOverrides = new[]
                 {
                     new GhostAuthoringInspectionComponent.ComponentOverride
                     {
+#if !ENABLE_TRANSFORM_V1
+                        FullTypeName = typeof(Transforms.LocalTransform).FullName,
+#else
                         FullTypeName = typeof(Transforms.Translation).FullName,
+#endif
                         GameObject = ghostGameObject,
                         PrefabType = GhostPrefabType.All,
                         SendTypeOptimization = GhostSendType.AllClients,
@@ -514,7 +550,11 @@ namespace Unity.NetCode.Tests
                 {
                     new GhostAuthoringInspectionComponent.ComponentOverride
                     {
+#if !ENABLE_TRANSFORM_V1
+                        FullTypeName = typeof(Transforms.LocalTransform).FullName,
+#else
                         FullTypeName = typeof(Transforms.Translation).FullName,
+#endif
                         GameObject = childGhost,
                         PrefabType = GhostPrefabType.All,
                         SendTypeOptimization = GhostSendType.AllClients,
@@ -525,7 +565,11 @@ namespace Unity.NetCode.Tests
                 {
                     new GhostAuthoringInspectionComponent.ComponentOverride
                     {
+#if !ENABLE_TRANSFORM_V1
+                        FullTypeName = typeof(Transforms.LocalTransform).FullName,
+#else
                         FullTypeName = typeof(Transforms.Translation).FullName,
+#endif
                         GameObject = nestedChildGhost,
                         PrefabType = GhostPrefabType.All,
                         SendTypeOptimization = GhostSendType.AllClients,
@@ -549,7 +593,11 @@ namespace Unity.NetCode.Tests
                 for(int i=0;i<16;++i)
                     testWorld.Tick(1.0f/60.0f);
 
+#if !ENABLE_TRANSFORM_V1
+                var typeIndex = TypeManager.GetTypeIndex<Transforms.LocalTransform>();
+#else
                 var typeIndex = TypeManager.GetTypeIndex<Transforms.Translation>();
+#endif
                 //Then check the expected results
                 var collection = testWorld.TryGetSingletonEntity<GhostCollection>(testWorld.ServerWorld);
                 var ghostSerializerCollection = testWorld.ServerWorld.EntityManager.GetBuffer<GhostComponentSerializer.State>(collection);

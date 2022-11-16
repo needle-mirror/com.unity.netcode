@@ -220,8 +220,8 @@ namespace Unity.NetCode
                 }
                 else
                 {
-                    byte* src = (byte*)srcInfo.Chunk.GetDynamicComponentDataArrayReinterpret<byte>(typeHandle, sizeInChunk).GetUnsafeReadOnlyPtr();
-                    byte* dst = (byte*)dstInfo.Chunk.GetDynamicComponentDataArrayReinterpret<byte>(typeHandle, sizeInChunk).GetUnsafePtr();
+                    byte* src = (byte*)srcInfo.Chunk.GetDynamicComponentDataArrayReinterpret<byte>(ref typeHandle, sizeInChunk).GetUnsafeReadOnlyPtr();
+                    byte* dst = (byte*)dstInfo.Chunk.GetDynamicComponentDataArrayReinterpret<byte>(ref typeHandle, sizeInChunk).GetUnsafePtr();
                     UnsafeUtility.MemCpy(dst + dstInfo.IndexInChunk*sizeInChunk, src + srcInfo.IndexInChunk*sizeInChunk, sizeInChunk);
                 }
             }
@@ -233,9 +233,26 @@ namespace Unity.NetCode
             }
             if (duration > 0 &&
                 entityManager.HasComponent<LocalToWorld>(entity) &&
+#if !ENABLE_TRANSFORM_V1
+                entityManager.HasComponent<LocalTransform>(entity))
+#else
                 entityManager.HasComponent<Translation>(entity) &&
                 entityManager.HasComponent<Rotation>(entity))
+#endif
             {
+#if !ENABLE_TRANSFORM_V1
+                entityManager.AddComponent(entity, new ComponentTypeSet(ComponentType.ReadWrite<SwitchPredictionSmoothing>(),
+                    ComponentType.ReadWrite<PropagateLocalToWorld>()));
+                var localTransform = entityManager.GetComponentData<LocalTransform>(entity);
+                entityManager.SetComponentData(entity, new SwitchPredictionSmoothing
+                {
+                    InitialPosition = localTransform.Position,
+                    InitialRotation = localTransform.Rotation,
+                    CurrentFactor = 0,
+                    Duration = duration,
+                    SkipVersion = ghostUpdateVersion.LastSystemVersion
+                });
+#else
                 entityManager.AddComponentData(entity, new SwitchPredictionSmoothing
                 {
                     InitialPosition = entityManager.GetComponentData<Translation>(entity).Value,
@@ -244,6 +261,7 @@ namespace Unity.NetCode
                     Duration = duration,
                     SkipVersion = ghostUpdateVersion.LastSystemVersion
                 });
+#endif
             }
             return true;
         }

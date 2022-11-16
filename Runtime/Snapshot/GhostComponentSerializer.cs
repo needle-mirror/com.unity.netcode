@@ -8,10 +8,10 @@ namespace Unity.NetCode
 {
     /// <summary>
     /// For internal use only.
-    /// The base class for all the code-generated systems responsible for registering all the generated component
+    /// The interface for all the code-generated ISystems responsible for registering all the generated component
     /// serializers into the <see cref="GhostComponentSerializerCollectionSystemGroup"/>.
     /// </summary>
-    public abstract partial class GhostComponentSerializerRegistrationSystemBase : SystemBase
+    public interface IGhostComponentSerializerRegistration
     {}
 }
 
@@ -123,7 +123,7 @@ namespace Unity.NetCode.LowLevel.Unsafe
             public ulong GhostFieldsHash;
             /// <summary>
             /// An hash identifying the specific variation used for this serializer (see <see cref="GhostComponentVariationAttribute"/>).
-            /// If not variation is used, this will be the hash of the <see cref="ComponentType"/> itself, and <see cref="IsDefaultSerializer"/> will be true.
+            /// If no variation is used, this will be the hash of the <see cref="ComponentType"/> itself, and <see cref="IsDefaultSerializer"/> will be true.
             /// </summary>
             public ulong VariantHash;
             /// <summary>
@@ -131,9 +131,9 @@ namespace Unity.NetCode.LowLevel.Unsafe
             /// </summary>
             public ComponentType ComponentType;
             /// <summary>
-            /// Internal, the index inside the <see cref="VariantTypes"/> list.
+            /// Internal. Indexer into the <see cref="GhostComponentSerializerCollectionData.SerializationStrategies"/> list.
             /// </summary>
-            public int VariantTypeIndex;
+            public short SerializationStrategyIndex;
             /// <summary>
             /// The size of the component, as reported by the <see cref="Entities.TypeManager"/>.
             /// </summary>
@@ -143,12 +143,20 @@ namespace Unity.NetCode.LowLevel.Unsafe
             /// </summary>
             public int SnapshotSize;
             /// <summary>
+            /// Whether SnapshotSize is greater than zero.
+            /// </summary>
+            public bool HasGhostFields => SnapshotSize > 0;
+            /// <summary>
             /// The number of bits necessary for the change mask.
             /// </summary>
             public int ChangeMaskBits;
+            /// <summary>True if this component has the <see cref="GhostEnabledBitAttribute"/> and thus should replicate the enable bit flag.</summary>
+            /// <remarks>Note that serializing the enabled bit is different from the main "serializer". I.e. "Empty Variants" can have serialized enable bits.</remarks>
+            public byte SerializesEnabledBit;
             /// <summary>
             /// Store the <see cref="GhostComponentAttribute.PrefabType"/> if the attribute is present on the component. Otherwise is set
             /// to <see cref="GhostPrefabType.All"/>.
+            /// TODO - Try to deduplicate this data by reading the ComponentTypeSerializationStrategy directly.
             /// </summary>
             public GhostPrefabType PrefabType;
             /// <summary>
@@ -161,19 +169,6 @@ namespace Unity.NetCode.LowLevel.Unsafe
             /// to <see cref="SendToOwnerType.All"/>.
             /// </summary>
             public SendToOwnerType SendToOwner;
-
-            private byte _SendForChildEntities;
-            /// <summary>True if the <see cref="GhostComponentAttribute.SendDataForChildEntity"/> flag is true on this variant (if it has one), or this type (if not).</summary>
-            public bool SendForChildEntities { get { return _SendForChildEntities != 0; } set { _SendForChildEntities = (byte)(value ? 1 : 0); } }
-
-            private byte _IsDefaultSerializer;
-            /// <summary>
-            /// True if this is the "default" serializer for this component type.
-            /// I.e. The one generated from the component definition itself (see <see cref="GhostFieldAttribute"/> and <see cref="GhostComponentAttribute"/>).
-            /// </summary>
-            /// <remarks>Types like `Translation` don't have a default serializer as the type itself doesn't define any GhostFields, but they do have serialized variants.</remarks>
-            public bool IsDefaultSerializer { get { return _IsDefaultSerializer != 0; } set { _IsDefaultSerializer = (byte)(value ? 1 : 0); } }
-
             /// <summary>
             /// Delegate method to use to post-serialize the component when the ghost use pre-serialization optimization.
             /// </summary>
@@ -249,17 +244,6 @@ namespace Unity.NetCode.LowLevel.Unsafe
             internal int FirstNameIndex;
 #endif
         }
-
-        /// <summary>
-        /// The list of all serialized component and variant (<see cref="GhostComponentVariationAttribute"/>) types.
-        /// Populated at runtime when the generated serialized are registered to <see cref="State"/> collection.
-        /// (see also <seealso cref="GhostComponentSerializerCollectionSystemGroup"/>).
-        /// </summary>
-        public static List<Type> VariantTypes = new List<Type>(64)
-        {
-            typeof(DontSerializeVariant),
-            typeof(ClientOnlyVariant),
-        };
 
         /// <summary>
         /// Helper that returns the size in bytes (aligned to 16 bytes boundary) used to store the component data inside <see cref="SnapshotData"/>.
@@ -369,7 +353,7 @@ namespace Unity.NetCode.LowLevel.Unsafe
         /// Compute the number of uint necessary to encode the required number of bits
         /// </summary>
         /// <param name="numBits"></param>
-        /// <returns></returns>
+        /// <returns>The uint mask to encode this number of bits.</returns>
         public static int ChangeMaskArraySizeInUInts(int numBits)
         {
             return (numBits + 31)>>5;
@@ -379,14 +363,14 @@ namespace Unity.NetCode.LowLevel.Unsafe
         /// Compute the number of bytes necessary to encode the required number of bits
         /// </summary>
         /// <param name="numBits"></param>
-        /// <returns></returns>
+        /// <returns>The min number of bytes to store this number of bits, rounded to the nearest 4 bytes (for data-alignment).</returns>
         public static int ChangeMaskArraySizeInBytes(int numBits)
         {
             return ((numBits + 31)>>3) & ~0x3;
         }
 
         /// <summary>
-        /// Align the give size to 16 byte boundary
+        /// Align the give size to 16 byte boundary.
         /// </summary>
         /// <param name="size"></param>
         /// <returns></returns>
@@ -422,7 +406,7 @@ namespace Unity.NetCode.LowLevel.Unsafe
             {
                 var ptr = (T*)buffer.GetUnsafeReadOnlyPtr();
 #if ENABLE_UNITY_COLLECTIONS_CHECKS
-                if(index < 0 || index > buffer.Length)
+                if(index < 0 || index >= buffer.Length)
                     throw new IndexOutOfRangeException($"Index {index} is out of range in DynamicBuffer of '{buffer.Length}' Length.");
 #endif
                 return ref ptr[index];

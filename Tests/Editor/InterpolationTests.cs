@@ -22,7 +22,11 @@ namespace Unity.NetCode.Tests
         {
             var deltaTime = SystemAPI.Time.DeltaTime;
             var speed = moveSpeed;
+#if !ENABLE_TRANSFORM_V1
+            Entities.ForEach((Entity ent, ref LocalTransform tx) => { tx.Position += new float3(speed * deltaTime); }).Run();
+#else
             Entities.ForEach((Entity ent, ref Translation tx) => { tx.Value += new float3(speed * deltaTime); }).Run();
+#endif
         }
     }
 
@@ -38,11 +42,19 @@ namespace Unity.NetCode.Tests
         {
             Entities
                 .WithoutBurst()
+#if !ENABLE_TRANSFORM_V1
+                .ForEach((Entity ent, in LocalTransform tx) =>
+            {
+                Assert.GreaterOrEqual(tx.Position.x, prevPos.x);
+                prevPos = tx.Position;
+            }).Run();
+#else
                 .ForEach((Entity ent, in Translation tx) =>
             {
                 Assert.GreaterOrEqual(tx.Value.x, prevPos.x);
                 prevPos = tx.Value;
             }).Run();
+#endif
         }
     }
 

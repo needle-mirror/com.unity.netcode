@@ -16,7 +16,8 @@
         "Unity.Entities.Editor",
         "Unity.Properties.UI",
         "Unity.Properties",
-        "Unity.Properties.UI.Editor"
+        "Unity.Properties.UI.Editor",
+        "Unity.Entities.Build"
     ],
     "includePlatforms": [
         "Editor"

@@ -46,7 +46,7 @@ namespace Unity.NetCode
         /// </summary>
         /// <param name="defaultWorldName">The name to use for the default world.</param>
         /// <returns>A new world instance.</returns>
-        public World CreateLocalWorld(string defaultWorldName)
+        public static World CreateLocalWorld(string defaultWorldName)
         {
             // The default world must be created before generating the system list in order to have a valid TypeManager instance.
             // The TypeManage is initialised the first time we create a world.

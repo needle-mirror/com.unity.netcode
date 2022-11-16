@@ -12,6 +12,13 @@ using Unity.Mathematics;
 
 namespace Unity.NetCode
 {
+    internal enum SerializeEnitiesResult
+    {
+        Unknown = 0,
+        Ok,
+        Failed,
+        Abort,
+    }
     internal unsafe struct GhostChunkSerializer
     {
         public DynamicBuffer<GhostComponentSerializer.State> GhostComponentCollection;
@@ -387,6 +394,25 @@ namespace Unity.NetCode
                 throw new InvalidOperationException("Prespawn baseline does not have have space for dynamic buffer data");
         }
 
+        /// <summary>
+        ///     - Writes predictive component data into the snapshot.
+        ///     - Writes the snapshot into the dataStream writer.
+        /// </summary>
+        /// <remarks>Recursive when iterating over ghost groups.</remarks>
+        /// <param name="dataStream">Transport write stream to write "prediction-compressed" snapshots into.</param>
+        /// <param name="skippedEntityCount"></param>
+        /// <param name="anyChangeMask"></param>
+        /// <param name="chunk">Chunk containing these ghosts (and thus their components).</param>
+        /// <param name="startIndex">Index of the first entity to process.</param>
+        /// <param name="endIndex">Index of the NEXT entity (PASSED the LAST entity) to process.</param>
+        /// <param name="useSingleBaseline"></param>
+        /// <param name="currentSnapshot"></param>
+        /// <param name="baselinesPerEntity"></param>
+        /// <param name="sameBaselinePerEntity"></param>
+        /// <param name="dynamicDataLenPerEntity"></param>
+        /// <param name="entityStartBit">Stores 2 ints per component, per entity. [1st] Writer bit offset to the start of this components writes. [2nd] Num bits written for this component.</param>
+        /// <returns></returns>
+        /// <exception cref="InvalidOperationException"></exception>
         private int SerializeEntities(ref DataStreamWriter dataStream, out int skippedEntityCount, out uint anyChangeMask,
             int ghostType, ArchetypeChunk chunk, int startIndex, int endIndex, bool useSingleBaseline, in CurrentSnapshotState currentSnapshot,
             byte** baselinesPerEntity = null, int* sameBaselinePerEntity = null, int* dynamicDataLenPerEntity = null, int* entityStartBit = null)
@@ -418,10 +444,10 @@ namespace Unity.NetCode
             int enableableMaskUints = GhostComponentSerializer.ChangeMaskArraySizeInUInts(typeData.EnableableBits);
 
             var ghostEntities = chunk.GetNativeArray(entityType);
-            var ghosts = chunk.GetNativeArray(ghostComponentType);
+            var ghosts = chunk.GetNativeArray(ref ghostComponentType);
             NativeArray<GhostCleanupComponent> ghostSystemState = default;
             if (currentSnapshot.SnapshotData != null)
-                ghostSystemState = chunk.GetNativeArray(ghostSystemStateType);
+                ghostSystemState = chunk.GetNativeArray(ref ghostSystemStateType);
 
             byte* snapshot;
             if (currentSnapshot.SnapshotData == null)
@@ -442,6 +468,7 @@ namespace Unity.NetCode
                 sameBaselinePerEntity = tempSameBaselinePerEntity;
             if (entityStartBit == null)
                 entityStartBit = tempEntityStartBit;
+
             int baseline0 = numAvailableBaselines;
             int baseline1 = numAvailableBaselines;
             int baseline2 = numAvailableBaselines;
@@ -502,10 +529,10 @@ namespace Unity.NetCode
                     baselinesPerEntity[offset+2] = (currentSnapshot.AvailableBaselines[baseline2].snapshot) + ent*snapshotSize;
                 }
 
-                if (baseline0 == numAvailableBaselines && chunk.Has(prespawnBaselineTypeHandle) && chunk.Has(PrespawnIndexType) &&
+                if (baseline0 == numAvailableBaselines && chunk.Has(ref prespawnBaselineTypeHandle) && chunk.Has(ref PrespawnIndexType) &&
                     (ghostStateData.GetGhostState(ghostSystemState[ent]).Flags & ConnectionStateData.GhostStateFlags.CantUsePrespawnBaseline) == 0)
                 {
-                    var prespawnBaselines = chunk.GetBufferAccessor(prespawnBaselineTypeHandle);
+                    var prespawnBaselines = chunk.GetBufferAccessor(ref prespawnBaselineTypeHandle);
                     ValidatePrespawnBaseline(ghostEntities[ent], ghosts[ent].ghostId,ent,prespawnBaselines.Length);
                     if (prespawnBaselines[ent].Length > 0)
                     {
@@ -522,9 +549,7 @@ namespace Unity.NetCode
             // Update the end index to skip irrelevant entities at the end of the chunk
             int realEndIndex = endIndex;
             endIndex = lastRelevantEntity;
-
-            int bitCountsPerComponent = endIndex-startIndex;
-
+            int entityOffset = endIndex-startIndex;
             int snapshotOffset = GhostComponentSerializer.SnapshotSizeAligned(sizeof(uint) +
                                                                            (changeMaskUints * sizeof(uint)) +
                                                                            (enableableMaskUints * sizeof(uint)));
@@ -544,7 +569,9 @@ namespace Unity.NetCode
 
             var oldTempWriter = tempWriter;
 
-            if (chunk.Has(preSerializedGhostType) && SnapshotPreSerializeData.TryGetValue(chunk, out var preSerializedSnapshot))
+            SnapshotPreSerializeData preSerializedSnapshot = default;
+            var hasPreserializeData = chunk.Has(preSerializedGhostType) && SnapshotPreSerializeData.TryGetValue(chunk, out preSerializedSnapshot);
+            if (hasPreserializeData)
             {
                 UnsafeUtility.MemCpy(snapshot, (byte*)preSerializedSnapshot.Data+snapshotSize*startIndex, snapshotSize*(endIndex-startIndex));
                 // If this chunk has been processed for this tick before we cannot copy the dynamic snapshot data since doing so would
@@ -562,7 +589,7 @@ namespace Unity.NetCode
                     if (GhostComponentCollection[serializerIdx].ComponentType.IsBuffer)
                     {
                         ComponentScopeBegin(serializerIdx);
-                        GhostComponentCollection[serializerIdx].PostSerializeBuffer.Ptr.Invoke((IntPtr)snapshot, snapshotOffset, snapshotSize, snapshotMaskOffsetInBits, endIndex - startIndex, (IntPtr)baselinesPerEntity, ref tempWriter, ref compressionModel, (IntPtr)(entityStartBit+2*bitCountsPerComponent*comp), (IntPtr)snapshotDynamicDataPtr, (IntPtr)dynamicDataLenPerEntity, dynamicSnapshotDataCapacity + dynamicDataHeaderSize);
+                        GhostComponentCollection[serializerIdx].PostSerializeBuffer.Ptr.Invoke((IntPtr)snapshot, snapshotOffset, snapshotSize, snapshotMaskOffsetInBits, endIndex - startIndex, (IntPtr)baselinesPerEntity, ref tempWriter, ref compressionModel, (IntPtr)(entityStartBit+2*entityOffset*comp), (IntPtr)snapshotDynamicDataPtr, (IntPtr)dynamicDataLenPerEntity, dynamicSnapshotDataCapacity + dynamicDataHeaderSize);
                         ComponentScopeEnd(serializerIdx);
 
                         snapshotOffset += GhostComponentSerializer.SnapshotSizeAligned(GhostSystemConstants.DynamicBufferComponentSnapshotSize);
@@ -570,8 +597,10 @@ namespace Unity.NetCode
                     }
                     else
                     {
+                        // TODO: Ensure these pointer invocations are NOT called in the ZeroSize case (but we must update entityStartBit)!
+                        // Which means we can remove the #ifdef in Serializer Template.
                         ComponentScopeBegin(serializerIdx);
-                        GhostComponentCollection[serializerIdx].PostSerialize.Ptr.Invoke((IntPtr)snapshot, snapshotOffset, snapshotSize, snapshotMaskOffsetInBits, endIndex - startIndex, (IntPtr)baselinesPerEntity, ref tempWriter, ref compressionModel, (IntPtr)(entityStartBit+2*bitCountsPerComponent*comp));
+                        GhostComponentCollection[serializerIdx].PostSerialize.Ptr.Invoke((IntPtr)snapshot, snapshotOffset, snapshotSize, snapshotMaskOffsetInBits, endIndex - startIndex, (IntPtr)baselinesPerEntity, ref tempWriter, ref compressionModel, (IntPtr)(entityStartBit+2*entityOffset*comp));
                         ComponentScopeEnd(serializerIdx);
                         snapshotOffset += GhostComponentSerializer.SnapshotSizeAligned(GhostComponentCollection[serializerIdx].SnapshotSize);
                         snapshotMaskOffsetInBits += GhostComponentCollection[serializerIdx].ChangeMaskBits;
@@ -594,7 +623,7 @@ namespace Unity.NetCode
                     //It might still work in some cases but if this snapshot is then part of the history and used for
                     //interpolated data we might get incorrect results
 
-                    if (GhostComponentCollection[serializerIdx].ComponentType.IsEnableable)
+                    if (GhostComponentCollection[serializerIdx].SerializesEnabledBit != 0)
                     {
                         var handle = ghostChunkComponentTypesPtr[compIdx];
                         enableableMaskOffset = UpdateEnableableMasks(chunk, startIndex, endIndex, ref handle, snapshot, changeMaskUints, enableableMaskOffset, snapshotSize);
@@ -602,9 +631,10 @@ namespace Unity.NetCode
 
                     if (GhostComponentCollection[serializerIdx].ComponentType.IsBuffer)
                     {
+                        // Buffers cannot be zero sized, so no need to guard here.
                         byte** compData = tempComponentDataPerEntity;
                         int* compDataLen = tempComponentDataLenPerEntity;
-                        if (chunk.Has(ghostChunkComponentTypesPtr[compIdx]))
+                        if (chunk.Has(ref ghostChunkComponentTypesPtr[compIdx]))
                         {
                             var bufData = chunk.GetUntypedBufferAccessor(ref ghostChunkComponentTypesPtr[compIdx]);
                             for (int ent = startIndex; ent < endIndex; ++ent)
@@ -622,7 +652,7 @@ namespace Unity.NetCode
                             }
                         }
                         ComponentScopeBegin(serializerIdx);
-                        GhostComponentCollection[serializerIdx].SerializeBuffer.Ptr.Invoke((IntPtr)UnsafeUtility.AddressOf(ref serializerState), (IntPtr)snapshot, snapshotOffset, snapshotSize, snapshotMaskOffsetInBits, (IntPtr)compData, (IntPtr)compDataLen, endIndex - startIndex, (IntPtr)baselinesPerEntity, ref tempWriter, ref compressionModel, (IntPtr)(entityStartBit+2*bitCountsPerComponent*comp), (IntPtr)snapshotDynamicDataPtr, ref snapshotDynamicDataOffset, (IntPtr)dynamicDataLenPerEntity, dynamicSnapshotDataCapacity + dynamicDataHeaderSize);
+                        GhostComponentCollection[serializerIdx].SerializeBuffer.Ptr.Invoke((IntPtr)UnsafeUtility.AddressOf(ref serializerState), (IntPtr)snapshot, snapshotOffset, snapshotSize, snapshotMaskOffsetInBits, (IntPtr)compData, (IntPtr)compDataLen, endIndex - startIndex, (IntPtr)baselinesPerEntity, ref tempWriter, ref compressionModel, (IntPtr)(entityStartBit+2*entityOffset*comp), (IntPtr)snapshotDynamicDataPtr, ref snapshotDynamicDataOffset, (IntPtr)dynamicDataLenPerEntity, dynamicSnapshotDataCapacity + dynamicDataHeaderSize);
                         ComponentScopeEnd(serializerIdx);
                         snapshotOffset += GhostComponentSerializer.SnapshotSizeAligned(GhostSystemConstants.DynamicBufferComponentSnapshotSize);
                         snapshotMaskOffsetInBits += GhostSystemConstants.DynamicBufferComponentMaskBits;
@@ -630,13 +660,14 @@ namespace Unity.NetCode
                     else
                     {
                         byte* compData = null;
-                        if (chunk.Has(ghostChunkComponentTypesPtr[compIdx]))
+                        if (GhostComponentCollection[serializerIdx].HasGhostFields && chunk.Has(ref ghostChunkComponentTypesPtr[compIdx]))
                         {
-                            compData = (byte*)chunk.GetDynamicComponentDataArrayReinterpret<byte>(ghostChunkComponentTypesPtr[compIdx], compSize).GetUnsafeReadOnlyPtr();
+                            compData = (byte*)chunk.GetDynamicComponentDataArrayReinterpret<byte>(ref ghostChunkComponentTypesPtr[compIdx], compSize).GetUnsafeReadOnlyPtr();
                             compData += startIndex * compSize;
                         }
+
                         ComponentScopeBegin(serializerIdx);
-                        GhostComponentCollection[serializerIdx].Serialize.Ptr.Invoke((IntPtr)UnsafeUtility.AddressOf(ref serializerState), (IntPtr)snapshot, snapshotOffset, snapshotSize, snapshotMaskOffsetInBits, (IntPtr)compData, compSize, endIndex - startIndex, (IntPtr)baselinesPerEntity, ref tempWriter, ref compressionModel, (IntPtr)(entityStartBit+2*bitCountsPerComponent*comp));
+                        GhostComponentCollection[serializerIdx].Serialize.Ptr.Invoke((IntPtr) UnsafeUtility.AddressOf(ref serializerState), (IntPtr) snapshot, snapshotOffset, snapshotSize, snapshotMaskOffsetInBits, (IntPtr) compData, compSize, endIndex - startIndex, (IntPtr) baselinesPerEntity, ref tempWriter, ref compressionModel, (IntPtr) (entityStartBit + 2 * entityOffset * comp));
                         ComponentScopeEnd(serializerIdx);
                         snapshotOffset += GhostComponentSerializer.SnapshotSizeAligned(GhostComponentCollection[serializerIdx].SnapshotSize);
                         snapshotMaskOffsetInBits += GhostComponentCollection[serializerIdx].ChangeMaskBits;
@@ -644,7 +675,7 @@ namespace Unity.NetCode
                 }
                 if (typeData.NumChildComponents > 0)
                 {
-                    var linkedEntityGroupAccessor = chunk.GetBufferAccessor(linkedEntityGroupType);
+                    var linkedEntityGroupAccessor = chunk.GetBufferAccessor(ref linkedEntityGroupType);
                     for (int comp = numBaseComponents; comp < typeData.NumComponents; ++comp)
                     {
                         int compIdx = GhostComponentIndex[typeData.FirstComponent + comp].ComponentIndex;
@@ -661,9 +692,9 @@ namespace Unity.NetCode
                             {
                                 var linkedEntityGroup = linkedEntityGroupAccessor[ent];
                                 var childEnt = linkedEntityGroup[GhostComponentIndex[typeData.FirstComponent + comp].EntityIndex].Value;
-                                if (childEntityLookup.TryGetValue(childEnt, out var childChunk) && childChunk.Chunk.Has(ghostChunkComponentTypesPtr[compIdx]))
+                                if (childEntityLookup.TryGetValue(childEnt, out var childChunk) && childChunk.Chunk.Has(ref ghostChunkComponentTypesPtr[compIdx]))
                                 {
-                                    if (GhostComponentCollection[serializerIdx].ComponentType.IsEnableable)
+                                    if (GhostComponentCollection[serializerIdx].SerializesEnabledBit != 0)
                                     {
                                         var entityIndex = childChunk.IndexInChunk;
                                         var handle = ghostChunkComponentTypesPtr[compIdx];
@@ -683,7 +714,7 @@ namespace Unity.NetCode
                             }
                             enableableMaskOffset++;
                             ComponentScopeBegin(serializerIdx);
-                            GhostComponentCollection[serializerIdx].SerializeBuffer.Ptr.Invoke((IntPtr)UnsafeUtility.AddressOf(ref serializerState), (IntPtr)snapshot, snapshotOffset, snapshotSize, snapshotMaskOffsetInBits, (IntPtr)compData, (IntPtr)compDataLen, endIndex - startIndex, (IntPtr)baselinesPerEntity, ref tempWriter, ref compressionModel, (IntPtr)(entityStartBit+2*bitCountsPerComponent*comp), (IntPtr)snapshotDynamicDataPtr, ref snapshotDynamicDataOffset, (IntPtr)dynamicDataLenPerEntity, dynamicSnapshotDataCapacity + dynamicDataHeaderSize);
+                            GhostComponentCollection[serializerIdx].SerializeBuffer.Ptr.Invoke((IntPtr)UnsafeUtility.AddressOf(ref serializerState), (IntPtr)snapshot, snapshotOffset, snapshotSize, snapshotMaskOffsetInBits, (IntPtr)compData, (IntPtr)compDataLen, endIndex - startIndex, (IntPtr)baselinesPerEntity, ref tempWriter, ref compressionModel, (IntPtr)(entityStartBit+2*entityOffset*comp), (IntPtr)snapshotDynamicDataPtr, ref snapshotDynamicDataOffset, (IntPtr)dynamicDataLenPerEntity, dynamicSnapshotDataCapacity + dynamicDataHeaderSize);
                             ComponentScopeEnd(serializerIdx);
                             snapshotOffset += GhostComponentSerializer.SnapshotSizeAligned(GhostSystemConstants.DynamicBufferComponentSnapshotSize);
                             snapshotMaskOffsetInBits += GhostSystemConstants.DynamicBufferComponentMaskBits;
@@ -697,25 +728,29 @@ namespace Unity.NetCode
                                 var linkedEntityGroup = linkedEntityGroupAccessor[ent];
                                 var childEnt = linkedEntityGroup[GhostComponentIndex[typeData.FirstComponent + comp].EntityIndex].Value;
                                 compData[ent-startIndex] = null;
-                                //We can skip here, becase the memory buffer offset is computed using the start-end entity indices
-                                if (childEntityLookup.TryGetValue(childEnt, out var childChunk) && childChunk.Chunk.Has(ghostChunkComponentTypesPtr[compIdx]))
+                                //We can skip here, because the memory buffer offset is computed using the start-end entity indices
+                                if (childEntityLookup.TryGetValue(childEnt, out var childChunk) && childChunk.Chunk.Has(ref ghostChunkComponentTypesPtr[compIdx]))
                                 {
-                                    if (GhostComponentCollection[serializerIdx].ComponentType.IsEnableable)
+                                    if (GhostComponentCollection[serializerIdx].SerializesEnabledBit != 0)
                                     {
                                         var entityIndex = childChunk.IndexInChunk;
                                         var handle = ghostChunkComponentTypesPtr[compIdx];
-                                        UpdateEnableableMasks(childChunk.Chunk, entityIndex, entityIndex+1, ref handle, snapshotPtr, changeMaskUints, enableableMaskOffset, snapshotSize);
+                                        UpdateEnableableMasks(childChunk.Chunk, entityIndex, entityIndex + 1, ref handle, snapshotPtr, changeMaskUints, enableableMaskOffset, snapshotSize);
                                     }
 
-                                    compData[ent-startIndex] = (byte*)childChunk.Chunk.GetDynamicComponentDataArrayReinterpret<byte>(ghostChunkComponentTypesPtr[compIdx], compSize).GetUnsafeReadOnlyPtr();
-                                    compData[ent-startIndex] += childChunk.IndexInChunk * compSize;
+                                    if (GhostComponentCollection[serializerIdx].HasGhostFields)
+                                    {
+                                        compData[ent - startIndex] = (byte*) childChunk.Chunk.GetDynamicComponentDataArrayReinterpret<byte>(ref ghostChunkComponentTypesPtr[compIdx], compSize).GetUnsafeReadOnlyPtr();
+                                        compData[ent - startIndex] += childChunk.IndexInChunk * compSize;
+                                    }
                                 }
+
                                 snapshotPtr += snapshotSize;
                             }
 
                             enableableMaskOffset++;
                             ComponentScopeBegin(serializerIdx);
-                            GhostComponentCollection[serializerIdx].SerializeChild.Ptr.Invoke((IntPtr)UnsafeUtility.AddressOf(ref serializerState), (IntPtr)snapshot, snapshotOffset, snapshotSize, snapshotMaskOffsetInBits, (IntPtr)compData, endIndex - startIndex, (IntPtr)baselinesPerEntity, ref tempWriter, ref compressionModel, (IntPtr)(entityStartBit+2*bitCountsPerComponent*comp));
+                            GhostComponentCollection[serializerIdx].SerializeChild.Ptr.Invoke((IntPtr)UnsafeUtility.AddressOf(ref serializerState), (IntPtr)snapshot, snapshotOffset, snapshotSize, snapshotMaskOffsetInBits, (IntPtr)compData, endIndex - startIndex, (IntPtr)baselinesPerEntity, ref tempWriter, ref compressionModel, (IntPtr)(entityStartBit+2*entityOffset*comp));
                             ComponentScopeEnd(serializerIdx);
                             snapshotOffset += GhostComponentSerializer.SnapshotSizeAligned(GhostComponentCollection[serializerIdx].SnapshotSize);
                             snapshotMaskOffsetInBits += GhostComponentCollection[serializerIdx].ChangeMaskBits;
@@ -743,9 +778,9 @@ namespace Unity.NetCode
             }
 
             // Copy the content per entity from the temporary stream to the output stream in the correct order
-            var writerData = (uint*)tempWriter.AsNativeArray().GetUnsafeReadOnlyPtr();
+            var writerData = (uint*)tempWriter.AsNativeArray().GetUnsafePtr();
             uint zeroChangeMask = 0;
-            uint baseGhostId = chunk.Has(PrespawnIndexType) ? PrespawnHelper.PrespawnGhostIdBase : 0;
+            uint baseGhostId = chunk.Has(ref PrespawnIndexType) ? PrespawnHelper.PrespawnGhostIdBase : 0;
 
             for (int ent = startIndex; ent < endIndex; ++ent)
             {
@@ -879,7 +914,7 @@ namespace Unity.NetCode
                             }
                             if (remainingChangeBits > 0)
                                 GhostComponentSerializer.CopyToChangeMask((IntPtr)changeMasks, 0, curMaskOffsetInBits+subMaskOffset, remainingChangeBits);
-                            entityStartBit[(bitCountsPerComponent*comp + entOffset)*2+1] = 0;
+                            entityStartBit[(entityOffset*comp + entOffset)*2+1] = 0;
                             // TODO: buffers could also reduce the required dynamic buffer size to save some memory on clients
                         }
                         curMaskOffsetInBits += changeBits;
@@ -936,7 +971,7 @@ namespace Unity.NetCode
                     if (anyChangeMaskThisEntity != 0)
                     {
                         for (int comp = 0; comp < typeData.NumComponents; ++comp)
-                            ghostSizeInBits += entityStartBit[(bitCountsPerComponent*comp + entOffset)*2+1];
+                            ghostSizeInBits += entityStartBit[(entityOffset * comp + entOffset) * 2 + 1];
                     }
                     dataStream.WritePackedUIntDelta((uint)(ghostSizeInBits+headerLen), 0, compressionModel);
                     while (headerLen > 32)
@@ -975,11 +1010,11 @@ namespace Unity.NetCode
 
                 if (anyChangeMaskThisEntity != 0)
                 {
-                    PacketDumpComponentSize(typeData, entityStartBit, bitCountsPerComponent, entOffset);
+                    PacketDumpComponentSize(typeData, entityStartBit, entityOffset, entOffset);
                     for (int comp = 0; comp < typeData.NumComponents; ++comp)
                     {
-                        int start = entityStartBit[(bitCountsPerComponent*comp + entOffset)*2];
-                        int len = entityStartBit[(bitCountsPerComponent*comp + entOffset)*2+1];
+                        int start = entityStartBit[(entityOffset*comp + entOffset)*2];
+                        int len = entityStartBit[(entityOffset*comp + entOffset)*2+1];
                         if (len > 0)
                         {
                             while (len > 32)
@@ -1002,7 +1037,7 @@ namespace Unity.NetCode
                 if (typeData.IsGhostGroup != 0)
                 {
                     ghostGroupMarker.Begin();
-                    var ghostGroup = chunk.GetBufferAccessor(ghostGroupType)[ent];
+                    var ghostGroup = chunk.GetBufferAccessor(ref ghostGroupType)[ent];
                     // Serialize all other ghosts in the group, this also needs to be handled correctly in the receive system
                     dataStream.WritePackedUInt((uint)ghostGroup.Length, compressionModel);
                     PacketDumpBeginGroup(ghostGroup.Length);
@@ -1087,7 +1122,7 @@ namespace Unity.NetCode
                     return false;
                 }
                 #if ENABLE_UNITY_COLLECTIONS_CHECKS
-                if (!groupChunk.Chunk.Has(ghostChildEntityComponentType))
+                if (!groupChunk.Chunk.Has(ref ghostChildEntityComponentType))
                     throw new InvalidOperationException("Ghost group contains an member which does not have a GhostChildEntityComponent.");
                 #endif
                 // Entity does not have valid state initialized yet, wait some more
@@ -1110,14 +1145,14 @@ namespace Unity.NetCode
                     throw new InvalidOperationException("Ghost group member does not have state.");
                 var childGhostType = chunkState.ghostType;
                 #if ENABLE_UNITY_COLLECTIONS_CHECKS
-                var ghostComp = groupChunk.Chunk.GetNativeArray(ghostComponentType);
+                var ghostComp = groupChunk.Chunk.GetNativeArray(ref ghostComponentType);
                 if (ghostComp[groupChunk.IndexInChunk].ghostType >= 0 && ghostComp[groupChunk.IndexInChunk].ghostType != childGhostType)
                     throw new InvalidOperationException("Ghost group member has invalid ghost type.");
                 #endif
                 ValidateNoNestedGhostGroups(GhostTypeCollection[childGhostType].IsGhostGroup);
                 dataStream.WritePackedUInt((uint)childGhostType, compressionModel);
                 dataStream.WritePackedUInt(1, compressionModel);
-                dataStream.WriteRawBits(groupChunk.Chunk.Has(prespawnBaselineTypeHandle) ? 1u : 0, 1);
+                dataStream.WriteRawBits(groupChunk.Chunk.Has(ref prespawnBaselineTypeHandle) ? 1u : 0, 1);
                 PacketDumpGroupItem(childGhostType);
 
                 var groupSnapshot = default(CurrentSnapshotState);
@@ -1138,7 +1173,7 @@ namespace Unity.NetCode
                 bool clearEntityArray = true;
                 if (snapshotIndex[baselineIndex] != currentTick.SerializedData)
                 {
-                    // The chunk hisotry only needs to be updated once per frame, this is the first time we are using this chunk this frame
+                    // The chunk history only needs to be updated once per frame, this is the first time we are using this chunk this frame
                     // TODO: Updating the chunk history is only required if there has been a structural change - should skip it as an optimization
                     UpdateChunkHistory(childGhostType, groupChunk.Chunk, chunkState, dataSize);
                     snapshotIndex[writeIndex] = currentTick.SerializedData;
@@ -1165,7 +1200,7 @@ namespace Unity.NetCode
                 int sameBaselinePerEntity;
                 int dynamicDataLenPerEntity;
                 var entityStartBit = stackalloc int[GhostTypeCollection[chunkState.ghostType].NumComponents*2];
-                if (SerializeEntities(ref dataStream, out var _, out var _, childGhostType, groupChunk.Chunk, groupChunk.IndexInChunk, groupChunk.IndexInChunk+1, useSingleBaseline, groupSnapshot,
+                if (SerializeEntities(ref dataStream, out _, out _, childGhostType, groupChunk.Chunk, groupChunk.IndexInChunk, groupChunk.IndexInChunk+1, useSingleBaseline, groupSnapshot,
                     baselinesPerEntity, &sameBaselinePerEntity, &dynamicDataLenPerEntity, entityStartBit) != groupChunk.IndexInChunk+1)
                 {
                     // FIXME: this does not work if a group member is itself the root of a group since it can fail to roll back state to compress against in that case. This is the reason nested ghost groups are not supported
@@ -1192,7 +1227,7 @@ namespace Unity.NetCode
         //to store all the dynamic buffer contents (if any)
         private unsafe int GatherDynamicBufferSize(in ArchetypeChunk chunk, int startIndex, int ghostType)
         {
-            if (chunk.Has(preSerializedGhostType) && SnapshotPreSerializeData.TryGetValue(chunk, out var preSerializedSnapshot))
+            if (chunk.Has(ref preSerializedGhostType) && SnapshotPreSerializeData.TryGetValue(chunk, out var preSerializedSnapshot))
             {
                 return preSerializedSnapshot.DynamicSize;
             }
@@ -1214,9 +1249,9 @@ namespace Unity.NetCode
         int UpdateGhostRelevancy(ArchetypeChunk chunk, int startIndex, byte* relevancyData, in GhostChunkSerializationState chunkState, int snapshotSize, out bool hasSpawns)
         {
             hasSpawns = false;
-            var ghost = chunk.GetNativeArray(ghostComponentType);
+            var ghost = chunk.GetNativeArray(ref ghostComponentType);
             var ghostEntities = chunk.GetNativeArray(entityType);
-            var ghostSystemState = chunk.GetNativeArray(ghostSystemStateType);
+            var ghostSystemState = chunk.GetNativeArray(ref ghostSystemStateType);
             // First figure out the baselines to use per entity so they can be sent as baseline + maxCount instead of one per entity
             int irrelevantCount = 0;
             for (int ent = 0, chunkEntityCount = chunk.Count; ent < chunkEntityCount; ++ent)
@@ -1259,8 +1294,8 @@ namespace Unity.NetCode
         }
         int UpdateValidGhostGroupRelevancy(ArchetypeChunk chunk, int startIndex, byte* relevancyData, bool keepState)
         {
-            var ghost = chunk.GetNativeArray(ghostComponentType);
-            var ghostGroupAccessor = chunk.GetBufferAccessor(ghostGroupType);
+            var ghost = chunk.GetNativeArray(ref ghostComponentType);
+            var ghostGroupAccessor = chunk.GetBufferAccessor(ref ghostGroupType);
 
             int irrelevantCount = 0;
             for (int ent = 0, chunkEntityCount = chunk.Count; ent < chunkEntityCount; ++ent)
@@ -1293,7 +1328,7 @@ namespace Unity.NetCode
             var ackTick = snapshotAck.LastReceivedSnapshotByRemote;
             var zeroChangeTick = chunkState.GetFirstZeroChangeTick();
             var zeroChangeVersion = chunkState.GetFirstZeroChangeVersion();
-            var hasPrespawn = chunk.Has(prespawnBaselineTypeHandle);
+            var hasPrespawn = chunk.Has(ref prespawnBaselineTypeHandle);
 
             //Zero change version is 0 if:
             // - structural changes are present and the chunk is not a pre-spawn chunk
@@ -1322,7 +1357,7 @@ namespace Unity.NetCode
             //For prespawn check if we never sent any of entities. If that is the case we can still use static opt
             if (!canSkipZeroChange && hasPrespawn)
             {
-                var systemStates = chunk.GetNativeArray(ghostSystemStateType);
+                var systemStates = chunk.GetNativeArray(ref ghostSystemStateType);
                 canSkipZeroChange = true;
                 for (int i = 0, chunkEntityCount = chunk.Count; i < chunkEntityCount && canSkipZeroChange; ++i)
                     canSkipZeroChange = (ghostStateData.GetGhostState(systemStates[i]).Flags & ConnectionStateData.GhostStateFlags.SentWithChanges) == 0;
@@ -1336,14 +1371,14 @@ namespace Unity.NetCode
             {
                 int compIdx = GhostComponentIndex[baseOffset + i].ComponentIndex;
                 ValidateGhostComponentIndex(compIdx);
-                if (chunk.DidChange(ghostChunkComponentTypesPtr[compIdx], zeroChangeVersion))
+                if (chunk.DidChange(ref ghostChunkComponentTypesPtr[compIdx], zeroChangeVersion))
                     return false;
             }
             return true;
         }
         private void UpdateChunkHistory(int ghostType, ArchetypeChunk currentChunk, GhostChunkSerializationState curChunkState, int snapshotSize)
         {
-            var ghostSystemState = currentChunk.GetNativeArray(ghostSystemStateType);
+            var ghostSystemState = currentChunk.GetNativeArray(ref ghostSystemStateType);
             var ghostEntities = currentChunk.GetNativeArray(entityType);
             NativeParallelHashMap<uint, IntPtr> prevSnapshots = default;
             for (int currentIndexInChunk = 0, chunkEntityCount = currentChunk.Count; currentIndexInChunk < chunkEntityCount; ++currentIndexInChunk)
@@ -1419,7 +1454,7 @@ namespace Unity.NetCode
                 }
             }
         }
-        public bool SerializeChunk(in GhostSendSystem.PrioChunk serialChunk, ref DataStreamWriter dataStream,
+        public SerializeEnitiesResult SerializeChunk(in GhostSendSystem.PrioChunk serialChunk, ref DataStreamWriter dataStream,
             ref uint updateLen, ref bool didFillPacket)
         {
             int entitySize = UnsafeUtility.SizeOf<Entity>();
@@ -1453,8 +1488,8 @@ namespace Unity.NetCode
                     chunkState.SetOrderChangeVersion(chunk.GetOrderVersion());
                     //For prespawn the first zero-change tick is 0 and the version is going to be equals to the change version of of the PrespawnBaseline buffer.
                     //Structural changes in the chunck does not invalidate the baselines for the prespawn (since the buffer is store per entity).
-                    if (chunk.Has(prespawnBaselineTypeHandle))
-                        chunkState.SetFirstZeroChange(NetworkTick.Invalid, chunk.GetChangeVersion(prespawnBaselineTypeHandle));
+                    if (chunk.Has(ref prespawnBaselineTypeHandle))
+                        chunkState.SetFirstZeroChange(NetworkTick.Invalid, chunk.GetChangeVersion(ref prespawnBaselineTypeHandle));
                     else
                         chunkState.SetFirstZeroChange(NetworkTick.Invalid, 0);
                     PacketDumpStructuralChange(serialChunk.ghostType);
@@ -1491,7 +1526,7 @@ namespace Unity.NetCode
                     // This happens when using relevancy and on structural changes while there is a partially sent chunk
                     // We update the timestamp as if the chunk was sent but do not actually send anything
                     chunkState.SetLastUpdate(currentTick);
-                    return true;
+                    return SerializeEnitiesResult.Ok;
                 }
 
                 // Only apply the zero change optimization for ghosts tagged as optimize for static
@@ -1506,7 +1541,7 @@ namespace Unity.NetCode
                     {
                         // There were not changes we required to send, treat is as if we did send the chunk to make sure we do not collect all static chunks as the top priority ones
                         chunkState.SetLastUpdate(currentTick);
-                        return true;
+                        return SerializeEnitiesResult.Ok;
                     }
                 }
 
@@ -1527,7 +1562,7 @@ namespace Unity.NetCode
             else if (relevancyEnabled || GhostTypeCollection[ghostType].NumBuffers > 0 || GhostTypeCollection[ghostType].IsGhostGroup != 0)
                 // Do not send ghosts which were just created since they have not had a chance to be added to the relevancy set yet
                 // Do not send ghosts which were just created and have buffers, mostly to simplify the dynamic buffer size calculations
-                return true;
+                return SerializeEnitiesResult.Ok;
 
             int ent;
 
@@ -1540,13 +1575,13 @@ namespace Unity.NetCode
             dataStream.WritePackedUInt((uint) relevantGhostCount, compressionModel);
             // Write 1 bits for that run if the entity are pre-spawned objects. This will change how the ghostId
             // is encoded and will not write the spawn tick
-            dataStream.WriteRawBits(chunk.Has(PrespawnIndexType)?1u:0u, 1);
+            dataStream.WriteRawBits(chunk.Has(ref PrespawnIndexType)?1u:0u, 1);
             PacketDumpGhostCount(ghostType, relevantGhostCount);
             if (dataStream.HasFailedWrites)
             {
                 dataStream = oldStream;
                 didFillPacket = true;
-                return false;
+                return SerializeEnitiesResult.Failed;
             }
 
             GhostTypeCollection[ghostType].profilerMarker.Begin();
@@ -1560,7 +1595,7 @@ namespace Unity.NetCode
                 // Do not send partial chunks for zero changes unless we have to since the zero change optimizations only kick in if the full chunk was sent
                 dataStream = oldStream;
                 didFillPacket = true;
-                return false;
+                return SerializeEnitiesResult.Failed;
             }
             currentChunkUpdateLen = (uint) (ent - serialChunk.startIndex - skippedEntityCount);
 
@@ -1577,7 +1612,7 @@ namespace Unity.NetCode
             }
 
             // Spawn chunks are temporary and should not be added to the state data cache
-            if (chunk.Has(ghostSystemStateType))
+            if (chunk.Has(ref ghostSystemStateType))
             {
                 // Only append chunks which contain data, and only update the write index if we actually sent it
                 if (currentChunkUpdateLen > 0 && !(isZeroChange && canSkipZeroChange))
@@ -1618,9 +1653,9 @@ namespace Unity.NetCode
             if (ent < chunk.Count)
             {
                 didFillPacket = true;
-                return false;
+                return SerializeEnitiesResult.Failed;
             }
-            return true;
+            return SerializeEnitiesResult.Ok;
         }
     }
 }

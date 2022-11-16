@@ -175,11 +175,19 @@ namespace Unity.NetCode.Physics.Tests
     {
         protected override void OnUpdate()
         {
+#if !ENABLE_TRANSFORM_V1
+            Entities.WithNone<LagCompensationTestPlayer>().WithAll<GhostComponent>().ForEach((ref LocalTransform trans) => {
+                trans.Position.x += 0.1f;
+                if (trans.Position.x > 100)
+                    trans.Position.x -= 200;
+            }).ScheduleParallel();
+#else
             Entities.WithNone<LagCompensationTestPlayer>().WithAll<GhostComponent>().ForEach((ref Translation pos) => {
                 pos.Value.x += 0.1f;
                 if (pos.Value.x > 100)
                     pos.Value.x -= 200;
             }).ScheduleParallel();
+#endif
         }
     }
 
@@ -193,12 +201,12 @@ namespace Unity.NetCode.Physics.Tests
         public static bool EnableLagCompensation = true;
         protected override void OnUpdate()
         {
-            var networkTime = GetSingleton<NetworkTime>();
+            var networkTime = SystemAPI.GetSingleton<NetworkTime>();
             // Do not perform hit-scan when rolling back, only when simulating the latest tick
             if (!networkTime.IsFirstTimeFullyPredictingTick)
                 return;
-            var collisionHistory = GetSingleton<PhysicsWorldHistorySingleton>();
-            var physicsWorld = GetSingleton<PhysicsWorldSingleton>().PhysicsWorld;
+            var collisionHistory = SystemAPI.GetSingleton<PhysicsWorldHistorySingleton>();
+            var physicsWorld = SystemAPI.GetSingleton<PhysicsWorldSingleton>().PhysicsWorld;
             var predictingTick = networkTime.ServerTick;
             var isServer = World.IsServer();
             // Not using burst since there is a static used to update the UI
@@ -242,14 +250,15 @@ namespace Unity.NetCode.Physics.Tests
         }
         protected override void OnUpdate()
         {
-            var target = GetSingleton<CommandTargetComponent>();
-            var networkTime = GetSingleton<NetworkTime>();
+            var target = SystemAPI.GetSingleton<CommandTargetComponent>();
+            var networkTime = SystemAPI.GetSingleton<NetworkTime>();
             if (target.targetEntity == Entity.Null)
             {
-                Entities.WithoutBurst().WithAll<PredictedGhostComponent>().ForEach((Entity entity, in LagCompensationTestPlayer player) => {
+                foreach (var (ghost, entity) in SystemAPI.Query<RefRO<PredictedGhostComponent>>().WithEntityAccess().WithAll<LagCompensationTestPlayer>())
+                {
                     target.targetEntity = entity;
-                    SetSingleton(target);
-                }).Run();
+                    SystemAPI.SetSingleton(target);
+                }
             }
             if (target.targetEntity == Entity.Null || !networkTime.ServerTick.IsValid || !EntityManager.HasComponent<LagCompensationTestCommand>(target.targetEntity))
                 return;
@@ -259,12 +268,21 @@ namespace Unity.NetCode.Physics.Tests
             cmd.Tick = networkTime.ServerTick;
             if (math.any(Target != default))
             {
+#if !ENABLE_TRANSFORM_V1
+                Entities.WithoutBurst().WithNone<PredictedGhostComponent>().WithAll<GhostComponent>().ForEach((in LocalTransform trans) => {
+                    var offset = new float3(0,0,-10);
+                    cmd.origin = trans.Position + offset;
+                    cmd.direction = Target - offset;
+                    cmd.lastFire = cmd.Tick;
+                }).Run();
+#else
                 Entities.WithoutBurst().WithNone<PredictedGhostComponent>().WithAll<GhostComponent>().ForEach((in Translation pos) => {
                     var offset = new float3(0,0,-10);
                     cmd.origin = pos.Value + offset;
                     cmd.direction = Target - offset;
                     cmd.lastFire = cmd.Tick;
                 }).Run();
+#endif
                 // If too close to an edge, wait a bit
                 if (cmd.origin.x < -90 || cmd.origin.x > 90)
                 {

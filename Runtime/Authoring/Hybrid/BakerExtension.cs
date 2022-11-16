@@ -1,13 +1,16 @@
-#if UNITY_EDITOR
-using Authoring.Hybrid;
-using Unity.Entities.Conversion;
-#endif
 using Unity.Entities;
-using UnityEditor;
 using UnityEngine;
 
 namespace Unity.NetCode.Hybrid
 {
+    /// <summary>
+    /// Interface of the build settings that are used to build the client and server targets.
+    /// </summary>
+    internal interface INetCodeConversionTarget
+    {
+        NetcodeConversionTarget NetcodeTarget { get; }
+    }
+
     /// <summary>
     /// A collection of extension utility methods for the <see cref="Baker{TAuthoringType}"/> used by NetCode during the baking process.
     /// </summary>
@@ -31,33 +34,18 @@ namespace Unity.NetCode.Hybrid
         {
             // Detect target using build settings (This is used from sub scenes)
 #if UNITY_EDITOR
+#if USING_PLATFORMS_PACKAGE
             if (self.TryGetBuildConfigurationComponent<NetCodeConversionSettings>(out var settings))
             {
                 //Debug.LogWarning("BuildSettings conversion for: " + settings.Target);
                 return settings.Target;
             }
+#endif
 
-            if (self.IsBuiltInBuildsEnabled())
+            var settingAsset = self.GetDotsSettings();
+            if (settingAsset is INetCodeConversionTarget asset)
             {
-                var settingAsset = self.GetDotsSettings();
-                if (settingAsset != null)
-                {
-                    if (settingAsset is NetCodeClientSettings)
-                    {
-                        var asset = (NetCodeClientSettings) settingAsset;
-                        return asset.NetcodeTarget;
-                    }
-                    if (settingAsset is NetCodeClientAndServerSettings)
-                    {
-                        var asset = (NetCodeClientAndServerSettings) settingAsset;
-                        return asset.NetcodeTarget;
-                    }
-                    if (settingAsset is NetCodeServerSettings)
-                    {
-                        var asset = (NetCodeServerSettings) settingAsset;
-                        return asset.NetcodeTarget;
-                    }
-                }
+                return asset.NetcodeTarget;
             }
 #endif
 

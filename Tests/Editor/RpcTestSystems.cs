@@ -287,7 +287,7 @@ namespace Unity.NetCode.Tests
         {
             if (SendCount[worldId] > 0)
             {
-                var entity = GetSingletonEntity<NetworkIdComponent>();
+                var entity = SystemAPI.GetSingletonEntity<NetworkIdComponent>();
                 var req = EntityManager.CreateEntity();
                 EntityManager.AddComponentData(req, Cmds[worldId]);
                 EntityManager.AddComponentData(req, new SendRpcCommandRequestComponent {TargetConnection = Entity.Null});
@@ -379,7 +379,7 @@ namespace Unity.NetCode.Tests
 
         protected override void OnUpdate()
         {
-            if (HasSingleton<NetworkStreamConnection>() && !HasSingleton<NetworkIdComponent>() && SendCount > 0)
+            if (SystemAPI.HasSingleton<NetworkStreamConnection>() && !SystemAPI.HasSingleton<NetworkIdComponent>() && SendCount > 0)
             {
                 var req = EntityManager.CreateEntity();
                 EntityManager.AddComponentData(req, default(SimpleRpcCommand));

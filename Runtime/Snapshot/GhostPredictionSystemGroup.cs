@@ -4,8 +4,6 @@ using Unity.Assertions;
 using Unity.Collections;
 using Unity.Core;
 using Unity.Entities;
-using Unity.Jobs;
-using Unity.Jobs.LowLevel.Unsafe;
 using Unity.Mathematics;
 using Unity.Burst;
 using Unity.Burst.Intrinsics;
@@ -58,33 +56,33 @@ namespace Unity.NetCode
             {
                 Assert.IsFalse(useEnabledMask);
 
-                var predicted = chunk.GetNativeArray(predictedHandle);
+                var predicted = chunk.GetNativeArray(ref predictedHandle);
 
-                if (chunk.Has(linkedEntityGroupHandle))
+                if (chunk.Has(ref linkedEntityGroupHandle))
                 {
-                    var linkedEntityGroupArray = chunk.GetBufferAccessor(linkedEntityGroupHandle);
+                    var linkedEntityGroupArray = chunk.GetBufferAccessor(ref linkedEntityGroupHandle);
 
-                    for(int i = 0, chunkEntityCount = chunk.ChunkEntityCount; i < chunkEntityCount; i++)
+                    for(int i = 0, chunkEntityCount = chunk.Count; i < chunkEntityCount; i++)
                     {
                         var shouldPredict = predicted[i].ShouldPredict(tick);
-                        if (chunk.IsComponentEnabled(simulateHandle, i) != shouldPredict)
+                        if (chunk.IsComponentEnabled(ref simulateHandle, i) != shouldPredict)
                         {
-                            chunk.SetComponentEnabled(simulateHandle, i, shouldPredict);
+                            chunk.SetComponentEnabled(ref simulateHandle, i, shouldPredict);
                             var linkedEntityGroup = linkedEntityGroupArray[i];
                             for (int child = 1; child < linkedEntityGroup.Length; ++child)
                             {
                                 var storageInfo = storageInfoFromEntity[linkedEntityGroup[child].Value];
-                                if (storageInfo.Chunk.Has(ghostChildEntityHandle) && storageInfo.Chunk.Has(simulateHandle))
-                                    storageInfo.Chunk.SetComponentEnabled(simulateHandle, storageInfo.IndexInChunk, shouldPredict);
+                                if (storageInfo.Chunk.Has(ref ghostChildEntityHandle) && storageInfo.Chunk.Has(ref simulateHandle))
+                                    storageInfo.Chunk.SetComponentEnabled(ref simulateHandle, storageInfo.IndexInChunk, shouldPredict);
                             }
                         }
                     }
                 }
                 else
                 {
-                    for(int i = 0, chunkEntityCount = chunk.ChunkEntityCount; i < chunkEntityCount; i++)
+                    for(int i = 0, chunkEntityCount = chunk.Count; i < chunkEntityCount; i++)
                     {
-                        chunk.SetComponentEnabled(simulateHandle, i, predicted[i].ShouldPredict(tick));
+                        chunk.SetComponentEnabled(ref simulateHandle, i, predicted[i].ShouldPredict(tick));
                     }
                 }
             }
@@ -164,6 +162,7 @@ namespace Unity.NetCode
         private EntityQuery m_GhostChildQuery;
 
         private NetworkTick m_LastFullPredictionTick;
+        readonly PredictedFixedStepSimulationSystemGroup m_PredictedFixedStepSimulationSystemGroup;
 
         private int m_TickIdx;
         private NetworkTick m_TargetTick;
@@ -203,6 +202,8 @@ namespace Unity.NetCode
 
             m_AppliedPredictedTicksQuery = group.World.EntityManager.CreateEntityQuery(ComponentType.ReadWrite<GhostPredictionGroupTickState>());
             m_UniqueInputTicksQuery = group.World.EntityManager.CreateEntityQuery(ComponentType.ReadWrite<UniqueInputTickMap>());
+
+            m_PredictedFixedStepSimulationSystemGroup = group.World.GetExistingSystemManaged<PredictedFixedStepSimulationSystemGroup>();
 
             var builder = new EntityQueryDesc
             {
@@ -249,6 +250,20 @@ namespace Unity.NetCode
                 {
                     m_TargetTick.Decrement();
                     m_ElapsedTime -= m_FixedTimeStep * networkTime.ServerTickFraction;
+                }
+
+                if (m_PredictedFixedStepSimulationSystemGroup != null)
+                {
+                    var simulationTickRate = clientServerTickRate.SimulationTickRate;
+                    var timestep = m_PredictedFixedStepSimulationSystemGroup.RateManager.Timestep;
+                    var timestepFPS = (int)math.ceil(1f / timestep);
+                    if (timestepFPS % simulationTickRate != 0)
+                    {
+                        m_PredictedFixedStepSimulationSystemGroup.RateManager.Timestep = 1f / simulationTickRate;
+                        UnityEngine.Debug.LogWarning($"1 / {nameof(PredictedFixedStepSimulationSystemGroup)}.{nameof(ComponentSystemGroup.RateManager)}.{nameof(IRateManager.Timestep)}(ms): {timestepFPS}(FPS) " +
+                                                     $"must be an integer multiple of {nameof(ClientServerTickRate)}.{nameof(ClientServerTickRate.SimulationTickRate)}:{simulationTickRate}(FPS).\n" +
+                                                     $"Timestep will default to 1 / SimulationTickRate: {m_PredictedFixedStepSimulationSystemGroup.RateManager.Timestep} to fix this issue for now.");
+                    }
                 }
 
                 // We must simulate the last full tick since the history backup is applied there

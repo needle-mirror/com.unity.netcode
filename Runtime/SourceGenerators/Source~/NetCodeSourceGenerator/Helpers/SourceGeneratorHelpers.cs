@@ -83,7 +83,7 @@ namespace Unity.NetCode.Generators
             IsDotsRuntime = executionContext.ParseOptions.PreprocessorSymbolNames.Contains("UNITY_DOTSRUNTIME");
             IsUnity2021_OrNewer = executionContext.ParseOptions.PreprocessorSymbolNames.Any(d => d == "UNITY_2022_1_OR_NEWER" || d == "UNITY_2021_3_OR_NEWER");
             //Setup the current project folder directory by inspecting the context for global options or additional files, depending on the current Unity version
-            if (!IsUnity2021_OrNewer)
+            if (!IsUnity2021_OrNewer || IsDotsRuntime)
             {
                 SupportTemplateFromAdditionalFiles = false;
                 if (executionContext.AdditionalFiles.Any() && !string.IsNullOrEmpty(executionContext.AdditionalFiles[0].Path))

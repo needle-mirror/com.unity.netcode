@@ -190,20 +190,7 @@ namespace Unity.NetCode.Tests
                 Assert.True(ServerMultipleRpcReceiveSystem.ReceivedCount[1] == SendCount);
             }
         }
-
-        [Test]
-        [Ignore("changes in burst 1.3 made this test fail now. The FunctionPointers are are always initialized now")]
-        public void Rpc_ClientRegisterRpcCommandWithNullFunctionPtr_Throws()
-        {
-
-            using (var testWorld = new NetCodeTestWorld())
-            {
-                testWorld.Bootstrap(true, typeof(InvalidRpcCommandRequestSystem));
-                Assert.Throws<InvalidOperationException>(()=>{testWorld.CreateWorlds(false, 1);});
-                Assert.Throws<InvalidOperationException>(()=>{testWorld.CreateWorlds(true, 1);});
-            }
-        }
-
+        
         [Test]
         public void Rpc_CanSendMoreThanOnePacketPerFrame()
         {

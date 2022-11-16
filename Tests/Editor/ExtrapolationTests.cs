@@ -64,8 +64,8 @@ namespace Unity.NetCode.Tests
     {
         protected override void OnUpdate()
         {
-            var InterpolTick = GetSingleton<NetworkTime>().InterpolationTick;
-            var InterpolFraction = GetSingleton<NetworkTime>().InterpolationTickFraction;
+            var InterpolTick = SystemAPI.GetSingleton<NetworkTime>().InterpolationTick;
+            var InterpolFraction = SystemAPI.GetSingleton<NetworkTime>().InterpolationTickFraction;
             Entities.WithoutBurst().ForEach((ref TestExtrapolated val, ref ExtrapolateBackup bkup) => {
                 if (bkup.Tick == InterpolTick && bkup.Fraction == InterpolFraction)
                     return;

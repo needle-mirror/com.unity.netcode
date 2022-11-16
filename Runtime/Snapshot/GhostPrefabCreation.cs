@@ -40,7 +40,7 @@ namespace Unity.NetCode
         /// Interpolated Ghosts are lightweight, as they perform no simulation on the client.
         /// Instead, their values are interpolated (via <see cref="SmoothingAction"/> rules) from the latest few processed snapshots.
         /// From a timeline POV: Interpolated ghosts are behind the server.
-        /// /// </summary>
+        /// </summary>
         Interpolated = 1,
         /// <summary>
         /// <para>Predicted Ghosts are predicted by the clients. I.e. Their <see cref="Simulate"/> component is enabled during the
@@ -827,7 +827,7 @@ namespace Unity.NetCode
                 if (hasOverrides && (compOverride.OverrideType & ComponentOverrideType.Variant) != 0)
                     variant = compOverride.Variant;
 
-                var variantType = collectionData.GetCurrentVariantTypeForComponentCached(allComponents[i], variant, true);
+                var variantType = collectionData.GetCurrentSerializationStrategyForComponentCached(allComponents[i], variant, true);
                 prefabTypes[i] = variantType.PrefabType;
                 sendMasksOverride[i] = -1;
                 variants[i] = variantType.Hash;

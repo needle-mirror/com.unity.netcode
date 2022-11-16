@@ -1,6 +1,6 @@
-﻿using System.IO;
+using System.IO;
 using System.Linq;
-using Authoring.Hybrid;
+using Unity.NetCode.Hybrid;
 using UnityEditor;
 using NUnit.Framework;
 using Unity.Entities.Build;
@@ -15,21 +15,6 @@ namespace Unity.Scenes.Editor.Tests
 {
     public class DotsGlobalSettingsTests : TestWithSceneAsset
     {
-        private bool m_PreviousBuiltInEnabledOption;
-
-        [SetUp]
-        public void Setup()
-        {
-            m_PreviousBuiltInEnabledOption = LiveConversionSettings.IsBuiltinBuildsEnabled;
-            LiveConversionSettings.IsBuiltinBuildsEnabled = true;
-        }
-
-        [TearDown]
-        public void Teardown()
-        {
-            LiveConversionSettings.IsBuiltinBuildsEnabled = m_PreviousBuiltInEnabledOption;
-        }
-
         [Test]
         public void SuccessfulClientBuildTest()
         {
@@ -60,7 +45,6 @@ namespace Unity.Scenes.Editor.Tests
                     buildOptions.locationPathName = uniqueTempPath + "/Test.app";
                 buildOptions.extraScriptingDefines = new string[] {"UNITY_CLIENT"};
 
-                dotsSettings.SetPlayerType(DotsGlobalSettings.PlayerType.Client);
                 ((ClientSettings) dotsSettings.ClientProvider).NetCodeClientTarget = NetCodeClientTarget.Client;
 
                 var report = BuildPipeline.BuildPlayer(buildOptions);
@@ -69,9 +53,7 @@ namespace Unity.Scenes.Editor.Tests
             }
             finally
             {
-                dotsSettings.SetPlayerType(originalPlayerType);
-                ((Authoring.Hybrid.ClientSettings) dotsSettings.ClientProvider).NetCodeClientTarget = originalNetCodeClientTarget;
-                Teardown();
+                ((Unity.NetCode.Hybrid.ClientSettings) dotsSettings.ClientProvider).NetCodeClientTarget = originalNetCodeClientTarget;
             }
         }
 
@@ -103,7 +85,6 @@ namespace Unity.Scenes.Editor.Tests
                 if(isOSXEditor)
                     buildOptions.locationPathName = uniqueTempPath + "/Test.app";
 
-                dotsSettings.SetPlayerType(DotsGlobalSettings.PlayerType.Client);
                 ((ClientSettings) dotsSettings.ClientProvider).NetCodeClientTarget = NetCodeClientTarget.ClientAndServer;
 
                 var report = BuildPipeline.BuildPlayer(buildOptions);
@@ -112,11 +93,10 @@ namespace Unity.Scenes.Editor.Tests
             }
             finally
             {
-                dotsSettings.SetPlayerType(originalPlayerType);
-                ((Authoring.Hybrid.ClientSettings) dotsSettings.ClientProvider).NetCodeClientTarget = originalNetCodeClientTarget;
-                Teardown();
+                ((Unity.NetCode.Hybrid.ClientSettings) dotsSettings.ClientProvider).NetCodeClientTarget = originalNetCodeClientTarget;
             }
         }
+
 
         static void EnsureResourceCatalogHasBeenDeployed(string uniqueTempPath, bool isOSXEditor, BuildReport report)
         {
@@ -126,7 +106,7 @@ namespace Unity.Scenes.Editor.Tests
                 streamingAssetPath = locationPath  + $"/Test.app/Contents/Resources/Data/StreamingAssets/";
 
             // REDO: Just check the resource catalog has been deployed
-            var sceneInfoFileRelativePath = streamingAssetPath + EntityScenesPaths.k_SceneInfoFileName;
+            var sceneInfoFileRelativePath = EntityScenesPaths.FullPathForFile(streamingAssetPath, EntityScenesPaths.RelativePathForSceneInfoFile);
             var resourceCatalogFileExists = File.Exists(sceneInfoFileRelativePath);
             var reportMessages = string.Join('\n', report.steps.SelectMany(x => x.messages).Select(x => $"[{x.type}] {x.content}"));
             var stringReport = $"[{report.summary.result}, {report.summary.totalErrors} totalErrors, {report.summary.totalWarnings} totalWarnings, resourceCatalogFileExists: {resourceCatalogFileExists}]\nBuild logs ----------\n{reportMessages} ------ ";

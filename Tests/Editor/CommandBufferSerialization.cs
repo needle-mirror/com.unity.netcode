@@ -45,9 +45,18 @@ namespace Unity.NetCode.Tests
         }
         protected override void OnUpdate()
         {
-            var tick = GetSingleton<NetworkTime>().ServerTick;
+            var tick = SystemAPI.GetSingleton<NetworkTime>().ServerTick;
             Entities
                 .WithAll<Simulate>()
+#if !ENABLE_TRANSFORM_V1
+                .ForEach((Entity entity, ref LocalTransform transform, in DynamicBuffer<TestInput> inputBuffer) =>
+                {
+                    if (!inputBuffer.GetDataAtTick(tick, out var input))
+                        return;
+
+                    transform.Position.y += 1.0f * input.Value;
+                }).Run();
+#else
                 .ForEach((Entity entity, ref Translation translation, in DynamicBuffer<TestInput> inputBuffer) =>
                 {
                     if (!inputBuffer.GetDataAtTick(tick, out var input))
@@ -55,6 +64,7 @@ namespace Unity.NetCode.Tests
 
                     translation.Value.y += 1.0f * input.Value;
                 }).Run();
+#endif
         }
     }
 
@@ -71,14 +81,14 @@ namespace Unity.NetCode.Tests
         }
         protected override void OnUpdate()
         {
-            var connection = GetSingletonEntity<NetworkStreamInGame>();
+            var connection = SystemAPI.GetSingletonEntity<NetworkStreamInGame>();
             var commandTarget = EntityManager.GetComponentData<CommandTargetComponent>(connection);
             if (commandTarget.targetEntity == Entity.Null)
                 return;
             var inputBuffer = EntityManager.GetBuffer<TestInput>(commandTarget.targetEntity);
             inputBuffer.AddCommandData(new TestInput
             {
-                Tick = GetSingleton<NetworkTime>().ServerTick,
+                Tick = SystemAPI.GetSingleton<NetworkTime>().ServerTick,
                 Value = 1
             });
         }

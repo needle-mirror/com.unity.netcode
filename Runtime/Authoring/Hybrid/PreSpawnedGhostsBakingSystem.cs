@@ -57,7 +57,11 @@ namespace Unity.NetCode
                         // TODO: Check the interpolated/predicted/server bools instead
                         //       Only iterate ghostAuthoring.Components
                         //       Should skip PhysicsCollider, WorldRenderBounds, XXXSnapshotData, PredictedGhostComponent
+#if !ENABLE_TRANSFORM_V1
+                        if (componentTypes[i] == typeof(LocalTransform))
+#else
                         if (componentTypes[i] == typeof(Translation) || componentTypes[i] == typeof(Rotation))
+#endif
                         {
                             var componentDataHash = ComponentDataToHash(entity, componentTypes[i]);
                             hashData.Add(componentDataHash);
@@ -167,7 +171,7 @@ namespace Unity.NetCode
             var untypedType = EntityManager.GetDynamicComponentTypeHandle(componentType);
             var chunk = EntityManager.GetChunk(entity);
             var sizeInChunk = TypeManager.GetTypeInfo(componentType.TypeIndex).SizeInChunk;
-            var data = chunk.GetDynamicComponentDataArrayReinterpret<byte>(untypedType, sizeInChunk);
+            var data = chunk.GetDynamicComponentDataArrayReinterpret<byte>(ref untypedType, sizeInChunk);
 
             var entityType = GetEntityTypeHandle();
             var entities = chunk.GetNativeArray(entityType);

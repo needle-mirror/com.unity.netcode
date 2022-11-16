@@ -36,32 +36,28 @@ namespace Unity.NetCode.Editor
         public BakedEntityResult EntityParent;
         public string fullname;
         public Type managedType;
-        public GhostComponentAttribute ghostComponentAttribute;
-        /// <summary>Fallback is to use the managed type if not found.</summary>
-        public VariantType variant;
-        public VariantType[] availableVariants;
-        public string[] availableVariantReadableNames;
+        /// <summary>Determined by the ComponentOverride (fallback is <see cref="defaultSerializationStrategy"/>).</summary>
+        public ComponentTypeSerializationStrategy serializationStrategy;
+        /// <summary>Cache the default variant so we can mark it up as such in the Inspection UI.</summary>
+        public ComponentTypeSerializationStrategy defaultSerializationStrategy;
+        /// <summary>Lists all strategies available to this baked component.</summary>
+        public ComponentTypeSerializationStrategy[] availableSerializationStrategies;
+        public string[] availableSerializationStrategyDisplayNames;
 
         public int entityIndex;
         public EntityGuid entityGuid;
         public bool anyVariantIsSerialized;
-
-        public CodeGenTypeMetaData metaData;
-        /// <summary>Cache the default variant so we can mark it up as such in the Inspection UI.</summary>
-        public VariantType defaultVariant;
-
-        public bool isDontSerializeVariant => variant.Hash == GhostVariantsUtility.DontSerializeHash;
 
         public GhostPrefabType PrefabType => HasPrefabOverride() && GetPrefabOverride().IsPrefabTypeOverriden
             ? GetPrefabOverride().PrefabType
             : DefaultPrefabType;
 
         /// <summary>Note that variant.PrefabType has higher priority than attribute.PrefabType.</summary>
-        GhostPrefabType DefaultPrefabType => variant.PrefabType != GhostPrefabType.All ? variant.PrefabType : ghostComponentAttribute.PrefabType;
+        GhostPrefabType DefaultPrefabType => serializationStrategy.PrefabType != GhostPrefabType.All ? serializationStrategy.PrefabType : defaultSerializationStrategy.PrefabType;
 
         public GhostSendType SendTypeOptimization => HasPrefabOverride() && GetPrefabOverride().IsSendTypeOptimizationOverriden
             ? GetPrefabOverride().SendTypeOptimization
-            : ghostComponentAttribute.SendTypeOptimization;
+            : defaultSerializationStrategy.SendTypeOptimization;
 
         public ulong VariantHash
         {
@@ -78,23 +74,23 @@ namespace Unity.NetCode.Editor
         }
 
         /// <summary>
-        /// Denotes if this type supports user modification of <see cref="VariantType"/>.
+        /// Denotes if this type supports user modification of <see cref="ComponentTypeSerializationStrategy"/>.
         /// We obviously support it "implicitly" if we have multiple variant types.
         /// </summary>
-        public bool DoesAllowVariantModification => !metaData.HasDontSupportPrefabOverridesAttribute && (metaData.HasSupportsPrefabOverridesAttribute || HasMultipleVariants);
+        public bool DoesAllowVariantModification => serializationStrategy.HasDontSupportPrefabOverridesAttribute == 0 && (serializationStrategy.HasSupportsPrefabOverridesAttribute != 0 || HasMultipleVariants);
 
         /// <summary>
         /// Denotes if this type supports user modification of <see cref="SendTypeOptimization"/>.
         /// </summary>
-        public bool DoesAllowSendTypeOptimizationModification => !metaData.HasDontSupportPrefabOverridesAttribute && anyVariantIsSerialized && variant.Source != VariantType.VariantSource.ManualDontSerializeVariant && EntityParent.GoParent.RootAuthoring.SupportsSendTypeOptimization;
+        public bool DoesAllowSendTypeOptimizationModification => serializationStrategy.HasDontSupportPrefabOverridesAttribute == 0 && anyVariantIsSerialized && !serializationStrategy.IsDontSerializeVariant && EntityParent.GoParent.RootAuthoring.SupportsSendTypeOptimization;
 
         /// <summary>
         /// Denotes if this type supports user modification of <see cref="GhostAuthoringInspectionComponent.ComponentOverride.PrefabType"/>.
         /// </summary>
-        public bool DoesAllowPrefabTypeModification => !metaData.HasDontSupportPrefabOverridesAttribute && metaData.HasSupportsPrefabOverridesAttribute;
+        public bool DoesAllowPrefabTypeModification => serializationStrategy.HasDontSupportPrefabOverridesAttribute == 0 && serializationStrategy.HasSupportsPrefabOverridesAttribute != 0;
 
         /// <summary>I.e. Implicitly supports prefab overrides.</summary>
-        internal bool HasMultipleVariants => availableVariants.Length > 1;
+        internal bool HasMultipleVariants => availableSerializationStrategies.Length > 1;
 
         /// <summary>Returns by ref. Throws if not found. Use <see cref="HasPrefabOverride"/>.</summary>
         public ref GhostAuthoringInspectionComponent.ComponentOverride GetPrefabOverride()
@@ -113,7 +109,7 @@ namespace Unity.NetCode.Editor
         /// <summary>Returns the current override if it exists, or a new one, by ref.</summary>
         public ref GhostAuthoringInspectionComponent.ComponentOverride GetOrAddPrefabOverride()
         {
-            var setPrefabType = (variant.PrefabType != GhostPrefabType.All);
+            var setPrefabType = (serializationStrategy.PrefabType != GhostPrefabType.All);
             var defaultPrefabType = setPrefabType ? DefaultPrefabType : (GhostPrefabType)GhostAuthoringInspectionComponent.ComponentOverride.NoOverride;
             EntityParent.GoParent.SourceInspection.GetOrAddPrefabOverride(managedType, entityGuid, defaultPrefabType, out bool created);
             ref var @override = ref GetPrefabOverride();
@@ -128,10 +124,10 @@ namespace Unity.NetCode.Editor
         /// </summary>
         public void SaveVariant(bool warnIfChosenIsNotAlreadySaved, bool allowSettingDefaultToRevertOverride)
         {
-            if (variant.Hash != 0 && !VariantIsTheDefault && !HasPrefabOverride())
+            if (serializationStrategy.Hash != 0 && !VariantIsTheDefault && !HasPrefabOverride())
             {
                 if(warnIfChosenIsNotAlreadySaved)
-                    Debug.LogError($"Discovered on ghost '{EntityParent.GoParent.SourceGameObject.name}' that in-use variant ({variant}) was not saved as a prefabOverride! Fixed.");
+                    Debug.LogError($"Discovered on ghost '{EntityParent.GoParent.SourceGameObject.name}' that in-use variant ({serializationStrategy}) was not saved as a prefabOverride! Fixed.");
 
                 GetOrAddPrefabOverride();
             }
@@ -139,22 +135,16 @@ namespace Unity.NetCode.Editor
             if (HasPrefabOverride())
             {
                 ref var @override = ref GetPrefabOverride();
-                var hash = allowSettingDefaultToRevertOverride && VariantIsTheDefault ? 0 : variant.Hash;
+                var hash = (!@override.IsVariantOverriden || allowSettingDefaultToRevertOverride) && VariantIsTheDefault ? 0 : serializationStrategy.Hash;
                 if (@override.VariantHash != hash)
                 {
                     @override.VariantHash = hash;
-                    EntityParent.GoParent.SourceInspection.SavePrefabOverride(ref @override, $"Confirmed Variant on {fullname} is {variant}");
+                    EntityParent.GoParent.SourceInspection.SavePrefabOverride(ref @override, $"Confirmed Variant on {fullname} is {serializationStrategy}");
                 }
             }
-
-            // Prioritize fetching the GhostComponentAttribute from the variant (if we have one),
-            // otherwise fallback to the "main" type (which is already set).
-            var attributeOnVariant = variant.Variant.GetCustomAttribute<GhostComponentAttribute>();
-            if (attributeOnVariant != null)
-                ghostComponentAttribute = attributeOnVariant;
         }
 
-        internal bool VariantIsTheDefault => variant.Hash == defaultVariant.Hash;
+        internal bool VariantIsTheDefault => serializationStrategy.Hash == defaultSerializationStrategy.Hash;
 
         /// <remarks>Note that this is an "override" action. Reverting to default is a different action.</remarks>
         public void TogglePrefabType(GhostPrefabType type)
@@ -177,7 +167,7 @@ namespace Unity.NetCode.Editor
         {
             if (HasPrefabOverride())
             {
-                variant = defaultVariant;
+                serializationStrategy = defaultSerializationStrategy;
                 ref var @override = ref GetPrefabOverride();
                 @override.Reset();
                 SaveVariant(false, true);
@@ -210,11 +200,11 @@ namespace Unity.NetCode.Editor
         {
             if (HasPrefabOverride())
             {
-                variant = defaultVariant;
+                serializationStrategy = defaultSerializationStrategy;
                 SaveVariant(false, true);
             }
         }
 
-        public override string ToString() => $"BakedComponentItem[{fullname} with {variant}, {availableVariants.Length} variants available, entityGuid: {entityGuid}]";
+        public override string ToString() => $"BakedComponentItem[{fullname} with {serializationStrategy}, {availableSerializationStrategies.Length} variants available, entityGuid: {entityGuid}]";
     }
 }

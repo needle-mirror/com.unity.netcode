@@ -73,7 +73,7 @@ namespace Unity.NetCode.Tests
 
             protected override void OnUpdate()
             {
-                var spawnListEntity = GetSingletonEntity<PredictedGhostSpawnList>();
+                var spawnListEntity = SystemAPI.GetSingletonEntity<PredictedGhostSpawnList>();
                 var spawnListFromEntity = GetBufferLookup<PredictedGhostSpawn>();
                 var predictedEntities = PredictedEntities;
                 Entities

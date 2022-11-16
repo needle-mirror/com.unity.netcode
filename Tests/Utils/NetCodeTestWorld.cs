@@ -1,11 +1,8 @@
 using System;
 using System.Collections.Generic;
-using System.Diagnostics;
-using System.Linq;
 using NUnit.Framework;
 using Unity.Core;
 using Unity.Entities;
-using Unity.NetCode;
 using Unity.Networking.Transport;
 using Unity.Networking.Transport.Utilities;
 using Unity.Collections;
@@ -15,7 +12,6 @@ using Unity.Logging.Sinks;
 using Unity.Transforms;
 using Debug = UnityEngine.Debug;
 #if UNITY_EDITOR
-using Unity.NetCode.Editor;
 using UnityEngine;
 #endif
 
@@ -177,7 +173,7 @@ namespace Unity.NetCode.Tests
                 sys.Assembly.FullName.StartsWith("Unity.NetCode.EditorTests,") ||
                 sys.Assembly.FullName.StartsWith("Unity.NetCode.TestsUtils,") ||
                 sys.Assembly.FullName.StartsWith("Unity.NetCode.Physics.EditorTests,") ||
-                typeof(GhostComponentSerializerRegistrationSystemBase).IsAssignableFrom(sys);
+                typeof(IGhostComponentSerializerRegistration).IsAssignableFrom(sys);
         }
 
         public void Bootstrap(bool includeNetCodeSystems, params Type[] userSystems)
@@ -193,11 +189,6 @@ namespace Unity.NetCode.Tests
             m_ControlSystems.Add(typeof(TickServerInitializationSystem));
             m_ControlSystems.Add(typeof(TickServerSimulationSystem));
             m_ControlSystems.Add(typeof(DriverMigrationSystem));
-
-            UserBakingSystems.Add(typeof(TestWorldDefaultVariantSystem));
-            m_ClientSystems.Add(typeof(TestWorldDefaultVariantSystem));
-            m_ThinClientSystems.Add(typeof(TestWorldDefaultVariantSystem));
-            m_ServerSystems.Add(typeof(TestWorldDefaultVariantSystem));
 
             if (s_NetCodeClientSystems == null)
             {
@@ -784,18 +775,28 @@ namespace Unity.NetCode.Tests
             using var intermediateWorld = new World("NetCodeBakingWorld");
 
             var bakingSettings = new BakingSettings(BakingUtility.BakingFlags.AddEntityGUID, blobAssetStore);
+            bakingSettings.PrefabRoot = go;
             bakingSettings.ExtraSystems.AddRange(UserBakingSystems);
-            BakingUtility.BakeGameObjects(intermediateWorld, new GameObject[] {go}, bakingSettings);
+            BakingUtility.BakeGameObjects(intermediateWorld, new GameObject[] {}, bakingSettings);
 
             var bakingSystem = intermediateWorld.GetExistingSystemManaged<BakingSystem>();
             var intermediateEntity = bakingSystem.GetEntity(go);
             var intermediateEntityGuid = intermediateWorld.EntityManager.GetComponentData<EntityGuid>(intermediateEntity);
+            // Copy all the tracked/baked entities. That TransformAuthoring is present on all entities added by the baker for the
+            // converted gameobject. It is sufficient condition to copy all the additional entities as well.
+#if !ENABLE_TRANSFORM_V1
+            var builder = new EntityQueryBuilder(Allocator.Temp)
+                .WithAll<Prefab, EntityGuid, LocalTransform>();
+#else
+            var builder = new EntityQueryBuilder(Allocator.Temp)
+                .WithAll<Prefab, EntityGuid, Translation>();
+#endif
 
-            // Copy the world
-            world.EntityManager.MoveEntitiesFrom(intermediateWorld.EntityManager);
+            using var bakedEntities = intermediateWorld.EntityManager.CreateEntityQuery(builder);
+            world.EntityManager.MoveEntitiesFrom(intermediateWorld.EntityManager, bakedEntities);
 
             // Search for the entity in the final world by comparing the EntityGuid from entity in the intermediate world
-            var query = world.EntityManager.CreateEntityQuery(new ComponentType[] {typeof(EntityGuid)});
+            using var query = world.EntityManager.CreateEntityQuery(typeof(EntityGuid), typeof(Prefab));
             using var entityArray = query.ToEntityArray(Allocator.TempJob);
             using var entityGUIDs = query.ToComponentDataArray<EntityGuid>(Allocator.TempJob);
             for (int index = 0; index < entityGUIDs.Length; ++index)
@@ -844,16 +845,5 @@ namespace Unity.NetCode.Tests
             return collection;
         }
 #endif
-    }
-
-    /// <summary>Register variants for test world.</summary>
-    [DisableAutoCreation]
-    public sealed class TestWorldDefaultVariantSystem : DefaultVariantSystemBase
-    {
-        protected override void RegisterDefaultVariants(Dictionary<ComponentType, Rule> defaultVariants)
-        {
-            defaultVariants.Add(typeof(Rotation), Rule.OnlyParents(typeof(RotationDefaultVariant)));
-            defaultVariants.Add(typeof(Translation), Rule.OnlyParents(typeof(TranslationDefaultVariant)));
-        }
     }
 }

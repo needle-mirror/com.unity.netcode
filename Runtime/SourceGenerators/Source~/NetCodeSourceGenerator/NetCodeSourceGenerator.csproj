@@ -9,7 +9,6 @@
     <EmbeddedResource Include="../../../../Editor/Templates/CommandDataSerializer.cs" Link="../../../../Editor/Templates/CommandDataSerializer.cs" LogicalName="NetCode.CommandDataSerializer.cs" />
     <EmbeddedResource Include="../../../../Editor/Templates/GhostComponentSerializer.cs" Link="../../../../Editor/Templates/GhostComponentSerializer.cs" LogicalName="NetCode.GhostComponentSerializer.cs" />
     <EmbeddedResource Include="../../../../Editor/Templates/GhostComponentSerializerRegistrationSystem.cs" Link="../../../../Editor/Templates/GhostComponentSerializerRegistrationSystem.cs" LogicalName="NetCode.GhostComponentSerializerRegistrationSystem.cs" />
-    <EmbeddedResource Include="../../../../Editor/Templates/GhostComponentMetaDataRegistrationSystem.cs" Link="../../../../Editor/Templates/GhostComponentMetaDataRegistrationSystem.cs" LogicalName="NetCode.GhostComponentMetaDataRegistrationSystem.cs" />
     <EmbeddedResource Include="../../../../Editor/Templates/InputSynchronization.cs" Link="../../../../Editor/Templates/InputSynchronization.cs" LogicalName="NetCode.InputSynchronization.cs" />
     <EmbeddedResource Include="../../../../Editor/Templates/RpcCommandSerializer.cs" Link="../../../../Editor/Templates/RpcCommandSerializer.cs" LogicalName="NetCode.RpcCommandSerializer.cs" />
     <EmbeddedResource Include="../../../../Editor/Templates/DefaultTypes/GhostSnapshotValueBool.cs" Link="../../../../Editor/Templates/DefaultTypes/GhostSnapshotValueBool.cs" LogicalName="NetCode.GhostSnapshotValueBool.cs" />
@@ -34,5 +33,7 @@
     <EmbeddedResource Include="../../../../Editor/Templates/DefaultTypes/GhostSnapshotValueUInt.cs" Link="../../../../Editor/Templates/DefaultTypes/GhostSnapshotValueUInt.cs" LogicalName="NetCode.GhostSnapshotValueUInt.cs" />
     <EmbeddedResource Include="../../../../Editor/Templates/DefaultTypes/GhostSnapshotValueULong.cs" Link="../../../../Editor/Templates/DefaultTypes/GhostSnapshotValueULong.cs" LogicalName="NetCode.GhostSnapshotValueULong.cs" />
     <EmbeddedResource Include="../../../../Editor/Templates/DefaultTypes/GhostSnapshotValueNetworkTick.cs" Link="../../../../Editor/Templates/DefaultTypes/GhostSnapshotValueNetworkTick.cs" LogicalName="NetCode.GhostSnapshotValueNetworkTick.cs" />
+    <EmbeddedResource Include="../../../../Editor/Templates/DefaultTypes/GhostSnapshotValueDouble.cs" Link="../../../../Editor/Templates/DefaultTypes/GhostSnapshotValueDouble.cs" LogicalName="NetCode.GhostSnapshotValueDouble.cs" />
+    <EmbeddedResource Include="../../../../Editor/Templates/DefaultTypes/GhostSnapshotValueDoubleUnquantized.cs" Link="../../../../Editor/Templates/DefaultTypes/GhostSnapshotValueDoubleUnquantized.cs" LogicalName="NetCode.GhostSnapshotValueDoubleUnquantized.cs" />
   </ItemGroup>
 </Project>

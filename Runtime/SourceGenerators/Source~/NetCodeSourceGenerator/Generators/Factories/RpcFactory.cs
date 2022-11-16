@@ -31,7 +31,7 @@ namespace Unity.NetCode.Generators
                 // If the serializer type already exist we can just skip generation
                 if (codeGenContext.executionContext.Compilation.GetSymbolsWithName(GetRpcSerializerName(candidateSymbol)).FirstOrDefault() != null)
                 {
-                    codeGenContext.diagnostic.LogInfo($"Skipping code-gen for {candidateSymbol.Name} because a serializer for it already exists");
+                    codeGenContext.diagnostic.LogInfo($"Skipping code-gen for {candidateSymbol.Name} because an rpc serializer for it already exists");
                     continue;
                 }
 
@@ -40,6 +40,7 @@ namespace Unity.NetCode.Generators
                 var typeInfo = typeBuilder.BuildTypeInformation(candidateSymbol, null);
                 if (typeInfo == null)
                     continue;
+
                 codeGenContext.types.Add(typeInfo);
                 codeGenContext.diagnostic.LogInfo($"Generating rpc for ${typeInfo.TypeFullName}");
                 CodeGenerator.GenerateCommand(codeGenContext, typeInfo, CommandSerializer.Type.Rpc);

@@ -25,7 +25,7 @@ namespace Unity.NetCode.Tests
     {
         protected override void OnUpdate()
         {
-            var collectionEntity = GetSingletonEntity<GhostCollection>();
+            var collectionEntity = SystemAPI.GetSingletonEntity<GhostCollection>();
             var ghostCollection = EntityManager.GetBuffer<GhostCollectionPrefab>(collectionEntity);
             var subScenes = GetEntityQuery(ComponentType.ReadOnly<SubSceneWithPrespawnGhosts>()).ToEntityArray(Allocator.Temp);
             var anyLoaded = false;
@@ -58,10 +58,17 @@ namespace Unity.NetCode.Tests
             float deltaTime = SystemAPI.Time.DeltaTime;
             Entities
                 .WithAll<PreSpawnedGhostIndex>()
+#if !ENABLE_TRANSFORM_V1
+                .ForEach((ref LocalTransform transform) =>
+                {
+                    transform.Position = new float3(transform.Position.x, transform.Position.y + deltaTime*60.0f, transform.Position.z);
+                }).Schedule();
+#else
                 .ForEach((ref Translation translation) =>
                 {
                     translation.Value = new float3(translation.Value.x, translation.Value.y + deltaTime*60.0f, translation.Value.z);
                 }).Schedule();
+#endif
         }
     }
 
@@ -168,7 +175,7 @@ namespace Unity.NetCode.Tests
                 // This job is not written to support queries with enableable component types.
                 Assert.IsFalse(useEnabledMask);
 
-                var array = chunk.GetNativeArray(someDataHandle);
+                var array = chunk.GetNativeArray(ref someDataHandle);
                 for (int i = 0, chunkEntityCount = chunk.Count; i < chunkEntityCount; ++i)
                 {
                     array[i] = new SomeData {Value = offset + i};
@@ -420,8 +427,7 @@ namespace Unity.NetCode.Tests
                 //Server will unload the first scene. This will despawn ghosts and also update the scene list
                 SceneSystem.UnloadScene(testWorld.ServerWorld.Unmanaged, sub0.SceneGUID,
                     SceneSystem.UnloadParameters.DestroySceneProxyEntity|
-                    SceneSystem.UnloadParameters.DestroySectionProxyEntities|
-                    SceneSystem.UnloadParameters.DestroySubSceneProxyEntities);
+                    SceneSystem.UnloadParameters.DestroySectionProxyEntities);
                 for (int i = 0; i < 16; ++i)
                 {
                     testWorld.Tick(frameTime);
@@ -440,8 +446,7 @@ namespace Unity.NetCode.Tests
                 SceneSystem.UnloadScene(testWorld.ClientWorlds[0].Unmanaged,
                     sub0.SceneGUID,
                     SceneSystem.UnloadParameters.DestroySceneProxyEntity |
-                    SceneSystem.UnloadParameters.DestroySectionProxyEntities |
-                    SceneSystem.UnloadParameters.DestroySubSceneProxyEntities);
+                    SceneSystem.UnloadParameters.DestroySectionProxyEntities);
                 //And nothing should break
                 for (int i = 0; i < 16; ++i)
                 {
@@ -512,16 +517,24 @@ namespace Unity.NetCode.Tests
                     var subSceneEntity = testWorld.TryGetSingletonEntity<PrespawnsSceneInitialized>(testWorld.ClientWorlds[0]);
                     Assert.AreNotEqual(Entity.Null, subSceneEntity);
                     //Only 5 ghost should be present
+#if !ENABLE_TRANSFORM_V1
+                    var query = testWorld.ClientWorlds[0].EntityManager.CreateEntityQuery(ComponentType.ReadOnly<PreSpawnedGhostIndex>(), ComponentType.ReadOnly<LocalTransform>());
+#else
                     var query = testWorld.ClientWorlds[0].EntityManager.CreateEntityQuery(ComponentType.ReadOnly<PreSpawnedGhostIndex>(), ComponentType.ReadOnly<Translation>());
+#endif
                     Assert.AreEqual(numObjects, query.CalculateEntityCount());
 
                     //Now I should receive the ghost with their state changed
                     for (int i = 0; i < 16; ++i)
                         testWorld.Tick(frameTime);
 
+#if !ENABLE_TRANSFORM_V1
+                    using var translations = query.ToComponentDataArray<LocalTransform>(Allocator.TempJob);
+#else
                     using var translations = query.ToComponentDataArray<Translation>(Allocator.TempJob);
+#endif
                     for (int i = 0; i < translations.Length; ++i)
-                        Assert.AreNotEqual(0.0f, translations[i].Value);
+                        Assert.AreNotEqual(0.0f, translations[i]);
 
                     //Unload the scene on the client
                     SceneSystem.UnloadScene(

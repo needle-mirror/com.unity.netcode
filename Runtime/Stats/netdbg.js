@@ -354,15 +354,7 @@ NetDbg.prototype.createName = function(name) {
 	div.appendChild(document.createTextNode(name));
 	return div;
 }
-NetDbg.prototype.createPredictionError = function(err) {
-	var div = document.createElement("div");
-	div.style.display = "inline-block";
-	div.style.width = "0";
-	div.style.whiteSpace = "nowrap";
-	div.style.marginLeft = "400px";
-	div.appendChild(document.createTextNode("" + err));
-	return div;
-}
+
 NetDbg.prototype.createCount = function(count, uncompressed) {
 	var div = document.createElement("div");
 	div.style.display = "inline-block";
@@ -389,6 +381,9 @@ NetDbg.prototype.createInstSize = function(sizeBits, sizeBytes) {
 	div.style.marginLeft = "200px";
 	div.appendChild(document.createTextNode("" + sizeBits + " (" + sizeBytes + ")"));
 	return div;
+}
+NetDbg.prototype.alternateColorHighlighting = function(element, index) {
+	element.style.backgroundColor = index % 2 === 0 ? "white" : "#efefef";
 }
 
 NetDbg.prototype.select = function(evt) {
@@ -421,7 +416,9 @@ NetDbg.prototype.select = function(evt) {
 			descr.appendChild(discard);
 			var totalSize = 0;
 
+			descr.appendChild(document.createElement("hr"));
 			var headerDiv = document.createElement("div");
+			headerDiv.style.fontWeight = "bold";
 			var nameHead = this.createName("Ghost Type");
 			headerDiv.appendChild(nameHead);
 
@@ -441,6 +438,7 @@ NetDbg.prototype.select = function(evt) {
 					continue;
 
 				var sectionDiv = document.createElement("div");
+				this.alternateColorHighlighting(sectionDiv, i+1);
 
 				var name = this.createName(content.names[i]);
 				sectionDiv.appendChild(name);
@@ -458,23 +456,45 @@ NetDbg.prototype.select = function(evt) {
 				totalSize += type.size;
 			}
 			if (content.frames[this.selection].predictionError != undefined) {
-				var titleText = "Prediction errors";
-				var titleDiv = document.createElement("div");
-				titleDiv.className = "DetailsTitle";
-				titleDiv.appendChild(document.createTextNode(titleText));
-				descr.appendChild(titleDiv);
+
+				var errorCount = 0;
+				var table = document.createElement("table");
 				for (var err = 0; err < content.errors.length; ++err) {
 					if (content.enabledErrors[err]) {
-						var sectionDiv = document.createElement("div");
-						var name = this.createName(content.errors[err]);
-						sectionDiv.appendChild(name);
-						var error = this.createPredictionError(content.frames[this.selection].predictionError[err]);
-						sectionDiv.appendChild(error);
-						descr.appendChild(sectionDiv);
+						errorCount++;
+						var sectionTr = document.createElement("tr");
+						this.alternateColorHighlighting(sectionTr, errorCount);
+
+						var nameTd = document.createElement("td");
+						nameTd.textContent = "" + content.errors[err];
+						nameTd.style.minWidth = "200px";
+						nameTd.style.padding = "0px 40px 0px 0px";
+						sectionTr.appendChild(nameTd);
+
+						var errorTd = document.createElement("td");
+						errorTd.textContent = content.frames[this.selection].predictionError[err];
+						nameTd.style.minWidth = "100px";
+						errorTd.style.padding = "0px 40px 0px 0px";
+						sectionTr.appendChild(errorTd);
+
+						table.appendChild(sectionTr);
 					}
 				}
-			}
 
+				// Only show the Prediction errors if we actually have some.
+				if(errorCount !== 0)
+				{
+					descr.appendChild(document.createElement("hr"));
+
+					var titleDiv = document.createElement("div");
+					titleDiv.className = "DetailsTitle";
+					titleDiv.style.fontWeight = "bold";
+					titleDiv.appendChild(document.createTextNode("Prediction errors"));
+					descr.appendChild(titleDiv);
+
+					descr.appendChild(table);
+				}
+			}
 
 			var avgCommandAge = 0;
 			var avgTimeScale = 0;
@@ -498,6 +518,7 @@ NetDbg.prototype.select = function(evt) {
 			var titleText = "Network frame " + this.selection;
 			var titleDiv = document.createElement("div");
 			titleDiv.className = "DetailsTitle";
+			titleDiv.style.fontWeight = "bold";
 			titleDiv.appendChild(document.createTextNode(titleText));
 			div.appendChild(titleDiv);
 

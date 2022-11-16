@@ -24,7 +24,7 @@ apiRules:
       uidRegex: OnInspectorGUI
       type: Method
   - exclude:
-      uidRegex: Unity\.NetCode\.Tests.*
+      uidRegex: .*Tests.*
       type: Namespace
   - exclude:
       uidRegex: __COMMAND_NAMESPACE__

@@ -87,7 +87,7 @@ namespace Unity.NetCode
         }
         protected override void OnUpdate()
         {
-            var clientNetTime = GetSingleton<NetworkTime>();
+            var clientNetTime = SystemAPI.GetSingleton<NetworkTime>();
             var targetTick = NetworkTimeHelper.LastFullServerTick(clientNetTime);
             // Make sure we only send a single ack per tick - only triggers when using dynamic timestep
             if (targetTick == m_lastServerTick)
@@ -363,9 +363,9 @@ namespace Unity.NetCode
             /// <param name="orderIndex">unsed, the sorting index enequeing operation in the the entity command buffer</param>
             public void Execute(ArchetypeChunk chunk, int orderIndex)
             {
-                var commandTargets = chunk.GetNativeArray(commmandTargetType);
-                var networkIds = chunk.GetNativeArray(networkIdType);
-                var rpcDatas = chunk.GetBufferAccessor(outgoingCommandBufferType);
+                var commandTargets = chunk.GetNativeArray(ref commmandTargetType);
+                var networkIds = chunk.GetNativeArray(ref networkIdType);
+                var rpcDatas = chunk.GetBufferAccessor(ref outgoingCommandBufferType);
 
                 for (int i = 0, chunkEntityCount = chunk.Count; i < chunkEntityCount; ++i)
                 {

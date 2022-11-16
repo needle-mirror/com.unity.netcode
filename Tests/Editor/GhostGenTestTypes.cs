@@ -59,6 +59,12 @@ namespace Unity.NetCode.Tests
         [GhostField(Quantization=10)] public float FloatValue;
         [GhostField(Quantization=10, Smoothing=SmoothingAction.Interpolate)] public float Interpolated_FloatValue;
 
+
+        [GhostField] public double Unquantized_DoubleValue;
+        [GhostField(Smoothing=SmoothingAction.Interpolate)] public double Unquantized_Interpolated_DoubleValue;
+        [GhostField(Quantization=10)] public float DoubleValue;
+        [GhostField(Quantization=10, Smoothing=SmoothingAction.Interpolate)] public float Interpolated_DoubleValue;
+
         [GhostField(Quantization=10)] public float2 Float2Value;
         [GhostField(Quantization=10, Smoothing=SmoothingAction.Interpolate)] public float2 Interpolated_Float2Value;
         [GhostField] public float2 Unquantized_Float2Value;
@@ -135,6 +141,11 @@ namespace Unity.NetCode.Tests
             Assert.AreEqual(serverValues.Interpolated_FloatValue, clientValues.Interpolated_FloatValue);
             Assert.AreEqual(serverValues.Unquantized_FloatValue, clientValues.Unquantized_FloatValue);
             Assert.AreEqual(serverValues.Unquantized_Interpolated_FloatValue, clientValues.Unquantized_Interpolated_FloatValue);
+
+            Assert.AreEqual(serverValues.DoubleValue, clientValues.DoubleValue);
+            Assert.AreEqual(serverValues.Interpolated_DoubleValue, clientValues.Interpolated_DoubleValue);
+            Assert.AreEqual(serverValues.Unquantized_DoubleValue, clientValues.Unquantized_DoubleValue);
+            Assert.AreEqual(serverValues.Unquantized_Interpolated_DoubleValue, clientValues.Unquantized_Interpolated_DoubleValue);
 
             Assert.AreEqual(serverValues.Float2Value, clientValues.Float2Value);
             Assert.AreEqual(serverValues.Interpolated_Float2Value, clientValues.Interpolated_Float2Value);
@@ -231,6 +242,11 @@ namespace Unity.NetCode.Tests
                 Interpolated_FloatValue = baseValue + ++i,
                 Unquantized_FloatValue = baseValue + ++i,
                 Unquantized_Interpolated_FloatValue = baseValue + ++i,
+
+                DoubleValue = baseValue + ++i,
+                Interpolated_DoubleValue = baseValue + ++i,
+                Unquantized_DoubleValue = baseValue + ++i,
+                Unquantized_Interpolated_DoubleValue = baseValue + ++i,
 
                 Float2Value = new float2(baseValue + ++i, baseValue + ++i),
                 Interpolated_Float2Value = new float2(baseValue + ++i, baseValue + ++i),

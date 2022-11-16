@@ -6,14 +6,14 @@ namespace Unity.NetCode
     /// <summary>
     ///     Presets for the com.unity.transport simulator.
     ///     Allows developers to simulate a variety of network conditions.
-    ///     <seealso cref="AppendDefaultPCConsoleSimulatorProfiles"/>
-    ///     <seealso cref="AppendDefaultMobileSimulatorProfiles"/>
+    ///     <seealso cref="AppendBaseSimulatorPresets"/>
+    ///     <seealso cref="AppendAdditionalMobileSimulatorProfiles"/>
     /// </summary>
     [Serializable]
     public struct SimulatorPreset
     {
         /// <summary>Users can modify simulator preset values directly. This preset is called "custom".</summary>
-        internal const string k_CustomProfileKey = "Custom";
+        internal const string k_CustomProfileKey = "Custom / User Defined";
         const string k_CustomProfileTooltip = "Custom indicates that you have modified individual simulator values yourself.";
         const string k_PoorMobileTooltip = "Extremely poor connection quality, completely unsuitable for synchronous multiplayer gaming due to exceptionally high latency. Turn based games <i>may</i> work.";
         const string k_DecentMobileTooltip = "Suitable for synchronous multiplayer, but expect connection instability.\n\nExpect to handle players dropping frequently, and dropping their connection entirely. I.e. Ensure you handle reconnections and quickly detect (and display) wifi issues.";
@@ -32,8 +32,22 @@ namespace Unity.NetCode
         const string k_InternationalPoor = "Represents a \"poor\" connection from a player connecting to a server hosted <b>outside their region</b>." + k_InternationalDisclaimer + "I.e. 95% of " + k_PlayersAsGoodOrBetter;
 
         /// <summary>
+        ///     The most common profiles, including custom debug ones.
+        ///     Last updated Q3 2022.
+        /// </summary>
+        /// <param name="list">To append to.</param>
+        public static void AppendBaseSimulatorPresets(List<SimulatorPreset> list)
+        {
+            list.Add(new SimulatorPreset(k_CustomProfileKey, -1, -1, -1, k_CustomProfileTooltip));
+            list.Add(new SimulatorPreset("Custom / No Internet", 1000, 1000, 100, "Simulate the server becoming completely unreachable."));
+            list.Add(new SimulatorPreset("Custom / Unplayable Internet", 300, 400, 30, "Simulate barely having a connection at all, to observe what your users will experience when the internet is good enough to connect (sometimes), but not good enough to play.\n\nIt may take multiple attempts for the driver to connect.\n\nWe recommend detecting a \"minimum threshold of playable\", and to exclude (and inform) users when below this threshold."));
+
+            BuildProfiles(list, true, "Broadband [WIFI] / ", 1, 1, 1, k_MobileWifiDisclaimer);
+        }
+
+        /// <summary>
         ///     <para>These are best-estimate approximations for mobile connection types, informed by real world data.
-        ///     Last updated Q2 2022.</para>
+        ///     Last updated Q3 2022.</para>
         ///     <para>Sources:</para>
         ///     <para>- Developers [Multiplayer, Support and Customers]</para>
         ///     <para>- https://unity.com/products/multiplay</para>
@@ -41,10 +55,8 @@ namespace Unity.NetCode
         ///     <para>- https://www.4g.co.uk/how-fast-is-4g/</para>
         /// </summary>
         /// <param name="list">To append to.</param>
-        public static void AppendDefaultMobileSimulatorProfiles(List<SimulatorPreset> list)
+        public static void AppendAdditionalMobileSimulatorProfiles(List<SimulatorPreset> list)
         {
-            list.Add(new SimulatorPreset(k_CustomProfileKey, -1, -1, -1, k_CustomProfileTooltip));
-            BuildProfiles(list, true, "Broadband [WIFI] / ", 1, 1, 1, k_MobileWifiDisclaimer);
             BuildProfiles(list, false, "2G [!] [CDMA & GSM, '00] / ", 200, 20, 5, k_PoorMobileTooltip);
             BuildProfiles(list, false, "2.5G [!] [GPRS, G, '00] / ", 180, 15, 5, k_PoorMobileTooltip);
             BuildProfiles(list, false, "2.75G [!] [Edge, E, '06] / ", 160, 15, 5, k_PoorMobileTooltip);
@@ -58,16 +70,15 @@ namespace Unity.NetCode
 
         /// <summary>
         ///     <para>These are best-estimate approximations of PC and Console connection types, informed by real world data.
-        ///     Last updated Q2 2022.</para>
+        ///     Last updated Q3 2022.</para>
         ///     <para>Sources:</para>
         ///     <para>- Developers [Multiplayer, Support and Customers]</para>
         ///     <para>- https://unity.com/products/multiplay</para>
         /// </summary>
         /// <param name="list">To append to.</param>
-        public static void AppendDefaultPCConsoleSimulatorProfiles(List<SimulatorPreset> list)
+        public static void AppendAdditionalPCSimulatorPresets(List<SimulatorPreset> list)
         {
-            list.Add(new SimulatorPreset("LAN - Local Area Network", 1, 1, 0, "Playing on LAN is generally <1ms (i.e. simulator off), but we've included it for convenience."));
-            BuildProfiles(list, true, "Home Broadband - ", 0, 0, 1, null);
+            list.Add(new SimulatorPreset("LAN [Local Area Network]", 1, 1, 1, "Playing on LAN is generally <1ms (i.e. simulator off), but we've included it for convenience."));
         }
 
         /// <summary>Builds sub-profiles for your profile. E.g. 4 regional options for your custom profile.</summary>
@@ -108,17 +119,20 @@ namespace Unity.NetCode
             if (MultiplayerPlayModePreferences.ShowAllSimulatorPresets)
             {
                 presetGroupName = "All Presets";
-                AppendDefaultMobileSimulatorProfiles(appendPresets);
-                AppendDefaultPCConsoleSimulatorProfiles(appendPresets);
+                AppendBaseSimulatorPresets(appendPresets);
+                AppendAdditionalPCSimulatorPresets(appendPresets);
+                AppendAdditionalMobileSimulatorProfiles(appendPresets);
             }
             else
             {
 #if UNITY_IOS || UNITY_ANDROID
                 presetGroupName = "Mobile Presets";
-                AppendDefaultMobileSimulatorProfiles(appendPresets);
+                AppendBaseSimulatorPresets(appendPresets);
+                AppendAdditionalMobileSimulatorProfiles(appendPresets);
 #else
                 presetGroupName = "PC & Console Presets";
-                AppendDefaultPCConsoleSimulatorProfiles(appendPresets);
+                AppendBaseSimulatorPresets(appendPresets);
+                AppendAdditionalPCSimulatorPresets(appendPresets);
 #endif
             }
         }

@@ -28,7 +28,7 @@ namespace Unity.NetCode.Tests
         public bool IsLoading = false;
         protected override void OnUpdate()
         {
-            var collectionEntity = GetSingletonEntity<GhostCollection>();
+            var collectionEntity = SystemAPI.GetSingletonEntity<GhostCollection>();
             var ghostCollection = EntityManager.GetBuffer<GhostCollectionPrefab>(collectionEntity);
 
             // This must be done on the main thread for now

@@ -10,6 +10,8 @@ using Unity.Networking.Transport;
 using Unity.Scenes;
 using UnityEditor;
 using UnityEngine;
+using Unity.Entities.Build;
+using Unity.NetCode.Hybrid;
 using Prefs = Unity.NetCode.MultiplayerPlayModePreferences;
 
 namespace Unity.NetCode.Editor
@@ -27,9 +29,8 @@ namespace Unity.NetCode.Editor
         static GUILayoutOption s_NetworkIdWidth = GUILayout.Width(30);
         static GUILayoutOption s_WorldNameWidth = GUILayout.Width(130);
 
-        // NWALKER - Update documentation!
         static GUIContent s_PlayModeType = new GUIContent("PlayMode Type", "During multiplayer development, it's useful to modify and run the client and server at the same time, in the same process (i.e. \"in-proc\"). DOTS Multiplayer supports this out of the box via the DOTS Entities \"Worlds\" feature.\n\nUse this toggle to determine which mode of operation is used for this playmode session.\n\n\"Client & Server\" is recommended for most workflows.");
-        static GUIContent s_ServerWorldDataType = new GUIContent("Server World Data Type", "Select which version of the subscenes you want to load on the server");
+        static GUIContent s_SimulateDedicatedServer = new GUIContent("Simulate Dedicated Server", "When enabled the server will load the same data as a dedicated server, when disabled it will load the same data as a client hosted server.");
 
         static GUIContent s_NumThinClients = new GUIContent("Num Thin Clients", "Thin clients are clients that receive snapshots, but do not attempt to process game logic. They can send arbitrary inputs though, and are useful to simulate opponents (to test connection & game logic).\n\nThin clients are instantiated on boot and at runtime. I.e. This value can be tweaked during playmode.");
         static GUIContent s_InstantiationFrequency = new GUIContent("Instantiation Frequency", "How many thin client worlds to instantiate per second. Runtime thin client instantiation can be disabled by setting `RuntimeThinClientWorldInitialization` to null. Does not affect thin clients created during boot.");
@@ -61,7 +62,6 @@ namespace Unity.NetCode.Editor
         static GUIContent[] s_InUseSimulatorPresetContents;
         static List<SimulatorPreset> s_InUseSimulatorPresetsCache = new List<SimulatorPreset>(32);
 
-        static GUIContent[] s_ServerWorldDataStrings = {new GUIContent("Server", ""), new GUIContent("Client & Server", "")};
         static readonly GUIContent[] k_PlayModeStrings = { new GUIContent("Client & Server", "Instantiates a server instance alongside a single \"full\" client, with a configurable number of thin clients."), new GUIContent("Client", "Only instantiate a client (with a configurable number of thin clients) that'll automatically attempt to connect to the listed address and port."), new GUIContent("Server", "Only instantiate a server. Expects that clients will be instantiated in another process.")};
         static GUILayoutOption s_ExpandWidth = GUILayout.ExpandWidth(true);
         static GUILayoutOption s_DontExpandWidth = GUILayout.ExpandWidth(false);
@@ -541,13 +541,12 @@ namespace Unity.NetCode.Editor
                 EditorApplication.isPlaying = false;
             }
 
-            if (LiveConversionSettings.IsBuiltinBuildsEnabled && (ClientServerBootstrap.PlayType)requestedPlayType == ClientServerBootstrap.PlayType.ClientAndServer)
+            if ((ClientServerBootstrap.PlayType)requestedPlayType != ClientServerBootstrap.PlayType.Client &&
+                ((ClientSettings)DotsGlobalSettings.Instance.ClientProvider).NetCodeClientTarget == NetCodeClientTarget.ClientAndServer)
             {
                 EditorGUI.BeginChangeCheck();
-                var requestedServerWorldDataType = (int) Prefs.ServerLoadDataType;
-                EditorPopup(s_ServerWorldDataType, s_ServerWorldDataStrings, ref requestedServerWorldDataType);
+                Prefs.SimulateDedicatedServer = EditorGUILayout.Toggle(s_SimulateDedicatedServer, Prefs.SimulateDedicatedServer);
 
-                Prefs.ServerLoadDataType = (MultiplayerPlayModePreferences.ServerWorldDataToLoad) requestedServerWorldDataType;
                 if (EditorGUI.EndChangeCheck())
                 {
                     EditorApplication.isPlaying = false;
@@ -611,7 +610,7 @@ namespace Unity.NetCode.Editor
                             EditorGUI.BeginChangeCheck();
 
                             s_PacketDelayRange.text = $"Range {perPacketMin} to {perPacketMax} (ms)";
-                            EditorGUILayout.MinMaxSlider(s_PacketDelayRange, ref perPacketMin, ref perPacketMax, 0, 400);
+                            EditorGUILayout.MinMaxSlider(s_PacketDelayRange, ref perPacketMin, ref perPacketMax, 0, 500);
                             if (EditorGUI.EndChangeCheck())
                             {
                                 // Prevents int precision lost causing this value to change when it shouldn't.
@@ -781,7 +780,7 @@ namespace Unity.NetCode.Editor
 
             // You can force a timeout even when disconnected, to allow testing reconnect attempts while timed out.
             var isTimingOut = conSystem.IsSimulatingTimeout;
-            s_Timeout.text = isTimingOut ? $"Simulating Timeout\n[{conSystem.TimeoutSimulationDurationSeconds:n1}s]" : $"Timeout";
+            s_Timeout.text = isTimingOut ? $"Simulating Timeout\n[{Mathf.CeilToInt(conSystem.TimeoutSimulationDurationSeconds):n1}s]" : $"Timeout";
             GUI.color = isTimingOut ? GhostAuthoringComponentEditor.brokenColor :  Color.white;
             if (GUILayout.Button(s_Timeout))
                 conSystem.ToggleTimeoutSimulation();
@@ -1087,9 +1086,9 @@ namespace Unity.NetCode.Editor
         protected override void OnUpdate()
         {
             Dependency.Complete();
-            var netDebug = GetSingleton<NetDebug>();
+            var netDebug = SystemAPI.GetSingleton<NetDebug>();
 
-            var unscaledClientTime = GetSingleton<UnscaledClientTime>();
+            var unscaledClientTime = SystemAPI.GetSingleton<UnscaledClientTime>();
             if (IsSimulatingTimeout)
             {
                 TimeoutSimulationDurationSeconds += unscaledClientTime.UnscaleDeltaTime;
@@ -1107,7 +1106,7 @@ namespace Unity.NetCode.Editor
                 }
             }
 
-            ref var netStream = ref GetSingletonRW<NetworkStreamDriver>().ValueRW;
+            ref var netStream = ref SystemAPI.GetSingletonRW<NetworkStreamDriver>().ValueRW;
             ref var driverStore = ref netStream.DriverStore;
             LastEndpoint = netStream.LastEndPoint;
             IsAnyUsingSimulator = driverStore.IsAnyUsingSimulator;
@@ -1130,7 +1129,7 @@ namespace Unity.NetCode.Editor
             var isConnected = false;
             var isConnecting = false;
             var isDisconnecting = false;
-            if (TryGetSingletonEntity<NetworkStreamConnection>(out var singletonEntity))
+            if (SystemAPI.TryGetSingletonEntity<NetworkStreamConnection>(out var singletonEntity))
             {
                 if (EntityManager.HasComponent<NetworkIdComponent>(singletonEntity))
                 {
@@ -1234,7 +1233,7 @@ namespace Unity.NetCode.Editor
 
             LagSpikeMillisecondsLeft = IsSimulatingLagSpike ? -1 : MultiplayerPlayModeWindow.k_LagSpikeDurationsSeconds[Prefs.LagSpikeSelectionIndex];
             UpdateSimulator = true;
-            GetSingletonRW<NetDebug>().ValueRW.DebugLog($"Lag Spike Simulator: Toggled! Dropping packets for {Mathf.CeilToInt(LagSpikeMillisecondsLeft)}ms!");
+            SystemAPI.GetSingletonRW<NetDebug>().ValueRW.DebugLog($"Lag Spike Simulator: Toggled! Dropping packets for {Mathf.CeilToInt(LagSpikeMillisecondsLeft)}ms!");
             MultiplayerPlayModeWindow.ForceRepaint();
         }
 
@@ -1244,7 +1243,7 @@ namespace Unity.NetCode.Editor
                 ToggleLagSpikeSimulator();
 
             var isSimulatingTimeout = IsSimulatingTimeout;
-            GetSingletonRW<NetDebug>().ValueRW.DebugLog($"Timeout Simulation: Toggled {(isSimulatingTimeout ? "OFF after {TimeoutSimulationDurationSeconds:0.0}s!" : "ON")}!");
+            SystemAPI.GetSingletonRW<NetDebug>().ValueRW.DebugLog($"Timeout Simulation: Toggled {(isSimulatingTimeout ? "OFF after {TimeoutSimulationDurationSeconds:0.0}s!" : "ON")}!");
 
             UpdateSimulator = true;
             if (isSimulatingTimeout)
@@ -1275,7 +1274,7 @@ namespace Unity.NetCode.Editor
         }
         protected override void OnUpdate()
         {
-            ref readonly var netStream = ref GetSingletonRW<NetworkStreamDriver>().ValueRO;
+            ref readonly var netStream = ref SystemAPI.GetSingletonRW<NetworkStreamDriver>().ValueRO;
             IsListening = netStream.DriverStore.GetDriverInstance(netStream.DriverStore.FirstDriver).driver.Listening;
             LastEndpoint = netStream.LastEndPoint;
         }
@@ -1309,12 +1308,12 @@ namespace Unity.NetCode.Editor
             if (World.IsThinClient())
                 return;
 
-            if (TryGetSingleton<NetCodeDebugConfig>(out var cfg))
+            if (SystemAPI.TryGetSingleton<NetCodeDebugConfig>(out var cfg))
             {
                 if (ShouldDumpPackets != IsDumpingPackets)
                 {
                     cfg.DumpPackets = ShouldDumpPackets;
-                    SetSingleton(cfg);
+                    SystemAPI.SetSingleton(cfg);
                 }
                 else
                     ShouldDumpPackets = cfg.DumpPackets;
@@ -1351,5 +1350,49 @@ namespace Unity.NetCode.Editor
                 }
             }
         }
+    }
+
+    [WorldSystemFilter(WorldSystemFilterFlags.ClientSimulation | WorldSystemFilterFlags.ThinClientSimulation | WorldSystemFilterFlags.Editor)]
+    internal partial struct ConfigureClientGUIDSystem : ISystem
+    {
+        public void OnCreate(ref SystemState state)
+        {
+            bool canChangeSettings = (!UnityEditor.EditorApplication.isPlaying || state.WorldUnmanaged.IsClient());
+            if (canChangeSettings)
+            {
+                ref var sceneSystemGuid = ref state.EntityManager.GetComponentDataRW<SceneSystemData>(state.World.GetExistingSystem<SceneSystem>()).ValueRW;
+                sceneSystemGuid.BuildConfigurationGUID = DotsGlobalSettings.Instance.GetClientGUID();
+            }
+            state.Enabled = false;
+        }
+
+        public void OnDestroy(ref SystemState state)
+        {}
+        public void OnUpdate(ref SystemState state)
+        {}
+    }
+    [WorldSystemFilter(WorldSystemFilterFlags.ServerSimulation)]
+    internal partial struct ConfigureServerGUIDSystem : ISystem
+    {
+        public void OnCreate(ref SystemState state)
+        {
+            ref var sceneSystemGuid = ref state.EntityManager.GetComponentDataRW<SceneSystemData>(state.World.GetExistingSystem<SceneSystem>()).ValueRW;
+            // If client type is client-only server must use dedicated server data
+            if (((Unity.NetCode.Hybrid.ClientSettings)DotsGlobalSettings.Instance.ClientProvider).NetCodeClientTarget == NetCodeClientTarget.Client)
+                sceneSystemGuid.BuildConfigurationGUID = DotsGlobalSettings.Instance.GetServerGUID();
+            // If playmode is simulating dedicated server we must also use server data
+            else if (Prefs.SimulateDedicatedServer)
+                sceneSystemGuid.BuildConfigurationGUID = DotsGlobalSettings.Instance.GetServerGUID();
+            // Otherwise we use client & server data, we know the client is set to client & server at this point
+            else
+                sceneSystemGuid.BuildConfigurationGUID = DotsGlobalSettings.Instance.GetClientGUID();
+
+            state.Enabled = false;
+        }
+
+        public void OnDestroy(ref SystemState state)
+        {}
+        public void OnUpdate(ref SystemState state)
+        {}
     }
 }

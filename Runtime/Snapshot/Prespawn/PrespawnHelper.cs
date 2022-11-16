@@ -88,7 +88,7 @@ namespace Unity.NetCode
             hashMap.Clear();
             for (int i = 0; i < chunks.Length; ++i)
             {
-                var sharedComponentIndex = chunks[i].GetSharedComponentIndex(sharedComponentType);
+                var sharedComponentIndex = chunks[i].GetSharedComponentIndex(ref sharedComponentType);
                 var sharedComponentValue = entityManager.GetSharedComponent<SubSceneGhostComponentHash>(sharedComponentIndex);
                 hashMap.TryAdd(sharedComponentIndex, sharedComponentValue.Value);
             }

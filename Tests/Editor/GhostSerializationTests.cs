@@ -76,6 +76,8 @@ namespace Unity.NetCode.Tests
 
         [GhostField(Quantization=10)] public float FloatValue;
         [GhostField(Quantization=0)] public float UnquantizedFloatValue;
+        [GhostField(Quantization=1000)] public double DoubleValue;
+        [GhostField(Quantization=0)] public double UnquantizedDoubleValue;
         [GhostField(Quantization=10)] public float2 Float2Value;
         [GhostField(Quantization=0)] public float2 UnquantizedFloat2Value;
         [GhostField(Quantization=10)] public float3 Float3Value;
@@ -110,6 +112,8 @@ namespace Unity.NetCode.Tests
             Assert.AreEqual(serverValues.ULongValue, clientValues.ULongValue);
             Assert.AreEqual(serverValues.FloatValue, clientValues.FloatValue);
             Assert.AreEqual(serverValues.UnquantizedFloatValue, clientValues.UnquantizedFloatValue);
+            Assert.AreEqual(serverValues.UnquantizedDoubleValue, clientValues.UnquantizedDoubleValue);
+            Assert.LessOrEqual(math.distance(serverValues.DoubleValue, clientValues.DoubleValue), 1e-3);
 
             Assert.AreEqual(serverValues.EnumUntyped,clientValues.EnumUntyped);
             Assert.AreEqual(serverValues.EnumS08,clientValues.EnumS08);
@@ -152,6 +156,8 @@ namespace Unity.NetCode.Tests
                 ULongValue = ((ulong)baseValue) + 0x8234567898763210UL,
                 FloatValue = baseValue + 2,
                 UnquantizedFloatValue = baseValue + 3,
+                DoubleValue = 1234.456 + baseValue,
+                UnquantizedDoubleValue = 123456789.123456789 + baseValue,
 
                 EnumUntyped = EnumUntyped.Value0,
                 EnumS08 = EnumS8.Value0,

@@ -42,7 +42,7 @@ namespace Unity.NetCode
             if (World.IsThinClient())
                 return;
 
-            var debugConfig = GetSingleton<NetCodeDebugConfig>();
+            var debugConfig = SystemAPI.GetSingleton<NetCodeDebugConfig>();
             var targetLogLevel = debugConfig.LogLevel;
 
 #if UNITY_EDITOR
@@ -50,7 +50,7 @@ namespace Unity.NetCode
                 targetLogLevel = MultiplayerPlayModePreferences.TargetLogLevel;
 #endif
 
-            GetSingletonRW<NetDebug>().ValueRW.LogLevel = targetLogLevel;
+            SystemAPI.GetSingletonRW<NetDebug>().ValueRW.LogLevel = targetLogLevel;
 
             var cmdBuffer = m_CmdBuffer.CreateCommandBuffer();
             if (debugConfig.DumpPackets)

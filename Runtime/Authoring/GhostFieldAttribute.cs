@@ -8,6 +8,8 @@ namespace Unity.NetCode
     /// When a component or buffer contains at least one field that is annotated with a <see cref="GhostFieldAttribute"/>,
     /// a struct implementing the component serialization is automatically code-generated.
     /// </summary>
+    /// <remarks>Note that "enableable components" (<see cref="Unity.Entities.IEnableableComponent"/>) will still have their fields replicated, even when disabled.
+    /// See <see cref="GhostEnabledBitAttribute"/> to replicate the enabled flag itself.</remarks>
     [AttributeUsage(AttributeTargets.Field|AttributeTargets.Property)]
     public class GhostFieldAttribute : Attribute
     {
@@ -65,7 +67,18 @@ namespace Unity.NetCode
     }
 
     /// <summary>
-    /// Add the attribute to prevent a field ICommandData struct to be serialized
+    /// Attribute denoting that an <see cref="Unity.Entities.IEnableableComponent"/> should have its enabled flag replicated.
+    /// And thus, this is only valid on enableable component types. You'll get compiler errors if it's not.
+    /// </summary>
+    /// <remarks>A type will not replicate its enableable flag unless it has this attribute attached to the class.
+    /// This can (and should) also be added to variants that serialize enable bits.</remarks>
+    [AttributeUsage(AttributeTargets.Struct | AttributeTargets.Class)]
+    public sealed class GhostEnabledBitAttribute : Attribute
+    {
+    }
+
+    /// <summary>
+    /// Add the attribute to prevent a field ICommandData struct to be serialized.
     /// </summary>
     [AttributeUsage(AttributeTargets.Field|AttributeTargets.Property, Inherited = true)]
     public class DontSerializeForCommandAttribute : Attribute

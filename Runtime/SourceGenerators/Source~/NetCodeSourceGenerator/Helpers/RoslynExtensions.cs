@@ -332,6 +332,11 @@ namespace Unity.NetCode.Roslyn
             return symbol.ContainingNamespace.ToDisplayString();
         }
 
+        /// <summary>
+        /// This is the only trustful (i.e. proper) way to check for interfaces.
+        /// This is also the reason why we can't rely on the SyntaxTreeVisitor for retrieving the candidates,
+        /// and why we need to collect pretty much all the structs with at least one interface.
+        /// </summary>
         public static AttributeData GetAttribute(ISymbol symbol, string attributeNamespace, string attributeName)
         {
             using (new Profiler.Auto("GetAttribute"))

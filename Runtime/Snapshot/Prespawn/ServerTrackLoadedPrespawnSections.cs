@@ -123,6 +123,8 @@ namespace Unity.NetCode
             if(subsceneCollection.Length == 0 && m_AllPrespawnScenes.IsEmpty)
                 entityCommandBuffer.DestroyEntity(SystemAPI.GetSingletonEntity<PrespawnSceneLoaded>());
         }
+
+        [BurstCompile]
         struct PrespawnSceneCleanup : IJob
         {
             public NativeList<int2> unloadedGhostRange;

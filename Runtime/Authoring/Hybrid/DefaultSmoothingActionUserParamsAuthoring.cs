@@ -7,6 +7,7 @@ namespace Unity.NetCode
     /// Authoring component which adds the maxDist component to the Entity.
     /// </summary>
     [DisallowMultipleComponent]
+    [HelpURL(Authoring.HelpURLs.DefaultSmoothingActionUserParamsAuthoring)]
     public class DefaultSmoothingActionUserParamsAuthoring : MonoBehaviour
     {
         [RegisterBinding(typeof(DefaultSmoothingActionUserParams), "maxDist")]

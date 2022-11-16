@@ -1,8 +1,11 @@
 # RPCs
 
-NetCode uses a limited form of RPCs to handle events. A job on the sending side can issue RPCs, and they then execute on a job on the receiving side. This limits what you can do in an RPC; such as what data you can read and modify, and what calls you are allowed to make from the engine. For more information on the Job System see the Unity User Manual documentation on the [C# Job System](https://docs.unity3d.com/2019.3/Documentation/Manual/JobSystem.html).
+Netcode uses a limited form of RPCs to handle events. A job on the sending side can issue RPCs, and they then execute on a job on the receiving side. 
+This limits what you can do in an RPC; such as what data you can read and modify, and what calls you are allowed to make from the engine. 
+For more information on the Job System see the Unity User Manual documentation on the [C# Job System](https://docs.unity3d.com/2019.3/Documentation/Manual/JobSystem.html).
 
-To make the system a bit more flexible, you can use the flow of creating an entity that contains specific netcode components such as `SendRpcCommandRequestComponent` and `ReceiveRpcCommandRequestComponent`, which this page outlines.
+To make the system a bit more flexible, you can use the flow of creating an entity that contains specific netcode components such as 
+`SendRpcCommandRequestComponent` and `ReceiveRpcCommandRequestComponent`, which this page outlines.
 
 ## Extend IRpcCommand
 
@@ -26,9 +29,11 @@ public struct OurRpcCommand : IRpcCommand
 
 This will generate all the code you need for serialization and deserialization as well as registration of the RPC.
 
-## Sending and recieving commands
+## Sending and receiving commands
 
-To complete the example, you must create some entities to send and recieve the commands you created. To send the command you need to create an entity and add the command and the special component [SendRpcCommandRequestComponent](https://docs.unity3d.com/Packages/com.unity.netcode@latest/index.html?subfolder=/api/Unity.NetCode.SendRpcCommandRequestComponent.html) to it. This component has a member called `TargetConnection` that refers to the remote connection you want to send this command to.
+To complete the example, you must create some entities to send and recieve the commands you created. 
+To send the command you need to create an entity and add the command and the special component [SendRpcCommandRequestComponent](https://docs.unity3d.com/Packages/com.unity.netcode@latest/index.html?subfolder=/api/Unity.NetCode.SendRpcCommandRequestComponent.html) to it. 
+This component has a member called `TargetConnection` that refers to the remote connection you want to send this command to.
 
 > [!NOTE]
 > If `TargetConnection` is set to `Entity.Null` you will broadcast the message. On a client you don't have to set this value because you will only send to the server.
@@ -38,7 +43,7 @@ The following is an example of a simple send system:
 
 ```c#
 [WorldSystemFilter(WorldSystemFilterFlags.ClientSimulation)]
-public class ClientRpcSendSystem : ComponentSystem
+public class ClientRpcSendSystem : SystemBase
 {
     protected override void OnCreate()
     {
@@ -49,9 +54,7 @@ public class ClientRpcSendSystem : ComponentSystem
     {
         if (Input.GetKey("space"))
         {
-            var req = PostUpdateCommands.CreateEntity();
-            PostUpdateCommands.AddComponent(req, new OurRpcCommand());
-            PostUpdateCommands.AddComponent(req, new SendRpcCommandRequestComponent());
+            EntityManager.CreateEntity(typeof(OurRpcCommand), typeof(SendRpcCommandRequestComponent));
         }
     }
 }
@@ -63,7 +66,7 @@ When the rpc is received, an entity that you can filter on is created by a code-
 
 ```c#
 [WorldSystemFilter(WorldSystemFilterFlags.ServerSimulation)]
-public class ServerRpcReceiveSystem : ComponentSystem
+public class ServerRpcReceiveSystem : SystemBase
 {
     protected override void OnUpdate()
     {
@@ -71,7 +74,7 @@ public class ServerRpcReceiveSystem : ComponentSystem
         {
             PostUpdateCommands.DestroyEntity(entity);
             Debug.Log("We received a command!");
-        });
+        }).Run();
     }
 }
 ```
@@ -208,7 +211,12 @@ public struct OurDataRpcCommand : IComponentData, IRpcCommandSerializer<OurDataR
 
 ## RpcQueue
 
-The [RpcQueue](https://docs.unity3d.com/Packages/com.unity.netcode@latest/index.html?subfolder=/api/Unity.NetCode.RpcQueue-1.html) is used internally to schedule outgoing RPCs. However, you can manually create your own queue and use it to schedule RPCs. To do this, call `GetSingleton<RpcCollection>().GetRpcQueue<OurRpcCommand>();`. You can either call it in `OnUpdate` or call it in `OnCreate` and cache the value through the lifetime of your application. If you do call it in `OnCreate` you must make sure that the system calling it is created after `RpcSystem`. When you have the queue, get the `OutgoingRpcDataStreamBufferComponent` from an entity to schedule events in the queue and then call `rpcQueue.Schedule(rpcBuffer, new OurRpcCommand);`, as follows:
+The [RpcQueue](https://docs.unity3d.com/Packages/com.unity.netcode@latest/index.html?subfolder=/api/Unity.NetCode.RpcQueue-1.html) is used internally to schedule outgoing RPCs. 
+However, you can manually create your own queue and use it to schedule RPCs. 
+To do this, call `GetSingleton<RpcCollection>().GetRpcQueue<OurRpcCommand>();`. You can either call it in `OnUpdate` or call it in `OnCreate` and cache the value through the lifetime of your application. 
+If you do call it in `OnCreate` you must make sure that the system calling it is created after `RpcSystem`. 
+
+When you have the queue, get the `OutgoingRpcDataStreamBufferComponent` from an entity to schedule events in the queue and then call `rpcQueue.Schedule(rpcBuffer, new OurRpcCommand);`, as follows:
 
 ```c#
 [WorldSystemFilter(WorldSystemFilterFlags.ClientSimulation)]

@@ -1,6 +1,5 @@
 ﻿#if UNITY_EDITOR
 using System;
-using System.IO;
 using System.Linq;
 using UnityEngine;
 using Unity.Entities.Build;
@@ -9,36 +8,78 @@ using UnityEditor.UIElements;
 using UnityEngine.UIElements;
 using Hash128 = Unity.Entities.Hash128;
 
-namespace Authoring.Hybrid
+namespace Unity.NetCode.Hybrid
 {
-    internal class NetCodeServerSettings : DotsPlayerSettings
+    [FilePath("ProjectSettings/NetCodeServerSettings.asset", FilePathAttribute.Location.ProjectFolder)]
+    internal class NetCodeServerSettings : ScriptableSingleton<NetCodeServerSettings>, IEntitiesPlayerSettings, INetCodeConversionTarget
     {
-        [SerializeField]
-        public NetcodeConversionTarget NetcodeTarget = NetcodeConversionTarget.Server;
+        NetcodeConversionTarget INetCodeConversionTarget.NetcodeTarget => NetcodeConversionTarget.Server;
 
         [SerializeField]
         public BakingSystemFilterSettings FilterSettings;
 
         [SerializeField] public string[] AdditionalScriptingDefines = Array.Empty<string>();
 
-        public override BakingSystemFilterSettings GetFilterSettings()
+        static Entities.Hash128 s_Guid;
+        public Entities.Hash128 GUID
+        {
+            get
+            {
+                if (!s_Guid.IsValid)
+                    s_Guid = UnityEngine.Hash128.Compute(GetFilePath());
+                return s_Guid;
+            }
+        }
+
+        public string CustomDependency => GetFilePath();
+        void IEntitiesPlayerSettings.RegisterCustomDependency()
+        {
+            var hash = GetHash();
+            AssetDatabase.RegisterCustomDependency(CustomDependency, hash);
+        }
+
+        public UnityEngine.Hash128 GetHash()
+        {
+            var hash = (UnityEngine.Hash128)GUID;
+            if (FilterSettings?.ExcludedBakingSystemAssemblies != null)
+                foreach (var assembly in FilterSettings.ExcludedBakingSystemAssemblies)
+                {
+                    var guid = AssetDatabase.GUIDFromAssetPath(AssetDatabase.GetAssetPath(assembly.asset));
+                    hash.Append(ref guid);
+                }
+            foreach (var define in AdditionalScriptingDefines)
+                hash.Append(define);
+            return hash;
+        }
+
+        public BakingSystemFilterSettings GetFilterSettings()
         {
             return FilterSettings;
         }
 
-        public override string[] GetAdditionalScriptingDefines()
+        public string[] GetAdditionalScriptingDefines()
         {
             return AdditionalScriptingDefines;
         }
+
+        public ScriptableObject AsScriptableObject()
+        {
+            return instance;
+        }
+
+        internal void Save()
+        {
+            Save(true);
+            ((IEntitiesPlayerSettings)this).RegisterCustomDependency();
+            if (!AssetDatabase.IsAssetImportWorkerProcess())
+                AssetDatabase.Refresh();
+        }
+        private void OnDisable() { Save(); }
     }
 
     internal class ServerSettings : DotsPlayerSettingsProvider
     {
-        private NetCodeServerSettings m_NetCodeServerSettings;
-
-        private VisualElement m_rootElement;
-
-        private Hash128 m_ServerGUID;
+        VisualElement m_BuildSettingsContainer;
 
         public override int Importance
         {
@@ -50,52 +91,30 @@ namespace Authoring.Hybrid
             return DotsGlobalSettings.PlayerType.Server;
         }
 
-        public override Hash128 GetPlayerSettingGUID()
+        protected override Hash128 DoGetPlayerSettingGUID()
         {
-            if(!m_ServerGUID.IsValid)
-                LoadOrCreateServerAsset();
-            return m_ServerGUID;
+            return NetCodeServerSettings.instance.GUID;
         }
 
-        public override DotsPlayerSettings GetSettingAsset()
+        protected override IEntitiesPlayerSettings DoGetSettingAsset()
         {
-            if (m_NetCodeServerSettings == null)
-                LoadOrCreateServerAsset();
-            return m_NetCodeServerSettings;
-        }
-
-        void LoadOrCreateServerAsset()
-        {
-            var  path = k_DefaultAssetPath + k_DefaultAssetName + "ServerSettings" + k_DefaultAssetExtension;
-            if(File.Exists(path))
-                m_NetCodeServerSettings = AssetDatabase.LoadAssetAtPath<NetCodeServerSettings>(path);
-            else
-            {
-                m_NetCodeServerSettings = (NetCodeServerSettings)ScriptableObject.CreateInstance(typeof(NetCodeServerSettings));
-                m_NetCodeServerSettings.name = k_DefaultAssetName + nameof(ServerSettings);
-
-                AssetDatabase.CreateAsset(m_NetCodeServerSettings, path);
-            }
-            m_ServerGUID = new Hash128(AssetDatabase.AssetPathToGUID(path));
-        }
-
-        public override void Enable(int value)
-        {
-            m_rootElement.SetEnabled((value == (int)DotsGlobalSettings.PlayerType.Server));
+            return NetCodeServerSettings.instance;
         }
 
         public override void OnActivate(DotsGlobalSettings.PlayerType type, VisualElement rootElement)
         {
-            m_rootElement = new VisualElement();
-            m_rootElement.AddToClassList("target");
-            m_rootElement.SetEnabled(type == DotsGlobalSettings.PlayerType.Server);
+            rootElement.RegisterCallback<AttachToPanelEvent>(OnAttachToPanel);
+            rootElement.RegisterCallback<DetachFromPanelEvent>(OnDetachFromPanel);
 
-            var so = new SerializedObject(GetSettingAsset());
-            m_rootElement.Bind(so);
+            m_BuildSettingsContainer = new VisualElement();
+            m_BuildSettingsContainer.AddToClassList("target");
+
+            var so = new SerializedObject(NetCodeServerSettings.instance);
+            m_BuildSettingsContainer.Bind(so);
             so.Update();
 
             var label = new Label("Server");
-            m_rootElement.Add(label);
+            m_BuildSettingsContainer.Add(label);
 
             var targetS = new VisualElement();
             targetS.AddToClassList("target-Settings");
@@ -109,10 +128,24 @@ namespace Authoring.Hybrid
             propExtraDefinesField.name = "Extra Defines";
             targetS.Add(propExtraDefinesField);
 
-            m_rootElement.Add(targetS);
-            rootElement.Add(m_rootElement);
+            m_BuildSettingsContainer.Add(targetS);
+            rootElement.Add(m_BuildSettingsContainer);
 
             so.ApplyModifiedProperties();
+        }
+
+        static void OnAttachToPanel(AttachToPanelEvent evt)
+        {
+            // The ScriptableSingleton<T> is not directly editable by default.
+            // Change the hideFlags to make the SerializedObject editable.
+            NetCodeServerSettings.instance.hideFlags = HideFlags.HideInHierarchy | HideFlags.DontSave;
+        }
+
+        static void OnDetachFromPanel(DetachFromPanelEvent evt)
+        {
+            // Restore the original flags
+            NetCodeServerSettings.instance.hideFlags = HideFlags.HideAndDontSave;
+            NetCodeServerSettings.instance.Save();
         }
 
         public override string[] GetExtraScriptingDefines()

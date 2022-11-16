@@ -81,12 +81,13 @@ namespace Unity.NetCode
             };
             state.Dependency = ackJob.Schedule(state.Dependency);
         }
+        [BurstCompile]
         partial struct ClientPrespawnAck : IJobEntity
         {
             [ReadOnly] public ComponentLookup<IsSectionLoaded> sectionLoadedFromEntity;
             public NetDebug netDebug;
             public EntityCommandBuffer entityCommandBuffer;
-            public void Execute(Entity entity, [EntityInQueryIndex] int entityInQueryIndex, ref SubSceneWithGhostStateComponent stateComponent)
+            public void Execute(Entity entity, ref SubSceneWithGhostStateComponent stateComponent)
             {
                 bool isLoaded = sectionLoadedFromEntity.HasComponent(entity);
                 if (!isLoaded && stateComponent.Streaming != 0)

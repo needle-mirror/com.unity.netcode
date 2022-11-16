@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using Unity.Entities.Conversion;
 using Unity.Entities.Editor;
 using UnityEditor;
 using UnityEditor.SceneManagement;
@@ -194,7 +195,7 @@ namespace Unity.NetCode.Editor
                 // Warn about replicating child components:
                 if (!bakedEntityResult.IsRoot)
                 {
-                    if (replicated.Any(x => x.variant.IsSerialized))
+                    if (replicated.Any(x => x.serializationStrategy.IsSerialized != 0))
                     {
                         replicatedContainer.contentContainer.Add(new HelpBox("Note: Serializing child entities is relatively slow. " +
                             "Prefer to have multiple Ghosts with faked parenting, if possible.", HelpBoxMessageType.Warning));
@@ -323,22 +324,22 @@ Note that:
             };
             DropdownStyle(dropdown);
 
-            for (var i = 0; i < bakedComponent.availableVariants.Length; i++)
+            for (var i = 0; i < bakedComponent.availableSerializationStrategies.Length; i++)
             {
-                dropdown.choices.Add(bakedComponent.availableVariantReadableNames[i]);
+                dropdown.choices.Add(bakedComponent.availableSerializationStrategyDisplayNames[i]);
             }
 
             // Set current value:
             {
-                var index = Array.FindIndex(bakedComponent.availableVariants, x => x.Hash == bakedComponent.variant.Hash);
+                var index = Array.FindIndex(bakedComponent.availableSerializationStrategies, x => x.Hash == bakedComponent.serializationStrategy.Hash);
                 if (index >= 0)
                 {
-                    var selectedVariantName = bakedComponent.availableVariantReadableNames[index];
+                    var selectedVariantName = bakedComponent.availableSerializationStrategyDisplayNames[index];
                     dropdown.SetValueWithoutNotify(selectedVariantName);
                 }
                 else
                 {
-                    dropdown.SetValueWithoutNotify($"!! Unknown Variant Hash {bakedComponent.VariantHash} !! (Fallback: {bakedComponent.variant.CreateReadableName(bakedComponent.metaData)})");
+                    dropdown.SetValueWithoutNotify($"!! Unknown Variant Hash {bakedComponent.VariantHash} !! (Fallback: {bakedComponent.serializationStrategy.DisplayName.ToString()})");
                     dropdown.style.backgroundColor = GhostAuthoringComponentEditor.brokenColor;
                 }
             }
@@ -346,10 +347,10 @@ Note that:
             // Handle value changed.
             dropdown.RegisterValueChangedCallback(evt =>
             {
-                var indexOf = Array.IndexOf(bakedComponent.availableVariantReadableNames, evt.newValue);
+                var indexOf = Array.IndexOf(bakedComponent.availableSerializationStrategyDisplayNames, evt.newValue);
                 if (indexOf >= 0)
                 {
-                    bakedComponent.variant = bakedComponent.availableVariants[indexOf];
+                    bakedComponent.serializationStrategy = bakedComponent.availableSerializationStrategies[indexOf];
                     bakedComponent.SaveVariant(false, false);
                     dropdown.style.color = new StyleColor(StyleKeyword.Null);
                 }
@@ -577,7 +578,7 @@ Note that:
                 }
                 void UpdateUi()
                 {
-                    var defaultValue = (bakedComponent.defaultVariant.PrefabType & type) != 0;
+                    var defaultValue = (bakedComponent.defaultSerializationStrategy.PrefabType & type) != 0;
                     var isSet = (bakedComponent.PrefabType & type) != 0;
                     button.style.backgroundColor = isSet ? new Color(0.17f, 0.17f, 0.17f) : new Color(0.48f, 0.15f, 0.15f);
 

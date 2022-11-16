@@ -148,6 +148,42 @@ namespace Unity.NetCode.Generators
             },
             new TypeRegistryEntry
             {
+                Type = "System.Double",
+                Quantized = true,
+                Smoothing = SmoothingAction.Interpolate,
+                SupportCommand = false,
+                Composite = false,
+                Template = "NetCode.GhostSnapshotValueDouble.cs"
+            },
+            new TypeRegistryEntry
+            {
+                Type = "System.Double",
+                Quantized = true,
+                Smoothing = SmoothingAction.Clamp,
+                SupportCommand = false,
+                Composite = false,
+                Template = "NetCode.GhostSnapshotValueDouble.cs"
+            },
+            new TypeRegistryEntry
+            {
+                Type = "System.Double",
+                Quantized = false,
+                Smoothing = SmoothingAction.Clamp,
+                SupportCommand = true,
+                Composite = false,
+                Template = "NetCode.GhostSnapshotValueDoubleUnquantized.cs"
+            },
+            new TypeRegistryEntry
+            {
+                Type = "System.Double",
+                Quantized = false,
+                Smoothing = SmoothingAction.Interpolate,
+                SupportCommand = false,
+                Composite = false,
+                Template = "NetCode.GhostSnapshotValueDoubleUnquantized.cs"
+            },
+            new TypeRegistryEntry
+            {
                 Type = "Unity.Mathematics.float2",
                 Quantized = true,
                 Smoothing = SmoothingAction.Interpolate,

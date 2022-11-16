@@ -40,13 +40,37 @@ namespace Unity.NetCode.Tests
 
     public enum SendForChildrenTestCase
     {
-        YesViaDefaultNameDictionary,
+        /// <summary>Creating a child overload via <see cref="DefaultVariantSystemBase.RegisterDefaultVariants"/>.</summary>
+        YesViaDefaultVariantMap,
+        /// <summary>Creating a child overload via <see cref="DefaultVariantSystemBase.RegisterDefaultVariants"/>.</summary>
+        NoViaDefaultVariantMap,
+        /// <summary>Using the <see cref="GhostAuthoringInspectionComponent"/> to define an override on a child.</summary>
         YesViaInspectionComponentOverride,
-        NoViaDontSerializeVariantDefault,
+        /// <summary>Children default to <see cref="DontSerializeVariant"/>.</summary>
+        Default,
+
+        // TODO - Tests for ClientOnlyVariant.
     }
 
     public class BootstrapTests
     {
+        internal static bool IsExpectedToBeReplicated(SendForChildrenTestCase sendForChildrenTestCase, bool isRoot)
+        {
+            switch (sendForChildrenTestCase)
+            {
+                case SendForChildrenTestCase.YesViaDefaultVariantMap:
+                    return true;
+                case SendForChildrenTestCase.NoViaDefaultVariantMap:
+                    return false;
+                case SendForChildrenTestCase.YesViaInspectionComponentOverride:
+                    return true;
+                case SendForChildrenTestCase.Default:
+                    return isRoot;
+                default:
+                    throw new ArgumentOutOfRangeException(nameof(sendForChildrenTestCase), sendForChildrenTestCase, nameof(IsExpectedToBeReplicated));
+            }
+        }
+
         [Test]
         public void BootstrapRespectsUpdateInWorld()
         {

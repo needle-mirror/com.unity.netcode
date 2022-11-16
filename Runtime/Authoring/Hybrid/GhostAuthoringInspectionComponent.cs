@@ -13,6 +13,7 @@ namespace Unity.NetCode
     /// <seealso cref="GhostAuthoringComponent"/>
     /// </summary>
     [DisallowMultipleComponent]
+    [HelpURL(Authoring.HelpURLs.GhostAuthoringInspetionComponent)]
     public class GhostAuthoringInspectionComponent : MonoBehaviour
     {
         // TODO: This doesn't support multi-edit.

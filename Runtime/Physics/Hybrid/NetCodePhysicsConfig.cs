@@ -12,6 +12,7 @@ namespace Unity.NetCode
     /// the <see cref="PredictedPhysicsNonGhostWorld"/>, <see cref="EnableLagCompensation"/> components are automatically added to it based on these settings.
     /// </summary>
     [DisallowMultipleComponent]
+    [HelpURL(Authoring.HelpURLs.NetCodePhysicsConfig)]
     public sealed class NetCodePhysicsConfig : MonoBehaviour
     {
         /// <summary>

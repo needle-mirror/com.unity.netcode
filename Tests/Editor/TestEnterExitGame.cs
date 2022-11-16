@@ -19,8 +19,7 @@ namespace Unity.NetCode.Tests
             SceneSystem.UnloadScene(world.Unmanaged,
                 subScene.SceneGUID,
                 SceneSystem.UnloadParameters.DestroySceneProxyEntity|
-                SceneSystem.UnloadParameters.DestroySectionProxyEntities|
-                SceneSystem.UnloadParameters.DestroySubSceneProxyEntities);
+                SceneSystem.UnloadParameters.DestroySectionProxyEntities);
         }
 
         [Test]

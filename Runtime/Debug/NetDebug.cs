@@ -2,6 +2,10 @@
 #define NETCODE_DEBUG
 #endif
 
+#if USING_OBSOLETE_METHODS_VIA_INTERNALSVISIBLETO
+#pragma warning disable 0436
+#endif
+
 using System;
 using System.Diagnostics;
 using System.IO;
@@ -549,3 +553,7 @@ namespace Unity.NetCode
         }
     }
 }
+
+#if USING_OBSOLETE_METHODS_VIA_INTERNALSVISIBLETO
+#pragma warning restore 0436
+#endif

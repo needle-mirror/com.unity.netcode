@@ -233,7 +233,7 @@ namespace Unity.NetCode
 
     /// <summary>
     /// System present only for servers worlds, and responsible to replicate ghost entities to the clients.
-    /// /// The <see cref="GhostSendSystem"/> is one of the most complex system of the whole package and heavily rely on multi-thread jobs to dispatch ghosts to all connection as much as possible in parallel.
+    /// The <see cref="GhostSendSystem"/> is one of the most complex system of the whole package and heavily rely on multi-thread jobs to dispatch ghosts to all connection as much as possible in parallel.
     /// <para>
     /// Ghosts entities are replicated by sending a 'snapshot' of their state to the clients, at <see cref="ClientServerTickRate.NetworkTickRate"/> frequency.
     /// Snaphosts are streamed to the client when their connection is tagged with a <see cref="NetworkStreamInGame"/> component (we usually refere a connection with that tag as "in-game"),
@@ -305,7 +305,6 @@ namespace Unity.NetCode
         private Unity.Profiling.ProfilerMarker m_GhostGroupMarker;
 
         private GhostPreSerializer m_GhostPreSerializer;
-        ComponentType m_DefaultPerChunkComponentType;
         ComponentLookup<NetworkIdComponent> m_NetworkIdFromEntity;
         ComponentLookup<NetworkSnapshotAckComponent> m_SnapshotAckFromEntity;
         ComponentLookup<GhostTypeComponent> m_GhostTypeFromEntity;
@@ -372,7 +371,6 @@ namespace Unity.NetCode
             m_UpdateLen = new NativeArray<uint>(JobsUtility.MaxJobThreadCount, Allocator.Persistent);
             m_UpdateCounts = new NativeArray<uint>(JobsUtility.MaxJobThreadCount, Allocator.Persistent);
 #endif
-            m_DefaultPerChunkComponentType = ComponentType.ReadOnly<DefaultPerChunkComponent>();
 
             connectionQuery = state.GetEntityQuery(
                 ComponentType.ReadWrite<NetworkStreamConnection>(),
@@ -497,10 +495,6 @@ namespace Unity.NetCode
 #endif
         }
 
-        struct DefaultPerChunkComponent : ISharedComponentData
-        {
-        }
-
         [BurstCompile]
         struct SpawnGhostJob : IJob
         {
@@ -547,7 +541,7 @@ namespace Unity.NetCode
                         throw new InvalidOperationException("Could not find ghost type in the collection");
                     if (ghostType >= GhostTypeCollection.Length)
                         continue; // serialization data has not been loaded yet
-                    var ghosts = spawnChunks[chunk].GetNativeArray(ghostComponentType);
+                    var ghosts = spawnChunks[chunk].GetNativeArray(ref ghostComponentType);
                     for (var ent = 0; ent < entities.Length; ++ent)
                     {
                         if (!freeGhostIds.TryDequeue(out var newId))
@@ -587,7 +581,7 @@ namespace Unity.NetCode
 #if ENABLE_UNITY_COLLECTIONS_CHECKS
                     if (GhostTypeCollection[ghostType].PredictionOwnerOffset != 0)
                     {
-                        if (!spawnChunks[chunk].Has(ghostOwnerComponentType))
+                        if (!spawnChunks[chunk].Has(ref ghostOwnerComponentType))
                         {
                             netDebug.LogError(FixedString.Format("Ghost type is owner predicted but does not have a GhostOwnerComponent {0}, {1}", ghostType, ghostTypeComponent.guid0));
                             continue;
@@ -595,7 +589,7 @@ namespace Unity.NetCode
                         if (GhostTypeCollection[ghostType].OwnerPredicted != 0)
                         {
                             // Validate that the entity has a GhostOwnerComponent and that the value in the GhosOwnerComponent has been initialized
-                            var ghostOwners = spawnChunks[chunk].GetNativeArray(ghostOwnerComponentType);
+                            var ghostOwners = spawnChunks[chunk].GetNativeArray(ref ghostOwnerComponentType);
                             for (int ent = 0; ent < ghostOwners.Length; ++ent)
                             {
                                if (ghostOwners[ent].NetworkId == 0)
@@ -760,25 +754,48 @@ namespace Unity.NetCode
                         prespawnSceneLoadedEntity, prespawnAckFromEntity, prespawnSceneLoadedFromEntity);
                 }
 
-                var success = false;
-                var result = 0;
-                while (!success)
+                var serializeResult = default(SerializeEnitiesResult);
+                while (serializeResult != SerializeEnitiesResult.Abort &&
+                       serializeResult != SerializeEnitiesResult.Ok)
                 {
                     // If the requested packet size if larger than one MTU we have to use the fragmentation pipeline
                     var pipelineToUse = (targetSnapshotSize <= maxSnapshotSizeWithoutFragmentation) ? unreliablePipeline : unreliableFragmentedPipeline;
-
                     if (driver.BeginSend(pipelineToUse, connectionId, out var dataStream, targetSnapshotSize) == 0)
                     {
-                        success = sendEntities(ref driver, ref dataStream, ghostChunkComponentTypesPtr, ghostChunkComponentTypesLength);
-                        if (success)
+                        serializeResult = SerializeEnitiesResult.Unknown;
+                        try
                         {
-                            if ((result = driver.EndSend(dataStream)) < 0)
+                            serializeResult = sendEntities(ref driver, ref dataStream, ghostChunkComponentTypesPtr, ghostChunkComponentTypesLength);
+                            if (serializeResult == SerializeEnitiesResult.Ok)
                             {
-                                netDebug.LogWarning(FixedString.Format("An error occurred during EndSend. ErrorCode: {0}", result));
+                                var result = 0;
+                                if ((result = driver.EndSend(dataStream)) < 0)
+                                {
+                                    netDebug.LogWarning(FixedString.Format("An error occurred during EndSend. ErrorCode: {0}", result));
+                                }
+                            }
+                            else
+                            {
+                                driver.AbortSend(dataStream);
                             }
                         }
-                        else
-                            driver.AbortSend(dataStream);
+                        finally
+                        {
+
+                            //Finally is always called for non butsted code because there is a try-catch in outer caller (worldunmanged)
+                            //regardless of the exception thrown (even invalidprogramexception).
+                            //For bursted code, the try-finally has some limitation but it is still unwinding the blocks in the correct order
+                            //(not in all cases, but it the one used here everything work fine).
+                            //In general, the unhandled error and exceptions are all cought first by the outermost try-catch (world unmanged)
+                            //and then the try-finally are called in reverse order (stack unwiding).
+                            //There are two exeption handling in the ghost send system:
+                            //- the one here, that is responsible to abort the data stream.
+                            //- one inside the sendEntities method itself, that try to revert some internal state (i.e: the despawn ghost)
+                            //
+                            //The innermost finally is called first and do not abort the streams.
+                            if (serializeResult == SerializeEnitiesResult.Unknown)
+                                driver.AbortSend(dataStream);
+                        }
                     }
                     else
                         throw new InvalidOperationException("Failed to send a snapshot to a client");
@@ -787,7 +804,7 @@ namespace Unity.NetCode
                 }
             }
 
-            private unsafe bool sendEntities(ref NetworkDriver.Concurrent driver, ref DataStreamWriter dataStream, DynamicComponentTypeHandle* ghostChunkComponentTypesPtr, int ghostChunkComponentTypesLength)
+            private unsafe SerializeEnitiesResult sendEntities(ref NetworkDriver.Concurrent driver, ref DataStreamWriter dataStream, DynamicComponentTypeHandle* ghostChunkComponentTypesPtr, int ghostChunkComponentTypesLength)
             {
 #if NETCODE_DEBUG
                 FixedString512Bytes debugLog = default;
@@ -903,7 +920,7 @@ namespace Unity.NetCode
                     if (enablePacketLogging == 1)
                         netDebugPacket.Log("Failed to finish writing snapshot.\n");
 #endif
-                    return false;
+                    return SerializeEnitiesResult.Failed;
                 }
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
                 var netStats = netStatsBuffer.GetSubArray(netStatStride * ThreadIndex, netStatSize);
@@ -960,17 +977,19 @@ namespace Unity.NetCode
                 var numChunks = serialChunks.Length;
                 if (MaxSendChunks > 0 && numChunks > MaxSendChunks)
                     numChunks = MaxSendChunks;
+
+
                 for (int pc = 0; pc < numChunks; ++pc)
                 {
                     var chunk = serialChunks[pc].chunk;
                     var ghostType = serialChunks[pc].ghostType;
-
 #if NETCODE_DEBUG
                     serializerData.ghostTypeName = default;
                     if (enablePacketLogging == 1)
                     {
                         if (prefabNamesFromEntity.HasComponent(GhostCollection[ghostType].GhostPrefab))
-                            serializerData.ghostTypeName.Append(prefabNamesFromEntity[GhostCollection[ghostType].GhostPrefab].Name);
+                            serializerData.ghostTypeName.Append(
+                                prefabNamesFromEntity[GhostCollection[ghostType].GhostPrefab].Name);
                     }
 #endif
 
@@ -979,7 +998,9 @@ namespace Unity.NetCode
                     {
 #if NETCODE_DEBUG
                         if (enablePacketLogging == 1)
-                            netDebugPacket.Log(FixedString.Format("Skipping {0} in snapshot as client has not acked the spawn for it.\n", serializerData.ghostTypeName));
+                            netDebugPacket.Log(FixedString.Format(
+                                "Skipping {0} in snapshot as client has not acked the spawn for it.\n",
+                                serializerData.ghostTypeName));
 #endif
                         continue;
                     }
@@ -987,20 +1008,36 @@ namespace Unity.NetCode
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
                     var prevUpdateLen = updateLen;
 #endif
-                    bool writeOK = serializerData.SerializeChunk(serialChunks[pc], ref dataStream,
-                        ref updateLen, ref didFillPacket);
+                    var serializeResult = default(SerializeEnitiesResult);
+                    try
+                    {
+                        serializeResult = serializerData.SerializeChunk(serialChunks[pc], ref dataStream,
+                            ref updateLen, ref didFillPacket);
+                    }
+                    finally
+                    {
+                        //If the result is unknown, an exception may have been throwm inside the serializeChunk.
+                        if (serializeResult == SerializeEnitiesResult.Unknown)
+                        {
+                            //Do not abort the stream. It is aborted in the outhermost loop.
+                            RevertDespawnGhostState(ackTick);
+                        }
+                    }
+
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
                     if (updateLen > prevUpdateLen)
                     {
                         // indexing starts at 4 due to slots 0-3 are reserved.
-                        netStats[ghostType*3 + 4] = netStats[ghostType*3 + 4] + updateLen - prevUpdateLen;
-                        netStats[ghostType*3 + 5] = netStats[ghostType*3 + 5] + (uint) (dataStream.LengthInBits - startPos);
-                        netStats[ghostType*3 + 6] = netStats[ghostType*3 + 6] + 1; // chunk count
+                        netStats[ghostType * 3 + 4] = netStats[ghostType * 3 + 4] + updateLen - prevUpdateLen;
+                        netStats[ghostType * 3 + 5] =
+                            netStats[ghostType * 3 + 5] + (uint)(dataStream.LengthInBits - startPos);
+                        netStats[ghostType * 3 + 6] = netStats[ghostType * 3 + 6] + 1; // chunk count
                         startPos = dataStream.LengthInBits;
                     }
 #endif
-                    if (!writeOK)
+                    if (serializeResult == SerializeEnitiesResult.Failed)
                         break;
+
                     if (MaxSendEntities > 0)
                     {
                         MaxSendEntities -= chunk.Count;
@@ -1008,11 +1045,12 @@ namespace Unity.NetCode
                             break;
                     }
                 }
+
                 if (dataStream.HasFailedWrites)
                 {
                     RevertDespawnGhostState(ackTick);
-                    driver.AbortSend(dataStream);
-                    throw new InvalidOperationException("Size limitation on snapshot did not prevent all errors");
+                    netDebug.LogError("Size limitation on snapshot did not prevent all errors");
+                    return SerializeEnitiesResult.Abort;
                 }
 
                 dataStream.Flush();
@@ -1030,10 +1068,12 @@ namespace Unity.NetCode
                     netDebugPacket.Log(FixedString.Format("Despawn: {0} Update:{1} {2}B\n\n", despawnLen, updateLen, dataStream.Length));
 #endif
 
-                var didSend = !(didFillPacket && updateLen == 0);
-                if (!didSend)
+                if (didFillPacket && updateLen == 0)
+                {
                     RevertDespawnGhostState(ackTick);
-                return didSend;
+                    return SerializeEnitiesResult.Failed;
+                }
+                return SerializeEnitiesResult.Ok;
             }
 
             // Revert all state updates that happened from failing to write despawn packets
@@ -1043,7 +1083,7 @@ namespace Unity.NetCode
                 ghostStateData.DespawnRepeatCount = 0;
                 for (var chunk = 0; chunk < despawnChunks.Length; ++chunk)
                 {
-                    var ghostStates = despawnChunks[chunk].GetNativeArray(ghostSystemStateType);
+                    var ghostStates = despawnChunks[chunk].GetNativeArray(ref ghostSystemStateType);
                     for (var ent = 0; ent < ghostStates.Length; ++ent)
                     {
                         ref var state = ref ghostStateData.GetGhostState(ghostStates[ent]);
@@ -1065,6 +1105,7 @@ namespace Unity.NetCode
                 }
 
             }
+
             /// Write a list of all ghosts which have been despawned after the last acked packet. Return the number of ghost ids written
             uint WriteDespawnGhosts(ref DataStreamWriter dataStream, NetworkTick ackTick)
             {
@@ -1089,7 +1130,7 @@ namespace Unity.NetCode
                 uint repeatThisFrame = ghostStateData.DespawnRepeatCount;
                 for (var chunk = 0; chunk < despawnChunks.Length; ++chunk)
                 {
-                    var ghostStates = despawnChunks[chunk].GetNativeArray(ghostSystemStateType);
+                    var ghostStates = despawnChunks[chunk].GetNativeArray(ref ghostSystemStateType);
                     for (var ent = 0; ent < ghostStates.Length; ++ent)
                     {
                         ref var state = ref ghostStateData.GetGhostState(ghostStates[ent]);
@@ -1330,7 +1371,7 @@ namespace Unity.NetCode
                     maxCount = math.max(maxCount, ghostChunk.Count);
 
                     //Prespawn ghost chunk should be considered only if the subscene wich they belong to as been loaded (acked) by the client.
-                    if (ghostChunk.Has(prespawnGhostIdType))
+                    if (ghostChunk.Has(ref prespawnGhostIdType))
                     {
                         var ackedPrespawnSceneMap = connectionState[connectionIdx].AckedPrespawnSceneMap;
                         //Retrieve the subscene hash from the shared component index.
@@ -1347,7 +1388,7 @@ namespace Unity.NetCode
                         }
                     }
 
-                    if (ghostChunk.Has(ghostChildEntityComponentType))
+                    if (ghostChunk.Has(ref ghostChildEntityComponentType))
                         continue;
 
                     var ghostType = chunkState.ghostType;
@@ -1357,11 +1398,11 @@ namespace Unity.NetCode
                         chunkPriority /= IrrelevantImportanceDownScale;
                     if (chunkPriority < MinSendImportance)
                         continue;
-                    if (connectionHasConnectionData && connectionHasImportanceData && ghostChunk.Has(ghostImportancePerChunkTypeHandle))
+                    if (connectionHasConnectionData && connectionHasImportanceData && ghostChunk.Has(ref ghostImportancePerChunkTypeHandle))
                     {
                         unsafe
                         {
-                            IntPtr chunkTile = new IntPtr(ghostChunk.GetDynamicSharedComponentDataAddress(ghostImportancePerChunkTypeHandle));
+                            IntPtr chunkTile = new IntPtr(ghostChunk.GetDynamicSharedComponentDataAddress(ref ghostImportancePerChunkTypeHandle));
                             chunkPriority = scaleGhostImportance.Ptr.Invoke(connectionDataPtr, importanceDataPtr, chunkTile, chunkPriority);
                         }
                         if (chunkPriority < MinDistanceScaledSendImportance)
@@ -1382,7 +1423,7 @@ namespace Unity.NetCode
 #endif
                 }
 
-                var serialChunkArray = serialChunks.AsArray();
+                NativeArray<PrioChunk> serialChunkArray = serialChunks.AsArray();
                 serialChunkArray.Sort();
                 return serialChunks;
             }
@@ -1392,7 +1433,7 @@ namespace Unity.NetCode
                 DynamicComponentTypeHandle connectionDataTypeHandle,
                 int typeSize)
             {
-                var ptr = (byte*)storageInfo.Chunk.GetDynamicComponentDataArrayReinterpret<byte>(connectionDataTypeHandle, typeSize).GetUnsafeReadOnlyPtr();
+                var ptr = (byte*)storageInfo.Chunk.GetDynamicComponentDataArrayReinterpret<byte>(ref connectionDataTypeHandle, typeSize).GetUnsafeReadOnlyPtr();
                 ptr += typeSize * storageInfo.IndexInChunk;
                 return (IntPtr)ptr;
             }
@@ -1420,7 +1461,7 @@ namespace Unity.NetCode
 
             private bool AddNewChunk(ArchetypeChunk ghostChunk, ref GhostChunkSerializationState chunkState)
             {
-                var ghosts = ghostChunk.GetNativeArray(ghostComponentType);
+                var ghosts = ghostChunk.GetNativeArray(ref ghostComponentType);
                 if (!TryGetChunkGhostType(ghostChunk, ghosts, out var chunkGhostType))
                 {
                     return false;
@@ -1465,7 +1506,7 @@ namespace Unity.NetCode
 
             private static bool TryGetComponentPtrInChunk(EntityStorageInfo connectionChunkInfo, DynamicComponentTypeHandle typeHandle, int typeSize, out IntPtr componentPtrInChunk)
             {
-                var connectionHasType = connectionChunkInfo.Chunk.Has(typeHandle);
+                var connectionHasType = connectionChunkInfo.Chunk.Has(ref typeHandle);
                 componentPtrInChunk = connectionHasType ? GetComponentPtrInChunk(connectionChunkInfo, typeHandle, typeSize) : default;
                 return connectionHasType;
             }
@@ -1738,7 +1779,7 @@ namespace Unity.NetCode
             }
             else
             {
-                serializeJob.ghostImportancePerChunkTypeHandle = state.GetDynamicSharedComponentTypeHandle(m_DefaultPerChunkComponentType);
+                serializeJob.ghostImportancePerChunkTypeHandle = state.GetDynamicSharedComponentTypeHandle(new ComponentType { TypeIndex = TypeIndex.Null, AccessModeType = ComponentType.AccessMode.ReadOnly });
             }
 
             var ghostComponentCollection = state.EntityManager.GetBuffer<GhostCollectionComponentType>(ghostCollectionSingleton);
@@ -1968,7 +2009,7 @@ namespace Unity.NetCode
             public NativeQueue<SpawnedGhost>.ParallelWriter FreeSpawnedGhosts;
             public NetworkTick CurrentTick;
 
-            public void Execute(Entity entity, [EntityInQueryIndex]int entityInQueryIndex, ref GhostCleanupComponent ghost)
+            public void Execute(Entity entity, [EntityIndexInQuery]int entityIndexInQuery, ref GhostCleanupComponent ghost)
             {
                 var ackedByAllTick = DespawnAckedByAllTick.Value;
                 if (!ghost.despawnTick.IsValid)
@@ -1979,7 +2020,7 @@ namespace Unity.NetCode
                 {
                     if (PrespawnHelper.IsRuntimeSpawnedGhost(ghost.ghostId))
                         FreeGhostIds.Enqueue(ghost.ghostId);
-                    CommandBufferConcurrent.RemoveComponent<GhostCleanupComponent>(entityInQueryIndex, entity);
+                    CommandBufferConcurrent.RemoveComponent<GhostCleanupComponent>(entityIndexInQuery, entity);
                 }
                 //Remove the ghost from the mapping as soon as possible, regardless of clients acknowledge
                 var spawnedGhost = new SpawnedGhost {ghostId = ghost.ghostId, spawnTick = ghost.spawnTick};

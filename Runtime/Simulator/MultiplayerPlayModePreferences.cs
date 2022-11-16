@@ -63,17 +63,11 @@ namespace Unity.NetCode
             set => EditorPrefs.SetInt(s_PlayModeTypeKey, (int) value);
         }
 
-        public enum ServerWorldDataToLoad
+        private static string s_SimulateDedicatedServer = s_PrefsKeyPrefix + "SimulateDedicatedServer";
+        public static bool SimulateDedicatedServer
         {
-            Server,
-            ClientAndServer
-        }
-
-        private static string s_ServerWorldDataType = s_PrefsKeyPrefix + "ServerWorldData_Type";
-        public static ServerWorldDataToLoad ServerLoadDataType
-        {
-            get => (ServerWorldDataToLoad) EditorPrefs.GetInt(s_ServerWorldDataType, (int) ServerWorldDataToLoad.ClientAndServer);
-            set => EditorPrefs.SetInt(s_ServerWorldDataType, (int) value);
+            get => EditorPrefs.GetBool(s_SimulateDedicatedServer, false);
+            set => EditorPrefs.SetBool(s_SimulateDedicatedServer, value);
         }
 
         /// <inheritdoc cref="SimulatorUtility.Parameters.PacketDelayMs"/>

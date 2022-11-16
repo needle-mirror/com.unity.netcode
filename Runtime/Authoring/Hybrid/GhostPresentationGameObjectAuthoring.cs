@@ -1,5 +1,7 @@
 using Unity.Entities;
 using UnityEngine;
+using System;
+using System.Collections.Generic;
 
 namespace Unity.NetCode.Hybrid
 {
@@ -12,6 +14,8 @@ namespace Unity.NetCode.Hybrid
     /// It also add to the converted entity an <see cref="GhostPresentationGameObjectPrefabReference"/> that references the new created entity.
     /// It finally register itself has a producer of IRegisterPlayableData.
     /// </remarks>
+    [DisallowMultipleComponent]
+    [HelpURL(Authoring.HelpURLs.GhostPresentationGameObjectAuthoring)]
     public class GhostPresentationGameObjectAuthoring : MonoBehaviour
 #if !UNITY_DISABLE_MANAGED_COMPONENTS
         , IRegisterPlayableData
@@ -48,6 +52,7 @@ namespace Unity.NetCode.Hybrid
         , IRegisterPlayableData
 #endif
     {
+        private HashSet<Type> m_AddedTypes;
         public override void Bake(GhostPresentationGameObjectAuthoring authoring)
         {
 #if UNITY_DISABLE_MANAGED_COMPONENTS
@@ -64,12 +69,13 @@ namespace Unity.NetCode.Hybrid
             };
             if (prefabComponent.Server == null && prefabComponent.Client == null)
                 return;
-            var presPrefab = CreateAdditionalEntity();
+            var presPrefab = CreateAdditionalEntity(TransformUsageFlags.None);
             AddComponentObject(presPrefab, prefabComponent);
 
             AddComponent(new GhostPresentationGameObjectPrefabReference{Prefab = presPrefab});
 
             // Register all the components needed for animation data
+            m_AddedTypes = new HashSet<Type>();
             if (prefabComponent.Client != null)
             {
                 var anim = GetComponent<GhostAnimationController>(prefabComponent.Client);
@@ -88,6 +94,9 @@ namespace Unity.NetCode.Hybrid
 #if !UNITY_DISABLE_MANAGED_COMPONENTS
         public void RegisterPlayableData<T>() where T: unmanaged, IComponentData
         {
+            if (m_AddedTypes.Contains(typeof(T)))
+                return;
+            m_AddedTypes.Add(typeof(T));
             AddComponent(default(T));
         }
 #endif

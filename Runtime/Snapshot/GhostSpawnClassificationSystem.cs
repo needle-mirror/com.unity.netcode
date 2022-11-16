@@ -42,7 +42,7 @@ namespace Unity.NetCode
             Interpolated,
             /// <summary>
             /// The ghost is a predicted ghost. A new ghost instance is immediately created, unless the
-            /// <see cref="PredictedSpawnEntity"/> is set to a valid emtity reference, in which case the
+            /// <see cref="PredictedSpawnEntity"/> is set to a valid entity reference, in which case the
             /// referenced entity is used instead as destination where to copy the received ghost snapshot.
             /// </summary>
             Predicted
@@ -62,7 +62,7 @@ namespace Unity.NetCode
         public int GhostID;
         /// <summary>
         /// Offset im bytes used to retrieve from the temporary <see cref="SnapshotDataBuffer"/>, present on the
-        /// <see cref="GhostSpawnQueueComponent"/> singleton, the first received snashot from the server.
+        /// <see cref="GhostSpawnQueueComponent"/> singleton, the first received snapshot from the server.
         /// </summary>
         public int DataOffset;
         /// <summary>
@@ -98,20 +98,20 @@ namespace Unity.NetCode
         }
         byte m_HasClassifiedPredictedSpawn;
         /// <summary>
-        /// Only valid for prepawn ghost. Mainly used by the spawning system to re-assign
+        /// Only valid for pre-spawned ghost. Mainly used by the spawning system to re-assign
         /// the PrespawnGhostIndex component to pre-spawned ghosts that has re-instantiated because of relevancy changes.
         /// </summary>
         internal int PrespawnIndex;
         /// <summary>
-        /// Only valid for prepawn ghost. The scene section that ghost belong to.
+        /// Only valid for pre-spawned ghost. The scene section that ghost belong to.
         /// </summary>
         internal  Hash128 SceneGUID;
         /// <summary>
-        /// Only valid for prepawn ghost, used to the re-assing the correct index to the <see cref="SceneSection"/> shared
-        /// component when an prespawned ghost is re-spawned (i.e, because of relevancy changes).
+        /// Only valid for pre-spawned ghost, used to the re-assign the correct index to the <see cref="SceneSection"/> shared
+        /// component when an pre-spawned ghost is re-spawned (i.e, because of relevancy changes).
         /// The section index is necessary to ensure that, if the sub-scene from which the ghost were created
         /// is requested to be unloaded by destroying all entities that were part of the scene (the default),
-        /// the prespawned ghost instances are also destroyed.
+        /// the pre-spawned ghost instances are also destroyed.
         /// </summary>
         internal  int SectionIndex;
     }
@@ -129,13 +129,11 @@ namespace Unity.NetCode
     [BurstCompile]
     public partial struct GhostSpawnClassificationSystem : ISystem
     {
-        BufferLookup<GhostCollectionPrefabSerializer> m_GhostCollectionPrefabSerializerFromEntity;
-
+        private LowLevel.SnapshotDataLookupHelper m_spawnBufferHelper;
         [BurstCompile]
         public void OnCreate(ref SystemState state)
         {
-            m_GhostCollectionPrefabSerializerFromEntity = state.GetBufferLookup<GhostCollectionPrefabSerializer>(true);
-
+            m_spawnBufferHelper = new LowLevel.SnapshotDataLookupHelper(ref state);
             state.RequireForUpdate<NetworkIdComponent>();
             state.RequireForUpdate<GhostCollection>();
             state.RequireForUpdate<GhostSpawnQueueComponent>();
@@ -146,10 +144,11 @@ namespace Unity.NetCode
         [BurstCompile]
         public void OnUpdate(ref SystemState state)
         {
-            m_GhostCollectionPrefabSerializerFromEntity.Update(ref state);
+            m_spawnBufferHelper.Update(ref state);
             var classificationJob = new GhostSpawnClassification
             {
-                ghostTypesFromEntity = m_GhostCollectionPrefabSerializerFromEntity,
+                helper = m_spawnBufferHelper,
+                spawningMap = SystemAPI.GetSingleton<SpawnedGhostEntityMap>().Value,
                 ghostCollectionSingleton = SystemAPI.GetSingletonEntity<GhostCollection>(),
                 networkId = SystemAPI.GetSingleton<NetworkIdComponent>().Value
             };
@@ -159,24 +158,25 @@ namespace Unity.NetCode
         [BurstCompile]
         partial struct GhostSpawnClassification : IJobEntity
         {
-            [ReadOnly] public BufferLookup<GhostCollectionPrefabSerializer> ghostTypesFromEntity;
+            public LowLevel.SnapshotDataLookupHelper helper;
+            public NativeParallelHashMap<SpawnedGhost, Entity>.ReadOnly spawningMap;
             public Entity ghostCollectionSingleton;
             public int networkId;
-            public unsafe void Execute(DynamicBuffer<GhostSpawnBuffer> ghosts, DynamicBuffer<SnapshotDataBuffer> data)
+            public unsafe void Execute(DynamicBuffer<GhostSpawnBuffer> ghosts, in DynamicBuffer<SnapshotDataBuffer> data)
             {
-                var ghostTypes = ghostTypesFromEntity[ghostCollectionSingleton];
+                //TODO: find way to avoid passing the spawning map and collection singleton.
+                var spawnBufferInspector = helper.CreateSnapshotBufferLookup(ghostCollectionSingleton, spawningMap);
                 for (int i = 0; i < ghosts.Length; ++i)
                 {
                     var ghost = ghosts[i];
                     if (ghost.SpawnType == GhostSpawnBuffer.Type.Unknown)
                     {
-                        ghost.SpawnType = ghostTypes[ghost.GhostType].FallbackPredictionMode;
-                        if (ghostTypes[ghost.GhostType].PredictionOwnerOffset != 0 && ghostTypes[ghost.GhostType].OwnerPredicted != 0)
+                        ghost.SpawnType = spawnBufferInspector.GetFallbackPredictionMode(ghost);
+                        if(spawnBufferInspector.IsOwnerPredicted(ghost) && spawnBufferInspector.HasGhostOwner(ghost))
                         {
-                            // Prediciton mode is where the owner i is stored in the snapshot data
-                            var dataPtr = (byte*)data.GetUnsafePtr();
-                            dataPtr += ghost.DataOffset;
-                            if (*(int*)(dataPtr+ghostTypes[ghost.GhostType].PredictionOwnerOffset) == networkId)
+                            // Prediction mode is where the owner i is stored in the snapshot data
+                            var ghostOwner = spawnBufferInspector.GetGhostOwner(ghost, data);
+                            if(ghostOwner == networkId)
                                 ghost.SpawnType = GhostSpawnBuffer.Type.Predicted;
                         }
                         ghosts[i] = ghost;
@@ -202,12 +202,12 @@ namespace Unity.NetCode
         /// </summary>
         const uint k_TickPeriod = 5;
 
-        BufferLookup<PredictedGhostSpawn> m_PredictedGhostSpawnFromEntity;
+        BufferLookup<PredictedGhostSpawn> m_PredictedGhostSpawnLookup;
 
         [BurstCompile]
         public void OnCreate(ref SystemState state)
         {
-            m_PredictedGhostSpawnFromEntity = state.GetBufferLookup<PredictedGhostSpawn>();
+            m_PredictedGhostSpawnLookup = state.GetBufferLookup<PredictedGhostSpawn>();
             state.RequireForUpdate<GhostSpawnQueueComponent>();
             state.RequireForUpdate<PredictedGhostSpawnList>();
         }
@@ -218,11 +218,11 @@ namespace Unity.NetCode
         [BurstCompile]
         public void OnUpdate(ref SystemState state)
         {
-            m_PredictedGhostSpawnFromEntity.Update(ref state);
+            m_PredictedGhostSpawnLookup.Update(ref state);
             var classificationJob = new DefaultGhostSpawnClassificationJob
             {
                 spawnListEntity = SystemAPI.GetSingletonEntity<PredictedGhostSpawnList>(),
-                spawnListFromEntity = m_PredictedGhostSpawnFromEntity
+                spawnListLookup = m_PredictedGhostSpawnLookup
             };
             state.Dependency = classificationJob.Schedule(state.Dependency);
         }
@@ -232,11 +232,11 @@ namespace Unity.NetCode
         partial struct DefaultGhostSpawnClassificationJob : IJobEntity
         {
             public Entity spawnListEntity;
-            public BufferLookup<PredictedGhostSpawn> spawnListFromEntity;
+            public BufferLookup<PredictedGhostSpawn> spawnListLookup;
 
             public void Execute(DynamicBuffer<GhostSpawnBuffer> ghosts)
             {
-                var spawnList = spawnListFromEntity[spawnListEntity];
+                var spawnList = spawnListLookup[spawnListEntity];
                 for (int i = 0; i < ghosts.Length; ++i)
                 {
                     var ghost = ghosts[i];

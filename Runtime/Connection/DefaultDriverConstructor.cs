@@ -196,7 +196,7 @@ namespace Unity.NetCode
         /// <summary>
         /// Register a NetworkDriver instance in <paramref name="driverStore"/>:<br/>
         ///     - a single  <see cref="IPCNetworkInterface"/> NetworkDriver if the both client and server worlds are present in the same process<br/>
-        ///     - a single <see cref="BaselibNetworkInterface"/> driver in all other cases<br/>
+        ///     - a single <see cref="UDPNetworkInterface"/> driver in all other cases<br/>
         /// These are configured using internal defaults. See: <see cref="GetNetworkSettings"/>.
         /// </summary>
         /// <param name="world">Used for determining whether we are running in a client or server world.</param>
@@ -210,7 +210,7 @@ namespace Unity.NetCode
         /// <summary>
         /// Register a NetworkDriver instance in and stores it in <paramref name="driverStore"/>:<br/>
         ///     - a single <see cref="IPCNetworkInterface"/> NetworkDriver if the both client and server worlds are present in the same process.<br/>
-        ///     - a single <see cref="BaselibNetworkInterface"/> driver in all other cases.<br/>
+        ///     - a single <see cref="UDPNetworkInterface"/> driver in all other cases.<br/>
         /// These are configured using the <param name="settings">NetworkSettings</param> passed in.
         /// </summary>
         /// <param name="world">Used for determining whether we are running in a client or server world.</param>
@@ -243,8 +243,8 @@ namespace Unity.NetCode
 
         /// <summary>
         /// Register a NetworkDriver instance in <paramref name="driverStore"/>:<br/>
-        /// both <see cref="IPCNetworkInterface"/> and <see cref="BaselibNetworkInterface"/> NetworkDriver in the editor and only
-        ///   a single <see cref="BaselibNetworkInterface"/> driver in the build.<br/>
+        /// both <see cref="IPCNetworkInterface"/> and <see cref="UDPNetworkInterface"/> NetworkDriver in the editor and only
+        ///   a single <see cref="UDPNetworkInterface"/> driver in the build.<br/>
         /// These are configured using internal defaults. See: <see cref="GetNetworkSettings"/>.
         /// </summary>
         /// <param name="world">Used for determining whether we are running in a client or server world.</param>
@@ -258,8 +258,8 @@ namespace Unity.NetCode
 
         /// <summary>
         /// Register a NetworkDriver instance in <paramref name="driverStore"/>:<br/>
-        /// both <see cref="IPCNetworkInterface"/> and <see cref="BaselibNetworkInterface"/> NetworkDriver in the editor and only
-        ///   a single <see cref="BaselibNetworkInterface"/> driver in the build.<br/>
+        /// both <see cref="IPCNetworkInterface"/> and <see cref="UDPNetworkInterface"/> NetworkDriver in the editor and only
+        ///   a single <see cref="UDPNetworkInterface"/> driver in the build.<br/>
         /// These are configured using the <param name="settings">NetworkSettings</param> passed in.
         /// </summary>
         /// <param name="world">Used for determining whether we are running in a client or server world.</param>
@@ -326,7 +326,7 @@ namespace Unity.NetCode
         /// <summary>
         /// Register a NetworkDriver instance in and stores it in <paramref name="driverStore"/>:<br/>
         ///     - a single <see cref="IPCNetworkInterface"/> NetworkDriver if the both client and server worlds are present in the same process.<br/>
-        ///     - a single <see cref="BaselibNetworkInterface"/> driver in all other cases.<br/>
+        ///     - a single <see cref="UDPNetworkInterface"/> driver in all other cases.<br/>
         /// These are configured using the default settings. See <see cref="GetNetworkSettings"/>.
         /// </summary>
         /// <param name="world">Used for determining whether we are running in a client or server world.</param>
@@ -343,8 +343,8 @@ namespace Unity.NetCode
 
         /// <summary>
         /// Register a NetworkDriver instance in <paramref name="driverStore"/>:<br/>
-        /// both <see cref="IPCNetworkInterface"/> and <see cref="BaselibNetworkInterface"/> NetworkDriver in the editor and only
-        ///   a single <see cref="BaselibNetworkInterface"/> driver in the build.<br/>
+        /// both <see cref="IPCNetworkInterface"/> and <see cref="UDPNetworkInterface"/> NetworkDriver in the editor and only
+        ///   a single <see cref="UDPNetworkInterface"/> driver in the build.<br/>
         /// These are configured using the default settings. See <see cref="GetNetworkServerSettings"/>.
         /// </summary>
         /// <param name="world">Used for determining whether we are running in a client or server world.</param>
@@ -363,7 +363,7 @@ namespace Unity.NetCode
         /// <summary>
         /// Register a NetworkDriver instance in and stores it in <paramref name="driverStore"/>:<br/>
         ///     - a single <see cref="IPCNetworkInterface"/> NetworkDriver if the both client and server worlds are present in the same process.<br/>
-        ///     - a single <see cref="BaselibNetworkInterface"/> driver in all other cases.<br/>
+        ///     - a single <see cref="UDPNetworkInterface"/> driver in all other cases.<br/>
         /// These are configured using the default settings. See <see cref="GetNetworkSettings"/>.
         /// </summary>
         /// <param name="world">Used for determining whether we are running in a client or server world.</param>
@@ -379,8 +379,8 @@ namespace Unity.NetCode
 
         /// <summary>
         /// Register a NetworkDriver instance in <paramref name="driverStore"/>:<br/>
-        /// both <see cref="IPCNetworkInterface"/> and <see cref="BaselibNetworkInterface"/> NetworkDriver in the editor and only
-        ///   a single <see cref="BaselibNetworkInterface"/> driver in the build.<br/>
+        /// both <see cref="IPCNetworkInterface"/> and <see cref="UDPNetworkInterface"/> NetworkDriver in the editor and only
+        ///   a single <see cref="UDPNetworkInterface"/> driver in the build.<br/>
         /// These are configured using the default settings. See <see cref="GetNetworkServerSettings"/>.
         /// </summary>
         /// <param name="world">Used for determining whether we are running in a client or server world.</param>
@@ -398,12 +398,12 @@ namespace Unity.NetCode
 
     /// <summary>
     /// The default NetCode driver constructor. It creates:
-    /// - On the server: both <see cref="IPCNetworkInterface"/> and <see cref="BaselibNetworkInterface"/> NetworkDriver in the editor and only
-    ///   a single <see cref="BaselibNetworkInterface"/> driver in the build.<br/>
+    /// - On the server: both <see cref="IPCNetworkInterface"/> and <see cref="UDPNetworkInterface"/> NetworkDriver in the editor and only
+    ///   a single <see cref="UDPNetworkInterface"/> driver in the build.<br/>
     /// - On the client:<br/>
     ///     - a single <see cref="IPCNetworkInterface"/> NetworkDriver if the both client and server worlds are present in the same process.<br/>
-    ///     - a single <see cref="BaselibNetworkInterface"/> driver in all other cases.<br/>
-    /// In the Editor and Development build, if the network simulator is enabled, force on the client to use the <see cref="BaselibNetworkInterface"/> network driver.
+    ///     - a single <see cref="UDPNetworkInterface"/> driver in all other cases.<br/>
+    /// In the Editor and Development build, if the network simulator is enabled, force on the client to use the <see cref="UDPNetworkInterface"/> network driver.
     /// <remarks>
     /// <b>To let the client use the IPC network interface In ClientServer mode it is mandatory to always create the server world first.</b>
     /// </remarks>

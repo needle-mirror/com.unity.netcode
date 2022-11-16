@@ -147,14 +147,14 @@ namespace Unity.NetCode
                 Assert.IsFalse(useEnabledMask);
                 var GhostTypeCollection = GhostTypeCollectionFromEntity[GhostCollectionSingleton];
                 DynamicComponentTypeHandle* ghostChunkComponentTypesPtr = List.GetData();
-                var ghosts = chunk.GetNativeArray(ghostComponentType);
+                var ghosts = chunk.GetNativeArray(ref ghostComponentType);
                 // Find the ghost type for this chunk
                 var ghostType = ghosts[0].ghostType;
                 // Pre spawned ghosts might not have a proper ghost type index yet, we calculate it here for pre spawns
                 if (ghostType < 0)
                 {
                     var GhostCollection = GhostCollectionFromEntity[GhostCollectionSingleton];
-                    var ghostTypeComponent = chunk.GetNativeArray(ghostTypeComponentType)[0];
+                    var ghostTypeComponent = chunk.GetNativeArray(ref ghostTypeComponentType)[0];
                     for (ghostType = 0; ghostType < GhostCollection.Length; ++ghostType)
                     {
                         if (GhostCollection[ghostType].GhostType == ghostTypeComponent)

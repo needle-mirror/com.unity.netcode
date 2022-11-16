@@ -1,6 +1,5 @@
 ﻿#if UNITY_EDITOR
 using System;
-using System.IO;
 using System.Linq;
 using Unity.Entities.Build;
 using UnityEditor;
@@ -9,18 +8,20 @@ using UnityEngine;
 using UnityEngine.UIElements;
 using Hash128 = Unity.Entities.Hash128;
 
-namespace Authoring.Hybrid
+namespace Unity.NetCode.Hybrid
 {
     public enum NetCodeClientTarget
     {
+        [Tooltip("Build a client-only player.")]
         Client = 0,
+        [Tooltip("Build a client-server player.")]
         ClientAndServer = 1
     }
 
-    internal class NetCodeClientSettings : DotsPlayerSettings
+    [FilePath("ProjectSettings/NetCodeClientSettings.asset", FilePathAttribute.Location.ProjectFolder)]
+    internal class NetCodeClientSettings : ScriptableSingleton<NetCodeClientSettings>, IEntitiesPlayerSettings, INetCodeConversionTarget
     {
-        [SerializeField]
-        public NetcodeConversionTarget NetcodeTarget = NetcodeConversionTarget.Client;
+        NetcodeConversionTarget INetCodeConversionTarget.NetcodeTarget => NetcodeConversionTarget.Client;
 
         [SerializeField]
         public BakingSystemFilterSettings FilterSettings;
@@ -28,18 +29,60 @@ namespace Authoring.Hybrid
         [SerializeField]
         public string[] AdditionalScriptingDefines = Array.Empty<string>();
 
-        public override BakingSystemFilterSettings GetFilterSettings()
+        static Entities.Hash128 s_Guid;
+        public Entities.Hash128 GUID
+        {
+            get
+            {
+                if (!s_Guid.IsValid)
+                    s_Guid = UnityEngine.Hash128.Compute(GetFilePath());
+                return s_Guid;
+            }
+        }
+        public string CustomDependency => GetFilePath();
+        void IEntitiesPlayerSettings.RegisterCustomDependency()
+        {
+            var hash = GetHash();
+            AssetDatabase.RegisterCustomDependency(CustomDependency, hash);
+        }
+
+        public UnityEngine.Hash128 GetHash()
+        {
+            var hash = (UnityEngine.Hash128)GUID;
+            if (FilterSettings?.ExcludedBakingSystemAssemblies != null)
+                foreach (var assembly in FilterSettings.ExcludedBakingSystemAssemblies)
+                {
+                    var guid = AssetDatabase.GUIDFromAssetPath(AssetDatabase.GetAssetPath(assembly.asset));
+                    hash.Append(ref guid);
+                }
+            foreach (var define in AdditionalScriptingDefines)
+                hash.Append(define);
+            return hash;
+        }
+
+        public BakingSystemFilterSettings GetFilterSettings()
         {
             return FilterSettings;
         }
 
-        public override string[] GetAdditionalScriptingDefines()
+        public string[] GetAdditionalScriptingDefines()
         {
             return AdditionalScriptingDefines;
         }
+
+        ScriptableObject IEntitiesPlayerSettings.AsScriptableObject() => instance;
+
+        internal void Save()
+        {
+            Save(true);
+            ((IEntitiesPlayerSettings)this).RegisterCustomDependency();
+            if (!AssetDatabase.IsAssetImportWorkerProcess())
+                AssetDatabase.Refresh();
+        }
+        private void OnDisable() { Save(); }
     }
 
-    public class ClientSettings : DotsPlayerSettingsProvider
+    internal class ClientSettings : DotsPlayerSettingsProvider
     {
         private const string m_EditorPrefsNetCodeClientTarget = "com.unity.entities.netcodeclient.target";
 
@@ -51,12 +94,6 @@ namespace Authoring.Hybrid
 
         private VisualElement m_rootElement;
 
-        private NetCodeClientSettings m_NetCodeClientSettings;
-        private NetCodeClientAndServerSettings m_NetCodeClientAndServerSettings;
-
-        private Hash128 m_ClientGUID;
-        private Hash128 m_ClientAndServerGUID;
-
         public override int Importance
         {
             get { return 1; }
@@ -67,7 +104,7 @@ namespace Authoring.Hybrid
             return DotsGlobalSettings.PlayerType.Client;
         }
 
-        public override Hash128 GetPlayerSettingGUID()
+        protected override Hash128 DoGetPlayerSettingGUID()
         {
             return GetSettingGUID(NetCodeClientTarget);
         }
@@ -76,27 +113,21 @@ namespace Authoring.Hybrid
         {
             if (target == NetCodeClientTarget.Client)
             {
-                if(!m_ClientGUID.IsValid)
-                    LoadOrCreateClientAsset();
-                return m_ClientGUID;
+                return NetCodeClientSettings.instance.GUID;
             }
 
             if (target == NetCodeClientTarget.ClientAndServer)
             {
-                if(!m_ClientAndServerGUID.IsValid)
-                    LoadOrCreateClientAndServerAsset();
-                return m_ClientAndServerGUID;
+                return NetCodeClientAndServerSettings.instance.GUID;
             }
-            return new Hash128();
-        }
-
-        public override void Enable(int value)
-        {
-            m_rootElement.SetEnabled((value == (int)DotsGlobalSettings.PlayerType.Client));
+            return default;
         }
 
         public override void OnActivate(DotsGlobalSettings.PlayerType type, VisualElement rootElement)
         {
+            rootElement.RegisterCallback<AttachToPanelEvent>(OnAttachToPanel);
+            rootElement.RegisterCallback<DetachFromPanelEvent>(OnDetachFromPanel);
+
             m_rootElement = new VisualElement();
             m_rootElement.SetEnabled(type == DotsGlobalSettings.PlayerType.Client);
 
@@ -106,13 +137,29 @@ namespace Authoring.Hybrid
             rootElement.Add(m_rootElement);
         }
 
+        static void OnAttachToPanel(AttachToPanelEvent evt)
+        {
+            // The ScriptableSingleton<T> is not directly editable by default.
+            // Change the hideFlags to make the SerializedObject editable.
+            NetCodeClientSettings.instance.hideFlags = HideFlags.HideInHierarchy | HideFlags.DontSave;
+            NetCodeClientAndServerSettings.instance.hideFlags = HideFlags.HideInHierarchy | HideFlags.DontSave;
+        }
+
+        static void OnDetachFromPanel(DetachFromPanelEvent evt)
+        {
+            NetCodeClientSettings.instance.hideFlags = HideFlags.HideAndDontSave;
+            NetCodeClientAndServerSettings.instance.hideFlags = HideFlags.HideAndDontSave;
+            NetCodeClientSettings.instance.Save();
+            NetCodeClientAndServerSettings.instance.Save();
+        }
+
         VisualElement UpdateUI()
         {
             var targetElement = new VisualElement();
             targetElement.name = "target";
             targetElement.AddToClassList("target");
 
-            var so = new SerializedObject(GetSettingAsset());
+            var so = new SerializedObject(GetSettingAsset().AsScriptableObject());
             targetElement.Bind(so);
             so.Update();
 
@@ -125,19 +172,7 @@ namespace Authoring.Hybrid
             var field = new EnumField("NetCode client target:",  NetCodeClientTarget);
             targetS.Add(field);
 
-            if (NetCodeClientTarget == NetCodeClientTarget.Client)
-            {
-                var propClientSettings = so.FindProperty("FilterSettings");
-                var propClientField = new PropertyField(propClientSettings.FindPropertyRelative("ExcludedBakingSystemAssemblies"));
-                propClientField.name = "ClientFilterSettings";
-                targetS.Add(propClientField);
-            }
-            else
-            {
-                var propClientField = targetS.Q<PropertyField>("ClientFilterSettings");
-                if (propClientField != null)
-                    targetS.Remove(propClientField);
-            }
+            targetS.Add(new PropertyField(so.FindProperty("FilterSettings.ExcludedBakingSystemAssemblies")));
 
             var propExtraDefines = so.FindProperty("AdditionalScriptingDefines");
             var propExtraDefinesField = new PropertyField(propExtraDefines);
@@ -168,59 +203,18 @@ namespace Authoring.Hybrid
             return Array.Empty<string>();
         }
 
-        public override DotsPlayerSettings GetSettingAsset()
+        protected override IEntitiesPlayerSettings DoGetSettingAsset()
         {
             if (NetCodeClientTarget == NetCodeClientTarget.Client)
             {
-                if (m_NetCodeClientSettings == null)
-                    LoadOrCreateClientAsset();
-                return m_NetCodeClientSettings;
+                return NetCodeClientSettings.instance;
             }
 
             if (NetCodeClientTarget == NetCodeClientTarget.ClientAndServer)
             {
-                if(m_NetCodeClientAndServerSettings == null)
-                    LoadOrCreateClientAndServerAsset();
-                return m_NetCodeClientAndServerSettings;
+                return NetCodeClientAndServerSettings.instance;
             }
             return null;
-        }
-
-        void LoadOrCreateClientAsset()
-        {
-            var path = k_DefaultAssetPath + k_DefaultAssetName + "ClientSettings" + k_DefaultAssetExtension;
-            if(File.Exists(path))
-                m_NetCodeClientSettings = AssetDatabase.LoadAssetAtPath<NetCodeClientSettings>(path);
-            else
-            {
-                //Create the Client asset
-                m_NetCodeClientSettings = (NetCodeClientSettings)ScriptableObject.CreateInstance(typeof(NetCodeClientSettings));
-                m_NetCodeClientSettings.NetcodeTarget = NetcodeConversionTarget.Client;
-                m_NetCodeClientSettings.name = k_DefaultAssetName + nameof(NetCodeClientSettings);
-
-                AssetDatabase.CreateAsset(m_NetCodeClientSettings, path);
-            }
-            m_ClientGUID = new Hash128(AssetDatabase.AssetPathToGUID(path));
-        }
-
-        void LoadOrCreateClientAndServerAsset()
-        {
-            if (m_NetCodeClientAndServerSettings == null)
-            {
-                var path = k_DefaultAssetPath + k_DefaultAssetName + "ClientAndServerSettings" + k_DefaultAssetExtension;
-                if(File.Exists(path))
-                    m_NetCodeClientAndServerSettings = AssetDatabase.LoadAssetAtPath<NetCodeClientAndServerSettings>(path);
-                else
-                {
-                    //Create the ClientAndServer asset
-                    m_NetCodeClientAndServerSettings = (NetCodeClientAndServerSettings)ScriptableObject.CreateInstance(typeof(NetCodeClientAndServerSettings));
-                    m_NetCodeClientAndServerSettings.NetcodeTarget = NetcodeConversionTarget.ClientAndServer;
-                    m_NetCodeClientAndServerSettings.name = k_DefaultAssetName + nameof(NetCodeClientAndServerSettings);
-
-                    AssetDatabase.CreateAsset(m_NetCodeClientAndServerSettings, path);
-                }
-                m_ClientAndServerGUID = new Hash128(AssetDatabase.AssetPathToGUID(path));
-            }
         }
     }
 }

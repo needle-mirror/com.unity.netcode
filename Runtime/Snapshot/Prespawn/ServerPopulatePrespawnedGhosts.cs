@@ -189,6 +189,7 @@ namespace Unity.NetCode
             state.Dependency = addJob.Schedule(state.Dependency);
         }
 
+        [BurstCompile]
         struct ServerAddPrespawn : IJob
         {
             public NetDebug netDebug;

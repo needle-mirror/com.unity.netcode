@@ -39,7 +39,7 @@ namespace Unity.NetCode.Tests
 
         protected override void OnUpdate()
         {
-            ref var ghostRelevancy = ref GetSingletonRW<GhostRelevancy>().ValueRW;
+            ref var ghostRelevancy = ref SystemAPI.GetSingletonRW<GhostRelevancy>().ValueRW;
             var relevancySet = ghostRelevancy.GhostRelevancySet;
             var clearDep = Job.WithCode(() => {
                 relevancySet.Clear();

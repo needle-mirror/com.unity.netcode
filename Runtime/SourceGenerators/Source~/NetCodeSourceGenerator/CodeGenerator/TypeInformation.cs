@@ -74,7 +74,8 @@ namespace Unity.NetCode.Generators
         //The syntax tree and text span location of the type
         public Location Location;
 
-        public List<TypeInformation> Fields = new List<TypeInformation>();
+        public List<TypeInformation> GhostFields = new List<TypeInformation>();
+        public bool ShouldSerializeEnabledBit;
         public bool HasDontSupportPrefabOverridesAttribute;
         public bool HasSupportsPrefabOverridesAttribute;
         public bool IsTestVariant;

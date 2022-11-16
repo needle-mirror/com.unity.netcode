@@ -1,14 +1,68 @@
 # Changelog
 
-## [1.0.0-exp.13] - 2022-10-19
+## [1.0.0-pre.15] - 2022-11-16
+
+### Added
+
+* A "Client & Server Bounding Boxes" debug drawer has been added to the package (at `Packages\com.unity.netcode\Editor\Drawers\BoundingBoxDebugGhostDrawerSystem.cs`), allowing you to view the absolute positions of where the client _thinks_ a Ghost is, vs where it _actually_ is on the server. This drawer can also be used to visualize relevancy logic (as you can see widgets for server ghosts that are "not relevant" for your client). Enable & disable it via the `Multiplayer PlayMode Tools Window`.
+* FRONTEND_PLAYER_BUILD scripting define added to the NetCodeClientSetting project setting.
+* new GhostSpawnBufferInspectorHelper and GhostSpawnBufferComponentInspector structs, that permit to read from the ghost spawn buffer any type of component. They can be used in spawn classification systems to help resolving predicted spawning requests.
+* GhostTypeComponent explicit conversion to Hash128.
+* Templates for serialising `double` type.
+* A `TransformDefaultVariantSystem` that optionally setup the default variant to use for `LocalTransform`, (`Rotation`, `Position` for V1) if a user defined default is not provided.
+* A `PhysicsDefaultVariantSystem` that optionally setup the default variant to use for `PhysicVelocity` if a user defined default is not provided.
+
+### Changed
+
+* Updated com.unity.transport dependency to 2.0.0-exp.4
+* SharedGhostTypeComponent is also added to the client ghost prefab to split ghosts in different chunks.
+* GhostTypeComponent equals/match the prefab guid.
+* Removed `CodeGenTypeMetaData`, and made internal changes to how `VariantType` structs are generated. We also renamed `VariantType` to `ComponentTypeSerializationStrategies` to better reflect their purpose, and to better distinguish them from the concept of "Variants".
+* Support for replicating "enable bits" on `IEnableableComponent`s (i.e. "enableable components") via new attribute `GhostEnabledBitAttribute` (`[GhostEnabledBit]`), which can be added to the component struct.
+Note: If this attribute is **not** added, your enabled bits will not replicate (even on components marked with `[GhostField]`s).
+_This is a breaking change. Ensure all your "enableable components" with "ghost fields" on them now also have `[GhostEnabledBit]` on the struct declaration._
+* All `DefaultVariantSystemBase` are all grouped into the `DefaultVariantSystemGroup`.
+* It is not necessary anymore to define a custom `DefaultGhostVariant` system if a `LocalTransform` (`Rotation` or `Position` for V1) or `PhysicsVelocity` variants are added to project (since a default selection is already provided by the package).
+* Updated com.unity.transport dependency to 2.0.0-pre.2
+
+
+### Removed
+
+* Removing dependencies on `com.unity.jobs` package.
 
 ### Fixed
 
+* Error in source generator when input buffer type was in default namespace
+* Always pass SystemState by ref to avoid UnsafeLists being reallocated in a copy but not the original.
+* Use correct datatype for prespawned count in analytics.
+* Use EditorAnalytics to verify whether it is enabled.
+* exception thrown by the hierarchy window if a scene entity does not have a SubScene component.
+* Issue with the GhostComponentSerializerRegistrationSystem and the ghost metadata registration system trying accessing the GhostComponentSerializerCollectionData before it is created.
+* A crash in the GhostUpdateSystem, GhostPredictionHistorySystem and others, when different ghost types (prefab) share/have the same archetype.
+* A NetCodeSample project issue that was causing screen flickering and entities rendered multiple times when demos were launched from the Frontend scene.
+* an issue in the GhostSendSystem that prevent the DataStream to be aborted when an exception is throw while serialising the entities.
+* InvalidOperationException in the `GhostAuthoringInspectionComponent` when reverting a Variant back to the default.
+* UI layout issues with the `GhostAuthoringInspectionComponent`.
+* Hashing issue with `GhostAuthoringInspectionComponent.ComponentOverrides` during baking, where out-of-date hashes would still be baked into the BlobAsset. You now get an error, pointing you to the offending (i.e. out-of-date) Ghost prefab.
 * quaternion cannot be added as field in ICommandData and/or IInputComponentData. A new region has been added to the code-generation templates for handling similar other cases.
-* Removed the deprecated NativeList to NativeArray implicit cast and use NativeList.AsArray instead.
-* fixed a NotImplementedException thrown in standalone player client build.
+* Fixed hash generation when using `DontSerializeVariant` (or `ClientOnlyVariant`) on `DefaultVariantSystemBase.Rule`. They now use the constant hashes (`DontSerializeHash` and `ClientOnlyHash`).
+* NetDbg will now correctly show long namespaces in the "Prediction Errors" section (also: improved readability).
+* Removed CSS warning in package.
+* A problem with baking and additional ghost entities that was removing `LocalTransform`, `WorldTransform` and `LocalToWorld` matrix.
+* Mismatched ClientServerTickRate.SimulationTickRate and PredictedFixedStepSimulationSystemGroup.RateManager.Timestep will throw an error and will set the values to match each other.
 
+### Upgrade Guide
 
+* `NetCodeClientTarget` moved from namespace `Authoring.Hybrid` to `Unity.NetCode.Hybrid`
+* `VariantType` has been renamed to `SerializationStrategy`, in an attempt to disambiguate the roles of “Variants” vs “Serialization Strategies”.
+  * `ComponentTypeSerializationStrategy` - Denotes the rules used to serialize a specific Component, on a specific GhostType.
+  * “Variant” (via `GhostComponentVariation`) - The name for a custom struct modifying the serialization rules for a single `ComponentType`.
+* Defining `DefaultVariantSystemBase` rules has changed. You now must pass in a `DefaultVariantSystemBase.Rule` rather than the `System.Type` of the VariantType.
+* `VariantHash`es for ghost variants may have changed. Make sure that there are no errors when baking all GhostTypes (in subscenes and prefabs), and use the `GhostAuthoringInspectionComponent` to debug and validate that the “default rules” (for your `ComponentTypes`) are correct. Note that GhostFields on components on child entities are no longer replicated (i.e. serialized) by default.
+* TRANSFORMS_V2 will break all Variant modifications made to (now legacy) `Translation` and `Rotation`  Components. You'll need to either:
+  * a) reimplement these custom Variants yourself (targeting `LocalTransform`) or
+  * b) use one of the new built-in `LocalTransform` Variants provided.
+  * Note that currently, these invalid "Component Overrides" on `GhostAuthoringInspectionComponents` are not automatically updated for you. They are simply force-deleted (with an associated error message, which should provide some useful context).
 
 
 
@@ -100,9 +154,6 @@
 * DefaultUserParams has been renamed to DefaultSmoothingActionUserParams.
 * DefaultTranslateSmoothingAction has been renamed to DefaultTranslationSmoothingAction.
 
-### Deprecated
-
-
 ### Removed
 
 * The static bool `RpcSystem.DynamicAssemblyList` has been removed, replaced by a non-static property with the same name. See upgrade guide (below).
@@ -125,9 +176,6 @@
 * Ensure unique serial number when patching up entity guids
 * Ensure that we do not count zero update length in analytic results. Fix assertion error when entering and exiting playmode
 * Compilation errors when the DedicatedServer platform is selected. NOTE: this does not imply the dedicated server platform is supported by the NetCode package or any other packages dependencies.
-
-### Security
-
 
 ### Upgrade guide
 

@@ -60,6 +60,8 @@ namespace Unity.NetCode
         private EntityQuery m_ConnectionRequestConnectQuery;
         private ComponentLookup<NetworkStreamRequestConnect> m_NetworkStreamRequestConnectFromEntity;
         private ComponentLookup<ConnectionState> m_ConnectionStateFromEntity;
+
+        [BurstCompile]
         public void OnCreate(ref SystemState state)
         {
             m_ConnectionRequestConnectQuery = state.GetEntityQuery(ComponentType.ReadWrite<NetworkStreamRequestConnect>());
@@ -69,9 +71,13 @@ namespace Unity.NetCode
             state.RequireForUpdate<NetworkStreamDriver>();
             state.RequireForUpdate<NetDebug>();
         }
+
+        [BurstCompile]
         public void OnDestroy(ref SystemState state)
         {
         }
+
+        [BurstCompile]
         public void OnUpdate(ref SystemState systemState)
         {
             var netDebug = SystemAPI.GetSingleton<NetDebug>();

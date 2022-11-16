@@ -64,7 +64,7 @@ namespace Unity.NetCode
             internal void CopyComponentToSnapshot(ArchetypeChunk chunk, int ent, in GhostComponentSerializer.State serializer)
             {
                 var compSize = serializer.ComponentSize;
-                var compData = (byte*) chunk.GetDynamicComponentDataArrayReinterpret<byte>(typeHandle, compSize).GetUnsafeReadOnlyPtr();
+                var compData = (byte*) chunk.GetDynamicComponentDataArrayReinterpret<byte>(ref typeHandle, compSize).GetUnsafeReadOnlyPtr();
                 CheckValidSnapshotOffset(serializer.SnapshotSize);
                 serializer.CopyToSnapshot.Ptr.Invoke((IntPtr) UnsafeUtility.AddressOf(ref serializerState),
                     (IntPtr) snapshotPtr, snapshotOffset, snapshotSize, (IntPtr) (compData + ent * compSize), compSize, 1);
@@ -103,7 +103,7 @@ namespace Unity.NetCode
                     CheckValidComponentIndex(compIdx);
                     typeHandle = ghostChunkComponentTypesPtr[compIdx];
                     var sizeInSnapshot = GhostComponentSerializer.SizeInSnapshot(GhostComponentCollection[serializerIdx]);
-                    if (chunk.Has(typeHandle))
+                    if (chunk.Has(ref typeHandle))
                     {
                         if (GhostComponentCollection[serializerIdx].ComponentType.IsBuffer)
                         {
@@ -134,7 +134,7 @@ namespace Unity.NetCode
 
                 if (typeData.NumChildComponents > 0)
                 {
-                    var linkedEntityGroupAccessor = chunk.GetBufferAccessor(linkedEntityGroupType);
+                    var linkedEntityGroupAccessor = chunk.GetBufferAccessor(ref linkedEntityGroupType);
                     var linkedEntityGroup = linkedEntityGroupAccessor[ent];
                     for (int comp = numBaseComponents; comp < typeData.NumComponents; ++comp)
                     {
@@ -144,7 +144,7 @@ namespace Unity.NetCode
                         typeHandle = ghostChunkComponentTypesPtr[compIdx];
                         var sizeInSnapshot = GhostComponentSerializer.SizeInSnapshot(GhostComponentCollection[serializerIdx]);
                         var childEnt = linkedEntityGroup[GhostComponentIndex[typeData.FirstComponent + comp].EntityIndex].Value;
-                        if (childEntityLookup.TryGetValue(childEnt, out var childChunk) && childChunk.Chunk.Has(typeHandle))
+                        if (childEntityLookup.TryGetValue(childEnt, out var childChunk) && childChunk.Chunk.Has(ref typeHandle))
                         {
                             if (GhostComponentCollection[serializerIdx].ComponentType.IsBuffer)
                             {
@@ -196,7 +196,7 @@ namespace Unity.NetCode
                     //It might still work in some cases but if this snapshot is then part of the history and used for
                     //interpolated data we might get incorrect results
 
-                    if (GhostComponentCollection[serializerIdx].ComponentType.IsEnableable)
+                    if (GhostComponentCollection[serializerIdx].SerializesEnabledBit != 0)
                     {
                         var handle = ghostChunkComponentTypesPtr[compIdx];
                         enableableMaskOffset = GhostChunkSerializer.UpdateEnableableMasks(chunk, 0, chunk.Count, ref handle, snapshotPtr, changeMaskUints, enableableMaskOffset, snapshotSize);
@@ -204,7 +204,7 @@ namespace Unity.NetCode
 
                     if (GhostComponentCollection[serializerIdx].ComponentType.IsBuffer)
                     {
-                        if (chunk.Has(ghostChunkComponentTypesPtr[compIdx]))
+                        if (chunk.Has(ref ghostChunkComponentTypesPtr[compIdx]))
                         {
                             var dynamicDataSize = GhostComponentCollection[serializerIdx].SnapshotSize;
                             var bufData = chunk.GetUntypedBufferAccessor(ref ghostChunkComponentTypesPtr[compIdx]);
@@ -234,24 +234,27 @@ namespace Unity.NetCode
                     }
                     else
                     {
-                        if (chunk.Has(ghostChunkComponentTypesPtr[compIdx]))
+                        if (GhostComponentCollection[serializerIdx].HasGhostFields)
                         {
-                            var compData = (byte*)chunk.GetDynamicComponentDataArrayReinterpret<byte>(ghostChunkComponentTypesPtr[compIdx], compSize).GetUnsafeReadOnlyPtr();
-                            GhostComponentCollection[serializerIdx].CopyToSnapshot.Ptr.Invoke((IntPtr)UnsafeUtility.AddressOf(ref serializerState),
-                                (IntPtr)snapshotPtr, snapshotOffset, snapshotSize, (IntPtr)compData, compSize, chunk.Count);
-                        }
-                        else
-                        {
-                            for (int ent = 0, chunkEntityCount = chunk.Count; ent < chunkEntityCount; ++ent)
-                                UnsafeUtility.MemClear(snapshotPtr + snapshotOffset + ent*snapshotSize, GhostComponentCollection[serializerIdx].SnapshotSize);
-                        }
+                            if (chunk.Has(ghostChunkComponentTypesPtr[compIdx]))
+                            {
+                                var compData = (byte*) chunk.GetDynamicComponentDataArrayReinterpret<byte>(ghostChunkComponentTypesPtr[compIdx], compSize).GetUnsafeReadOnlyPtr();
+                                GhostComponentCollection[serializerIdx].CopyToSnapshot.Ptr.Invoke((IntPtr) UnsafeUtility.AddressOf(ref serializerState),
+                                    (IntPtr) snapshotPtr, snapshotOffset, snapshotSize, (IntPtr) compData, compSize, chunk.Count);
+                            }
+                            else
+                            {
+                                for (int ent = 0, chunkEntityCount = chunk.Count; ent < chunkEntityCount; ++ent)
+                                    UnsafeUtility.MemClear(snapshotPtr + snapshotOffset + ent * snapshotSize, GhostComponentCollection[serializerIdx].SnapshotSize);
+                            }
 
-                        snapshotOffset += GhostComponentSerializer.SnapshotSizeAligned(GhostComponentCollection[serializerIdx].SnapshotSize);
+                            snapshotOffset += GhostComponentSerializer.SnapshotSizeAligned(GhostComponentCollection[serializerIdx].SnapshotSize);
+                        }
                     }
                 }
                 if (typeData.NumChildComponents > 0)
                 {
-                    var linkedEntityGroupAccessor = chunk.GetBufferAccessor(linkedEntityGroupType);
+                    var linkedEntityGroupAccessor = chunk.GetBufferAccessor(ref linkedEntityGroupType);
                     for (int comp = numBaseComponents; comp < typeData.NumComponents; ++comp)
                     {
                         int compIdx = GhostComponentIndex[typeData.FirstComponent + comp].ComponentIndex;
@@ -266,7 +269,7 @@ namespace Unity.NetCode
                             {
                                 var linkedEntityGroup = linkedEntityGroupAccessor[ent];
                                 var childEnt = linkedEntityGroup[GhostComponentIndex[typeData.FirstComponent + comp].EntityIndex].Value;
-                                if (childEntityLookup.TryGetValue(childEnt, out var childChunk) && childChunk.Chunk.Has(ghostChunkComponentTypesPtr[compIdx]))
+                                if (childEntityLookup.TryGetValue(childEnt, out var childChunk) && childChunk.Chunk.Has(ref ghostChunkComponentTypesPtr[compIdx]))
                                 {
                                     var bufData = childChunk.Chunk.GetUntypedBufferAccessor(ref ghostChunkComponentTypesPtr[compIdx]);
                                     var compData = (byte*)bufData.GetUnsafeReadOnlyPtrAndLength(childChunk.IndexInChunk, out var len);
@@ -278,7 +281,7 @@ namespace Unity.NetCode
                                     GhostComponentCollection[serializerIdx].CopyToSnapshot.Ptr.Invoke((IntPtr)UnsafeUtility.AddressOf(ref serializerState),
                                         (IntPtr)snapshotDynamicPtr, dynamicSnapshotDataOffset + maskSize, dynamicDataSize, (IntPtr)compData, compSize, len);
 
-                                    if (GhostComponentCollection[serializerIdx].ComponentType.IsEnableable)
+                                    if (GhostComponentCollection[serializerIdx].SerializesEnabledBit != 0)
                                     {
                                         var entityIndex = childChunk.IndexInChunk;
                                         var handle = ghostChunkComponentTypesPtr[compIdx];
@@ -306,15 +309,19 @@ namespace Unity.NetCode
                                 var linkedEntityGroup = linkedEntityGroupAccessor[ent];
                                 var childEnt = linkedEntityGroup[GhostComponentIndex[typeData.FirstComponent + comp].EntityIndex].Value;
                                 //We can skip here, because the memory buffer offset is computed using the start-end entity indices
-                                if (childEntityLookup.TryGetValue(childEnt, out var childChunk) && childChunk.Chunk.Has(ghostChunkComponentTypesPtr[compIdx]))
+                                if (childEntityLookup.TryGetValue(childEnt, out var childChunk) && childChunk.Chunk.Has(ref ghostChunkComponentTypesPtr[compIdx]))
                                 {
-                                    var compData = (byte*)childChunk.Chunk.GetDynamicComponentDataArrayReinterpret<byte>(ghostChunkComponentTypesPtr[compIdx], compSize).GetUnsafeReadOnlyPtr();
-                                    compData += childChunk.IndexInChunk * compSize;
-                                    // TODO: would batching be faster?
-                                    GhostComponentCollection[serializerIdx].CopyToSnapshot.Ptr.Invoke((IntPtr)UnsafeUtility.AddressOf(ref serializerState),
-                                        (IntPtr)snapshotPtr + ent*snapshotSize, snapshotOffset, snapshotSize, (IntPtr)compData, compSize, 1);
+                                    if (GhostComponentCollection[serializerIdx].HasGhostFields)
+                                    {
+                                        var compData = (byte*) childChunk.Chunk.GetDynamicComponentDataArrayReinterpret<byte>(ghostChunkComponentTypesPtr[compIdx], compSize).GetUnsafeReadOnlyPtr();
+                                        compData += childChunk.IndexInChunk * compSize;
 
-                                    if (GhostComponentCollection[serializerIdx].ComponentType.IsEnableable)
+                                        // TODO: would batching be faster?
+                                        GhostComponentCollection[serializerIdx].CopyToSnapshot.Ptr.Invoke((IntPtr) UnsafeUtility.AddressOf(ref serializerState),
+                                            (IntPtr) snapshotPtr + ent * snapshotSize, snapshotOffset, snapshotSize, (IntPtr) compData, compSize, 1);
+                                    }
+
+                                    if (GhostComponentCollection[serializerIdx].SerializesEnabledBit != 0)
                                     {
                                         var entityIndex = childChunk.IndexInChunk;
                                         var handle = ghostChunkComponentTypesPtr[compIdx];
@@ -354,7 +361,7 @@ namespace Unity.NetCode
                 {
                     int compIdx = GhostComponentIndex[typeData.FirstComponent + comp].ComponentIndex;
                     int serializerIdx = GhostComponentIndex[typeData.FirstComponent + comp].SerializerIndex;
-                    if (!GhostComponentCollection[serializerIdx].ComponentType.IsBuffer || !chunk.Has(ghostChunkComponentTypesPtr[compIdx]))
+                    if (!GhostComponentCollection[serializerIdx].ComponentType.IsBuffer || !chunk.Has(ref ghostChunkComponentTypesPtr[compIdx]))
                         continue;
 
                     for (int ent = startIndex, chunkEntityCount = chunk.Count; ent < chunkEntityCount; ++ent)
@@ -371,7 +378,7 @@ namespace Unity.NetCode
 
                 if (typeData.NumChildComponents > 0)
                 {
-                    var linkedEntityGroupAccessor = chunk.GetBufferAccessor(linkedEntityGroupType);
+                    var linkedEntityGroupAccessor = chunk.GetBufferAccessor(ref linkedEntityGroupType);
                     for (int comp = numBaseComponents; comp < typeData.NumComponents; ++comp)
                     {
                         int compIdx = GhostComponentIndex[typeData.FirstComponent + comp].ComponentIndex;
@@ -384,7 +391,7 @@ namespace Unity.NetCode
                         {
                             var linkedEntityGroup = linkedEntityGroupAccessor[ent];
                             var childEnt = linkedEntityGroup[GhostComponentIndex[typeData.FirstComponent + comp].EntityIndex].Value;
-                            if (childEntityLookup.TryGetValue(childEnt, out var childChunk) && childChunk.Chunk.Has(ghostChunkComponentTypesPtr[compIdx]))
+                            if (childEntityLookup.TryGetValue(childEnt, out var childChunk) && childChunk.Chunk.Has(ref ghostChunkComponentTypesPtr[compIdx]))
                             {
                                 var bufferAccessor = childChunk.Chunk.GetUntypedBufferAccessor(ref ghostChunkComponentTypesPtr[compIdx]);
                                 var bufferLen = bufferAccessor.GetBufferLength(childChunk.IndexInChunk);

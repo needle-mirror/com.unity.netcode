@@ -31,6 +31,7 @@ namespace Unity.NetCode
         public void OnDestroy(ref SystemState state)
         {}
 
+        [BurstCompile]
         partial struct CommandReceiveClearJob : IJobEntity
         {
             public NetworkTick _currentTick;
@@ -194,10 +195,10 @@ namespace Unity.NetCode
             /// <param name="orderIndex"></param>
             public void Execute(ArchetypeChunk chunk, int orderIndex)
             {
-                var snapshotAcks = chunk.GetNativeArray(snapshotAckType);
-                var networkIds = chunk.GetNativeArray(networkIdType);
-                var commandTargets = chunk.GetNativeArray(commmandTargetType);
-                var cmdBuffers = chunk.GetBufferAccessor(cmdBufferType);
+                var snapshotAcks = chunk.GetNativeArray(ref snapshotAckType);
+                var networkIds = chunk.GetNativeArray(ref networkIdType);
+                var commandTargets = chunk.GetNativeArray(ref commmandTargetType);
+                var cmdBuffers = chunk.GetBufferAccessor(ref cmdBufferType);
 
                 for (int i = 0, chunkEntityCount = chunk.Count; i < chunkEntityCount; ++i)
                 {

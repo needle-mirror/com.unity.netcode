@@ -11,6 +11,9 @@ using System.Linq;
 
 namespace Unity.NetCode.GeneratorTests
 {
+    // TODO: Add tests for GhostEnabledBits.
+    // TODO: Add tests for types moved to SerializationStrategy.
+
     [TestFixture]
     class SourceGeneratorTests : BaseTest
     {
@@ -100,7 +103,7 @@ namespace Unity.NetCode.GeneratorTests
             Assert.AreEqual(1, walker.receiver.Candidates.Count);
             //Check generated files match
             var resuls = GeneratorTestHelpers.RunGenerators(tree);
-            Assert.AreEqual(3, resuls.GeneratedSources.Length, "Num generated files does not match");
+            Assert.AreEqual(2, resuls.GeneratedSources.Length, "Num generated files does not match");
             var outputTree = resuls.GeneratedSources[0].SyntaxTree;
             var snapshotDataSyntax = outputTree.GetRoot().DescendantNodes().OfType<StructDeclarationSyntax>()
                 .FirstOrDefault(node => node.Identifier.ValueText == "Snapshot");
@@ -206,7 +209,7 @@ namespace Unity.NetCode.GeneratorTests
 
             //Check generated files match
             var resuls = GeneratorTestHelpers.RunGenerators(tree);
-            Assert.AreEqual(3, resuls.GeneratedSources.Length, "Num generated files does not match");
+            Assert.AreEqual(2, resuls.GeneratedSources.Length, "Num generated files does not match");
             var outputTree = resuls.GeneratedSources[0].SyntaxTree;
             var snapshotDataSyntax = outputTree.GetRoot().DescendantNodes().OfType<StructDeclarationSyntax>()
                 .FirstOrDefault(node => node.Identifier.ValueText == "Snapshot");
@@ -305,7 +308,7 @@ namespace Unity.NetCode.GeneratorTests
             Assert.AreEqual(1, walker.receiver.Candidates.Count);
 
             var resuls = GeneratorTestHelpers.RunGenerators(tree);
-            Assert.AreEqual(3, resuls.GeneratedSources.Length, "Num generated files does not match");
+            Assert.AreEqual(2, resuls.GeneratedSources.Length, "Num generated files does not match");
             var outputTree = resuls.GeneratedSources[0].SyntaxTree;
             var snapshotDataSyntax = outputTree.GetRoot().DescendantNodes().OfType<StructDeclarationSyntax>()
                 .FirstOrDefault(node => node.Identifier.ValueText == "Snapshot");
@@ -345,7 +348,7 @@ namespace Unity.NetCode.GeneratorTests
 
             var results = GeneratorTestHelpers.RunGenerators(tree);
             Assert.AreEqual(0, results.Diagnostics.Count(d=>d.Severity == DiagnosticSeverity.Error));
-            Assert.AreEqual(3, results.GeneratedSources.Length, "Num generated files does not match");
+            Assert.AreEqual(2, results.GeneratedSources.Length, "Num generated files does not match");
         }
 
         [Test]
@@ -382,7 +385,7 @@ namespace Unity.NetCode.GeneratorTests
 
             var resuls = GeneratorTestHelpers.RunGenerators(tree);
             Assert.AreEqual(0, resuls.Diagnostics.Count(m=>m.Severity == DiagnosticSeverity.Error));
-            Assert.AreEqual(3, resuls.GeneratedSources.Length, "Num generated files does not match");
+            Assert.AreEqual(2, resuls.GeneratedSources.Length, "Num generated files does not match");
         }
 
         [Test]
@@ -430,7 +433,7 @@ namespace Unity.NetCode.GeneratorTests
             Assert.AreEqual(1, diagnostics.Count(d => d.Severity == DiagnosticSeverity.Error), "errorCount");
             Assert.AreEqual("InvalidRotation: Cannot find member Value type: float3 in Rotation",
                 diagnostics.First(d => d.Severity == DiagnosticSeverity.Error).GetMessage());
-            Assert.AreEqual(4, resuls.GeneratedSources.Length, "Num generated files does not match");
+            Assert.AreEqual(3, resuls.GeneratedSources.Length, "Num generated files does not match");
 
             var outputTree = resuls.GeneratedSources[0].SyntaxTree;
             var snapshotDataSyntax = outputTree.GetRoot().DescendantNodes().OfType<StructDeclarationSyntax>()
@@ -516,7 +519,7 @@ namespace Unity.NetCode.GeneratorTests
             //All the variants are detected as candidates
             Assert.AreEqual(2, walker.receiver.Variants.Count);
             var results = GeneratorTestHelpers.RunGenerators(tree);
-            Assert.AreEqual(3, results.GeneratedSources.Length, "Num generated files does not match");
+            Assert.AreEqual(2, results.GeneratedSources.Length, "Num generated files does not match");
             var diagnostics = results.Diagnostics;
             //Expect to see one error
             Assert.AreEqual(1, diagnostics.Count(d => d.Severity == DiagnosticSeverity.Error));
@@ -570,7 +573,7 @@ namespace Unity.NetCode.GeneratorTests
             tree.GetCompilationUnitRoot().Accept(walker);
             Assert.AreEqual(1, walker.receiver.Candidates.Count);
             var results = GeneratorTestHelpers.RunGenerators(tree);
-            Assert.AreEqual(4, results.GeneratedSources.Length, "Num generated files does not match");
+            Assert.AreEqual(3, results.GeneratedSources.Length, "Num generated files does not match");
             var diagnostics = results.Diagnostics;
             //Expect to see one error
             if (diagnostics.Count(d => d.Severity == DiagnosticSeverity.Error) != 0)
@@ -631,7 +634,7 @@ namespace Unity.NetCode.GeneratorTests
             Assert.AreEqual(2, walker.receiver.Candidates.Count);
             var results = GeneratorTestHelpers.RunGenerators(tree);
             //only the command serializer
-            Assert.AreEqual(2, results.GeneratedSources.Length, "Num generated files does not match");
+            Assert.AreEqual(1, results.GeneratedSources.Length, "Num generated files does not match");
             //But some errors are reported too
             var diagnostics = results.Diagnostics.Where(m=>m.Severity == DiagnosticSeverity.Error).ToArray();
             Assert.AreEqual(3, diagnostics.Length);
@@ -741,7 +744,7 @@ namespace Unity.NetCode.GeneratorTests
             //Check generated files match
             var templateTree = CSharpSyntaxTree.ParseText(customTemplates);
             var results = GeneratorTestHelpers.RunGenerators(tree, templateTree);
-            Assert.AreEqual(3, results.GeneratedSources.Length, "Num generated files does not match");
+            Assert.AreEqual(2, results.GeneratedSources.Length, "Num generated files does not match");
 
             var outputTree = results.GeneratedSources[0].SyntaxTree;
             var snapshotDataSyntax = outputTree.GetRoot().DescendantNodes().OfType<StructDeclarationSyntax>()
@@ -794,8 +797,8 @@ namespace Unity.NetCode.GeneratorTests
             // No error during processing
             Assert.AreEqual(0, results.Diagnostics.Count(m => m.Severity == DiagnosticSeverity.Error));
             // No ghost snapshot serializer is generated (but does contain serializer collection with empty variants + client-to-server command serializer)
-            Assert.AreEqual(3, results.GeneratedSources.Length, "Num generated files does not match");
-            Assert.IsTrue(results.GeneratedSources[0].SourceText.ToString().Contains("AddEmptyVariant"));
+            Assert.AreEqual(2, results.GeneratedSources.Length, "Num generated files does not match");
+            Assert.IsTrue(results.GeneratedSources[0].SourceText.ToString().Contains("SerializerIndex = -1"));
             Assert.AreEqual(false, results.GeneratedSources[1].SyntaxTree.ToString().Contains("GhostComponentSerializer.State"));
         }
 
@@ -883,7 +886,7 @@ namespace Unity.NetCode.GeneratorTests
             tree = CSharpSyntaxTree.ParseText(testDataCorrect);
             templateTree = CSharpSyntaxTree.ParseText(customTemplates);
             results = GeneratorTestHelpers.RunGenerators(tree, templateTree);
-            Assert.AreEqual(3, results.GeneratedSources.Length, "Num generated files does not match");
+            Assert.AreEqual(2, results.GeneratedSources.Length, "Num generated files does not match");
             var outputTree = results.GeneratedSources[0].SyntaxTree;
             var snapshotDataSyntax = outputTree.GetRoot().DescendantNodes().OfType<StructDeclarationSyntax>()
                 .FirstOrDefault(node => node.Identifier.ValueText == "Snapshot");
@@ -970,7 +973,7 @@ namespace Unity.NetCode.GeneratorTests
                 var compilation = GeneratorTestHelpers.CreateCompilation(tree, templateTree);
                 var driver = GeneratorTestHelpers.CreateGeneratorDriver().AddAdditionalTexts(additionalTexts);
                 var results = driver.RunGenerators(compilation).GetRunResult();
-                Assert.AreEqual(3, results.GeneratedTrees.Length);
+                Assert.AreEqual(2, results.GeneratedTrees.Length, "Num generated files does not match");
                 var outputTree = results.GeneratedTrees[0];
                 var snapshotDataSyntax = outputTree.GetRoot().DescendantNodes().OfType<StructDeclarationSyntax>()
                     .FirstOrDefault(node => node.Identifier.ValueText == "Snapshot");
@@ -1005,7 +1008,7 @@ namespace Unity.NetCode.GeneratorTests
             var results = GeneratorTestHelpers.RunGenerators(tree);
 
             //Parse the output and check that the flag on the generated class is correct (one source is registration system)
-            Assert.AreEqual(3, results.GeneratedSources.Count(), "Num generated files does not match");
+            Assert.AreEqual(2, results.GeneratedSources.Count(), "Num generated files does not match");
             var outputTree = results.GeneratedSources[0].SyntaxTree;
             var initBlockWalker = new InializationBlockWalker();
             outputTree.GetCompilationUnitRoot().Accept(initBlockWalker);
@@ -1024,12 +1027,13 @@ namespace Unity.NetCode.GeneratorTests
             Assert.IsNotNull(componentTypeAssignmet);
             Assert.AreEqual(componentTypeAssignmet.Right.ToString(), "SendToOwnerType.All");
 
+            // TODO: Fix this, as it has been moved to the SS.
             // SendDataForChildEntity = false
-            componentTypeAssignmet = initBlockWalker.intializer.Expressions.FirstOrDefault(e =>
-                    ((AssignmentExpressionSyntax) e).Left.ToString() == "SendForChildEntities") as
-                AssignmentExpressionSyntax;
-            Assert.IsNotNull(componentTypeAssignmet);
-            Assert.AreEqual(componentTypeAssignmet.Right.ToString(), "false");
+            // componentTypeAssignmet = initBlockWalker.intializer.Expressions.FirstOrDefault(e =>
+            //         ((AssignmentExpressionSyntax) e).Left.ToString() == "SendForChildEntities") as
+            //     AssignmentExpressionSyntax;
+            // Assert.IsNotNull(componentTypeAssignmet);
+            // Assert.AreEqual(componentTypeAssignmet.Right.ToString(), "0");
         }
 
         [Test]
@@ -1061,7 +1065,7 @@ namespace Unity.NetCode.GeneratorTests
             var tree = CSharpSyntaxTree.ParseText(testData);
             var results = GeneratorTestHelpers.RunGenerators(tree);
 
-            Assert.AreEqual(5, results.GeneratedSources.Length, "Num generated files does not match");
+            Assert.AreEqual(4, results.GeneratedSources.Length, "Num generated files does not match");
             var diagnostics = results.Diagnostics;
             Assert.AreEqual(0, diagnostics.Count(d => d.Severity == DiagnosticSeverity.Error));
             //Parse the output and check that the flag on the generated class is correct
@@ -1071,11 +1075,13 @@ namespace Unity.NetCode.GeneratorTests
                 var initBlockWalker = new InializationBlockWalker();
                 outputTree.GetCompilationUnitRoot().Accept(initBlockWalker);
                 Assert.IsNotNull(initBlockWalker.intializer);
-                var componentTypeAssignmet = initBlockWalker.intializer.Expressions.FirstOrDefault(e =>
-                        ((AssignmentExpressionSyntax) e).Left.ToString() == "SendForChildEntities") as
-                    AssignmentExpressionSyntax;
-                Assert.IsNotNull(componentTypeAssignmet);
-                Assert.AreEqual(componentTypeAssignmet.Right.ToString(), (i == 1 ? "true" : "false"), "Only the GhostComponent explicitly sending child entities should have that flag.");
+
+                // TODO: Fix this, as it has been moved to the SS.
+                // var componentTypeAssignmet = initBlockWalker.intializer.Expressions.FirstOrDefault(e =>
+                //         ((AssignmentExpressionSyntax) e).Left.ToString() == "SendForChildEntities") as
+                //     AssignmentExpressionSyntax;
+                // Assert.IsNotNull(componentTypeAssignmet);
+                // Assert.AreEqual(componentTypeAssignmet.Right.ToString(), (i == 1 ? "1" : "0"), "Only the GhostComponent explicitly sending child entities should have that flag.");
             }
         }
 
@@ -1114,7 +1120,7 @@ namespace Unity.NetCode.GeneratorTests
             var tree = CSharpSyntaxTree.ParseText(testData);
             var results = GeneratorTestHelpers.RunGenerators(tree);
 
-            Assert.AreEqual(3, results.GeneratedSources.Length, "Num generated files does not match");
+            Assert.AreEqual(2, results.GeneratedSources.Length, "Num generated files does not match");
             var diagnostics = results.Diagnostics;
             Assert.AreEqual(0, diagnostics.Count(d => d.Severity == DiagnosticSeverity.Error));
             //Parse the output and check that the flag on the generated class is correct
@@ -1209,7 +1215,7 @@ namespace Unity.NetCode.GeneratorTests
             var tree = CSharpSyntaxTree.ParseText(testData);
             var results = GeneratorTestHelpers.RunGenerators(tree);
             Assert.AreEqual(0, results.Diagnostics.Count(d => d.Severity == DiagnosticSeverity.Error || d.Severity == DiagnosticSeverity.Error));
-            Assert.AreEqual(4, results.GeneratedSources.Length, "Num generated files does not match");
+            Assert.AreEqual(3, results.GeneratedSources.Length, "Num generated files does not match");
             Assert.IsTrue(results.GeneratedSources[0].SourceText.ToString().Contains("TestComponent"));
             Assert.IsTrue(results.GeneratedSources[1].SourceText.ToString().Contains("TestComponent2"));
 
@@ -1267,7 +1273,7 @@ namespace Unity.NetCode.GeneratorTests
                 }
             }
             Assert.AreEqual(0, errorCount);
-            Assert.AreEqual(4, results.GeneratedSources.Length, "Num generated files does not match");
+            Assert.AreEqual(3, results.GeneratedSources.Length, "Num generated files does not match");
             var hintA=Generators.Utilities.TypeHash.FNV1A64(Path.Combine(GeneratorTestHelpers.GeneratedAssemblyName, "A_TestComponentSerializer.cs"));
             var hintB=Generators.Utilities.TypeHash.FNV1A64(Path.Combine(GeneratorTestHelpers.GeneratedAssemblyName, "B_TestComponentSerializer.cs"));
             var hintG=Generators.Utilities.TypeHash.FNV1A64(Path.Combine(GeneratorTestHelpers.GeneratedAssemblyName, "GhostComponentSerializerCollection.cs"));
@@ -1303,7 +1309,7 @@ namespace Unity.NetCode.GeneratorTests
                 }
             }
             Assert.AreEqual(0, errorCount);
-            Assert.AreEqual(3, results.GeneratedSources.Length, "Num generated files does not match");
+            Assert.AreEqual(2, results.GeneratedSources.Length, "Num generated files does not match");
             var expetedHint1=Generators.Utilities.TypeHash.FNV1A64(Path.Combine(GeneratorTestHelpers.GeneratedAssemblyName,
                 "VERYVERYVERYLONG.VERYVERYVERYLONG.VERYVERYVERYLONG.VERYVERYVERYLONG.VERYVERYVERYLONG.VERYVERYVERYLONG.VERYVERYVERYLONG.VERYVERYVERYLONG.VERYVERYVERYLONG_TestComponentSerializer.cs"));
             Assert.AreEqual($"{expetedHint1}.cs",results.GeneratedSources[0].HintName);
@@ -1336,7 +1342,7 @@ namespace Unity.NetCode.GeneratorTests
             // Should get input buffer struct (IInputBufferData etc) and the command data (ICommandDataSerializer etc) generated from that
             // and the registration system with the empty variant registration data
             var results = GeneratorTestHelpers.RunGenerators(tree);
-            Assert.AreEqual(4, results.GeneratedSources.Length, "Num generated files does not match");
+            Assert.AreEqual(3, results.GeneratedSources.Length, "Num generated files does not match");
             var bufferSourceData = results.GeneratedSources[0].SyntaxTree;
             var commandSourceData = results.GeneratedSources[1].SyntaxTree;
 
@@ -1379,7 +1385,7 @@ namespace Unity.NetCode.GeneratorTests
             Assert.AreEqual(1, walker.receiver.Candidates.Count);
 
             var results = GeneratorTestHelpers.RunGenerators(tree);
-            Assert.AreEqual(5, results.GeneratedSources.Length, "Num generated files does not match");
+            Assert.AreEqual(4, results.GeneratedSources.Length, "Num generated files does not match");
             var bufferSourceData = results.GeneratedSources[0].SyntaxTree;
             var commandSourceData = results.GeneratedSources[1].SyntaxTree;
             var componentSourceData = results.GeneratedSources[2].SyntaxTree;
@@ -1425,11 +1431,10 @@ namespace Unity.NetCode.GeneratorTests
             Assert.IsNotNull(maskBits);
             Assert.AreEqual("4", maskBits.Declaration.Variables[0].Initializer.Value.ToString());
 
-            var registrationSyntax = registrationSourceData.GetRoot().DescendantNodes().OfType<ClassDeclarationSyntax>()
-                .FirstOrDefault(node => node.Identifier.ValueText == "GhostComponentSerializerRegistrationSystem");
+            var registrationSyntax = registrationSourceData.GetRoot().DescendantNodes().OfType<SimpleBaseTypeSyntax>()
+                .FirstOrDefault(node => node.ToString().Contains("IGhostComponentSerializerRegistration"));
             Assert.IsNotNull(registrationSyntax);
-            sourceText = registrationSyntax.GetText();
-            Assert.AreEqual(1, sourceText.Lines.Where((line => line.ToString().Contains("AddSerializer(PlayerInputInputBufferDataGhostComponentSerializer.State)"))).Count());
+            Assert.AreEqual(1, registrationSourceData.GetText().Lines.Where((line => line.ToString().Contains("data.AddSerializer(PlayerInputInputBufferDataGhostComponentSerializer.State)"))).Count());
         }
     }
 }

@@ -166,7 +166,7 @@ namespace Unity.NetCode
             public void Execute(ArchetypeChunk chunk, int orderIndex)
             {
                 var entities = chunk.GetNativeArray(entitiesType);
-                var rpcRequests = chunk.GetNativeArray(rpcRequestType);
+                var rpcRequests = chunk.GetNativeArray(ref rpcRequestType);
                 if (ComponentType.ReadOnly<TActionRequest>().IsZeroSized)
                 {
                     TActionRequest action = default;
@@ -177,7 +177,7 @@ namespace Unity.NetCode
                 }
                 else
                 {
-                    var actions = chunk.GetNativeArray(actionRequestType);
+                    var actions = chunk.GetNativeArray(ref actionRequestType);
                     for (int i = 0, chunkEntityCount = chunk.Count; i < chunkEntityCount; ++i)
                     {
                         LambdaMethod(entities[i], orderIndex, rpcRequests[i], actions[i]);

@@ -34,7 +34,7 @@
 .ghost-inspection-entity-content
 {
     margin-left: 0px;
-    padding: 5 10 5 20;
+    padding: 5px 10px 5px 20px;
 
     border-color: #818181;
     border-width: 1.5px;

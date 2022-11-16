@@ -29,11 +29,19 @@ namespace Unity.NetCode.Tests
         protected override void OnUpdate()
         {
             int modifyNetworkId = s_ModifyNetworkId;
+#if !ENABLE_TRANSFORM_V1
+            Entities.ForEach((ref LocalTransform trans, in GhostOwnerComponent ghostOwner) => {
+                if (ghostOwner.NetworkId != modifyNetworkId)
+                    return;
+                trans.Position.x += 1;
+            }).ScheduleParallel();
+#else
             Entities.ForEach((ref Translation trans, in GhostOwnerComponent ghostOwner) => {
                 if (ghostOwner.NetworkId != modifyNetworkId)
                     return;
                 trans.Value.x += 1;
             }).ScheduleParallel();
+#endif
         }
     }
 

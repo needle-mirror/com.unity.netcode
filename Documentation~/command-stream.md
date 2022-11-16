@@ -1,20 +1,85 @@
 # Command stream
 
-The client continuously sends a command stream to the server. This stream includes all inputs and acknowledgements of the last received snapshot. When no commands are sent a [NullCommandSendSystem](https://docs.unity3d.com/Packages/com.unity.netcode@latest/index.html?subfolder=/api/Unity.NetCode.NullCommandSendSystem.html) sends acknowledgements for received snapshots without any inputs. This is an automatic system to make sure the flow works automatically when the game does not need to send any inputs.
+The client continuously sends a command stream to the server when the `NetworkStreamConnection` is tagged to be "in-game". This stream includes all inputs, and acknowledgements of the last received snapshot. 
+Thus, the connection will be kept alive, even if the client does not have controlled entities, and does not generate any inputs that need to be transmitted to the server.
+The command packet is still sent at a regular interval (every full simulated tick), to automatically acknowledge received snapshots, and to report other important information to the server.
 
+## Creating inputs (i.e. commands)
 To create a new input type, create a struct that implements the `ICommandData` interface. To implement that interface you need to provide a property for accessing the `Tick`.
 
-The serialization and registration code for the `ICommandData` will be generated automatically, but it is also possible to disable that and write the serialization manually.
+The serialization and registration code for the `ICommandData` will be generated automatically, but it is also possible to disable that and write the serialization [manually](command-stream.md#manual-serialization).
 
-If you add your `ICommandData` component to a ghost which has `Has Owner` and `Support Auto Command Target` enabled in the autoring component the commands for that ghost will automatically be sent if the ghost is owned by you, is predicted, and [AutoCommandTarget](https://docs.unity3d.com/Packages/com.unity.netcode@latest/index.html?subfolder=/api/Unity.NetCode.AutoCommandTarget.html).Enabled has not been set to false.
+The `ICommandData` buffer can be added to the entity controlled by the player either at baking time (using an authoring component) or at runtime. <br/>In the latter, make sure the dynamic buffer is present on both server and client.
 
-If you are not using `Auto Command Target`, your game code must set the [CommandTargetComponent](https://docs.unity3d.com/Packages/com.unity.netcode@latest/index.html?subfolder=/api/Unity.NetCode.CommandTargetComponent.html) on the connection entity to reference the entity that the `ICommandData` component has been attached to.
+### Handling input on the client
+The client is only responsible for polling the input source and add `ICommand` to buffer for the entities who it control. <br/>
+The queued commands are then automatically sent at regular interval by `CommandSendPacketSystem`.
 
-You can have multiple command systems, and NetCode selects the correct one based on the `ICommandData` type of the entity that points to `CommandTargetComponent`.
+The systems responsible for writing to the command buffers must all run inside the [GhostInputSystemGroup](https://docs.unity3d.com/Packages/com.unity.netcode@latest/index.html?subfolder=/api/Unity.NetCode.GhostInputSystemGroup.html).
 
-When you need to access inputs on the client and server, it is important to read the data from the `ICommandData` rather than reading it directly from the system. If you read the data from the system the inputs won’t match between the client and server so your game will not behave as expected.
+### Receiving commands on the server
+`ICommamdData` are automatically received by the server by the `NetworkStreamReceiveSystem` and added to the `IncomingCommandDataStreamBufferComponent` buffer. The `CommandReceiveSystem` is then responsible 
+to dispatch the command data to the target entity (which the command belong to).
+>![NOTE] The server must only receive commands from the clients. It should never overwrite or change the input received by the client.
 
-When you need to access the inputs from the buffer, you can use an extension method for `DynamicBuffer<ICommandData>` called `GetDataAtTick` which gets the matching tick for a specific frame. You can also use the `AddCommandData` utility method which adds more commands to the buffer.
+## Automatic handling of commands. The AutoCommandTarget component.
+If you add your `ICommandData` component to a ghost (for which the following options has been enabled in the `GhostAuthoringComponent):
+1. `Has Owner` set
+2. `Support Auto Command Target` 
+
+<img src="images/enable-autocommand.png" width="500" alt="enable-autocommand"/>
+
+the commands for that ghost will **automatically be sent to the server**. Obviously, the following rules apply:
+- the ghost must be owned by your client (requiring the server to set the `GhostOwnerComponent` to your `NetworkIdComponent.Value`), 
+- the ghost is `Predicted` or `OwnerPredicted` (i.e. you therefore cannot use an `ICommandData` to control interpolated ghosts),
+- the [AutoCommandTarget](https://docs.unity3d.com/Packages/com.unity.netcode@latest/index.html?subfolder=/api/Unity.NetCode.AutoCommandTarget.html).Enabled flag is set to true.
+
+If you are not using `Auto Command Target`, your game code must set the [CommandTargetComponent](https://docs.unity3d.com/Packages/com.unity.netcode@latest/index.html?subfolder=/api/Unity.NetCode.CommandTargetComponent.html) on the connection entity to reference the entity that the `ICommandData` component has been attached to. 
+<br/> You can have multiple command systems, and Netcode for Entities will select the correct one (based on the `ICommandData` type of the entity that points to `CommandTargetComponent`).
+
+When you need to access the inputs from the buffer, you can use an extension method for `DynamicBuffer<ICommandData>` called `GetDataAtTick` which gets the matching tick for a specific frame. You can also use the `AddCommandData` utility method (which adds more commands to the ring-buffer for you).
+
+>~[NOTE] When you update the state of your simulation inside the prediction loop, you must rely only on the commands present in the `ICommandData` buffer (for a given input type). 
+Polling input directly, by using UnityEngine.Input or other similar method, or relying on input information not present in the struct implementing the `ICommandData` interface may cause client
+mis-prediction. </br>
+
+## Checking which ghost entities are owned by the player, on the client.
+> [!NOTE]
+It is required you use (and implement) the `GhostOwnerComponent` functionality, for commands to work properly. For example: By checking the 'Has Owner' checkbox in the `GhostAuthoringComponent`.
+
+**On the client, it is very common to want to lookup (i.e. query for) entities that are owned by the local player.** 
+This is problematic, as multiple ghosts may have the same `CommandBuffer` as your "locally owned" ghost (e.g. when using [Remove Player Prediction](prediction.md#remote-players-prediction), _every other "player" ghost_ will have this buffer),
+and your input systems (that populate the input command buffer) may accidentally clobber other players buffers.
+
+There are two ways to handle this properly:
+
+### Use the new `GhostOwnerIsLocal` component (PREFERRED)
+All ghosts have a special enableable component, `GhostOwnerIsLocal` that you can now use to filter out ghosts not owned by "you".
+
+For example:
+```c#
+Entities
+    .WithAll<GhostOwnerIsLocal>()
+    .ForEach((ref MyComponent myComponent)=>
+    {
+        // your logic here will be applied only to the entities onwed by "you" (the local player).        
+    }).Run();
+```
+### Use the GhostOwnerComponent
+You can filter the entities manually by checking that the `GhostOwnerComponent.NetworkId` of the entity equals the `NetworkId` of the player.
+
+```c#
+var localPlayerId = GetSingleton<NetworkIdComponent>().Value;
+Entities
+    .WithAll<GhostOwnerIsLocal>()
+    .ForEach((ref MyComponent myComponent, in GhostOwnerComponent owner)=>
+    {
+        if(owner.NetworkId == localPlayerId)
+        {
+            // your logic here will be applied only to the entitis onwed by the local player.
+        }                
+    }).Run();
+```
 
 ## Automatic command input setup using IInputComponentData
 
@@ -88,13 +153,8 @@ public partial class GatherInputs : SystemBase
         //...
 
         var networkId = GetSingleton<NetworkIdComponent>().Value;
-        Entities
-            .WithName("GatherInput")
-            .ForEach((ref PlayerInput inputData, ref GhostOwnerComponent owner) =>
+        Entities.WithName("GatherInput").WithAll<GhostOwnerIsLocal>().ForEach((ref PlayerInput inputData) =>
             {
-                if (owner.NetworkId != networkId)
-                    return;
-
                 inputData = default;
 
                 if (jump)
@@ -148,12 +208,13 @@ public partial struct MyCommandSendCommandSystem : ISystem
 {
     CommandSendSystem<MyCommandSerializer, MyCommand> m_CommandSend;
     [BurstCompile]
-    struct SendJob : IJobEntityBatch
+    struct SendJob : IJobChunk
     {
         public CommandSendSystem<MyCommandSerializer, MyCommand>.SendJobData data;
-        public void Execute(ArchetypeChunk chunk, int orderIndex)
+        public void Execute(in ArchetypeChunk chunk, int unfilteredChunkIndex,
+            bool useEnabledMask, in v128 chunkEnabledMask)
         {
-            data.Execute(chunk, orderIndex);
+            data.Execute(chunk, unfilteredChunkIndex);
         }
     }
     [BurstCompile]
@@ -179,12 +240,13 @@ public partial struct MyCommandReceiveCommandSystem : ISystem
 {
     CommandReceiveSystem<MyCommandSerializer, MyCommand> m_CommandRecv;
     [BurstCompile]
-    struct ReceiveJob : IJobEntityBatch
+    struct ReceiveJob : IJobChunk
     {
         public CommandReceiveSystem<MyCommandSerializer, MyCommand>.ReceiveJobData data;
-        public void Execute(ArchetypeChunk chunk, int orderIndex)
+        public void Execute(in ArchetypeChunk chunk, int unfilteredChunkIndex,
+            bool useEnabledMask, in v128 chunkEnabledMask)
         {
-            data.Execute(chunk, orderIndex);
+            data.Execute(chunk, unfilteredChunkIndex);
         }
     }
     [BurstCompile]

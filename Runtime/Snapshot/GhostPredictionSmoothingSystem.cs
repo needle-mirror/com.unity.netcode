@@ -297,7 +297,7 @@ namespace Unity.NetCode
                 var GhostComponentIndex = GhostComponentIndexFromEntity[GhostCollectionSingleton];
                 var GhostComponentCollection = GhostComponentCollectionFromEntity[GhostCollectionSingleton];
 
-                var ghostComponents = chunk.GetNativeArray(ghostType);
+                var ghostComponents = chunk.GetNativeArray(ref ghostType);
 
                 int ghostTypeId = ghostComponents.GetFirstGhostTypeId();
                 if (ghostTypeId < 0)
@@ -313,7 +313,7 @@ namespace Unity.NetCode
                 Entity* backupEntities = PredictionBackupState.GetEntities(state);
                 var entities = chunk.GetNativeArray(entityType);
 
-                var predictedGhostComponents = chunk.GetNativeArray(predictedGhostType);
+                var predictedGhostComponents = chunk.GetNativeArray(ref predictedGhostType);
 
                 int numBaseComponents = typeData.NumComponents - typeData.NumChildComponents;
                 int baseOffset = typeData.FirstComponent;
@@ -362,7 +362,7 @@ namespace Unity.NetCode
 
                 foreach (var action in actions)
                 {
-                    if (chunk.Has(ghostChunkComponentTypesPtr[action.compIndex]))
+                    if (chunk.Has(ref ghostChunkComponentTypesPtr[action.compIndex]))
                     {
                         for (int ent = 0; ent < entities.Length; ++ent)
                         {
@@ -373,12 +373,12 @@ namespace Unity.NetCode
                             if (entities[ent] != backupEntities[ent])
                                 continue;
 
-                            var compData = (byte*)chunk.GetDynamicComponentDataArrayReinterpret<byte>(ghostChunkComponentTypesPtr[action.compIndex], action.compSize).GetUnsafePtr();
+                            var compData = (byte*)chunk.GetDynamicComponentDataArrayReinterpret<byte>(ref ghostChunkComponentTypesPtr[action.compIndex], action.compSize).GetUnsafePtr();
 
                             void* usrDataPtr = null;
-                            if (action.userTypeId >= 0 && chunk.Has(userTypes[action.userTypeId]))
+                            if (action.userTypeId >= 0 && chunk.Has(ref userTypes[action.userTypeId]))
                             {
-                                var usrData = (byte*)chunk.GetDynamicComponentDataArrayReinterpret<byte>(userTypes[action.userTypeId], action.userTypeSize).GetUnsafeReadOnlyPtr();
+                                var usrData = (byte*)chunk.GetDynamicComponentDataArrayReinterpret<byte>(ref userTypes[action.userTypeId], action.userTypeSize).GetUnsafeReadOnlyPtr();
                                 usrDataPtr = usrData + action.userTypeSize * ent;
                             }
 
@@ -389,7 +389,7 @@ namespace Unity.NetCode
                     }
                 }
 
-                var linkedEntityGroupAccessor = chunk.GetBufferAccessor(linkedEntityGroupType);
+                var linkedEntityGroupAccessor = chunk.GetBufferAccessor(ref linkedEntityGroupType);
                 foreach (var action in childActions)
                 {
                     for (int ent = 0, chunkEntityCount = chunk.Count; ent < chunkEntityCount; ++ent)
@@ -402,14 +402,14 @@ namespace Unity.NetCode
                         var linkedEntityGroup = linkedEntityGroupAccessor[ent];
                         var childEnt = linkedEntityGroup[action.entityIndex].Value;
                         if (childEntityLookup.TryGetValue(childEnt, out var childChunk) &&
-                            childChunk.Chunk.Has(ghostChunkComponentTypesPtr[action.compIndex]))
+                            childChunk.Chunk.Has(ref ghostChunkComponentTypesPtr[action.compIndex]))
                         {
-                            var compData = (byte*)childChunk.Chunk.GetDynamicComponentDataArrayReinterpret<byte>(ghostChunkComponentTypesPtr[action.compIndex], action.compSize).GetUnsafePtr();
+                            var compData = (byte*)childChunk.Chunk.GetDynamicComponentDataArrayReinterpret<byte>(ref ghostChunkComponentTypesPtr[action.compIndex], action.compSize).GetUnsafePtr();
 
                             void* usrDataPtr = null;
-                            if (action.userTypeId >= 0 && chunk.Has(userTypes[action.userTypeId]))
+                            if (action.userTypeId >= 0 && chunk.Has(ref userTypes[action.userTypeId]))
                             {
-                                var usrData = (byte*)chunk.GetDynamicComponentDataArrayReinterpret<byte>(userTypes[action.userTypeId], action.userTypeSize).GetUnsafeReadOnlyPtr();
+                                var usrData = (byte*)chunk.GetDynamicComponentDataArrayReinterpret<byte>(ref userTypes[action.userTypeId], action.userTypeSize).GetUnsafeReadOnlyPtr();
                                 usrDataPtr = usrData + action.userTypeSize * ent;
                             }
 

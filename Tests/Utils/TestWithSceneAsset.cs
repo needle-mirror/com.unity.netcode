@@ -1,7 +1,6 @@
 #if UNITY_EDITOR
 using System;
 using System.IO;
-using Authoring.Hybrid;
 using NUnit.Framework;
 using Unity.Entities.Build;
 using UnityEditor;
@@ -18,8 +17,6 @@ namespace Unity.NetCode.Tests
         [SetUp]
         public void SetupScene()
         {
-            DotsPlayerSettings.AdditionalBakingSystemsTemp.Add(typeof(TestWorldDefaultVariantSystem));
-
             ScenePath = Path.Combine("Assets", Path.GetRandomFileName());
             Directory.CreateDirectory(ScenePath);
             LastWriteTime = Directory.GetLastWriteTime(Application.dataPath + ScenePath);
@@ -28,8 +25,6 @@ namespace Unity.NetCode.Tests
         [TearDown]
         public void DestroyScenes()
         {
-            DotsPlayerSettings.AdditionalBakingSystemsTemp.Remove(typeof(TestWorldDefaultVariantSystem));
-
             foreach (var go in SceneManager.GetActiveScene().GetRootGameObjects())
                 UnityEngine.Object.DestroyImmediate(go);
 

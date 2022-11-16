@@ -4,12 +4,14 @@ A ghost is a networked object that the server simulates. During every frame, the
 
 The ghost snapshot system synchronizes entities which exist on the server to all clients. To make it perform properly, the server processes per ECS chunk rather than per entity. On the receiving side the processing is done per entity. This is because it is not possible to process per chunk on both sides, and the server has more connections than clients.
 
-## Ghost authoring component
-The ghost authoring component is based on specifying ghosts as Prefabs with the __GhostAuthoringComponent__ on them. The __GhostAuthoringComponent__ has a small editor which you can use to configure how NetCode synchronizes the Prefab.
+## Authoring Ghosts
+Ghost can be authored in the editor by creating a Prefab with a [GhostAuthoringComponent](https://docs.unity3d.com/Packages/com.unity.netcode@latest/index.html?subfolder=/api/Unity.NetCode.GhostAuthoringComponent.html).
 
-![Ghost Authoring Component](images/ghost-config.png)_Ghost Authoring Component_
+![Ghost Authoring Component](images/ghost-config.png)
 
-You must set the __Name__, __Importance__, __Supported Ghost Mode__, __Default Ghost Mode__ and __Optimization Mode__ property on each ghost. Unity uses the __Importance__ property to control which entities are sent when there is not enough bandwidth to send all. A higher value makes it more likely that the ghost will be sent.
+The __GhostAuthoringComponent__ has a small editor which you can use to configure how Netcode synchronizes the Prefab. <br/>
+You must set the __Name__, __Importance__, __Supported Ghost Mode__, __Default Ghost Mode__ and __Optimization Mode__ property on each ghost. <br/>
+Netcode for Entities uses the __Importance__ property to control which entities are sent when there is not enough bandwidth to send all. A higher value makes it more likely that the ghost will be sent.
 
 You can select from three different __Supported Ghost Mode__ types:
 
@@ -28,50 +30,34 @@ You can select from two different __Optimization Mode__ types:
 * __Dynamic__ - the ghost will be optimized for having small snapshot size both when changing and when not changing.
 * __Static__ - the ghost will not be optimized for having small snapshot size when changing, but it will not be sent at all when it is not changing.
 
-To override the default client instantiation you can create a classification system updating after __ClientSimulationSystemGroup__ and before [GhostSpawnClassificationSystem](https://docs.unity3d.com/Packages/com.unity.netcode@latest/index.html?subfolder=/api/Unity.NetCode.GhostSpawnClassificationSystem.html) which goes through the __GhostSpawnBuffer__ buffer on the singleton entity with __GhostSpawnQueueComponent__ and change the __SpawnType__.
+## Replicating Components and Buffers
+Netcode for Entities uses C# attributes to configure which components and fields are synchronized as part of a ghost. There are two fundamental attributes you can use:
+- The [GhostFieldAttribute](https://docs.unity3d.com/Packages/com.unity.netcode@latest/index.html?subfolder=/api/Unity.NetCode.GhostFieldAttribute.html)
+- The [GhostComponentAttribute](https://docs.unity3d.com/Packages/com.unity.netcode@latest/index.html?subfolder=/api/Unity.NetCode.GhostComponentAttribute.html)
 
-Unity uses attributes in C# to configure which components and fields are synchronized as part of a ghost. You can see the current configuration in the __GhostAuthoringComponent__ by selecting __Update component list__.
+The `GhostFieldAttribute` should be used to mark which component (or buffer) fields should be serialised. The attribute can be added to struct fields and properties. Once a component
+has at least one field marked with `GhostField`, it become replicated and and transmitted as part of the ghost data. 
 
-To change which versions of a Prefab a component is available on you use __PrefabType__ in a __GhostComponentAttribute__ on the component. __PrefabType__ can be on of the these types:
-* __InterpolatedClient__ - the component is only available on clients where the ghost is interpolated.
-* __PredictedClient__ - the component is only available on clients where the ghost is predicted.
-* __Client__ - the component is only available on the clients, both when the ghost is predicted and interpolated.
-* __Server__ - the component is only available on the server.
-* __AllPredicted__ - the component is only available on the server and on clients where the ghost is predicted.
-* __All__ - the component is available on the server and all clients.
+The `GhostComponentAttribute` should be used to:
+- Declare for which version of the Prefab the component should be present.
+- Declare if the component should be serialised also for child entities.
+- Declare to which subset of clients a component should be replicated.
 
-For example, if you add `[GhostComponent(PrefabType=GhostPrefabType.Client)]` to RenderMesh, the ghost won’t have a RenderMesh when it is instantiated on the server, but it will have it when instantiated on the client.
+## Authoring component serialization
+To signal the Netcode for Entities that a component should be serialised you need to add a `GhostField` attribute to the values you want to send. 
 
-A component can set __SendTypeOptimization__ in the __GhostComponentAttribute__ to control which clients the component is sent to whenever a ghost type is known at compile time. The available modes are:
-* __None__ - the component is never sent to any clients. NetCode will not modify the component on the clients which do not receive it.
-* __Interpolated__ - the component is only sent to clients which are interpolating the ghost.
-* __Predicted__ - the component is only sent to clients which are predicting the ghost.
-* __All__ - the component is sent to all clients.
+```csharp
+public struct MySerialisedComponent : IComponentData
+{
+    [GhostField]public int MyIntField;
+    [GhostField(Quantization=1000)]public float MyFloatField;
+    [GhostField(Quantization=1000, Smoothing=SmoothingAction.Interpolate)]public float2 Position;
+    public float2 NonSerialisedField;
+    ...
+}
+```
 
-If a component is not sent to a client NetCode will not modify the component on the client which did not receive it.
-
-A component can also set __SendDataForChildEntity__ to true in order to change the default (of not serializing children), allowing this component to be serialized when on a child.
-
-A component can also set __SendToOwner__ in the __GhostComponentAttribute__ to specify if the component should be sent to client who owns the entity. The available values are:
-* __SendToOwner__ - the component is only sent to the client who own the ghost
-* __SendToNonOwner__ - the component is sent to all clients except the one who owns the ghost
-* __All__ - the component is sent to all clients.
-
-### Override GhostComponent properties on per prefab basis
-It is possible to override the following meta-data on per-prefab basis, via the __GhostAuthoringInspectionComponent__ editor:
-* __PrefabType__
-* __SendToOptimization__
-* __Variant__
-
-It is possible to prevent a component from supporting per-prefab overrides by using the __DontSupportPrefabOverride__ attribute. When present, the component can't be further customized in the inspector.
-
-To prevent a component from supporting per-prefab overrides, add the `[DontSupportPrefabOverride]` attribute to the component type.
-Example: The NetCode package requires the __GhostOwnerComponent__ to be added to all ghost types, sent for all ghost types, and serialized using the default variant. Thus, we add the `[DontSupportPrefabOverride]` attribute to it.
-When present, the component can't be customized in the inspector, nor can a programmer add custom or default variants for this type (as that will trigger errors during ghost validation).
-
-### Authoring component serialization
-For each component you want to serialize, you need to add an attribute to the values you want to send. Add a `[GhostField]` attribute to the fields you want to send in an `IComponentData`. Both component fields and properties are supported. The following conditions apply in general for a component to support serialization:
-
+The following conditions apply in general for a component to support serialization:
 * The component must be declared as public.
 * Only public members are considered. Adding a `[GhostField]` to a private member has no effect.
 * The __GhostField__ can specify `Quantization` for floating point numbers. The floating point number will be multiplied by this number and converted to an integer in order to save bandwidth. Specifying a `Quantization` is mandatory for floating point numbers and not supported for integer numbers. To send a floating point number unquantized you have to explicitly specify `[GhostField(Quantization=0)]`.
@@ -84,38 +70,34 @@ For each component you want to serialize, you need to add an attribute to the va
 * __GhostField__ `MaxSmoothingDistance` allows you to disable interpolation when the values change more than the specified limit between two snapshots. This is useful for dealing with teleportation for example.
 * Finally the __GhostField__ has a `SubType` property which can be set to an integer value to use special serialization rules supplied for that specific field.
 
-#### Ghost Field Inheritance
+## Authoring dynamic buffer serialization
+Dynamic buffers serialization is natively supported. Unlike components, to replicate a buffer **all public fields** MUST be marked with at `[GhostField]` attribute.
+>![NOTE] This restriction has been added to guarantee that in case an element is added to the buffer, when it is replicated the element have meaningful values. That restriction may be
+> removed in the future.
 
-If a `[GhostField]` is specified for a non primitive field, the attribute and some of its properties are automatically intherithed by all the sub-fields witch does not present a `[GhostField]` attribute.
-
-```c#
-
-public struct Vector2
+```csharp
+public struct SerialisedBuffer : IBufferElementData
 {
-    public float x;
-    [GhostField(Quantization=100)] public float y;
-}
-
-[GhostComponent]
-public struct MyComponent : IComponentData
-{
-    //Value.x will inherit the quantization value specified by the parent class
-    //Value.y will maintains its original quantization value
-    [GhostField(Quantized=1000)]
-    public Vector Value;
+    [GhostField]public int Field0;
+    [GhostField(Quantization=1000)]public float Field1;
+    [GhostField(Quantization=1000)]public float2 Position;
+    public float2 NonSerialisedField; //<---- This is an error!
+    private float2 NonSerialisedField; // private field, because are not replicated, are not set to default and their values are undefined at runtime.
+    [GhostField(SendData=false)]public int NotSentAndUninitialised; // field that aren't replicated via SendData=false are never set to default and can have any possible value.
+    ...
 }
 ```
 
-The following properties are not inherited:
+Furthermore, in line with the `IComponentData`:
+* The buffer must be declared as public.
+* Only public members are considered. Adding a `[GhostField]` to a private member has no effect.
+* By using the `GhostField.SendData` you can instrument the serialisation code to skip certain field. In such a case:
+  - the value of the fields that aren't replicated are never altered
+  - for new buffer elements, their content is not set to default and the content is undefined (can be any value).
 
-* __SubType__ - the subtype is always reset to the default
-
-### Authoring dynamic buffer serialization
-
-Dynamic buffers serialization is natively supported. Like components, just add a `[GhostField]` attribute to the fields you want to serialize and the buffer will replicated to all the clients. Use the __GhostComponent__ attribute to specify other serialization behavior.
 Dynamic buffers fields don't support interpolation. The __GhostField__ `Smoothing` and `MaxSmoothingDistance` properties will be ignored.
 
-### ICommandData and IInputComponentData serialization
+## ICommandData and IInputComponentData serialization
 
 __ICommandData__, being a subclass of __IBufferElementData__, can also be serialized from server to clients. As such, the same rules for buffers apply: if the command buffer must be serialized, then all fields must be annotated.
 
@@ -139,82 +121,219 @@ The same applies when using automated input synchronization with __IInputCompone
 
 The command data serialization is particularly useful for implementing [RemotePlayerPrediction](prediction.md#remote-players-prediction).
 
-## Ghost Component variants, types and serialization
-
-The types you can serialize via `GhostField` attributes in ghost components are defined via templates. In addition to the default out-of-the-box types supported you can define custom serialization for your own types. You can also define multiple ways to serialize types, via _SubTypes_, and define how 3rd party types you have no control over should be handled, via Ghost Component Variants. See [the custom template types](custom-ghost-types.md) section for more information about how this works.
-
-## Ghost collection
-
-The `GhostCollection` entity enables the ghost systems to identify the ghosts between the client and server. It contains a list of all ghosts the netcode can handle. You can use it to identify ghost types and to spawn ghosts on the client with the correct Prefab. You can also use this collection to instantiate ghosts on the server at runtime.
-
-In the Inspector for the __GhostCollectionAuthoringComponent__, there is one button you can select:
-* __Update ghost list__, which scans for Prefabs with __GhostAuthoringComponent__.
-
-For the netcode to work, the ghost collection must be part of the client and server entity worlds.
-
-## Value types
-
-The codegen does not support all value types, but you can create an assembly with a name ending with `.NetCodeGen`. This assembly should contain a class implementing the interface __IGhostDefaultOverridesModifier__. Implement the method `public void ModifyTypeRegistry(TypeRegistry typeRegistry, string netCodeGenAssemblyPath)` and register additional types in the typeRegistry. The types you register will be used by the code-gen.
-
-## Entity spawning
-
-When the client side receives a new ghost, the ghost type is determined by a set of classification systems and then a spawn system spawns it. There is no specific spawn message, and when the client receives an unknown ghost ID, it counts as an implicit spawn.
-
-Because the client interpolates snapshot data, Unity cannot spawn entities immediately, unless it was preemptively spawned, such as with spawn prediction. This is because the data is not ready for the client to interpolate it. Otherwise, the object would appear and then not get any more updates until the interpolation is ready.
-
-Therefore normal spawns happen in a delayed manner. Spawning is split into three main types as follows:
-* __Delayed or interpolated spawning.__ The entity is spawned when the interpolation system is ready to apply updates. This is how remote entities are handled, because they are interpolated in a straightforward manner.
-* __Predicted spawning for the client predicted player object.__ The object is predicted so the input handling applies immediately. Therefore, it doesn't need to be delay spawned. While the snapshot data for this object arrives, the update system applies the data directly to the object and then plays back the local inputs which have happened since that time, and corrects mistakes in the prediction.
-* __Predicted spawning for player spawned objects.__ These are objects that the player input spawns, like in-game bullets or rockets that the player fires.
-
-### Implement Predicted Spawning for player spawned objects
-The spawn code needs to run on the client, in the client prediction system. Any prefab ghost entity the client instantiates has the __PredictedGhostSpawnRequestComponent__ added to it and is therefore treated as a predict spawned entity by default. When the first snapshot update for the entity arrives it will apply to that predict spawned object (no new entity is created). After this, the snapshot updates are applied the same as in the predicted spawning for client predicted player object model.
-
-These client spawned objects are automatically handled unless a custom classification system is implemented to handle that ghost type. The default system matches ghost types with a spawn tick within 5 ticks of new ghosts found in the ghost snapshot data. You can implement a custom classification with more advanced logic than this. To do that you create a system updating in the __ClientSimulationSystemGroup__ after [GhostSpawnClassificationSystem](https://docs.unity3d.com/Packages/com.unity.netcode@latest/index.html?subfolder=/api/Unity.NetCode.GhostSpawnClassificationSystem.html). The classification system needs to go through the __GhostSpawnBuffer__ buffer stored on a singleton with a __GhostSpawnQueueComponent__. For each entry in that list it should compare to the entries in the __PredictedGhostSpawn__ buffer on the singleton with a __PredictedGhostSpawnList__ component. If the two entries are the same the classification system should set the __PredictedSpawnEntity__ property in the __GhostSpawnBuffer__ and remove the entry from __GhostSpawnBuffer__.
-
-NetCode spawns entities on clients when there is a Prefab available for it. Pre spawned ghosts will work without any special consideration since they are referenced in a sub scene, but for manually spawned entities you must make sure that the prefabs exist on the client. You make sure that happens by having a component in a scene which references the prefab you want to spawn.
-
-## Prespawned ghosts
-
-A ghost instance (an instance of a ghost prefab) can be placed in a subscene in the Unity editor so that it will be treated just like a normal spawned ghost when the player has loaded the data. There are two restrictions for prespwaned ghosts. Firstly, it must be an instance of a ghost prefab which has been registered in the ghost collection. Secondly, it must be place in a subscene.
-
-The ghost authoring component on the prespawned ghost cannot be configured differently than the ghost prefab source, since that data is handled on a ghost type basis.
-
-Each subscene applies prespawn IDs to the ghosts it contains in a deterministic manner. The subscene hashes the component data on the ghosts, which currently is only the `Rotation` and `Translation` components. It also keeps a single hash composed of all the ghost data for the subscene itself.
-
-At runtime, when all subscenes have been loaded, there is a process which applies the prespawn ghost IDs to the ghosts as normal runtime ghost IDs. This has to be done after all subscenes have finished loading and the game is ready to start. It is also done deterministically, so that for each player (server or client), the ghost IDs are applied in exactly the same way. This happens when the `NetworkStreamInGame` component has been added to the network connection. Currently, there is no reliable builtin way to detect when subscenes have been loaded. However, it's possible to do so manually. To do this, add a custom tag to every subscene, then count the number of tags to detect when all subscenes are ready.
-
-An alternative way to detect whether subscenes have finished loading without using tags is to check if the prespawn ghost count is correct. The following example shows one possible solution for checking this number, in this case testing for 7 ghosts across all loaded subscenes:
+### Ghost Field Inheritance
+If a `[GhostField]` is specified for a non primitive field, the attribute and
+some of its properties are automatically inherited by all the sub-fields witch does not present a `[GhostField]` attribute.
 
 ```c#
-[WorldSystemFilter(WorldSystemFilterFlags.ClientSimulation)]
-public class GoInGameClientSystem : ComponentSystem
+
+public struct Vector2
 {
-    public int ExpectedGhostCount = 7;
-    protected override void OnUpdate()
+    public float x;
+    [GhostField(Quantization=100)] public float y;
+}
+
+public struct MyComponent : IComponentData
+{
+    //Value.x will inherit the quantization value specified by the parent class
+    //Value.y will maintains its original quantization value
+    [GhostField(Quantized=1000)] public Vector Value;
+}
+```
+
+The following properties are not inherited:
+* __SubType__ - the subtype is always reset to the default
+
+## Using the GhostComponentAttribute
+The `GhostComponentAttribue` **does not indicates or signal** that a component is replicated. Instead, it should be used to instrument the runtime how to handle the component when it comes to:
+- Removing the component from a prefab when not necessary
+- Optimise sending the component data
+- Specify how the component should be handled for child entities.
+
+```csharp
+[GhostComponent(PrefabType=GhostPrefabType.All, SendTypeOptimization=GhostSendType.OnlyInterpolatedClients, SendDataForChildEntity=false)]
+public struct MyComponent : IComponentData
+{  
+    [GhostField(Quantized=1000)] public float3 Value;
+}
+```
+
+To change which versions of a Prefab a component is available on you use __PrefabType__ in a __GhostComponentAttribute__ on the component. __PrefabType__ can be on of the these types:
+* __InterpolatedClient__ - the component is only available on clients where the ghost is interpolated.
+* __PredictedClient__ - the component is only available on clients where the ghost is predicted.
+* __Client__ - the component is only available on the clients, both when the ghost is predicted and interpolated.
+* __Server__ - the component is only available on the server.
+* __AllPredicted__ - the component is only available on the server and on clients where the ghost is predicted.
+* __All__ - the component is available on the server and all clients.
+
+For example, if you add `[GhostComponent(PrefabType=GhostPrefabType.Client)]` to RenderMesh, the ghost won’t have a RenderMesh when it is instantiated on the server, but it will have it when instantiated on the client.
+
+A component can set __SendTypeOptimization__ in the __GhostComponentAttribute__ to control which clients the component is sent to whenever a ghost type is known at compile time. The available modes are:
+* __None__ - the component is never sent to any clients. Netcode will not modify the component on the clients which do not receive it.
+* __Interpolated__ - the component is only sent to clients which are interpolating the ghost.
+* __Predicted__ - the component is only sent to clients which are predicting the ghost.
+* __All__ - the component is sent to all clients.
+
+A component can also set __SendDataForChildEntity__ to true in order to change the default (of not serializing children), allowing this component to be serialized when on a child.
+
+A component can also set __SendToOwner__ in the __GhostComponentAttribute__ to specify if the component should be sent to client who owns the entity. The available values are:
+* __SendToOwner__ - the component is only sent to the client who own the ghost
+* __SendToNonOwner__ - the component is sent to all clients except the one who owns the ghost
+* __All__ - the component is sent to all clients.
+
+>![NOTE] By setting either the SendTypeOptimisation and/or SendToOwner, to specify to which client the component should be sent will not
+> affect the presence of the component on the prefab or modify the component on the client which did not receive it.
+
+## How to add serialization support for custom types 
+The types you can serialize via `GhostFieldAttribute` are specified via templates. You can see the default supported types [here](ghost-types-templates.md#Supported Types) <br/>  
+In addition to the default out-of-the-box types you can also:
+- add your own templates for new types.
+- provide a custom serialization templates for a types and target by using the _SubTypes_ property of the `GhostFieldAttribute`.
+
+Please check how to [use and write templates](ghost-types-templates.md#Defining additional templates) for more information on the topic.  
+
+## Ghost Component Variants
+The [GhostComponentVariationAttribute](https://docs.unity3d.com/Packages/com.unity.netcode@latest/index.html?subfolder=/api/Unity.NetCode.GhostComponentVariationAttribute.html) is special attribute tha can be used to declare at compile time
+a "replication schema" for a type, without the need to markup the fields in the original type, or the original type itself. <br/>
+>![NOTE]This new declared type act as proxy from a code-generation perspective. Instead of using the original type, the code-generation system use the declared "variant" to generate a specific
+> version of the serialization code.
+> ![NOTE] **Ghost components variants for `IBufferElementData` are not fully supported.**
+
+The `GhostComponentVariationAttribute` has some specific use case in mind:
+- Permit to declare 3rd party component for which you don't have direct access (es: in another assembly or dll that does not have Netcode reference)
+- Generate multiple serialization version for a type (i.e: encode the position with small and large precision)
+- Strip components (i.e: RenderMesh) from certain prefab types (from the Server for example) by overriding or adding a `GhostComponentAttribute` to the type without changing the original declaration.
+
+```c#
+    [GhostComponentVariation(typeof(MyComponent))]
+    [GhostComponent(PrefabType=GhostPrefabType.All, SendTypeOptimization=GhostSendType.All)]
+    struct MyComponentVariant
     {
-        var prespawnCount = EntityManager.CreateEntityQuery(ComponentType.ReadOnly<PreSpawnedGhostId>()).CalculateEntityCount();
-        Entities.WithNone<NetworkStreamInGame>().ForEach((Entity ent, ref NetworkIdComponent id) =>
+        [GhostField(Quantization=100, Smoothing=SmoothingAction.Interpolate)] float3 Value;
+    }
+```
+
+In the example above, the `MyComponentVariant` will generate serialization code for `MyComponent`, using the properties and the attribute present in the variant declaration.
+
+The attribute constructor take as argument the type of component you want to specify the variant for (ex: `MyComponent`). Then for each field in the original struct you would like to serialize you
+should add a `GhostField` attribute like you usually do.
+>~[NOTE] Only members that are present in the component type are allowed. Validation and exceptions are thrown at compile time in case the rule is not respected.
+
+An optional `GhostComponentAttribute` attribute can be added to the variant to further specify the component serialization properties.
+
+It is possible to declare multiple serialization variant for a component (ex: a 2D rotation that just serialize the angle instead of a full quaternion).
+
+### Preventing a component to support variations
+There are cases when you to prevent a component for supporting variation. (i.e builtin components that have carefully designed to work that way).
+
+It is possible to prevent a component from supporting variation by using the [DontSupportPrefabOverridesAttribute](https://docs.unity3d.com/Packages/com.unity.netcode@latest/index.html?subfolder=/api/Unity.NetCode.DontSupportPrefabOverridesAttribute.html) attribute.
+An error will be reported at compile time if a `GhostComponentVariation` is defined for that type.
+
+### Specify which variant to use on a Ghost Prefab.
+Using `GhostAuthoringInspectionComponent` it is then possible to select for each prefab what serialization variants to for each individual components.
+
+![Ghost Authoring Variants](images/ghost-inspection.png)
+
+All variants for that specific component type present in the project will be show in a dropbox selection. <br/>
+You can assign and use different variant for the GameObject (and so baked entity) in you hierarchy.
+
+### Assign default variant to use for a type.
+In cases where multiple variants are present for a type that does not have a "default" serialization (that it, the type we are specifying the variation for does not have any ghost fields)
+is considered a conflict. We use some built-in rule to retrieve a deterministic variant to use but, in general, __it is the users responsibility__ to indicate in this case what type should be the default.
+
+To setup which variant to use as the `default` for a given type you need to create a system that inherit from
+[DefaultVariantSystemBase](https://docs.unity3d.com/Packages/com.unity.netcode@latest/index.html?subfolder=/api/Unity.NetCode.DefaultVariantSystemBase.html) class,
+and implements the `RegisterDefaultVariants` method.
+
+```c#
+using System.Collections.Generic;
+using Unity.Entities;
+using Unity.Transforms;
+
+namespace Unity.NetCode.Samples
+{
+    sealed class DefaultVariantSystem : DefaultVariantSystemBase
+    {
+        protected override void RegisterDefaultVariants(Dictionary<ComponentType, Rule> defaultVariants)
         {
-            if (ExpectedGhostCount == prespawnCount)
-                PostUpdateCommands.AddComponent<NetworkStreamInGame>(ent);
-        });
+            defaultVariants.Add(typeof(LocalTransform), Rule.OnlyParents(typeof(TransformDefaultVariant)));
+        }
     }
 }
 ```
 
-To create a prespawned ghost from a normal scene you can do the following:
-* Right click on the *Hierarchy* in the inspector and click *New Sub Scene*.
-* Drag an instance of a ghost prefab into the newly created subscene.
+This class would make sure the default `LocalTransform` variant to us as default is the `TransformDefaultVariant`. For more information, please refer to the
+[DefaultVariantSystemBase](https://docs.unity3d.com/Packages/com.unity.netcode@latest/index.html?subfolder=/api/Unity.NetCode.DefaultVariantSystemBase.html) documentation.
 
-This feature is new and is liable to change in the future. The current implementation has some limitations which are listed below:
-* With regard to using subscenes, when placing an object in a subscene, you no longer place the `ConvertToClientServerEntity` component on it as being in a subscene implies conversion to an Entity. Also, it means the option of making an entity only appear on the client or server is now missing. Prespawned ghosts always appear on both client and server as they are just like a normal spawned ghost, and will always be synchronized (as configured) after the game starts.
-* Loading a new subscene with prespawned ghosts after starting (entering the game) is currently not supported.
-* Only the `Translation` and `Rotation` `IComponentData` components, converted from the `Transform` component, are currently used to generate the prespawn IDs. This means that the prespawn ghosts cannot be placed in the same location and these components are required to use prespawn ghosts.
-* If prespawned ghosts are moved before going in game the baseline data will not be calculated properly for it which will result in the snapshot delta compression failing. This data is validated when clients connect and will cause a disconnect. **Prespawned ghosts should only be moved after going in game**.
+## Special variant types
+
+There might be cases where you need the variant to remove functionality instead of doing things differently and there are two cases covered. This saves the typing involved with creating a full variant registration which essentially is just turning it off.
+
+When you want a component to be stripped on clients so you don't see it at all there you can use the `ClientOnlyVariant` type when registering the default variant for a particular type.
+
+When you don't want any synchronization to be done with a variant type, so no serialization happens, you can use the `DontSerializeVariant` type when registering.
+
+```C#
+using System.Collections.Generic;
+using Unity.Entities;
+using Unity.Transforms;
+
+namespace Unity.NetCode.Samples
+{
+    sealed class DefaultVariantSystem : DefaultVariantSystemBase
+    {
+        protected override void RegisterDefaultVariants(Dictionary<ComponentType, Rule> defaultVariants)
+        {
+            defaultVariants.Add(typeof(SomeClientOnlyThing), Rule.OnlyParents(typeof(ClientOnlyVariant)));
+            defaultVariants.Add(typeof(NoNeedToSyncThis), Rule.ForAll(typeof(DontSerializeVariant)));
+        }
+    }
+}
+```
+
+You can also pick the `DontSerializeVariant` in the ghost component on prefabs.
+
+## Assign variants and override GhostComponentAttribute settings on ghost prefabs
+It is possible to override the following meta-data on per-prefab basis, 
+by using the [GhostAuthoringInspectionComponent](https://docs.unity3d.com/Packages/com.unity.netcode@latest/index.html?subfolder=/api/Unity.NetCode.AutoCommandTarget.html) editor.
+
+![Ghost Authoring Component](images/ghost-inspection.png)
+
+The `GhostAuthoringInspectionComponent` should be added to the `GameObject` you would like to customise. Once added, the editor will show which components present in the runtime entity are replicated. <br/>
+The editor allow you to: change the following properties:
+
+* Change the __PrefabType__ in which the component should be present/replicated.
+* Change the __SendToOptimization__ for this component (if applicable)
+* Assign the serialization __Variant__ to use for that component.
+
+It is possible to prevent a component from supporting per-prefab overrides by using the [DontSupportPrefabOverrides](https://docs.unity3d.com/Packages/com.unity.netcode@latest/index.html?subfolder=/api/Unity.NetCode.DontSupportPrefabOverridesAttribute.html)
+attribute. <br/>
+When present, the component can't be customized in the inspector, nor can a programmer add custom or default variants for this type (as that will trigger errors during ghost validation).
+
+For example: The Netcode for Entities package requires the [GhostOwnerComponent](https://docs.unity3d.com/Packages/com.unity.netcode@latest/index.html?subfolder=/api/Unity.NetCode.GhostOwnerComponent.html)
+to be added to all ghost types, sent for all ghost types, and serialized using the default variant. Thus, we add the `[DontSupportPrefabOverride]` attribute to it.
+
+>![NOTE] Components on child entities are not serialised by default, thus by default when you look to `GhostAuthoringInspectionComponent` on a child GameObject you will
+> see that the selected variant for the type is the `DontSerializeVariant`.
+
+<img src="images/dontserialize-variant.png" alt="DontSerializeVariant" width=600/>
 
 ## Snapshot visualization tool
 
-To understand what is being put on the wire in the netcode, you can use the prototype snapshot visualization tool, __NetDbg__ in the Stats folder. To open the tool, go to menu: __Multiplayer &gt; Open NetDbg__, and the tool opens in a browser window. It displays a vertical bar for each snapshot Unity receives, with a breakdown of the snapshot’s ghost types. To see more detailed information about the snapshot, click on one of the bars.
+To understand what is being put on the wire in the Netcode, you can use the snapshot visualization tool, __NetDbg__ tool. 
+
+<img src="images/snapshot-debugger.png" width="1000" alt="net debug tool">
+
+To open the tool, go to menu: __Multiplayer &gt; Open NetDbg__, and the tool opens in a browser window. It displays a vertical bar for each received snapshot, with a breakdown of the snapshot’s ghost types, size etc. 
+
+To see more detailed information about the snapshot, click on one of the bars.
 > [!NOTE]
 > This tool is a prototype. In future versions of the package it will integrate with the Unity Profiler so you can easily correlate network traffic with memory usage and CPU performance.
+
+## Ghosts vs. RPCs
+
+RPCs are mostly meant for game flow events, like making everyone do a certain thing like load a level. Opposed to that ghost snapshot synchronization is meant to make sure certain data is always replicated and kept in sync with everyone with certain parameters. Some differences are:
+
+* RPCs are sent as reliable packets, while ghosts snapshots are unreliable.
+* RPC data is sent and received as it is, while ghost data goes through optimizations like diff compression and can go through value smoothing when received.
+* RPCs are not tied to any particular tick or other snapshot data (just processed when received). Ghost snapshot data can work with interpolation and prediction (with snapshot history) resulting in getting applied at particular ticks.

@@ -86,6 +86,7 @@ namespace Unity.NetCode
             };
             state.Dependency = removeJob.Schedule(state.Dependency);
         }
+        [BurstCompile]
         struct RemovePrespawnedGhosts : IJob
         {
             public NativeList<SpawnedGhost> ghostsToRemove;

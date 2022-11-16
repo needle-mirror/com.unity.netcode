@@ -108,9 +108,9 @@ namespace Unity.NetCode
             [BurstCompile]
             public void Execute(ArchetypeChunk chunk, int orderIndex)
             {
-                var inputs = chunk.GetNativeArray(InputDataType);
-                var owners = chunk.GetNativeArray(GhostOwnerDataType);
-                var inputBuffers = chunk.GetBufferAccessor(InputBufferDataType);
+                var inputs = chunk.GetNativeArray(ref InputDataType);
+                var owners = chunk.GetNativeArray(ref GhostOwnerDataType);
+                var inputBuffers = chunk.GetBufferAccessor(ref InputBufferDataType);
 
                 for (int i = 0, chunkEntityCount = chunk.Count; i < chunkEntityCount; ++i)
                 {
@@ -226,8 +226,8 @@ namespace Unity.NetCode
             [BurstCompile]
             public void Execute(ArchetypeChunk chunk, int orderIndex)
             {
-                var inputs = chunk.GetNativeArray(InputDataType);
-                var inputBuffers = chunk.GetBufferAccessor(InputBufferTypeHandle);
+                var inputs = chunk.GetNativeArray(ref InputDataType);
+                var inputBuffers = chunk.GetBufferAccessor(ref InputBufferTypeHandle);
 
                 for (int i = 0, chunkEntityCount = chunk.Count; i < chunkEntityCount; ++i)
                 {

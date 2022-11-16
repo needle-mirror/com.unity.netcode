@@ -110,16 +110,16 @@ namespace Unity.NetCode
     [BurstCompile]
     public unsafe partial struct GhostReceiveSystem : ISystem
     {
-        private EntityQuery m_PlayerGroup;
-        private EntityQuery m_GhostCleanupGroup;
-        private EntityQuery m_SubSceneGroup;
+        EntityQuery m_ConnectionsQuery;
+        EntityQuery m_GhostCleanupQuery;
+        EntityQuery m_SubSceneQuery;
 
-        private NativeParallelHashMap<int, Entity> m_GhostEntityMap;
-        private NativeParallelHashMap<SpawnedGhost, Entity> m_SpawnedGhostEntityMap;
-        private NativeList<byte> m_TempDynamicData;
+        NativeParallelHashMap<int, Entity> m_GhostEntityMap;
+        NativeParallelHashMap<SpawnedGhost, Entity> m_SpawnedGhostEntityMap;
+        NativeList<byte> m_TempDynamicData;
 
-        private NativeArray<int> m_GhostCompletionCount;
-        private StreamCompressionModel m_CompressionModel;
+        NativeArray<int> m_GhostCompletionCount;
+        StreamCompressionModel m_CompressionModel;
 
         EntityTypeHandle m_EntityTypeHandle;
         ComponentLookup<SnapshotData> m_SnapshotDataFromEntity;
@@ -144,7 +144,7 @@ namespace Unity.NetCode
         BufferLookup<PrespawnGhostBaseline> m_PrespawnBaselineBufferFromEntity;
 
 #if NETCODE_DEBUG
-        private NetDebugPacket m_NetDebugPacket;
+        NetDebugPacket m_NetDebugPacket;
 #endif
 
         // This cannot be burst compiled due to NetDebugInterop.Initialize
@@ -175,16 +175,16 @@ namespace Unity.NetCode
 
             var builder = new EntityQueryBuilder(Allocator.Temp)
                 .WithAll<NetworkStreamConnection, NetworkStreamInGame>();
-            m_PlayerGroup = state.GetEntityQuery(builder);
+            m_ConnectionsQuery = state.GetEntityQuery(builder);
 
             builder.Reset();
             builder.WithAll<GhostComponent>()
                 .WithNone<PreSpawnedGhostIndex>();
-            m_GhostCleanupGroup = state.GetEntityQuery(builder);
+            m_GhostCleanupQuery = state.GetEntityQuery(builder);
 
             builder.Reset();
             builder.WithAll<SubSceneWithGhostStateComponent>();
-            m_SubSceneGroup = state.EntityManager.CreateEntityQuery(builder);
+            m_SubSceneQuery = state.EntityManager.CreateEntityQuery(builder);
 
             m_CompressionModel = StreamCompressionModel.Default;
 
@@ -284,7 +284,7 @@ namespace Unity.NetCode
             [NativeDisableContainerSafetyRestriction] private DynamicBuffer<GhostCollectionPrefabSerializer> m_GhostTypeCollection;
             [NativeDisableContainerSafetyRestriction] private DynamicBuffer<GhostCollectionComponentIndex> m_GhostComponentIndex;
 
-            public NativeList<Entity> Players;
+            public NativeList<Entity> Connections;
             public BufferLookup<IncomingSnapshotDataStreamBufferComponent> SnapshotFromEntity;
             public BufferLookup<SnapshotDataBuffer> SnapshotDataBufferFromEntity;
             public BufferLookup<SnapshotDynamicDataBuffer> SnapshotDynamicDataFromEntity;
@@ -316,14 +316,14 @@ namespace Unity.NetCode
             [ReadOnly] public ComponentLookup<PrefabDebugName> PrefabNamesFromEntity;
             [ReadOnly] public ComponentLookup<EnablePacketLogging> EnableLoggingFromEntity;
             public FixedString128Bytes TimestampAndTick;
-            private byte m_EnablePacketLogging;
+            byte m_EnablePacketLogging;
 #endif
 
             public void Execute()
             {
 #if NETCODE_DEBUG
                 FixedString512Bytes debugLog = TimestampAndTick;
-                m_EnablePacketLogging = EnableLoggingFromEntity.HasComponent(Players[0]) ? (byte)1u : (byte)0u;
+                m_EnablePacketLogging = EnableLoggingFromEntity.HasComponent(Connections[0]) ? (byte)1u : (byte)0u;
                 if ((m_EnablePacketLogging == 1) && !NetDebugPacket.IsCreated)
                 {
                     NetDebug.LogError("GhostReceiveSystem: Packet logger has not been set. Aborting.");
@@ -341,8 +341,8 @@ namespace Unity.NetCode
                 m_GhostComponentIndex = GhostComponentIndexFromEntity[GhostCollectionSingleton];
 
                 // FIXME: should handle any number of connections with individual ghost mappings for each
-                CheckPlayerIsValid();
-                var snapshot = SnapshotFromEntity[Players[0]];
+                CheckConnectionCountIsValid();
+                var snapshot = SnapshotFromEntity[Connections[0]];
                 if (snapshot.Length == 0)
                     return;
 
@@ -361,7 +361,7 @@ namespace Unity.NetCode
                     debugLog.Append(FixedString.Format(" ServerTick:{0}\n", serverTick.ToFixedString()));
 #endif
 
-                var ack = SnapshotAckFromEntity[Players[0]];
+                var ack = SnapshotAckFromEntity[Connections[0]];
                 if (ack.LastReceivedSnapshotByLocal.IsValid &&
                     !serverTick.IsNewerThan(ack.LastReceivedSnapshotByLocal))
                     return;
@@ -426,12 +426,12 @@ namespace Unity.NetCode
                             }
 #endif
                             NetDebug.LogError(FixedString.Format("GhostReceiveSystem ghost list item {0} was modified (Hash {1} -> {2})", firstPrefab + i, ghostCollection[firstPrefab + i].Hash, hash));
-                            CommandBuffer.AddComponent(Players[0], new NetworkStreamRequestDisconnect{Reason = NetworkStreamDisconnectReason.BadProtocolVersion});
+                            CommandBuffer.AddComponent(Connections[0], new NetworkStreamRequestDisconnect{Reason = NetworkStreamDisconnectReason.BadProtocolVersion});
                             return;
                         }
                     }
                 }
-                SnapshotAckFromEntity[Players[0]] = ack;
+                SnapshotAckFromEntity[Connections[0]] = ack;
 
                 if (IsThinClient == 1)
                     return;
@@ -525,7 +525,7 @@ namespace Unity.NetCode
                     // Desync - reset received snapshots
                     ack.ReceivedSnapshotByLocalMask = 0;
                     ack.LastReceivedSnapshotByLocal = NetworkTick.Invalid;
-                    SnapshotAckFromEntity[Players[0]] = ack;
+                    SnapshotAckFromEntity[Connections[0]] = ack;
                 }
             }
             struct DeserializeData
@@ -546,7 +546,7 @@ namespace Unity.NetCode
 #endif
             }
 
-            private bool DeserializeEntity(NetworkTick serverTick, ref DataStreamReader dataStream, ref DeserializeData data)
+            bool DeserializeEntity(NetworkTick serverTick, ref DataStreamReader dataStream, ref DeserializeData data)
             {
 #if NETCODE_DEBUG
                 FixedString512Bytes debugLog = default;
@@ -1170,12 +1170,12 @@ namespace Unity.NetCode
 #if NETCODE_DEBUG
                     var ghostCollection = GhostCollectionFromEntity[GhostCollectionSingleton];
                     var prefabName = FixedString.Format("{0}({1})", PrefabNamesFromEntity[ghostCollection[(int)data.TargetArch].GhostPrefab].Name, data.TargetArch);
-                    NetDebug.LogError(FixedString.Format("Failed to decode ghost {0} of type {1}, got {2} bits expected {3} bits", ghostId, prefabName, bitsRead, ghostDataSizeInBits));
+                    NetDebug.LogError(FixedString.Format("Failed to decode ghost {0} of type {1}, got {2} bits, expected {3} bits", ghostId, prefabName, bitsRead, ghostDataSizeInBits));
 
                     if (m_EnablePacketLogging == 1)
-                        NetDebugPacket.Log(FixedString.Format("ERROR: Failed to decode ghost {0} of type {1}, got {2} bits expected {3} bits", ghostId, prefabName, bitsRead, ghostDataSizeInBits));
+                        NetDebugPacket.Log(FixedString.Format("ERROR: Failed to decode ghost {0} of type {1}, got {2} bits, expected {3} bits", ghostId, prefabName, bitsRead, ghostDataSizeInBits));
 #else
-                    NetDebug.LogError(FixedString.Format("Failed to decode ghost {0} of type {1}, got {2} bits expected {3} bits", ghostId, data.TargetArch, bitsRead, ghostDataSizeInBits));
+                    NetDebug.LogError(FixedString.Format("Failed to decode ghost {0} of type {1}, got {2} bits, expected {3} bits", ghostId, data.TargetArch, bitsRead, ghostDataSizeInBits));
 #endif
                     return false;
                 }
@@ -1202,14 +1202,14 @@ namespace Unity.NetCode
             }
 
             [Conditional("ENABLE_UNITY_COLLECTIONS_CHECKS")]
-            private void CheckPrespawnBaselineIsPresent(Entity gent, int ghostId)
+            void CheckPrespawnBaselineIsPresent(Entity gent, int ghostId)
             {
                 if (!PrespawnBaselineBufferFromEntity.HasBuffer(gent))
                     throw new InvalidOperationException($"Prespawn baseline for ghost with id {ghostId} not present");
             }
 
             [Conditional("ENABLE_UNITY_COLLECTIONS_CHECKS")]
-            private static void CheckPrespawnBaselinePtrsAreValid(DeserializeData data, byte* baselineData, int ghostId,
+            static void CheckPrespawnBaselinePtrsAreValid(DeserializeData data, byte* baselineData, int ghostId,
                 byte* baselineDynamicDataPtr)
             {
                 if (baselineData == null)
@@ -1221,40 +1221,44 @@ namespace Unity.NetCode
             }
 
             [Conditional("ENABLE_UNITY_COLLECTIONS_CHECKS")]
-            private static void CheckDynamicSnapshotBufferOverflow(uint dynamicBufferOffset, uint maskSize, uint dynamicDataSize,
+            static void CheckDynamicSnapshotBufferOverflow(uint dynamicBufferOffset, uint maskSize, uint dynamicDataSize,
                 uint snapshotDynamicDataCapacity)
             {
                 if ((dynamicBufferOffset + maskSize + dynamicDataSize) > snapshotDynamicDataCapacity)
-                    throw new InvalidOperationException("DynamicData Snapshot buffer overflow during deserialize");
+                    throw new InvalidOperationException($"DynamicData Snapshot buffer overflow during deserialize! dynamicBufferOffset({dynamicBufferOffset}) + maskSize({maskSize}) + dynamicDataSize({dynamicDataSize}) must be <= snapshotDynamicDataCapacity({snapshotDynamicDataCapacity})!");
             }
 
             [Conditional("ENABLE_UNITY_COLLECTIONS_CHECKS")]
-            private void CheckSnaphostBufferOverflow(int maskOffset, int maskBits, int totalMaskBits,
+            void CheckSnaphostBufferOverflow(int maskOffset, int maskBits, int totalMaskBits,
                 int snapshotOffset, int snapshotSize, int bufferSize)
             {
-                if (maskOffset + maskBits > totalMaskBits || snapshotOffset + GhostComponentSerializer.SnapshotSizeAligned(snapshotSize) > bufferSize)
-                    throw new InvalidOperationException("Snapshot buffer overflow during deserialize");
+                if (maskOffset + maskBits > totalMaskBits)
+                    throw new InvalidOperationException($"Snapshot buffer overflow during deserialize: maskOffset({maskOffset}) + maskBits({maskBits}) must be <= totalMaskBits({totalMaskBits})!");
+                var snapshotSizeAligned = GhostComponentSerializer.SnapshotSizeAligned(snapshotSize);
+                if (snapshotOffset + snapshotSizeAligned > bufferSize)
+                    throw new InvalidOperationException($"Snapshot buffer overflow during deserialize: snapshotOffset({snapshotOffset}) + snapshotSizeAligned({snapshotSizeAligned}) must be <= bufferSize({bufferSize})!");
             }
 
             [Conditional("ENABLE_UNITY_COLLECTIONS_CHECKS")]
-            private static void CheckOffsetLessThanSnapshotBufferSize(int snapshotOffset, int snapshotSize, int bufferSize)
+            static void CheckOffsetLessThanSnapshotBufferSize(int snapshotOffset, int snapshotSize, int bufferSize)
             {
-                if (snapshotOffset + GhostComponentSerializer.SnapshotSizeAligned(snapshotSize) > bufferSize)
-                    throw new InvalidOperationException("Snapshot buffer overflow during predict");
+                var snapshotSizeAligned = GhostComponentSerializer.SnapshotSizeAligned(snapshotSize);
+                if (snapshotOffset + snapshotSizeAligned > bufferSize)
+                    throw new InvalidOperationException($"Snapshot buffer overflow during predict: snapshotOffset({snapshotOffset}) + snapshotSizeAligned({snapshotSizeAligned}) must be <= bufferSize({bufferSize})!");
             }
 
             [Conditional("ENABLE_UNITY_COLLECTIONS_CHECKS")]
-            private static void CheckSnapshotBufferSizeIsCorrect(DynamicBuffer<SnapshotDataBuffer> snapshotDataBuffer, int snapshotSize)
+            static void CheckSnapshotBufferSizeIsCorrect(DynamicBuffer<SnapshotDataBuffer> snapshotDataBuffer, int snapshotSize)
             {
                 if (snapshotDataBuffer.Length != snapshotSize * GhostSystemConstants.SnapshotHistorySize)
-                    throw new InvalidOperationException($"Invalid snapshot buffer size");
+                    throw new InvalidOperationException($"Invalid snapshot buffer size: snapshotDataBuffer.Length({snapshotDataBuffer.Length}) must == snapshotSize({snapshotSize}) * GhostSystemConstants.SnapshotHistorySize({GhostSystemConstants.SnapshotHistorySize})!");
             }
 
             [Conditional("ENABLE_UNITY_COLLECTIONS_CHECKS")]
-            private void CheckPlayerIsValid()
+            void CheckConnectionCountIsValid()
             {
-                if (Players.Length > 1)
-                    throw new InvalidOperationException("Ghost receive system only supports a single connection");
+                if (Connections.Length > 1)
+                    throw new InvalidOperationException($"Ghost receive system only supports a single connection: Connections.Length({Connections.Length})!");
             }
         }
 
@@ -1269,12 +1273,12 @@ namespace Unity.NetCode
             netStats.Data.Resize(netStats.Size, NativeArrayOptions.ClearMemory);
 #endif
             var commandBuffer = SystemAPI.GetSingleton<BeginSimulationEntityCommandBufferSystem.Singleton>().CreateCommandBuffer(state.WorldUnmanaged);
-            if (m_PlayerGroup.IsEmptyIgnoreFilter)
+            if (m_ConnectionsQuery.IsEmptyIgnoreFilter)
             {
                 m_GhostCompletionCount[0] = m_GhostCompletionCount[1] = 0;
                 state.CompleteDependency(); // Make sure we can access the spawned ghost map
                 // If there were no ghosts spawned at runtime we don't need to cleanup
-                if (m_GhostCleanupGroup.IsEmptyIgnoreFilter &&
+                if (m_GhostCleanupQuery.IsEmptyIgnoreFilter &&
                     m_SpawnedGhostEntityMap.Count() == 0 && m_GhostEntityMap.Count() == 0)
                     return;
                 var clearMapJob = new ClearMapJob
@@ -1283,7 +1287,7 @@ namespace Unity.NetCode
                     SpawnedGhostMap = m_SpawnedGhostEntityMap
                 };
                 var clearHandle = clearMapJob.Schedule(state.Dependency);
-                if (!m_GhostCleanupGroup.IsEmptyIgnoreFilter)
+                if (!m_GhostCleanupQuery.IsEmptyIgnoreFilter)
                 {
                     m_EntityTypeHandle.Update(ref state);
                     var clearJob = new ClearGhostsJob
@@ -1291,7 +1295,7 @@ namespace Unity.NetCode
                         EntitiesType = m_EntityTypeHandle,
                         CommandBuffer = commandBuffer.AsParallelWriter()
                     };
-                    state.Dependency = clearJob.ScheduleParallel(m_GhostCleanupGroup, state.Dependency);
+                    state.Dependency = clearJob.ScheduleParallel(m_GhostCleanupQuery, state.Dependency);
                 }
                 state.Dependency = JobHandle.CombineDependencies(state.Dependency, clearHandle);
                 return;
@@ -1312,9 +1316,9 @@ namespace Unity.NetCode
             }
 #endif
 
-            var players = m_PlayerGroup.ToEntityListAsync(state.WorldUpdateAllocator, out var playerHandle);
+            var connections = m_ConnectionsQuery.ToEntityListAsync(state.WorldUpdateAllocator, out var connectionHandle);
             var prespawnSceneStateArray =
-                m_SubSceneGroup.ToComponentDataListAsync<SubSceneWithGhostStateComponent>(state.WorldUpdateAllocator,
+                m_SubSceneQuery.ToComponentDataListAsync<SubSceneWithGhostStateComponent>(state.WorldUpdateAllocator,
                     out var prespawnHandle);
             ref readonly var ghostDespawnQueues = ref SystemAPI.GetSingletonRW<GhostDespawnQueues>().ValueRO;
             UpdateLookupsForReadStreamJob(ref state);
@@ -1325,7 +1329,7 @@ namespace Unity.NetCode
                 GhostTypeCollectionFromEntity = m_GhostTypeCollectionFromEntity,
                 GhostComponentIndexFromEntity = m_GhostComponentIndexFromEntity,
                 GhostCollectionFromEntity = m_GhostCollectionFromEntity,
-                Players = players,
+                Connections = connections,
                 SnapshotFromEntity = m_SnapshotFromEntity,
                 SnapshotDataBufferFromEntity = m_SnapshotDataBufferFromEntity,
                 SnapshotDynamicDataFromEntity = m_SnapshotDynamicDataFromEntity,
@@ -1359,7 +1363,7 @@ namespace Unity.NetCode
             };
             var tempDeps = new NativeArray<JobHandle>(3, Allocator.Temp);
             tempDeps[0] = state.Dependency;
-            tempDeps[1] = playerHandle;
+            tempDeps[1] = connectionHandle;
             tempDeps[2] = prespawnHandle;
             state.Dependency = readJob.Schedule(JobHandle.CombineDependencies(tempDeps));
         }

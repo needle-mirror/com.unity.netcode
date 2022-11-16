@@ -397,7 +397,7 @@ namespace Unity.NetCode.PrespawnTests
         }
 
         [Test]
-        [Ignore("DOTS-6619 - Currently failing frequently in CI due to a timeout waiting for a UTP message")]
+        [Ignore("DOTS-6619 Test instability, causes crash when loading subscenes")]
         public void ManyPrespawnedObjects()
         {
             const int SubSceneCount = 10;
@@ -438,25 +438,42 @@ namespace Unity.NetCode.PrespawnTests
 
                 var clientGhosts = testWorld.ClientWorlds[0].EntityManager.CreateEntityQuery(typeof(GhostComponent), ComponentType.ReadOnly<PreSpawnedGhostIndex>())
                     .ToComponentDataArray<GhostComponent>(Allocator.Temp);
+#if !ENABLE_TRANSFORM_V1
+                var clientGhostPos = testWorld.ClientWorlds[0].EntityManager.CreateEntityQuery(typeof(GhostComponent), typeof(LocalTransform), ComponentType.ReadOnly<PreSpawnedGhostIndex>())
+                    .ToComponentDataArray<LocalTransform>(Allocator.Temp);
+                var serverGhosts = testWorld.ServerWorld.EntityManager.CreateEntityQuery(typeof(GhostComponent), ComponentType.ReadOnly<PreSpawnedGhostIndex>())
+                    .ToComponentDataArray<GhostComponent>(Allocator.Temp);
+                var serverGhostPos = testWorld.ServerWorld.EntityManager.CreateEntityQuery(typeof(GhostComponent), typeof(LocalTransform), ComponentType.ReadOnly<PreSpawnedGhostIndex>())
+                    .ToComponentDataArray<LocalTransform>(Allocator.Temp);
+#else
                 var clientGhostPos = testWorld.ClientWorlds[0].EntityManager.CreateEntityQuery(typeof(GhostComponent), typeof(Translation), ComponentType.ReadOnly<PreSpawnedGhostIndex>())
                     .ToComponentDataArray<Translation>(Allocator.Temp);
                 var serverGhosts = testWorld.ServerWorld.EntityManager.CreateEntityQuery(typeof(GhostComponent), ComponentType.ReadOnly<PreSpawnedGhostIndex>())
                     .ToComponentDataArray<GhostComponent>(Allocator.Temp);
                 var serverGhostPos = testWorld.ServerWorld.EntityManager.CreateEntityQuery(typeof(GhostComponent), typeof(Translation), ComponentType.ReadOnly<PreSpawnedGhostIndex>())
                     .ToComponentDataArray<Translation>(Allocator.Temp);
+#endif
                 var serverPosLookup = new NativeParallelHashMap<int, float3>(serverGhostPos.Length, Allocator.Temp);
                 Assert.AreEqual(clientGhostPos.Length, serverGhostPos.Length);
                 // Fill a hashmap with mapping from server ghost id to server position
                 for (int i = 0; i < serverGhosts.Length; ++i)
                 {
+#if !ENABLE_TRANSFORM_V1
+                    serverPosLookup.Add(serverGhosts[i].ghostId, serverGhostPos[i].Position);
+#else
                     serverPosLookup.Add(serverGhosts[i].ghostId, serverGhostPos[i].Value);
+#endif
                 }
                 for (int i = 0; i < clientGhosts.Length; ++i)
                 {
                     Assert.IsTrue(PrespawnHelper.IsPrespawGhostId(clientGhosts[i].ghostId), "Prespawned ghosts not initialized");
                     // Verify that the client ghost id exists on the server with the same position
                     Assert.IsTrue(serverPosLookup.TryGetValue(clientGhosts[i].ghostId, out var serverPos));
-                    Assert.AreEqual(clientGhostPos[i].Value, serverPos);
+#if !ENABLE_TRANSFORM_V1
+                    Assert.LessOrEqual(math.distance(clientGhostPos[i].Position, serverPos), 0.001f);
+#else
+                    Assert.LessOrEqual(math.distance(clientGhostPos[i].Value, serverPos), 0.001f);
+#endif
                     // Remove the server ghost id which we already matched against to make sure htere are no duplicates
                     serverPosLookup.Remove(clientGhosts[i].ghostId);
                 }
@@ -500,11 +517,10 @@ namespace Unity.NetCode.PrespawnTests
         }
 
         [Test]
-        [Ignore("subscene header issue instabilities on CI")]
         public void PrefabModelsAreHandledCorrectly()
         {
-            var prefab = AssetDatabase.LoadAssetAtPath<GameObject>("Assets/Tests/PrespawnTests/Whitebox_Ground_1600x1600_A.prefab");
-            var variant = AssetDatabase.LoadAssetAtPath<GameObject>("Assets/Tests/PrespawnTests/Whitebox_Ground_1600x1600_A Variant.prefab");
+            var prefab = AssetDatabase.LoadAssetAtPath<GameObject>("Packages/com.unity.netcode/Tests/Editor/Prespawn/Assets/Whitebox_Ground_1600x1600_A.prefab");
+            var variant = AssetDatabase.LoadAssetAtPath<GameObject>("Packages/com.unity.netcode/Tests/Editor/Prespawn/Assets/Whitebox_Ground_1600x1600_A Variant.prefab");
             var scene = SubSceneHelper.CreateEmptyScene(ScenePath, "Parent");
             SubSceneHelper.CreateSubSceneWithPrefabs(scene,Path.GetDirectoryName(scene.path), "Sub0", new []{prefab, variant}, 2);
             SceneManager.SetActiveScene(scene);
@@ -569,7 +585,7 @@ namespace Unity.NetCode.PrespawnTests
             }
         }
 
-        [Test]
+        [Test, Ignore("Inconclusive CI error: Package Test - netcode [mac, trunk DOTS Monorepo]: [TimeoutExceptionMessage]: Timeout while waiting for a log message, no editor logging has happened during the timeout window! #6210")]
         public void MismatchedPrespawnClientServerScenesCantConnect()
         {
             var ghost = SubSceneHelper.CreateSimplePrefab(ScenePath, "ghost", typeof(GhostAuthoringComponent));
@@ -591,8 +607,13 @@ namespace Unity.NetCode.PrespawnTests
                 var entities = query.ToEntityArray(Allocator.Temp);
                 for (int i = 0; i < 10; ++i)
                 {
+#if !ENABLE_TRANSFORM_V1
+                    testWorld.ServerWorld.EntityManager.SetComponentData(entities[i],
+                        LocalTransform.FromPosition(new float3(-10000, 10, 10 * i)));
+#else
                     testWorld.ServerWorld.EntityManager.SetComponentData(entities[i],
                         new Translation{ Value = new float3(-10000, 10, 10 * i)});
+#endif
                 }
                 entities.Dispose();
 

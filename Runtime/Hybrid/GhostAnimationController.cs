@@ -27,6 +27,7 @@ namespace Unity.NetCode.Hybrid
     /// </summary>
     [RequireComponent(typeof(Animator), typeof(GhostPresentationGameObjectEntityOwner))]
     [DisallowMultipleComponent]
+    [HelpURL(HelpURLs.GhostAnimationController)]
     public class GhostAnimationController : MonoBehaviour, IRegisterPlayableData
     {
         interface IAnimationDataReference : IDisposable
@@ -195,14 +196,23 @@ namespace Unity.NetCode.Hybrid
                 return;
             if (m_ApplyRootMotion)
             {
+#if !ENABLE_TRANSFORM_V1
+                m_Transform.localPosition = m_EntityOwner.World.EntityManager.GetComponentData<LocalTransform>(m_EntityOwner.Entity).Position;
+                m_Transform.localRotation = m_EntityOwner.World.EntityManager.GetComponentData<LocalTransform>(m_EntityOwner.Entity).Rotation;
+#else
                 m_Transform.localPosition = m_EntityOwner.World.EntityManager.GetComponentData<Translation>(m_EntityOwner.Entity).Value;
                 m_Transform.localRotation = m_EntityOwner.World.EntityManager.GetComponentData<Rotation>(m_EntityOwner.Entity).Value;
+#endif
             }
             m_PlayableGraph.Evaluate(deltaTime);
             if (m_ApplyRootMotion)
             {
+#if !ENABLE_TRANSFORM_V1
+                m_EntityOwner.World.EntityManager.SetComponentData(m_EntityOwner.Entity, LocalTransform.FromPositionRotation(m_Transform.localPosition, m_Transform.localRotation));
+#else
                 m_EntityOwner.World.EntityManager.SetComponentData(m_EntityOwner.Entity, new Translation{Value = m_Transform.localPosition});
                 m_EntityOwner.World.EntityManager.SetComponentData(m_EntityOwner.Entity, new Rotation{Value = m_Transform.localRotation});
+#endif
             }
         }
 
@@ -267,7 +277,7 @@ namespace Unity.NetCode.Hybrid
         }
         protected override void OnUpdate()
         {
-            var predictionTick = GetSingleton<NetworkTime>().ServerTick;
+            var predictionTick = SystemAPI.GetSingleton<NetworkTime>().ServerTick;
             var prevTick = predictionTick;
             prevTick.Decrement();
             var deltaTime = SystemAPI.Time.DeltaTime;

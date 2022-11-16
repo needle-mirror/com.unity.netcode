@@ -1,44 +1,59 @@
 # Client server Worlds
 
-NetCode has a separation of client and server logic, and both the client and server logic are in separate Worlds (the client World, and the server World), based on the [hierarchical update system](https://docs.unity3d.com/Packages/com.unity.entities@latest/index.html?subfolder=/manual/system_update_order.html) of Unity’s Entity Component System (ECS).
+The Netcode for Entities Package has a separation between client and server logic, and thus, splits logic into multiple Worlds (the "Client World", and the "Server World").
+It does this using concepts laid out in the [hierarchical update system](https://docs.unity3d.com/Packages/com.unity.entities@1.0/manual/systems-update-order.html) of Unity’s Entity Component System (ECS).
 
-By default, NetCode places systems in both client and server Worlds, but not in the default World.
+## Declaring in which world the system should update.
+By default, systems are create into (and updated in) the `SimulationSystemGroup`, and created for both client and server worlds. In cases where you want to override that behaviour (i.e. have your system
+created and run only on the client world), you have two different way to do it:
+
+### Targeting specific system groups
+By specifying that your system belongs in a specific system group (that is present only on the desired world), your system will automatically **not** be created in worlds where this system group is not present.
+In other words: Systems in a system group inherit system group world filtering. For example:
+```csharp
+[UpdateInGroup(typeof(GhostInputSystemGroup))]
+public class MyInputSystem : SystemBase
+{
+  ...
+}
+```
+Because the `GhostInputSystemGroup` exists only for Client worlds, the `MyInputSystem` will **only** be present on the client world (caveat: this includes both `Client` and `Thin Client` worlds).
 > [!NOTE]
-> Systems that update in the `PresentationSystemGroup` are only added to the client World.
+> Systems that update in the `PresentationSystemGroup` are only added to the client World, since the `PresentationSystemGroup` is not created for `Server` and `Thin Client` worlds.
 
-To override this default behavior, use the [UpdateInWorld](https://docs.unity3d.com/Packages/com.unity.netcode@latest/index.html?subfolder=/api/Unity.NetCode.UpdateInWorld.html) attribute, or the `UpdateInGroup` attribute with an explicit client or server system group. The available explicit client server groups are as follows:
 
-* [ClientInitializationSystemGroup](https://docs.unity3d.com/Packages/com.unity.netcode@latest/index.html?subfolder=/api/Unity.NetCode.ClientInitializationSystemGroup.html)
-* [ServerInitializationSystemGroup](https://docs.unity3d.com/Packages/com.unity.netcode@latest/index.html?subfolder=/api/Unity.NetCode.ServerInitializationSystemGroup.html)
-* [ClientAndServerInitializationSystemGroup](https://docs.unity3d.com/Packages/com.unity.netcode@latest/index.html?subfolder=/api/Unity.NetCode.ClientAndServerInitializationSystemGroup.html)
-* [ClientSimulationSystemGroup](https://docs.unity3d.com/Packages/com.unity.netcode@latest/index.html?subfolder=/api/Unity.NetCode.ClientSimulationSystemGroup.html)
-* [ServerSimulationSystemGroup](https://docs.unity3d.com/Packages/com.unity.netcode@latest/index.html?subfolder=/api/Unity.NetCode.ServerSimulationSystemGroup.html)
-* [ClientAndServerSimulationSystemGroup ](https://docs.unity3d.com/Packages/com.unity.netcode@latest/index.html?subfolder=/api/Unity.NetCode.ClientAndServerSimulationSystemGroup.html)
-* [ClientPresentationSystemGroup](https://docs.unity3d.com/Packages/com.unity.netcode@latest/index.html?subfolder=/api/Unity.NetCode.ClientPresentationSystemGroup.html)
+### Use WorldSystemFilter
+When more granularity is necessary (or you just want to be more explicit about which World type(s) the system belongs to), you should use the
+[WorldSystemFilter](https://docs.unity3d.com/Packages/com.unity.entities@latest/index.html?subfolder=/api/Unity.Entities.WorldSystemFilter.html) attribute.
 
-> [!NOTE]
-> There is no server presentation system group.
+Context: When an entity `World` is created, users tag it with specific [WorldFlags](https://docs.unity3d.com/Packages/com.unity.entities@latest/index.html?subfolder=/api/Unity.Entities.WorldFlags.html), 
+that can then be used by the Entities package to distinguish them (e.g. to apply filtering and update logic).
 
-As well as the attributes listed above, you can use the __PlayMode Tools__ window in the Unity Editor to select what happens when you enter Play Mode. To access __PlayMode Tools__, go to menu: __Multiplayer &gt; PlayMode Tools__.
+By using the `WorldSystemFilter`, you can declare (at compile time) which world types your system belongs to:
+- `LocalSimulation`: a world that does not run any Netcode systems, and that it is not used to run the multiplayer simulation.
+- `ServerSimulation`: A world used to run the server simulation.
+- `ClientSimulation`: A world used to run the client simulation.
+- `ThinClientSimulation`: A world used to run the thin clients simulation. 
 
-![PlayMode Tools](images/playmode-tools.png)<br/>_PlayMode Tools_
-
-|**Property**|**Description**|
-|:---|:---|
-|__PlayMode Type__|Choose to make Play Mode either __Client__ only, __Server__ only, or __Client & Server__.|
-|__Num Thin Clients__|Set the number of thin clients. Thin clients cannot be presented, and never spawn any entities it receives from the server. However, they can generate fake input to send to the server to simulate a realistic load.|
-|__Client send/recv delay__|Use this property to emulate high ping. Specify a time (in ms) to delay each outgoing and incoming network packet by. |
-|__Client send/recv jitter__|Use this property to add a random value to the delay, which makes the delay a value between the delay you have set plus or minus the jitter value. For example, if you set __Client send/recv delay__ to 45 and __Client send/recv jitter__ to 5, you will get a random value between 40 and 50.|
-|__Client package drop__|Use this property to simulate bad connections where not all packets arrive. Specify a value (as a percentage) and NetCode discards that percentage of packets from the total it receives. For example, set the value to 5 and NetCode discards 5% of all incoming and outgoing packets.|
-|__Client auto connect address (Client only)__|Specify which server a client should connect to. This field only appears if you set __PlayMode Type__ to __Client__. The user code needs to read this value and connect because the connection flows are in user code. |
-
-When you enter Play Mode, from this window you can also disconnect clients and choose which client Unity should present if there are multiple. When you change a client that Unity is presenting, it stops calling the update on the `ClientPresentationSystemGroup` for the Worlds which it should no longer present. As such, your code needs to be able to handle this situation, or your presentation code won’t run and all rendering objects you’ve created still exist.
+```csharp
+[WorldSystemFilter(WorldSystemFilterFlags.ClientSimulation)]
+public class MySystem : SystemBase
+{
+  ...
+}
+```
+In the example above, we declared that the `MySystem` system should **only** be present for worlds that can be used for running the `client simulation`; That it, the world has the `WorldFlags.GameClient` set.
+`WorldSystemFilterFlags.Default` is used when this attribute is not present.
 
 ## Bootstrap
+When the Netcode for Entities package is added to your project, a new default [bootstrap](https://docs.unity3d.com/Packages/com.unity.netcode@latest/index.html?subfolder=/api/Unity.NetCode.ClientServerBootstrap.html) is added to the project.
 
-The default bootstrap creates client server Worlds automatically at startup. It populates them with the systems defined in the attributes you have set. This is useful when you are working in the Editor, but in a standalone game, you might want to delay the World creation so you can use the same executable as both a client and server.
+The default bootstrap creates client server Worlds automatically at startup. 
+It populates them with the systems defined in the attributes you have set. This is useful when you are working in the Editor and you enter play-mode with your game scene opened. 
+But in a standalone game, or when you want to use some sort of frontend menu, you might want to delay the World creation, i.e you can use the same executable as both a client and server.
 
-To do this, you can create a class that extends `ClientServerBootstrap` to override the default bootstrap. Implement `Initialize` and create the default World. To create the client and server worlds manually, call `ClientServerBootstrap.CreateClientWorld(defaultWorld, "WorldName");` or `ClientServerBootstrap.CreateServerWorld(defaultWorld, "WorldName");`.
+It it possible to create your own bootstrap class and customise your game flow by creating a class that extends `ClientServerBootstrap` and override the default `Initialize` method implementation. 
+You can re-use in your class mostly of the provided helper methods that can let you create `client`, `server`, `thin-client` and `local simulation` worlds. See for more details [ClientServerBootstrap methods](https://docs.unity3d.com/Packages/com.unity.netcode@latest/index.html?subfolder=/api/Unity.NetCode.ClientServerBootstrap.html).
 
 The following code example shows how to override the default bootstrap to prevent automatic creation of the client server worlds:
 
@@ -47,45 +62,72 @@ public class ExampleBootstrap : ClientServerBootstrap
 {
     public override bool Initialize(string defaultWorldName)
     {
-        var systems = DefaultWorldInitialization.GetAllSystems(WorldSystemFilterFlags.Default);
-        GenerateSystemLists(systems);
-
-        var world = new World(defaultWorldName);
-        World.DefaultGameObjectInjectionWorld = world;
-
-        DefaultWorldInitialization.AddSystemsToRootLevelSystemGroups(world, ExplicitDefaultWorldSystems);
-        ScriptBehaviourUpdateOrder.AppendWorldToCurrentPlayerLoop(world);
+        //Create only a local simulation world without any multiplayer and netcode system in it.
+        CreateLocalWorld(defaultWorldName);
         return true;
     }
 
 }
 ```
 
-## Fixed and dynamic timestep
+## Fixed and dynamic time-step
 
-When you use NetCode, the server always updates at a fixed timestep. NetCode limits the maximum number of iterations to make sure that the server does not end up in a state where it takes several seconds to simulate a single frame.
+When you use Netcode for Entities, the server always updates **at a fixed time-step**. The package also limits the maximum number of fixed-step iterations per frame, to make sure that the server does not end up in a state where it takes several seconds to simulate a single frame.
 
-The fixed update does not use the [standard Unity update frequency](https://docs.unity3d.com/Manual/class-TimeManager.html). A singleton entity in the server World controls the update with a [ClientServerTickRate](https://docs.unity3d.com/Packages/com.unity.netcode@latest/index.html?subfolder=/api/Unity.NetCode.ClientServerTickRate.html) component. The `ClientServerTickRate` controls `SimulationTickRate` which sets the number of simulation ticks per second.
+It is therefore important to understand that the fixed update does not use the [standard Unity update frequency](https://docs.unity3d.com/Manual/class-TimeManager.html). 
 
+### Configuring the Server fixed update loop.
+The [ClientServerTickRate](https://docs.unity3d.com/Packages/com.unity.netcode@latest/index.html?subfolder=/api/Unity.NetCode.ClientServerTickRate.html) singleton component (in the server World) controls this tick-rate. 
+
+By using the `ClientServerTickRate`, you can control different aspects of the server simulation loop. For example:
+- The `SimulationTickRate` lets you configure the number of simulation ticks per second.
+- The `NetworkTickRate` lets you configure how frequently the server sends snapshots to the clients (by default the `NetworkTickRate` is identical to the `SimulationTickRate`). 
+
+**The default number of simulation ticks is 60**.
+
+If the server updates at a lower rate than the simulation tick rate, it will perform multiple ticks in the same frame. For example, if the last server update took 50ms (instead of the usual 16ms), the server will need to `catch-up`, and thus it will do ~3 simulation steps on the next frame (16ms * 3 ≈ 50ms). 
+
+This behaviour can lead to what is known as `the spiral of death`; the server update becomes slower and slower (because it is executing more steps per update, to catch up), thus, ironically, putting it further behind (creating more problems). 
+The `ClientServerTickRate` allows you to customise how the server runs in this particular situation (i.e. when the server cannot maintain the desired tick-rate). 
+
+By setting the [MaxSimulationStepsPerFrame](https://docs.unity3d.com/Packages/com.unity.netcode@latest/index.html?subfolder=/api/Unity.NetCode.ClientServerTickRate.html#ClientServerTickRate_MaxSimulationStepsPerFrame) 
+you can control how many simulation steps the server can run in a single frame. <br/>
+By using the [MaxSimulationStepBatchSize](https://docs.unity3d.com/Packages/com.unity.netcode@latest/index.html?subfolder=/api/Unity.NetCode.ClientServerTickRate.html#MaxSimulationStepBatchSize)
+you can instruct the server loop to `batch` together multiple ticks into a single step, but with a multiplier on the delta time. For example, instead of running two step, you can run only one (but with double the delta time).
 > [!NOTE]
-> `SimulationTickRate` must be divisible by `NetworkTickRate`.
+> This batching only works under specific conditions, and has its own nuances and considerations. Ensure that your game does not make any assumptions that one simulation step is "1 tick" (nor should you hardcode deltaTime).
 
-The default number of simulation ticks is 60. The component also has values for MaxSimulationStepsPerFrame which controls how many simulations the server can run in a single frame, and TargetFrameRateMode which controls how the server should keep the tick rate. Available values are:
-
+Finally, you can configure how the server should consume the the idle time to target the desired frame rate. 
+The [TargetFrameRateMode](https://docs.unity3d.com/Packages/com.unity.netcode@latest/index.html?subfolder=/api/Unity.NetCode.ClientServerTickRate.html#TargetFrameRateMode) controls how the server should keep the tick rate. Available values are:
 * `BusyWait` to run at maximum speed
 * `Sleep` for `Application.TargetFrameRate` to reduce CPU load
 * `Auto` to use `Sleep` on headless servers and `BusyWait` otherwise
 
-The client updates at a dynamic time step, with the exception of prediction code which always runs at a fixed time step to match the server. The prediction runs in the [PredictedSimulationSystemGroup](https://docs.unity3d.com/Packages/com.unity.netcode@latest/index.html?subfolder=/api/Unity.NetCode.PredictedSimulationSystemGroup.html) and applies its own fixed time step for prediction.
+
+### Configuring the Client update loop.
+The client updates at a dynamic time step, with the exception of prediction code (which always runs at the same fixed time step as the server, attempting to maintain a "somewhat deterministic" relationship between the two simulations). 
+The prediction runs in the [PredictedSimulationSystemGroup](https://docs.unity3d.com/Packages/com.unity.netcode@latest/index.html?subfolder=/api/Unity.NetCode.PredictedSimulationSystemGroup.html), which applies this unique fixed time step for prediction.
+
+**The `ClientServerTickRate` configuration is sent (by the server, to the client) during the initial connection handshake. The client prediction loop runs at the exact same `SimulationTickRate` as the server (as mentioned).**
 
 ## Standalone builds
+When you build a standalone game, Netcode uses the __DOTS Settings__ in the __Project Settings__ window to:
+- To decide which type of build to make (only valid for standalone player builds).
+- To choose mode-specific baking settings.
 
-When you build a standalone game, NetCode uses the __Server Build__ property in the __Build Settings__ window to decide what to build. If the property is enabled, NetCode sets the ```UNITY_SERVER``` define and you get a server-only build. If the property is disabled you get a combined client and server build. You can use a combined client and server build to decide if a game should be client, server or both at runtime.
+### Building standalone servers
+In order to build standalone server, you need to switch to a `Dedicated Server` platform. When building a server, the `UNITY_SERVER` define is set automatically (**and also automatically set in the editor**). <br/> 
+The `DOTS` project setting will reflect this change, by using the setting for the server build type.
 
-To build a client-only game, add the ```UNITY_CLIENT``` define to the __Scripting Define Symbols__ in the __Player Settings__ (menu: __Edit &gt; Project Settings &gt; Player &gt; Configuration__). You can have the ```UNITY_CLIENT``` define set when you build a server, but the ```UNITY_SERVER``` define takes precedence and you get a server-only build.
+### Building standalone client
+When using a normal standalone player target (i.e Windows), it is possible to select the type of build to make (in the `DOTS` project setting):
+- A `client-only` build. The `UNITY_CLIENT` define will be set in the build (**but not in-editor**).
+- A `client/server` build. Neither the `UNITY_CLIENT`, nor the `UNITY_SERVER` are set (i.e. not in built players, nor in-editor).
+
+For either build type, specific baking filters can be specified in the `DOTS` project setting.
+
 
 ## World migration
-
 Sometimes you want to be able to destroy the world you are in and spin up another world without loosing your connection state. In order to do this we supply a DriverMigrationSystem, that allows a user to Store and Load Transport related information so a smooth world transition can be made.
 
 ```

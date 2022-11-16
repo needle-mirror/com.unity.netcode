@@ -96,7 +96,11 @@ namespace Unity.NetCode
                 childEntityLookup = state.GetEntityStorageInfoLookup(),
                 linkedEntityGroupType = m_LinkedEntityGroupHandle,
                 tick = networkTime.ServerTick,
+#if !ENABLE_TRANSFORM_V1
+                transformType = ComponentType.ReadWrite<LocalTransform>(),
+#else
                 translationType = ComponentType.ReadWrite<Translation>(),
+#endif
 
                 predictionErrors = m_PredictionErrors.AsArray(),
                 numPredictionErrors = predictionErrorCount
@@ -171,7 +175,11 @@ namespace Unity.NetCode
 
             public NetworkTick tick;
             // FIXME: placeholder to show the idea behind prediction smoothing
+#if !ENABLE_TRANSFORM_V1
+            public ComponentType transformType;
+#else
             public ComponentType translationType;
+#endif
 
             const GhostComponentSerializer.SendMask requiredSendMask = GhostComponentSerializer.SendMask.Predicted;
 
@@ -196,7 +204,7 @@ namespace Unity.NetCode
                 var GhostComponentIndex = GhostComponentIndexFromEntity[GhostCollectionSingleton];
                 var GhostComponentCollection = GhostComponentCollectionFromEntity[GhostCollectionSingleton];
 
-                var ghostComponents = chunk.GetNativeArray(ghostType);
+                var ghostComponents = chunk.GetNativeArray(ref ghostType);
                 int ghostTypeId = ghostComponents.GetFirstGhostTypeId();
                 if (ghostTypeId < 0)
                     return;
@@ -208,7 +216,7 @@ namespace Unity.NetCode
                 Entity* backupEntities = PredictionBackupState.GetEntities(state);
                 var entities = chunk.GetNativeArray(entityType);
 
-                var predictedGhostComponents = chunk.GetNativeArray(predictedGhostType);
+                var predictedGhostComponents = chunk.GetNativeArray(ref predictedGhostType);
 
                 byte* dataPtr = PredictionBackupState.GetData(state);
                 int numBaseComponents = typeData.NumComponents - typeData.NumChildComponents;
@@ -226,11 +234,11 @@ namespace Unity.NetCode
                     var compSize = GhostComponentCollection[serializerIdx].ComponentType.IsBuffer
                         ? GhostSystemConstants.DynamicBufferComponentSnapshotSize
                         : GhostComponentCollection[serializerIdx].ComponentSize;
-                    if (chunk.Has(ghostChunkComponentTypesPtr[compIdx]))
+                    if (chunk.Has(ref ghostChunkComponentTypesPtr[compIdx]))
                     {
                         if (!GhostComponentCollection[serializerIdx].ComponentType.IsBuffer)
                         {
-                            var compData = (byte*)chunk.GetDynamicComponentDataArrayReinterpret<byte>(ghostChunkComponentTypesPtr[compIdx], compSize).GetUnsafeReadOnlyPtr();
+                            var compData = (byte*)chunk.GetDynamicComponentDataArrayReinterpret<byte>(ref ghostChunkComponentTypesPtr[compIdx], compSize).GetUnsafeReadOnlyPtr();
                             for (int ent = 0; ent < entities.Length; ++ent)
                             {
                                 // If this entity did not predict anything there was no rollback and no need to debug it
@@ -257,7 +265,7 @@ namespace Unity.NetCode
                 }
                 if (typeData.NumChildComponents > 0)
                 {
-                    var linkedEntityGroupAccessor = chunk.GetBufferAccessor(linkedEntityGroupType);
+                    var linkedEntityGroupAccessor = chunk.GetBufferAccessor(ref linkedEntityGroupType);
                     for (int comp = numBaseComponents; comp < typeData.NumComponents; ++comp)
                     {
                         int compIdx = GhostComponentIndex[baseOffset + comp].ComponentIndex;
@@ -283,11 +291,11 @@ namespace Unity.NetCode
                                 continue;
                             var linkedEntityGroup = linkedEntityGroupAccessor[ent];
                             var childEnt = linkedEntityGroup[entityIdx].Value;
-                            if (childEntityLookup.TryGetValue(childEnt, out var childChunk) && childChunk.Chunk.Has(ghostChunkComponentTypesPtr[compIdx]))
+                            if (childEntityLookup.TryGetValue(childEnt, out var childChunk) && childChunk.Chunk.Has(ref ghostChunkComponentTypesPtr[compIdx]))
                             {
                                 if (!GhostComponentCollection[serializerIdx].ComponentType.IsBuffer)
                                 {
-                                    var compData = (byte*)childChunk.Chunk.GetDynamicComponentDataArrayReinterpret<byte>(ghostChunkComponentTypesPtr[compIdx], compSize).GetUnsafeReadOnlyPtr();
+                                    var compData = (byte*)childChunk.Chunk.GetDynamicComponentDataArrayReinterpret<byte>(ref ghostChunkComponentTypesPtr[compIdx], compSize).GetUnsafeReadOnlyPtr();
                                     int errorIndex = GhostComponentIndex[baseOffset + comp].PredictionErrorBaseIndex;
 
                                     float* errorsPtr = ((float*)predictionErrors.GetUnsafePtr()) + errorIndex + ThreadIndex * numPredictionErrors;

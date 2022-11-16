@@ -1,6 +1,7 @@
 using Unity.Entities;
 using UnityEngine;
 using System.Collections.Generic;
+using Unity.Burst;
 using Unity.Transforms;
 using Unity.Collections;
 using UnityEngine.Jobs;
@@ -164,9 +165,19 @@ namespace Unity.NetCode.Hybrid
             m_GhostPresentationGameObjectSystem = World.GetExistingSystemManaged<GhostPresentationGameObjectSystem>();
             RequireForUpdate(GetEntityQuery(ComponentType.ReadOnly<GhostPresentationGameObjectPrefabReference>()));
         }
+        [BurstCompile]
         struct TransformUpdateJob : IJobParallelForTransform
         {
             [ReadOnly] public NativeList<Entity> Entities;
+#if !ENABLE_TRANSFORM_V1
+            [ReadOnly] public ComponentLookup<LocalTransform> TransformFromEntity;
+            public void Execute(int index, TransformAccess transform)
+            {
+                var ent = Entities[index];
+                transform.localPosition = TransformFromEntity[ent].Position;
+                transform.localRotation = TransformFromEntity[ent].Rotation;
+            }
+#else
             [ReadOnly] public ComponentLookup<Translation> TranslationFromEntity;
             [ReadOnly] public ComponentLookup<Rotation> RotationFromEntity;
             public void Execute(int index, TransformAccess transform)
@@ -175,14 +186,19 @@ namespace Unity.NetCode.Hybrid
                 transform.localPosition = TranslationFromEntity[ent].Value;
                 transform.localRotation = RotationFromEntity[ent].Value;
             }
+#endif
         }
         protected override void OnUpdate()
         {
             var transformJob = new TransformUpdateJob
             {
                 Entities = m_GhostPresentationGameObjectSystem.m_Entities,
+#if !ENABLE_TRANSFORM_V1
+                TransformFromEntity = GetComponentLookup<LocalTransform>(true),
+#else
                 TranslationFromEntity = GetComponentLookup<Translation>(true),
                 RotationFromEntity = GetComponentLookup<Rotation>(true)
+#endif
             };
             Dependency = transformJob.Schedule(m_GhostPresentationGameObjectSystem.m_Transforms, Dependency);
         }

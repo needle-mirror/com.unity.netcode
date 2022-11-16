@@ -173,7 +173,7 @@ namespace Unity.NetCode.Tests
 
         public void ConfigureSendSystem(NetcodeScenarioUtils.ScenarioParams parameters)
         {
-            ref var ghostSendSystemData = ref GetSingletonRW<GhostSendSystemData>().ValueRW;
+            ref var ghostSendSystemData = ref SystemAPI.GetSingletonRW<GhostSendSystemData>().ValueRW;
             ghostSendSystemData.ForceSingleBaseline = parameters.GhostSystemParams.ForceSingleBaseline;
             ghostSendSystemData.ForcePreSerialize = parameters.GhostSystemParams.ForcePreSerialize;
         }
@@ -202,7 +202,7 @@ namespace Unity.NetCode.Tests
 
         protected override void OnUpdate()
         {
-            var numLoadedPrefabs= GetSingleton<GhostCollection>().NumLoadedPrefabs;
+            var numLoadedPrefabs= SystemAPI.GetSingleton<GhostCollection>().NumLoadedPrefabs;
 
             var markers = new string[]
             {
@@ -229,7 +229,7 @@ namespace Unity.NetCode.Tests
                             EntityManager.CompleteAllTrackedJobs();
 
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
-                            var netStats = GetSingletonRW<GhostStatsCollectionSnapshot>().ValueRW;
+                            var netStats = SystemAPI.GetSingletonRW<GhostStatsCollectionSnapshot>().ValueRW;
                             for (int worker = 1; worker < netStats.Workers; ++worker)
                             {
                                 int statOffset = worker * netStats.Stride;
