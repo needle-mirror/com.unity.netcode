@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using Unity.Entities.Conversion;
 using Unity.Entities.Editor;
 using UnityEditor;
 using UnityEditor.SceneManagement;
@@ -20,23 +19,16 @@ namespace Unity.NetCode.Editor
     [CustomEditor(typeof(GhostAuthoringInspectionComponent))]
     class GhostAuthoringInspectionComponentEditor : UnityEditor.Editor
     {
-        const string k_ShowDisabledComponentsMetaDataKey = "NetCode.Inspection.ShowDisabledComponentsMetaDataKey";
+        const string k_ExpandKey = "NetCode.Inspection.Expand.";
         const string k_PackageId = "Packages/com.unity.netcode";
 
         // TODO - Manually loaded prefabs as uss is not working.
         static Texture2D PrefabEntityIcon => AssetDatabase.LoadAssetAtPath<Texture2D>("Packages/com.unity.entities/Editor Default Resources/icons/dark/Entity/EntityPrefab.png");
         static Texture2D ComponentIcon => AssetDatabase.LoadAssetAtPath<Texture2D>("Packages/com.unity.entities/Editor Default Resources/icons/dark/Components/Component.png");
 
-        static bool ShowDisabledComponentsMetaData
-        {
-            get => EditorPrefs.GetBool(k_ShowDisabledComponentsMetaDataKey, false);
-            set => EditorPrefs.SetBool(k_ShowDisabledComponentsMetaDataKey, value);
-        }
-
         VisualElement m_Root;
         VisualElement m_ResultsPane;
 
-        HelpBox m_ShowingDisabledComponentsHelpBox;
         HelpBox m_UnableToFindComponentHelpBox;
         HelpBox m_NoEntityHelpBox;
         GhostAuthoringComponent m_GhostAuthoringRoot;
@@ -61,6 +53,9 @@ namespace Unity.NetCode.Editor
         void OnUpdate()
         {
             var inspection = ((GhostAuthoringInspectionComponent)target);
+            if (!inspection)
+                return;
+
             // Detect other changes:
             var componentsCount = m_ReusableComponents.Count;
             m_ReusableComponents.Clear();
@@ -77,17 +72,9 @@ namespace Unity.NetCode.Editor
                 GhostAuthoringInspectionComponent.forceSave = false;
                 GhostAuthoringInspectionComponent.forceRebuildInspector = true;
 
-
                 EditorSceneManager.MarkSceneDirty(inspection.gameObject.scene);
                 Array.Sort(inspection.ComponentOverrides);
                 EditorUtility.SetDirty(inspection);
-            }
-
-            if (GhostAuthoringInspectionComponent.toggleShowingUnmodifiableComponents)
-            {
-                GhostAuthoringInspectionComponent.toggleShowingUnmodifiableComponents = false;
-                ShowDisabledComponentsMetaData ^= true;
-                GhostAuthoringInspectionComponent.forceRebuildInspector = true;
             }
 
             if (GhostAuthoringInspectionComponent.forceRebuildInspector)
@@ -114,8 +101,6 @@ namespace Unity.NetCode.Editor
 
             // TODO - Support edge-case where user adds an override to a type and then disables it in code.
             // TODO - Explicitly support changing variant but not anything else if the user does not add the `[SupportPrefabOverrides]` attribute.
-            m_ShowingDisabledComponentsHelpBox = new HelpBox($"Components may be un-editable for any of the following reasons:\na) The component implements `[DontSupportPrefabOverrides]` and thus cannot be modified at all.\nb) The component is an input component, thus must be serialized.\nc) The component has not opted into modification via `[SupportPrefabOverrides]`.\nd) The component only has one supported variant.\nToggle viewing disabled components via the Context Menu.", HelpBoxMessageType.Info);
-            m_Root.Add(m_ShowingDisabledComponentsHelpBox);
 
             m_ResultsPane = new VisualElement();
             m_ResultsPane.name = "ResultsPane";
@@ -141,7 +126,6 @@ namespace Unity.NetCode.Editor
 
             SetVisualElementVisibility(m_UnableToFindComponentHelpBox, !m_GhostAuthoringRoot);
             SetVisualElementVisibility(m_NoEntityHelpBox, hasEntitiesForThisGameObject && bakedGameObjectResult.BakedEntities.Count == 0);
-            SetVisualElementVisibility(m_ShowingDisabledComponentsHelpBox, ShowDisabledComponentsMetaData);
 
             var isEditable = bakingSucceeded && GhostAuthoringComponentEditor.IsViewingPrefab(inspection.gameObject, out _);
             m_ResultsPane.SetEnabled(isEditable);
@@ -151,17 +135,29 @@ namespace Unity.NetCode.Editor
             if (!hasEntitiesForThisGameObject)
                 return;
 
-            foreach (var bakedEntityResult in bakedGameObjectResult.BakedEntities)
+            for (var entityIndex = 0; entityIndex < bakedGameObjectResult.BakedEntities.Count; entityIndex++)
             {
+                const int arbitraryMaxNumAdditionalEntitiesWeCanDisplay = 4;
+                if (entityIndex > arbitraryMaxNumAdditionalEntitiesWeCanDisplay + 1)
+                {
+                    m_ResultsPane.Add(new HelpBox($"Authoring GameObject '{bakedGameObjectResult.SourceGameObject.name}' creates {bakedGameObjectResult.BakedEntities.Count} \"Additional\" entities ({(bakedGameObjectResult.BakedEntities.Count - entityIndex)} are hidden)." +
+                                                  " For performance reasons, we cannot display this many." +
+                                                  " If you must add a ComponentOverride for an additional entity, please attempt to do so by modifying the YAML directly. " +
+                                                  "Apologies, this will be improved soon.", HelpBoxMessageType.Warning));
+                    break;
+                }
+
+                var bakedEntityResult = bakedGameObjectResult.BakedEntities[entityIndex];
                 var entityHeader = new FoldoutHeaderElement("EntityLabel", bakedEntityResult.EntityName,
-                    $"({(bakedEntityResult.EntityIndex + 1)} / {bakedGameObjectResult.BakedEntities.Count})",
-                    "Displays the entity or entities created during Baking of this GameObject.");
+                    $"[{bakedEntityResult.Guid}] {(bakedEntityResult.EntityIndex + 1)} / {bakedGameObjectResult.BakedEntities.Count}",
+                    "Displays the entity or entities created during Baking of this GameObject.", false);
 
                 entityHeader.AddToClassList("ghost-inspection-entity-header");
+                entityHeader.style.marginLeft = 15;
                 //entityLabel.label.AddToClassList("ghost-inspection-entity-header__label");
                 entityHeader.icon.AddToClassList("ghost-inspection-entity-header__icon");
                 entityHeader.icon.style.backgroundImage = PrefabEntityIcon;
-                entityHeader.foldout.text += (bakedEntityResult.IsPrimaryEntity) ? " (Primary)" : " (Linked)";
+                entityHeader.foldout.text += (bakedEntityResult.IsPrimaryEntity) ? " (Primary)" : " (Additional)";
                 m_ResultsPane.Add(entityHeader);
 
                 var allComponents = bakedEntityResult.BakedComponents;
@@ -169,41 +165,78 @@ namespace Unity.NetCode.Editor
                 var nonReplicated = new List<BakedComponentItem>(allComponents.Count);
                 foreach (var component in allComponents)
                 {
-                    if (!component.DoesAllowPrefabTypeModification && !component.DoesAllowVariantModification && !ShowDisabledComponentsMetaData)
-                        continue;
                     if (component.anyVariantIsSerialized)
                         replicated.Add(component);
                     else nonReplicated.Add(component);
                 }
 
+                var toggleKey = bakedEntityResult.Guid.ToString();
                 var replicatedContainer = CreateReplicationHeaderElement(entityHeader.foldout.contentContainer, replicated,
-                "ReplicatedLabel", "Meta-data for GhostComponents", "Lists all netcode meta-data for replicated (i.e. synced) component types.", GhostAuthoringComponentEditor.netcodeColor);
+                    "ReplicatedLabel", "Meta-data for GhostComponents", "Lists all netcode meta-data for replicated (i.e. synced) component types.",
+                    GhostAuthoringComponentEditor.netcodeColor, true, toggleKey);
 
                 // Prefer default variants:
                 if (bakedEntityResult.GoParent.SourceInspection.ComponentOverrides.Length > 0)
                 {
                     replicatedContainer.contentContainer.Add(
                         new HelpBox($"If you intend to use one Variant across <b>all Ghosts</b> (e.g. `Translation - 2D` for a 2D game), prefer to set it as the \"Default Variant\" by implementing `RegisterDefaultVariants` " +
-                            "in your own system (derived from `DefaultVariantSystemBase`), rather than using these controls. " +
-                            "You can also set defaults for `GhostPrefabTypes` via the `GhostComponentAttribute`.", HelpBoxMessageType.Info));
+                                    "in your own system (derived from `DefaultVariantSystemBase`), rather than using these controls. " +
+                                    "You can also set defaults for `GhostPrefabTypes` via the `GhostComponentAttribute`.", HelpBoxMessageType.Info));
                 }
                 else
                 {
                     m_ResultsPane.Add(
                         new HelpBox($"Note that this Inspection Component is optional. As you haven't made any overrides, you can safely remove this component.", HelpBoxMessageType.Info));
                 }
+
                 // Warn about replicating child components:
                 if (!bakedEntityResult.IsRoot)
                 {
                     if (replicated.Any(x => x.serializationStrategy.IsSerialized != 0))
                     {
                         replicatedContainer.contentContainer.Add(new HelpBox("Note: Serializing child entities is relatively slow. " +
-                            "Prefer to have multiple Ghosts with faked parenting, if possible.", HelpBoxMessageType.Warning));
+                                                                             "Prefer to have multiple Ghosts with faked parenting, if possible.", HelpBoxMessageType.Warning));
                     }
                 }
 
                 CreateReplicationHeaderElement(entityHeader.foldout.contentContainer, nonReplicated,
-                    "NonReplicatedLabel", "Meta-data for non-replicated Components", "Lists all netcode meta-data for non-replicated component types.", Color.white);
+                    "NonReplicatedLabel", "Meta-data for non-replicated Components", "Lists all netcode meta-data for non-replicated component types.",
+                    Color.white, false, toggleKey);
+            }
+
+            // Display invalid overrides:
+            if (inspection.ComponentOverrides.Any(x => !x.DidCorrectlyMap))
+            {
+                //.
+                var title = new HelpBox("Detected duplicated or otherwise invalid serialized 'Component Overrides'! You can remove them by pressing the buttons below.", HelpBoxMessageType.Error);
+                title.style.unityFontStyleAndWeight = new StyleEnum<FontStyle>(FontStyle.Bold);
+                title.style.overflow = new StyleEnum<Overflow>(Overflow.Visible);
+                m_ResultsPane.Add(title);
+
+                //.
+                for (var i = 0; i < inspection.ComponentOverrides.Length; i++)
+                {
+                    var @override = inspection.ComponentOverrides[i];
+                    if (@override.DidCorrectlyMap)
+                        continue;
+
+                    var button = new Button();
+                    void RemoveOverride()
+                    {
+                        if(inspection.TryFindExistingOverrideIndex(@override.FullTypeName, @override.EntityIndex, out var foundIndex))
+                            inspection.RemoveComponentOverrideByIndex(foundIndex);
+                        else UnityEngine.Debug.LogError($"Unable to remove ComponentOverride {@override}, as now can no longer find it in the list!");
+                        m_ResultsPane.Remove(button);
+                        GhostAuthoringInspectionComponent.forceSave = true;
+                    }
+                    button.clicked += RemoveOverride;
+                    button.name = "ComponentOverrideError";
+                    button.text = $"{@override.FullTypeName} [Entity {@override.EntityIndex}]\nPrefab Type [{@override.PrefabType}]\nSend Optimization [{GetNameForGhostSendType(@override.SendTypeOptimization)}]\nVariant [{@override.VariantHash}]\n<i>Click to remove.</i>";
+                    button.style.backgroundColor = GhostAuthoringComponentEditor.brokenColorUIToolkit;
+                    button.style.color = GhostAuthoringComponentEditor.brokenColorUIToolkitText;
+                    button.style.flexGrow = 1;
+                    m_ResultsPane.Add(button);
+                }
             }
         }
 
@@ -212,9 +245,9 @@ namespace Unity.NetCode.Editor
             visualElement.style.display = new StyleEnum<DisplayStyle>(visibleCondition ? DisplayStyle.Flex : DisplayStyle.None);
         }
 
-        VisualElement CreateReplicationHeaderElement(VisualElement parentContent, List<BakedComponentItem> bakedComponents, string headerName, string title, string tooltip, Color iconTintColor)
+        VisualElement CreateReplicationHeaderElement(VisualElement parentContent, List<BakedComponentItem> bakedComponents, string headerName, string title, string tooltip, Color iconTintColor, bool isReplicated, string toggleKey)
         {
-            var header = new FoldoutHeaderElement(headerName, title, bakedComponents.Count.ToString(), tooltip);
+            var header = new FoldoutHeaderElement(headerName, title, $"{bakedComponents.Count}", tooltip, true);
             header.AddToClassList("ghost-inspection-replication-header");
             //header.label.AddToClassList("ghost-inspection-replication-header");
             header.icon.AddToClassList("ghost-inspection-entity-header__icon");
@@ -231,22 +264,31 @@ namespace Unity.NetCode.Editor
                 for (var i = 0; i < bakedComponents.Count; i++)
                 {
                     var metaData = bakedComponents[i];
-                    var metaDataRootElement = CreateMetaDataInspector(metaData, i);
+                    var metaDataRootElement = CreateMetaDataInspector(metaData);
                     componentListView.Add(metaDataRootElement);
                 }
             }
             else
             {
                 header.SetEnabled(false);
-                header.foldout.SetValueWithoutNotify(false);
             }
+
+
+            toggleKey += (isReplicated ? ".RepToggle" : ".NonRepToggle");
+            header.foldout.RegisterCallback<ClickEvent>(OnFoldoutToggled);
+            void OnFoldoutToggled(ClickEvent evt)
+            {
+                SetShouldExpand(toggleKey, header.foldout.value);
+            }
+            var shouldExpandFoldout = GetShouldExpand(toggleKey, bakedComponents.Count > 0 && isReplicated);
+            header.foldout.SetValueWithoutNotify(shouldExpandFoldout);
 
             return componentListView;
         }
 
-        VisualElement CreateMetaDataInspector(BakedComponentItem bakedComponent, int componentIndex)
+        VisualElement CreateMetaDataInspector(BakedComponentItem bakedComponent)
         {
-            var tooltip = $"NetCode meta data for the '{bakedComponent.fullname}' component.";
+            var tooltip = $"NetCode meta data for the `{bakedComponent.fullname}` component.";
 
             static OverrideTracking CreateOverrideTracking(BakedComponentItem bakedComponentItem, VisualElement insertIntoOverrideTracking)
             {
@@ -254,7 +296,7 @@ namespace Unity.NetCode.Editor
                     "Reset Entire Component", bakedComponentItem.RemoveEntirePrefabOverride, true);
             }
 
-            if (bakedComponent.anyVariantIsSerialized || bakedComponent.HasMultipleVariants)
+            if (bakedComponent.anyVariantIsSerialized || bakedComponent.HasMultipleVariantsExcludingDontSerializeVariant)
             {
                 var componentMetaDataFoldout = new Foldout();
                 componentMetaDataFoldout.name = "ComponentMetaDataFoldout";
@@ -266,20 +308,32 @@ namespace Unity.NetCode.Editor
                 componentMetaDataFoldout.focusable = false;
 
                 var toggle = componentMetaDataFoldout.Q<Toggle>();
-                toggle.tooltip = bakedComponent.fullname;
+                toggle.tooltip = tooltip;
                 toggle.style.flexShrink = 1;
                 var foldoutLabel = toggle.Q<Label>(className: UssClasses.UIToolkit.Toggle.Text); // TODO - DropdownField should expose!
                 LabelStyle(foldoutLabel);
 
+                var checkmark = toggle.Q<VisualElement>(className: UssClasses.UIToolkit.Toggle.Checkmark);
+                checkmark.style.display = new StyleEnum<DisplayStyle>(DisplayStyle.None);
+
                 var toggleChild = toggle.Q<VisualElement>(className: UssClasses.UIToolkit.BaseField.Input); // TODO - DropdownField should expose!;
                 InsertGhostModeToggles(bakedComponent, toggleChild);
 
-                var sendToDropdown = CreateSentToDropdown(bakedComponent);
-                componentMetaDataFoldout.Add(sendToDropdown);
+                var sendToOwnerDropdown = CreateSentToOwnerDropdown(bakedComponent);
+                componentMetaDataFoldout.Add(sendToOwnerDropdown);
+
+                var sendOptimizationDropdown = CreateSentOptimizationDropdown(bakedComponent);
+                componentMetaDataFoldout.Add(sendOptimizationDropdown);
 
                 var variantDropdown = CreateVariantDropdown(bakedComponent);
                 variantDropdown.SetEnabled(bakedComponent.DoesAllowVariantModification);
                 componentMetaDataFoldout.Add(variantDropdown);
+
+                if (bakedComponent.serializationStrategy.IsInput != 0)
+                {
+                    var inputComponent = new HelpBox("Sending inputs is handled automatically. These settings denote how a clients inputs are replicated to other clients (e.g. to improve prediction of other players).", HelpBoxMessageType.Info);
+                    componentMetaDataFoldout.Add(inputComponent);
+                }
 
                 var parent = foldoutLabel.parent;
                 var parentIndex = foldoutLabel.parent.IndexOf(foldoutLabel);
@@ -299,6 +353,10 @@ namespace Unity.NetCode.Editor
 
             return CreateOverrideTracking(bakedComponent, componentMetaDataLabel);
         }
+
+        static bool GetShouldExpand(string key, bool defaultValue) => EditorPrefs.GetBool(k_ExpandKey + key, defaultValue);
+
+        static void SetShouldExpand(string key, bool value) => EditorPrefs.SetBool(k_ExpandKey + key, value);
 
         static void LabelStyle(Label label)
         {
@@ -322,6 +380,10 @@ Note that:
 
  - <b>Components added to child entities</b> will default to the `DontSerializeVariant` global variant, as serializing children involves entity memory random-access, which is expensive.",
             };
+
+            if(!bakedComponent.DoesAllowVariantModification)
+                dropdown.tooltip += "\n\n<color=grey>This dropdown is currently disabled as either a) this type has a [DontSupportPrefabOverrides] attribute or b) there are no other variants.</color>";
+
             DropdownStyle(dropdown);
 
             for (var i = 0; i < bakedComponent.availableSerializationStrategies.Length; i++)
@@ -340,7 +402,7 @@ Note that:
                 else
                 {
                     dropdown.SetValueWithoutNotify($"!! Unknown Variant Hash {bakedComponent.VariantHash} !! (Fallback: {bakedComponent.serializationStrategy.DisplayName.ToString()})");
-                    dropdown.style.backgroundColor = GhostAuthoringComponentEditor.brokenColor;
+                    dropdown.style.backgroundColor = GhostAuthoringComponentEditor.brokenColorUIToolkit;
                 }
             }
 
@@ -356,7 +418,7 @@ Note that:
                 }
                 else
                 {
-                    Debug.LogError($"Unable to find variant `{evt.newValue}` to select it! Keeping existing!");
+                    Debug.LogError($"Unable to find variant `{evt.newValue}` to select it! Keeping existing! Try modifying this prefabs YAML.");
                 }
             });
 
@@ -378,6 +440,7 @@ Note that:
                 style.alignItems = new StyleEnum<Align>(Align.Center);
                 style.flexGrow = 0;
                 style.flexShrink = shrink ? 1 : 0;
+                style.marginLeft = 5;
 
                 mainField.style.flexGrow = 1;
                 mainField.style.flexShrink = 1;
@@ -416,7 +479,7 @@ Note that:
             }
         }
 
-        static VisualElement CreateSentToDropdown(BakedComponentItem bakedComponent)
+        static VisualElement CreateSentOptimizationDropdown(BakedComponentItem bakedComponent)
         {
             var doesAllowSendTypeOptimizationModification = bakedComponent.DoesAllowSendTypeOptimizationModification;
 
@@ -451,19 +514,35 @@ Note that:
             {
                 dropdown.tooltip = $"Optimization that allows you to specify whether or not the server should send (i.e. replicate) the `{bakedComponent.fullname}` component to client ghosts, " +
                     "depending on whether or not a given client is Predicting or Interpolating this ghost." +
-                    "\n\nE.g. Only sending the `PhysicsVelocity` component for \"known always predicted\" ghosts, as interpolated ghosts don't use (read) the PhysicsVelocity Component." +
+                    "\n\nExample: Only send the `PhysicsVelocity` component for \"known always predicted\" ghosts, as interpolated ghosts don't ever need to read the `PhysicsVelocity` Component." +
                     "\n\nNote: This optimization is only possible when we can infer the GhostMode at compile time: I.e. When the GhostAuthoringComponent has `OwnerPredicted` selected, or when `SupportedGhostModes` is set to either `Interpolated` or `Predicted` (but not both).";
 
-                dropdown.tooltip += doesAllowSendTypeOptimizationModification
-                    ? $"\n\n<color=yellow>The current setting means that {GetTooltipForGhostSendType(bakedComponent.SendTypeOptimization)}</color>"
-                    : "\n\n<color=grey>This dropdown is currently disabled as we cannot infer GhostMode, or it's not currently applicable to this specific component.</color>";
+                dropdown.tooltip += $"\n\n<color=yellow>The current setting means that {GetTooltipForGhostSendType(bakedComponent.SendTypeOptimization)}</color>";
+                if(!doesAllowSendTypeOptimizationModification)
+                    dropdown.tooltip += "\n\n<color=grey>This dropdown is currently disabled as either a) this type has a [DontSupportPrefabOverrides] attribute or b) we cannot infer GhostMode.</color>";
                 dropdown.tooltip += "\n\nOther send rules may still apply. See documentation for further details.";
 
-                dropdown.value = doesAllowSendTypeOptimizationModification ? buttonValue : "n/a";
+                dropdown.value = doesAllowSendTypeOptimizationModification || bakedComponent.serializationStrategy.IsSerialized != 0 ? buttonValue : "n/a";
                 dropdown.MarkDirtyRepaint();
             }
 
             var isOverridenFromDefault = bakedComponent.HasPrefabOverride() && bakedComponent.GetPrefabOverride().IsSendTypeOptimizationOverriden;
+            var overrideTracking = new OverrideTracking("SendToDropdown", dropdown, isOverridenFromDefault, "Reset SendType Override", bakedComponent.ResetSendTypeToDefault, true);
+            return overrideTracking;
+        }
+
+        static VisualElement CreateSentToOwnerDropdown(BakedComponentItem bakedComponent)
+        {
+            var dropdown = new DropdownField();
+            dropdown.name = "SendToDropdownField";
+            dropdown.label = "Send To Owner";
+            dropdown.tooltip = "Denotes which clients will receive snapshot updates containing this component. Only modifiable via attribute." +
+                                "\n\nOther send rules may still apply. See documentation for further details.";
+            dropdown.SetEnabled(false);
+            dropdown.SetValueWithoutNotify(bakedComponent.sendToOwnerType.ToString());
+            DropdownStyle(dropdown);
+
+            const bool isOverridenFromDefault = false;
             var overrideTracking = new OverrideTracking("SendToDropdown", dropdown, isOverridenFromDefault, "Reset SendType Override", bakedComponent.ResetSendTypeToDefault, true);
             return overrideTracking;
         }
@@ -504,6 +583,8 @@ Note that:
 
         static string GetNameForGhostSendType(GhostSendType ghostSendType)
         {
+            if((int)ghostSendType == -1)
+                return "not set";
             switch (ghostSendType)
             {
                 case GhostSendType.DontSend: return "Never Send";
@@ -588,6 +669,10 @@ Note that:
                         $" Current value indicates {(isSet ? "<color=cyan>YES</color>" : "<color=red>NO</color>")} and thus <color=yellow>PrefabType is `{bakedComponent.PrefabType}`</color>." +
                         $"\n\nDefault value is: {(defaultValue ? "YES" : "NO")}\n\nTo enable write-access to this toggle, add a `SupportsPrefabOverrides` attribute to your component type." +
                         " <b>Note: It's better practice to create a custom Variant that sets the desired PrefabType (and apply it as the default variant).</b>";
+
+                    if(!bakedComponent.DoesAllowPrefabTypeModification)
+                        button.tooltip += "\n\n<color=grey>This dropdown is currently disabled as this type has a [DontSupportPrefabOverrides] attribute.</color>";
+
                     button.MarkDirtyRepaint();
                 }
 
@@ -602,7 +687,7 @@ Note that:
             public readonly Image icon;
             public readonly VisualElement rowHeader;
 
-            public FoldoutHeaderElement(string headerName, string labelText, string lengthText, string subElementsTooltip)
+            public FoldoutHeaderElement(string headerName, string labelText, string lengthText, string subElementsTooltip, bool displayCheckmark)
             {
                 name = $"{headerName}FoldoutHeader";
 
@@ -615,6 +700,9 @@ Note that:
                 var toggle = foldout.Q<Toggle>();
                 toggle.tooltip = subElementsTooltip;
                 foldout.focusable = false;
+
+                var checkmark = toggle.Q<VisualElement>(className: UssClasses.UIToolkit.Toggle.Checkmark);
+                checkmark.style.display = new StyleEnum<DisplayStyle>(displayCheckmark ? DisplayStyle.Flex : DisplayStyle.None);
 
                 icon = new Image();
                 icon.name = $"{headerName}Icon";

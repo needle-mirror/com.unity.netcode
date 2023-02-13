@@ -178,7 +178,7 @@ namespace Unity.NetCode.Tests
                 for (int i = 0; i < 32; ++i)
                 {
                     var dataSize = pointer[i];
-                    Assert.AreEqual(expectedSize, dataSize);
+                    Assert.AreEqual(expectedSize, dataSize, $"DynamicBuffer<SnapshotDynamicDataBuffer>[{i}]");
                 }
 
                 pointer += 32;
@@ -594,6 +594,14 @@ namespace Unity.NetCode.Tests
                 defaultVariants.Add(typeof(GhostGenTest_Buffer), Rule.ForAll(typeof(GhostGenTest_Buffer)));
             }
         }
+        [DisableAutoCreation]
+        class ForceSerializeOnlyChildBufferSystem : DefaultVariantSystemBase
+        {
+            protected override void RegisterDefaultVariants(Dictionary<ComponentType, Rule> defaultVariants)
+            {
+                defaultVariants.Add(typeof(GhostGenTest_Buffer), Rule.Unique(typeof(DontSerializeVariant), typeof(GhostGenTest_Buffer)));
+            }
+        }
 
         [DisableAutoCreation]
         class ForceDontSerializeBufferSystem : DefaultVariantSystemBase
@@ -611,11 +619,14 @@ namespace Unity.NetCode.Tests
             {
                 switch (sendForChildrenTestCase)
                 {
-                    case SendForChildrenTestCase.YesViaDefaultVariantMap:
-                        testWorld.UserBakingSystems.Add(typeof(ForceSerializeBufferSystem));
+                    case SendForChildrenTestCase.YesViaExplicitVariantRule:
+                        testWorld.TestSpecificAdditionalSystems.Add(typeof(ForceSerializeBufferSystem));
                         break;
-                    case SendForChildrenTestCase.NoViaDefaultVariantMap:
-                        testWorld.UserBakingSystems.Add(typeof(ForceDontSerializeBufferSystem));
+                    case SendForChildrenTestCase.YesViaExplicitVariantOnlyAllowChildrenToReplicateRule:
+                        testWorld.TestSpecificAdditionalSystems.Add(typeof(ForceSerializeOnlyChildBufferSystem));
+                        break;
+                    case SendForChildrenTestCase.NoViaExplicitDontSerializeVariantRule:
+                        testWorld.TestSpecificAdditionalSystems.Add(typeof(ForceDontSerializeBufferSystem));
                         break;
                 }
                 testWorld.Bootstrap(true);
@@ -640,7 +651,6 @@ namespace Unity.NetCode.Tests
                             new GhostAuthoringInspectionComponent.ComponentOverride
                             {
                                 FullTypeName = fullTypeName,
-                                GameObject = childGo,
                                 PrefabType = GhostPrefabType.All,
                                 SendTypeOptimization = GhostSendType.AllClients,
                                 VariantHash = GhostVariantsUtility.UncheckedVariantHashNBC(fullTypeName, fullTypeName),
@@ -678,7 +688,7 @@ namespace Unity.NetCode.Tests
                 Assert.AreEqual(2, serverEntityGroup.Length);
 
                 //Verify that the client snapshot data contains the right things
-                var shouldChildReceiveData = BootstrapTests.IsExpectedToBeReplicated(sendForChildrenTestCase, false);
+                var shouldChildReceiveData = GhostSerializationTestsForEnableableBits.IsExpectedToBeReplicated<GhostGenTest_Buffer>(sendForChildrenTestCase, false);
                 var dynamicBuffer = testWorld.ClientWorlds[0].EntityManager.GetBuffer<NetCode.SnapshotDynamicDataBuffer>(clientEntities[0]);
                 if(shouldChildReceiveData)
                     BufferTestHelper.ValidateMultiBufferSnapshotDataContents(dynamicBuffer, 3, 0, 10, 10);

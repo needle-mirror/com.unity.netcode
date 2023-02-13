@@ -106,19 +106,19 @@ namespace Unity.NetCode
             if (ghostAuthoring.GhostGroup)
                 AddBuffer<GhostGroup>();
 
-            var allComponentOverrides = GhostAuthoringInspectionComponent.CollectAllComponentOverridesInInspectionComponents(ghostAuthoring);
+            var allComponentOverrides = GhostAuthoringInspectionComponent.CollectAllComponentOverridesInInspectionComponents(ghostAuthoring, true);
 
             var overrideBuffer = AddBuffer<GhostAuthoringComponentOverridesBaking>();
             foreach (var componentOverride in allComponentOverrides)
             {
                 overrideBuffer.Add(new GhostAuthoringComponentOverridesBaking
                 {
-                    FullTypeNameID = TypeManager.CalculateFullNameHash(componentOverride.FullTypeName),
-                    GameObjectID = componentOverride.GameObject.GetInstanceID(),
-                    EntityGuid = componentOverride.EntityGuid,
-                    PrefabType = (int) componentOverride.PrefabType,
-                    SendTypeOptimization = (int) componentOverride.SendTypeOptimization,
-                    ComponentVariant = componentOverride.VariantHash
+                    FullTypeNameID = TypeManager.CalculateFullNameHash(componentOverride.Item2.FullTypeName),
+                    GameObjectID = componentOverride.Item1.GetInstanceID(),
+                    EntityGuid = componentOverride.Item2.EntityIndex,
+                    PrefabType = (int) componentOverride.Item2.PrefabType,
+                    SendTypeOptimization = (int) componentOverride.Item2.SendTypeOptimization,
+                    ComponentVariant = componentOverride.Item2.VariantHash
                 });
             }
 
@@ -318,7 +318,7 @@ namespace Unity.NetCode
             NativeParallelHashSet<Entity> rootsToProcess = new NativeParallelHashSet<Entity>(ghostCount, Allocator.TempJob);
             var rootsToProcessWriter = rootsToProcess.AsParallelWriter();
             var bakedMask = m_BakedEntityMask;
-            
+
             //ATTENTION! This singleton entity is always destroyed in the first non-incremental pass, because in the first import
             //the baking system clean all the Entities in the world when you open a sub-scene.
             //We recreate the entity here "lazily", so everything behave as expected.
@@ -400,7 +400,9 @@ namespace Unity.NetCode
 
                             //Initialize the value with common default and they overwrite them in case is necessary.
                             prefabTypes[compIdx] = GhostPrefabType.All;
-                            var variantType = serializerCollectionData.GetCurrentSerializationStrategyForComponentCached(allComponents[compIdx], myOverride.HasValue ? myOverride.Value.ComponentVariant : 0, !isChild);
+                            ulong variantHash = myOverride.HasValue ? myOverride.Value.ComponentVariant : 0;
+                            bool isRoot = !isChild;
+                            var variantType = serializerCollectionData.GetCurrentSerializationStrategyForComponent(allComponents[compIdx], variantHash, isRoot);
                             variants[compIdx] = variantType.Hash;
                             sendMasksOverride[compIdx] = GhostAuthoringInspectionComponent.ComponentOverride.NoOverride;
 

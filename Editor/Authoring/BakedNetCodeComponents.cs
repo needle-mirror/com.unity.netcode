@@ -1,6 +1,6 @@
 using System;
 using System.Collections.Generic;
-using System.Reflection;
+using System.Linq;
 using JetBrains.Annotations;
 using Unity.Entities;
 using UnityEngine;
@@ -14,6 +14,7 @@ namespace Unity.NetCode.Editor
         public GameObject SourceGameObject;
         [CanBeNull] public GhostAuthoringInspectionComponent SourceInspection => SourceGameObject.GetComponent<GhostAuthoringInspectionComponent>();
         public GhostAuthoringComponent RootAuthoring;
+        public string SourcePrefabPath;
         public List<BakedEntityResult> BakedEntities;
     }
 
@@ -22,6 +23,7 @@ namespace Unity.NetCode.Editor
     {
         public BakedGameObjectResult GoParent;
         public Entity Entity;
+        public EntityGuid Guid;
         public string EntityName;
         public int EntityIndex;
         public bool IsPrimaryEntity => EntityIndex == 0;
@@ -45,19 +47,18 @@ namespace Unity.NetCode.Editor
         public string[] availableSerializationStrategyDisplayNames;
 
         public int entityIndex;
-        public EntityGuid entityGuid;
+        public EntityGuid entityGuid => EntityParent.Guid;
         public bool anyVariantIsSerialized;
+        public SendToOwnerType sendToOwnerType;
 
         public GhostPrefabType PrefabType => HasPrefabOverride() && GetPrefabOverride().IsPrefabTypeOverriden
             ? GetPrefabOverride().PrefabType
-            : DefaultPrefabType;
+            : serializationStrategy.PrefabType;
 
-        /// <summary>Note that variant.PrefabType has higher priority than attribute.PrefabType.</summary>
-        GhostPrefabType DefaultPrefabType => serializationStrategy.PrefabType != GhostPrefabType.All ? serializationStrategy.PrefabType : defaultSerializationStrategy.PrefabType;
-
-        public GhostSendType SendTypeOptimization => HasPrefabOverride() && GetPrefabOverride().IsSendTypeOptimizationOverriden
-            ? GetPrefabOverride().SendTypeOptimization
-            : defaultSerializationStrategy.SendTypeOptimization;
+        public GhostSendType SendTypeOptimization =>
+            HasPrefabOverride() && GetPrefabOverride().IsSendTypeOptimizationOverriden
+                ? GetPrefabOverride().SendTypeOptimization
+                : serializationStrategy.SendTypeOptimization;
 
         public ulong VariantHash
         {
@@ -77,20 +78,22 @@ namespace Unity.NetCode.Editor
         /// Denotes if this type supports user modification of <see cref="ComponentTypeSerializationStrategy"/>.
         /// We obviously support it "implicitly" if we have multiple variant types.
         /// </summary>
-        public bool DoesAllowVariantModification => serializationStrategy.HasDontSupportPrefabOverridesAttribute == 0 && (serializationStrategy.HasSupportsPrefabOverridesAttribute != 0 || HasMultipleVariants);
+        public bool DoesAllowVariantModification => serializationStrategy.HasDontSupportPrefabOverridesAttribute == 0 && (serializationStrategy.HasSupportsPrefabOverridesAttribute != 0 || HasMultipleVariants) && serializationStrategy.IsInput == 0;
 
         /// <summary>
         /// Denotes if this type supports user modification of <see cref="SendTypeOptimization"/>.
         /// </summary>
-        public bool DoesAllowSendTypeOptimizationModification => serializationStrategy.HasDontSupportPrefabOverridesAttribute == 0 && anyVariantIsSerialized && !serializationStrategy.IsDontSerializeVariant && EntityParent.GoParent.RootAuthoring.SupportsSendTypeOptimization;
+        public bool DoesAllowSendTypeOptimizationModification => serializationStrategy.HasDontSupportPrefabOverridesAttribute == 0 && anyVariantIsSerialized && !serializationStrategy.IsDontSerializeVariant && EntityParent.GoParent.RootAuthoring.SupportsSendTypeOptimization && serializationStrategy.IsInput == 0;
 
         /// <summary>
         /// Denotes if this type supports user modification of <see cref="GhostAuthoringInspectionComponent.ComponentOverride.PrefabType"/>.
         /// </summary>
-        public bool DoesAllowPrefabTypeModification => serializationStrategy.HasDontSupportPrefabOverridesAttribute == 0 && serializationStrategy.HasSupportsPrefabOverridesAttribute != 0;
+        public bool DoesAllowPrefabTypeModification => serializationStrategy.HasDontSupportPrefabOverridesAttribute == 0 && serializationStrategy.HasSupportsPrefabOverridesAttribute != 0 && serializationStrategy.IsInput == 0;
 
         /// <summary>I.e. Implicitly supports prefab overrides.</summary>
         internal bool HasMultipleVariants => availableSerializationStrategies.Length > 1;
+
+        internal bool HasMultipleVariantsExcludingDontSerializeVariant => HasMultipleVariants && availableSerializationStrategies.Count(x => !x.IsDontSerializeVariant) > 1;
 
         /// <summary>Returns by ref. Throws if not found. Use <see cref="HasPrefabOverride"/>.</summary>
         public ref GhostAuthoringInspectionComponent.ComponentOverride GetPrefabOverride()
@@ -109,13 +112,9 @@ namespace Unity.NetCode.Editor
         /// <summary>Returns the current override if it exists, or a new one, by ref.</summary>
         public ref GhostAuthoringInspectionComponent.ComponentOverride GetOrAddPrefabOverride()
         {
-            var setPrefabType = (serializationStrategy.PrefabType != GhostPrefabType.All);
-            var defaultPrefabType = setPrefabType ? DefaultPrefabType : (GhostPrefabType)GhostAuthoringInspectionComponent.ComponentOverride.NoOverride;
-            EntityParent.GoParent.SourceInspection.GetOrAddPrefabOverride(managedType, entityGuid, defaultPrefabType, out bool created);
-            ref var @override = ref GetPrefabOverride();
-            if (created)
-                @override.PrefabType = defaultPrefabType;
-            return ref @override;
+            var defaultPrefabType = (GhostPrefabType)GhostAuthoringInspectionComponent.ComponentOverride.NoOverride;
+            EntityParent.GoParent.SourceInspection.GetOrAddPrefabOverride(managedType, entityGuid, defaultPrefabType);
+            return ref GetPrefabOverride();
         }
 
         /// <summary>

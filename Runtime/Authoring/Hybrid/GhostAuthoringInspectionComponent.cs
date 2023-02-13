@@ -20,7 +20,6 @@ namespace Unity.NetCode
         internal static bool forceBake = true;
         internal static bool forceRebuildInspector = true;
         internal static bool forceSave;
-        internal static bool toggleShowingUnmodifiableComponents;
 
         /// <summary>
         /// List of all saved modifications that the user has applied to this entity.
@@ -34,6 +33,7 @@ namespace Unity.NetCode
         ///so seem reasonably fast even with tens of components per prefab.</summary>
         static Type FindTypeFromFullTypeNameInAllAssemblies(string fullName)
         {
+            // TODO - Consider using the TypeManager.
             foreach (var a in AppDomain.CurrentDomain.GetAssemblies())
             {
                 var type = a.GetType(fullName, false);
@@ -50,119 +50,44 @@ namespace Unity.NetCode
             forceRebuildInspector = true;
         }
 
-        [ContextMenu("Toggle Showing Un-modifiable Components")]
-        void ToggleShowingUnmodifiableComponents()
+        /// <summary>Notifies of all invalid overrides.</summary>
+        internal void LogErrorIfComponentOverrideIsInvalid()
         {
-            toggleShowingUnmodifiableComponents = true;
-        }
-
-        /// <summary>Removes all invalid overrides.</summary>
-        void ValidateModifiers()
-        {
-            bool IsInvalidOverride(ref ComponentOverride mod, Transform root, out bool willRemove, out string reason)
-            {
-                var thisGameObject = gameObject;
-                if (mod.GameObject == null)
-                {
-                    reason = $"ComponentOverride `{mod.FullTypeName}` GameObject '{mod.GameObject}' has been destroyed. " +
-                        "Presumed merge issue. Automatically fixing, ensure you re-commit.";
-                    mod.GameObject = thisGameObject;
-                    willRemove = false;
-                    return true;
-                }
-
-                if (mod.GameObject != thisGameObject)
-                {
-                    reason = $"ComponentOverride `{mod.FullTypeName}` GameObject '{mod.GameObject}' is different to '{thisGameObject}'. ComponentOverrides on this `GhostAuthoringInspectionComponent` MUST be for this GameObject. ";
-                    var existingInspection = mod.GameObject.GetComponent<GhostAuthoringInspectionComponent>();
-                    if (existingInspection)
-                    {
-                        if(existingInspection.TryFindExistingOverrideIndexViaFullName(mod.FullTypeName, in mod.EntityGuid, out var existingIndex))
-                            reason += $"Unable to MOVE ComponentOverride for type `{mod.FullTypeName}` to '{mod.GameObject}' as destination already has an `GhostAuthoringInspectionComponent` with this override defined. Compare:\nExisting: {existingInspection.ComponentOverrides[existingIndex]}!\nNew: {mod}! Deleting duplicate on wrong GameObject.";
-                        willRemove = true;
-                        return true;
-                    }
-
-                    existingInspection = mod.GameObject.AddComponent<GhostAuthoringInspectionComponent>();
-                    ref var newMod = ref existingInspection.AddComponentOverrideRaw();
-                    newMod = mod;
-                    reason += $"Corrected automatically by moving the mod to the correct inspection component (from {thisGameObject} to {mod.GameObject})!";
-                    willRemove = true;
-                    return true;
-                }
-
-                if (!mod.GameObject.transform.IsChildOf(root))
-                {
-                    reason = $"ComponentOverride `{mod.FullTypeName}` GameObject '{mod.GameObject}' has been " +
-                        $"unparented from the root '{root}'. Presumed merge issue, removing.";
-                    willRemove = true;
-                    return true;
-                }
-
-                var compType = FindTypeFromFullTypeNameInAllAssemblies(mod.FullTypeName);
-                if (compType == null)
-                {
-                    willRemove = true;
-                    reason = $"ComponentOverride has unknown component type '{mod.FullTypeName}'. If this type has been renamed, you will unfortunately need to manually " +
-                        "re-add this override. If it has been deleted, simply re-commit this prefab.";
-                    return true;
-                }
-
-                // Cannot check variant here without it being quite expensive.
-                // Thus, cannot exclude just due to lack of `SupportPrefabOverridesAttribute`.
-                // However, this will be caught later.
-                reason = default;
-                willRemove = false;
-                return false;
-            }
-
-            var parent = transform;
             for (var i = 0; i < ComponentOverrides.Length; i++)
             {
                 ref var mod = ref ComponentOverrides[i];
-                if (IsInvalidOverride(ref mod, parent, out var willRemove, out var reason))
+                var compType = FindTypeFromFullTypeNameInAllAssemblies(mod.FullTypeName);
+                if (compType == null)
                 {
-                    var removeInfo = string.Empty;
-                    if (willRemove)
-                    {
-                        removeInfo = $"Removing the ComponentOverride now (index {i}) as quick-fix.";
-                        RemoveIndexFromComponentOverrides(i);
-                        i--;
-                    }
-                    Debug.LogError($"Ghost Prefab '{name}' has invalid ComponentOverride. Reason: {reason} {removeInfo}", this);
-#if UNITY_EDITOR
-                    forceSave = true;
-                    UnityEditor.EditorUtility.SetDirty(this);
-#endif
+                    Debug.LogError($"Ghost Prefab '{name}' has an invalid 'Component Override' targeting an unknown component type '{mod.FullTypeName}'. " +
+                                   "If this type has been renamed, you will unfortunately need to manually re-add this override. If it has been deleted, simply re-commit this prefab.");
                 }
             }
         }
 
         /// <remarks>Note that this operation is not saved. Ensure you call <see cref="SavePrefabOverride"/>.</remarks>
-        internal ref ComponentOverride GetOrAddPrefabOverride(Type managedType, EntityGuid entityGuid, GhostPrefabType defaultPrefabType, out bool didAdd)
+        internal ref ComponentOverride GetOrAddPrefabOverride(Type managedType, EntityGuid entityGuid, GhostPrefabType defaultPrefabType)
         {
             if (!gameObject || !this)
                 throw new ArgumentException($"Attempting to GetOrAddPrefabOverride for entityGuid '{entityGuid}' to '{this}', but GameObject and/or InspectionComponent has been destroyed!");
 
             if (gameObject.GetInstanceID() != entityGuid.OriginatingId)
             {
-                var didMatchChild = TryGetFirstMatchingGameObject(gameObject.transform, entityGuid, out var childGameObject);
+                var didMatchChild = TryGetFirstMatchingGameObjectInChildren(gameObject.transform, entityGuid, out var childGameObject);
                 var error = didMatchChild ? $"It matches a child instead ({childGameObject}). Overrides MUST be added to the Inspection component of the GameObject you are modifying!" : "Unknown GameObject.";
                 throw new ArgumentException($"Attempting to GetOrAddPrefabOverride for entityGuid '{entityGuid}' to '{this}', but entityGuid does not match our gameObject! {error}");
             }
 
             if (TryFindExistingOverrideIndex(managedType, entityGuid, out var index))
             {
-                didAdd = false;
                 return ref ComponentOverrides[index];
             }
 
-            didAdd = true;
+            // Did not find, so add:
             ref var found = ref AddComponentOverrideRaw();
             found = new ComponentOverride
             {
-                GameObject = gameObject,
-                EntityGuid = entityGuid.b,
+                EntityIndex = entityGuid.b,
                 FullTypeName = managedType.FullName,
             };
             found.Reset();
@@ -185,14 +110,19 @@ namespace Unity.NetCode
             if (!componentOverride.HasOverriden)
             {
                 var index = FindExistingOverrideIndex(ref componentOverride);
-                RemoveIndexFromComponentOverrides(index);
+                RemoveComponentOverrideByIndex(index);
             }
         }
 
-        void RemoveIndexFromComponentOverrides(int index)
+        /// <summary>Replaces this element with the last, then resizes -1.</summary>
+        /// <param name="index">Index to remove.</param>
+        internal void RemoveComponentOverrideByIndex(int index)
         {
-            var nextIndex = (index + 1);
-            Array.Copy(ComponentOverrides, nextIndex, ComponentOverrides, index, ComponentOverrides.Length - nextIndex);
+            if (ComponentOverrides.Length == 0) return;
+            if (index < ComponentOverrides.Length - 1)
+            {
+                ComponentOverrides[index] = ComponentOverrides[ComponentOverrides.Length - 1];
+            }
             Array.Resize(ref ComponentOverrides, ComponentOverrides.Length - 1);
         }
 
@@ -211,46 +141,52 @@ namespace Unity.NetCode
         /// <summary>Does a depth first search to find an element in the transform hierarchy matching this EntityGuid.</summary>
         /// <param name="current">Root element to search from.</param>
         /// <param name="entityGuid">Query: First to match with this EntityGuid.</param>
-        /// <param name="childGameObject">First element matching the query. Will be set to null otherwise.</param>
+        /// <param name="foundGameObject">First element matching the query. Will be set to null otherwise.</param>
         /// <returns>True if found.</returns>
-        static bool TryGetFirstMatchingGameObject(Transform current, EntityGuid entityGuid, out GameObject childGameObject)
+        static bool TryGetFirstMatchingGameObjectInChildren(Transform current, EntityGuid entityGuid, out GameObject foundGameObject)
         {
             if (current.gameObject.GetInstanceID() == entityGuid.OriginatingId)
             {
-                childGameObject = current.gameObject;
+                foundGameObject = current.gameObject;
                 return true;
             }
 
             if (current.childCount == 0)
             {
-                childGameObject = null;
+                foundGameObject = null;
                 return false;
             }
 
             for (int i = 0; i < current.childCount; i++)
             {
                 var child = current.GetChild(i);
-                if (TryGetFirstMatchingGameObject(child, entityGuid, out childGameObject))
+                if (TryGetFirstMatchingGameObjectInChildren(child, entityGuid, out foundGameObject))
                 {
                     return true;
                 }
             }
-            childGameObject = null;
+            foundGameObject = null;
             return false;
         }
 
         /// <summary>Finds all <see cref="GhostAuthoringInspectionComponent"/>'s on this Ghost Authoring Prefab (including in children), and adds all <see cref="ComponentOverrides"/> to a single list.</summary>
         /// <param name="ghostAuthoring">Root prefab to search from.</param>
-        internal static List<ComponentOverride> CollectAllComponentOverridesInInspectionComponents(GhostAuthoringComponent ghostAuthoring)
+        /// <param name="validate"></param>
+        internal static List<(GameObject, ComponentOverride)> CollectAllComponentOverridesInInspectionComponents(GhostAuthoringComponent ghostAuthoring, bool validate)
         {
             var inspectionComponents = new List<GhostAuthoringInspectionComponent>(8);
             ghostAuthoring.gameObject.GetComponents(inspectionComponents);
             ghostAuthoring.GetComponentsInChildren(inspectionComponents);
-            var allComponentOverrides = new List<ComponentOverride>(inspectionComponents.Count * 4);
+            var allComponentOverrides = new List<(GameObject, ComponentOverride)>(inspectionComponents.Count * 4);
             foreach (var inspectionComponent in inspectionComponents)
             {
-                inspectionComponent.ValidateModifiers();
-                allComponentOverrides.AddRange(inspectionComponent.ComponentOverrides);
+                if(validate)
+                    inspectionComponent.LogErrorIfComponentOverrideIsInvalid();
+
+                foreach (var componentOverride in inspectionComponent.ComponentOverrides)
+                {
+                    allComponentOverrides.Add((inspectionComponent.gameObject, componentOverride));
+                }
             }
 
             return allComponentOverrides;
@@ -268,11 +204,8 @@ namespace Unity.NetCode
             /// </summary>
             public string FullTypeName;
 
-            ///<summary>The GameObject Reference (root or child).</summary>
-            public GameObject GameObject;
-
-            ///<summary>The entity guid reference.</summary>
-            [NonSerialized] public ulong EntityGuid;
+            ///<summary>The entity guid index reference.</summary>
+            [FormerlySerializedAs("EntityGuid")] public ulong EntityIndex;
 
             ///<summary>Override what modes are available for that type. If `None`, this component is removed from the prefab/entity instance.</summary>
             /// <remarks>Note that <see cref="VariantHash"/> can clobber this value.</remarks>
@@ -284,6 +217,9 @@ namespace Unity.NetCode
 
             ///<summary>Select which variant we would like to use. 0 means the default.</summary>
             public ulong VariantHash;
+
+            /// <summary>Flag denoting that this ComponentOverride is known, and properly configured.</summary>
+            [NonSerialized]public bool DidCorrectlyMap;
 
             public bool HasOverriden => IsPrefabTypeOverriden || IsSendTypeOptimizationOverriden || IsVariantOverriden;
 
@@ -302,14 +238,14 @@ namespace Unity.NetCode
 
             public override string ToString()
             {
-                return $"ComponentOverride['{FullTypeName}', go:'{GameObject}', entityGuid:'{EntityGuid}', prefabType:{PrefabType}, sto:{SendTypeOptimization}, variantH:{VariantHash}]";
+                return $"ComponentOverride['{FullTypeName}', EntityIndex:'{EntityIndex}', prefabType:{PrefabType}, sto:{SendTypeOptimization}, variantH:{VariantHash}]";
             }
 
             public int Compare(ComponentOverride x, ComponentOverride y)
             {
                 var fullTypeNameComparison = string.Compare(x.FullTypeName, y.FullTypeName, StringComparison.Ordinal);
                 if (fullTypeNameComparison != 0) return fullTypeNameComparison;
-                var entityGuidComparison = x.EntityGuid.CompareTo(y.EntityGuid);
+                var entityGuidComparison = x.EntityIndex.CompareTo(y.EntityIndex);
                 return entityGuidComparison != 0 ? entityGuidComparison : x.VariantHash.CompareTo(y.VariantHash);
             }
 
@@ -322,16 +258,17 @@ namespace Unity.NetCode
         internal bool TryFindExistingOverrideIndex(Type managedType, in EntityGuid guid, out int index)
         {
             var managedTypeFullName = managedType.FullName;
-            return TryFindExistingOverrideIndexViaFullName(managedTypeFullName, guid.b, out index);
+            return TryFindExistingOverrideIndex(managedTypeFullName, guid.b, out index);
         }
 
-        internal bool TryFindExistingOverrideIndexViaFullName(string managedTypeFullName, in ulong entityGuid, out int index)
+        internal bool TryFindExistingOverrideIndex(string managedTypeFullName, in ulong entityGuid, out int index)
         {
             for (index = 0; index < ComponentOverrides.Length; index++)
             {
                 ref var componentOverride = ref ComponentOverrides[index];
-                if (string.Equals(componentOverride.FullTypeName, managedTypeFullName, StringComparison.OrdinalIgnoreCase) && componentOverride.EntityGuid == entityGuid)
+                if (componentOverride.EntityIndex == entityGuid && string.Equals(componentOverride.FullTypeName, managedTypeFullName, StringComparison.OrdinalIgnoreCase))
                 {
+                    componentOverride.DidCorrectlyMap = true;
                     return true;
                 }
             }

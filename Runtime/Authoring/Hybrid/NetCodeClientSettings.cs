@@ -29,6 +29,9 @@ namespace Unity.NetCode.Hybrid
         [SerializeField]
         public string[] AdditionalScriptingDefines = Array.Empty<string>();
 
+        [SerializeField]
+        public NetCodeClientTarget ClientTarget = NetCodeClientTarget.ClientAndServer;
+
         static Entities.Hash128 s_Guid;
         public Entities.Hash128 GUID
         {
@@ -86,10 +89,11 @@ namespace Unity.NetCode.Hybrid
     {
         private const string m_EditorPrefsNetCodeClientTarget = "com.unity.entities.netcodeclient.target";
 
+        [Obsolete("Use NetCodeClientSettings.instance.ClientTarget instead. Note that this EditorPref has been clobbered by the default field value now, too. (RemovedAfter NetCode 1.0)")]
         public NetCodeClientTarget NetCodeClientTarget
         {
-            get => (NetCodeClientTarget) EditorPrefs.GetInt(m_EditorPrefsNetCodeClientTarget, 0);
-            set => EditorPrefs.SetInt(m_EditorPrefsNetCodeClientTarget, (int)value);
+            get => NetCodeClientSettings.instance.ClientTarget;
+            set => NetCodeClientSettings.instance.ClientTarget = value;
         }
 
         private VisualElement m_rootElement;
@@ -106,7 +110,7 @@ namespace Unity.NetCode.Hybrid
 
         protected override Hash128 DoGetPlayerSettingGUID()
         {
-            return GetSettingGUID(NetCodeClientTarget);
+            return GetSettingGUID(NetCodeClientSettings.instance.ClientTarget);
         }
 
         public Hash128 GetSettingGUID(NetCodeClientTarget target)
@@ -169,10 +173,20 @@ namespace Unity.NetCode.Hybrid
             var targetS = new VisualElement();
             targetS.AddToClassList("target-Settings");
 
-            var field = new EnumField("NetCode client target:",  NetCodeClientTarget);
+            // PropertyField didn't seem to work here.
+            var field = new EnumField("NetCode Client Target", NetCodeClientSettings.instance.ClientTarget);
+            field.tooltip = "Denotes whether or not Server data and logic is included in a client build (when making a client build). Doing so allows the client executable to self-host (i.e. \"Client Host\") a multiplayer game.";
             targetS.Add(field);
 
-            targetS.Add(new PropertyField(so.FindProperty("FilterSettings.ExcludedBakingSystemAssemblies")));
+            var prop = so.FindProperty("FilterSettings.ExcludedBakingSystemAssemblies");
+            var propField = new PropertyField(prop);
+            propField.BindProperty(prop);
+            propField.RegisterCallback<ChangeEvent<string>>(
+                evt =>
+                {
+                    NetCodeClientSettings.instance.FilterSettings.SetDirty();
+                });
+            targetS.Add(propField);
 
             var propExtraDefines = so.FindProperty("AdditionalScriptingDefines");
             var propExtraDefinesField = new PropertyField(propExtraDefines);
@@ -182,7 +196,12 @@ namespace Unity.NetCode.Hybrid
             field.RegisterCallback<ChangeEvent<Enum>>(evt =>
             {
                 m_rootElement.Remove(targetElement);
-                NetCodeClientTarget = (NetCodeClientTarget)evt.newValue;
+
+                var serializedObject = new SerializedObject(NetCodeClientSettings.instance);
+                var serializedProperty = serializedObject.FindProperty("ClientTarget");
+                serializedProperty.enumValueIndex = (int)(NetCodeClientTarget)evt.newValue;
+                serializedObject.ApplyModifiedProperties();
+
                 var newTargetElement = UpdateUI();
                 m_rootElement.Add(newTargetElement);
             });
@@ -196,21 +215,24 @@ namespace Unity.NetCode.Hybrid
         public override string[] GetExtraScriptingDefines()
         {
             var extraScriptingDefines = GetSettingAsset().GetAdditionalScriptingDefines();
-            if(NetCodeClientTarget == NetCodeClientTarget.Client)
+            var netCodeClientTarget = NetCodeClientSettings.instance.ClientTarget;
+            if(netCodeClientTarget == NetCodeClientTarget.Client)
                 return extraScriptingDefines.Append("UNITY_CLIENT").ToArray();
-            if (NetCodeClientTarget == NetCodeClientTarget.ClientAndServer)
+            if (netCodeClientTarget == NetCodeClientTarget.ClientAndServer)
                 return extraScriptingDefines;
             return Array.Empty<string>();
         }
 
         protected override IEntitiesPlayerSettings DoGetSettingAsset()
         {
-            if (NetCodeClientTarget == NetCodeClientTarget.Client)
+            var netCodeClientSettings = NetCodeClientSettings.instance;
+            var netCodeClientTarget = netCodeClientSettings.ClientTarget;
+            if (netCodeClientTarget == NetCodeClientTarget.Client)
             {
-                return NetCodeClientSettings.instance;
+                return netCodeClientSettings;
             }
 
-            if (NetCodeClientTarget == NetCodeClientTarget.ClientAndServer)
+            if (netCodeClientTarget == NetCodeClientTarget.ClientAndServer)
             {
                 return NetCodeClientAndServerSettings.instance;
             }

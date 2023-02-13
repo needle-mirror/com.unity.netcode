@@ -80,6 +80,27 @@ namespace Generated
             changeMask |= (snapshot.__GHOST_FIELD_NAME__ != baseline.__GHOST_FIELD_NAME__) ? (1u<<__GHOST_MASK_INDEX__) : 0;
             #endregion
         }
+
+        public void SerializeCommand(ref DataStreamWriter writer, in IComponentData data, in IComponentData baseline, StreamCompressionModel compressionModel)
+        {
+            #region __COMMAND_WRITE__
+            writer.WriteDouble(data.__COMMAND_FIELD_NAME__);
+            #endregion
+            #region __COMMAND_WRITE_PACKED__
+            writer.WritePackedDoubleDelta(data.__COMMAND_FIELD_NAME__, baseline.__COMMAND_FIELD_NAME__, compressionModel);
+            #endregion
+        }
+
+        public void DeserializeCommand(ref DataStreamReader reader, ref IComponentData data, in IComponentData baseline, StreamCompressionModel compressionModel)
+        {
+            #region __COMMAND_READ__
+            data.__COMMAND_FIELD_NAME__ = (__COMMAND_FIELD_TYPE_NAME__) reader.ReadDouble();
+            #endregion
+            #region __COMMAND_READ_PACKED__
+            data.__COMMAND_FIELD_NAME__ = (__COMMAND_FIELD_TYPE_NAME__) reader.ReadPackedDoubleDelta(baseline.__COMMAND_FIELD_NAME__, compressionModel);
+            #endregion
+        }
+
         #if UNITY_EDITOR || DEVELOPMENT_BUILD
         private static void ReportPredictionErrors(ref IComponentData component, in IComponentData backup, ref UnsafeList<float> errors, ref int errorIndex)
         {
@@ -92,8 +113,8 @@ namespace Generated
         {
             #region __GHOST_GET_PREDICTION_ERROR_NAME__
             if (nameCount != 0)
-                names.Append(new FixedString32Bytes(","));
-            names.Append(new FixedString64Bytes("__GHOST_FIELD_REFERENCE__"));
+                names.CopyFromTruncated(new FixedString32Bytes(","));
+            names.CopyFromTruncated((FixedString512Bytes)"__GHOST_FIELD_REFERENCE__");
             ++nameCount;
             #endregion
         }

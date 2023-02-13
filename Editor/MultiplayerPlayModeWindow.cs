@@ -23,15 +23,15 @@ namespace Unity.NetCode.Editor
         const int k_ThinClientWorldCreationFailureRetryInterval = 5;
         const string k_ToggleLagSpikeSimulatorBindingKey = "Main Menu/Multiplayer/Toggle Lag Spike Simulation";
         const string k_SimulatorPresetCaveat = "\n\n<i>Note: The simulator can only <b>add</b> additional latency to a given connection, and it does so naively. Therefore, poor editor performance will exacerbate the delay (and is not compensated for).</i>";
-
+        const string k_ProjectSettingsConfigPath = "<i>ProjectSettings > Entities > Build</i>";
         static Color ActiveColor => new Color(0.5f, 0.84f, 0.99f); // TODO: netCode color into this view. GhostAuthoringComponentEditor.netcodeColor;
         static GUILayoutOption s_PingWidth = GUILayout.Width(100);
         static GUILayoutOption s_NetworkIdWidth = GUILayout.Width(30);
         static GUILayoutOption s_WorldNameWidth = GUILayout.Width(130);
 
         static GUIContent s_PlayModeType = new GUIContent("PlayMode Type", "During multiplayer development, it's useful to modify and run the client and server at the same time, in the same process (i.e. \"in-proc\"). DOTS Multiplayer supports this out of the box via the DOTS Entities \"Worlds\" feature.\n\nUse this toggle to determine which mode of operation is used for this playmode session.\n\n\"Client & Server\" is recommended for most workflows.");
-        static GUIContent s_SimulateDedicatedServer = new GUIContent("Simulate Dedicated Server", "When enabled the server will load the same data as a dedicated server, when disabled it will load the same data as a client hosted server.");
-
+        static GUIContent s_ServerEmulation = new GUIContent("Server Emulation", $"Denotes how the ServerWorld should load data when in PlayMode in the Editor. This setting does not affect builds (see {k_ProjectSettingsConfigPath} for build configuration).");
+        static GUIContent[] s_ServerEmulationContents;
         static GUIContent s_NumThinClients = new GUIContent("Num Thin Clients", "Thin clients are clients that receive snapshots, but do not attempt to process game logic. They can send arbitrary inputs though, and are useful to simulate opponents (to test connection & game logic).\n\nThin clients are instantiated on boot and at runtime. I.e. This value can be tweaked during playmode.");
         static GUIContent s_InstantiationFrequency = new GUIContent("Instantiation Frequency", "How many thin client worlds to instantiate per second. Runtime thin client instantiation can be disabled by setting `RuntimeThinClientWorldInitialization` to null. Does not affect thin clients created during boot.");
         static GUIContent s_RuntimeInstantiationDisabled = new GUIContent("Runtime Instantiation Disabled", "Enable it by setting `MultiplayerPlayModeWindow.RuntimeThinClientWorldInitialization`.");
@@ -76,7 +76,9 @@ namespace Unity.NetCode.Editor
         static GUIContent s_ServerDc = new GUIContent("Server DC", "Trigger the server to attempt to gracefully disconnect this client, identified by their 'NetworkIdComponent'. Server-authored (e.g. like a server kicking a client when the match has ended).");
         static GUIContent s_Timeout = new GUIContent("Force Timeout", "Simulate a timeout (i.e. the client and server stop communicating instantly, and critically, <b>without</b> either being able to send graceful disconnect control messages). A.k.a. An \"ungraceful\" disconnection or \"Server unreachable\".\n\n- Clients should notify the player of the internet issue, and provide automatic (or triggerable) reconnect or quit flows.\n\n - Servers should ensure they handle clients timing out as a valid form of disconnection, and (if supported) ensure that 'same client reconnections' are properly handled.\n\n - Transport settings will inform how quickly all parties detect a lost connection.");
 
-        static GUIContent s_LogLevel = new GUIContent("Log Level", "The desired log level of all `NetCodeDebugSystem` loggers.\n\nNote: Modify this value to enable editor override, otherwise the editor will use whatever logging configuration values are already set.");
+        static GUIContent s_LogFileLocation = new GUIContent("Open Log Folder", string.Empty);
+        static GUIContent s_ForceLogLevel = new GUIContent("Force Log Settings", "Force all `NetDebug` loggers to a specified setting, clobbering any `NetCodeDebugConfig` singleton.");
+        static GUIContent s_LogLevel = new GUIContent("Log Level", "Every NetDbg log is raised with a specific severity. Use this to discard logs below this level.");
         static GUIContent s_DumpPacketLogs = new GUIContent("Dump Packet Logs", "Should we dump packet logs to `NetDebug.LogFolderForPlatform`?\n\nNote: Modify this value to enable editor override, otherwise the editor will use whatever logging configuration values are already set.");
         static GUIContent s_LagSpike = new GUIContent("", "In playmode, press the shortcut key to toggle 'total packet loss' for the specified duration.\n\nUseful when testing short periods of lost connection (e.g. while in a tunnel) and to see how well your client and server handle an \"ungraceful\" disconnect (e.g. internet going down).\n\n- This window must be open for this tool to work.\n- Will only be applied to the \"full\" (i.e.: rendering) clients.\n- Depending on timeouts specified, this may cause the actual driver to timeout. Ensure you handle reconnections.");
 
@@ -125,8 +127,29 @@ namespace Unity.NetCode.Editor
             EditorApplication.playModeStateChanged += PlayModeStateChanged;
             PlayModeStateChanged(EditorApplication.isPlaying ? PlayModeStateChange.EnteredPlayMode : PlayModeStateChange.ExitingPlayMode);
 
+            s_LogFileLocation.tooltip = NetDebug.LogFolderForPlatform();
             RefreshSimulatorPresets();
             HandleSimulatorValuesChanged(Prefs.IsCurrentNetworkSimulatorPresetCustom);
+
+            var dotsGlobalSettings = DotsGlobalSettings.Instance;
+            var serverProvider = TryGetPath(dotsGlobalSettings.ServerProvider, "ProjectSettings/NetCodeServerSettings.asset");
+            var clientAndServerProvider = TryGetPath(dotsGlobalSettings.ClientProvider, "ProjectSettings/NetCodeClientAndServerSettings.asset");
+            s_ServerEmulationContents = new[]
+            {
+                new GUIContent("Client Hosted Server", $"Emulate a 'Client Hosted Executable' for the purposes of server data loading. I.e. Client-only types, assemblies and data will be loaded into the ServerWorld (by the server loading <i>{clientAndServerProvider}</i>, via {k_ProjectSettingsConfigPath})."),
+                new GUIContent("Dedicated Server", $"Emulate a 'Dedicated Server Executable' for the purposes of server data loading. I.e. Client-only types, assemblies and data will be stripped from the ServerWorld (by the server loading <i>{serverProvider}</i>, via {k_ProjectSettingsConfigPath})."),
+            };
+            foreach (var guiContent in s_ServerEmulationContents)
+            {
+                s_ServerEmulation.tooltip += $"\n\n - <b>{guiContent.text}</b>: {guiContent.tooltip}";
+            }
+        }
+
+        static string TryGetPath(DotsPlayerSettingsProvider dotsSettingsProvider, string fallback)
+        {
+            if (dotsSettingsProvider != null)
+                return dotsSettingsProvider.GetSettingAsset().CustomDependency ?? fallback;
+            return fallback;
         }
 
         static void RefreshSimulatorPresets()
@@ -488,13 +511,13 @@ namespace Unity.NetCode.Editor
                         switch (Prefs.RequestedPlayType)
                         {
                             case ClientServerBootstrap.PlayType.ClientAndServer:
-                                EditorGUILayout.HelpBox("Auto-connection is disabled. Waiting for calls to `NetworkStreamReceiveSystem` on the client world[s] via `Connect`, and server world via `Listen`.", MessageType.Info);
+                                EditorGUILayout.HelpBox("Auto-connection is disabled via this Bootstrapper. Waiting for you to manually call `Connect` or `Listen` in the NetworkStreamReceiveSystem on the ClientWorld[s].", MessageType.Warning);
                                 break;
                             case ClientServerBootstrap.PlayType.Client:
-                                EditorGUILayout.HelpBox("Auto-connection is disabled. Waiting for a call to `NetworkStreamReceiveSystem.Connect`. Alternatively, use the controls above.", MessageType.Info);
+                                EditorGUILayout.HelpBox("Auto-connection is disabled via this Bootstrapper. Waiting for you to manually call `NetworkStreamReceiveSystem.Connect`. Alternatively, use the controls above.", MessageType.Warning);
                                 break;
                             case ClientServerBootstrap.PlayType.Server:
-                                EditorGUILayout.HelpBox("Auto-connection is disabled. Waiting for a call to `NetworkStreamReceiveSystem.Listen` in the \"Server World\".", MessageType.Info);
+                                EditorGUILayout.HelpBox("Auto-connection is disabled via this Bootstrapper. Waiting for you to manually call `NetworkStreamReceiveSystem.Listen` in the \"Server World\".", MessageType.Warning);
                                 break;
                             default:
                                 throw new ArgumentOutOfRangeException(nameof(Prefs.RequestedPlayType), Prefs.RequestedPlayType, nameof(DrawClientAutoConnect));
@@ -533,22 +556,22 @@ namespace Unity.NetCode.Editor
             GUI.color = EditorApplication.isPlayingOrWillChangePlaymode ? Color.grey : Color.white;
             EditorGUI.BeginChangeCheck();
             var requestedPlayType = (int) Prefs.RequestedPlayType;
-
             EditorPopup(s_PlayModeType, k_PlayModeStrings, ref requestedPlayType);
-            Prefs.RequestedPlayType = (ClientServerBootstrap.PlayType) requestedPlayType;
             if (EditorGUI.EndChangeCheck())
             {
+                Prefs.RequestedPlayType = (ClientServerBootstrap.PlayType) requestedPlayType;
                 EditorApplication.isPlaying = false;
             }
 
             if ((ClientServerBootstrap.PlayType)requestedPlayType != ClientServerBootstrap.PlayType.Client &&
-                ((ClientSettings)DotsGlobalSettings.Instance.ClientProvider).NetCodeClientTarget == NetCodeClientTarget.ClientAndServer)
+                NetCodeClientSettings.instance.ClientTarget == NetCodeClientTarget.ClientAndServer)
             {
                 EditorGUI.BeginChangeCheck();
-                Prefs.SimulateDedicatedServer = EditorGUILayout.Toggle(s_SimulateDedicatedServer, Prefs.SimulateDedicatedServer);
-
+                var simulateDedicatedServer = Prefs.SimulateDedicatedServer ? 1 : 0;
+                EditorPopup(s_ServerEmulation, s_ServerEmulationContents, ref simulateDedicatedServer);
                 if (EditorGUI.EndChangeCheck())
                 {
+                    Prefs.SimulateDedicatedServer = simulateDedicatedServer > 0;
                     EditorApplication.isPlaying = false;
                 }
             }
@@ -571,7 +594,10 @@ namespace Unity.NetCode.Editor
             if (EditorGUI.EndChangeCheck())
             {
                 if (wasSimulatorEnabled != Prefs.SimulatorEnabled)
+                {
                     EditorApplication.isPlaying = false;
+                    HandleSimulatorValuesChanged(Prefs.IsCurrentNetworkSimulatorPresetCustom);
+                }
             }
 
             if (Prefs.SimulatorEnabled)
@@ -780,7 +806,7 @@ namespace Unity.NetCode.Editor
 
             // You can force a timeout even when disconnected, to allow testing reconnect attempts while timed out.
             var isTimingOut = conSystem.IsSimulatingTimeout;
-            s_Timeout.text = isTimingOut ? $"Simulating Timeout\n[{Mathf.CeilToInt(conSystem.TimeoutSimulationDurationSeconds):n1}s]" : $"Timeout";
+            s_Timeout.text = isTimingOut ? $"Simulating Timeout\n[{Mathf.CeilToInt(conSystem.TimeoutSimulationDurationSeconds)}s]" : $"Timeout";
             GUI.color = isTimingOut ? GhostAuthoringComponentEditor.brokenColor :  Color.white;
             if (GUILayout.Button(s_Timeout))
                 conSystem.ToggleTimeoutSimulation();
@@ -867,12 +893,6 @@ namespace Unity.NetCode.Editor
 
         static void HandleSimulatorValuesChanged(bool isUsingCustomValues)
         {
-            if (!Prefs.SimulatorEnabled)
-            {
-                EditorApplication.isPlaying = false;
-                Prefs.RequestedSimulatorView = Prefs.DefaultSimulatorView;
-            }
-
             if (!isUsingCustomValues && SimulatorPreset.TryGetPresetFromName(Prefs.CurrentNetworkSimulatorPreset, s_InUseSimulatorPresetsCache, out var preset, out _))
             {
                 Prefs.ApplySimulatorPresetToPrefs(preset);
@@ -889,24 +909,20 @@ namespace Unity.NetCode.Editor
 
         void DrawLoggingGroup()
         {
-            GUI.color = Prefs.ApplyLoggerSettings ? ActiveColor : Color.grey;
-            EditorGUI.BeginChangeCheck();
-            var newLogLevel = (NetDebug.LogLevelType) EditorGUILayout.EnumPopup(s_LogLevel, Prefs.TargetLogLevel);
-            var newDumpPackets = EditorGUILayout.Toggle(s_DumpPacketLogs, Prefs.TargetShouldDumpPackets);
-
-            if (EditorGUI.EndChangeCheck())
-            {
-                Prefs.ApplyLoggerSettings = true;
-                if (newLogLevel != Prefs.TargetLogLevel) SetLogLevelOnAllWorlds(newLogLevel);
-                if (newDumpPackets != Prefs.TargetShouldDumpPackets) SetShouldDumpPacketOnAllWorlds(newDumpPackets);
-            }
-
-            if (Prefs.ApplyLoggerSettings)
-            {
-                if (GUILayout.Button("Overriding `NetDebugSystem` and `NetCodeDebugConfig` logger parameters. Click to reset."))
-                    Prefs.ApplyLoggerSettings ^= true;
-            }
+            GUI.color = ActiveColor;
+            Prefs.ApplyLoggerSettings = EditorGUILayout.Toggle(s_ForceLogLevel, Prefs.ApplyLoggerSettings);
+            GUI.enabled = Prefs.ApplyLoggerSettings;
             GUI.color = Color.white;
+            Prefs.TargetLogLevel = (NetDebug.LogLevelType) EditorGUILayout.EnumPopup(s_LogLevel, Prefs.TargetLogLevel);
+            GUILayout.BeginHorizontal();
+            {
+                Prefs.TargetShouldDumpPackets = EditorGUILayout.Toggle(s_DumpPacketLogs, Prefs.TargetShouldDumpPackets);
+                GUI.enabled = true;
+                if (GUILayout.Button(s_LogFileLocation, s_RightButtonWidth))
+                    EditorUtility.OpenWithDefaultApp(s_LogFileLocation.tooltip);
+            }
+            GUILayout.EndHorizontal();
+
         }
 
         void DrawDebugGizmosDrawer()
@@ -944,35 +960,6 @@ namespace Unity.NetCode.Editor
 
                 if (EditorGUI.EndChangeCheck())
                     visitor.EditorSave();
-            }
-        }
-
-        static void SetShouldDumpPacketOnAllWorlds(bool newDumpPackets)
-        {
-            Prefs.TargetShouldDumpPackets = newDumpPackets;
-            if (!Prefs.ApplyLoggerSettings) return;
-            foreach (var world in s_ServerWorlds.Concat(s_ClientWorlds))
-            {
-                var logSys = world.GetExistingSystemManaged<MultiplayerPlaymodeLoggingSystem>();
-                if (logSys != null)
-                    logSys.ShouldDumpPackets = newDumpPackets;
-            }
-        }
-
-        static void SetLogLevelOnAllWorlds(NetDebug.LogLevelType newLogLevel)
-        {
-            Prefs.TargetLogLevel = newLogLevel;
-            if (!Prefs.ApplyLoggerSettings) return;
-            foreach (var world in s_ServerWorlds.Concat(s_ClientWorlds))
-            {
-                var debugConfigQuery = world.EntityManager.CreateEntityQuery(typeof(NetCodeDebugConfig));
-                if (debugConfigQuery.CalculateEntityCount() > 0)
-                {
-                    debugConfigQuery.GetSingletonRW<NetCodeDebugConfig>().ValueRW.LogLevel = newLogLevel;
-                }
-
-                // Regardless of whether we set the component, set this immediately to ensure we're catching everything.
-                GetNetDbgForWorld(world).LogLevel = newLogLevel;
             }
         }
 
@@ -1353,6 +1340,7 @@ namespace Unity.NetCode.Editor
     }
 
     [WorldSystemFilter(WorldSystemFilterFlags.ClientSimulation | WorldSystemFilterFlags.ThinClientSimulation | WorldSystemFilterFlags.Editor)]
+    [CreateAfter(typeof(SceneSystem))]
     internal partial struct ConfigureClientGUIDSystem : ISystem
     {
         public void OnCreate(ref SystemState state)
@@ -1366,33 +1354,25 @@ namespace Unity.NetCode.Editor
             state.Enabled = false;
         }
 
-        public void OnDestroy(ref SystemState state)
-        {}
-        public void OnUpdate(ref SystemState state)
-        {}
     }
     [WorldSystemFilter(WorldSystemFilterFlags.ServerSimulation)]
+    [CreateAfter(typeof(SceneSystem))]
     internal partial struct ConfigureServerGUIDSystem : ISystem
     {
         public void OnCreate(ref SystemState state)
         {
             ref var sceneSystemGuid = ref state.EntityManager.GetComponentDataRW<SceneSystemData>(state.World.GetExistingSystem<SceneSystem>()).ValueRW;
-            // If client type is client-only server must use dedicated server data
-            if (((Unity.NetCode.Hybrid.ClientSettings)DotsGlobalSettings.Instance.ClientProvider).NetCodeClientTarget == NetCodeClientTarget.Client)
+            // If client type is client-only, the server must use dedicated server data:
+            if (NetCodeClientSettings.instance.ClientTarget == NetCodeClientTarget.Client)
                 sceneSystemGuid.BuildConfigurationGUID = DotsGlobalSettings.Instance.GetServerGUID();
-            // If playmode is simulating dedicated server we must also use server data
+            // If playmode is simulating dedicated server, we must also use server data:
             else if (Prefs.SimulateDedicatedServer)
                 sceneSystemGuid.BuildConfigurationGUID = DotsGlobalSettings.Instance.GetServerGUID();
-            // Otherwise we use client & server data, we know the client is set to client & server at this point
+            // Otherwise we use client & server data, as we know that 'client hosted' is possible in the editor at this point:
             else
                 sceneSystemGuid.BuildConfigurationGUID = DotsGlobalSettings.Instance.GetClientGUID();
 
             state.Enabled = false;
         }
-
-        public void OnDestroy(ref SystemState state)
-        {}
-        public void OnUpdate(ref SystemState state)
-        {}
     }
 }

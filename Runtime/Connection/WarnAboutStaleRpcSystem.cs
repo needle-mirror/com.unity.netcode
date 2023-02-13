@@ -21,11 +21,6 @@ namespace Unity.NetCode
             state.RequireForUpdate<ReceiveRpcCommandRequestComponent>();
         }
         [BurstCompile]
-        public void OnDestroy(ref SystemState state)
-        {
-        }
-
-        [BurstCompile]
         partial struct WarnAboutStaleRpc : IJobEntity
         {
             public NetDebug netDebug;

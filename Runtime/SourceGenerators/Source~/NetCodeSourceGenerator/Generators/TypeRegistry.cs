@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 
 namespace Unity.NetCode.Generators
 {
@@ -95,7 +96,7 @@ namespace Unity.NetCode.Generators
 
     internal class TypeRegistry
     {
-        public Dictionary<TypeDescription, TypeTemplate> Templates = new Dictionary<TypeDescription, TypeTemplate>();
+        public Dictionary<TypeDescription, TypeTemplate> Templates = new Dictionary<TypeDescription, TypeTemplate>(16);
 
         public TypeRegistry(IEnumerable<TypeRegistryEntry> types)
         {
@@ -133,6 +134,19 @@ namespace Unity.NetCode.Generators
                 TemplateOverridePath = entry.TemplateOverride
             };
             Templates.Add(typeDescription, template);
+        }
+
+        public string FormatAllKnownTypes()
+        {
+            return $"[{Templates.Count}:{string.Join(",", Templates.Keys)}]";
+        }
+
+        public string FormatAllKnownSubTypes()
+        {
+            var aggregate = string.Join(",", Templates
+                .Where(x => x.Key.Attribute.subtype != 0)
+                .Select(x => $"[{x.Key.Attribute.subtype}: {x.Key} at {x.Value.TemplatePath}]"));
+            return $"[{Templates.Count}:{aggregate}]";
         }
     }
 }

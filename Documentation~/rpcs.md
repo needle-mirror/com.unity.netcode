@@ -155,9 +155,6 @@ partial struct OurRpcCommandRequestSystem : ISystem
             m_Request.OnCreate(ref state);
         }
         [BurstCompile]
-        public void OnDestroy(ref SystemState state)
-        {}
-        [BurstCompile]
         public void OnUpdate(ref SystemState state)
         {
             var sendJob = new SendRpc{data = m_Request.InitJobData(ref state)};

@@ -8,9 +8,9 @@ namespace Unity.NetCode
     /// The singleton can be created at runtime or by adding the component to a singleton entity in sub-scene.
     /// It is not mandatory to create the singleton in the client worlds (while it is considered best practice), since the
     /// relevant settings for the client (the <see cref="SimulationTickRate"/> and <see cref="NetworkTickRate"/>) are synced
-    /// as part of the intial handshake (<see cref="ClientServerTickRateRefreshRequest"/>).
+    /// as part of the initial handshake (<see cref="ClientServerTickRateRefreshRequest"/>).
     /// The ClientServerTickRate should also be used to customise other server only timing settings, such as
-    /// the maximum number of tick per frame, tick baching (<see cref="MaxSimulationStepBatchSize"/> and others. See the
+    /// the maximum number of tick per frame, tick batching (<see cref="MaxSimulationStepBatchSize"/> and others. See the
     /// individual fields documentation for more information.
     /// </summary>
     /// <remarks>
@@ -68,7 +68,7 @@ namespace Unity.NetCode
         /// If the server cannot keep up with the simulation frequency with running `MaxSimulationStepsPerFrame`
         /// ticks it is possible to allow each tick to run with a longer delta time in order to keep the game
         /// time updating correctly. This means that instead of running two ticks with delta time N each, the
-        /// system will run a single tick with delta time 2*N. It is a less expensive but more inacurate way
+        /// system will run a single tick with delta time 2*N. It is a less expensive but more inaccurate way
         /// of dealing with server performance spikes, it also requires the game logic to be able to handle it.
         /// </summary>
         public int MaxSimulationStepBatchSize;
@@ -109,7 +109,7 @@ namespace Unity.NetCode
     }
 
     /// <summary>
-    /// RPC sent as part of the initial handshake from server to client to match the simulation tick rate properies
+    /// RPC sent as part of the initial handshake from server to client to match the simulation tick rate properties
     /// on the client with those present on the server.
     /// </summary>
     internal struct ClientServerTickRateRefreshRequest : IComponentData
@@ -187,22 +187,23 @@ namespace Unity.NetCode
         /// </summary>
         public uint InterpolationDelayJitterScale;
         /// <summary>
-        /// Used to limit the maximum InterpolationDelay changes in one frame, as percetage of the frame deltaTicks.
+        /// Used to limit the maximum InterpolationDelay changes in one frame, as percentage of the frame deltaTicks.
         /// Default value: 10% of the frame delta ticks. Smaller values will result in slow adaptation to the network state (loss and jitter)
-        /// but would resuilt in smooth delay changes. Larger values would make the InterpolationDelay change quickly adapt but
-        /// may cause suddend jump in the interpolated values.
+        /// but would result in smooth delay changes. Larger values would make the InterpolationDelay change quickly adapt but
+        /// may cause sudden jump in the interpolated values.
         /// Good ranges: [0.10 - 0.3]
         /// </summary>
         public float InterpolationDelayMaxDeltaTicksFraction;
         /// <summary>
         /// The percentage of the error in the interpolation delay that can be corrected in one frame. Used to control InterpolationTickTimeScale.
         /// Must be in range (0, 1).
+        /// <code>
         ///              ________ Max
         ///            /
         ///           /
         /// Min _____/____________
         ///                         InterpolationDelayDelta
-        ///
+        /// </code>
         /// DefaultValue: 10% of the delta in between the current and next desired interpolation tick.
         /// Good ranges: [0.075 - 0.2]
         /// </summary>
@@ -219,17 +220,18 @@ namespace Unity.NetCode
         /// The percentage of the error in the predicted server tick that can be corrected each frame. Used to control the client deltaTime scaling, used to
         /// slow-down/speed-up the server tick estimate.
         /// Must be in (0, 1) range.
+        /// <code>
         ///
         ///              ________ Max
         ///             /
         ///            /
         /// Min ______/__________
         ///                      CommandAge
-        ///
+        /// </code>
         /// DefaultValue: 10% of the error.
         /// The two major causes affecting the command age are:
         ///  - Network condition (Latency and Jitter)
-        ///  - Server performace (running below the target frame rate)
+        ///  - Server performance (running below the target frame rate)
         ///
         /// Small time scale values allow for smooth adjustments of the prediction tick but slower reaction to changes in both network and server frame rate.
         /// By using larger values, is faster to recovery to desync situation (caused by bad network and condition or/and slow server performance) but the
@@ -238,13 +240,13 @@ namespace Unity.NetCode
         /// </summary>
         public float CommandAgeCorrectionFraction;
         /// <summary>
-        /// PrectionTick time scale min value, max be less then 1.0f. Default: 0.9f.
+        /// PredictionTick time scale min value, max be less then 1.0f. Default: 0.9f.
         /// Note: it is not mandatory to have the min-max symmetric.
         /// Good Range: (0.8 - 0.95)
         /// </summary>
         public float PredictionTimeScaleMin;
         /// <summary>
-        /// PrectionTick time scale max value, max be greater then 1.0f. Default: 1.1f
+        /// PredictionTick time scale max value, max be greater then 1.0f. Default: 1.1f
         /// Note: it is not mandatory to have the min-max symmetric.
         /// Good Range: (1.05 - 1.2)
         /// </summary>

@@ -98,11 +98,6 @@ namespace Unity.NetCode
             m_LocalToWorldHandle = state.GetComponentTypeHandle<LocalToWorld>();
         }
         [BurstCompile]
-        public void OnDestroy(ref SystemState state)
-        {
-        }
-
-        [BurstCompile]
         public void OnUpdate(ref SystemState state)
         {
             var deltaTime = SystemAPI.Time.DeltaTime;
@@ -172,6 +167,7 @@ namespace Unity.NetCode
                 NativeArray<PostTransformScale> postTransformScales = new NativeArray<PostTransformScale>();
                 if (chunk.Has(ref PostTransformScaleType))
                     postTransformScales = chunk.GetNativeArray(ref PostTransformScaleType);
+
 #else
                 var hasNonUniformScale = chunk.Has(ref NonUniformScaleType);
                 var hasScale = chunk.Has(ref ScaleType);

@@ -8,6 +8,14 @@ namespace Unity.NetCode
     public sealed class ClientOnlyVariant
     {
     }
+    /// <summary>
+    /// <para>Special universal component variant that can be assigned to any component and/or buffer when configuring
+    /// the GhostComponentSerializerCollectionSystemGroup. Mostly used for stripping components from the client-side ghost prefabs.</para>
+    /// <para>To use this for your own types: Set it as the default in your own <see cref="DefaultVariantSystemBase.RegisterDefaultVariants"/> method.</para>
+    /// </summary>
+    public sealed class ServerOnlyVariant
+    {
+    }
 
     /// <summary>
     /// Special universal component variant that can be assigned to any component and/or buffer. When a component

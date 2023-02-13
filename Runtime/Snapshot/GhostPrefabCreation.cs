@@ -827,7 +827,7 @@ namespace Unity.NetCode
                 if (hasOverrides && (compOverride.OverrideType & ComponentOverrideType.Variant) != 0)
                     variant = compOverride.Variant;
 
-                var variantType = collectionData.GetCurrentSerializationStrategyForComponentCached(allComponents[i], variant, true);
+                var variantType = collectionData.GetCurrentSerializationStrategyForComponent(allComponents[i], variant, true);
                 prefabTypes[i] = variantType.PrefabType;
                 sendMasksOverride[i] = -1;
                 variants[i] = variantType.Hash;

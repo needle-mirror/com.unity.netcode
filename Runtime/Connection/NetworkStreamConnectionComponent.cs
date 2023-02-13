@@ -46,18 +46,30 @@ namespace Unity.NetCode
     }
 
     /// <summary>
-    /// Used to tell the <see cref="GhostSendSystem"/> on the server to use a non-default packet size for snapshots.
-    /// Must be added by game logic to change snapshot packet size.
+    /// A per-connection component, which is used by the <see cref="GhostSendSystem"/> (on the server) to force a non-default packet size for snapshots.
+    /// Must be added to the NetworkConnection entity for a connection, by your game logic.
     /// </summary>
+    /// <remarks>
+    /// Helps enforce a specific KBPS target.
+    /// For example: A value of 416 bytes * 60hz (via <see cref="ClientServerTickRate.SimulationTickRate"/>) = ~200kbit/s.
+    /// Note, however, that this:
+    /// - Does not include or affect RPCs, commands, control messages, or UDP header overhead.
+    /// - Does include UTP packet header overhead.
+    /// </remarks>
     public struct NetworkStreamSnapshotTargetSize : IComponentData
     {
         /// <summary>
-        /// The desired packet size to use for the snapshot. By default the packet size is the <see cref="NetworkParameterConstants.MTU"/>
-        /// minus some header.
+        /// The desired packet size to use for the snapshot. By default, the packet size is the <see cref="NetworkParameterConstants.MTU"/>
+        /// minus some headers.
         /// It is possible to specify a packet size larger than a single <see cref="NetworkParameterConstants.MTU"/>, in which case the
-        /// snapshot data are sent using a pipeline that support fragmentation (see <see cref="NetworkDriverStore.NetworkDriverInstance.unreliableFragmentedPipeline"/>.
+        /// snapshot data is sent using a pipeline that support fragmentation (see <see cref="NetworkDriverStore.NetworkDriverInstance.unreliableFragmentedPipeline"/>.
         /// The upper bound limit for this value is payload capacity of the fragmentation pipeline (see <see cref="Unity.Networking.Transport.Utilities.FragmentationUtility"/>).
         /// </summary>
+        /// <remarks>
+        /// There is a minimum snapshot size, which ensures that some new and destroyed entities get replicated,
+        /// and ensures that at least one ghost is replicated in every snapshot.
+        /// See <see cref="GhostChunkSerializer"/> for this behaviour.
+        /// </remarks>
         public int Value;
     }
 

@@ -1,12 +1,12 @@
 # Networked Cube
 
-Make sure you have set up the project correctly using the [installation guide](installation.md) before starting your adventure of creating a simple client-server based simulation.
+Make sure you have set up the project correctly using the [installation guide](installation.md) before starting your adventure (of creating a simple client-server based simulation).
 
-This tutorial briefly introduces the most common concepts involved in making a client-server based game.
+This tutorial briefly introduces the most common concepts involved in making client-server based games.
 
 ## Creating an initial Scene
 
-To begin, set up a way to share data between the client and the server. We achieve this separation in Netcode for Entities by creating [a different World](client-server-worlds.md) for the server and each client. To share data between the server and the client:
+To begin, set up a way to share data between the client and the server. We achieve this separation in Netcode for Entities by creating [a different World](client-server-worlds.md) for the server and each client (via the [Entities Package](https://docs.unity3d.com/Packages/com.unity.entities@latest)). To share data between the server and the client:
 
 1. Right-click within the Hierarchy window in the Unity Editor.
 2. Select __New Subscene > Empty Scene__...
@@ -83,11 +83,6 @@ public partial struct GoInGameClientSystem : ISystem
     }
 
     [BurstCompile]
-    public void OnDestroy(ref SystemState state)
-    {
-    }
-
-    [BurstCompile]
     public void OnUpdate(ref SystemState state)
     {
         var commandBuffer = new EntityCommandBuffer(Allocator.Temp);
@@ -117,11 +112,6 @@ public partial struct GoInGameServerSystem : ISystem
             .WithAll<ReceiveRpcCommandRequestComponent>();
         state.RequireForUpdate(state.GetEntityQuery(builder));
         networkIdFromEntity = state.GetComponentLookup<NetworkIdComponent>(true);
-    }
-
-    [BurstCompile]
-    public void OnDestroy(ref SystemState state)
-    {
     }
 
     [BurstCompile]
@@ -287,11 +277,6 @@ public partial struct GoInGameClientSystem : ISystem
     }
 
     [BurstCompile]
-    public void OnDestroy(ref SystemState state)
-    {
-    }
-
-    [BurstCompile]
     public void OnUpdate(ref SystemState state)
     {
         var commandBuffer = new EntityCommandBuffer(Allocator.Temp);
@@ -322,11 +307,6 @@ public partial struct GoInGameServerSystem : ISystem
             .WithAll<ReceiveRpcCommandRequestComponent>();
         state.RequireForUpdate(state.GetEntityQuery(builder));
         networkIdFromEntity = state.GetComponentLookup<NetworkIdComponent>(true);
-    }
-
-    [BurstCompile]
-    public void OnDestroy(ref SystemState state)
-    {
     }
 
     [BurstCompile]
@@ -403,10 +383,6 @@ public partial struct SampleCubeInput : ISystem
         state.RequireForUpdate<NetworkIdComponent>();
     }
 
-    public void OnDestroy(ref SystemState state)
-    {
-    }
-
     public void OnUpdate(ref SystemState state)
     {
         bool left = UnityEngine.Input.GetKey("left");
@@ -455,11 +431,6 @@ public partial struct CubeMovementSystem : ISystem
             .WithAllRW<Translation>();
         var query = state.GetEntityQuery(builder);
         state.RequireForUpdate(query);
-    }
-    
-    [BurstCompile]
-    public void OnDestroy(ref SystemState state)
-    {
     }
     
     [BurstCompile]

@@ -1,17 +1,22 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
+using System.Linq;
 using NUnit.Framework;
 using Unity.Core;
 using Unity.Entities;
+using Unity.NetCode;
 using Unity.Networking.Transport;
 using Unity.Networking.Transport.Utilities;
 using Unity.Collections;
 
 using Unity.Logging;
 using Unity.Logging.Sinks;
+using Unity.Profiling;
 using Unity.Transforms;
 using Debug = UnityEngine.Debug;
 #if UNITY_EDITOR
+using Unity.NetCode.Editor;
 using UnityEngine;
 #endif
 
@@ -27,6 +32,12 @@ namespace Unity.NetCode.Tests
     public class NetCodeTestWorld : IDisposable, INetworkStreamDriverConstructor
     {
         public bool DebugPackets = false;
+
+        static readonly ProfilerMarker k_TickServerInitializationSystem = new ProfilerMarker("TickServerInitializationSystem");
+        static readonly ProfilerMarker k_TickClientInitializationSystem = new ProfilerMarker("TickClientInitializationSystem");
+        static readonly ProfilerMarker k_TickServerSimulationSystem = new ProfilerMarker("TickServerSimulationSystem");
+        static readonly ProfilerMarker k_TickClientSimulationSystem = new ProfilerMarker("TickClientSimulationSystem");
+        static readonly ProfilerMarker k_TickClientPresentationSystem = new ProfilerMarker("TickClientPresentationSystem");
 
         public World DefaultWorld => m_DefaultWorld;
         public World ServerWorld => m_ServerWorld;
@@ -162,7 +173,8 @@ namespace Unity.NetCode.Tests
         private static List<Type> m_ThinClientSystems;
         private static List<Type> m_ServerSystems;
 
-        public List<Type> UserBakingSystems = new List<Type>();
+        public List<Type> TestSpecificAdditionalSystems = new List<Type>();
+        int m_NumClients = -1;
 
         private static bool IsFromNetCodeAssembly(Type sys)
         {
@@ -229,6 +241,9 @@ namespace Unity.NetCode.Tests
                 m_ThinClientSystems.AddRange(s_NetCodeThinClientSystems);
                 m_ServerSystems.AddRange(s_NetCodeServerSystems);
             }
+            m_ClientSystems.AddRange(TestSpecificAdditionalSystems);
+            m_ThinClientSystems.AddRange(TestSpecificAdditionalSystems);
+            m_ServerSystems.AddRange(TestSpecificAdditionalSystems);
 
             if (NetCodeAssemblies.Count > 0)
             {
@@ -301,6 +316,7 @@ namespace Unity.NetCode.Tests
 
         public void CreateWorlds(bool server, int numClients, bool tickWorldAfterCreation = true, bool useThinClients = false)
         {
+            m_NumClients = numClients;
             var oldConstructor = NetworkStreamReceiveSystem.DriverConstructor;
             NetworkStreamReceiveSystem.DriverConstructor = this;
             var oldDebugPort = GhostStatsConnection.Port;
@@ -417,11 +433,21 @@ namespace Unity.NetCode.Tests
             }
 
             // Make sure the log flush does not run
+            k_TickServerInitializationSystem.Begin();
             m_DefaultWorld.GetExistingSystemManaged<TickServerInitializationSystem>().Update();
+            k_TickServerInitializationSystem.End();
+            k_TickClientInitializationSystem.Begin();
             m_DefaultWorld.GetExistingSystemManaged<TickClientInitializationSystem>().Update();
+            k_TickClientInitializationSystem.End();
+            k_TickServerSimulationSystem.Begin();
             m_DefaultWorld.GetExistingSystemManaged<TickServerSimulationSystem>().Update();
+            k_TickServerSimulationSystem.End();
+            k_TickClientSimulationSystem.Begin();
             m_DefaultWorld.GetExistingSystemManaged<TickClientSimulationSystem>().Update();
+            k_TickClientSimulationSystem.End();
+            k_TickClientPresentationSystem.Begin();
             m_DefaultWorld.GetExistingSystemManaged<TickClientPresentationSystem>().Update();
+            k_TickClientPresentationSystem.End();
 
             // Flush the pending logs since the system doing that might not have run yet which means Log.Expect does not work
             Logging.Internal.LoggerManager.ScheduleUpdateLoggers().Complete();
@@ -554,6 +580,15 @@ namespace Unity.NetCode.Tests
             }
         }
 
+        static int QueueSizeFromPlayerCount(int playerCount)
+        {
+            if (playerCount <= 16)
+            {
+                playerCount = 16;
+            }
+            return playerCount * 4;
+        }
+
         public void CreateServerDriver(World world, ref NetworkDriverStore driverStore, NetDebug netDebug)
         {
             var reliabilityParams = new ReliableUtility.Parameters {WindowSize = 32};
@@ -561,7 +596,9 @@ namespace Unity.NetCode.Tests
             var networkSettings = new NetworkSettings();
             networkSettings.WithNetworkConfigParameters(
                 maxFrameTimeMS: 100,
-                fixedFrameTimeMS: DriverFixedTime
+                fixedFrameTimeMS: DriverFixedTime,
+                receiveQueueCapacity: QueueSizeFromPlayerCount(m_NumClients),
+                sendQueueCapacity: QueueSizeFromPlayerCount(m_NumClients)
             );
 
             networkSettings.AddRawParameterStruct(ref reliabilityParams);
@@ -747,7 +784,9 @@ namespace Unity.NetCode.Tests
             {
                 var ghost = ghostObject.GetComponent<GhostAuthoringComponent>();
                 if (ghost == null)
-                    {ghost = ghostObject.AddComponent<GhostAuthoringComponent>();}
+                {
+                    ghost = ghostObject.AddComponent<GhostAuthoringComponent>();
+                }
                 ghost.prefabId = Guid.NewGuid().ToString().Replace("-", "");
                 m_GhostCollection.Add(ghostObject);
             }
@@ -776,7 +815,7 @@ namespace Unity.NetCode.Tests
 
             var bakingSettings = new BakingSettings(BakingUtility.BakingFlags.AddEntityGUID, blobAssetStore);
             bakingSettings.PrefabRoot = go;
-            bakingSettings.ExtraSystems.AddRange(UserBakingSystems);
+            bakingSettings.ExtraSystems.AddRange(TestSpecificAdditionalSystems);
             BakingUtility.BakeGameObjects(intermediateWorld, new GameObject[] {}, bakingSettings);
 
             var bakingSystem = intermediateWorld.GetExistingSystemManaged<BakingSystem>();
@@ -791,7 +830,6 @@ namespace Unity.NetCode.Tests
             var builder = new EntityQueryBuilder(Allocator.Temp)
                 .WithAll<Prefab, EntityGuid, Translation>();
 #endif
-
             using var bakedEntities = intermediateWorld.EntityManager.CreateEntityQuery(builder);
             world.EntityManager.MoveEntitiesFrom(intermediateWorld.EntityManager, bakedEntities);
 

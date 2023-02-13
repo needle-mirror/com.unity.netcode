@@ -250,6 +250,31 @@ namespace Unity.NetCode
         {
             return DriverStore.GetNetworkDriver(connection.DriverId).GetRemoteEndpoint(connection.Value);
         }
+
+        /// <summary>
+        /// Get the local endpoint (the endpoint remote peers will use to reach this driver) used by the first driver inside <see cref="NetworkDriverStore"/>.
+        /// This is similar to calling <see cref="GetLocalEndPoint(int)"/> with
+        /// <see cref="NetworkDriverStore.FirstDriverId">NetworkDriverStore.FirstDriverId</see> as argument.
+        /// </summary>
+        /// <returns>The local endpoint of the first driver.</returns>
+        public NetworkEndpoint GetLocalEndPoint()
+        {
+            return GetLocalEndPoint(NetworkDriverStore.FirstDriverId);
+        }
+
+        /// <summary>
+        /// Get the local endpoint used by the driver (the endpoint remote peers will use to reach this driver).
+        /// <br/>
+        /// When multiple drivers exist, e.g. when using both IPC and Socket connection, multiple drivers will be available
+        /// in the <see cref="NetworkDriverStore"/>.
+        /// </summary>
+        /// <param name="driverId">Id of the driver. See <see cref="NetworkDriverStore.GetNetworkDriver"/></param>
+        /// <returns>The local endpoint of the driver.</returns>
+        public NetworkEndpoint GetLocalEndPoint(int driverId)
+        {
+            return DriverStore.GetNetworkDriver(driverId).GetLocalEndpoint();
+        }
+
         /// <summary>
         /// The current state of the internal transport connection.
         /// </summary>

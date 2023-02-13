@@ -93,7 +93,7 @@ namespace Unity.NetCode.GeneratorTests
             }
             public struct IsCommandData : ICommandData
             {
-                public NetworkTick Tick {get;set;}
+                public Unity.NetCode.NetworkTick Tick {get;set;}
                 [GhostField] public int Value;
             }
             public struct IsComponent : IComponentData

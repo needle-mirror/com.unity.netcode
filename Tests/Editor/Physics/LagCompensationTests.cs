@@ -124,9 +124,6 @@ namespace Unity.NetCode.Physics.Tests
             m_CommandSend.OnCreate(ref state);
         }
         [BurstCompile]
-        public void OnDestroy(ref SystemState state)
-        {}
-        [BurstCompile]
         public void OnUpdate(ref SystemState state)
         {
             if (!m_CommandSend.ShouldRunCommandJob(ref state))
@@ -157,9 +154,6 @@ namespace Unity.NetCode.Physics.Tests
         {
             m_CommandRecv.OnCreate(ref state);
         }
-        [BurstCompile]
-        public void OnDestroy(ref SystemState state)
-        {}
         [BurstCompile]
         public void OnUpdate(ref SystemState state)
         {

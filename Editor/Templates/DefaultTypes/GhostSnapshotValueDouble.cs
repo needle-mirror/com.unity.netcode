@@ -94,8 +94,8 @@ namespace Generated
         {
             #region __GHOST_GET_PREDICTION_ERROR_NAME__
             if (nameCount != 0)
-                names.Append(new FixedString32Bytes(","));
-            names.Append(new FixedString64Bytes("__GHOST_FIELD_REFERENCE__"));
+                names.CopyFromTruncated(new FixedString32Bytes(","));
+            names.CopyFromTruncated((FixedString512Bytes)"__GHOST_FIELD_REFERENCE__");
             ++nameCount;
             #endregion
         }

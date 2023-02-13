@@ -120,6 +120,7 @@ namespace Unity.NetCode
 
         NativeArray<int> m_GhostCompletionCount;
         StreamCompressionModel m_CompressionModel;
+        static readonly Unity.Profiling.ProfilerMarker k_Scheduling = new Unity.Profiling.ProfilerMarker("GhostUpdateSystem_Scheduling");
 
         EntityTypeHandle m_EntityTypeHandle;
         ComponentLookup<SnapshotData> m_SnapshotDataFromEntity;
@@ -1286,7 +1287,9 @@ namespace Unity.NetCode
                     GhostMap = m_GhostEntityMap,
                     SpawnedGhostMap = m_SpawnedGhostEntityMap
                 };
+                k_Scheduling.Begin();
                 var clearHandle = clearMapJob.Schedule(state.Dependency);
+                k_Scheduling.End();
                 if (!m_GhostCleanupQuery.IsEmptyIgnoreFilter)
                 {
                     m_EntityTypeHandle.Update(ref state);
@@ -1295,7 +1298,9 @@ namespace Unity.NetCode
                         EntitiesType = m_EntityTypeHandle,
                         CommandBuffer = commandBuffer.AsParallelWriter()
                     };
+                    k_Scheduling.Begin();
                     state.Dependency = clearJob.ScheduleParallel(m_GhostCleanupQuery, state.Dependency);
+                    k_Scheduling.End();
                 }
                 state.Dependency = JobHandle.CombineDependencies(state.Dependency, clearHandle);
                 return;
@@ -1365,7 +1370,9 @@ namespace Unity.NetCode
             tempDeps[0] = state.Dependency;
             tempDeps[1] = connectionHandle;
             tempDeps[2] = prespawnHandle;
+            k_Scheduling.Begin();
             state.Dependency = readJob.Schedule(JobHandle.CombineDependencies(tempDeps));
+            k_Scheduling.End();
         }
 
         void UpdateLookupsForReadStreamJob(ref SystemState state)

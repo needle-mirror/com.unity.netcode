@@ -64,7 +64,7 @@ namespace Generated
             data.__COMMAND_FIELD_NAME__ = (__COMMAND_FIELD_TYPE_NAME__) reader.ReadULong();
             #endregion
             #region __COMMAND_READ_PACKED__
-            data.__COMMAND_FIELD_NAME__ = (__COMMAND_FIELD_TYPE_NAME__) reader.ReadPackedULongDelta((long) baseline.__COMMAND_FIELD_NAME__, compressionModel);
+            data.__COMMAND_FIELD_NAME__ = (__COMMAND_FIELD_TYPE_NAME__) reader.ReadPackedULongDelta((ulong) baseline.__COMMAND_FIELD_NAME__, compressionModel);
             #endregion
         }
     }

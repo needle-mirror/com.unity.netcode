@@ -38,39 +38,39 @@ namespace Unity.NetCode.Tests
         }
     }
 
+    /// <summary>The <see cref="GhostPredictionHistorySystem"/> does some additional saving and writing, which needs to be tested.</summary>
+    public enum PredictionSetting
+    {
+        WithPredictedEntities,
+        WithInterpolatedEntities
+    }
+
     public enum SendForChildrenTestCase
     {
-        /// <summary>Creating a child overload via <see cref="DefaultVariantSystemBase.RegisterDefaultVariants"/>.</summary>
-        YesViaDefaultVariantMap,
-        /// <summary>Creating a child overload via <see cref="DefaultVariantSystemBase.RegisterDefaultVariants"/>.</summary>
-        NoViaDefaultVariantMap,
+        /// <summary>
+        /// Creating a parent and child overload via <see cref="DefaultVariantSystemBase.RegisterDefaultVariants"/>
+        /// using the map from <see cref="GhostTypeConverter.FetchAllTestComponentTypesRequiringSendRuleOverride"/>.
+        /// </summary>
+        YesViaExplicitVariantRule,
+        /// <summary>
+        /// Creating a child-only overload via <see cref="DefaultVariantSystemBase.RegisterDefaultVariants"/>.
+        /// Parents will default to <see cref="DontSerializeVariant"/>.
+        /// Note that components on children MAY STILL NOT replicate (due to their own child-replication rules).
+        /// </summary>
+        YesViaExplicitVariantOnlyAllowChildrenToReplicateRule,
+        /// <summary>Forcing the variant to DontSerializeVariant via <see cref="DefaultVariantSystemBase.RegisterDefaultVariants"/>.</summary>
+        NoViaExplicitDontSerializeVariantRule,
         /// <summary>Using the <see cref="GhostAuthoringInspectionComponent"/> to define an override on a child.</summary>
         YesViaInspectionComponentOverride,
-        /// <summary>Children default to <see cref="DontSerializeVariant"/>.</summary>
+        /// <summary>
+        /// Children default to <see cref="DontSerializeVariant"/>.
+        /// Note that: If the type only has 1 variant, it'll default to it.
+        /// </summary>
         Default,
-
-        // TODO - Tests for ClientOnlyVariant.
     }
 
     public class BootstrapTests
     {
-        internal static bool IsExpectedToBeReplicated(SendForChildrenTestCase sendForChildrenTestCase, bool isRoot)
-        {
-            switch (sendForChildrenTestCase)
-            {
-                case SendForChildrenTestCase.YesViaDefaultVariantMap:
-                    return true;
-                case SendForChildrenTestCase.NoViaDefaultVariantMap:
-                    return false;
-                case SendForChildrenTestCase.YesViaInspectionComponentOverride:
-                    return true;
-                case SendForChildrenTestCase.Default:
-                    return isRoot;
-                default:
-                    throw new ArgumentOutOfRangeException(nameof(sendForChildrenTestCase), sendForChildrenTestCase, nameof(IsExpectedToBeReplicated));
-            }
-        }
-
         [Test]
         public void BootstrapRespectsUpdateInWorld()
         {

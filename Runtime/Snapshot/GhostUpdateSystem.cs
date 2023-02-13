@@ -3,9 +3,11 @@ using Unity.Assertions;
 using Unity.Entities;
 using Unity.Collections;
 using Unity.Burst;
+using Unity.Burst.CompilerServices;
 using Unity.Burst.Intrinsics;
 using Unity.Jobs.LowLevel.Unsafe;
 using Unity.Collections.LowLevel.Unsafe;
+using Unity.Entities.LowLevel.Unsafe;
 using Unity.Jobs;
 using Unity.NetCode.LowLevel.Unsafe;
 using Unity.Mathematics;
@@ -218,7 +220,7 @@ namespace Unity.NetCode
                             // If we want to continue prediction, and this is not the currently applied prediction state we must restore the state from the backup
                             if (predictionStartTick != snapshotTick && predictionStartTick != lastPredictedTick)
                             {
-                                // If we cannot restore the backup and continue prediction we roll back and resimulate
+                                // If we cannot restore the backup and continue prediction, we roll back and resimulate
                                 if (!RestorePredictionBackup(chunk, ent, typeData, ghostChunkComponentTypesPtr, ghostChunkComponentTypesLength))
                                     predictionStartTick = snapshotTick;
                             }
@@ -296,6 +298,11 @@ namespace Unity.NetCode
                 var requiredSendMask = predicted ? GhostComponentSerializer.SendMask.Predicted : GhostComponentSerializer.SendMask.Interpolated;
                 int numBaseComponents = typeData.NumComponents - typeData.NumChildComponents;
 
+                // This buffer allowing us to MemCmp changes, which allows us to support change filtering.
+                var tempChangeBufferSize = 1_500;
+                byte* tempChangeBuffer = stackalloc byte[tempChangeBufferSize];
+                NativeArray<byte> tempChangeBufferLarge = default;
+
                 var enableableMaskOffset = 0;
                 for (int comp = 0; comp < numBaseComponents; ++comp)
                 {
@@ -313,33 +320,76 @@ namespace Unity.NetCode
                         snapshotDataOffset += snapshotSize;
                         continue;
                     }
+
+                    var componentHasChanges = false;
                     var compSize = GhostComponentCollection[serializerIdx].ComponentSize;
                     if (!GhostComponentCollection[serializerIdx].ComponentType.IsBuffer)
                     {
-                        var compData = GhostComponentCollection[serializerIdx].HasGhostFields
-                            ? (byte*)chunk.GetDynamicComponentDataArrayReinterpret<byte>(ref ghostChunkComponentTypesPtr[compIdx], compSize).GetUnsafeReadOnlyPtr()
-                            : null;
                         deserializerState.SendToOwner = GhostComponentCollection[serializerIdx].SendToOwner;
-                        for (var rangeIdx = 0; rangeIdx < entityRange.Length; ++rangeIdx)
+                        if (GhostComponentCollection[serializerIdx].HasGhostFields)
                         {
-                            var range = entityRange[rangeIdx];
-                            var snapshotData = (byte*)dataAtTick.GetUnsafeReadOnlyPtr();
-                            snapshotData += snapshotDataAtTickSize * range.x;
-                            var dataAtTickPtr = (SnapshotData.DataAtTick*) snapshotData;
+                            var roDynamicComponentTypeHandle = ghostChunkComponentTypesPtr[compIdx].CopyToReadOnly();
+                            var roCompArray = chunk.GetDynamicComponentDataArrayReinterpret<byte>(ref roDynamicComponentTypeHandle, compSize);
 
-                            GhostComponentCollection[serializerIdx].CopyFromSnapshot.Ptr.Invoke((System.IntPtr)UnsafeUtility.AddressOf(ref deserializerState), (System.IntPtr)snapshotData, snapshotDataOffset, snapshotDataAtTickSize, (System.IntPtr)(compData + range.x*compSize), compSize, range.y-range.x);
-
-                            // TODO - Move this outside the for loop. It's a batched call, so calling it n times is unnecessary.
-                            if (typeData.EnableableBits > 0 && GhostComponentCollection[serializerIdx].SerializesEnabledBit != 0)
+                            for (var rangeIdx = 0; rangeIdx < entityRange.Length; ++rangeIdx)
                             {
-                                enableableMaskOffset = UpdateEnableableMask(chunk, dataAtTickPtr, changeMaskUints, enableableMaskOffset, range, ghostChunkComponentTypesPtr, compIdx);
+                                var range = entityRange[rangeIdx];
+
+                                var snapshotData = (byte*) dataAtTick.GetUnsafeReadOnlyPtr();
+                                snapshotData += snapshotDataAtTickSize * range.x;
+
+                                // Fast path: If we already have changes, just fetch the RW version and write directly.
+                                if (componentHasChanges)
+                                {
+                                    var rwCompArray = chunk.GetDynamicComponentDataArrayReinterpret<byte>(ref ghostChunkComponentTypesPtr[compIdx], compSize);
+                                    var rwCompData = (byte*) rwCompArray.GetUnsafePtr();
+                                    rwCompData += range.x * compSize;
+                                    GhostComponentCollection[serializerIdx].CopyFromSnapshot.Ptr.Invoke((System.IntPtr) UnsafeUtility.AddressOf(ref deserializerState), (System.IntPtr) snapshotData, snapshotDataOffset, snapshotDataAtTickSize, (System.IntPtr) rwCompData, compSize, range.y - range.x);
+                                    continue;
+                                }
+
+                                // 1. Get Readonly version from chunk.
+                                var roCompData = (byte*) roCompArray.GetUnsafeReadOnlyPtr();
+                                roCompData += range.x * compSize;
+
+                                // 2. Copy it into a temp buffer large enough to hold values (inside the range loop).
+                                var requiredNumBytes = (range.y - range.x) * compSize;
+                                CopyRODataIntoTempChangeBuffer(requiredNumBytes, ref tempChangeBuffer, ref tempChangeBufferSize, ref tempChangeBufferLarge, roCompData);
+
+                                // 3. Invoke CopyFromSnapshot with the ro buffer as destination (yes, hacky!).
+                                GhostComponentCollection[serializerIdx].CopyFromSnapshot.Ptr.Invoke((System.IntPtr) UnsafeUtility.AddressOf(ref deserializerState), (System.IntPtr) snapshotData, snapshotDataOffset, snapshotDataAtTickSize, (System.IntPtr) roCompData, compSize, range.y - range.x);
+
+                                // 4. Compare the two buffers (for changes).
+                                k_ChangeFiltering.Begin();
+                                if (UnsafeUtility.MemCmp(roCompData, tempChangeBuffer, requiredNumBytes) != 0)
+                                {
+                                    // 5. Fetch as RW to bump change version. We've already written to it, so nothing to do.
+                                    componentHasChanges = true;
+                                    chunk.GetDynamicComponentDataArrayReinterpret<byte>(ref ghostChunkComponentTypesPtr[compIdx], compSize);
+                                }
+                                k_ChangeFiltering.End();
+                            }
+                            snapshotDataOffset += snapshotSize;
+                        }
+
+                        if (typeData.EnableableBits > 0 && GhostComponentCollection[serializerIdx].SerializesEnabledBit != 0)
+                        {
+                            for (var rangeIdx = 0; rangeIdx < entityRange.Length; ++rangeIdx)
+                            {
+                                var range = entityRange[rangeIdx];
+                                var snapshotData = (byte*) dataAtTick.GetUnsafeReadOnlyPtr();
+                                snapshotData += snapshotDataAtTickSize * range.x;
+                                var dataAtTickPtr = (SnapshotData.DataAtTick*) snapshotData;
+
+                                enableableMaskOffset = UpdateEnableableMask(chunk, dataAtTickPtr, changeMaskUints, enableableMaskOffset, range, ghostChunkComponentTypesPtr, compIdx, ref componentHasChanges);
                             }
                         }
-                        snapshotDataOffset += snapshotSize;
                     }
                     else
                     {
-                        var bufferAccessor = chunk.GetUntypedBufferAccessor(ref ghostChunkComponentTypesPtr[compIdx]);
+                        var roDynamicComponentTypeHandle = ghostChunkComponentTypesPtr[compIdx].CopyToReadOnly();
+                        var roBufferAccessor = chunk.GetUntypedBufferAccessor(ref roDynamicComponentTypeHandle);
+                        UnsafeUntypedBufferAccessor rwBufferAccessor = default;
                         var dynamicDataSize = GhostComponentCollection[serializerIdx].SnapshotSize;
                         var maskBits = GhostComponentCollection[serializerIdx].ChangeMaskBits;
                         deserializerState.SendToOwner = GhostComponentCollection[serializerIdx].SendToOwner;
@@ -361,12 +411,41 @@ namespace Unity.NetCode
 
                                 var dynamicDataBuffer = ghostSnapshotDynamicBufferArray[ent];
                                 var dynamicDataAtTick = SetupDynamicDataAtTick(dataAtTick[ent], snapshotDataOffset, dynamicDataSize, maskBits, dynamicDataBuffer, out var bufLen);
-                                bufferAccessor.ResizeUninitialized(ent, bufLen);
-                                var componentData = (System.IntPtr)bufferAccessor.GetUnsafePtr(ent);
+                                var prevBufLen = roBufferAccessor.GetBufferLength(ent);
+
+                                componentHasChanges |= prevBufLen != bufLen;
+                                if (componentHasChanges)
+                                {
+                                    // FIXME: Only fetch this buffer if it's default.
+                                    rwBufferAccessor = chunk.GetUntypedBufferAccessor(ref ghostChunkComponentTypesPtr[compIdx]);
+                                    rwBufferAccessor.ResizeUninitialized(ent, bufLen);
+                                    var rwBufData = rwBufferAccessor.GetUnsafePtr(ent);
+                                    GhostComponentCollection[serializerIdx].CopyFromSnapshot.Ptr.Invoke(
+                                        (System.IntPtr)UnsafeUtility.AddressOf(ref deserializerState),
+                                        (System.IntPtr) UnsafeUtility.AddressOf(ref dynamicDataAtTick), 0, dynamicDataSize,
+                                        (IntPtr)rwBufData, compSize, bufLen);
+                                    continue;
+                                }
+
+                                var requiredNumBytes = bufLen * compSize;
+                                var roBufData = (byte*) roBufferAccessor.GetUnsafeReadOnlyPtr(ent);
+                                CopyRODataIntoTempChangeBuffer(requiredNumBytes, ref tempChangeBuffer, ref tempChangeBufferSize, ref tempChangeBufferLarge, roBufData);
+
+                                // Again, hack to pass in the roBufData to be written into.
+                                // NOTE: We know that these two buffers will be the EXACT same size, due to the above assurances.
                                 GhostComponentCollection[serializerIdx].CopyFromSnapshot.Ptr.Invoke(
                                     (System.IntPtr)UnsafeUtility.AddressOf(ref deserializerState),
                                     (System.IntPtr) UnsafeUtility.AddressOf(ref dynamicDataAtTick), 0, dynamicDataSize,
-                                    componentData, compSize, bufLen);
+                                    (IntPtr)roBufData, compSize, bufLen);
+
+                                k_ChangeFiltering.Begin();
+                                if (UnsafeUtility.MemCmp(roBufData, tempChangeBuffer, requiredNumBytes) != 0)
+                                {
+                                    componentHasChanges = true;
+                                    // Bump change version.
+                                    chunk.GetUntypedBufferAccessor(ref ghostChunkComponentTypesPtr[compIdx]);
+                                }
+                                k_ChangeFiltering.End();
                             }
 
                             var snapshotData = (byte*)dataAtTick.GetUnsafeReadOnlyPtr();
@@ -374,7 +453,7 @@ namespace Unity.NetCode
                             var dataAtTickPtr = (SnapshotData.DataAtTick*) snapshotData;
                             if (typeData.EnableableBits > 0 && GhostComponentCollection[serializerIdx].SerializesEnabledBit != 0)
                             {
-                                enableableMaskOffset = UpdateEnableableMask(chunk, dataAtTickPtr, changeMaskUints, enableableMaskOffset, range, ghostChunkComponentTypesPtr, compIdx);
+                                enableableMaskOffset = UpdateEnableableMask(chunk, dataAtTickPtr, changeMaskUints, enableableMaskOffset, range, ghostChunkComponentTypesPtr, compIdx, ref componentHasChanges);
                             }
                         }
                         snapshotDataOffset += snapshotSize;
@@ -400,6 +479,7 @@ namespace Unity.NetCode
                             snapshotDataOffset += snapshotSize;
                             continue;
                         }
+
                         var compSize = GhostComponentCollection[serializerIdx].ComponentSize;
                         if (!GhostComponentCollection[serializerIdx].ComponentType.IsBuffer)
                         {
@@ -415,21 +495,44 @@ namespace Unity.NetCode
                                     if (!childEntityLookup.Exists(childEntity))
                                         continue;
                                     var childChunk = childEntityLookup[childEntity];
-                                    if (!childChunk.Chunk.Has(ghostChunkComponentTypesPtr[compIdx]))
+                                    if (!childChunk.Chunk.Has(ref ghostChunkComponentTypesPtr[compIdx]))
                                         continue;
+
                                     // We fetch these via `GetUnsafeReadOnlyPtr` only for performance reasons. It's safe.
-                                    var compData = GhostComponentCollection[serializerIdx].HasGhostFields
-                                        ? (byte*)childChunk.Chunk.GetDynamicComponentDataArrayReinterpret<byte>(ref ghostChunkComponentTypesPtr[compIdx], compSize).GetUnsafeReadOnlyPtr()
-                                        : null;
                                     var snapshotData = (byte*)dataAtTick.GetUnsafeReadOnlyPtr();
                                     snapshotData += snapshotDataAtTickSize * ent;
-                                    GhostComponentCollection[serializerIdx].CopyFromSnapshot.Ptr.Invoke((System.IntPtr)UnsafeUtility.AddressOf(ref deserializerState), (System.IntPtr)snapshotData, snapshotDataOffset, snapshotDataAtTickSize, (System.IntPtr)(compData + childChunk.IndexInChunk*compSize), compSize, 1);
+                                    if (GhostComponentCollection[serializerIdx].HasGhostFields)
+                                    {
+                                        // No fast-path here!
+                                        // 1. Get Readonly version from chunk.
+                                        var roDynamicComponentTypeHandle = ghostChunkComponentTypesPtr[compIdx].CopyToReadOnly();
+                                        var roCompArray = childChunk.Chunk.GetDynamicComponentDataArrayReinterpret<byte>(ref roDynamicComponentTypeHandle, compSize);
+                                        var roCompData = (byte*) roCompArray.GetUnsafeReadOnlyPtr();
+                                        roCompData += childChunk.IndexInChunk * compSize;
+
+                                        // 2. Copy it into a temp buffer large enough to hold values (inside the range loop).
+                                        var requiredNumBytes = compSize;
+                                        CopyRODataIntoTempChangeBuffer(requiredNumBytes, ref tempChangeBuffer, ref tempChangeBufferSize, ref tempChangeBufferLarge, roCompData);
+
+                                        // 3. Invoke CopyFromSnapshot with the ro buffer as destination (yes, hacky!).
+                                        GhostComponentCollection[serializerIdx].CopyFromSnapshot.Ptr.Invoke((System.IntPtr) UnsafeUtility.AddressOf(ref deserializerState), (System.IntPtr) snapshotData, snapshotDataOffset, snapshotDataAtTickSize, (System.IntPtr) roCompData, compSize, 1);
+
+                                        // 4. MemCmp the two buffers.
+                                        k_ChangeFiltering.Begin();
+                                        if (UnsafeUtility.MemCmp(tempChangeBuffer, roCompData, compSize) != 0)
+                                        {
+                                            // 5. Get RW, if changes, MemCpy
+                                            childChunk.Chunk.GetDynamicComponentDataArrayReinterpret<byte>(ref ghostChunkComponentTypesPtr[compIdx], compSize);
+                                        }
+                                        k_ChangeFiltering.End();
+                                    }
 
                                     var dataAtTickPtr = (SnapshotData.DataAtTick*) snapshotData;
                                     if (typeData.EnableableBits > 0 && GhostComponentCollection[serializerIdx].SerializesEnabledBit != 0)
                                     {
                                         var childRange = new int2 { x = childChunk.IndexInChunk, y = childChunk.IndexInChunk + 1 };
-                                        UpdateEnableableMask(childChunk.Chunk, dataAtTickPtr, changeMaskUints, maskOffset, childRange, ghostChunkComponentTypesPtr, compIdx);
+                                        var unused = false;
+                                        UpdateEnableableMask(childChunk.Chunk, dataAtTickPtr, changeMaskUints, maskOffset, childRange, ghostChunkComponentTypesPtr, compIdx, ref unused);
                                     }
                                 }
                                 enableableMaskOffset = maskOffset + 1;
@@ -465,24 +568,56 @@ namespace Unity.NetCode
                                             continue;
                                     }
 
+                                    var roDynamicComponentTypeHandle = ghostChunkComponentTypesPtr[compIdx].CopyToReadOnly();
+                                    var roBufferAccessor = childChunk.Chunk.GetUntypedBufferAccessor(ref roDynamicComponentTypeHandle);
+
                                     var dynamicDataBuffer = ghostSnapshotDynamicBufferArray[ent];
                                     var dynamicDataAtTick = SetupDynamicDataAtTick(dataAtTick[ent], snapshotDataOffset, dynamicDataSize, maskBits, dynamicDataBuffer, out var bufLen);
-                                    var bufferAccessor = childChunk.Chunk.GetUntypedBufferAccessor(ref ghostChunkComponentTypesPtr[compIdx]);
-                                    bufferAccessor.ResizeUninitialized(childChunk.IndexInChunk, bufLen);
-                                    var componentData = (System.IntPtr)bufferAccessor.GetUnsafePtr(childChunk.IndexInChunk);
-                                    GhostComponentCollection[serializerIdx].CopyFromSnapshot.Ptr.Invoke(
-                                        (System.IntPtr)UnsafeUtility.AddressOf(ref deserializerState),
-                                        (System.IntPtr) UnsafeUtility.AddressOf(ref dynamicDataAtTick), 0, dynamicDataSize,
-                                        componentData, compSize, bufLen);
+                                    var prevBufLen = roBufferAccessor.GetBufferLength(ent);
+
+                                    if (prevBufLen != bufLen)
+                                    {
+                                        var rwBufferAccessor = childChunk.Chunk.GetUntypedBufferAccessor(ref ghostChunkComponentTypesPtr[compIdx]);
+                                        rwBufferAccessor.ResizeUninitialized(ent, bufLen);
+                                        var rwBufData = rwBufferAccessor.GetUnsafePtr(ent);
+
+                                        GhostComponentCollection[serializerIdx].CopyFromSnapshot.Ptr.Invoke(
+                                            (System.IntPtr) UnsafeUtility.AddressOf(ref deserializerState),
+                                            (System.IntPtr) UnsafeUtility.AddressOf(ref dynamicDataAtTick), 0, dynamicDataSize,
+                                            (IntPtr) rwBufData, compSize, bufLen);
+                                    }
+                                    else
+                                    {
+                                        var roBufData = (byte*) roBufferAccessor.GetUnsafeReadOnlyPtr(ent);
+                                        var requiredNumBytes = bufLen * compSize;
+                                        CopyRODataIntoTempChangeBuffer(requiredNumBytes, ref tempChangeBuffer, ref tempChangeBufferSize, ref tempChangeBufferLarge, roBufData);
+
+                                        // Again, hack to pass in the roBufData to be written into.
+                                        // NOTE: We know that these two buffers will be the EXACT same size, due to the above assurances.
+                                        GhostComponentCollection[serializerIdx].CopyFromSnapshot.Ptr.Invoke(
+                                            (System.IntPtr) UnsafeUtility.AddressOf(ref deserializerState),
+                                            (System.IntPtr) UnsafeUtility.AddressOf(ref dynamicDataAtTick), 0, dynamicDataSize,
+                                            (IntPtr) roBufData, compSize, bufLen);
+
+                                        k_ChangeFiltering.Begin();
+
+                                        if (UnsafeUtility.MemCmp(roBufData, tempChangeBuffer, requiredNumBytes) != 0)
+                                        {
+                                            // Bump change version.
+                                            childChunk.Chunk.GetUntypedBufferAccessor(ref ghostChunkComponentTypesPtr[compIdx]);
+                                        }
+                                        k_ChangeFiltering.End();
+                                    }
 
                                     if (typeData.EnableableBits > 0 && GhostComponentCollection[serializerIdx].SerializesEnabledBit != 0)
                                     {
-                                        var snapshotData = (byte*)dataAtTick.GetUnsafeReadOnlyPtr();
+                                        var snapshotData = (byte*) dataAtTick.GetUnsafeReadOnlyPtr();
                                         snapshotData += snapshotDataAtTickSize * ent;
                                         var dataAtTickPtr = (SnapshotData.DataAtTick*) snapshotData;
 
-                                        var childRange = new int2 { x = childChunk.IndexInChunk, y = childChunk.IndexInChunk + 1 };
-                                        UpdateEnableableMask(childChunk.Chunk, dataAtTickPtr, changeMaskUints, maskOffset, childRange, ghostChunkComponentTypesPtr, compIdx);
+                                        var childRange = new int2 {x = childChunk.IndexInChunk, y = childChunk.IndexInChunk + 1};
+                                        var unused = false;
+                                        UpdateEnableableMask(childChunk.Chunk, dataAtTickPtr, changeMaskUints, maskOffset, childRange, ghostChunkComponentTypesPtr, compIdx, ref unused);
                                     }
                                 }
                                 enableableMaskOffset = maskOffset + 1;
@@ -493,10 +628,23 @@ namespace Unity.NetCode
                 }
             }
 
+            private static void CopyRODataIntoTempChangeBuffer(int requiredCompDataLength, ref byte* tempChangeBuffer, ref int tempChangeBufferSize, ref NativeArray<byte> tempChangeBufferLarge, byte* roCompData)
+            {
+                k_ChangeFiltering.Begin();
+                if (requiredCompDataLength > tempChangeBufferSize)
+                {
+                    tempChangeBufferLarge = new NativeArray<byte>(math.ceilpow2(requiredCompDataLength), Allocator.Temp);
+                    tempChangeBuffer = (byte*) tempChangeBufferLarge.GetUnsafePtr();
+                    tempChangeBufferSize = tempChangeBufferLarge.Length;
+                }
+                UnsafeUtility.MemCpy(tempChangeBuffer, roCompData, requiredCompDataLength);
+                k_ChangeFiltering.End();
+            }
+
             // TODO - We can perform this logic faster using the EnabledMask.
             private static int UpdateEnableableMask(ArchetypeChunk chunk, SnapshotData.DataAtTick* dataAtTickPtr,
                 int changeMaskUints, int enableableMaskOffset, int2 range,
-                DynamicComponentTypeHandle* ghostChunkComponentTypesPtr, int compIdx)
+                DynamicComponentTypeHandle* ghostChunkComponentTypesPtr, int compIdx, ref bool componentHasChanges)
             {
                 var uintOffset = enableableMaskOffset >> 5;
                 var maskOffset = enableableMaskOffset & 0x1f;
@@ -509,7 +657,14 @@ namespace Unity.NetCode
 
                     var isSet = ((*enableableMasks) & (1U << maskOffset)) != 0;
 
-                    chunk.SetComponentEnabled(ref ghostChunkComponentTypesPtr[compIdx], i, isSet);
+                    k_ChangeFiltering.Begin();
+                    if (isSet != chunk.IsComponentEnabled(ref ghostChunkComponentTypesPtr[compIdx], i))
+                    {
+                        componentHasChanges = true;
+                        k_ChangeFiltering.End();
+                        chunk.SetComponentEnabled(ref ghostChunkComponentTypesPtr[compIdx], i, isSet);
+                    }
+                    else k_ChangeFiltering.End();
 
                     dataAtTickPtr++;
                 }
@@ -547,6 +702,7 @@ namespace Unity.NetCode
                     Tick = dataAtTick.Tick
                 };
             }
+            // TODO - Determine if we need change filtering on RestoreFromBackup.
             bool RestorePredictionBackup(ArchetypeChunk chunk, int ent, in GhostCollectionPrefabSerializer typeData, DynamicComponentTypeHandle* ghostChunkComponentTypesPtr, int ghostChunkComponentTypesLength)
             {
                 // Try to get the backup state
@@ -765,6 +921,8 @@ namespace Unity.NetCode
             }
         }
 
+        static readonly Unity.Profiling.ProfilerMarker k_Scheduling = new Unity.Profiling.ProfilerMarker("GhostUpdateSystem_Scheduling");
+        static readonly Unity.Profiling.ProfilerMarker k_ChangeFiltering = new Unity.Profiling.ProfilerMarker("GhostUpdateSystem_ChangeFiltering");
         private EntityQuery m_ghostQuery;
         private EntityQuery m_GhostOwnerIsLocalQuery;
         private NetworkTick m_LastPredictedTick;
@@ -786,6 +944,7 @@ namespace Unity.NetCode
         EntityTypeHandle m_EntityTypeHandle;
         ComponentTypeHandle<GhostOwnerComponent> m_GhostOwnerType;
         ComponentTypeHandle<GhostOwnerIsLocal> m_GhostOwnerIsLocalType;
+
         public void OnCreate(ref SystemState systemState)
         {
             var ghostUpdateVersionSingleton = systemState.EntityManager.CreateEntity(ComponentType.ReadWrite<GhostUpdateVersion>());
@@ -919,8 +1078,10 @@ namespace Unity.NetCode
                 };
                 //@TODO: Use BufferFromEntity
                 var ghostComponentCollection = systemState.EntityManager.GetBuffer<GhostCollectionComponentType>(updateJob.GhostCollectionSingleton);
-                DynamicTypeList.PopulateList(ref systemState, ghostComponentCollection, false, ref updateJob.DynamicTypeList);
+                DynamicTypeList.PopulateList(ref systemState, ghostComponentCollection, false, ref updateJob.DynamicTypeList); // Change Filtering is handled on a per-chunk basis, inside the job.
+                k_Scheduling.Begin();
                 systemState.Dependency = updateJob.ScheduleParallelByRef(m_ghostQuery, systemState.Dependency);
+                k_Scheduling.End();
 
                 m_GhostOwnerType.Update(ref systemState);
                 m_GhostOwnerIsLocalType.Update(ref systemState);
@@ -930,7 +1091,9 @@ namespace Unity.NetCode
                     ghostOwnerIsLocalType = m_GhostOwnerIsLocalType,
                     localNetworkId = localNetworkId
                 };
+                k_Scheduling.Begin();
                 systemState.Dependency = updateOwnerIsLocal.ScheduleParallel(m_GhostOwnerIsLocalQuery, systemState.Dependency);
+                k_Scheduling.End();
             }
 
             m_LastPredictedTick = networkTime.ServerTick;
@@ -947,7 +1110,9 @@ namespace Unity.NetCode
                 InterpolationTick = interpolationTick,
                 InterpolationTickFraction = interpolationTickFraction
             };
+            k_Scheduling.Begin();
             systemState.Dependency = updateInterpolatedTickJob.Schedule(systemState.Dependency);
+            k_Scheduling.End();
 
             GetSingletonRW<GhostUpdateVersion>().ValueRW.LastSystemVersion = systemState.LastSystemVersion;
         }

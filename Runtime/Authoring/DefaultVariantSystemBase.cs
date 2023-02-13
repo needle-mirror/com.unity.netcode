@@ -62,8 +62,7 @@ namespace Unity.NetCode
             /// <param name="variantForParents"></param>
             /// <param name="variantForChildren"></param>
             /// <returns></returns>
-            public static Rule Unique(Type variantForParents, Type variantForChildren) =>
-                new Rule(variantForParents, variantForChildren);
+            public static Rule Unique(Type variantForParents, Type variantForChildren) => new Rule(variantForParents, variantForChildren);
 
             /// <summary>This rule will only add this variant to child entities with this component.
             /// The parent entities with this component will use the default serializer.
@@ -85,16 +84,14 @@ namespace Unity.NetCode
             /// The Rule string representation. Print the parent and child variant types.
             /// </summary>
             /// <returns></returns>
-            public override string ToString() =>
-                $"Rule[parents: `{VariantForParents}`, children: `{VariantForChildren}`]";
+            public override string ToString() => $"Rule[parents: `{VariantForParents}`, children: `{VariantForChildren}`]";
 
             /// <summary>
             /// Compare two rules ana check if their parent and child types are identical.
             /// </summary>
             /// <param name="other"></param>
             /// <returns></returns>
-            public bool Equals(Rule other) => VariantForParents == other.VariantForParents &&
-                                              VariantForChildren == other.VariantForChildren;
+            public bool Equals(Rule other) => VariantForParents == other.VariantForParents && VariantForChildren == other.VariantForChildren;
 
             /// <summary>Unique HashCode if Variant fields are set.</summary>
             /// <returns></returns>
@@ -102,14 +99,11 @@ namespace Unity.NetCode
             {
                 unchecked
                 {
-                    return ((VariantForParents != null ? VariantForParents.GetHashCode() : 0) * 397) ^
-                           (VariantForChildren != null ? VariantForChildren.GetHashCode() : 0);
+                    return ((VariantForParents != null ? VariantForParents.GetHashCode() : 0) * 397) ^ (VariantForChildren != null ? VariantForChildren.GetHashCode() : 0);
                 }
             }
 
-            internal HashRule CreateHashRule(ComponentType componentType) => new HashRule(
-                TryGetHashElseZero(componentType, VariantForParents),
-                TryGetHashElseZero(componentType, VariantForChildren));
+            internal HashRule CreateHashRule(ComponentType componentType) => new HashRule(TryGetHashElseZero(componentType, VariantForParents), TryGetHashElseZero(componentType, VariantForChildren));
 
             static ulong TryGetHashElseZero(ComponentType componentType, Type variantType)
             {
@@ -119,6 +113,8 @@ namespace Unity.NetCode
                     return GhostVariantsUtility.DontSerializeHash;
                 if (variantType == typeof(ClientOnlyVariant))
                     return GhostVariantsUtility.ClientOnlyHash;
+                if (variantType == typeof(ServerOnlyVariant))
+                    return GhostVariantsUtility.ServerOnlyHash;
                 return GhostVariantsUtility.UncheckedVariantHash(variantType.FullName, new FixedString512Bytes(componentType.GetDebugTypeName()));
             }
         }
@@ -128,7 +124,6 @@ namespace Unity.NetCode
         {
             /// <summary>Hash version of <see cref="Rule.VariantForParents"/>.</summary>
             public readonly ulong VariantForParents;
-
             /// <summary>Hash version of <see cref="Rule.VariantForChildren"/>.</summary>
             public readonly ulong VariantForChildren;
 
@@ -138,11 +133,9 @@ namespace Unity.NetCode
                 VariantForChildren = variantForChildren;
             }
 
-            public override string ToString() =>
-                $"HashRule[parent: `{VariantForParents}`, children: `{VariantForChildren}`]";
+            public override string ToString() => $"HashRule[parent: `{VariantForParents}`, children: `{VariantForChildren}`]";
 
-            public bool Equals(HashRule other) => VariantForParents == other.VariantForParents &&
-                                                  VariantForChildren == other.VariantForChildren;
+            public bool Equals(HashRule other) => VariantForParents == other.VariantForParents && VariantForChildren == other.VariantForChildren;
 
         }
 
@@ -152,8 +145,8 @@ namespace Unity.NetCode
             //Some sanity check here are necessary
             var defaultVariants = new Dictionary<ComponentType, Rule>();
             RegisterDefaultVariants(defaultVariants);
-            var variantRules = World.GetExistingSystemManaged<GhostComponentSerializerCollectionSystemGroup>()
-                .DefaultVariantRules;
+            // TODO - Prevent user-code from setting defaults for types with the DontSupportPrefabOverridesAttribute.
+            var variantRules = World.GetExistingSystemManaged<GhostComponentSerializerCollectionSystemGroup>().DefaultVariantRules;
             foreach (var rule in defaultVariants)
                 variantRules.SetDefaultVariant(rule.Key, rule.Value, this);
             Enabled = false;
@@ -272,7 +265,7 @@ namespace Unity.NetCode
                 return;
 
             var isInput = typeof(ICommandData).IsAssignableFrom(componentType.GetManagedType());
-            if (variantType == typeof(ClientOnlyVariant) || variantType == typeof(DontSerializeVariant))
+            if (variantType == typeof(ClientOnlyVariant) || variantType == typeof(ServerOnlyVariant) || variantType == typeof(DontSerializeVariant))
             {
                 if (isInput)
                     throw new System.ArgumentException($"System `{GetType().FullName}` is attempting to set a default variant for an `ICommandData` type: `{componentType}`, but the type of the variant is `{variantType.FullName}`! Ensure you use a serialized variant with `GhostPrefabType.All`!");

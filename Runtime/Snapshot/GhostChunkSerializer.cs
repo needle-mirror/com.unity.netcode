@@ -570,7 +570,7 @@ namespace Unity.NetCode
             var oldTempWriter = tempWriter;
 
             SnapshotPreSerializeData preSerializedSnapshot = default;
-            var hasPreserializeData = chunk.Has(preSerializedGhostType) && SnapshotPreSerializeData.TryGetValue(chunk, out preSerializedSnapshot);
+            var hasPreserializeData = chunk.Has(ref preSerializedGhostType) && SnapshotPreSerializeData.TryGetValue(chunk, out preSerializedSnapshot);
             if (hasPreserializeData)
             {
                 UnsafeUtility.MemCpy(snapshot, (byte*)preSerializedSnapshot.Data+snapshotSize*startIndex, snapshotSize*(endIndex-startIndex));
@@ -662,7 +662,7 @@ namespace Unity.NetCode
                         byte* compData = null;
                         if (GhostComponentCollection[serializerIdx].HasGhostFields && chunk.Has(ref ghostChunkComponentTypesPtr[compIdx]))
                         {
-                            compData = (byte*)chunk.GetDynamicComponentDataArrayReinterpret<byte>(ref ghostChunkComponentTypesPtr[compIdx], compSize).GetUnsafeReadOnlyPtr();
+                            compData = (byte*) chunk.GetDynamicComponentDataArrayReinterpret<byte>(ref ghostChunkComponentTypesPtr[compIdx], compSize).GetUnsafeReadOnlyPtr();
                             compData += startIndex * compSize;
                         }
 
@@ -1029,6 +1029,7 @@ namespace Unity.NetCode
 
                 if (dataStream.HasFailedWrites)
                 {
+                    // Rollback to the last good state, and apply additional constraints on the quantity of entities we can serialize.
                     dataStream = oldStream;
                     return ent;
                 }

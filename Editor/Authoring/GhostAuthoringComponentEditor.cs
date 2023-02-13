@@ -24,6 +24,8 @@ namespace Unity.NetCode.Editor
         internal static GhostAuthoringComponent bakedGhostAuthoringComponent { get; private set; }
 
         internal static Color brokenColor = new Color(1f, 0.56f, 0.54f);
+        internal static Color brokenColorUIToolkit = new Color(0.35f, 0.19f, 0.19f);
+        internal static Color brokenColorUIToolkitText = new Color(0.9f, 0.64f, 0.61f);
 
         internal static bool hasBakedNetCodePrefab => bakedGhostAuthoringComponent != null;
         internal static bool bakingSucceeded => hasBakedNetCodePrefab && bakedGameObjectResultsMap != default;
@@ -86,9 +88,9 @@ namespace Unity.NetCode.Editor
                 // Selecting OwnerPredicted on a ghost without a GhostOwnerComponent will cause an exception during conversion - display an error for that case in the inspector
                 if (isOwnerPredictedError)
                 {
-                    EditorGUILayout.HelpBox("Setting `Default Ghost Mode` to `Owner Predicted` requires the ghost to have a `Ghost Owner Component`. You must also ensure your code sets the `NetworkId` of that component correctly. The solutions are:", MessageType.Error);
+                    EditorGUILayout.HelpBox("Setting `Default Ghost Mode` to `Owner Predicted` is not valid unless the Ghost also supports being Owned by a player (via the `Ghost Owner Component`). Please resolve it one of the following ways.", MessageType.Error);
                     GUI.color = brokenColor;
-                    if (GUILayout.Button("Enable `Has Owner` now (and ensure code hooks up `GhostOwnerComponent.NetworkId` myself)?")) HasOwner.boolValue = true;
+                    if (GUILayout.Button("Enable Ownership via 'Has Owner'?")) HasOwner.boolValue = true;
                     if (GUILayout.Button("Set to `GhostMode.Interpolated`?")) DefaultGhostMode.enumValueIndex = (int) GhostMode.Interpolated;
                     if (GUILayout.Button("Set to `GhostMode.Predicted`?")) DefaultGhostMode.enumValueIndex = (int) GhostMode.Predicted;
                     GUI.color = originalColor;
@@ -109,7 +111,7 @@ namespace Unity.NetCode.Editor
             if (serializedObject.ApplyModifiedProperties())
             {
                 GhostAuthoringInspectionComponent.forceBake = true;
-                var allComponentOverridesForGhost = GhostAuthoringInspectionComponent.CollectAllComponentOverridesInInspectionComponents(authoringComponent);
+                var allComponentOverridesForGhost = GhostAuthoringInspectionComponent.CollectAllComponentOverridesInInspectionComponents(authoringComponent, false);
                 GhostComponentAnalytics.BufferConfigurationData(authoringComponent, allComponentOverridesForGhost.Count);
             }
 
@@ -118,7 +120,6 @@ namespace Unity.NetCode.Editor
                 EditorGUILayout.HelpBox("To modify this ghost's per-entity component meta-data, add a `Ghost Authoring Inspection Component` (a MonoBehaviour) to the relevant authoring GameObject.", MessageType.Info);
             }
         }
-
 
         // TODO - Add guard against nested Ghost prefabs as they're invalid (although a non-ghost prefab containing ghost nested prefabs is valid AFAIK).
         /// <summary>

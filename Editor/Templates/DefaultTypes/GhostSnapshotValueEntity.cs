@@ -138,6 +138,9 @@ namespace Generated
 
         public void CalculateChangeMask(ref Snapshot snapshot, ref Snapshot baseline, uint changeMask)
         {
+            #region __GHOST_CALCULATE_INPUT_CHANGE_MASK__
+            changeMask |= snapshot.__GHOST_FIELD_NAME__ != baseline.__GHOST_FIELD_NAME__ ? 1u : 0;
+            #endregion
             #region __GHOST_CALCULATE_CHANGE_MASK_ZERO__
             changeMask = (snapshot.__GHOST_FIELD_NAME__ != baseline.__GHOST_FIELD_NAME__ || snapshot.__GHOST_FIELD_NAME__SpawnTick != baseline.__GHOST_FIELD_NAME__SpawnTick) ? 1u : 0;
             #endregion

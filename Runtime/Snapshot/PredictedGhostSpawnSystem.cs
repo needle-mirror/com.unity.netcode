@@ -47,6 +47,7 @@ namespace Unity.NetCode
     /// All the predicted spawned ghosts are initialized with a invalid ghost id (-1) but a valid ghost type and spawnTick.
     /// </summary>
     [UpdateInGroup(typeof(GhostSpawnSystemGroup))]
+    [WorldSystemFilter(WorldSystemFilterFlags.ClientSimulation)]
     [UpdateAfter(typeof(GhostSpawnSystem))]
     [BurstCompile]
     public partial struct PredictedGhostSpawnSystem : ISystem

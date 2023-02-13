@@ -569,9 +569,6 @@ namespace Unity.NetCode.Tests
             m_Request.OnCreate(ref state);
         }
         [BurstCompile]
-        public void OnDestroy(ref SystemState state)
-        {}
-        [BurstCompile]
         public void OnUpdate(ref SystemState state)
         {
             var sendJob = new SendRpc{data = m_Request.InitJobData(ref state)};
@@ -599,9 +596,6 @@ namespace Unity.NetCode.Tests
         {
             m_Request.OnCreate(ref state);
         }
-        [BurstCompile]
-        public void OnDestroy(ref SystemState state)
-        {}
         [BurstCompile]
         public void OnUpdate(ref SystemState state)
         {
@@ -632,9 +626,6 @@ namespace Unity.NetCode.Tests
             m_Request.OnCreate(ref state);
         }
         [BurstCompile]
-        public void OnDestroy(ref SystemState state)
-        {}
-        [BurstCompile]
         public void OnUpdate(ref SystemState state)
         {
             var sendJob = new SendRpc{data = m_Request.InitJobData(ref state)};
@@ -663,9 +654,6 @@ namespace Unity.NetCode.Tests
         {
             m_Request.OnCreate(ref state);
         }
-        [BurstCompile]
-        public void OnDestroy(ref SystemState state)
-        {}
         [BurstCompile]
         public void OnUpdate(ref SystemState state)
         {
@@ -696,9 +684,6 @@ namespace Unity.NetCode.Tests
             m_Request.OnCreate(ref state);
         }
         [BurstCompile]
-        public void OnDestroy(ref SystemState state)
-        {}
-        [BurstCompile]
         public void OnUpdate(ref SystemState state)
         {
             var sendJob = new SendRpc{data = m_Request.InitJobData(ref state)};
@@ -727,9 +712,6 @@ namespace Unity.NetCode.Tests
         {
             m_Request.OnCreate(ref state);
         }
-        [BurstCompile]
-        public void OnDestroy(ref SystemState state)
-        {}
         [BurstCompile]
         public void OnUpdate(ref SystemState state)
         {

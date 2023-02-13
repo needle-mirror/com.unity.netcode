@@ -118,9 +118,14 @@ namespace Unity.NetCode.Hybrid
 
             var targetS = new VisualElement();
             targetS.AddToClassList("target-Settings");
-            var propServerSettings = so.FindProperty("FilterSettings");
-            var propServerField = new PropertyField(propServerSettings.FindPropertyRelative("ExcludedBakingSystemAssemblies"));
-
+            var propServerSettings = so.FindProperty("FilterSettings.ExcludedBakingSystemAssemblies");
+            var propServerField = new PropertyField(propServerSettings);
+            propServerField.BindProperty(propServerSettings);
+            propServerField.RegisterCallback<ChangeEvent<string>>(
+                evt =>
+                {
+                    NetCodeServerSettings.instance.FilterSettings.SetDirty();
+                });
             targetS.Add(propServerField);
 
             var propExtraDefines = so.FindProperty("AdditionalScriptingDefines");

@@ -31,7 +31,7 @@ namespace Unity.NetCode.Generators
         private Dictionary<string, FragmentData> m_Fragments;
         private string m_FileTemplate;
         private string m_HeaderTemplate;
-        private IDiagnosticReporter m_Reporter;
+        private CodeGenerator.Context m_Context;
         public class FragmentData
         {
             public string Template;
@@ -53,15 +53,15 @@ namespace Unity.NetCode.Generators
                 var regionNameLine = templateData.Substring(regionStart, regionNameEnd - regionStart);
                 var regionNameTokens = System.Text.RegularExpressions.Regex.Split(regionNameLine.Trim(), @"\s+");
                 if (regionNameTokens.Length != 2)
-                    throw new InvalidOperationException($"Invalid region in GhostCodeGen template {template}");
+                    throw new InvalidOperationException($"Invalid region in GhostCodeGen template '{template}', while generating '{m_Context.generatedNs}.{m_Context.generatorName}'.");
                 var regionEnd = templateData.IndexOf("#endregion", regionStart, StringComparison.Ordinal);
                 if (regionEnd < 0)
-                    throw new InvalidOperationException($"Invalid region in GhostCodeGen template {template}");
+                    throw new InvalidOperationException($"Invalid region in GhostCodeGen template '{template}', while generating '{m_Context.generatedNs}.{m_Context.generatorName}'.");
                 while (regionEnd > 0 && templateData[regionEnd - 1] != '\n' &&
                        char.IsWhiteSpace(templateData[regionEnd - 1]))
                 {
                     if (regionEnd <= regionStart)
-                        throw new InvalidOperationException($"Invalid region in GhostCodeGen template {template}");
+                        throw new InvalidOperationException($"Invalid region in GhostCodeGen template '{template}', while generating '{m_Context.generatedNs}.{m_Context.generatorName}'.");
                     --regionEnd;
                 }
 
@@ -69,15 +69,15 @@ namespace Unity.NetCode.Generators
                 if (m_Fragments.TryGetValue(regionNameTokens[1], out var fragmentData))
                     fragmentData.Template = regionData;
                 else
-                    m_Reporter.LogError($"Did not find {regionNameTokens[1]} region to override");
+                    m_Context.diagnostic.LogError($"Did not find '{regionNameTokens[1]}' region to override, while generating '{m_Context.generatedNs}.{m_Context.generatorName}'.");
 
                 templateData = templateData.Substring(regionEnd + 1);
             }
         }
 
-        public GhostCodeGen(string template, string templateData, IDiagnosticReporter reporter)
+        public GhostCodeGen(string template, string templateData, CodeGenerator.Context context)
         {
-            m_Reporter = reporter;
+            m_Context = context;
             ParseTemplate(template, templateData);
         }
 
@@ -102,15 +102,15 @@ namespace Unity.NetCode.Generators
                 var regionNameLine = templateData.Substring(regionStart, regionNameEnd - regionStart);
                 var regionNameTokens = System.Text.RegularExpressions.Regex.Split(regionNameLine.Trim(), @"\s+");
                 if (regionNameTokens.Length != 2)
-                    throw new InvalidOperationException($"Invalid region in GhostCodeGen template {templateName}");
+                    throw new InvalidOperationException($"Invalid region in GhostCodeGen template '{templateName}', while generating '{m_Context.generatedNs}.{m_Context.generatorName}'.");
                 var regionEnd = templateData.IndexOf("#endregion", regionStart, StringComparison.Ordinal);
                 if (regionEnd < 0)
-                    throw new InvalidOperationException($"Invalid region in GhostCodeGen template {templateName}");
+                    throw new InvalidOperationException($"Invalid region in GhostCodeGen template '{templateName}', while generating '{m_Context.generatedNs}.{m_Context.generatorName}'.");
                 while (regionEnd > 0 && templateData[regionEnd - 1] != '\n' &&
                        char.IsWhiteSpace(templateData[regionEnd - 1]))
                 {
                     if (regionEnd <= regionStart)
-                        throw new InvalidOperationException($"Invalid region in GhostCodeGen template {templateName}");
+                        throw new InvalidOperationException($"Invalid region in GhostCodeGen template '{templateName}', while generating '{m_Context.generatedNs}.{m_Context.generatorName}'.");
                     --regionEnd;
                 }
 
@@ -124,7 +124,7 @@ namespace Unity.NetCode.Generators
                 {
                     if (m_Fragments.ContainsKey(regionNameTokens[1]))
                     {
-                        m_Reporter.LogError($"The template {templateName} already contains the key [{regionNameTokens[1]}]");
+                        m_Context.diagnostic.LogError($"The template {templateName} already contains the key [{regionNameTokens[1]}], while generating '{m_Context.generatedNs}.{m_Context.generatorName}'.");
                     }
                     m_Fragments.Add(regionNameTokens[1], new FragmentData{Template = regionData, Content = ""});
                     pre += regionNameTokens[1];
@@ -150,7 +150,7 @@ namespace Unity.NetCode.Generators
             codeGen.m_HeaderTemplate = m_HeaderTemplate;
             codeGen.Replacements = new Dictionary<string, string>();
             codeGen.m_Fragments = new Dictionary<string, FragmentData>();
-            codeGen.m_Reporter = m_Reporter;
+            codeGen.m_Context = m_Context;
             foreach (var value in m_Fragments)
             {
                 codeGen.m_Fragments.Add(value.Key, new FragmentData{Template = value.Value.Template, Content = ""});
@@ -169,10 +169,10 @@ namespace Unity.NetCode.Generators
                     var name = match.Value;
                     var nameEnd = name.IndexOf("__", 2, StringComparison.Ordinal);
                     if (nameEnd < 0)
-                        throw new InvalidOperationException($"Invalid key in GhostCodeGen fragment {fragment}");
-                    m_Reporter.LogError($"GhostCodeGen did not replace {name} in fragment {fragment}");
+                        throw new InvalidOperationException($"Invalid key in GhostCodeGen fragment {fragment} while generating '{m_Context.generatedNs}.{m_Context.generatorName}'.");
+                    m_Context.diagnostic.LogError($"GhostCodeGen did not replace {name} in fragment {fragment} while generating '{m_Context.generatedNs}.{m_Context.generatorName}'.");
                 }
-                throw new InvalidOperationException($"GhostCodeGen failed for fragment {fragment}");
+                throw new InvalidOperationException($"GhostCodeGen failed for fragment {fragment} while generating '{m_Context.generatedNs}.{m_Context.generatorName}'.");
             }
         }
 
@@ -195,7 +195,7 @@ namespace Unity.NetCode.Generators
             {
                 if (!target.m_Fragments.ContainsKey($"{fragment.Key}"))
                 {
-                    m_Reporter.LogError($"Target CodeGen is missing fragment: {fragment.Key}");
+                    m_Context.diagnostic.LogError($"Target CodeGen is missing fragment '{fragment.Key}' while generating '{m_Context.generatedNs}.{m_Context.generatorName}'.");
                     continue;
                 }
                 target.m_Fragments[$"{fragment.Key}"].Content += m_Fragments[$"{fragment.Key}"].Content;
@@ -210,9 +210,9 @@ namespace Unity.NetCode.Generators
             if (targetFragment == null)
                 targetFragment = fragment;
             if (!m_Fragments.ContainsKey($"__{fragment}__"))
-                throw new InvalidOperationException($"{fragment} is not a valid fragment for the given template");
+                throw new InvalidOperationException($"Generating '{m_Context.generatedNs}.{m_Context.generatorName}', '{fragment}' is not a valid fragment in the given template.");
             if (!target.m_Fragments.ContainsKey($"__{targetFragment}__"))
-                throw new InvalidOperationException($"{targetFragment} is not a valid fragment for the given template");
+                throw new InvalidOperationException($"Generating '{m_Context.generatedNs}.{m_Context.generatorName}', '{targetFragment} is not a valid fragment in the given template.");
 
             target.m_Fragments[$"__{targetFragment}__"].Content += m_Fragments[$"__{fragment}__"].Content;
         }
@@ -220,7 +220,7 @@ namespace Unity.NetCode.Generators
         public string GetFragmentTemplate(string fragment)
         {
             if (!m_Fragments.ContainsKey($"__{fragment}__"))
-                throw new InvalidOperationException($"{fragment} is not a valid fragment for the given template");
+                throw new InvalidOperationException($"Generating '{m_Context.generatedNs}.{m_Context.generatorName}', cannot get fragment template, as fragment '{fragment}' is not found.");
             return m_Fragments[$"__{fragment}__"].Template;
         }
 
@@ -234,12 +234,14 @@ namespace Unity.NetCode.Generators
                 target = this;
             if (targetFragment == null)
                 targetFragment = fragment;
-            if (!m_Fragments.ContainsKey($"__{fragment}__") && !allowMissingFragment)
-                throw new InvalidOperationException($"{fragment} is not a valid fragment for the given template");
-            if (!m_Fragments.ContainsKey($"__{fragment}__") && allowMissingFragment)
-                return false;
+            if (!m_Fragments.ContainsKey($"__{fragment}__"))
+            {
+                if (allowMissingFragment)
+                    return false;
+                throw new InvalidOperationException($"{fragment} is not a valid fragment for the given template! replacements: [{(replacements != null ? string.Join(",",replacements) : null)}]!");
+            }
             if (!target.m_Fragments.ContainsKey($"__{targetFragment}__"))
-                throw new InvalidOperationException($"{targetFragment} is not a valid fragment for the given template");
+                throw new InvalidOperationException($"{targetFragment} is not a valid targetFragment for the given template! replacements: [{(replacements != null ? string.Join(",",replacements) : null)}]!");
             var content = Replace(m_Fragments[$"__{fragment}__"].Template, replacements);
 
             if (extraIndent != null)

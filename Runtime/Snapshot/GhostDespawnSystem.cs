@@ -75,6 +75,8 @@ namespace Unity.NetCode
                 m_InterpolatedDespawnQueue.Clear();
                 return;
             }
+            if (state.WorldUnmanaged.IsThinClient())
+                return;
 
             var networkTime = SystemAPI.GetSingleton<NetworkTime>();
             state.Dependency = new DespawnJob

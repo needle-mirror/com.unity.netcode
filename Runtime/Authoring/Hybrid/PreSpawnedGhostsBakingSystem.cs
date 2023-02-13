@@ -48,27 +48,22 @@ namespace Unity.NetCode
                 {
                     var hashData = new NativeList<ulong>(Allocator.TempJob);
                     var componentTypes = EntityManager.GetComponentTypes(entity, Allocator.TempJob);
-                    // Hash all the data on the entity (first each component data then all together)
-                    //Add the scene hash
-                    for (int i = 0; i < componentTypes.Length; ++i)
+                    var transformAuthoring = EntityManager.GetComponentData<TransformAuthoring>(entity);
+                    //What happen if the entity has been authored such that the position and rotation are not present?
+                    //We are relying on the TransformAuthoring instead, to have stable data that depend only on the gameobject
+                    //authoring
+                    var archetypeStableHash = EntityManager.GetStorageInfo(entity).Chunk.Archetype.StableHash;
+                    hashData.Add(archetypeStableHash);
+                    unsafe
                     {
-                        // Do not include components which might be included or not included depending on if you are a
-                        // client or a server
-                        // TODO: Check the interpolated/predicted/server bools instead
-                        //       Only iterate ghostAuthoring.Components
-                        //       Should skip PhysicsCollider, WorldRenderBounds, XXXSnapshotData, PredictedGhostComponent
-#if !ENABLE_TRANSFORM_V1
-                        if (componentTypes[i] == typeof(LocalTransform))
-#else
-                        if (componentTypes[i] == typeof(Translation) || componentTypes[i] == typeof(Rotation))
-#endif
-                        {
-                            var componentDataHash = ComponentDataToHash(entity, componentTypes[i]);
-                            hashData.Add(componentDataHash);
-                        }
+                        var positionData = (byte*)&transformAuthoring.Position;
+                        var rotationData = (byte*)&transformAuthoring.Rotation;
+                        hashData.Add(Unity.Core.XXHash.Hash64(positionData, 3*sizeof(float)));
+                        hashData.Add(Unity.Core.XXHash.Hash64(rotationData, 4*sizeof(float)));
                     }
-
-                    hashData.Sort();
+                    // More components could be added here to get a better hash result (and support identical position/rotation)
+                    // but care needs to be taken as to only include components guaranteed to exist on the entity in general
+                    // and also on both client and server. This just covers the safest route of taking only position/rotation.
 
                     //Add the scene guid at the very end
                     var sceneSection = EntityManager.GetSharedComponent<SceneSection>(entity);
@@ -169,33 +164,13 @@ namespace Unity.NetCode
         ulong ComponentDataToHash(Entity entity, ComponentType componentType)
         {
             var untypedType = EntityManager.GetDynamicComponentTypeHandle(componentType);
-            var chunk = EntityManager.GetChunk(entity);
+            var chunkInfo = EntityManager.GetStorageInfo(entity);
             var sizeInChunk = TypeManager.GetTypeInfo(componentType.TypeIndex).SizeInChunk;
-            var data = chunk.GetDynamicComponentDataArrayReinterpret<byte>(ref untypedType, sizeInChunk);
-
-            var entityType = GetEntityTypeHandle();
-            var entities = chunk.GetNativeArray(entityType);
-            int index = -1;
-            for (int j = 0; j < entities.Length; ++j)
+            var data = chunkInfo.Chunk.GetDynamicComponentDataArrayReinterpret<byte>(ref untypedType, sizeInChunk);
+            unsafe
             {
-                if (entities[j] == entity)
-                {
-                    index = j;
-                    break;
-                }
+                return Unity.Core.XXHash.Hash64((byte*) data.GetUnsafeReadOnlyPtr() + (chunkInfo.IndexInChunk * sizeInChunk), sizeInChunk);
             }
-
-            ulong hash = 0;
-            if (index != -1)
-            {
-                unsafe
-                {
-                    hash = Unity.Core.XXHash.Hash64((byte*) data.GetUnsafeReadOnlyPtr() + (index * sizeInChunk),
-                        sizeInChunk);
-                }
-            }
-
-            return hash;
         }
     }
 

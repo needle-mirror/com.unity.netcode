@@ -172,9 +172,6 @@ namespace Unity.NetCode
             m_Query = state.GetEntityQuery(builder);
             m_Query.SetSharedComponentFilter(new PhysicsWorldIndex(0));
         }
-        public void OnDestroy(ref SystemState state)
-        {
-        }
         [BurstCompile]
         public void OnUpdate(ref SystemState state)
         {

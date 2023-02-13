@@ -1,22 +1,26 @@
 {
   "name": "com.unity.netcode",
   "displayName": "Netcode for Entities",
-  "version": "1.0.0-pre.15",
+  "version": "1.0.0-pre.44",
   "unity": "2022.2",
-  "unityRelease": "0f1",
+  "unityRelease": "2f1",
   "description": "Unity's Data Oriented Technology Stack (DOTS) multiplayer netcode layer - a high level netcode system built on entities. This package provides a foundation for creating networked multiplayer applications within DOTS.",
   "dependencies": {
-    "com.unity.transport": "2.0.0-pre.2",
-    "com.unity.entities": "1.0.0-pre.15",
-    "com.unity.logging": "1.0.0-pre.11",
+    "com.unity.transport": "2.0.0-pre.6",
+    "com.unity.entities": "1.0.0-pre.44",
+    "com.unity.logging": "1.0.0-pre.21",
     "com.unity.modules.animation": "1.0.0"
   },
-  "upmCi": {
-    "footprint": "6949a45917c3cdc0f14c0a56025b2a032c793bb5"
+  "_upm": {
+    "changelog": "### Added\n\n* Validation checks to the `GhostDistanceData` `TileSize` to prevent invalid tile assignment or DivideByZeroException.\n* Added a HelpURL (linking to docs) for `DisableAutomaticPrespawnSectionReportingAuthoring`, `GhostAuthoringComponent`, `GhostAuthoringInspectionComponent`, `DefaultSmoothingActionUserParamsAuthoring`, `GhostPresentationGameObjectAuthoring`, `NetCodeDebugConfigAuthoring`, `GhostAnimationController`, `GhostPresentationGameObjectEntityOwner`, and `NetCodePhysicsConfig`.\n* New GetLocalEndPoint API to NetworkStreamDriver\n\n### Changed\n\n* Make EnablePacketLogging component public to allow for per connection debug information.\n* Updated `com.unity.transport` dependency to version 2.0.0-pre.6.\n\n### Fixed\n\n* An issue with the `NetworkEmulator` in the editor when enabling domain reload (while switching play-mode) that was causing the game to forcibly immediately exit the the play state.\n* An issue with pre-spawned ghost baking when the baked entity has not LocalTransform (position/rotation for transform v1) component.\n* \"Ghost Distance Importance Scaling\" is now working again. Ensure you read the updated documentation.\n* Missing field write in `NetworkStreamListenSystem.OnCreate`, fixing Relay servers.\n* Code-Generated Burst-compiled Serializer methods will now only compile inside worlds with `WorldFlag.GameClient` and `WorldFlag.GameServer` WorldFlags. This improves exit play-mode speeds (when Domain Reload is enabled), baking (in all cases), and recompilation speeds.\n* Fixed an issue where multiple ghost types with the same archetype but difference data could sometime trigger errors about ghosts changing type.\n* Fix a mistake where the relay sample will create a client driver rather than a server driver\n* Fix logic for relay set up on the client. Making sure when calling DefaultDriverConstructor.RegisterClientDriver with relay settings that we skip this unless, requested playtype is client or clientandserver (if no server is found), the simulator is enabled, or on a client only build.\n* Fixed `ArgumentException: ArchetypeChunk.GetDynamicComponentDataArrayReinterpret<System.Byte> cannot be called on zero-sized IComponentData` in `GhostPredictionHistorySystem.PredictionBackupJob`. Added comprehensive test coverage for the `GhostPredictionHistorySystem` (via adding a predicted ghost version of the `GhostSerializationTestsForEnableableBits` tests).\n* Fixed serialization of components on child entities in the case where `SentForChildEntities = true`. This fix may introduce a small performance regression in baking and netcode world initialization. Contact us with all performance related issues.\n* `GhostUpdateSystem` now supports Change Filtering, so components on the client will now only be marked as changed _when they actually are changed_. We strongly recommend implementing change filtering when reading components containing `[GhostField]`s and `[GhostEnabledBit]`s on the client.\n* Fixed input component codegen issue when the type is nested in a parent class\n* Exposed NetworkTick value to Entity Inspector"
   },
+  "upmCi": {
+    "footprint": "77cc2b4a0e71647fc7665922048577949a3878c2"
+  },
+  "documentationUrl": "https://docs.unity3d.com/Packages/com.unity.netcode@1.0/manual/index.html",
   "repository": {
     "url": "https://github.cds.internal.unity3d.com/unity/dots.git",
     "type": "git",
-    "revision": "82387d7cb4bc4aee07e94656ef8103860ef6ec55"
+    "revision": "0e572178431e16c09c6c434c873bf0c60e52a5e9"
   }
 }

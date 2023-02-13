@@ -284,11 +284,6 @@ namespace Unity.NetCode.GeneratorTests
             using Unity.Mathematics;
             public struct MyTest
             {
-                public struct MyStruct
-                {
-                    public float x;
-                    public float y;
-                }
                 public struct Nested
                 {
                     public float2 f;
@@ -347,7 +342,7 @@ namespace Unity.NetCode.GeneratorTests
             Assert.AreEqual(1, walker.receiver.Candidates.Count);
 
             var results = GeneratorTestHelpers.RunGenerators(tree);
-            Assert.AreEqual(0, results.Diagnostics.Count(d=>d.Severity == DiagnosticSeverity.Error));
+            Assert.AreEqual(4, results.Diagnostics.Count(d=>d.Severity == DiagnosticSeverity.Error));
             Assert.AreEqual(2, results.GeneratedSources.Length, "Num generated files does not match");
         }
 
@@ -559,10 +554,12 @@ namespace Unity.NetCode.GeneratorTests
             using Unity.NetCode;
             using Unity.Mathematics;
 
+            namespace Unity.NetCode { public struct NetworkTick { } }
+
             [GhostComponent(PrefabType=GhostPrefabType.All, SendTypeOptimization=GhostSendType.Predicted)]
             public struct CommandTest : ICommandData
             {
-                [GhostField]public NetworkTick Tick {get;set;}
+                [GhostField]public Unity.NetCode.NetworkTick Tick {get;set;}
                 [GhostField]public int Value;
             }
             ";
@@ -588,6 +585,7 @@ namespace Unity.NetCode.GeneratorTests
             }
 
             //Parse the output and check for the class name match what we expect
+            // Ironically, the real ICommandData has `[DontSerializeForCommand] NetworkTick Tick`.
             var expected = new[] { ("int", "Value"), ("uint", "Tick") };
 
             var outputTree = results.GeneratedSources[0].SyntaxTree;
@@ -606,7 +604,7 @@ namespace Unity.NetCode.GeneratorTests
         }
 
         [Test]
-        public void SourceGenerator_ErrorIsReportedIfBuffersDoesNotAnnotateAllFields()
+        public void SourceGenerator_ErrorIsReportedIfPropertiesAresInvalid()
         {
             var testData = @"
             using Unity.Entities;
@@ -614,33 +612,56 @@ namespace Unity.NetCode.GeneratorTests
             using Unity.Mathematics;
             using Unity.Transforms;
 
+            namespace Unity.NetCode { public struct NetworkTick { } }
+
             public struct Buffer : IBufferElementData
             {
-                [GhostField] public int Value1;
-                public int Value2;
-                [GhostField] public int Value3;
+                [GhostField] public int BValue1;                                 // Fine.
+                public int BValue2;                                              // ! All fields must be GhostFields.
+                [GhostField] public int BValue3;                                 // Fine.
+                public int BValue4 { get; private set; }                         // ! All properties must be GhostFields.
+                [GhostField] public int BValue6 { get; private set; }            // ! GhostFields must have public setters.
+                [GhostField(SendData = false)] public int BValue7 { get; set; }  // Fine (SendData = false is allowed).
+                [GhostField(SendData = false)] public int BValue8;               // Fine (SendData = false is allowed).
             }
             public struct CommandData : ICommandData
             {
-                public NetworkTick Tick {get;set;}
-                public int Value1;
-                [GhostField] public int Value2;
+                public Unity.NetCode.NetworkTick Tick {get;set;}                         // Fine.
+                public int CValue1;                                                      // ! All fields must be GhostFields.
+                [GhostField] public int CValue2;                                         // Fine.
+                public ulong CValue3 { get; private set; }                               // Fine (properties with implicit backing fields can be non-GhostFields).
+                [GhostField] public int CValue4 { get; }                                 // ! GhostFields must have setters.
+                [GhostField(SendData = false)] public int CValue5 { get; private set; }  // Fine (SendData = false is allowed).
+                [GhostField(SendData = false)] public int CValue6 { private get; set; }  // Fine (SendData = false is allowed).
+            }
+            public struct ComponentData : IComponentData
+            {
+                public int VValue1;                                    // Fine.
+                [GhostField] public int VValue2;                       // Fine.
+                public float VValue3 { get; private set; }             // Fine.
+                public Unity.NetCode.NetworkTick VValue4 {set;}        // ! GhostFields must have getters.
+                [GhostField] public int this[int i] { get {} set {} }  // ! GhostFields must not be indexers.
             }
             ";
             var receiver = GeneratorTestHelpers.CreateSyntaxReceiver();
             var walker = new TestSyntaxWalker { receiver = receiver };
             var tree = CSharpSyntaxTree.ParseText(testData);
             tree.GetCompilationUnitRoot().Accept(walker);
-            Assert.AreEqual(2, walker.receiver.Candidates.Count);
+            Assert.AreEqual(3, walker.receiver.Candidates.Count);
             var results = GeneratorTestHelpers.RunGenerators(tree);
             //only the command serializer
-            Assert.AreEqual(1, results.GeneratedSources.Length, "Num generated files does not match");
+            Assert.AreEqual(3, results.GeneratedSources.Length, "Num generated files does not match");
             //But some errors are reported too
             var diagnostics = results.Diagnostics.Where(m=>m.Severity == DiagnosticSeverity.Error).ToArray();
-            Assert.AreEqual(3, diagnostics.Length);
-            Assert.True(diagnostics[0].GetMessage().StartsWith("GhostField missing on field Buffer.Value2"));
-            Assert.True(diagnostics[1].GetMessage().StartsWith("GhostField missing on field CommandData.Value1"));
-            Assert.True(diagnostics[2].GetMessage().StartsWith("GhostField missing on field CommandData.Tick"));
+            int i = 0;
+            Assert.True(diagnostics[i++].GetMessage().StartsWith("GhostField present on an invalid property Buffer.BValue6: Setter is not public."));
+            Assert.True(diagnostics[i++].GetMessage().StartsWith("GhostField missing on field Buffer.BValue2."));
+            Assert.True(diagnostics[i++].GetMessage().StartsWith("GhostField present on an invalid property CommandData.CValue4: No setter."));
+            Assert.True(diagnostics[i++].GetMessage().StartsWith("GhostField missing on field CommandData.CValue1."));
+            Assert.True(diagnostics[i++].GetMessage().StartsWith("GhostField missing on field CommandData.Tick."));
+            Assert.True(diagnostics[i++].GetMessage().StartsWith("GhostField present on an invalid property ComponentData.this[int]: Indexer."));
+            Assert.True(diagnostics[i++].GetMessage().StartsWith("GhostField present on an invalid property CommandData.CValue4: No setter."));
+            Assert.AreEqual(7, diagnostics.Length);
         }
 
         [Test]
@@ -652,6 +673,8 @@ namespace Unity.NetCode.GeneratorTests
             using Unity.Mathematics;
             using Unity.Transforms;
 
+            namespace Unity.NetCode { public struct NetworkTick { } }
+
             namespace Test
             {
                 public struct Invalid1 : IComponentData, IRpcCommand
@@ -660,7 +683,7 @@ namespace Unity.NetCode.GeneratorTests
                 }
                 public struct Invalid2 : IComponentData, ICommandData
                 {
-                    public NetworkTick Tick {get;set}
+                    public Unity.NetCode.NetworkTick Tick {get;set}
                     public int Value1;
                 }
                 public struct Invalid3 : IComponentData, IBufferElementData
@@ -669,7 +692,7 @@ namespace Unity.NetCode.GeneratorTests
                 }
                 public struct Invalid4: IBufferElementData, ICommandData
                 {
-                    public NetworkTick Tick {get;set}
+                    public Unity.NetCode.NetworkTick Tick {get;set}
                     public int Value1;
                 }
                 public struct Invalid5 : IBufferElementData, IRpcCommand
@@ -821,10 +844,8 @@ namespace Unity.NetCode.GeneratorTests
             // foreach (var msg in results.Diagnostics)
             //     Console.WriteLine($"ERROR: {msg.GetMessage()}");
             var errors = results.Diagnostics.Where(m => m.Severity == DiagnosticSeverity.Error).ToArray();
-            Assert.AreEqual(1, errors.Length);
-            var errorMsg =
-                "Could not find template for type char with parameters quantization=-1 smoothing=0 subtype=0. Default parameters can be omitted (non-quantized, no subtype, no interpolation/extrapolation).";
-            Assert.AreEqual(errorMsg, errors[0].GetMessage());
+            Assert.AreEqual(2, errors.Length);
+            Assert.IsTrue(errors[0].GetMessage().Contains("Inside type 'MyType', we could not find the exact template for field 'MyField' with configuration 'Type:System.Char Key:System.Char (quantized=-1 composite=False smoothing=0 subtype=0)'"));
         }
 
         [Test]
@@ -848,7 +869,7 @@ namespace Unity.NetCode.GeneratorTests
                                 Smoothing = SmoothingAction.Clamp
                                 SupportCommand = false,
                                 Composite = false,
-                                SubType = 1
+                                SubType = 1,
                                 Template = $""NetCode.GhostSnapshotValueFloat.cs""
                             },
                         });
@@ -878,10 +899,8 @@ namespace Unity.NetCode.GeneratorTests
             var templateTree = CSharpSyntaxTree.ParseText(customTemplates);
             var results = GeneratorTestHelpers.RunGenerators(tree, templateTree);
             var diagnostics = results.Diagnostics.Where(m => m.Severity == DiagnosticSeverity.Error).ToArray();
-            Assert.AreEqual(1, diagnostics.Length);
-            var expectedError =
-                "Could not find template for type float with parameters quantization=-1 smoothing=0 subtype=1. Default parameters can be omitted (non-quantized, no subtype, no interpolation/extrapolation).";
-            Assert.AreEqual(expectedError, diagnostics[0].GetMessage());
+            Assert.AreEqual(3, diagnostics.Length);
+            Assert.IsTrue(diagnostics[0].GetMessage().Contains("Unable to find the Template associated with 'TypeRegistryEntry:[Type: System.Single, Template: NetCode.GhostSnapshotValueFloat.cs, TemplateOverride: , SubType: 1, Smoothing: Clamp, Quantized: True, SupportCommand: False, Composite: False]'."));
 
             tree = CSharpSyntaxTree.ParseText(testDataCorrect);
             templateTree = CSharpSyntaxTree.ParseText(customTemplates);
@@ -961,9 +980,7 @@ namespace Unity.NetCode.GeneratorTests
                 var driver = GeneratorTestHelpers.CreateGeneratorDriver().AddAdditionalTexts(additionalTexts);
                 var results = driver.RunGenerators(compilation).GetRunResult();
                 var diagnostics = results.Diagnostics.Where(m=>m.Severity == DiagnosticSeverity.Error).ToArray();
-                var expectedError =
-                    "Unity.Mathematics.float3: Subtype types should not also be defined as composite. Subtypes need to be explicitly defined in a template";
-                Assert.That(diagnostics[0].GetMessage().StartsWith(expectedError));
+                Assert.That(diagnostics[0].GetMessage().Contains("Subtyped types cannot also be defined as composite"));
             }
 
             customTemplates = customTemplates.Replace("Composite = true", "Composite = false");
@@ -1140,6 +1157,9 @@ namespace Unity.NetCode.GeneratorTests
             var testData = @"
             using Unity.Entities;
             using Unity.NetCode;
+
+            namespace Unity.NetCode { public struct NetworkTick { } }
+
             namespace __GHOST_NAMESPACE__
             {
                 public enum InvalidEnum
@@ -1164,12 +1184,11 @@ namespace Unity.NetCode.GeneratorTests
 
                 public struct __My_Command__: ICommandData
                 {
-                    public NetworkTick Tick {get;set;}
+                    public Unity.NetCode.NetworkTick Tick {get;set;}
                     public int __ValidField;
                     public int __COMMAND_IS_RESERVED;
                 }
             }";
-
 
             var tree = CSharpSyntaxTree.ParseText(testData);
             var results = GeneratorTestHelpers.RunGenerators(tree);
@@ -1363,11 +1382,75 @@ namespace Unity.NetCode.GeneratorTests
         }
 
         [Test]
+        public void SourceGenerator_InputComponentDataComplex()
+        {
+            var testData = @"
+            using Unity.Entities;
+            using Unity.NetCode;
+            public class ParentClass1
+            {
+                public class ParentClass2
+                {
+                    public struct PlayerInput : IInputComponentData
+                    {
+                        public DataComposition Data;
+                    }
+                }
+            }
+
+            struct DataComposition
+            {
+                public int Horizontal;
+                public int Vertical;
+                public InputEvent Jump;
+            }
+            ";
+            var receiver = GeneratorTestHelpers.CreateSyntaxReceiver();
+            var walker = new TestSyntaxWalker { receiver = receiver };
+            var tree = CSharpSyntaxTree.ParseText(testData);
+            tree.GetCompilationUnitRoot().Accept(walker);
+            Assert.AreEqual(1, walker.receiver.Candidates.Count);
+
+            // 1 - ParentClass1_ParentClass2_PlayerInputInputBufferData
+            // 2 - ParentClass1_ParentClass2_PlayerInputInputBufferDataSerializer
+            // 3 - GhostComponentSerializerRegistrationSystem
+            var results = GeneratorTestHelpers.RunGenerators(tree);
+            Assert.AreEqual(3, results.GeneratedSources.Length, "Num generated files does not match");
+            var bufferSourceData = results.GeneratedSources[0].SyntaxTree;
+            var commandSourceData = results.GeneratedSources[1].SyntaxTree;
+
+            var inputBufferSyntax = bufferSourceData.GetRoot().DescendantNodes().OfType<StructDeclarationSyntax>()
+                .FirstOrDefault(node => node.Identifier.ValueText == "ParentClass1_ParentClass2_PlayerInputInputBufferData");
+            Assert.IsNotNull(inputBufferSyntax);
+            var commandSyntax = commandSourceData.GetRoot().DescendantNodes().OfType<StructDeclarationSyntax>()
+                .FirstOrDefault(node => node.Identifier.ValueText == "ParentClass1_ParentClass2_PlayerInputInputBufferDataSerializer");
+            Assert.IsNotNull(commandSyntax);
+
+            // Verify the 3 variables are being serialized in the command serialize methods (normal one and baseline one)
+            var commandSerializerSyntax = commandSourceData.GetRoot().DescendantNodes().OfType<MethodDeclarationSyntax>()
+                .Where(node => node.Identifier.ValueText == "Serialize");
+            Assert.IsNotNull(commandSerializerSyntax);
+            Assert.AreEqual(2, commandSerializerSyntax.Count());
+            foreach (var serializerMethod in commandSerializerSyntax)
+                Assert.AreEqual(3, serializerMethod.GetText().Lines.Where((line => line.ToString().Contains("data."))).Count());
+        }
+
+        [Test]
         public void SourceGenerator_InputComponentData_RemotePlayerInputPrediction()
         {
             var testData = @"
             using Unity.Entities;
             using Unity.NetCode;
+
+            namespace Unity.NetCode
+            {
+                public struct NetworkTick { }
+                public interface IInputComponentData
+                {
+                     public NetworkTick Tick {get;set}
+                }
+            }
+
             namespace Unity.Test
             {
                 public struct PlayerInput : IInputComponentData
@@ -1416,6 +1499,7 @@ namespace Unity.NetCode.GeneratorTests
             Assert.AreEqual("InternalInput_Vertical", fields[1].Declaration.Variables[0].Identifier.Text);
             Assert.AreEqual("uint", (fields[2].Declaration.Type as PredefinedTypeSyntax)?.Keyword.Text);
             Assert.AreEqual("InternalInput_Jump_Count", fields[2].Declaration.Variables[0].Identifier.Text);
+            // Ironically, the real ICommandData has `[DontSerializeForCommand] NetworkTick Tick`.
             Assert.AreEqual("uint", (fields[3].Declaration.Type as PredefinedTypeSyntax)?.Keyword.Text);
             Assert.AreEqual("Tick", fields[3].Declaration.Variables[0].Identifier.Text);
 
@@ -1434,7 +1518,67 @@ namespace Unity.NetCode.GeneratorTests
             var registrationSyntax = registrationSourceData.GetRoot().DescendantNodes().OfType<SimpleBaseTypeSyntax>()
                 .FirstOrDefault(node => node.ToString().Contains("IGhostComponentSerializerRegistration"));
             Assert.IsNotNull(registrationSyntax);
-            Assert.AreEqual(1, registrationSourceData.GetText().Lines.Where((line => line.ToString().Contains("data.AddSerializer(PlayerInputInputBufferDataGhostComponentSerializer.State)"))).Count());
+            Assert.AreEqual(1, registrationSourceData.GetText().Lines.Where((line => line.ToString().Contains("data.AddSerializer(PlayerInputInputBufferDataGhostComponentSerializer.GetState"))).Count());
+        }
+
+        [Test]
+        public void SourceGenerator_RPC_DontSerializeForCommand()
+        {
+            var testData = @"
+            using Unity.Entities;
+            using Unity.NetCode;
+            namespace Unity.Test
+            {
+                public struct MyRpcType : IRpcCommand
+                {
+                    public int y;
+                    public int x;
+                    [DontSerializeForCommand] public int z;
+
+                    // will not be serialized due to not having a set method
+                    public int area => return x*y;
+
+                    private int w;
+                    public int W {
+                        get => return w;
+                        set => w = value;
+                    }
+
+                    // will not be, as private set.
+                    public int W2 { get; private set; }
+
+                    [DontSerializeForCommand]
+                    public int myProperty {
+                        get => return z;
+                        set => z = value;
+                    }
+                }
+            }
+            ";
+            var receiver = GeneratorTestHelpers.CreateSyntaxReceiver();
+            var walker = new TestSyntaxWalker { receiver = receiver };
+            var tree = CSharpSyntaxTree.ParseText(testData);
+            tree.GetCompilationUnitRoot().Accept(walker);
+            Assert.AreEqual(1, walker.receiver.Candidates.Count);
+
+            var results = GeneratorTestHelpers.RunGenerators(tree);
+            Assert.IsNotNull(results);
+            var errors = results.Diagnostics.Where(m => m.Severity == DiagnosticSeverity.Error).ToArray();
+            Assert.IsEmpty(errors);
+
+            var syntaxTree = results.GeneratedSources[0].SyntaxTree;
+
+            var commandSerializerSyntax = syntaxTree.GetRoot().DescendantNodes().OfType<MethodDeclarationSyntax>().Where(node => node.Identifier.ValueText == "Serialize");
+            Assert.IsNotNull(commandSerializerSyntax);
+            Assert.AreEqual(1, commandSerializerSyntax.Count());
+            foreach (var serializerMethod in commandSerializerSyntax)
+                Assert.AreEqual(3, serializerMethod.GetText().Lines.Where((line => line.ToString().Contains("data."))).Count());
+
+            var commandDeserializerSyntax = syntaxTree.GetRoot().DescendantNodes().OfType<MethodDeclarationSyntax>().Where(node => node.Identifier.ValueText == "Deserialize");
+            Assert.IsNotNull(commandSerializerSyntax);
+            Assert.AreEqual(1, commandDeserializerSyntax.Count());
+            foreach (var serializerMethod in commandDeserializerSyntax)
+                Assert.AreEqual(3, serializerMethod.GetText().Lines.Where((line => line.ToString().Contains("data."))).Count());
         }
     }
 }

@@ -127,7 +127,7 @@ namespace Generated
         public void CalculateChangeMask(ref Snapshot snapshot, ref Snapshot baseline, uint changeMask)
         {
 			#region __GHOST_CALCULATE_INPUT_CHANGE_MASK__
-			changeMask = (snapshot.__COMMAND_FIELD_NAME__.value.x != baseline.__COMMAND_FIELD_NAME__.value.x ||
+			changeMask |= (snapshot.__COMMAND_FIELD_NAME__.value.x != baseline.__COMMAND_FIELD_NAME__.value.x ||
                         snapshot.__COMMAND_FIELD_NAME__.value.y != baseline.__COMMAND_FIELD_NAME__.value.y||
                         snapshot.__COMMAND_FIELD_NAME__.value.z != baseline.__COMMAND_FIELD_NAME__.value.z ||
                         snapshot.__COMMAND_FIELD_NAME__.value.w != baseline.__COMMAND_FIELD_NAME__.value.w) ? 1u : 0;
@@ -157,8 +157,8 @@ namespace Generated
         {
             #region __GHOST_GET_PREDICTION_ERROR_NAME__
             if (nameCount != 0)
-                names.Append(new FixedString32Bytes(","));
-            names.Append((FixedString64Bytes)"__GHOST_FIELD_REFERENCE__");
+                names.CopyFromTruncated(new FixedString32Bytes(","));
+            names.CopyFromTruncated((FixedString512Bytes)"__GHOST_FIELD_REFERENCE__");
             ++nameCount;
             #endregion
         }

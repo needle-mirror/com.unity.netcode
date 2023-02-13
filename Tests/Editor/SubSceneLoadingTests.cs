@@ -425,9 +425,7 @@ namespace Unity.NetCode.Tests
                 var subSceneList = SubSceneStreamingTestHelper.GetPrespawnLoaded(testWorld, testWorld.ServerWorld);
                 var idsRanges = GetIdsRanges(testWorld.ServerWorld, subSceneList);
                 //Server will unload the first scene. This will despawn ghosts and also update the scene list
-                SceneSystem.UnloadScene(testWorld.ServerWorld.Unmanaged, sub0.SceneGUID,
-                    SceneSystem.UnloadParameters.DestroySceneProxyEntity|
-                    SceneSystem.UnloadParameters.DestroySectionProxyEntities);
+                SceneSystem.UnloadScene(testWorld.ServerWorld.Unmanaged, sub0.SceneGUID, SceneSystem.UnloadParameters.DestroyMetaEntities);
                 for (int i = 0; i < 16; ++i)
                 {
                     testWorld.Tick(frameTime);
@@ -443,10 +441,7 @@ namespace Unity.NetCode.Tests
                 query = testWorld.ClientWorlds[0].EntityManager.CreateEntityQuery(ComponentType.ReadOnly<PreSpawnedGhostIndex>());
                 Assert.AreEqual(numObjects, query.CalculateEntityCount());
                 //Unload the scene on the client too
-                SceneSystem.UnloadScene(testWorld.ClientWorlds[0].Unmanaged,
-                    sub0.SceneGUID,
-                    SceneSystem.UnloadParameters.DestroySceneProxyEntity |
-                    SceneSystem.UnloadParameters.DestroySectionProxyEntities);
+                SceneSystem.UnloadScene(testWorld.ClientWorlds[0].Unmanaged, sub0.SceneGUID, SceneSystem.UnloadParameters.DestroyMetaEntities);
                 //And nothing should break
                 for (int i = 0; i < 16; ++i)
                 {

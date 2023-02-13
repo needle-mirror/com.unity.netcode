@@ -479,8 +479,6 @@ namespace Unity.NetCode
         {
             --ClientServerBootstrap.HasServerWorld.Data;
         }
-        public void OnUpdate(ref SystemState state)
-        {}
     }
 
     [WorldSystemFilter(WorldSystemFilterFlags.ClientSimulation)]
@@ -509,8 +507,6 @@ namespace Unity.NetCode
         {
             --ClientServerBootstrap.HasClientWorlds.Data;
         }
-        public void OnUpdate(ref SystemState state)
-        {}
     }
 
     [WorldSystemFilter(WorldSystemFilterFlags.ThinClientSimulation)]
@@ -532,11 +528,10 @@ namespace Unity.NetCode
 
             state.Enabled = false;
         }
+
         public void OnDestroy(ref SystemState state)
         {
             --ClientServerBootstrap.HasClientWorlds.Data;
         }
-        public void OnUpdate(ref SystemState state)
-        {}
     }
 }

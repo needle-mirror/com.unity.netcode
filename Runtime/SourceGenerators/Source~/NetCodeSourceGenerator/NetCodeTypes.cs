@@ -67,6 +67,11 @@ namespace Unity.NetCode.Generators
         public bool Quantized;
         public bool SupportCommand;
         public bool Composite;
+
+        public override string ToString()
+        {
+            return $"{nameof(TypeRegistryEntry)}:[{nameof(Type)}: {Type}, {nameof(Template)}: {Template}, {nameof(TemplateOverride)}: {TemplateOverride}, {nameof(SubType)}: {SubType}, {nameof(Smoothing)}: {Smoothing}, {nameof(Quantized)}: {Quantized}, {nameof(SupportCommand)}: {SupportCommand}, {nameof(Composite)}: {Composite}]";
+        }
     }
 }
 

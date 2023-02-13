@@ -21,7 +21,19 @@ This package uses Unity’s [Entity Component System (ECS)](https://docs.unity3d
 
 ## Known issues
 
-* Modifying a variant in the `GhostAuthoringInspectionComponent` back to the default variant throws the following error: `InvalidOperationException: Sequence contains no matching element`. To fix this, remove the override via the right click menu, or by setting the `VariantHash` to 0 in the prefab YAML.
 * Making IL2CPP build with code stripping set low or higher crashes the player (missing constructors). Code stripping must be always set to none/minimal.
 * When connecting to a server build with the editor as a client (like from frontend menu), make sure the auto-connect ip/port fields in the playmode tools are empty, if not it will get confused and create two connections to the server.
 * When using Built-in build, after switching from a Dedicated Server build to a normal Standalone Player (via) the define UNITY_SERVER is not removed from the project.
+* In some rare cases, found so far only on Mac M1, a StackOverflow exception may be thrown inside the generated XXXGhostComponentSerializer.GetState method. 
+Usually the problem start occurring with component sizes around 4K+. </br>
+To help nailing down when this is happening, you can uncomment the following lines inside the Editor/Templates/GhostComponentSerializer.cs template (remember to recompile the source generator after that) or drag the offending 
+generated class inside the assembly it pertain and modify it there.
+```csharp
+//ADD THIS LINE TO DEBUG IF A BIG COMPONENT MAY BE CAUSING A STACK OVERFLOW INSIDE THE GetState
+// const int maxSizeToAvoidStackOverflow = 4_500;
+// if (s_State.ComponentSize > maxSizeToAvoidStackOverflow)
+// {
+//     UnityEngine.Debug.LogWarning($"The type '{s_State.ComponentType}' is very large ({s_State.ComponentSize} bytes)! There is a risk of StackOverflowExceptions in the Serializers at roughly {maxSizeToAvoidStackOverflow} bytes! Remove large fields.");
+// }
+```
+

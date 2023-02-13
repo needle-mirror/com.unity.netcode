@@ -138,8 +138,8 @@ namespace Unity.NetCode.Tests
 
                 // The ordering of the protocol version error messages can be scrambled, so we can't log.expect exact ordering
                 LogAssert.ignoreFailingMessages = true;
-                LogAssert.Expect(LogType.Error, new Regex("\\[(.*)\\] RpcSystem received bad protocol version from connection 0"));
-                LogAssert.Expect(LogType.Error, new Regex("\\[(.*)\\] RpcSystem received bad protocol version from connection 0"));
+                LogAssert.Expect(LogType.Error, new Regex("\\[(.*)\\] RpcSystem received bad protocol version from NetworkConnection\\[id0,v\\d\\]"));
+                LogAssert.Expect(LogType.Error, new Regex("\\[(.*)\\] RpcSystem received bad protocol version from NetworkConnection\\[id0,v\\d\\]"));
                 for (int i = 0; i < 16; ++i)
                     testWorld.Tick(16f/1000f);
 
@@ -154,8 +154,8 @@ namespace Unity.NetCode.Tests
                 });
                 testWorld.GetSingletonRW<NetworkStreamDriver>(testWorld.ClientWorlds[0]).ValueRW.Connect(testWorld.ClientWorlds[0].EntityManager, ep);
 
-                LogAssert.Expect(LogType.Error, new Regex("\\[(.*)\\] RpcSystem received bad protocol version from connection 0"));
-                LogAssert.Expect(LogType.Error, new Regex("\\[(.*)\\] RpcSystem received bad protocol version from connection 0"));
+                LogAssert.Expect(LogType.Error, new Regex("\\[(.*)\\] RpcSystem received bad protocol version from NetworkConnection\\[id0,v\\d\\]"));
+                LogAssert.Expect(LogType.Error, new Regex("\\[(.*)\\] RpcSystem received bad protocol version from NetworkConnection\\[id0,v\\d\\]"));
                 for (int i = 0; i < 16; ++i)
                     testWorld.Tick(16f/1000f);
 
@@ -170,8 +170,8 @@ namespace Unity.NetCode.Tests
                 });
                 testWorld.GetSingletonRW<NetworkStreamDriver>(testWorld.ClientWorlds[0]).ValueRW.Connect(testWorld.ClientWorlds[0].EntityManager, ep);
 
-                LogAssert.Expect(LogType.Error, new Regex("\\[(.*)\\] RpcSystem received bad protocol version from connection 0"));
-                LogAssert.Expect(LogType.Error, new Regex("\\[(.*)\\] RpcSystem received bad protocol version from connection 0"));
+                LogAssert.Expect(LogType.Error, new Regex("\\[(.*)\\] RpcSystem received bad protocol version from NetworkConnection\\[id0,v\\d\\]"));
+                LogAssert.Expect(LogType.Error, new Regex("\\[(.*)\\] RpcSystem received bad protocol version from NetworkConnection\\[id0,v\\d\\]"));
                 for (int i = 0; i < 16; ++i)
                     testWorld.Tick(16f/1000f);
 
@@ -187,8 +187,8 @@ namespace Unity.NetCode.Tests
                 });
                 testWorld.GetSingletonRW<NetworkStreamDriver>(testWorld.ClientWorlds[0]).ValueRW.Connect(testWorld.ClientWorlds[0].EntityManager, ep);
 
-                LogAssert.Expect(LogType.Error, new Regex("\\[(.*)\\] RpcSystem received bad protocol version from connection 0"));
-                LogAssert.Expect(LogType.Error, new Regex("\\[(.*)\\] RpcSystem received bad protocol version from connection 0"));
+                LogAssert.Expect(LogType.Error, new Regex("\\[(.*)\\] RpcSystem received bad protocol version from NetworkConnection\\[id0,v\\d\\]"));
+                LogAssert.Expect(LogType.Error, new Regex("\\[(.*)\\] RpcSystem received bad protocol version from NetworkConnection\\[id0,v\\d\\]"));
                 for (int i = 0; i < 16; ++i)
                     testWorld.Tick(16f/1000f);
 
@@ -228,7 +228,7 @@ namespace Unity.NetCode.Tests
                 if (debugServer)
                 {
                     LogAssert.Expect(LogType.Error,
-                        "[ServerTest] RpcSystem received bad protocol version from connection 0");
+                        "[ServerTest] RpcSystem received bad protocol version from NetworkConnection[id0,v1]");
                     LogExpectProtocolError(
                         "NetCode=1 Game=0 RpcCollection=(\\d+) ComponentCollection=(\\d+)",
                         "NetCode=1 Game=9000 RpcCollection=(\\d+) ComponentCollection=(\\d+)", testWorld, testWorld.ServerWorld);
@@ -236,7 +236,7 @@ namespace Unity.NetCode.Tests
                 else
                 {
                     LogAssert.Expect(LogType.Error,
-                        "[ClientTest0] RpcSystem received bad protocol version from connection 0");
+                        "[ClientTest0] RpcSystem received bad protocol version from NetworkConnection[id0,v1]");
                     LogExpectProtocolError(
                         "NetCode=1 Game=9000 RpcCollection=(\\d+) ComponentCollection=(\\d+)",
                         "NetCode=1 Game=0 RpcCollection=(\\d+) ComponentCollection=(\\d+)", testWorld, testWorld.ClientWorlds[0]);
@@ -281,7 +281,7 @@ namespace Unity.NetCode.Tests
                 {
                     // Connection is not included in the version error handling, so connection ID appears as -1 here
                     LogAssert.Expect(LogType.Error,
-                        "[ServerTest] RpcSystem received bad protocol version from connection 0");
+                        "[ServerTest] RpcSystem received bad protocol version from NetworkConnection[id0,v1]");
                     LogExpectProtocolError(
                         "NetCode=1 Game=0 RpcCollection=(\\d+) ComponentCollection=(\\d+)",
                         "NetCode=1 Game=9000 RpcCollection=(\\d+) ComponentCollection=(\\d+)", testWorld, testWorld.ServerWorld);
@@ -289,7 +289,7 @@ namespace Unity.NetCode.Tests
                 else
                 {
                     LogAssert.Expect(LogType.Error,
-                        "[ClientTest0] RpcSystem received bad protocol version from connection 0");
+                        "[ClientTest0] RpcSystem received bad protocol version from NetworkConnection[id0,v1]");
                     LogExpectProtocolError(
                         "NetCode=1 Game=9000 RpcCollection=(\\d+) ComponentCollection=(\\d+)",
                         "NetCode=1 Game=0 RpcCollection=(\\d+) ComponentCollection=(\\d+)", testWorld, testWorld.ClientWorlds[0]);
@@ -323,7 +323,8 @@ namespace Unity.NetCode.Tests
             public void Bake(GameObject gameObject, IBaker baker)
             {
                 baker.AddComponent(new GhostOwnerComponent());
-                baker.AddComponent(new GhostGenTestTypeFlat());
+                baker.AddComponent(new GhostGenTestUtils.GhostGenTestType_IComponentData());
+                // TODO (flag in review): Add the other types (Input, RPC etc) to this test
             }
         }
         [Test]

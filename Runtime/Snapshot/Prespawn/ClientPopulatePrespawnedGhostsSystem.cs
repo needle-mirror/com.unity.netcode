@@ -78,11 +78,6 @@ namespace Unity.NetCode
             state.RequireForUpdate<PrespawnSceneLoaded>();
         }
         [BurstCompile]
-        public void OnDestroy(ref SystemState state)
-        {
-        }
-
-        [BurstCompile]
         public void OnUpdate(ref SystemState state)
         {
             var subsceneCollection = SystemAPI.GetSingletonBuffer<PrespawnSceneLoaded>();

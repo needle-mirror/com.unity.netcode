@@ -35,43 +35,75 @@ namespace Unity.NetCode.Generators
             return "global::" + ns;
         }
 
-        static bool CanGenerateType(TypeInformation typeInfo, Context context)
+        /// <summary>
+        ///     True if we can generate this EXACT type via a known Template.
+        ///     If false, we will check its children, and see if we can generate any of those.
+        /// </summary>
+        /// <remarks>
+        /// A type failing this check will NOT prevent it from being serialized.
+        /// I.e. This is ONLY to check whether or not we have a template for this EXACT type.
+        /// </remarks>
+        static bool TryGetTypeTemplate(TypeInformation typeInfo, Context context, out TypeTemplate template)
         {
-            // TODO: Are the subtypes registered somewhere for easier lookup?
-            bool foundSubType = false;
-            var description = typeInfo.Description;
-            foreach (var myType in context.registry.Templates)
-            {
-                if (description.Attribute.subtype == myType.Key.Attribute.subtype)
-                {
-                    foundSubType = true;
-                    break;
-                }
-            }
-            if (!foundSubType)
-            {
-                context.diagnostic.LogError($"Did not find {description.TypeFullName} with subtype {description.Attribute.subtype}. It has not been registered.",
-                    typeInfo.Location);
-                return false;
-            }
+            template = default;
 
-            if (!context.registry.Templates.TryGetValue(description, out var template))
+            var description = typeInfo.Description;
+            if (!context.registry.Templates.TryGetValue(description, out template))
+            {
+                if (description.Attribute.subtype == 0)
+                    return false;
+
+                bool foundSubType = false;
+                foreach (var myType in context.registry.Templates)
+                {
+                    if (description.Attribute.subtype == myType.Key.Attribute.subtype)
+                    {
+                        if (description.Key == myType.Key.Key)
+                        {
+                            foundSubType = true;
+                            break;
+                        }
+                        context.diagnostic.LogError($"'{context.generatorName}' defines a field '{typeInfo.FieldName}' with GhostField configuration '{description}' with a subtype, but subType '{description.Attribute.subtype}' is registered to a different type ('{myType.Key.TypeFullName}'). Thus, ignoring this field. Did you mean to use a different subType?",
+                            typeInfo.Location);
+                        return false;
+                    }
+                }
+                if (!foundSubType)
+                {
+                    context.diagnostic.LogError($"'{context.generatorName}' defines a field '{typeInfo.FieldName}' with GhostField configuration '{description}' with a subtype, but this subType has not been registered. Known subTypes are {context.registry.FormatAllKnownSubTypes()}. Please register your SubType Template in the `UserDefinedTemplates` `TypeRegistry` via an `.additionalfile` (see docs).",
+                        typeInfo.Location);
+                    return false;
+                }
                 return false;
+            }
 
             if (template.SupportsQuantization && description.Attribute.quantization < 0)
             {
-                context.diagnostic.LogError($"{description.TypeFullName} is of type {description.TypeFullName} which requires quantization factor to be specified - ignoring field",
+                context.diagnostic.LogError($"'{context.generatorName}' defines a field '{typeInfo.FieldName}' with GhostField configuration '{description}' which requires a quantization value to be specified, but it has not been. Thus, ignoring the field. To fix, add a quantization value to the GhostField attribute constructor.",
                     typeInfo.Location);
+                template = default;
                 return false;
             }
 
             if (!template.SupportsQuantization && description.Attribute.quantization > 0)
             {
-                context.diagnostic.LogError($"{description.TypeFullName} is of type {description.TypeFullName} which does not support quantization - ignoring field",
+                context.diagnostic.LogError($"'{context.generatorName}' defines a field '{typeInfo.FieldName}' with GhostField configuration '{description}' that does not support quantization, but has a quantization value specified. Thus, ignoring the field. To fix, remove the quantization value from the GhostField attribute constructor.",
                     typeInfo.Location);
+                template = default;
                 return false;
             }
 
+            // TODO: subtype + composite doesn't work atm, we don't pass the subtype=x info down
+            // when processing the nested types, so default variant will be used, and given template in the variant
+            // will be ignored. Also you might have a normal template and set the composite=true by mistake, but
+            // we can't detect this atm
+            if (template.Composite && description.Attribute.subtype > 0)
+            {
+                context.diagnostic.LogError($"'{context.generatorName}' defines a field '{typeInfo.FieldName}' with GhostField configuration '{description}' using an invalid configuration: Subtyped types cannot also be defined as composite, as it is assumed your Template given is the one in use for the whole type. I.e. If you'd like to implement change-bit composition yourself on this type, modify the template directly (at '{template.TemplatePath}').");
+                return false;
+            }
+
+            context.diagnostic.LogInfo($"'{context.generatorName}' found Template for field '{typeInfo.FieldName}' with GhostField configuration '{description}': '{template}'.");
             return true;
         }
 
@@ -148,6 +180,13 @@ namespace Unity.NetCode.Generators
                     }
 
                     registrationSystemCodeGen.GenerateFragment("GHOST_SERIALIZATION_STRATEGY_LIST", replacements);
+
+                    if (typeInfo.ComponentType == ComponentType.Input && !String.IsNullOrEmpty(ss.InputBufferComponentTypeName))
+                    {
+                        replacements["GHOST_INPUT_BUFFER_COMPONENT_TYPE"] = ss.InputBufferComponentTypeName;
+
+                        registrationSystemCodeGen.GenerateFragment("GHOST_INPUT_COMPONENT_LIST", replacements);
+                    }
                 }
 
                 replacements.Clear();
@@ -184,6 +223,12 @@ namespace Unity.NetCode.Generators
             using(new Profiler.Auto("CodeGen"))
             {
                 var generator = InternalGenerateType(context, typeTree, typeTree.TypeFullName);
+                if (generator == null)
+                {
+                    context.diagnostic.LogError($"Unable to generate ghost serializer for GhostField '{context.generatorName}.{typeTree.FieldName}' (description: '{typeTree.Description}')!");
+                    return;
+                }
+
                 generator.GenerateMasks(context);
 
                 var serializeGenerator = new ComponentSerializer(context);
@@ -199,14 +244,13 @@ namespace Unity.NetCode.Generators
                 if (!typeInfo.IsValid)
                     return;
 
-                var description = typeInfo.Description;
                 var fieldGen = new CommandSerializer(context, parentGenerator.CommandType, typeInfo);
-                if (context.registry.Templates.TryGetValue(description, out var template))
+                if (TryGetTypeTemplate(typeInfo, context, out var template))
                 {
                     if (!template.SupportCommand)
                         return;
 
-                    fieldGen = new CommandSerializer(context, parentGenerator.CommandType, typeInfo,GetGeneratorTemplate(context, typeInfo));
+                    fieldGen = new CommandSerializer(context, parentGenerator.CommandType, typeInfo, template);
                     if (!template.Composite)
                     {
                         fieldGen.GenerateFields(ctx, typeInfo.Parent);
@@ -250,6 +294,10 @@ namespace Unity.NetCode.Generators
                                 out bufferSymbol, out bufferName))
                             return;
                     }
+
+                    var tmp = context.serializationStrategies[context.serializationStrategies.Count-1];
+                    tmp.InputBufferComponentTypeName = bufferTypeTree.TypeFullName.Replace("+", ".");
+                    context.serializationStrategies[context.serializationStrategies.Count-1] = tmp;
 
                     using (new Profiler.Auto("GenerateInputCommandData"))
                     {
@@ -318,10 +366,12 @@ namespace Unity.NetCode.Generators
             bufferName = $"{typeTree.FieldTypeName}InputBufferData";
             if (typeTree.Namespace.Length != 0 && typeTree.FieldTypeName.Length > typeTree.Namespace.Length)
                 bufferName = $"{typeTree.FieldTypeName.Substring(typeTree.Namespace.Length + 1)}InputBufferData";
+            // If the type is nested inside another class/type the parent name will be included in the type name separated by an underscore
+            bufferName = bufferName.Replace('.', '_');
             bufferSymbol = newCompilation.GetSymbolsWithName(bufferName).FirstOrDefault() as INamedTypeSymbol;
             if (bufferSymbol == null)
             {
-                context.diagnostic.LogError($"Failed to fetch input buffer symbol as ${bufferName}");
+                context.diagnostic.LogError($"Failed to fetch input buffer symbol as ${bufferName}!");
                 bufferTypeTree = null;
                 return false;
             }
@@ -337,7 +387,7 @@ namespace Unity.NetCode.Generators
                 return false;
             }
             context.types.Add(bufferTypeTree);
-            context.diagnostic.LogInfo($"Generating input buffer command data for ${bufferTypeTree.TypeFullName}");
+            context.diagnostic.LogInfo($"Generating input buffer command data for ${bufferTypeTree.TypeFullName}!");
             return true;
         }
 
@@ -385,32 +435,8 @@ namespace Unity.NetCode.Generators
             });
 
             context.types.Add(bufferTypeTree);
-            context.diagnostic.LogInfo($"Generating ghost for input buffer {bufferTypeTree.TypeFullName}");
+            context.diagnostic.LogInfo($"Generating ghost for input buffer {bufferTypeTree.TypeFullName}!");
             GenerateGhost(context, bufferTypeTree);
-        }
-
-        private static TypeTemplate GetGeneratorTemplate(Context context, TypeInformation information)
-        {
-            var typeDescription = information.Description;
-            if (!context.registry.Templates.TryGetValue(typeDescription, out var template))
-                throw new InvalidOperationException($"Could not find the Generator for type: {information.TypeFullName}");
-
-            if (string.IsNullOrEmpty(template.TemplatePath))
-            {
-                if (!context.registry.Templates.TryGetValue(typeDescription, out var defaultTemplate))
-                    throw new InvalidOperationException($"Could not find the default Generator for type: {information.TypeFullName}");
-                template.TemplatePath = defaultTemplate.TemplatePath;
-            }
-
-            // TODO: subtype + composite doesn't work atm, we don't pass the subtype=x info down
-            // when processing the nested types, so default variant will be used, and given template in the variant
-            // will be ignored. Also you might have a normal template and set the composite=true by mistake, but
-            // we can't detect this atm
-            // TODO: Would also be nice to show where the template is registered
-            if (template.Composite && typeDescription.Attribute.subtype > 0)
-                throw new InvalidOperationException($"{typeDescription.TypeFullName}: Subtype types should not also be defined as composite. Subtypes need to be explicitly defined in a template {template.TemplatePath}.");
-
-            return template;
         }
 
         private static ComponentSerializer InternalGenerateType(Context context, TypeInformation type, string fullFieldName)
@@ -420,22 +446,20 @@ namespace Unity.NetCode.Generators
             if (!type.IsValid)
                 return null;
 
-            if (CanGenerateType(type, context))
+            if (TryGetTypeTemplate(type, context, out var template))
             {
-                var generator = new ComponentSerializer(context, type, GetGeneratorTemplate(context, type));
+                var generator = new ComponentSerializer(context, type, template);
                 return generator;
             }
             // If it's a primitive type and we still have not found a template to use, we can't go any deeper and it's an error
-            if (type.Kind == GenTypeKind.Primitive)
+            var isErrorBecausePrimitive = type.Kind == GenTypeKind.Primitive;
+            var isErrorBecauseMustFindSubType = type.Description.Attribute.subtype != 0;
+            if (isErrorBecausePrimitive || isErrorBecauseMustFindSubType)
             {
-                context.diagnostic.LogError(
-                    $"Could not find template for type {type.FieldTypeName} with parameters quantization={type.Attribute.quantization} smoothing={type.Attribute.smoothing} subtype={type.Attribute.subtype}. Default parameters can be omitted (non-quantized, no subtype, no interpolation/extrapolation).",
-                    type.Location);
+                context.diagnostic.LogError($"Inside type '{context.generatorName}', we could not find the exact template for field '{type.FieldName}' with configuration '{type.Description}', which means that netcode cannot serialize this type (with this configuration), as it does not know how. " +
+                    $"To rectify, either a) define your own template for this type (and configuration), b) resolve any other code-gen errors, or c) modify your GhostField(...) configuration (Quantization, SubType, SmoothingAction etc) to use a known, already existing template. Known templates are {context.registry.FormatAllKnownTypes()}. All known subTypes are {context.registry.FormatAllKnownSubTypes()}!", type.Location);
                 return null;
             }
-
-            if (type.Description.Attribute.subtype != 0)
-                throw new InvalidOperationException($"Cannot find subtype for {type}");
 
             var typeGenerator = new ComponentSerializer(context, type);
 
@@ -445,9 +469,11 @@ namespace Unity.NetCode.Generators
             foreach (var field in type.GhostFields)
             {
                 var generator = InternalGenerateType(context, field, $"{field.DeclaringTypeFullName}.{field.FieldName}");
-                //Type not found. (error should be already logged.
                 if (generator == null)
+                {
+                    context.diagnostic.LogError($"Unable to generate serializer for GhostField '{type.TypeFullName}.{field.TypeFullName}' (description: {field.Description}) while iterating through GhostFields!", type.Location);
                     continue;
+                }
                 if (generator.Composite)
                 {
                     var fieldIt = 0;
@@ -455,12 +481,17 @@ namespace Unity.NetCode.Generators
                     var overrides = generator.GenerateCompositeOverrides(context, field.Parent);
                     if (overrides != null)
                         generator.AppendTarget(typeGenerator);
-                    foreach (var f in generator.TypeInformation.GhostFields)
+                    foreach (var childGhostField in generator.TypeInformation.GhostFields)
                     {
-                        var g = InternalGenerateType(context, f, $"{f.DeclaringTypeFullName}.{f.FieldName}");
-                        g?.GenerateFields(context, f.Parent, overrides);
-                        g?.GenerateMasks(context, true, fieldIt++);
-                        g?.AppendTarget(typeGenerator);
+                        var g = InternalGenerateType(context, childGhostField, $"{childGhostField.DeclaringTypeFullName}.{childGhostField.FieldName}");
+                        if (g == null)
+                        {
+                            context.diagnostic.LogError($"Unable to generate serializer for GhostField '{type.TypeFullName}.{field.TypeFullName}.{childGhostField.TypeFullName}' (description: {field.Description}) while building the composite!", type.Location);
+                            continue;
+                        }
+                        g.GenerateFields(context, childGhostField.Parent, overrides);
+                        g.GenerateMasks(context, true, fieldIt++);
+                        g.AppendTarget(typeGenerator);
                     }
                     ++context.FieldState.numFields;
                     ++context.FieldState.curChangeMask;
@@ -480,7 +511,7 @@ namespace Unity.NetCode.Generators
             }
 
             if (type.GhostFields.Count == 0 && !type.ShouldSerializeEnabledBit)
-                context.diagnostic.LogError($"Couldn't find the TypeDescriptor for the type {type.Description} when processing {fullFieldName}! Types must have either valid [GhostField] attributes, or a [GhostEnabledBit] (on an IEnableableComponent).", type.Location);
+                context.diagnostic.LogError($"Couldn't find the TypeDescriptor for GhostField '{context.generatorName}.{type.FieldName}' the type {type.Description} when processing {fullFieldName}! Types must have either valid [GhostField] attributes, or a [GhostEnabledBit] (on an IEnableableComponent).", type.Location);
 
             if (composite)
             {
@@ -511,12 +542,12 @@ namespace Unity.NetCode.Generators
         {
             private Dictionary<string, GhostCodeGen> cache;
             private ITemplateFileProvider provider;
-            private IDiagnosticReporter reporter;
+            private Context context;
 
-            public CodeGenCache(ITemplateFileProvider templateFileProvider, IDiagnosticReporter diagnostic)
+            public CodeGenCache(ITemplateFileProvider templateFileProvider, Context context)
             {
                 this.provider = templateFileProvider;
-                this.reporter = diagnostic;
+                this.context = context;
                 this.cache = new Dictionary<string, GhostCodeGen>(128);
             }
 
@@ -525,7 +556,7 @@ namespace Unity.NetCode.Generators
                 if (!cache.TryGetValue(templatePath, out var codeGen))
                 {
                     var templateData = provider.GetTemplateData(templatePath);
-                    codeGen = new GhostCodeGen(templatePath, templateData, reporter);
+                    codeGen = new GhostCodeGen(templatePath, templateData, context);
                     cache.Add(templatePath, codeGen);
                 }
                 return codeGen;
@@ -537,7 +568,7 @@ namespace Unity.NetCode.Generators
                 if (!cache.TryGetValue(key, out var codeGen))
                 {
                     var templateData = provider.GetTemplateData(templatePath);
-                    codeGen = new GhostCodeGen(templatePath, templateData, reporter);
+                    codeGen = new GhostCodeGen(templatePath, templateData, context);
                     if (!string.IsNullOrEmpty(templateOverride))
                     {
                         var overrideTemplateData = provider.GetTemplateData(templateOverride);
@@ -571,6 +602,7 @@ namespace Unity.NetCode.Generators
                 public string Hash;
                 public bool IsSerialized;
                 public GhostComponentAttribute GhostAttribute;
+                public string InputBufferComponentTypeName;
 
             }
             public List<SerializationStrategyCodeGen> serializationStrategies;
@@ -612,7 +644,7 @@ namespace Unity.NetCode.Generators
                 executionContext = context;
                 types = new List<TypeInformation>(16);
                 serializationStrategies = new List<SerializationStrategyCodeGen>(32);
-                codeGenCache = new CodeGenCache(templateFileProvider, reporter);
+                codeGenCache = new CodeGenCache(templateFileProvider, this);
                 batch = new List<GeneratedFile>(256);
                 imports = new HashSet<string>();
                 generatedTypes = new HashSet<string>();

@@ -25,7 +25,7 @@ namespace Unity.Scenes.Editor.Tests
 
             var dotsSettings = DotsGlobalSettings.Instance;
             var originalPlayerType = dotsSettings.GetPlayerType();
-            var originalNetCodeClientTarget = ((ClientSettings) dotsSettings.ClientProvider).NetCodeClientTarget;
+            var originalNetCodeClientTarget = NetCodeClientSettings.instance.ClientTarget;
             try
             {
                 bool isOSXEditor = Application.platform == RuntimePlatform.OSXEditor;
@@ -45,7 +45,7 @@ namespace Unity.Scenes.Editor.Tests
                     buildOptions.locationPathName = uniqueTempPath + "/Test.app";
                 buildOptions.extraScriptingDefines = new string[] {"UNITY_CLIENT"};
 
-                ((ClientSettings) dotsSettings.ClientProvider).NetCodeClientTarget = NetCodeClientTarget.Client;
+                NetCodeClientSettings.instance.ClientTarget = NetCodeClientTarget.Client;
 
                 var report = BuildPipeline.BuildPlayer(buildOptions);
 
@@ -53,7 +53,7 @@ namespace Unity.Scenes.Editor.Tests
             }
             finally
             {
-                ((Unity.NetCode.Hybrid.ClientSettings) dotsSettings.ClientProvider).NetCodeClientTarget = originalNetCodeClientTarget;
+                NetCodeClientSettings.instance.ClientTarget = originalNetCodeClientTarget;
             }
         }
 
@@ -67,7 +67,7 @@ namespace Unity.Scenes.Editor.Tests
 
             var dotsSettings = DotsGlobalSettings.Instance;
             var originalPlayerType = dotsSettings.GetPlayerType();
-            var originalNetCodeClientTarget = ((ClientSettings) dotsSettings.ClientProvider).NetCodeClientTarget;
+            var originalNetCodeClientTarget = NetCodeClientSettings.instance.ClientTarget;
             try
             {
                 bool isOSXEditor = Application.platform == RuntimePlatform.OSXEditor;
@@ -85,7 +85,7 @@ namespace Unity.Scenes.Editor.Tests
                 if(isOSXEditor)
                     buildOptions.locationPathName = uniqueTempPath + "/Test.app";
 
-                ((ClientSettings) dotsSettings.ClientProvider).NetCodeClientTarget = NetCodeClientTarget.ClientAndServer;
+                NetCodeClientSettings.instance.ClientTarget = NetCodeClientTarget.ClientAndServer;
 
                 var report = BuildPipeline.BuildPlayer(buildOptions);
 
@@ -93,7 +93,7 @@ namespace Unity.Scenes.Editor.Tests
             }
             finally
             {
-                ((Unity.NetCode.Hybrid.ClientSettings) dotsSettings.ClientProvider).NetCodeClientTarget = originalNetCodeClientTarget;
+                NetCodeClientSettings.instance.ClientTarget = originalNetCodeClientTarget;
             }
         }
 

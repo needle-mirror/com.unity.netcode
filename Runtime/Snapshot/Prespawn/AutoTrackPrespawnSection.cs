@@ -59,11 +59,6 @@ namespace Unity.NetCode
             m_SectionLoadedFromEntity = state.GetComponentLookup<IsSectionLoaded>(true);
         }
         [BurstCompile]
-        public void OnDestroy(ref SystemState state)
-        {
-        }
-
-        [BurstCompile]
         public void OnUpdate(ref SystemState state)
         {
             if (SystemAPI.HasSingleton<DisableAutomaticPrespawnSectionReporting>())
@@ -151,11 +146,6 @@ namespace Unity.NetCode
                 .WithAny<StartStreamingSceneGhosts, StopStreamingSceneGhosts>();
             state.RequireForUpdate(state.GetEntityQuery(builder));
         }
-        [BurstCompile]
-        public void OnDestroy(ref SystemState state)
-        {
-        }
-
         [BurstCompile]
         public void OnUpdate(ref SystemState state)
         {

@@ -18,6 +18,7 @@ namespace Unity.NetCode.Generators
     /// </summary>
     internal class TemplateFileProvider : CodeGenerator.ITemplateFileProvider
     {
+        const string k_TemplateId = "#templateid:";
         readonly private HashSet<string> defaultTemplates;
         readonly private Dictionary<string, SourceText> customTemplates;
         readonly private IDiagnosticReporter diagnostic;
@@ -43,22 +44,94 @@ namespace Unity.NetCode.Generators
         /// line starting with `#templateid: TEMPLATE_ID
         /// </summary>
         /// <param name="additionalFiles"></param>
-        public void AddAdditionalTemplates(ImmutableArray<AdditionalText> additionalFiles)
+        /// <param name="customUserTypes"></param>
+        public void AddAdditionalTemplates(ImmutableArray<AdditionalText> additionalFiles, List<TypeRegistryEntry> customUserTypes)
         {
-            foreach (var additionalText in additionalFiles.Where(f => f.Path.EndsWith(NetCodeSourceGenerator.NETCODE_ADDITIONAL_FILE)))
+            var missingUserTypes = new List<TypeRegistryEntry>(customUserTypes);
+            foreach (var additionalText in additionalFiles)
             {
-                var text = additionalText.GetText();
-                if (text == null || text.Lines.Count == 0)
-                    continue;
-                var line = text.Lines[0].ToString();
-                if (!line.ToLower().StartsWith("#templateid:"))
+                var isNetCodeTemplate = additionalText.Path.EndsWith(NetCodeSourceGenerator.NETCODE_ADDITIONAL_FILE, StringComparison.Ordinal);
+                if (isNetCodeTemplate)
                 {
-                    diagnostic.LogError($"Template {additionalText.Path} does not contains a template id declaration. Custom templates must start with a #TEMPLATEID: MYTEMPLATEID line.");
-                    continue;
+                    var text = additionalText.GetText();
+                    if (text == null || text.Lines.Count == 0)
+                    {
+                        diagnostic.LogError($"All NetCode AdditionalFiles must be valid Templates, but '{additionalText.Path}' does not contain any text!");
+                        continue;
+                    }
+
+                    var line = text.Lines[0].ToString();
+                    if (!line.StartsWith(k_TemplateId, StringComparison.OrdinalIgnoreCase))
+                    {
+                        diagnostic.LogError($"All NetCode AdditionalFiles must be valid Templates, but '{additionalText.Path}' does not start with a correct Template definition (a '#templateid:MyNamespace.MyType' line).");
+                        continue;
+                    }
+
+                    var templateId = line.Substring(k_TemplateId.Length).Trim();
+                    if (string.IsNullOrWhiteSpace(templateId))
+                    {
+                        diagnostic.LogError($"NetCode AdditionalFile '{additionalText.Path}' is a valid Template, but the `{k_TemplateId}` is empty!");
+                        continue;
+                    }
+
+                    var foundMatch = FindAndRemoveTypeRegistryEntry(missingUserTypes, templateId);
+                    if (foundMatch == null)
+                    {
+                        diagnostic.LogError($"NetCode AdditionalFile '{additionalText.Path}' (named '{templateId}') is a valid Template, but it cannot be matched with any UserDefinedTemplate (probably a typo). Known user templates:[{GetKnownCustomUserTemplates()}].");
+                        continue;
+                    }
+
+                    if (!string.Equals(foundMatch.Template, templateId, StringComparison.Ordinal))
+                    {
+                        diagnostic.LogError($"NetCode AdditionalFile '{additionalText.Path}' (named '{templateId}') is a valid Template, but the Template definition in 'UserDefinedTemplates' ({foundMatch.Template}, of type {foundMatch.Type}) does not match the #templateID!");
+                        continue;
+                    }
+
+                    diagnostic.LogInfo($"NetCode AdditionalFile '{additionalText.Path}' (named '{templateId}') is a valid Template ({foundMatch.Template}, {foundMatch.Type}).");
+
+                    customTemplates.Add(templateId, additionalText.GetText());
                 }
-                var templateID = line.Substring("#templateid:".Length).Trim();
-                customTemplates.Add(templateID, additionalText.GetText());
+                else
+                {
+                    diagnostic.LogInfo($"Ignoring AdditionalFile '{additionalText.Path}' as it is not a NetCode type!");
+                }
             }
+
+            // Ensure all of the users `TypeRegistryEntry`s are linked.
+            foreach (var typeRegistryEntry in missingUserTypes)
+            {
+                var message = $"Unable to find the Template associated with '{typeRegistryEntry}'. Looking for '{typeRegistryEntry.Template}'. There are {additionalFiles.Length} additionalFiles:[{string.Join(",", additionalFiles.Select(x => x.Path))}]!";
+                // DotsRuntime is not passing the correct additional file set to the generator, so we cannot assert here.
+                if (!Helpers.IsDotsRuntime)
+                    diagnostic.LogError(message);
+                else
+                {
+                    message = "IsDotsRuntime_SpecialCase: " + message;
+                    diagnostic.LogInfo(message);
+                }
+            }
+
+            string GetKnownCustomUserTemplates()
+            {
+                return string.Join(",", customUserTypes.Select(x => $"{x.Type}[{x.Template}]"));
+            }
+        }
+
+        static TypeRegistryEntry FindAndRemoveTypeRegistryEntry(List<TypeRegistryEntry> typeRegistryEntries, string templateId)
+        {
+            TypeRegistryEntry foundMatch = null;
+            for (var i = 0; i < typeRegistryEntries.Count; i++)
+            {
+                var x = typeRegistryEntries[i];
+                if (string.Equals(x.Template, templateId, StringComparison.Ordinal) || x.Template.EndsWith(templateId + NetCodeSourceGenerator.NETCODE_ADDITIONAL_FILE, StringComparison.Ordinal))
+                {
+                    foundMatch = x;
+                    typeRegistryEntries.RemoveAt(i);
+                    break;
+                }
+            }
+
+            return foundMatch;
         }
 
         /// <summary>
@@ -78,13 +151,15 @@ namespace Unity.NetCode.Generators
 
             if (defaultTemplates.Contains(resourcePath))
                 return SourceText.From(LoadTemplateFromEmbeddedResources(resourcePath)).ToString();
-            ;
+
             if (pathResolver != null)
             {
-                resourcePath = pathResolver.ResolvePath(resourcePath);
-                return File.ReadAllText(resourcePath);
+                var resolvedResourcePath = pathResolver.ResolvePath(resourcePath);
+                if(File.Exists(resolvedResourcePath))
+                    return File.ReadAllText(resolvedResourcePath);
+                throw new FileNotFoundException($"Cannot find template with resource id '{resourcePath}' and resolvedResourcePath '{resolvedResourcePath}'! CustomTemplates:[{string.Join(",", customTemplates)}] DefaultTemplates:[{string.Join(",",defaultTemplates)}]");
             }
-            throw new FileNotFoundException($"Cannot fine template with resource id {resourcePath}");
+            throw new FileNotFoundException($"Cannot find template with resource id '{resourcePath}'! CustomTemplates:[{string.Join(",", customTemplates)}] DefaultTemplates:[{string.Join(",",defaultTemplates)}]");
         }
 
         private Stream LoadTemplateFromEmbeddedResources(string resourcePath)

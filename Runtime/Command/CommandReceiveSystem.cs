@@ -28,10 +28,6 @@ namespace Unity.NetCode
             m_NetworkTimeSingleton = state.GetEntityQuery(ComponentType.ReadOnly<NetworkTime>());
         }
         [BurstCompile]
-        public void OnDestroy(ref SystemState state)
-        {}
-
-        [BurstCompile]
         partial struct CommandReceiveClearJob : IJobEntity
         {
             public NetworkTick _currentTick;

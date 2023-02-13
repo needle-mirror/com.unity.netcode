@@ -53,6 +53,9 @@ public struct PrimitiveTypeTest : IComponentData
 using Unity.Entities;
 using Unity.NetCode;
 using Unity.Mathematics;
+
+namespace Unity.NetCode { public struct NetworkTick { } }
+
 public struct MyTest : IComponentData
 {
     [GhostField] public int IntValue;
@@ -64,7 +67,7 @@ public struct MyRpcType : IRpcCommand
 
 public struct MyCommandType : ICommandData
 {
-    public NetworkTick Tick { get; set; }
+    public Unity.NetCode.NetworkTick Tick { get; set; }
     public byte up;
     public byte down;
     public byte left;
@@ -220,7 +223,7 @@ snapshot.__GHOST_FIELD_NAME__Y = (int)(component.__GHOST_FIELD_REFERENCE__.y * _
 
 
 #region __GHOST_COPY_FROM_SNAPSHOT__
-component.Value = new float3(snapshotBefore.__GHOST_FIELD_NAME__X * __GHOST_DEQUANTIZE_SCALE__, snapshotBefore.__GHOST_FIELD_NAME__Y * __GHOST_DEQUANTIZE_SCALE__, 0.0f));
+component.Value = new float3(snapshotBefore.__GHOST_FIELD_NAME__X * __GHOST_DEQUANTIZE_SCALE__, snapshotBefore.__GHOST_FIELD_NAME__Y * __GHOST_DEQUANTIZE_SCALE__, 0.0f);
 #endregion
 
 #region __GHOST_COPY_FROM_SNAPSHOT_INTERPOLATE__

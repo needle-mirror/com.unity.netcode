@@ -49,11 +49,6 @@ namespace Unity.NetCode.Editor
         }
 
         [BurstCompile]
-        public void OnDestroy(ref SystemState state)
-        {
-        }
-
-        [BurstCompile]
         public void OnUpdate(ref SystemState state)
         {
             //this is only valid in the editor

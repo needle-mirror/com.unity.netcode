@@ -11,22 +11,26 @@ namespace Unity.NetCode
     public enum GhostRelevancyMode
     {
         /// <summary>
-        /// The default, no relevancy will applied.
+        /// The default. No relevancy will applied under any circumstances.
         /// </summary>
         Disabled,
         /// <summary>
-        /// All ghosts added to relevancy set are considered relevant, and serialized for the specified connection if possible.
+        /// Only ghosts added to relevancy set (`GhostRelevancySet`, below) are considered "relevant to that client", and thus serialized for the specified connection (where possible, obviously, as eventual consistency and importance scaling rules still apply).
         /// </summary>
+        /// <remarks>
+        /// Note that applying this setting will cause all ghosts to default to not be replicated to any client. It's a useful default when it's rare or impossible for a player to be viewing the entire world.
+        /// </remarks>
         SetIsRelevant,
         /// <summary>
-        /// All ghosts added to relevancy set are considered not-relevant, and will be not serialized for the specified connection.
+        /// Ghosts added to relevancy set (<see cref="GhostRelevancy.GhostRelevancySet"/>) are considered "not-relevant to that client", and thus will be not serialized for the specified connection.
+        /// In other words: Set this mode if you want to specifically ignore specific entities for a given client.
         /// </summary>
         SetIsIrrelevant
     }
 
     /// <summary>
-    /// The RelevantGhostForConnection is a connection-ghost pairs, used to populate the <see cref="GhostRelevancy"/> set
-    /// at runtime, by declaring which ghosts are relevant for a given connection.
+    /// A connection-ghost pair, used to populate the <see cref="GhostRelevancy"/> set at runtime, by declaring which ghosts are relevant for a given connection.
+    /// Behaviour is dependent upon on <see cref="GhostRelevancyMode"/>.
     /// </summary>
     public struct RelevantGhostForConnection : IEquatable<RelevantGhostForConnection>, IComparable<RelevantGhostForConnection>
     {
@@ -80,9 +84,12 @@ namespace Unity.NetCode
     }
 
     /// <summary>
-    /// Singleton entity presente on the server, that should be used to collect every frame the set of ghosts
-    /// that should be replicated to clients.
+    /// Singleton entity present on the server.
+    /// Every frame, collect the set of ghosts that should be (or should not be) replicated to a given client.
     /// </summary>
+    /// <remarks>
+    /// Use GhostRelevancy to avoid replicating entities that the player can neither see, nor interact with.
+    /// </remarks>
     public struct GhostRelevancy : IComponentData
     {
         internal GhostRelevancy(NativeParallelHashMap<RelevantGhostForConnection, int> set)

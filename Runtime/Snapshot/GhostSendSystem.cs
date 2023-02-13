@@ -2,8 +2,6 @@
 #define NETCODE_DEBUG
 #endif
 using System;
-using System.Diagnostics;
-using System.Globalization;
 using Unity.Burst;
 using Unity.Collections;
 using Unity.Collections.LowLevel.Unsafe;
@@ -303,6 +301,7 @@ namespace Unity.NetCode
 
         private Unity.Profiling.ProfilerMarker m_PrioritizeChunksMarker;
         private Unity.Profiling.ProfilerMarker m_GhostGroupMarker;
+        static readonly Unity.Profiling.ProfilerMarker k_Scheduling = new Unity.Profiling.ProfilerMarker("GhostSendSystem_Scheduling");
 
         private GhostPreSerializer m_GhostPreSerializer;
         ComponentLookup<NetworkIdComponent> m_NetworkIdFromEntity;
@@ -337,6 +336,7 @@ namespace Unity.NetCode
 
         int m_CurrentCleanupConnectionState;
         uint m_SentSnapshots;
+        ComponentTypeHandle<GhostImportance> m_GhostImportanceType;
 
         public void OnCreate(ref SystemState state)
         {
@@ -434,6 +434,7 @@ namespace Unity.NetCode
             m_GhostChildEntityComponentType = state.GetComponentTypeHandle<GhostChildEntityComponent>(true);
             m_PrespawnedGhostIdType = state.GetComponentTypeHandle<PreSpawnedGhostIndex>(true);
             m_GhostTypeComponentType = state.GetComponentTypeHandle<GhostTypeComponent>(true);
+            m_GhostImportanceType = state.GetComponentTypeHandle<GhostImportance>();
 
             m_EntityType = state.GetEntityTypeHandle();
             m_GhostGroupType = state.GetBufferTypeHandle<GhostGroup>(true);
@@ -656,10 +657,9 @@ namespace Unity.NetCode
             public PortableFunctionPointer<GhostImportance.ScaleImportanceDelegate> scaleGhostImportance;
 
             [ReadOnly] public DynamicSharedComponentTypeHandle ghostImportancePerChunkTypeHandle;
-            [ReadOnly] public DynamicComponentTypeHandle ghostImportanceDataTypeHandle;
+            [NativeDisableUnsafePtrRestriction] [ReadOnly] public IntPtr ghostImportanceDataIntPtr;
             [ReadOnly] public DynamicComponentTypeHandle ghostConnectionDataTypeHandle;
             public int ghostConnectionDataTypeSize;
-            public int ghostImportanceDataTypeSize;
             [ReadOnly] public ComponentLookup<NetworkStreamSnapshotTargetSize> snapshotTargetSizeFromEntity;
             [ReadOnly] public ComponentLookup<GhostTypeComponent> ghostTypeFromEntity;
             [ReadOnly] public NativeArray<int> allocatedGhostIds;
@@ -760,7 +760,8 @@ namespace Unity.NetCode
                 {
                     // If the requested packet size if larger than one MTU we have to use the fragmentation pipeline
                     var pipelineToUse = (targetSnapshotSize <= maxSnapshotSizeWithoutFragmentation) ? unreliablePipeline : unreliableFragmentedPipeline;
-                    if (driver.BeginSend(pipelineToUse, connectionId, out var dataStream, targetSnapshotSize) == 0)
+                    var result = driver.BeginSend(pipelineToUse, connectionId, out var dataStream, targetSnapshotSize);
+                    if ((int)Networking.Transport.Error.StatusCode.Success == result)
                     {
                         serializeResult = SerializeEnitiesResult.Unknown;
                         try
@@ -768,8 +769,8 @@ namespace Unity.NetCode
                             serializeResult = sendEntities(ref driver, ref dataStream, ghostChunkComponentTypesPtr, ghostChunkComponentTypesLength);
                             if (serializeResult == SerializeEnitiesResult.Ok)
                             {
-                                var result = 0;
-                                if ((result = driver.EndSend(dataStream)) < 0)
+                                result = 0;
+                                if ((result = driver.EndSend(dataStream)) < (int)Networking.Transport.Error.StatusCode.Success)
                                 {
                                     netDebug.LogWarning(FixedString.Format("An error occurred during EndSend. ErrorCode: {0}", result));
                                 }
@@ -798,7 +799,10 @@ namespace Unity.NetCode
                         }
                     }
                     else
-                        throw new InvalidOperationException("Failed to send a snapshot to a client");
+                    {
+                        netDebug.LogError(FixedString.Format("Failed to send a snapshot to a client with error {0}", result));
+                        throw new InvalidOperationException($"Failed to send a snapshot to a client with error {result}");
+                    }
 
                     targetSnapshotSize += targetSnapshotSize;
                 }
@@ -1357,7 +1361,6 @@ namespace Unity.NetCode
 
                 var connectionChunkInfo = childEntityLookup[connectionEntity];
                 var connectionHasConnectionData = TryGetComponentPtrInChunk(connectionChunkInfo, ghostConnectionDataTypeHandle, ghostConnectionDataTypeSize, out var connectionDataPtr);
-                var connectionHasImportanceData = TryGetComponentPtrInChunk(connectionChunkInfo, ghostImportanceDataTypeHandle, ghostImportanceDataTypeSize, out var importanceDataPtr);
                 for (int chunk = 0; chunk < ghostChunks.Length; ++chunk)
                 {
                     var ghostChunk = ghostChunks[chunk];
@@ -1398,13 +1401,14 @@ namespace Unity.NetCode
                         chunkPriority /= IrrelevantImportanceDownScale;
                     if (chunkPriority < MinSendImportance)
                         continue;
-                    if (connectionHasConnectionData && connectionHasImportanceData && ghostChunk.Has(ref ghostImportancePerChunkTypeHandle))
+                    if (connectionHasConnectionData && ghostChunk.Has(ref ghostImportancePerChunkTypeHandle))
                     {
                         unsafe
                         {
                             IntPtr chunkTile = new IntPtr(ghostChunk.GetDynamicSharedComponentDataAddress(ref ghostImportancePerChunkTypeHandle));
-                            chunkPriority = scaleGhostImportance.Ptr.Invoke(connectionDataPtr, importanceDataPtr, chunkTile, chunkPriority);
+                            chunkPriority = scaleGhostImportance.Ptr.Invoke(connectionDataPtr, ghostImportanceDataIntPtr, chunkTile, chunkPriority);
                         }
+
                         if (chunkPriority < MinDistanceScaledSendImportance)
                             continue;
                     }
@@ -1442,7 +1446,7 @@ namespace Unity.NetCode
             {
                 if (chunkSerializationData.TryGetValue(ghostChunk, out chunkState))
                 {
-                    if (chunkState.arch == ghostChunk.Archetype)
+                    if (chunkState.sequenceNumber == ghostChunk.SequenceNumber)
                     {
                         return true;
                     }
@@ -1467,7 +1471,7 @@ namespace Unity.NetCode
                     return false;
                 }
                 chunkState.ghostType = chunkGhostType;
-                chunkState.arch = ghostChunk.Archetype;
+                chunkState.sequenceNumber = ghostChunk.SequenceNumber;
 
                 int serializerDataSize = GhostTypeCollection[chunkState.ghostType].SnapshotSize;
                 chunkState.AllocateSnapshotData(serializerDataSize, ghostChunk.Capacity);
@@ -1550,6 +1554,7 @@ namespace Unity.NetCode
             var connectionsToProcess = m_ConnectionsToProcess;
             connectionsToProcess.Clear();
             m_NetworkIdFromEntity.Update(ref state);
+            k_Scheduling.Begin();
             state.Dependency = new UpdateConnectionsJob()
             {
                 ConnectionRelevantCount = m_ConnectionRelevantCount,
@@ -1565,6 +1570,7 @@ namespace Unity.NetCode
                 SendThisTick = sendThisTick ? (byte)1 : (byte)0,
                 SentSnapshots = m_SentSnapshots,
             }.Schedule(JobHandle.CombineDependencies(state.Dependency, connectionHandle));
+            k_Scheduling.End();
 
 #if NETCODE_DEBUG
             FixedString32Bytes packetDumpTimestamp = default;
@@ -1608,6 +1614,7 @@ namespace Unity.NetCode
             var freeSpawnedGhosts = m_FreeSpawnedGhostQueue.AsParallelWriter();
             m_PrespawnGhostIdRangeFromEntity.Update(ref state);
             var prespawnIdRanges = m_PrespawnGhostIdRangeFromEntity[SystemAPI.GetSingletonEntity<PrespawnGhostIdRange>()];
+            k_Scheduling.Begin();
             state.Dependency = new GhostDespawnParallelJob
             {
                 CommandBufferConcurrent = commandBufferConcurrent,
@@ -1619,9 +1626,11 @@ namespace Unity.NetCode
                 PrespawnDespawn = prespawnDespawn,
                 PrespawnIdRanges = prespawnIdRanges,
             }.ScheduleParallel(ghostDespawnQuery, state.Dependency);
+            k_Scheduling.End();
 
             // Copy destroyed entities in the parallel write queue populated by ghost cleanup to a single list
             // and free despawned ghosts from map
+            k_Scheduling.Begin();
             state.Dependency = new GhostDespawnSingleJob
             {
                 DespawnList = m_DestroyedPrespawns,
@@ -1629,6 +1638,7 @@ namespace Unity.NetCode
                 FreeSpawnQueue = m_FreeSpawnedGhostQueue,
                 GhostMap = m_GhostMap,
             }.Schedule(state.Dependency);
+            k_Scheduling.End();
 
             // If the ghost collection has not been initialized yet the send ystem can not process any ghosts
             if (!SystemAPI.GetSingleton<GhostCollection>().IsInGame)
@@ -1673,7 +1683,9 @@ namespace Unity.NetCode
                 ghostOwnerComponentType = m_GhostOwnerComponentType
 #endif
             };
+            k_Scheduling.Begin();
             state.Dependency = spawnJob.Schedule(JobHandle.CombineDependencies(state.Dependency, spawnChunkHandle));
+            k_Scheduling.End();
 
             // Create chunk arrays for ghosts and despawned ghosts
             var despawnChunks = ghostDespawnQuery.ToArchetypeChunkListAsync(state.WorldUpdateAllocator, out var despawnChunksHandle);
@@ -1762,20 +1774,52 @@ namespace Unity.NetCode
             };
 
             // We don't want to assign default value to type handles as this would lead to a safety error
-            if (SystemAPI.HasSingleton<GhostImportance>())
+            if (SystemAPI.TryGetSingletonEntity<GhostImportance>(out var singletonEntity))
             {
-                var config = SystemAPI.GetSingleton<GhostImportance>();
+                m_GhostImportanceType.Update(ref state);
+
+                var entityStorageInfoLookup = SystemAPI.GetEntityStorageInfoLookup();
+                var entityStorageInfo = entityStorageInfoLookup[singletonEntity];
+
+                var ghostImportanceTypeHandle = m_GhostImportanceType;
+                GhostImportance config;
+                unsafe
+                {
+                    config = ((GhostImportance*) entityStorageInfo.Chunk.GetComponentDataPtrRO(ref ghostImportanceTypeHandle))[entityStorageInfo.IndexInChunk];
+                }
                 var ghostConnectionDataTypeRO = config.GhostConnectionComponentType;
-                var ghostImportanceDataTypeRO = config.GhostImportanceDataType;
                 var ghostImportancePerChunkDataTypeRO = config.GhostImportancePerChunkDataType;
+                var ghostImportanceDataTypeRO = config.GhostImportanceDataType;
                 ghostConnectionDataTypeRO.AccessModeType = ComponentType.AccessMode.ReadOnly;
                 ghostImportanceDataTypeRO.AccessModeType = ComponentType.AccessMode.ReadOnly;
                 ghostImportancePerChunkDataTypeRO.AccessModeType = ComponentType.AccessMode.ReadOnly;
-                serializeJob.ghostImportanceDataTypeHandle = state.GetDynamicComponentTypeHandle(ghostImportanceDataTypeRO);
                 serializeJob.ghostConnectionDataTypeHandle = state.GetDynamicComponentTypeHandle(ghostConnectionDataTypeRO);
                 serializeJob.ghostImportancePerChunkTypeHandle = state.GetDynamicSharedComponentTypeHandle(ghostImportancePerChunkDataTypeRO);
-                serializeJob.ghostImportanceDataTypeSize = TypeManager.GetTypeInfo(ghostImportanceDataTypeRO.TypeIndex).TypeSize;
                 serializeJob.ghostConnectionDataTypeSize = TypeManager.GetTypeInfo(ghostConnectionDataTypeRO.TypeIndex).TypeSize;
+
+                // Try to get the users importance singleton data from the same "GhostImportance Singleton".
+                // If it's not there, don't error, just pass on the null. Thus, treated as optional.
+                if (ghostImportanceDataTypeRO.TypeIndex != default && !config.GhostImportanceDataType.IsZeroSized)
+                {
+                    var ghostImportanceDataTypeSize = TypeManager.GetTypeInfo(ghostImportanceDataTypeRO.TypeIndex).TypeSize;
+                    var ghostImportanceDynamicTypeHandle = state.GetDynamicComponentTypeHandle(ghostImportanceDataTypeRO);
+
+                    var hasGhostImportanceTypeInSingletonChunk = entityStorageInfo.Chunk.Has(ref ghostImportanceTypeHandle);
+                    unsafe
+                    {
+                        serializeJob.ghostImportanceDataIntPtr = hasGhostImportanceTypeInSingletonChunk
+                            ? (IntPtr) entityStorageInfo.Chunk.GetDynamicComponentDataArrayReinterpret<byte>(ref ghostImportanceDynamicTypeHandle, ghostImportanceDataTypeSize).GetUnsafeReadOnlyPtr()
+                            : IntPtr.Zero;
+                    }
+#if ENABLE_UNITY_COLLECTIONS_CHECKS
+                    if (!hasGhostImportanceTypeInSingletonChunk)
+                        throw new InvalidOperationException($"You configured your `GhostImportance` singleton to expect that the type '{ghostImportanceDataTypeRO.ToFixedString()}' would also be added to this singleton entity, but the singleton entity does not contain this type. Either remove this requirement, or add this component to the singleton.");
+#endif
+                }
+                else
+                {
+                    serializeJob.ghostImportanceDataIntPtr = IntPtr.Zero;
+                }
             }
             else
             {
@@ -1784,6 +1828,8 @@ namespace Unity.NetCode
 
             var ghostComponentCollection = state.EntityManager.GetBuffer<GhostCollectionComponentType>(ghostCollectionSingleton);
             m_GhostTypeComponentType.Update(ref state);
+
+            k_Scheduling.Begin();
             state.Dependency = m_GhostPreSerializer.Schedule(state.Dependency,
                 serializeJob.GhostComponentCollectionFromEntity,
                 serializeJob.GhostTypeCollectionFromEntity,
@@ -1800,13 +1846,18 @@ namespace Unity.NetCode
                 currentTick,
                 ref state,
                 ghostComponentCollection);
+            k_Scheduling.End();
             serializeJob.SnapshotPreSerializeData = m_GhostPreSerializer.SnapshotData;
 
             DynamicTypeList.PopulateList(ref state, ghostComponentCollection, true, ref serializeJob.DynamicGhostCollectionComponentTypeList);
+
+            k_Scheduling.Begin();
             state.Dependency = serializeJob.ScheduleByRef(m_ConnectionsToProcess, 1, state.Dependency);
+            k_Scheduling.End();
 
             var serializeHandle = state.Dependency;
             // Schedule a job to clean up connections
+            k_Scheduling.Begin();
             var cleanupHandle = new CleanupGhostSerializationStateJob
             {
                 CleanupConnectionStatePerTick = systemData.CleanupConnectionStatePerTick,
@@ -1815,6 +1866,7 @@ namespace Unity.NetCode
                 GhostChunks = ghostChunks,
             }.Schedule(state.Dependency);
             var flushHandle = networkStreamDriver.DriverStore.ScheduleFlushSendAllDrivers(serializeHandle);
+            k_Scheduling.End();
             state.Dependency = JobHandle.CombineDependencies(flushHandle, cleanupHandle);
         }
 

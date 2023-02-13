@@ -197,15 +197,6 @@ namespace Unity.NetCode
         /// </summary>
         /// <param name="state"></param>
         [BurstCompile]
-        public void OnDestroy(ref SystemState state)
-        {
-        }
-
-        /// <summary>
-        /// Empty method, implement the <see cref="ISystem"/> interface.
-        /// </summary>
-        /// <param name="state"></param>
-        [BurstCompile]
         public void OnStartRunning(ref SystemState state)
         {
         }

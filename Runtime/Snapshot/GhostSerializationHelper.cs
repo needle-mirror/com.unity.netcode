@@ -236,9 +236,9 @@ namespace Unity.NetCode
                     {
                         if (GhostComponentCollection[serializerIdx].HasGhostFields)
                         {
-                            if (chunk.Has(ghostChunkComponentTypesPtr[compIdx]))
+                            if (chunk.Has(ref ghostChunkComponentTypesPtr[compIdx]))
                             {
-                                var compData = (byte*) chunk.GetDynamicComponentDataArrayReinterpret<byte>(ghostChunkComponentTypesPtr[compIdx], compSize).GetUnsafeReadOnlyPtr();
+                                var compData = (byte*) chunk.GetDynamicComponentDataArrayReinterpret<byte>(ref ghostChunkComponentTypesPtr[compIdx], compSize).GetUnsafeReadOnlyPtr();
                                 GhostComponentCollection[serializerIdx].CopyToSnapshot.Ptr.Invoke((IntPtr) UnsafeUtility.AddressOf(ref serializerState),
                                     (IntPtr) snapshotPtr, snapshotOffset, snapshotSize, (IntPtr) compData, compSize, chunk.Count);
                             }
@@ -313,7 +313,7 @@ namespace Unity.NetCode
                                 {
                                     if (GhostComponentCollection[serializerIdx].HasGhostFields)
                                     {
-                                        var compData = (byte*) childChunk.Chunk.GetDynamicComponentDataArrayReinterpret<byte>(ghostChunkComponentTypesPtr[compIdx], compSize).GetUnsafeReadOnlyPtr();
+                                        var compData = (byte*) childChunk.Chunk.GetDynamicComponentDataArrayReinterpret<byte>(ref ghostChunkComponentTypesPtr[compIdx], compSize).GetUnsafeReadOnlyPtr();
                                         compData += childChunk.IndexInChunk * compSize;
 
                                         // TODO: would batching be faster?

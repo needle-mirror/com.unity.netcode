@@ -160,7 +160,7 @@ namespace Unity.NetCode.Tests
         {
             using (var testWorld = new NetCodeTestWorld())
             {
-                testWorld.UserBakingSystems.Add(typeof(HybridComponentWeWillOverrideDefaultVariantSystem));
+                testWorld.TestSpecificAdditionalSystems.Add(typeof(HybridComponentWeWillOverrideDefaultVariantSystem));
 
                 testWorld.Bootstrap(true);
 

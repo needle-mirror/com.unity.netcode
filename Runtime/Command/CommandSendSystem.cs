@@ -3,6 +3,7 @@ using Unity.Entities;
 using Unity.Jobs;
 using Unity.Collections.LowLevel.Unsafe;
 using Unity.Burst;
+using Unity.Networking.Transport;
 
 namespace Unity.NetCode
 {
@@ -112,6 +113,16 @@ namespace Unity.NetCode
     {
         private StreamCompressionModel m_CompressionModel;
         private EntityQuery m_connectionQuery;
+        //The packet header is composed by //tatal 29 bytes
+        private const int k_CommandHeadersBytes =
+            1 + // the protocol id
+            4 + //last received snapshot tick from server
+            4 + //received snapshost mask
+            4 + //the local time (used for RTT calc)
+            4 + //the delta in between the local time and the last received remote time. Used to calculate the elapsed RTT and remove the time spent on client to resend the ack.
+            4 + //the interpolation delay
+            4 + //the loaded prefabs
+            4; //the first command tick
 
         [BurstCompile]
         public void OnCreate(ref SystemState state)
@@ -124,11 +135,6 @@ namespace Unity.NetCode
 
             state.RequireForUpdate<GhostCollection>();
             state.RequireForUpdate(m_connectionQuery);
-        }
-
-        [BurstCompile]
-        public void OnDestroy(ref SystemState state)
-        {
         }
 
         [BurstCompile]
@@ -148,13 +154,16 @@ namespace Unity.NetCode
                     in NetworkStreamConnection connection, in NetworkSnapshotAckComponent ack)
             {
                 var concurrentDriver = concurrentDriverStore.GetConcurrentDriver(connection.DriverId);
-                // FIXME: support fragmented
-                if (concurrentDriver.driver.BeginSend(concurrentDriver.unreliablePipeline, connection.Value, out var writer) != 0)
+                var requiredPayloadSize = k_CommandHeadersBytes + rpcData.Length;
+                int maxSnapshotSizeWithoutFragmentation = NetworkParameterConstants.MTU - concurrentDriver.driver.MaxHeaderSize(concurrentDriver.unreliablePipeline);
+                var pipelineToUse = requiredPayloadSize > maxSnapshotSizeWithoutFragmentation ? concurrentDriver.unreliableFragmentedPipeline : concurrentDriver.unreliablePipeline;
+                if (concurrentDriver.driver.BeginSend(pipelineToUse, connection.Value, out var writer, requiredPayloadSize) != 0)
                 {
                     rpcData.Clear();
                     return;
                 }
-
+                //If you modify any of the following writes (add/remote/type) you shoul update the
+                //k_commandHeadersBytes constant.
                 writer.WriteByte((byte)NetworkStreamProtocol.Command);
                 writer.WriteUInt(ack.LastReceivedSnapshotByLocal.SerializedData);
                 writer.WriteUInt(ack.ReceivedSnapshotByLocalMask);
@@ -168,7 +177,9 @@ namespace Unity.NetCode
                 writer.WriteUInt(interpolationDelay);
                 writer.WriteUInt((uint)numLoadedPrefabs);
                 writer.WriteUInt(inputTargetTick.SerializedData);
-
+#if ENABLE_UNITY_COLLECTIONS_CHECKS
+                Assertions.Assert.AreEqual(writer.Length, k_CommandHeadersBytes);
+#endif
                 writer.WriteBytesUnsafe((byte*)rpcData.GetUnsafeReadOnlyPtr(), rpcData.Length);
                 rpcData.Clear();
 
@@ -177,6 +188,8 @@ namespace Unity.NetCode
                 netStats[1] = (uint)writer.Length;
 #endif
 
+                if(writer.HasFailedWrites)
+                    netDebug.LogError("CommandSendPacket job triggered Writer.HasFailedWrites, despite allocating the collection based on needed size!");
                 var result = 0;
                 if ((result = concurrentDriver.driver.EndSend(writer)) <= 0)
                     netDebug.LogError(FixedString.Format("An error occured during EndSend. ErrorCode: {0}", result));
@@ -226,10 +239,16 @@ namespace Unity.NetCode
         where TCommandDataSerializer : unmanaged, ICommandDataSerializer<TCommandData>
     {
         /// <summary>
-        /// The maximum number of inputs sent for every packet. Command packets add some redundancy by
-        /// sending old commands to mimize the effect of packet loss.
+        /// The maximum number of inputs sent in each command packet.
+        /// Resending the last 3 commands adds some redundancy, minimizing the effect of packet loss (unless that packet loss is sustained).
         /// </summary>
         public const uint k_InputBufferSendSize = 4;
+
+        /// <summary>
+        /// The maximum serialized size of an individual Command payload, including command headers,
+        /// and including the above <see cref="k_InputBufferSendSize"/> delta-compressed redundancy.
+        /// </summary>
+        public const int k_MaxCommandSerializedPayloadBytes = 1024;
 
         /// <summary>
         /// Helper struct used by code-generated command job to serialize the <see cref="ICommandData"/> into the
@@ -302,8 +321,15 @@ namespace Unity.NetCode
                     return;
 
                 var oldLen = rpcData.Length;
-                rpcData.ResizeUninitialized(oldLen + 1024);
-                var writer = new DataStreamWriter(rpcData.Reinterpret<byte>().AsNativeArray().GetSubArray(oldLen, 1024));
+                const int headerSize = sizeof(ulong) + //command hash
+                                       sizeof(short) + //serialised size
+                                       sizeof(int) + //ghost id | 0
+                                       sizeof(int) + //spawnTick | 0
+                                       sizeof(int); // Current Tick
+
+                rpcData.ResizeUninitialized(oldLen + k_MaxCommandSerializedPayloadBytes + headerSize);
+                var writer = new DataStreamWriter(rpcData.Reinterpret<byte>().AsNativeArray().GetSubArray(oldLen,
+                    k_MaxCommandSerializedPayloadBytes));
 
                 writer.WriteULong(stableHash);
                 var lengthWriter = writer;
@@ -347,6 +373,15 @@ namespace Unity.NetCode
                 }
 
                 writer.Flush();
+
+                if (writer.HasFailedWrites)
+                {
+                    //TODO further improvement
+                    //Ideally here we want to print the original TCommandData type. However, for IInputCommands this is pretty much impossible at this point (unless we percolate down the original component type)
+                    //since the type information is lost.
+                    UnityEngine.Debug.LogError($"CommandSendSystem failed to serialize '{ComponentType.ReadOnly<TCommandData>().ToFixedString()}' as the serialized payload is too large (limit: {k_MaxCommandSerializedPayloadBytes} )! For redundancy, we pack the command for the current server tick and the last {k_InputBufferSendSize-1} values (delta compressed) inside the payload. Please try to keep ICommandData or IInputComponentData small (tens of bytes). Remember they are serialized at the `SimulationTickRate` and can consume a lot of the client outgoing and server ingress bandwidth.");
+                }
+
                 lengthWriter.WriteUShort((ushort)(writer.Length - startLength));
                 rpcData.ResizeUninitialized(oldLen + writer.Length);
             }

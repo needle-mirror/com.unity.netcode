@@ -267,7 +267,7 @@ namespace Unity.NetCode
                         }
 
                         if (rpcIndex == ushort.MaxValue)
-                            netDebug.DebugLog(FixedString.Format("[{0}] Connection {1} in disconnected state but allowing RPC protocol version message to get processed", worldName, connections[i].Value.InternalId));
+                            netDebug.DebugLog(FixedString.Format("[{0}] {1} in disconnected state but allowing RPC protocol version message to get processed", worldName, connections[i].Value.ToFixedString()));
                         else
                             continue;
                     }
@@ -301,7 +301,7 @@ namespace Unity.NetCode
                             else if (rpcHash != 0 && !hashToIndex.TryGetValue(rpcHash, out rpcIndex))
                             {
                                 netDebug.LogError(
-                                    FixedString.Format("[{0}] RpcSystem received rpc with invalid hash ({1}) from connection {2}", worldName, rpcHash, connections[i].Value.InternalId));
+                                    FixedString.Format("[{0}] RpcSystem received rpc with invalid hash ({1}) from {2}", worldName, rpcHash, connections[i].Value.ToFixedString()));
                                 commandBuffer.AddComponent(unfilteredChunkIndex, entities[i],
                                     new NetworkStreamRequestDisconnect { Reason = NetworkStreamDisconnectReason.InvalidRpc });
                                 break;
@@ -352,7 +352,7 @@ namespace Unity.NetCode
                         {
                             //If this is the server, we must disconnect the connection
                             netDebug.LogError(
-                                FixedString.Format("[{0}] RpcSystem received invalid rpc (index {1} out of range) from connection {2}", worldName, rpcIndex, connections[i].Value.InternalId));
+                                FixedString.Format("[{0}] RpcSystem received invalid rpc (index {1} out of range) from {2}", worldName, rpcIndex, connections[i].Value.ToFixedString()));
                             commandBuffer.AddComponent(unfilteredChunkIndex, entities[i],
                                 new NetworkStreamRequestDisconnect { Reason = NetworkStreamDisconnectReason.InvalidRpc });
                             break;
@@ -360,7 +360,7 @@ namespace Unity.NetCode
                         else if (connections[i].ProtocolVersionReceived == 0)
                         {
                             netDebug.LogError(
-                                FixedString.Format("[{0}] RpcSystem received illegal rpc as it has not yet received the protocol version {1}", worldName, connections[i].Value.InternalId));
+                                FixedString.Format("[{0}] RpcSystem received illegal rpc as it has not yet received the protocol version ({1})", worldName, connections[i].Value.ToFixedString()));
                             commandBuffer.AddComponent(unfilteredChunkIndex, entities[i],
                                 new NetworkStreamRequestDisconnect { Reason = NetworkStreamDisconnectReason.InvalidRpc });
                             break;
@@ -516,10 +516,6 @@ namespace Unity.NetCode
             m_NetworkStreamConnectionFromEntity = state.GetComponentLookup<NetworkStreamConnection>(true);
         }
 
-        public void OnDestroy(ref SystemState state)
-        {
-        }
-
         [BurstCompile]
         partial struct ReportRpcErrors : IJobEntity
         {
@@ -532,16 +528,15 @@ namespace Unity.NetCode
             public FixedString128Bytes worldName;
             public void Execute(Entity entity, in RpcSystem.ProtocolVersionError rpcError)
             {
-                var connection = -1;
+                FixedString128Bytes connection = "unknown connection";
                 if (rpcError.connection != Entity.Null)
                 {
                     commandBuffer.AddComponent(rpcError.connection,
                         new NetworkStreamRequestDisconnect
                             { Reason = NetworkStreamDisconnectReason.InvalidRpc });
-                    connection = connections[rpcError.connection].Value.InternalId;
+                    connection = connections[rpcError.connection].Value.ToFixedString();
                 }
-                netDebug.LogError(
-                    FixedString.Format("[{0}] RpcSystem received bad protocol version from connection {1}", worldName, connection));
+                netDebug.LogError(FixedString.Format("[{0}] RpcSystem received bad protocol version from {1}", worldName, connection));
                 FixedString64Bytes prefix = "Local protocol: ";
                 NetDebug.PrintProtocolVersionError(netDebug, prefix, localProtocol);
                 prefix = "Remote protocol: ";

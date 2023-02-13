@@ -38,11 +38,6 @@ namespace Unity.NetCode
             m_NetworkTimeSingleton = state.GetEntityQuery(ComponentType.ReadOnly<NetworkTime>());
         }
         [BurstCompile]
-        public void OnDestroy(ref SystemState state)
-        {
-        }
-
-        [BurstCompile]
         struct TogglePredictedJob : IJobChunk
         {
             public ComponentTypeHandle<Simulate> simulateHandle;
@@ -496,7 +491,7 @@ namespace Unity.NetCode
     /// and for all predicted ghosts on the server), this group is usually the most expensive on both builds.
     /// Pay particular attention to the systems that run in this group to keep your performance in check.
     /// </remarks>
-    [WorldSystemFilter(WorldSystemFilterFlags.Default | WorldSystemFilterFlags.ThinClientSimulation)]
+    [WorldSystemFilter(WorldSystemFilterFlags.Default)]
     [UpdateInGroup(typeof(SimulationSystemGroup), OrderFirst=true)]
     [UpdateBefore(typeof(FixedStepSimulationSystemGroup))]
     [UpdateAfter(typeof(BeginSimulationEntityCommandBufferSystem))]
@@ -520,17 +515,17 @@ namespace Unity.NetCode
 
 
     /// <summary>
-    /// A fixed update group inside the ghost prediction. This is equivalent to <see cref="FixedStepSimulationSystemGroup"/> but for prediciton.
-    /// The fixed update group can have a higher update frequency than the rest of the prediciton, and it does not do partial ticks.
+    /// A fixed update group inside the ghost prediction. This is equivalent to <see cref="FixedStepSimulationSystemGroup"/> but for prediction.
+    /// The fixed update group can have a higher update frequency than the rest of the prediction, and it does not do partial ticks.
     /// </summary>
-    [WorldSystemFilter(WorldSystemFilterFlags.Default | WorldSystemFilterFlags.ThinClientSimulation)]
+    [WorldSystemFilter(WorldSystemFilterFlags.Default)]
     [UpdateInGroup(typeof(PredictedSimulationSystemGroup), OrderFirst = true)]
     public partial class PredictedFixedStepSimulationSystemGroup : ComponentSystemGroup
     {
         private BeginFixedStepSimulationEntityCommandBufferSystem m_BeginFixedStepSimulationEntityCommandBufferSystem;
         private EndFixedStepSimulationEntityCommandBufferSystem m_EndFixedStepSimulationEntityCommandBufferSystem;
         /// <summary>
-        /// Set the timestep use by this group, in seconds. The default value is 1/60 seconds.
+        /// Set the timestep used by this group, in seconds. The default value is 1/60 seconds.
         /// This value will be clamped to the range [0.0001f ... 10.0f].
         /// </summary>
         public float Timestep

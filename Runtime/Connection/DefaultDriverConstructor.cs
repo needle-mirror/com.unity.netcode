@@ -162,27 +162,24 @@ namespace Unity.NetCode
             {
                 foreach (var otherWorld in World.All)
                 {
-                    if (otherWorld.IsCreated && otherWorld.IsServer())
-                    {
-                        netDebug.DebugLog("Found server world instance. Prefer use IPC network interface");
-                        return true;
-                    }
+                    if (!otherWorld.IsCreated || !otherWorld.IsServer()) { continue; }
+                    netDebug.DebugLog("Found server world instance. Prefer use IPC network interface");
+                    return true;
                 }
 
                 return false;
             }
 
-            //The client playmode is always set if UNITY_CLIENT define is present
-            var useSocketDriver = ClientServerBootstrap.RequestedPlayType == ClientServerBootstrap.PlayType.Client;
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
             //if the emulator is enabled we always force to use sockets. It also work with IPC but this is preferred choice.
             if (NetworkSimulatorSettings.Enabled)
             {
                 netDebug.DebugLog("Network simulator enabled. Forcing client to use a socket network driver, rather than an IPC.");
-                useSocketDriver = true;
+                return true;
             }
 #endif
-            if (useSocketDriver)
+            //The client playmode is always set if UNITY_CLIENT define is present
+            if (ClientServerBootstrap.RequestedPlayType == ClientServerBootstrap.PlayType.Client)
             {
                 return true;
             }
@@ -219,26 +216,52 @@ namespace Unity.NetCode
         /// <param name="settings">A list of the parameters that describe the network configuration.</param>
         public static void RegisterClientDriver(World world, ref NetworkDriverStore driverStore, NetDebug netDebug, NetworkSettings settings)
         {
-            Assert.IsTrue(ClientServerBootstrap.RequestedPlayType != ClientServerBootstrap.PlayType.Server);
-            Assert.IsTrue(world.IsClient());
 #if !UNITY_CLIENT
             if (UseSocketDriver(netDebug))
             {
-                netDebug.DebugLog("Create client default socket network interface driver");
-                var driverInstance = DefaultDriverBuilder.CreateClientNetworkDriver(new UDPNetworkInterface(), settings);
-                driverStore.RegisterDriver(TransportType.Socket, driverInstance);
+                RegisterClientUdpDriver(world, ref driverStore, netDebug, settings);
             }
             else
             {
-                netDebug.DebugLog("Create client default IPC network interface driver");
-                var driverInstance = DefaultDriverBuilder.CreateClientNetworkDriver(new IPCNetworkInterface(), settings);
-                driverStore.RegisterDriver(TransportType.IPC, driverInstance);
+                RegisterClientIpcDriver(world, ref driverStore, netDebug, settings);
             }
 #else
+            RegisterClientUdpDriver(world, ref driverStore, netDebug, settings);
+#endif
+        }
+
+        /// <summary>
+        /// Register a <see cref="UDPNetworkInterface"/> NetworkDriver instance in <paramref name="driverStore"/>.
+        /// This are configured using the <param name="settings">NetworkSettings</param> passed in.
+        /// </summary>
+        /// <param name="world">Used for determining whether we are running in a client or server world.</param>
+        /// <param name="driverStore">Store for NetworkDriver.</param>
+        /// <param name="netDebug">For handling logging.</param>
+        /// <param name="settings">A list of the parameters that describe the network configuration.</param>
+        public static void RegisterClientUdpDriver(World world, ref NetworkDriverStore driverStore, NetDebug netDebug, NetworkSettings settings)
+        {
+            Assert.IsTrue(ClientServerBootstrap.RequestedPlayType != ClientServerBootstrap.PlayType.Server);
+            Assert.IsTrue(world.IsClient());
             netDebug.DebugLog("Create client default socket network interface driver");
             var driverInstance = DefaultDriverBuilder.CreateClientNetworkDriver(new UDPNetworkInterface(), settings);
             driverStore.RegisterDriver(TransportType.Socket, driverInstance);
-#endif
+        }
+
+        /// <summary>
+        /// Register an <see cref="IPCNetworkInterface"/> NetworkDriver instance in <paramref name="driverStore"/>.
+        /// This are configured using the <param name="settings">NetworkSettings</param> passed in.
+        /// </summary>
+        /// <param name="world">Used for determining whether we are running in a client or server world.</param>
+        /// <param name="driverStore">Store for NetworkDriver.</param>
+        /// <param name="netDebug">For handling logging.</param>
+        /// <param name="settings">A list of the parameters that describe the network configuration.</param>
+        public static void RegisterClientIpcDriver(World world, ref NetworkDriverStore driverStore, NetDebug netDebug, NetworkSettings settings)
+        {
+            Assert.IsTrue(ClientServerBootstrap.RequestedPlayType != ClientServerBootstrap.PlayType.Server);
+            Assert.IsTrue(world.IsClient());
+            netDebug.DebugLog("Create client default IPC network interface driver");
+            var driverInstance = DefaultDriverBuilder.CreateClientNetworkDriver(new IPCNetworkInterface(), settings);
+            driverStore.RegisterDriver(TransportType.IPC, driverInstance);
         }
 
         /// <summary>
@@ -268,17 +291,49 @@ namespace Unity.NetCode
         /// <param name="settings">A list of the parameters that describe the network configuration.</param>
         public static void RegisterServerDriver(World world, ref NetworkDriverStore driverStore, NetDebug netDebug, NetworkSettings settings)
         {
-            Assert.IsTrue(world.IsServer());
+            RegisterServerIpcDriver(world, ref driverStore, netDebug, settings);
+            RegisterServerUdpDriver(world, ref driverStore, netDebug, settings);
+        }
+
+        /// <summary>
+        /// Register a <see cref="IPCNetworkInterface"/> NetworkDriver instance in <paramref name="driverStore"/>.
+        /// This are configured using the <param name="settings">NetworkSettings</param> passed in.
+        ///
+        /// If the requested <see cref="ClientServerBootstrap.PlayType"/> is <see cref="ClientServerBootstrap.PlayType.Server"/>
+        /// this will do nothing as no local clients will ever make use of the IPC mechanism.
+        /// </summary>
+        /// <param name="world">Used for determining whether we are running in a client or server world.</param>
+        /// <param name="driverStore">Store for NetworkDriver.</param>
+        /// <param name="netDebug">For handling logging.</param>
+        /// <param name="settings">A list of the parameters that describe the network configuration.</param>
+        public static void RegisterServerIpcDriver(World world, ref NetworkDriverStore driverStore, NetDebug netDebug, NetworkSettings settings)
+        {
 #if UNITY_EDITOR || !UNITY_SERVER
-            if (ClientServerBootstrap.RequestedPlayType != ClientServerBootstrap.PlayType.Server)
+            Assert.IsTrue(world.IsServer());
+            if (ClientServerBootstrap.RequestedPlayType == ClientServerBootstrap.PlayType.Server)
             {
-                netDebug.DebugLog("Create server default IPC network interface driver");
-                var ipcDriver = DefaultDriverBuilder.CreateServerNetworkDriver(new IPCNetworkInterface(), settings);
-                driverStore.RegisterDriver(TransportType.IPC, ipcDriver);
+                return;
             }
+
+            netDebug.DebugLog("Create server default IPC network interface driver");
+            var ipcDriver = CreateServerNetworkDriver(new IPCNetworkInterface(), settings);
+            driverStore.RegisterDriver(TransportType.IPC, ipcDriver);
 #endif
+        }
+
+        /// <summary>
+        /// Register a <see cref="UDPNetworkInterface"/> NetworkDriver instance in <paramref name="driverStore"/>.
+        /// This are configured using the <param name="settings">NetworkSettings</param> passed in.
+        /// </summary>
+        /// <param name="world">Used for determining whether we are running in a client or server world.</param>
+        /// <param name="driverStore">Store for NetworkDriver.</param>
+        /// <param name="netDebug">For handling logging.</param>
+        /// <param name="settings">A list of the parameters that describe the network configuration.</param>
+        public static void RegisterServerUdpDriver(World world, ref NetworkDriverStore driverStore, NetDebug netDebug, NetworkSettings settings)
+        {
+            Assert.IsTrue(world.IsServer());
             netDebug.DebugLog("Create server default socket network interface driver");
-            var socketDriver = DefaultDriverBuilder.CreateServerNetworkDriver(new UDPNetworkInterface(), settings);
+            var socketDriver = CreateServerNetworkDriver(new UDPNetworkInterface(), settings);
             driverStore.RegisterDriver(TransportType.Socket, socketDriver);
         }
 
@@ -373,7 +428,12 @@ namespace Unity.NetCode
         public static void RegisterClientDriver(World world, ref NetworkDriverStore driverStore, NetDebug netDebug, ref RelayServerData relayData)
         {
             var settings = GetNetworkSettings();
-            settings = settings.WithRelayParameters(ref relayData);
+#if !UNITY_CLIENT
+            if (UseSocketDriver(netDebug))
+#endif
+            {
+                settings = settings.WithRelayParameters(ref relayData);
+            }
             RegisterClientDriver(world, ref driverStore, netDebug, settings);
         }
 
@@ -391,8 +451,9 @@ namespace Unity.NetCode
         public static void RegisterServerDriver(World world, ref NetworkDriverStore driverStore, NetDebug netDebug, ref RelayServerData relayData, int playerCount = 0)
         {
             var settings = GetNetworkServerSettings(playerCount: playerCount);
+            RegisterServerIpcDriver(world, ref driverStore, netDebug, settings);
             settings = settings.WithRelayParameters(ref relayData);
-            RegisterClientDriver(world, ref driverStore, netDebug, settings);
+            RegisterServerUdpDriver(world, ref driverStore, netDebug, settings);
         }
     }
 

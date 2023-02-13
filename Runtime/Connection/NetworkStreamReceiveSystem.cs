@@ -9,6 +9,7 @@ using Unity.Jobs;
 using Unity.Networking.Transport;
 using Unity.Networking.Transport.Utilities;
 using Unity.NetCode.LowLevel.Unsafe;
+using Unity.Profiling;
 
 namespace Unity.NetCode
 {
@@ -57,9 +58,9 @@ namespace Unity.NetCode
     [BurstCompile]
     public unsafe partial struct NetworkStreamConnectSystem : ISystem
     {
-        private EntityQuery m_ConnectionRequestConnectQuery;
-        private ComponentLookup<NetworkStreamRequestConnect> m_NetworkStreamRequestConnectFromEntity;
-        private ComponentLookup<ConnectionState> m_ConnectionStateFromEntity;
+        EntityQuery m_ConnectionRequestConnectQuery;
+        ComponentLookup<NetworkStreamRequestConnect> m_NetworkStreamRequestConnectFromEntity;
+        ComponentLookup<ConnectionState> m_ConnectionStateFromEntity;
 
         [BurstCompile]
         public void OnCreate(ref SystemState state)
@@ -70,11 +71,6 @@ namespace Unity.NetCode
             state.RequireForUpdate(m_ConnectionRequestConnectQuery);
             state.RequireForUpdate<NetworkStreamDriver>();
             state.RequireForUpdate<NetDebug>();
-        }
-
-        [BurstCompile]
-        public void OnDestroy(ref SystemState state)
-        {
         }
 
         [BurstCompile]
@@ -127,19 +123,17 @@ namespace Unity.NetCode
     [BurstCompile]
     public unsafe partial struct NetworkStreamListenSystem : ISystem
     {
-        private EntityQuery m_ConnectionRequestListenQuery;
-        private ComponentLookup<NetworkStreamRequestListen> m_NetworkStreamRequestListenFromEntity;
-        private ComponentLookup<ConnectionState> m_ConnectionStateFromEntity;
+        EntityQuery m_ConnectionRequestListenQuery;
+        ComponentLookup<NetworkStreamRequestListen> m_NetworkStreamRequestListenFromEntity;
+        ComponentLookup<ConnectionState> m_ConnectionStateFromEntity;
         public void OnCreate(ref SystemState state)
         {
             m_ConnectionRequestListenQuery = state.GetEntityQuery(ComponentType.ReadWrite<NetworkStreamRequestListen>());
             m_NetworkStreamRequestListenFromEntity = state.GetComponentLookup<NetworkStreamRequestListen>(true);
+            m_ConnectionStateFromEntity = state.GetComponentLookup<ConnectionState>();
             state.RequireForUpdate(m_ConnectionRequestListenQuery);
             state.RequireForUpdate<NetworkStreamDriver>();
             state.RequireForUpdate<NetDebug>();
-        }
-        public void OnDestroy(ref SystemState state)
-        {
         }
         public void OnUpdate(ref SystemState systemState)
         {
@@ -199,49 +193,42 @@ namespace Unity.NetCode
     [BurstCompile]
     public unsafe partial struct NetworkStreamReceiveSystem : ISystem
     {
-        private static INetworkStreamDriverConstructor s_DriverConstructor;
+        static INetworkStreamDriverConstructor s_DriverConstructor;
+        static readonly ProfilerMarker k_Scheduling = new ProfilerMarker("NetworkStreamReceiveSystem_Scheduling");
 
         /// <summary>
         /// Assign your <see cref="INetworkStreamDriverConstructor"/> to customize the <see cref="NetworkDriver"/> construction.
         /// </summary>
-        static public INetworkStreamDriverConstructor DriverConstructor
+        public static INetworkStreamDriverConstructor DriverConstructor
         {
-            get
-            {
-                if (s_DriverConstructor == null)
-                    s_DriverConstructor = DefaultDriverBuilder.DefaultDriverConstructor;
-                return s_DriverConstructor;
-            }
-            set
-            {
-                s_DriverConstructor = value;
-            }
+            get { return s_DriverConstructor ??= DefaultDriverBuilder.DefaultDriverConstructor; }
+            set => s_DriverConstructor = value;
         }
 
-        internal enum DriverState : int
+        internal enum DriverState
         {
             Default,
             Migrating
         }
 
-        private ref NetworkDriverStore DriverStore => ref UnsafeUtility.AsRef<NetworkStreamDriver.Pointers>((void*)m_DriverPointers).DriverStore;
-        private NativeReference<int> m_NumNetworkIds;
-        private NativeQueue<int> m_FreeNetworkIds;
-        private RpcQueue<RpcSetNetworkId, RpcSetNetworkId> m_RpcQueue;
+        ref NetworkDriverStore DriverStore => ref UnsafeUtility.AsRef<NetworkStreamDriver.Pointers>((void*)m_DriverPointers).DriverStore;
+        NativeReference<int> m_NumNetworkIds;
+        NativeQueue<int> m_FreeNetworkIds;
+        RpcQueue<RpcSetNetworkId, RpcSetNetworkId> m_RpcQueue;
 
-        private EntityQuery m_refreshTickRateQuery;
+        EntityQuery m_RefreshTickRateQuery;
 
-        private IntPtr m_DriverPointers;
-        private ComponentLookup<ConnectionState> m_ConnectionStateFromEntity;
-        private ComponentLookup<GhostComponent> m_GhostComponentFromEntity;
-        private ComponentLookup<NetworkIdComponent> m_NetworkIdFromEntity;
-        private ComponentLookup<ClientServerTickRate> m_ClientServerTickRateFromEntity;
-        private ComponentLookup<NetworkStreamRequestDisconnect> m_RequestDisconnectFromEntity;
-        private ComponentLookup<NetworkStreamInGame> m_InGameFromEntity;
-        private BufferLookup<OutgoingRpcDataStreamBufferComponent> m_OutgoingRpcBufferFromEntity;
-        private BufferLookup<IncomingRpcDataStreamBufferComponent> m_RpcBufferFromEntity;
-        private BufferLookup<IncomingCommandDataStreamBufferComponent> m_CmdBufferFromEntity;
-        private BufferLookup<IncomingSnapshotDataStreamBufferComponent> m_SnapshotBufferFromEntity;
+        IntPtr m_DriverPointers;
+        ComponentLookup<ConnectionState> m_ConnectionStateFromEntity;
+        ComponentLookup<GhostComponent> m_GhostComponentFromEntity;
+        ComponentLookup<NetworkIdComponent> m_NetworkIdFromEntity;
+        ComponentLookup<ClientServerTickRate> m_ClientServerTickRateFromEntity;
+        ComponentLookup<NetworkStreamRequestDisconnect> m_RequestDisconnectFromEntity;
+        ComponentLookup<NetworkStreamInGame> m_InGameFromEntity;
+        BufferLookup<OutgoingRpcDataStreamBufferComponent> m_OutgoingRpcBufferFromEntity;
+        BufferLookup<IncomingRpcDataStreamBufferComponent> m_RpcBufferFromEntity;
+        BufferLookup<IncomingCommandDataStreamBufferComponent> m_CmdBufferFromEntity;
+        BufferLookup<IncomingSnapshotDataStreamBufferComponent> m_SnapshotBufferFromEntity;
 
         public void OnCreate(ref SystemState state)
         {
@@ -308,7 +295,7 @@ namespace Unity.NetCode
             state.RequireForUpdate<NetDebug>();
 
             var builder = new EntityQueryBuilder(Allocator.Temp).WithAll<ClientServerTickRateRefreshRequest>();
-            m_refreshTickRateQuery = state.GetEntityQuery(builder);
+            m_RefreshTickRateQuery = state.GetEntityQuery(builder);
         }
 
         public void OnDestroy(ref SystemState state)
@@ -354,45 +341,52 @@ namespace Unity.NetCode
                     ComponentCollectionVersion = componentsVersion
                 });
             }
-            var freeNetworkIds = m_FreeNetworkIds;
-            var updateHandle = state.Dependency;
+
             var driverListening = DriverStore.DriversCount > 0 && DriverStore.GetDriverInstance(DriverStore.FirstDriver).driver.Listening;
             if (driverListening)
             {
-                for (int i = DriverStore.FirstDriver+1; i < DriverStore.LastDriver; ++i)
+                for (int i = DriverStore.FirstDriver + 1; i < DriverStore.LastDriver; ++i)
                 {
                     driverListening &= DriverStore.GetDriverInstance(i).driver.Listening;
                 }
                 // Detect failed listen by checking if some but not all drivers are listening
                 if (!driverListening)
                 {
-                    for (int i = DriverStore.FirstDriver+1; i < DriverStore.LastDriver; ++i)
+                    for (int i = DriverStore.FirstDriver + 1; i < DriverStore.LastDriver; ++i)
                     {
                         if (DriverStore.GetDriverInstance(i).driver.Listening)
                             DriverStore.GetDriverInstance(i).StopListening();
                     }
                 }
             }
+
+            k_Scheduling.Begin();
             state.Dependency = DriverStore.ScheduleUpdateAllDrivers(state.Dependency);
+            k_Scheduling.End();
 
             if (driverListening)
             {
                 m_GhostComponentFromEntity.Update(ref state);
 
                 // Schedule accept job
-                var acceptJob = new ConnectionAcceptJob();
-                acceptJob.driverStore = DriverStore;
-                acceptJob.commandBuffer = commandBuffer;
-                acceptJob.numNetworkId = m_NumNetworkIds;
-                acceptJob.freeNetworkIds = m_FreeNetworkIds;
-                acceptJob.rpcQueue = m_RpcQueue;
-                acceptJob.ghostFromEntity = m_GhostComponentFromEntity;
-                SystemAPI.TryGetSingleton<ClientServerTickRate>(out acceptJob.tickRate);
+                SystemAPI.TryGetSingleton<ClientServerTickRate>(out var tickRate);
+                var acceptJob = new ConnectionAcceptJob
+                {
+                    driverStore = DriverStore,
+                    commandBuffer = commandBuffer,
+                    numNetworkId = m_NumNetworkIds,
+                    freeNetworkIds = m_FreeNetworkIds,
+                    rpcQueue = m_RpcQueue,
+                    ghostFromEntity = m_GhostComponentFromEntity,
+                    tickRate = tickRate,
+                    protocolVersion = SystemAPI.GetSingleton<NetworkProtocolVersion>(),
+                    netDebug = netDebug,
+                    debugPrefix = debugPrefix
+                };
                 acceptJob.tickRate.ResolveDefaults();
-                acceptJob.protocolVersion = SystemAPI.GetSingleton<NetworkProtocolVersion>();
-                acceptJob.netDebug = netDebug;
-                acceptJob.debugPrefix = debugPrefix;
+                k_Scheduling.Begin();
                 state.Dependency = acceptJob.Schedule(state.Dependency);
+                k_Scheduling.End();
             }
             else
             {
@@ -403,7 +397,7 @@ namespace Unity.NetCode
                     tickRate.ResolveDefaults();
                     state.EntityManager.AddComponentData(newEntity, tickRate);
                 }
-                if (!m_refreshTickRateQuery.IsEmptyIgnoreFilter)
+                if (!m_RefreshTickRateQuery.IsEmptyIgnoreFilter)
                 {
                     m_ClientServerTickRateFromEntity.Update(ref state);
                     var refreshJob = new RefreshClientServerTickRate
@@ -414,7 +408,9 @@ namespace Unity.NetCode
                         tickRateEntity = SystemAPI.GetSingletonEntity<ClientServerTickRate>(),
                         dataFromEntity = m_ClientServerTickRateFromEntity
                     };
+                    k_Scheduling.Begin();
                     state.Dependency = refreshJob.ScheduleByRef(state.Dependency);
+                    k_Scheduling.End();
                 }
                 m_FreeNetworkIds.Clear();
             }
@@ -423,7 +419,6 @@ namespace Unity.NetCode
             m_NetworkIdFromEntity.Update(ref state);
             m_RequestDisconnectFromEntity.Update(ref state);
             m_InGameFromEntity.Update(ref state);
-            // Schedule parallel update job
             m_OutgoingRpcBufferFromEntity.Update(ref state);
             m_RpcBufferFromEntity.Update(ref state);
             m_CmdBufferFromEntity.Update(ref state);
@@ -454,7 +449,9 @@ namespace Unity.NetCode
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
             handleJob.netStats = SystemAPI.GetSingletonRW<GhostStatsCollectionCommand>().ValueRO.Value;
 #endif
+            k_Scheduling.Begin();
             state.Dependency = handleJob.ScheduleByRef(state.Dependency);
+            k_Scheduling.End();
         }
 
         [BurstCompile]
@@ -529,7 +526,7 @@ namespace Unity.NetCode
                             simMaxStepLength = tickRate.MaxSimulationStepBatchSize,
                             simTickRate = tickRate.SimulationTickRate
                         });
-                        netDebug.DebugLog(FixedString.Format("{0} Accepted new connection NetworkId={1} InternalId={2}", debugPrefix, nid, connection.Value.InternalId));
+                        netDebug.DebugLog(FixedString.Format("{0} Accepted new connection {1} NetworkId={2}", debugPrefix, connection.Value.ToFixedString(), nid));
                     }
                 }
             }
@@ -604,7 +601,7 @@ namespace Unity.NetCode
                         connectionStateFromEntity[entity] = state;
                     }
                     commandBuffer.DestroyEntity(entity); // This can cause issues if some other system adds components while it is in the queue
-                    netDebug.DebugLog(FixedString.Format("{0} Disconnecting NetworkId={1} InternalId={2} Reason={3}", debugPrefix, id, connection.Value.InternalId, DisconnectReasonEnumToString.Convert((int)disconnect.Reason)));
+                    netDebug.DebugLog(FixedString.Format("{0} Disconnecting {1} NetworkId={2} Reason={3}", debugPrefix, connection.Value.ToFixedString(), id, DisconnectReasonEnumToString.Convert((int)disconnect.Reason)));
                 }
                 else if (!inGameFromEntity.HasComponent(entity))
                 {
@@ -686,7 +683,7 @@ namespace Unity.NetCode
                                 id = networkIdFromEntity[entity].Value;
                                 freeNetworkIds.Enqueue(id);
                             }
-                            netDebug.DebugLog(FixedString.Format("{0} Connection closed NetworkId={1} InternalId={2} Reason={3}", debugPrefix, id, connection.Value.InternalId, DisconnectReasonEnumToString.Convert((int)reason)));
+                            netDebug.DebugLog(FixedString.Format("{0} {1} closed NetworkId={2} Reason={3}", debugPrefix, connection.Value.ToFixedString(), id, DisconnectReasonEnumToString.Convert((int)reason)));
                             return;
                         case NetworkEvent.Type.Data:
                             // FIXME: do something with the data

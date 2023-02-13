@@ -12,7 +12,8 @@
         "Unity.Mathematics.Extensions",
         "Unity.Networking.Transport",
         "Unity.Build",
-        "Unity.Logging"
+        "Unity.Logging",
+        "Unity.Properties"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],

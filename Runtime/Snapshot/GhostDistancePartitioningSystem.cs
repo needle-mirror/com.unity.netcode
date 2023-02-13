@@ -122,11 +122,6 @@ namespace Unity.NetCode
         }
 #endif
         [BurstCompile]
-        public void OnDestroy(ref SystemState state)
-        {
-        }
-
-        [BurstCompile]
         public void OnUpdate(ref SystemState state)
         {
             var config = SystemAPI.GetSingleton<GhostDistanceData>();

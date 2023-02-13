@@ -218,6 +218,7 @@ namespace Unity.NetCode
             m_ConnectionsQuery = state.GetEntityQuery(builder);
             builder.Reset();
             builder.WithAll<BeginSimulationEntityCommandBufferSystem.Singleton>();
+            builder.WithOptions(EntityQueryOptions.IncludeSystems);
             m_CommandBufferQuery = state.GetEntityQuery(builder);
 
             m_EntityTypeHandle = state.GetEntityTypeHandle();

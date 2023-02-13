@@ -1,6 +1,8 @@
 #if (UNITY_EDITOR || DEVELOPMENT_BUILD) && !NETCODE_NDEBUG
 #define NETCODE_DEBUG
 #endif
+using Unity.Burst;
+using Unity.Collections;
 using Unity.Entities;
 
 namespace Unity.NetCode
@@ -26,49 +28,55 @@ namespace Unity.NetCode
     /// System that copy the <see cref="NetCodeDebugConfig"/> to the <see cref="NetDebug"/> singleton.
     /// When the <see cref="NetCodeDebugConfig.DumpPackets"/> is set to true, a <see cref="EnablePacketLogging"/> component is added to all connection.
     /// </summary>
+    [BurstCompile]
     [UpdateInGroup(typeof(GhostSimulationSystemGroup))]
-    internal partial class DebugConnections : SystemBase
+    internal partial struct DebugConnections : ISystem
     {
-        BeginSimulationEntityCommandBufferSystem m_CmdBuffer;
+        EntityQuery m_ConnectionsQueryWithout;
+        EntityQuery m_ConnectionsQueryWith;
 
-        protected override void OnCreate()
+        [BurstCompile]
+        public void OnCreate(ref SystemState state)
         {
-            m_CmdBuffer = World.GetOrCreateSystemManaged<BeginSimulationEntityCommandBufferSystem>();
-            RequireForUpdate<NetCodeDebugConfig>();
+            m_ConnectionsQueryWithout = state.EntityManager.CreateEntityQuery(new EntityQueryBuilder(Allocator.Temp).WithAll<NetworkStreamConnection>().WithNone<EnablePacketLogging>());
+            m_ConnectionsQueryWith = state.EntityManager.CreateEntityQuery(new EntityQueryBuilder(Allocator.Temp).WithAll<NetworkStreamConnection>().WithAll<EnablePacketLogging>());
+            state.RequireForUpdate<NetCodeDebugConfig>();
         }
 
-        protected override void OnUpdate()
+        public void OnUpdate(ref SystemState state)
         {
-            if (World.IsThinClient())
+            if (state.WorldUnmanaged.IsThinClient())
                 return;
 
             var debugConfig = SystemAPI.GetSingleton<NetCodeDebugConfig>();
             var targetLogLevel = debugConfig.LogLevel;
+            var shouldDumpPackets = debugConfig.DumpPackets;
 
 #if UNITY_EDITOR
             if (MultiplayerPlayModePreferences.ApplyLoggerSettings)
+            {
                 targetLogLevel = MultiplayerPlayModePreferences.TargetLogLevel;
+                shouldDumpPackets = MultiplayerPlayModePreferences.TargetShouldDumpPackets;
+            }
 #endif
 
             SystemAPI.GetSingletonRW<NetDebug>().ValueRW.LogLevel = targetLogLevel;
 
-            var cmdBuffer = m_CmdBuffer.CreateCommandBuffer();
-            if (debugConfig.DumpPackets)
+            if (shouldDumpPackets)
             {
-                Entities.WithNone<EnablePacketLogging>().ForEach((Entity entity, in NetworkStreamConnection conn) =>
-                {
-                    cmdBuffer.AddComponent<EnablePacketLogging>(entity);
-                }).Schedule();
+                state.EntityManager.AddComponent<EnablePacketLogging>(m_ConnectionsQueryWithout);
             }
             else
             {
-                Entities.ForEach((Entity entity, in NetworkStreamConnection conn, in EnablePacketLogging logging) =>
-                {
-                    cmdBuffer.RemoveComponent<EnablePacketLogging>(entity);
-                }).Schedule();
+                state.EntityManager.RemoveComponent<EnablePacketLogging>(m_ConnectionsQueryWith);
             }
+        }
 
-            m_CmdBuffer.AddJobHandleForProducer(Dependency);
+        [BurstCompile]
+        public void OnDestroy(ref SystemState state)
+        {
+            m_ConnectionsQueryWithout.Dispose();
+            m_ConnectionsQueryWith.Dispose();
         }
     }
 #endif

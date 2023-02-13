@@ -32,8 +32,6 @@ namespace Unity.NetCode.Editor
                 GhostAuthoringInspectionComponent.forceBake = false;
                 GhostAuthoringInspectionComponent.forceSave = true;
 
-                var allComponentOverrides = GhostAuthoringInspectionComponent.CollectAllComponentOverridesInInspectionComponents(authoringComponent);
-
                 // TODO - Handle exceptions due to invalid prefab setup. E.g.
                 // "InvalidOperationException: OwnerPrediction mode can only be used on prefabs which have a GhostOwnerComponent"
                 using(var world = new World(nameof(EntityPrefabComponentsPreview)))
@@ -46,8 +44,11 @@ namespace Unity.NetCode.Editor
                     var bakingSystem = world.GetExistingSystemManaged<BakingSystem>();
                     var primaryEntitiesMap = new HashSet<Entity>(16);
 
-                    CreatedBakedResultForPrimaryEntities(world, bakedDataMap, authoringComponent, bakingSystem, allComponentOverrides, primaryEntitiesMap);
-                    CreatedBakedResultForLinkedEntities(world, bakedDataMap, primaryEntitiesMap, allComponentOverrides);
+                    var primaryEntity = bakingSystem.GetEntity(authoringComponent.gameObject);
+                    var ghostBlobAsset = world.EntityManager.GetComponentData<GhostPrefabMetaDataComponent>(primaryEntity).Value;
+
+                    CreatedBakedResultForPrimaryEntities(world, bakedDataMap, authoringComponent, bakingSystem, primaryEntitiesMap, ghostBlobAsset);
+                    CreatedBakedResultForLinkedEntities(world, bakedDataMap, primaryEntitiesMap, ghostBlobAsset);
                 }
             }
             finally
@@ -57,7 +58,7 @@ namespace Unity.NetCode.Editor
             }
         }
 
-        void CreatedBakedResultForPrimaryEntities(World world, Dictionary<GameObject, BakedGameObjectResult> bakedDataMap, GhostAuthoringComponent authoringComponent, BakingSystem bakingSystem, List<GhostAuthoringInspectionComponent.ComponentOverride> allComponentOverrides, HashSet<Entity> primaryEntitiesMap)
+        void CreatedBakedResultForPrimaryEntities(World world, Dictionary<GameObject, BakedGameObjectResult> bakedDataMap, GhostAuthoringComponent authoringComponent, BakingSystem bakingSystem, HashSet<Entity> primaryEntitiesMap, BlobAssetReference<GhostPrefabMetaData> blobAssetReference)
         {
             foreach (var t in authoringComponent.GetComponentsInChildren<Transform>())
             {
@@ -65,9 +66,11 @@ namespace Unity.NetCode.Editor
 
                 // I'd like to skip children that DONT have an Inspection component, but not possible as they may add one.
 
+                var sourcePrefabPath = AssetDatabase.GetAssetPath(go);
                 var result = new BakedGameObjectResult
                 {
                     SourceGameObject = go,
+                    SourcePrefabPath = sourcePrefabPath,
                     RootAuthoring = authoringComponent,
                     BakedEntities = new List<BakedEntityResult>(1)
                 };
@@ -75,14 +78,14 @@ namespace Unity.NetCode.Editor
                 var primaryEntity = bakingSystem.GetEntity(go);
                 if (bakingSystem.EntityManager.Exists(primaryEntity))
                 {
-                    result.BakedEntities.Add(CreateBakedEntityResult(result, 0, world, primaryEntity, false));
+                    result.BakedEntities.Add(CreateBakedEntityResult(result, 0, world, primaryEntity, false, blobAssetReference));
                     primaryEntitiesMap.Add(primaryEntity);
                 }
                 bakedDataMap[go] = result;
             }
         }
 
-        void CreatedBakedResultForLinkedEntities(World world, Dictionary<GameObject, BakedGameObjectResult> bakedDataMap, HashSet<Entity> primaryEntitiesMap, List<GhostAuthoringInspectionComponent.ComponentOverride> allComponentOverrides)
+        void CreatedBakedResultForLinkedEntities(World world, Dictionary<GameObject, BakedGameObjectResult> bakedDataMap, HashSet<Entity> primaryEntitiesMap, BlobAssetReference<GhostPrefabMetaData> blobAssetReference)
         {
             foreach (var kvp in bakedDataMap)
             {
@@ -102,7 +105,7 @@ namespace Unity.NetCode.Editor
                             // I.e. Only possible if, during Baking, users call `CreateAdditionalEntity`.
                             if (!primaryEntitiesMap.Contains(linkedEntity))
                             {
-                                kvp.Value.BakedEntities.Add(CreateBakedEntityResult(kvp.Value, i, world, linkedEntity, true));
+                                kvp.Value.BakedEntities.Add(CreateBakedEntityResult(kvp.Value, i, world, linkedEntity, true, blobAssetReference));
                             }
                         }
                     }
@@ -110,13 +113,15 @@ namespace Unity.NetCode.Editor
             }
         }
 
-        BakedEntityResult CreateBakedEntityResult(BakedGameObjectResult parent, int entityIndex, World world, Entity convertedEntity, bool isLinkedEntity)
+        BakedEntityResult CreateBakedEntityResult(BakedGameObjectResult parent, int entityIndex, World world, Entity convertedEntity, bool isLinkedEntity, BlobAssetReference<GhostPrefabMetaData> blobAssetReference)
         {
             var isRoot = parent.SourceGameObject == parent.RootAuthoring.gameObject;
+            var guid = world.EntityManager.GetComponentData<EntityGuid>(convertedEntity);
             var result = new BakedEntityResult
             {
                 GoParent = parent,
                 Entity = convertedEntity,
+                Guid = guid,
                 EntityName = world.EntityManager.GetName(convertedEntity),
                 EntityIndex = entityIndex,
                 BakedComponents = new List<BakedComponentItem>(16),
@@ -127,7 +132,7 @@ namespace Unity.NetCode.Editor
             using var query = world.EntityManager.CreateEntityQuery(ComponentType.ReadOnly<GhostComponentSerializerCollectionData>());
             var collectionData = query.GetSingleton<GhostComponentSerializerCollectionData>();
 
-            AddToComponentList(result, result.BakedComponents, in collectionData, world, convertedEntity, entityIndex);
+            AddToComponentList(result, result.BakedComponents, collectionData, world, convertedEntity, entityIndex, blobAssetReference);
 
             var variantTypesList = new NativeList<ComponentTypeSerializationStrategy>(4, Allocator.Temp);
             foreach (var compItem in result.BakedComponents)
@@ -140,6 +145,7 @@ namespace Unity.NetCode.Editor
                     variantTypesList.Add(compItem.availableSerializationStrategies[i]);
                 }
                 compItem.serializationStrategy = collectionData.SelectSerializationStrategyForComponentWithHash(ComponentType.ReadWrite(compItem.managedType), searchHash, variantTypesList, isRoot);
+                compItem.sendToOwnerType = compItem.serializationStrategy.IsSerialized != 0 ? collectionData.Serializers[compItem.serializationStrategy.SerializerIndex].SendToOwner : SendToOwnerType.None;
 
                 if (compItem.anyVariantIsSerialized)
                 {
@@ -158,29 +164,55 @@ namespace Unity.NetCode.Editor
             return result;
         }
 
-        static void AddToComponentList(BakedEntityResult parent, List<BakedComponentItem> newComponents, in GhostComponentSerializerCollectionData collectionData, World world, Entity convertedEntity, int entityIndex)
+        static void AddToComponentList(BakedEntityResult parent, List<BakedComponentItem> newComponents, GhostComponentSerializerCollectionData collectionData, World world, Entity convertedEntity, int entityIndex, BlobAssetReference<GhostPrefabMetaData> blobAssetReference)
         {
             var compTypes = world.EntityManager.GetComponentTypes(convertedEntity);
             compTypes.Sort(default(ComponentNameComparer));
 
+            // Store all types:
             for (int i = 0; i < compTypes.Length; ++i)
+                CreateBakedComponentItem(compTypes[i]);
+
+            // Store the types that have been removed from BOTH the server and client (as they'd not be found via the above):
+            TryAddRemoved(ref blobAssetReference.Value.RemoveOnServer);
+            TryAddRemoved(ref blobAssetReference.Value.RemoveOnClient);
+
+            void TryAddRemoved(ref BlobArray<GhostPrefabMetaData.ComponentReference> removedArray)
             {
-                var componentType = compTypes[i];
+                for (var i = 0; i < removedArray.Length; i++)
+                {
+                    var removedCompRef = removedArray[i];
+                    if (removedCompRef.EntityIndex != entityIndex) continue;
+                    var removedComp = ComponentType.FromTypeIndex(TypeManager.GetTypeIndexFromStableTypeHash(removedCompRef.StableHash));
+                    bool IsNotAlreadyAdded(BakedComponentItem x) => x.managedType != removedComp.GetManagedType();
+                    if (newComponents.All(IsNotAlreadyAdded))
+                        CreateBakedComponentItem(removedComp);
+                }
+            }
+
+            void CreateBakedComponentItem(ComponentType componentType)
+            {
                 var managedType = componentType.GetManagedType();
                 if (managedType == typeof(Prefab) || managedType == typeof(LinkedEntityGroup))
-                    continue;
+                    return;
 
-                var guid = world.EntityManager.GetComponentData<EntityGuid>(convertedEntity);
+                var componentItem = new BakedComponentItem
+                {
+                    EntityParent = parent,
+                    fullname = managedType.FullName,
+                    managedType = managedType,
+                    entityIndex = entityIndex,
+                };
 
-                using var availableSs = collectionData.GetAllAvailableSerializationStrategiesForType(managedType, parent.IsRoot);
+                using var availableSs = collectionData.GetAllAvailableSerializationStrategiesForType(managedType, componentItem.VariantHash, parent.IsRoot);
                 var canSerializeInAtLeastOneVariant = GhostComponentSerializerCollectionData.AnyVariantsAreSerialized(in availableSs);
-                var defaultVariant = collectionData.SelectSerializationStrategyForComponentWithHash(componentType, 0, availableSs, parent.IsRoot);
+                var defaultVariant = collectionData.GetCurrentSerializationStrategyForComponent(managedType, 0, parent.IsRoot);
 
                 // Remove test variants as they cannot be selected:
                 for (var j = availableSs.Length - 1; j >= 0; j--)
                 {
                     var ss = availableSs[j];
-                    if(ss.IsTestVariant != 0)
+                    if (ss.IsTestVariant != 0)
                         availableSs.RemoveAt(j);
                 }
 
@@ -190,22 +222,14 @@ namespace Unity.NetCode.Editor
                 {
                     var vt = availableSs[j];
                     ssDisplayNames[j] = vt.DisplayName.ToString();
-                    if (vt.Hash == defaultVariant.Hash)
-                        ssDisplayNames[j] += " (Default)";
+                    if (defaultVariant.Hash == availableSs[j].Hash)
+                        ssDisplayNames[j] += $" ({ComponentTypeSerializationStrategy.GetDefaultDisplayName(defaultVariant.DefaultRule)})";
                 }
 
-                var componentItem = new BakedComponentItem
-                {
-                    EntityParent = parent,
-                    fullname = managedType.FullName,
-                    managedType = managedType,
-                    entityGuid = guid,
-                    entityIndex = entityIndex,
-                    availableSerializationStrategies = availableSs.ToArrayNBC(),
-                    availableSerializationStrategyDisplayNames = ssDisplayNames,
-                    anyVariantIsSerialized = canSerializeInAtLeastOneVariant,
-                    defaultSerializationStrategy = defaultVariant,
-                };
+                componentItem.availableSerializationStrategies = availableSs.ToArrayNBC();
+                componentItem.availableSerializationStrategyDisplayNames = ssDisplayNames;
+                componentItem.anyVariantIsSerialized = canSerializeInAtLeastOneVariant;
+                componentItem.defaultSerializationStrategy = defaultVariant;
                 newComponents.Add(componentItem);
             }
         }

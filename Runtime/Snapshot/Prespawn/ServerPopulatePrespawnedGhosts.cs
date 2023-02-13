@@ -82,11 +82,6 @@ namespace Unity.NetCode
             state.RequireForUpdate<GhostCollection>();
         }
         [BurstCompile]
-        public void OnDestroy(ref SystemState state)
-        {
-        }
-
-        [BurstCompile]
         public void OnUpdate(ref SystemState state)
         {
             if (!SystemAPI.TryGetSingletonEntity<PrespawnSceneLoaded>(out var prespawnSceneListEntity))

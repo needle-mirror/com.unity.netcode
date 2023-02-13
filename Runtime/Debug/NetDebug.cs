@@ -203,9 +203,11 @@ namespace Unity.NetCode.LowLevel.Unsafe
 namespace Unity.NetCode
 {
     /// <summary>
-    /// Component added to a <see cref="NetworkStreamConnection"/> when packet dump is enabled.
+    /// Add this component to connection entities <see cref="NetworkStreamConnection"/> to get more detailed Netcode
+    /// debug information (`Debug` level) in general or to enable ghost snapshot or packet logging per connection.
+    /// Debug information can be toggled globally in the Playmode Tools Window and in the `NetCodeDebugConfigAuthoring` component.
     /// </summary>
-    internal struct EnablePacketLogging : IComponentData
+    public struct EnablePacketLogging : IComponentData
     { }
 
 #if NETCODE_DEBUG

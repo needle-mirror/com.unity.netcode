@@ -182,7 +182,7 @@ namespace Unity.NetCode.Tests
                 // Connect and make sure the connection could be established
                 Assert.IsTrue(testWorld.Connect(frameTime, 4));
 
-                LogAssert.Expect(LogType.Error, new Regex("\\[ServerTest\\] RpcSystem received invalid rpc \\(index (\\d+) out of range\\) from connection 0"));
+                LogAssert.Expect(LogType.Error, new Regex("\\[ServerTest\\] RpcSystem received invalid rpc \\(index (\\d+) out of range\\) from NetworkConnection\\[id0,v\\d\\]"));
                 for (int i = 0; i < 32; ++i)
                     testWorld.Tick(1f / 60f);
 
@@ -190,7 +190,7 @@ namespace Unity.NetCode.Tests
                 Assert.True(ServerMultipleRpcReceiveSystem.ReceivedCount[1] == SendCount);
             }
         }
-        
+
         [Test]
         public void Rpc_CanSendMoreThanOnePacketPerFrame()
         {

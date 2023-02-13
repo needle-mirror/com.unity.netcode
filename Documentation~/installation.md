@@ -1,6 +1,6 @@
 # Netcode for Entities Project Setup
 
-To setup Netcode for Entities you need to make sure you are on the correct version of the Editor.
+To setup Netcode for Entities, you need to make sure you are on the correct version of the Editor.
 
 ## Unity Editor Version
 
@@ -14,4 +14,4 @@ Netcode for Entities requires you to have Unity version __2022.2.0b8__ or higher
     - com.unity.netcode
     - com.unity.entities.graphics
 
-When the Package Manager is done you can continue with the [next part](networked-cube.md).
+When the Package Manager is done, you can continue with the [next part](networked-cube.md).

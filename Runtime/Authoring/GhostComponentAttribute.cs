@@ -25,10 +25,11 @@ namespace Unity.NetCode
         public SendToOwnerType OwnerSendType { get; set; } = SendToOwnerType.All;
 
         /// <summary>
-        /// Gets or sets whether or not this component should override the default behaviour (of components on children not sending data)
-        /// and always send data when it is on a child entity (unless overridden via <see cref="DefaultVariantSystemBase"/>).
-        /// Setting to true defaults this type to send when on children.
-        /// Setting to false has no effect as that is the default.
+        /// Denotes whether or not this component - when added to a child entity - should send (i.e. replicate) its data.
+        /// The default behaviour is that Netcode will NOT replicate component and buffer data on children.
+        /// Why not? It's expensive, as it involves finding child entities in other chunks.
+        /// Thus, setting this flag to true will enable this (more expensive) serialization of child entities (unless overridden via another "Variant").
+        /// Setting to false has no effect (as is the default).
         /// </summary>
         public bool SendDataForChildEntity { get; set; } = false;
     }

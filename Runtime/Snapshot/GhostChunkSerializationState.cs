@@ -13,7 +13,7 @@ namespace Unity.NetCode.LowLevel.Unsafe
 {
     unsafe struct GhostChunkSerializationState
     {
-        public EntityArchetype arch;
+        public ulong sequenceNumber;
         public int ghostType;
 
         // the entity and data arrays are 2d arrays (chunk capacity * max snapshots)

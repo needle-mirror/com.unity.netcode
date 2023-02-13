@@ -139,9 +139,6 @@ namespace Unity.NetCode
             state.RequireForUpdate<GhostSpawnQueueComponent>();
         }
         [BurstCompile]
-        public void OnDestroy(ref SystemState state)
-        {}
-        [BurstCompile]
         public void OnUpdate(ref SystemState state)
         {
             m_spawnBufferHelper.Update(ref state);
@@ -211,9 +208,6 @@ namespace Unity.NetCode
             state.RequireForUpdate<GhostSpawnQueueComponent>();
             state.RequireForUpdate<PredictedGhostSpawnList>();
         }
-
-        [BurstCompile]
-        public void OnDestroy(ref SystemState state) { }
 
         [BurstCompile]
         public void OnUpdate(ref SystemState state)

@@ -3,6 +3,7 @@ using Unity.Entities;
 using UnityEngine;
 using Unity.Mathematics;
 using Unity.Transforms;
+using UnityEngine.TestTools;
 
 
 namespace Unity.NetCode.Tests
@@ -148,6 +149,74 @@ namespace Unity.NetCode.Tests
 #endif
                 Assert.IsTrue(math.distance(prevServer, prevClient) < 0.01);
             }
+        }
+
+        [TestCase(120)]
+        [TestCase(90)]
+        [TestCase(82)]
+        [TestCase(45)]
+        public void NetcodeClientPredictionRateManager_WillWarnWhenMismatchSimulationTickRate(int simulationTickRate)
+        {
+            using (var testWorld = new NetCodeTestWorld())
+            {
+                SetupPredictionAndTickRate(simulationTickRate, testWorld);
+
+                LogAssert.Expect(LogType.Warning, $"1 / {nameof(PredictedFixedStepSimulationSystemGroup)}.{nameof(ComponentSystemGroup.RateManager)}.{nameof(IRateManager.Timestep)}(ms): {60}(FPS) " +
+                                               $"must be an integer multiple of {nameof(ClientServerTickRate)}.{nameof(ClientServerTickRate.SimulationTickRate)}:{simulationTickRate}(FPS).\n" +
+                                               $"Timestep will default to 1 / SimulationTickRate: {1f / simulationTickRate} to fix this issue for now.");
+                var timestep = testWorld.ClientWorlds[0].GetOrCreateSystemManaged<PredictedFixedStepSimulationSystemGroup>().RateManager.Timestep;
+                Assert.That(timestep, Is.EqualTo(1f / simulationTickRate));
+            }
+        }
+
+        [TestCase(30)]
+        [TestCase(20)]
+        public void NetcodeClientPredictionRateManager_WillNotWarnWhenMatchingSimulationTickRate(int simulationTickRate)
+        {
+            using (var testWorld = new NetCodeTestWorld())
+            {
+                SetupPredictionAndTickRate(simulationTickRate, testWorld);
+
+                LogAssert.Expect(LogType.Warning,
+                    @"Ignoring invalid [Unity.Entities.UpdateAfterAttribute] attribute on Unity.NetCode.NetworkTimeSystem targeting Unity.Entities.UpdateWorldTimeSystem.
+This attribute can only order systems that are members of the same ComponentSystemGroup instance.
+Make sure that both systems are in the same system group with [UpdateInGroup(typeof(Unity.Entities.InitializationSystemGroup))],
+or by manually adding both systems to the same group's update list.");
+                LogAssert.NoUnexpectedReceived();
+                var timestep = testWorld.ClientWorlds[0].GetOrCreateSystemManaged<PredictedFixedStepSimulationSystemGroup>().RateManager.Timestep;
+                Assert.That(timestep, Is.EqualTo(1f / 60f));
+            }
+        }
+
+        static void SetupPredictionAndTickRate(int simulationTickRate, NetCodeTestWorld testWorld)
+        {
+            testWorld.Bootstrap(true);
+
+            var ghostGameObject = new GameObject();
+            var ghostConfig = ghostGameObject.AddComponent<GhostAuthoringComponent>();
+            ghostConfig.DefaultGhostMode = GhostMode.Predicted;
+
+            Assert.IsTrue(testWorld.CreateGhostCollection(ghostGameObject));
+
+            testWorld.CreateWorlds(true, 1);
+
+            var serverEnt = testWorld.SpawnOnServer(ghostGameObject);
+            var ent = testWorld.ServerWorld.EntityManager.CreateEntity();
+            testWorld.ServerWorld.EntityManager.AddComponentData(ent, new ClientServerTickRate
+            {
+                SimulationTickRate = simulationTickRate,
+            });
+            Assert.AreNotEqual(Entity.Null, serverEnt);
+
+            // Connect and make sure the connection could be established
+            Assert.IsTrue(testWorld.Connect(frameTime, 8));
+
+            // Go in-game
+            testWorld.GoInGame();
+
+            // Let the game run for a bit so the ghosts are spawned on the client
+            for (int i = 0; i < 16; ++i)
+                testWorld.Tick(frameTime);
         }
     }
 }

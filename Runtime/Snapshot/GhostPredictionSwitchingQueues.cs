@@ -77,11 +77,23 @@ namespace Unity.NetCode
 
                 while (m_ConvertToPredictedQueue.TryDequeue(out var conversion))
                 {
+                    //if entity has been already destroyed. silently skip;
+                    if (!state.EntityManager.Exists(conversion.TargetEntity))
+                    {
+                        netDebug.DebugLog("Attempt to convert entity {conversion.TargetEntity} to predicted but the entity has been destroyed.");
+                        continue;
+                    }
                     ConvertGhostToPredicted(state.EntityManager, ghostUpdateVersion, netDebug, prefabs, conversion.TargetEntity, conversion.TransitionDurationSeconds);
                 }
 
                 while (m_ConvertToInterpolatedQueue.TryDequeue(out var conversion))
                 {
+                    //if entity has been already destroyed. silently skip;
+                    if (!state.EntityManager.Exists(conversion.TargetEntity))
+                    {
+                        netDebug.DebugLog("Attempt to convert entity {conversion.TargetEntity} to interpolated but the entity has been destroyed.");
+                        continue;
+                    }
                     ConvertGhostToInterpolated(state.EntityManager, ghostUpdateVersion, netDebug, prefabs, conversion.TargetEntity, conversion.TransitionDurationSeconds);
                 }
             }

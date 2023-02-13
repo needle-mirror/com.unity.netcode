@@ -1,4 +1,5 @@
 using NUnit.Framework;
+using Unity.Collections;
 using Unity.Entities;
 using Unity.Networking.Transport;
 using UnityEngine;
@@ -7,6 +8,33 @@ namespace Unity.NetCode.Tests
 {
     public class MultiDriverTests
     {
+        [Test]
+        public void LocalEndpointCanBeRetrieved()
+        {
+            unsafe
+            {
+                NetworkDriverStore driverStore = new NetworkDriverStore();
+                NetworkEndpoint.TryParse("111.111.111.111", 1, out var invalid);
+                var streamDriver = new NetworkStreamDriver(&driverStore, new NativeReference<int>(Allocator.Temp), new NativeQueue<int>(Allocator.Temp), invalid);
+                var netDebug = new NetDebug();
+                netDebug.Initialize();
+
+                var instance = new NetworkDriverStore.NetworkDriverInstance
+                {
+                    driver = NetworkDriver.Create(new UDPNetworkInterface(), new NetworkSettings())
+                };
+                driverStore.RegisterDriver(TransportType.Socket, instance);
+
+                var ep = NetworkEndpoint.LoopbackIpv4;
+                ep.Port = 4242;
+                streamDriver.Listen(ep);
+                var firstDriver = streamDriver.GetLocalEndPoint(1); // First Driver
+                Assert.That(firstDriver.Address, Is.EqualTo("127.0.0.1:4242"), "Local IP Address was not set correctly");
+                var defaultDriverEndpoint = streamDriver.GetLocalEndPoint();
+                Assert.That(defaultDriverEndpoint.Address, Is.EqualTo("127.0.0.1:4242"), "This should be the same driver as used above");
+            }
+        }
+
         [Test]
         public void ConnectWithMultipleInterfaces()
         {

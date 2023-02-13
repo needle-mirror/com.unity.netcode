@@ -2,6 +2,7 @@
 using System.Runtime.InteropServices;
 using AOT;
 using Unity.Burst;
+using Unity.Collections;
 using Unity.Entities;
 
 namespace Unity.NetCode
@@ -18,7 +19,7 @@ namespace Unity.NetCode
         /// See <see cref="GhostDistanceImportance"/> for example implementation.
         /// </summary>
         /// <param name="connectionData">Per connection data. Ex. position in the world that should be prioritized.</param>
-        /// <param name="importanceData">Configuration data. Ex. Each tile's configuration.</param>
+        /// <param name="importanceData">Optional configuration data. Ex. Each tile's configuration. Handle IntPtr.Zero!</param>
         /// <param name="chunkTile">Per chunk information. Ex. each entity's tile index.</param>
         /// <param name="basePriority">Priority computed by <see cref="GhostSendSystem"/> after computing tick when last updated and irrelevance.</param>
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
@@ -40,12 +41,15 @@ namespace Unity.NetCode
         /// </summary>
         public ComponentType GhostConnectionComponentType;
         /// <summary>
-        /// ComponentType for configuration data. <see cref="GhostSendSystem"/> will query for this component type before
-        /// invoking the function assigned to <see cref="ScaleImportanceFunction"/>.
+        /// Optional singleton ComponentType for configuration data.
+        /// Leave default if not required. <see cref="IntPtr.Zero"/> will be passed into the <see cref="ScaleImportanceFunction"/>.
+        /// <see cref="GhostSendSystem"/> will query for this component type, passing the data into the
+        /// <see cref="ScaleImportanceFunction"/> function when invoking it.
         /// </summary>
         public ComponentType GhostImportanceDataType;
         /// <summary>
-        /// ComponentType for per chunk data. Each chunk represents a group of entities.
+        /// ComponentType for per chunk data. Must be a shared component type! Each chunk represents a group of entities,
+        /// collected as they share some importance-related value (e.g. distance to the players character controller).
         /// <see cref="GhostSendSystem"/> will query for this component type before invoking the function assigned to <see cref="ScaleImportanceFunction"/>.
         /// </summary>
         public ComponentType GhostImportancePerChunkDataType;

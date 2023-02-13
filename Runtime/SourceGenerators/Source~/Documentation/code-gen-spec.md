@@ -58,7 +58,7 @@ public struct Invalid1 : IComponentData, IRpcCommand
 }
 public struct Invalid2 : IComponentData, ICommandData
 {
-    public NetworkTick Tick {get;set}
+    public Unity.NetCode.NetworkTick Tick {get;set}
     public int Value1;
 }
 public struct Invalid3 : IComponentData, IBufferElementData
@@ -67,7 +67,7 @@ public struct Invalid3 : IComponentData, IBufferElementData
 }
 public struct Invalid4: IBufferElementData, ICommandData
 {
-    public NetworkTick Tick {get;set}
+    public Unity.NetCode.NetworkTick Tick {get;set}
     public int Value1;
 }
 public struct Invalid5 : IBufferElementData, IRpcCommand
@@ -144,7 +144,6 @@ There are no specific restriction on name length, but shorter names should be pr
 
 #### Notes about unsupported basic types:
 - `char` is not supported (for various reasons).
-- `double` is not supported (missing, no real reason at that point)
 ### COMPOSITE FIELDS AND TYPE HIERARCHIES
 If the serialized type (ICommand, IRpcCommand, IComponent, IBufferElement) contains a field that is a struct, the field type hierarchy is recursively traversed and fields collected for serialization.
 
@@ -636,7 +635,7 @@ because `GhostField` properties are used to generate the serialization code, **f
 ```c#
 public struct MyCommand : ICommnaData
 {
-  [GhostField] public NetworkTick Tick {get;set;}
+  [GhostField] public Unity.NetCode.NetworkTick Tick {get;set;}
   [GhostField] public float AllTheSame;
   [GhostField(Quantization=100)] public float TheSameOnServer;
 }
@@ -804,9 +803,9 @@ It is **not mandatory** for the variant to declare all original `ORIGINAL_TYPE` 
 A compiler error is raised in case:
 - a `GhostComponentVariation` declares a member (property or field) that is not present in the original type declaration.
 - the `ORIGINAL_TYPE` is not public
-- a `DontSupportVariationAttribute` attribute is present in the `ORIGINAL_TYPE` declaration
+- a `DontSupportPrefabOverridesAttribute` attribute is present in the `ORIGINAL_TYPE` declaration
 ```c#
-[DontSupportVariationAttribute]
+[DontSupportPrefabOverridesAttribute]
 public struct OriginalType : IComponentData
 {
 }

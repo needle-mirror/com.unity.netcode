@@ -16,7 +16,7 @@ namespace Unity.NetCode.LowLevel
         [ReadOnly] private BufferLookup<GhostCollectionComponentIndex> m_GhostCollectionComponentIndexLookup;
         [ReadOnly] private BufferLookup<GhostCollectionComponentType> m_GhostCollectionComponentTypeLookup;
         [ReadOnly] private BufferLookup<GhostComponentSerializer.State> m_GhostCollectionSerializersLookup;
-        [ReadOnly] private ComponentLookup<SnapshotDataLookupCache> m_ComponentCacheLookup;
+        [NativeDisableUnsafePtrRestriction] private EntityQuery m_SnapshotDataLookupCacheSingleton;
 
         /// <summary>
         /// Default constructor, collect and initialize all the internal <see cref="BufferFromEntity{T}"/> handles.
@@ -28,7 +28,7 @@ namespace Unity.NetCode.LowLevel
             m_GhostCollectionComponentIndexLookup = state.GetBufferLookup<GhostCollectionComponentIndex>(true);
             m_GhostCollectionComponentTypeLookup = state.GetBufferLookup<GhostCollectionComponentType>(true);
             m_GhostCollectionSerializersLookup = state.GetBufferLookup<GhostComponentSerializer.State>(true);
-            m_ComponentCacheLookup = state.GetComponentLookup<SnapshotDataLookupCache>();
+            m_SnapshotDataLookupCacheSingleton = new EntityQueryBuilder(Allocator.Temp).WithAll<SnapshotDataLookupCache>().WithOptions(EntityQueryOptions.IncludeSystems).Build(state.EntityManager);
         }
 
         /// <summary>
@@ -41,7 +41,6 @@ namespace Unity.NetCode.LowLevel
             m_GhostCollectionComponentIndexLookup.Update(ref state);
             m_GhostCollectionComponentTypeLookup.Update(ref state);
             m_GhostCollectionSerializersLookup.Update(ref state);
-            m_ComponentCacheLookup.Update(ref state);
         }
 
         /// <summary>
@@ -61,7 +60,7 @@ namespace Unity.NetCode.LowLevel
                 m_GhostCollectionComponentIndexLookup[ghostCollectionSingleton],
                 m_GhostCollectionComponentTypeLookup[ghostCollectionSingleton],
                 m_GhostCollectionSerializersLookup[ghostCollectionSingleton],
-                m_ComponentCacheLookup[ghostCollectionSingleton].ComponentDataOffsets,
+                m_SnapshotDataLookupCacheSingleton.GetSingleton<SnapshotDataLookupCache>().ComponentDataOffsets,
                 ghostMap);
         }
     }
@@ -369,9 +368,6 @@ namespace Unity.NetCode.LowLevel
         public void OnDestroy(ref SystemState state)
         {
             m_SnapshotDataLookupCache.Dispose();
-        }
-        public void OnUpdate(ref SystemState state)
-        {
         }
     }
 

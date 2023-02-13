@@ -300,7 +300,7 @@ namespace Unity.NetCode
 
     /// <summary>
     /// A system used to store old state of the physics world for lag compensation.
-    /// This system creates a PhysicsWorldHisotrySingleton and from that you can
+    /// This system creates a PhysicsWorldHistorySingleton and from that you can
     /// get a physics collision world for a previous tick.
     /// </summary>
     [UpdateInGroup(typeof(PredictedSimulationSystemGroup), OrderFirst = true)]

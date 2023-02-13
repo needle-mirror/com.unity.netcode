@@ -21,14 +21,18 @@ namespace Unity.NetCode.Tests
             // TODO: Support GhostGroupBuffers!
         }
 
-        GhostTypes type;
-        public GhostTypeConverter(GhostTypes ghostType)
+        // TODO - Tests for ClientOnlyVariant.
+
+        GhostTypes _type;
+        private EnabledBitBakedValue _enabledBitBakedValue;
+        public GhostTypeConverter(GhostTypes ghostType, EnabledBitBakedValue enabledBitBakedValue)
         {
-            type = ghostType;
+            _type = ghostType;
+            _enabledBitBakedValue = enabledBitBakedValue;
         }
         public void Bake(GameObject gameObject, IBaker baker)
         {
-            switch (type)
+            switch (_type)
             {
                 case GhostTypes.EnableableComponent:
                     baker.AddComponent(new GhostOwnerComponent());
@@ -53,7 +57,18 @@ namespace Unity.NetCode.Tests
                     var transform = baker.GetComponent<Transform>();
                     baker.DependsOn(transform.parent);
                     if (transform.parent == null)
+                    {
                         baker.AddComponent(new TopLevelGhostEntity());
+                    }
+                    else
+                    {
+                        baker.AddComponent<ChildOnlyComponent_1>();
+                        baker.AddComponent<ChildOnlyComponent_2>();
+                        baker.SetComponentEnabled<ChildOnlyComponent_1>(baker.GetEntity(), BakedEnabledBitValue(_enabledBitBakedValue));
+                        baker.SetComponentEnabled<ChildOnlyComponent_2>(baker.GetEntity(), BakedEnabledBitValue(_enabledBitBakedValue));
+                        AddComponentWithDefaultValue<ChildOnlyComponent_3>(baker);
+                        AddComponentWithDefaultValue<ChildOnlyComponent_4>(baker);
+                    }
                     break;
                 case GhostTypes.ChildBufferComponent:
                     baker.AddComponent(new GhostOwnerComponent());
@@ -90,11 +105,17 @@ namespace Unity.NetCode.Tests
             {
                 (typeof(EnableableComponent), null),
                 (typeof(EnableableFlagComponent), null),
+                (typeof(EnableableComponentWithNonGhostField), null),
                 (typeof(ReplicatedFieldWithNonReplicatedEnableableComponent), null),
                 (typeof(ReplicatedEnableableComponentWithNonReplicatedField), null),
-                (typeof(ComponentWithVariant), typeof(ComponentWithVariantVariation)),
+                (typeof(ComponentWithReplicatedVariant), typeof(ComponentWithVariantVariation)),
+                (typeof(ComponentWithDontSendChildrenVariant), typeof(ComponentWithDontSendChildrenVariantVariation)),
                 (typeof(ComponentWithNonReplicatedVariant), typeof(ComponentWithNonReplicatedVariantVariation)),
                 // Skipped as never replicated. (typeof(NeverReplicatedEnableableFlagComponent), null),
+                (typeof(ChildOnlyComponent_1), null),
+                (typeof(ChildOnlyComponent_2), null),
+                (typeof(ChildOnlyComponent_3), null),
+                (typeof(ChildOnlyComponent_4), null),
 
                 (typeof(EnableableComponent_0), null),
                 (typeof(EnableableComponent_1), null),
@@ -167,62 +188,117 @@ namespace Unity.NetCode.Tests
             };
         }
 
-        static void AddTestEnableableComponents(IBaker baker)
+        /// <summary>Returns true if the component was baked with the component enabled, and vice-versa.</summary>
+        internal static bool BakedEnabledBitValue(EnabledBitBakedValue enabledBitBakedValue)
         {
-            baker.AddComponent<EnableableComponent>();
-            baker.AddComponent<EnableableFlagComponent>();
-            baker.AddComponent<ReplicatedFieldWithNonReplicatedEnableableComponent>();
-            baker.AddComponent<ReplicatedEnableableComponentWithNonReplicatedField>();
-            baker.AddComponent<NeverReplicatedEnableableFlagComponent>();
-            baker.AddComponent<ComponentWithVariant>();
-            baker.AddComponent<ComponentWithNonReplicatedVariant>();
+            switch (enabledBitBakedValue)
+            {
+                //case EnabledBitBakedValue.StartEnabledAndWriteImmediately:
+                case EnabledBitBakedValue.StartEnabledAndWaitForClientSpawn:
+                    return true;
+                case EnabledBitBakedValue.StartDisabledAndWriteImmediately:
+                case EnabledBitBakedValue.StartDisabledAndWaitForClientSpawn:
+                    return false;
+                default:
+                    throw new ArgumentOutOfRangeException();
+            }
         }
 
-        static void SetupMultipleEnableableComponents(IBaker baker)
+        /// <summary>Returns true if this configuration waits for replication before checking values.</summary>
+        internal static bool WaitForClientEntitiesToSpawn(EnabledBitBakedValue enabledBitBakedValue)
         {
-            baker.AddComponent<EnableableComponent_0>();
-            baker.AddComponent<EnableableComponent_1>();
-            baker.AddComponent<EnableableComponent_2>();
-            baker.AddComponent<EnableableComponent_3>();
-            baker.AddComponent<EnableableComponent_4>();
-            baker.AddComponent<EnableableComponent_5>();
-            baker.AddComponent<EnableableComponent_6>();
-            baker.AddComponent<EnableableComponent_7>();
-            baker.AddComponent<EnableableComponent_8>();
-            baker.AddComponent<EnableableComponent_9>();
-            baker.AddComponent<EnableableComponent_10>();
-            baker.AddComponent<EnableableComponent_11>();
-            baker.AddComponent<EnableableComponent_12>();
-            baker.AddComponent<EnableableComponent_13>();
-            baker.AddComponent<EnableableComponent_14>();
-            baker.AddComponent<EnableableComponent_15>();
-            baker.AddComponent<EnableableComponent_16>();
-            baker.AddComponent<EnableableComponent_17>();
-            baker.AddComponent<EnableableComponent_18>();
-            baker.AddComponent<EnableableComponent_19>();
-            baker.AddComponent<EnableableComponent_20>();
-            baker.AddComponent<EnableableComponent_21>();
-            baker.AddComponent<EnableableComponent_22>();
-            baker.AddComponent<EnableableComponent_23>();
-            baker.AddComponent<EnableableComponent_24>();
-            baker.AddComponent<EnableableComponent_25>();
-            baker.AddComponent<EnableableComponent_26>();
-            baker.AddComponent<EnableableComponent_27>();
-            baker.AddComponent<EnableableComponent_28>();
-            baker.AddComponent<EnableableComponent_29>();
-            baker.AddComponent<EnableableComponent_30>();
-            baker.AddComponent<EnableableComponent_31>();
-            baker.AddComponent<EnableableComponent_32>();
+            switch (enabledBitBakedValue)
+            {
+                case EnabledBitBakedValue.StartDisabledAndWaitForClientSpawn:
+                case EnabledBitBakedValue.StartEnabledAndWaitForClientSpawn:
+                    return true;
+                case EnabledBitBakedValue.StartDisabledAndWriteImmediately:
+                //case EnabledBitBakedValue.StartEnabledAndWriteImmediately:
+                    return false;
+                default:
+                    throw new ArgumentOutOfRangeException();
+            }
         }
 
-        static void AddBufferWithLength<T>(IBaker baker)
-            where T : unmanaged, IBufferElementData
+        void AddTestEnableableComponents(IBaker baker)
+        {
+            AddComponentWithDefaultValue<EnableableComponent>(baker);
+            AddComponentWithDefaultValue<EnableableComponentWithNonGhostField>(baker);
+            AddComponent<EnableableFlagComponent>(baker);
+            AddComponentWithDefaultValue<ReplicatedFieldWithNonReplicatedEnableableComponent>(baker);
+            AddComponentWithDefaultValue<ReplicatedEnableableComponentWithNonReplicatedField>(baker);
+            AddComponent<NeverReplicatedEnableableFlagComponent>(baker);
+            AddComponentWithDefaultValue<ComponentWithReplicatedVariant>(baker);
+            AddComponentWithDefaultValue<ComponentWithDontSendChildrenVariant>(baker);
+            AddComponentWithDefaultValue<ComponentWithNonReplicatedVariant>(baker);
+        }
+
+        void SetupMultipleEnableableComponents(IBaker baker)
+        {
+            AddComponentWithDefaultValue<EnableableComponent_0>(baker);
+            AddComponentWithDefaultValue<EnableableComponent_1>(baker);
+            AddComponentWithDefaultValue<EnableableComponent_2>(baker);
+            AddComponentWithDefaultValue<EnableableComponent_3>(baker);
+            AddComponentWithDefaultValue<EnableableComponent_4>(baker);
+            AddComponentWithDefaultValue<EnableableComponent_5>(baker);
+            AddComponentWithDefaultValue<EnableableComponent_6>(baker);
+            AddComponentWithDefaultValue<EnableableComponent_7>(baker);
+            AddComponentWithDefaultValue<EnableableComponent_8>(baker);
+            AddComponentWithDefaultValue<EnableableComponent_9>(baker);
+            AddComponentWithDefaultValue<EnableableComponent_10>(baker);
+            AddComponentWithDefaultValue<EnableableComponent_11>(baker);
+            AddComponentWithDefaultValue<EnableableComponent_12>(baker);
+            AddComponentWithDefaultValue<EnableableComponent_13>(baker);
+            AddComponentWithDefaultValue<EnableableComponent_14>(baker);
+            AddComponentWithDefaultValue<EnableableComponent_15>(baker);
+            AddComponentWithDefaultValue<EnableableComponent_16>(baker);
+            AddComponentWithDefaultValue<EnableableComponent_17>(baker);
+            AddComponentWithDefaultValue<EnableableComponent_18>(baker);
+            AddComponentWithDefaultValue<EnableableComponent_19>(baker);
+            AddComponentWithDefaultValue<EnableableComponent_20>(baker);
+            AddComponentWithDefaultValue<EnableableComponent_21>(baker);
+            AddComponentWithDefaultValue<EnableableComponent_22>(baker);
+            AddComponentWithDefaultValue<EnableableComponent_23>(baker);
+            AddComponentWithDefaultValue<EnableableComponent_24>(baker);
+            AddComponentWithDefaultValue<EnableableComponent_25>(baker);
+            AddComponentWithDefaultValue<EnableableComponent_26>(baker);
+            AddComponentWithDefaultValue<EnableableComponent_27>(baker);
+            AddComponentWithDefaultValue<EnableableComponent_28>(baker);
+            AddComponentWithDefaultValue<EnableableComponent_29>(baker);
+            AddComponentWithDefaultValue<EnableableComponent_30>(baker);
+            AddComponentWithDefaultValue<EnableableComponent_31>(baker);
+            AddComponentWithDefaultValue<EnableableComponent_32>(baker);
+        }
+
+        void AddComponentWithDefaultValue<T>(IBaker baker) where T : unmanaged, IComponentData, IComponentValue, IEnableableComponent
+        {
+            var def = default(T);
+            def.SetValue(GhostSerializationTestsForEnableableBits.kDefaultValueIfNotReplicated);
+            baker.AddComponent(def);
+            baker.SetComponentEnabled<T>(baker.GetEntity(), BakedEnabledBitValue(_enabledBitBakedValue));
+        }
+
+        void AddComponent<T>(IBaker baker) where T : unmanaged, IEnableableComponent, IComponentData
+        {
+            baker.AddComponent<T>();
+            baker.SetComponentEnabled<T>(baker.GetEntity(), BakedEnabledBitValue(_enabledBitBakedValue));
+        }
+
+        void AddBufferWithLength<T>(IBaker baker)
+            where T : unmanaged, IBufferElementData, IComponentValue, IEnableableComponent
         {
             var enableableBuffers = baker.AddBuffer<T>();
-            enableableBuffers.Length = GhostSerializationTestsForEnableableBits.kClientBufferSize;
+            enableableBuffers.Length = GhostSerializationTestsForEnableableBits.kBakedBufferSize;
+            for (var index = 0; index < enableableBuffers.Length; index++)
+            {
+                var bufferElementData = enableableBuffers[index];
+                bufferElementData.SetValue(GhostSerializationTestsForEnableableBits.kDefaultValueIfNotReplicated);
+                enableableBuffers[index] = bufferElementData;
+            }
+            baker.SetComponentEnabled<T>(baker.GetEntity(), BakedEnabledBitValue(_enabledBitBakedValue));
         }
 
-        static void SetupMultipleEnableableBuffer(IBaker baker)
+        void SetupMultipleEnableableBuffer(IBaker baker)
         {
             AddBufferWithLength<EnableableBuffer_0>(baker);
             AddBufferWithLength<EnableableBuffer_1>(baker);
@@ -266,11 +342,12 @@ namespace Unity.NetCode.Tests
         int GetValue();
     }
 
-    [GhostComponent(SendDataForChildEntity = false)]
+    [GhostComponent(SendDataForChildEntity = true)] // We test this attribute flag too.
     [GhostEnabledBit]
     public struct EnableableBuffer : IBufferElementData, IEnableableComponent, IComponentValue
     {
         [GhostField] public int value;
+
         public void SetValue(int value)
         {
             this.value = value;
@@ -282,8 +359,9 @@ namespace Unity.NetCode.Tests
         }
     }
 
+    [GhostComponent(SendDataForChildEntity = true)] // We test this attribute flag too.
     [GhostEnabledBit]
-    public struct EnableableComponent: IComponentData, IEnableableComponent, IComponentValue
+    public struct EnableableComponent : IComponentData, IEnableableComponent, IComponentValue
     {
         [GhostField] public int value;
 
@@ -299,9 +377,33 @@ namespace Unity.NetCode.Tests
     }
 
     /// <summary>Enable flag SHOULD BE replicated.</summary>
+    [GhostComponent(SendDataForChildEntity = true)]
     [GhostEnabledBit]
     public struct EnableableFlagComponent : IComponentData, IEnableableComponent
     {
+    }
+
+    [GhostComponent(SendDataForChildEntity = true)] // We test this attribute flag too.
+    [GhostEnabledBit]
+    public struct EnableableComponentWithNonGhostField : IComponentData, IEnableableComponent, IComponentValue
+    {
+        public int nonGhostField1;
+        [GhostField] public int value;
+        public int nonGhostField2;
+
+        public void SetValue(int value)
+        {
+            nonGhostField1 = GhostSerializationTestsForEnableableBits.kDefaultValueForNonGhostFields;
+            nonGhostField2 = GhostSerializationTestsForEnableableBits.kDefaultValueForNonGhostFields;
+            this.value = value;
+        }
+
+        public int GetValue()
+        {
+            GhostSerializationTestsForEnableableBits.EnsureNonGhostFieldValueIsNotClobbered(nonGhostField1);
+            GhostSerializationTestsForEnableableBits.EnsureNonGhostFieldValueIsNotClobbered(nonGhostField2);
+            return value;
+        }
     }
 
     /// <summary>Enable flag should NOT BE replicated.</summary>
@@ -310,6 +412,7 @@ namespace Unity.NetCode.Tests
     }
 
     /// <summary>Enable flag should NOT BE replicated, but the field A SHOULD BE.</summary>
+    [GhostComponent(SendDataForChildEntity = true)]
     public struct ReplicatedFieldWithNonReplicatedEnableableComponent : IComponentData, IEnableableComponent, IComponentValue
     {
         [GhostField]
@@ -321,6 +424,7 @@ namespace Unity.NetCode.Tests
     }
 
     /// <summary>Enable flag SHOULD BE replicated, but the field B should NOT BE.</summary>
+    [GhostComponent(SendDataForChildEntity = true)]
     [GhostEnabledBit]
     public struct ReplicatedEnableableComponentWithNonReplicatedField : IComponentData, IEnableableComponent, IComponentValue
     {
@@ -331,19 +435,93 @@ namespace Unity.NetCode.Tests
         public int GetValue() => value;
     }
 
-    public struct ComponentWithVariant  : IComponentData, IEnableableComponent, IComponentValue
+    public struct ComponentWithReplicatedVariant : IComponentData, IEnableableComponent, IComponentValue
     {
         public int value;
 
         public void SetValue(int value) => this.value = value;
 
         public int GetValue() => value;
+
+        public static bool ExpectChildReplicated(SendForChildrenTestCase sendForChildrenTestCase)
+        {
+            switch (sendForChildrenTestCase)
+            {
+                // Note that the variant has:  [GhostComponent(SendDataForChildEntity = true)], thus yes.
+                case SendForChildrenTestCase.YesViaExplicitVariantRule:
+                case SendForChildrenTestCase.YesViaInspectionComponentOverride:
+                case SendForChildrenTestCase.YesViaExplicitVariantOnlyAllowChildrenToReplicateRule:
+                case SendForChildrenTestCase.Default: // This is also yes, because a type having only 1 variant implies it should be used.
+                    return true;
+                case SendForChildrenTestCase.NoViaExplicitDontSerializeVariantRule:
+                    return false;
+                default:
+                    throw new ArgumentOutOfRangeException();
+            }
+        }
     }
 
     // As this is the only variant, it becomes the default variant.
-    [GhostComponentVariation(typeof(ComponentWithVariant), "ReplicatedVariation")]
+    [GhostComponentVariation(typeof(ComponentWithReplicatedVariant))]
+    [GhostComponent(SendDataForChildEntity = true)]
     [GhostEnabledBit]
     public struct ComponentWithVariantVariation
+    {
+        [GhostField]
+        public int value;
+    }
+
+    [GhostComponent(SendDataForChildEntity = true)] // Testing this as well, as this should be clobbered by the Variant.
+    public struct ComponentWithDontSendChildrenVariant  : IComponentData, IEnableableComponent, IComponentValue
+    {
+        public int value;
+
+        public void SetValue(int value) => this.value = value;
+
+        public int GetValue() => value;
+
+        public static bool ExpectReplicate(SendForChildrenTestCase sendForChildrenTestCase)
+        {
+            switch (sendForChildrenTestCase)
+            {
+                case SendForChildrenTestCase.YesViaExplicitVariantRule:
+                case SendForChildrenTestCase.YesViaInspectionComponentOverride:
+                    return true; // We explicitly use the variant that has [GhostEnabledBit].
+                case SendForChildrenTestCase.Default:
+                    return true; // We only have one variant, so we should default to it (and it has [GhostEnabledBit]).
+                case SendForChildrenTestCase.NoViaExplicitDontSerializeVariantRule:
+                case SendForChildrenTestCase.YesViaExplicitVariantOnlyAllowChildrenToReplicateRule:
+                    return false;
+                default:
+                    throw new ArgumentOutOfRangeException();
+            }
+        }
+
+        public static bool ExpectChildReplicate(SendForChildrenTestCase sendForChildrenTestCase)
+        {
+            switch (sendForChildrenTestCase)
+            {
+                // Weird case: The variant doesn't NORMALLY allow children to be replicated,
+                // but in this case it WILL replicate on a child because the variant is specifically set for children.
+                case SendForChildrenTestCase.YesViaExplicitVariantOnlyAllowChildrenToReplicateRule:
+                case SendForChildrenTestCase.YesViaExplicitVariantRule:
+                case SendForChildrenTestCase.YesViaInspectionComponentOverride:
+                    return true;
+                case SendForChildrenTestCase.Default:
+                    return false; // The variant we use "by default" doesn't replicate children.
+                case SendForChildrenTestCase.NoViaExplicitDontSerializeVariantRule:
+                    return false; // Nothing will serialize.
+                default:
+                    throw new ArgumentOutOfRangeException();
+            }
+        }
+    }
+
+    // As this is the only variant, it becomes the default variant.
+    [GhostComponentVariation(typeof(ComponentWithDontSendChildrenVariant))]
+    [GhostComponent(SendDataForChildEntity = false)]
+    [GhostEnabledBit]
+    public struct ComponentWithDontSendChildrenVariantVariation
     {
         [GhostField]
         public int value;
@@ -358,13 +536,71 @@ namespace Unity.NetCode.Tests
         public void SetValue(int value) => this.value = value;
 
         public int GetValue() => value;
+
+        public static bool ExpectReplicate(SendForChildrenTestCase sendForChildrenTestCase)
+        {
+            switch (sendForChildrenTestCase)
+            {
+                case SendForChildrenTestCase.YesViaExplicitVariantRule:
+                case SendForChildrenTestCase.NoViaExplicitDontSerializeVariantRule:
+                case SendForChildrenTestCase.YesViaInspectionComponentOverride:
+                    return false; // Opting into a non-serialized variant.
+                case SendForChildrenTestCase.Default:
+                case SendForChildrenTestCase.YesViaExplicitVariantOnlyAllowChildrenToReplicateRule:
+                    return false; // Default variant never replicated, so false.
+                default:
+                    throw new ArgumentOutOfRangeException();
+            }
+        }
     }
 
     // As this is the only variant, it becomes the default variant.
-    [GhostComponentVariation(typeof(ComponentWithNonReplicatedVariant), "NonReplicatedVariation")]
+    [GhostComponentVariation(typeof(ComponentWithNonReplicatedVariant))]
     public struct ComponentWithNonReplicatedVariantVariation
     {
         public int value;
+    }
+
+    // Test child-only components:
+    [GhostComponent(SendDataForChildEntity = true)]
+    [GhostEnabledBit]
+    public struct ChildOnlyComponent_1 : IComponentData, IEnableableComponent
+    {
+    }
+    [GhostComponent(SendDataForChildEntity = false)]
+    public struct ChildOnlyComponent_2 : IComponentData, IEnableableComponent
+    {
+    }
+    [GhostComponent(SendDataForChildEntity = true)]
+    [GhostEnabledBit]
+    public struct ChildOnlyComponent_3 : IComponentData, IComponentValue, IEnableableComponent
+    {
+        public int nonGhostField1;
+        [GhostField]
+        public int value;
+        public int nonGhostField2;
+        public void SetValue(int value)
+        {
+            nonGhostField1 = GhostSerializationTestsForEnableableBits.kDefaultValueForNonGhostFields;
+            nonGhostField2 = GhostSerializationTestsForEnableableBits.kDefaultValueForNonGhostFields;
+            this.value = value;
+        }
+
+        public int GetValue()
+        {
+            GhostSerializationTestsForEnableableBits.EnsureNonGhostFieldValueIsNotClobbered(nonGhostField1);
+            GhostSerializationTestsForEnableableBits.EnsureNonGhostFieldValueIsNotClobbered(nonGhostField2);
+            return value;
+        }
+    }
+    [GhostComponent(SendDataForChildEntity = false)]
+    public struct ChildOnlyComponent_4 : IComponentData, IComponentValue, IEnableableComponent
+    {
+        [GhostField]
+        public int value;
+        public void SetValue(int value) => this.value = value;
+        public int GetValue() => value;
+
     }
 
     ////////////////////////////////////////////////////////////////////////////
@@ -872,14 +1108,23 @@ namespace Unity.NetCode.Tests
     [GhostEnabledBit]
     public struct EnableableBuffer_0 : IBufferElementData, IEnableableComponent, IComponentValue
     {
+#pragma warning disable CS0414
+        private int nonGhostField1;
         [GhostField] public int value;
+        private int nonGhostField2;
+#pragma warning restore CS0414
+
         public void SetValue(int value)
         {
+            nonGhostField1 = GhostSerializationTestsForEnableableBits.kDefaultValueForNonGhostFields;
+            nonGhostField2 = GhostSerializationTestsForEnableableBits.kDefaultValueForNonGhostFields;
             this.value = value;
         }
 
         public int GetValue()
         {
+            // There is nothing to validate for private fields on buffers.
+            // Every time the buffer gets updated, these fields become undefined (NOT default).
             return value;
         }
     }

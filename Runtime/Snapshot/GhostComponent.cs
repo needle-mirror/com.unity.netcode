@@ -51,6 +51,7 @@ namespace Unity.NetCode
     /// Component storing the guid of the prefab the ghost was created from. This is used to lookup ghost type in a robust way which works even if two ghosts have the same archetype
     /// </summary>
     [DontSupportPrefabOverrides]
+    [Serializable]
     public struct GhostTypeComponent : IComponentData,
         IEquatable<GhostTypeComponent>
     {

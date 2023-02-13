@@ -477,6 +477,9 @@ namespace Unity.NetCode
                 ctx.netDebug.LogWarning($"Copy error '{(int) nameCopyError}' when attempting to save ghostName `{ctx.ghostName}` into FixedString!");
             }
 
+            var profilerMarker = new ProfilerMarker($"{ctx.ghostName}");
+            using var auto = profilerMarker.Auto();
+
             //Compute the total number of components that include also all entities children.
             //The blob array contains for each entity child a list of component hashes
             var hasLinkedGroup = state.EntityManager.HasComponent<LinkedEntityGroup>(prefabEntity);
@@ -509,9 +512,8 @@ namespace Unity.NetCode
                 NumBuffers = 0,
                 MaxBufferSnapshotSize = 0,
                 // Burst hack: Convert the FS into an unmanaged string (via an interpolated string) so it can be passed into ProfilerMarker (which has an explicit constructor override supporting unmanaged strings).
-                profilerMarker = new ProfilerMarker($"{ctx.ghostName}"),
+                profilerMarker = profilerMarker,
             };
-
 
             ctx.childOffset = 0;
             ctx.ghostChildIndex = 0;
@@ -712,11 +714,10 @@ namespace Unity.NetCode
 
                 ref var usedComponent = ref allComponentTypes.ElementAt(componentIndex);
                 var type = usedComponent.ComponentType.Type;
-                var variant = data.GetCurrentSerializationStrategyForComponentCached(type, componentInfo.Variant, isRoot);
+                var variant = data.GetCurrentSerializationStrategyForComponent(type, componentInfo.Variant, isRoot);
 
                 // Skip component if client only or don't send variants are selected.
-                // This handles children that shouldn't be serialized too.
-                if (variant.IsSerialized == 0)
+                if (variant.IsSerialized == 0 || (!isRoot && variant.SendForChildEntities == 0))
                     continue;
 
                 //The search is sub-linear, since this is a sort of multi-hashmap (O(1) on average), but the

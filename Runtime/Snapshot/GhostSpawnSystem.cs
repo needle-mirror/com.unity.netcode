@@ -82,6 +82,8 @@ namespace Unity.NetCode
         public unsafe void OnUpdate(ref SystemState state)
         {
             state.Dependency.Complete(); // For ghost map access
+            if (state.WorldUnmanaged.IsThinClient())
+                return;
             var stateEntityManager = state.EntityManager;
             var networkTime = SystemAPI.GetSingleton<NetworkTime>();
             var interpolationTargetTick = networkTime.InterpolationTick;

@@ -25,10 +25,6 @@ namespace Unity.NetCode.Tests.Editor
             state.RequireForUpdate<NetworkIdComponent>();
         }
 
-        public void OnDestroy(ref SystemState state)
-        {
-        }
-
         public void OnUpdate(ref SystemState state)
         {
             lookupHelper.Update(ref state);

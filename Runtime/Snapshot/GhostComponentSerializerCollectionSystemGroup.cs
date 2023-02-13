@@ -8,56 +8,6 @@ using Unity.NetCode.LowLevel.Unsafe;
 
 namespace Unity.NetCode
 {
-    /// <summary>
-    /// A component - variant - root tuple,
-    /// used for caching the <see cref="GhostComponentSerializerCollectionData.GetAllAvailableSerializationStrategiesForType"/> result
-    /// and speed-up successive query of the same component-variant combination.
-    /// </summary>
-    internal struct SerializationStrategyQuery : IComparable<SerializationStrategyQuery>, IEquatable<SerializationStrategyQuery>
-    {
-        public ComponentType ComponentType;
-        public ulong variantHash;
-        /// <summary>
-        /// 0 = No.
-        /// 1 = Yes.
-        /// 2 to 255 = Special cases: Variant added to the map to be searchable.
-        /// </summary>
-        public byte IsRoot;
-
-        public SerializationStrategyQuery(ComponentType type, ulong hash, byte isRoot)
-        {
-            ComponentType = type;
-            variantHash = hash;
-            IsRoot = isRoot;
-        }
-
-        public int CompareTo(SerializationStrategyQuery other)
-        {
-            var componentTypeComparison = ComponentType.CompareTo(other.ComponentType);
-            if (componentTypeComparison != 0) return componentTypeComparison;
-            var variantHashComparison = variantHash.CompareTo(other.variantHash);
-            if (variantHashComparison != 0) return variantHashComparison;
-            return IsRoot.CompareTo(other.IsRoot);
-        }
-
-        public bool Equals(SerializationStrategyQuery other)
-        {
-            return ComponentType.Equals(other.ComponentType) && variantHash == other.variantHash && IsRoot == other.IsRoot;
-        }
-
-        public override bool Equals(object obj)
-        {
-            return obj is SerializationStrategyQuery other && Equals(other);
-        }
-
-        public override int GetHashCode()
-        {
-            var hashCode = ComponentType.GetHashCode();
-            hashCode = (hashCode * 397) ^ variantHash.GetHashCode();
-            hashCode = (hashCode * 397) ^ IsRoot.GetHashCode();
-            return hashCode;
-        }
-    }
 
     // TODO - Make internal if possible.
     /// <summary>
@@ -66,7 +16,7 @@ namespace Unity.NetCode
     /// as well as all variants of these components (<see cref="GhostComponentVariationAttribute"/>).
     /// Thus, maps to the code-generated <see cref="GhostComponentSerializer"/> ("Default Serializers") as well as
     /// all user-created Variants (<see cref="GhostComponentVariationAttribute"/>).
-    /// This type also stores instances of the <see cref="DontSerializeVariant"/> and <see cref="ClientOnlyVariant"/>.
+    /// This type also stores instances of the <see cref="DontSerializeVariant"/>, <see cref="ClientOnlyVariant"/>, and <see cref="ServerOnlyVariant"/>.
     /// </para>
     /// <para>
     /// Note: Serializers are considered "optional". It is perfectly valid for a types "serialization strategy" to be: "Do nothing".
@@ -91,14 +41,17 @@ namespace Unity.NetCode
             YesAsIsFallback = 1 << 2,
             /// <summary>Child entities default to <see cref="DontSerializeVariant"/>.</summary>
             YesAsIsChildDefaultingToDontSerializeVariant = 1 << 3,
-            /// <summary>The default serializer should be used if we're a root.</summary>
-            YesAsIsDefaultSerializerAndIsRoot = 1 << 4,
-            /// <summary>Yes via <see cref="GhostComponentAttribute"/>.</summary>
-            YesAsAttributeAllowingChildSerialization = 1 << 5,
+            /// <summary>
+            /// The default serializer should be used. Only applicable if we're serialized.
+            /// On children: This only applies if the user has set flag <see cref="GhostComponentAttribute.SendDataForChildEntity"/> on the default serializer.
+            /// </summary>
+            YesAsIsDefaultSerializerAndDefaultIsUnchanged = 1 << 4,
             /// <summary>If the developer has created only 1 variant for a type, it becomes the default.</summary>
-            YesAsOnlyOneVariantBecomesDefault = 1 << 6,
-            /// <summary>This is a default variant because the user has marked it as such via <see cref="DefaultVariantSystemBase"/>. Highest priority.</summary>
-            YesViaUserSpecifiedNamedDefault = 1 << 7,
+            YesAsOnlyOneVariantBecomesDefault = 1 << 5,
+            /// <summary>This is the default variant selected by the user (via <see cref="DefaultVariantSystemBase"/>), and thus is higher priority than <see cref="YesAsIsDefaultSerializerAndDefaultIsUnchanged"/>.</summary>
+            YesAsIsUserSpecifiedNewDefault = 1 << 6,
+            /// <summary>This is a default variant because the user has marked it as such (via a ComponentOverride). Highest priority.</summary>
+            YesViaUserSpecifiedNamedDefaultOrHash = 1 << 7,
         }
 
         /// <summary>Indexer into <see cref="GhostComponentSerializerCollectionData.SerializationStrategies"/> list.</summary>
@@ -180,8 +133,25 @@ namespace Unity.NetCode
         {
             var fs = new FixedString512Bytes((FixedString32Bytes) $"SS<");
             fs.Append(Component.GetDebugTypeName());
-            fs.Append((FixedString128Bytes) $">[{DisplayName}, H:{Hash}, DR:{(int) DefaultRule}, SI:{SerializerIndex}, PT:{(int) PrefabType}, self:{SelfIndex}]");
+            fs.Append((FixedString128Bytes) $">[{DisplayName}, H:{Hash}, DR:{(int) DefaultRule}, SI:{SerializerIndex}, PT:{(int) PrefabType}, self:{SelfIndex}, child:{SendForChildEntities}]");
             return fs;
+        }
+
+        internal static FixedString32Bytes GetDefaultDisplayName(ComponentTypeSerializationStrategy.DefaultType defaultRule)
+        {
+            if ((defaultRule & ComponentTypeSerializationStrategy.DefaultType.YesViaUserSpecifiedNamedDefaultOrHash) != 0)
+                return "Chosen";
+            if ((defaultRule & ComponentTypeSerializationStrategy.DefaultType.YesAsIsUserSpecifiedNewDefault) != 0)
+                return "User-Specified Default";
+            if ((defaultRule & ComponentTypeSerializationStrategy.DefaultType.YesAsOnlyOneVariantBecomesDefault) != 0)
+                return "Default as Only Variant";
+            if ((defaultRule & ComponentTypeSerializationStrategy.DefaultType.YesAsIsDefaultSerializerAndDefaultIsUnchanged) != 0)
+                return "Default Serializer";
+            if ((defaultRule & ComponentTypeSerializationStrategy.DefaultType.YesAsIsFallback) != 0)
+                return "Fallback";
+            if ((defaultRule & ComponentTypeSerializationStrategy.DefaultType.YesAsEditorDefault) != 0)
+                return "Editor-Only Default";
+            return defaultRule == DefaultType.NotDefault ? "" : "Default";
         }
     }
 
@@ -192,6 +162,7 @@ namespace Unity.NetCode
     /// </summary>
     [WorldSystemFilter(WorldSystemFilterFlags.ServerSimulation | WorldSystemFilterFlags.ClientSimulation | WorldSystemFilterFlags.ThinClientSimulation | WorldSystemFilterFlags.BakingSystem,
         WorldSystemFilterFlags.ServerSimulation | WorldSystemFilterFlags.ClientSimulation | WorldSystemFilterFlags.ThinClientSimulation | WorldSystemFilterFlags.BakingSystem)]
+    [CreateBefore(typeof(DefaultVariantSystemGroup))]
     public partial class GhostComponentSerializerCollectionSystemGroup : ComponentSystemGroup
     {
         /// <summary>HashSets and HashTables have a fixed capacity.</summary>
@@ -220,9 +191,9 @@ namespace Unity.NetCode
                 WorldName = worldNameShortened,
                 Serializers = new NativeList<GhostComponentSerializer.State>(CollectionDefaultCapacity, Allocator.Persistent),
                 SerializationStrategies = new NativeList<ComponentTypeSerializationStrategy>(CollectionDefaultCapacity, Allocator.Persistent),
-                SerializationStrategiesComponentTypeMap = new NativeMultiHashMap<ComponentType, short>(CollectionDefaultCapacity, Allocator.Persistent),
+                SerializationStrategiesComponentTypeMap = new NativeParallelMultiHashMap<ComponentType, short>(CollectionDefaultCapacity, Allocator.Persistent),
                 DefaultVariants = new NativeHashMap<ComponentType, DefaultVariantSystemBase.HashRule>(CollectionDefaultCapacity, Allocator.Persistent),
-                SerializationStrategiesCache = new NativeHashMap<SerializationStrategyQuery, short>(CollectionDefaultCapacity, Allocator.Persistent),
+                InputComponentBufferMap = new NativeHashMap<ComponentType, ComponentType>(CollectionDefaultCapacity, Allocator.Persistent),
             };
             DefaultVariantRules = new GhostVariantRules(ghostComponentSerializerCollectionDataCache.DefaultVariants);
             //ATTENTION! this entity is destroyed in the BakingWorld, because in the first import this is what it does, it clean all the Entities in the world when you
@@ -257,13 +228,13 @@ namespace Unity.NetCode
         /// </summary>
         internal NativeList<ComponentTypeSerializationStrategy> SerializationStrategies;
         /// <summary>
-        /// Cache and lookup into the <see cref="SerializationStrategies"/> list for the <see cref="GetAllAvailableSerializationStrategiesForType"/> call.
-        /// </summary>
-        internal NativeHashMap<SerializationStrategyQuery, short> SerializationStrategiesCache;
-        /// <summary>
         /// Maps a given <see cref="ComponentType"/> to an entry in the <see cref="SerializationStrategies"/> collection.
         /// </summary>
-        internal NativeMultiHashMap<ComponentType, short> SerializationStrategiesComponentTypeMap;
+        internal NativeParallelMultiHashMap<ComponentType, short> SerializationStrategiesComponentTypeMap;
+        /// <summary>
+        /// Map to look up the buffer type to use for an IInputComponentData type.
+        /// </summary>
+        internal NativeHashMap<ComponentType, ComponentType> InputComponentBufferMap;
         /// <summary>
         /// For debugging and exception strings.
         /// </summary>
@@ -310,12 +281,20 @@ namespace Unity.NetCode
             }
 #endif
 
-            serializationStrategy.SelfIndex = (short)SerializationStrategies.Length;
+            AddSerializationStrategyInternal(ref serializationStrategy);
+        }
+
+        /// <summary>
+        /// Internal method to register a SerializationStrategy. Hash collisions fine, as long as they are one of the "special" types (<see cref="DontSerializeVariant"/>, <see cref="ClientOnlyVariant"/>, <see cref="ServerOnlyVariant"/>).
+        /// </summary>
+        /// <remarks>
+        /// Note that we may generate lots of <see cref="DontSerializeVariant"/>'s (2 per type), depending on different contexts.
+        /// </remarks>
+        private void AddSerializationStrategyInternal(ref ComponentTypeSerializationStrategy serializationStrategy)
+        {
+            serializationStrategy.SelfIndex = (short) SerializationStrategies.Length;
             SerializationStrategies.Add(serializationStrategy);
             SerializationStrategiesComponentTypeMap.Add(serializationStrategy.Component, serializationStrategy.SelfIndex);
-
-            //if (serializationStrategy.SerializeEnabledBit != 0)
-            //    GhostComponentsWithReplicatedEnabledBit.Add(serializationStrategy.Component);
         }
 
         /// <summary>
@@ -341,7 +320,29 @@ namespace Unity.NetCode
             Serializers.Add(state);
         }
 
-        internal unsafe void MapSerializerToStrategy(ref GhostComponentSerializer.State state, short serializerIndex)
+        /// <summary>
+        /// Used by code-generated systems and meant for internal use only.
+        /// Adds a mapping from an IInputComponentData to the buffer it should use.
+        /// </summary>
+        /// <param name="inputType"></param>
+        /// <param name="bufferType"></param>
+        public void AddInputComponent(ComponentType inputType, ComponentType bufferType)
+        {
+            InputComponentBufferMap.TryAdd(inputType, bufferType);
+        }
+
+        /// <summary>
+        /// Lookup a component type to use as a buffer for a given IInputComponentData.
+        /// </summary>
+        /// <param name="inputType"></param>
+        /// <param name="bufferType"></param>
+        /// <returns>True if the component has an assosiated buffer to use, false if it does not.</returns>
+        public bool TryGetBufferForInputComponent(ComponentType inputType, out ComponentType bufferType)
+        {
+            return InputComponentBufferMap.TryGetValue(inputType, out bufferType);
+        }
+
+        internal void MapSerializerToStrategy(ref GhostComponentSerializer.State state, short serializerIndex)
         {
             foreach (var ssIndex in SerializationStrategiesComponentTypeMap.GetValuesForKey(state.ComponentType))
             {
@@ -354,52 +355,33 @@ namespace Unity.NetCode
                 }
             }
 
-            throw new InvalidOperationException($"No SerializationStrategy found for Serializer with Hash: {state.VariantHash}!");
+            throw new InvalidOperationException($"{WorldName}: No SerializationStrategy found for Serializer with Hash: {state.VariantHash}!");
         }
 
         /// <summary>
-        /// Finds the current variant for this ComponentType via <see cref="GetAllAvailableSerializationStrategiesForType"/>, and updates
-        /// the internal variant query cache to speed-up subsequent queries.
-        /// </summary>
-        [GenerateTestsForBurstCompatibility]
-        [BurstCompile]
-        internal ComponentTypeSerializationStrategy GetCurrentSerializationStrategyForComponentCached(ComponentType componentType, ulong variantHash, bool isRoot)
-        {
-            var q = new SerializationStrategyQuery(componentType, variantHash, (byte) (isRoot ? 1 : 0));
-            if (!SerializationStrategiesCache.TryGetValue(q, out var ssIndex))
-            {
-                var serializationStrategy = GetCurrentSerializationStrategyForComponentInternal(componentType, variantHash, isRoot);
-                ssIndex = serializationStrategy.SelfIndex;
-                SerializationStrategiesCache.Add(q, ssIndex);
-            }
-            if(ssIndex < 0)
-                BurstCompatibleErrorWithAggregate(componentType, default, $"{componentType.GetDebugTypeName()} is -1!");
-
-            return SerializationStrategies[ssIndex];
-        }
-
-        /// <summary>
-        /// Finds the current variant for this ComponentType using available variants via <see cref="GetAllAvailableSerializationStrategiesForType"/>.
+        /// Finds the <see cref="chosenVariant"/> for this <see cref="componentType"/> (from available variants via <see cref="GetAllAvailableSerializationStrategiesForType"/>).
         /// </summary>
         /// <param name="componentType">The type we're finding the SS for.</param>
-        /// <param name="variantHash">The hash to use to lookup with. 0 implies "use default",
-        /// which is the default serializer for components on the root entity,
-        /// and <see cref="DontSerializeVariant"/> for components on children.</param>
+        /// <param name="chosenVariantHash"> If set, denotes a specific variant should be used. 0 implies "use default".
+        /// Note that, at runtime, we've already converted child variants to either specific serializers, or the `DontSerializeVariant`.
+        /// Without this nuance, this code would break.</param>
         /// <param name="isRoot">True if the entity is a root entity, false if it's a child.
         /// This distinction is because child entities default to <see cref="DontSerializeVariant"/>.</param>
-        ComponentTypeSerializationStrategy GetCurrentSerializationStrategyForComponentInternal(ComponentType componentType, ulong variantHash, bool isRoot)
+        [GenerateTestsForBurstCompatibility]
+        [BurstCompile]
+        internal ComponentTypeSerializationStrategy GetCurrentSerializationStrategyForComponent(ComponentType componentType, ulong chosenVariantHash, bool isRoot)
         {
-            using var available = GetAllAvailableSerializationStrategiesForType(componentType, isRoot);
-            return SelectSerializationStrategyForComponentWithHash(componentType, variantHash, in available, isRoot);
+            using var available = GetAllAvailableSerializationStrategiesForType(componentType, chosenVariantHash, isRoot);
+            return SelectSerializationStrategyForComponentWithHash(componentType, chosenVariantHash, in available, isRoot);
         }
 
-        /// <inheritdoc cref="GetCurrentSerializationStrategyForComponentInternal"/>
+        /// <inheritdoc cref="GetCurrentSerializationStrategyForComponent"/>
         [GenerateTestsForBurstCompatibility]
-        internal ComponentTypeSerializationStrategy SelectSerializationStrategyForComponentWithHash(ComponentType componentType, ulong serializationStrategyHash, in NativeList<ComponentTypeSerializationStrategy> available, bool isRoot)
+        internal ComponentTypeSerializationStrategy SelectSerializationStrategyForComponentWithHash(ComponentType componentType, ulong chosenVariantHash, in NativeList<ComponentTypeSerializationStrategy> available, bool isRoot)
         {
             if (available.Length != 0)
             {
-                if (serializationStrategyHash == 0)
+                if (chosenVariantHash == 0)
                 {
                     // Find the best default ss:
                     var bestIndex = 0;
@@ -415,38 +397,50 @@ namespace Unity.NetCode
                         {
                             if (availableSs.DefaultRule != ComponentTypeSerializationStrategy.DefaultType.NotDefault)
                             {
-                                BurstCompatibleErrorWithAggregate(componentType, in available, $"Type `{componentType.ToFixedString()}` (isRoot: {isRoot}) has 2 or more default serialization strategies with the same `DefaultRule` ({(int) availableSs.DefaultRule})! Using the first. DefaultVariants: {DefaultVariants.Count}.");
+                                BurstCompatibleErrorWithAggregate(componentType, in available, $"Type `{componentType.ToFixedString()}` (isRoot: {isRoot} with chosenVariantHash '{chosenVariantHash}') has 2 or more default serialization strategies with the same `DefaultRule` ({(int) availableSs.DefaultRule})! Using the first.");
                             }
                         }
                     }
 
                     var finalVariant = available[bestIndex];
                     if (finalVariant.DefaultRule != ComponentTypeSerializationStrategy.DefaultType.NotDefault)
+                    {
+                        // The best default variant we've found isn't serialized on children anyway, so replace it with the DontSerializeVariant.
+                        if (!finalVariant.IsDontSerializeVariant && !isRoot && finalVariant.SendForChildEntities == 0)
+                        {
+                            if (TryFindDontSerializeIndex(in available, out int dontSerializeIndex))
+                                return available[dontSerializeIndex];
+                            return ConstructDontSerializeVariant(in available, componentType, ComponentTypeSerializationStrategy.DefaultType.YesAsIsFallback, bestIndex, nameof(DontSerializeVariant));
+                        }
                         return finalVariant;
+                    }
 
                     // We failed, so get the safest fallback:
                     var fallback = GetSafestFallbackVariantUponError(available);
-                    BurstCompatibleErrorWithAggregate(componentType, in available, $"Type `{componentType.ToFixedString()}` (isRoot: {isRoot}) has NO default serialization strategies! Calculating the safest fallback guess ('{fallback.ToFixedString()}'). DefaultVariants: {DefaultVariants.Count}.");
+                    BurstCompatibleErrorWithAggregate(componentType, in available, $"Type `{componentType.ToFixedString()}` (isRoot: {isRoot} with chosenVariantHash '{chosenVariantHash}') has NO default serialization strategies! Calculating the safest fallback guess ('{fallback.ToFixedString()}').");
                     return fallback;
                 }
 
                 // Find the EXACT variant by hash.
                 foreach (var variant in available)
-                    if (variant.Hash == serializationStrategyHash)
+                    if (variant.Hash == chosenVariantHash)
                         return variant;
 
                 // Couldn't find any, so try to get the safest fallback:
                 if (available.Length != 0)
                 {
                     var fallback = GetSafestFallbackVariantUponError(available);
-                    BurstCompatibleErrorWithAggregate(componentType, in available, $"Failed to find serialization strategy for `{componentType.ToFixedString()}` (isRoot: {isRoot}) with hash '{serializationStrategyHash}'! There are {available.Length} serialization strategies available, so calculating the safest fallback guess ('{fallback.ToFixedString()}'). DefaultVariants: {DefaultVariants.Count}.");
+                    BurstCompatibleErrorWithAggregate(componentType, in available, $"Failed to find serialization strategy for `{componentType.ToFixedString()}` (isRoot: {isRoot}) with chosenVariantHash '{chosenVariantHash}'! There are {available.Length} serialization strategies available, so calculating the safest fallback guess ('{fallback.ToFixedString()}').");
                     return fallback;
                 }
             }
 
             // Failed to find anything, so fallback:
-            BurstCompatibleErrorWithAggregate(componentType, in available, $"Unable to find serializationStrategyHash '{serializationStrategyHash}' for `{componentType.ToFixedString()}` (isRoot: {isRoot}) as no serialization strategies available for type! Fallback is `DontSerializeVariant`.");
-            return ConstructDontSerializeVariant(componentType, ComponentTypeSerializationStrategy.DefaultType.YesAsIsFallback);
+            BurstCompatibleErrorWithAggregate(componentType, in available, $"Unable to find chosenVariantHash '{chosenVariantHash}' for `{componentType.ToFixedString()}` (isRoot: {isRoot}) as no serialization strategies available for type! Fallback is `DontSerializeVariant`.");
+            TryFindDefaultSerializerIndex(in available, out var sourceVariantIndex);
+            if (TryFindDontSerializeIndex(in available, out var dontSerializeIndexFallback))
+                return available[dontSerializeIndexFallback];
+            return ConstructDontSerializeVariant(in available, componentType, ComponentTypeSerializationStrategy.DefaultType.YesAsIsFallback, sourceVariantIndex, $"{nameof(DontSerializeVariant)} (Fallback)");
         }
 
         /// <summary>When we are unable to find the requested variant, this method finds the best fallback.</summary>
@@ -478,64 +472,88 @@ namespace Unity.NetCode
         /// <para> Note that the number of default variants returned may not be 1 (it could be more or less).</para>
         /// </summary>
         /// <param name="componentType">Type to find the variant for.</param>
+        /// <param name="chosenVariantHash"> If set, indicates that a variant has specifically been asked for (as an override). Zero implies find default.</param>
         /// <param name="isRoot">True if this component is on the root entity.</param>
         /// <returns>A list of all available variants for this `componentType`.</returns>
         [GenerateTestsForBurstCompatibility]
         [BurstCompile]
-        public NativeList<ComponentTypeSerializationStrategy> GetAllAvailableSerializationStrategiesForType(ComponentType componentType, bool isRoot)
+        public NativeList<ComponentTypeSerializationStrategy> GetAllAvailableSerializationStrategiesForType(ComponentType componentType, ulong chosenVariantHash, bool isRoot)
         {
             var availableVariants = new NativeList<ComponentTypeSerializationStrategy>(4, Allocator.Temp);
             var numCustomVariants = 0;
             var customVariantIndex = -1;
+            var alreadyAddedDontSerializeVariant = false;
+            var alreadyAddedClientOnlyVariant = false;
+            var alreadyAddedServerOnlyVariant = false;
 
             // Code-gen: "Serialization Strategies" are generated and mapped here.
+            // Any SS's that we CREATE are also added to this map, so it essentially acts like a dynamic cache.
             foreach (var strategyLookup in SerializationStrategiesComponentTypeMap.GetValuesForKey(componentType))
             {
                 var strategy = SerializationStrategies[strategyLookup];
-
-                if (strategy.IsSerialized != 0)
-                    strategy.DefaultRule |= CalculateDefaultTypeForSerializer(componentType, isRoot, strategy.IsDefaultSerializer, strategy.IsInput, strategy.Hash, strategy.SendForChildEntities);
-                else
-                    strategy.DefaultRule |= CalculateDefaultTypeForNonSerializedType(componentType, strategy.Hash, isRoot, availableVariants.Length > 0);
-
+                strategy.DefaultRule = CalculateDefaultTypeForSerializer(componentType, isRoot, strategy.IsSerialized > 0, strategy.IsDefaultSerializer, strategy.IsInput, strategy.Hash, ref strategy.SendForChildEntities, chosenVariantHash);
                 AddAndCount(ref strategy);
             }
 
             // `ClientOnlyVariant` special case:
-            if (VariantIsUserSpecifiedDefaultRule(componentType, GhostVariantsUtility.ClientOnlyHash, isRoot))
+            ComponentTypeSerializationStrategy.DefaultType defaultType;
+            if (!alreadyAddedClientOnlyVariant && VariantIsUserSpecifiedDefaultRule(componentType, GhostVariantsUtility.ClientOnlyHash, isRoot, chosenVariantHash, out defaultType))
             {
                 var clientOnlyVariant = new ComponentTypeSerializationStrategy
                 {
                     Component = componentType,
-                    DefaultRule = ComponentTypeSerializationStrategy.DefaultType.YesViaUserSpecifiedNamedDefault,
-                    SerializerIndex = -1, // Client only so non-serialized. No need to warn, as this is expected behaviour for all GhostEnabledBits, when using `ClientOnlyVariant`.
+                    DefaultRule = defaultType,
+                    SerializerIndex = -1, // Client only so non-serialized.
                     SelfIndex = -1, // Hardcoded index lookup.
                     PrefabType = GhostPrefabType.Client,
                     Hash = GhostVariantsUtility.ClientOnlyHash,
-                    DisplayName = nameof(ClientOnlyVariant),
+                    DisplayName = GhostVariantsUtility.k_ClientOnlyVariant,
                 };
-                AddSerializationStrategy(ref clientOnlyVariant);
+                AddSerializationStrategyInternal(ref clientOnlyVariant);
 
                 AddAndCount(ref clientOnlyVariant);
             }
+            // `ServerOnlyVariant` special case:
+            if (!alreadyAddedServerOnlyVariant && VariantIsUserSpecifiedDefaultRule(componentType, GhostVariantsUtility.ServerOnlyHash, isRoot, chosenVariantHash, out defaultType))
+            {
+                var serverOnlyVariant = new ComponentTypeSerializationStrategy
+                {
+                    Component = componentType,
+                    DefaultRule = defaultType,
+                    SerializerIndex = -1, // Server only so non-serialized.
+                    SelfIndex = -1, // Hardcoded index lookup.
+                    PrefabType = GhostPrefabType.Server,
+                    Hash = GhostVariantsUtility.ServerOnlyHash,
+                    DisplayName = GhostVariantsUtility.k_ServerOnlyVariant,
+                };
+                AddSerializationStrategyInternal(ref serverOnlyVariant);
+
+                AddAndCount(ref serverOnlyVariant);
+            }
 
             // `DontSerializeVariant` special case:
-            if (!IsInput(availableVariants) && AllVariantsAreSerialized(in availableVariants))
+            if (!alreadyAddedDontSerializeVariant && !IsInput(availableVariants))
             {
-                var defaultTypeForDontSerializeVariant = CalculateDefaultTypeForNonSerializedType(componentType, GhostVariantsUtility.DontSerializeHash, isRoot, availableVariants.Length > 0);
-                var dontSerializeVariant = ConstructDontSerializeVariant(componentType, defaultTypeForDontSerializeVariant);
+                // We only want to add the `DontSerializeVariant` specifically asked for, or otherwise useful.
+                if ((VariantIsUserSpecifiedDefaultRule(componentType, GhostVariantsUtility.DontSerializeHash, isRoot, chosenVariantHash, out _)) || !TryFindDontSerializeIndex(in availableVariants, out _))
+                {
+                    byte sendForChildEntities = 0;
+                    var defaultTypeForDontSerializeVariant = CalculateDefaultTypeForSerializer(componentType, isRoot, false, 0, 0, GhostVariantsUtility.DontSerializeHash, ref sendForChildEntities, chosenVariantHash);
+                    TryFindDefaultSerializerIndex(in availableVariants, out var sourceVariantIndex);
+                    var dontSerializeVariant = ConstructDontSerializeVariant(availableVariants, componentType, defaultTypeForDontSerializeVariant, sourceVariantIndex, nameof(DontSerializeVariant));
 
-                AddAndCount(ref dontSerializeVariant);
+                    AddAndCount(ref dontSerializeVariant);
+                }
             }
 
             // If the type only has one custom variant, that is now the default:
             if (numCustomVariants == 1)
             {
-                var customVariantFallback = availableVariants[customVariantIndex];
+                ref var customVariantFallback = ref availableVariants.ElementAt(customVariantIndex);
                 customVariantFallback.DefaultRule |= ComponentTypeSerializationStrategy.DefaultType.YesAsOnlyOneVariantBecomesDefault;
-                availableVariants[customVariantIndex] = customVariantFallback;
             }
 
+            // Finalize:
             availableVariants.Sort();
 
             return availableVariants;
@@ -553,13 +571,46 @@ namespace Unity.NetCode
                     variant.DefaultRule |= ComponentTypeSerializationStrategy.DefaultType.YesAsEditorDefault;
                 }
 
+                // If the user picked this variant for this specific child, we know they want to serialize it.
+                const ComponentTypeSerializationStrategy.DefaultType userPicked = ComponentTypeSerializationStrategy.DefaultType.YesViaUserSpecifiedNamedDefaultOrHash | ComponentTypeSerializationStrategy.DefaultType.YesAsIsUserSpecifiedNewDefault;
+                var isUserSpecifiedVariant = (variant.DefaultRule & userPicked) != 0;
+                if (isUserSpecifiedVariant && !isRoot) // Don't care if serialized or not, as that'll be handled later. This flag implies intent.
+                {
+                    variant.SendForChildEntities = 1;
+                }
+
                 availableVariants.Add(variant);
+                alreadyAddedDontSerializeVariant |= variant.Hash == GhostVariantsUtility.DontSerializeHash;
+                alreadyAddedClientOnlyVariant |= variant.Hash == GhostVariantsUtility.ClientOnlyHash;
+                alreadyAddedServerOnlyVariant |= variant.Hash == GhostVariantsUtility.ServerOnlyHash;
             }
 
             static bool IsUserCreatedVariant(ulong variantTypeHash, byte isDefaultSerializer)
             {
                 return isDefaultSerializer == 0 && variantTypeHash != GhostVariantsUtility.DontSerializeHash && variantTypeHash != GhostVariantsUtility.ClientOnlyHash;
             }
+        }
+
+        private static bool TryFindDefaultSerializerIndex(in NativeList<ComponentTypeSerializationStrategy> availableVariants, out int defaultSerializerIndex)
+        {
+            for (defaultSerializerIndex = 0; defaultSerializerIndex < availableVariants.Length; defaultSerializerIndex++)
+            {
+                if (availableVariants[defaultSerializerIndex].IsDefaultSerializer > 0)
+                    return true;
+            }
+            defaultSerializerIndex = -1;
+            return false;
+        }
+
+        private static bool TryFindDontSerializeIndex(in NativeList<ComponentTypeSerializationStrategy> availableVariants, out int dontSerializeIndex)
+        {
+            for (dontSerializeIndex = 0; dontSerializeIndex < availableVariants.Length; dontSerializeIndex++)
+            {
+                if (availableVariants[dontSerializeIndex].IsDontSerializeVariant)
+                    return true;
+            }
+            dontSerializeIndex = -1;
+            return false;
         }
 
         static bool IsInput(NativeList<ComponentTypeSerializationStrategy> availableVariants)
@@ -570,31 +621,34 @@ namespace Unity.NetCode
             return false;
         }
 
-        ComponentTypeSerializationStrategy ConstructDontSerializeVariant(ComponentType componentType, ComponentTypeSerializationStrategy.DefaultType defaultType)
+        ComponentTypeSerializationStrategy ConstructDontSerializeVariant(in NativeList<ComponentTypeSerializationStrategy> availableVariants, ComponentType componentType, ComponentTypeSerializationStrategy.DefaultType defaultRule, int sourceVariantIndex, string displayName)
         {
             var dontSerializeVariant = new ComponentTypeSerializationStrategy
             {
                 Component = componentType,
-                DefaultRule = defaultType,
+                DefaultRule = default, // We set this AFTER adding it to the map, so repeated runs are not invalidated.
                 SerializerIndex = -1,
                 SelfIndex = -1,
                 PrefabType = GhostPrefabType.All,
                 Hash = GhostVariantsUtility.DontSerializeHash,
-                DisplayName = nameof(DontSerializeVariant),
+                DisplayName = displayName,
             };
-            AddSerializationStrategy(ref dontSerializeVariant);
-            return dontSerializeVariant;
-        }
 
-        static bool AllVariantsAreSerialized(in NativeList<ComponentTypeSerializationStrategy> availableVariants)
-        {
-            foreach (var x in availableVariants)
+            // Copy over variant data from the default serializer, as we should use the same settings for this variant.
+            // Example use-case: User has Component `Foo` which is 'PrefabType.Server', and not serialized on children.
+            // Child therefore use the `DontSerializeVariant`, but the `DontSerializeVariant` must inherit 'PrefabType.Server'.
+            if(sourceVariantIndex >= 0)
             {
-                if (x.IsSerialized == 0)
-                    return false;
+                var defaultSerializer = availableVariants[sourceVariantIndex];
+                dontSerializeVariant.PrefabType = defaultSerializer.PrefabType;
+                dontSerializeVariant.SendTypeOptimization = defaultSerializer.SendTypeOptimization;
+                dontSerializeVariant.HasSupportsPrefabOverridesAttribute = defaultSerializer.HasSupportsPrefabOverridesAttribute;
+                dontSerializeVariant.HasDontSupportPrefabOverridesAttribute = defaultSerializer.HasDontSupportPrefabOverridesAttribute;
             }
 
-            return true;
+            AddSerializationStrategyInternal(ref dontSerializeVariant);
+            dontSerializeVariant.DefaultRule = defaultRule;
+            return dontSerializeVariant;
         }
 
         internal static bool AnyVariantsAreSerialized(in NativeList<ComponentTypeSerializationStrategy> availableVariants)
@@ -629,59 +683,60 @@ namespace Unity.NetCode
         }
 
         /// <summary>
-        /// <para>Variants have nested "is default" rules, checked in the following order:</para>
-        /// <para> 1. If the user specified a <see cref="DefaultVariantSystemBase.Rule"/> via <see cref="DefaultVariantSystemBase.RegisterDefaultVariants"/>,
-        /// we use that.</para>
-        /// <para> 2. Otherwise, if this is component is on the root entity,
-        ///        OR it's an input component,
-        ///        return true ONLY IF it's the default serializer (i.e. variantType == componentType).</para>
-        /// <para> 3. Otherwise, if this is component is on a child entity, return true if it's the <see cref="DontSerializeVariant"/>.</para>
+        /// Variants have nested "is default" rules. This method calculates them.
         /// </summary>
-        ComponentTypeSerializationStrategy.DefaultType CalculateDefaultTypeForSerializer(ComponentType componentType, bool isRoot, byte isDefaultSerializer, byte isInput, ulong ssHash, byte sendForChildEntities)
+        ComponentTypeSerializationStrategy.DefaultType CalculateDefaultTypeForSerializer(ComponentType componentType, bool isRoot, bool isSerialized, byte isDefaultSerializer, byte isInput, ulong ssHash, ref byte sendForChildEntities, ulong chosenVariantHash)
         {
-            if (VariantIsUserSpecifiedDefaultRule(componentType, ssHash, isRoot))
-                return ComponentTypeSerializationStrategy.DefaultType.YesViaUserSpecifiedNamedDefault;
+            if (VariantIsUserSpecifiedDefaultRule(componentType, ssHash, isRoot, chosenVariantHash, out var defaultType))
+            {
+                return defaultType;
+            }
 
             // The user did NOT specify this as a default, so infer defaults from rules:
-            if (isRoot || isInput != 0)
-                return isDefaultSerializer != 0 ? ComponentTypeSerializationStrategy.DefaultType.YesAsIsDefaultSerializerAndIsRoot : ComponentTypeSerializationStrategy.DefaultType.NotDefault;
+            if (isSerialized)
+            {
+                // Child entities default to DontSerializeVariant:
+                // But that may have been changed via attribute, making them the default serializer:
+                if (isRoot || isInput != 0 || sendForChildEntities != 0)
+                    return isDefaultSerializer != 0 ? ComponentTypeSerializationStrategy.DefaultType.YesAsIsDefaultSerializerAndDefaultIsUnchanged : ComponentTypeSerializationStrategy.DefaultType.NotDefault;
+            }
+            else
+            {
+                // It's the DontSerializeVariant.
+                if (ssHash == GhostVariantsUtility.DontSerializeHash)
+                    return ComponentTypeSerializationStrategy.DefaultType.YesAsIsChildDefaultingToDontSerializeVariant;
 
-            // Child entities default to DontSerializeVariant:
-            // But that may have been changed via attribute:
-            if (sendForChildEntities != 0)
-                return isDefaultSerializer != 0 ? ComponentTypeSerializationStrategy.DefaultType.YesAsAttributeAllowingChildSerialization : ComponentTypeSerializationStrategy.DefaultType.NotDefault;
-
-            return ssHash == GhostVariantsUtility.DontSerializeHash ? ComponentTypeSerializationStrategy.DefaultType.YesAsIsChildDefaultingToDontSerializeVariant : ComponentTypeSerializationStrategy.DefaultType.NotDefault;
+                // It's the default, non-serialized variant, so use it as a last resort.
+                if (isDefaultSerializer > 0)
+                    return ComponentTypeSerializationStrategy.DefaultType.YesAsIsFallback;
+            }
+            return ComponentTypeSerializationStrategy.DefaultType.NotDefault;
         }
 
-        /// <summary>
-        /// <para>Variants have nested "is default" rules, checked in the following order:</para>
-        /// <para> 1. If the user specified a <see cref="DefaultVariantSystemBase.Rule"/> via <see cref="DefaultVariantSystemBase.RegisterDefaultVariants"/>,
-        /// we use that.</para>
-        /// <para> 2. Otherwise, if this is component is on the root entity,
-        ///        OR it's an input component,
-        ///        return true ONLY IF it's the default serializer (i.e. variantType == componentType).</para>
-        /// <para> 3. Otherwise, if this is component is on a child entity, return true if it's the <see cref="DontSerializeVariant"/>.</para>
-        /// </summary>
-        ComponentTypeSerializationStrategy.DefaultType CalculateDefaultTypeForNonSerializedType(ComponentType componentType, ulong variantTypeHash, bool isRoot, bool hasAnyAvailableVariants)
+        bool VariantIsUserSpecifiedDefaultRule(ComponentType componentType, ulong variantTypeHash, bool isRoot, ulong chosenVariantHash, out ComponentTypeSerializationStrategy.DefaultType defaultType)
         {
-            if (VariantIsUserSpecifiedDefaultRule(componentType, variantTypeHash, isRoot))
-                return ComponentTypeSerializationStrategy.DefaultType.YesViaUserSpecifiedNamedDefault;
-            return isRoot && hasAnyAvailableVariants ? ComponentTypeSerializationStrategy.DefaultType.NotDefault : ComponentTypeSerializationStrategy.DefaultType.YesAsIsChildDefaultingToDontSerializeVariant;
-        }
+            // The user requested this variant by name.
+            if (variantTypeHash == chosenVariantHash)
+            {
+                defaultType = ComponentTypeSerializationStrategy.DefaultType.YesViaUserSpecifiedNamedDefaultOrHash;
+                return true;
+            }
 
-        bool VariantIsUserSpecifiedDefaultRule(ComponentType componentType, ulong variantTypeHash, bool isRoot)
-        {
             if (DefaultVariants.TryGetValue(componentType, out var existingRule))
             {
                 var variantRule = (isRoot ? existingRule.VariantForParents : existingRule.VariantForChildren);
                 if (variantRule != default)
                 {
                     // The user DID SPECIFY a default, which invalidates all other defaults.
-                    return variantRule == variantTypeHash;
+                    if (variantRule == variantTypeHash)
+                    {
+                        defaultType = ComponentTypeSerializationStrategy.DefaultType.YesAsIsUserSpecifiedNewDefault;
+                        return true;
+                    }
                 }
             }
 
+            defaultType = ComponentTypeSerializationStrategy.DefaultType.NotDefault;
             return false;
         }
 
@@ -692,8 +747,10 @@ namespace Unity.NetCode
         [System.Diagnostics.Conditional("ENABLE_UNITY_COLLECTIONS_CHECKS")]
         public static void ThrowIfNoHash(ulong hash, FixedString512Bytes context)
         {
+#if ENABLE_UNITY_COLLECTIONS_CHECKS
             if (hash == 0)
                 throw new InvalidOperationException($"Cannot add variant for context '{context}' as hash is zero! Set hashes for all variants via `GhostVariantsUtility` and ensure you've rebuilt NetCode 'Source Generators'.");
+#endif
         }
 
         /// <summary>Release the allocated resources used to store the ghost serializer strategies and mappings.</summary>
@@ -702,8 +759,8 @@ namespace Unity.NetCode
             Serializers.Dispose();
             SerializationStrategies.Dispose();
             DefaultVariants.Dispose();
-            SerializationStrategiesCache.Dispose();
             SerializationStrategiesComponentTypeMap.Dispose();
+            InputComponentBufferMap.Dispose();
         }
 
         /// <summary>
@@ -713,6 +770,7 @@ namespace Unity.NetCode
         [Conditional("ENABLE_UNITY_COLLECTIONS_CHECKS")]
         public void Validate()
         {
+#if ENABLE_UNITY_COLLECTIONS_CHECKS
             for (var i = 0; i < SerializationStrategies.Length; i++)
             {
                 var serializationStrategy = SerializationStrategies[i];
@@ -727,6 +785,7 @@ namespace Unity.NetCode
             {
                 UnityEngine.Assertions.Assert.IsTrue(serializer.SerializationStrategyIndex >= 0 && serializer.SerializationStrategyIndex < SerializationStrategies.Length, "Serializer > SerializationStrategies Index in Range");
             }
+#endif
         }
     }
 }

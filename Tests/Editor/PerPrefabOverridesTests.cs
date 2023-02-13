@@ -106,7 +106,6 @@ namespace Unity.NetCode.Tests
                         new GhostAuthoringInspectionComponent.ComponentOverride
                         {
                             FullTypeName = typeof(GhostGen_IntStruct).FullName,
-                            GameObject = gameObject,
                             PrefabType = prefabTypes[i],
                             SendTypeOptimization = GhostSendType.AllClients,
                             VariantHash = 0
@@ -169,7 +168,6 @@ namespace Unity.NetCode.Tests
                         new GhostAuthoringInspectionComponent.ComponentOverride
                         {
                             FullTypeName = typeof(GhostGen_IntStruct).FullName,
-                            GameObject = child.gameObject,
                             PrefabType = prefabTypes[i],
                             SendTypeOptimization = GhostSendType.AllClients,
                             VariantHash = 0
@@ -235,7 +233,6 @@ namespace Unity.NetCode.Tests
                         new GhostAuthoringInspectionComponent.ComponentOverride
                         {
                             FullTypeName = typeof(GhostGen_IntStruct).FullName,
-                            GameObject = nestedChild.gameObject,
                             PrefabType = prefabTypes[i],
                             SendTypeOptimization = GhostSendType.AllClients,
                             VariantHash = 0
@@ -297,7 +294,6 @@ namespace Unity.NetCode.Tests
                         new GhostAuthoringInspectionComponent.ComponentOverride
                         {
                             FullTypeName = typeof(GhostGen_IntStruct).FullName,
-                            GameObject = collection[i],
                             PrefabType = GhostPrefabType.All,
                             SendTypeOptimization = sendTypes[i],
                             VariantHash = 0,
@@ -356,7 +352,6 @@ namespace Unity.NetCode.Tests
                         new GhostAuthoringInspectionComponent.ComponentOverride
                         {
                             FullTypeName = typeof(GhostGen_IntStruct).FullName,
-                            GameObject = child.gameObject,
                             PrefabType = GhostPrefabType.All,
                             SendTypeOptimization = sendTypes[i],
                             VariantHash = 0
@@ -416,7 +411,6 @@ namespace Unity.NetCode.Tests
                         new GhostAuthoringInspectionComponent.ComponentOverride
                         {
                             FullTypeName = typeof(GhostGen_IntStruct).FullName,
-                            GameObject = nestedChild.gameObject,
                             PrefabType = GhostPrefabType.All,
                             SendTypeOptimization = sendTypes[i],
                             VariantHash = 0
@@ -540,7 +534,6 @@ namespace Unity.NetCode.Tests
 #else
                         FullTypeName = typeof(Transforms.Translation).FullName,
 #endif
-                        GameObject = ghostGameObject,
                         PrefabType = GhostPrefabType.All,
                         SendTypeOptimization = GhostSendType.AllClients,
                         VariantHash = hash
@@ -555,7 +548,6 @@ namespace Unity.NetCode.Tests
 #else
                         FullTypeName = typeof(Transforms.Translation).FullName,
 #endif
-                        GameObject = childGhost,
                         PrefabType = GhostPrefabType.All,
                         SendTypeOptimization = GhostSendType.AllClients,
                         VariantHash = hash
@@ -570,7 +562,6 @@ namespace Unity.NetCode.Tests
 #else
                         FullTypeName = typeof(Transforms.Translation).FullName,
 #endif
-                        GameObject = nestedChildGhost,
                         PrefabType = GhostPrefabType.All,
                         SendTypeOptimization = GhostSendType.AllClients,
                         VariantHash = hash
@@ -650,15 +641,22 @@ namespace Unity.NetCode.Tests
             for (int i = 0; i < sendTypes.Length; ++i)
             {
                 var goFromFunc = testTransform(collection, i);
+                const int exampleEntityIndex = 66;
                 var inspection = goFromFunc.GetComponent<GhostAuthoringInspectionComponent>() ?? goFromFunc.AddComponent<GhostAuthoringInspectionComponent>();
+
                 var entityGuid = new EntityGuid
                 {
                     a = (ulong)goFromFunc.GetInstanceID(),
-                    b = 0,
+                    b = exampleEntityIndex,
                 };
-                var componentOverride = inspection.GetOrAddPrefabOverride(typeof(GhostGen_IntStruct), entityGuid, (GhostPrefabType) GhostAuthoringInspectionComponent.ComponentOverride.NoOverride, out bool didAdd);
-                Assert.AreEqual(componentOverride.GameObject.GetInstanceID(), entityGuid.OriginatingId,
-                    $"{entityGuid.OriginatingId}: did not match game object set on {componentOverride.GameObject.name}");
+                var componentOverride = inspection.GetOrAddPrefabOverride(typeof(GhostGen_IntStruct), entityGuid, (GhostPrefabType) GhostAuthoringInspectionComponent.ComponentOverride.NoOverride);
+
+                var ghostAuthoringComponent = collection[i].GetComponent<GhostAuthoringComponent>();
+                Assert.IsNotNull(ghostAuthoringComponent);
+                var allComponentOverrides = GhostAuthoringInspectionComponent.CollectAllComponentOverridesInInspectionComponents(ghostAuthoringComponent, false);
+                var foundInspection = allComponentOverrides.First(x => x.Item1 == goFromFunc);
+                Assert.AreEqual(foundInspection.Item1.GetInstanceID(), entityGuid.OriginatingId, $"entityGuid.OriginatingId '{entityGuid.OriginatingId}' did not match game object set '{goFromFunc}'");
+                Assert.AreEqual(foundInspection.Item2.EntityIndex, exampleEntityIndex, "EntityIndex should have been set!");
             }
         }
     }

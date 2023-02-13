@@ -8,7 +8,7 @@ using Unity.NetCode.LowLevel.Unsafe;
 namespace Unity.NetCode
 {
     /// <summary>
-    /// Add this component to each connection to determine which tile the connection should prioritize.
+    /// Add this component to each connection to determine which tiles the connection should prioritize.
     /// This will be passed as argument to the built-in scale function to compute Importance.
     /// See <see cref="GhostDistanceImportance"/> implementation.
     /// </summary>
@@ -29,9 +29,9 @@ namespace Unity.NetCode
     }
 
     /// <summary>
-    /// Add this component to each connection to determine the configuration per tile when computing Importance.
-    /// This will be passed as argument to the built-in scale function to compute Importance.
-    /// See <see cref="GhostDistanceImportance"/> implementation.
+    /// The default configuration data for <see cref="GhostImportance"/>.
+    /// Uses tiling to group entities into spatial chunks, allowing chunks to be prioritized based on distance (via the
+    /// <see cref="GhostDistancePartitioningSystem"/>), effectively giving you performant distance-based importance scaling.
     /// </summary>
     public struct GhostDistanceData : IComponentData
     {
@@ -51,7 +51,8 @@ namespace Unity.NetCode
     }
 
     /// <summary>
-    /// Computes distance based importance scaling
+    /// Computes distance based importance scaling.
+    /// I.e. Entities far away from a clients importance focal point (via <see cref="GhostConnectionPosition"/>) will be sent less often.
     /// </summary>
     [BurstCompile]
     public struct GhostDistanceImportance

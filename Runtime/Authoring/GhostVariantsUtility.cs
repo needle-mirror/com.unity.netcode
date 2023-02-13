@@ -12,11 +12,13 @@ namespace Unity.NetCode
     {
         public const string k_DefaultVariantName = "Default";
         public const string k_ClientOnlyVariant = nameof(ClientOnlyVariant);
+        public const string k_ServerOnlyVariant = nameof(ServerOnlyVariant);
         public const string k_DontSerializeVariant = nameof(DontSerializeVariant);
         static readonly FixedString32Bytes k_NetCodeGhostNetVariant = "NetCode.GhostNetVariant";
         static readonly ulong k_NetCodeGhostNetVariantHash = TypeHash.FNV1A64(k_NetCodeGhostNetVariant);
 
         internal static readonly ulong ClientOnlyHash = TypeHash.CombineFNV1A64(k_NetCodeGhostNetVariantHash, TypeHash.FNV1A64((FixedString64Bytes)$"Unity.NetCode.{k_ClientOnlyVariant}"));
+        internal static readonly ulong ServerOnlyHash = TypeHash.CombineFNV1A64(k_NetCodeGhostNetVariantHash, TypeHash.FNV1A64((FixedString64Bytes)$"Unity.NetCode.{k_ServerOnlyVariant}"));
         internal static readonly ulong DontSerializeHash = TypeHash.CombineFNV1A64(k_NetCodeGhostNetVariantHash, TypeHash.FNV1A64((FixedString64Bytes)$"Unity.NetCode.{k_DontSerializeVariant}"));
 
         /// <summary>Calculates a stable hash for a variant via <see cref="TypeManager.GetTypeNameFixed"/>.</summary>

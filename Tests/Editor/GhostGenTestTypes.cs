@@ -1,299 +1,45 @@
+using System;
+using System.Collections;
+using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
+using System.Text.RegularExpressions;
 using NUnit.Framework;
 using Unity.Collections;
 using Unity.Collections.LowLevel.Unsafe;
 using Unity.Entities;
 using Unity.Mathematics;
 using UnityEngine;
+using UnityEngine.TestTools;
 
 namespace Unity.NetCode.Tests
 {
-    public struct int3
-    {
-        public int x;
-        public int y;
-        public int z;
-    }
-
-    public struct uint3
-    {
-        public uint x;
-        public uint y;
-        public uint z;
-    }
-    public struct partialUint3
-    {
-        public uint x;
-        public uint y;
-        [GhostField(SendData = false)] public uint z;
-    }
-
-    public struct floatX
-    {
-        public float2 x;
-        public float3 y;
-        public float4 z;
-    }
-    public struct GhostGenTestTypeFlat : IComponentData
-    {
-        [GhostField(Composite=true)] public int3 Composed_Int3;
-        [GhostField] public int3 Int3;
-
-        [GhostField(Composite=true)] public uint3 Composed_UInt3;
-        [GhostField] public uint3 UInt3;
-        [GhostField(Composite=true)] public partialUint3 ComposedPartial_UInt3;
-        [GhostField] public partialUint3 Partial_UInt3;
-
-        [GhostField(Quantization=10, Composite=true)] public floatX Composed_FloatX;
-        [GhostField(Quantization=10, Smoothing=SmoothingAction.Interpolate)] public floatX FloatX;
-        [GhostField] public int IntValue;
-        [GhostField] public uint UIntValue;
-        [GhostField] public bool BoolValue;
-
-        [GhostField] public long LongValue;
-        [GhostField] public ulong ULongValue;
-
-        [GhostField] public float Unquantized_FloatValue;
-        [GhostField(Smoothing=SmoothingAction.Interpolate)] public float Unquantized_Interpolated_FloatValue;
-        [GhostField(Quantization=10)] public float FloatValue;
-        [GhostField(Quantization=10, Smoothing=SmoothingAction.Interpolate)] public float Interpolated_FloatValue;
-
-
-        [GhostField] public double Unquantized_DoubleValue;
-        [GhostField(Smoothing=SmoothingAction.Interpolate)] public double Unquantized_Interpolated_DoubleValue;
-        [GhostField(Quantization=10)] public float DoubleValue;
-        [GhostField(Quantization=10, Smoothing=SmoothingAction.Interpolate)] public float Interpolated_DoubleValue;
-
-        [GhostField(Quantization=10)] public float2 Float2Value;
-        [GhostField(Quantization=10, Smoothing=SmoothingAction.Interpolate)] public float2 Interpolated_Float2Value;
-        [GhostField] public float2 Unquantized_Float2Value;
-        [GhostField(Smoothing=SmoothingAction.Interpolate)] public float2 Interpolated_Unquantized_Float2Value;
-
-        [GhostField(Quantization=10)] public float3 Float3Value;
-        [GhostField(Quantization=10, Smoothing=SmoothingAction.Interpolate)] public float3 Interpolated_Float3Value;
-        [GhostField] public float3 Unquantized_Float3Value;
-        [GhostField(Smoothing=SmoothingAction.Interpolate)] public float3 Interpolated_Unquantized_Float3Value;
-
-        [GhostField(Quantization=10)] public float4 Float4Value;
-        [GhostField(Quantization=10, Smoothing=SmoothingAction.Interpolate)] public float4 Interpolated_Float4Value;
-        [GhostField] public float4 Unquantized_Float4Value;
-        [GhostField(Smoothing=SmoothingAction.Interpolate)] public float4 Interpolated_Unquantized_Float4Value;
-
-        [GhostField(Quantization=1000)] public quaternion QuaternionValue;
-        [GhostField(Quantization=1000, Smoothing=SmoothingAction.Interpolate)] public quaternion Interpolated_QuaternionValue;
-        [GhostField] public quaternion Unquantized_QuaternionValue;
-        [GhostField(Smoothing=SmoothingAction.Interpolate)] public quaternion Interpolated_Unquantized_QuaternionValue;
-
-        [GhostField] public FixedString32Bytes String32Value;
-        [GhostField] public FixedString64Bytes String64Value;
-        [GhostField] public FixedString128Bytes String128Value;
-        [GhostField] public FixedString512Bytes String512Value;
-        [GhostField] public FixedString4096Bytes String4096Value;
-        [GhostField] public Entity EntityValue;
-    }
-
-    public class GhostGenTestTypesConverter : TestNetCodeAuthoring.IConverter
-    {
-        public void Bake(GameObject gameObject, IBaker baker)
-        {
-            baker.AddComponent(new GhostGenTestTypeFlat {});
-        }
-    }
-
+    // This test class is coupled with GhostGenTestUtils, which holds the types used
     public class GhostGenTestTypes
     {
-        void VerifyGhostValues(NetCodeTestWorld testWorld)
-        {
-            var serverEntity = testWorld.TryGetSingletonEntity<GhostGenTestTypeFlat>(testWorld.ServerWorld);
-            var clientEntity = testWorld.TryGetSingletonEntity<GhostGenTestTypeFlat>(testWorld.ClientWorlds[0]);
-
-            Assert.AreNotEqual(Entity.Null, serverEntity);
-            Assert.AreNotEqual(Entity.Null, clientEntity);
-
-            var serverValues = testWorld.ServerWorld.EntityManager.GetComponentData<GhostGenTestTypeFlat>(serverEntity);
-            var clientValues = testWorld.ClientWorlds[0].EntityManager.GetComponentData<GhostGenTestTypeFlat>(clientEntity);
-
-            Assert.AreEqual(serverValues.Int3, clientValues.Int3);
-            Assert.AreEqual(serverValues.Composed_Int3, clientValues.Composed_Int3);
-
-            Assert.AreEqual(serverValues.UInt3, clientValues.UInt3);
-            Assert.AreEqual(serverValues.Composed_UInt3, clientValues.Composed_UInt3);
-
-            Assert.AreEqual(serverValues.Partial_UInt3.x, clientValues.Partial_UInt3.x);
-            Assert.AreEqual(serverValues.Partial_UInt3.y, clientValues.Partial_UInt3.y);
-            Assert.AreEqual(0, clientValues.Partial_UInt3.z);
-            Assert.AreEqual(serverValues.ComposedPartial_UInt3.x, clientValues.ComposedPartial_UInt3.x);
-            Assert.AreEqual(serverValues.ComposedPartial_UInt3.y, clientValues.ComposedPartial_UInt3.y);
-            Assert.AreEqual(0, clientValues.ComposedPartial_UInt3.z);
-
-            Assert.AreEqual(serverValues.FloatX, clientValues.FloatX);
-            Assert.AreEqual(serverValues.Composed_FloatX, clientValues.Composed_FloatX);
-
-            Assert.AreEqual(serverValues.IntValue, clientValues.IntValue);
-            Assert.AreEqual(serverValues.UIntValue, clientValues.UIntValue);
-            Assert.AreEqual(serverValues.BoolValue, clientValues.BoolValue);
-
-            Assert.AreEqual(serverValues.LongValue, clientValues.LongValue);
-            Assert.AreEqual(serverValues.ULongValue, clientValues.ULongValue);
-
-            Assert.AreEqual(serverValues.FloatValue, clientValues.FloatValue);
-            Assert.AreEqual(serverValues.Interpolated_FloatValue, clientValues.Interpolated_FloatValue);
-            Assert.AreEqual(serverValues.Unquantized_FloatValue, clientValues.Unquantized_FloatValue);
-            Assert.AreEqual(serverValues.Unquantized_Interpolated_FloatValue, clientValues.Unquantized_Interpolated_FloatValue);
-
-            Assert.AreEqual(serverValues.DoubleValue, clientValues.DoubleValue);
-            Assert.AreEqual(serverValues.Interpolated_DoubleValue, clientValues.Interpolated_DoubleValue);
-            Assert.AreEqual(serverValues.Unquantized_DoubleValue, clientValues.Unquantized_DoubleValue);
-            Assert.AreEqual(serverValues.Unquantized_Interpolated_DoubleValue, clientValues.Unquantized_Interpolated_DoubleValue);
-
-            Assert.AreEqual(serverValues.Float2Value, clientValues.Float2Value);
-            Assert.AreEqual(serverValues.Interpolated_Float2Value, clientValues.Interpolated_Float2Value);
-            Assert.AreEqual(serverValues.Unquantized_Float2Value, clientValues.Unquantized_Float2Value);
-            Assert.AreEqual(serverValues.Interpolated_Unquantized_Float2Value, clientValues.Interpolated_Unquantized_Float2Value);
-
-            Assert.AreEqual(serverValues.Float3Value, clientValues.Float3Value);
-            Assert.AreEqual(serverValues.Interpolated_Float3Value, clientValues.Interpolated_Float3Value);
-            Assert.AreEqual(serverValues.Unquantized_Float3Value, clientValues.Unquantized_Float3Value);
-            Assert.AreEqual(serverValues.Interpolated_Unquantized_Float3Value, clientValues.Interpolated_Unquantized_Float3Value);
-
-            Assert.AreEqual(serverValues.Float4Value, clientValues.Float4Value);
-            Assert.AreEqual(serverValues.Interpolated_Float4Value, clientValues.Interpolated_Float4Value);
-            Assert.AreEqual(serverValues.Unquantized_Float4Value, clientValues.Unquantized_Float4Value);
-            Assert.AreEqual(serverValues.Interpolated_Unquantized_Float4Value, clientValues.Interpolated_Unquantized_Float4Value);
-
-            Assert.Less(math.distance(serverValues.QuaternionValue.value, clientValues.QuaternionValue.value), 0.001f);
-            Assert.Less(math.distance(serverValues.Interpolated_QuaternionValue.value, clientValues.Interpolated_QuaternionValue.value), 0.001f);
-            Assert.AreEqual(serverValues.Unquantized_QuaternionValue, clientValues.Unquantized_QuaternionValue);
-            Assert.AreEqual(serverValues.Interpolated_Unquantized_QuaternionValue, clientValues.Interpolated_Unquantized_QuaternionValue);
-
-            Assert.AreEqual(serverValues.String32Value,clientValues.String32Value);
-            Assert.AreEqual(serverValues.String64Value,clientValues.String64Value);
-            Assert.AreEqual(serverValues.String128Value,clientValues.String128Value);
-            Assert.AreEqual(serverValues.String512Value,clientValues.String512Value);
-            Assert.AreEqual(serverValues.String4096Value,clientValues.String4096Value);
-
-            Assert.AreEqual(serverEntity, serverValues.EntityValue);
-            Assert.AreEqual(clientEntity, clientValues.EntityValue);
-        }
-        void SetGhostValues(NetCodeTestWorld testWorld, int baseValue)
-        {
-            var serverEntity = testWorld.TryGetSingletonEntity<GhostGenTestTypeFlat>(testWorld.ServerWorld);
-            Assert.AreNotEqual(Entity.Null, serverEntity);
-            int i = 0;
-            testWorld.ServerWorld.EntityManager.SetComponentData(serverEntity, new GhostGenTestTypeFlat
-            {
-                Int3 = new int3()
-                {
-                    x = baseValue,
-                    y = baseValue + ++i,
-                    z = baseValue + ++i
-                },
-                Composed_Int3 = new int3()
-                {
-                    x = baseValue + ++i,
-                    y = baseValue + ++i,
-                    z = baseValue + ++i,
-                },
-                UInt3 = new uint3()
-                {
-                    x = (uint)baseValue + (uint)++i,
-                    y = (uint)baseValue + (uint)++i,
-                    z = (uint)baseValue + (uint)++i
-                },
-                Composed_UInt3 = new uint3()
-                {
-                    x = (uint)baseValue + (uint)++i,
-                    y = (uint)baseValue + (uint)++i,
-                    z = (uint)baseValue + (uint)++i
-                },
-                Partial_UInt3 = new partialUint3()
-                {
-                    x = (uint)baseValue + (uint)++i,
-                    y = (uint)baseValue + (uint)++i,
-                    z = (uint)baseValue + (uint)++i
-                },
-                ComposedPartial_UInt3 = new partialUint3()
-                {
-                    x = (uint)baseValue + (uint)++i,
-                    y = (uint)baseValue + (uint)++i,
-                    z = (uint)baseValue + (uint)++i
-                },
-                FloatX = new floatX()
-                {
-                    x = new float2(baseValue + (uint)++i, baseValue + (uint)++i),
-                    y = new float3(baseValue + (uint)++i, baseValue + (uint)++i, baseValue + (uint)++i),
-                    z = new float4(baseValue + (uint)++i, baseValue + (uint)++i, baseValue + (uint)++i, baseValue + (uint)++i),
-                },
-                Composed_FloatX = new floatX()
-                {
-                    x = new float2(baseValue + (uint)++i, baseValue + (uint)++i),
-                    y = new float3(baseValue + (uint)++i, baseValue + (uint)++i, baseValue + (uint)++i),
-                    z = new float4(baseValue + (uint)++i, baseValue + (uint)++i, baseValue + (uint)++i, baseValue + (uint)++i),
-                },
-                IntValue = baseValue + ++i,
-                UIntValue = (uint)baseValue + (uint)++i,
-                BoolValue = (baseValue & ++i) != 0,
-
-                LongValue = baseValue + ++i,
-                ULongValue = (ulong)baseValue + (uint)++i,
-
-                FloatValue = baseValue + ++i,
-                Interpolated_FloatValue = baseValue + ++i,
-                Unquantized_FloatValue = baseValue + ++i,
-                Unquantized_Interpolated_FloatValue = baseValue + ++i,
-
-                DoubleValue = baseValue + ++i,
-                Interpolated_DoubleValue = baseValue + ++i,
-                Unquantized_DoubleValue = baseValue + ++i,
-                Unquantized_Interpolated_DoubleValue = baseValue + ++i,
-
-                Float2Value = new float2(baseValue + ++i, baseValue + ++i),
-                Interpolated_Float2Value = new float2(baseValue + ++i, baseValue + ++i),
-                Unquantized_Float2Value = new float2(baseValue + ++i, baseValue + ++i),
-                Interpolated_Unquantized_Float2Value = new float2(baseValue + ++i, baseValue + ++i),
-
-                Float3Value = new float3(baseValue + ++i, baseValue + ++i, baseValue + ++i),
-                Interpolated_Float3Value = new float3(baseValue + ++i, baseValue + ++i, baseValue + ++i),
-                Unquantized_Float3Value = new float3(baseValue + ++i, baseValue + ++i, baseValue + ++i),
-                Interpolated_Unquantized_Float3Value = new float3(baseValue + ++i, baseValue + ++i, baseValue + ++i),
-
-                Float4Value = new float4(baseValue + ++i, baseValue + ++i, baseValue + ++i, baseValue + ++i),
-                Interpolated_Float4Value = new float4(baseValue + ++i, baseValue + ++i, baseValue + ++i, baseValue + ++i),
-                Unquantized_Float4Value = new float4(baseValue + ++i, baseValue + ++i, baseValue + ++i, baseValue + ++i),
-                Interpolated_Unquantized_Float4Value = new float4(baseValue + ++i, baseValue + ++i, baseValue + ++i, baseValue + ++i),
-
-                QuaternionValue = math.normalize(new quaternion(0.4f, 0.4f, 0.4f, 0.6f)),
-                Interpolated_QuaternionValue = math.normalize(new quaternion(0.5f, 0.5f, 0.5f, 0.5f)),
-                Unquantized_QuaternionValue = math.normalize(new quaternion(0.6f, 0.6f, 0.6f, 0.6f)),
-                Interpolated_Unquantized_QuaternionValue = math.normalize(new quaternion(0.5f, 0.5f, 0.5f, 0.5f)),
-
-                String32Value = new FixedString32Bytes($"baseValue = {baseValue + ++i}"),
-                String64Value = new FixedString64Bytes($"baseValue = {baseValue + ++i}"),
-                String128Value = new FixedString128Bytes($"baseValue = {baseValue + ++i}"),
-                String512Value = new FixedString512Bytes($"baseValue = {baseValue + ++i}"),
-                String4096Value = new FixedString4096Bytes($"baseValue = {baseValue + ++i}"),
-
-                EntityValue = serverEntity,
-            });
-            Debug.Log($"i is {i}");
-        }
+        // TODO - Test fragmented unreliable sends by having two large ICommandDatas on 1 client.
+        // Tests that all supported ghost values are replicated from Server->Client on IComponentData via ghost fields
         [Test]
-        public void GhostValuesAreSerialized()
+        public void GhostValuesAreSerialized_IComponentData()
         {
             using (var testWorld = new NetCodeTestWorld())
             {
                 testWorld.Bootstrap(true);
 
                 var ghostGameObject = new GameObject();
-                ghostGameObject.AddComponent<TestNetCodeAuthoring>().Converter = new GhostGenTestTypesConverter();
+                ghostGameObject.AddComponent<TestNetCodeAuthoring>().Converter = new GhostGenTestUtils.GhostGenTestTypesConverter_IComponentData();
 
                 Assert.IsTrue(testWorld.CreateGhostCollection(ghostGameObject));
 
                 testWorld.CreateWorlds(true, 1);
 
                 testWorld.SpawnOnServer(ghostGameObject);
-                SetGhostValues(testWorld, 42);
+                var serverEntity = testWorld.TryGetSingletonEntity<GhostGenTestUtils.GhostGenTestType_IComponentData>(testWorld.ServerWorld);
+                Assert.AreNotEqual(Entity.Null, serverEntity);
+                var newClampValues = GhostGenTestUtils.CreateGhostValuesClamp_Values(42, serverEntity);
+                var newClampStrings = GhostGenTestUtils.CreateGhostValuesClamp_Strings(42);
+                var newInterpolateValues = GhostGenTestUtils.CreateGhostValuesInterpolate(42);
+                testWorld.ServerWorld.EntityManager.SetComponentData(serverEntity, new GhostGenTestUtils.GhostGenTestType_IComponentData {GhostGenTypesClamp_Values = newClampValues, GhostGenTypesClamp_Strings = newClampStrings, GhostGenTypesInterpolate = newInterpolateValues});
 
                 float frameTime = 1.0f / 60.0f;
                 // Connect and make sure the connection could be established
@@ -306,17 +52,328 @@ namespace Unity.NetCode.Tests
                 for (int i = 0; i < 64; ++i)
                     testWorld.Tick(frameTime);
 
-                VerifyGhostValues(testWorld);
-                SetGhostValues(testWorld, 43);
+                var clientEntity = testWorld.TryGetSingletonEntity<GhostGenTestUtils.GhostGenTestType_IComponentData>(testWorld.ClientWorlds[0]);
+                Assert.AreNotEqual(Entity.Null, clientEntity);
+
+                var serverValues = testWorld.ServerWorld.EntityManager.GetComponentData<GhostGenTestUtils.GhostGenTestType_IComponentData>(serverEntity);
+                var clientValues = testWorld.ClientWorlds[0].EntityManager.GetComponentData<GhostGenTestUtils.GhostGenTestType_IComponentData>(clientEntity);
+
+                GhostGenTestUtils.VerifyGhostValuesClamp_Values(false, serverValues.GhostGenTypesClamp_Values, clientValues.GhostGenTypesClamp_Values, serverEntity, clientEntity);
+                GhostGenTestUtils.VerifyGhostValuesClamp_Strings( serverValues.GhostGenTypesClamp_Strings, clientValues.GhostGenTypesClamp_Strings);
+                GhostGenTestUtils.VerifyGhostValuesInterpolate(serverValues.GhostGenTypesInterpolate, clientValues.GhostGenTypesInterpolate);
+
+                newClampValues = GhostGenTestUtils.CreateGhostValuesClamp_Values(43, serverEntity);
+                newClampStrings = GhostGenTestUtils.CreateGhostValuesClamp_Strings(43);
+                newInterpolateValues = GhostGenTestUtils.CreateGhostValuesInterpolate(43);
+                testWorld.ServerWorld.EntityManager.SetComponentData(serverEntity, new GhostGenTestUtils.GhostGenTestType_IComponentData {GhostGenTypesClamp_Values = newClampValues, GhostGenTypesClamp_Strings = newClampStrings, GhostGenTypesInterpolate = newInterpolateValues});
 
                 for (int i = 0; i < 64; ++i)
                     testWorld.Tick(frameTime);
 
                 // Assert that replicated version is correct
-                VerifyGhostValues(testWorld);
+                serverValues = testWorld.ServerWorld.EntityManager.GetComponentData<GhostGenTestUtils.GhostGenTestType_IComponentData>(serverEntity);
+                clientValues = testWorld.ClientWorlds[0].EntityManager.GetComponentData<GhostGenTestUtils.GhostGenTestType_IComponentData>(clientEntity);
+
+                GhostGenTestUtils.VerifyGhostValuesClamp_Values(false, serverValues.GhostGenTypesClamp_Values, clientValues.GhostGenTypesClamp_Values, serverEntity, clientEntity);
+                GhostGenTestUtils.VerifyGhostValuesClamp_Strings( serverValues.GhostGenTypesClamp_Strings, clientValues.GhostGenTypesClamp_Strings);
+                GhostGenTestUtils.VerifyGhostValuesInterpolate(serverValues.GhostGenTypesInterpolate, clientValues.GhostGenTypesInterpolate);
             }
         }
 
+        // Tests that all supported values are replicated from Client=>Server on ICommandData via command target
+        // This uses multiple test cases, because there is a size limit on ICommandData, so we split the struct into multiple values
+        [Test]
+        public void ValuesAreSerialized_ICommandData_Values()
+        {
+            Func<NetworkTick, int, Entity, GhostGenTestUtils.GhostGenTestType_ICommandData_Values> creator =
+                GhostGenTestUtils.CreateICommandDataValues_Values;
+            Action<GhostGenTestUtils.GhostGenTestType_ICommandData_Values, GhostGenTestUtils.GhostGenTestType_ICommandData_Values, Entity, Entity>
+                verifier = GhostGenTestUtils.VerifyICommandData_Values;
+            ValuesAreSerialized_ICommandData(creator, verifier);
+        }
+
+        [Test]
+        public void ValuesAreSerialized_ICommandData_Strings()
+        {
+            Func<NetworkTick, int, Entity, GhostGenTestUtils.GhostGenTestType_ICommandData_Strings> creator =
+                GhostGenTestUtils.CreateICommandDataValues_Strings;
+            Action<GhostGenTestUtils.GhostGenTestType_ICommandData_Strings, GhostGenTestUtils.GhostGenTestType_ICommandData_Strings, Entity, Entity>
+                verifier = GhostGenTestUtils.VerifyICommandData_Strings;
+            ValuesAreSerialized_ICommandData(creator, verifier);
+        }
+
+        /// <summary>
+        /// Tests that ICommandData values are serialized properly. Uses generics since there are multiple ICommandData that needs to be split to avoid duplicating code between this and the IComponentData GhostValue tests above.
+        /// </summary>
+        /// <param name="creator">Function that generates the values of ICommandData</param>
+        /// <param name="verifier">Function that verifies the values two ICommandData, intended to verify that the values are the same between client and server</param>
+        public void ValuesAreSerialized_ICommandData<T>(Func<NetworkTick, int, Entity, T> creator, Action<T, T, Entity, Entity> verifier) where T : unmanaged, ICommandData
+        {
+            using (var testWorld = new NetCodeTestWorld())
+            {
+                testWorld.Bootstrap(true);
+
+                var ghostGameObject = new GameObject();
+                ghostGameObject.AddComponent<TestNetCodeAuthoring>().Converter = new GhostGenTestUtils.GhostGenTestTypesConverter_IComponentData();
+
+                Assert.IsTrue(testWorld.CreateGhostCollection(ghostGameObject));
+
+                testWorld.CreateWorlds(true, 1);
+
+                // We need a ghost on the server to verify that commands can also send ghost entities
+                // We don't care what is on the ghost though, that is tested in the IComponentData variant of this test
+                testWorld.SpawnOnServer(ghostGameObject);
+
+                float frameTime = 1.0f / 60.0f;
+                // Connect and make sure the connection could be established
+                Assert.IsTrue(testWorld.Connect(frameTime, 4));
+
+                // Go in-game
+                testWorld.GoInGame();
+
+                // Let the world run for a bit so the ghosts are spawned on the client
+                for (int i = 0; i < 8; ++i)
+                    testWorld.Tick(frameTime);
+
+                // Add and set server command target
+                var serverConnection = testWorld.TryGetSingletonEntity<NetworkIdComponent>(testWorld.ServerWorld);
+                Assert.AreNotEqual(Entity.Null, serverConnection);
+                testWorld.ServerWorld.EntityManager.AddBuffer<T>(serverConnection);
+                testWorld.ServerWorld.EntityManager.AddComponent<CommandTargetComponent>(serverConnection);
+                testWorld.ServerWorld.EntityManager.SetComponentData(serverConnection, new CommandTargetComponent{targetEntity = serverConnection});
+
+                // Add and set client command target
+                var clientConnection = testWorld.TryGetSingletonEntity<NetworkIdComponent>(testWorld.ClientWorlds[0]);
+                Assert.AreNotEqual(Entity.Null, clientConnection);
+                testWorld.ClientWorlds[0].EntityManager.AddBuffer<T>(clientConnection);
+                testWorld.ClientWorlds[0].EntityManager.AddComponent<CommandTargetComponent>(clientConnection);
+                testWorld.ClientWorlds[0].EntityManager.SetComponentData(clientConnection, new CommandTargetComponent{targetEntity = clientConnection});
+
+                // Add a command to client
+                var clientGhostEntity = testWorld.TryGetSingletonEntity<GhostGenTestUtils.GhostGenTestType_IComponentData>(testWorld.ClientWorlds[0]); // Ghost entity
+                Assert.AreNotEqual(Entity.Null, clientGhostEntity);
+                var clientBuffer = testWorld.ClientWorlds[0].EntityManager.GetBuffer<T>(clientConnection);
+                var clientTick = testWorld.GetNetworkTime(testWorld.ClientWorlds[0]).ServerTick;
+                var newValues = creator(clientTick, 42, clientGhostEntity);
+                clientBuffer.AddCommandData(newValues);
+
+                for (int i = 0; i < 4; i++)
+                    testWorld.Tick(frameTime);
+
+                // Verify values
+                clientBuffer = testWorld.ClientWorlds[0].EntityManager.GetBuffer<T>(clientConnection);
+                clientBuffer.GetDataAtTick(clientTick, out var clientValues);
+                var serverBuffer = testWorld.ServerWorld.EntityManager.GetBuffer<T>(serverConnection);
+                serverBuffer.GetDataAtTick(clientTick, out var serverValues);
+                var serverGhostEntity = testWorld.TryGetSingletonEntity<GhostGenTestUtils.GhostGenTestType_IComponentData>(testWorld.ServerWorld); // Ghost entity
+                Assert.AreNotEqual(Entity.Null, serverGhostEntity);
+                verifier(serverValues, clientValues, serverGhostEntity, clientGhostEntity);
+            }
+        }
+
+        // Tests that all supported values are replicated from Client=>Server on IInputComponentData
+        // This uses multiple test cases, because there is a size limit on ICommandData, so we split the struct into multiple values
+        [Test]
+        public void ValuesAreSerialized_IInputComponentData_Values()
+        {
+            Func<int, Entity, GhostGenTestUtils.GhostGenTestType_IInputComponentData_Values> creator =
+                GhostGenTestUtils.CreateIInputComponentDataValues_Values;
+            Action<GhostGenTestUtils.GhostGenTestType_IInputComponentData_Values, GhostGenTestUtils.GhostGenTestType_IInputComponentData_Values, Entity, Entity>
+                verifier = GhostGenTestUtils.VerifyIInputComponentData_Values;
+            ValuesAreSerialized_IInputCommandData(creator, verifier, new GhostGenTestUtils.GhostGenTestTypesConverter_IInputComponentData_Values());
+        }
+
+        [Test]
+        public void ValuesAreSerialized_IInputComponentData_Strings()
+        {
+            Func<int, Entity, GhostGenTestUtils.GhostGenTestType_IInputComponentData_Strings> creator =
+                GhostGenTestUtils.CreateIInputComponentDataValues_Strings;
+            Action<GhostGenTestUtils.GhostGenTestType_IInputComponentData_Strings, GhostGenTestUtils.GhostGenTestType_IInputComponentData_Strings, Entity, Entity>
+                verifier = GhostGenTestUtils.VerifyIInputComponentData_Strings;
+            ValuesAreSerialized_IInputCommandData(creator, verifier, new GhostGenTestUtils.GhostGenTestTypesConverter_IInputComponentData_Strings());
+        }
+
+        public void ValuesAreSerialized_IInputCommandData<T, U>(Func<int, Entity, T> creator, Action<T, T, Entity, Entity> verifier, U converter) where T : unmanaged, IInputComponentData where U : TestNetCodeAuthoring.IConverter
+        {
+            using (var testWorld = new NetCodeTestWorld())
+            {
+                testWorld.Bootstrap(true);
+
+                // Set up ghost
+                var ghostGameObject = new GameObject();
+                ghostGameObject.AddComponent<TestNetCodeAuthoring>().Converter = converter;
+                var ghostConfig = ghostGameObject.AddComponent<GhostAuthoringComponent>();
+                ghostConfig.HasOwner = true;
+                ghostConfig.SupportAutoCommandTarget = true;
+                ghostConfig.SupportedGhostModes = GhostModeMask.All;
+                ghostConfig.DefaultGhostMode = GhostMode.OwnerPredicted; // Ghost must be predicted for AutoCommandTarget to work
+                Assert.IsTrue(testWorld.CreateGhostCollection(ghostGameObject));
+
+                // Connect and make sure the connection could be established
+                float frameTime = 1.0f / 60.0f;
+                testWorld.CreateWorlds(true, 2);
+                Assert.IsTrue(testWorld.Connect(frameTime, 4));
+                testWorld.GoInGame();
+
+                // Spawn ghost and set owner
+                var clientConnectionEnt = testWorld.TryGetSingletonEntity<NetworkIdComponent>(testWorld.ClientWorlds[0]);
+                var netId = testWorld.ClientWorlds[0].EntityManager.GetComponentData<NetworkIdComponent>(clientConnectionEnt).Value;
+                var serverEnt = testWorld.SpawnOnServer(ghostGameObject);
+                testWorld.ServerWorld.EntityManager.SetComponentData(serverEnt, new GhostOwnerComponent {NetworkId = netId});
+
+
+                // Let the world run for a bit so the ghosts are spawned on the client
+                for (int i = 0; i < 8; ++i)
+                    testWorld.Tick(frameTime);
+
+                // Change input on client
+                var clientGhostEntity = testWorld.TryGetSingletonEntity<T>(testWorld.ClientWorlds[0]); // Ghost entity
+                Assert.AreNotEqual(Entity.Null, clientGhostEntity);
+                var newValues = creator(42, clientGhostEntity);
+                testWorld.ClientWorlds[0].EntityManager.SetComponentData(clientGhostEntity, newValues);
+
+                // Tick to ensure data has been changed
+                for (int i = 0; i < 16; i++)
+                {
+                    testWorld.Tick(frameTime);
+                    var testValues = testWorld.GetSingleton<T>(testWorld.ServerWorld);
+                }
+
+                // Verify values
+                //var clientValues = testWorld.GetSingleton<T>(testWorld.ClientWorlds[0]);
+                var serverGhostEntity = testWorld.TryGetSingletonEntity<T>(testWorld.ServerWorld); // Ghost entity
+                Assert.AreNotEqual(Entity.Null, serverGhostEntity);
+                var serverValues = testWorld.GetSingleton<T>(testWorld.ServerWorld);
+                verifier(serverValues, newValues, serverGhostEntity, clientGhostEntity);
+            }
+        }
+
+        [Test]
+        public void ValuesAreSerialized_IRpc()
+        {
+            using (var testWorld = new NetCodeTestWorld())
+            {
+                testWorld.Bootstrap(true);
+
+                var ghostGameObject = new GameObject();
+                ghostGameObject.AddComponent<TestNetCodeAuthoring>().Converter = new GhostGenTestUtils.GhostGenTestTypesConverter_IComponentData();
+                Assert.IsTrue(testWorld.CreateGhostCollection(ghostGameObject));
+
+                testWorld.CreateWorlds(true, 1);
+
+                // We need a ghost on the server to verify that commands can also send ghost entities
+                // We don't care what is on the ghost though, that is tested in the IComponentData variant of this test
+                testWorld.SpawnOnServer(ghostGameObject);
+
+                float frameTime = 1.0f / 60.0f;
+                // Connect and make sure the connection could be established
+                Assert.IsTrue(testWorld.Connect(frameTime, 4));
+
+                // Go in-game
+                testWorld.GoInGame();
+
+                // Let the world run for a bit so the ghosts are spawned on the client
+                for (int i = 0; i < 8; ++i)
+                    testWorld.Tick(frameTime);
+
+                // Create RPC on client
+                var clientGhostEntity = testWorld.TryGetSingletonEntity<GhostGenTestUtils.GhostGenTestType_IComponentData>(testWorld.ClientWorlds[0]); // Ghost entity
+                Assert.AreNotEqual(Entity.Null, clientGhostEntity);
+                var rpc = testWorld.ClientWorlds[0].EntityManager.CreateEntity(typeof(GhostGenTestUtils.GhostGenTestType_IRpc),
+                    typeof(SendRpcCommandRequestComponent));
+                var clientValues = GhostGenTestUtils.CreateIRpcValues(42, clientGhostEntity);
+                testWorld.ClientWorlds[0].EntityManager.SetComponentData(rpc, clientValues);
+
+                var query = testWorld.ServerWorld.EntityManager.CreateEntityQuery(typeof(GhostGenTestUtils.GhostGenTestType_IRpc));
+                int maxTicks = 100;
+                while (query.CalculateEntityCount() < 1)
+                {
+                    testWorld.Tick(frameTime);
+                    maxTicks--;
+                    if (maxTicks <= 0)
+                        Debug.LogError("Max ticks reached without finding RPC on server");
+                }
+
+                // Verify server values
+                var serverGhostEntity = testWorld.TryGetSingletonEntity<GhostGenTestUtils.GhostGenTestType_IComponentData>(testWorld.ServerWorld); // Ghost entity
+                Assert.AreNotEqual(Entity.Null, serverGhostEntity);
+                var serverValues = testWorld.GetSingleton<GhostGenTestUtils.GhostGenTestType_IRpc>(testWorld.ServerWorld);
+                GhostGenTestUtils.VerifyIRpc(serverValues, clientValues, serverGhostEntity, clientGhostEntity);
+                testWorld.ServerWorld.EntityManager.DestroyEntity(query);
+
+                // Create RPC on server
+                rpc = testWorld.ServerWorld.EntityManager.CreateEntity(typeof(GhostGenTestUtils.GhostGenTestType_IRpc),
+                    typeof(SendRpcCommandRequestComponent));
+                serverValues = GhostGenTestUtils.CreateIRpcValues(43, serverGhostEntity);
+                testWorld.ServerWorld.EntityManager.SetComponentData(rpc, serverValues);
+
+                query = testWorld.ClientWorlds[0].EntityManager.CreateEntityQuery(typeof(GhostGenTestUtils.GhostGenTestType_IRpc));
+                maxTicks = 100;
+                while (query.CalculateEntityCount() < 1)
+                {
+                    testWorld.Tick(frameTime);
+                    maxTicks--;
+                    if (maxTicks <= 0)
+                        Debug.LogError("Max ticks reached without finding RPC on server");
+                }
+
+                // Verify server values
+                clientValues = testWorld.GetSingleton<GhostGenTestUtils.GhostGenTestType_IRpc>(testWorld.ClientWorlds[0]);
+                GhostGenTestUtils.VerifyIRpc(serverValues, clientValues, serverGhostEntity, clientGhostEntity);
+                testWorld.ClientWorlds[0].EntityManager.DestroyEntity(query);
+            }
+        }
+
+        [Test]
+        public void CommandTooBig()
+        {
+            using (var testWorld = new NetCodeTestWorld())
+            {
+                // Setup
+                testWorld.Bootstrap(true);
+
+                testWorld.CreateWorlds(true, 1);
+
+                // Connect and make sure the connection could be established
+                float frameTime = 1.0f / 60.0f;
+                Assert.IsTrue(testWorld.Connect(frameTime, 4));
+
+                // Go in-game
+                testWorld.GoInGame();
+
+                // Let the world run for a bit so the ghosts are spawned on the client
+                for (int i = 0; i < 8; ++i)
+                    testWorld.Tick(frameTime);
+
+                // Add and set server command target
+                var serverConnection = testWorld.TryGetSingletonEntity<NetworkIdComponent>(testWorld.ServerWorld);
+                Assert.AreNotEqual(Entity.Null, serverConnection);
+                testWorld.ServerWorld.EntityManager.AddBuffer<GhostGenTestUtils.GhostGenTestType_ICommandData_Strings>(serverConnection);
+                testWorld.ServerWorld.EntityManager.AddComponent<CommandTargetComponent>(serverConnection);
+                testWorld.ServerWorld.EntityManager.SetComponentData(serverConnection, new CommandTargetComponent{targetEntity = serverConnection});
+
+                // Add and set client command target
+                var clientConnection = testWorld.TryGetSingletonEntity<NetworkIdComponent>(testWorld.ClientWorlds[0]);
+                Assert.AreNotEqual(Entity.Null, clientConnection);
+                testWorld.ClientWorlds[0].EntityManager.AddBuffer<GhostGenTestUtils.GhostGenTestType_ICommandData_Strings>(clientConnection);
+                testWorld.ClientWorlds[0].EntityManager.AddComponent<CommandTargetComponent>(clientConnection);
+                testWorld.ClientWorlds[0].EntityManager.SetComponentData(clientConnection, new CommandTargetComponent{targetEntity = clientConnection});
+
+                // Add MASSIVE command:
+                var newInvalidClampValues = GhostGenTestUtils.CreateTooLargeGhostValuesStrings();
+                var clientBuffer = testWorld.ClientWorlds[0].EntityManager.GetBuffer<GhostGenTestUtils.GhostGenTestType_ICommandData_Strings>(clientConnection);
+                var clientTick = testWorld.GetNetworkTime(testWorld.ClientWorlds[0]).ServerTick;
+                clientBuffer.AddCommandData(new GhostGenTestUtils.GhostGenTestType_ICommandData_Strings()
+                    { Tick = clientTick, GhostGenTypesClamp_Strings = newInvalidClampValues });
+
+
+                for (int i = 0; i < 1; ++i)
+                    testWorld.Tick(frameTime);
+
+                // Expect it to log an error as it's far too large.
+                LogAssert.Expect(LogType.Error, new Regex("the serialized payload is too large"));
+            }
+        }
 
         public struct GhostGenBigStruct : IComponentData
         {

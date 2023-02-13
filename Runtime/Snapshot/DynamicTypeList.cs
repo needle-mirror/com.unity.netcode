@@ -5,6 +5,11 @@ using System.Runtime.InteropServices;
 
 namespace Unity.NetCode
 {
+    /// <summary>
+    /// This struct stores all component types we're reading from and writing to, in netcode serialization jobs.
+    /// It only exists because of an IJob limitation where <see cref="DynamicComponentTypeHandle"/>'s MUST be defined as fields.
+    /// I.e. Collections containing <see cref="DynamicComponentTypeHandle"/>'s are not valid.
+    /// </summary>
     [StructLayout(LayoutKind.Sequential)]
     internal struct DynamicTypeList
     {
@@ -81,6 +86,10 @@ namespace Unity.NetCode
         }
     }
 
+    /// <summary>
+    /// This struct only exists because of an IJob limitation where <see cref="DynamicComponentTypeHandle"/>'s MUST be defined as fields.
+    /// I.e. Collections containing <see cref="DynamicComponentTypeHandle"/>'s are not valid.
+    /// </summary>
     [StructLayout(LayoutKind.Sequential)]
     internal struct DynamicComponentTypeHandle32
     {

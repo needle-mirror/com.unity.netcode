@@ -127,19 +127,19 @@ namespace Unity.NetCode
     }
 
     /// <summary>
-    /// A system used to make a backup o the current predicted state right after the last full (not fractional)
+    /// A system used to make a backup of the current predicted state, right after the last full (not fractional)
     /// tick in a prediction loop for a frame has been completed.
-    /// The backup does a memcopy of all components which are rolled back as part of prediction to a separate
-    /// memory area connected to the chunk.
-    /// The backup is used to restore the last full tick to continue prediction when no new data has arrived,
-    /// when that happens only the fields which are actually serialized as part of the snapshot are copied back,
-    /// not the full component.
-    /// The backup data is also used to detect errors in the prediction as well as to add smoothing of predicted
-    /// values.
+    /// The backup does a memcopy of all ghost components (into a separate memory area connected to the chunk).
+    /// The backup is used to restore the last full tick, to continue prediction when no new data has arrived.
+    /// Note: When this happens, only the fields which are actually serialized as part of the snapshot are copied back,
+    /// not the full component. Thus, preserving any non-GhostField state.
+    /// The backup data is also used to:
+    /// - Detect errors in the prediction.
+    /// - To add smoothing of predicted values.
     /// </summary>
     [WorldSystemFilter(WorldSystemFilterFlags.ClientSimulation)]
     [UpdateInGroup(typeof(PredictedSimulationSystemGroup), OrderLast = true)]
-    //[BurstCompile] // TODO: Re-enable once Burst issue BUR-1971 is fixed.
+    [BurstCompile]
     public unsafe partial struct GhostPredictionHistorySystem : ISystem
     {
         struct PredictionStateEntry
@@ -165,7 +165,7 @@ namespace Unity.NetCode
         BufferLookup<GhostCollectionComponentIndex> m_GhostCollectionComponentIndexFromEntity;
         BufferLookup<GhostCollectionPrefab> m_GhostCollectionPrefabFromEntity;
 
-        //[BurstCompile] // TODO: Re-enable once Burst issue BUR-1971 is fixed.
+        [BurstCompile]
         public void OnCreate(ref SystemState state)
         {
             m_PredictionState = new NativeParallelHashMap<ArchetypeChunk, System.IntPtr>(128, Allocator.Persistent);
@@ -198,7 +198,7 @@ namespace Unity.NetCode
             SystemAPI.GetSingletonRW<GhostPredictionHistoryState>().ValueRW.PredictionState = m_PredictionState.AsReadOnly();
         }
 
-        //[BurstCompile] // TODO: Re-enable once Burst issue BUR-1971 is fixed.
+        [BurstCompile]
         public void OnDestroy(ref SystemState state)
         {
             var values = m_PredictionState.GetValueArray(Allocator.Temp);
@@ -212,7 +212,7 @@ namespace Unity.NetCode
             m_UpdatedPredictionState.Dispose();
         }
 
-        //[BurstCompile] // TODO: Re-enable once Burst issue BUR-1971 is fixed.
+        [BurstCompile]
         public void OnUpdate(ref SystemState state)
         {
             var networkTime = SystemAPI.GetSingleton<NetworkTime>();
@@ -541,36 +541,45 @@ namespace Unity.NetCode
 
                         enabledBitPtr = PredictionBackupState.GetNextEnabledBits(enabledBitPtr, chunk.Capacity);
                     }
-                    if (!chunk.Has(ref ghostChunkComponentTypesPtr[compIdx]))
+
+                    // Note that `HasGhostFields` reads the `SnapshotSize` of this type, BUT we're saving the entire component.
+                    // The reason we use this is: Why bother memcopy-ing the entire component state, if we're never actually going to be writing any data back?
+                    // I.e. Only the GhostFields will be written back anyway.
+                    if (GhostComponentCollection[serializerIdx].HasGhostFields)
                     {
-                        UnsafeUtility.MemClear(dataPtr, chunk.Count * compSize);
-                    }
-                    else if (!GhostComponentCollection[serializerIdx].ComponentType.IsBuffer)
-                    {
-                        var compData = (byte*)chunk.GetDynamicComponentDataArrayReinterpret<byte>(ref ghostChunkComponentTypesPtr[compIdx], compSize).GetUnsafeReadOnlyPtr();
-                        UnsafeUtility.MemCpy(dataPtr, compData, chunk.Count * compSize);
-                    }
-                    else
-                    {
-                        var bufferData = chunk.GetUntypedBufferAccessor(ref ghostChunkComponentTypesPtr[compIdx]);
-                        var bufElemSize = GhostComponentCollection[serializerIdx].ComponentSize;
-                        //Use local variable to iterate and set the buffer offset and length. The dataptr must be
-                        //advanced "per chunk" to the next correct position
-                        var tempDataPtr = dataPtr;
-                        for (int i = 0; i < bufferData.Length; ++i)
+                        if (!chunk.Has(ref ghostChunkComponentTypesPtr[compIdx]))
                         {
-                            //Retrieve an copy each buffer data. Set size and offset in the backup buffer in the component backup
-                            var bufferPtr = bufferData.GetUnsafeReadOnlyPtrAndLength(i, out var size);
-                            ((int*) tempDataPtr)[0] = size;
-                            ((int*) tempDataPtr)[1] = bufferBackupDataOffset;
-                            if (size > 0)
-                                UnsafeUtility.MemCpy(bufferBackupDataPtr+bufferBackupDataOffset, (byte*)bufferPtr, size*bufElemSize);
-                            bufferBackupDataOffset += size*bufElemSize;
-                            tempDataPtr += compSize;
+                            UnsafeUtility.MemClear(dataPtr, chunk.Count * compSize);
                         }
-                        bufferBackupDataOffset = GhostComponentSerializer.SnapshotSizeAligned(bufferBackupDataOffset);
+                        else if (!GhostComponentCollection[serializerIdx].ComponentType.IsBuffer)
+                        {
+                            var compData = (byte*) chunk.GetDynamicComponentDataArrayReinterpret<byte>(ref ghostChunkComponentTypesPtr[compIdx], compSize).GetUnsafeReadOnlyPtr();
+                            UnsafeUtility.MemCpy(dataPtr, compData, chunk.Count * compSize);
+                        }
+                        else
+                        {
+                            var bufferData = chunk.GetUntypedBufferAccessor(ref ghostChunkComponentTypesPtr[compIdx]);
+                            var bufElemSize = GhostComponentCollection[serializerIdx].ComponentSize;
+                            //Use local variable to iterate and set the buffer offset and length. The dataptr must be
+                            //advanced "per chunk" to the next correct position
+                            var tempDataPtr = dataPtr;
+                            for (int i = 0; i < bufferData.Length; ++i)
+                            {
+                                //Retrieve an copy each buffer data. Set size and offset in the backup buffer in the component backup
+                                var bufferPtr = bufferData.GetUnsafeReadOnlyPtrAndLength(i, out var size);
+                                ((int*) tempDataPtr)[0] = size;
+                                ((int*) tempDataPtr)[1] = bufferBackupDataOffset;
+                                if (size > 0)
+                                    UnsafeUtility.MemCpy(bufferBackupDataPtr + bufferBackupDataOffset, (byte*) bufferPtr, size * bufElemSize);
+                                bufferBackupDataOffset += size * bufElemSize;
+                                tempDataPtr += compSize;
+                            }
+
+                            bufferBackupDataOffset = GhostComponentSerializer.SnapshotSizeAligned(bufferBackupDataOffset);
+                        }
+
+                        dataPtr = PredictionBackupState.GetNextData(dataPtr, compSize, chunk.Capacity);
                     }
-                    dataPtr = PredictionBackupState.GetNextData(dataPtr, compSize, chunk.Capacity);
                 }
                 if (typeData.NumChildComponents > 0)
                 {
@@ -607,54 +616,62 @@ namespace Unity.NetCode
                         }
                         var isBuffer = GhostComponentCollection[serializerIdx].ComponentType.IsBuffer;
                         var compSize = isBuffer ? GhostSystemConstants.DynamicBufferComponentSnapshotSize : GhostComponentCollection[serializerIdx].ComponentSize;
-                        if (!GhostComponentCollection[serializerIdx].ComponentType.IsBuffer)
+
+                        if (GhostComponentCollection[serializerIdx].HasGhostFields)
                         {
-                            //use a temporary for the iteration here. Otherwise when the dataptr is offset for the chunk, we
-                            //end up in the wrong position
-                            var tempDataPtr = dataPtr;
-                            for (int ent = 0, chunkEntityCount = chunk.Count; ent < chunkEntityCount; ++ent)
+                            if (!GhostComponentCollection[serializerIdx].ComponentType.IsBuffer)
                             {
-                                var linkedEntityGroup = linkedEntityGroupAccessor[ent];
-                                var childEnt = linkedEntityGroup[GhostComponentIndex[baseOffset + comp].EntityIndex].Value;
-                                if (childEntityLookup.TryGetValue(childEnt, out var childChunk) && childChunk.Chunk.Has(ref ghostChunkComponentTypesPtr[compIdx]))
+                                //use a temporary for the iteration here. Otherwise when the dataptr is offset for the chunk, we
+                                //end up in the wrong position
+                                var tempDataPtr = dataPtr;
+                                for (int ent = 0, chunkEntityCount = chunk.Count; ent < chunkEntityCount; ++ent)
                                 {
-                                    var compData = (byte*)childChunk.Chunk.GetDynamicComponentDataArrayReinterpret<byte>(ref ghostChunkComponentTypesPtr[compIdx], compSize).GetUnsafeReadOnlyPtr();
-                                    UnsafeUtility.MemCpy(tempDataPtr, compData + childChunk.IndexInChunk * compSize, compSize);
+                                    var linkedEntityGroup = linkedEntityGroupAccessor[ent];
+                                    var childEnt = linkedEntityGroup[GhostComponentIndex[baseOffset + comp].EntityIndex].Value;
+                                    if (childEntityLookup.TryGetValue(childEnt, out var childChunk) && childChunk.Chunk.Has(ref ghostChunkComponentTypesPtr[compIdx]))
+                                    {
+                                        var compData = (byte*) childChunk.Chunk.GetDynamicComponentDataArrayReinterpret<byte>(ref ghostChunkComponentTypesPtr[compIdx], compSize).GetUnsafeReadOnlyPtr();
+                                        UnsafeUtility.MemCpy(tempDataPtr, compData + childChunk.IndexInChunk * compSize, compSize);
+                                    }
+                                    else
+                                        UnsafeUtility.MemClear(tempDataPtr, compSize);
+
+                                    tempDataPtr += compSize;
                                 }
-                                else
-                                    UnsafeUtility.MemClear(tempDataPtr, compSize);
-                                tempDataPtr += compSize;
                             }
-                        }
-                        else
-                        {
-                            var bufElemSize = GhostComponentCollection[serializerIdx].ComponentSize;
-                            var tempDataPtr = dataPtr;
-                            for (int ent = 0, chunkEntityCount = chunk.Count; ent < chunkEntityCount; ++ent)
+                            else
                             {
-                                var linkedEntityGroup = linkedEntityGroupAccessor[ent];
-                                var childEnt = linkedEntityGroup[GhostComponentIndex[baseOffset + comp].EntityIndex].Value;
-                                if (childEntityLookup.TryGetValue(childEnt, out var childChunk) && childChunk.Chunk.Has(ref ghostChunkComponentTypesPtr[compIdx]))
+                                var bufElemSize = GhostComponentCollection[serializerIdx].ComponentSize;
+                                var tempDataPtr = dataPtr;
+                                for (int ent = 0, chunkEntityCount = chunk.Count; ent < chunkEntityCount; ++ent)
                                 {
-                                    var bufferData = childChunk.Chunk.GetUntypedBufferAccessor(ref ghostChunkComponentTypesPtr[compIdx]);
-                                    //Retrieve an copy each buffer data. Set size and offset in the backup buffer in the component backup
-                                    var bufferPtr = bufferData.GetUnsafeReadOnlyPtrAndLength(childChunk.IndexInChunk, out var size);
-                                    ((int*) tempDataPtr)[0] = size;
-                                    ((int*) tempDataPtr)[1] = bufferBackupDataOffset;
-                                    if (size > 0)
-                                        UnsafeUtility.MemCpy(bufferBackupDataPtr+bufferBackupDataOffset, (byte*)bufferPtr, size*bufElemSize);
-                                    bufferBackupDataOffset += size*bufElemSize;
+                                    var linkedEntityGroup = linkedEntityGroupAccessor[ent];
+                                    var childEnt = linkedEntityGroup[GhostComponentIndex[baseOffset + comp].EntityIndex].Value;
+                                    if (childEntityLookup.TryGetValue(childEnt, out var childChunk) && childChunk.Chunk.Has(ref ghostChunkComponentTypesPtr[compIdx]))
+                                    {
+                                        var bufferData = childChunk.Chunk.GetUntypedBufferAccessor(ref ghostChunkComponentTypesPtr[compIdx]);
+                                        //Retrieve an copy each buffer data. Set size and offset in the backup buffer in the component backup
+                                        var bufferPtr = bufferData.GetUnsafeReadOnlyPtrAndLength(childChunk.IndexInChunk, out var size);
+                                        ((int*) tempDataPtr)[0] = size;
+                                        ((int*) tempDataPtr)[1] = bufferBackupDataOffset;
+                                        if (size > 0)
+                                            UnsafeUtility.MemCpy(bufferBackupDataPtr + bufferBackupDataOffset, (byte*) bufferPtr, size * bufElemSize);
+                                        bufferBackupDataOffset += size * bufElemSize;
+                                    }
+                                    else
+                                    {
+                                        //reset the entry to 0. Don't use memcpy in this case (is faster this way)
+                                        ((long*) tempDataPtr)[0] = 0;
+                                    }
+
+                                    tempDataPtr += compSize;
                                 }
-                                else
-                                {
-                                    //reset the entry to 0. Don't use memcpy in this case (is faster this way)
-                                    ((long*) tempDataPtr)[0] = 0;
-                                }
-                                tempDataPtr += compSize;
+
+                                bufferBackupDataOffset = GhostComponentSerializer.SnapshotSizeAligned(bufferBackupDataOffset);
                             }
-                            bufferBackupDataOffset = GhostComponentSerializer.SnapshotSizeAligned(bufferBackupDataOffset);
+
+                            dataPtr = PredictionBackupState.GetNextData(dataPtr, compSize, chunk.Capacity);
                         }
-                        dataPtr = PredictionBackupState.GetNextData(dataPtr, compSize, chunk.Capacity);
                     }
                 }
             }
