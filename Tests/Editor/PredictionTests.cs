@@ -8,11 +8,32 @@ using UnityEngine.TestTools;
 
 namespace Unity.NetCode.Tests
 {
+    //FIXME this will break serialization. It is non handled and must be documented
+    [GhostEnabledBit]
+    struct BufferWithReplicatedEnableBits: IBufferElementData, IEnableableComponent
+    {
+        public byte value;
+    }
+
+    //Added to the ISystem state entity, track the number of time a system update has been called
+    struct SystemExecutionCounter : IComponentData
+    {
+        public int value;
+    }
     public class PredictionTestConverter : TestNetCodeAuthoring.IConverter
     {
         public void Bake(GameObject gameObject, IBaker baker)
         {
+            //Transform is replicated, Owner is replicated (components with sizes)
             baker.AddComponent(new GhostOwnerComponent());
+            //Buffer with enable bits, replicated
+            //TODO: missing: Buffer with enable bits, no replicated fields. This break serialization
+            //baker.AddBuffer<BufferWithReplicatedEnableBits>().ResizeUninitialized(3);
+            baker.AddBuffer<EnableableBuffer>().ResizeUninitialized(3);
+            //Empty enable flags
+            baker.AddComponent<EnableableFlagComponent>();
+            //Non empty enable flags
+            baker.AddComponent(new ReplicatedEnableableComponentWithNonReplicatedField{value = 9999});
         }
     }
     [DisableAutoCreation]
@@ -40,6 +61,114 @@ namespace Unity.NetCode.Tests
 #endif
         }
     }
+    [DisableAutoCreation]
+    [RequireMatchingQueriesForUpdate]
+    [UpdateInGroup(typeof(GhostSimulationSystemGroup))]
+    [UpdateBefore(typeof(GhostUpdateSystem))]
+    [UpdateBefore(typeof(GhostReceiveSystem))]
+    [WorldSystemFilter(WorldSystemFilterFlags.ClientSimulation)]
+    public partial class InvalidateAllGhostDataBeforeUpdate : SystemBase
+    {
+        protected override void OnCreate()
+        {
+            EntityManager.AddComponent<SystemExecutionCounter>(SystemHandle);
+        }
+
+        protected override void OnUpdate()
+        {
+            var networkTime = SystemAPI.GetSingleton<NetworkTime>();
+            var tick = networkTime.ServerTick;
+            if(!tick.IsValid)
+                return;
+            //Do not invalidate full ticks. The backup is not restored in that case
+            if(!networkTime.IsPartialTick)
+                return;
+            Entities
+                .WithoutBurst()
+                .WithAll<GhostComponent>().ForEach((
+                    Entity ent,
+#if !ENABLE_TRANSFORM_V1
+                    ref LocalTransform trans,
+#else
+                    ref Translation trans,
+#endif
+                    ref DynamicBuffer<EnableableBuffer> buffer,
+                    //ref DynamicBuffer<BufferWithReplicatedEnableBits> nonReplicatedBuffer,
+                    ref ReplicatedEnableableComponentWithNonReplicatedField comp) =>
+            {
+                for (int el = 0; el < buffer.Length; ++el)
+                    buffer[el] = new EnableableBuffer { value = 100*(int)tick.SerializedData };
+
+                // for (int el = 0; el < nonReplicatedBuffer.Length; ++el)
+                //     nonReplicatedBuffer[el] = new BufferWithReplicatedEnableBits { value = (byte)tick.SerializedData };
+#if !ENABLE_TRANSFORM_V1
+                trans.Position = new float3(-10 * tick.SerializedData, -10 * tick.SerializedData, -10 * tick.SerializedData);
+                trans.Scale = -10f*tick.SerializedData;
+#else
+                trans.Value = new float3(-10 * tick.SerializedData, -10 * tick.SerializedData, -10 * tick.SerializedData);
+#endif
+                comp.value = -10*(int)tick.SerializedData;
+                EntityManager.SetComponentEnabled<ReplicatedEnableableComponentWithNonReplicatedField>(ent, false);
+                EntityManager.SetComponentEnabled<EnableableFlagComponent>(ent, false);
+            }).Run();
+            var counter = SystemAPI.GetComponentRW<SystemExecutionCounter>(SystemHandle);
+            ++counter.ValueRW.value;
+        }
+    }
+    [DisableAutoCreation]
+    [RequireMatchingQueriesForUpdate]
+    [UpdateInGroup(typeof(GhostSimulationSystemGroup))]
+    [UpdateAfter(typeof(GhostUpdateSystem))]
+    [UpdateBefore(typeof(PredictedSimulationSystemGroup))]
+    [WorldSystemFilter(WorldSystemFilterFlags.ClientSimulation)]
+    public partial class CheckRestoreFromBackupIsCorrect : SystemBase
+    {
+        protected override void OnCreate()
+        {
+            EntityManager.AddComponent<SystemExecutionCounter>(SystemHandle);
+        }
+
+        protected override void OnUpdate()
+        {
+            var tick = SystemAPI.GetSingleton<NetworkTime>().ServerTick;
+            if(!tick.IsValid)
+                return;
+            Entities
+                .WithoutBurst()
+                .WithAll<Simulate, GhostComponent>().ForEach((
+                    Entity ent,
+#if !ENABLE_TRANSFORM_V1
+                    ref LocalTransform trans,
+#else
+                    ref Translation trans,
+#endif
+                    ref DynamicBuffer<EnableableBuffer> buffer,
+                    ref ReplicatedEnableableComponentWithNonReplicatedField comp) =>
+                {
+#if !ENABLE_TRANSFORM_V1
+                    Assert.IsTrue(trans.Position.x > 0f);
+                    Assert.IsTrue(trans.Position.y > 0f);
+                    Assert.IsTrue(trans.Position.z > 0f);
+                    Assert.IsTrue(math.abs(1f - trans.Scale) < 1e-4f);
+#else
+                    Assert.IsTrue(trans.Value.x > 0f);
+                    Assert.IsTrue(trans.Value.y > 0f);
+                    Assert.IsTrue(trans.Value.z > 0f);
+#endif
+
+                    //enable bits must be replicated
+                    Assert.IsTrue(EntityManager.IsComponentEnabled<ReplicatedEnableableComponentWithNonReplicatedField>(ent));
+                    Assert.IsTrue(EntityManager.IsComponentEnabled<EnableableFlagComponent>(ent));
+                    //This component is not replicated. As such its values is never restored.
+                    Assert.AreEqual(-10*(int)tick.SerializedData, comp.value);
+                    for (int el = 0; el < buffer.Length; ++el)
+                         Assert.AreEqual(1000 * (el+1), buffer[el].value);
+                }).Run();
+            var counter = SystemAPI.GetComponentRW<SystemExecutionCounter>(SystemHandle);
+            ++counter.ValueRW.value;
+        }
+    }
+
     public class PredictionTests
     {
         [TestCase((uint)0x229321)]
@@ -90,6 +219,12 @@ namespace Unity.NetCode.Tests
 
                 var serverEnt = testWorld.SpawnOnServer(ghostGameObject);
                 Assert.AreNotEqual(Entity.Null, serverEnt);
+                var buffer = testWorld.ServerWorld.EntityManager.GetBuffer<EnableableBuffer>(serverEnt);
+                for (int i = 0; i < buffer.Length; ++i)
+                    buffer[i] = new EnableableBuffer { value = 1000 * (i + 1) };
+                // var nonReplicatedBuffer = testWorld.ServerWorld.EntityManager.GetBuffer<BufferWithReplicatedEnableBits>(serverEnt);
+                // for (int i = 0; i < nonReplicatedBuffer.Length; ++i)
+                //     nonReplicatedBuffer[i] = new BufferWithReplicatedEnableBits { value = (byte)(10 * (i + 1)) };
 
                 // Connect and make sure the connection could be established
                 Assert.IsTrue(testWorld.Connect(frameTime, 4));
@@ -117,8 +252,10 @@ namespace Unity.NetCode.Tests
 #if !ENABLE_TRANSFORM_V1
                     var curServer = testWorld.ServerWorld.EntityManager.GetComponentData<LocalTransform>(serverEnt);
                     var curClient = testWorld.ClientWorlds[0].EntityManager.GetComponentData<LocalTransform>(clientEnt);
+                    testWorld.ServerWorld.EntityManager.CompleteAllTrackedJobs();
                     // Server does not do fractional ticks so it will not advance the position every frame
                     Assert.GreaterOrEqual(curServer.Position.x, prevServer.x);
+                    testWorld.ClientWorlds[0].EntityManager.CompleteAllTrackedJobs();
                     // Client does fractional ticks and position should be always increasing
                     Assert.Greater(curClient.Position.x, prevClient.x);
                     prevServer = curServer.Position;
@@ -134,7 +271,6 @@ namespace Unity.NetCode.Tests
                     prevClient = curClient;
 #endif
                 }
-
                 // Stop updating, let it run for a while and check that they ended on the same value
                 PredictionTestPredictionSystem.s_IsEnabled = false;
                 for (int i = 0; i < 16; ++i)
@@ -148,6 +284,66 @@ namespace Unity.NetCode.Tests
                 prevClient = testWorld.ClientWorlds[0].EntityManager.GetComponentData<Translation>(clientEnt).Value;
 #endif
                 Assert.IsTrue(math.distance(prevServer, prevClient) < 0.01);
+            }
+        }
+
+        [TestCase(1)]
+        [TestCase(20)]
+        [TestCase(30)]
+        [TestCase(40)]
+        public void HistoryBufferIsRollbackCorrectly(int ghostCount)
+        {
+            using (var testWorld = new NetCodeTestWorld())
+            {
+                testWorld.Bootstrap(true,
+                    typeof(PredictionTestPredictionSystem),
+                    typeof(InvalidateAllGhostDataBeforeUpdate),
+                    typeof(CheckRestoreFromBackupIsCorrect));
+
+                var ghostGameObject = new GameObject();
+                ghostGameObject.AddComponent<TestNetCodeAuthoring>().Converter = new PredictionTestConverter();
+                var ghostConfig = ghostGameObject.AddComponent<GhostAuthoringComponent>();
+                ghostConfig.DefaultGhostMode = GhostMode.Predicted;
+
+                Assert.IsTrue(testWorld.CreateGhostCollection(ghostGameObject));
+
+                testWorld.CreateWorlds(true, 1);
+
+                for (int i = 0; i < ghostCount; ++i)
+                {
+                    var serverEnt = testWorld.SpawnOnServer(ghostGameObject);
+                    var buffer = testWorld.ServerWorld.EntityManager.GetBuffer<EnableableBuffer>(serverEnt);
+                    for (int el = 0; el < buffer.Length; ++el)
+                        buffer[el] = new EnableableBuffer { value = 1000 * (el+ 1) };
+#if !ENABLE_TRANSFORM_V1
+                    testWorld.ServerWorld.EntityManager.SetComponentData(serverEnt, LocalTransform.FromPosition(new float3(0f, 10f, 100f)));
+#else
+                    testWorld.ServerWorld.EntityManager.SetComponentData(serverEnt, new Translation { Value = new float3(0f, 10f, 100f) });
+#endif
+                    // var nonReplicatedBuffer = testWorld.ServerWorld.EntityManager.GetBuffer<BufferWithReplicatedEnableBits>(serverEnt);
+                    // for (int el = 0; el < nonReplicatedBuffer.Length; ++el)
+                    //     nonReplicatedBuffer[el] = new BufferWithReplicatedEnableBits { value = (byte)(10 * (el + 1)) };
+                }
+                // Connect and make sure the connection could be established
+                Assert.IsTrue(testWorld.Connect(frameTime, 4));
+
+                // Go in-game
+                testWorld.GoInGame();
+
+                PredictionTestPredictionSystem.s_IsEnabled = true;
+                for (int i = 0; i < 64; ++i)
+                {
+                    testWorld.Tick(frameTime / 4);
+                }
+                testWorld.ClientWorlds[0].EntityManager.CompleteAllTrackedJobs();
+                PredictionTestPredictionSystem.s_IsEnabled = false;
+                var counter1 = testWorld.ClientWorlds[0].EntityManager.GetComponentData<SystemExecutionCounter>(
+                        testWorld.ClientWorlds[0].GetExistingSystem<InvalidateAllGhostDataBeforeUpdate>());
+                var counter2 = testWorld.ClientWorlds[0].EntityManager.GetComponentData<SystemExecutionCounter>(
+                    testWorld.ClientWorlds[0].GetExistingSystem<InvalidateAllGhostDataBeforeUpdate>());
+                Assert.Greater(counter1.value, 0);
+                Assert.Greater(counter2.value, 0);
+                Assert.AreEqual(counter1.value, counter2.value);
             }
         }
 

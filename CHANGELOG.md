@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.0-pre.47] - 2023-02-28
+
+### Fixed
+
+* Snapshot history buffer not restore correctly, causing entities component to be stomped with random data.
+
+
 ## [1.0.0-pre.44] - 2023-02-13
 
 ### Added
@@ -97,7 +104,7 @@
 * `GhostUpdateSystem` now supports Change Filtering, so components on the client will now only be marked as changed _when they actually are changed_. We strongly recommend implementing change filtering when reading components containing `[GhostField]`s and `[GhostEnabledBit]`s on the client.
 * Fixed input component codegen issue when the type is nested in a parent class
 * Exposed NetworkTick value to Entity Inspector.
-* Fixed code-gen error where `ICommandData.Tick` was not being replicated. 
+* Fixed code-gen error where `ICommandData.Tick` was not being replicated.
 * Fixed code-gen GhostField error handling when dealing with properties on Buffers, Commands, and Components.
 * Fixed code-gen exceptions for `Entity`s, `float`s, `double`s, `quaternions` and `ulong`s in specific conditions (unquantized, or in commands). Also improved exception reporting when trying to set an invalid `SmoothingAction` on `ICommandData`s.
 * Code-gen now will not explode if you have very long field names (support upto 509 characters, from 61), and will not throw truncation errors if you have too many fields.
@@ -106,7 +113,7 @@
   * If there are failed writes in the ICommandData batched send.
 * ICommandData batches now support fragmentation, which means writing multiple ICommandData's will no longer silently fail to send.
 * ICommandData now properly supports `floats`, `doubles`, `ulong`, and `Entity` types.
-* Fixed various Variant selection issues. In particular, `PrefabType` rules defined in `GhostComponentAttribute` of the "Default Serializer" will now be propagated to all of its `DontSerializeVariant`s.  
+* Fixed various Variant selection issues. In particular, `PrefabType` rules defined in `GhostComponentAttribute` of the "Default Serializer" will now be propagated to all of its `DontSerializeVariant`s.
 * Optimized string locale.
 * Netcode settings assets could be modified and saved when asset modification was not allowed.
 

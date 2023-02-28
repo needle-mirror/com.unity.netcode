@@ -54,7 +54,7 @@ namespace Unity.NetCode
             state->dataOffset = headerSize + entitiesSize + enabledBitSize;
             state->dataSize = dataSize;
             state->bufferDataCapacity = buffersDataCapacity;
-            state->bufferDataOffset = headerSize + entitiesSize + dataSize;
+            state->bufferDataOffset = state->dataOffset + dataSize;
             return (IntPtr)state;
         }
         public static int GetHeaderSize()
@@ -462,6 +462,12 @@ namespace Unity.NetCode
                         if ((GhostComponentIndex[baseOffset + comp].SendMask&requiredSendMask) == 0)
                             continue;
 
+                        if (GhostComponentCollection[serializerIdx].SerializesEnabledBit != 0)
+                            ++enabledBits;
+
+                        if (!GhostComponentCollection[serializerIdx].HasGhostFields)
+                            continue;
+
                         if (GhostComponentCollection[serializerIdx].ComponentType.TypeIndex == ghostOwnerTypeIndex)
                             predictionOwnerOffset = dataSize;
 
@@ -473,8 +479,6 @@ namespace Unity.NetCode
                                 GhostComponentCollection[serializerIdx].ComponentSize, chunk.Capacity);
                         else
                             dataSize += PredictionBackupState.GetDataSize(GhostSystemConstants.DynamicBufferComponentSnapshotSize, chunk.Capacity);
-                        if (GhostComponentCollection[serializerIdx].SerializesEnabledBit != 0)
-                            ++enabledBits;
                     }
 
                     //compute the space necessary to store the dynamic buffers data for the chunk
@@ -545,41 +549,40 @@ namespace Unity.NetCode
                     // Note that `HasGhostFields` reads the `SnapshotSize` of this type, BUT we're saving the entire component.
                     // The reason we use this is: Why bother memcopy-ing the entire component state, if we're never actually going to be writing any data back?
                     // I.e. Only the GhostFields will be written back anyway.
-                    if (GhostComponentCollection[serializerIdx].HasGhostFields)
+                    if (!GhostComponentCollection[serializerIdx].HasGhostFields)
+                        continue;
+
+                    if (!chunk.Has(ref ghostChunkComponentTypesPtr[compIdx]))
                     {
-                        if (!chunk.Has(ref ghostChunkComponentTypesPtr[compIdx]))
-                        {
-                            UnsafeUtility.MemClear(dataPtr, chunk.Count * compSize);
-                        }
-                        else if (!GhostComponentCollection[serializerIdx].ComponentType.IsBuffer)
-                        {
-                            var compData = (byte*) chunk.GetDynamicComponentDataArrayReinterpret<byte>(ref ghostChunkComponentTypesPtr[compIdx], compSize).GetUnsafeReadOnlyPtr();
-                            UnsafeUtility.MemCpy(dataPtr, compData, chunk.Count * compSize);
-                        }
-                        else
-                        {
-                            var bufferData = chunk.GetUntypedBufferAccessor(ref ghostChunkComponentTypesPtr[compIdx]);
-                            var bufElemSize = GhostComponentCollection[serializerIdx].ComponentSize;
-                            //Use local variable to iterate and set the buffer offset and length. The dataptr must be
-                            //advanced "per chunk" to the next correct position
-                            var tempDataPtr = dataPtr;
-                            for (int i = 0; i < bufferData.Length; ++i)
-                            {
-                                //Retrieve an copy each buffer data. Set size and offset in the backup buffer in the component backup
-                                var bufferPtr = bufferData.GetUnsafeReadOnlyPtrAndLength(i, out var size);
-                                ((int*) tempDataPtr)[0] = size;
-                                ((int*) tempDataPtr)[1] = bufferBackupDataOffset;
-                                if (size > 0)
-                                    UnsafeUtility.MemCpy(bufferBackupDataPtr + bufferBackupDataOffset, (byte*) bufferPtr, size * bufElemSize);
-                                bufferBackupDataOffset += size * bufElemSize;
-                                tempDataPtr += compSize;
-                            }
-
-                            bufferBackupDataOffset = GhostComponentSerializer.SnapshotSizeAligned(bufferBackupDataOffset);
-                        }
-
-                        dataPtr = PredictionBackupState.GetNextData(dataPtr, compSize, chunk.Capacity);
+                        UnsafeUtility.MemClear(dataPtr, chunk.Count * compSize);
                     }
+                    else if (!GhostComponentCollection[serializerIdx].ComponentType.IsBuffer)
+                    {
+                        var compData = (byte*) chunk.GetDynamicComponentDataArrayReinterpret<byte>(ref ghostChunkComponentTypesPtr[compIdx], compSize).GetUnsafeReadOnlyPtr();
+                        UnsafeUtility.MemCpy(dataPtr, compData, chunk.Count * compSize);
+                    }
+                    else
+                    {
+                        var bufferData = chunk.GetUntypedBufferAccessor(ref ghostChunkComponentTypesPtr[compIdx]);
+                        var bufElemSize = GhostComponentCollection[serializerIdx].ComponentSize;
+                        //Use local variable to iterate and set the buffer offset and length. The dataptr must be
+                        //advanced "per chunk" to the next correct position
+                        var tempDataPtr = dataPtr;
+                        for (int i = 0; i < bufferData.Length; ++i)
+                        {
+                            //Retrieve an copy each buffer data. Set size and offset in the backup buffer in the component backup
+                            var bufferPtr = bufferData.GetUnsafeReadOnlyPtrAndLength(i, out var size);
+                            ((int*) tempDataPtr)[0] = size;
+                            ((int*) tempDataPtr)[1] = bufferBackupDataOffset;
+                            if (size > 0)
+                                UnsafeUtility.MemCpy(bufferBackupDataPtr + bufferBackupDataOffset, (byte*) bufferPtr, size * bufElemSize);
+                            bufferBackupDataOffset += size * bufElemSize;
+                            tempDataPtr += compSize;
+                        }
+
+                        bufferBackupDataOffset = GhostComponentSerializer.SnapshotSizeAligned(bufferBackupDataOffset);
+                    }
+                    dataPtr = PredictionBackupState.GetNextData(dataPtr, compSize, chunk.Capacity);
                 }
                 if (typeData.NumChildComponents > 0)
                 {
@@ -617,61 +620,61 @@ namespace Unity.NetCode
                         var isBuffer = GhostComponentCollection[serializerIdx].ComponentType.IsBuffer;
                         var compSize = isBuffer ? GhostSystemConstants.DynamicBufferComponentSnapshotSize : GhostComponentCollection[serializerIdx].ComponentSize;
 
-                        if (GhostComponentCollection[serializerIdx].HasGhostFields)
+                        if (!GhostComponentCollection[serializerIdx].HasGhostFields)
+                            continue;
+
+                        if (!GhostComponentCollection[serializerIdx].ComponentType.IsBuffer)
                         {
-                            if (!GhostComponentCollection[serializerIdx].ComponentType.IsBuffer)
+                            //use a temporary for the iteration here. Otherwise when the dataptr is offset for the chunk, we
+                            //end up in the wrong position
+                            var tempDataPtr = dataPtr;
+                            for (int ent = 0, chunkEntityCount = chunk.Count; ent < chunkEntityCount; ++ent)
                             {
-                                //use a temporary for the iteration here. Otherwise when the dataptr is offset for the chunk, we
-                                //end up in the wrong position
-                                var tempDataPtr = dataPtr;
-                                for (int ent = 0, chunkEntityCount = chunk.Count; ent < chunkEntityCount; ++ent)
+                                var linkedEntityGroup = linkedEntityGroupAccessor[ent];
+                                var childEnt = linkedEntityGroup[GhostComponentIndex[baseOffset + comp].EntityIndex].Value;
+                                if (childEntityLookup.TryGetValue(childEnt, out var childChunk) && childChunk.Chunk.Has(ref ghostChunkComponentTypesPtr[compIdx]))
                                 {
-                                    var linkedEntityGroup = linkedEntityGroupAccessor[ent];
-                                    var childEnt = linkedEntityGroup[GhostComponentIndex[baseOffset + comp].EntityIndex].Value;
-                                    if (childEntityLookup.TryGetValue(childEnt, out var childChunk) && childChunk.Chunk.Has(ref ghostChunkComponentTypesPtr[compIdx]))
-                                    {
-                                        var compData = (byte*) childChunk.Chunk.GetDynamicComponentDataArrayReinterpret<byte>(ref ghostChunkComponentTypesPtr[compIdx], compSize).GetUnsafeReadOnlyPtr();
-                                        UnsafeUtility.MemCpy(tempDataPtr, compData + childChunk.IndexInChunk * compSize, compSize);
-                                    }
-                                    else
-                                        UnsafeUtility.MemClear(tempDataPtr, compSize);
-
-                                    tempDataPtr += compSize;
+                                    var compData = (byte*) childChunk.Chunk.GetDynamicComponentDataArrayReinterpret<byte>(ref ghostChunkComponentTypesPtr[compIdx], compSize).GetUnsafeReadOnlyPtr();
+                                    UnsafeUtility.MemCpy(tempDataPtr, compData + childChunk.IndexInChunk * compSize, compSize);
                                 }
+                                else
+                                    UnsafeUtility.MemClear(tempDataPtr, compSize);
+
+                                tempDataPtr += compSize;
                             }
-                            else
-                            {
-                                var bufElemSize = GhostComponentCollection[serializerIdx].ComponentSize;
-                                var tempDataPtr = dataPtr;
-                                for (int ent = 0, chunkEntityCount = chunk.Count; ent < chunkEntityCount; ++ent)
-                                {
-                                    var linkedEntityGroup = linkedEntityGroupAccessor[ent];
-                                    var childEnt = linkedEntityGroup[GhostComponentIndex[baseOffset + comp].EntityIndex].Value;
-                                    if (childEntityLookup.TryGetValue(childEnt, out var childChunk) && childChunk.Chunk.Has(ref ghostChunkComponentTypesPtr[compIdx]))
-                                    {
-                                        var bufferData = childChunk.Chunk.GetUntypedBufferAccessor(ref ghostChunkComponentTypesPtr[compIdx]);
-                                        //Retrieve an copy each buffer data. Set size and offset in the backup buffer in the component backup
-                                        var bufferPtr = bufferData.GetUnsafeReadOnlyPtrAndLength(childChunk.IndexInChunk, out var size);
-                                        ((int*) tempDataPtr)[0] = size;
-                                        ((int*) tempDataPtr)[1] = bufferBackupDataOffset;
-                                        if (size > 0)
-                                            UnsafeUtility.MemCpy(bufferBackupDataPtr + bufferBackupDataOffset, (byte*) bufferPtr, size * bufElemSize);
-                                        bufferBackupDataOffset += size * bufElemSize;
-                                    }
-                                    else
-                                    {
-                                        //reset the entry to 0. Don't use memcpy in this case (is faster this way)
-                                        ((long*) tempDataPtr)[0] = 0;
-                                    }
-
-                                    tempDataPtr += compSize;
-                                }
-
-                                bufferBackupDataOffset = GhostComponentSerializer.SnapshotSizeAligned(bufferBackupDataOffset);
-                            }
-
-                            dataPtr = PredictionBackupState.GetNextData(dataPtr, compSize, chunk.Capacity);
                         }
+                        else
+                        {
+                            var bufElemSize = GhostComponentCollection[serializerIdx].ComponentSize;
+                            var tempDataPtr = dataPtr;
+                            for (int ent = 0, chunkEntityCount = chunk.Count; ent < chunkEntityCount; ++ent)
+                            {
+                                var linkedEntityGroup = linkedEntityGroupAccessor[ent];
+                                var childEnt = linkedEntityGroup[GhostComponentIndex[baseOffset + comp].EntityIndex].Value;
+                                if (childEntityLookup.TryGetValue(childEnt, out var childChunk) && childChunk.Chunk.Has(ref ghostChunkComponentTypesPtr[compIdx]))
+                                {
+                                    var bufferData = childChunk.Chunk.GetUntypedBufferAccessor(ref ghostChunkComponentTypesPtr[compIdx]);
+                                    //Retrieve an copy each buffer data. Set size and offset in the backup buffer in the component backup
+                                    var bufferPtr = bufferData.GetUnsafeReadOnlyPtrAndLength(childChunk.IndexInChunk, out var size);
+                                    ((int*) tempDataPtr)[0] = size;
+                                    ((int*) tempDataPtr)[1] = bufferBackupDataOffset;
+                                    if (size > 0)
+                                        UnsafeUtility.MemCpy(bufferBackupDataPtr + bufferBackupDataOffset, (byte*) bufferPtr, size * bufElemSize);
+                                    bufferBackupDataOffset += size * bufElemSize;
+                                }
+                                else
+                                {
+                                    //reset the entry to 0. Don't use memcpy in this case (is faster this way)
+                                    ((long*) tempDataPtr)[0] = 0;
+                                }
+
+                                tempDataPtr += compSize;
+                            }
+
+                            bufferBackupDataOffset = GhostComponentSerializer.SnapshotSizeAligned(bufferBackupDataOffset);
+                        }
+
+                        dataPtr = PredictionBackupState.GetNextData(dataPtr, compSize, chunk.Capacity);
                     }
                 }
             }

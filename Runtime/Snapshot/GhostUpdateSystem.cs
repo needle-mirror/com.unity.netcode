@@ -756,7 +756,17 @@ namespace Unity.NetCode
                     var compSize = GhostComponentCollection[serializerIdx].ComponentType.IsBuffer
                         ? GhostSystemConstants.DynamicBufferComponentSnapshotSize
                         : GhostComponentCollection[serializerIdx].ComponentSize;
-                    if (compSize == 0 || !chunk.Has(ref ghostChunkComponentTypesPtr[compIdx]))
+
+                    //If the component does not have any ghost fields (so nothing to restore)
+                    //we don't need to restore the data and we don't need to advance the
+                    //data ptr either. No space has been reserved for this component in the backup buffer, see the
+                    //GhostPredictionHistorySystem)
+                    if (!GhostComponentCollection[serializerIdx].HasGhostFields)
+                    {
+                        continue;
+                    }
+
+                    if (!chunk.Has(ref ghostChunkComponentTypesPtr[compIdx]))
                     {
                         dataPtr = PredictionBackupState.GetNextData(dataPtr, compSize, chunk.Capacity);
                         continue;
@@ -837,7 +847,14 @@ namespace Unity.NetCode
                             enabledBitPtr = PredictionBackupState.GetNextEnabledBits(enabledBitPtr, chunk.Capacity);
                         }
 
-                        if (compSize == 0 || (GhostComponentCollection[serializerIdx].SendToOwner & requiredOwnerMask) == 0)
+                        //If the component does not have any ghost fields (so nothing to restore)
+                        //we don't need to restore the data and we don't need to advance the
+                        //data ptr either. No space has been reserved for this component in the backup buffer, see the
+                        //GhostPredictionHistorySystem)
+                        if(!GhostComponentCollection[serializerIdx].HasGhostFields)
+                            continue;
+
+                        if ((GhostComponentCollection[serializerIdx].SendToOwner & requiredOwnerMask) == 0)
                         {
                             dataPtr = PredictionBackupState.GetNextData(dataPtr, compSize, chunk.Capacity);
                             continue;
