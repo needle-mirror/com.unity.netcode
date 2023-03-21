@@ -19,7 +19,7 @@ namespace Unity.NetCode.Tests
         private EntityQuery connected;
         protected override void OnCreate()
         {
-            connected = GetEntityQuery(ComponentType.ReadOnly<NetworkIdComponent>());
+            connected = GetEntityQuery(ComponentType.ReadOnly<NetworkId>());
             inGame = GetEntityQuery(ComponentType.ReadOnly<NetworkStreamInGame>());
         }
 
@@ -322,8 +322,9 @@ namespace Unity.NetCode.Tests
         {
             public void Bake(GameObject gameObject, IBaker baker)
             {
-                baker.AddComponent(new GhostOwnerComponent());
-                baker.AddComponent(new GhostGenTestUtils.GhostGenTestType_IComponentData());
+                var entity = baker.GetEntity(TransformUsageFlags.Dynamic);
+                baker.AddComponent(entity, new GhostOwner());
+                baker.AddComponent(entity, new GhostGenTestUtils.GhostGenTestType_IComponentData());
                 // TODO (flag in review): Add the other types (Input, RPC etc) to this test
             }
         }
@@ -370,7 +371,7 @@ namespace Unity.NetCode.Tests
                 for(int i=0;i<10;++i)
                     testWorld.Tick(frameTime);
 
-                Assert.IsTrue(testWorld.TryGetSingletonEntity<NetworkIdComponent>(testWorld.ClientWorlds[0]) != Entity.Null);
+                Assert.IsTrue(testWorld.TryGetSingletonEntity<NetworkId>(testWorld.ClientWorlds[0]) != Entity.Null);
             }
         }
     }

@@ -58,17 +58,10 @@ namespace Unity.NetCode.Tests
             float deltaTime = SystemAPI.Time.DeltaTime;
             Entities
                 .WithAll<PreSpawnedGhostIndex>()
-#if !ENABLE_TRANSFORM_V1
                 .ForEach((ref LocalTransform transform) =>
                 {
                     transform.Position = new float3(transform.Position.x, transform.Position.y + deltaTime*60.0f, transform.Position.z);
                 }).Schedule();
-#else
-                .ForEach((ref Translation translation) =>
-                {
-                    translation.Value = new float3(translation.Value.x, translation.Value.y + deltaTime*60.0f, translation.Value.z);
-                }).Schedule();
-#endif
         }
     }
 
@@ -370,13 +363,13 @@ namespace Unity.NetCode.Tests
                 for (int i = 0; i < subSceneList.Length; ++i)
                 {
                     var q = world.EntityManager.CreateEntityQuery(
-                        ComponentType.ReadOnly<GhostComponent>(),
+                        ComponentType.ReadOnly<GhostInstance>(),
                         ComponentType.ReadOnly<SubSceneGhostComponentHash>());
                     q.SetSharedComponentFilter(new SubSceneGhostComponentHash
                     {
                         Value = subSceneList[i].SubSceneHash
                     });
-                    var ghostComponents = q.ToComponentDataArray<GhostComponent>(Allocator.Temp);
+                    var ghostComponents = q.ToComponentDataArray<GhostInstance>(Allocator.Temp);
                     var range = new uint2(uint.MaxValue, uint.MinValue);
                     for (int k = 0; k < ghostComponents.Length; ++k)
                     {
@@ -512,22 +505,15 @@ namespace Unity.NetCode.Tests
                     var subSceneEntity = testWorld.TryGetSingletonEntity<PrespawnsSceneInitialized>(testWorld.ClientWorlds[0]);
                     Assert.AreNotEqual(Entity.Null, subSceneEntity);
                     //Only 5 ghost should be present
-#if !ENABLE_TRANSFORM_V1
                     var query = testWorld.ClientWorlds[0].EntityManager.CreateEntityQuery(ComponentType.ReadOnly<PreSpawnedGhostIndex>(), ComponentType.ReadOnly<LocalTransform>());
-#else
-                    var query = testWorld.ClientWorlds[0].EntityManager.CreateEntityQuery(ComponentType.ReadOnly<PreSpawnedGhostIndex>(), ComponentType.ReadOnly<Translation>());
-#endif
                     Assert.AreEqual(numObjects, query.CalculateEntityCount());
 
                     //Now I should receive the ghost with their state changed
                     for (int i = 0; i < 16; ++i)
                         testWorld.Tick(frameTime);
 
-#if !ENABLE_TRANSFORM_V1
                     using var translations = query.ToComponentDataArray<LocalTransform>(Allocator.TempJob);
-#else
-                    using var translations = query.ToComponentDataArray<Translation>(Allocator.TempJob);
-#endif
+                    
                     for (int i = 0; i < translations.Length; ++i)
                         Assert.AreNotEqual(0.0f, translations[i]);
 

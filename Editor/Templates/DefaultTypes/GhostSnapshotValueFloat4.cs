@@ -22,7 +22,7 @@ namespace Generated
                 #endregion
             }
         }
-        #if UNITY_EDITOR || DEVELOPMENT_BUILD
+        #if UNITY_EDITOR || NETCODE_DEBUG
         private static void ReportPredictionErrors(ref IComponentData component, in IComponentData backup, ref UnsafeList<float> errors, ref int errorIndex)
         {
             #region __GHOST_REPORT_PREDICTION_ERROR__

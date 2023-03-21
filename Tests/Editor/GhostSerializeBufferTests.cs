@@ -64,7 +64,8 @@ namespace Unity.NetCode.Tests
     {
         public override void Bake(GhostByteBufferAuthoringComponent authoring)
         {
-            AddBuffer<GhostGenBuffer_ByteBuffer>();
+            var entity = GetEntity(TransformUsageFlags.Dynamic);
+            AddBuffer<GhostGenBuffer_ByteBuffer>(entity);
         }
     }
 
@@ -76,7 +77,8 @@ namespace Unity.NetCode.Tests
     {
         public override void Bake(GhostGenBufferAuthoringComponent authoring)
         {
-            AddBuffer<GhostGenTest_Buffer>();
+            var entity = GetEntity(TransformUsageFlags.Dynamic);
+            AddBuffer<GhostGenTest_Buffer>(entity);
         }
     }
 
@@ -158,7 +160,7 @@ namespace Unity.NetCode.Tests
             var clientEntities = new Entity[entities.Length];
             for (int i = 0; i < entities.Length; ++i)
             {
-                var ghost = testWorld.ServerWorld.EntityManager.GetComponentData<GhostComponent>(entities[i]);
+                var ghost = testWorld.ServerWorld.EntityManager.GetComponentData<GhostInstance>(entities[i]);
                 Assert.IsTrue(entityMap.TryGetValue(
                     new SpawnedGhost {ghostId = ghost.ghostId, spawnTick = ghost.spawnTick}, out clientEntities[i]));
             }
@@ -378,11 +380,12 @@ namespace Unity.NetCode.Tests
         {
             public void Bake(GameObject gameObject, IBaker baker)
             {
-                baker.AddComponent<GhostGen_IntStruct>();
-                baker.AddComponent<GhostGen_InterpolatedStruct>();
-                baker.AddBuffer<GhostGen_BufferInterpolated>();
-                baker.AddBuffer<GhostGenTest_Buffer>();
-                baker.AddBuffer<GhostGenBuffer_BufferComposite>();
+                var entity = baker.GetEntity(TransformUsageFlags.Dynamic);
+                baker.AddComponent<GhostGen_IntStruct>(entity);
+                baker.AddComponent<GhostGen_InterpolatedStruct>(entity);
+                baker.AddBuffer<GhostGen_BufferInterpolated>(entity);
+                baker.AddBuffer<GhostGenTest_Buffer>(entity);
+                baker.AddBuffer<GhostGenBuffer_BufferComposite>(entity);
             }
         }
 
@@ -587,7 +590,7 @@ namespace Unity.NetCode.Tests
         }
 
         [DisableAutoCreation]
-        class ForceSerializeBufferSystem : DefaultVariantSystemBase
+        partial class ForceSerializeBufferSystem : DefaultVariantSystemBase
         {
             protected override void RegisterDefaultVariants(Dictionary<ComponentType, Rule> defaultVariants)
             {
@@ -595,7 +598,7 @@ namespace Unity.NetCode.Tests
             }
         }
         [DisableAutoCreation]
-        class ForceSerializeOnlyChildBufferSystem : DefaultVariantSystemBase
+        partial class ForceSerializeOnlyChildBufferSystem : DefaultVariantSystemBase
         {
             protected override void RegisterDefaultVariants(Dictionary<ComponentType, Rule> defaultVariants)
             {
@@ -604,7 +607,7 @@ namespace Unity.NetCode.Tests
         }
 
         [DisableAutoCreation]
-        class ForceDontSerializeBufferSystem : DefaultVariantSystemBase
+        partial class ForceDontSerializeBufferSystem : DefaultVariantSystemBase
         {
             protected override void RegisterDefaultVariants(Dictionary<ComponentType, Rule> defaultVariants)
             {
@@ -738,16 +741,17 @@ namespace Unity.NetCode.Tests
         {
             public void Bake(GameObject gameObject, IBaker baker)
             {
-                baker.AddComponent(new GhostOwnerComponent());
+                var entity = baker.GetEntity(TransformUsageFlags.Dynamic);
+                baker.AddComponent(entity, new GhostOwner());
                 baker.DependsOn(gameObject);
                 if (gameObject.name == "ParentGhost")
                 {
-                    baker.AddBuffer<GhostGroup>();
+                    baker.AddBuffer<GhostGroup>(entity);
                 }
                 else
                 {
-                    baker.AddComponent(default(GhostChildEntityComponent));
-                    baker.AddBuffer<GhostGenBuffer_ByteBuffer>();
+                    baker.AddComponent(entity, default(GhostChildEntity));
+                    baker.AddBuffer<GhostGenBuffer_ByteBuffer>(entity);
                 }
             }
         }
@@ -814,7 +818,8 @@ namespace Unity.NetCode.Tests
         {
             public void Bake(GameObject gameObject, IBaker baker)
             {
-                baker.AddBuffer<T>();
+                var entity = baker.GetEntity(TransformUsageFlags.Dynamic);
+                baker.AddBuffer<T>(entity);
             }
         }
 
@@ -857,7 +862,7 @@ namespace Unity.NetCode.Tests
                 for (int i = 0; i < 32; ++i)
                     testWorld.Tick(frameTime);
 
-                var ghostType = testWorld.ServerWorld.EntityManager.GetComponentData<GhostComponent>(serverEntity).ghostType;
+                var ghostType = testWorld.ServerWorld.EntityManager.GetComponentData<GhostInstance>(serverEntity).ghostType;
                 var serverCollection = testWorld.ServerWorld.EntityManager.GetBuffer<GhostCollectionPrefabSerializer>(serverCollectionEntity);
                 Assert.AreEqual(0, serverCollection[ghostType].NumBuffers);
 
@@ -882,7 +887,7 @@ namespace Unity.NetCode.Tests
                 var deltaTime = SystemAPI.Time.DeltaTime;
                 var bufferFromEntity = GetBufferLookup<GhostPredictedOnlyBuffer>();
                 //FIXME: updating child entities is not efficient this way.
-                Entities.WithAll<Simulate, GhostComponent>().ForEach((in DynamicBuffer<LinkedEntityGroup> group) =>
+                Entities.WithAll<Simulate, GhostInstance>().ForEach((in DynamicBuffer<LinkedEntityGroup> group) =>
                 {
                     for (int i = 0; i < group.Length; ++i)
                     {
@@ -929,7 +934,7 @@ namespace Unity.NetCode.Tests
                 //Spawn the entity and init the buffer
                 var serverEntity = testWorld.SpawnOnServer(ghostGameObject);
                 {
-                    testWorld.ServerWorld.EntityManager.SetComponentData(serverEntity, new GhostOwnerComponent {NetworkId = 0});
+                    testWorld.ServerWorld.EntityManager.SetComponentData(serverEntity, new GhostOwner {NetworkId = 0});
                     var group = testWorld.ServerWorld.EntityManager.GetBuffer<LinkedEntityGroup>(serverEntity);
                     for(int e=0;e<2;++e)
                     {
@@ -1049,7 +1054,7 @@ namespace Unity.NetCode.Tests
             public NativeList<Entity> m_PredictedEntities;
             protected override void OnCreate()
             {
-                RequireForUpdate<GhostSpawnQueueComponent>();
+                RequireForUpdate<GhostSpawnQueue>();
                 RequireForUpdate<PredictedGhostSpawnList>();
                 m_PredictedEntities = new NativeList<Entity>(5,Allocator.Persistent);
             }
@@ -1065,7 +1070,7 @@ namespace Unity.NetCode.Tests
                 var spawnListFromEntity = GetBufferLookup<PredictedGhostSpawn>();
                 var predictedEntities = m_PredictedEntities;
                 Entities
-                    .WithAll<GhostSpawnQueueComponent>()
+                    .WithAll<GhostSpawnQueue>()
                     .ForEach((DynamicBuffer<GhostSpawnBuffer> ghosts) =>
                     {
                         var spawnList = spawnListFromEntity[spawnListEntity];

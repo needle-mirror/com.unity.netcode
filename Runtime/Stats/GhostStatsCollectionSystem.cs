@@ -1,4 +1,4 @@
-#if UNITY_EDITOR || DEVELOPMENT_BUILD
+#if UNITY_EDITOR || NETCODE_DEBUG
 using System;
 using Unity.Burst;
 using Unity.Collections;
@@ -193,7 +193,7 @@ namespace Unity.NetCode
         [BurstCompile]
         public void OnUpdate(ref SystemState state)
         {
-            m_HasMonitor = SystemAPI.TryGetSingleton<MetricsMonitorComponent>(out var monitorComponent);
+            m_HasMonitor = SystemAPI.TryGetSingleton<GhostMetricsMonitor>(out var monitorComponent);
 
             ref var collectionData = ref SystemAPI.GetSingletonRW<GhostStatsCollectionData>().ValueRW;
 
@@ -209,7 +209,7 @@ namespace Unity.NetCode
                 BeginCollection(currentTick, ref collectionData);
             }
 
-            state.CompleteDependency(); // We complete the dependency. This is needed because NetworkSnapshotAckComponent is written by a job in NetworkStreamReceiveSystem
+            state.CompleteDependency(); // We complete the dependency. This is needed because NetworkSnapshotAck is written by a job in NetworkStreamReceiveSystem
             AddCommandStats(m_CommandStatsData, collectionData);
             AddDiscardedPackets(m_CommandStatsData[2], collectionData);
             m_CommandStatsData[0] = 0;
@@ -260,7 +260,7 @@ namespace Unity.NetCode
                 m_MinMaxTickStatsData[intsPerCacheLine*i+1] = NetworkTick.Invalid;
             }
 
-            if (!setupRecorders && SystemAPI.TryGetSingletonEntity<MetricsMonitorComponent>(out var entity))
+            if (!setupRecorders && SystemAPI.TryGetSingletonEntity<GhostMetricsMonitor>(out var entity))
             {
                 if (state.EntityManager.HasComponent<GhostNames>(entity) &&
                     state.EntityManager.HasComponent<GhostSerializationMetrics>(entity))
@@ -279,10 +279,10 @@ namespace Unity.NetCode
                 }
             }
 
-            if (!SystemAPI.HasSingleton<UnscaledClientTime>() || !SystemAPI.HasSingleton<NetworkSnapshotAckComponent>())
+            if (!SystemAPI.HasSingleton<UnscaledClientTime>() || !SystemAPI.HasSingleton<NetworkSnapshotAck>())
                 return;
 
-            var ack = SystemAPI.GetSingleton<NetworkSnapshotAckComponent>();
+            var ack = SystemAPI.GetSingleton<NetworkSnapshotAck>();
             var networkTimeSystemStats = SystemAPI.GetSingleton<NetworkTimeSystemStats>();
             int minAge = m_SnapshotTickMax.IsValid?currentTick.TicksSince(m_SnapshotTickMax):0;
             int maxAge = m_SnapshotTickMin.IsValid?currentTick.TicksSince(m_SnapshotTickMin):0;
@@ -440,9 +440,9 @@ namespace Unity.NetCode
             uint totalSize = 0;
             uint totalCount = 0;
 
-            if (SystemAPI.TryGetSingletonEntity<MetricsMonitorComponent>(out var entity))
+            if (SystemAPI.TryGetSingletonEntity<GhostMetricsMonitor>(out var entity))
             {
-                ref var simulationMetrics = ref SystemAPI.GetSingletonRW<MetricsMonitorComponent>().ValueRW;
+                ref var simulationMetrics = ref SystemAPI.GetSingletonRW<GhostMetricsMonitor>().ValueRW;
                 simulationMetrics.CapturedTick = currentTick;
 
                 if (hasTimeSamples && state.EntityManager.HasComponent<NetworkMetrics>(entity))

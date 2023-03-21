@@ -13,6 +13,7 @@ namespace __COMMAND_NAMESPACE__
     [DontSupportPrefabOverrides]
     [GhostComponent(SendDataForChildEntity = true)]
     [System.Runtime.CompilerServices.CompilerGenerated]
+    [Unity.Entities.InternalBufferCapacity(0)]
     public struct __COMMAND_NAME__InputBufferData : IInputBufferData
     {
         [DontSerializeForCommand]

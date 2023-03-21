@@ -1,14 +1,21 @@
-#if UNITY_EDITOR || DEVELOPMENT_BUILD
+#if UNITY_EDITOR || NETCODE_DEBUG
+using System;
 using Unity.Collections;
 using Unity.Entities;
-using Unity.NetCode;
 
 namespace Unity.NetCode
 {
     /// <summary>
+    /// Temporary type, used to upgrade to new component type, to be removed before final 1.0
+    /// </summary>
+    [Obsolete("GhostMetricsMonitorComponent has been deprecated. Use GhostMetricsMonitor instead (UnityUpgradable) -> GhostMetricsMonitor", true)]
+    public struct GhostMetricsMonitorComponent : IComponentData
+    {}
+
+    /// <summary>
     /// Present on both client and server world, singleton component that enables monitoring of ghost metrics.
     /// </summary>
-    public struct MetricsMonitorComponent : IComponentData
+    public struct GhostMetricsMonitor : IComponentData
     {
         /// <summary>
         /// The server tick that we received an update to our metrics.

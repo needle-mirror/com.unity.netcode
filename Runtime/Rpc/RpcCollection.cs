@@ -180,7 +180,7 @@ namespace Unity.NetCode
             m_IsFinal = 1;
             return (m_DynamicAssemblyList.Value == 1) ? 0 : hash;
         }
-        internal static unsafe void SendProtocolVersion(DynamicBuffer<OutgoingRpcDataStreamBufferComponent> buffer, NetworkProtocolVersion version)
+        internal static unsafe void SendProtocolVersion(DynamicBuffer<OutgoingRpcDataStreamBuffer> buffer, NetworkProtocolVersion version)
         {
             bool dynamicAssemblyList = (version.RpcCollectionVersion == 0);
             int msgHeaderLen = dynamicAssemblyList ? 10 : 4;

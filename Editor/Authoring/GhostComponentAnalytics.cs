@@ -123,7 +123,7 @@ namespace Unity.NetCode.Editor
                 var prefabSerializer = ghostCollectionPrefabSerializers[index];
                 var ghostPrefab = ghostCollectionPrefab[index].GhostPrefab;
                 var archetype = entityManager.GetChunk(ghostPrefab).Archetype;
-                var ghostId = entityManager.GetComponentData<GhostTypeComponent>(ghostPrefab);
+                var ghostId = entityManager.GetComponentData<GhostType>(ghostPrefab);
                 ghostTypes.Add(new GhostTypeData()
                 {
                     ghostId = $"{ghostId.guid0:x}{ghostId.guid1:x}{ghostId.guid2:x}{ghostId.guid3:x}",

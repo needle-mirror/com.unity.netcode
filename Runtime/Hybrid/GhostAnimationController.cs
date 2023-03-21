@@ -196,23 +196,13 @@ namespace Unity.NetCode.Hybrid
                 return;
             if (m_ApplyRootMotion)
             {
-#if !ENABLE_TRANSFORM_V1
                 m_Transform.localPosition = m_EntityOwner.World.EntityManager.GetComponentData<LocalTransform>(m_EntityOwner.Entity).Position;
                 m_Transform.localRotation = m_EntityOwner.World.EntityManager.GetComponentData<LocalTransform>(m_EntityOwner.Entity).Rotation;
-#else
-                m_Transform.localPosition = m_EntityOwner.World.EntityManager.GetComponentData<Translation>(m_EntityOwner.Entity).Value;
-                m_Transform.localRotation = m_EntityOwner.World.EntityManager.GetComponentData<Rotation>(m_EntityOwner.Entity).Value;
-#endif
             }
             m_PlayableGraph.Evaluate(deltaTime);
             if (m_ApplyRootMotion)
             {
-#if !ENABLE_TRANSFORM_V1
                 m_EntityOwner.World.EntityManager.SetComponentData(m_EntityOwner.Entity, LocalTransform.FromPositionRotation(m_Transform.localPosition, m_Transform.localRotation));
-#else
-                m_EntityOwner.World.EntityManager.SetComponentData(m_EntityOwner.Entity, new Translation{Value = m_Transform.localPosition});
-                m_EntityOwner.World.EntityManager.SetComponentData(m_EntityOwner.Entity, new Rotation{Value = m_Transform.localRotation});
-#endif
             }
         }
 
@@ -221,7 +211,7 @@ namespace Unity.NetCode.Hybrid
             m_Transform = gameObject.transform;
             var animator = GetComponent<Animator>();
             m_EntityOwner = GetComponent<GhostPresentationGameObjectEntityOwner>();
-            var isPredicted = m_EntityOwner.World.EntityManager.HasComponent<PredictedGhostComponent>(m_EntityOwner.Entity);
+            var isPredicted = m_EntityOwner.World.EntityManager.HasComponent<PredictedGhost>(m_EntityOwner.Entity);
             // Create the playable graph from the asset
             m_PlayableGraph = PlayableGraph.Create(gameObject.name);
 
@@ -286,7 +276,7 @@ namespace Unity.NetCode.Hybrid
                 .WithAll<GhostPresentationGameObjectPrefabReference>()
                 .WithAll<EnableAnimationControllerPredictionUpdate>()
                 .WithAll<Simulate>()
-                .ForEach((Entity entity, in PredictedGhostComponent predict) => {
+                .ForEach((Entity entity, in PredictedGhost predict) => {
                     var isRollback = !predict.ShouldPredict(prevTick);
                     var go = m_GhostPresentationGameObjectSystem.GetGameObjectForEntity(EntityManager, entity);
                     var ctrl = go?.GetComponent<GhostAnimationController>();
@@ -332,7 +322,7 @@ namespace Unity.NetCode.Hybrid
             Entities
                 .WithoutBurst()
                 .WithAll<GhostPresentationGameObjectPrefabReference>()
-                .WithNone<PredictedGhostComponent>()
+                .WithNone<PredictedGhost>()
                 .ForEach((Entity entity) => {
                     var go = m_GhostPresentationGameObjectSystem.GetGameObjectForEntity(EntityManager, entity);
                     var ctrl = go?.GetComponent<GhostAnimationController>();
@@ -342,7 +332,7 @@ namespace Unity.NetCode.Hybrid
             Entities
                 .WithoutBurst()
                 .WithAll<GhostPresentationGameObjectPrefabReference>()
-                .WithAll<PredictedGhostComponent>()
+                .WithAll<PredictedGhost>()
                 .WithNone<EnableAnimationControllerPredictionUpdate>()
                 .ForEach((Entity entity) => {
                     var go = m_GhostPresentationGameObjectSystem.GetGameObjectForEntity(EntityManager, entity);
@@ -373,7 +363,7 @@ namespace Unity.NetCode.Hybrid
             Entities
                 .WithoutBurst()
                 .WithAll<GhostPresentationGameObjectPrefabReference>()
-                .WithAll<PredictedGhostComponent>()
+                .WithAll<PredictedGhost>()
                 .WithNone<EnableAnimationControllerPredictionUpdate>()
                 .ForEach((Entity entity) => {
                     var go = m_GhostPresentationGameObjectSystem.GetGameObjectForEntity(EntityManager, entity);

@@ -4,7 +4,7 @@ using AOT;
 using Unity.Burst;
 using Unity.Burst.Intrinsics;
 using Unity.Assertions;
-using Unity.Networking.Transport;
+using Unity.Collections.LowLevel.Unsafe;
 #region __COMMAND_USING_STATEMENT__
 using __COMMAND_USING__;
 #endregion
@@ -46,7 +46,7 @@ namespace __COMMAND_NAMESPACE__
     [UpdateInGroup(typeof(RpcCommandRequestSystemGroup))]
     [CreateAfter(typeof(RpcSystem))]
     [BurstCompile]
-    internal struct __COMMAND_NAME__RpcCommandRequestSystem : ISystem
+    internal partial struct __COMMAND_NAME__RpcCommandRequestSystem : ISystem
     {
         RpcCommandRequest<__COMMAND_NAME__Serializer, __COMMAND_COMPONENT_TYPE__> m_Request;
         [BurstCompile]

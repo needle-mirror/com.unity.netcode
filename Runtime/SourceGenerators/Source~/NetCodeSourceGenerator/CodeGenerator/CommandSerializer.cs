@@ -109,9 +109,9 @@ namespace Unity.NetCode.Generators
         {
             var replacements = new Dictionary<string, string>
             {
-                {"COMMAND_NAME", context.generatorName.Replace(".", "").Replace("+", "_")},
+                {"COMMAND_NAME", context.generatorName.Replace(".", "").Replace('+', '_')},
                 {"COMMAND_NAMESPACE", context.generatedNs},
-                {"COMMAND_COMPONENT_TYPE", typeInfo.TypeFullName.Replace("+", ".")}
+                {"COMMAND_COMPONENT_TYPE", typeInfo.TypeFullName.Replace('+', '.')}
             };
 
             if (!string.IsNullOrEmpty(typeInfo.Namespace))

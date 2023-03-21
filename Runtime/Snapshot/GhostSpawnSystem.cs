@@ -17,7 +17,7 @@ namespace Unity.NetCode
     /// Based on the spawning (<see cref="GhostSpawnBuffer.Type"/>), the requests are handled quite differently.
     /// <para>When the mode is set to <see cref="GhostSpawnBuffer.Type.Interpolated"/>, the ghost creation is delayed
     /// until the <see cref="NetworkTime.InterpolationTick"/> match (or is greater) the actual spawning tick on the server.
-    /// A temporary entity, holding the spawning information, the received snapshot data from the server, and tagged with the <seealso cref="PendingSpawnPlaceholderComponent"/>
+    /// A temporary entity, holding the spawning information, the received snapshot data from the server, and tagged with the <seealso cref="PendingSpawnPlaceholder"/>
     /// is created. The entity will exists until the real ghost instance is spawned (or a de-spawn request has been received),
     /// and its sole purpose of receiving new incoming snapshots (even though they are not applied to the entity, since it is not a real ghost).
     /// </para>
@@ -59,15 +59,15 @@ namespace Unity.NetCode
             m_DelayedInterpolatedGhostSpawnQueue = new NativeQueue<DelayedSpawnGhost>(Allocator.Persistent);
             m_DelayedPredictedGhostSpawnQueue = new NativeQueue<DelayedSpawnGhost>(Allocator.Persistent);
             m_InGameGroup = state.GetEntityQuery(ComponentType.ReadOnly<NetworkStreamInGame>());
-            m_NetworkIdQuery = state.GetEntityQuery(ComponentType.ReadOnly<NetworkIdComponent>(), ComponentType.Exclude<NetworkStreamRequestDisconnect>());
+            m_NetworkIdQuery = state.GetEntityQuery(ComponentType.ReadOnly<NetworkId>(), ComponentType.Exclude<NetworkStreamRequestDisconnect>());
 
             var ent = state.EntityManager.CreateEntity();
             state.EntityManager.SetName(ent, "GhostSpawnQueue");
-            state.EntityManager.AddComponentData(ent, default(GhostSpawnQueueComponent));
+            state.EntityManager.AddComponentData(ent, default(GhostSpawnQueue));
             state.EntityManager.AddBuffer<GhostSpawnBuffer>(ent);
             state.EntityManager.AddBuffer<SnapshotDataBuffer>(ent);
             state.RequireForUpdate<GhostCollection>();
-            state.RequireForUpdate<GhostSpawnQueueComponent>();
+            state.RequireForUpdate<GhostSpawnQueue>();
         }
 
         [BurstCompile]
@@ -93,7 +93,7 @@ namespace Unity.NetCode
             var prefabsEntity = SystemAPI.GetSingletonEntity<GhostCollection>();
             var prefabs = stateEntityManager.GetBuffer<GhostCollectionPrefab>(prefabsEntity).ToNativeArray(Allocator.Temp);
 
-            var ghostSpawnEntity = SystemAPI.GetSingletonEntity<GhostSpawnQueueComponent>();
+            var ghostSpawnEntity = SystemAPI.GetSingletonEntity<GhostSpawnQueue>();
             var ghostSpawnBufferComponent = stateEntityManager.GetBuffer<GhostSpawnBuffer>(ghostSpawnEntity);
             var snapshotDataBufferComponent = stateEntityManager.GetBuffer<SnapshotDataBuffer>(ghostSpawnEntity);
 
@@ -144,9 +144,9 @@ namespace Unity.NetCode
                         }
                         // Spawn directly
                         entity = ghost.PredictedSpawnEntity != Entity.Null ? ghost.PredictedSpawnEntity : stateEntityManager.Instantiate(prefabs[ghost.GhostType].GhostPrefab);
-                        if (stateEntityManager.HasComponent<GhostPrefabMetaDataComponent>(prefabs[ghost.GhostType].GhostPrefab))
+                        if (stateEntityManager.HasComponent<GhostPrefabMetaData>(prefabs[ghost.GhostType].GhostPrefab))
                         {
-                            ref var toRemove = ref stateEntityManager.GetComponentData<GhostPrefabMetaDataComponent>(prefabs[ghost.GhostType].GhostPrefab).Value.Value.DisableOnPredictedClient;
+                            ref var toRemove = ref stateEntityManager.GetComponentData<GhostPrefabMetaData>(prefabs[ghost.GhostType].GhostPrefab).Value.Value.DisableOnPredictedClient;
                             //Need copy because removing component will invalidate the buffer pointer, since introduce structural changes
                             var linkedEntityGroup = stateEntityManager.GetBuffer<LinkedEntityGroup>(entity).ToNativeArray(Allocator.Temp);
                             for (int rm = 0; rm < toRemove.Length; ++rm)
@@ -155,7 +155,7 @@ namespace Unity.NetCode
                                 stateEntityManager.RemoveComponent(linkedEntityGroup[toRemove[rm].EntityIndex].Value, compType);
                             }
                         }
-                    	stateEntityManager.SetComponentData(entity, new GhostComponent {ghostId = ghost.GhostID, ghostType = ghost.GhostType, spawnTick = ghost.ServerSpawnTick});
+                    	stateEntityManager.SetComponentData(entity, new GhostInstance {ghostId = ghost.GhostID, ghostType = ghost.GhostType, spawnTick = ghost.ServerSpawnTick});
                         if (PrespawnHelper.IsPrespawGhostId(ghost.GhostID))
                             ConfigurePrespawnGhost(ref stateEntityManager, entity, ghost);
                         var newBuffer = stateEntityManager.GetBuffer<SnapshotDataBuffer>(entity);
@@ -251,8 +251,8 @@ namespace Unity.NetCode
             bool hasBuffers = ghostTypeCollection[ghost.GhostType].NumBuffers > 0;
 
             var entity = entityManager.CreateEntity();
-            entityManager.AddComponentData(entity, new GhostComponent { ghostId = ghost.GhostID, ghostType = ghost.GhostType, spawnTick = ghost.ServerSpawnTick });
-            entityManager.AddComponent<PendingSpawnPlaceholderComponent>(entity);
+            entityManager.AddComponentData(entity, new GhostInstance { ghostId = ghost.GhostID, ghostType = ghost.GhostType, spawnTick = ghost.ServerSpawnTick });
+            entityManager.AddComponent<PendingSpawnPlaceholder>(entity);
             if (PrespawnHelper.IsPrespawGhostId(ghost.GhostID))
                 ConfigurePrespawnGhost(ref entityManager, entity, ghost);
 
@@ -301,16 +301,16 @@ namespace Unity.NetCode
                 return false;
             }
             //Entity has been destroyed meawhile it was in the queue
-            if (!entityManager.HasComponent<GhostComponent>(ghost.oldEntity))
+            if (!entityManager.HasComponent<GhostInstance>(ghost.oldEntity))
                 return false;
 
             // Spawn actual entity
             entity = ghost.predictedSpawnEntity != Entity.Null ? ghost.predictedSpawnEntity : entityManager.Instantiate(prefabs[ghost.ghostType].GhostPrefab);
-            if (entityManager.HasComponent<GhostPrefabMetaDataComponent>(prefabs[ghost.ghostType].GhostPrefab))
+            if (entityManager.HasComponent<GhostPrefabMetaData>(prefabs[ghost.ghostType].GhostPrefab))
             {
-                ref var toRemove = ref entityManager.GetComponentData<GhostPrefabMetaDataComponent>(prefabs[ghost.ghostType].GhostPrefab).Value.Value.DisableOnInterpolatedClient;
+                ref var toRemove = ref entityManager.GetComponentData<GhostPrefabMetaData>(prefabs[ghost.ghostType].GhostPrefab).Value.Value.DisableOnInterpolatedClient;
                 if (spawnType == GhostSpawnBuffer.Type.Predicted)
-                    toRemove = ref entityManager.GetComponentData<GhostPrefabMetaDataComponent>(prefabs[ghost.ghostType].GhostPrefab).Value.Value.DisableOnPredictedClient;
+                    toRemove = ref entityManager.GetComponentData<GhostPrefabMetaData>(prefabs[ghost.ghostType].GhostPrefab).Value.Value.DisableOnPredictedClient;
                 var linkedEntityGroup = entityManager.GetBuffer<LinkedEntityGroup>(entity).ToNativeArray(Allocator.Temp);
                 //Need copy because removing component will invalidate the buffer pointer, since introduce structural changes
                 for (int rm = 0; rm < toRemove.Length; ++rm)
@@ -325,7 +325,7 @@ namespace Unity.NetCode
                 entityManager.AddComponentData(entity, entityManager.GetComponentData<PreSpawnedGhostIndex>(ghost.oldEntity));
                 entityManager.AddSharedComponent(entity, entityManager.GetSharedComponent<SceneSection>(ghost.oldEntity));
             }
-            var ghostComponentData = entityManager.GetComponentData<GhostComponent>(ghost.oldEntity);
+            var ghostComponentData = entityManager.GetComponentData<GhostInstance>(ghost.oldEntity);
             entityManager.SetComponentData(entity, ghostComponentData);
             var oldBuffer = entityManager.GetBuffer<SnapshotDataBuffer>(ghost.oldEntity);
             var newBuffer = entityManager.GetBuffer<SnapshotDataBuffer>(entity);

@@ -42,7 +42,7 @@ namespace Unity.NetCode
     }
 
     /// <summary>
-    /// Consume all the <see cref="PredictedGhostSpawnRequestComponent"/> requests by initializing the predicted spawned ghost
+    /// Consume all the <see cref="PredictedGhostSpawnRequest"/> requests by initializing the predicted spawned ghost
     /// and adding it to the <see cref="PredictedGhostSpawn"/> buffer.
     /// All the predicted spawned ghosts are initialized with a invalid ghost id (-1) but a valid ghost type and spawnTick.
     /// </summary>
@@ -67,9 +67,9 @@ namespace Unity.NetCode
         BufferTypeHandle<SnapshotDataBuffer> m_SnapshotDataBufferHandle;
         BufferTypeHandle<SnapshotDynamicDataBuffer> m_SnapshotDynamicDataBufferHandle;
         BufferTypeHandle<LinkedEntityGroup> m_LinkedEntityGroupHandle;
-        ComponentLookup<GhostComponent> m_GhostComponentFromEntity;
-        ComponentLookup<PredictedGhostComponent> m_PredictedGhostComponentFromEntity;
-        ComponentLookup<GhostTypeComponent> m_GhostTypeComponentFromEntity;
+        ComponentLookup<GhostInstance> m_GhostComponentFromEntity;
+        ComponentLookup<PredictedGhost> m_PredictedGhostFromEntity;
+        ComponentLookup<GhostType> m_GhostTypeComponentFromEntity;
 
         [BurstCompile]
         struct InitGhostJob : IJobChunk
@@ -90,9 +90,9 @@ namespace Unity.NetCode
             public BufferLookup<PredictedGhostSpawn> spawnListFromEntity;
             public Entity spawnListEntity;
 
-            public ComponentLookup<GhostComponent> ghostFromEntity;
-            public ComponentLookup<PredictedGhostComponent> predictedGhostFromEntity;
-            [ReadOnly] public ComponentLookup<GhostTypeComponent> ghostTypeFromEntity;
+            public ComponentLookup<GhostInstance> ghostFromEntity;
+            public ComponentLookup<PredictedGhost> predictedGhostFromEntity;
+            [ReadOnly] public ComponentLookup<GhostType> ghostTypeFromEntity;
 
             public EntityCommandBuffer commandBuffer;
             public NetworkTick spawnTick;
@@ -160,7 +160,7 @@ namespace Unity.NetCode
                     ghostComponent.ghostType = ghostType;
                     ghostComponent.spawnTick = spawnTick;
                     ghostFromEntity[entity] = ghostComponent;
-                    predictedGhostFromEntity[entity] = new PredictedGhostComponent{AppliedTick = spawnTick, PredictionStartTick = spawnTick};
+                    predictedGhostFromEntity[entity] = new PredictedGhost{AppliedTick = spawnTick, PredictionStartTick = spawnTick};
                     // Set initial snapshot data
                     // Get the buffers, fill in snapshot size etc
                     snapshotDataList[i] = new SnapshotData{SnapshotSize = snapshotSize, LatestIndex = 0};
@@ -189,7 +189,7 @@ namespace Unity.NetCode
                     helper.CopyEntityToSnapshot(chunk, i, typeData, GhostSerializeHelper.ClearOption.DontClear);
 
                     // Remove request component
-                    commandBuffer.RemoveComponent<PredictedGhostSpawnRequestComponent>(entity);
+                    commandBuffer.RemoveComponent<PredictedGhostSpawnRequest>(entity);
                     // Add to list of predictive spawn component - maybe use a singleton for this so spawn systems can just access it too
                     spawnList.Add(new PredictedGhostSpawn{entity = entity, ghostType = ghostType, spawnTick = spawnTick});
                 }
@@ -211,7 +211,7 @@ namespace Unity.NetCode
                 for (int i = 0; i < spawnList.Length; ++i)
                 {
                     var ghost = spawnList[i];
-                    if (interpolatedTick.IsNewerThan(ghost.spawnTick))
+                    if (interpolatedTick.IsValid && interpolatedTick.IsNewerThan(ghost.spawnTick))
                     {
                         // Destroy entity and remove from list
                         commandBuffer.DestroyEntity(ghost.entity);
@@ -231,8 +231,8 @@ namespace Unity.NetCode
             state.EntityManager.AddComponentData(ent, default(PredictedGhostSpawnList));
             state.EntityManager.AddBuffer<PredictedGhostSpawn>(ent);
             var builder = new EntityQueryBuilder(Allocator.Temp)
-                .WithAll<PredictedGhostSpawnRequestComponent, GhostTypeComponent>()
-                .WithAllRW<GhostComponent>();
+                .WithAll<PredictedGhostSpawnRequest, GhostType>()
+                .WithAllRW<GhostInstance>();
             m_GhostInitQuery = state.GetEntityQuery(builder);
 
             m_ListHasData = new NativeReference<int>(Allocator.Persistent);
@@ -249,9 +249,9 @@ namespace Unity.NetCode
             m_SnapshotDynamicDataBufferHandle = state.GetBufferTypeHandle<SnapshotDynamicDataBuffer>();
             m_LinkedEntityGroupHandle = state.GetBufferTypeHandle<LinkedEntityGroup>();
 
-            m_GhostComponentFromEntity = state.GetComponentLookup<GhostComponent>();
-            m_PredictedGhostComponentFromEntity = state.GetComponentLookup<PredictedGhostComponent>();
-            m_GhostTypeComponentFromEntity = state.GetComponentLookup<GhostTypeComponent>(true);
+            m_GhostComponentFromEntity = state.GetComponentLookup<GhostInstance>();
+            m_PredictedGhostFromEntity = state.GetComponentLookup<PredictedGhost>();
+            m_GhostTypeComponentFromEntity = state.GetComponentLookup<GhostType>(true);
 
             state.RequireForUpdate<PredictedGhostSpawnList>();
         }
@@ -291,7 +291,7 @@ namespace Unity.NetCode
                 m_LinkedEntityGroupHandle.Update(ref state);
 
                 m_GhostComponentFromEntity.Update(ref state);
-                m_PredictedGhostComponentFromEntity.Update(ref state);
+                m_PredictedGhostFromEntity.Update(ref state);
                 m_GhostTypeComponentFromEntity.Update(ref state);
                 m_ListHasData.Value = 1;
                 var initJob = new InitGhostJob
@@ -311,7 +311,7 @@ namespace Unity.NetCode
                     spawnListEntity = spawnListEntity,
 
                     ghostFromEntity = m_GhostComponentFromEntity,
-                    predictedGhostFromEntity = m_PredictedGhostComponentFromEntity,
+                    predictedGhostFromEntity = m_PredictedGhostFromEntity,
                     ghostTypeFromEntity = m_GhostTypeComponentFromEntity,
 
                     commandBuffer = commandBuffer,

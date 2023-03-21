@@ -15,7 +15,8 @@ namespace Unity.NetCode.Tests
     {
         public void Bake(GameObject gameObject, IBaker baker)
         {
-            baker.AddComponent(new TestExtrapolated());
+            var entity = baker.GetEntity(TransformUsageFlags.Dynamic);
+            baker.AddComponent(entity, new TestExtrapolated());
         }
     }
 

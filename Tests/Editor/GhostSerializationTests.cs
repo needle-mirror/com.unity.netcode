@@ -15,7 +15,8 @@ namespace Unity.NetCode.Tests
     {
         public void Bake(GameObject gameObject, IBaker baker)
         {
-            baker.AddComponent(new GhostValueSerializer {});
+            var entity = baker.GetEntity(TransformUsageFlags.Dynamic);
+            baker.AddComponent(entity, new GhostValueSerializer {});
         }
     }
 
@@ -261,7 +262,7 @@ namespace Unity.NetCode.Tests
                 for (int i = 0; i < 8; ++i)
                 {
                     testWorld.Tick(frameTime);
-                    var clientRefEntity = testWorld.TryGetSingletonEntity<GhostOwnerComponent>(testWorld.ClientWorlds[0]);
+                    var clientRefEntity = testWorld.TryGetSingletonEntity<GhostOwner>(testWorld.ClientWorlds[0]);
                     var clientEntity = testWorld.TryGetSingletonEntity<GhostValueSerializer>(testWorld.ClientWorlds[0]);
                     if (clientEntity != Entity.Null)
                     {
@@ -270,7 +271,7 @@ namespace Unity.NetCode.Tests
                     }
                 }
                 // Verify that we did get the referenced entity at some point
-                Assert.AreNotEqual(Entity.Null, testWorld.TryGetSingletonEntity<GhostOwnerComponent>(testWorld.ClientWorlds[0]));
+                Assert.AreNotEqual(Entity.Null, testWorld.TryGetSingletonEntity<GhostOwner>(testWorld.ClientWorlds[0]));
             }
         }
         [Test]
@@ -303,9 +304,9 @@ namespace Unity.NetCode.Tests
                     testWorld.Tick(frameTime);
                 }
 
-                var con = testWorld.TryGetSingletonEntity<NetworkIdComponent>(testWorld.ServerWorld);
+                var con = testWorld.TryGetSingletonEntity<NetworkId>(testWorld.ServerWorld);
                 Assert.AreNotEqual(Entity.Null, con);
-                var serverConnectionId = testWorld.ServerWorld.EntityManager.GetComponentData<NetworkIdComponent>(con).Value;
+                var serverConnectionId = testWorld.ServerWorld.EntityManager.GetComponentData<NetworkId>(con).Value;
 
                 var serverRefEntity = testWorld.SpawnOnServer(referencedGameObject);
                 var serverEnt = testWorld.SpawnOnServer(ghostGameObject);
@@ -313,8 +314,8 @@ namespace Unity.NetCode.Tests
 
                 testWorld.Tick(frameTime);
 
-                var serverGhostId = testWorld.ServerWorld.EntityManager.GetComponentData<GhostComponent>(serverEnt).ghostId;
-                var serverRefGhostId = testWorld.ServerWorld.EntityManager.GetComponentData<GhostComponent>(serverRefEntity).ghostId;
+                var serverGhostId = testWorld.ServerWorld.EntityManager.GetComponentData<GhostInstance>(serverEnt).ghostId;
+                var serverRefGhostId = testWorld.ServerWorld.EntityManager.GetComponentData<GhostInstance>(serverRefEntity).ghostId;
 
                 // only mark the entity with the ref as relevant so that arrived before the referenced entity exists
                 ghostRelevancy.GhostRelevancySet.TryAdd(new RelevantGhostForConnection(serverConnectionId, serverGhostId), 1);
@@ -323,7 +324,7 @@ namespace Unity.NetCode.Tests
                 for (int i = 0; i < 8; ++i)
                 {
                     testWorld.Tick(frameTime);
-                    var clientRefEntity = testWorld.TryGetSingletonEntity<GhostOwnerComponent>(testWorld.ClientWorlds[0]);
+                    var clientRefEntity = testWorld.TryGetSingletonEntity<GhostOwner>(testWorld.ClientWorlds[0]);
                     var clientEntity = testWorld.TryGetSingletonEntity<GhostValueSerializer>(testWorld.ClientWorlds[0]);
                     if (clientEntity != Entity.Null)
                     {
@@ -332,13 +333,13 @@ namespace Unity.NetCode.Tests
                     }
                 }
                 // Verify that we did not the referenced entity since it is irrelevant
-                Assert.AreEqual(Entity.Null, testWorld.TryGetSingletonEntity<GhostOwnerComponent>(testWorld.ClientWorlds[0]));
+                Assert.AreEqual(Entity.Null, testWorld.TryGetSingletonEntity<GhostOwner>(testWorld.ClientWorlds[0]));
 
                 ghostRelevancy.GhostRelevancySet.TryAdd(new RelevantGhostForConnection(serverConnectionId, serverRefGhostId), 1);
                 for (int i = 0; i < 8; ++i)
                 {
                     testWorld.Tick(frameTime);
-                    var clientRefEntity = testWorld.TryGetSingletonEntity<GhostOwnerComponent>(testWorld.ClientWorlds[0]);
+                    var clientRefEntity = testWorld.TryGetSingletonEntity<GhostOwner>(testWorld.ClientWorlds[0]);
                     var clientEntity = testWorld.TryGetSingletonEntity<GhostValueSerializer>(testWorld.ClientWorlds[0]);
                     if (clientEntity != Entity.Null)
                     {
@@ -346,7 +347,7 @@ namespace Unity.NetCode.Tests
                         Assert.AreEqual(clientRefEntity, testWorld.ClientWorlds[0].EntityManager.GetComponentData<GhostValueSerializer>(clientEntity).EntityValue);
                     }
                 }
-                Assert.AreNotEqual(Entity.Null, testWorld.TryGetSingletonEntity<GhostOwnerComponent>(testWorld.ClientWorlds[0]));
+                Assert.AreNotEqual(Entity.Null, testWorld.TryGetSingletonEntity<GhostOwner>(testWorld.ClientWorlds[0]));
 
                 // Delete the referenced entity and make sure the ref is updated
                 testWorld.ServerWorld.EntityManager.DestroyEntity(serverRefEntity);
@@ -354,7 +355,7 @@ namespace Unity.NetCode.Tests
                 for (int i = 0; i < 8; ++i)
                 {
                     testWorld.Tick(frameTime);
-                    var clientRefEntity = testWorld.TryGetSingletonEntity<GhostOwnerComponent>(testWorld.ClientWorlds[0]);
+                    var clientRefEntity = testWorld.TryGetSingletonEntity<GhostOwner>(testWorld.ClientWorlds[0]);
                     var clientEntity = testWorld.TryGetSingletonEntity<GhostValueSerializer>(testWorld.ClientWorlds[0]);
                     if (clientEntity != Entity.Null)
                     {
@@ -366,7 +367,7 @@ namespace Unity.NetCode.Tests
                     }
                 }
                 Assert.LessOrEqual(mismatchFrames, 1);
-                Assert.AreEqual(Entity.Null, testWorld.TryGetSingletonEntity<GhostOwnerComponent>(testWorld.ClientWorlds[0]));
+                Assert.AreEqual(Entity.Null, testWorld.TryGetSingletonEntity<GhostOwner>(testWorld.ClientWorlds[0]));
             }
         }
         [Test]

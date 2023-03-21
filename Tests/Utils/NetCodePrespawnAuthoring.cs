@@ -11,7 +11,8 @@ namespace Unity.NetCode.Tests
     {
         public override void Bake(NetCodePrespawnAuthoring authoring)
         {
-            AddComponent<NetCodePrespawnTag>();
+            var entity = GetEntity(TransformUsageFlags.Dynamic);
+            AddComponent<NetCodePrespawnTag>(entity);
         }
     }
 }

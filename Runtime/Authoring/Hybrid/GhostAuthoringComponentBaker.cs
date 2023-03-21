@@ -23,7 +23,7 @@ namespace Unity.NetCode
     struct GhostAuthoringComponentBakingData : IComponentData
     {
         public GhostPrefabConfigBaking BakingConfig;
-        public GhostTypeComponent GhostType;
+        public GhostType GhostType;
         public NetcodeConversionTarget Target;
         public bool IsPrefab;
         public bool IsActive;
@@ -74,7 +74,7 @@ namespace Unity.NetCode
                     prefab = (GameObject) UnityEditor.AssetDatabase.LoadAssetAtPath(path, typeof(GameObject));
                 // GetEntity is used here to tell the baker that the prefab needs to be baked as well. This replaces
                 // the Conversion callback DeclareReferencedPrefabs.
-                GetEntity(prefab);
+                GetEntity(prefab, TransformUsageFlags.Dynamic);
             }
 #endif
 
@@ -94,21 +94,22 @@ namespace Unity.NetCode
                 throw new InvalidOperationException("Invalid guid for ghost prefab type");
 
             // Add components which are serialized based on settings
+            var entity = GetEntity(TransformUsageFlags.Dynamic);
             if (ghostAuthoring.HasOwner)
             {
-                AddComponent(default(GhostOwnerComponent));
-                AddComponent(default(GhostOwnerIsLocal));
+                AddComponent(entity, default(GhostOwner));
+                AddComponent(entity, default(GhostOwnerIsLocal));
             }
             if (ghostAuthoring.SupportAutoCommandTarget && ghostAuthoring.HasOwner)
-                AddComponent(new AutoCommandTarget {Enabled = true});
+                AddComponent(entity, new AutoCommandTarget {Enabled = true});
             if (ghostAuthoring.TrackInterpolationDelay && ghostAuthoring.HasOwner)
-                AddComponent(default(CommandDataInterpolationDelay));
+                AddComponent(entity, default(CommandDataInterpolationDelay));
             if (ghostAuthoring.GhostGroup)
-                AddBuffer<GhostGroup>();
+                AddBuffer<GhostGroup>(entity);
 
             var allComponentOverrides = GhostAuthoringInspectionComponent.CollectAllComponentOverridesInInspectionComponents(ghostAuthoring, true);
 
-            var overrideBuffer = AddBuffer<GhostAuthoringComponentOverridesBaking>();
+            var overrideBuffer = AddBuffer<GhostAuthoringComponentOverridesBaking>(entity);
             foreach (var componentOverride in allComponentOverrides)
             {
                 overrideBuffer.Add(new GhostAuthoringComponentOverridesBaking
@@ -133,10 +134,10 @@ namespace Unity.NetCode
             };
 
             // Generate a ghost type component so the ghost can be identified by mathcing prefab asset guid
-            var ghostType = GhostTypeComponent.FromHash128String(ghostAuthoring.prefabId);
+            var ghostType = GhostType.FromHash128String(ghostAuthoring.prefabId);
             var activeInScene = IsActive();
 
-            AddComponent(new GhostAuthoringComponentBakingData
+            AddComponent(entity, new GhostAuthoringComponentBakingData
             {
                 GhostName = ghostName,
                 GhostNameHash = ghostNameHash,
@@ -149,17 +150,17 @@ namespace Unity.NetCode
 
             if (isPrefab)
             {
-                AddComponent<GhostPrefabMetaDataComponent>();
+                AddComponent<GhostPrefabMetaData>(entity);
                 if (target == NetcodeConversionTarget.ClientAndServer)
                     // Flag this prefab as needing runtime stripping
-                    AddComponent<GhostPrefabRuntimeStrip>();
+                    AddComponent<GhostPrefabRuntimeStrip>(entity);
             }
         }
     }
 
     // This type is used to mark the Ghost children and additional entities
     [BakingType]
-    struct GhostChildEntityComponentBaking : IComponentData
+    struct GhostChildEntityBaking : IComponentData
     {
         public Entity RootEntity;
     }
@@ -182,16 +183,16 @@ namespace Unity.NetCode
 
         ComponentTypeSet m_ChildRevertBakingComponents = new ComponentTypeSet(new ComponentType[]
         {
-            typeof(GhostChildEntityComponent),
-            typeof(GhostChildEntityComponentBaking)
+            typeof(GhostChildEntity),
+            typeof(GhostChildEntityBaking)
         });
 
         private ComponentTypeSet m_RootRevertBakingComponents = new ComponentTypeSet(new ComponentType[]
         {
-            typeof(GhostTypeComponent),
-            typeof(SharedGhostTypeComponent),
-            typeof(GhostComponent),
-            typeof(PredictedGhostComponent),
+            typeof(GhostType),
+            typeof(GhostTypePartition),
+            typeof(GhostInstance),
+            typeof(PredictedGhost),
             typeof(PreSerializedGhost),
             typeof(SnapshotData),
             typeof(SnapshotDataBuffer),
@@ -259,10 +260,10 @@ namespace Unity.NetCode
                 }
             }).WithEntityQueryOptions(EntityQueryOptions.IncludePrefab).WithStructuralChanges().Run();
 
-            // Revert all previously added GhostChildEntityComponent, to all the children that their root is going to be recalculated or not longer a root,
+            // Revert all previously added GhostChildEntity, to all the children that their root is going to be recalculated or not longer a root,
             // so incremental baking is consistent
             Entities
-                .ForEach((Entity childEntity, in GhostChildEntityComponentBaking child) =>
+                .ForEach((Entity childEntity, in GhostChildEntityBaking child) =>
                 {
                     if (rootsToRebake.Contains(child.RootEntity) || m_NoLongerBakedRootEntitiesMask.MatchesIgnoreFilter(child.RootEntity))
                     {
@@ -288,10 +289,10 @@ namespace Unity.NetCode
             {
                 EntityManager.AddComponent<GhostRootEntityBaking>(entities[0]);
 
-                var childComponent = new GhostChildEntityComponentBaking { RootEntity = entities[0] };
+                var childComponent = new GhostChildEntityBaking { RootEntity = entities[0] };
                 for (int index = 1; index < entities.Length; ++index)
                 {
-                    EntityManager.AddComponentData<GhostChildEntityComponentBaking>(entities[index], childComponent);
+                    EntityManager.AddComponentData<GhostChildEntityBaking>(entities[index], childComponent);
                 }
             }
         }
@@ -351,7 +352,7 @@ namespace Unity.NetCode
             // Revert the previously added components
             RevertPreviousBakings(rootsToProcess);
 
-            using (var context = new BlobAssetComputationContext<int, GhostPrefabMetaData>(bakingSystem.BlobAssetStore, 16, Allocator.Temp))
+            using (var context = new BlobAssetComputationContext<int, GhostPrefabBlobMetaData>(bakingSystem.BlobAssetStore, 16, Allocator.Temp))
             {
                 Entities.ForEach((Entity rootEntity, DynamicBuffer<LinkedEntityGroup> linkedEntityGroup, in GhostAuthoringComponentBakingData ghostAuthoringBakingData) =>
                 {
@@ -493,7 +494,6 @@ namespace Unity.NetCode
                             ghostAuthoringBakingData.GhostType.guid1 ^ (uint) (contentHash),
                             ghostAuthoringBakingData.GhostType.guid2, ghostAuthoringBakingData.GhostType.guid3);
                         // instanceIds[0] contains the root GameObject instance id
-                        context.AssociateBlobAssetWithUnityObject(blobHash, rootInstanceID);
                         if (context.NeedToComputeBlobAsset(blobHash))
                         {
                             var blobAsset = GhostPrefabCreation.CreateBlobAsset(config,
@@ -504,7 +504,7 @@ namespace Unity.NetCode
                         }
 
                         context.GetBlobAsset(blobHash, out var blob);
-                        EntityManager.SetComponentData(rootEntity, new GhostPrefabMetaDataComponent {Value = blob});
+                        EntityManager.SetComponentData(rootEntity, new GhostPrefabMetaData {Value = blob});
 
                         // Create an additional prefab on _clients only_ which will be used for normal server triggered spawns of ghosts
                         // local spawning will be by default predicted spawns (the only valid ghost spawn on clients)
@@ -537,7 +537,7 @@ namespace Unity.NetCode
                             //can be added earlier by a normal baker
                             EntityManager.RemoveComponent<TransformAuthoring>(childList.AsArray());
                             EntityManager.AddComponent<Prefab>(childList.AsArray());
-                            EntityManager.AddComponent<PredictedGhostSpawnRequestComponent>(rootEntity);
+                            EntityManager.AddComponent<PredictedGhostSpawnRequest>(rootEntity);
 
                         }
                     }

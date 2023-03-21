@@ -654,13 +654,13 @@ namespace Unity.NetCode.GeneratorTests
             //But some errors are reported too
             var diagnostics = results.Diagnostics.Where(m=>m.Severity == DiagnosticSeverity.Error).ToArray();
             int i = 0;
-            Assert.True(diagnostics[i++].GetMessage().StartsWith("GhostField present on an invalid property Buffer.BValue6: Setter is not public."));
-            Assert.True(diagnostics[i++].GetMessage().StartsWith("GhostField missing on field Buffer.BValue2."));
-            Assert.True(diagnostics[i++].GetMessage().StartsWith("GhostField present on an invalid property CommandData.CValue4: No setter."));
-            Assert.True(diagnostics[i++].GetMessage().StartsWith("GhostField missing on field CommandData.CValue1."));
-            Assert.True(diagnostics[i++].GetMessage().StartsWith("GhostField missing on field CommandData.Tick."));
-            Assert.True(diagnostics[i++].GetMessage().StartsWith("GhostField present on an invalid property ComponentData.this[int]: Indexer."));
-            Assert.True(diagnostics[i++].GetMessage().StartsWith("GhostField present on an invalid property CommandData.CValue4: No setter."));
+            Assert.True(diagnostics[i++].GetMessage().StartsWith("GhostField present on an invalid property Buffer.BValue6: Setter is not public.", StringComparison.Ordinal));
+            Assert.True(diagnostics[i++].GetMessage().StartsWith("GhostField missing on field Buffer.BValue2.", StringComparison.Ordinal));
+            Assert.True(diagnostics[i++].GetMessage().StartsWith("GhostField present on an invalid property CommandData.CValue4: No setter.", StringComparison.Ordinal));
+            Assert.True(diagnostics[i++].GetMessage().StartsWith("GhostField missing on field CommandData.CValue1.", StringComparison.Ordinal));
+            Assert.True(diagnostics[i++].GetMessage().StartsWith("GhostField missing on field CommandData.Tick.", StringComparison.Ordinal));
+            Assert.True(diagnostics[i++].GetMessage().StartsWith("GhostField present on an invalid property ComponentData.this[int]: Indexer.", StringComparison.Ordinal));
+            Assert.True(diagnostics[i++].GetMessage().StartsWith("GhostField present on an invalid property CommandData.CValue4: No setter.", StringComparison.Ordinal));
             Assert.AreEqual(7, diagnostics.Length);
         }
 
@@ -711,15 +711,15 @@ namespace Unity.NetCode.GeneratorTests
             var diagnostics = results.Diagnostics.Where(m=>m.Severity == DiagnosticSeverity.Error).ToArray();
             Assert.AreEqual(5, diagnostics.Length);
             Assert.True(diagnostics[0].GetMessage()
-                .StartsWith("struct Test.Invalid1 cannot implement Component,Rpc interfaces at the same time"));
+                .StartsWith("struct Test.Invalid1 cannot implement Component,Rpc interfaces at the same time", StringComparison.Ordinal));
             Assert.True(diagnostics[1].GetMessage()
-                .StartsWith("struct Test.Invalid2 cannot implement Component,CommandData interfaces at the same time"));
+                .StartsWith("struct Test.Invalid2 cannot implement Component,CommandData interfaces at the same time", StringComparison.Ordinal));
             Assert.True(diagnostics[2].GetMessage()
-                .StartsWith("struct Test.Invalid3 cannot implement Component,Buffer interfaces at the same time"));
+                .StartsWith("struct Test.Invalid3 cannot implement Component,Buffer interfaces at the same time", StringComparison.Ordinal));
             Assert.True(diagnostics[3].GetMessage()
-                .StartsWith("struct Test.Invalid4 cannot implement Buffer,CommandData interfaces at the same time"));
+                .StartsWith("struct Test.Invalid4 cannot implement Buffer,CommandData interfaces at the same time", StringComparison.Ordinal));
             Assert.True(diagnostics[4].GetMessage()
-                .StartsWith("struct Test.Invalid5 cannot implement Buffer,Rpc interfaces at the same time"));
+                .StartsWith("struct Test.Invalid5 cannot implement Buffer,Rpc interfaces at the same time", StringComparison.Ordinal));
         }
 
         [Test]
@@ -983,7 +983,7 @@ namespace Unity.NetCode.GeneratorTests
                 Assert.That(diagnostics[0].GetMessage().Contains("Subtyped types cannot also be defined as composite"));
             }
 
-            customTemplates = customTemplates.Replace("Composite = true", "Composite = false");
+            customTemplates = customTemplates.Replace("Composite = true", "Composite = false", StringComparison.Ordinal);
             {
                 // Fix issue and verify it now works as expected (composite true->false)
                 var templateTree = CSharpSyntaxTree.ParseText(customTemplates);

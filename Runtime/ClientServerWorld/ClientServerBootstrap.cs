@@ -37,6 +37,12 @@ namespace Unity.NetCode
             NextThinClientId = 1;
         }
 #endif
+#if UNITY_SERVER && UNITY_CLIENT
+        public ClientServerBootstrap()
+        {
+            UnityEngine.Debug.LogError("Both UNITY_SERVER and UNITY_CLIENT defines are present. This is not allowed and will lead to undefined behaviour, they are for dedicated server or client only logic so can't work together.");
+        }
+#endif
 
         /// <summary>
         /// Utility method for creating a local world without any NetCode systems.
@@ -249,7 +255,7 @@ namespace Unity.NetCode
                 {
 #if UNITY_EDITOR
                     // In the editor, the 'editor window specified' endpoint takes precedence, assuming it's a valid address:
-                    if (MultiplayerPlayModePreferences.IsEditorInputtedAddressValidForConnect(out autoConnectEp))
+                    if (AutoConnectPort != 0 && MultiplayerPlayModePreferences.IsEditorInputtedAddressValidForConnect(out autoConnectEp))
                         return true;
 #endif
 
@@ -524,6 +530,25 @@ namespace Unity.NetCode
             if(ClientServerBootstrap.TryFindAutoConnectEndPoint(out var autoConnectEp))
             {
                 SystemAPI.GetSingletonRW<NetworkStreamDriver>().ValueRW.Connect(state.EntityManager, autoConnectEp);
+            }
+            else
+            {
+                // Thin client has no auto connect endpoint configured to connect to. Check if the client has connected to
+                // something already (so it has manually connected), if so then connect to the same address
+                for (int i = 0; i < World.All.Count; ++i)
+                {
+                    var world = World.All[i];
+                    if (world.IsClient())
+                    {
+                        var driver = world.EntityManager.CreateEntityQuery(ComponentType.ReadOnly<NetworkStreamDriver>());
+                        UnityEngine.Assertions.Assert.IsFalse(driver.IsEmpty);
+                        var driverData = driver.ToComponentDataArray<NetworkStreamDriver>(Allocator.Temp);
+                        UnityEngine.Assertions.Assert.IsTrue(driverData.Length == 1);
+                        if (driverData[0].LastEndPoint.IsValid)
+                            SystemAPI.GetSingletonRW<NetworkStreamDriver>().ValueRW.Connect(state.EntityManager, driverData[0].LastEndPoint);
+                        break;
+                    }
+                }
             }
 
             state.Enabled = false;

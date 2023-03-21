@@ -63,10 +63,10 @@ namespace Unity.NetCode.Hybrid
 
         internal void Save()
         {
+            if (AssetDatabase.IsAssetImportWorkerProcess())
+                return;
             Save(true);
             ((IEntitiesPlayerSettings)this).RegisterCustomDependency();
-            if (!AssetDatabase.IsAssetImportWorkerProcess())
-                AssetDatabase.Refresh();
         }
 
         private void OnDisable() => Save();

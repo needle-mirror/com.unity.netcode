@@ -315,7 +315,7 @@ namespace Unity.NetCode
         public void OnCreate(ref SystemState state)
         {
             state.RequireForUpdate<LagCompensationConfig>();
-            state.RequireForUpdate<NetworkIdComponent>();
+            state.RequireForUpdate<NetworkId>();
             state.EntityManager.CreateEntity(ComponentType.ReadWrite<PhysicsWorldHistorySingleton>());
             SystemAPI.SetSingleton(default(PhysicsWorldHistorySingleton));
         }

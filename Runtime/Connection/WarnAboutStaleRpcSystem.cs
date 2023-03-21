@@ -1,4 +1,4 @@
-#if (UNITY_EDITOR || DEVELOPMENT_BUILD) && !NETCODE_NDEBUG
+#if UNITY_EDITOR && !NETCODE_NDEBUG
 #define NETCODE_DEBUG
 #endif
 #if NETCODE_DEBUG
@@ -18,14 +18,14 @@ namespace Unity.NetCode
         [BurstCompile]
         public void OnCreate(ref SystemState state)
         {
-            state.RequireForUpdate<ReceiveRpcCommandRequestComponent>();
+            state.RequireForUpdate<ReceiveRpcCommandRequest>();
         }
         [BurstCompile]
         partial struct WarnAboutStaleRpc : IJobEntity
         {
             public NetDebug netDebug;
             public FixedString128Bytes worldName;
-            public void Execute(Entity entity, ref ReceiveRpcCommandRequestComponent command)
+            public void Execute(Entity entity, ref ReceiveRpcCommandRequest command)
             {
                 if (!command.IsConsumed && ++command.Age >= netDebug.MaxRpcAgeFrames)
                 {

@@ -212,7 +212,7 @@ namespace Unity.NetCode.LowLevel.Unsafe
             /// Deserialize the component and buffer data from the received snapshot and store it inside the <see cref="SnapshotDataBuffer"/>.
             /// </summary>
             public PortableFunctionPointer<DeserializeDelegate> Deserialize;
-            #if UNITY_EDITOR || DEVELOPMENT_BUILD
+            #if UNITY_EDITOR || NETCODE_DEBUG
             /// <summary>
             /// Used by the <see cref="GhostPredictionDebugSystem"/>, collect and report the prediction error for all the replicated
             /// fields.
@@ -223,7 +223,7 @@ namespace Unity.NetCode.LowLevel.Unsafe
             /// </summary>
             public Unity.Profiling.ProfilerMarker ProfilerMarker;
             #endif
-            #if UNITY_EDITOR || DEVELOPMENT_BUILD || NETCODE_DEBUG
+            #if UNITY_EDITOR || NETCODE_DEBUG
             /// <summary>
             /// String buffer, containing the list of all replicated field names. Empty for component type that can be only interpolated.
             /// (see <see cref="PrefabType"/>).

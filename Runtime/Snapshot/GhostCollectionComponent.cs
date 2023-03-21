@@ -7,7 +7,7 @@ namespace Unity.NetCode
     /// <summary>
     /// A BlobAsset containing all the meta data required for ghosts.
     /// </summary>
-    internal struct GhostPrefabMetaData
+    internal struct GhostPrefabBlobMetaData
     {
         public enum GhostMode
         {
@@ -73,9 +73,9 @@ namespace Unity.NetCode
     /// </summary>
     [DontSupportPrefabOverrides]
     [GhostComponent(SendDataForChildEntity = false)]
-    internal struct GhostPrefabMetaDataComponent : IComponentData
+    internal struct GhostPrefabMetaData : IComponentData
     {
-        public BlobAssetReference<GhostPrefabMetaData> Value;
+        public BlobAssetReference<GhostPrefabBlobMetaData> Value;
     }
 
     /// <summary>
@@ -96,7 +96,7 @@ namespace Unity.NetCode
         /// The number prefab that has been loaded into the <see cref="GhostCollectionPrefab"/> collection.
         /// Use to determine which ghosts types the server can stream to the clients.
         /// <para>
-        /// The server report to the client the list of loaded prefabs (with their see <see cref="GhostTypeComponent"/> guid)
+        /// The server report to the client the list of loaded prefabs (with their see <see cref="GhostType"/> guid)
         /// as part of the snapshot protocol.
         /// The list is dynamic; new prefabs can be added/loaded at runtime on the server, and the ones will be reported to the client.
         /// </para>
@@ -112,7 +112,7 @@ namespace Unity.NetCode
         /// </para>
         /// </summary>
         public int NumLoadedPrefabs;
-        #if UNITY_EDITOR || DEVELOPMENT_BUILD
+        #if UNITY_EDITOR || NETCODE_DEBUG
         /// <summary>
         /// Only for debug, the current length of the predicted error names list. Used by the <see cref="GhostPredictionDebugSystem"/>.
         /// </summary>
@@ -160,8 +160,8 @@ namespace Unity.NetCode
             /// </summary>
             LoadingNotActive
         }
-        /// <inheritdoc cref="GhostTypeComponent"/>
-        public GhostTypeComponent GhostType;
+        /// <inheritdoc cref="NetCode.GhostType"/>
+        public GhostType GhostType;
         /// <summary>
         /// A reference to the prefab entity. The reference is initially equals to <see cref="Entity.Null"/> and assigned by
         /// the <see cref="GhostCollectionSystem"/> when prefabs are processed.
@@ -212,7 +212,7 @@ namespace Unity.NetCode
         /// </summary>
         public int ChangeMaskBits;
         /// <summary>
-        /// Only set if the <see cref="GhostOwnerComponent"/> is present on the entity prefab,
+        /// Only set if the <see cref="GhostOwner"/> is present on the entity prefab,
         /// is the offset in bytes, from the beginning of the snapshot data, in which the network id of the of client
         /// owning the entity can be retrieved.
         /// <code>
@@ -253,7 +253,7 @@ namespace Unity.NetCode
         public GhostSpawnBuffer.Type FallbackPredictionMode;
         /// <summary>
         /// Flag that indicates if the ghost prefab contains a <see cref="GhostGroup"/> component and can be used as root
-        /// of the group (see also <seealso cref="GhostChildEntityComponent"/>).
+        /// of the group (see also <seealso cref="GhostChildEntity"/>).
         /// </summary>
         public int IsGhostGroup;
         /// <summary>
@@ -314,7 +314,7 @@ namespace Unity.NetCode
         public int SerializerIndex;
         /// <summary>Current send mask for that component, used to not send/receive components in some configuration.</summary>
         public GhostComponentSerializer.SendMask SendMask;
-#if UNITY_EDITOR || DEVELOPMENT_BUILD
+#if UNITY_EDITOR || NETCODE_DEBUG
         public int PredictionErrorBaseIndex;
         #endif
     }

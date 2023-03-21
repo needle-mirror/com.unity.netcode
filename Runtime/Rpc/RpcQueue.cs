@@ -9,8 +9,8 @@ namespace Unity.NetCode
     /// <para>
     /// A helper struct that should be used schedule outgoing RPCs.
     /// The RpcQueue is used internally by the code-generated systems that consume the
-    /// <see cref="SendRpcCommandRequestComponent"/> requests, and allow you to serialize the rpc (that will be sent
-    /// into the <see cref="OutgoingRpcDataStreamBufferComponent"/> for the outgoing connection).
+    /// <see cref="SendRpcCommandRequest"/> requests, and allow you to serialize the rpc (that will be sent
+    /// into the <see cref="OutgoingRpcDataStreamBuffer"/> for the outgoing connection).
     /// </para>
     /// <para>
     /// You can use the RpcQueue in your custom system by retrieving an instance for the given
@@ -40,7 +40,7 @@ namespace Unity.NetCode
         /// <summary>
         /// <para>
         /// Schedules an rpc to be sent through the network, by serializing and appending a new
-        /// rpc packet into the <see cref="OutgoingRpcDataStreamBufferComponent"/>, for the given connection.
+        /// rpc packet into the <see cref="OutgoingRpcDataStreamBuffer"/>, for the given connection.
         /// </para>
         /// <para>
         /// The binary rpc data has the following format:</para>
@@ -52,8 +52,8 @@ namespace Unity.NetCode
         /// <param name="ghostFromEntity"></param>
         /// <param name="data"></param>
         /// <exception cref="InvalidOperationException"></exception>
-        public unsafe void Schedule(DynamicBuffer<OutgoingRpcDataStreamBufferComponent> buffer,
-            ComponentLookup<GhostComponent> ghostFromEntity, TActionRequest data)
+        public unsafe void Schedule(DynamicBuffer<OutgoingRpcDataStreamBuffer> buffer,
+            ComponentLookup<GhostInstance> ghostFromEntity, TActionRequest data)
         {
             var serializer = default(TActionSerializer);
             var serializerState = new RpcSerializerState {GhostFromEntity = ghostFromEntity};

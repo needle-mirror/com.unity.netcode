@@ -19,7 +19,7 @@ The systems responsible for writing to the command buffers must all run inside t
 
 ### ICommandData serialization and payload limit
 When using ICommand, the Netcode for Entities package automatically generated the command serialization code for you. </br>
-Commands serialization take place in the `CommandSendSystemGroup`. Each individual command is serialized and enqueued into the `OutgoingCommandDataStreamBufferComponent` (present on the network connection) 
+Commands serialization take place in the `CommandSendSystemGroup`. Each individual command is serialized and enqueued into the `OutgoingCommandDataStreamBuffer` (present on the network connection) 
 by its own code-generated system. </br> The `CommandSendPacketSystem` is then responsible to flush the outgoing buffer at `SimulationTickRate` interval. 
 
 In order to fight packet losses, along with with last input, we also include as a form of redundancy the last 3 input. 
@@ -33,26 +33,26 @@ Each redundant command is delta compressed against the command for the current t
 an error will be reported to the application if the encoded payload that does not respect the constraint.
 
 ### Receiving commands on the server
-`ICommandData` are automatically received by the server by the `NetworkStreamReceiveSystem` and added to the `IncomingCommandDataStreamBufferComponent` buffer. The `CommandReceiveSystem` is then responsible 
+`ICommandData` are automatically received by the server by the `NetworkStreamReceiveSystem` and added to the `IncomingCommandDataStreamBuffer` buffer. The `CommandReceiveSystem` is then responsible 
 to dispatch the command data to the target entity (which the command belong to).
 
 > [!NOTE]
 > The server must only receive commands from the clients. It should never overwrite or change the input received by the client.
 
 ## Automatic handling of commands. The AutoCommandTarget component.
-If you add your `ICommandData` component to a ghost (for which the following options has been enabled in the `GhostAuthoringComponent):
+If you add your `ICommandData` component to a ghost (for which the following options has been enabled in the `GhostAuthoring):
 1. `Has Owner` set
 2. `Support Auto Command Target` 
 
 <img src="images/enable-autocommand.png" width="500" alt="enable-autocommand"/>
 
 the commands for that ghost will **automatically be sent to the server**. The following rules apply:
-- the ghost must be owned by your client (requiring the server to set the `GhostOwnerComponent` to your `NetworkIdComponent.Value`), 
+- the ghost must be owned by your client (requiring the server to set the `GhostOwner` to your `NetworkId.Value`), 
 - the ghost is `Predicted` or `OwnerPredicted` (i.e. you cannot use an `ICommandData` to control interpolated ghosts),
 - the [AutoCommandTarget](https://docs.unity3d.com/Packages/com.unity.netcode@latest/index.html?subfolder=/api/Unity.NetCode.AutoCommandTarget.html).Enabled flag is set to true.
 
-If you are not using `Auto Command Target`, your game code must set the [CommandTargetComponent](https://docs.unity3d.com/Packages/com.unity.netcode@latest/index.html?subfolder=/api/Unity.NetCode.CommandTargetComponent.html) on the connection entity to reference the entity that the `ICommandData` component has been attached to. 
-<br/> You can have multiple `ICommandData` in your game, and Netcode for Entities will only send the `ICommandData` for the entity that `CommandTargetComponent` points to.
+If you are not using `Auto Command Target`, your game code must set the [CommandTarget](https://docs.unity3d.com/Packages/com.unity.netcode@latest/index.html?subfolder=/api/Unity.NetCode.CommandTarget.html) on the connection entity to reference the entity that the `ICommandData` component has been attached to. 
+<br/> You can have multiple `ICommandData` in your game, and Netcode for Entities will only send the `ICommandData` for the entity that `CommandTarget` points to.
 
 When you need to access the inputs from the buffer, you can use an extension method for `DynamicBuffer<ICommandData>` called `GetDataAtTick` which gets the matching tick for a specific frame. You can also use the `AddCommandData` utility method (which adds more commands to the ring-buffer for you).
 
@@ -63,7 +63,7 @@ mis-prediction. </br>
 
 ## Checking which ghost entities are owned by the player, on the client.
 > [!NOTE]
-> It is required you use (and implement) the `GhostOwnerComponent` functionality, for commands to work properly. For example: By checking the 'Has Owner' checkbox in the `GhostAuthoringComponent`.
+> It is required you use (and implement) the `GhostOwner` functionality, for commands to work properly. For example: By checking the 'Has Owner' checkbox in the `GhostAuthoringComponent`.
 
 **On the client, it is very common to want to lookup (i.e. query for) entities that are owned by the local player.** 
 This is problematic, as multiple ghosts may have the same `CommandBuffer` as your "locally owned" ghost (e.g. when using [Remove Player Prediction](prediction.md#remote-players-prediction), _every other "player" ghost_ will have this buffer),
@@ -83,13 +83,13 @@ Entities
         // your logic here will be applied only to the entities owned by the local player.    
     }).Run();
 ```
-### Use the GhostOwnerComponent
-You can filter the entities manually by checking that the `GhostOwnerComponent.NetworkId` of the entity equals the `NetworkId` of the player.
+### Use the GhostOwner
+You can filter the entities manually by checking that the `GhostOwner.NetworkId` of the entity equals the `NetworkId` of the player.
 
 ```c#
-var localPlayerId = GetSingleton<NetworkIdComponent>().Value;
+var localPlayerId = GetSingleton<NetworkId>().Value;
 Entities
-    .ForEach((ref MyComponent myComponent, in GhostOwnerComponent owner)=>
+    .ForEach((ref MyComponent myComponent, in GhostOwner owner)=>
     {
         if(owner.NetworkId == localPlayerId)
         {
@@ -103,7 +103,7 @@ Entities
 It's possible to have most of the things mentioned above for command data usage set up automatically for you given an input component data struct you have set up. You need to inherit the `IInputComponentData` interface on the input struct and the task of adding it to the command data buffer and retrieving back from the buffer when processing inputs will be handled automatically via code generated systems. For this to work it is required to have input gathering and input processing (like movement system) set up in two separate systems.
 
 > [!NOTE]
-> It is required that you use the `GhostOwnerComponent` functionality, for example by checking the `Has Owner` checkbox in the ghost authoring component for this to work.
+> It is required that you use the `GhostOwner` functionality, for example by checking the `Has Owner` checkbox in the ghost authoring component for this to work.
 >
 > [!NOTE]
 > Per prefab overrides done in the ghost authoring component inspector are disabled for input components and their companion buffer. You can add a ghost component attribute on the input component in code and it will apply to the buffer as well.
@@ -171,7 +171,7 @@ public partial class GatherInputs : SystemBase
         bool left = UnityEngine.Input.GetKey("left");
         //...
 
-        var networkId = GetSingleton<NetworkIdComponent>().Value;
+        var networkId = GetSingleton<NetworkId>().Value;
         Entities.WithName("GatherInput").WithAll<GhostOwnerIsLocal>().ForEach((ref PlayerInput inputData) =>
             {
                 inputData = default;

@@ -20,9 +20,9 @@ namespace Unity.NetCode.Tests.Editor
             lookupHelper = new LowLevel.SnapshotDataLookupHelper(ref state);
             snapshotBufferLookup = state.GetBufferLookup<SnapshotDataBuffer>(true);
             state.RequireForUpdate<GhostCollection>();
-            state.RequireForUpdate<GhostSpawnQueueComponent>();
+            state.RequireForUpdate<GhostSpawnQueue>();
             state.RequireForUpdate<PredictedGhostSpawn>();
-            state.RequireForUpdate<NetworkIdComponent>();
+            state.RequireForUpdate<NetworkId>();
         }
 
         public void OnUpdate(ref SystemState state)
@@ -36,31 +36,22 @@ namespace Unity.NetCode.Tests.Editor
 
             foreach (var (spawnBuffer, spawnDataBuffer)
                      in SystemAPI.Query<DynamicBuffer<GhostSpawnBuffer>, DynamicBuffer<SnapshotDataBuffer>>()
-                         .WithAll<GhostSpawnQueueComponent>())
+                         .WithAll<GhostSpawnQueue>())
             {
                 for (int i = 0; i < spawnBuffer.Length; ++i)
                 {
                     UnityEngine.Debug.LogWarning($"Checking ghost {i}");
                     var ghost = spawnBuffer[i];
                     Assert.IsTrue(snapshotLookup.HasGhostOwner(ghost));
-#if !ENABLE_TRANSFORM_V1
                     Assert.IsTrue(snapshotLookup.HasComponent<LocalTransform>(ghost.GhostType));
-#else
-                    Assert.IsTrue(snapshotLookup.HasComponent<Translation>(ghost.GhostType));
-#endif
                     Assert.IsTrue(snapshotLookup.HasComponent<SomeData>(ghost.GhostType));
                     Assert.IsTrue(snapshotLookup.HasBuffer<GhostGenTest_Buffer>(ghost.GhostType));
                     Assert.AreEqual(1, snapshotLookup.GetGhostOwner(ghost, spawnDataBuffer));
-#if !ENABLE_TRANSFORM_V1
                     Assert.IsTrue(snapshotLookup.TryGetComponentDataFromSpawnBuffer(ghost, spawnDataBuffer, out LocalTransform transform));
                     Assert.IsTrue(math.distance(new float3(40f, 10f, 90f), transform.Position) < 1.0e-4f);
-#else
-                    Assert.IsTrue(snapshotLookup.TryGetComponentDataFromSpawnBuffer(ghost, spawnDataBuffer, out Translation translation));
-                    Assert.IsTrue(math.distance(new float3(40f, 10f, 90f), translation.Value) < 1.0e-4f);
-#endif
                     Assert.IsTrue(snapshotLookup.TryGetComponentDataFromSpawnBuffer(ghost, spawnDataBuffer, out SomeData someData));
                     Assert.AreEqual(10000, someData.Value);
-                    Assert.IsTrue(snapshotLookup.TryGetComponentDataFromSpawnBuffer(ghost, spawnDataBuffer, out GhostOwnerComponent ownerComponent));
+                    Assert.IsTrue(snapshotLookup.TryGetComponentDataFromSpawnBuffer(ghost, spawnDataBuffer, out GhostOwner ownerComponent));
                     Assert.AreEqual(1, ownerComponent.NetworkId);
 
                     if (ghost.SpawnType != GhostSpawnBuffer.Type.Predicted || ghost.HasClassifiedPredictedSpawn || ghost.PredictedSpawnEntity != Entity.Null)
@@ -71,16 +62,11 @@ namespace Unity.NetCode.Tests.Editor
                         {
                             Assert.IsTrue(snapshotBufferLookup.HasBuffer(predictedSpawnList[j].entity));
                             var historyBuffer = snapshotBufferLookup[predictedSpawnList[j].entity];
-#if !ENABLE_TRANSFORM_V1
                             Assert.IsTrue(snapshotLookup.TryGetComponentDataFromSnapshotHistory(ghost.GhostType, historyBuffer, out LocalTransform predictedTx));
                             Assert.AreEqual(transform.Position, predictedTx.Position);
-#else
-                            Assert.IsTrue(snapshotLookup.TryGetComponentDataFromSnapshotHistory(ghost.GhostType, historyBuffer, out Translation predictedTx));
-                            Assert.AreEqual(translation.Value, predictedTx.Value);
-#endif
                             Assert.IsTrue(snapshotLookup.TryGetComponentDataFromSnapshotHistory(ghost.GhostType, historyBuffer, out SomeData predSomeData));
                             Assert.AreEqual(someData.Value, predSomeData.Value);
-                            Assert.IsTrue(snapshotLookup.TryGetComponentDataFromSnapshotHistory(ghost.GhostType, historyBuffer, out GhostOwnerComponent predOwnerComp));
+                            Assert.IsTrue(snapshotLookup.TryGetComponentDataFromSnapshotHistory(ghost.GhostType, historyBuffer, out GhostOwner predOwnerComp));
                             Assert.AreEqual(ownerComponent.NetworkId, predOwnerComp.NetworkId);
                             ++ClassifiedPredictedSpawns;
                         }
@@ -126,7 +112,7 @@ namespace Unity.NetCode.Tests.Editor
                 BuildPrefab(testWorld.ServerWorld.EntityManager, "TestPrefab");
                 var clientPrefab = BuildPrefab(testWorld.ClientWorlds[0].EntityManager, "TestPrefab");
                 var predictedSpawnVariant = CreatePredictedSpawnVariant(testWorld.ClientWorlds[0].EntityManager, clientPrefab);
-                Assert.IsTrue(testWorld.ClientWorlds[0].EntityManager.HasComponent<PredictedGhostSpawnRequestComponent>(predictedSpawnVariant));
+                Assert.IsTrue(testWorld.ClientWorlds[0].EntityManager.HasComponent<PredictedGhostSpawnRequest>(predictedSpawnVariant));
                 testWorld.Connect(1f / 60f, 10);
                 testWorld.GoInGame();
                 for(var i=0;i<32;++i)
@@ -135,7 +121,7 @@ namespace Unity.NetCode.Tests.Editor
                 Assert.AreEqual(testWorld.GetSingletonBuffer<GhostCollectionPrefab>(testWorld.ClientWorlds[0]).Length,1);
                 //Predict the spawning on the client. And match the one coming from server
                 var clientGhost = testWorld.ClientWorlds[0].EntityManager.Instantiate(predictedSpawnVariant);
-                Assert.IsTrue(testWorld.ClientWorlds[0].EntityManager.HasComponent<PredictedGhostSpawnRequestComponent>(clientGhost));
+                Assert.IsTrue(testWorld.ClientWorlds[0].EntityManager.HasComponent<PredictedGhostSpawnRequest>(clientGhost));
                 SetComponentsData(testWorld.ClientWorlds[0], clientGhost);
                 for(var i=0;i<2;++i)
                     testWorld.Tick(1.0f/60f);
@@ -163,7 +149,7 @@ namespace Unity.NetCode.Tests.Editor
                     BuildPrefab(testWorld.ServerWorld.EntityManager, $"TestPrefab_{i}");
                     var clientPrefab = BuildPrefab(testWorld.ClientWorlds[0].EntityManager, $"TestPrefab_{i}");
                     ghostsPrefabs[i] = CreatePredictedSpawnVariant(testWorld.ClientWorlds[0].EntityManager, clientPrefab);
-                    Assert.IsTrue(testWorld.ClientWorlds[0].EntityManager.HasComponent<PredictedGhostSpawnRequestComponent>(ghostsPrefabs[i]));
+                    Assert.IsTrue(testWorld.ClientWorlds[0].EntityManager.HasComponent<PredictedGhostSpawnRequest>(ghostsPrefabs[i]));
                 }
 
 
@@ -177,7 +163,7 @@ namespace Unity.NetCode.Tests.Editor
                 for (int i = 0; i < ghostsPrefabs.Length; ++i)
                 {
                     var clientGhost = testWorld.ClientWorlds[0].EntityManager.Instantiate(ghostsPrefabs[i]);
-                    Assert.IsTrue(testWorld.ClientWorlds[0].EntityManager.HasComponent<PredictedGhostSpawnRequestComponent>(clientGhost));
+                    Assert.IsTrue(testWorld.ClientWorlds[0].EntityManager.HasComponent<PredictedGhostSpawnRequest>(clientGhost));
                     SetComponentsData(testWorld.ClientWorlds[0], clientGhost);
                 }
                 for(var i=0;i<2;++i)
@@ -198,12 +184,8 @@ namespace Unity.NetCode.Tests.Editor
 
         private void SetComponentsData(World world, Entity entity)
         {
-#if !ENABLE_TRANSFORM_V1
             world.EntityManager.SetComponentData(entity, LocalTransform.FromPosition(40f,10f, 90f));
-#else
-            world.EntityManager.SetComponentData(entity, new Translation{Value = new float3(40f,10f, 90f)});
-#endif
-            world.EntityManager.SetComponentData(entity, new GhostOwnerComponent { NetworkId = 1});
+            world.EntityManager.SetComponentData(entity, new GhostOwner { NetworkId = 1});
             world.EntityManager.SetComponentData(entity, new SomeData { Value = 10000 });
             world.EntityManager.GetBuffer<GhostGenTest_Buffer>(entity).Add(new GhostGenTest_Buffer{IntValue = 10});
         }
@@ -211,12 +193,8 @@ namespace Unity.NetCode.Tests.Editor
         private Entity BuildPrefab(EntityManager entityManager, string prefabName)
         {
             var archetype = entityManager.CreateArchetype(
-#if !ENABLE_TRANSFORM_V1
                 new ComponentType(typeof(Transforms.LocalTransform)),
-#else
-                new ComponentType(typeof(Transforms.Translation)),
-#endif
-                new ComponentType(typeof(GhostOwnerComponent)),
+                new ComponentType(typeof(GhostOwner)),
                 new ComponentType(typeof(GhostGenTest_Buffer)),
                 new ComponentType(typeof(SomeData)));
             var prefab = entityManager.CreateEntity(archetype);
@@ -242,7 +220,7 @@ namespace Unity.NetCode.Tests.Editor
                 foreach (var ent in leg)
                     entityManager.AddComponent<Prefab>(ent.Value);
             }
-            entityManager.AddComponent<PredictedGhostSpawnRequestComponent>(predicted);
+            entityManager.AddComponent<PredictedGhostSpawnRequest>(predicted);
             return predicted;
         }
     }

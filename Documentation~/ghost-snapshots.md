@@ -28,7 +28,7 @@ The ghost snapshot system synchronizes entities which exist on the server to all
 ---
 
 ## Authoring Ghosts
-Ghost can be authored in the editor by creating a Prefab with a [GhostAuthoringComponent](https://docs.unity3d.com/Packages/com.unity.netcode@latest/index.html?subfolder=/api/Unity.NetCode.GhostAuthoringComponent.html).
+Ghost can be authored in the editor by creating a Prefab with a [GhostAuthoringComponent](https://docs.unity3d.com/Packages/com.unity.netcode@latest/index.html?subfolder=/api/Unity.NetCode.GhostAuthoring.html).
 
 ![Ghost Authoring Component](images/ghost-config.png)
 
@@ -46,7 +46,7 @@ You can select from three different __Default Ghost Mode__ types:
 
 * __Interpolated__ - all ghosts Unity receives from the server are treated as interpolated.
 * __Predicted__ - all ghosts Unity receives from the server are treated as predicted.
-* __Owner predicted__ - the ghost is predicted for the client that owns it, and interpolated for all other clients. When you select this property, you must also add a __GhostOwnerComponent__ and set its __NetworkId__ field in your code. Unity compares this field to each clients’ network ID to find the correct owner.
+* __Owner predicted__ - the ghost is predicted for the client that owns it, and interpolated for all other clients. When you select this property, you must also add a __GhostOwner__ and set its __NetworkId__ field in your code. Unity compares this field to each clients’ network ID to find the correct owner.
 
 You can select from two different __Optimization Mode__ types:
 
@@ -361,7 +361,7 @@ It is possible to prevent a component from supporting per-prefab overrides by us
 attribute. <br/>
 When present, the component can't be customized in the inspector, nor can a programmer add custom or default variants for this type (as that will trigger errors during ghost validation).
 
-For example: The Netcode for Entities package requires the [GhostOwnerComponent](https://docs.unity3d.com/Packages/com.unity.netcode@latest/index.html?subfolder=/api/Unity.NetCode.GhostOwnerComponent.html)
+For example: The Netcode for Entities package requires the [GhostOwner](https://docs.unity3d.com/Packages/com.unity.netcode@latest/index.html?subfolder=/api/Unity.NetCode.GhostOwner.html)
 to be added to all ghost types, sent for all ghost types, and serialized using the default variant. Thus, we add the `[DontSupportPrefabOverride]` attribute to it.
 
 >![NOTE] Components on child entities are not serialised by default, thus by default when you look to `GhostAuthoringInspectionComponent` on a child GameObject you will

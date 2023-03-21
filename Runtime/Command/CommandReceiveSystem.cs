@@ -32,7 +32,7 @@ namespace Unity.NetCode
         {
             public NetworkTick _currentTick;
 
-            public void Execute(DynamicBuffer<IncomingCommandDataStreamBufferComponent> buffer, ref NetworkSnapshotAckComponent snapshotAck)
+            public void Execute(DynamicBuffer<IncomingCommandDataStreamBuffer> buffer, ref NetworkSnapshotAck snapshotAck)
             {
                 buffer.Clear();
                 if (snapshotAck.LastReceivedSnapshotByLocal.IsValid)
@@ -83,10 +83,10 @@ namespace Unity.NetCode
             /// </summary>
             public ComponentLookup<CommandDataInterpolationDelay> delayFromEntity;
             /// <summary>
-            /// Accessor for retrieving the optional <see cref="GhostOwnerComponent"/> component,
+            /// Accessor for retrieving the optional <see cref="GhostOwner"/> component,
             /// and used for lookup the entity target when using <see cref="AutoCommandTarget"/>.
             /// </summary>
-            [ReadOnly] public ComponentLookup<GhostOwnerComponent> ghostOwnerFromEntity;
+            [ReadOnly] public ComponentLookup<GhostOwner> ghostOwnerFromEntity;
             /// <summary>
             /// Accessor for retrieving the optional <see cref="AutoCommandTarget"/> component.
             /// </summary>
@@ -96,21 +96,21 @@ namespace Unity.NetCode
             /// </summary>
             public StreamCompressionModel compressionModel;
             /// <summary>
-            /// Read-only type handle for reading the data from the <see cref="IncomingCommandDataStreamBufferComponent"/> buffer.
+            /// Read-only type handle for reading the data from the <see cref="IncomingCommandDataStreamBuffer"/> buffer.
             /// </summary>
-            [ReadOnly] public BufferTypeHandle<IncomingCommandDataStreamBufferComponent> cmdBufferType;
+            [ReadOnly] public BufferTypeHandle<IncomingCommandDataStreamBuffer> cmdBufferType;
             /// <summary>
-            /// Read-only type handle to get the <see cref="NetworkSnapshotAckComponent"/> for the connection.
+            /// Read-only type handle to get the <see cref="NetworkSnapshotAck"/> for the connection.
             /// </summary>
-            [ReadOnly] public ComponentTypeHandle<NetworkSnapshotAckComponent> snapshotAckType;
+            [ReadOnly] public ComponentTypeHandle<NetworkSnapshotAck> snapshotAckType;
             /// <summary>
-            /// Read-only type handle to get the <see cref="NetworkIdComponent"/> for the connection.
+            /// Read-only type handle to get the <see cref="NetworkId"/> for the connection.
             /// </summary>
-            [ReadOnly] public ComponentTypeHandle<NetworkIdComponent> networkIdType;
+            [ReadOnly] public ComponentTypeHandle<NetworkId> networkIdType;
             /// <summary>
-            /// Read-only type handle to get the <see cref="CommandTargetComponent"/> for the connection.
+            /// Read-only type handle to get the <see cref="CommandTarget"/> for the connection.
             /// </summary>
-            [ReadOnly] public ComponentTypeHandle<CommandTargetComponent> commmandTargetType;
+            [ReadOnly] public ComponentTypeHandle<CommandTarget> commmandTargetType;
             /// <summary>
             /// A readonly mapping to retrieve a ghost entity instance from a <see cref="SpawnedGhost"/> identity.
             /// See <see cref="SpawnedGhostEntityMap"/> for more information.
@@ -138,7 +138,7 @@ namespace Unity.NetCode
             /// <param name="tick"></param>
             /// <param name="snapshotAck"></param>
             internal unsafe void Deserialize(ref DataStreamReader reader, Entity targetEntity,
-                uint tick, in NetworkSnapshotAckComponent snapshotAck)
+                uint tick, in NetworkSnapshotAck snapshotAck)
             {
                 if (delayFromEntity.HasComponent(targetEntity))
                     delayFromEntity[targetEntity] = new CommandDataInterpolationDelay{ Delay = snapshotAck.RemoteInterpolationDelay};
@@ -182,9 +182,9 @@ namespace Unity.NetCode
             }
 
             /// <summary>
-            /// Decode the commands present in the <see cref="IncomingCommandDataStreamBufferComponent"/> for all
+            /// Decode the commands present in the <see cref="IncomingCommandDataStreamBuffer"/> for all
             /// the connections present in the chunk and lookup for the target entity where the command should be
-            /// enqueued by either using the <see cref="CommandTargetComponent"/> target entity or via
+            /// enqueued by either using the <see cref="CommandTarget"/> target entity or via
             /// <see cref="AutoCommandTarget"/> if enabled.
             /// </summary>
             /// <param name="chunk"></param>
@@ -249,12 +249,12 @@ namespace Unity.NetCode
 
         private BufferLookup<TCommandData> m_TCommandDataFromEntity;
         private ComponentLookup<CommandDataInterpolationDelay> m_CommandDataInterpolationDelayFromEntity;
-        private ComponentLookup<GhostOwnerComponent> m_GhostOwnerComponentFromEntity;
+        private ComponentLookup<GhostOwner> m_GhostOwnerLookup;
         private ComponentLookup<AutoCommandTarget> m_AutoCommandTargetFromEntity;
-        private BufferTypeHandle<IncomingCommandDataStreamBufferComponent> m_IncomingCommandDataStreamBufferComponentHandle;
-        private ComponentTypeHandle<NetworkSnapshotAckComponent> m_NetworkSnapshotAckComponentHandle;
-        private ComponentTypeHandle<NetworkIdComponent> m_NetworkIdComponentHandle;
-        private ComponentTypeHandle<CommandTargetComponent> m_CommandTargetComponentHandle;
+        private BufferTypeHandle<IncomingCommandDataStreamBuffer> m_IncomingCommandDataStreamBufferComponentHandle;
+        private ComponentTypeHandle<NetworkSnapshotAck> m_NetworkSnapshotAckComponentHandle;
+        private ComponentTypeHandle<NetworkId> m_NetworkIdComponentHandle;
+        private ComponentTypeHandle<CommandTarget> m_CommandTargetComponentHandle;
 
         /// <summary>
         /// Initialize the helper struct, should be called from OnCreate in an ISystem.
@@ -263,8 +263,8 @@ namespace Unity.NetCode
         {
             m_CompressionModel = StreamCompressionModel.Default;
             var builder = new EntityQueryBuilder(Allocator.Temp)
-                .WithAll<NetworkStreamInGame, IncomingCommandDataStreamBufferComponent, NetworkSnapshotAckComponent>()
-                .WithAllRW<CommandTargetComponent>();
+                .WithAll<NetworkStreamInGame, IncomingCommandDataStreamBuffer, NetworkSnapshotAck>()
+                .WithAllRW<CommandTarget>();
             m_entityQuery = state.GetEntityQuery(builder);
             builder.Reset();
             builder.WithAll<SpawnedGhostEntityMap>();
@@ -278,12 +278,12 @@ namespace Unity.NetCode
 
             m_TCommandDataFromEntity = state.GetBufferLookup<TCommandData>();
             m_CommandDataInterpolationDelayFromEntity = state.GetComponentLookup<CommandDataInterpolationDelay>();
-            m_GhostOwnerComponentFromEntity = state.GetComponentLookup<GhostOwnerComponent>(true);
+            m_GhostOwnerLookup = state.GetComponentLookup<GhostOwner>(true);
             m_AutoCommandTargetFromEntity = state.GetComponentLookup<AutoCommandTarget>(true);
-            m_IncomingCommandDataStreamBufferComponentHandle = state.GetBufferTypeHandle<IncomingCommandDataStreamBufferComponent>(true);
-            m_NetworkSnapshotAckComponentHandle = state.GetComponentTypeHandle<NetworkSnapshotAckComponent>(true);
-            m_NetworkIdComponentHandle = state.GetComponentTypeHandle<NetworkIdComponent>(true);
-            m_CommandTargetComponentHandle = state.GetComponentTypeHandle<CommandTargetComponent>(true);
+            m_IncomingCommandDataStreamBufferComponentHandle = state.GetBufferTypeHandle<IncomingCommandDataStreamBuffer>(true);
+            m_NetworkSnapshotAckComponentHandle = state.GetComponentTypeHandle<NetworkSnapshotAck>(true);
+            m_NetworkIdComponentHandle = state.GetComponentTypeHandle<NetworkId>(true);
+            m_CommandTargetComponentHandle = state.GetComponentTypeHandle<CommandTarget>(true);
 
             state.RequireForUpdate(m_entityQuery);
             state.RequireForUpdate<TCommandData>();
@@ -298,7 +298,7 @@ namespace Unity.NetCode
         {
             m_TCommandDataFromEntity.Update(ref state);
             m_CommandDataInterpolationDelayFromEntity.Update(ref state);
-            m_GhostOwnerComponentFromEntity.Update(ref state);
+            m_GhostOwnerLookup.Update(ref state);
             m_AutoCommandTargetFromEntity.Update(ref state);
             m_IncomingCommandDataStreamBufferComponentHandle.Update(ref state);
             m_NetworkSnapshotAckComponentHandle.Update(ref state);
@@ -308,7 +308,7 @@ namespace Unity.NetCode
             {
                 commandData = m_TCommandDataFromEntity,
                 delayFromEntity = m_CommandDataInterpolationDelayFromEntity,
-                ghostOwnerFromEntity = m_GhostOwnerComponentFromEntity,
+                ghostOwnerFromEntity = m_GhostOwnerLookup,
                 autoCommandTargetFromEntity = m_AutoCommandTargetFromEntity,
                 compressionModel = m_CompressionModel,
                 cmdBufferType = m_IncomingCommandDataStreamBufferComponentHandle,

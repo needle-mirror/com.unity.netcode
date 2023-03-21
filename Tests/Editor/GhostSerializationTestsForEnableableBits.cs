@@ -116,7 +116,7 @@ namespace Unity.NetCode.Tests
                 var childEntity = m_ServerEntities[i + 1];
 
                 Assert.True(m_TestWorld.ServerWorld.EntityManager.HasComponent<GhostGroupRoot>(rootEntity));
-                Assert.True(m_TestWorld.ServerWorld.EntityManager.HasComponent<GhostChildEntityComponent>(childEntity));
+                Assert.True(m_TestWorld.ServerWorld.EntityManager.HasComponent<GhostChildEntity>(childEntity));
 
                 m_TestWorld.ServerWorld.EntityManager.SetComponentEnabled<T>(rootEntity, enabled);
                 Assert.AreEqual(enabled, m_TestWorld.ServerWorld.EntityManager.IsComponentEnabled<T>(rootEntity), $"{typeof(T)} is set correctly on server, root entity");
@@ -238,7 +238,7 @@ namespace Unity.NetCode.Tests
             VerifyGhostGroupEnabledBits<T>(expectValueReplicated, expectEnabledReplicated);
 
             var rootType = ComponentType.ReadOnly<GhostGroupRoot>();
-            var childType = ComponentType.ReadOnly<GhostChildEntityComponent>();
+            var childType = ComponentType.ReadOnly<GhostChildEntity>();
 
             var rootQuery = m_TestWorld.ClientWorlds[0].EntityManager.CreateEntityQuery(rootType);
             var childQuery = m_TestWorld.ClientWorlds[0].EntityManager.CreateEntityQuery(childType);
@@ -274,7 +274,7 @@ namespace Unity.NetCode.Tests
             where T : unmanaged, IComponentData, IEnableableComponent
         {
             var rootType = ComponentType.ReadOnly<GhostGroupRoot>();
-            var childType = ComponentType.ReadOnly<GhostChildEntityComponent>();
+            var childType = ComponentType.ReadOnly<GhostChildEntity>();
 
             var rootQuery = m_TestWorld.ClientWorlds[0].EntityManager.CreateEntityQuery(rootType);
             var childQuery = m_TestWorld.ClientWorlds[0].EntityManager.CreateEntityQuery(childType);
@@ -1241,7 +1241,7 @@ namespace Unity.NetCode.Tests
         }
 
         [DisableAutoCreation]
-        class ForceSerializeSystem : DefaultVariantSystemBase
+        partial class ForceSerializeSystem : DefaultVariantSystemBase
         {
             protected override void RegisterDefaultVariants(Dictionary<ComponentType, Rule> defaultVariants)
             {
@@ -1254,7 +1254,7 @@ namespace Unity.NetCode.Tests
         }
 
         [DisableAutoCreation]
-        class ForceSerializeOnlyChildrenSystem : DefaultVariantSystemBase
+        partial class ForceSerializeOnlyChildrenSystem : DefaultVariantSystemBase
         {
             protected override void RegisterDefaultVariants(Dictionary<ComponentType, Rule> defaultVariants)
             {
@@ -1266,7 +1266,7 @@ namespace Unity.NetCode.Tests
             }
         }
         [DisableAutoCreation]
-        class ForceDontSerializeSystem : DefaultVariantSystemBase
+        partial class ForceDontSerializeSystem : DefaultVariantSystemBase
         {
             protected override void RegisterDefaultVariants(Dictionary<ComponentType, Rule> defaultVariants)
             {

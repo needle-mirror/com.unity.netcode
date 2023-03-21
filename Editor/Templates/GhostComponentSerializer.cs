@@ -11,7 +11,6 @@ using System;
 using System.Diagnostics;
 using AOT;
 using Unity.Burst;
-using Unity.Networking.Transport;
 using Unity.NetCode.LowLevel.Unsafe;
 using Unity.Collections.LowLevel.Unsafe;
 #region __GHOST_USING_STATEMENT__
@@ -46,7 +45,7 @@ namespace __GHOST_NAMESPACE__
                     VariantHash = __GHOST_VARIANT_HASH__,
                     SerializationStrategyIndex = -1,
                     SerializesEnabledBit = __GHOST_SERIALIZES_ENABLED_BIT__,
-#if UNITY_EDITOR || DEVELOPMENT_BUILD
+#if UNITY_EDITOR || NETCODE_DEBUG
                     ProfilerMarker = new Unity.Profiling.ProfilerMarker("__GHOST_COMPONENT_TYPE__")
 #endif
                 };
@@ -57,7 +56,7 @@ namespace __GHOST_NAMESPACE__
                     || (state.WorldUnmanaged.Flags & WorldFlags.GameClient) == WorldFlags.GameClient
                     || (state.WorldUnmanaged.Flags & WorldFlags.GameThinClient) == WorldFlags.GameServer)
                 {
-#if UNITY_EDITOR || DEVELOPMENT_BUILD
+#if UNITY_EDITOR || NETCODE_DEBUG
                     s_State.ProfilerMarker.Begin();
                     var innerMarker = new Unity.Profiling.ProfilerMarker("__GHOST_NAME__");
                     innerMarker.Begin();
@@ -84,12 +83,12 @@ namespace __GHOST_NAMESPACE__
                         new PortableFunctionPointer<GhostComponentSerializer.RestoreFromBackupDelegate>(RestoreFromBackup);
                     s_State.PredictDelta = new PortableFunctionPointer<GhostComponentSerializer.PredictDeltaDelegate>(PredictDelta);
                     s_State.Deserialize = new PortableFunctionPointer<GhostComponentSerializer.DeserializeDelegate>(Deserialize);
-#if UNITY_EDITOR || DEVELOPMENT_BUILD
+#if UNITY_EDITOR || NETCODE_DEBUG
                     s_State.ReportPredictionErrors = new PortableFunctionPointer<GhostComponentSerializer.ReportPredictionErrorsDelegate>(ReportPredictionErrors);
 #endif
                     s_StateInitialized = true;
 
-#if UNITY_EDITOR || DEVELOPMENT_BUILD
+#if UNITY_EDITOR || NETCODE_DEBUG
                     innerMarker.End();
                     s_State.ProfilerMarker.End();
 #endif
@@ -110,7 +109,7 @@ namespace __GHOST_NAMESPACE__
                 // {
                 //     UnityEngine.Debug.LogWarning($"The type '{s_State.ComponentType}' is very large ({s_State.ComponentSize} bytes)! There is a risk of StackOverflowExceptions in the Serializers at roughly {maxSizeToAvoidStackOverflow} bytes! Remove large fields.");
                 // }
-#if UNITY_EDITOR || DEVELOPMENT_BUILD || NETCODE_DEBUG
+#if UNITY_EDITOR || NETCODE_DEBUG
                 s_State.NumPredictionErrors = GetPredictionErrorNames(ref s_State.PredictionErrorNames);
                 #endif
             }
@@ -580,7 +579,7 @@ namespace __GHOST_NAMESPACE__
             #endregion
 #endif
         }
-        #if UNITY_EDITOR || DEVELOPMENT_BUILD
+        #if UNITY_EDITOR || NETCODE_DEBUG
         [BurstCompile(DisableDirectCall = true)]
         [MonoPInvokeCallback(typeof(GhostComponentSerializer.ReportPredictionErrorsDelegate))]
         public static void ReportPredictionErrors(IntPtr componentData, IntPtr backupData, IntPtr errorsList, int errorsCount)
@@ -597,7 +596,7 @@ namespace __GHOST_NAMESPACE__
 #endif
         }
         #endif
-        #if UNITY_EDITOR || DEVELOPMENT_BUILD || NETCODE_DEBUG
+        #if UNITY_EDITOR || NETCODE_DEBUG
         public static int GetPredictionErrorNames(ref FixedString512Bytes names)
         {
             int nameCount = 0;

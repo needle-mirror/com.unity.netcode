@@ -178,13 +178,13 @@ namespace Unity.NetCode.Tests
 
         private static bool IsFromNetCodeAssembly(Type sys)
         {
-            return sys.Assembly.FullName.StartsWith("Unity.NetCode,") ||
-                sys.Assembly.FullName.StartsWith("Unity.Entities,") ||
-                sys.Assembly.FullName.StartsWith("Unity.Transforms,") ||
-                sys.Assembly.FullName.StartsWith("Unity.Scenes,") ||
-                sys.Assembly.FullName.StartsWith("Unity.NetCode.EditorTests,") ||
-                sys.Assembly.FullName.StartsWith("Unity.NetCode.TestsUtils,") ||
-                sys.Assembly.FullName.StartsWith("Unity.NetCode.Physics.EditorTests,") ||
+            return sys.Assembly.FullName.StartsWith("Unity.NetCode,", StringComparison.Ordinal) ||
+                sys.Assembly.FullName.StartsWith("Unity.Entities,", StringComparison.Ordinal) ||
+                sys.Assembly.FullName.StartsWith("Unity.Transforms,", StringComparison.Ordinal) ||
+                sys.Assembly.FullName.StartsWith("Unity.Scenes,", StringComparison.Ordinal) ||
+                sys.Assembly.FullName.StartsWith("Unity.NetCode.EditorTests,", StringComparison.Ordinal) ||
+                sys.Assembly.FullName.StartsWith("Unity.NetCode.TestsUtils,", StringComparison.Ordinal) ||
+                sys.Assembly.FullName.StartsWith("Unity.NetCode.Physics.EditorTests,", StringComparison.Ordinal) ||
                 typeof(IGhostComponentSerializerRegistration).IsAssignableFrom(sys);
         }
 
@@ -194,10 +194,11 @@ namespace Unity.NetCode.Tests
             m_ClientSystems = new List<Type>();
             m_ThinClientSystems = new List<Type>();
             m_ServerSystems = new List<Type>();
-
+#if !UNITY_SERVER
             m_ControlSystems.Add(typeof(TickClientInitializationSystem));
             m_ControlSystems.Add(typeof(TickClientSimulationSystem));
             m_ControlSystems.Add(typeof(TickClientPresentationSystem));
+#endif
             m_ControlSystems.Add(typeof(TickServerInitializationSystem));
             m_ControlSystems.Add(typeof(TickServerSimulationSystem));
             m_ControlSystems.Add(typeof(DriverMigrationSystem));
@@ -319,8 +320,10 @@ namespace Unity.NetCode.Tests
             m_NumClients = numClients;
             var oldConstructor = NetworkStreamReceiveSystem.DriverConstructor;
             NetworkStreamReceiveSystem.DriverConstructor = this;
+#if UNITY_EDITOR || NETCODE_DEBUG
             var oldDebugPort = GhostStatsConnection.Port;
             GhostStatsConnection.Port = 0;
+#endif
             if (!m_DefaultWorldInitialized)
             {
                 DefaultWorldInitialization.AddSystemsToRootLevelSystemGroups(m_DefaultWorld,
@@ -373,7 +376,9 @@ namespace Unity.NetCode.Tests
                 }
             }
 
+#if UNITY_EDITOR || NETCODE_DEBUG
             GhostStatsConnection.Port = oldDebugPort;
+#endif
             NetworkStreamReceiveSystem.DriverConstructor = oldConstructor;
 
             //Run 1 tick so that all the ghost collection and the ghost collection component run once.
@@ -389,12 +394,14 @@ namespace Unity.NetCode.Tests
             var initializationGroup = world.GetExistingSystemManaged<InitializationSystemGroup>();
             var simulationGroup = world.GetExistingSystemManaged<SimulationSystemGroup>();
             var presentationGroup = world.GetExistingSystemManaged<PresentationSystemGroup>();
+#if !UNITY_SERVER
             var initializationTickSystem = m_DefaultWorld.GetExistingSystemManaged<TickClientInitializationSystem>();
             var simulationTickSystem = m_DefaultWorld.GetExistingSystemManaged<TickClientSimulationSystem>();
             var presentationTickSystem = m_DefaultWorld.GetExistingSystemManaged<TickClientPresentationSystem>();
             initializationTickSystem.AddSystemGroupToTickList(initializationGroup);
             simulationTickSystem.AddSystemGroupToTickList(simulationGroup);
             presentationTickSystem.AddSystemGroupToTickList(presentationGroup);
+#endif
             return world;
         }
 
@@ -409,12 +416,14 @@ namespace Unity.NetCode.Tests
             var simulationGroup = world.GetExistingSystemManaged<SimulationSystemGroup>();
             var presentationGroup = world.GetExistingSystemManaged<PresentationSystemGroup>();
 
+#if !UNITY_SERVER
             var initializationTickSystem = m_DefaultWorld.GetExistingSystemManaged<TickClientInitializationSystem>();
             var simulationTickSystem = m_DefaultWorld.GetExistingSystemManaged<TickClientSimulationSystem>();
             var presentationTickSystem = m_DefaultWorld.GetExistingSystemManaged<TickClientPresentationSystem>();
             initializationTickSystem.AddSystemGroupToTickList(initializationGroup);
             simulationTickSystem.AddSystemGroupToTickList(simulationGroup);
             presentationTickSystem.AddSystemGroupToTickList(presentationGroup);
+#endif
             return world;
         }
 
@@ -436,18 +445,22 @@ namespace Unity.NetCode.Tests
             k_TickServerInitializationSystem.Begin();
             m_DefaultWorld.GetExistingSystemManaged<TickServerInitializationSystem>().Update();
             k_TickServerInitializationSystem.End();
+#if !UNITY_SERVER
             k_TickClientInitializationSystem.Begin();
             m_DefaultWorld.GetExistingSystemManaged<TickClientInitializationSystem>().Update();
             k_TickClientInitializationSystem.End();
+#endif
             k_TickServerSimulationSystem.Begin();
             m_DefaultWorld.GetExistingSystemManaged<TickServerSimulationSystem>().Update();
             k_TickServerSimulationSystem.End();
+#if !UNITY_SERVER
             k_TickClientSimulationSystem.Begin();
             m_DefaultWorld.GetExistingSystemManaged<TickClientSimulationSystem>().Update();
             k_TickClientSimulationSystem.End();
             k_TickClientPresentationSystem.Begin();
             m_DefaultWorld.GetExistingSystemManaged<TickClientPresentationSystem>().Update();
             k_TickClientPresentationSystem.End();
+#endif
 
             // Flush the pending logs since the system doing that might not have run yet which means Log.Expect does not work
             Logging.Internal.LoggerManager.ScheduleUpdateLoggers().Complete();
@@ -625,7 +638,7 @@ namespace Unity.NetCode.Tests
                 GetSingletonRW<NetworkStreamDriver>(ClientWorlds[i]).ValueRW.Connect(ClientWorlds[i].EntityManager, ep);
             for (int i = 0; i < ClientWorlds.Length; ++i)
             {
-                while (TryGetSingletonEntity<NetworkIdComponent>(ClientWorlds[i]) == Entity.Null)
+                while (TryGetSingletonEntity<NetworkId>(ClientWorlds[i]) == Entity.Null)
                 {
                     if (maxSteps <= 0)
                         return false;
@@ -652,7 +665,7 @@ namespace Unity.NetCode.Tests
                 return;
             }
 
-            var type = ComponentType.ReadOnly<NetworkIdComponent>();
+            var type = ComponentType.ReadOnly<NetworkId>();
             var query = w.EntityManager.CreateEntityQuery(type);
             var connections = query.ToEntityArray(Allocator.TempJob);
             for (int i = 0; i < connections.Length; ++i)
@@ -664,7 +677,7 @@ namespace Unity.NetCode.Tests
         {
             void RemoveTag(World world)
             {
-                var type = ComponentType.ReadOnly<NetworkIdComponent>();
+                var type = ComponentType.ReadOnly<NetworkId>();
                 var query = world.EntityManager.CreateEntityQuery(type);
                 var connections = query.ToEntityArray(Allocator.Temp);
                 for (int i = 0; i < connections.Length; ++i)
@@ -684,18 +697,18 @@ namespace Unity.NetCode.Tests
 
         public void SetInGame(int client)
         {
-            var type = ComponentType.ReadOnly<NetworkIdComponent>();
+            var type = ComponentType.ReadOnly<NetworkId>();
             var clientQuery = ClientWorlds[client].EntityManager.CreateEntityQuery(type);
             var clientEntity = clientQuery.ToEntityArray(Allocator.Temp);
             ClientWorlds[client].EntityManager.AddComponent<NetworkStreamInGame>(clientEntity[0]);
-            var clientNetId = ClientWorlds[client].EntityManager.GetComponentData<NetworkIdComponent>(clientEntity[0]);
+            var clientNetId = ClientWorlds[client].EntityManager.GetComponentData<NetworkId>(clientEntity[0]);
             clientEntity.Dispose();
 
             var query = ServerWorld.EntityManager.CreateEntityQuery(type);
             var connections = query.ToEntityArray(Allocator.Temp);
             for (int i = 0; i < connections.Length; ++i)
             {
-                var netId = ServerWorld.EntityManager.GetComponentData<NetworkIdComponent>(connections[i]);
+                var netId = ServerWorld.EntityManager.GetComponentData<NetworkId>(connections[i]);
                 if (netId.Value == clientNetId.Value)
                 {
                     ServerWorld.EntityManager.AddComponent<NetworkStreamInGame>(connections[i]);
@@ -708,18 +721,18 @@ namespace Unity.NetCode.Tests
 
         public void RemoveFromGame(int client)
         {
-            var type = ComponentType.ReadOnly<NetworkIdComponent>();
+            var type = ComponentType.ReadOnly<NetworkId>();
             var clientQuery = ClientWorlds[client].EntityManager.CreateEntityQuery(type);
             var clientEntity = clientQuery.ToEntityArray(Allocator.Temp);
             ClientWorlds[client].EntityManager.RemoveComponent<NetworkStreamInGame>(clientEntity[0]);
-            var clientNetId = ClientWorlds[client].EntityManager.GetComponentData<NetworkIdComponent>(clientEntity[0]);
+            var clientNetId = ClientWorlds[client].EntityManager.GetComponentData<NetworkId>(clientEntity[0]);
             clientEntity.Dispose();
 
             var query = ServerWorld.EntityManager.CreateEntityQuery(type);
             var connections = query.ToEntityArray(Allocator.Temp);
             for (int i = 0; i < connections.Length; ++i)
             {
-                var netId = ServerWorld.EntityManager.GetComponentData<NetworkIdComponent>(connections[i]);
+                var netId = ServerWorld.EntityManager.GetComponentData<NetworkId>(connections[i]);
                 if (netId.Value == clientNetId.Value)
                 {
                     ServerWorld.EntityManager.RemoveComponent<NetworkStreamInGame>(connections[i]);
@@ -821,15 +834,12 @@ namespace Unity.NetCode.Tests
             var bakingSystem = intermediateWorld.GetExistingSystemManaged<BakingSystem>();
             var intermediateEntity = bakingSystem.GetEntity(go);
             var intermediateEntityGuid = intermediateWorld.EntityManager.GetComponentData<EntityGuid>(intermediateEntity);
+            
             // Copy all the tracked/baked entities. That TransformAuthoring is present on all entities added by the baker for the
             // converted gameobject. It is sufficient condition to copy all the additional entities as well.
-#if !ENABLE_TRANSFORM_V1
             var builder = new EntityQueryBuilder(Allocator.Temp)
                 .WithAll<Prefab, EntityGuid, LocalTransform>();
-#else
-            var builder = new EntityQueryBuilder(Allocator.Temp)
-                .WithAll<Prefab, EntityGuid, Translation>();
-#endif
+
             using var bakedEntities = intermediateWorld.EntityManager.CreateEntityQuery(builder);
             world.EntityManager.MoveEntitiesFrom(intermediateWorld.EntityManager, bakedEntities);
 

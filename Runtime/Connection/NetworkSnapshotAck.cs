@@ -1,11 +1,19 @@
+using System;
 using Unity.Entities;
 using Unity.Mathematics;
 using Unity.Networking.Transport.Utilities;
 
 namespace Unity.NetCode
 {
-    /// <summary>Client and Server Component. One per NetworkId entity, stores SnapshotAck and Ping info for a client.</summary>
+    /// <summary>
+    /// Temporary type, used to upgrade to new component type, to be removed before final 1.0
+    /// </summary>
+    [Obsolete("NetworkSnapshotAckComponent has been deprecated. Use GhostInstance instead (UnityUpgradable) -> NetworkSnapshotAck", true)]
     public struct NetworkSnapshotAckComponent : IComponentData
+    {}
+
+    /// <summary>Client and Server Component. One per NetworkId entity, stores SnapshotAck and Ping info for a client.</summary>
+    public struct NetworkSnapshotAck : IComponentData
     {
         internal void UpdateReceivedByRemote(NetworkTick tick, uint mask)
         {

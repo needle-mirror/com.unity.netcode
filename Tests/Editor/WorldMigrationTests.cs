@@ -149,8 +149,8 @@ namespace Unity.NetCode.Tests
                 Unity.Mathematics.Random random = new Unity.Mathematics.Random(42);
                 var rndClient = random.NextInt(0, 10);
 
-                var c = testWorld.TryGetSingletonEntity<NetworkIdComponent>(testWorld.ClientWorlds[rndClient]);
-                var id = testWorld.ClientWorlds[rndClient].EntityManager.GetComponentData<NetworkIdComponent>(c).Value;
+                var c = testWorld.TryGetSingletonEntity<NetworkId>(testWorld.ClientWorlds[rndClient]);
+                var id = testWorld.ClientWorlds[rndClient].EntityManager.GetComponentData<NetworkId>(c).Value;
 
                 var name = testWorld.ClientWorlds[3].Name;
                 StepTicks(testWorld, 5, frameTime);
@@ -167,13 +167,13 @@ namespace Unity.NetCode.Tests
 
                 var con = Entity.Null;
                 for (int i = 0;
-                    i < 15 && ((con = testWorld.TryGetSingletonEntity<NetworkIdComponent>(testWorld.ClientWorlds[rndClient])) ==
+                    i < 15 && ((con = testWorld.TryGetSingletonEntity<NetworkId>(testWorld.ClientWorlds[rndClient])) ==
                               Entity.Null);
                     ++i)
                 {
                     testWorld.Tick(frameTime);
                 }
-                var connectionId = testWorld.ClientWorlds[rndClient].EntityManager.GetComponentData<NetworkIdComponent>(con).Value;
+                var connectionId = testWorld.ClientWorlds[rndClient].EntityManager.GetComponentData<NetworkId>(con).Value;
                 Assert.AreEqual(id , connectionId);
             }
         }

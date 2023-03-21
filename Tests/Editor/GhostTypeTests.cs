@@ -16,7 +16,8 @@ namespace Unity.NetCode.Tests
         public void Bake(GameObject gameObject, IBaker baker)
         {
             baker.DependsOn(gameObject);
-            baker.AddComponent(new GhostTypeIndex {Value = gameObject.name == "GhostTypeIndex1Test" ? 1 : 0});
+            var entity = baker.GetEntity(TransformUsageFlags.Dynamic);
+            baker.AddComponent(entity, new GhostTypeIndex {Value = gameObject.name == "GhostTypeIndex1Test" ? 1 : 0});
         }
     }
 

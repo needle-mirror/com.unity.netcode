@@ -17,8 +17,8 @@ namespace Unity.NetCode
     internal partial struct GhostPredictionDisableSimulateSystem : ISystem
     {
         ComponentTypeHandle<Simulate> m_SimulateHandle;
-        ComponentTypeHandle<PredictedGhostComponent> m_PredictedHandle;
-        ComponentTypeHandle<GhostChildEntityComponent> m_GhostChildEntityHandle;
+        ComponentTypeHandle<PredictedGhost> m_PredictedHandle;
+        ComponentTypeHandle<GhostChildEntity> m_GhostChildEntityHandle;
         BufferTypeHandle<LinkedEntityGroup> m_LinkedEntityGroupHandle;
         EntityQuery m_PredictedQuery;
         EntityQuery m_NetworkTimeSingleton;
@@ -27,12 +27,12 @@ namespace Unity.NetCode
         public void OnCreate(ref SystemState state)
         {
             m_SimulateHandle = state.GetComponentTypeHandle<Simulate>();
-            m_PredictedHandle = state.GetComponentTypeHandle<PredictedGhostComponent>(true);
-            m_GhostChildEntityHandle = state.GetComponentTypeHandle<GhostChildEntityComponent>(true);
+            m_PredictedHandle = state.GetComponentTypeHandle<PredictedGhost>(true);
+            m_GhostChildEntityHandle = state.GetComponentTypeHandle<GhostChildEntity>(true);
             m_LinkedEntityGroupHandle = state.GetBufferTypeHandle<LinkedEntityGroup>(true);
             var builder = new EntityQueryBuilder(Allocator.Temp)
                 .WithAllRW<Simulate>()
-                .WithAll<GhostComponent, PredictedGhostComponent>()
+                .WithAll<GhostInstance, PredictedGhost>()
                 .WithOptions(EntityQueryOptions.IgnoreComponentEnabledState);
             m_PredictedQuery = state.GetEntityQuery(builder);
             m_NetworkTimeSingleton = state.GetEntityQuery(ComponentType.ReadOnly<NetworkTime>());
@@ -41,8 +41,8 @@ namespace Unity.NetCode
         struct TogglePredictedJob : IJobChunk
         {
             public ComponentTypeHandle<Simulate> simulateHandle;
-            [ReadOnly] public ComponentTypeHandle<PredictedGhostComponent> predictedHandle;
-            [ReadOnly] public ComponentTypeHandle<GhostChildEntityComponent> ghostChildEntityHandle;
+            [ReadOnly] public ComponentTypeHandle<PredictedGhost> predictedHandle;
+            [ReadOnly] public ComponentTypeHandle<GhostChildEntity> ghostChildEntityHandle;
             [ReadOnly] public BufferTypeHandle<LinkedEntityGroup> linkedEntityGroupHandle;
             public EntityStorageInfoLookup storageInfoFromEntity;
             public NetworkTick tick;
@@ -202,13 +202,13 @@ namespace Unity.NetCode
 
             var builder = new EntityQueryDesc
             {
-                All = new[]{ComponentType.ReadWrite<Simulate>(), ComponentType.ReadOnly<GhostComponent>()},
+                All = new[]{ComponentType.ReadWrite<Simulate>(), ComponentType.ReadOnly<GhostInstance>()},
                 Options = EntityQueryOptions.IgnoreComponentEnabledState
             };
             m_GhostQuery = group.World.EntityManager.CreateEntityQuery(builder);
             builder = new EntityQueryDesc
             {
-                All = new[]{ComponentType.ReadWrite<Simulate>(), ComponentType.ReadOnly<GhostChildEntityComponent>()},
+                All = new[]{ComponentType.ReadWrite<Simulate>(), ComponentType.ReadOnly<GhostChildEntity>()},
                 Options = EntityQueryOptions.IgnoreComponentEnabledState
             };
             m_GhostChildQuery = group.World.EntityManager.CreateEntityQuery(builder);
@@ -317,8 +317,8 @@ namespace Unity.NetCode
                 networkTime.Flags |= NetworkTimeFlags.IsInPredictionLoop | NetworkTimeFlags.IsFirstPredictionTick;
                 networkTime.Flags &= ~(NetworkTimeFlags.IsFinalPredictionTick|NetworkTimeFlags.IsFinalFullPredictionTick|NetworkTimeFlags.IsFirstTimeFullyPredictingTick);
 
-                m_GhostQuery.SetEnabledBitsOnAllChunks<Simulate>(false);
-                m_GhostChildQuery.SetEnabledBitsOnAllChunks<Simulate>(false);
+                group.World.EntityManager.SetComponentEnabled<Simulate>(m_GhostQuery, false);
+                group.World.EntityManager.SetComponentEnabled<Simulate>(m_GhostChildQuery, false);
 
                 m_ClientTickRateQuery.TryGetSingleton<ClientTickRate>(out var clientTickRate);
                 if (clientTickRate.MaxPredictionStepBatchSizeRepeatedTick < 1)
@@ -379,7 +379,7 @@ namespace Unity.NetCode
 
             if (m_TickIdx == m_NumAppliedPredictedTicks && m_CurrentTime.ServerTickFraction < 1f)
             {
-#if UNITY_EDITOR || DEVELOPMENT_BUILD
+#if UNITY_EDITOR || NETCODE_DEBUG
                 if(networkTime.IsFinalPredictionTick)
                     throw new InvalidOperationException("IsFinalPredictionTick should not be set before executing the final prediction tick");
 #endif
@@ -394,9 +394,9 @@ namespace Unity.NetCode
                 ++m_TickIdx;
                 return true;
             }
-            m_GhostQuery.SetEnabledBitsOnAllChunks<Simulate>(true);
-            m_GhostChildQuery.SetEnabledBitsOnAllChunks<Simulate>(true);
-#if UNITY_EDITOR || DEVELOPMENT_BUILD
+            group.World.EntityManager.SetComponentEnabled<Simulate>(m_GhostQuery, true);
+            group.World.EntityManager.SetComponentEnabled<Simulate>(m_GhostChildQuery, true);
+#if UNITY_EDITOR || NETCODE_DEBUG
             if (!networkTime.IsFinalPredictionTick)
                 throw new InvalidOperationException("IsFinalPredictionTick should not be set before executing the final prediction tick");
             if (networkTime.ServerTick != m_CurrentTime.ServerTick)

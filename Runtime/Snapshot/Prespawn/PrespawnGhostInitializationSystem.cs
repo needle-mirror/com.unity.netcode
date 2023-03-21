@@ -1,4 +1,4 @@
-#if (UNITY_EDITOR || DEVELOPMENT_BUILD) && !NETCODE_NDEBUG
+#if UNITY_EDITOR && !NETCODE_NDEBUG
 #define NETCODE_DEBUG
 #endif
 using System.Diagnostics;
@@ -33,9 +33,9 @@ namespace Unity.NetCode
 
         Entity m_SubSceneListPrefab;
 
-        ComponentLookup<GhostPrefabMetaDataComponent> m_GhostPrefabMetaDataComponentFromEntity;
+        ComponentLookup<GhostPrefabMetaData> m_GhostPrefabMetaDataLookup;
         BufferTypeHandle<LinkedEntityGroup> m_LinkedEntityGroupHandle;
-        ComponentTypeHandle<GhostTypeComponent> m_GhostTypeComponentHandle;
+        ComponentTypeHandle<GhostType> m_GhostTypeComponentHandle;
 
         BufferLookup<GhostComponentSerializer.State> m_GhostComponentSerializerStateHandle;
         BufferLookup<GhostCollectionPrefabSerializer> m_GhostCollectionPrefabSerializerHandle;
@@ -43,7 +43,7 @@ namespace Unity.NetCode
         BufferLookup<GhostCollectionPrefab> m_GhostCollectionPrefabHandle;
         BufferTypeHandle<PrespawnGhostBaseline> m_PrespawnGhostBaselineHandle;
         EntityTypeHandle m_EntityTypeHandle;
-        ComponentLookup<GhostComponent> m_GhostComponentFromEntity;
+        ComponentLookup<GhostInstance> m_GhostComponentFromEntity;
         ComponentLookup<SubSceneWithPrespawnGhosts> m_SubSceneWithPrespawnGhostsFromEntity;
 
 
@@ -57,7 +57,7 @@ namespace Unity.NetCode
             m_PrespawnBaselines = state.GetEntityQuery(builder);
             builder.Reset();
             builder.WithAllRW<PreSpawnedGhostIndex>()
-                .WithAll<SubSceneGhostComponentHash, GhostTypeComponent>()
+                .WithAll<SubSceneGhostComponentHash, GhostType>()
                 .WithOptions(EntityQueryOptions.IncludeDisabledEntities);
             m_Prespawns = state.GetEntityQuery(builder);
             builder.Reset();
@@ -65,16 +65,16 @@ namespace Unity.NetCode
                 .WithNone<SubScenePrespawnBaselineResolved>();
             m_UninitializedScenes = state.GetEntityQuery(builder);
 
-            m_GhostPrefabMetaDataComponentFromEntity = state.GetComponentLookup<GhostPrefabMetaDataComponent>(true);
+            m_GhostPrefabMetaDataLookup = state.GetComponentLookup<GhostPrefabMetaData>(true);
             m_LinkedEntityGroupHandle = state.GetBufferTypeHandle<LinkedEntityGroup>(true);
-            m_GhostTypeComponentHandle = state.GetComponentTypeHandle<GhostTypeComponent>(true);
+            m_GhostTypeComponentHandle = state.GetComponentTypeHandle<GhostType>(true);
             m_GhostComponentSerializerStateHandle = state.GetBufferLookup<GhostComponentSerializer.State>(true);
             m_GhostCollectionPrefabSerializerHandle = state.GetBufferLookup<GhostCollectionPrefabSerializer>(true);
             m_GhostCollectionComponentIndexHandle = state.GetBufferLookup<GhostCollectionComponentIndex>(true);
             m_GhostCollectionPrefabHandle = state.GetBufferLookup<GhostCollectionPrefab>(true);
             m_PrespawnGhostBaselineHandle = state.GetBufferTypeHandle<PrespawnGhostBaseline>();
             m_EntityTypeHandle = state.GetEntityTypeHandle();
-            m_GhostComponentFromEntity = state.GetComponentLookup<GhostComponent>(true);
+            m_GhostComponentFromEntity = state.GetComponentLookup<GhostInstance>(true);
             m_SubSceneWithPrespawnGhostsFromEntity = state.GetComponentLookup<SubSceneWithPrespawnGhosts>();
 
             state.RequireForUpdate<GhostCollection>();
@@ -117,7 +117,7 @@ namespace Unity.NetCode
             if(GhostPrefabTypes.Length == 0)
                 return;
 
-            var processedPrefabs = new NativeParallelHashMap<GhostTypeComponent, Entity>(256, state.WorldUpdateAllocator);
+            var processedPrefabs = new NativeParallelHashMap<GhostType, Entity>(256, state.WorldUpdateAllocator);
             var subSceneWithPrespawnGhosts = m_UninitializedScenes.ToComponentDataArray<SubSceneWithPrespawnGhosts>(Allocator.Temp);
             var subScenesSections = m_UninitializedScenes.ToEntityArray(Allocator.Temp);
             var readySections = new NativeList<int>(subScenesSections.Length, Allocator.Temp);
@@ -136,7 +136,7 @@ namespace Unity.NetCode
                 //For large number would make sense to schedule a job for that
                 var sharedFilter = new SubSceneGhostComponentHash {Value = subSceneWithPrespawnGhosts[i].SubSceneHash};
                 m_Prespawns.SetSharedComponentFilter(sharedFilter);
-                var ghostTypes = m_Prespawns.ToComponentDataArray<GhostTypeComponent>(Allocator.Temp);
+                var ghostTypes = m_Prespawns.ToComponentDataArray<GhostType>(Allocator.Temp);
                 bool allArchetypeProcessed = true;
                 for(int t=0;t<ghostTypes.Length && allArchetypeProcessed;++t)
                     allArchetypeProcessed &= processedPrefabs.ContainsKey(ghostTypes[t]);
@@ -159,7 +159,7 @@ namespace Unity.NetCode
                 state.EntityManager.RemoveComponent<Disabled>(m_Prespawns);
             }
             var netDebug = SystemAPI.GetSingleton<NetDebug>();
-            m_GhostPrefabMetaDataComponentFromEntity.Update(ref state);
+            m_GhostPrefabMetaDataLookup.Update(ref state);
             m_LinkedEntityGroupHandle.Update(ref state);
             m_GhostTypeComponentHandle.Update(ref state);
             //kickoff strip components jobs on all the prefabs for each subscene
@@ -175,7 +175,7 @@ namespace Unity.NetCode
                 LogStrippingPrespawn(ref netDebug, subSceneWithPrespawnGhosts[sceneIndex]);
                 var stripPrespawnGhostJob = new PrespawnGhostStripComponentsJob
                 {
-                    metaDataFromEntity = m_GhostPrefabMetaDataComponentFromEntity,
+                    metaDataFromEntity = m_GhostPrefabMetaDataLookup,
                     linkedEntityTypeHandle = m_LinkedEntityGroupHandle,
                     ghostTypeHandle = m_GhostTypeComponentHandle,
                     prefabFromType = processedPrefabs,

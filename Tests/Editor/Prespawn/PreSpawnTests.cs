@@ -31,13 +31,13 @@ namespace Unity.NetCode.PrespawnTests
         protected override void OnCreate()
         {
             RequireForUpdate<EnableVerifyGhostIds>();
-            _ghostComponentQuery = GetEntityQuery(typeof(GhostComponent), typeof(PreSpawnedGhostIndex));
-            _preSpawnedGhostIdsQuery = GetEntityQuery(typeof(GhostComponent), typeof(PreSpawnedGhostIndex));
+            _ghostComponentQuery = GetEntityQuery(typeof(GhostInstance), typeof(PreSpawnedGhostIndex));
+            _preSpawnedGhostIdsQuery = GetEntityQuery(typeof(GhostInstance), typeof(PreSpawnedGhostIndex));
         }
 
         protected override void OnUpdate()
         {
-            var ghostComponents = _ghostComponentQuery.ToComponentDataArray<GhostComponent>(Allocator.TempJob);
+            var ghostComponents = _ghostComponentQuery.ToComponentDataArray<GhostInstance>(Allocator.TempJob);
             var preSpawnedGhostIds = _preSpawnedGhostIdsQuery.ToComponentDataArray<PreSpawnedGhostIndex>(Allocator.TempJob);
             using (ghostComponents)
             using (preSpawnedGhostIds)
@@ -231,14 +231,14 @@ namespace Unity.NetCode.PrespawnTests
                 for (int i = 0; i < 16; ++i)
                 {
                     testWorld.Tick(1.0f/60.0f);
-                    var prespawnedGhost = testWorld.ServerWorld.EntityManager.CreateEntityQuery(typeof(GhostComponent), ComponentType.ReadOnly<PreSpawnedGhostIndex>()).ToComponentDataArray<GhostComponent>(Allocator.TempJob);
+                    var prespawnedGhost = testWorld.ServerWorld.EntityManager.CreateEntityQuery(typeof(GhostInstance), ComponentType.ReadOnly<PreSpawnedGhostIndex>()).ToComponentDataArray<GhostInstance>(Allocator.TempJob);
                     // Filter for GhostComoponent and grab it after prespawn processing is done (ghost id valid)
                     if (prespawnedGhost.Length == 0 || (prespawnedGhost.Length > 0 && prespawnedGhost[0].ghostId == 0))
                     {
                         prespawnedGhost.Dispose();
                         continue;
                     }
-                    var prespawned = testWorld.ServerWorld.EntityManager.CreateEntityQuery(typeof(GhostComponent), ComponentType.ReadOnly<PreSpawnedGhostIndex>()).ToEntityArray(Allocator.TempJob);
+                    var prespawned = testWorld.ServerWorld.EntityManager.CreateEntityQuery(typeof(GhostInstance), ComponentType.ReadOnly<PreSpawnedGhostIndex>()).ToEntityArray(Allocator.TempJob);
                     deletedId = prespawnedGhost[0].ghostId;
                     testWorld.ServerWorld.EntityManager.DestroyEntity(prespawned[0]);
                     prespawned.Dispose();
@@ -310,7 +310,7 @@ namespace Unity.NetCode.PrespawnTests
                 {
                     testWorld.Tick(1.0f/60f);
                     var prespawns = testWorld.ServerWorld.EntityManager
-                        .CreateEntityQuery(typeof(PreSpawnedGhostIndex), typeof(GhostComponent))
+                        .CreateEntityQuery(typeof(PreSpawnedGhostIndex), typeof(GhostInstance))
                         .CalculateEntityCount();
                     if (prespawns > 0)
                         break;
@@ -318,22 +318,22 @@ namespace Unity.NetCode.PrespawnTests
 
                 // Spawn something
                 testWorld.SpawnOnServer(0);
-                var ghostCount = testWorld.ServerWorld.EntityManager.CreateEntityQuery(typeof(GhostComponent), typeof(PreSpawnedGhostIndex)).CalculateEntityCount();
+                var ghostCount = testWorld.ServerWorld.EntityManager.CreateEntityQuery(typeof(GhostInstance), typeof(PreSpawnedGhostIndex)).CalculateEntityCount();
                 // Wait until it's spawned on client
                 int currentCount = 0;
                 for (int i = 0; i < 64 && currentCount != ghostCount; ++i)
                 {
                     testWorld.Tick(1.0f/60f);
-                    currentCount = testWorld.ClientWorlds[0].EntityManager.CreateEntityQuery(typeof(GhostComponent), typeof(PreSpawnedGhostIndex)).CalculateEntityCount();
+                    currentCount = testWorld.ClientWorlds[0].EntityManager.CreateEntityQuery(typeof(GhostInstance), typeof(PreSpawnedGhostIndex)).CalculateEntityCount();
                 }
                 Assert.That(ghostCount == currentCount, "Client did not spawn runtime entity (clientCount=" + currentCount + " serverCount=" + ghostCount + ")");
 
                 // Verify spawned entities to not contain the prespawn id component
                 var prespawnCount = testWorld.ServerWorld.EntityManager
-                    .CreateEntityQuery(typeof(PreSpawnedGhostIndex), typeof(GhostComponent)).CalculateEntityCount();
+                    .CreateEntityQuery(typeof(PreSpawnedGhostIndex), typeof(GhostInstance)).CalculateEntityCount();
                 Assert.AreEqual(VerifyGhostIds.GhostsPerScene, prespawnCount, "Runtime spawned server entity got prespawn component added");
                 prespawnCount = testWorld.ClientWorlds[0].EntityManager
-                    .CreateEntityQuery(typeof(PreSpawnedGhostIndex), typeof(GhostComponent)).CalculateEntityCount();
+                    .CreateEntityQuery(typeof(PreSpawnedGhostIndex), typeof(GhostInstance)).CalculateEntityCount();
                 Assert.AreEqual(VerifyGhostIds.GhostsPerScene, prespawnCount, "Runtime spawned client entity got prespawn component added");
 
                 testWorld.ClientWorlds[0].EntityManager.AddComponent<NetworkStreamRequestDisconnect>(
@@ -348,9 +348,9 @@ namespace Unity.NetCode.PrespawnTests
                 {
                     testWorld.Tick(1.0f/60f);
                     // clientGhostCount will be 6 for a bit as it creates an initial archetype ghost and later a delayed one when on the right tick
-                    serverGhostCount = testWorld.ServerWorld.EntityManager.CreateEntityQuery(typeof(GhostComponent))
+                    serverGhostCount = testWorld.ServerWorld.EntityManager.CreateEntityQuery(typeof(GhostInstance))
                         .CalculateEntityCount();
-                    clientGhostCount = testWorld.ClientWorlds[0].EntityManager.CreateEntityQuery(typeof(GhostComponent))
+                    clientGhostCount = testWorld.ClientWorlds[0].EntityManager.CreateEntityQuery(typeof(GhostInstance))
                         .CalculateEntityCount();
                     //Debug.Log("serverCount=" + serverGhostCount + " clientCount=" + clientGhostCount);
                     //DumpGhosts(serverWorld, clientWorld);
@@ -436,44 +436,29 @@ namespace Unity.NetCode.PrespawnTests
                 Assert.AreEqual(prespawnedGhostCount, testWorld.ServerWorld.GetExistingSystemManaged<VerifyGhostIds>().Matches, "Prespawn components added but didn't get ghost ID applied at runtime on server");
                 Assert.AreEqual(prespawnedGhostCount, testWorld.ClientWorlds[0].GetExistingSystemManaged<VerifyGhostIds>().Matches, "Prespawn components added but didn't get ghost ID applied at runtime on client");
 
-                var clientGhosts = testWorld.ClientWorlds[0].EntityManager.CreateEntityQuery(typeof(GhostComponent), ComponentType.ReadOnly<PreSpawnedGhostIndex>())
-                    .ToComponentDataArray<GhostComponent>(Allocator.Temp);
-#if !ENABLE_TRANSFORM_V1
-                var clientGhostPos = testWorld.ClientWorlds[0].EntityManager.CreateEntityQuery(typeof(GhostComponent), typeof(LocalTransform), ComponentType.ReadOnly<PreSpawnedGhostIndex>())
+                var clientGhosts = testWorld.ClientWorlds[0].EntityManager.CreateEntityQuery(typeof(GhostInstance), ComponentType.ReadOnly<PreSpawnedGhostIndex>())
+                    .ToComponentDataArray<GhostInstance>(Allocator.Temp);
+                var clientGhostPos = testWorld.ClientWorlds[0].EntityManager.CreateEntityQuery(typeof(GhostInstance), typeof(LocalTransform), ComponentType.ReadOnly<PreSpawnedGhostIndex>())
                     .ToComponentDataArray<LocalTransform>(Allocator.Temp);
-                var serverGhosts = testWorld.ServerWorld.EntityManager.CreateEntityQuery(typeof(GhostComponent), ComponentType.ReadOnly<PreSpawnedGhostIndex>())
-                    .ToComponentDataArray<GhostComponent>(Allocator.Temp);
-                var serverGhostPos = testWorld.ServerWorld.EntityManager.CreateEntityQuery(typeof(GhostComponent), typeof(LocalTransform), ComponentType.ReadOnly<PreSpawnedGhostIndex>())
+                var serverGhosts = testWorld.ServerWorld.EntityManager.CreateEntityQuery(typeof(GhostInstance), ComponentType.ReadOnly<PreSpawnedGhostIndex>())
+                    .ToComponentDataArray<GhostInstance>(Allocator.Temp);
+                var serverGhostPos = testWorld.ServerWorld.EntityManager.CreateEntityQuery(typeof(GhostInstance), typeof(LocalTransform), ComponentType.ReadOnly<PreSpawnedGhostIndex>())
                     .ToComponentDataArray<LocalTransform>(Allocator.Temp);
-#else
-                var clientGhostPos = testWorld.ClientWorlds[0].EntityManager.CreateEntityQuery(typeof(GhostComponent), typeof(Translation), ComponentType.ReadOnly<PreSpawnedGhostIndex>())
-                    .ToComponentDataArray<Translation>(Allocator.Temp);
-                var serverGhosts = testWorld.ServerWorld.EntityManager.CreateEntityQuery(typeof(GhostComponent), ComponentType.ReadOnly<PreSpawnedGhostIndex>())
-                    .ToComponentDataArray<GhostComponent>(Allocator.Temp);
-                var serverGhostPos = testWorld.ServerWorld.EntityManager.CreateEntityQuery(typeof(GhostComponent), typeof(Translation), ComponentType.ReadOnly<PreSpawnedGhostIndex>())
-                    .ToComponentDataArray<Translation>(Allocator.Temp);
-#endif
+
                 var serverPosLookup = new NativeParallelHashMap<int, float3>(serverGhostPos.Length, Allocator.Temp);
                 Assert.AreEqual(clientGhostPos.Length, serverGhostPos.Length);
                 // Fill a hashmap with mapping from server ghost id to server position
                 for (int i = 0; i < serverGhosts.Length; ++i)
                 {
-#if !ENABLE_TRANSFORM_V1
                     serverPosLookup.Add(serverGhosts[i].ghostId, serverGhostPos[i].Position);
-#else
-                    serverPosLookup.Add(serverGhosts[i].ghostId, serverGhostPos[i].Value);
-#endif
                 }
                 for (int i = 0; i < clientGhosts.Length; ++i)
                 {
                     Assert.IsTrue(PrespawnHelper.IsPrespawGhostId(clientGhosts[i].ghostId), "Prespawned ghosts not initialized");
                     // Verify that the client ghost id exists on the server with the same position
                     Assert.IsTrue(serverPosLookup.TryGetValue(clientGhosts[i].ghostId, out var serverPos));
-#if !ENABLE_TRANSFORM_V1
                     Assert.LessOrEqual(math.distance(clientGhostPos[i].Position, serverPos), 0.001f);
-#else
-                    Assert.LessOrEqual(math.distance(clientGhostPos[i].Value, serverPos), 0.001f);
-#endif
+
                     // Remove the server ghost id which we already matched against to make sure htere are no duplicates
                     serverPosLookup.Remove(clientGhosts[i].ghostId);
                 }
@@ -607,13 +592,8 @@ namespace Unity.NetCode.PrespawnTests
                 var entities = query.ToEntityArray(Allocator.Temp);
                 for (int i = 0; i < 10; ++i)
                 {
-#if !ENABLE_TRANSFORM_V1
                     testWorld.ServerWorld.EntityManager.SetComponentData(entities[i],
                         LocalTransform.FromPosition(new float3(-10000, 10, 10 * i)));
-#else
-                    testWorld.ServerWorld.EntityManager.SetComponentData(entities[i],
-                        new Translation{ Value = new float3(-10000, 10, 10 * i)});
-#endif
                 }
                 entities.Dispose();
 
@@ -628,7 +608,7 @@ namespace Unity.NetCode.PrespawnTests
                 //FIXME: at a certain point I should disconnect if I don't load the second subscene
 
                 // Verify connection is now disconnected
-                var conQuery = testWorld.ClientWorlds[0].EntityManager.CreateEntityQuery(ComponentType.ReadOnly<NetworkIdComponent>());
+                var conQuery = testWorld.ClientWorlds[0].EntityManager.CreateEntityQuery(ComponentType.ReadOnly<NetworkId>());
                 Assert.AreEqual(0, conQuery.CalculateEntityCount());
             }
         }
@@ -696,8 +676,8 @@ namespace Unity.NetCode.PrespawnTests
                 ghostRelevancy.GhostRelevancyMode = GhostRelevancyMode.SetIsIrrelevant;
                 var relevancySet = ghostRelevancy.GhostRelevancySet;
                 var query = testWorld.ServerWorld.EntityManager.CreateEntityQuery(
-                    ComponentType.ReadOnly<GhostComponent>(), ComponentType.ReadOnly<PreSpawnedGhostIndex>());
-                var ghostComponents = query.ToComponentDataArray<GhostComponent>(Allocator.Temp);
+                    ComponentType.ReadOnly<GhostInstance>(), ComponentType.ReadOnly<PreSpawnedGhostIndex>());
+                var ghostComponents = query.ToComponentDataArray<GhostInstance>(Allocator.Temp);
                 for (int i = 0; i < ghostComponents.Length; ++i)
                 {
                     var ghostId = ghostComponents[i].ghostId;
@@ -709,7 +689,7 @@ namespace Unity.NetCode.PrespawnTests
 
                 // Verify all ghosts have despawned
                 query = testWorld.ClientWorlds[0].EntityManager.CreateEntityQuery(
-                    ComponentType.ReadOnly<GhostComponent>(), ComponentType.ReadOnly<PreSpawnedGhostIndex>());
+                    ComponentType.ReadOnly<GhostInstance>(), ComponentType.ReadOnly<PreSpawnedGhostIndex>());
                 Assert.AreEqual(0, query.CalculateEntityCount());
 
                 relevancySet.Clear();
@@ -719,7 +699,7 @@ namespace Unity.NetCode.PrespawnTests
 
                 // Verify all ghosts have been spawned again
                 query = testWorld.ClientWorlds[0].EntityManager.CreateEntityQuery(
-                    ComponentType.ReadOnly<GhostComponent>(), ComponentType.ReadOnly<PreSpawnedGhostIndex>());
+                    ComponentType.ReadOnly<GhostInstance>(), ComponentType.ReadOnly<PreSpawnedGhostIndex>());
                 //+1 because there is also the scene list
                 Assert.AreEqual(rows*columns, query.CalculateEntityCount());
             }

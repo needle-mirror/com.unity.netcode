@@ -279,8 +279,8 @@ namespace Unity.NetCode.Generators
                     context.serializationStrategies.Add(new CodeGenerator.Context.SerializationStrategyCodeGen
                     {
                         TypeInfo = typeInfo,
-                        VariantTypeName = typeInfo.TypeFullName.Replace("+", "."),
-                        ComponentTypeName = typeInfo.TypeFullName.Replace("+", "."),
+                        VariantTypeName = typeInfo.TypeFullName.Replace('+', '.'),
+                        ComponentTypeName = typeInfo.TypeFullName.Replace('+', '.'),
                         Hash = variantHash.ToString(),
                         GhostAttribute = inputGhostAttributes
                     });
@@ -339,8 +339,8 @@ namespace Unity.NetCode.Generators
                             {
                                 TypeInfo = typeInfo,
                                 IsSerialized = false,
-                                VariantTypeName = bufferTypeTree.TypeFullName.Replace("+", "."),
-                                ComponentTypeName = bufferTypeTree.TypeFullName.Replace("+", "."),
+                                VariantTypeName = bufferTypeTree.TypeFullName.Replace('+', '.'),
+                                ComponentTypeName = bufferTypeTree.TypeFullName.Replace('+', '.'),
                                 Hash = bufferVariantHash.ToString(),
                                 GhostAttribute = inputGhostAttributes
                             });
@@ -427,8 +427,8 @@ namespace Unity.NetCode.Generators
             context.serializationStrategies.Add(new CodeGenerator.Context.SerializationStrategyCodeGen
             {
                 TypeInfo = bufferTypeTree,
-                VariantTypeName = bufferTypeTree.TypeFullName.Replace("+", "."),
-                ComponentTypeName = bufferTypeTree.TypeFullName.Replace("+", "."),
+                VariantTypeName = bufferTypeTree.TypeFullName.Replace('+', '.'),
+                ComponentTypeName = bufferTypeTree.TypeFullName.Replace('+', '.'),
                 Hash = variantHash.ToString(),
                 GhostAttribute = bufferTypeTree.GhostAttribute,
                 IsSerialized = true,

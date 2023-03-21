@@ -5,6 +5,7 @@ using Unity.Collections.LowLevel.Unsafe;
 using Unity.Entities;
 using Unity.NetCode.LowLevel.Unsafe;
 using Unity.Networking.Transport;
+
 using System.Runtime.InteropServices;
 using Unity.Assertions;
 using Unity.Burst.Intrinsics;
@@ -72,7 +73,7 @@ namespace Unity.NetCode
         /// Helper method that can be used to implement the execute method for the <see cref="IRpcCommandSerializer{T}"/>
         /// interface.
         /// By calling the ExecuteCreateRequestComponent, a new entity (with a <typeparamref name="TActionRequest"/> and
-        /// a <see cref="ReceiveRpcCommandRequestComponent"/> component) is created.
+        /// a <see cref="ReceiveRpcCommandRequest"/> component) is created.
         /// It is the users responsibility to write a system that consumes the created rpcs entities. For example:
         /// <code>
         /// public struct MyRpcConsumeSystem : ISystem
@@ -108,7 +109,7 @@ namespace Unity.NetCode
             var rpcSerializer = default(TActionSerializer);
             rpcSerializer.Deserialize(ref parameters.Reader, parameters.DeserializerState, ref rpcData);
             var entity = parameters.CommandBuffer.CreateEntity(parameters.JobIndex);
-            parameters.CommandBuffer.AddComponent(parameters.JobIndex, entity, new ReceiveRpcCommandRequestComponent {SourceConnection = parameters.Connection});
+            parameters.CommandBuffer.AddComponent(parameters.JobIndex, entity, new ReceiveRpcCommandRequest {SourceConnection = parameters.Connection});
             parameters.CommandBuffer.AddComponent(parameters.JobIndex, entity, rpcData);
 
 #if !DOTS_DISABLE_DEBUG_NAMES
@@ -123,7 +124,7 @@ namespace Unity.NetCode
     /// The system responsible for sending and receiving RPCs.
     /// </para>
     /// <para>
-    /// The RpcSystem flushes all the outgoing RPCs scheduled in the <see cref="OutgoingRpcDataStreamBufferComponent"/> for all the active connections.
+    /// The RpcSystem flushes all the outgoing RPCs scheduled in the <see cref="OutgoingRpcDataStreamBuffer"/> for all the active connections.
     /// Multiple RPCs can be raised by a world (to be sent in a single frame) to each connection. Therefore, in order to reduce the number of in-flight reliable messages,
     /// the system tries to coalesce multiple RPCs into a single packet.
     /// </para>
@@ -134,7 +135,7 @@ namespace Unity.NetCode
     /// </para>
     /// <para>
     /// When an rpc packet is received, it is first handled by the <see cref="NetworkStreamReceiveSystem"/>, which decodes the incoming network packet
-    /// and appends it to the <see cref="IncomingRpcDataStreamBufferComponent"/> for the connection that received the message.
+    /// and appends it to the <see cref="IncomingRpcDataStreamBuffer"/> for the connection that received the message.
     /// The RpcSystem will then dequeue all the received messages, and dispatch them by invoking their execute method (<see cref="IRpcCommandSerializer{T}"/>
     /// and <see cref="RpcExecutor"/>).
     /// </para>
@@ -166,15 +167,15 @@ namespace Unity.NetCode
 
         private EntityTypeHandle m_EntityTypeHandle;
         private ComponentTypeHandle<NetworkStreamConnection> m_NetworkStreamConnectionHandle;
-        private BufferTypeHandle<IncomingRpcDataStreamBufferComponent> m_IncomingRpcDataStreamBufferComponentHandle;
-        private BufferTypeHandle<OutgoingRpcDataStreamBufferComponent> m_OutgoingRpcDataStreamBufferComponentHandle;
-        private ComponentTypeHandle<NetworkSnapshotAckComponent> m_NetworkSnapshotAckComponentHandle;
+        private BufferTypeHandle<IncomingRpcDataStreamBuffer> m_IncomingRpcDataStreamBufferComponentHandle;
+        private BufferTypeHandle<OutgoingRpcDataStreamBuffer> m_OutgoingRpcDataStreamBufferComponentHandle;
+        private ComponentTypeHandle<NetworkSnapshotAck> m_NetworkSnapshotAckComponentHandle;
 
         public void OnCreate(ref SystemState state)
         {
 #if ENABLE_UNITY_COLLECTIONS_CHECKS
-            UnityEngine.Debug.Assert(UnsafeUtility.SizeOf<OutgoingRpcDataStreamBufferComponent>() == 1);
-            UnityEngine.Debug.Assert(UnsafeUtility.SizeOf<IncomingRpcDataStreamBufferComponent>() == 1);
+            UnityEngine.Debug.Assert(UnsafeUtility.SizeOf<OutgoingRpcDataStreamBuffer>() == 1);
+            UnityEngine.Debug.Assert(UnsafeUtility.SizeOf<IncomingRpcDataStreamBuffer>() == 1);
 #endif
 
             m_RpcData = new NativeList<RpcCollection.RpcData>(16, Allocator.Persistent);
@@ -191,17 +192,17 @@ namespace Unity.NetCode
             });
 
             m_RpcBufferGroup = state.GetEntityQuery(
-                ComponentType.ReadWrite<IncomingRpcDataStreamBufferComponent>(),
-                ComponentType.ReadWrite<OutgoingRpcDataStreamBufferComponent>(),
+                ComponentType.ReadWrite<IncomingRpcDataStreamBuffer>(),
+                ComponentType.ReadWrite<OutgoingRpcDataStreamBuffer>(),
                 ComponentType.ReadWrite<NetworkStreamConnection>(),
-                ComponentType.ReadOnly<NetworkSnapshotAckComponent>());
+                ComponentType.ReadOnly<NetworkSnapshotAck>());
             state.RequireForUpdate(m_RpcBufferGroup);
 
             m_EntityTypeHandle = state.GetEntityTypeHandle();
             m_NetworkStreamConnectionHandle = state.GetComponentTypeHandle<NetworkStreamConnection>();
-            m_IncomingRpcDataStreamBufferComponentHandle = state.GetBufferTypeHandle<IncomingRpcDataStreamBufferComponent>();
-            m_OutgoingRpcDataStreamBufferComponentHandle = state.GetBufferTypeHandle<OutgoingRpcDataStreamBufferComponent>();
-            m_NetworkSnapshotAckComponentHandle = state.GetComponentTypeHandle<NetworkSnapshotAckComponent>(true);
+            m_IncomingRpcDataStreamBufferComponentHandle = state.GetBufferTypeHandle<IncomingRpcDataStreamBuffer>();
+            m_OutgoingRpcDataStreamBufferComponentHandle = state.GetBufferTypeHandle<OutgoingRpcDataStreamBuffer>();
+            m_NetworkSnapshotAckComponentHandle = state.GetComponentTypeHandle<NetworkSnapshotAck>(true);
 
             SystemAPI.GetSingleton<RpcCollection>().RegisterRpc(ComponentType.ReadWrite<RpcSetNetworkId>(), default(RpcSetNetworkId).CompileExecute());
         }
@@ -220,13 +221,13 @@ namespace Unity.NetCode
             public EntityCommandBuffer.ParallelWriter commandBuffer;
             [ReadOnly] public EntityTypeHandle entityType;
             public ComponentTypeHandle<NetworkStreamConnection> connectionType;
-            public BufferTypeHandle<IncomingRpcDataStreamBufferComponent> inBufferType;
-            public BufferTypeHandle<OutgoingRpcDataStreamBufferComponent> outBufferType;
+            public BufferTypeHandle<IncomingRpcDataStreamBuffer> inBufferType;
+            public BufferTypeHandle<OutgoingRpcDataStreamBuffer> outBufferType;
             [ReadOnly] public NativeList<RpcCollection.RpcData> execute;
             [ReadOnly] public NativeParallelHashMap<ulong, int> hashToIndex;
             [ReadOnly] public NativeParallelHashMap<SpawnedGhost, Entity>.ReadOnly ghostMap;
 
-            [ReadOnly] public ComponentTypeHandle<NetworkSnapshotAckComponent> ackType;
+            [ReadOnly] public ComponentTypeHandle<NetworkSnapshotAck> ackType;
             public uint localTime;
 
             public ConcurrentDriverStore concurrentDriverStore;

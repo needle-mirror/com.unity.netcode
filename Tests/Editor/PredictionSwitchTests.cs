@@ -16,9 +16,10 @@ namespace Unity.NetCode.Tests
     {
         public void Bake(GameObject gameObject, IBaker baker)
         {
-            baker.AddComponent(new GhostOwnerComponent());
-            baker.AddComponent(new PredictedOnlyTestComponent{Value = 42});
-            baker.AddComponent(new InterpolatedOnlyTestComponent{Value = 43});
+            var entity = baker.GetEntity(TransformUsageFlags.Dynamic);
+            baker.AddComponent(entity, new GhostOwner());
+            baker.AddComponent(entity, new PredictedOnlyTestComponent{Value = 42});
+            baker.AddComponent(entity, new InterpolatedOnlyTestComponent{Value = 43});
         }
     }
 
@@ -41,17 +42,10 @@ namespace Unity.NetCode.Tests
             // Only update position every second tick
             if ((SystemAPI.GetSingleton<NetworkTime>().ServerTick.TickIndexForValidTick&1u) == 0)
                 return;
-#if !ENABLE_TRANSFORM_V1
-            foreach (var trans in SystemAPI.Query<RefRW<LocalTransform>>().WithAll<GhostOwnerComponent>().WithAll<Simulate>())
+            foreach (var trans in SystemAPI.Query<RefRW<LocalTransform>>().WithAll<GhostOwner>().WithAll<Simulate>())
             {
                 trans.ValueRW.Position += new float3(1, 0, 0);
             }
-#else
-            foreach (var trans in SystemAPI.Query<RefRW<Translation>>().WithAll<GhostOwnerComponent>().WithAll<Simulate>())
-            {
-                trans.ValueRW.Value += new float3(1, 0, 0);
-            }
-#endif
         }
     }
     public class PredictionSwitchTests
@@ -86,14 +80,14 @@ namespace Unity.NetCode.Tests
                     testWorld.Tick(frameTime);
 
                 var firstClientWorld = testWorld.ClientWorlds[0];
-                var clientEnt = testWorld.TryGetSingletonEntity<GhostOwnerComponent>(firstClientWorld);
+                var clientEnt = testWorld.TryGetSingletonEntity<GhostOwner>(firstClientWorld);
                 Assert.AreNotEqual(Entity.Null, clientEnt);
 
                 // Validate that the entity is interpolated
                 var entityManager = firstClientWorld.EntityManager;
                 ref var ghostPredictionSwitchingQueues = ref testWorld.GetSingletonRW<GhostPredictionSwitchingQueues>(firstClientWorld).ValueRW;
 
-                Assert.IsFalse(entityManager.HasComponent<PredictedGhostComponent>(clientEnt));
+                Assert.IsFalse(entityManager.HasComponent<PredictedGhost>(clientEnt));
                 Assert.IsFalse(entityManager.HasComponent<PredictedOnlyTestComponent>(clientEnt));
                 Assert.IsTrue(entityManager.HasComponent<InterpolatedOnlyTestComponent>(clientEnt));
                 Assert.IsFalse(entityManager.HasComponent<SwitchPredictionSmoothing>(clientEnt));
@@ -105,7 +99,7 @@ namespace Unity.NetCode.Tests
                     TransitionDurationSeconds = 0f,
                 });
                 testWorld.Tick(frameTime);
-                Assert.IsTrue(entityManager.HasComponent<PredictedGhostComponent>(clientEnt));
+                Assert.IsTrue(entityManager.HasComponent<PredictedGhost>(clientEnt));
                 Assert.IsTrue(entityManager.HasComponent<PredictedOnlyTestComponent>(clientEnt));
                 Assert.IsFalse(entityManager.HasComponent<InterpolatedOnlyTestComponent>(clientEnt));
                 Assert.IsFalse(entityManager.HasComponent<SwitchPredictionSmoothing>(clientEnt));
@@ -117,7 +111,7 @@ namespace Unity.NetCode.Tests
                     TransitionDurationSeconds = 2f,
                 });
                 testWorld.Tick(frameTime);
-                Assert.IsFalse(entityManager.HasComponent<PredictedGhostComponent>(clientEnt));
+                Assert.IsFalse(entityManager.HasComponent<PredictedGhost>(clientEnt));
                 Assert.IsFalse(entityManager.HasComponent<PredictedOnlyTestComponent>(clientEnt));
                 Assert.IsTrue(entityManager.HasComponent<InterpolatedOnlyTestComponent>(clientEnt));
                 Assert.IsTrue(entityManager.HasComponent<SwitchPredictionSmoothing>(clientEnt));
@@ -137,6 +131,7 @@ namespace Unity.NetCode.Tests
 
                 childGameObject.transform.parent = ghostGameObject.transform;
 
+                childGameObject.AddComponent<NetcodeTransformUsageFlagsTestAuthoring>();
                 ghostGameObject.AddComponent<TestNetCodeAuthoring>().Converter = new PredictionSwitchTestConverter();
                 var ghostConfig = ghostGameObject.AddComponent<GhostAuthoringComponent>();
 
@@ -158,7 +153,7 @@ namespace Unity.NetCode.Tests
                     testWorld.Tick(frameTime);
 
                 var firstClientWorld = testWorld.ClientWorlds[0];
-                var clientEnt = testWorld.TryGetSingletonEntity<GhostOwnerComponent>(firstClientWorld);
+                var clientEnt = testWorld.TryGetSingletonEntity<GhostOwner>(firstClientWorld);
                 Assert.AreNotEqual(Entity.Null, clientEnt);
 
                 // Validate that the entity is interpolated

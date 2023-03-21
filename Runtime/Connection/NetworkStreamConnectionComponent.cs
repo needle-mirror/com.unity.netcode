@@ -1,7 +1,9 @@
+using System;
 using Unity.Entities;
-using Unity.Networking.Transport;
+
 using Unity.Collections;
 using Unity.Collections.LowLevel.Unsafe;
+using Unity.Networking.Transport;
 using Unity.Networking.Transport.Error;
 
 namespace Unity.NetCode
@@ -11,13 +13,13 @@ namespace Unity.NetCode
     /// The component hold a reference to the underlying transport <see cref="NetworkConnection"/> and the <see cref="NetworkDriver"/>
     /// that created it.
     /// All connections share a common set of components:
-    /// <para>- <see cref="NetworkIdComponent"/></para>
-    /// <para>- <see cref="IncomingRpcDataStreamBufferComponent"/></para>
-    /// <para>- <see cref="OutgoingCommandDataStreamBufferComponent"/></para>
-    /// <para>- <see cref="OutgoingRpcDataStreamBufferComponent"/></para>
+    /// <para>- <see cref="NetworkId"/></para>
+    /// <para>- <see cref="IncomingRpcDataStreamBuffer"/></para>
+    /// <para>- <see cref="OutgoingCommandDataStreamBuffer"/></para>
+    /// <para>- <see cref="OutgoingRpcDataStreamBuffer"/></para>
     /// <para>- <see cref="PrespawnSectionAck"/></para>
-    /// <para>- <see cref="CommandTargetComponent"/></para>
-    /// Client connections also have a <see cref="IncomingSnapshotDataStreamBufferComponent"/> to handle server ghost snapshots.
+    /// <para>- <see cref="CommandTarget"/></para>
+    /// Client connections also have a <see cref="IncomingSnapshotDataStreamBuffer"/> to handle server ghost snapshots.
     ///</summary>
     public struct NetworkStreamConnection : IComponentData
     {
@@ -133,7 +135,7 @@ namespace Unity.NetCode
         /// </summary>
         public State CurrentState;
         /// <summary>
-        /// The id assigned to the connection. Identical to the <see cref="NetworkIdComponent"/> value.
+        /// The id assigned to the connection. Identical to the <see cref="NetCode.NetworkId"/> value.
         /// </summary>
         public int NetworkId;
         /// <summary>
@@ -185,11 +187,45 @@ namespace Unity.NetCode
     }
 
     /// <summary>
+    /// Temporary type, used to upgrade to new component type, to be removed before final 1.0
+    /// </summary>
+    [Obsolete("IncomingCommandDataStreamBufferComponent has been deprecated. Use IncomingCommandDataStreamBuffer instead (UnityUpgradable) -> IncomingCommandDataStreamBuffer", true)]
+    public struct IncomingCommandDataStreamBufferComponent : IBufferElementData
+    {
+        /// <summary>
+        /// The buffer content
+        /// </summary>
+        public byte Value;
+    }
+    /// <summary>
+    /// Temporary type, used to upgrade to new component type, to be removed before final 1.0
+    /// </summary>
+    [Obsolete("OutgoingCommandDataStreamBufferComponent has been deprecated. Use OutgoingCommandDataStreamBuffer instead (UnityUpgradable) -> OutgoingCommandDataStreamBuffer", true)]
+    public struct OutgoingCommandDataStreamBufferComponent : IBufferElementData
+    {
+        /// <summary>
+        /// The buffer content
+        /// </summary>
+        public byte Value;
+    }
+    /// <summary>
+    /// Temporary type, used to upgrade to new component type, to be removed before final 1.0
+    /// </summary>
+    [Obsolete("IncomingSnapshotDataStreamBufferComponent has been deprecated. Use IncomingSnapshotDataStreamBuffer instead (UnityUpgradable) -> IncomingSnapshotDataStreamBuffer", true)]
+    public struct IncomingSnapshotDataStreamBufferComponent : IBufferElementData
+    {
+        /// <summary>
+        /// The buffer content
+        /// </summary>
+        public byte Value;
+    }
+
+    /// <summary>
     /// This buffer stores a single incoming command packet. One per NetworkStream (client).
     /// A command packet contains commands for CommandSendSystem.k_InputBufferSendSize (default 4) ticks where 3 of them are delta compressed.
     /// It also contains some timestamps etc for ping calculations.
     /// </summary>
-    public struct IncomingCommandDataStreamBufferComponent : IBufferElementData
+    public struct IncomingCommandDataStreamBuffer : IBufferElementData
     {
         /// <summary>
         /// The buffer content
@@ -201,7 +237,7 @@ namespace Unity.NetCode
     /// A command packet contains commands for CommandSendSystem.k_InputBufferSendSize (default 4) ticks where 3 of them are delta compressed.
     /// It also contains some timestamps etc for ping calculations.
     /// </summary>
-    public struct OutgoingCommandDataStreamBufferComponent : IBufferElementData
+    public struct OutgoingCommandDataStreamBuffer : IBufferElementData
     {
         /// <summary>
         /// The buffer content
@@ -216,7 +252,7 @@ namespace Unity.NetCode
     /// so expect this to be MTU or less.
     /// </summary>
     [InternalBufferCapacity(0)]
-    public struct IncomingSnapshotDataStreamBufferComponent : IBufferElementData
+    public struct IncomingSnapshotDataStreamBuffer : IBufferElementData
     {
         /// <summary>
         /// The buffer content

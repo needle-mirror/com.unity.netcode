@@ -1,4 +1,4 @@
-#if (UNITY_EDITOR || DEVELOPMENT_BUILD) && !UNITY_DOTSRUNTIME
+#if (UNITY_EDITOR || NETCODE_DEBUG) && !UNITY_DOTSRUNTIME
 using System;
 using System.Collections.Generic;
 using JetBrains.Annotations;

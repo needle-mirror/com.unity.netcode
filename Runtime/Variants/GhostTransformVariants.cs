@@ -6,7 +6,6 @@ using UnityEngine.Scripting;
 
 namespace Unity.NetCode
 {
-#if !ENABLE_TRANSFORM_V1
     /// <summary>
     /// The default serialization strategy for the <see cref="Unity.Transforms.LocalTransform"/> components provided by the NetCode package.
     /// </summary>
@@ -133,43 +132,13 @@ namespace Unity.NetCode
         [GhostField(Quantization=1000, Smoothing=SmoothingAction.InterpolateAndExtrapolate)]
         public float Scale;
     }
-#else
-    /// <summary>
-    /// The default serialization strategy for the <see cref="Unity.Transforms.Translation"/> components provided by the NetCode package.
-    /// </summary>
-    [Preserve]
-    [GhostComponentVariation(typeof(Transforms.Translation), "Translation - 3D")]
-    [GhostComponent(PrefabType=GhostPrefabType.All, SendTypeOptimization=GhostSendType.AllClients)]
-    public struct TranslationDefaultVariant
-    {
-        /// <summary>
-        /// The translation value is replicated with a default quantization unit of 100 (so roughly 1cm precision per component).
-        /// The replicated translation value support both interpolation and extrapolation
-        /// </summary>
-        [GhostField(Composite=true,Quantization=1000, Smoothing=SmoothingAction.InterpolateAndExtrapolate)] public float3 Value;
-    }
-
-    /// <summary>
-    /// The default serialization strategy for the <see cref="Unity.Transforms.Rotation"/> components provided by the NetCode package.
-    /// </summary>
-    [Preserve]
-    [GhostComponentVariation(typeof(Transforms.Rotation), "Rotation - 3D")]
-    [GhostComponent(PrefabType=GhostPrefabType.All, SendTypeOptimization=GhostSendType.AllClients, SendDataForChildEntity = false)]
-    public struct RotationDefaultVariant
-    {
-        /// <summary>
-        /// The rotation quaternion is replicated and the resulting floating point data use for replication the rotation is quantized with good precision (10 or more bits per component)
-        /// </summary>
-        [GhostField(Composite=true,Quantization=1000, Smoothing=SmoothingAction.InterpolateAndExtrapolate)] public quaternion Value;
-    }
-#endif
 
     /// <summary>
     /// System that optinally setup the Netcode default variants used for transform components in case a default is not already present.
     /// The following variants are set by default by the package:
-    /// - <see cref="Unity.Transforms.LocalTransform"/> if ENABLE_TRANSFORM_V1 is not set
-    /// - <see cref="Unity.Transforms.Translation"/> if ENABLE_TRANSFORM_V1 is set
-    /// - <see cref="Unity.Transforms.Rotation"/> if ENABLE_TRANSFORM_V1 is set
+    /// - <see cref="Unity.Transforms.LocalTransform"/>
+    /// - <see cref="Unity.Transforms.Translation"/>
+    /// - <see cref="Unity.Transforms.Rotation"/>
     /// <remarks>
     /// It will never override the default assignment for the transform components if they are already present in the
     /// <see cref="GhostComponentSerializerCollectionData.DefaultVariants"/> map.
@@ -186,12 +155,8 @@ namespace Unity.NetCode
         protected override void OnCreate()
         {
             var rules = World.GetExistingSystemManaged<GhostComponentSerializerCollectionSystemGroup>().DefaultVariantRules;
-#if !ENABLE_TRANSFORM_V1
             rules.TrySetDefaultVariant(ComponentType.ReadWrite<LocalTransform>(), DefaultVariantSystemBase.Rule.OnlyParents(typeof(TransformDefaultVariant)), this);
-#else
-            rules.TrySetDefaultVariant(ComponentType.ReadWrite<Translation>(), DefaultVariantSystemBase.Rule.OnlyParents(typeof(TranslationDefaultVariant)), this);
-            rules.TrySetDefaultVariant(ComponentType.ReadWrite<Rotation>(), DefaultVariantSystemBase.Rule.OnlyParents(typeof(RotationDefaultVariant)), this);
-#endif
+
             Enabled = false;
         }
 

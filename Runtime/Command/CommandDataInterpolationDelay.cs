@@ -23,7 +23,7 @@ namespace Unity.NetCode
         /// The latest reported interpolation delay reported for this entity.
         /// The delay value is update every time the target entity receive commands.
         /// If the client switch target for commands (ex: enter a vehicle), by either changing the
-        /// <see cref="CommandTargetComponent"/> or by enabling another <see cref="AutoCommandTarget"/>,
+        /// <see cref="CommandTarget"/> or by enabling another <see cref="AutoCommandTarget"/>,
         /// the value of the delay become stale: is never reset to 0 and will remain the same as repoted by the last command.
         /// </summary>
         public uint Delay;

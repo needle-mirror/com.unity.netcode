@@ -12,7 +12,7 @@ namespace Unity.NetCode.Tests
     {
     }
     [DisableAutoCreation]
-    class HybridComponentWeWillOverrideDefaultVariantSystem : DefaultVariantSystemBase
+    partial class HybridComponentWeWillOverrideDefaultVariantSystem : DefaultVariantSystemBase
     {
         protected override void RegisterDefaultVariants(Dictionary<ComponentType, Rule> defaultVariants)
         {
@@ -25,7 +25,8 @@ namespace Unity.NetCode.Tests
         public void Bake(GameObject gameObject, IBaker baker)
         {
 #if !UNITY_DISABLE_MANAGED_COMPONENTS
-            baker.AddComponentObject(gameObject.GetComponent<HybridComponentWeWillOverride>());
+            var entity = baker.GetEntity(TransformUsageFlags.Dynamic);
+            baker.AddComponentObject(entity, gameObject.GetComponent<HybridComponentWeWillOverride>());
 #endif
         }
     }
@@ -33,42 +34,48 @@ namespace Unity.NetCode.Tests
     {
         public void Bake(GameObject gameObject, IBaker baker)
         {
-            baker.AddComponent(new ServerComponentData {Value = 1});
+            var entity = baker.GetEntity(TransformUsageFlags.Dynamic);
+            baker.AddComponent(entity, new ServerComponentData {Value = 1});
         }
     }
     public class ClientComponentDataConverter : TestNetCodeAuthoring.IConverter
     {
         public void Bake(GameObject gameObject, IBaker baker)
         {
-            baker.AddComponent(new ClientComponentData {Value = 1});
+            var entity = baker.GetEntity(TransformUsageFlags.Dynamic);
+            baker.AddComponent(entity, new ClientComponentData {Value = 1});
         }
     }
     public class InterpolatedClientComponentDataConverter : TestNetCodeAuthoring.IConverter
     {
         public void Bake(GameObject gameObject, IBaker baker)
         {
-            baker.AddComponent(new InterpolatedClientComponentData {Value = 1});
+            var entity = baker.GetEntity(TransformUsageFlags.Dynamic);
+            baker.AddComponent(entity, new InterpolatedClientComponentData {Value = 1});
         }
     }
     public class PredictedClientComponentDataConverter : TestNetCodeAuthoring.IConverter
     {
         public void Bake(GameObject gameObject, IBaker baker)
         {
-            baker.AddComponent(new PredictedClientComponentData {Value = 1});
+            var entity = baker.GetEntity(TransformUsageFlags.Dynamic);
+            baker.AddComponent(entity, new PredictedClientComponentData {Value = 1});
         }
     }
     public class AllPredictedComponentDataConverter : TestNetCodeAuthoring.IConverter
     {
         public void Bake(GameObject gameObject, IBaker baker)
         {
-            baker.AddComponent(new AllPredictedComponentData {Value = 1});
+            var entity = baker.GetEntity(TransformUsageFlags.Dynamic);
+            baker.AddComponent(entity, new AllPredictedComponentData {Value = 1});
         }
     }
     public class AllComponentDataConverter : TestNetCodeAuthoring.IConverter
     {
         public void Bake(GameObject gameObject, IBaker baker)
         {
-            baker.AddComponent(new AllComponentData {Value = 1});
+            var entity = baker.GetEntity(TransformUsageFlags.Dynamic);
+            baker.AddComponent(entity, new AllComponentData {Value = 1});
         }
     }
     public class ServerHybridComponentConverter : TestNetCodeAuthoring.IConverter
@@ -76,7 +83,8 @@ namespace Unity.NetCode.Tests
         public void Bake(GameObject gameObject, IBaker baker)
         {
 #if !UNITY_DISABLE_MANAGED_COMPONENTS
-            baker.AddComponentObject(gameObject.GetComponent<ServerHybridComponent>());
+            var entity = baker.GetEntity(TransformUsageFlags.Dynamic);
+            baker.AddComponentObject(entity, gameObject.GetComponent<ServerHybridComponent>());
 #endif
         }
     }
@@ -85,7 +93,8 @@ namespace Unity.NetCode.Tests
         public void Bake(GameObject gameObject, IBaker baker)
         {
 #if !UNITY_DISABLE_MANAGED_COMPONENTS
-            baker.AddComponentObject(gameObject.GetComponent<ClientHybridComponent>());
+            var entity = baker.GetEntity(TransformUsageFlags.Dynamic);
+            baker.AddComponentObject(entity, gameObject.GetComponent<ClientHybridComponent>());
 #endif
         }
     }

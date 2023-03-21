@@ -1,4 +1,4 @@
-#if (UNITY_EDITOR || DEVELOPMENT_BUILD) && !NETCODE_NDEBUG
+#if UNITY_EDITOR && !NETCODE_NDEBUG
 #define NETCODE_DEBUG
 #endif
 
@@ -45,7 +45,7 @@ namespace Unity.NetCode
         /// <summary>
         /// <para>Predicted Ghosts are predicted by the clients. I.e. Their <see cref="Simulate"/> component is enabled during the
         /// execution of the <see cref="PredictedSimulationSystemGroup"/>, and Systems in the <see cref="PredictedSimulationSystemGroup"/>
-        /// will execute on their entities. They'll also have the <see cref="PredictedGhostComponent"/>.</para>
+        /// will execute on their entities. They'll also have the <see cref="PredictedGhost"/>.</para>
         /// <para>This prediction is both expensive and non-authoritative, however, it does allow predicted Ghosts to interact with physics more accurately,
         /// and it does align their timeline with the current client.</para>
         /// <para>Miss-predictions are handled by <see cref="GhostPredictionSmoothing"/> (example: <see cref="DefaultTranslationSmoothingAction"/>).
@@ -74,7 +74,7 @@ namespace Unity.NetCode
         /// <summary><inheritdoc cref="GhostModeMask.Predicted"/></summary>
         Predicted,
         /// <summary>
-        /// The ghost will be <see cref="Predicted"/> by the Ghost Owner (set via <see cref="GhostOwnerComponent"/>)
+        /// The ghost will be <see cref="Predicted"/> by the Ghost Owner (set via <see cref="GhostOwner"/>)
         /// and <see cref="Interpolated"/> by every other client.
         /// </summary>
         OwnerPredicted
@@ -355,10 +355,10 @@ namespace Unity.NetCode
                 }
             }
 
-            public GhostTypeComponent ToGhostType()
+            public GhostType ToGhostType()
             {
-                // Construct a guid, store it in the GhostTypeComponent
-                return new GhostTypeComponent
+                // Construct a guid, store it in the GhostType
+                return new GhostType
                 {
                     guid0 = h0,
                     guid1 = (h1 & (~0xf000u)) | 0x5000u, // Set version to 5
@@ -379,7 +379,7 @@ namespace Unity.NetCode
         /// </summary>
         /// <param name="ghostConfig">Configuration used when creating ghost prefabs.</param>
         /// <param name="entityManager">Used to validate which components exists on <paramref name="rootEntity"/></param>
-        /// <param name="rootEntity">Components existing on this entity, like <see cref="GhostOwnerComponent"/> is used to configure the result.</param>
+        /// <param name="rootEntity">Components existing on this entity, like <see cref="GhostOwner"/> is used to configure the result.</param>
         /// <param name="linkedEntities">List of all linked entities to the <paramref name="rootEntity"/></param>
         /// <param name="allComponents">List of all component types.</param>
         /// <param name="componentCounts">List of number of components on each index.</param>
@@ -388,36 +388,36 @@ namespace Unity.NetCode
         /// <param name="sendMasksOverride">List of send masks.</param>
         /// <param name="sendToChildOverride">List of child overrides.</param>
         /// <param name="variants">Variant hashes for all types.</param>
-        /// <returns><see cref="BlobAssetReference{T}"/> for <see cref="GhostPrefabMetaData"/></returns>
-        internal static BlobAssetReference<GhostPrefabMetaData> CreateBlobAsset(
+        /// <returns><see cref="BlobAssetReference{T}"/> for <see cref="GhostPrefabBlobMetaData"/></returns>
+        internal static BlobAssetReference<GhostPrefabBlobMetaData> CreateBlobAsset(
             Config ghostConfig, EntityManager entityManager, Entity rootEntity, NativeArray<Entity> linkedEntities,
             NativeList<ComponentType> allComponents, NativeArray<int> componentCounts,
             NetcodeConversionTarget target, NativeArray<GhostPrefabType> prefabTypes,
             NativeArray<int> sendMasksOverride, NativeArray<ulong> variants)
         {
             var builder = new BlobBuilder(Allocator.Temp);
-            ref var root = ref builder.ConstructRoot<GhostPrefabMetaData>();
+            ref var root = ref builder.ConstructRoot<GhostPrefabBlobMetaData>();
 
             // Store importance, supported modes, default mode and name in the meta data blob asset
             root.Importance = ghostConfig.Importance;
-            root.SupportedModes = GhostPrefabMetaData.GhostMode.Both;
-            root.DefaultMode = GhostPrefabMetaData.GhostMode.Interpolated;
+            root.SupportedModes = GhostPrefabBlobMetaData.GhostMode.Both;
+            root.DefaultMode = GhostPrefabBlobMetaData.GhostMode.Interpolated;
             if (ghostConfig.SupportedGhostModes == GhostModeMask.Interpolated)
-                root.SupportedModes = GhostPrefabMetaData.GhostMode.Interpolated;
+                root.SupportedModes = GhostPrefabBlobMetaData.GhostMode.Interpolated;
             else if (ghostConfig.SupportedGhostModes == GhostModeMask.Predicted)
             {
-                root.SupportedModes = GhostPrefabMetaData.GhostMode.Predicted;
-                root.DefaultMode = GhostPrefabMetaData.GhostMode.Predicted;
+                root.SupportedModes = GhostPrefabBlobMetaData.GhostMode.Predicted;
+                root.DefaultMode = GhostPrefabBlobMetaData.GhostMode.Predicted;
             }
             else if (ghostConfig.DefaultGhostMode == GhostMode.OwnerPredicted)
             {
-                if (!entityManager.HasComponent<GhostOwnerComponent>(rootEntity))
-                    throw new InvalidOperationException("OwnerPrediction mode can only be used on prefabs which have a GhostOwnerComponent");
-                root.DefaultMode = GhostPrefabMetaData.GhostMode.Both;
+                if (!entityManager.HasComponent<GhostOwner>(rootEntity))
+                    throw new InvalidOperationException("OwnerPrediction mode can only be used on prefabs which have a GhostOwner");
+                root.DefaultMode = GhostPrefabBlobMetaData.GhostMode.Both;
             }
             else if (ghostConfig.DefaultGhostMode == GhostMode.Predicted)
             {
-                root.DefaultMode = GhostPrefabMetaData.GhostMode.Predicted;
+                root.DefaultMode = GhostPrefabBlobMetaData.GhostMode.Predicted;
             }
             root.StaticOptimization = (ghostConfig.OptimizationMode == GhostOptimizationMode.Static);
             builder.AllocateString(ref root.Name, ref ghostConfig.Name);
@@ -425,27 +425,27 @@ namespace Unity.NetCode
             var serverComponents = new NativeList<ulong>(allComponents.Length, Allocator.Temp);
             var serverVariants = new NativeList<ulong>(allComponents.Length, Allocator.Temp);
             var serverSendMasks = new NativeList<int>(allComponents.Length, Allocator.Temp);
-            var removeOnServer = new NativeList<GhostPrefabMetaData.ComponentReference>(allComponents.Length, Allocator.Temp);
-            var removeOnClient = new NativeList<GhostPrefabMetaData.ComponentReference>(allComponents.Length, Allocator.Temp);
-            var disableOnPredicted = new NativeList<GhostPrefabMetaData.ComponentReference>(allComponents.Length, Allocator.Temp);
-            var disableOnInterpolated = new NativeList<GhostPrefabMetaData.ComponentReference>(allComponents.Length, Allocator.Temp);
+            var removeOnServer = new NativeList<GhostPrefabBlobMetaData.ComponentReference>(allComponents.Length, Allocator.Temp);
+            var removeOnClient = new NativeList<GhostPrefabBlobMetaData.ComponentReference>(allComponents.Length, Allocator.Temp);
+            var disableOnPredicted = new NativeList<GhostPrefabBlobMetaData.ComponentReference>(allComponents.Length, Allocator.Temp);
+            var disableOnInterpolated = new NativeList<GhostPrefabBlobMetaData.ComponentReference>(allComponents.Length, Allocator.Temp);
 
             // Snapshot data buffers should be removed from the server, and shared ghost type from the client
-            removeOnServer.Add(new GhostPrefabMetaData.ComponentReference(0,TypeManager.GetTypeInfo(ComponentType.ReadWrite<SnapshotData>().TypeIndex).StableTypeHash));
-            removeOnServer.Add(new GhostPrefabMetaData.ComponentReference(0,TypeManager.GetTypeInfo(ComponentType.ReadWrite<SnapshotDataBuffer>().TypeIndex).StableTypeHash));
+            removeOnServer.Add(new GhostPrefabBlobMetaData.ComponentReference(0,TypeManager.GetTypeInfo(ComponentType.ReadWrite<SnapshotData>().TypeIndex).StableTypeHash));
+            removeOnServer.Add(new GhostPrefabBlobMetaData.ComponentReference(0,TypeManager.GetTypeInfo(ComponentType.ReadWrite<SnapshotDataBuffer>().TypeIndex).StableTypeHash));
             if(entityManager.HasComponent<SnapshotDynamicDataBuffer>(rootEntity))
-                removeOnServer.Add(new GhostPrefabMetaData.ComponentReference(0, TypeManager.GetTypeInfo(ComponentType.ReadWrite<SnapshotDynamicDataBuffer>().TypeIndex).StableTypeHash));
+                removeOnServer.Add(new GhostPrefabBlobMetaData.ComponentReference(0, TypeManager.GetTypeInfo(ComponentType.ReadWrite<SnapshotDynamicDataBuffer>().TypeIndex).StableTypeHash));
 
             // Remove predicted spawn request component from server in the client+server case, as the prefab asset needs to have it in this case but not in server world
             if (target == NetcodeConversionTarget.ClientAndServer && (ghostConfig.SupportedGhostModes & GhostModeMask.Predicted) == GhostModeMask.Predicted)
-                removeOnServer.Add(new GhostPrefabMetaData.ComponentReference(0, TypeManager.GetTypeInfo(ComponentType.ReadWrite<PredictedGhostSpawnRequestComponent>().TypeIndex).StableTypeHash));
+                removeOnServer.Add(new GhostPrefabBlobMetaData.ComponentReference(0, TypeManager.GetTypeInfo(ComponentType.ReadWrite<PredictedGhostSpawnRequest>().TypeIndex).StableTypeHash));
 
             // If both interpolated and predicted clients are supported the interpolated client needs to disable the prediction component
             // If the ghost is interpolated only the prediction component can be removed on clients
             if (ghostConfig.SupportedGhostModes == GhostModeMask.All)
-                disableOnInterpolated.Add(new GhostPrefabMetaData.ComponentReference(0, TypeManager.GetTypeInfo(ComponentType.ReadWrite<PredictedGhostComponent>().TypeIndex).StableTypeHash));
+                disableOnInterpolated.Add(new GhostPrefabBlobMetaData.ComponentReference(0, TypeManager.GetTypeInfo(ComponentType.ReadWrite<PredictedGhost>().TypeIndex).StableTypeHash));
             else if (ghostConfig.SupportedGhostModes == GhostModeMask.Interpolated)
-                removeOnClient.Add(new GhostPrefabMetaData.ComponentReference(0,TypeManager.GetTypeInfo(ComponentType.ReadWrite<PredictedGhostComponent>().TypeIndex).StableTypeHash));
+                removeOnClient.Add(new GhostPrefabBlobMetaData.ComponentReference(0,TypeManager.GetTypeInfo(ComponentType.ReadWrite<PredictedGhost>().TypeIndex).StableTypeHash));
 
             var compIdx = 0;
             var blobNumServerComponentsPerEntity = builder.Allocate(ref root.NumServerComponentsPerEntity, linkedEntities.Length);
@@ -484,7 +484,7 @@ namespace Unity.NetCode
                         }
                     }
                     if ((prefabType & GhostPrefabType.Server) == 0)
-                        removeOnServer.Add(new GhostPrefabMetaData.ComponentReference(k,hash));
+                        removeOnServer.Add(new GhostPrefabBlobMetaData.ComponentReference(k,hash));
                     else
                     {
                         serverComponents.Add(hash);
@@ -495,11 +495,11 @@ namespace Unity.NetCode
                     // If something is not used on the client, remove it. Make sure to include things that is interpolated only if ghost
                     // is predicted only and the other way around
                     if ((prefabType & GhostPrefabType.Client) == 0)
-                        removeOnClient.Add(new GhostPrefabMetaData.ComponentReference(k,hash));
+                        removeOnClient.Add(new GhostPrefabBlobMetaData.ComponentReference(k,hash));
                     else if (ghostConfig.SupportedGhostModes == GhostModeMask.Interpolated && (prefabType & GhostPrefabType.InterpolatedClient) == 0)
-                        removeOnClient.Add(new GhostPrefabMetaData.ComponentReference(k,hash));
+                        removeOnClient.Add(new GhostPrefabBlobMetaData.ComponentReference(k,hash));
                     else if (ghostConfig.SupportedGhostModes == GhostModeMask.Predicted && (prefabType & GhostPrefabType.PredictedClient) == 0)
-                        removeOnClient.Add(new GhostPrefabMetaData.ComponentReference(k,hash));
+                        removeOnClient.Add(new GhostPrefabBlobMetaData.ComponentReference(k,hash));
 
                     // If the prefab only supports a single mode on the client there is no need to enable / disable, if is handled by the
                     // previous loop removing components on the client instead
@@ -507,9 +507,9 @@ namespace Unity.NetCode
                     {
                         // Components available on predicted but not interpolated should be disabled on interpolated clients
                         if ((prefabType & GhostPrefabType.InterpolatedClient) == 0 && (prefabType & GhostPrefabType.PredictedClient) != 0)
-                            disableOnInterpolated.Add(new GhostPrefabMetaData.ComponentReference(k,hash));
+                            disableOnInterpolated.Add(new GhostPrefabBlobMetaData.ComponentReference(k,hash));
                         if ((prefabType & GhostPrefabType.InterpolatedClient) != 0 && (prefabType & GhostPrefabType.PredictedClient) == 0)
-                            disableOnPredicted.Add(new GhostPrefabMetaData.ComponentReference(k,hash));
+                            disableOnPredicted.Add(new GhostPrefabBlobMetaData.ComponentReference(k,hash));
                     }
                 }
                 blobNumServerComponentsPerEntity[k] = serverComponents.Length - prevCount;
@@ -558,7 +558,7 @@ namespace Unity.NetCode
                 builder.Allocate(ref root.DisableOnInterpolatedClient, 0);
             }
 
-            return builder.CreateBlobAssetReference<GhostPrefabMetaData>(Allocator.Persistent);
+            return builder.CreateBlobAssetReference<GhostPrefabBlobMetaData>(Allocator.Persistent);
         }
 
         /// <summary>
@@ -566,7 +566,7 @@ namespace Unity.NetCode
         /// </summary>
         /// <param name="ghostConfig">Configuration used when creating ghost prefabs.</param>
         /// <param name="entityManager">Used to validate which components exists on <paramref name="rootEntity"/></param>
-        /// <param name="rootEntity">Components existing on this entity, like <see cref="GhostOwnerComponent"/> is used to configure the result.</param>
+        /// <param name="rootEntity">Components existing on this entity, like <see cref="GhostOwner"/> is used to configure the result.</param>
         /// <param name="ghostType">Component storing the guid of the prefab the ghost was created from.</param>
         /// <param name="linkedEntities">List of all linked entities to the <paramref name="rootEntity"/></param>
         /// <param name="allComponents">List of all component types.</param>
@@ -574,7 +574,7 @@ namespace Unity.NetCode
         /// <param name="target"><see cref="NetcodeConversionTarget"/></param>
         /// <param name="prefabTypes">List of different types of <see cref="GhostPrefabType"/> to created.</param>
         public static void FinalizePrefabComponents(Config ghostConfig, EntityManager entityManager,
-            Entity rootEntity, GhostTypeComponent ghostType, NativeArray<Entity> linkedEntities,
+            Entity rootEntity, GhostType ghostType, NativeArray<Entity> linkedEntities,
             NativeList<ComponentType> allComponents, NativeArray<int> componentCounts,
             NetcodeConversionTarget target, NativeArray<GhostPrefabType> prefabTypes)
         {
@@ -697,13 +697,13 @@ namespace Unity.NetCode
             // we must add a shared ghost type to make sure different ghost types with the same archetype end up in different chunks. The problem
             // rely on the fact that ghosts with the same archetype may have different serialization rules. And the majority of the works (done on a per-chunk basis)
             // assumes that the chunks contains ghosts of the same type (in term or serialization).
-            entityManager.AddSharedComponent(rootEntity, new SharedGhostTypeComponent {SharedValue = ghostType});
+            entityManager.AddSharedComponent(rootEntity, new GhostTypePartition {SharedValue = ghostType});
 
             // All types have the ghost components
-            entityManager.AddComponentData(rootEntity, new GhostComponent());
+            entityManager.AddComponentData(rootEntity, new GhostInstance());
             // No need to add the predicted ghost component for interpolated only ghosts if the data is only used by the client
             if (target != NetcodeConversionTarget.Client || ghostConfig.SupportedGhostModes != GhostModeMask.Interpolated)
-                entityManager.AddComponentData(rootEntity, new PredictedGhostComponent());
+                entityManager.AddComponentData(rootEntity, new PredictedGhost());
             if (ghostConfig.UsePreSerialization)
                 entityManager.AddComponentData(rootEntity, default(PreSerializedGhost));
 
@@ -747,7 +747,7 @@ namespace Unity.NetCode
         /// Helper method to build a list of all component types on all children of a ghost prefab, should not be called directly.
         /// </summary>
         /// <param name="entityManager">Used to add components data on ghost children.</param>
-        /// <param name="linkedEntities">Linked entities, 0 is the root followed by its children. Each will be marked with <see cref="GhostChildEntityComponent"/></param>
+        /// <param name="linkedEntities">Linked entities, 0 is the root followed by its children. Each will be marked with <see cref="GhostChildEntity"/></param>
         /// <param name="allComponents">Populated with root and child components.</param>
         /// <param name="componentCounts">Populated with each ghost's number of components.</param>
         public static void CollectAllComponents(EntityManager entityManager, NativeArray<Entity> linkedEntities, out NativeList<ComponentType> allComponents, out NativeArray<int> componentCounts)
@@ -762,10 +762,10 @@ namespace Unity.NetCode
             allComponents.AddRange(rootComponents);
             componentCounts[0] = rootComponents.Length;
 
-            // Mark all child entities as ghost children, entity 0 is the root and should not have the GhostChildEntityComponent
+            // Mark all child entities as ghost children, entity 0 is the root and should not have the GhostChildEntity
             for (int i = 1; i < linkedEntities.Length; ++i)
             {
-                entityManager.AddComponentData(linkedEntities[i], default(GhostChildEntityComponent));
+                entityManager.AddComponentData(linkedEntities[i], default(GhostChildEntity));
                 var childComponents = GetNotBakingComponentTypes(entityManager, linkedEntities[i], linkedEntityGroupComponentType);
                 childComponents.Sort(default(ComponentHashComparer));
                 allComponents.AddRange(childComponents);
@@ -858,7 +858,7 @@ namespace Unity.NetCode
             #if NETCODE_DEBUG
             for (int i = 0; i < codePrefabs.Length; ++i)
             {
-                if (entityManager.GetComponentData<GhostTypeComponent>(codePrefabs[i].entity) == ghostType)
+                if (entityManager.GetComponentData<GhostType>(codePrefabs[i].entity) == ghostType)
                 {
                     throw new InvalidOperationException("Duplicate ghost prefab found, all ghost prefabs must have a unique name");
                 }
@@ -868,7 +868,7 @@ namespace Unity.NetCode
             var blobAsset = CreateBlobAsset(config, entityManager, prefab, linkedEntitiesArray,
                 allComponents, componentCounts, target, prefabTypes, sendMasksOverride, variants);
             codePrefabs.Add(new CodeGhostPrefab{entity = prefab, blob = blobAsset});
-            entityManager.AddComponentData(prefab, new GhostPrefabMetaDataComponent
+            entityManager.AddComponentData(prefab, new GhostPrefabMetaData
             {
                 Value = blobAsset
             });

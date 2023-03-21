@@ -9,28 +9,28 @@ To request disconnect, add a `NetworkStreamRequestDisconnect` component to the e
 > Before the `NetworkStreamInGame` component is added to the connection, the client does not send commands, nor does the server send snapshots.
 
 To target which entity should receive the player commands, when not using the `AutoCommandTarget` feature or for having a more manual control, 
-each connection has a [CommandTargetComponent](https://docs.unity3d.com/Packages/com.unity.netcode@latest/index.html?subfolder=/api/Unity.NetCode.CommandTargetComponent.html) 
+each connection has a [CommandTarget](https://docs.unity3d.com/Packages/com.unity.netcode@latest/index.html?subfolder=/api/Unity.NetCode.CommandTarget.html) 
 which must point to the entity where the received commands need to be stored. Your game is responsible for keeping this entity reference up to date.
 
 ### Ingoing buffers
 Each connection can have up to three incoming buffers, one for each type of stream: commands, RPCs and snapshot (client-only).
-[IncomingRpcDataStreamBufferComponent](https://docs.unity3d.com/Packages/com.unity.netcode@latest/index.html?subfolder=/api/Unity.NetCode.IncomingRpcDataStreamBufferComponent.html)
-[IncomingCommandDataStreamBufferComponent](https://docs.unity3d.com/Packages/com.unity.netcode@latest/index.html?subfolder=/api/Unity.NetCode.IncomingCommandDataStreamBufferComponent.html)
-[IncomingSnapshotDataStreamBufferComponent](https://docs.unity3d.com/Packages/com.unity.netcode@latest/index.html?subfolder=/api/Unity.NetCode.IncomingSnapshotDataStreamBufferComponent.html)
+[IncomingRpcDataStreamBuffer](https://docs.unity3d.com/Packages/com.unity.netcode@latest/index.html?subfolder=/api/Unity.NetCode.IncomingRpcDataStreamBuffer.html)
+[IncomingCommandDataStreamBuffer](https://docs.unity3d.com/Packages/com.unity.netcode@latest/index.html?subfolder=/api/Unity.NetCode.IncomingCommandDataStreamBuffer.html)
+[IncomingSnapshotDataStreamBuffer](https://docs.unity3d.com/Packages/com.unity.netcode@latest/index.html?subfolder=/api/Unity.NetCode.IncomingSnapshotDataStreamBuffer.html)
 
-When a client receive a snapshot from the server, the message is queued into the buffer and processed later by the [GhostReceiveSystem](https://docs.unity3d.com/Packages/com.unity.netcode@latest/index.html?subfolder=/api/Unity.NetCode.IncomingSnapshotDataStreamBufferComponent.html).
+When a client receive a snapshot from the server, the message is queued into the buffer and processed later by the [GhostReceiveSystem](https://docs.unity3d.com/Packages/com.unity.netcode@latest/index.html?subfolder=/api/Unity.NetCode.IncomingSnapshotDataStreamBuffer.html).
 Similarly, RPCs and Commands follow the sample principle. The messages are gathered first by the [NetworkStreamReceiveSystem](https://docs.unity3d.com/Packages/com.unity.netcode@latest/index.html?subfolder=/api/Unity.NetCode.NetworkStreamReceiveSystem.html) and consumed then by
 the respective rpc and command receive system.
 > [!NOTE]
-> Server connection does not have an IncomingSnapshotDataStreamBufferComponent.
+> Server connection does not have an IncomingSnapshotDataStreamBuffer.
 
 ### Outgoing buffers
 Each connection can have up to two outgoing buffers: one for RPCs and one for commands (client only).
-[OutgoingRpcDataStreamBufferComponent](https://docs.unity3d.com/Packages/com.unity.netcode@latest/index.html?subfolder=/api/Unity.NetCode.OutgoingRpcDataStreamBufferComponent.html)
-[OutgoingCommandDataStreamBufferComponent](https://docs.unity3d.com/Packages/com.unity.netcode@latest/index.html?subfolder=/api/Unity.NetCode.OutgoingCommandDataStreamBufferComponent.html)
+[OutgoingRpcDataStreamBuffer](https://docs.unity3d.com/Packages/com.unity.netcode@latest/index.html?subfolder=/api/Unity.NetCode.OutgoingRpcDataStreamBuffer.html)
+[OutgoingCommandDataStreamBuffer](https://docs.unity3d.com/Packages/com.unity.netcode@latest/index.html?subfolder=/api/Unity.NetCode.OutgoingCommandDataStreamBuffer.html)
 
 When commands are produced, they are first queued into the outgoing buffer, that is flushed by client at regular interval (every new tick). Rpc messages follow the sample principle: they are gathered first by their respective send system,
-that encode them into the buffer first. Then, the [RpcSystem](https://docs.unity3d.com/Packages/com.unity.netcode@latest/index.html?subfolder=/api/Unity.NetCode.OutgoingCommandDataStreamBufferComponent.html) will flush the RPC in queue
+that encode them into the buffer first. Then, the [RpcSystem](https://docs.unity3d.com/Packages/com.unity.netcode@latest/index.html?subfolder=/api/Unity.NetCode.OutgoingCommandDataStreamBuffer.html) will flush the RPC in queue
 (by coalescing multiple messages in one MTU) at regular interval.
 
 ## Connection Flow
@@ -72,7 +72,9 @@ The server will start listening at the wildcard address (`DefaultConnectAddress`
 The client will start connecting to server address (`DefaultConnectAddress`:`AutoConnectPort`). The `DefaultConnectAddress` is by default set to to `NetworkEndpoint.Loopback`.
 
 > [!NOTE]
-> In the editor, the Playmode tool allow you to "override" both the AutoConnectAddress and AutoConnectPort. **The value is the playmode tool take precedence.**.
+> In the editor, the Playmode tool allow you to "override" both the AutoConnectAddress and AutoConnectPort. **The value is the playmode tool take precedence.** <br>
+> [!NOTE]
+> When AutoConnectPort is set to 0 the Playmode tools override functionality will not be used. The intent is then you need to manually trigger connection.
 
 ### Controlling the connection flow using NetworkStreamRequest
 Instead of invoking and calling methods on the [NetworkStreamDriver](https://docs.unity3d.com/Packages/com.unity.netcode@latest/index.html?subfolder=/api/Unity.NetCode.NetworkStreamDriver.html) you can instead create:

@@ -1,4 +1,4 @@
-#if (UNITY_EDITOR || DEVELOPMENT_BUILD) && !NETCODE_NDEBUG
+#if UNITY_EDITOR && !NETCODE_NDEBUG
 #define NETCODE_DEBUG
 #endif
 
@@ -273,7 +273,7 @@ namespace Unity.NetCode
 #if UNITY_DOTSRUNTIME
             var args = Environment.GetCommandLineArgs();
             var optIndex = System.Array.IndexOf(args, "-logFile");
-            if (optIndex >=0 && ++optIndex < (args.Length - 1) && !args[optIndex].StartsWith("-"))
+            if (optIndex >=0 && ++optIndex < (args.Length - 1) && !args[optIndex].StartsWith('-'))
                 return args[optIndex];
             //FIXME: should return the common application log path (if that exist defined somewhere)
 #elif UNITY_ANDROID || UNITY_IOS
@@ -370,7 +370,7 @@ namespace Unity.NetCode
         /// <summary>
         ///     A NetCode RPC will trigger a warning if it hasn't been consumed or destroyed (which is a proxy for 'handled') after
         ///     this many simulation frames (inclusive).
-        ///     <see cref="ReceiveRpcCommandRequestComponent.Age" />.
+        ///     <see cref="ReceiveRpcCommandRequest.Age" />.
         ///     Set to 0 to opt out.
         /// </summary>
         public ushort MaxRpcAgeFrames

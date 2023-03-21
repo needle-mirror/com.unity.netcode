@@ -154,8 +154,8 @@ namespace Unity.NetCode
         NativeQueue<PredictionStateEntry> m_UpdatedPredictionState;
         EntityQuery m_PredictionQuery;
 
-        ComponentTypeHandle<GhostComponent> m_GhostComponentHandle;
-        ComponentTypeHandle<GhostTypeComponent> m_GhostTypeComponentHandle;
+        ComponentTypeHandle<GhostInstance> m_GhostComponentHandle;
+        ComponentTypeHandle<GhostType> m_GhostTypeComponentHandle;
         ComponentTypeHandle<PreSpawnedGhostIndex> m_PreSpawnedGhostIndexHandle;
         BufferTypeHandle<LinkedEntityGroup> m_LinkedEntityGroupHandle;
         EntityTypeHandle m_EntityTypeHandle;
@@ -173,13 +173,13 @@ namespace Unity.NetCode
             m_NewPredictionState = new NativeQueue<PredictionStateEntry>(Allocator.Persistent);
             m_UpdatedPredictionState = new NativeQueue<PredictionStateEntry>(Allocator.Persistent);
             var builder = new EntityQueryBuilder(Allocator.Temp)
-                .WithAll<PredictedGhostComponent, GhostComponent>();
+                .WithAll<PredictedGhost, GhostInstance>();
             m_PredictionQuery = state.GetEntityQuery(builder);
 
             state.RequireForUpdate<GhostCollection>();
 
-            m_GhostComponentHandle = state.GetComponentTypeHandle<GhostComponent>(true);
-            m_GhostTypeComponentHandle = state.GetComponentTypeHandle<GhostTypeComponent>(true);
+            m_GhostComponentHandle = state.GetComponentTypeHandle<GhostInstance>(true);
+            m_GhostTypeComponentHandle = state.GetComponentTypeHandle<GhostType>(true);
             m_PreSpawnedGhostIndexHandle = state.GetComponentTypeHandle<PreSpawnedGhostIndex>(true);
             m_LinkedEntityGroupHandle = state.GetBufferTypeHandle<LinkedEntityGroup>(true);
             m_EntityTypeHandle = state.GetEntityTypeHandle();
@@ -322,8 +322,8 @@ namespace Unity.NetCode
             public NativeParallelHashMap<ArchetypeChunk, int>.ParallelWriter stillUsedPredictionState;
             public NativeQueue<PredictionStateEntry>.ParallelWriter newPredictionState;
             public NativeQueue<PredictionStateEntry>.ParallelWriter updatedPredictionState;
-            [ReadOnly] public ComponentTypeHandle<GhostComponent> ghostComponentType;
-            [ReadOnly] public ComponentTypeHandle<GhostTypeComponent> ghostType;
+            [ReadOnly] public ComponentTypeHandle<GhostInstance> ghostComponentType;
+            [ReadOnly] public ComponentTypeHandle<GhostType> ghostType;
             [ReadOnly] public ComponentTypeHandle<PreSpawnedGhostIndex> prespawnIndexType;
             [ReadOnly] public EntityTypeHandle entityType;
 
@@ -443,7 +443,7 @@ namespace Unity.NetCode
                 var singleEntitySize = UnsafeUtility.SizeOf<Entity>();
                 int baseOffset = typeData.FirstComponent;
                 int predictionOwnerOffset = -1;
-                var ghostOwnerTypeIndex = TypeManager.GetTypeIndex<GhostOwnerComponent>();
+                var ghostOwnerTypeIndex = TypeManager.GetTypeIndex<GhostOwner>();
                 if (!predictionState.TryGetValue(chunk, out var state) ||
                     (*(PredictionBackupState*)state).ghostType != ghostTypeId ||
                     (*(PredictionBackupState*)state).entityCapacity != chunk.Capacity)

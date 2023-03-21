@@ -108,7 +108,7 @@ namespace Unity.NetCode.LowLevel
         }
 
         /// <summary>
-        /// Check if the spawning ghost has a <see cref="GhostOwnerComponent"/>.
+        /// Check if the spawning ghost has a <see cref="GhostOwner"/>.
         /// </summary>
         /// <param name="ghost"></param>
         /// <returns>True if the spawning ghost is owner predicted</returns>
@@ -119,11 +119,11 @@ namespace Unity.NetCode.LowLevel
 
         /// <summary>
         /// Retrieve the network id of the player owning the ghost if the ghost archetype has a
-        /// <see cref="GhostOwnerComponent"/>.
+        /// <see cref="GhostOwner"/>.
         /// </summary>
         /// <param name="ghost"></param>
         /// <param name="data"></param>
-        /// <returns>the id of the player owning the ghost, if the <see cref="GhostOwnerComponent"/> is present, 0 otherwise.</returns>
+        /// <returns>the id of the player owning the ghost, if the <see cref="GhostOwner"/> is present, 0 otherwise.</returns>
         public int GetGhostOwner(in GhostSpawnBuffer ghost, in DynamicBuffer<SnapshotDataBuffer> data)
         {
             ref readonly var ghostPrefabSerializer = ref m_ghostPrefabType.ElementAtRO(ghost.GhostType);

@@ -81,7 +81,7 @@ namespace Unity.NetCode.Tests
 
                 // instantiate
 
-                var type = ComponentType.ReadOnly<NetworkIdComponent>();
+                var type = ComponentType.ReadOnly<NetworkId>();
                 var query = scenarioWorld.ServerWorld.EntityManager.CreateEntityQuery(type);
                 var connections = query.ToEntityArray(Allocator.TempJob);
                 Assert.IsTrue(connections.Length == parameters.NumClients);
@@ -97,17 +97,17 @@ namespace Unity.NetCode.Tests
                     var collection = scenarioWorld.ServerWorld.EntityManager.GetBuffer<NetCodeTestPrefab>(collectionEnt);
                     var prefabs = scenarioWorld.ServerWorld.EntityManager.Instantiate(collection[i].Value, parameters.SpawnCount[i], Allocator.Temp);
 
-                    if (scenarioWorld.ServerWorld.EntityManager.HasComponent<GhostOwnerComponent>(prefabs[0]))
+                    if (scenarioWorld.ServerWorld.EntityManager.HasComponent<GhostOwner>(prefabs[0]))
                     {
                         Assert.IsTrue(prefabs.Length == parameters.NumClients);
 
                         for (int j = 0; j < connections.Length; ++j)
                         {
-                            var networkComponent = scenarioWorld.ServerWorld.EntityManager.GetComponentData<NetworkIdComponent>(connections[j]);
+                            var networkComponent = scenarioWorld.ServerWorld.EntityManager.GetComponentData<NetworkId>(connections[j]);
 
-                            scenarioWorld.ServerWorld.EntityManager.SetComponentData(prefabs[j], new GhostOwnerComponent { NetworkId = networkComponent.Value });
+                            scenarioWorld.ServerWorld.EntityManager.SetComponentData(prefabs[j], new GhostOwner { NetworkId = networkComponent.Value });
                             if (parameters.SetCommandTarget)
-                                scenarioWorld.ServerWorld.EntityManager.SetComponentData(connections[j], new CommandTargetComponent {targetEntity = prefabs[j]});
+                                scenarioWorld.ServerWorld.EntityManager.SetComponentData(connections[j], new CommandTarget {targetEntity = prefabs[j]});
                         }
                     }
 

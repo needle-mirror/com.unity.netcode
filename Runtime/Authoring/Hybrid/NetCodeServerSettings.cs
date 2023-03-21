@@ -69,10 +69,10 @@ namespace Unity.NetCode.Hybrid
 
         internal void Save()
         {
+            if (AssetDatabase.IsAssetImportWorkerProcess())
+                return;
             Save(true);
             ((IEntitiesPlayerSettings)this).RegisterCustomDependency();
-            if (!AssetDatabase.IsAssetImportWorkerProcess())
-                AssetDatabase.Refresh();
         }
         private void OnDisable() { Save(); }
     }
@@ -155,7 +155,12 @@ namespace Unity.NetCode.Hybrid
 
         public override string[] GetExtraScriptingDefines()
         {
-            return new []{"UNITY_SERVER"}.Concat(GetSettingAsset().GetAdditionalScriptingDefines()).ToArray();
+            var extraDefines = GetSettingAsset().GetAdditionalScriptingDefines().Append("UNITY_SERVER");
+#if !NETCODE_NDEBUG
+            if (EditorUserBuildSettings.development)
+                extraDefines = extraDefines.Append("NETCODE_DEBUG");
+#endif
+            return extraDefines.ToArray();
         }
 
         public override BuildOptions GetExtraBuildOptions()

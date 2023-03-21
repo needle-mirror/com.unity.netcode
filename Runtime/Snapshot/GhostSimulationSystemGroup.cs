@@ -25,7 +25,7 @@ namespace Unity.NetCode
     [UpdateBefore(typeof(FixedStepSimulationSystemGroup))]
     [UpdateBefore(typeof(PredictedSimulationSystemGroup))]
     [UpdateAfter(typeof(NetworkReceiveSystemGroup))]
-    public class GhostSimulationSystemGroup : ComponentSystemGroup
+    public partial class GhostSimulationSystemGroup : ComponentSystemGroup
     {
     }
 
@@ -38,7 +38,7 @@ namespace Unity.NetCode
     [UpdateInGroup(typeof(SimulationSystemGroup), OrderFirst=true)]
     [UpdateAfter(typeof(BeginSimulationEntityCommandBufferSystem))]
     [UpdateBefore(typeof(NetworkReceiveSystemGroup))]
-    public class GhostSpawnSystemGroup : ComponentSystemGroup
+    public partial class GhostSpawnSystemGroup : ComponentSystemGroup
     {
     }
 }

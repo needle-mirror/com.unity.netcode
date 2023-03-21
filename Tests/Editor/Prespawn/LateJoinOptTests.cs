@@ -52,7 +52,7 @@ namespace Unity.NetCode.PrespawnTests
             }
         }
 
-        int FindGhostType(in DynamicBuffer<GhostCollectionPrefab> ghostCollection, GhostTypeComponent ghostTypeComponent)
+        int FindGhostType(in DynamicBuffer<GhostCollectionPrefab> ghostCollection, GhostType ghostTypeComponent)
         {
             int ghostType;
             for (ghostType = 0; ghostType < ghostCollection.Length; ++ghostType)
@@ -84,9 +84,9 @@ namespace Unity.NetCode.PrespawnTests
                 //Check that the baseline contains what we expect
                 unsafe
                 {
-                    var ghost = world.EntityManager.GetComponentData<GhostComponent>(ent);
+                    var ghost = world.EntityManager.GetComponentData<GhostInstance>(ent);
                     Assert.AreEqual(-1, ghost.ghostType);
-                    var ghostType = world.EntityManager.GetComponentData<GhostTypeComponent>(ent);
+                    var ghostType = world.EntityManager.GetComponentData<GhostType>(ent);
                     var idx = FindGhostType(ghostPrefabs, ghostType);
                     Assert.AreNotEqual(-1, idx);
                     //Need to lookup who is it
@@ -120,7 +120,7 @@ namespace Unity.NetCode.PrespawnTests
 
         void ValidateReceivedSnapshotData(World clientWorld)
         {
-            var query = clientWorld.EntityManager.CreateEntityQuery(ComponentType.ReadOnly<GhostComponent>(), ComponentType.ReadOnly<PreSpawnedGhostIndex>());
+            var query = clientWorld.EntityManager.CreateEntityQuery(ComponentType.ReadOnly<GhostInstance>(), ComponentType.ReadOnly<PreSpawnedGhostIndex>());
             var entities = query.ToEntityArray(Allocator.Temp);
             var ghostCollectionEntity = clientWorld.EntityManager.CreateEntityQuery(typeof(GhostCollection)).GetSingletonEntity();
             var ghostCollection = clientWorld.EntityManager.GetBuffer<GhostCollectionPrefabSerializer>(ghostCollectionEntity);
@@ -131,7 +131,7 @@ namespace Unity.NetCode.PrespawnTests
             {
                 for (int i = 0; i < entities.Length; ++i)
                 {
-                    var ghost = clientWorld.EntityManager.GetComponentData<GhostComponent>(entities[i]);
+                    var ghost = clientWorld.EntityManager.GetComponentData<GhostInstance>(entities[i]);
                     Assert.AreNotEqual(-1, ghost.ghostType);
                     var typeData = ghostCollection[ghost.ghostType];
                     var snapshotData = clientWorld.EntityManager.GetComponentData<SnapshotData>(entities[i]);
@@ -425,8 +425,8 @@ namespace Unity.NetCode.PrespawnTests
                 Assert.AreEqual(0, numReceived);
                 Assert.AreEqual(0, uncompressed);
 
-                var serverQuery = testWorld.ServerWorld.EntityManager.CreateEntityQuery(ComponentType.ReadOnly<GhostComponent>(), ComponentType.ReadOnly<PreSpawnedGhostIndex>());
-                var serverGhosts = serverQuery.ToComponentDataArray<GhostComponent>(Allocator.Temp);
+                var serverQuery = testWorld.ServerWorld.EntityManager.CreateEntityQuery(ComponentType.ReadOnly<GhostInstance>(), ComponentType.ReadOnly<PreSpawnedGhostIndex>());
+                var serverGhosts = serverQuery.ToComponentDataArray<GhostInstance>(Allocator.Temp);
                 var serverEntities = serverQuery.ToEntityArray(Allocator.Temp);
                 var ghostCollectionEntity = testWorld.ClientWorlds[0].EntityManager.CreateEntityQuery(typeof(GhostCollection)).GetSingletonEntity();
 
@@ -500,7 +500,7 @@ namespace Unity.NetCode.PrespawnTests
                         var ent = testWorld.ClientWorlds[0].EntityManager.GetComponentData<SpawnedGhostEntityMap>(recvGhostMapSingleton).Value[ghost];
                         var snapshotData = testWorld.ClientWorlds[0].EntityManager.GetComponentData<SnapshotData>(ent);
                         var snapshotBuffer = testWorld.ClientWorlds[0].EntityManager.GetBuffer<SnapshotDataBuffer>(ent);
-                        var ghostType = testWorld.ClientWorlds[0].EntityManager.GetComponentData<GhostComponent>(ent).ghostType;
+                        var ghostType = testWorld.ClientWorlds[0].EntityManager.GetComponentData<GhostInstance>(ent).ghostType;
                         var typeData = ghostCollection[ghostType];
                         int snapshotSize = typeData.SnapshotSize;
                         unsafe
@@ -520,7 +520,7 @@ namespace Unity.NetCode.PrespawnTests
                 {
                     var ghost = new SpawnedGhost{ghostId = serverGhosts[i].ghostId, spawnTick = serverGhosts[i].spawnTick};
                     var ent = testWorld.ClientWorlds[0].EntityManager.GetComponentData<SpawnedGhostEntityMap>(recvGhostMapSingleton).Value[ghost];
-                    var ghostType = testWorld.ClientWorlds[0].EntityManager.GetComponentData<GhostComponent>(ent).ghostType;
+                    var ghostType = testWorld.ClientWorlds[0].EntityManager.GetComponentData<GhostInstance>(ent).ghostType;
                     Assert.AreEqual(-1, ghostType);
                 }
                 //From here on I should receive 0 again (since the zerochange frame has been acked)
@@ -576,7 +576,7 @@ namespace Unity.NetCode.PrespawnTests
                 {
                     var ghost = new SpawnedGhost{ghostId = serverGhosts[i].ghostId, spawnTick = serverGhosts[i].spawnTick};
                     var ent = testWorld.ClientWorlds[0].EntityManager.GetComponentData<SpawnedGhostEntityMap>(recvGhostMapSingleton).Value[ghost];
-                    var ghostType = testWorld.ClientWorlds[0].EntityManager.GetComponentData<GhostComponent>(ent).ghostType;
+                    var ghostType = testWorld.ClientWorlds[0].EntityManager.GetComponentData<GhostInstance>(ent).ghostType;
                     Assert.AreEqual(-1, ghostType);
                 }
 
@@ -589,7 +589,7 @@ namespace Unity.NetCode.PrespawnTests
                         var ent = testWorld.ClientWorlds[0].EntityManager.GetComponentData<SpawnedGhostEntityMap>(recvGhostMapSingleton).Value[ghost];
                         var snapshotData = testWorld.ClientWorlds[0].EntityManager.GetComponentData<SnapshotData>(ent);
                         var snapshotBuffer = testWorld.ClientWorlds[0].EntityManager.GetBuffer<SnapshotDataBuffer>(ent);
-                        var ghostType = testWorld.ClientWorlds[0].EntityManager.GetComponentData<GhostComponent>(ent)                            .ghostType;
+                        var ghostType = testWorld.ClientWorlds[0].EntityManager.GetComponentData<GhostInstance>(ent)                            .ghostType;
                         var typeData = ghostCollection[ghostType];
                         int snapshotSize = typeData.SnapshotSize;
                         unsafe
@@ -633,7 +633,7 @@ namespace Unity.NetCode.PrespawnTests
                     {
                         var ghost = new SpawnedGhost { ghostId = serverGhosts[i].ghostId, spawnTick = serverGhosts[i].spawnTick };
                         var ent = testWorld.ClientWorlds[0].EntityManager.GetComponentData<SpawnedGhostEntityMap>(recvGhostMapSingleton).Value[ghost];
-                        var ghostType = testWorld.ClientWorlds[0].EntityManager.GetComponentData<GhostComponent>(ent).ghostType;
+                        var ghostType = testWorld.ClientWorlds[0].EntityManager.GetComponentData<GhostInstance>(ent).ghostType;
                         Assert.AreNotEqual(-1, ghostType);
                         var snapshotData = testWorld.ClientWorlds[0].EntityManager.GetComponentData<SnapshotData>(ent);
                         var snapshotBuffer = testWorld.ClientWorlds[0].EntityManager.GetBuffer<SnapshotDataBuffer>(ent);

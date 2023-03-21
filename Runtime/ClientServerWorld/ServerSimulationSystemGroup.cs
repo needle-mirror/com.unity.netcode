@@ -169,7 +169,7 @@ namespace Unity.NetCode
     [DisableAutoCreation]
 #endif
     [WorldSystemFilter(WorldSystemFilterFlags.LocalSimulation)]
-    internal class TickServerSimulationSystem : TickComponentSystemGroup
+    internal partial class TickServerSimulationSystem : TickComponentSystemGroup
     {
     }
 #endif

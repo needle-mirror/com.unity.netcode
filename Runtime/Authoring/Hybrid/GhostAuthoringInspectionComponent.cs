@@ -23,7 +23,7 @@ namespace Unity.NetCode
 
         /// <summary>
         /// List of all saved modifications that the user has applied to this entity.
-        /// If not set, defaults to whatever Attribute values the user has setup on each <see cref="GhostComponent"/>.
+        /// If not set, defaults to whatever Attribute values the user has setup on each <see cref="GhostInstance"/>.
         /// </summary>
         [FormerlySerializedAs("m_ComponentOverrides")]
         [SerializeField]

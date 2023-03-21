@@ -130,7 +130,7 @@ namespace Unity.NetCode.Generators
                     pre += regionNameTokens[1];
                 }
 
-                regionEnd = templateData.IndexOf("\n", regionEnd, StringComparison.Ordinal);
+                regionEnd = templateData.IndexOf('\n', regionEnd);
                 var post = "";
                 if (regionEnd >= 0)
                     post = templateData.Substring(regionEnd + 1);

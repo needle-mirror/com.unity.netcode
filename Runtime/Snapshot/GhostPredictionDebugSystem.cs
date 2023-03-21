@@ -13,7 +13,7 @@ using Unity.Jobs.LowLevel.Unsafe;
 
 namespace Unity.NetCode
 {
-#if UNITY_EDITOR || DEVELOPMENT_BUILD
+#if UNITY_EDITOR || NETCODE_DEBUG
     [WorldSystemFilter(WorldSystemFilterFlags.ClientSimulation)]
     [UpdateInGroup(typeof(PredictedSimulationSystemGroup), OrderLast = true)]
     [UpdateBefore(typeof(GhostPredictionSmoothingSystem))]
@@ -25,8 +25,8 @@ namespace Unity.NetCode
 
         EntityQuery m_PredictionQuery;
 
-        ComponentTypeHandle<GhostComponent> m_GhostComponentHandle;
-        ComponentTypeHandle<PredictedGhostComponent> m_PredictedGhostComponentHandle;
+        ComponentTypeHandle<GhostInstance> m_GhostComponentHandle;
+        ComponentTypeHandle<PredictedGhost> m_PredictedGhostHandle;
         BufferTypeHandle<LinkedEntityGroup> m_LinkedEntityGroupHandle;
         EntityTypeHandle m_EntityTypeHandle;
         BufferLookup<GhostComponentSerializer.State> m_GhostComponentSerializerStateFromEntity;
@@ -37,12 +37,12 @@ namespace Unity.NetCode
         public void OnCreate(ref SystemState state)
         {
             var builder = new EntityQueryBuilder(Allocator.Temp)
-                .WithAll<PredictedGhostComponent, GhostComponent>();
+                .WithAll<PredictedGhost, GhostInstance>();
             m_PredictionQuery = state.GetEntityQuery(builder);
             m_PredictionErrors = new NativeList<float>(128, Allocator.Persistent);
 
-            m_GhostComponentHandle = state.GetComponentTypeHandle<GhostComponent>(true);
-            m_PredictedGhostComponentHandle = state.GetComponentTypeHandle<PredictedGhostComponent>(true);
+            m_GhostComponentHandle = state.GetComponentTypeHandle<GhostInstance>(true);
+            m_PredictedGhostHandle = state.GetComponentTypeHandle<PredictedGhost>(true);
             m_LinkedEntityGroupHandle = state.GetBufferTypeHandle<LinkedEntityGroup>(true);
             m_EntityTypeHandle = state.GetEntityTypeHandle();
 
@@ -72,7 +72,7 @@ namespace Unity.NetCode
             }
 
             m_GhostComponentHandle.Update(ref state);
-            m_PredictedGhostComponentHandle.Update(ref state);
+            m_PredictedGhostHandle.Update(ref state);
             m_LinkedEntityGroupHandle.Update(ref state);
             m_EntityTypeHandle.Update(ref state);
 
@@ -85,7 +85,7 @@ namespace Unity.NetCode
             {
                 predictionState = SystemAPI.GetSingleton<GhostPredictionHistoryState>().PredictionState,
                 ghostType = m_GhostComponentHandle,
-                predictedGhostType = m_PredictedGhostComponentHandle,
+                predictedGhostType = m_PredictedGhostHandle,
                 entityType = m_EntityTypeHandle,
 
                 GhostCollectionSingleton = GhostCollectionSingleton,
@@ -96,11 +96,7 @@ namespace Unity.NetCode
                 childEntityLookup = state.GetEntityStorageInfoLookup(),
                 linkedEntityGroupType = m_LinkedEntityGroupHandle,
                 tick = networkTime.ServerTick,
-#if !ENABLE_TRANSFORM_V1
                 transformType = ComponentType.ReadWrite<LocalTransform>(),
-#else
-                translationType = ComponentType.ReadWrite<Translation>(),
-#endif
 
                 predictionErrors = m_PredictionErrors.AsArray(),
                 numPredictionErrors = predictionErrorCount
@@ -161,8 +157,8 @@ namespace Unity.NetCode
             public DynamicTypeList DynamicTypeList;
             public NativeParallelHashMap<ArchetypeChunk, System.IntPtr>.ReadOnly predictionState;
 
-            [ReadOnly] public ComponentTypeHandle<GhostComponent> ghostType;
-            [ReadOnly] public ComponentTypeHandle<PredictedGhostComponent> predictedGhostType;
+            [ReadOnly] public ComponentTypeHandle<GhostInstance> ghostType;
+            [ReadOnly] public ComponentTypeHandle<PredictedGhost> predictedGhostType;
             [ReadOnly] public EntityTypeHandle entityType;
 
             public Entity GhostCollectionSingleton;
@@ -175,11 +171,7 @@ namespace Unity.NetCode
 
             public NetworkTick tick;
             // FIXME: placeholder to show the idea behind prediction smoothing
-#if !ENABLE_TRANSFORM_V1
             public ComponentType transformType;
-#else
-            public ComponentType translationType;
-#endif
 
             const GhostComponentSerializer.SendMask requiredSendMask = GhostComponentSerializer.SendMask.Predicted;
 
@@ -216,7 +208,7 @@ namespace Unity.NetCode
                 Entity* backupEntities = PredictionBackupState.GetEntities(state);
                 var entities = chunk.GetNativeArray(entityType);
 
-                var predictedGhostComponents = chunk.GetNativeArray(ref predictedGhostType);
+                var PredictedGhosts = chunk.GetNativeArray(ref predictedGhostType);
 
                 byte* dataPtr = PredictionBackupState.GetData(state);
                 int numBaseComponents = typeData.NumComponents - typeData.NumChildComponents;
@@ -242,7 +234,7 @@ namespace Unity.NetCode
                             for (int ent = 0; ent < entities.Length; ++ent)
                             {
                                 // If this entity did not predict anything there was no rollback and no need to debug it
-                                if (!predictedGhostComponents[ent].ShouldPredict(tick))
+                                if (!PredictedGhosts[ent].ShouldPredict(tick))
                                     continue;
                                 if (entities[ent] == backupEntities[ent])
                                 {
@@ -285,7 +277,7 @@ namespace Unity.NetCode
                         for (int ent = 0, chunkEntityCount = chunk.Count; ent < chunkEntityCount; ++ent)
                         {
                             // If this entity did not predict anything there was no rollback and no need to debug it
-                            if (!predictedGhostComponents[ent].ShouldPredict(tick))
+                            if (!PredictedGhosts[ent].ShouldPredict(tick))
                                 continue;
                             if (entities[ent] != backupEntities[ent])
                                 continue;

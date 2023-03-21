@@ -157,6 +157,12 @@ namespace Unity.NetCode.Hybrid
     /// of the entity owning it.
     /// </summary>
     [UpdateInGroup(typeof(TransformSystemGroup))]
+#if !ENABLE_TRANSFORM_V1
+    [UpdateAfter(typeof(LocalToWorldSystem))]
+#else
+    [UpdateAfter(typeof(TRSToLocalToWorldSystem))]
+#endif
+
     public partial class GhostPresentationGameObjectTransformSystem : SystemBase
     {
         private GhostPresentationGameObjectSystem m_GhostPresentationGameObjectSystem;
@@ -169,36 +175,47 @@ namespace Unity.NetCode.Hybrid
         struct TransformUpdateJob : IJobParallelForTransform
         {
             [ReadOnly] public NativeList<Entity> Entities;
-#if !ENABLE_TRANSFORM_V1
-            [ReadOnly] public ComponentLookup<LocalTransform> TransformFromEntity;
+            //Why we need to use LocalToWorld here and it work. Both Physics and Netcode for Entities
+            //can alter the perceived position of the Entity on screen by modifying directly the
+            //LTW. In particular: Physics interpolation/extrapolation, Prediction switching.
+            //Because of that, the entity and its rendering can be "out of sync" (1d for simplicity):
+            //
+            //  (interpolated/prediction switching)
+            //   |       (S)
+            //   |     (D)
+            //   | ------------------
+            //
+            //  (exrapolated)
+            //   |     (S)
+            //   |       (D)
+            //   | ------------------
+            //
+            //  [Simulated Entity (S)]
+            //  [Displayed Entity (D)]
+            //
+            // The GameObject is the representation of the entity on the screen.
+            // We need to decide where we should render it. We can either use:
+            // - The local position of the entity (simulated)
+            // - The "perceived" one (LTW)
+            // The correct answer is actually even simpler: we need to have the rendered position in sync.
+            // So, the GameObject position MUST be taken from the LTW. That is a world position.
+            // However, because usually the GameObject is a root one (no parent) we can set the LocalPosition
+            // instead of Position.
+            //
+            [ReadOnly] public ComponentLookup<LocalToWorld> TransformFromEntity;
             public void Execute(int index, TransformAccess transform)
             {
                 var ent = Entities[index];
                 transform.localPosition = TransformFromEntity[ent].Position;
                 transform.localRotation = TransformFromEntity[ent].Rotation;
             }
-#else
-            [ReadOnly] public ComponentLookup<Translation> TranslationFromEntity;
-            [ReadOnly] public ComponentLookup<Rotation> RotationFromEntity;
-            public void Execute(int index, TransformAccess transform)
-            {
-                var ent = Entities[index];
-                transform.localPosition = TranslationFromEntity[ent].Value;
-                transform.localRotation = RotationFromEntity[ent].Value;
-            }
-#endif
         }
         protected override void OnUpdate()
         {
             var transformJob = new TransformUpdateJob
             {
                 Entities = m_GhostPresentationGameObjectSystem.m_Entities,
-#if !ENABLE_TRANSFORM_V1
-                TransformFromEntity = GetComponentLookup<LocalTransform>(true),
-#else
-                TranslationFromEntity = GetComponentLookup<Translation>(true),
-                RotationFromEntity = GetComponentLookup<Rotation>(true)
-#endif
+                TransformFromEntity = GetComponentLookup<LocalToWorld>(true),
             };
             Dependency = transformJob.Schedule(m_GhostPresentationGameObjectSystem.m_Transforms, Dependency);
         }

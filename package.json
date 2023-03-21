@@ -1,26 +1,26 @@
 {
   "name": "com.unity.netcode",
   "displayName": "Netcode for Entities",
-  "version": "1.0.0-pre.47",
+  "version": "1.0.0-pre.65",
   "unity": "2022.2",
   "unityRelease": "2f1",
   "description": "Unity's Data Oriented Technology Stack (DOTS) multiplayer netcode layer - a high level netcode system built on entities. This package provides a foundation for creating networked multiplayer applications within DOTS.",
   "dependencies": {
     "com.unity.transport": "2.0.0-pre.6",
-    "com.unity.entities": "1.0.0-pre.47",
-    "com.unity.logging": "1.0.0-pre.21",
+    "com.unity.entities": "1.0.0-pre.65",
+    "com.unity.logging": "1.0.0-pre.37",
     "com.unity.modules.animation": "1.0.0"
   },
   "_upm": {
-    "changelog": "### Fixed\n\n* Snapshot history buffer not restore correctly, causing entities component to be stomped with random data."
+    "changelog": "### Added\n\n* validate and sanitise connect and listen addresses when using IPCNetworkInterface. That was causing some nasty crash in the Transport without users understanding the actual problem.\n\n### Changed\n\n* the following components has been renamed: | Original Name | New Name        | | ---------------| ---------------| |NetworkSnapshotAckComponent| NetworkSnapshotAck | |IncomingSnapshotDataStreamBufferComponent| IncomingSnapshotDataStreamBuffer | |IncomingRpcDataStreamBufferComponent| IncomingRpcDataStreamBuffer | |OutgoingRpcDataStreamBufferComponent| OutgoingRpcDataStreamBuffer  | |IncomingCommandDataStreamBufferComponent| IncomingCommandDataStreamBuffer | |OutgoingCommandDataStreamBufferComponent|OutgoingCommandDataStreamBuffer| |NetworkIdComponent|NetworkId| |CommandTargetComponent|CommandTarget| |GhostComponent|GhostInstance| |GhostChildEntityComponent|GhostChildEntity| |GhostOwnerComponent|GhostOwner| |PredictedGhostComponent|PredictedGhost| |GhostTypeComponent|GhostType| |SharedGhostTypeComponent|GhostTypePartition| |GhostCleanupComponent|GhostCleanup| |GhostPrefabMetaDataComponent|GhostPrefabMetaData| |PredictedGhostSpawnRequestComponent|PredictedGhostSpawnRequest| |PendingSpawnPlaceholderComponent|PendingSpawnPlaceholder| |ReceiveRpcCommandRequestComponent|ReceiveRpcCommandRequest| |SendRpcCommandRequestComponent|SendRpcCommandRequest| |MetricsMonitorComponent|MetricsMonitor|\n\n### Removed\n\n* internal ListenAsync/ConnectAsync methods (no visible API changes for the users)\n\n### Fixed\n\n* a very unfrequent exception thrown in presence of a ghost with a replicated component that does not present any prediction errors names (i.e an Entity reference).\n* source generator crash when logging missing assembly dependency.\n* source generator requiring Unity.Transport package dependency for generating serialization code.\n* Snapshot history buffer not restore correctly, causing entities component to be stomped with random data.\n* Fixed an issue when ClientServerBootstrap.AutoConnectPort is 0 indicating autoconnecting should be disabled and you will connect manually via the driver connect API, but the playmode tools ip/port fields would still triggering (so you get two connections set up and errors). We also now prevent attempts to make a connection while one is already established.\n* an issue with source generator, validating incorrectly custom templates that uses overrides.\n* removed warning for old temp allocation when converting sub-scene with pre-spawned ghosts.\n* Forced all `ICommandData`'s `InternalBufferCapacity` to be zero, because we were constantly wasting hundreds of bytes per entity to store data that we know for certain will not fit into the internal capacity (as the dynamic buffer required length is hardcoded to 64, for netcode input buffers).\n* Fixed potential crash in players when send queue is full\n* Fixed exceptions when trying to use invalid interpolation ticks (could happen during snapshot updates or in predicted spawning system on disconnection)"
   },
   "upmCi": {
-    "footprint": "16e299560c2d5c37fd60a28c7213f86861f199a2"
+    "footprint": "2db64c497755f69af8f6c9cd2365a8e6c67f4cb0"
   },
   "documentationUrl": "https://docs.unity3d.com/Packages/com.unity.netcode@1.0/manual/index.html",
   "repository": {
     "url": "https://github.cds.internal.unity3d.com/unity/dots.git",
     "type": "git",
-    "revision": "36551e18e8f4a1b29a42b997554369e56ce8875a"
+    "revision": "85530c484ef7afedc5b128081152ec5e1f6f30e2"
   }
 }

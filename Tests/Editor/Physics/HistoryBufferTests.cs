@@ -22,11 +22,7 @@ namespace Unity.NetCode.Physics.Tests
         {
             var historyBuffer = new CollisionHistoryBuffer(1);
             Entities
-#if !ENABLE_TRANSFORM_V1
                 .WithAll<LocalTransform>()
-#else
-                .WithAll<Translation>()
-#endif
                 .ForEach(() =>
                 {
                     historyBuffer.GetCollisionWorldFromTick(new NetworkTick(0),0, out var world);
@@ -37,11 +33,7 @@ namespace Unity.NetCode.Physics.Tests
             }, "PhysicHistoryBuffer must be declared as ReadOnly if a job does not write to it");
 
             Entities
-#if !ENABLE_TRANSFORM_V1
                 .WithAll<LocalTransform>()
-#else
-                .WithAll<Translation>()
-#endif
                 .WithoutBurst()
                 //.WithReadOnly(historyBuffer)
                 .ForEach(() =>
@@ -323,11 +315,7 @@ namespace Unity.NetCode.Physics.Tests
         {
             var entityWorld = new World("NetCodeTest");
             entityWorld.GetOrCreateSystemManaged<TestPhysicsAndEntityForEach>();
-#if !ENABLE_TRANSFORM_V1
             var archetype = entityWorld.EntityManager.CreateArchetype(typeof(LocalTransform));
-#else
-            var archetype = entityWorld.EntityManager.CreateArchetype(typeof(Translation));
-#endif
             var entities = entityWorld.EntityManager.CreateEntity(archetype, 10, Allocator.Temp);
             entities.Dispose();
             Assert.DoesNotThrow(() => { entityWorld.Update(); });

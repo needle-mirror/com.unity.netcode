@@ -106,7 +106,7 @@ namespace Unity.NetCode
         /// </summary>
         static bool ConvertGhostToPredicted(EntityManager entityManager, GhostUpdateVersion ghostUpdateVersion, NetDebug netDbg, NativeArray<GhostCollectionPrefab> ghostCollectionPrefabs, Entity entity, float transitionDuration = 0)
         {
-            if (!entityManager.HasComponent<GhostComponent>(entity))
+            if (!entityManager.HasComponent<GhostInstance>(entity))
             {
                 netDbg.LogError($"Trying to convert a ghost to predicted, but this is not a ghost entity! {entity.ToFixedString()}");
                 return false;
@@ -116,25 +116,25 @@ namespace Unity.NetCode
                 netDbg.LogError($"Trying to convert a ghost to predicted, but this is a prefab! {entity.ToFixedString()}");
                 return false;
             }
-            if (entityManager.HasComponent<PredictedGhostComponent>(entity))
+            if (entityManager.HasComponent<PredictedGhost>(entity))
             {
                 netDbg.LogWarning($"Trying to convert a ghost to predicted, but it is already predicted! {entity.ToFixedString()}");
                 return false;
             }
-            var ghost = entityManager.GetComponentData<GhostComponent>(entity);
+            var ghost = entityManager.GetComponentData<GhostInstance>(entity);
             var prefab = ghostCollectionPrefabs[ghost.ghostType].GhostPrefab;
-            if (!entityManager.HasComponent<GhostPrefabMetaDataComponent>(prefab))
+            if (!entityManager.HasComponent<GhostPrefabMetaData>(prefab))
             {
                 netDbg.LogWarning($"Trying to convert a ghost to predicted, but did not find a prefab with meta data! {entity.ToFixedString()}");
                 return false;
             }
-            ref var ghostMetaData = ref entityManager.GetComponentData<GhostPrefabMetaDataComponent>(prefab).Value.Value;
-            if (ghostMetaData.SupportedModes != GhostPrefabMetaData.GhostMode.Both)
+            ref var ghostMetaData = ref entityManager.GetComponentData<GhostPrefabMetaData>(prefab).Value.Value;
+            if (ghostMetaData.SupportedModes != GhostPrefabBlobMetaData.GhostMode.Both)
             {
                 netDbg.LogWarning($"Trying to convert a ghost to predicted, but it does not support both modes! {entity.ToFixedString()}");
                 return false;
             }
-            if (ghostMetaData.DefaultMode == GhostPrefabMetaData.GhostMode.Both)
+            if (ghostMetaData.DefaultMode == GhostPrefabBlobMetaData.GhostMode.Both)
             {
                 netDbg.LogWarning($"Trying to convert a ghost to predicted, but it is owner predicted and owner predicted ghosts cannot be switched on demand! {entity.ToFixedString()}");
                 return false;
@@ -152,7 +152,7 @@ namespace Unity.NetCode
         /// </summary>
         static bool ConvertGhostToInterpolated(EntityManager entityManager, GhostUpdateVersion ghostUpdateVersion, NetDebug netDbg, NativeArray<GhostCollectionPrefab> ghostCollectionPrefabs, Entity entity, float transitionDuration = 0)
         {
-            if (!entityManager.HasComponent<GhostComponent>(entity))
+            if (!entityManager.HasComponent<GhostInstance>(entity))
             {
                 netDbg.LogError($"Trying to convert a ghost to interpolated, but this is not a ghost entity! {entity.ToFixedString()}");
                 return false;
@@ -162,32 +162,32 @@ namespace Unity.NetCode
                 netDbg.LogError($"Trying to convert a ghost to interpolated, but this is a prefab! {entity.ToFixedString()}");
                 return false;
             }
-            if (!entityManager.HasComponent<PredictedGhostComponent>(entity))
+            if (!entityManager.HasComponent<PredictedGhost>(entity))
             {
                 netDbg.LogWarning($"Trying to convert a ghost to interpolated, but it is already interpolated! {entity.ToFixedString()}");
                 return false;
             }
 
-            var ghost = entityManager.GetComponentData<GhostComponent>(entity);
+            var ghost = entityManager.GetComponentData<GhostInstance>(entity);
             var prefab = ghostCollectionPrefabs[ghost.ghostType].GhostPrefab;
-            if (!entityManager.HasComponent<GhostPrefabMetaDataComponent>(prefab))
+            if (!entityManager.HasComponent<GhostPrefabMetaData>(prefab))
             {
                 netDbg.LogWarning($"Trying to convert a ghost to interpolated, but did not find a prefab with meta data! {entity.ToFixedString()}");
                 return false;
             }
-            if (!entityManager.HasComponent<PredictedGhostComponent>(entity))
+            if (!entityManager.HasComponent<PredictedGhost>(entity))
             {
                 //netDbg.LogWarning("Trying to convert a ghost to interpolated, but it is already interpolated");
                 return false;
             }
 
-            ref var ghostMetaData = ref entityManager.GetComponentData<GhostPrefabMetaDataComponent>(prefab).Value.Value;
-            if (ghostMetaData.SupportedModes != GhostPrefabMetaData.GhostMode.Both)
+            ref var ghostMetaData = ref entityManager.GetComponentData<GhostPrefabMetaData>(prefab).Value.Value;
+            if (ghostMetaData.SupportedModes != GhostPrefabBlobMetaData.GhostMode.Both)
             {
                 netDbg.LogWarning($"Trying to convert a ghost to interpolated, but it does not support both modes! {entity.ToFixedString()}");
                 return false;
             }
-            if (ghostMetaData.DefaultMode == GhostPrefabMetaData.GhostMode.Both)
+            if (ghostMetaData.DefaultMode == GhostPrefabBlobMetaData.GhostMode.Both)
             {
                 netDbg.LogWarning($"Trying to convert a ghost to interpolated, but it is owner predicted and owner predicted ghosts cannot be switched on demand! {entity.ToFixedString()}");
                 return false;
@@ -198,7 +198,7 @@ namespace Unity.NetCode
             return AddRemoveComponents(entityManager, ref ghostUpdateVersion, entity, prefab, ref toAdd, ref toRemove, transitionDuration);
         }
 
-        static unsafe bool AddRemoveComponents(EntityManager entityManager, ref GhostUpdateVersion ghostUpdateVersion, Entity entity, Entity prefab, ref BlobArray<GhostPrefabMetaData.ComponentReference> toAdd, ref BlobArray<GhostPrefabMetaData.ComponentReference> toRemove, float duration)
+        static unsafe bool AddRemoveComponents(EntityManager entityManager, ref GhostUpdateVersion ghostUpdateVersion, Entity entity, Entity prefab, ref BlobArray<GhostPrefabBlobMetaData.ComponentReference> toAdd, ref BlobArray<GhostPrefabBlobMetaData.ComponentReference> toRemove, float duration)
         {
             var linkedEntityGroup = entityManager.GetBuffer<LinkedEntityGroup>(entity).ToNativeArray(Allocator.Temp);
             var prefabLinkedEntityGroup = entityManager.GetBuffer<LinkedEntityGroup>(prefab).ToNativeArray(Allocator.Temp);
@@ -245,16 +245,9 @@ namespace Unity.NetCode
             }
             if (duration > 0 &&
                 entityManager.HasComponent<LocalToWorld>(entity) &&
-#if !ENABLE_TRANSFORM_V1
                 entityManager.HasComponent<LocalTransform>(entity))
-#else
-                entityManager.HasComponent<Translation>(entity) &&
-                entityManager.HasComponent<Rotation>(entity))
-#endif
             {
-#if !ENABLE_TRANSFORM_V1
-                entityManager.AddComponent(entity, new ComponentTypeSet(ComponentType.ReadWrite<SwitchPredictionSmoothing>(),
-                    ComponentType.ReadWrite<PropagateLocalToWorld>()));
+                entityManager.AddComponent(entity, new ComponentTypeSet(ComponentType.ReadWrite<SwitchPredictionSmoothing>()));
                 var localTransform = entityManager.GetComponentData<LocalTransform>(entity);
                 entityManager.SetComponentData(entity, new SwitchPredictionSmoothing
                 {
@@ -264,16 +257,6 @@ namespace Unity.NetCode
                     Duration = duration,
                     SkipVersion = ghostUpdateVersion.LastSystemVersion
                 });
-#else
-                entityManager.AddComponentData(entity, new SwitchPredictionSmoothing
-                {
-                    InitialPosition = entityManager.GetComponentData<Translation>(entity).Value,
-                    InitialRotation = entityManager.GetComponentData<Rotation>(entity).Value,
-                    CurrentFactor = 0,
-                    Duration = duration,
-                    SkipVersion = ghostUpdateVersion.LastSystemVersion
-                });
-#endif
             }
             return true;
         }

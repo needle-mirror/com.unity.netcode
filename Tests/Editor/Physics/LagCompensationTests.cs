@@ -18,10 +18,11 @@ namespace Unity.NetCode.Physics.Tests
     {
         public void Bake(GameObject gameObject, IBaker baker)
         {
-            baker.AddBuffer<LagCompensationTestCommand>();
-            baker.AddComponent(new CommandDataInterpolationDelay());
-            baker.AddComponent(new LagCompensationTestPlayer());
-            baker.AddComponent(new GhostOwnerComponent());
+            var entity = baker.GetEntity(TransformUsageFlags.Dynamic);
+            baker.AddBuffer<LagCompensationTestCommand>(entity);
+            baker.AddComponent(entity, new CommandDataInterpolationDelay());
+            baker.AddComponent(entity, new LagCompensationTestPlayer());
+            baker.AddComponent(entity, new GhostOwner());
         }
     }
 
@@ -76,8 +77,8 @@ namespace Unity.NetCode.Physics.Tests
         protected override void OnCreate()
         {
             m_BeginSimulationCommandBufferSystem = World.GetOrCreateSystemManaged<BeginSimulationEntityCommandBufferSystem>();
-            m_PlayerPrefabQuery = GetEntityQuery(ComponentType.ReadOnly<Prefab>(), ComponentType.ReadOnly<GhostComponent>(), ComponentType.ReadOnly<LagCompensationTestPlayer>());
-            m_CubePrefabQuery = GetEntityQuery(ComponentType.ReadOnly<Prefab>(), ComponentType.ReadOnly<GhostComponent>(), ComponentType.Exclude<LagCompensationTestPlayer>());
+            m_PlayerPrefabQuery = GetEntityQuery(ComponentType.ReadOnly<Prefab>(), ComponentType.ReadOnly<GhostInstance>(), ComponentType.ReadOnly<LagCompensationTestPlayer>());
+            m_CubePrefabQuery = GetEntityQuery(ComponentType.ReadOnly<Prefab>(), ComponentType.ReadOnly<GhostInstance>(), ComponentType.Exclude<LagCompensationTestPlayer>());
         }
         protected override void OnUpdate()
         {
@@ -86,7 +87,7 @@ namespace Unity.NetCode.Physics.Tests
             bool isServer = World.IsServer();
             var playerPrefab = m_PlayerPrefabQuery.ToEntityArray(Allocator.Temp)[0];
             var cubePrefab = m_CubePrefabQuery.ToEntityArray(Allocator.Temp)[0];
-            Entities.WithNone<NetworkStreamInGame>().WithoutBurst().ForEach((int entityInQueryIndex, Entity ent, in NetworkIdComponent id) =>
+            Entities.WithNone<NetworkStreamInGame>().WithoutBurst().ForEach((int entityInQueryIndex, Entity ent, in NetworkId id) =>
             {
                 commandBuffer.AddComponent(entityInQueryIndex, ent, new NetworkStreamInGame());
                 if (isServer)
@@ -95,8 +96,8 @@ namespace Unity.NetCode.Physics.Tests
                     // Spawn the cube when a player connects for simplicity
                     commandBuffer.Instantiate(entityInQueryIndex, cubePrefab);
                     var player = commandBuffer.Instantiate(entityInQueryIndex, playerPrefab);
-                    commandBuffer.SetComponent(entityInQueryIndex, player, new GhostOwnerComponent{NetworkId = id.Value});
-                    commandBuffer.SetComponent(entityInQueryIndex, ent, new CommandTargetComponent{targetEntity = player});
+                    commandBuffer.SetComponent(entityInQueryIndex, player, new GhostOwner{NetworkId = id.Value});
+                    commandBuffer.SetComponent(entityInQueryIndex, ent, new CommandTarget{targetEntity = player});
                 }
             }).Schedule();
             m_BeginSimulationCommandBufferSystem.AddJobHandleForProducer(Dependency);
@@ -169,19 +170,11 @@ namespace Unity.NetCode.Physics.Tests
     {
         protected override void OnUpdate()
         {
-#if !ENABLE_TRANSFORM_V1
-            Entities.WithNone<LagCompensationTestPlayer>().WithAll<GhostComponent>().ForEach((ref LocalTransform trans) => {
+            Entities.WithNone<LagCompensationTestPlayer>().WithAll<GhostInstance>().ForEach((ref LocalTransform trans) => {
                 trans.Position.x += 0.1f;
                 if (trans.Position.x > 100)
                     trans.Position.x -= 200;
             }).ScheduleParallel();
-#else
-            Entities.WithNone<LagCompensationTestPlayer>().WithAll<GhostComponent>().ForEach((ref Translation pos) => {
-                pos.Value.x += 0.1f;
-                if (pos.Value.x > 100)
-                    pos.Value.x -= 200;
-            }).ScheduleParallel();
-#endif
         }
     }
 
@@ -240,15 +233,15 @@ namespace Unity.NetCode.Physics.Tests
         public static float3 Target;
         protected override void OnCreate()
         {
-            RequireForUpdate<CommandTargetComponent>();
+            RequireForUpdate<CommandTarget>();
         }
         protected override void OnUpdate()
         {
-            var target = SystemAPI.GetSingleton<CommandTargetComponent>();
+            var target = SystemAPI.GetSingleton<CommandTarget>();
             var networkTime = SystemAPI.GetSingleton<NetworkTime>();
             if (target.targetEntity == Entity.Null)
             {
-                foreach (var (ghost, entity) in SystemAPI.Query<RefRO<PredictedGhostComponent>>().WithEntityAccess().WithAll<LagCompensationTestPlayer>())
+                foreach (var (ghost, entity) in SystemAPI.Query<RefRO<PredictedGhost>>().WithEntityAccess().WithAll<LagCompensationTestPlayer>())
                 {
                     target.targetEntity = entity;
                     SystemAPI.SetSingleton(target);
@@ -262,21 +255,13 @@ namespace Unity.NetCode.Physics.Tests
             cmd.Tick = networkTime.ServerTick;
             if (math.any(Target != default))
             {
-#if !ENABLE_TRANSFORM_V1
-                Entities.WithoutBurst().WithNone<PredictedGhostComponent>().WithAll<GhostComponent>().ForEach((in LocalTransform trans) => {
+                Entities.WithoutBurst().WithNone<PredictedGhost>().WithAll<GhostInstance>().ForEach((in LocalTransform trans) => {
                     var offset = new float3(0,0,-10);
                     cmd.origin = trans.Position + offset;
                     cmd.direction = Target - offset;
                     cmd.lastFire = cmd.Tick;
                 }).Run();
-#else
-                Entities.WithoutBurst().WithNone<PredictedGhostComponent>().WithAll<GhostComponent>().ForEach((in Translation pos) => {
-                    var offset = new float3(0,0,-10);
-                    cmd.origin = pos.Value + offset;
-                    cmd.direction = Target - offset;
-                    cmd.lastFire = cmd.Tick;
-                }).Run();
-#endif
+
                 // If too close to an edge, wait a bit
                 if (cmd.origin.x < -90 || cmd.origin.x > 90)
                 {

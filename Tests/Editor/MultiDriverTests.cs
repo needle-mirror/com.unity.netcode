@@ -136,8 +136,8 @@ namespace Unity.NetCode.Tests
 
                 var clientConnectionEnt = new[]
                 {
-                    testWorld.TryGetSingletonEntity<NetworkIdComponent>(testWorld.ClientWorlds[0]),
-                    testWorld.TryGetSingletonEntity<NetworkIdComponent>(testWorld.ClientWorlds[1])
+                    testWorld.TryGetSingletonEntity<NetworkId>(testWorld.ClientWorlds[0]),
+                    testWorld.TryGetSingletonEntity<NetworkId>(testWorld.ClientWorlds[1])
                 };
                 var serverEnts = new Entity[2];
                 var clientEnts = new Entity[2];
@@ -145,8 +145,8 @@ namespace Unity.NetCode.Tests
                 {
                     serverEnts[i] = testWorld.SpawnOnServer(0);
                     testWorld.ServerWorld.EntityManager.AddComponent<CommandDataTestsTickInput>(serverEnts[i]);
-                    var netId = testWorld.ClientWorlds[i].EntityManager.GetComponentData<NetworkIdComponent>(clientConnectionEnt[i]);
-                    testWorld.ServerWorld.EntityManager.SetComponentData(serverEnts[i], new GhostOwnerComponent {NetworkId = netId.Value});
+                    var netId = testWorld.ClientWorlds[i].EntityManager.GetComponentData<NetworkId>(clientConnectionEnt[i]);
+                    testWorld.ServerWorld.EntityManager.SetComponentData(serverEnts[i], new GhostOwner {NetworkId = netId.Value});
                 }
                 for (int i = 0; i < 16; ++i)
                     testWorld.Tick(1f/60f);
@@ -155,7 +155,7 @@ namespace Unity.NetCode.Tests
                 {
                     var ghostMapSingleton = testWorld.TryGetSingletonEntity<SpawnedGhostEntityMap>(testWorld.ClientWorlds[i]);
                     var ghostEntityMap = testWorld.ClientWorlds[i].EntityManager.GetComponentData<SpawnedGhostEntityMap>(ghostMapSingleton).ClientGhostEntityMap;
-                    var ghostId = testWorld.ServerWorld.EntityManager.GetComponentData<GhostComponent>(serverEnts[i]).ghostId;
+                    var ghostId = testWorld.ServerWorld.EntityManager.GetComponentData<GhostInstance>(serverEnts[i]).ghostId;
                     Assert.AreEqual(2, ghostEntityMap.Count());
                     clientEnts[i] = ghostEntityMap[ghostId];
                     Assert.AreNotEqual(Entity.Null, clientEnts[i]);

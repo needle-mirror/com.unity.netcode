@@ -14,7 +14,7 @@ namespace Unity.NetCode
 #endif
     [UpdateInGroup(typeof(PresentationSystemGroup))]
     [WorldSystemFilter(WorldSystemFilterFlags.LocalSimulation)]
-    internal class TickClientPresentationSystem : TickComponentSystemGroup
+    internal partial class TickClientPresentationSystem : TickComponentSystemGroup
     {
     }
 #endif

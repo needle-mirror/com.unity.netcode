@@ -70,7 +70,7 @@ namespace Unity.NetCode.Tests
 
             var entity = parameters.CommandBuffer.CreateEntity(parameters.JobIndex);
             parameters.CommandBuffer.AddComponent(parameters.JobIndex, entity,
-                new ReceiveRpcCommandRequestComponent {SourceConnection = parameters.Connection});
+                new ReceiveRpcCommandRequest {SourceConnection = parameters.Connection});
             parameters.CommandBuffer.AddComponent(parameters.JobIndex, entity, serializedData);
         }
 
@@ -107,7 +107,7 @@ namespace Unity.NetCode.Tests
 
             var entity = parameters.CommandBuffer.CreateEntity(parameters.JobIndex);
             parameters.CommandBuffer.AddComponent(parameters.JobIndex, entity,
-                new ReceiveRpcCommandRequestComponent {SourceConnection = parameters.Connection});
+                new ReceiveRpcCommandRequest {SourceConnection = parameters.Connection});
             parameters.CommandBuffer.AddComponent(parameters.JobIndex, entity, serializedData);
         }
 
@@ -144,7 +144,7 @@ namespace Unity.NetCode.Tests
 
             var entity = parameters.CommandBuffer.CreateEntity(parameters.JobIndex);
             parameters.CommandBuffer.AddComponent(parameters.JobIndex, entity,
-                new ReceiveRpcCommandRequestComponent {SourceConnection = parameters.Connection});
+                new ReceiveRpcCommandRequest {SourceConnection = parameters.Connection});
             parameters.CommandBuffer.AddComponent(parameters.JobIndex, entity, serializedData);
         }
 
@@ -225,7 +225,7 @@ namespace Unity.NetCode.Tests
 
         protected override void OnCreate()
         {
-            RequireForUpdate<NetworkIdComponent>();
+            RequireForUpdate<NetworkId>();
         }
 
         protected override void OnUpdate()
@@ -234,7 +234,7 @@ namespace Unity.NetCode.Tests
             {
                 var req = EntityManager.CreateEntity();
                 EntityManager.AddComponentData(req, new SimpleRpcCommand());
-                EntityManager.AddComponentData(req, new SendRpcCommandRequestComponent {TargetConnection = Remote});
+                EntityManager.AddComponentData(req, new SendRpcCommandRequest {TargetConnection = Remote});
                 --SendCount;
             }
         }
@@ -253,7 +253,7 @@ namespace Unity.NetCode.Tests
                 var req = EntityManager.CreateEntity();
                 EntityManager.AddComponentData(req, new SimpleRpcCommand());
                 EntityManager.AddComponentData(req,
-                    new SendRpcCommandRequestComponent {TargetConnection = Entity.Null});
+                    new SendRpcCommandRequest {TargetConnection = Entity.Null});
                 --SendCount;
             }
         }
@@ -276,7 +276,7 @@ namespace Unity.NetCode.Tests
             //Even if we would tag the connection synchronously (in the middle of the frame)
             //if the client system is schedule to execute AFTER the RpcCommandRequestSystem (or the RpcSystem) or the system that
             //change the connection state, clients can still queue commands even though the connection will be closed.
-            var query = EntityManager.CreateEntityQuery(ComponentType.ReadOnly<NetworkIdComponent>());
+            var query = EntityManager.CreateEntityQuery(ComponentType.ReadOnly<NetworkId>());
             RequireForUpdate(query);
 
             const int kStringLength = 10; // we name it ClientTest
@@ -287,10 +287,10 @@ namespace Unity.NetCode.Tests
         {
             if (SendCount[worldId] > 0)
             {
-                var entity = SystemAPI.GetSingletonEntity<NetworkIdComponent>();
+                var entity = SystemAPI.GetSingletonEntity<NetworkId>();
                 var req = EntityManager.CreateEntity();
                 EntityManager.AddComponentData(req, Cmds[worldId]);
-                EntityManager.AddComponentData(req, new SendRpcCommandRequestComponent {TargetConnection = Entity.Null});
+                EntityManager.AddComponentData(req, new SendRpcCommandRequest {TargetConnection = Entity.Null});
                 --SendCount[worldId];
             }
         }
@@ -305,7 +305,7 @@ namespace Unity.NetCode.Tests
 
         protected override void OnCreate()
         {
-            RequireForUpdate<NetworkIdComponent>();
+            RequireForUpdate<NetworkId>();
         }
 
         protected override void OnUpdate()
@@ -315,7 +315,7 @@ namespace Unity.NetCode.Tests
                 var req = EntityManager.CreateEntity();
                 EntityManager.AddComponentData(req, Cmd);
                 EntityManager.AddComponentData(req,
-                    new SendRpcCommandRequestComponent {TargetConnection = Entity.Null});
+                    new SendRpcCommandRequest {TargetConnection = Entity.Null});
                 --SendCount;
             }
         }
@@ -330,7 +330,7 @@ namespace Unity.NetCode.Tests
 
         protected override void OnCreate()
         {
-            RequireForUpdate<NetworkIdComponent>();
+            RequireForUpdate<NetworkId>();
         }
 
         protected override void OnUpdate()
@@ -340,7 +340,7 @@ namespace Unity.NetCode.Tests
                 var req = EntityManager.CreateEntity();
                 EntityManager.AddComponentData(req, Cmd);
                 EntityManager.AddComponentData(req,
-                    new SendRpcCommandRequestComponent {TargetConnection = Entity.Null});
+                    new SendRpcCommandRequest {TargetConnection = Entity.Null});
                 --SendCount;
             }
         }
@@ -355,7 +355,7 @@ namespace Unity.NetCode.Tests
 
         protected override void OnCreate()
         {
-            RequireForUpdate<NetworkIdComponent>();
+            RequireForUpdate<NetworkId>();
         }
 
         protected override void OnUpdate()
@@ -365,7 +365,7 @@ namespace Unity.NetCode.Tests
                 var req = EntityManager.CreateEntity();
                 EntityManager.AddComponentData(req, Cmd);
                 EntityManager.AddComponentData(req,
-                    new SendRpcCommandRequestComponent {TargetConnection = Entity.Null});
+                    new SendRpcCommandRequest {TargetConnection = Entity.Null});
                 --SendCount;
             }
         }
@@ -379,12 +379,12 @@ namespace Unity.NetCode.Tests
 
         protected override void OnUpdate()
         {
-            if (SystemAPI.HasSingleton<NetworkStreamConnection>() && !SystemAPI.HasSingleton<NetworkIdComponent>() && SendCount > 0)
+            if (SystemAPI.HasSingleton<NetworkStreamConnection>() && !SystemAPI.HasSingleton<NetworkId>() && SendCount > 0)
             {
                 var req = EntityManager.CreateEntity();
                 EntityManager.AddComponentData(req, default(SimpleRpcCommand));
                 EntityManager.AddComponentData(req,
-                    new SendRpcCommandRequestComponent {TargetConnection = Entity.Null});
+                    new SendRpcCommandRequest {TargetConnection = Entity.Null});
                 --SendCount;
             }
         }
@@ -402,7 +402,7 @@ namespace Unity.NetCode.Tests
         protected override void OnUpdate()
         {
             var PostUpdateCommands = new EntityCommandBuffer(Allocator.Temp);
-            Entities.WithoutBurst().ForEach((Entity entity, ref ClientIdRpcCommand cmd, ref ReceiveRpcCommandRequestComponent req) =>
+            Entities.WithoutBurst().ForEach((Entity entity, ref ClientIdRpcCommand cmd, ref ReceiveRpcCommandRequest req) =>
             {
                 PostUpdateCommands.DestroyEntity(entity);
                 if (cmd.Id >= 0 && cmd.Id < 2)
@@ -423,7 +423,7 @@ namespace Unity.NetCode.Tests
 
         protected override void OnCreate()
         {
-            RequireForUpdate<NetworkIdComponent>();
+            RequireForUpdate<NetworkId>();
             worldId = int.Parse(World.Name.Substring(World.Name.Length - 1, 1));
         }
 
@@ -433,7 +433,7 @@ namespace Unity.NetCode.Tests
             var currentWorldId = worldId;
             Entities.WithoutBurst()
                 .WithAll<SimpleRpcCommand>()
-                .ForEach((Entity entity, ref ReceiveRpcCommandRequestComponent req) =>
+                .ForEach((Entity entity, ref ReceiveRpcCommandRequest req) =>
             {
                 PostUpdateCommands.DestroyEntity(entity);
                 ++ReceivedCount[currentWorldId];
@@ -454,7 +454,7 @@ namespace Unity.NetCode.Tests
             var PostUpdateCommands = new EntityCommandBuffer(Allocator.Temp);
             Entities.WithoutBurst()
                 .WithAll<SimpleRpcCommand>()
-                .ForEach((Entity entity, ref ReceiveRpcCommandRequestComponent req) =>
+                .ForEach((Entity entity, ref ReceiveRpcCommandRequest req) =>
             {
                 PostUpdateCommands.DestroyEntity(entity);
                 ++ReceivedCount;
@@ -475,7 +475,7 @@ namespace Unity.NetCode.Tests
             var PostUpdateCommands = new EntityCommandBuffer(Allocator.Temp);
             Entities.WithoutBurst()
                 .WithAll<SimpleRpcCommand>()
-                .ForEach((Entity entity, ref ReceiveRpcCommandRequestComponent req) =>
+                .ForEach((Entity entity, ref ReceiveRpcCommandRequest req) =>
                 {
                     PostUpdateCommands.DestroyEntity(entity);
                     ++ReceivedCount;
@@ -495,7 +495,7 @@ namespace Unity.NetCode.Tests
         protected override void OnUpdate()
         {
             var PostUpdateCommands = new EntityCommandBuffer(Allocator.Temp);
-            Entities.WithoutBurst().ForEach((Entity entity, ref SerializedRpcCommand cmd, ref ReceiveRpcCommandRequestComponent req) =>
+            Entities.WithoutBurst().ForEach((Entity entity, ref SerializedRpcCommand cmd, ref ReceiveRpcCommandRequest req) =>
             {
                 ReceivedCmd = cmd;
                 PostUpdateCommands.DestroyEntity(entity);
@@ -516,7 +516,7 @@ namespace Unity.NetCode.Tests
         protected override void OnUpdate()
         {
             var PostUpdateCommands = new EntityCommandBuffer(Allocator.Temp);
-            Entities.WithoutBurst().ForEach((Entity entity, ref SerializedRpcCommand cmd, ref ReceiveRpcCommandRequestComponent req) =>
+            Entities.WithoutBurst().ForEach((Entity entity, ref SerializedRpcCommand cmd, ref ReceiveRpcCommandRequest req) =>
             {
                 ReceivedCmd = cmd;
                 PostUpdateCommands.DestroyEntity(entity);
@@ -536,7 +536,7 @@ namespace Unity.NetCode.Tests
         protected override void OnUpdate()
         {
             var PostUpdateCommands = new EntityCommandBuffer(Allocator.Temp);
-            Entities.WithoutBurst().ForEach((Entity entity, ref SerializedLargeRpcCommand cmd, ref ReceiveRpcCommandRequestComponent req) =>
+            Entities.WithoutBurst().ForEach((Entity entity, ref SerializedLargeRpcCommand cmd, ref ReceiveRpcCommandRequest req) =>
             {
                 ReceivedCmd = cmd;
                 PostUpdateCommands.DestroyEntity(entity);

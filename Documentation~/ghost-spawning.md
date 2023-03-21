@@ -20,7 +20,7 @@ Spawning is split into three main types as follows:
 
 ### Implement Predicted Spawning for player spawned objects
 The spawn code needs to run on the client, in the client prediction system. </br>
-Any prefab ghost entity the client instantiates has the __PredictedGhostSpawnRequestComponent__ added to it and is therefore treated as a predict spawned entity by default.
+Any prefab ghost entity the client instantiates has the __PredictedGhostSpawnRequest__ added to it and is therefore treated as a predict spawned entity by default.
 
 When the first snapshot update for this entity arrives, we detect that the received update is for an entity already spawned by client and from that time on, all the updates will be applied to it.
 
@@ -51,7 +51,7 @@ To override the default client classification you can create your own classifica
 
 The classification system can inspect the ghosts that need to be spawned by retrieving the
 [GhostSpawnBuffer](https://docs.unity3d.com/Packages/com.unity.netcode@latest/index.html?subfolder=/api/Unity.NetCode.GhostSpawnBuffer.html) buffer on the singleton
-[GhostSpawnQueueComponent](https://docs.unity3d.com/Packages/com.unity.netcode@latest/index.html?subfolder=/api/Unity.NetCode.GhostSpawnQueueComponent.html) entity and change their __SpawnType__.
+[GhostSpawnQueueComponent](https://docs.unity3d.com/Packages/com.unity.netcode@latest/index.html?subfolder=/api/Unity.NetCode.GhostSpawnQueue.html) entity and change their __SpawnType__.
 
 Each entry in that list should be compared to the entries in the `PredictedGhostSpawn` buffer on the singleton with a `PredictedGhostSpawnList` component.
 If the two entries have the same type and "match", the classification system should set the __PredictedSpawnEntity__ property in the `GhostSpawnBuffer` element and remove the entry from `PredictedGhostSpawn` buffer.
@@ -73,7 +73,7 @@ public void Execute(DynamicBuffer<GhostSpawnBuffer> ghosts, DynamicBuffer<Snapsh
             newGhostSpawn.HasClassifiedPredictedSpawn = true;
 
         // Find new ghost spawns (from ghost snapshot) which match the predict spawned ghost type handled by
-        // this classification system. You can use the SnapshotDataBufferComponentLookup to inspect components in the 
+        // this classification system. You can use the SnapshotDataBufferLookup to inspect components in the 
         // received snapshot in your matching function
         for (int j = 0; j < predictedSpawnList.Length; ++j)
         {
@@ -93,7 +93,7 @@ public void Execute(DynamicBuffer<GhostSpawnBuffer> ghosts, DynamicBuffer<Snapsh
 }
 ```
 
-Inside your classification system you can use the [SnapshotDataBufferComponentLookup](https://docs.unity3d.com/Packages/com.unity.netcode@latest/index.html?subfolder=/api/Unity.NetCode.GhostSpawnQueueComponent.html) to:
+Inside your classification system you can use the [SnapshotDataBufferLookup](https://docs.unity3d.com/Packages/com.unity.netcode@latest/index.html?subfolder=/api/Unity.NetCode.GhostSpawnQueue.html) to:
 - Check for component presence in the ghost archetype
 - Retrieve from the snapshot data associated with the new ghost any replicated component type.
 

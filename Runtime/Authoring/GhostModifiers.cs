@@ -7,7 +7,7 @@ using System;
 namespace Unity.NetCode
 {
     /// <summary>
-    /// Assign to every <see cref="GhostComponent"/>, and denotes which Ghost prefab version this component is allowed to exist on.
+    /// Assign to every <see cref="GhostInstance"/>, and denotes which Ghost prefab version this component is allowed to exist on.
     /// <example>Use this to disable rendering components on the Server version of the Ghost.</example>
     /// If you cannot change the ComponentType, use the `GhostAuthoringInspectionComponent` to manually override on a specific Ghost prefab.
     /// </summary>

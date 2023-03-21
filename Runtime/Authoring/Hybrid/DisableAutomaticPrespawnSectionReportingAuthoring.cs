@@ -15,7 +15,8 @@ namespace Unity.NetCode
             public override void Bake(DisableAutomaticPrespawnSectionReportingAuthoring authoring)
             {
                 DisableAutomaticPrespawnSectionReporting component = default(DisableAutomaticPrespawnSectionReporting);
-                AddComponent(component);
+                var entity = GetEntity(TransformUsageFlags.Dynamic);
+                AddComponent(entity, component);
             }
         }
     }

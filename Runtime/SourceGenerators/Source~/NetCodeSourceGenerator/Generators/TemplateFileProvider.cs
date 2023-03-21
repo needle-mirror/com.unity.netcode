@@ -81,7 +81,8 @@ namespace Unity.NetCode.Generators
                         continue;
                     }
 
-                    if (!string.Equals(foundMatch.Template, templateId, StringComparison.Ordinal))
+                    if (!string.Equals(templateId, foundMatch.Template, StringComparison.Ordinal) &&
+                        !string.Equals(templateId, foundMatch.TemplateOverride, StringComparison.Ordinal))
                     {
                         diagnostic.LogError($"NetCode AdditionalFile '{additionalText.Path}' (named '{templateId}') is a valid Template, but the Template definition in 'UserDefinedTemplates' ({foundMatch.Template}, of type {foundMatch.Type}) does not match the #templateID!");
                         continue;
@@ -117,13 +118,44 @@ namespace Unity.NetCode.Generators
             }
         }
 
+        public void PerformAdditionalTypeRegistryValidation(List<TypeRegistryEntry> customUserTypes)
+        {
+
+            string GetKnownCustomUserTemplates()
+            {
+                return string.Join(",", customTemplates.Keys);
+            }
+
+            // Ensure all of the users `TypeRegistryEntry.TemplateOverride`s are linked.
+            foreach (var typeRegistryEntry in customUserTypes)
+            {
+                var hasDefinedTemplateOverride = !string.IsNullOrWhiteSpace(typeRegistryEntry.TemplateOverride);
+                if (hasDefinedTemplateOverride)
+                {
+                    if (!customTemplates.ContainsKey(typeRegistryEntry.TemplateOverride))
+                    {
+                        diagnostic.LogError($"Unable to find the `TemplateOverride` associated with '{typeRegistryEntry}'. Known templates are {GetKnownCustomUserTemplates()}.");
+                    }
+                }
+            }
+        }
+
         static TypeRegistryEntry FindAndRemoveTypeRegistryEntry(List<TypeRegistryEntry> typeRegistryEntries, string templateId)
         {
             TypeRegistryEntry foundMatch = null;
             for (var i = 0; i < typeRegistryEntries.Count; i++)
             {
                 var x = typeRegistryEntries[i];
-                if (string.Equals(x.Template, templateId, StringComparison.Ordinal) || x.Template.EndsWith(templateId + NetCodeSourceGenerator.NETCODE_ADDITIONAL_FILE, StringComparison.Ordinal))
+                if (string.Equals(x.Template, templateId, StringComparison.Ordinal) ||
+                    x.Template.EndsWith(templateId + NetCodeSourceGenerator.NETCODE_ADDITIONAL_FILE, StringComparison.Ordinal))
+                {
+                    foundMatch = x;
+                    typeRegistryEntries.RemoveAt(i);
+                    break;
+                }
+                if (!string.IsNullOrEmpty(x.TemplateOverride) &&
+                    (string.Equals(x.TemplateOverride, templateId, StringComparison.Ordinal) ||
+                     x.TemplateOverride.EndsWith(templateId + NetCodeSourceGenerator.NETCODE_ADDITIONAL_FILE, StringComparison.Ordinal)))
                 {
                     foundMatch = x;
                     typeRegistryEntries.RemoveAt(i);

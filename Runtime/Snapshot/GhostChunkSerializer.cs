@@ -1,4 +1,4 @@
-#if (UNITY_EDITOR || DEVELOPMENT_BUILD) && !NETCODE_NDEBUG
+#if UNITY_EDITOR && !NETCODE_NDEBUG
 #define NETCODE_DEBUG
 #endif
 using System;
@@ -30,12 +30,12 @@ namespace Unity.NetCode
         public BufferTypeHandle<LinkedEntityGroup> linkedEntityGroupType;
         public BufferTypeHandle<PrespawnGhostBaseline> prespawnBaselineTypeHandle;
         public EntityTypeHandle entityType;
-        public ComponentTypeHandle<GhostComponent> ghostComponentType;
-        public ComponentTypeHandle<GhostCleanupComponent> ghostSystemStateType;
+        public ComponentTypeHandle<GhostInstance> ghostComponentType;
+        public ComponentTypeHandle<GhostCleanup> ghostSystemStateType;
         public ComponentTypeHandle<PreSerializedGhost> preSerializedGhostType;
-        public ComponentTypeHandle<GhostChildEntityComponent> ghostChildEntityComponentType;
+        public ComponentTypeHandle<GhostChildEntity> ghostChildEntityComponentType;
         public BufferTypeHandle<GhostGroup> ghostGroupType;
-        public NetworkSnapshotAckComponent snapshotAck;
+        public NetworkSnapshotAck snapshotAck;
         public UnsafeParallelHashMap<ArchetypeChunk, GhostChunkSerializationState> chunkSerializationData;
         public DynamicComponentTypeHandle* ghostChunkComponentTypesPtr;
         public int ghostChunkComponentTypesLength;
@@ -362,18 +362,18 @@ namespace Unity.NetCode
                     "A ghost changed type, ghost must keep the same serializer type throughout their lifetime");
             }
         }
-        [Conditional("UNITY_EDITOR"), Conditional("DEVELOPMENT_BUILD")]
+        [Conditional("UNITY_EDITOR"), Conditional("NETCODE_DEBUG")]
         private void ComponentScopeBegin(int serializerIdx)
         {
-            #if UNITY_EDITOR || DEVELOPMENT_BUILD
+            #if UNITY_EDITOR || NETCODE_DEBUG
             if (enablePerComponentProfiling == 1)
                 GhostComponentCollection[serializerIdx].ProfilerMarker.Begin();
             #endif
         }
-        [Conditional("UNITY_EDITOR"), Conditional("DEVELOPMENT_BUILD")]
+        [Conditional("UNITY_EDITOR"), Conditional("NETCODE_DEBUG")]
         private void ComponentScopeEnd(int serializerIdx)
         {
-            #if UNITY_EDITOR || DEVELOPMENT_BUILD
+            #if UNITY_EDITOR || NETCODE_DEBUG
             if (enablePerComponentProfiling == 1)
                 GhostComponentCollection[serializerIdx].ProfilerMarker.End();
             #endif
@@ -445,7 +445,7 @@ namespace Unity.NetCode
 
             var ghostEntities = chunk.GetNativeArray(entityType);
             var ghosts = chunk.GetNativeArray(ref ghostComponentType);
-            NativeArray<GhostCleanupComponent> ghostSystemState = default;
+            NativeArray<GhostCleanup> ghostSystemState = default;
             if (currentSnapshot.SnapshotData != null)
                 ghostSystemState = chunk.GetNativeArray(ref ghostSystemStateType);
 

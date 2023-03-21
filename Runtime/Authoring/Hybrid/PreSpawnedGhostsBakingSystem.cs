@@ -46,8 +46,8 @@ namespace Unity.NetCode
                 var activeInScene = ghostAuthoringBakingData.IsActive;
                 if (!isPrefab && isInSubscene && activeInScene)
                 {
-                    var hashData = new NativeList<ulong>(Allocator.TempJob);
-                    var componentTypes = EntityManager.GetComponentTypes(entity, Allocator.TempJob);
+                    var hashData = new NativeList<ulong>(Allocator.Temp);
+                    var componentTypes = EntityManager.GetComponentTypes(entity, Allocator.Temp);
                     var transformAuthoring = EntityManager.GetComponentData<TransformAuthoring>(entity);
                     //What happen if the entity has been authored such that the position and rotation are not present?
                     //We are relying on the TransformAuthoring instead, to have stable data that depend only on the gameobject
@@ -84,21 +84,18 @@ namespace Unity.NetCode
                         hashToEntity.Add(combinedComponentHash, entity);
                     else
                         Debug.LogError($"Two ghosts can't be in the same exact position and rotation {EntityManager.GetName(entity)}");
-
-                    componentTypes.Dispose();
-                    hashData.Dispose();
                 }
             }).WithoutBurst().Run();
 
             if (hashToEntity.Count() > 0)
             {
                 //Add the components in batch
-                var values = hashToEntity.GetValueArray(Allocator.TempJob);
+                var values = hashToEntity.GetValueArray(Allocator.Temp);
                 EntityManager.AddComponent(values, typeof(PreSpawnedGhostIndex));
                 EntityManager.AddComponent(values, typeof(PrespawnGhostBaseline));
                 EntityManager.AddComponent(values, typeof(PrespawnedGhostBakedBefore));
 
-                var keys = hashToEntity.GetKeyArray(Allocator.TempJob);
+                var keys = hashToEntity.GetKeyArray(Allocator.Temp);
                 keys.Sort();
 
                 // Assign ghost IDs to the pre-spawned entities sorted by component data hash
@@ -107,7 +104,7 @@ namespace Unity.NetCode
                     EntityManager.SetComponentData(hashToEntity[keys[i]], new PreSpawnedGhostIndex {Value = i});
                     //We need to pre-assign the ghostType to -1 so that that the ghost is actually identified as prespawn
                     //befor
-                    EntityManager.SetComponentData(hashToEntity[keys[i]], new GhostComponent
+                    EntityManager.SetComponentData(hashToEntity[keys[i]], new GhostInstance
                     {
                         ghostId = 0,
                         // GhostType -1 is a special case for prespawned ghosts which is converted to a proper ghost id in the send / receive systems
@@ -148,8 +145,6 @@ namespace Unity.NetCode
                     EntityManager.AddComponent<PrespawnedGhostBakedBefore>(sectionEntity);
                 }
                 //We can add more here. Ideally the serialization. A way would be to use a sort of offset re-mapping
-                values.Dispose();
-                keys.Dispose();
             }
 
             hashToEntity.Dispose();

@@ -1,10 +1,18 @@
+using System;
 using Unity.Burst;
 using Unity.Collections;
 using Unity.Entities;
-using Unity.Networking.Transport;
+
 
 namespace Unity.NetCode
 {
+    /// <summary>
+    /// Temporary type, used to upgrade to new component type, to be removed before final 1.0
+    /// </summary>
+    [Obsolete("NetworkIdComponent has been deprecated. Use NetworkId instead (UnityUpgradable) -> NetworkId", true)]
+    public struct NetworkIdComponent : IComponentData
+    {}
+
     /// <summary>
     /// The connection identifier assigned by the server to the incoming client connection.
     /// The NetworkIdComponent is used as temporary client identifier for the current session. When a client disconnects,
@@ -12,7 +20,7 @@ namespace Unity.NetCode
     /// Thus, there is no guarantee that a disconnecting client will receive the same network id once reconnected.
     /// As such, the network identifier should never be used to persist - and then retrieve - information for a given client/player.
     /// </summary>
-    public struct NetworkIdComponent : IComponentData
+    public struct NetworkId : IComponentData
     {
         /// <summary>
         /// The network identifier assigned by the server. A valid identifier it is always greater than 0.
@@ -21,7 +29,7 @@ namespace Unity.NetCode
     }
 
     /// <summary>
-    /// System RPC sent from the server to client to assign a newtork id  (see <see cref="NetworkIdComponent"/>) to a new
+    /// System RPC sent from the server to client to assign a newtork id  (see <see cref="NetworkId"/>) to a new
     /// accepted connection.
     /// </summary>
     [BurstCompile]
@@ -59,7 +67,7 @@ namespace Unity.NetCode
             var rpcSerializer = default(RpcSetNetworkId);
             rpcSerializer.Deserialize(ref parameters.Reader, parameters.DeserializerState, ref rpcData);
 
-            parameters.CommandBuffer.AddComponent(parameters.JobIndex, parameters.Connection, new NetworkIdComponent {Value = rpcData.nid});
+            parameters.CommandBuffer.AddComponent(parameters.JobIndex, parameters.Connection, new NetworkId {Value = rpcData.nid});
             var ent = parameters.CommandBuffer.CreateEntity(parameters.JobIndex);
             parameters.CommandBuffer.AddComponent(parameters.JobIndex, ent, new ClientServerTickRateRefreshRequest
             {

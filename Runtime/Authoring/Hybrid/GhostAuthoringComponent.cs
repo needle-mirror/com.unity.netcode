@@ -69,10 +69,10 @@ namespace Unity.NetCode
         /// </summary>
         [SerializeField]internal string prefabId = "";
         /// <summary>
-        /// Add a GhostOwnerComponent tracking which connection owns this component.
-        /// You must set the GhostOwnerComponent to a valid NetworkIdComponent.Value at runtime.
+        /// Add a GhostOwner tracking which connection owns this component.
+        /// You must set the GhostOwner to a valid NetworkId.Value at runtime.
         /// </summary>
-        [Tooltip("Automatically adds a `GhostOwnerComponent`, which allows the server to set (and track) which connection owns this ghost. In your server code, you must set the `GhostOwnerComponent` to a valid `NetworkIdComponent.Value` at runtime.")]
+        [Tooltip("Automatically adds a `GhostOwner`, which allows the server to set (and track) which connection owns this ghost. In your server code, you must set the `GhostOwner` to a valid `NetworkId.Value` at runtime.")]
         public bool HasOwner;
         /// <summary>
         /// Automatically send all ICommandData buffers if the ghost is owned by the current connection,

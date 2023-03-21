@@ -22,7 +22,8 @@ namespace Unity.NetCode
                 var component = default(DefaultSmoothingActionUserParams);
                 component.maxDist = authoring.maxDist;
                 component.delta = authoring.delta;
-                AddComponent(component);
+                var entity = GetEntity(TransformUsageFlags.Dynamic);
+                AddComponent(entity, component);
             }
         }
     }

@@ -1,4 +1,4 @@
-#if (UNITY_EDITOR || DEVELOPMENT_BUILD) && !NETCODE_NDEBUG
+#if UNITY_EDITOR && !NETCODE_NDEBUG
 #define NETCODE_DEBUG
 #endif
 using System.Diagnostics;
@@ -11,7 +11,7 @@ using Unity.Burst;
 namespace Unity.NetCode
 {
     /// <summary>
-    /// Responsible for assigning a unique <see cref="GhostComponent.ghostId"/> to each pre-spawned ghost,
+    /// Responsible for assigning a unique <see cref="GhostInstance.ghostId"/> to each pre-spawned ghost,
     /// and and adding the ghosts to the spawned ghosts maps.
     /// Relies on the previous initializations step to determine the subscene subset to process.
     /// </summary>
@@ -44,8 +44,8 @@ namespace Unity.NetCode
 
         private EntityTypeHandle m_EntityTypeHandle;
         private ComponentTypeHandle<PreSpawnedGhostIndex> m_PreSpawnedGhostIndexHandle;
-        private ComponentTypeHandle<GhostComponent> m_GhostComponentHandle;
-        private ComponentTypeHandle<GhostCleanupComponent> m_GhostCleanupComponentHandle;
+        private ComponentTypeHandle<GhostInstance> m_GhostComponentHandle;
+        private ComponentTypeHandle<GhostCleanup> m_GhostCleanupComponentHandle;
 
         enum ValidationResult
         {
@@ -68,8 +68,8 @@ namespace Unity.NetCode
 
             m_EntityTypeHandle = state.GetEntityTypeHandle();
             m_PreSpawnedGhostIndexHandle = state.GetComponentTypeHandle<PreSpawnedGhostIndex>(true);
-            m_GhostComponentHandle = state.GetComponentTypeHandle<GhostComponent>();
-            m_GhostCleanupComponentHandle = state.GetComponentTypeHandle<GhostCleanupComponent>();
+            m_GhostComponentHandle = state.GetComponentTypeHandle<GhostInstance>();
+            m_GhostCleanupComponentHandle = state.GetComponentTypeHandle<GhostCleanup>();
 
             state.RequireForUpdate(m_UninitializedScenes);
             state.RequireForUpdate(m_Prespawns);
@@ -125,7 +125,7 @@ namespace Unity.NetCode
             if(hasValidationError)
             {
                 //Disconnect the client
-                state.EntityManager.AddComponent<NetworkStreamRequestDisconnect>(SystemAPI.GetSingletonEntity<NetworkIdComponent>());
+                state.EntityManager.AddComponent<NetworkStreamRequestDisconnect>(SystemAPI.GetSingletonEntity<NetworkId>());
                 return;
             }
             //Kick a job for each sub-scene that assign the ghost id to all scene prespawn ghosts.
@@ -169,7 +169,7 @@ namespace Unity.NetCode
                 else
 #endif
                     sceneSectionData = state.EntityManager.GetComponentData<SceneSectionData>(subscenes[sceneIndex]);
-                entityCommandBuffer.AddComponent(subscenes[sceneIndex], new SubSceneWithGhostStateComponent
+                entityCommandBuffer.AddComponent(subscenes[sceneIndex], new SubSceneWithGhostClenup
                 {
                     SubSceneHash = subScenesWithGhosts[sceneIndex].SubSceneHash,
                     FirstGhostId = subsceneCollection[collectionIndex].FirstGhostId,

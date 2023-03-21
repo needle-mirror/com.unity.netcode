@@ -68,7 +68,8 @@ namespace Unity.NetCode.Tests
     {
         public void Bake(GameObject gameObject, IBaker baker)
         {
-            baker.AddComponent<InputRemoteTestComponentData>();
+            var entity = baker.GetEntity(TransformUsageFlags.Dynamic);
+            baker.AddComponent<InputRemoteTestComponentData>(entity);
         }
     }
 
@@ -76,7 +77,8 @@ namespace Unity.NetCode.Tests
     {
         public void Bake(GameObject gameObject, IBaker baker)
         {
-            baker.AddComponent<InputComponentData>();
+            var entity = baker.GetEntity(TransformUsageFlags.Dynamic);
+            baker.AddComponent<InputComponentData>(entity);
         }
     }
 
@@ -84,7 +86,8 @@ namespace Unity.NetCode.Tests
     {
         public void Bake(GameObject gameObject, IBaker baker)
         {
-            baker.AddComponent<InputComponentDataAllPredicted>();
+            var entity = baker.GetEntity(TransformUsageFlags.Dynamic);
+            baker.AddComponent<InputComponentDataAllPredicted>(entity);
         }
     }
 
@@ -92,7 +95,8 @@ namespace Unity.NetCode.Tests
     {
         public void Bake(GameObject gameObject, IBaker baker)
         {
-            baker.AddComponent<InputComponentDataAllPredictedWithGhostFields>();
+            var entity = baker.GetEntity(TransformUsageFlags.Dynamic);
+            baker.AddComponent<InputComponentDataAllPredictedWithGhostFields>(entity);
         }
     }
 
@@ -100,7 +104,8 @@ namespace Unity.NetCode.Tests
     {
         public void Bake(GameObject gameObject, IBaker baker)
         {
-            baker.AddComponent<InputComponentDataServerOnly>();
+            var entity = baker.GetEntity(TransformUsageFlags.Dynamic);
+            baker.AddComponent<InputComponentDataServerOnly>(entity);
         }
     }
 
@@ -108,7 +113,8 @@ namespace Unity.NetCode.Tests
     {
         public void Bake(GameObject gameObject, IBaker baker)
         {
-            baker.AddComponent<InputComponentDataWithGhostComponent>();
+            var entity = baker.GetEntity(TransformUsageFlags.Dynamic);
+            baker.AddComponent<InputComponentDataWithGhostComponent>(entity);
         }
     }
 
@@ -116,7 +122,8 @@ namespace Unity.NetCode.Tests
     {
         public void Bake(GameObject gameObject, IBaker baker)
         {
-            baker.AddComponent<InputComponentDataWithGhostComponentAndGhostFields>();
+            var entity = baker.GetEntity(TransformUsageFlags.Dynamic);
+            baker.AddComponent<InputComponentDataWithGhostComponentAndGhostFields>(entity);
         }
     }
 
@@ -197,7 +204,6 @@ namespace Unity.NetCode.Tests
             var eventCounter = EventCounter;
             FixedString32Bytes world = World.Name;
             var tick = SystemAPI.GetSingleton<NetworkTime>().ServerTick;
-#if !ENABLE_TRANSFORM_V1
             Entities.WithAll<Simulate>().ForEach(
                 (ref InputComponentData input, ref LocalTransform trans) =>
                 {
@@ -208,18 +214,7 @@ namespace Unity.NetCode.Tests
                     newPosition.z = input.Vertical;
                     trans = trans.WithPosition(newPosition);
                 }).Run();
-#else
-            Entities.WithAll<Simulate>().ForEach(
-                (ref InputComponentData input, ref Translation trans) =>
-                {
-                    var newPosition = new float3();
-                    if (input.Jump.IsSet)
-                        eventCounter++;
-                    newPosition.x = input.Horizontal;
-                    newPosition.z = input.Vertical;
-                    trans = new Translation() { Value = newPosition };
-                }).Run();
-#endif
+
             EventCounter = eventCounter;
         }
     }
@@ -245,12 +240,12 @@ namespace Unity.NetCode.Tests
                 Assert.IsTrue(testWorld.Connect(m_DeltaTime, 64));
                 testWorld.GoInGame();
 
-                var serverConnectionEnt = testWorld.TryGetSingletonEntity<NetworkIdComponent>(testWorld.ServerWorld);
-                var clientConnectionEnt = testWorld.TryGetSingletonEntity<NetworkIdComponent>(testWorld.ClientWorlds[0]);
-                var netId = testWorld.ClientWorlds[0].EntityManager.GetComponentData<NetworkIdComponent>(clientConnectionEnt).Value;
+                var serverConnectionEnt = testWorld.TryGetSingletonEntity<NetworkId>(testWorld.ServerWorld);
+                var clientConnectionEnt = testWorld.TryGetSingletonEntity<NetworkId>(testWorld.ClientWorlds[0]);
+                var netId = testWorld.ClientWorlds[0].EntityManager.GetComponentData<NetworkId>(clientConnectionEnt).Value;
 
                 var serverEnt = testWorld.SpawnOnServer(ghostGameObject);
-                testWorld.ServerWorld.EntityManager.SetComponentData(serverEnt, new GhostOwnerComponent {NetworkId = netId});
+                testWorld.ServerWorld.EntityManager.SetComponentData(serverEnt, new GhostOwner {NetworkId = netId});
 
                 // Wait for client spawn
                 Entity clientEnt = Entity.Null;
@@ -264,25 +259,17 @@ namespace Unity.NetCode.Tests
                 clientEnt = testWorld.TryGetSingletonEntity<InputComponentData>(testWorld.ClientWorlds[0]);
                 Assert.AreNotEqual(Entity.Null, clientEnt);
 
-                testWorld.ServerWorld.EntityManager.SetComponentData(serverConnectionEnt, new CommandTargetComponent{targetEntity = serverEnt});
-                testWorld.ClientWorlds[0].EntityManager.SetComponentData(clientConnectionEnt, new CommandTargetComponent{targetEntity = clientEnt});
+                testWorld.ServerWorld.EntityManager.SetComponentData(serverConnectionEnt, new CommandTarget{targetEntity = serverEnt});
+                testWorld.ClientWorlds[0].EntityManager.SetComponentData(clientConnectionEnt, new CommandTarget{targetEntity = clientEnt});
 
                 for (int i = 0; i < 16; ++i)
                     testWorld.Tick(m_DeltaTime);
 
-#if !ENABLE_TRANSFORM_V1
                 // The IInputComponentData should have been copied to buffer, sent to server, and then transform
                 // result sent back to the client.
                 var transform = testWorld.ClientWorlds[0].EntityManager.GetComponentData<LocalTransform>(clientEnt);
                 Assert.AreEqual(1f, transform.Position.x);
                 Assert.AreEqual(1f, transform.Position.z);
-#else
-                // The IInputComponentData should have been copied to buffer, sent to server, and then translation
-                // result sent back to the client.
-                var translation = testWorld.ClientWorlds[0].EntityManager.GetComponentData<Translation>(clientEnt);
-                Assert.AreEqual(1f, translation.Value.x);
-                Assert.AreEqual(1f, translation.Value.z);
-#endif
 
                 // Event should only fire once on the server (but can multiple times on client because of prediction loop)
                 var serverInputSystem = testWorld.ServerWorld.GetExistingSystemManaged<ProcessInputsSystem>();
@@ -314,20 +301,20 @@ namespace Unity.NetCode.Tests
                 testWorld.GoInGame();
 
                 using var serverConnectionQuery =
-                    testWorld.ServerWorld.EntityManager.CreateEntityQuery(ComponentType.ReadOnly<NetworkIdComponent>());
+                    testWorld.ServerWorld.EntityManager.CreateEntityQuery(ComponentType.ReadOnly<NetworkId>());
                 var serverConnectionEntities = serverConnectionQuery.ToEntityArray(Allocator.Temp);
                 Assert.AreEqual(2, serverConnectionEntities.Length);
                 var serverConnectionEntToClient1 = serverConnectionEntities[0];
                 var serverConnectionEntToClient2 = serverConnectionEntities[1];
-                var clientConnectionEnt1 = testWorld.TryGetSingletonEntity<NetworkIdComponent>(testWorld.ClientWorlds[0]);
-                var clientConnectionEnt2 = testWorld.TryGetSingletonEntity<NetworkIdComponent>(testWorld.ClientWorlds[1]);
-                var netId1 = testWorld.ClientWorlds[0].EntityManager.GetComponentData<NetworkIdComponent>(clientConnectionEnt1).Value;
-                var netId2 = testWorld.ClientWorlds[1].EntityManager.GetComponentData<NetworkIdComponent>(clientConnectionEnt2).Value;
+                var clientConnectionEnt1 = testWorld.TryGetSingletonEntity<NetworkId>(testWorld.ClientWorlds[0]);
+                var clientConnectionEnt2 = testWorld.TryGetSingletonEntity<NetworkId>(testWorld.ClientWorlds[1]);
+                var netId1 = testWorld.ClientWorlds[0].EntityManager.GetComponentData<NetworkId>(clientConnectionEnt1).Value;
+                var netId2 = testWorld.ClientWorlds[1].EntityManager.GetComponentData<NetworkId>(clientConnectionEnt2).Value;
 
                 var serverEntPlayer1 = testWorld.SpawnOnServer(ghostGameObject);
                 var serverEntPlayer2 = testWorld.SpawnOnServer(ghostGameObject);
-                testWorld.ServerWorld.EntityManager.SetComponentData(serverEntPlayer1, new GhostOwnerComponent {NetworkId = netId1});
-                testWorld.ServerWorld.EntityManager.SetComponentData(serverEntPlayer2, new GhostOwnerComponent {NetworkId = netId2});
+                testWorld.ServerWorld.EntityManager.SetComponentData(serverEntPlayer1, new GhostOwner {NetworkId = netId1});
+                testWorld.ServerWorld.EntityManager.SetComponentData(serverEntPlayer2, new GhostOwner {NetworkId = netId2});
 
                 // Wait for client spawn
                 EntityQuery clientQuery1 = testWorld.ClientWorlds[0].EntityManager.CreateEntityQuery(ComponentType.ReadOnly<InputRemoteTestComponentData>());
@@ -342,20 +329,20 @@ namespace Unity.NetCode.Tests
                     .CreateEntityQuery(ComponentType.ReadOnly<InputRemoteTestComponentData>());
                 var playersOnClient1 = inputsQueryOnClient1.ToEntityArray(Allocator.Temp);
                 var clientEnt1OwnPlayer = playersOnClient1[0];
-                var ghostOwnerOnPlayer1OnClient1 = testWorld.ClientWorlds[0].EntityManager.GetComponentData<GhostOwnerComponent>(clientEnt1OwnPlayer);
+                var ghostOwnerOnPlayer1OnClient1 = testWorld.ClientWorlds[0].EntityManager.GetComponentData<GhostOwner>(clientEnt1OwnPlayer);
                 Assert.AreEqual(1, ghostOwnerOnPlayer1OnClient1.NetworkId);
 
                 using var inputsQueryOnClient2 = testWorld.ClientWorlds[1].EntityManager
                     .CreateEntityQuery(ComponentType.ReadOnly<InputRemoteTestComponentData>());
                 var playersOnClient2 = inputsQueryOnClient2.ToEntityArray(Allocator.Temp);
                 var clientEnt2OwnPlayer = playersOnClient2[1];
-                var ghostOwnerOnPlayer2OnClient2 = testWorld.ClientWorlds[1].EntityManager.GetComponentData<GhostOwnerComponent>(clientEnt2OwnPlayer);
+                var ghostOwnerOnPlayer2OnClient2 = testWorld.ClientWorlds[1].EntityManager.GetComponentData<GhostOwner>(clientEnt2OwnPlayer);
                 Assert.AreEqual(2, ghostOwnerOnPlayer2OnClient2.NetworkId);
 
-                testWorld.ServerWorld.EntityManager.SetComponentData(serverConnectionEntToClient1, new CommandTargetComponent{targetEntity = serverEntPlayer1});
-                testWorld.ServerWorld.EntityManager.SetComponentData(serverConnectionEntToClient2, new CommandTargetComponent{targetEntity = serverEntPlayer2});
-                testWorld.ClientWorlds[0].EntityManager.SetComponentData(clientConnectionEnt1, new CommandTargetComponent{targetEntity = clientEnt1OwnPlayer});
-                testWorld.ClientWorlds[1].EntityManager.SetComponentData(clientConnectionEnt2, new CommandTargetComponent{targetEntity = clientEnt2OwnPlayer});
+                testWorld.ServerWorld.EntityManager.SetComponentData(serverConnectionEntToClient1, new CommandTarget{targetEntity = serverEntPlayer1});
+                testWorld.ServerWorld.EntityManager.SetComponentData(serverConnectionEntToClient2, new CommandTarget{targetEntity = serverEntPlayer2});
+                testWorld.ClientWorlds[0].EntityManager.SetComponentData(clientConnectionEnt1, new CommandTarget{targetEntity = clientEnt1OwnPlayer});
+                testWorld.ClientWorlds[1].EntityManager.SetComponentData(clientConnectionEnt2, new CommandTarget{targetEntity = clientEnt2OwnPlayer});
 
                 for (int i = 0; i < 16; ++i)
                     testWorld.Tick(m_DeltaTime);
@@ -491,13 +478,13 @@ namespace Unity.NetCode.Tests
 
                 var inputComponentDataWithGhostFieldsBufferType = GetComponentType(testWorld.ServerWorld, nameof(InputComponentDataAllPredictedWithGhostFields));
                 var inputComponentDataBufferType = GetComponentType(testWorld.ServerWorld, nameof(InputComponentDataAllPredicted));
-                var clientConnectionEnt = testWorld.TryGetSingletonEntity<NetworkIdComponent>(testWorld.ClientWorlds[0]);
-                var netId = testWorld.ClientWorlds[0].EntityManager.GetComponentData<NetworkIdComponent>(clientConnectionEnt).Value;
+                var clientConnectionEnt = testWorld.TryGetSingletonEntity<NetworkId>(testWorld.ClientWorlds[0]);
+                var netId = testWorld.ClientWorlds[0].EntityManager.GetComponentData<NetworkId>(clientConnectionEnt).Value;
 
                 var predictedEnt = testWorld.SpawnOnServer(gameObject0);
-                testWorld.ServerWorld.EntityManager.SetComponentData(predictedEnt, new GhostOwnerComponent {NetworkId = netId});
+                testWorld.ServerWorld.EntityManager.SetComponentData(predictedEnt, new GhostOwner {NetworkId = netId});
                 predictedEnt = testWorld.SpawnOnServer(gameObject1);
-                testWorld.ServerWorld.EntityManager.SetComponentData(predictedEnt, new GhostOwnerComponent {NetworkId = netId});
+                testWorld.ServerWorld.EntityManager.SetComponentData(predictedEnt, new GhostOwner {NetworkId = netId});
 
                 CheckComponent(testWorld.ServerWorld, ComponentType.ReadOnly<InputComponentDataAllPredictedWithGhostFields>(), 1);
                 CheckComponent(testWorld.ServerWorld, ComponentType.ReadOnly<InputComponentDataAllPredicted>(), 1);

@@ -1,4 +1,4 @@
-#if (UNITY_EDITOR || DEVELOPMENT_BUILD) && !NETCODE_NDEBUG
+#if UNITY_EDITOR && !NETCODE_NDEBUG
 #define NETCODE_DEBUG
 #endif
 using System;
@@ -37,6 +37,25 @@ namespace Unity.NetCode
             return ghostId;
         }
         /// <summary>
+        /// Construct a SpawnedEntity from a <see cref="GhostInstance"/>
+        /// </summary>
+        /// <param name="ghostInstance">The ghost from witch t</param>
+        public SpawnedGhost(in GhostInstance ghostInstance)
+        {
+            ghostId = ghostInstance.ghostId;
+            spawnTick = ghostInstance.spawnTick;
+        }
+        /// <summary>
+        /// Construct a SpawnedEntity using the ghost identifier and the spawn tick>
+        /// </summary>
+        /// <param name="ghostId"></param>
+        /// <param name="spawnTick"></param>
+        public SpawnedGhost(int ghostId, NetworkTick spawnTick)
+        {
+            this.ghostId = ghostId;
+            this.spawnTick = spawnTick;
+        }
+        /// <summary>
         /// The SpawnedGhost are identical if both id and tick match.
         /// </summary>
         /// <param name="ghost"></param>
@@ -72,7 +91,7 @@ namespace Unity.NetCode
         /// </summary>
         public NetworkTick SnapshotTick;
         /// <summary>
-        /// The NetworkId of the client owning the ghost (if the ghost has an <see cref="GhostOwnerComponent"/>)
+        /// The NetworkId of the client owning the ghost (if the ghost has an <see cref="NetCode.GhostOwner"/>)
         /// </summary>
         public int GhostOwner;
         /// <summary>
@@ -98,7 +117,7 @@ namespace Unity.NetCode
     /// the state is deserialized and added to the entity <see cref="SnapshotDataBuffer"/> history buffer.
     /// </para>
     /// <para>
-    /// The received snapshot are recorded into the <see cref="NetworkSnapshotAckComponent"/>, that will then used to
+    /// The received snapshot are recorded into the <see cref="NetworkSnapshotAck"/>, that will then used to
     /// send back to the server, as part of the command stream, the latest received snapshot by the client.
     /// </para>
     /// </summary>
@@ -124,10 +143,10 @@ namespace Unity.NetCode
 
         EntityTypeHandle m_EntityTypeHandle;
         ComponentLookup<SnapshotData> m_SnapshotDataFromEntity;
-        ComponentLookup<NetworkSnapshotAckComponent> m_SnapshotAckFromEntity;
-        ComponentLookup<NetworkIdComponent> m_NetworkIdFromEntity;
-        ComponentLookup<PredictedGhostComponent> m_PredictedFromEntity;
-        ComponentLookup<GhostComponent> m_GhostFromEntity;
+        ComponentLookup<NetworkSnapshotAck> m_SnapshotAckFromEntity;
+        ComponentLookup<NetworkId> m_NetworkIdFromEntity;
+        ComponentLookup<PredictedGhost> m_PredictedFromEntity;
+        ComponentLookup<GhostInstance> m_GhostFromEntity;
 #if NETCODE_DEBUG
         FixedString128Bytes m_WorldName;
         ComponentLookup<PrefabDebugName> m_PrefabNamesFromEntity;
@@ -138,7 +157,7 @@ namespace Unity.NetCode
         BufferLookup<GhostCollectionPrefabSerializer> m_GhostTypeCollectionFromEntity;
         BufferLookup<GhostCollectionComponentIndex> m_GhostComponentIndexFromEntity;
         BufferLookup<GhostCollectionPrefab> m_GhostCollectionFromEntity;
-        BufferLookup<IncomingSnapshotDataStreamBufferComponent> m_SnapshotFromEntity;
+        BufferLookup<IncomingSnapshotDataStreamBuffer> m_SnapshotFromEntity;
         BufferLookup<SnapshotDataBuffer> m_SnapshotDataBufferFromEntity;
         BufferLookup<SnapshotDynamicDataBuffer> m_SnapshotDynamicDataFromEntity;
         BufferLookup<GhostSpawnBuffer> m_GhostSpawnBufferFromEntity;
@@ -179,12 +198,12 @@ namespace Unity.NetCode
             m_ConnectionsQuery = state.GetEntityQuery(builder);
 
             builder.Reset();
-            builder.WithAll<GhostComponent>()
+            builder.WithAll<GhostInstance>()
                 .WithNone<PreSpawnedGhostIndex>();
             m_GhostCleanupQuery = state.GetEntityQuery(builder);
 
             builder.Reset();
-            builder.WithAll<SubSceneWithGhostStateComponent>();
+            builder.WithAll<SubSceneWithGhostClenup>();
             m_SubSceneQuery = state.EntityManager.CreateEntityQuery(builder);
 
             m_CompressionModel = StreamCompressionModel.Default;
@@ -195,10 +214,10 @@ namespace Unity.NetCode
 
             m_EntityTypeHandle = state.GetEntityTypeHandle();
             m_SnapshotDataFromEntity = state.GetComponentLookup<SnapshotData>();
-            m_SnapshotAckFromEntity = state.GetComponentLookup<NetworkSnapshotAckComponent>();
-            m_NetworkIdFromEntity = state.GetComponentLookup<NetworkIdComponent>(true);
-            m_PredictedFromEntity = state.GetComponentLookup<PredictedGhostComponent>(true);
-            m_GhostFromEntity = state.GetComponentLookup<GhostComponent>();
+            m_SnapshotAckFromEntity = state.GetComponentLookup<NetworkSnapshotAck>();
+            m_NetworkIdFromEntity = state.GetComponentLookup<NetworkId>(true);
+            m_PredictedFromEntity = state.GetComponentLookup<PredictedGhost>(true);
+            m_GhostFromEntity = state.GetComponentLookup<GhostInstance>();
 #if NETCODE_DEBUG
             m_PrefabNamesFromEntity = state.GetComponentLookup<PrefabDebugName>(true);
 #endif
@@ -207,7 +226,7 @@ namespace Unity.NetCode
             m_GhostTypeCollectionFromEntity = state.GetBufferLookup<GhostCollectionPrefabSerializer>(true);
             m_GhostComponentIndexFromEntity = state.GetBufferLookup<GhostCollectionComponentIndex>(true);
             m_GhostCollectionFromEntity = state.GetBufferLookup<GhostCollectionPrefab>();
-            m_SnapshotFromEntity = state.GetBufferLookup<IncomingSnapshotDataStreamBufferComponent>();
+            m_SnapshotFromEntity = state.GetBufferLookup<IncomingSnapshotDataStreamBuffer>();
             m_SnapshotDataBufferFromEntity = state.GetBufferLookup<SnapshotDataBuffer>();
             m_SnapshotDynamicDataFromEntity = state.GetBufferLookup<SnapshotDynamicDataBuffer>();
             m_GhostSpawnBufferFromEntity = state.GetBufferLookup<GhostSpawnBuffer>();
@@ -286,22 +305,22 @@ namespace Unity.NetCode
             [NativeDisableContainerSafetyRestriction] private DynamicBuffer<GhostCollectionComponentIndex> m_GhostComponentIndex;
 
             public NativeList<Entity> Connections;
-            public BufferLookup<IncomingSnapshotDataStreamBufferComponent> SnapshotFromEntity;
+            public BufferLookup<IncomingSnapshotDataStreamBuffer> SnapshotFromEntity;
             public BufferLookup<SnapshotDataBuffer> SnapshotDataBufferFromEntity;
             public BufferLookup<SnapshotDynamicDataBuffer> SnapshotDynamicDataFromEntity;
             public BufferLookup<GhostSpawnBuffer> GhostSpawnBufferFromEntity;
             [ReadOnly]public BufferLookup<PrespawnGhostBaseline> PrespawnBaselineBufferFromEntity;
             public ComponentLookup<SnapshotData> SnapshotDataFromEntity;
-            public ComponentLookup<NetworkSnapshotAckComponent> SnapshotAckFromEntity;
+            public ComponentLookup<NetworkSnapshotAck> SnapshotAckFromEntity;
             public NativeParallelHashMap<int, Entity> GhostEntityMap;
             public StreamCompressionModel CompressionModel;
-#if UNITY_EDITOR || DEVELOPMENT_BUILD
+#if UNITY_EDITOR || NETCODE_DEBUG
             public NativeArray<uint> NetStats;
 #endif
             public NativeQueue<GhostDespawnSystem.DelayedDespawnGhost> InterpolatedDespawnQueue;
             public NativeQueue<GhostDespawnSystem.DelayedDespawnGhost> PredictedDespawnQueue;
-            [ReadOnly] public ComponentLookup<PredictedGhostComponent> PredictedFromEntity;
-            public ComponentLookup<GhostComponent> GhostFromEntity;
+            [ReadOnly] public ComponentLookup<PredictedGhost> PredictedFromEntity;
+            public ComponentLookup<GhostInstance> GhostFromEntity;
             public byte IsThinClient;
             public byte SnaphostHasCompressedGhostSize;
 
@@ -309,7 +328,7 @@ namespace Unity.NetCode
             public Entity GhostSpawnEntity;
             public NativeArray<int> GhostCompletionCount;
             public NativeList<byte> TempDynamicData;
-            public NativeList<SubSceneWithGhostStateComponent> PrespawnSceneStateArray;
+            public NativeList<SubSceneWithGhostClenup> PrespawnSceneStateArray;
 
             public NetDebug NetDebug;
 #if NETCODE_DEBUG
@@ -331,7 +350,7 @@ namespace Unity.NetCode
                     return;
                 }
 #endif
-#if UNITY_EDITOR || DEVELOPMENT_BUILD
+#if UNITY_EDITOR || NETCODE_DEBUG
                 for (int i = 0; i < NetStats.Length; ++i)
                 {
                     NetStats[i] = 0;
@@ -398,7 +417,7 @@ namespace Unity.NetCode
 #endif
                     for (int i = 0; i < numPrefabs; ++i)
                     {
-                        GhostTypeComponent type;
+                        GhostType type;
                         ulong hash;
                         type.guid0 = dataStream.ReadUInt();
                         type.guid1 = dataStream.ReadUInt();
@@ -448,7 +467,7 @@ namespace Unity.NetCode
 #endif
 
                 var data = default(DeserializeData);
-#if UNITY_EDITOR || DEVELOPMENT_BUILD
+#if UNITY_EDITOR || NETCODE_DEBUG
                 data.StartPos = dataStream.GetBitsRead();
 #endif
 #if NETCODE_DEBUG
@@ -490,7 +509,7 @@ namespace Unity.NetCode
                     NetDebugPacket.Log(debugLog);
 #endif
 
-#if UNITY_EDITOR || DEVELOPMENT_BUILD
+#if UNITY_EDITOR || NETCODE_DEBUG
                 data.CurPos = dataStream.GetBitsRead();
                 NetStats[0] = serverTick.SerializedData;
                 NetStats[1] = despawnLen;
@@ -504,7 +523,7 @@ namespace Unity.NetCode
                 {
                     dataValid = DeserializeEntity(serverTick, ref dataStream, ref data);
                 }
-#if UNITY_EDITOR || DEVELOPMENT_BUILD
+#if UNITY_EDITOR || NETCODE_DEBUG
                 if (data.StatCount > 0)
                 {
                     data.CurPos = dataStream.GetBitsRead();
@@ -539,7 +558,7 @@ namespace Unity.NetCode
                 public NetworkTick BaselineTick3;
                 public uint BaselineLen;
                 public int NewGhosts;
-#if UNITY_EDITOR || DEVELOPMENT_BUILD
+#if UNITY_EDITOR || NETCODE_DEBUG
                 public int StartPos;
                 public int CurPos;
                 public uint StatCount;
@@ -554,7 +573,7 @@ namespace Unity.NetCode
 #endif
                 if (data.TargetArchLen == 0)
                 {
-#if UNITY_EDITOR || DEVELOPMENT_BUILD
+#if UNITY_EDITOR || NETCODE_DEBUG
                     data.CurPos = dataStream.GetBitsRead();
                     if (data.StatCount > 0)
                     {
@@ -1140,7 +1159,7 @@ namespace Unity.NetCode
                             debugLog = "";
                         }
                         numBits = dataStream.GetBitsRead() - numBits;
-                        #if UNITY_EDITOR || DEVELOPMENT_BUILD
+                        #if UNITY_EDITOR || NETCODE_DEBUG
                         debugLog.Append(FixedString.Format(" {0}:{1} ({2}B)", componentName, m_GhostComponentCollection[serializerIdx].PredictionErrorNames, numBits));
                         #else
                         debugLog.Append(FixedString.Format(" {0}:{1} ({2}B)", componentName, serializerIdx, numBits));
@@ -1159,7 +1178,7 @@ namespace Unity.NetCode
                 }
 #endif
 
-#if UNITY_EDITOR || DEVELOPMENT_BUILD
+#if UNITY_EDITOR || NETCODE_DEBUG
                 ++data.StatCount;
                 if (data.BaselineTick == serverTick)
                     ++data.UncompressedCount;
@@ -1266,7 +1285,7 @@ namespace Unity.NetCode
         [BurstCompile]
         public void OnUpdate(ref SystemState state)
         {
-#if UNITY_EDITOR || DEVELOPMENT_BUILD
+#if UNITY_EDITOR || NETCODE_DEBUG
             var numLoadedPrefabs = SystemAPI.GetSingleton<GhostCollection>().NumLoadedPrefabs;
             ref var netStats = ref SystemAPI.GetSingletonRW<GhostStatsCollectionSnapshot>().ValueRW;
             netStats.Size = numLoadedPrefabs * 3 + 3 + 1;
@@ -1323,7 +1342,7 @@ namespace Unity.NetCode
 
             var connections = m_ConnectionsQuery.ToEntityListAsync(state.WorldUpdateAllocator, out var connectionHandle);
             var prespawnSceneStateArray =
-                m_SubSceneQuery.ToComponentDataListAsync<SubSceneWithGhostStateComponent>(state.WorldUpdateAllocator,
+                m_SubSceneQuery.ToComponentDataListAsync<SubSceneWithGhostClenup>(state.WorldUpdateAllocator,
                     out var prespawnHandle);
             ref readonly var ghostDespawnQueues = ref SystemAPI.GetSingletonRW<GhostDespawnQueues>().ValueRO;
             UpdateLookupsForReadStreamJob(ref state);
@@ -1344,7 +1363,7 @@ namespace Unity.NetCode
                 SnapshotAckFromEntity = m_SnapshotAckFromEntity,
                 GhostEntityMap = m_GhostEntityMap,
                 CompressionModel = m_CompressionModel,
-#if UNITY_EDITOR || DEVELOPMENT_BUILD
+#if UNITY_EDITOR || NETCODE_DEBUG
                 NetStats = netStats.Data.AsArray(),
 #endif
                 InterpolatedDespawnQueue = ghostDespawnQueues.InterpolatedDespawnQueue,
@@ -1353,7 +1372,7 @@ namespace Unity.NetCode
                 GhostFromEntity = m_GhostFromEntity,
                 IsThinClient = state.WorldUnmanaged.IsThinClient() ? (byte)1u : (byte)0u,
                 CommandBuffer = commandBuffer,
-                GhostSpawnEntity = SystemAPI.GetSingletonEntity<GhostSpawnQueueComponent>(),
+                GhostSpawnEntity = SystemAPI.GetSingletonEntity<GhostSpawnQueue>(),
                 GhostCompletionCount = m_GhostCompletionCount,
                 TempDynamicData = m_TempDynamicData,
                 PrespawnSceneStateArray = prespawnSceneStateArray,

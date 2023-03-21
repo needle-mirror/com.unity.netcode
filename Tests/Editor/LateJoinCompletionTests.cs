@@ -9,7 +9,8 @@ namespace Unity.NetCode.Tests
     {
         public void Bake(GameObject gameObject, IBaker baker)
         {
-            baker.AddComponent( new GhostOwnerComponent());
+            var entity = baker.GetEntity(TransformUsageFlags.Dynamic);
+            baker.AddComponent( entity, new GhostOwner());
         }
     }
     public class LateJoinCompletionTests
@@ -85,10 +86,10 @@ namespace Unity.NetCode.Tests
                 // Setup relevancy
                 ref var ghostRelevancy = ref testWorld.GetSingletonRW<GhostRelevancy>(testWorld.ServerWorld).ValueRW;
                 ghostRelevancy.GhostRelevancyMode = GhostRelevancyMode.SetIsRelevant;
-                var serverConnectionEnt = testWorld.TryGetSingletonEntity<NetworkIdComponent>(testWorld.ServerWorld);
-                var serverConnectionId = testWorld.ServerWorld.EntityManager.GetComponentData<NetworkIdComponent>(serverConnectionEnt).Value;
-                var query = testWorld.ServerWorld.EntityManager.CreateEntityQuery(ComponentType.ReadWrite<GhostComponent>());
-                var ghosts = query.ToComponentDataArray<GhostComponent>(Allocator.Temp);
+                var serverConnectionEnt = testWorld.TryGetSingletonEntity<NetworkId>(testWorld.ServerWorld);
+                var serverConnectionId = testWorld.ServerWorld.EntityManager.GetComponentData<NetworkId>(serverConnectionEnt).Value;
+                var query = testWorld.ServerWorld.EntityManager.CreateEntityQuery(ComponentType.ReadWrite<GhostInstance>());
+                var ghosts = query.ToComponentDataArray<GhostInstance>(Allocator.Temp);
                 Assert.AreEqual(ghosts.Length, 8);
                 for (int i = 0; i < 6; ++i)
                     ghostRelevancy.GhostRelevancySet.TryAdd(new RelevantGhostForConnection{Ghost = ghosts[i].ghostId, Connection = serverConnectionId}, 1);
@@ -140,10 +141,10 @@ namespace Unity.NetCode.Tests
                 // Setup relevancy
                 ref var ghostRelevancy = ref testWorld.GetSingletonRW<GhostRelevancy>(testWorld.ServerWorld).ValueRW;
                 ghostRelevancy.GhostRelevancyMode = GhostRelevancyMode.SetIsIrrelevant;
-                var serverConnectionEnt = testWorld.TryGetSingletonEntity<NetworkIdComponent>(testWorld.ServerWorld);
-                var serverConnectionId = testWorld.ServerWorld.EntityManager.GetComponentData<NetworkIdComponent>(serverConnectionEnt).Value;
-                var query = testWorld.ServerWorld.EntityManager.CreateEntityQuery(ComponentType.ReadWrite<GhostComponent>());
-                var ghosts = query.ToComponentDataArray<GhostComponent>(Allocator.Temp);
+                var serverConnectionEnt = testWorld.TryGetSingletonEntity<NetworkId>(testWorld.ServerWorld);
+                var serverConnectionId = testWorld.ServerWorld.EntityManager.GetComponentData<NetworkId>(serverConnectionEnt).Value;
+                var query = testWorld.ServerWorld.EntityManager.CreateEntityQuery(ComponentType.ReadWrite<GhostInstance>());
+                var ghosts = query.ToComponentDataArray<GhostInstance>(Allocator.Temp);
                 Assert.AreEqual(ghosts.Length, 8);
                 for (int i = 0; i < 6; ++i)
                     ghostRelevancy.GhostRelevancySet.TryAdd(new RelevantGhostForConnection{Ghost = ghosts[i].ghostId, Connection = serverConnectionId}, 1);

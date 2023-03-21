@@ -15,9 +15,10 @@ namespace Unity.NetCode.Tests
     {
         public void Bake(GameObject gameObject, IBaker baker)
         {
-            baker.AddComponent(new GhostPredictedOnly());
-            baker.AddComponent(new GhostInterpolatedOnly());
-            baker.AddComponent(new GhostOwnerComponent());
+            var entity = baker.GetEntity(TransformUsageFlags.Dynamic);
+            baker.AddComponent(entity, new GhostPredictedOnly());
+            baker.AddComponent(entity, new GhostInterpolatedOnly());
+            baker.AddComponent(entity, new GhostOwner());
         }
     }
 
@@ -80,16 +81,16 @@ namespace Unity.NetCode.Tests
                 Assert.AreNotEqual(Entity.Null, serverEnt);
                 testWorld.ServerWorld.EntityManager.SetComponentData(serverEnt, new GhostPredictedOnly{Value = 1});
                 testWorld.ServerWorld.EntityManager.SetComponentData(serverEnt, new GhostInterpolatedOnly{Value = 1});
-                testWorld.ServerWorld.EntityManager.SetComponentData(serverEnt, new GhostOwnerComponent{NetworkId = predicted ? 1 : 2});
+                testWorld.ServerWorld.EntityManager.SetComponentData(serverEnt, new GhostOwner{NetworkId = predicted ? 1 : 2});
 
                 float frameTime = 1.0f / 60.0f;
                 // Connect and make sure the connection could be established
                 Assert.IsTrue(testWorld.Connect(frameTime, 4));
 
                 // Check the clients network id
-                var serverCon = testWorld.TryGetSingletonEntity<NetworkIdComponent>(testWorld.ServerWorld);
+                var serverCon = testWorld.TryGetSingletonEntity<NetworkId>(testWorld.ServerWorld);
                 Assert.AreNotEqual(Entity.Null, serverCon);
-                Assert.AreEqual(1, testWorld.ServerWorld.EntityManager.GetComponentData<NetworkIdComponent>(serverCon).Value);
+                Assert.AreEqual(1, testWorld.ServerWorld.EntityManager.GetComponentData<NetworkId>(serverCon).Value);
 
                 // Go in-game
                 testWorld.GoInGame();
@@ -99,9 +100,9 @@ namespace Unity.NetCode.Tests
                     testWorld.Tick(frameTime);
 
                 // Check that the client world has the right thing and value
-                var clientEnt = testWorld.TryGetSingletonEntity<GhostOwnerComponent>(testWorld.ClientWorlds[0]);
+                var clientEnt = testWorld.TryGetSingletonEntity<GhostOwner>(testWorld.ClientWorlds[0]);
                 Assert.AreNotEqual(Entity.Null, clientEnt);
-                Assert.AreEqual(predicted, testWorld.ClientWorlds[0].EntityManager.HasComponent<PredictedGhostComponent>(clientEnt));
+                Assert.AreEqual(predicted, testWorld.ClientWorlds[0].EntityManager.HasComponent<PredictedGhost>(clientEnt));
                 Assert.AreEqual(predicted ? 0 : 1, testWorld.ClientWorlds[0].EntityManager.GetComponentData<GhostInterpolatedOnly>(clientEnt).Value);
                 Assert.AreEqual(predicted ? 1 : 0, testWorld.ClientWorlds[0].EntityManager.GetComponentData<GhostPredictedOnly>(clientEnt).Value);
             }

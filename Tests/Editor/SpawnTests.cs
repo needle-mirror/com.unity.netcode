@@ -24,7 +24,8 @@ namespace Unity.NetCode.Tests
     {
         public void Bake(GameObject gameObject, IBaker baker)
         {
-            baker.AddComponent<Data>();
+            var entity = baker.GetEntity(TransformUsageFlags.Dynamic);
+            baker.AddComponent<Data>(entity);
         }
     }
 
@@ -32,7 +33,8 @@ namespace Unity.NetCode.Tests
     {
         public void Bake(GameObject gameObject, IBaker baker)
         {
-            baker.AddComponent<ChildData>();
+            var entity = baker.GetEntity(TransformUsageFlags.Dynamic);
+            baker.AddComponent<ChildData>(entity);
         }
     }
 
@@ -61,7 +63,7 @@ namespace Unity.NetCode.Tests
             public NativeList<Entity> PredictedEntities;
             protected override void OnCreate()
             {
-                RequireForUpdate<GhostSpawnQueueComponent>();
+                RequireForUpdate<GhostSpawnQueue>();
                 RequireForUpdate<PredictedGhostSpawnList>();
                 PredictedEntities = new NativeList<Entity>(5,Allocator.Persistent);
             }
@@ -77,7 +79,7 @@ namespace Unity.NetCode.Tests
                 var spawnListFromEntity = GetBufferLookup<PredictedGhostSpawn>();
                 var predictedEntities = PredictedEntities;
                 Entities
-                    .WithAll<GhostSpawnQueueComponent>()
+                    .WithAll<GhostSpawnQueue>()
                     .ForEach((DynamicBuffer<GhostSpawnBuffer> ghosts) =>
                     {
                         var spawnList = spawnListFromEntity[spawnListEntity];
@@ -163,7 +165,7 @@ namespace Unity.NetCode.Tests
 
                 // Verify you've instantiated the predict spawn version of the prefab
                 var compQuery = testWorld.ClientWorlds[0].EntityManager
-                    .CreateEntityQuery(typeof(PredictedGhostSpawnRequestComponent));
+                    .CreateEntityQuery(typeof(PredictedGhostSpawnRequest));
                 Assert.AreEqual(1, compQuery.CalculateEntityCount());
 
                 // Verify the predicted ghost has a linked entity (the child on the GO)
@@ -197,7 +199,7 @@ namespace Unity.NetCode.Tests
                 // Verify ghost field data has been updated on the clients instance for the predicted entity we spawned
                 compQuery = testWorld.ClientWorlds[0].EntityManager.CreateEntityQuery(new EntityQueryDesc
                 {
-                    All = new ComponentType[] { typeof(Data), typeof(PredictedGhostComponent) },
+                    All = new ComponentType[] { typeof(Data), typeof(PredictedGhost) },
                 });
                 compQuery.ToComponentDataArray<Data>(Allocator.Temp);
                 Assert.AreEqual(1, clientData.Length);
@@ -207,7 +209,7 @@ namespace Unity.NetCode.Tests
                 compQuery = testWorld.ClientWorlds[0].EntityManager.CreateEntityQuery(new EntityQueryDesc
                 {
                     All = new ComponentType[] { typeof(Data) },
-                    None = new ComponentType[] { typeof(PredictedGhostComponent) }
+                    None = new ComponentType[] { typeof(PredictedGhost) }
                 });
                 compQuery.ToComponentDataArray<Data>(Allocator.Temp);
                 Assert.AreEqual(1, clientData.Length);
@@ -220,7 +222,7 @@ namespace Unity.NetCode.Tests
                     {
                         typeof(Data),
                         typeof(Prefab),
-                        typeof(PredictedGhostComponent)
+                        typeof(PredictedGhost)
                     },
                     Options = EntityQueryOptions.IncludePrefab
                 };

@@ -39,7 +39,9 @@ You can also specify your own settings, by setting custom values in the `RTT Del
 > These simulator settings are applied on a per-packet basis (i.e. each way).<br/>
 > [!NOTE]
 > Enabling network simulation will force the Unity Transport's network interface to be a full UDP socket. Otherwise, when a both Client and Server worlds are present in the same process an IPC (Inter-Process Communication) connection is used instead.
-> See [DefaultDriverConstructor](https://docs.unity3d.com/Packages/com.unity.netcode@latest/index.html?subfolder=/api/Unity.NetCode.IPCAndSocketDriverConstructor.html)
+> See [DefaultDriverConstructor](https://docs.unity3d.com/Packages/com.unity.netcode@latest/index.html?subfolder=/api/Unity.NetCode.IPCAndSocketDriverConstructor.html) <br/>
+> [!NOTE]
+> The `AutoConnectAddress` and `AutoConnectPort` will be used when automatically connecting the client to a server (in client only mode) and overrides the values set in the [ClientServerBootstrap](https://docs.unity3d.com/Packages/com.unity.netcode@latest/index.html?subfolder=/api/Unity.NetCode.ClientServerBootstrap.html). However, when the bootstrap sets `AutoConnectPort` to 0 these fields will be unused unless the Connect button in the Playmode Tools is pressed.
 
 We strongly recommend that you frequently test your gameplay with the simulator enabled, as it more closely resembles real-world conditions.
 

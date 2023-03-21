@@ -7,7 +7,7 @@ using Unity.Networking.Transport.Utilities;
 
 namespace Unity.NetCode
 {
-#if UNITY_EDITOR || DEVELOPMENT_BUILD
+#if UNITY_EDITOR || NETCODE_DEBUG
     internal struct NetworkTimeSystemStats : IComponentData
     {
         public float timeScale;
@@ -63,11 +63,11 @@ namespace Unity.NetCode
 
     /// <summary>
     /// <para>System responsible for estimating the <see cref="NetworkTime.ServerTick"/> and <see cref="NetworkTime.InterpolationTick"/>
-    /// using the current round trip time (see <see cref="NetworkSnapshotAckComponent"/>) and feedback from the server (see <see cref="NetworkSnapshotAckComponent.ServerCommandAge"/>).</para>
+    /// using the current round trip time (see <see cref="NetworkSnapshotAck"/>) and feedback from the server (see <see cref="NetworkSnapshotAck.ServerCommandAge"/>).</para>
     /// <para>The system tries to keep the server tick (present on the client) ahead of the server, such that input commands (see <see cref="ICommandData"/> and <see cref="IInputComponentData"/>)
     /// are received <i>before</i> the server needs them for the simulation.
     /// The system speeds up and slows down the client simulation elapsed delta time to compensate for changes in the network condition, and makes the reported
-    /// <see cref="NetworkSnapshotAckComponent.ServerCommandAge"/> close to the <see cref="ClientTickRate.TargetCommandSlack"/>.</para>
+    /// <see cref="NetworkSnapshotAck.ServerCommandAge"/> close to the <see cref="ClientTickRate.TargetCommandSlack"/>.</para>
     /// <para>This time synchronization start taking place as soon as the first snapshot is received by the client. Because of that,
     /// until the client <see cref="NetworkStreamConnection"/> is not set in-game (see <see cref="NetworkStreamInGame"/>), the calculated
     /// server tick and interpolated are always 0.</para>
@@ -103,7 +103,7 @@ namespace Unity.NetCode
             InterpolationTimeScaleMax = 1.1f
         };
 
-#if UNITY_EDITOR || DEVELOPMENT_BUILD
+#if UNITY_EDITOR || NETCODE_DEBUG || UNITY_INCLUDE_TESTS
         internal static uint s_FixedTimestampMS{get{return s_FixedTime.Data.FixedTimestampMS;} set{s_FixedTime.Data.FixedTimestampMS = value;}}
         private struct FixedTime
         {
@@ -178,7 +178,7 @@ namespace Unity.NetCode
             fixed (void* commandAgePtr = commandAgeAdjustment)
                 UnsafeUtility.MemClear(commandAgePtr, CommandAgeAdjustmentLength*sizeof(float));
 
-#if UNITY_EDITOR || DEVELOPMENT_BUILD
+#if UNITY_EDITOR || NETCODE_DEBUG
             var types = new NativeArray<ComponentType>(2, Allocator.Temp);
             types[0] = ComponentType.ReadWrite<NetworkTimeSystemData>();
             types[1] = ComponentType.ReadWrite<NetworkTimeSystemStats>();
@@ -189,7 +189,7 @@ namespace Unity.NetCode
             var netTimeStatEntity = state.EntityManager.CreateEntity(state.EntityManager.CreateArchetype(types));
             FixedString64Bytes singletonName = "NetworkTimeSystemData";
             state.EntityManager.SetName(netTimeStatEntity, singletonName);
-            state.RequireForUpdate<NetworkSnapshotAckComponent>();
+            state.RequireForUpdate<NetworkSnapshotAck>();
         }
 
         /// <summary>
@@ -226,9 +226,9 @@ namespace Unity.NetCode
             if (SystemAPI.HasSingleton<ClientTickRate>())
                 clientTickRate = SystemAPI.GetSingleton<ClientTickRate>();
 
-            state.CompleteDependency(); // We complete the dependency. This is needed because NetworkSnapshotAckComponent is written by a job in NetworkStreamReceiveSystem
+            state.CompleteDependency(); // We complete the dependency. This is needed because NetworkSnapshotAck is written by a job in NetworkStreamReceiveSystem
 
-            var ack = SystemAPI.GetSingleton<NetworkSnapshotAckComponent>();
+            var ack = SystemAPI.GetSingleton<NetworkSnapshotAck>();
             bool isInGame = SystemAPI.HasSingleton<NetworkStreamInGame>();
 
             float deltaTime = SystemAPI.Time.DeltaTime;
@@ -284,7 +284,7 @@ namespace Unity.NetCode
                 latestSnapshotEstimate = NetworkTick.Invalid;
 
             ref var netTimeData = ref SystemAPI.GetSingletonRW<NetworkTimeSystemData>().ValueRW;
-#if UNITY_EDITOR || DEVELOPMENT_BUILD
+#if UNITY_EDITOR || NETCODE_DEBUG
             ref var  netTimeDataStats = ref SystemAPI.GetSingletonRW<NetworkTimeSystemStats>().ValueRW;
 #endif
 
@@ -314,7 +314,7 @@ namespace Unity.NetCode
                 for (int i = 0; i < CommandAgeAdjustmentLength; ++i)
                     commandAgeAdjustment[i] = 0;
 
-#if UNITY_EDITOR || DEVELOPMENT_BUILD
+#if UNITY_EDITOR || NETCODE_DEBUG
                 netTimeDataStats = default(NetworkTimeSystemStats);
 #endif
             }
@@ -453,7 +453,7 @@ namespace Unity.NetCode
             netTimeData.interpolateTargetTick.Add(idiff);
             netTimeData.subInterpolateTargetTick -= idiff;
 
-#if UNITY_EDITOR || DEVELOPMENT_BUILD
+#if UNITY_EDITOR || NETCODE_DEBUG
             netTimeDataStats.UpdateStats(predictionTimeScale, interpolationTimeScale, netTimeData.currentInterpolationFrames);
 #endif
         }

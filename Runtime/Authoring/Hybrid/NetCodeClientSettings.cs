@@ -1,5 +1,6 @@
 ﻿#if UNITY_EDITOR
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using Unity.Entities.Build;
 using UnityEditor;
@@ -77,10 +78,10 @@ namespace Unity.NetCode.Hybrid
 
         internal void Save()
         {
+            if (AssetDatabase.IsAssetImportWorkerProcess())
+                return;
             Save(true);
             ((IEntitiesPlayerSettings)this).RegisterCustomDependency();
-            if (!AssetDatabase.IsAssetImportWorkerProcess())
-                AssetDatabase.Refresh();
         }
         private void OnDisable() { Save(); }
     }
@@ -214,12 +215,16 @@ namespace Unity.NetCode.Hybrid
 
         public override string[] GetExtraScriptingDefines()
         {
-            var extraScriptingDefines = GetSettingAsset().GetAdditionalScriptingDefines();
+            IEnumerable<string> extraDefines = GetSettingAsset().GetAdditionalScriptingDefines();
             var netCodeClientTarget = NetCodeClientSettings.instance.ClientTarget;
-            if(netCodeClientTarget == NetCodeClientTarget.Client)
-                return extraScriptingDefines.Append("UNITY_CLIENT").ToArray();
+#if !NETCODE_NDEBUG
+            if (EditorUserBuildSettings.development)
+                extraDefines = extraDefines.Append("NETCODE_DEBUG");
+#endif
             if (netCodeClientTarget == NetCodeClientTarget.ClientAndServer)
-                return extraScriptingDefines;
+                return extraDefines.ToArray();
+            if (netCodeClientTarget == NetCodeClientTarget.Client)
+                return extraDefines.Append("UNITY_CLIENT").ToArray();
             return Array.Empty<string>();
         }
 

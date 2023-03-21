@@ -4,7 +4,7 @@ Prediction in a multiplayer games is when the client is running the same simulat
 The purpose of this "predicted simulation" is to apply raised input commands **_immediately_**, reducing the input latency, dramatically improving "game feel".
 In other words, your character controller can react to inputs on the frame they are raised (awesome!), without having to wait for the server authoritative snapshot to arrive (which would contain data confirming that your character controller movement **_has actually_** been applied).
 
-Prediction only runs for entities which have the [PredictedGhostComponent](https://docs.unity3d.com/Packages/com.unity.netcode@latest/index.html?subfolder=/api/Unity.NetCode.PredictedGhostComponent.html). 
+Prediction only runs for entities which have the [PredictedGhost](https://docs.unity3d.com/Packages/com.unity.netcode@latest/index.html?subfolder=/api/Unity.NetCode.PredictedGhost.html). 
 Unity adds this component to all predicted ghosts on the client, and to all ghosts on the server. On the client, the component also contains some data it needs for the prediction - such as which snapshot has been applied to the ghost.
 
 The prediction is based on a fixed time-step loop, controlled by the [PredictedSimulationSystemGroup](https://docs.unity3d.com/Packages/com.unity.netcode@0latest/index.html?subfolder=/api/Unity.NetCode.PredictedSimulationSystemGroup.html), 
@@ -39,25 +39,25 @@ For example:
 ```c#
 
 Entities
-    .WithAll<PredictedGhostComponent, Simulate>()
+    .WithAll<PredictedGhost, Simulate>()
     .ForEach(ref Translation trannslation)
 {                 
       ///Your update logic here
 }
 ```
 
-### Check which entities to predict using the PredictedGhostComponent.ShouldPredict helper method (LEGACY)
-The old way To perform these checks, calling the static method  [PredictedGhostComponent.ShouldPredict](https://docs.unity3d.com/Packages/com.unity.netcode@latest/index.html?subfolder=/api/Unity.NetCode.PredictedGhostComponent.html#Unity_NetCode_PredictedGhostComponent_ShouldPredict_System_UInt32_) before updating an entity
+### Check which entities to predict using the PredictedGhost.ShouldPredict helper method (LEGACY)
+The old way To perform these checks, calling the static method  [PredictedGhost.ShouldPredict](https://docs.unity3d.com/Packages/com.unity.netcode@latest/index.html?subfolder=/api/Unity.NetCode.PredictedGhost.html#Unity_NetCode_PredictedGhost_ShouldPredict_System_UInt32_) before updating an entity
 is still supported. In this case the method/job that update the entity should looks something like this:
 
 ```c#
 
 var serverTick = GetSingleton<NetworkTime>().ServerTick;
 Entities
-    .WithAll<PredictedGhostComponent, Simulate>()
+    .WithAll<PredictedGhost, Simulate>()
     .ForEach(ref Translation trannslation)
 {                 
-      if!(PredictedGhostComponent.ShouldPredict(serverTick))
+      if!(PredictedGhost.ShouldPredict(serverTick))
            return;
                   
       ///Your update logic here
@@ -72,7 +72,7 @@ On the server, the prediction loop always runs **_exactly once_**, and does not 
 I.e. It's not "predicted" any more: It's the actual authoritative simulation being run on the server.
 The `ServerTick` in the `NetworkTime` singleton also has the correct value, so the exact same code can be run on both the client and server.
 
-Thus, the `PredictedGhostComponent.ShouldPredict` always returns true when called on the server, and the `Simulate` component is also always enabled. 
+Thus, the `PredictedGhost.ShouldPredict` always returns true when called on the server, and the `Simulate` component is also always enabled. 
 
 > [!NOTE]
 > Therefore, for predicted gameplay systems, you can write the code **once**, and it'll "just work" (without needing to make a distinction about whether or not it's running on the server, or the client).
@@ -106,7 +106,7 @@ the current simulated tick will provide for you.
     protected override void OnUpdate()
     {
         Entities
-            .WithAll<PredictedGhostComponent, Simulate>()
+            .WithAll<PredictedGhost, Simulate>()
             .ForEach((Entity entity, ref Translation translation, in MyInput input) =>
         {                 
               ///Your update logic here
@@ -168,7 +168,7 @@ The `GhostPredictionSwitchingQueues` client singleton provides two queues that y
 - `ConvertToInterpolatedQueue`: Take a Predicted ghost and make it Interpolated (via `GhostPredictionSwitchingSystem.ConvertGhostToInterpolated`).
 
 The `GhostPredictionSwitchingSystem` will then convert these ghosts for you, automatically (thus changing a ghosts `GhostMode` live).
-In practice, this is represented as either adding (or removing) the `PredictedGhostComponent`.
+In practice, this is represented as either adding (or removing) the `PredictedGhost`.
 
 ### Rules when using Prediction Switching Queues
 - The entity must be a ghost.

@@ -23,7 +23,7 @@ namespace Unity.NetCode
         public void OnCreate(ref SystemState state)
         {
             var builder = new EntityQueryBuilder(Allocator.Temp)
-                .WithAll<SubSceneWithGhostStateComponent>()
+                .WithAll<SubSceneWithGhostClenup>()
                 .WithNone<IsSectionLoaded>();
             m_UnloadedSubscenes = state.GetEntityQuery(builder);
             builder.Reset();
@@ -47,7 +47,7 @@ namespace Unity.NetCode
             var entityCommandBuffer = new EntityCommandBuffer(Allocator.Temp);
             for(int i=0;i<unloadedScenes.Length;++i)
             {
-                var stateComponent = state.EntityManager.GetComponentData<SubSceneWithGhostStateComponent>(unloadedScenes[i]);
+                var stateComponent = state.EntityManager.GetComponentData<SubSceneWithGhostClenup>(unloadedScenes[i]);
                 m_Prespawns.SetSharedComponentFilter(new SubSceneGhostComponentHash { Value = stateComponent.SubSceneHash });
                 if (m_Prespawns.IsEmpty)
                 {
@@ -63,7 +63,7 @@ namespace Unity.NetCode
 
                     entityCommandBuffer.RemoveComponent<PrespawnsSceneInitialized>(unloadedScenes[i]);
                     entityCommandBuffer.RemoveComponent<SubScenePrespawnBaselineResolved>(unloadedScenes[i]);
-                    entityCommandBuffer.RemoveComponent<SubSceneWithGhostStateComponent>(unloadedScenes[i]);
+                    entityCommandBuffer.RemoveComponent<SubSceneWithGhostClenup>(unloadedScenes[i]);
                 }
             }
             entityCommandBuffer.Playback(state.EntityManager);

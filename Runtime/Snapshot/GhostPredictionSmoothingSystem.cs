@@ -159,8 +159,8 @@ namespace Unity.NetCode
 
         internal struct SmoothingAction : IComponentData {}
 
-        ComponentTypeHandle<GhostComponent> m_GhostComponentHandle;
-        ComponentTypeHandle<PredictedGhostComponent> m_PredictedGhostComponentHandle;
+        ComponentTypeHandle<GhostInstance> m_GhostComponentHandle;
+        ComponentTypeHandle<PredictedGhost> m_PredictedGhostHandle;
         BufferTypeHandle<LinkedEntityGroup> m_LinkedEntityGroupHandle;
         EntityTypeHandle m_EntityTypeHandle;
 
@@ -171,7 +171,7 @@ namespace Unity.NetCode
         [BurstCompile]
         public void OnCreate(ref SystemState state)
         {
-            var builder = new EntityQueryBuilder(Allocator.Temp).WithAll<PredictedGhostComponent, GhostComponent>();
+            var builder = new EntityQueryBuilder(Allocator.Temp).WithAll<PredictedGhost, GhostInstance>();
             m_PredictionQuery = state.GetEntityQuery(builder);
 
             m_UserSpecifiedComponentData = new NativeList<ComponentType>(8, Allocator.Persistent);
@@ -181,8 +181,8 @@ namespace Unity.NetCode
             state.RequireForUpdate<SmoothingAction>();
 
 
-            m_GhostComponentHandle = state.GetComponentTypeHandle<GhostComponent>(true);
-            m_PredictedGhostComponentHandle = state.GetComponentTypeHandle<PredictedGhostComponent>(true);
+            m_GhostComponentHandle = state.GetComponentTypeHandle<GhostInstance>(true);
+            m_PredictedGhostHandle = state.GetComponentTypeHandle<PredictedGhost>(true);
             m_LinkedEntityGroupHandle = state.GetBufferTypeHandle<LinkedEntityGroup>(true);
             m_EntityTypeHandle = state.GetEntityTypeHandle();
 
@@ -222,7 +222,7 @@ namespace Unity.NetCode
 
 
             m_GhostComponentHandle.Update(ref state);
-            m_PredictedGhostComponentHandle.Update(ref state);
+            m_PredictedGhostHandle.Update(ref state);
             m_LinkedEntityGroupHandle.Update(ref state);
             m_EntityTypeHandle.Update(ref state);
 
@@ -233,7 +233,7 @@ namespace Unity.NetCode
             {
                 predictionState = SystemAPI.GetSingleton<GhostPredictionHistoryState>().PredictionState,
                 ghostType = m_GhostComponentHandle,
-                predictedGhostType = m_PredictedGhostComponentHandle,
+                predictedGhostType = m_PredictedGhostHandle,
                 entityType = m_EntityTypeHandle,
 
                 GhostCollectionSingleton = SystemAPI.GetSingletonEntity<GhostCollection>(),
@@ -262,8 +262,8 @@ namespace Unity.NetCode
             public DynamicTypeList UserList;
             public NativeParallelHashMap<ArchetypeChunk, System.IntPtr>.ReadOnly predictionState;
 
-            [ReadOnly] public ComponentTypeHandle<GhostComponent> ghostType;
-            [ReadOnly] public ComponentTypeHandle<PredictedGhostComponent> predictedGhostType;
+            [ReadOnly] public ComponentTypeHandle<GhostInstance> ghostType;
+            [ReadOnly] public ComponentTypeHandle<PredictedGhost> predictedGhostType;
             [ReadOnly] public EntityTypeHandle entityType;
 
             public Entity GhostCollectionSingleton;
@@ -313,7 +313,7 @@ namespace Unity.NetCode
                 Entity* backupEntities = PredictionBackupState.GetEntities(state);
                 var entities = chunk.GetNativeArray(entityType);
 
-                var predictedGhostComponents = chunk.GetNativeArray(ref predictedGhostType);
+                var PredictedGhosts = chunk.GetNativeArray(ref predictedGhostType);
 
                 int numBaseComponents = typeData.NumComponents - typeData.NumChildComponents;
                 int baseOffset = typeData.FirstComponent;
@@ -367,7 +367,7 @@ namespace Unity.NetCode
                         for (int ent = 0; ent < entities.Length; ++ent)
                         {
                             // If this entity did not predict anything there was no rollback and no need to debug it
-                            if (!predictedGhostComponents[ent].ShouldPredict(tick))
+                            if (!PredictedGhosts[ent].ShouldPredict(tick))
                                 continue;
 
                             if (entities[ent] != backupEntities[ent])
@@ -395,7 +395,7 @@ namespace Unity.NetCode
                     for (int ent = 0, chunkEntityCount = chunk.Count; ent < chunkEntityCount; ++ent)
                     {
                         // If this entity did not predict anything there was no rollback and no need to debug it
-                        if (!predictedGhostComponents[ent].ShouldPredict(tick))
+                        if (!PredictedGhosts[ent].ShouldPredict(tick))
                             continue;
                         if (entities[ent] != backupEntities[ent])
                             continue;

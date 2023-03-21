@@ -27,7 +27,7 @@ namespace Unity.NetCode.Generators
             packageManifest = new Dictionary<string, string>();
             dictRegex = new Regex("(\\w+\\S+\\b)");
 
-            if (workingDirectory.EndsWith("Source~"))
+            if (workingDirectory.EndsWith("Source~", StringComparison.Ordinal))
             {
                 //Test directory. Remap to the root folder so that Packages/com.xxx can be resolved
                 WorkingDir = workingDirectory.Substring(0, workingDirectory.
@@ -68,7 +68,7 @@ namespace Unity.NetCode.Generators
             if (File.Exists(manifestFile))
             {
                 //Do a very simple logic by looking for all lines with file:/ (TODO: make it more robust by using lowercase)
-                var lines = File.ReadAllLines(manifestFile).Where(l => l.Contains("file:") && !l.EndsWith("tgz"));
+                var lines = File.ReadAllLines(manifestFile).Where(l => l.Contains("file:") && !l.EndsWith("tgz", StringComparison.OrdinalIgnoreCase));
                 foreach (var line in lines)
                 {
                     var m = dictRegex.Matches(line);
@@ -102,7 +102,7 @@ namespace Unity.NetCode.Generators
                 return Path.GetFullPath(localProjectPath);
 
             //handle special package folder
-            if (templatePath.StartsWith("Packages/"))
+            if (templatePath.StartsWith("Packages/", StringComparison.Ordinal))
             {
                 var startIndex = "Packages/".Length;
                 var lastIndex = templatePath.IndexOf('/', startIndex);

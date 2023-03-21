@@ -1,4 +1,4 @@
-#if (UNITY_EDITOR || DEVELOPMENT_BUILD) && !NETCODE_NDEBUG
+#if UNITY_EDITOR && !NETCODE_NDEBUG
 #define NETCODE_DEBUG
 #endif
 using System;
@@ -10,9 +10,22 @@ using Unity.Jobs;
 namespace Unity.NetCode
 {
     /// <summary>
+    /// Temporary type, used to upgrade to new component type, to be removed before final 1.0
+    /// </summary>
+    [Obsolete("SendRpcCommandRequestComponent has been deprecated. Use SendRpcCommandRequest instead (UnityUpgradable) -> SendRpcCommandRequest", true)]
+    public struct SendRpcCommandRequestComponent : IComponentData
+    {}
+    /// <summary>
+    /// Temporary type, used to upgrade to new component type, to be removed before final 1.0
+    /// </summary>
+    [Obsolete("ReceiveRpcCommandRequestComponent has been deprecated. Use ReceiveRpcCommandRequest instead (UnityUpgradable) -> ReceiveRpcCommandRequest", true)]
+    public struct ReceiveRpcCommandRequestComponent : IComponentData
+    {}
+
+    /// <summary>
     /// A component used to signal that an RPC is supposed to be sent to a remote connection and should *not* be processed.
     /// </summary>
-    public struct SendRpcCommandRequestComponent : IComponentData
+    public struct SendRpcCommandRequest : IComponentData
     {
         /// <summary>
         /// The "NetworkConnection" entity that this RPC should be sent specifically to, or Entity.Null to broadcast to all connections.
@@ -22,7 +35,7 @@ namespace Unity.NetCode
     /// <summary>
     /// A component used to signal that an RPC has been received from a remote connection and should be processed.
     /// </summary>
-    public struct ReceiveRpcCommandRequestComponent : IComponentData
+    public struct ReceiveRpcCommandRequest : IComponentData
     {
         /// <summary>
         /// The connection which sent the RPC being processed.
@@ -48,7 +61,7 @@ namespace Unity.NetCode
         }
 
         /// <summary>
-        ///     <see cref="ReceiveRpcCommandRequestComponent"/> has a <see cref="WarnAboutStaleRpcSystem"/> which will log a warning if this <see cref="Age"/> value exceeds <see cref="WarnAboutStaleRpcSystem.MaxRpcAgeFrames"/>.
+        ///     <see cref="ReceiveRpcCommandRequest"/> has a <see cref="WarnAboutStaleRpcSystem"/> which will log a warning if this <see cref="Age"/> value exceeds <see cref="WarnAboutStaleRpcSystem.MaxRpcAgeFrames"/>.
         ///     Counts simulation frames.
         ///     0 is the simulation frame it is received on.
         /// </summary>
@@ -70,13 +83,13 @@ namespace Unity.NetCode
     [UpdateInGroup(typeof(SimulationSystemGroup), OrderLast = true)]
     [UpdateBefore(typeof(RpcSystem))]
     [UpdateAfter(typeof(EndSimulationEntityCommandBufferSystem))]
-    public class RpcCommandRequestSystemGroup : ComponentSystemGroup
+    public partial class RpcCommandRequestSystemGroup : ComponentSystemGroup
     {
         EntityQuery m_Query;
         protected override void OnCreate()
         {
             base.OnCreate();
-            m_Query = EntityManager.CreateEntityQuery(ComponentType.ReadOnly<SendRpcCommandRequestComponent>());
+            m_Query = EntityManager.CreateEntityQuery(ComponentType.ReadOnly<SendRpcCommandRequest>());
         }
         protected override void OnUpdate()
         {
@@ -116,14 +129,14 @@ namespace Unity.NetCode
         {
             internal EntityCommandBuffer.ParallelWriter commandBuffer;
             [ReadOnly] internal EntityTypeHandle entitiesType;
-            [ReadOnly] internal ComponentTypeHandle<SendRpcCommandRequestComponent> rpcRequestType;
+            [ReadOnly] internal ComponentTypeHandle<SendRpcCommandRequest> rpcRequestType;
             [ReadOnly] internal ComponentTypeHandle<TActionRequest> actionRequestType;
-            [ReadOnly] internal ComponentLookup<GhostComponent> ghostFromEntity;
-            internal BufferLookup<OutgoingRpcDataStreamBufferComponent> rpcFromEntity;
+            [ReadOnly] internal ComponentLookup<GhostInstance> ghostFromEntity;
+            internal BufferLookup<OutgoingRpcDataStreamBuffer> rpcFromEntity;
             internal RpcQueue<TActionSerializer, TActionRequest> rpcQueue;
             [ReadOnly] internal NativeList<Entity> connections;
 
-            void LambdaMethod(Entity entity, int orderIndex, in SendRpcCommandRequestComponent dest, in TActionRequest action)
+            void LambdaMethod(Entity entity, int orderIndex, in SendRpcCommandRequest dest, in TActionRequest action)
             {
                 commandBuffer.DestroyEntity(orderIndex, entity);
                 if (connections.Length > 0)
@@ -195,10 +208,10 @@ namespace Unity.NetCode
         public EntityQuery Query;
 
         EntityTypeHandle m_EntityTypeHandle;
-        ComponentTypeHandle<SendRpcCommandRequestComponent> m_SendRpcCommandRequestComponentHandle;
+        ComponentTypeHandle<SendRpcCommandRequest> m_SendRpcCommandRequestComponentHandle;
         ComponentTypeHandle<TActionRequest> m_TActionRequestHandle;
-        ComponentLookup<GhostComponent> m_GhostComponentFromEntity;
-        BufferLookup<OutgoingRpcDataStreamBufferComponent> m_OutgoingRpcDataStreamBufferComponentFromEntity;
+        ComponentLookup<GhostInstance> m_GhostComponentFromEntity;
+        BufferLookup<OutgoingRpcDataStreamBuffer> m_OutgoingRpcDataStreamBufferComponentFromEntity;
 
         /// <summary>
         /// Initialize the helper struct, should be called from OnCreate in an ISystem.
@@ -211,10 +224,10 @@ namespace Unity.NetCode
             rpcCollection.RegisterRpc<TActionSerializer, TActionRequest>();
             m_RpcQueue = rpcCollection.GetRpcQueue<TActionSerializer, TActionRequest>();
             builder.Reset();
-            builder.WithAll<SendRpcCommandRequestComponent, TActionRequest>();
+            builder.WithAll<SendRpcCommandRequest, TActionRequest>();
             Query = state.GetEntityQuery(builder);
             builder.Reset();
-            builder.WithAll<NetworkIdComponent>();
+            builder.WithAll<NetworkId>();
             m_ConnectionsQuery = state.GetEntityQuery(builder);
             builder.Reset();
             builder.WithAll<BeginSimulationEntityCommandBufferSystem.Singleton>();
@@ -222,10 +235,10 @@ namespace Unity.NetCode
             m_CommandBufferQuery = state.GetEntityQuery(builder);
 
             m_EntityTypeHandle = state.GetEntityTypeHandle();
-            m_SendRpcCommandRequestComponentHandle = state.GetComponentTypeHandle<SendRpcCommandRequestComponent>(true);
+            m_SendRpcCommandRequestComponentHandle = state.GetComponentTypeHandle<SendRpcCommandRequest>(true);
             m_TActionRequestHandle = state.GetComponentTypeHandle<TActionRequest>(true);
-            m_GhostComponentFromEntity = state.GetComponentLookup<GhostComponent>(true);
-            m_OutgoingRpcDataStreamBufferComponentFromEntity = state.GetBufferLookup<OutgoingRpcDataStreamBufferComponent>();
+            m_GhostComponentFromEntity = state.GetComponentLookup<GhostInstance>(true);
+            m_OutgoingRpcDataStreamBufferComponentFromEntity = state.GetBufferLookup<OutgoingRpcDataStreamBuffer>();
 
             state.RequireForUpdate(Query);
         }

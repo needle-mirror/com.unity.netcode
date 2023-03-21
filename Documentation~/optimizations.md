@@ -165,7 +165,7 @@ Which is then updated via the Asteroids server system `UpdateConnectionPositionS
         partial struct UpdateConnectionPositionSystemJob : IJobEntity
         {
             [ReadOnly] public ComponentLookup<LocalTransform> transformFromEntity;
-            public void Execute(ref GhostConnectionPosition conPos, in CommandTargetComponent target)
+            public void Execute(ref GhostConnectionPosition conPos, in CommandTarget target)
             {
                 if (!transformFromEntity.HasComponent(target.targetEntity))
                     return;

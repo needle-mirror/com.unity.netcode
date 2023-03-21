@@ -37,7 +37,7 @@ namespace Unity.NetCode
             var settings = new NetworkSettings();
             settings.WithReliableStageParameters(windowSize: DefaultWindowSize)
                 .WithFragmentationStageParameters(payloadCapacity: DefaultPayloadCapacity);
-#if UNITY_EDITOR || DEVELOPMENT_BUILD
+#if UNITY_EDITOR || NETCODE_DEBUG
             settings.WithNetworkConfigParameters(maxFrameTimeMS: MaxFrameTimeMS);
             if (NetworkSimulatorSettings.Enabled)
             {
@@ -60,7 +60,7 @@ namespace Unity.NetCode
 #endif
             settings.WithReliableStageParameters(windowSize: DefaultWindowSize)
                 .WithFragmentationStageParameters(payloadCapacity: DefaultPayloadCapacity);
-#if UNITY_EDITOR || DEVELOPMENT_BUILD
+#if UNITY_EDITOR || NETCODE_DEBUG
             settings.WithNetworkConfigParameters(maxFrameTimeMS: MaxFrameTimeMS,
                 receiveQueueCapacity: QueueSizeFromPlayerCount(playerCount),
                 sendQueueCapacity: QueueSizeFromPlayerCount(playerCount));
@@ -97,7 +97,7 @@ namespace Unity.NetCode
         public static NetworkDriverStore.NetworkDriverInstance CreateClientNetworkDriver<T>(T netIf, NetworkSettings settings) where T : unmanaged, INetworkInterface
         {
             var driverInstance = new NetworkDriverStore.NetworkDriverInstance();
-#if UNITY_EDITOR || DEVELOPMENT_BUILD
+#if UNITY_EDITOR || NETCODE_DEBUG
             if (NetworkSimulatorSettings.Enabled)
             {
                 driverInstance.simulatorEnabled = true;
@@ -170,7 +170,7 @@ namespace Unity.NetCode
                 return false;
             }
 
-#if UNITY_EDITOR || DEVELOPMENT_BUILD
+#if UNITY_EDITOR || NETCODE_DEBUG
             //if the emulator is enabled we always force to use sockets. It also work with IPC but this is preferred choice.
             if (NetworkSimulatorSettings.Enabled)
             {
@@ -359,7 +359,7 @@ namespace Unity.NetCode
             driverInstance.unreliableFragmentedPipeline = driverInstance.driver.CreatePipeline(typeof(FragmentationPipelineStage));
         }
 
-#if UNITY_EDITOR || DEVELOPMENT_BUILD
+#if UNITY_EDITOR || NETCODE_DEBUG || UNITY_INCLUDE_TESTS
         /// <summary>
         /// Should be used only for configuring client drivers, create the network pipelines (reliable, unreliable, unreliable fragmented)
         /// with network simulator support.

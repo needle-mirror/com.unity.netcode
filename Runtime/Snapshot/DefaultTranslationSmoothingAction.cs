@@ -75,13 +75,8 @@ namespace Unity.NetCode
         [MonoPInvokeCallback(typeof(GhostPredictionSmoothing.SmoothingActionDelegate))]
         private static void SmoothingAction(IntPtr currentData, IntPtr previousData, IntPtr usrData)
         {
-#if !ENABLE_TRANSFORM_V1
             ref var trans = ref UnsafeUtility.AsRef<LocalTransform>((void*)currentData);
             ref var backup = ref UnsafeUtility.AsRef<LocalTransform>((void*)previousData);
-#else
-            ref var trans = ref UnsafeUtility.AsRef<Translation>((void*)currentData);
-            ref var backup = ref UnsafeUtility.AsRef<Translation>((void*)previousData);
-#endif
 
             float maxDist = DefaultStaticUserParams.maxDist.Data;
             float delta = DefaultStaticUserParams.delta.Data;
@@ -93,19 +88,11 @@ namespace Unity.NetCode
                 delta = userParam.delta;
             }
 
-#if !ENABLE_TRANSFORM_V1
             var dist = math.distance(trans.Position, backup.Position);
             if (dist < maxDist && dist > delta && dist > 0)
             {
                 trans.Position = backup.Position + (trans.Position - backup.Position) * delta / dist;
             }
-#else
-            var dist = math.distance(trans.Value, backup.Value);
-            if (dist < maxDist && dist > delta && dist > 0)
-            {
-                trans.Value = backup.Value + (trans.Value - backup.Value) * delta / dist;
-            }
-#endif
         }
     }
 }

@@ -47,7 +47,7 @@ namespace Unity.NetCode.Editor
             if (itemEntity != Entity.Null)
             {
                 var world = item.World;
-                if (world.EntityManager.HasComponent<GhostComponent>(itemEntity))
+                if (world.EntityManager.HasComponent<GhostInstance>(itemEntity))
                 {
                     // Entity view.
                     isNetCode = true;

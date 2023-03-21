@@ -84,14 +84,14 @@ namespace Unity.NetCode.Tests
                 Assert.IsTrue(testWorld.Connect(deltaTime, 4));
                 testWorld.GoInGame();
 
-                var serverConnectionEnt = testWorld.TryGetSingletonEntity<NetworkIdComponent>(testWorld.ServerWorld);
-                var clientConnectionEnt = testWorld.TryGetSingletonEntity<NetworkIdComponent>(testWorld.ClientWorlds[0]);
+                var serverConnectionEnt = testWorld.TryGetSingletonEntity<NetworkId>(testWorld.ServerWorld);
+                var clientConnectionEnt = testWorld.TryGetSingletonEntity<NetworkId>(testWorld.ClientWorlds[0]);
 
                 for (int i = 0; i < 16; ++i)
                     testWorld.Tick(deltaTime);
 
-                var serverAck = testWorld.ServerWorld.EntityManager.GetComponentData<NetworkSnapshotAckComponent>(serverConnectionEnt);
-                var clientAck = testWorld.ClientWorlds[0].EntityManager.GetComponentData<NetworkSnapshotAckComponent>(clientConnectionEnt);
+                var serverAck = testWorld.ServerWorld.EntityManager.GetComponentData<NetworkSnapshotAck>(serverConnectionEnt);
+                var clientAck = testWorld.ClientWorlds[0].EntityManager.GetComponentData<NetworkSnapshotAck>(clientConnectionEnt);
 
                 Assert.Less(testWorld.GetNetworkTime(testWorld.ServerWorld).ServerTick.TicksSince(serverAck.LastReceivedSnapshotByRemote), 4);
                 var driverType = testWorld.GetSingleton<NetworkStreamDriver>(testWorld.ClientWorlds[0]).DriverStore.GetDriverType(NetworkDriverStore.FirstDriverId);
@@ -122,17 +122,17 @@ namespace Unity.NetCode.Tests
                 Assert.IsTrue(testWorld.Connect(deltaTime, 4));
                 testWorld.GoInGame();
 
-                var serverConnectionEnt = testWorld.TryGetSingletonEntity<NetworkIdComponent>(testWorld.ServerWorld);
-                var clientConnectionEnt = testWorld.TryGetSingletonEntity<NetworkIdComponent>(testWorld.ClientWorlds[0]);
-                var netId = testWorld.ClientWorlds[0].EntityManager.GetComponentData<NetworkIdComponent>(clientConnectionEnt).Value;
+                var serverConnectionEnt = testWorld.TryGetSingletonEntity<NetworkId>(testWorld.ServerWorld);
+                var clientConnectionEnt = testWorld.TryGetSingletonEntity<NetworkId>(testWorld.ClientWorlds[0]);
+                var netId = testWorld.ClientWorlds[0].EntityManager.GetComponentData<NetworkId>(clientConnectionEnt).Value;
 
                 var serverEnt = testWorld.SpawnOnServer(ghostGameObject);
-                testWorld.ServerWorld.EntityManager.SetComponentData(serverEnt, new GhostOwnerComponent {NetworkId = netId});
+                testWorld.ServerWorld.EntityManager.SetComponentData(serverEnt, new GhostOwner {NetworkId = netId});
 
                 for (int i = 0; i < 16; ++i)
                     testWorld.Tick(deltaTime);
 
-                var clientEnt = testWorld.TryGetSingletonEntity<GhostOwnerComponent>(testWorld.ClientWorlds[0]);
+                var clientEnt = testWorld.TryGetSingletonEntity<GhostOwner>(testWorld.ClientWorlds[0]);
                 Assert.AreNotEqual(Entity.Null, clientEnt);
 
                 testWorld.ServerWorld.EntityManager.AddComponent<CommandDataTestsTickInput>(serverEnt);
@@ -146,8 +146,8 @@ namespace Unity.NetCode.Tests
                 Assert.AreEqual(0, serverBuffer.Length);
                 Assert.AreNotEqual(0, clientBuffer.Length);
 
-                testWorld.ServerWorld.EntityManager.SetComponentData(serverConnectionEnt, new CommandTargetComponent{targetEntity = serverEnt});
-                testWorld.ClientWorlds[0].EntityManager.SetComponentData(clientConnectionEnt, new CommandTargetComponent{targetEntity = clientEnt});
+                testWorld.ServerWorld.EntityManager.SetComponentData(serverConnectionEnt, new CommandTarget{targetEntity = serverEnt});
+                testWorld.ClientWorlds[0].EntityManager.SetComponentData(clientConnectionEnt, new CommandTarget{targetEntity = clientEnt});
 
                 for (int i = 0; i < 4; ++i)
                     testWorld.Tick(deltaTime);
@@ -173,17 +173,17 @@ namespace Unity.NetCode.Tests
                 Assert.IsTrue(testWorld.Connect(deltaTime, 4));
                 testWorld.GoInGame();
 
-                var serverConnectionEnt = testWorld.TryGetSingletonEntity<NetworkIdComponent>(testWorld.ServerWorld);
-                var clientConnectionEnt = testWorld.TryGetSingletonEntity<NetworkIdComponent>(testWorld.ClientWorlds[0]);
-                var netId = testWorld.ClientWorlds[0].EntityManager.GetComponentData<NetworkIdComponent>(clientConnectionEnt).Value;
+                var serverConnectionEnt = testWorld.TryGetSingletonEntity<NetworkId>(testWorld.ServerWorld);
+                var clientConnectionEnt = testWorld.TryGetSingletonEntity<NetworkId>(testWorld.ClientWorlds[0]);
+                var netId = testWorld.ClientWorlds[0].EntityManager.GetComponentData<NetworkId>(clientConnectionEnt).Value;
 
                 var serverEnt = testWorld.SpawnOnServer(ghostGameObject);
-                testWorld.ServerWorld.EntityManager.SetComponentData(serverEnt, new GhostOwnerComponent {NetworkId = netId});
+                testWorld.ServerWorld.EntityManager.SetComponentData(serverEnt, new GhostOwner {NetworkId = netId});
 
                 for (int i = 0; i < 16; ++i)
                     testWorld.Tick(deltaTime);
 
-                var clientEnt = testWorld.TryGetSingletonEntity<GhostOwnerComponent>(testWorld.ClientWorlds[0]);
+                var clientEnt = testWorld.TryGetSingletonEntity<GhostOwner>(testWorld.ClientWorlds[0]);
                 Assert.AreNotEqual(Entity.Null, clientEnt);
 
                 testWorld.ServerWorld.EntityManager.AddComponent<CommandDataTestsTickInput>(serverEnt);
@@ -203,8 +203,8 @@ namespace Unity.NetCode.Tests
                 Assert.AreEqual(0, serverBuffer2.Length);
                 Assert.AreNotEqual(0, clientBuffer2.Length);
 
-                testWorld.ServerWorld.EntityManager.SetComponentData(serverConnectionEnt, new CommandTargetComponent{targetEntity = serverEnt});
-                testWorld.ClientWorlds[0].EntityManager.SetComponentData(clientConnectionEnt, new CommandTargetComponent{targetEntity = clientEnt});
+                testWorld.ServerWorld.EntityManager.SetComponentData(serverConnectionEnt, new CommandTarget{targetEntity = serverEnt});
+                testWorld.ClientWorlds[0].EntityManager.SetComponentData(clientConnectionEnt, new CommandTarget{targetEntity = clientEnt});
 
                 for (int i = 0; i < 4; ++i)
                     testWorld.Tick(deltaTime);
@@ -242,17 +242,17 @@ namespace Unity.NetCode.Tests
                 Assert.IsTrue(testWorld.Connect(deltaTime, 4));
                 testWorld.GoInGame();
 
-                var serverConnectionEnt = testWorld.TryGetSingletonEntity<NetworkIdComponent>(testWorld.ServerWorld);
-                var clientConnectionEnt = testWorld.TryGetSingletonEntity<NetworkIdComponent>(testWorld.ClientWorlds[0]);
-                var netId = testWorld.ClientWorlds[0].EntityManager.GetComponentData<NetworkIdComponent>(clientConnectionEnt).Value;
+                var serverConnectionEnt = testWorld.TryGetSingletonEntity<NetworkId>(testWorld.ServerWorld);
+                var clientConnectionEnt = testWorld.TryGetSingletonEntity<NetworkId>(testWorld.ClientWorlds[0]);
+                var netId = testWorld.ClientWorlds[0].EntityManager.GetComponentData<NetworkId>(clientConnectionEnt).Value;
 
                 var serverEnt = testWorld.SpawnOnServer(ghostGameObject);
-                testWorld.ServerWorld.EntityManager.SetComponentData(serverEnt, new GhostOwnerComponent {NetworkId = netId});
+                testWorld.ServerWorld.EntityManager.SetComponentData(serverEnt, new GhostOwner {NetworkId = netId});
 
                 for (int i = 0; i < 16; ++i)
                     testWorld.Tick(deltaTime);
 
-                var clientEnt = testWorld.TryGetSingletonEntity<GhostOwnerComponent>(testWorld.ClientWorlds[0]);
+                var clientEnt = testWorld.TryGetSingletonEntity<GhostOwner>(testWorld.ClientWorlds[0]);
                 Assert.AreNotEqual(Entity.Null, clientEnt);
 
                 testWorld.ServerWorld.EntityManager.AddComponent<CommandDataTestsTickInput>(serverEnt);
@@ -284,17 +284,17 @@ namespace Unity.NetCode.Tests
                 Assert.IsTrue(testWorld.Connect(deltaTime, 4));
                 testWorld.GoInGame();
 
-                var serverConnectionEnt = testWorld.TryGetSingletonEntity<NetworkIdComponent>(testWorld.ServerWorld);
-                var clientConnectionEnt = testWorld.TryGetSingletonEntity<NetworkIdComponent>(testWorld.ClientWorlds[0]);
-                var netId = testWorld.ClientWorlds[0].EntityManager.GetComponentData<NetworkIdComponent>(clientConnectionEnt).Value;
+                var serverConnectionEnt = testWorld.TryGetSingletonEntity<NetworkId>(testWorld.ServerWorld);
+                var clientConnectionEnt = testWorld.TryGetSingletonEntity<NetworkId>(testWorld.ClientWorlds[0]);
+                var netId = testWorld.ClientWorlds[0].EntityManager.GetComponentData<NetworkId>(clientConnectionEnt).Value;
 
                 var serverEnt = testWorld.SpawnOnServer(ghostGameObject);
-                testWorld.ServerWorld.EntityManager.SetComponentData(serverEnt, new GhostOwnerComponent {NetworkId = netId});
+                testWorld.ServerWorld.EntityManager.SetComponentData(serverEnt, new GhostOwner {NetworkId = netId});
 
                 for (int i = 0; i < 16; ++i)
                     testWorld.Tick(deltaTime);
 
-                var clientEnt = testWorld.TryGetSingletonEntity<GhostOwnerComponent>(testWorld.ClientWorlds[0]);
+                var clientEnt = testWorld.TryGetSingletonEntity<GhostOwner>(testWorld.ClientWorlds[0]);
                 Assert.AreNotEqual(Entity.Null, clientEnt);
 
                 testWorld.ServerWorld.EntityManager.AddComponent<CommandDataTestsTickInput>(serverEnt);
@@ -338,24 +338,24 @@ namespace Unity.NetCode.Tests
                 Assert.IsTrue(testWorld.Connect(deltaTime, 4));
                 testWorld.GoInGame();
 
-                var serverConnectionEnt = testWorld.TryGetSingletonEntity<NetworkIdComponent>(testWorld.ServerWorld);
-                var clientConnectionEnt = testWorld.TryGetSingletonEntity<NetworkIdComponent>(testWorld.ClientWorlds[0]);
-                var netId = testWorld.ClientWorlds[0].EntityManager.GetComponentData<NetworkIdComponent>(clientConnectionEnt).Value;
+                var serverConnectionEnt = testWorld.TryGetSingletonEntity<NetworkId>(testWorld.ServerWorld);
+                var clientConnectionEnt = testWorld.TryGetSingletonEntity<NetworkId>(testWorld.ClientWorlds[0]);
+                var netId = testWorld.ClientWorlds[0].EntityManager.GetComponentData<NetworkId>(clientConnectionEnt).Value;
 
                 var serverEnt = testWorld.SpawnOnServer(ghostGameObject);
                 var serverEnt2 = testWorld.SpawnOnServer(ghostGameObject);
-                testWorld.ServerWorld.EntityManager.SetComponentData(serverEnt, new GhostOwnerComponent {NetworkId = netId});
-                testWorld.ServerWorld.EntityManager.SetComponentData(serverEnt2, new GhostOwnerComponent {NetworkId = netId});
+                testWorld.ServerWorld.EntityManager.SetComponentData(serverEnt, new GhostOwner {NetworkId = netId});
+                testWorld.ServerWorld.EntityManager.SetComponentData(serverEnt2, new GhostOwner {NetworkId = netId});
 
                 for (int i = 0; i < 16; ++i)
                     testWorld.Tick(deltaTime);
 
-                var query = testWorld.ClientWorlds[0].EntityManager.CreateEntityQuery(typeof(GhostOwnerComponent));
+                var query = testWorld.ClientWorlds[0].EntityManager.CreateEntityQuery(typeof(GhostOwner));
                 var clientEnts = query.ToEntityArray(Allocator.Temp);
                 Assert.AreEqual(2, clientEnts.Length);
                 Assert.AreNotEqual(Entity.Null, clientEnts[0]);
                 Assert.AreNotEqual(Entity.Null, clientEnts[1]);
-                if (testWorld.ClientWorlds[0].EntityManager.GetComponentData<GhostComponent>(clientEnts[0]).ghostId != testWorld.ServerWorld.EntityManager.GetComponentData<GhostComponent>(serverEnt).ghostId)
+                if (testWorld.ClientWorlds[0].EntityManager.GetComponentData<GhostInstance>(clientEnts[0]).ghostId != testWorld.ServerWorld.EntityManager.GetComponentData<GhostInstance>(serverEnt).ghostId)
                 {
                     // swap 0 and 1
                     var temp = clientEnts[0];
@@ -404,18 +404,18 @@ namespace Unity.NetCode.Tests
                 Assert.IsTrue(testWorld.Connect(deltaTime, 4));
                 testWorld.GoInGame();
 
-                var serverConnectionEnt = testWorld.TryGetSingletonEntity<NetworkIdComponent>(testWorld.ServerWorld);
-                var clientConnectionEnt = testWorld.TryGetSingletonEntity<NetworkIdComponent>(testWorld.ClientWorlds[0]);
-                var netId = testWorld.ClientWorlds[0].EntityManager.GetComponentData<NetworkIdComponent>(clientConnectionEnt).Value;
+                var serverConnectionEnt = testWorld.TryGetSingletonEntity<NetworkId>(testWorld.ServerWorld);
+                var clientConnectionEnt = testWorld.TryGetSingletonEntity<NetworkId>(testWorld.ClientWorlds[0]);
+                var netId = testWorld.ClientWorlds[0].EntityManager.GetComponentData<NetworkId>(clientConnectionEnt).Value;
 
                 var serverEnt = testWorld.SpawnOnServer(ghostGameObject);
-                testWorld.ServerWorld.EntityManager.SetComponentData(serverEnt, new GhostOwnerComponent {NetworkId = netId});
+                testWorld.ServerWorld.EntityManager.SetComponentData(serverEnt, new GhostOwner {NetworkId = netId});
                 var serverEnt2 = testWorld.ServerWorld.EntityManager.CreateEntity();
 
                 for (int i = 0; i < 16; ++i)
                     testWorld.Tick(deltaTime);
 
-                var clientEnt = testWorld.TryGetSingletonEntity<GhostOwnerComponent>(testWorld.ClientWorlds[0]);
+                var clientEnt = testWorld.TryGetSingletonEntity<GhostOwner>(testWorld.ClientWorlds[0]);
                 Assert.AreNotEqual(Entity.Null, clientEnt);
                 var clientEnt2 = testWorld.ClientWorlds[0].EntityManager.CreateEntity();
 
@@ -423,8 +423,8 @@ namespace Unity.NetCode.Tests
                 testWorld.ClientWorlds[0].EntityManager.AddComponent<CommandDataTestsTickInput>(clientEnt);
                 testWorld.ServerWorld.EntityManager.AddComponent<CommandDataTestsTickInput2>(serverEnt2);
                 testWorld.ClientWorlds[0].EntityManager.AddComponent<CommandDataTestsTickInput2>(clientEnt2);
-                testWorld.ServerWorld.EntityManager.SetComponentData(serverConnectionEnt, new CommandTargetComponent{targetEntity = serverEnt2});
-                testWorld.ClientWorlds[0].EntityManager.SetComponentData(clientConnectionEnt, new CommandTargetComponent{targetEntity = clientEnt2});
+                testWorld.ServerWorld.EntityManager.SetComponentData(serverConnectionEnt, new CommandTarget{targetEntity = serverEnt2});
+                testWorld.ClientWorlds[0].EntityManager.SetComponentData(clientConnectionEnt, new CommandTarget{targetEntity = clientEnt2});
 
                 for (int i = 0; i < 16; ++i)
                     testWorld.Tick(deltaTime);
@@ -462,18 +462,18 @@ namespace Unity.NetCode.Tests
                 Assert.IsTrue(testWorld.Connect(deltaTime, 4));
                 testWorld.GoInGame();
 
-                var serverConnectionEnt = testWorld.TryGetSingletonEntity<NetworkIdComponent>(testWorld.ServerWorld);
-                var clientConnectionEnt = testWorld.TryGetSingletonEntity<NetworkIdComponent>(testWorld.ClientWorlds[0]);
-                var netId = testWorld.ClientWorlds[0].EntityManager.GetComponentData<NetworkIdComponent>(clientConnectionEnt).Value;
+                var serverConnectionEnt = testWorld.TryGetSingletonEntity<NetworkId>(testWorld.ServerWorld);
+                var clientConnectionEnt = testWorld.TryGetSingletonEntity<NetworkId>(testWorld.ClientWorlds[0]);
+                var netId = testWorld.ClientWorlds[0].EntityManager.GetComponentData<NetworkId>(clientConnectionEnt).Value;
 
                 var serverEnt = testWorld.SpawnOnServer(ghostGameObject);
-                testWorld.ServerWorld.EntityManager.SetComponentData(serverEnt, new GhostOwnerComponent {NetworkId = netId});
+                testWorld.ServerWorld.EntityManager.SetComponentData(serverEnt, new GhostOwner {NetworkId = netId});
                 testWorld.ServerWorld.EntityManager.SetComponentData(serverEnt, new AutoCommandTarget {Enabled = false});
 
                 for (int i = 0; i < 16; ++i)
                     testWorld.Tick(deltaTime);
 
-                var clientEnt = testWorld.TryGetSingletonEntity<GhostOwnerComponent>(testWorld.ClientWorlds[0]);
+                var clientEnt = testWorld.TryGetSingletonEntity<GhostOwner>(testWorld.ClientWorlds[0]);
                 Assert.AreNotEqual(Entity.Null, clientEnt);
 
                 testWorld.ServerWorld.EntityManager.AddComponent<CommandDataTestsTickInput>(serverEnt);
@@ -505,17 +505,17 @@ namespace Unity.NetCode.Tests
                 Assert.IsTrue(testWorld.Connect(deltaTime, 4));
                 testWorld.GoInGame();
 
-                var serverConnectionEnt = testWorld.TryGetSingletonEntity<NetworkIdComponent>(testWorld.ServerWorld);
-                var clientConnectionEnt = testWorld.TryGetSingletonEntity<NetworkIdComponent>(testWorld.ClientWorlds[0]);
-                var netId = testWorld.ClientWorlds[0].EntityManager.GetComponentData<NetworkIdComponent>(clientConnectionEnt).Value;
+                var serverConnectionEnt = testWorld.TryGetSingletonEntity<NetworkId>(testWorld.ServerWorld);
+                var clientConnectionEnt = testWorld.TryGetSingletonEntity<NetworkId>(testWorld.ClientWorlds[0]);
+                var netId = testWorld.ClientWorlds[0].EntityManager.GetComponentData<NetworkId>(clientConnectionEnt).Value;
 
                 var serverEnt = testWorld.SpawnOnServer(ghostGameObject);
-                testWorld.ServerWorld.EntityManager.SetComponentData(serverEnt, new GhostOwnerComponent {NetworkId = netId});
+                testWorld.ServerWorld.EntityManager.SetComponentData(serverEnt, new GhostOwner {NetworkId = netId});
 
                 for (int i = 0; i < 16; ++i)
                     testWorld.Tick(deltaTime);
 
-                var clientEnt = testWorld.TryGetSingletonEntity<GhostOwnerComponent>(testWorld.ClientWorlds[0]);
+                var clientEnt = testWorld.TryGetSingletonEntity<GhostOwner>(testWorld.ClientWorlds[0]);
                 Assert.AreNotEqual(Entity.Null, clientEnt);
 
                 testWorld.ServerWorld.EntityManager.AddComponent<CommandDataTestsTickInput>(serverEnt);
@@ -547,17 +547,17 @@ namespace Unity.NetCode.Tests
                 Assert.IsTrue(testWorld.Connect(deltaTime, 4));
                 testWorld.GoInGame();
 
-                var serverConnectionEnt = testWorld.TryGetSingletonEntity<NetworkIdComponent>(testWorld.ServerWorld);
-                var clientConnectionEnt = testWorld.TryGetSingletonEntity<NetworkIdComponent>(testWorld.ClientWorlds[0]);
-                var netId = testWorld.ClientWorlds[0].EntityManager.GetComponentData<NetworkIdComponent>(clientConnectionEnt).Value;
+                var serverConnectionEnt = testWorld.TryGetSingletonEntity<NetworkId>(testWorld.ServerWorld);
+                var clientConnectionEnt = testWorld.TryGetSingletonEntity<NetworkId>(testWorld.ClientWorlds[0]);
+                var netId = testWorld.ClientWorlds[0].EntityManager.GetComponentData<NetworkId>(clientConnectionEnt).Value;
 
                 var serverEnt = testWorld.SpawnOnServer(ghostGameObject);
-                testWorld.ServerWorld.EntityManager.SetComponentData(serverEnt, new GhostOwnerComponent {NetworkId = netId + 1});
+                testWorld.ServerWorld.EntityManager.SetComponentData(serverEnt, new GhostOwner {NetworkId = netId + 1});
 
                 for (int i = 0; i < 16; ++i)
                     testWorld.Tick(deltaTime);
 
-                var clientEnt = testWorld.TryGetSingletonEntity<GhostOwnerComponent>(testWorld.ClientWorlds[0]);
+                var clientEnt = testWorld.TryGetSingletonEntity<GhostOwner>(testWorld.ClientWorlds[0]);
                 Assert.AreNotEqual(Entity.Null, clientEnt);
 
                 testWorld.ServerWorld.EntityManager.AddComponent<CommandDataTestsTickInput>(serverEnt);

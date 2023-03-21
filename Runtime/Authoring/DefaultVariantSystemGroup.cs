@@ -13,7 +13,7 @@ namespace Unity.NetCode
     /// </summary>
     [WorldSystemFilter(WorldSystemFilterFlags.ServerSimulation | WorldSystemFilterFlags.ClientSimulation |
                        WorldSystemFilterFlags.ThinClientSimulation | WorldSystemFilterFlags.BakingSystem)]
-    public class DefaultVariantSystemGroup : ComponentSystemGroup
+    public partial class DefaultVariantSystemGroup : ComponentSystemGroup
     {
     }
 }

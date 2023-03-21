@@ -28,9 +28,10 @@ namespace Unity.NetCode.Tests
     {
         public void Bake(GameObject gameObject, IBaker baker)
         {
-            baker.AddComponent(new GhostOwnerComponent());
-            baker.AddComponent<GhostGen_IntStruct>();
-            baker.AddBuffer<TestInput>();
+            var entity = baker.GetEntity(TransformUsageFlags.Dynamic);
+            baker.AddComponent(entity, new GhostOwner());
+            baker.AddComponent<GhostGen_IntStruct>(entity);
+            baker.AddBuffer<TestInput>(entity);
         }
     }
 
@@ -48,7 +49,6 @@ namespace Unity.NetCode.Tests
             var tick = SystemAPI.GetSingleton<NetworkTime>().ServerTick;
             Entities
                 .WithAll<Simulate>()
-#if !ENABLE_TRANSFORM_V1
                 .ForEach((Entity entity, ref LocalTransform transform, in DynamicBuffer<TestInput> inputBuffer) =>
                 {
                     if (!inputBuffer.GetDataAtTick(tick, out var input))
@@ -56,15 +56,6 @@ namespace Unity.NetCode.Tests
 
                     transform.Position.y += 1.0f * input.Value;
                 }).Run();
-#else
-                .ForEach((Entity entity, ref Translation translation, in DynamicBuffer<TestInput> inputBuffer) =>
-                {
-                    if (!inputBuffer.GetDataAtTick(tick, out var input))
-                        return;
-
-                    translation.Value.y += 1.0f * input.Value;
-                }).Run();
-#endif
         }
     }
 
@@ -77,12 +68,12 @@ namespace Unity.NetCode.Tests
         {
             base.OnCreate();
             RequireForUpdate<NetworkStreamInGame>();
-            RequireForUpdate<GhostOwnerComponent>();
+            RequireForUpdate<GhostOwner>();
         }
         protected override void OnUpdate()
         {
             var connection = SystemAPI.GetSingletonEntity<NetworkStreamInGame>();
-            var commandTarget = EntityManager.GetComponentData<CommandTargetComponent>(connection);
+            var commandTarget = EntityManager.GetComponentData<CommandTarget>(connection);
             if (commandTarget.targetEntity == Entity.Null)
                 return;
             var inputBuffer = EntityManager.GetBuffer<TestInput>(commandTarget.targetEntity);
@@ -286,19 +277,19 @@ namespace Unity.NetCode.Tests
                 //Assign the owner on the respective clients. Client3 is  passive (no entity)
                 for(int i=0;i<2;++i)
                 {
-                    var query = testWorld.ClientWorlds[i].EntityManager.CreateEntityQuery(typeof(GhostOwnerComponent));
+                    var query = testWorld.ClientWorlds[i].EntityManager.CreateEntityQuery(typeof(GhostOwner));
                     var entities = query.ToEntityArray(Allocator.Temp);
-                    var owners = query.ToComponentDataArray<GhostOwnerComponent>(Allocator.Temp);
+                    var owners = query.ToComponentDataArray<GhostOwner>(Allocator.Temp);
                     var connQuery = testWorld.ClientWorlds[i].EntityManager.CreateEntityQuery(
-                        typeof(NetworkIdComponent));
+                        typeof(NetworkId));
                     var conn = connQuery.GetSingletonEntity();
-                    var networkId = connQuery.GetSingleton<NetworkIdComponent>();
+                    var networkId = connQuery.GetSingleton<NetworkId>();
                     for(int e=0;e<entities.Length;++e)
                     {
                         if (owners[e].NetworkId == networkId.Value)
                         {
                             clientEnt[i] = entities[e];
-                            testWorld.ClientWorlds[i].EntityManager.SetComponentData(conn, new CommandTargetComponent {targetEntity = entities[e]});
+                            testWorld.ClientWorlds[i].EntityManager.SetComponentData(conn, new CommandTarget {targetEntity = entities[e]});
                         }
                     }
                 }
@@ -308,7 +299,7 @@ namespace Unity.NetCode.Tests
 
                 for (int i = 0; i < 3; ++i)
                 {
-                    var query = testWorld.ClientWorlds[i].EntityManager.CreateEntityQuery(typeof(GhostOwnerComponent));
+                    var query = testWorld.ClientWorlds[i].EntityManager.CreateEntityQuery(typeof(GhostOwner));
                     var entities = query.ToEntityArray(Allocator.Temp);
                     for (int e = 0; e < entities.Length; ++e)
                     {
@@ -345,25 +336,25 @@ namespace Unity.NetCode.Tests
             } while (entitiesAreNotSpawned && iterations < 128);
 
             var clientConn = testWorld.TryGetSingletonEntity<NetworkStreamInGame>(testWorld.ClientWorlds[owner]);
-            testWorld.ClientWorlds[owner].EntityManager.SetComponentData(clientConn, new CommandTargetComponent {targetEntity = clientEnt[owner]});
+            testWorld.ClientWorlds[owner].EntityManager.SetComponentData(clientConn, new CommandTarget {targetEntity = clientEnt[owner]});
             return clientEnt;
         }
 
         private static Entity SpawnEntityAndAssignOwnerOnServer(NetCodeTestWorld testWorld, GameObject ghostGameObject, int clientOwner)
         {
             var serverEnt = testWorld.SpawnOnServer(ghostGameObject);
-            var net1 = testWorld.TryGetSingletonEntity<NetworkIdComponent>(testWorld.ClientWorlds[clientOwner]);
-            var netId1 = testWorld.ClientWorlds[clientOwner].EntityManager.GetComponentData<NetworkIdComponent>(net1);
+            var net1 = testWorld.TryGetSingletonEntity<NetworkId>(testWorld.ClientWorlds[clientOwner]);
+            var netId1 = testWorld.ClientWorlds[clientOwner].EntityManager.GetComponentData<NetworkId>(net1);
 
-            var entities = testWorld.ServerWorld.EntityManager.CreateEntityQuery(ComponentType.ReadOnly<NetworkIdComponent>())
+            var entities = testWorld.ServerWorld.EntityManager.CreateEntityQuery(ComponentType.ReadOnly<NetworkId>())
                 .ToEntityArray(Allocator.Temp);
-            testWorld.ServerWorld.EntityManager.SetComponentData(serverEnt, new GhostOwnerComponent {NetworkId = netId1.Value});
+            testWorld.ServerWorld.EntityManager.SetComponentData(serverEnt, new GhostOwner {NetworkId = netId1.Value});
             testWorld.ServerWorld.EntityManager.SetComponentData(serverEnt, new GhostGen_IntStruct {IntValue = 1000});
             for (int i = 0; i < entities.Length; ++i)
             {
-                var netId = testWorld.ServerWorld.EntityManager.GetComponentData<NetworkIdComponent>(entities[i]);
+                var netId = testWorld.ServerWorld.EntityManager.GetComponentData<NetworkId>(entities[i]);
                 if (netId.Value == netId1.Value)
-                    testWorld.ServerWorld.EntityManager.SetComponentData(entities[i], new CommandTargetComponent {targetEntity = serverEnt});
+                    testWorld.ServerWorld.EntityManager.SetComponentData(entities[i], new CommandTarget {targetEntity = serverEnt});
             }
 
             return serverEnt;

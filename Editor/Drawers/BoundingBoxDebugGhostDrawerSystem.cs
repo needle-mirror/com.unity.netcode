@@ -208,8 +208,8 @@ namespace Unity.NetCode.Samples.Common
                         .WithStoreEntityQueryInField(ref m_PredictedGhostQuery)
                         .WithReadOnly(serverLocalToWorldMap)
                         .WithReadOnly(serverSpawnedGhostEntityMap)
-                        .WithAll<PredictedGhostComponent>()
-                        .ForEach((in WorldRenderBounds clientRenderBounds, in GhostComponent ghostComponent) =>
+                        .WithAll<PredictedGhost>()
+                        .ForEach((in WorldRenderBounds clientRenderBounds, in GhostInstance ghostComponent) =>
                         {
                             CreateLineGeometryWithGhosts(in clientRenderBounds, in ghostComponent, in serverSpawnedGhostEntityMap, in serverLocalToWorldMap, ref predictedClientVertices, ref predictedClientIndices, ref serverVertices, ref serverIndices);
                         }).Run();
@@ -234,8 +234,8 @@ namespace Unity.NetCode.Samples.Common
                         .WithStoreEntityQueryInField(ref m_InterpolatedGhostQuery)
                         .WithReadOnly(serverLocalToWorldMap)
                         .WithReadOnly(serverSpawnedGhostEntityMap)
-                        .WithNone<PredictedGhostComponent>()
-                        .ForEach((in WorldRenderBounds clientRenderBounds, in GhostComponent ghostComponent) =>
+                        .WithNone<PredictedGhost>()
+                        .ForEach((in WorldRenderBounds clientRenderBounds, in GhostInstance ghostComponent) =>
                         {
                             CreateLineGeometryWithGhosts(in clientRenderBounds, in ghostComponent, in serverSpawnedGhostEntityMap, in serverLocalToWorldMap, ref interpolatedClientVertices, ref interpolatedClientIndices, ref serverVertices, ref serverIndices);
                         }).Run();
@@ -290,13 +290,13 @@ namespace Unity.NetCode.Samples.Common
             m_InterpolatedClientMesh.Clear(true);
         }
 
-        static void CreateLineGeometryWithGhosts(in WorldRenderBounds worldRenderBounds, in GhostComponent ghostComponent, in NativeParallelHashMap<SpawnedGhost, Entity>.ReadOnly serverSpawnedGhostEntityMap, in ComponentLookup<LocalToWorld> serverLocalToWorldMap, ref NativeList<float3> clientVertices, ref NativeList<int> clientIndices, ref NativeList<float3> serverVertices, ref NativeList<int> serverIndices)
+        static void CreateLineGeometryWithGhosts(in WorldRenderBounds worldRenderBounds, in GhostInstance ghostInstance, in NativeParallelHashMap<SpawnedGhost, Entity>.ReadOnly serverSpawnedGhostEntityMap, in ComponentLookup<LocalToWorld> serverLocalToWorldMap, ref NativeList<float3> clientVertices, ref NativeList<int> clientIndices, ref NativeList<float3> serverVertices, ref NativeList<int> serverIndices)
         {
             // Client AABB:
             var aabb = worldRenderBounds.Value;
             DebugDrawWireCube(ref aabb, ref clientVertices, ref clientIndices);
 
-            if (serverSpawnedGhostEntityMap.TryGetValue(ghostComponent, out var serverEntity) && serverLocalToWorldMap.TryGetComponent(serverEntity, out var serverL2W))
+            if (serverSpawnedGhostEntityMap.TryGetValue(ghostInstance, out var serverEntity) && serverLocalToWorldMap.TryGetComponent(serverEntity, out var serverL2W))
             {
                 var serverPos = serverL2W.Position;
                 if (math.distancesq(aabb.Center, serverPos) > 0.002f)
@@ -468,7 +468,7 @@ namespace Unity.NetCode.Samples.Common
         {
             LocalToWorldsMapR0 = GetComponentLookup<LocalToWorld>(true);
             SpawnedGhostEntityMapSingletonQuery = GetEntityQuery(ComponentType.ReadOnly<SpawnedGhostEntityMap>());
-            GhostL2WQuery = GetEntityQuery(ComponentType.ReadOnly<GhostComponent>(), ComponentType.ReadOnly<LocalToWorld>());
+            GhostL2WQuery = GetEntityQuery(ComponentType.ReadOnly<GhostInstance>(), ComponentType.ReadOnly<LocalToWorld>());
             Enabled = false;
         }
 

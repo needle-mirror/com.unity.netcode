@@ -26,7 +26,8 @@ namespace Unity.NetCode
     {
         public override void Bake(NetCodeDebugConfigAuthoring authoring)
         {
-            AddComponent(new NetCodeDebugConfig
+            var entity = GetEntity(TransformUsageFlags.Dynamic);
+            AddComponent(entity, new NetCodeDebugConfig
             {
                 LogLevel = authoring.LogLevel,
                 DumpPackets = authoring.DumpPackets

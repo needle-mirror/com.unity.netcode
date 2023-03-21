@@ -1,4 +1,4 @@
-#if (UNITY_EDITOR || DEVELOPMENT_BUILD) && !NETCODE_NDEBUG
+#if UNITY_EDITOR && !NETCODE_NDEBUG
 #define NETCODE_DEBUG
 #endif
 
@@ -24,7 +24,7 @@ namespace Unity.NetCode
         private EntityQuery m_NetworkTimeQuery;
         public NetcodePhysicsRateManager(ComponentSystemGroup group)
         {
-            m_PredictedGhostPhysicsQuery = group.World.EntityManager.CreateEntityQuery(ComponentType.ReadOnly<PredictedGhostComponent>(), ComponentType.ReadOnly<PhysicsVelocity>());
+            m_PredictedGhostPhysicsQuery = group.World.EntityManager.CreateEntityQuery(ComponentType.ReadOnly<PredictedGhost>(), ComponentType.ReadOnly<PhysicsVelocity>());
             m_LagCompensationQuery = group.World.EntityManager.CreateEntityQuery(ComponentType.ReadOnly<LagCompensationConfig>());
             m_NetworkTimeQuery = group.World.EntityManager.CreateEntityQuery(ComponentType.ReadOnly<NetworkTime>());
         }
@@ -168,7 +168,7 @@ namespace Unity.NetCode
             #endif
             var builder = new EntityQueryBuilder(Allocator.Temp)
                 .WithAll<PhysicsVelocity, PhysicsWorldIndex>()
-                .WithNone<GhostComponent>();
+                .WithNone<GhostInstance>();
             m_Query = state.GetEntityQuery(builder);
             m_Query.SetSharedComponentFilter(new PhysicsWorldIndex(0));
         }

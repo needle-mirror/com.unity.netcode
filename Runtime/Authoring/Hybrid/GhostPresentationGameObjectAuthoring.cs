@@ -72,7 +72,8 @@ namespace Unity.NetCode.Hybrid
             var presPrefab = CreateAdditionalEntity(TransformUsageFlags.None);
             AddComponentObject(presPrefab, prefabComponent);
 
-            AddComponent(new GhostPresentationGameObjectPrefabReference{Prefab = presPrefab});
+            var entity = GetEntity(TransformUsageFlags.Dynamic);
+            AddComponent(entity, new GhostPresentationGameObjectPrefabReference{Prefab = presPrefab});
 
             // Register all the components needed for animation data
             m_AddedTypes = new HashSet<Type>();
@@ -97,7 +98,8 @@ namespace Unity.NetCode.Hybrid
             if (m_AddedTypes.Contains(typeof(T)))
                 return;
             m_AddedTypes.Add(typeof(T));
-            AddComponent(default(T));
+            var entity = GetEntity(TransformUsageFlags.Dynamic);
+            AddComponent(entity, default(T));
         }
 #endif
     }

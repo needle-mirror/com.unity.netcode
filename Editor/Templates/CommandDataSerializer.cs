@@ -3,7 +3,7 @@
 using AOT;
 using Unity.Burst;
 using Unity.Burst.Intrinsics;
-using Unity.Networking.Transport;
+using Unity.Collections.LowLevel.Unsafe;
 #region __COMMAND_USING_STATEMENT__
 using __COMMAND_USING__;
 #endregion

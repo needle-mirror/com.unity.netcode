@@ -1,3 +1,4 @@
+using System;
 using Unity.Collections;
 using Unity.Entities;
 using Unity.Burst;
@@ -6,15 +7,22 @@ using Unity.Mathematics;
 namespace Unity.NetCode
 {
     /// <summary>
-    /// GhostSPawnQueueComponent is used to identify the singleton component which contains the GhostSpawnBuffer.
+    /// Temporary type, used to upgrade to new component type, to be removed before final 1.0
     /// </summary>
+    [Obsolete("GhostSpawnQueueComponent has been deprecated. Use GhostSpawnQueueComponent instead (UnityUpgradable) -> GhostSpawnQueue", true)]
     public struct GhostSpawnQueueComponent : IComponentData
+    {}
+
+    /// <summary>
+    /// GhostSPawnQueue is used to identify the singleton component which contains the GhostSpawnBuffer.
+    /// </summary>
+    public struct GhostSpawnQueue : IComponentData
     {
 
     }
 
     /// <summary>
-    /// The GhostSpawnBuffer is the data for a GhostSpawnQueueComponent singleton. It contains a list of ghosts which
+    /// The GhostSpawnBuffer is the data for a GhostSpawnQueue singleton. It contains a list of ghosts which
     /// will be spawned by the GhostSpawnSystem at the beginning of next frame. It is populated by the
     /// GhostReceiveSystem and there needs to be a classification system updating after the GhostReceiveSystem which
     /// sets the SpawnType so the spawn system knows how to spawn the ghost.
@@ -37,7 +45,7 @@ namespace Unity.NetCode
             /// <summary>
             /// The new ghost must be spawned as interpolated. The ghost creation is delayed
             /// until the <see cref="NetworkTime.InterpolationTick"/> match (or is greater) the actual spawn tick on the server.
-            /// See <see cref="GhostSpawnSystem"/> and also <seealso cref="PendingSpawnPlaceholderComponent"/>.
+            /// See <see cref="GhostSpawnSystem"/> and also <seealso cref="PendingSpawnPlaceholder"/>.
             /// </summary>
             Interpolated,
             /// <summary>
@@ -62,7 +70,7 @@ namespace Unity.NetCode
         public int GhostID;
         /// <summary>
         /// Offset im bytes used to retrieve from the temporary <see cref="SnapshotDataBuffer"/>, present on the
-        /// <see cref="GhostSpawnQueueComponent"/> singleton, the first received snapshot from the server.
+        /// <see cref="GhostSpawnQueue"/> singleton, the first received snapshot from the server.
         /// </summary>
         public int DataOffset;
         /// <summary>
@@ -134,9 +142,9 @@ namespace Unity.NetCode
         public void OnCreate(ref SystemState state)
         {
             m_spawnBufferHelper = new LowLevel.SnapshotDataLookupHelper(ref state);
-            state.RequireForUpdate<NetworkIdComponent>();
+            state.RequireForUpdate<NetworkId>();
             state.RequireForUpdate<GhostCollection>();
-            state.RequireForUpdate<GhostSpawnQueueComponent>();
+            state.RequireForUpdate<GhostSpawnQueue>();
         }
         [BurstCompile]
         public void OnUpdate(ref SystemState state)
@@ -147,11 +155,11 @@ namespace Unity.NetCode
                 helper = m_spawnBufferHelper,
                 spawningMap = SystemAPI.GetSingleton<SpawnedGhostEntityMap>().Value,
                 ghostCollectionSingleton = SystemAPI.GetSingletonEntity<GhostCollection>(),
-                networkId = SystemAPI.GetSingleton<NetworkIdComponent>().Value
+                networkId = SystemAPI.GetSingleton<NetworkId>().Value
             };
             state.Dependency = classificationJob.Schedule(state.Dependency);
         }
-        [WithAll(typeof(GhostSpawnQueueComponent))]
+        [WithAll(typeof(GhostSpawnQueue))]
         [BurstCompile]
         partial struct GhostSpawnClassification : IJobEntity
         {
@@ -205,7 +213,7 @@ namespace Unity.NetCode
         public void OnCreate(ref SystemState state)
         {
             m_PredictedGhostSpawnLookup = state.GetBufferLookup<PredictedGhostSpawn>();
-            state.RequireForUpdate<GhostSpawnQueueComponent>();
+            state.RequireForUpdate<GhostSpawnQueue>();
             state.RequireForUpdate<PredictedGhostSpawnList>();
         }
 
@@ -221,7 +229,7 @@ namespace Unity.NetCode
             state.Dependency = classificationJob.Schedule(state.Dependency);
         }
 
-        [WithAll(typeof(GhostSpawnQueueComponent))]
+        [WithAll(typeof(GhostSpawnQueue))]
         [BurstCompile]
         partial struct DefaultGhostSpawnClassificationJob : IJobEntity
         {

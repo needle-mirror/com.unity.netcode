@@ -1,4 +1,4 @@
-#if (UNITY_EDITOR || DEVELOPMENT_BUILD) && !NETCODE_NDEBUG
+#if UNITY_EDITOR && !NETCODE_NDEBUG
 #define NETCODE_DEBUG
 #endif
 using System.Diagnostics;
@@ -50,10 +50,10 @@ namespace Unity.NetCode
         public void OnCreate(ref SystemState state)
         {
             var builder = new EntityQueryBuilder(Allocator.Temp)
-                .WithAll<NetworkIdComponent>()
+                .WithAll<NetworkId>()
                 .WithNone<NetworkStreamRequestDisconnect>();
             state.RequireForUpdate(state.GetEntityQuery(builder));
-            m_InitializedSections = state.GetEntityQuery(ComponentType.ReadOnly<SubSceneWithGhostStateComponent>());
+            m_InitializedSections = state.GetEntityQuery(ComponentType.ReadOnly<SubSceneWithGhostClenup>());
             state.RequireForUpdate(m_InitializedSections);
 
             m_SectionLoadedFromEntity = state.GetComponentLookup<IsSectionLoaded>(true);
@@ -82,7 +82,7 @@ namespace Unity.NetCode
             [ReadOnly] public ComponentLookup<IsSectionLoaded> sectionLoadedFromEntity;
             public NetDebug netDebug;
             public EntityCommandBuffer entityCommandBuffer;
-            public void Execute(Entity entity, ref SubSceneWithGhostStateComponent stateComponent)
+            public void Execute(Entity entity, ref SubSceneWithGhostClenup stateComponent)
             {
                 bool isLoaded = sectionLoadedFromEntity.HasComponent(entity);
                 if (!isLoaded && stateComponent.Streaming != 0)
@@ -92,7 +92,7 @@ namespace Unity.NetCode
                     {
                         SceneHash = stateComponent.SubSceneHash,
                     });
-                    entityCommandBuffer.AddComponent(reqUnload, new SendRpcCommandRequestComponent());
+                    entityCommandBuffer.AddComponent(reqUnload, new SendRpcCommandRequest());
                     stateComponent.Streaming = 0;
                     LogStopStreaming(netDebug, stateComponent);
                 }
@@ -103,7 +103,7 @@ namespace Unity.NetCode
                     {
                         SceneHash = stateComponent.SubSceneHash
                     });
-                    entityCommandBuffer.AddComponent(reqUnload, new SendRpcCommandRequestComponent());
+                    entityCommandBuffer.AddComponent(reqUnload, new SendRpcCommandRequest());
                     stateComponent.Streaming = 1;
                     LogStartStreaming(netDebug, stateComponent);
                 }
@@ -111,13 +111,13 @@ namespace Unity.NetCode
         }
 
         [Conditional("NETCODE_DEBUG")]
-        private static void LogStopStreaming(in NetDebug netDebug, in SubSceneWithGhostStateComponent stateComponent)
+        private static void LogStopStreaming(in NetDebug netDebug, in SubSceneWithGhostClenup stateComponent)
         {
             netDebug.DebugLog(FixedString.Format("Request stop streaming scene {0}",
                 NetDebug.PrintHex(stateComponent.SubSceneHash)));
         }
         [Conditional("NETCODE_DEBUG")]
-        private static void LogStartStreaming(in NetDebug netDebug, in SubSceneWithGhostStateComponent stateComponent)
+        private static void LogStartStreaming(in NetDebug netDebug, in SubSceneWithGhostClenup stateComponent)
         {
             netDebug.DebugLog(FixedString.Format("Request start streaming scene {0}",
                 NetDebug.PrintHex(stateComponent.SubSceneHash)));
@@ -135,14 +135,14 @@ namespace Unity.NetCode
     partial struct ServerPrespawnAckSystem : ISystem
     {
         BufferLookup<PrespawnSectionAck> m_PrespawnSectionAckFromEntity;
-        ComponentLookup<NetworkIdComponent> m_NetworkIdComponentFromEntity;
+        ComponentLookup<NetworkId> m_NetworkIdLookup;
         [BurstCompile]
         public void OnCreate(ref SystemState state)
         {
             m_PrespawnSectionAckFromEntity = state.GetBufferLookup<PrespawnSectionAck>();
-            m_NetworkIdComponentFromEntity = state.GetComponentLookup<NetworkIdComponent>(true);
+            m_NetworkIdLookup = state.GetComponentLookup<NetworkId>(true);
             var builder = new EntityQueryBuilder(Allocator.Temp)
-                .WithAll<ReceiveRpcCommandRequestComponent>()
+                .WithAll<ReceiveRpcCommandRequest>()
                 .WithAny<StartStreamingSceneGhosts, StopStreamingSceneGhosts>();
             state.RequireForUpdate(state.GetEntityQuery(builder));
         }
@@ -155,13 +155,13 @@ namespace Unity.NetCode
                 return;
             }
             m_PrespawnSectionAckFromEntity.Update(ref state);
-            m_NetworkIdComponentFromEntity.Update(ref state);
+            m_NetworkIdLookup.Update(ref state);
             var ecb = SystemAPI.GetSingleton<EndSimulationEntityCommandBufferSystem.Singleton>().CreateCommandBuffer(state.WorldUnmanaged);
             var netDebug = SystemAPI.GetSingleton<NetDebug>();
             var startJob = new StartStreamingScene
             {
                 prespawnSectionAckFromEntity = m_PrespawnSectionAckFromEntity,
-                networkIdComponentFromEntity = m_NetworkIdComponentFromEntity,
+                networkIdLookup = m_NetworkIdLookup,
                 ecb = ecb,
                 netDebug = netDebug
             };
@@ -169,7 +169,7 @@ namespace Unity.NetCode
             var stopJob = new StopStreamingScene
             {
                 prespawnSectionAckFromEntity = m_PrespawnSectionAckFromEntity,
-                networkIdComponentFromEntity = m_NetworkIdComponentFromEntity,
+                networkIdLookup = m_NetworkIdLookup,
                 ecb = ecb,
                 netDebug = netDebug
             };
@@ -179,16 +179,16 @@ namespace Unity.NetCode
         partial struct StartStreamingScene : IJobEntity
         {
             public BufferLookup<PrespawnSectionAck> prespawnSectionAckFromEntity;
-            [ReadOnly] public ComponentLookup<NetworkIdComponent> networkIdComponentFromEntity;
+            [ReadOnly] public ComponentLookup<NetworkId> networkIdLookup;
             public EntityCommandBuffer ecb;
             public NetDebug netDebug;
-            public void Execute(Entity entity, in StartStreamingSceneGhosts streamingReq, in ReceiveRpcCommandRequestComponent requestComponent)
+            public void Execute(Entity entity, in StartStreamingSceneGhosts streamingReq, in ReceiveRpcCommandRequest requestComponent)
             {
                 var prespawnSceneAcks = prespawnSectionAckFromEntity[requestComponent.SourceConnection];
                 int ackIdx = prespawnSceneAcks.IndexOf(streamingReq.SceneHash);
                 if (ackIdx == -1)
                 {
-                    LogStartStreaming(netDebug, networkIdComponentFromEntity[requestComponent.SourceConnection].Value, streamingReq.SceneHash);
+                    LogStartStreaming(netDebug, networkIdLookup[requestComponent.SourceConnection].Value, streamingReq.SceneHash);
                     prespawnSceneAcks.Add(new PrespawnSectionAck { SceneHash = streamingReq.SceneHash });
                 }
                 ecb.DestroyEntity(entity);
@@ -198,16 +198,16 @@ namespace Unity.NetCode
         partial struct StopStreamingScene : IJobEntity
         {
             public BufferLookup<PrespawnSectionAck> prespawnSectionAckFromEntity;
-            [ReadOnly] public ComponentLookup<NetworkIdComponent> networkIdComponentFromEntity;
+            [ReadOnly] public ComponentLookup<NetworkId> networkIdLookup;
             public EntityCommandBuffer ecb;
             public NetDebug netDebug;
-            public void Execute(Entity entity, in StopStreamingSceneGhosts streamingReq, in ReceiveRpcCommandRequestComponent requestComponent)
+            public void Execute(Entity entity, in StopStreamingSceneGhosts streamingReq, in ReceiveRpcCommandRequest requestComponent)
             {
                 var prespawnSceneAcks = prespawnSectionAckFromEntity[requestComponent.SourceConnection];
                 int ackIdx = prespawnSceneAcks.IndexOf(streamingReq.SceneHash);
                 if (ackIdx != -1)
                 {
-                    LogStopStreaming(netDebug, networkIdComponentFromEntity[requestComponent.SourceConnection].Value, streamingReq.SceneHash);
+                    LogStopStreaming(netDebug, networkIdLookup[requestComponent.SourceConnection].Value, streamingReq.SceneHash);
                     prespawnSceneAcks.RemoveAtSwapBack(ackIdx);
                 }
                 ecb.DestroyEntity(entity);

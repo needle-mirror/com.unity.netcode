@@ -1,4 +1,4 @@
-#if UNITY_EDITOR || DEVELOPMENT_BUILD
+#if UNITY_EDITOR || NETCODE_DEBUG
 using System;
 using System.Collections.Generic;
 using System.Net;
@@ -90,7 +90,7 @@ namespace Unity.NetCode
 
                             for (int i = 2; i < keyval.Length; ++i)
                                 keyval[1] += ":" + keyval[i];
-                            headerLookup.Add(keyval[0].Trim().ToLower(), keyval[1].Trim());
+                            headerLookup.Add(keyval[0].Trim().ToLowerInvariant(), keyval[1].Trim());
                         }
 
                         // Parse the header and reply
@@ -113,7 +113,7 @@ namespace Unity.NetCode
                             return false;
                         }
 
-                        if (wsUpgrade.ToLower() != "websocket")
+                        if (wsUpgrade.ToLowerInvariant() != "websocket")
                         {
                             UnityEngine.Debug.LogError("Invalid websocket upgrade request: " + wsUpgrade);
                             FailConnection();
@@ -123,7 +123,7 @@ namespace Unity.NetCode
                         bool upgrade = false;
                         var upgradeTokens = wsConnection.Split(new[] {','}, StringSplitOptions.None);
                         foreach (var token in upgradeTokens)
-                            upgrade |= token.Trim().ToLower() == "upgrade";
+                            upgrade |= token.Trim().ToLowerInvariant() == "upgrade";
                         if (!upgrade)
                         {
                             UnityEngine.Debug.LogError("Invalid websocket connection header: " + wsConnection);

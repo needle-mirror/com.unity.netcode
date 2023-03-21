@@ -256,7 +256,8 @@ namespace Unity.NetCode.Tests
         {
             public void Bake(GameObject gameObject, IBaker baker)
             {
-                baker.AddComponent(new GhostOwnerComponent());
+                var entity = baker.GetEntity(TransformUsageFlags.Dynamic);
+                baker.AddComponent(entity, new GhostOwner());
             }
         }
 
@@ -267,7 +268,7 @@ namespace Unity.NetCode.Tests
             {
                 var req = world.EntityManager.CreateEntity();
                 world.EntityManager.AddComponentData(req, new RpcWithEntity {entity = entity});
-                world.EntityManager.AddComponentData(req, new SendRpcCommandRequestComponent {TargetConnection = Entity.Null});
+                world.EntityManager.AddComponentData(req, new SendRpcCommandRequest {TargetConnection = Entity.Null});
             }
 
             RpcWithEntity RecvRpc(World world)
@@ -300,7 +301,7 @@ namespace Unity.NetCode.Tests
 
                 var recvGhostMapSingleton = testWorld.TryGetSingletonEntity<SpawnedGhostEntityMap>(testWorld.ClientWorlds[0]);
                 // Retrieve the client entity
-                var ghost = testWorld.ServerWorld.EntityManager.GetComponentData<GhostComponent>(serverEntity);
+                var ghost = testWorld.ServerWorld.EntityManager.GetComponentData<GhostInstance>(serverEntity);
                 Assert.IsTrue(testWorld.ClientWorlds[0].EntityManager.GetComponentData<SpawnedGhostEntityMap>(recvGhostMapSingleton).Value
                     .TryGetValue(new SpawnedGhost {ghostId = ghost.ghostId, spawnTick = ghost.spawnTick}, out var clientEntity));
 
@@ -379,13 +380,13 @@ namespace Unity.NetCode.Tests
                 var clientNetDebug = clientWorld.EntityManager.CreateEntityQuery(ComponentType.ReadWrite<NetDebug>()).GetSingleton<NetDebug>();
                 clientNetDebug.LogLevel = NetDebug.LogLevelType.Warning;
                 testWorld.GetSingletonRW<NetDebug>(clientWorld).ValueRW.MaxRpcAgeFrames = 4;
-                clientWorld.EntityManager.CreateEntity(ComponentType.ReadWrite<ReceiveRpcCommandRequestComponent>());
+                clientWorld.EntityManager.CreateEntity(ComponentType.ReadWrite<ReceiveRpcCommandRequest>());
 
                 var serverWorld = testWorld.ServerWorld;
                 var serverNetDebug = serverWorld.EntityManager.CreateEntityQuery(ComponentType.ReadWrite<NetDebug>()).GetSingleton<NetDebug>();
                 serverNetDebug.LogLevel = NetDebug.LogLevelType.Warning;
                 testWorld.GetSingletonRW<NetDebug>(serverWorld).ValueRW.MaxRpcAgeFrames = 4;
-                serverWorld.EntityManager.CreateEntity(ComponentType.ReadWrite<ReceiveRpcCommandRequestComponent>());
+                serverWorld.EntityManager.CreateEntity(ComponentType.ReadWrite<ReceiveRpcCommandRequest>());
 
                 // 3 ticks before our expected one:
                 testWorld.Tick(dt);

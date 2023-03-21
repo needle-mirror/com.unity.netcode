@@ -83,7 +83,7 @@ namespace Unity.NetCode
     {
         private EntityQuery m_TimeQuery;
         private EntityQuery m_ConnectionQuery;
-        [ReadOnly] private ComponentTypeHandle<GhostOwnerComponent> m_GhostOwnerDataType;
+        [ReadOnly] private ComponentTypeHandle<GhostOwner> m_GhostOwnerDataType;
         [ReadOnly] private ComponentTypeHandle<TInputComponentData> m_InputDataType;
         private BufferTypeHandle<TInputBufferData> m_InputBufferTypeHandle;
 
@@ -96,7 +96,7 @@ namespace Unity.NetCode
             internal NetworkTick Tick;
             internal int ConnectionId;
             [ReadOnly] internal ComponentTypeHandle<TInputComponentData> InputDataType;
-            [ReadOnly] internal ComponentTypeHandle<GhostOwnerComponent> GhostOwnerDataType;
+            [ReadOnly] internal ComponentTypeHandle<GhostOwner> GhostOwnerDataType;
             internal BufferTypeHandle<TInputBufferData> InputBufferDataType;
 
             /// <summary>
@@ -154,7 +154,7 @@ namespace Unity.NetCode
             var jobData = new CopyInputToBufferJob
             {
                 Tick =  m_TimeQuery.GetSingleton<NetworkTime>().ServerTick,
-                ConnectionId = m_ConnectionQuery.GetSingleton<NetworkIdComponent>().Value,
+                ConnectionId = m_ConnectionQuery.GetSingleton<NetworkId>().Value,
                 GhostOwnerDataType = m_GhostOwnerDataType,
                 InputBufferDataType = m_InputBufferTypeHandle,
                 InputDataType = m_InputDataType,
@@ -165,7 +165,7 @@ namespace Unity.NetCode
         /// <summary>
         /// Creates the internal component type handles, register to system state the component queries.
         /// Very important, add an implicity constraint for running the parent system only when the client
-        /// is connected to the server, by requiring at least one connection with a <see cref="NetworkIdComponent"/> components.
+        /// is connected to the server, by requiring at least one connection with a <see cref="NetworkId"/> components.
         /// <remarks>
         /// Should be called inside your the system OnCreate method.
         /// </remarks>
@@ -176,14 +176,14 @@ namespace Unity.NetCode
         public EntityQuery Create(ref SystemState state)
         {
             var builder = new EntityQueryBuilder(Allocator.Temp)
-                .WithAll<TInputBufferData, TInputComponentData, GhostOwnerComponent>();
+                .WithAll<TInputBufferData, TInputComponentData, GhostOwner>();
             var query = state.GetEntityQuery(builder);
             m_TimeQuery = state.GetEntityQuery(ComponentType.ReadOnly<NetworkTime>());
-            m_ConnectionQuery = state.GetEntityQuery(ComponentType.ReadOnly<NetworkIdComponent>());
-            m_GhostOwnerDataType = state.GetComponentTypeHandle<GhostOwnerComponent>(true);
+            m_ConnectionQuery = state.GetEntityQuery(ComponentType.ReadOnly<NetworkId>());
+            m_GhostOwnerDataType = state.GetComponentTypeHandle<GhostOwner>(true);
             m_InputBufferTypeHandle = state.GetBufferTypeHandle<TInputBufferData>();
             m_InputDataType = state.GetComponentTypeHandle<TInputComponentData>(true);
-            state.RequireForUpdate<NetworkIdComponent>();
+            state.RequireForUpdate<NetworkId>();
             return query;
         }
     }
@@ -277,7 +277,7 @@ namespace Unity.NetCode
         /// <summary>
         /// Creates all the internal queries and setup the internal component type handles.
         /// Very important, add an implicity constraint for running the parent system only when the client
-        /// is connected to the server, by requiring at least one connection with a <see cref="NetworkIdComponent"/> components.
+        /// is connected to the server, by requiring at least one connection with a <see cref="NetworkId"/> components.
         /// <remarks>
         /// Should be called inside your the system OnCreate method.
         /// </remarks>
@@ -288,13 +288,13 @@ namespace Unity.NetCode
         public EntityQuery Create(ref SystemState state)
         {
             var builder = new EntityQueryBuilder(Allocator.Temp)
-                .WithAll<TInputBufferData, TInputComponentData, PredictedGhostComponent>();
+                .WithAll<TInputBufferData, TInputComponentData, PredictedGhost>();
             var query = state.GetEntityQuery(builder);
             m_TimeQuery = state.GetEntityQuery(ComponentType.ReadOnly<NetworkTime>());
             m_EntityTypeHandle = state.GetEntityTypeHandle();
             m_InputBufferTypeHandle = state.GetBufferTypeHandle<TInputBufferData>();
             m_InputDataType = state.GetComponentTypeHandle<TInputComponentData>();
-            state.RequireForUpdate<NetworkIdComponent>();
+            state.RequireForUpdate<NetworkId>();
             return query;
         }
     }

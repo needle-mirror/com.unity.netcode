@@ -71,7 +71,7 @@ namespace Unity.NetCode
 
     /// <summary>
     /// Parent group of all systems that serialize <see cref="ICommandData"/> structs into the
-    /// <see cref="OutgoingCommandDataStreamBufferComponent"/> buffer.
+    /// <see cref="OutgoingCommandDataStreamBuffer"/> buffer.
     /// The serialized commands are then sent later by the <see cref="CommandSendPacketSystem"/>.
     /// Only present in client world.
     /// </summary>
@@ -101,7 +101,7 @@ namespace Unity.NetCode
     /// <summary>
     /// <para>System responsible for building and sending the command packet to the server.
     /// As part of the command protocol:</para>
-    /// <para>- Flushes all the serialized commands present in the <see cref="OutgoingCommandDataStreamBufferComponent"/>.</para>
+    /// <para>- Flushes all the serialized commands present in the <see cref="OutgoingCommandDataStreamBuffer"/>.</para>
     /// <para>- Acks the latest received snapshot to the server.</para>
     /// <para>- Sends the client local and remote time (used to calculate the Round Trip Time) back to the server.</para>
     /// <para>- Sends the loaded ghost prefabs to the server.</para>
@@ -128,8 +128,8 @@ namespace Unity.NetCode
         public void OnCreate(ref SystemState state)
         {
             var builder = new EntityQueryBuilder(Allocator.Temp)
-                .WithAll<NetworkStreamConnection, NetworkStreamInGame, NetworkSnapshotAckComponent>()
-                .WithAllRW<OutgoingCommandDataStreamBufferComponent>();
+                .WithAll<NetworkStreamConnection, NetworkStreamInGame, NetworkSnapshotAck>()
+                .WithAllRW<OutgoingCommandDataStreamBuffer>();
             m_connectionQuery = state.GetEntityQuery(builder);
             m_CompressionModel = StreamCompressionModel.Default;
 
@@ -143,15 +143,15 @@ namespace Unity.NetCode
         {
             public ConcurrentDriverStore concurrentDriverStore;
             public NetDebug netDebug;
-#if UNITY_EDITOR || DEVELOPMENT_BUILD
+#if UNITY_EDITOR || NETCODE_DEBUG
             public NativeArray<uint> netStats;
 #endif
             public uint localTime;
             public int numLoadedPrefabs;
             public NetworkTick inputTargetTick;
             public uint interpolationDelay;
-            public unsafe void Execute(DynamicBuffer<OutgoingCommandDataStreamBufferComponent> rpcData,
-                    in NetworkStreamConnection connection, in NetworkSnapshotAckComponent ack)
+            public unsafe void Execute(DynamicBuffer<OutgoingCommandDataStreamBuffer> rpcData,
+                    in NetworkStreamConnection connection, in NetworkSnapshotAck ack)
             {
                 var concurrentDriver = concurrentDriverStore.GetConcurrentDriver(connection.DriverId);
                 var requiredPayloadSize = k_CommandHeadersBytes + rpcData.Length;
@@ -183,7 +183,7 @@ namespace Unity.NetCode
                 writer.WriteBytesUnsafe((byte*)rpcData.GetUnsafeReadOnlyPtr(), rpcData.Length);
                 rpcData.Clear();
 
-#if UNITY_EDITOR || DEVELOPMENT_BUILD
+#if UNITY_EDITOR || NETCODE_DEBUG
                 netStats[0] = inputTargetTick.SerializedData;
                 netStats[1] = (uint)writer.Length;
 #endif
@@ -215,7 +215,7 @@ namespace Unity.NetCode
             {
                 concurrentDriverStore = networkStreamDriver.ConcurrentDriverStore,
                 netDebug = SystemAPI.GetSingleton<NetDebug>(),
-#if UNITY_EDITOR || DEVELOPMENT_BUILD
+#if UNITY_EDITOR || NETCODE_DEBUG
                 netStats = SystemAPI.GetSingletonRW<GhostStatsCollectionCommand>().ValueRO.Value,
 #endif
                 localTime = NetworkTimeSystem.TimestampMS,
@@ -252,35 +252,35 @@ namespace Unity.NetCode
 
         /// <summary>
         /// Helper struct used by code-generated command job to serialize the <see cref="ICommandData"/> into the
-        /// <see cref="OutgoingCommandDataStreamBufferComponent"/> for the client connection.
+        /// <see cref="OutgoingCommandDataStreamBuffer"/> for the client connection.
         /// </summary>
         public struct SendJobData
         {
             /// <summary>
-            /// The readonly <see cref="CommandTargetComponent"/> type handle for accessing the chunk data.
+            /// The readonly <see cref="CommandTarget"/> type handle for accessing the chunk data.
             /// </summary>
-            [ReadOnly] public ComponentTypeHandle<CommandTargetComponent> commmandTargetType;
+            [ReadOnly] public ComponentTypeHandle<CommandTarget> commmandTargetType;
             /// <summary>
             /// The readonly <see cref="networkIdType"/> type handle for accessing the chunk data.
             /// </summary>
-            [ReadOnly] public ComponentTypeHandle<NetworkIdComponent> networkIdType;
+            [ReadOnly] public ComponentTypeHandle<NetworkId> networkIdType;
             /// <summary>
-            /// <see cref="OutgoingCommandDataStreamBufferComponent"/> buffer type handle for accessing the chunk data.
+            /// <see cref="OutgoingCommandDataStreamBuffer"/> buffer type handle for accessing the chunk data.
             /// This is the output of buffer for the job
             /// </summary>
-            public BufferTypeHandle<OutgoingCommandDataStreamBufferComponent> outgoingCommandBufferType;
+            public BufferTypeHandle<OutgoingCommandDataStreamBuffer> outgoingCommandBufferType;
             /// <summary>
             /// Accessor for retrieving the input buffer from the target entity.
             /// </summary>
             [ReadOnly] public BufferLookup<TCommandData> inputFromEntity;
             /// <summary>
-            /// Reaonly <see cref="GhostComponent"/> type handle for accessing the chunk data.
+            /// Reaonly <see cref="GhostInstance"/> type handle for accessing the chunk data.
             /// </summary>
-            [ReadOnly] public ComponentLookup<GhostComponent> ghostFromEntity;
+            [ReadOnly] public ComponentLookup<GhostInstance> ghostFromEntity;
             /// <summary>
-            /// Readonly accessor to retrieve the <see cref="GhostOwnerComponent"/> from the target ghost entity.
+            /// Readonly accessor to retrieve the <see cref="GhostOwner"/> from the target ghost entity.
             /// </summary>
-            [ReadOnly] public ComponentLookup<GhostOwnerComponent> ghostOwnerFromEntity;
+            [ReadOnly] public ComponentLookup<GhostOwner> ghostOwnerFromEntity;
             /// <summary>
             /// Readonly accessor to retrieve the <see cref="AutoCommandTarget"/> from the target ghost entity.
             /// </summary>
@@ -308,7 +308,7 @@ namespace Unity.NetCode
             /// </summary>
             public ulong stableHash;
 
-            void Serialize(DynamicBuffer<OutgoingCommandDataStreamBufferComponent> rpcData, Entity targetEntity, bool isAutoTarget)
+            void Serialize(DynamicBuffer<OutgoingCommandDataStreamBuffer> rpcData, Entity targetEntity, bool isAutoTarget)
             {
                 var input = inputFromEntity[targetEntity];
                 TCommandData baselineInputData;
@@ -388,10 +388,10 @@ namespace Unity.NetCode
 
             /// <summary>
             /// Lookup all the ghost entities for which commands need to be serialized for the current
-            /// tick and enqueue them into the <see cref="OutgoingCommandDataStreamBufferComponent"/>.
+            /// tick and enqueue them into the <see cref="OutgoingCommandDataStreamBuffer"/>.
             /// Are considered as potential ghost targets:
-            /// <para>- the entity referenced by the <see cref="CommandTargetComponent"/></para>
-            /// <para>- All ghosts owned by the player (see <see cref="GhostOwnerComponent"/>) that present
+            /// <para>- the entity referenced by the <see cref="CommandTarget"/></para>
+            /// <para>- All ghosts owned by the player (see <see cref="GhostOwner"/>) that present
             /// an enabled <see cref="AutoCommandTarget"/> components.</para>
             /// </summary>
             /// <param name="chunk">The chunk that contains the connection entities</param>
@@ -434,12 +434,12 @@ namespace Unity.NetCode
         private StreamCompressionModel m_CompressionModel;
         private NetworkTick m_PrevInputTargetTick;
 
-        private ComponentTypeHandle<CommandTargetComponent> m_CommandTargetComponentHandle;
-        private ComponentTypeHandle<NetworkIdComponent> m_NetworkIdComponentHandle;
-        private BufferTypeHandle<OutgoingCommandDataStreamBufferComponent> m_OutgoingCommandDataStreamBufferComponentHandle;
+        private ComponentTypeHandle<CommandTarget> m_CommandTargetComponentHandle;
+        private ComponentTypeHandle<NetworkId> m_NetworkIdComponentHandle;
+        private BufferTypeHandle<OutgoingCommandDataStreamBuffer> m_OutgoingCommandDataStreamBufferComponentHandle;
         private BufferLookup<TCommandData> m_TCommandDataFromEntity;
-        private ComponentLookup<GhostComponent> m_GhostComponentFromEntity;
-        private ComponentLookup<GhostOwnerComponent> m_GhostOwnerComponentFromEntity;
+        private ComponentLookup<GhostInstance> m_GhostComponentFromEntity;
+        private ComponentLookup<GhostOwner> m_GhostOwnerLookup;
         private ComponentLookup<AutoCommandTarget> m_AutoCommandTargetFromEntity;
         /// <summary>
         /// Initialize the helper struct, should be called from OnCreate in an ISystem.
@@ -447,22 +447,22 @@ namespace Unity.NetCode
         public void OnCreate(ref SystemState state)
         {
             var builder = new EntityQueryBuilder(Allocator.Temp)
-                .WithAll<NetworkStreamInGame, CommandTargetComponent>();
+                .WithAll<NetworkStreamInGame, CommandTarget>();
             m_connectionQuery = state.GetEntityQuery(builder);
             builder.Reset();
-            builder.WithAll<GhostComponent, GhostOwnerComponent, PredictedGhostComponent, TCommandData, AutoCommandTarget>();
+            builder.WithAll<GhostInstance, GhostOwner, PredictedGhost, TCommandData, AutoCommandTarget>();
             m_autoTargetQuery = state.GetEntityQuery(builder);
             builder.Reset();
             builder.WithAll<NetworkTime>();
             m_networkTimeQuery = state.GetEntityQuery(builder);
 
             m_CompressionModel = StreamCompressionModel.Default;
-            m_CommandTargetComponentHandle = state.GetComponentTypeHandle<CommandTargetComponent>(true);
-            m_NetworkIdComponentHandle = state.GetComponentTypeHandle<NetworkIdComponent>(true);
-            m_OutgoingCommandDataStreamBufferComponentHandle = state.GetBufferTypeHandle<OutgoingCommandDataStreamBufferComponent>();
+            m_CommandTargetComponentHandle = state.GetComponentTypeHandle<CommandTarget>(true);
+            m_NetworkIdComponentHandle = state.GetComponentTypeHandle<NetworkId>(true);
+            m_OutgoingCommandDataStreamBufferComponentHandle = state.GetBufferTypeHandle<OutgoingCommandDataStreamBuffer>();
             m_TCommandDataFromEntity = state.GetBufferLookup<TCommandData>(true);
-            m_GhostComponentFromEntity = state.GetComponentLookup<GhostComponent>(true);
-            m_GhostOwnerComponentFromEntity = state.GetComponentLookup<GhostOwnerComponent>(true);
+            m_GhostComponentFromEntity = state.GetComponentLookup<GhostInstance>(true);
+            m_GhostOwnerLookup = state.GetComponentLookup<GhostOwner>(true);
             m_AutoCommandTargetFromEntity = state.GetComponentLookup<AutoCommandTarget>(true);
 
             state.RequireForUpdate(m_connectionQuery);
@@ -482,7 +482,7 @@ namespace Unity.NetCode
             m_OutgoingCommandDataStreamBufferComponentHandle.Update(ref state);
             m_TCommandDataFromEntity.Update(ref state);
             m_GhostComponentFromEntity.Update(ref state);
-            m_GhostOwnerComponentFromEntity.Update(ref state);
+            m_GhostOwnerLookup.Update(ref state);
             m_AutoCommandTargetFromEntity.Update(ref state);
 
             var clientNetTime = m_networkTimeQuery.GetSingleton<NetworkTime>();
@@ -495,7 +495,7 @@ namespace Unity.NetCode
                 outgoingCommandBufferType = m_OutgoingCommandDataStreamBufferComponentHandle,
                 inputFromEntity = m_TCommandDataFromEntity,
                 ghostFromEntity = m_GhostComponentFromEntity,
-                ghostOwnerFromEntity = m_GhostOwnerComponentFromEntity,
+                ghostOwnerFromEntity = m_GhostOwnerLookup,
                 autoCommandTargetFromEntity = m_AutoCommandTargetFromEntity,
                 compressionModel = m_CompressionModel,
                 inputTargetTick = targetTick,
@@ -519,7 +519,7 @@ namespace Unity.NetCode
             if (!m_autoTargetQuery.IsEmptyIgnoreFilter)
                 return true;
             // Otherwise only run if CommandTarget exists and has this component type
-            if (!m_connectionQuery.TryGetSingleton<CommandTargetComponent>(out var commandTarget))
+            if (!m_connectionQuery.TryGetSingleton<CommandTarget>(out var commandTarget))
                 return false;
             if (!state.EntityManager.HasComponent<TCommandData>(commandTarget.targetEntity ))
                 return false;

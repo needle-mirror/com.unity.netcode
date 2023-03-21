@@ -1,4 +1,4 @@
-#if (UNITY_EDITOR || DEVELOPMENT_BUILD) && !NETCODE_NDEBUG
+#if UNITY_EDITOR && !NETCODE_NDEBUG
 #define NETCODE_DEBUG
 #endif
 using System.Diagnostics;
@@ -10,7 +10,7 @@ using Unity.Burst;
 namespace Unity.NetCode
 {
     /// <summary>
-    /// Responsible for assigning a unique <see cref="GhostComponent.ghostId"/> to each pre-spawned ghost,
+    /// Responsible for assigning a unique <see cref="GhostInstance.ghostId"/> to each pre-spawned ghost,
     /// and and adding the ghosts to the spawned ghosts maps.
     /// Relies on the previous initializations step to determine the subscene subset to process.
     /// </summary>
@@ -46,8 +46,8 @@ namespace Unity.NetCode
 
         EntityTypeHandle m_EntityTypeHandle;
         ComponentTypeHandle<PreSpawnedGhostIndex> m_PreSpawnedGhostIndexHandle;
-        ComponentTypeHandle<GhostComponent> m_GhostComponentHandle;
-        ComponentTypeHandle<GhostCleanupComponent> m_GhostCleanupComponentHandle;
+        ComponentTypeHandle<GhostInstance> m_GhostComponentHandle;
+        ComponentTypeHandle<GhostCleanup> m_GhostCleanupComponentHandle;
         BufferLookup<PrespawnGhostIdRange> m_PrespawnGhostIdRangeFromEntity;
 
         [BurstCompile]
@@ -67,8 +67,8 @@ namespace Unity.NetCode
 
             m_EntityTypeHandle = state.GetEntityTypeHandle();
             m_PreSpawnedGhostIndexHandle = state.GetComponentTypeHandle<PreSpawnedGhostIndex>(true);
-            m_GhostComponentHandle = state.GetComponentTypeHandle<GhostComponent>();
-            m_GhostCleanupComponentHandle = state.GetComponentTypeHandle<GhostCleanupComponent>();
+            m_GhostComponentHandle = state.GetComponentTypeHandle<GhostInstance>();
+            m_GhostCleanupComponentHandle = state.GetComponentTypeHandle<GhostCleanup>();
             m_PrespawnGhostIdRangeFromEntity = state.GetBufferLookup<PrespawnGhostIdRange>();
 
             var atype = new NativeArray<ComponentType>(1, Allocator.Temp);
@@ -88,12 +88,12 @@ namespace Unity.NetCode
             {
                 var prefab = m_PrefabQuery.GetSingletonEntity();
                 prespawnSceneListEntity = state.EntityManager.Instantiate(prefab);
-                state.EntityManager.RemoveComponent<GhostPrefabMetaDataComponent>(prespawnSceneListEntity);
+                state.EntityManager.RemoveComponent<GhostPrefabMetaData>(prespawnSceneListEntity);
                 state.EntityManager.GetBuffer<PrespawnSceneLoaded>(prespawnSceneListEntity).EnsureCapacity(128);
             }
             var subScenesWithGhosts = m_UninitializedScenes.ToComponentDataArray<SubSceneWithPrespawnGhosts>(Allocator.Temp);
             var subSceneEntities = m_UninitializedScenes.ToEntityArray(Allocator.Temp);
-            // Add GhostCleanupComponent to all ghosts
+            // Add GhostCleanup to all ghosts
             // After some measurement this is the fastest way to achieve it. Is roughly 5/6x faster than
             // adding all the components change one by one via command buffer in a job
             // with a decent amout of entities (> 3000)
@@ -101,7 +101,7 @@ namespace Unity.NetCode
             {
                 var sharedFilter = new SubSceneGhostComponentHash {Value = subScenesWithGhosts[i].SubSceneHash};
                 m_Prespawns.SetSharedComponentFilter(sharedFilter);
-                state.EntityManager.AddComponent<GhostCleanupComponent>(m_Prespawns);
+                state.EntityManager.AddComponent<GhostCleanup>(m_Prespawns);
             }
             var netDebug = SystemAPI.GetSingleton<NetDebug>();
             //This temporary list is necessary because we forcibly re-assign the entity to spawn maps for both client and server in case the
@@ -164,7 +164,7 @@ namespace Unity.NetCode
                     sceneSectionData = state.EntityManager.GetComponentData<SceneSectionData>(subSceneEntities[i]);
 
                 entityCommandBuffer.AddComponent<PrespawnsSceneInitialized>(subSceneEntities[i]);
-                entityCommandBuffer.AddComponent(subSceneEntities[i], new SubSceneWithGhostStateComponent
+                entityCommandBuffer.AddComponent(subSceneEntities[i], new SubSceneWithGhostClenup
                 {
                     SubSceneHash = subScenesWithGhosts[i].SubSceneHash,
                     FirstGhostId = startId,

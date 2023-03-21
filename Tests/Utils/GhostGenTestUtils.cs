@@ -125,7 +125,8 @@ namespace Unity.NetCode.Tests
         {
             public void Bake(GameObject gameObject, IBaker baker)
             {
-                baker.AddComponent(new GhostGenTestType_IComponentData());
+                var entity = baker.GetEntity(TransformUsageFlags.Dynamic);
+                baker.AddComponent(entity, new GhostGenTestType_IComponentData());
             }
         }
 
@@ -156,7 +157,8 @@ namespace Unity.NetCode.Tests
         {
             public void Bake(GameObject gameObject, IBaker baker)
             {
-                baker.AddComponent(new GhostGenTestType_IInputComponentData_Values());
+                var entity = baker.GetEntity(TransformUsageFlags.Dynamic);
+                baker.AddComponent(entity, new GhostGenTestType_IInputComponentData_Values());
             }
         }
 
@@ -164,7 +166,8 @@ namespace Unity.NetCode.Tests
         {
             public void Bake(GameObject gameObject, IBaker baker)
             {
-                baker.AddComponent(new GhostGenTestType_IInputComponentData_Strings());
+                var entity = baker.GetEntity(TransformUsageFlags.Dynamic);
+                baker.AddComponent(entity, new GhostGenTestType_IInputComponentData_Strings());
             }
         }
 

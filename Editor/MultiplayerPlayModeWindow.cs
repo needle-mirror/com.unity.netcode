@@ -73,7 +73,7 @@ namespace Unity.NetCode.Editor
         static GUIContent s_ServerReconnectAllClients = new GUIContent("Reconnect All", "Trigger the server to attempt to gracefully disconnect all clients, then have them automatically reconnect. Useful to batch-test player rejoining scenarios (e.g. people dropping out mid-match).\n\nNote that clients will also disconnect themselves from the server in the same frame as they're attempting to reconnect, so you can test same frame DCing.");
         static GUIContent s_ClientReconnect = new GUIContent("Client Reconnect", "Attempt to gracefully disconnect from the server, followed by an immediate reconnect attempt.");
         static GUIContent s_ClientDc = new GUIContent("Client DC", "Attempt to gracefully disconnect from the server. Triggered by the client (e.g. a player closing the application).");
-        static GUIContent s_ServerDc = new GUIContent("Server DC", "Trigger the server to attempt to gracefully disconnect this client, identified by their 'NetworkIdComponent'. Server-authored (e.g. like a server kicking a client when the match has ended).");
+        static GUIContent s_ServerDc = new GUIContent("Server DC", "Trigger the server to attempt to gracefully disconnect this client, identified by their 'NetworkId'. Server-authored (e.g. like a server kicking a client when the match has ended).");
         static GUIContent s_Timeout = new GUIContent("Force Timeout", "Simulate a timeout (i.e. the client and server stop communicating instantly, and critically, <b>without</b> either being able to send graceful disconnect control messages). A.k.a. An \"ungraceful\" disconnection or \"Server unreachable\".\n\n- Clients should notify the player of the internet issue, and provide automatic (or triggerable) reconnect or quit flows.\n\n - Servers should ensure they handle clients timing out as a valid form of disconnection, and (if supported) ensure that 'same client reconnections' are properly handled.\n\n - Transport settings will inform how quickly all parties detect a lost connection.");
 
         static GUIContent s_LogFileLocation = new GUIContent("Open Log Folder", string.Empty);
@@ -746,7 +746,7 @@ namespace Unity.NetCode.Editor
             GUILayout.BeginHorizontal();
             {
                 GUI.color = connectionColor;
-                GUILayout.Box(isConnected ? conSystem.NetworkIdComponent.Value.ToString() : "-", s_BoxStyleHack, s_NetworkIdWidth);
+                GUILayout.Box(isConnected ? conSystem.NetworkId.Value.ToString() : "-", s_BoxStyleHack, s_NetworkIdWidth);
 
                 GUILayout.Label(world.Name, s_WorldNameWidth);
                 GUI.color = Color.white;
@@ -787,7 +787,7 @@ namespace Unity.NetCode.Editor
                         conSystem.ClientConnectionState = MultiplayerClientPlayModeConnectionSystem.ConnectionState.TriggerDisconnect;
 
                     if (GUILayout.Button(s_ServerDc))
-                        ServerDisconnectNetworkId(conSystem.NetworkIdComponent, NetworkStreamDisconnectReason.ConnectionClose);
+                        ServerDisconnectNetworkId(conSystem.NetworkId, NetworkStreamDisconnectReason.ConnectionClose);
 
                     break;
                 }
@@ -969,13 +969,13 @@ namespace Unity.NetCode.Editor
             return ref netDebugQuery.GetSingletonRW<NetDebug>().ValueRW;
         }
 
-        static void DisconnectSpecificClient(EntityManager entityManager, NetworkIdComponent networkId, NetworkStreamDisconnectReason reason = NetworkStreamDisconnectReason.ConnectionClose)
+        static void DisconnectSpecificClient(EntityManager entityManager, NetworkId networkId, NetworkStreamDisconnectReason reason = NetworkStreamDisconnectReason.ConnectionClose)
         {
             entityManager.CompleteAllTrackedJobs();
-            using var activeConnectionsQuery = entityManager.CreateEntityQuery(ComponentType.ReadOnly<NetworkIdComponent>(), ComponentType.Exclude<NetworkStreamRequestDisconnect>());
+            using var activeConnectionsQuery = entityManager.CreateEntityQuery(ComponentType.ReadOnly<NetworkId>(), ComponentType.Exclude<NetworkStreamRequestDisconnect>());
 
             using var entities = activeConnectionsQuery.ToEntityArray(Allocator.Temp);
-            using var networkIds = activeConnectionsQuery.ToComponentDataArray<NetworkIdComponent>(Allocator.Temp);
+            using var networkIds = activeConnectionsQuery.ToComponentDataArray<NetworkId>(Allocator.Temp);
             for (var i = 0; i < entities.Length; i++)
             {
                 if (networkIds[i].Value == networkId.Value)
@@ -989,7 +989,7 @@ namespace Unity.NetCode.Editor
         static void DisconnectAllClients(EntityManager entityManager, NetworkStreamDisconnectReason reason)
         {
             entityManager.CompleteAllTrackedJobs();
-            using var activeConnectionsQuery = entityManager.CreateEntityQuery(ComponentType.ReadOnly<NetworkIdComponent>(), ComponentType.Exclude<NetworkStreamRequestDisconnect>());
+            using var activeConnectionsQuery = entityManager.CreateEntityQuery(ComponentType.ReadOnly<NetworkId>(), ComponentType.Exclude<NetworkStreamRequestDisconnect>());
 
             using var entities = activeConnectionsQuery.ToEntityArray(Allocator.Temp);
             for (var i = 0; i < entities.Length; i++)
@@ -1014,7 +1014,7 @@ namespace Unity.NetCode.Editor
         }
 
         /// <summary>Note: Will disconnect this NetworkId from all server worlds it is found in.</summary>
-        static void ServerDisconnectNetworkId(NetworkIdComponent networkId, NetworkStreamDisconnectReason reason)
+        static void ServerDisconnectNetworkId(NetworkId networkId, NetworkStreamDisconnectReason reason)
         {
             foreach (var serverWorld in s_ServerWorlds)
             {
@@ -1041,8 +1041,8 @@ namespace Unity.NetCode.Editor
 
         internal string PingText;
         internal ConnectionState ClientConnectionState;
-        internal NetworkSnapshotAckComponent ClientNetworkSnapshotAck;
-        internal NetworkIdComponent NetworkIdComponent;
+        internal NetworkSnapshotAck ClientNetworkSnapshotAck;
+        internal NetworkId NetworkId;
         internal NetworkEndpoint OverrideEndpoint;
         EndSimulationEntityCommandBufferSystem m_EndSimulationEcbSystem;
 
@@ -1118,10 +1118,10 @@ namespace Unity.NetCode.Editor
             var isDisconnecting = false;
             if (SystemAPI.TryGetSingletonEntity<NetworkStreamConnection>(out var singletonEntity))
             {
-                if (EntityManager.HasComponent<NetworkIdComponent>(singletonEntity))
+                if (EntityManager.HasComponent<NetworkId>(singletonEntity))
                 {
-                    NetworkIdComponent = EntityManager.GetComponentData<NetworkIdComponent>(singletonEntity);
-                    ClientNetworkSnapshotAck = EntityManager.GetComponentData<NetworkSnapshotAckComponent>(singletonEntity);
+                    NetworkId = EntityManager.GetComponentData<NetworkId>(singletonEntity);
+                    ClientNetworkSnapshotAck = EntityManager.GetComponentData<NetworkSnapshotAck>(singletonEntity);
                     isConnected = true;
                     isDisconnecting = EntityManager.HasComponent<NetworkStreamRequestDisconnect>(singletonEntity);
                 }
@@ -1256,8 +1256,8 @@ namespace Unity.NetCode.Editor
         private EntityQuery m_notInGameQuery;
         protected override void OnCreate()
         {
-            m_activeConnectionsQuery = GetEntityQuery(ComponentType.ReadOnly<NetworkIdComponent>(), ComponentType.Exclude<NetworkStreamRequestDisconnect>());
-            m_notInGameQuery = GetEntityQuery(ComponentType.ReadOnly<NetworkIdComponent>(), ComponentType.Exclude<NetworkStreamRequestDisconnect>(), ComponentType.Exclude<NetworkStreamInGame>());
+            m_activeConnectionsQuery = GetEntityQuery(ComponentType.ReadOnly<NetworkId>(), ComponentType.Exclude<NetworkStreamRequestDisconnect>());
+            m_notInGameQuery = GetEntityQuery(ComponentType.ReadOnly<NetworkId>(), ComponentType.Exclude<NetworkStreamRequestDisconnect>(), ComponentType.Exclude<NetworkStreamInGame>());
         }
         protected override void OnUpdate()
         {

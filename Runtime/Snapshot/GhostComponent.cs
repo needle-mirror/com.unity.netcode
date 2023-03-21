@@ -6,10 +6,68 @@ using Unity.Burst;
 namespace Unity.NetCode
 {
     /// <summary>
+    /// Temporary type, used to upgrade to new component type, to be removed before final 1.0
+    /// </summary>
+    [Obsolete("GhostComponent has been deprecated. Use GhostInstance instead (UnityUpgradable) -> GhostInstance", true)]
+    [DontSupportPrefabOverrides]
+    public struct GhostComponent : IComponentData
+    {
+    }
+    /// <summary>
+    /// Temporary type, used to upgrade to new component type, to be removed before final 1.0
+    /// </summary>
+    [Obsolete("GhostChildEntityComponent has been deprecated. Use GhostChildEntity instead (UnityUpgradable) -> GhostChildEntity", true)]
+    [DontSupportPrefabOverrides]
+    public struct GhostChildEntityComponent : IComponentData
+    {
+    }
+    /// <summary>
+    /// Temporary type for upgradability, to be removed before 1.0
+    /// </summary>
+    [Obsolete("GhostTypeComponent has been deprecated. Use GhostType instead (UnityUpgradable) -> GhostType", true)]
+    [DontSupportPrefabOverrides]
+    public struct GhostTypeComponent : IComponentData
+    {
+    }
+    /// <summary>
+    /// Temporary type, used to upgrade to new component type, to be removed before final 1.0
+    /// </summary>
+    [Obsolete("SharedGhostTypeComponent has been deprecated. Use GhostTypePartition instead (UnityUpgradable) -> GhostTypePartition", true)]
+    public struct SharedGhostTypeComponent : IComponentData
+    {
+        /// <summary>
+        /// Ghost type used for the this entity.
+        /// </summary>
+        public GhostType SharedValue;
+    }
+    /// <summary>
+    /// Temporary type, used to upgrade to new component type, to be removed before final 1.0
+    /// </summary>
+    [Obsolete("PredictedGhostComponent has been deprecated. Use PredictedGhost instead (UnityUpgradable) -> PredictedGhost", true)]
+    [DontSupportPrefabOverrides]
+    public struct PredictedGhostComponent : IComponentData
+    {
+    }
+    /// <summary>
+    /// Temporary type, used to upgrade to new component type, to be removed before final 1.0
+    /// </summary>
+    [Obsolete("PredictedGhostSpawnRequestComponent has been deprecated. Use PredictedGhostSpawnRequest instead (UnityUpgradable) -> PredictedGhostSpawnRequest", true)]
+    public struct PredictedGhostSpawnRequestComponent : IComponentData
+    {
+    }
+    /// <summary>
+    /// Temporary type, used to upgrade to new component type, to be removed before final 1.0
+    /// </summary>
+    [Obsolete("PendingSpawnPlaceholderComponent has been deprecated. Use PendingSpawnPlaceholder instead (UnityUpgradable) -> PendingSpawnPlaceholder", true)]
+    public struct PendingSpawnPlaceholderComponent : IComponentData
+    {
+    }
+
+    /// <summary>
     /// Component signaling an entity which is replicated over the network
     /// </summary>
     [DontSupportPrefabOverrides]
-    public struct GhostComponent : IComponentData
+    public struct GhostInstance : IComponentData
     {
         /// <summary>
         /// The id assigned to the ghost by the server. When a ghost is destroyed, its id is recycled and can assigned to
@@ -32,28 +90,26 @@ namespace Unity.NetCode
         /// </summary>
         /// <param name="comp"></param>
         /// <returns></returns>
-        public static implicit operator SpawnedGhost(GhostComponent comp)
+        public static implicit operator SpawnedGhost(in GhostInstance comp)
         {
-            return new SpawnedGhost
-            {
-                ghostId = comp.ghostId,
-                spawnTick = comp.spawnTick,
-            };
+            return new SpawnedGhost(comp.ghostId, comp.spawnTick);
         }
     }
+
     /// <summary>
     /// A tag added to child entities in a ghost with multiple entities. It should also be added to ghosts in a group if the ghost is not the root of the group.
     /// </summary>
     [DontSupportPrefabOverrides]
-    public struct GhostChildEntityComponent : IComponentData
+    public struct GhostChildEntity : IComponentData
     {}
+
     /// <summary>
     /// Component storing the guid of the prefab the ghost was created from. This is used to lookup ghost type in a robust way which works even if two ghosts have the same archetype
     /// </summary>
     [DontSupportPrefabOverrides]
     [Serializable]
-    public struct GhostTypeComponent : IComponentData,
-        IEquatable<GhostTypeComponent>
+    public struct GhostType : IComponentData,
+        IEquatable<GhostType>
     {
         /// <summary>
         /// The first 4 bytes of the prefab guid
@@ -77,15 +133,15 @@ namespace Unity.NetCode
         internal uint guid3;
 
         /// <summary>
-        /// Construct a new <see cref="GhostTypeComponent"/> from a <see cref="Hash128"/> guid string.
+        /// Construct a new <see cref="GhostType"/> from a <see cref="Hash128"/> guid string.
         /// </summary>
         /// <param name="guid">a guid string. Either Hash128 or Unity.Engine.GUID strings are valid.</param>
-        /// <returns>a new GhostTypeComponent instance</returns>
+        /// <returns>a new GhostType instance</returns>
         [BurstDiscard]
-        internal static GhostTypeComponent FromHash128String(string guid)
+        internal static GhostType FromHash128String(string guid)
         {
             var hash = new Hash128(guid);
-            return new GhostTypeComponent
+            return new GhostType
             {
                 guid0 = hash.Value.x,
                 guid1 = hash.Value.y,
@@ -95,13 +151,13 @@ namespace Unity.NetCode
         }
 
         /// <summary>
-        /// Create a new <see cref="GhostTypeComponent"/> from the give <see cref="Hash128"/> guid.
+        /// Create a new <see cref="GhostType"/> from the give <see cref="Hash128"/> guid.
         /// </summary>
         /// <param name="guid"></param>
         /// <returns></returns>
-        internal static GhostTypeComponent FromHash128(Hash128 guid)
+        internal static GhostType FromHash128(Hash128 guid)
         {
-            return new GhostTypeComponent
+            return new GhostType
             {
                 guid0 = guid.Value.x,
                 guid1 = guid.Value.y,
@@ -111,34 +167,34 @@ namespace Unity.NetCode
         }
 
         /// <summary>
-        /// Convert a <see cref="GhostTypeComponent"/> to a <see cref="Hash128"/> instance. The hash will always match the prefab guid
+        /// Convert a <see cref="GhostType"/> to a <see cref="Hash128"/> instance. The hash will always match the prefab guid
         /// from which the ghost has been created.
         /// </summary>
         /// <param name="ghostType"></param>
         /// <returns></returns>
-        public static explicit operator Hash128(GhostTypeComponent ghostType)
+        public static explicit operator Hash128(GhostType ghostType)
         {
             return new Hash128(ghostType.guid0, ghostType.guid1, ghostType.guid2, ghostType.guid3);
 
         }
 
         /// <summary>
-        /// Returns whether or not two GhostTypeComponent are identical.
+        /// Returns whether or not two GhostType are identical.
         /// </summary>
         /// <param name="lhs"></param>
         /// <param name="rhs"></param>
         /// <returns>True if the the types guids are the same.</returns>
-        public static bool operator ==(GhostTypeComponent lhs, GhostTypeComponent rhs)
+        public static bool operator ==(GhostType lhs, GhostType rhs)
         {
             return lhs.guid0 == rhs.guid0 && lhs.guid1 == rhs.guid1 && lhs.guid2 == rhs.guid2 && lhs.guid3 == rhs.guid3;
         }
         /// <summary>
-        /// Returns whether or not two GhostTypeComponent are distinct.
+        /// Returns whether or not two GhostType are distinct.
         /// </summary>
         /// <param name="lhs"></param>
         /// <param name="rhs"></param>
         /// <returns>True if the the types guids are the different.</returns>
-        public static bool operator !=(GhostTypeComponent lhs, GhostTypeComponent rhs)
+        public static bool operator !=(GhostType lhs, GhostType rhs)
         {
             return lhs.guid0 != rhs.guid0 || lhs.guid1 != rhs.guid1 || lhs.guid2 != rhs.guid2 || lhs.guid3 != rhs.guid3;
         }
@@ -147,26 +203,26 @@ namespace Unity.NetCode
         /// </summary>
         /// <param name="other"></param>
         /// <returns></returns>
-        public bool Equals(GhostTypeComponent other)
+        public bool Equals(GhostType other)
         {
             return this == other;
         }
         /// <summary>
-        /// Returns whether or not the <see cref="obj"/> reference is of type `GhostTypeComponent`, and
+        /// Returns whether or not the <see cref="obj"/> reference is of type `GhostType`, and
         /// whether or not it's identical to the current instance.
         /// </summary>
         /// <param name="obj"></param>
-        /// <returns>True if equal to the passed in `GhostTypeComponent`.</returns>
+        /// <returns>True if equal to the passed in `GhostType`.</returns>
         public override bool Equals(object obj)
         {
-            if(obj is GhostTypeComponent aGT) return Equals(aGT);
+            if(obj is GhostType aGT) return Equals(aGT);
             return false;
         }
 
         /// <summary>
         /// Return an hashcode suitable for inserting the component into a dictionary or a sorted container.
         /// </summary>
-        /// <returns>True if equal to the passed in `GhostTypeComponent`.</returns>
+        /// <returns>True if equal to the passed in `GhostType`.</returns>
         public override int GetHashCode()
         {
             var result = guid0.GetHashCode();
@@ -176,18 +232,22 @@ namespace Unity.NetCode
             return result;
         }
     }
+
+
     /// <summary>
     /// Component used on the server to make sure the ghosts of different ghost types are in different chunks,
     /// even if they have the same archetype (regardless of component data).
     /// </summary>
     [DontSupportPrefabOverrides]
-    public struct SharedGhostTypeComponent : ISharedComponentData
+    public struct GhostTypePartition : ISharedComponentData
     {
         /// <summary>
         /// Ghost type used for the this entity.
         /// </summary>
-        public GhostTypeComponent SharedValue;
+        public GhostType SharedValue;
     }
+
+
 
     /// <summary>
     /// Component on client signaling that an entity is predicted (as opposed to interpolated).
@@ -195,7 +255,7 @@ namespace Unity.NetCode
     /// <seealso cref="GhostModeMask"/>
     /// </summary>
     [DontSupportPrefabOverrides]
-    public struct PredictedGhostComponent : IComponentData
+    public struct PredictedGhost : IComponentData
     {
         /// <summary>
         /// The last server snapshot that has been applied to the entity.
@@ -229,7 +289,7 @@ namespace Unity.NetCode
     /// in the ghost collection with this tag added. You need to implement a custom spawn
     /// classification system in order to use this.
     /// </summary>
-    public struct PredictedGhostSpawnRequestComponent : IComponentData
+    public struct PredictedGhostSpawnRequest : IComponentData
     {
     }
 
@@ -237,7 +297,7 @@ namespace Unity.NetCode
     /// Component on the client signaling that an entity is a placeholder for a "not yet spawned" ghost.
     /// I.e. Not yet a "real" ghost.
     /// </summary>
-    public struct PendingSpawnPlaceholderComponent : IComponentData
+    public struct PendingSpawnPlaceholder : IComponentData
     {
     }
 
@@ -252,7 +312,7 @@ namespace Unity.NetCode
         /// </summary>
         /// <param name="self"></param>
         /// <returns>The ghost type index if a ghost with a valid type is found, -1 otherwise</returns>
-        public static int GetFirstGhostTypeId(this NativeArray<GhostComponent> self)
+        public static int GetFirstGhostTypeId(this NativeArray<GhostInstance> self)
         {
             return self.GetFirstGhostTypeId(out _);
         }
@@ -265,7 +325,7 @@ namespace Unity.NetCode
         /// <param name="self"></param>
         /// <param name="firstGhost">The first valid ghost type index found will be stored in this variable.</param>
         /// <returns>A valid ghost type id, or -1 if no ghost type id was found.</returns>
-        public static int GetFirstGhostTypeId(this NativeArray<GhostComponent> self, out int firstGhost)
+        public static int GetFirstGhostTypeId(this NativeArray<GhostInstance> self, out int firstGhost)
         {
             firstGhost = 0;
             int ghostTypeId = self[0].ghostType;

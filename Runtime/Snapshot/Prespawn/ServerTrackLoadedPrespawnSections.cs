@@ -25,7 +25,7 @@ namespace Unity.NetCode
         public void OnCreate(ref SystemState state)
         {
             var builder = new EntityQueryBuilder(Allocator.Temp)
-                .WithAll<SubSceneWithGhostStateComponent>()
+                .WithAll<SubSceneWithGhostClenup>()
                 .WithNone<IsSectionLoaded>();
             m_UnloadedSubscenes = state.GetEntityQuery(builder);
             builder.Reset();
@@ -53,7 +53,7 @@ namespace Unity.NetCode
             var unloadedGhostRange = new NativeList<int2>(state.WorldUpdateAllocator);
             for(int i=0;i<unloadedSections.Length;++i)
             {
-                var stateComponent = state.EntityManager.GetComponentData<SubSceneWithGhostStateComponent>(unloadedSections[i]);
+                var stateComponent = state.EntityManager.GetComponentData<SubSceneWithGhostClenup>(unloadedSections[i]);
                 m_Prespawns.SetSharedComponentFilter(new SubSceneGhostComponentHash { Value = stateComponent.SubSceneHash });
 
                 //If there are still some ghosts present, don't remove the scene from the scene list yet
@@ -99,7 +99,7 @@ namespace Unity.NetCode
                 }
                 entityCommandBuffer.RemoveComponent<PrespawnsSceneInitialized>(unloadedSections[i]);
                 entityCommandBuffer.RemoveComponent<SubScenePrespawnBaselineResolved>(unloadedSections[i]);
-                entityCommandBuffer.RemoveComponent<SubSceneWithGhostStateComponent>(unloadedSections[i]);
+                entityCommandBuffer.RemoveComponent<SubSceneWithGhostClenup>(unloadedSections[i]);
             }
 
             if (unloadedGhostRange.Length == 0)

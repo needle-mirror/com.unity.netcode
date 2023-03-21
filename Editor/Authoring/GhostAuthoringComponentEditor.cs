@@ -85,7 +85,7 @@ namespace Unity.NetCode.Editor
             {
                 EditorGUILayout.PropertyField(DefaultGhostMode);
 
-                // Selecting OwnerPredicted on a ghost without a GhostOwnerComponent will cause an exception during conversion - display an error for that case in the inspector
+                // Selecting OwnerPredicted on a ghost without a GhostOwner will cause an exception during conversion - display an error for that case in the inspector
                 if (isOwnerPredictedError)
                 {
                     EditorGUILayout.HelpBox("Setting `Default Ghost Mode` to `Owner Predicted` is not valid unless the Ghost also supports being Owned by a player (via the `Ghost Owner Component`). Please resolve it one of the following ways.", MessageType.Error);

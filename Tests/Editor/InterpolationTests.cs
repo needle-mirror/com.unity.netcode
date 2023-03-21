@@ -22,11 +22,7 @@ namespace Unity.NetCode.Tests
         {
             var deltaTime = SystemAPI.Time.DeltaTime;
             var speed = moveSpeed;
-#if !ENABLE_TRANSFORM_V1
             Entities.ForEach((Entity ent, ref LocalTransform tx) => { tx.Position += new float3(speed * deltaTime); }).Run();
-#else
-            Entities.ForEach((Entity ent, ref Translation tx) => { tx.Value += new float3(speed * deltaTime); }).Run();
-#endif
         }
     }
 
@@ -42,19 +38,11 @@ namespace Unity.NetCode.Tests
         {
             Entities
                 .WithoutBurst()
-#if !ENABLE_TRANSFORM_V1
                 .ForEach((Entity ent, in LocalTransform tx) =>
             {
                 Assert.GreaterOrEqual(tx.Position.x, prevPos.x);
                 prevPos = tx.Position;
             }).Run();
-#else
-                .ForEach((Entity ent, in Translation tx) =>
-            {
-                Assert.GreaterOrEqual(tx.Value.x, prevPos.x);
-                prevPos = tx.Value;
-            }).Run();
-#endif
         }
     }
 
@@ -80,14 +68,14 @@ namespace Unity.NetCode.Tests
                 // Spawn a new entity on the server. Server will start send snapshots now.
                 var serverEnt = testWorld.SpawnOnServer(ghostGameObject);
                 Assert.AreNotEqual(Entity.Null, serverEnt);
-                var connectionEnt = testWorld.TryGetSingletonEntity<NetworkSnapshotAckComponent>(testWorld.ClientWorlds[0]);
+                var connectionEnt = testWorld.TryGetSingletonEntity<NetworkSnapshotAck>(testWorld.ClientWorlds[0]);
                 var networkTimeEnt = testWorld.TryGetSingletonEntity<NetworkTime>(testWorld.ClientWorlds[0]);
                 for (int i = 0; i < 50; ++i)
                 {
                     //There will be some interpolated tick since we are running slighty faster on client
                     testWorld.Tick(frameTime*0.75f);
                     testWorld.ClientWorlds[0].EntityManager.CompleteAllTrackedJobs();
-                    var ackComponent = testWorld.ClientWorlds[0].EntityManager.GetComponentData<NetworkSnapshotAckComponent>(connectionEnt);
+                    var ackComponent = testWorld.ClientWorlds[0].EntityManager.GetComponentData<NetworkSnapshotAck>(connectionEnt);
                     var serverTick = testWorld.GetNetworkTime(testWorld.ServerWorld).ServerTick;
                     if (serverTick.IsValid && ackComponent.LastReceivedSnapshotByLocal.IsValid)
                     {
@@ -102,7 +90,7 @@ namespace Unity.NetCode.Tests
                         Assert.LessOrEqual(ackComponent.ServerCommandAge, 128);
                     }
                 }
-                var ack = testWorld.ClientWorlds[0].EntityManager.GetComponentData<NetworkSnapshotAckComponent>(connectionEnt);
+                var ack = testWorld.ClientWorlds[0].EntityManager.GetComponentData<NetworkSnapshotAck>(connectionEnt);
                 Assert.AreEqual(0, ack.ServerCommandAge);
             }
         }

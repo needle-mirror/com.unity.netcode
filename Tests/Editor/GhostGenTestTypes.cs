@@ -136,18 +136,18 @@ namespace Unity.NetCode.Tests
                     testWorld.Tick(frameTime);
 
                 // Add and set server command target
-                var serverConnection = testWorld.TryGetSingletonEntity<NetworkIdComponent>(testWorld.ServerWorld);
+                var serverConnection = testWorld.TryGetSingletonEntity<NetworkId>(testWorld.ServerWorld);
                 Assert.AreNotEqual(Entity.Null, serverConnection);
                 testWorld.ServerWorld.EntityManager.AddBuffer<T>(serverConnection);
-                testWorld.ServerWorld.EntityManager.AddComponent<CommandTargetComponent>(serverConnection);
-                testWorld.ServerWorld.EntityManager.SetComponentData(serverConnection, new CommandTargetComponent{targetEntity = serverConnection});
+                testWorld.ServerWorld.EntityManager.AddComponent<CommandTarget>(serverConnection);
+                testWorld.ServerWorld.EntityManager.SetComponentData(serverConnection, new CommandTarget{targetEntity = serverConnection});
 
                 // Add and set client command target
-                var clientConnection = testWorld.TryGetSingletonEntity<NetworkIdComponent>(testWorld.ClientWorlds[0]);
+                var clientConnection = testWorld.TryGetSingletonEntity<NetworkId>(testWorld.ClientWorlds[0]);
                 Assert.AreNotEqual(Entity.Null, clientConnection);
                 testWorld.ClientWorlds[0].EntityManager.AddBuffer<T>(clientConnection);
-                testWorld.ClientWorlds[0].EntityManager.AddComponent<CommandTargetComponent>(clientConnection);
-                testWorld.ClientWorlds[0].EntityManager.SetComponentData(clientConnection, new CommandTargetComponent{targetEntity = clientConnection});
+                testWorld.ClientWorlds[0].EntityManager.AddComponent<CommandTarget>(clientConnection);
+                testWorld.ClientWorlds[0].EntityManager.SetComponentData(clientConnection, new CommandTarget{targetEntity = clientConnection});
 
                 // Add a command to client
                 var clientGhostEntity = testWorld.TryGetSingletonEntity<GhostGenTestUtils.GhostGenTestType_IComponentData>(testWorld.ClientWorlds[0]); // Ghost entity
@@ -216,10 +216,10 @@ namespace Unity.NetCode.Tests
                 testWorld.GoInGame();
 
                 // Spawn ghost and set owner
-                var clientConnectionEnt = testWorld.TryGetSingletonEntity<NetworkIdComponent>(testWorld.ClientWorlds[0]);
-                var netId = testWorld.ClientWorlds[0].EntityManager.GetComponentData<NetworkIdComponent>(clientConnectionEnt).Value;
+                var clientConnectionEnt = testWorld.TryGetSingletonEntity<NetworkId>(testWorld.ClientWorlds[0]);
+                var netId = testWorld.ClientWorlds[0].EntityManager.GetComponentData<NetworkId>(clientConnectionEnt).Value;
                 var serverEnt = testWorld.SpawnOnServer(ghostGameObject);
-                testWorld.ServerWorld.EntityManager.SetComponentData(serverEnt, new GhostOwnerComponent {NetworkId = netId});
+                testWorld.ServerWorld.EntityManager.SetComponentData(serverEnt, new GhostOwner {NetworkId = netId});
 
 
                 // Let the world run for a bit so the ghosts are spawned on the client
@@ -280,7 +280,7 @@ namespace Unity.NetCode.Tests
                 var clientGhostEntity = testWorld.TryGetSingletonEntity<GhostGenTestUtils.GhostGenTestType_IComponentData>(testWorld.ClientWorlds[0]); // Ghost entity
                 Assert.AreNotEqual(Entity.Null, clientGhostEntity);
                 var rpc = testWorld.ClientWorlds[0].EntityManager.CreateEntity(typeof(GhostGenTestUtils.GhostGenTestType_IRpc),
-                    typeof(SendRpcCommandRequestComponent));
+                    typeof(SendRpcCommandRequest));
                 var clientValues = GhostGenTestUtils.CreateIRpcValues(42, clientGhostEntity);
                 testWorld.ClientWorlds[0].EntityManager.SetComponentData(rpc, clientValues);
 
@@ -303,7 +303,7 @@ namespace Unity.NetCode.Tests
 
                 // Create RPC on server
                 rpc = testWorld.ServerWorld.EntityManager.CreateEntity(typeof(GhostGenTestUtils.GhostGenTestType_IRpc),
-                    typeof(SendRpcCommandRequestComponent));
+                    typeof(SendRpcCommandRequest));
                 serverValues = GhostGenTestUtils.CreateIRpcValues(43, serverGhostEntity);
                 testWorld.ServerWorld.EntityManager.SetComponentData(rpc, serverValues);
 
@@ -346,18 +346,18 @@ namespace Unity.NetCode.Tests
                     testWorld.Tick(frameTime);
 
                 // Add and set server command target
-                var serverConnection = testWorld.TryGetSingletonEntity<NetworkIdComponent>(testWorld.ServerWorld);
+                var serverConnection = testWorld.TryGetSingletonEntity<NetworkId>(testWorld.ServerWorld);
                 Assert.AreNotEqual(Entity.Null, serverConnection);
                 testWorld.ServerWorld.EntityManager.AddBuffer<GhostGenTestUtils.GhostGenTestType_ICommandData_Strings>(serverConnection);
-                testWorld.ServerWorld.EntityManager.AddComponent<CommandTargetComponent>(serverConnection);
-                testWorld.ServerWorld.EntityManager.SetComponentData(serverConnection, new CommandTargetComponent{targetEntity = serverConnection});
+                testWorld.ServerWorld.EntityManager.AddComponent<CommandTarget>(serverConnection);
+                testWorld.ServerWorld.EntityManager.SetComponentData(serverConnection, new CommandTarget{targetEntity = serverConnection});
 
                 // Add and set client command target
-                var clientConnection = testWorld.TryGetSingletonEntity<NetworkIdComponent>(testWorld.ClientWorlds[0]);
+                var clientConnection = testWorld.TryGetSingletonEntity<NetworkId>(testWorld.ClientWorlds[0]);
                 Assert.AreNotEqual(Entity.Null, clientConnection);
                 testWorld.ClientWorlds[0].EntityManager.AddBuffer<GhostGenTestUtils.GhostGenTestType_ICommandData_Strings>(clientConnection);
-                testWorld.ClientWorlds[0].EntityManager.AddComponent<CommandTargetComponent>(clientConnection);
-                testWorld.ClientWorlds[0].EntityManager.SetComponentData(clientConnection, new CommandTargetComponent{targetEntity = clientConnection});
+                testWorld.ClientWorlds[0].EntityManager.AddComponent<CommandTarget>(clientConnection);
+                testWorld.ClientWorlds[0].EntityManager.SetComponentData(clientConnection, new CommandTarget{targetEntity = clientConnection});
 
                 // Add MASSIVE command:
                 var newInvalidClampValues = GhostGenTestUtils.CreateTooLargeGhostValuesStrings();
@@ -485,7 +485,8 @@ namespace Unity.NetCode.Tests
         {
             public void Bake(GameObject gameObject, IBaker baker)
             {
-                baker.AddComponent(new GhostGenBigStruct {});
+                var entity = baker.GetEntity(TransformUsageFlags.Dynamic);
+                baker.AddComponent(entity, new GhostGenBigStruct {});
             }
         }
 

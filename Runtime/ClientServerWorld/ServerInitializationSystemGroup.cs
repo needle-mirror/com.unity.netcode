@@ -13,7 +13,7 @@ namespace Unity.NetCode
 #endif
     [UpdateInGroup(typeof(InitializationSystemGroup))]
     [WorldSystemFilter(WorldSystemFilterFlags.LocalSimulation)]
-    internal class TickServerInitializationSystem : TickComponentSystemGroup
+    internal partial class TickServerInitializationSystem : TickComponentSystemGroup
     {
     }
 #endif

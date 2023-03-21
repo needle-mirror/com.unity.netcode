@@ -6,9 +6,10 @@ using Unity.Collections;
 using Unity.Collections.LowLevel.Unsafe;
 using Unity.Entities;
 using Unity.Jobs;
-using Unity.Networking.Transport;
+
 using Unity.Networking.Transport.Utilities;
 using Unity.NetCode.LowLevel.Unsafe;
+using Unity.Networking.Transport;
 using Unity.Profiling;
 
 namespace Unity.NetCode
@@ -24,7 +25,7 @@ namespace Unity.NetCode
         WorldSystemFilterFlags.ClientSimulation | WorldSystemFilterFlags.ServerSimulation)]
     [UpdateInGroup(typeof(SimulationSystemGroup), OrderFirst = true)]
     [UpdateAfter(typeof(BeginSimulationEntityCommandBufferSystem))]
-    public class NetworkReceiveSystemGroup : ComponentSystemGroup
+    public partial class NetworkReceiveSystemGroup : ComponentSystemGroup
     {
     }
 
@@ -59,14 +60,12 @@ namespace Unity.NetCode
     public unsafe partial struct NetworkStreamConnectSystem : ISystem
     {
         EntityQuery m_ConnectionRequestConnectQuery;
-        ComponentLookup<NetworkStreamRequestConnect> m_NetworkStreamRequestConnectFromEntity;
         ComponentLookup<ConnectionState> m_ConnectionStateFromEntity;
 
         [BurstCompile]
         public void OnCreate(ref SystemState state)
         {
             m_ConnectionRequestConnectQuery = state.GetEntityQuery(ComponentType.ReadWrite<NetworkStreamRequestConnect>());
-            m_NetworkStreamRequestConnectFromEntity = state.GetComponentLookup<NetworkStreamRequestConnect>(true);
             m_ConnectionStateFromEntity = state.GetComponentLookup<ConnectionState>();
             state.RequireForUpdate(m_ConnectionRequestConnectQuery);
             state.RequireForUpdate<NetworkStreamDriver>();
@@ -78,18 +77,14 @@ namespace Unity.NetCode
         {
             var netDebug = SystemAPI.GetSingleton<NetDebug>();
             ref var networkStreamDriver = ref SystemAPI.GetSingletonRW<NetworkStreamDriver>().ValueRW;
-
-            var ents = m_ConnectionRequestConnectQuery.ToEntityArray(Allocator.Temp);
-            m_NetworkStreamRequestConnectFromEntity.Update(ref systemState);
-            var requestFromEntity = m_NetworkStreamRequestConnectFromEntity;
             m_ConnectionStateFromEntity.Update(ref systemState);
             var stateFromEntity = m_ConnectionStateFromEntity;
 
-            bool connected = true;
-            foreach (var ent in ents)
+            foreach(var (request, ent) in SystemAPI.Query<RefRO<NetworkStreamRequestConnect>>().WithEntityAccess())
             {
-                var endpoint = requestFromEntity[ent].Endpoint;
-                if (!networkStreamDriver.ConnectAsync(systemState.EntityManager, endpoint, ent))
+                var endpoint = request.ValueRO.Endpoint;
+                var connection = networkStreamDriver.Connect(systemState.EntityManager, endpoint, ent);
+                if(connection == Entity.Null)
                 {
                     if (stateFromEntity.HasComponent(ent))
                     {
@@ -101,17 +96,8 @@ namespace Unity.NetCode
                     systemState.EntityManager.DestroyEntity(ent);
                     netDebug.DebugLog("Connect request failed.");
                 }
-
-                if (!networkStreamDriver.Connected)
-                {
-                    connected = false;
-                }
             }
-
-            if (connected)
-            {
-                systemState.EntityManager.RemoveComponent<NetworkStreamRequestConnect>(m_ConnectionRequestConnectQuery);
-            }
+            systemState.EntityManager.RemoveComponent<NetworkStreamRequestConnect>(m_ConnectionRequestConnectQuery);
         }
     }
     /// <summary>
@@ -124,12 +110,10 @@ namespace Unity.NetCode
     public unsafe partial struct NetworkStreamListenSystem : ISystem
     {
         EntityQuery m_ConnectionRequestListenQuery;
-        ComponentLookup<NetworkStreamRequestListen> m_NetworkStreamRequestListenFromEntity;
         ComponentLookup<ConnectionState> m_ConnectionStateFromEntity;
         public void OnCreate(ref SystemState state)
         {
             m_ConnectionRequestListenQuery = state.GetEntityQuery(ComponentType.ReadWrite<NetworkStreamRequestListen>());
-            m_NetworkStreamRequestListenFromEntity = state.GetComponentLookup<NetworkStreamRequestListen>(true);
             m_ConnectionStateFromEntity = state.GetComponentLookup<ConnectionState>();
             state.RequireForUpdate(m_ConnectionRequestListenQuery);
             state.RequireForUpdate<NetworkStreamDriver>();
@@ -140,17 +124,13 @@ namespace Unity.NetCode
             var netDebug = SystemAPI.GetSingleton<NetDebug>();
             ref var networkStreamDriver = ref SystemAPI.GetSingletonRW<NetworkStreamDriver>().ValueRW;
 
-            var ents = m_ConnectionRequestListenQuery.ToEntityArray(Allocator.Temp);
-            m_NetworkStreamRequestListenFromEntity.Update(ref systemState);
-            var requestFromEntity = m_NetworkStreamRequestListenFromEntity;
             m_ConnectionStateFromEntity.Update(ref systemState);
             var stateFromEntity = m_ConnectionStateFromEntity;
 
-            bool connected = true;
-            foreach (var ent in ents)
+            foreach(var (request, ent) in SystemAPI.Query<RefRO<NetworkStreamRequestListen>>().WithEntityAccess())
             {
-                var endpoint = requestFromEntity[ent].Endpoint;
-                if (!networkStreamDriver.ListenAsync(endpoint))
+                var endpoint = request.ValueRO.Endpoint;
+                if (!networkStreamDriver.Listen(endpoint))
                 {
                     if (stateFromEntity.HasComponent(ent))
                     {
@@ -162,16 +142,8 @@ namespace Unity.NetCode
                     systemState.EntityManager.DestroyEntity(ent);
                     netDebug.DebugLog("Listen request failed.");
                 }
-                if (!networkStreamDriver.Connected)
-                {
-                    connected = false;
-                }
             }
-
-            if (connected)
-            {
-                systemState.EntityManager.RemoveComponent<NetworkStreamRequestListen>(m_ConnectionRequestListenQuery);
-            }
+            systemState.EntityManager.RemoveComponent<NetworkStreamRequestListen>(m_ConnectionRequestListenQuery);
         }
     }
 
@@ -220,15 +192,15 @@ namespace Unity.NetCode
 
         IntPtr m_DriverPointers;
         ComponentLookup<ConnectionState> m_ConnectionStateFromEntity;
-        ComponentLookup<GhostComponent> m_GhostComponentFromEntity;
-        ComponentLookup<NetworkIdComponent> m_NetworkIdFromEntity;
+        ComponentLookup<GhostInstance> m_GhostComponentFromEntity;
+        ComponentLookup<NetworkId> m_NetworkIdFromEntity;
         ComponentLookup<ClientServerTickRate> m_ClientServerTickRateFromEntity;
         ComponentLookup<NetworkStreamRequestDisconnect> m_RequestDisconnectFromEntity;
         ComponentLookup<NetworkStreamInGame> m_InGameFromEntity;
-        BufferLookup<OutgoingRpcDataStreamBufferComponent> m_OutgoingRpcBufferFromEntity;
-        BufferLookup<IncomingRpcDataStreamBufferComponent> m_RpcBufferFromEntity;
-        BufferLookup<IncomingCommandDataStreamBufferComponent> m_CmdBufferFromEntity;
-        BufferLookup<IncomingSnapshotDataStreamBufferComponent> m_SnapshotBufferFromEntity;
+        BufferLookup<OutgoingRpcDataStreamBuffer> m_OutgoingRpcBufferFromEntity;
+        BufferLookup<IncomingRpcDataStreamBuffer> m_RpcBufferFromEntity;
+        BufferLookup<IncomingCommandDataStreamBuffer> m_CmdBufferFromEntity;
+        BufferLookup<IncomingSnapshotDataStreamBuffer> m_SnapshotBufferFromEntity;
 
         public void OnCreate(ref SystemState state)
         {
@@ -244,16 +216,16 @@ namespace Unity.NetCode
 
             m_RpcQueue = SystemAPI.GetSingleton<RpcCollection>().GetRpcQueue<RpcSetNetworkId, RpcSetNetworkId>();
             m_ConnectionStateFromEntity = state.GetComponentLookup<ConnectionState>(false);
-            m_GhostComponentFromEntity = state.GetComponentLookup<GhostComponent>(true);
-            m_NetworkIdFromEntity = state.GetComponentLookup<NetworkIdComponent>(true);
+            m_GhostComponentFromEntity = state.GetComponentLookup<GhostInstance>(true);
+            m_NetworkIdFromEntity = state.GetComponentLookup<NetworkId>(true);
             m_ClientServerTickRateFromEntity = state.GetComponentLookup<ClientServerTickRate>();
             m_RequestDisconnectFromEntity = state.GetComponentLookup<NetworkStreamRequestDisconnect>();
             m_InGameFromEntity = state.GetComponentLookup<NetworkStreamInGame>();
 
-            m_OutgoingRpcBufferFromEntity = state.GetBufferLookup<OutgoingRpcDataStreamBufferComponent>();
-            m_RpcBufferFromEntity = state.GetBufferLookup<IncomingRpcDataStreamBufferComponent>();
-            m_CmdBufferFromEntity = state.GetBufferLookup<IncomingCommandDataStreamBufferComponent>();
-            m_SnapshotBufferFromEntity = state.GetBufferLookup<IncomingSnapshotDataStreamBufferComponent>();
+            m_OutgoingRpcBufferFromEntity = state.GetBufferLookup<OutgoingRpcDataStreamBuffer>();
+            m_RpcBufferFromEntity = state.GetBufferLookup<IncomingRpcDataStreamBuffer>();
+            m_CmdBufferFromEntity = state.GetBufferLookup<IncomingCommandDataStreamBuffer>();
+            m_SnapshotBufferFromEntity = state.GetBufferLookup<IncomingSnapshotDataStreamBuffer>();
 
 
             NetworkEndpoint lastEp = default;
@@ -446,7 +418,7 @@ namespace Unity.NetCode
                 localTime = NetworkTimeSystem.TimestampMS,
                 serverTick = networkTime.ServerTick
             };
-#if UNITY_EDITOR || DEVELOPMENT_BUILD
+#if UNITY_EDITOR || NETCODE_DEBUG
             handleJob.netStats = SystemAPI.GetSingletonRW<GhostStatsCollectionCommand>().ValueRO.Value;
 #endif
             k_Scheduling.Begin();
@@ -467,7 +439,7 @@ namespace Unity.NetCode
             public NetworkProtocolVersion protocolVersion;
             public NetDebug netDebug;
             public FixedString128Bytes debugPrefix;
-            [ReadOnly] public ComponentLookup<GhostComponent> ghostFromEntity;
+            [ReadOnly] public ComponentLookup<GhostInstance> ghostFromEntity;
 
             public void Execute()
             {
@@ -497,12 +469,12 @@ namespace Unity.NetCode
                         var ent = commandBuffer.CreateEntity();
                         commandBuffer.AddComponent(ent, connection);
                         // rpc send buffer might need to be migrated...
-                        commandBuffer.AddComponent(ent, new NetworkSnapshotAckComponent());
+                        commandBuffer.AddComponent(ent, new NetworkSnapshotAck());
                         commandBuffer.AddBuffer<PrespawnSectionAck>(ent);
-                        commandBuffer.AddComponent(ent, new CommandTargetComponent());
-                        commandBuffer.AddBuffer<IncomingRpcDataStreamBufferComponent>(ent);
-                        var rpcBuffer = commandBuffer.AddBuffer<OutgoingRpcDataStreamBufferComponent>(ent);
-                        commandBuffer.AddBuffer<IncomingCommandDataStreamBufferComponent>(ent);
+                        commandBuffer.AddComponent(ent, new CommandTarget());
+                        commandBuffer.AddBuffer<IncomingRpcDataStreamBuffer>(ent);
+                        var rpcBuffer = commandBuffer.AddBuffer<OutgoingRpcDataStreamBuffer>(ent);
+                        commandBuffer.AddBuffer<IncomingCommandDataStreamBuffer>(ent);
                         commandBuffer.AddBuffer<LinkedEntityGroup>(ent).Add(new LinkedEntityGroup{Value = ent});
 
                         RpcCollection.SendProtocolVersion(rpcBuffer, protocolVersion);
@@ -516,7 +488,7 @@ namespace Unity.NetCode
                             numNetworkId.Value = nid;
                         }
 
-                        commandBuffer.AddComponent(ent, new NetworkIdComponent {Value = nid});
+                        commandBuffer.AddComponent(ent, new NetworkId {Value = nid});
                         commandBuffer.SetName(ent, new FixedString64Bytes(FixedString.Format("NetworkConnection ({0})", nid)));
                         rpcQueue.Schedule(rpcBuffer, ghostFromEntity, new RpcSetNetworkId
                         {
@@ -562,26 +534,26 @@ namespace Unity.NetCode
             public NetDebug netDebug;
             public FixedString128Bytes debugPrefix;
             public NetworkDriverStore driverStore;
-            [ReadOnly] public ComponentLookup<NetworkIdComponent> networkIdFromEntity;
+            [ReadOnly] public ComponentLookup<NetworkId> networkIdFromEntity;
             public ComponentLookup<ConnectionState> connectionStateFromEntity;
             public ComponentLookup<NetworkStreamRequestDisconnect> requestDisconnectFromEntity;
             public ComponentLookup<NetworkStreamInGame> inGameFromEntity;
             public NativeQueue<int> freeNetworkIds;
 
-            public BufferLookup<OutgoingRpcDataStreamBufferComponent> outgoingRpcBuffer;
-            public BufferLookup<IncomingRpcDataStreamBufferComponent> rpcBuffer;
-            public BufferLookup<IncomingCommandDataStreamBufferComponent> cmdBuffer;
-            public BufferLookup<IncomingSnapshotDataStreamBufferComponent> snapshotBuffer;
+            public BufferLookup<OutgoingRpcDataStreamBuffer> outgoingRpcBuffer;
+            public BufferLookup<IncomingRpcDataStreamBuffer> rpcBuffer;
+            public BufferLookup<IncomingCommandDataStreamBuffer> cmdBuffer;
+            public BufferLookup<IncomingSnapshotDataStreamBuffer> snapshotBuffer;
 
             public NetworkProtocolVersion protocolVersion;
 
             public uint localTime;
             public NetworkTick serverTick;
-#if UNITY_EDITOR || DEVELOPMENT_BUILD
+#if UNITY_EDITOR || NETCODE_DEBUG
             public NativeArray<uint> netStats;
 #endif
             public void Execute(Entity entity, ref NetworkStreamConnection connection,
-                ref NetworkSnapshotAckComponent snapshotAck)
+                ref NetworkSnapshotAck snapshotAck)
             {
                 if (requestDisconnectFromEntity.HasComponent(entity))
                 {
@@ -605,7 +577,7 @@ namespace Unity.NetCode
                 }
                 else if (!inGameFromEntity.HasComponent(entity))
                 {
-                    snapshotAck = new NetworkSnapshotAckComponent
+                    snapshotAck = new NetworkSnapshotAck
                     {
                         LastReceivedRemoteTime = snapshotAck.LastReceivedRemoteTime,
                         LastReceiveTimestamp = snapshotAck.LastReceiveTimestamp,
@@ -618,7 +590,7 @@ namespace Unity.NetCode
                     return;
                 if (!outgoingRpcBuffer.HasBuffer(entity))
                 {
-                    var buf = commandBuffer.AddBuffer<OutgoingRpcDataStreamBufferComponent>(entity);
+                    var buf = commandBuffer.AddBuffer<OutgoingRpcDataStreamBuffer>(entity);
                     RpcCollection.SendProtocolVersion(buf, protocolVersion);
                 }
                 var driver = driverStore.GetNetworkDriver(connection.DriverId);
@@ -708,7 +680,7 @@ namespace Unity.NetCode
                                     var tickReader = reader;
                                     var cmdTick = new NetworkTick{SerializedData = tickReader.ReadUInt()};
                                     var isValidCmdTick = !snapshotAck.LastReceivedSnapshotByLocal.IsValid || cmdTick.IsNewerThan(snapshotAck.LastReceivedSnapshotByLocal);
-#if UNITY_EDITOR || DEVELOPMENT_BUILD
+#if UNITY_EDITOR || NETCODE_DEBUG
                                     netStats[0] = serverTick.SerializedData;
                                     netStats[1] = (uint)reader.Length - 1u;
                                     if (!isValidCmdTick || buffer.Length > 0)
@@ -733,7 +705,7 @@ namespace Unity.NetCode
                                     snapshotAck.UpdateRemoteTime(remoteTime, localTimeMinusRTT, localTime);
 
                                     var buffer = snapshotBuffer[entity];
-#if UNITY_EDITOR || DEVELOPMENT_BUILD
+#if UNITY_EDITOR || NETCODE_DEBUG
                                     if (buffer.Length > 0)
                                         netStats[2] = netStats[2] + 1;
 #endif

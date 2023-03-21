@@ -1,4 +1,4 @@
-#if (UNITY_EDITOR || DEVELOPMENT_BUILD) && !NETCODE_NDEBUG
+#if UNITY_EDITOR && !NETCODE_NDEBUG
 #define NETCODE_DEBUG
 #endif
 using System;
@@ -287,7 +287,7 @@ namespace Unity.NetCode.LowLevel.Unsafe
 
     static class ConnectionGhostStateExtensions
     {
-        public static ref ConnectionStateData.GhostState GetGhostState(ref this ConnectionStateData.GhostStateList self, in GhostCleanupComponent cleanup)
+        public static ref ConnectionStateData.GhostState GetGhostState(ref this ConnectionStateData.GhostStateList self, in GhostCleanup cleanup)
         {
             //Map the right index by unmasking the prespawn bit (if present)
             var index = (int)(cleanup.ghostId & ~PrespawnHelper.PrespawnGhostIdBase);

@@ -16,7 +16,8 @@ namespace Unity.NetCode.Tests
     {
         public void Bake(GameObject gameObject, IBaker baker)
         {
-            baker.AddComponent(new GhostOwnerComponent());
+            var entity = baker.GetEntity(TransformUsageFlags.Dynamic);
+            baker.AddComponent(entity, new GhostOwner());
         }
     }
 
@@ -29,19 +30,11 @@ namespace Unity.NetCode.Tests
         protected override void OnUpdate()
         {
             int modifyNetworkId = s_ModifyNetworkId;
-#if !ENABLE_TRANSFORM_V1
-            Entities.ForEach((ref LocalTransform trans, in GhostOwnerComponent ghostOwner) => {
+            Entities.ForEach((ref LocalTransform trans, in GhostOwner ghostOwner) => {
                 if (ghostOwner.NetworkId != modifyNetworkId)
                     return;
                 trans.Position.x += 1;
             }).ScheduleParallel();
-#else
-            Entities.ForEach((ref Translation trans, in GhostOwnerComponent ghostOwner) => {
-                if (ghostOwner.NetworkId != modifyNetworkId)
-                    return;
-                trans.Value.x += 1;
-            }).ScheduleParallel();
-#endif
         }
     }
 
@@ -85,7 +78,7 @@ namespace Unity.NetCode.Tests
                 SetupBasicTest(testWorld, 16);
 
                 var clientEntityManager = testWorld.ClientWorlds[0].EntityManager;
-                var clientQuery = clientEntityManager.CreateEntityQuery(ComponentType.ReadOnly<GhostOwnerComponent>());
+                var clientQuery = clientEntityManager.CreateEntityQuery(ComponentType.ReadOnly<GhostOwner>());
                 using (var clientEntities = clientQuery.ToEntityArray(Allocator.TempJob))
                 {
                     Assert.AreEqual(16, clientEntities.Length);
@@ -127,7 +120,7 @@ namespace Unity.NetCode.Tests
                 SetupBasicTest(testWorld, 16);
 
                 var clientEntityManager = testWorld.ClientWorlds[0].EntityManager;
-                var clientQuery = clientEntityManager.CreateEntityQuery(ComponentType.ReadOnly<GhostOwnerComponent>());
+                var clientQuery = clientEntityManager.CreateEntityQuery(ComponentType.ReadOnly<GhostOwner>());
                 using (var clientEntities = clientQuery.ToEntityArray(Allocator.TempJob))
                 {
                     Assert.AreEqual(16, clientEntities.Length);
@@ -166,19 +159,19 @@ namespace Unity.NetCode.Tests
 
                 SetupBasicTest(testWorld);
 
-                var clientEnt = testWorld.TryGetSingletonEntity<GhostOwnerComponent>(testWorld.ClientWorlds[0]);
+                var clientEnt = testWorld.TryGetSingletonEntity<GhostOwner>(testWorld.ClientWorlds[0]);
                 Assert.AreNotEqual(Entity.Null, clientEnt);
 
                 var clientEntityManager = testWorld.ClientWorlds[0].EntityManager;
 
                 // Write some data to a ghost field and verify that it was not touched by the ghost apply
-                clientEntityManager.SetComponentData(clientEnt, new GhostOwnerComponent{NetworkId = 42});
+                clientEntityManager.SetComponentData(clientEnt, new GhostOwner{NetworkId = 42});
 
                 // Run a bit longer
                 for (int i = 0; i < 16; ++i)
                     testWorld.Tick(frameTime);
 
-                Assert.AreEqual(42, clientEntityManager.GetComponentData<GhostOwnerComponent>(clientEnt).NetworkId);
+                Assert.AreEqual(42, clientEntityManager.GetComponentData<GhostOwner>(clientEnt).NetworkId);
             }
         }
         [Test]
@@ -191,7 +184,7 @@ namespace Unity.NetCode.Tests
 
                 SetupBasicTest(testWorld);
 
-                var clientEnt = testWorld.TryGetSingletonEntity<GhostOwnerComponent>(testWorld.ClientWorlds[0]);
+                var clientEnt = testWorld.TryGetSingletonEntity<GhostOwner>(testWorld.ClientWorlds[0]);
                 Assert.AreNotEqual(Entity.Null, clientEnt);
 
                 var clientEntityManager = testWorld.ClientWorlds[0].EntityManager;
@@ -243,11 +236,11 @@ namespace Unity.NetCode.Tests
                 // Spawn 16 ghosts
                 SetupBasicTest(testWorld, 16);
                 // Set the ghost id for one of them to 1 so it is modified
-                var serverQuery = testWorld.ServerWorld.EntityManager.CreateEntityQuery(ComponentType.ReadOnly<GhostOwnerComponent>());
+                var serverQuery = testWorld.ServerWorld.EntityManager.CreateEntityQuery(ComponentType.ReadOnly<GhostOwner>());
                 using (var serverEntities = serverQuery.ToEntityArray(Allocator.TempJob))
                 {
                     Assert.AreEqual(16, serverEntities.Length);
-                    testWorld.ServerWorld.EntityManager.SetComponentData(serverEntities[0], new GhostOwnerComponent{NetworkId = 1});
+                    testWorld.ServerWorld.EntityManager.SetComponentData(serverEntities[0], new GhostOwner{NetworkId = 1});
                 }
 
                 // Get the changes across to the client
@@ -255,14 +248,14 @@ namespace Unity.NetCode.Tests
                     testWorld.Tick(frameTime);
 
                 var clientEntityManager = testWorld.ClientWorlds[0].EntityManager;
-                var clientQuery = clientEntityManager.CreateEntityQuery(ComponentType.ReadOnly<GhostOwnerComponent>());
+                var clientQuery = clientEntityManager.CreateEntityQuery(ComponentType.ReadOnly<GhostOwner>());
                 Entity clientEnt = Entity.Null;
                 using (var clientEntities = clientQuery.ToEntityArray(Allocator.TempJob))
                 {
                     Assert.AreEqual(16, clientEntities.Length);
                     for (int i = 0; i < clientEntities.Length; ++i)
                     {
-                        if (clientEntityManager.GetComponentData<GhostOwnerComponent>(clientEntities[i] ).NetworkId == 1)
+                        if (clientEntityManager.GetComponentData<GhostOwner>(clientEntities[i] ).NetworkId == 1)
                         {
                             Assert.AreEqual(Entity.Null, clientEnt);
                             clientEnt = clientEntities[i];
@@ -295,24 +288,24 @@ namespace Unity.NetCode.Tests
                 // Spawn 16 ghosts
                 SetupBasicTest(testWorld, 16);
                 // Set the ghost id for one of them to 1 so it is modified
-                var serverQuery = testWorld.ServerWorld.EntityManager.CreateEntityQuery(ComponentType.ReadOnly<GhostOwnerComponent>());
+                var serverQuery = testWorld.ServerWorld.EntityManager.CreateEntityQuery(ComponentType.ReadOnly<GhostOwner>());
                 int ghostId;
                 using (var serverEntities = serverQuery.ToEntityArray(Allocator.TempJob))
                 {
                     Assert.AreEqual(16, serverEntities.Length);
-                    ghostId = testWorld.ServerWorld.EntityManager.GetComponentData<GhostComponent>(serverEntities[0]).ghostId;
+                    ghostId = testWorld.ServerWorld.EntityManager.GetComponentData<GhostInstance>(serverEntities[0]).ghostId;
                 }
-                var con = testWorld.TryGetSingletonEntity<NetworkIdComponent>(testWorld.ServerWorld);
+                var con = testWorld.TryGetSingletonEntity<NetworkId>(testWorld.ServerWorld);
                 Assert.AreNotEqual(Entity.Null, con);
-                var connectionId = testWorld.ServerWorld.EntityManager.GetComponentData<NetworkIdComponent>(con).Value;
+                var connectionId = testWorld.ServerWorld.EntityManager.GetComponentData<NetworkId>(con).Value;
 
                 // Get the changes across to the client
                 for (int i = 0; i < 16; ++i)
                     testWorld.Tick(frameTime);
 
                 var clientEntityManager = testWorld.ClientWorlds[0].EntityManager;
-                var clientQuery = clientEntityManager.CreateEntityQuery(ComponentType.ReadOnly<GhostOwnerComponent>());
-                var clientEntities = clientQuery.ToComponentDataArray<GhostOwnerComponent>(Allocator.Temp);
+                var clientQuery = clientEntityManager.CreateEntityQuery(ComponentType.ReadOnly<GhostOwner>());
+                var clientEntities = clientQuery.ToComponentDataArray<GhostOwner>(Allocator.Temp);
                 Assert.AreEqual(16, clientEntities.Length);
 
 
@@ -326,7 +319,7 @@ namespace Unity.NetCode.Tests
                 for (int i = 0; i < 16; ++i)
                     testWorld.Tick(frameTime);
 
-                clientEntities = clientQuery.ToComponentDataArray<GhostOwnerComponent>(Allocator.Temp);
+                clientEntities = clientQuery.ToComponentDataArray<GhostOwner>(Allocator.Temp);
                 Assert.AreEqual(15, clientEntities.Length);
 
                 // Allow it to spawn again
@@ -336,7 +329,7 @@ namespace Unity.NetCode.Tests
                 for (int i = 0; i < 16; ++i)
                     testWorld.Tick(frameTime);
 
-                clientEntities = clientQuery.ToComponentDataArray<GhostOwnerComponent>(Allocator.Temp);
+                clientEntities = clientQuery.ToComponentDataArray<GhostOwner>(Allocator.Temp);
                 Assert.AreEqual(16, clientEntities.Length);
             }
         }

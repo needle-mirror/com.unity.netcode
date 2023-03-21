@@ -11,7 +11,8 @@ namespace Unity.NetCode.Tests
     {
         public override void Bake(SomeDataElementAuthoring authoring)
         {
-            var buffer = AddBuffer<SomeDataElement>();
+            var entity = GetEntity(TransformUsageFlags.Dynamic);
+            var buffer = AddBuffer<SomeDataElement>(entity);
             buffer.ResizeUninitialized(16);
             for (int i = 0; i < 16; ++i)
                 buffer[i] = new SomeDataElement{Value = i};

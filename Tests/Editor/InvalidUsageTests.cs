@@ -18,7 +18,8 @@ namespace Unity.NetCode.Tests
     {
         public void Bake(GameObject gameObject, IBaker baker)
         {
-            baker.AddComponent(new GhostOwnerComponent());
+            var entity = baker.GetEntity(TransformUsageFlags.Dynamic);
+            baker.AddComponent(entity, new GhostOwner());
         }
     }
     [DisableAutoCreation]
@@ -28,14 +29,14 @@ namespace Unity.NetCode.Tests
         public static int s_DeleteCount;
         protected override void OnCreate()
         {
-            RequireForUpdate<GhostOwnerComponent>();
+            RequireForUpdate<GhostOwner>();
         }
         protected override void OnUpdate()
         {
             if (s_DeleteCount > 0)
             {
                 --s_DeleteCount;
-                EntityManager.DestroyEntity(SystemAPI.GetSingletonEntity<GhostOwnerComponent>());
+                EntityManager.DestroyEntity(SystemAPI.GetSingletonEntity<GhostOwner>());
             }
         }
     }
@@ -58,8 +59,8 @@ namespace Unity.NetCode.Tests
 
                 testWorld.SpawnOnServer(ghostGameObject);
 
-                var serverEnt = testWorld.TryGetSingletonEntity<GhostOwnerComponent>(testWorld.ServerWorld);
-                testWorld.ServerWorld.EntityManager.SetComponentData(serverEnt, new GhostOwnerComponent{NetworkId = 42});
+                var serverEnt = testWorld.TryGetSingletonEntity<GhostOwner>(testWorld.ServerWorld);
+                testWorld.ServerWorld.EntityManager.SetComponentData(serverEnt, new GhostOwner{NetworkId = 42});
 
                 float frameTime = 1.0f / 60.0f;
                 // Connect and make sure the connection could be established
@@ -81,15 +82,15 @@ namespace Unity.NetCode.Tests
                 Assert.AreEqual(0, DeleteGhostOnClientSystem.s_DeleteCount);
 
                 // Check that the client world has the right thing and value
-                var clientEnt = testWorld.TryGetSingletonEntity<GhostOwnerComponent>(testWorld.ClientWorlds[0]);
+                var clientEnt = testWorld.TryGetSingletonEntity<GhostOwner>(testWorld.ClientWorlds[0]);
                 Assert.AreNotEqual(Entity.Null, clientEnt);
-                Assert.AreEqual(42, testWorld.ClientWorlds[0].EntityManager.GetComponentData<GhostOwnerComponent>(clientEnt).NetworkId);
+                Assert.AreEqual(42, testWorld.ClientWorlds[0].EntityManager.GetComponentData<GhostOwner>(clientEnt).NetworkId);
 
                 // Delete on server
                 testWorld.ServerWorld.EntityManager.DestroyEntity(serverEnt);
                 for (int i = 0; i < 5; ++i)
                     testWorld.Tick(frameTime);
-                clientEnt = testWorld.TryGetSingletonEntity<GhostOwnerComponent>(testWorld.ClientWorlds[0]);
+                clientEnt = testWorld.TryGetSingletonEntity<GhostOwner>(testWorld.ClientWorlds[0]);
                 Assert.AreEqual(Entity.Null, clientEnt);
             }
         }
@@ -117,7 +118,7 @@ namespace Unity.NetCode.Tests
                 // Go in-game
                 testWorld.GoInGame();
 
-                LogAssert.Expect(LogType.Error, new Regex("Trying to spawn an owner predicted ghost which does not have a valid owner set. When using owner prediction you must set GhostOwnerComponent.NetworkId when spawning the ghost. If the ghost is not owned by a player you can set NetworkId to -1."));
+                LogAssert.Expect(LogType.Error, new Regex("Trying to spawn an owner predicted ghost which does not have a valid owner set. When using owner prediction you must set GhostOwner.NetworkId when spawning the ghost. If the ghost is not owned by a player you can set NetworkId to -1."));
                 // Let the game run for a bit so the ghosts are spawned on the client
                 for (int i = 0; i < 4; ++i)
                     testWorld.Tick(frameTime);

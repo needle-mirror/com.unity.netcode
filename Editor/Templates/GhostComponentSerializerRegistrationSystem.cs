@@ -19,7 +19,7 @@ namespace __GHOST_NAMESPACE__
     [UpdateInGroup(typeof(GhostComponentSerializerCollectionSystemGroup))]
     [CreateAfter(typeof(GhostComponentSerializerCollectionSystemGroup))]
     [BakingVersion(true)]
-    public struct GhostComponentSerializerRegistrationSystem : ISystem, IGhostComponentSerializerRegistration
+    public partial struct GhostComponentSerializerRegistrationSystem : ISystem, IGhostComponentSerializerRegistration
     {
         /// <summary>TODO - Not currently burst compiled due to statics in GhostComponentSerializer.State.</summary>
         /// <param name="state"></param>

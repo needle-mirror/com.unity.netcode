@@ -1,4 +1,4 @@
-#if (UNITY_EDITOR || DEVELOPMENT_BUILD) && !NETCODE_NDEBUG
+#if UNITY_EDITOR && !NETCODE_NDEBUG
 #define NETCODE_DEBUG
 #endif
 using Unity.Collections;
@@ -21,7 +21,7 @@ namespace Unity.NetCode
         private EntityQuery m_NetDebugQuery;
 
 #if NETCODE_DEBUG
-        private ComponentLookup<GhostPrefabMetaDataComponent> m_GhostPrefabMetaDataComponent;
+        private ComponentLookup<GhostPrefabMetaData> m_GhostPrefabMetadata;
         private ComponentLookup<PrefabDebugName> m_PrefabDebugNameData;
         private BufferLookup<GhostCollectionComponentType> m_GhostCollectionBuffer;
         private EntityQuery m_GhostCollectionQuery;
@@ -49,13 +49,13 @@ namespace Unity.NetCode
             // Declare write dependency
             m_NetDebugQuery.GetSingletonRW<NetDebug>();
 #if NETCODE_DEBUG
-            m_GhostPrefabMetaDataComponent = state.GetComponentLookup<GhostPrefabMetaDataComponent>(true);
+            m_GhostPrefabMetadata = state.GetComponentLookup<GhostPrefabMetaData>(true);
             m_PrefabDebugNameData = state.GetComponentLookup<PrefabDebugName>();
             m_GhostCollectionBuffer = state.GetBufferLookup<GhostCollectionComponentType>(true);
             m_GhostCollectionQuery = state.GetEntityQuery(ComponentType.ReadWrite<GhostCollection>());
             m_prefabsWithoutDebugNameQuery = state.GetEntityQuery(
                 ComponentType.ReadOnly<Prefab>(),
-                ComponentType.ReadOnly<GhostPrefabMetaDataComponent>(),
+                ComponentType.ReadOnly<GhostPrefabMetaData>(),
                 ComponentType.Exclude<PrefabDebugName>());
 
 #if UNITY_EDITOR
@@ -81,12 +81,12 @@ namespace Unity.NetCode
 
             state.EntityManager.AddComponent<PrefabDebugName>(m_prefabsWithoutDebugNameQuery);
 
-            m_GhostPrefabMetaDataComponent.Update(ref state);
+            m_GhostPrefabMetadata.Update(ref state);
             m_PrefabDebugNameData.Update(ref state);
 
             foreach (var entity in prefabsWithoutDebugName)
             {
-                var prefabMetaData = m_GhostPrefabMetaDataComponent[entity];
+                var prefabMetaData = m_GhostPrefabMetadata[entity];
                 ref var prefabName = ref prefabMetaData.Value.Value.Name;
                 var prefabNameString = new FixedString64Bytes();
                 prefabName.CopyTo(ref prefabNameString);

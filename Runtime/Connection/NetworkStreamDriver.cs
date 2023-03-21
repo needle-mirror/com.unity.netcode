@@ -28,7 +28,6 @@ namespace Unity.NetCode
             DriverState = (int) NetworkStreamReceiveSystem.DriverState.Default;
             m_NumNetworkIds = numIds;
             m_FreeNetworkIds = freeIds;
-            m_ConnectionStatus = ConnectionStatus.None;
         }
 
         private void* m_DriverPointer;
@@ -42,147 +41,71 @@ namespace Unity.NetCode
         private NativeReference<int> m_NumNetworkIds;
         private NativeQueue<int> m_FreeNetworkIds;
 
-        internal bool Connected => m_ConnectionStatus == ConnectionStatus.Connected;
-        ConnectionStatus m_ConnectionStatus;
-
-        enum ConnectionStatus
+        /// <summary>
+        /// Check if the endpoint can be used for listening for the given driver type. At the moment,
+        /// rules are enforced for the <see cref="IPCNetworkInterface"/>.
+        /// </summary>
+        /// <param name="endpoint">The address to validate and sanitise.</param>
+        /// <param name="driverId">The id of driver in between [FirstDriver/LastDriver) range.</param>
+        /// <returns>A valid address to use for listening, if the address is valid for the driver or if has been possible to sanitise it.
+        /// An invalid address otherwise.</returns>
+        private NetworkEndpoint SanitizeListenAddress(in NetworkEndpoint endpoint, int driverId)
         {
-            None,
-            Binding,
-            Connected,
+            if (DriverStore.GetDriverType(driverId) != TransportType.IPC)
+                return endpoint;
+            if (endpoint.Port == 0)
+            {
+                //FIXME: ideally this should be fixed in Transport. Right now I don't think this is working correctly.
+                UnityEngine.Debug.LogError($"Driver with ID {driverId} uses IPCNetworkInterface. The endpoint used for listening is using Port == 0 but a non-zero port is required for this interface. The interface can't start listening.");
+                return default;
+            }
+            if(!endpoint.IsAny && !endpoint.IsLoopback)
+            {
+                UnityEngine.Debug.LogWarning($"Driver with ID {driverId} uses IPCNetworkInterface. It must listen to Any:XXX or Loopback:XXX but endpoint is {endpoint.ToFixedString()}. Forcing listening to ANY:{endpoint.Port}");
+                if(endpoint.Family == NetworkFamily.Ipv6)
+                    return NetworkEndpoint.AnyIpv6.WithPort(endpoint.Port);
+                return NetworkEndpoint.AnyIpv4.WithPort(endpoint.Port);
+            }
+
+            return endpoint;
         }
 
         /// <summary>
-        /// Tell all the registered <see cref="NetworkDriverStore"/> drivers to start listening for incoming connections.
+        /// Check if the address we are trying to connect to is valid for driver type.
         /// </summary>
-        /// <param name="endpoint">The local address to use. This is the address that will be used to bind the underlying socket.</param>
-        /// <returns></returns>
-        internal bool ListenAsync(NetworkEndpoint endpoint)
+        /// <param name="endpoint">the endpoint to sanitise</param>
+        /// <param name="driverId">the driver we wants to check for</param>
+        /// <returns>The address you should to pass to Connect. </returns>
+        /// <remarks>
+        /// This function always return a valid address.
+        /// </remarks>
+        private NetworkEndpoint SanitizeConnectAddress(in NetworkEndpoint endpoint, int driverId)
         {
-            // In cases where the driver is not bound yet, we wait for this to happen and then invoke listen.
-            bool IsDriverListening(ref NetworkDriverStore.NetworkDriverInstance instance, ref FixedList32Bytes<int> errors, int driverId)
+            if (endpoint.IsLoopback)
+                return endpoint;
+
+            if (DriverStore.GetDriverType(driverId) == TransportType.IPC)
             {
-                if (instance.driver.Listening)
-                {
-                    return true;
-                }
-
-                if (!instance.driver.Bound)
-                {
-                    return false;
-                }
-
-                if (instance.driver.Listen() != 0) { errors.Add(driverId); }
-                return instance.driver.Listening;
+                //When using IPC driver, the address MUST be a loopback. We are enforcing this here
+                UnityEngine.Debug.LogWarning(
+                    $"Trying to connect to a server at address {endpoint.ToFixedString()} using an IPCNetworkInterface. IPC interfaces only support loopback address. Forcing using the NetworkEndPoint.Loopback address; family (IPV4/IPV6) and port will be preserved");
+                if (endpoint.Family == NetworkFamily.Ipv4)
+                    return NetworkEndpoint.LoopbackIpv4.WithPort(endpoint.Port);
+                return NetworkEndpoint.LoopbackIpv6.WithPort(endpoint.Port);
             }
-
-            // Using a relay server driver.Bind will return 0 but will not bind immediately.
-            // Therefore, driver.Bound will not be true the first time we invoke this. In this case return false, indicating that the driver is not yet Listening.
-            // If we do manage to bind immediately, we invoke Listen.
-            // In cases where we Bind and Listen immediately, we do not need to do more, and so we set state to Connected immediately.
-            // In cases where Binding and Listening is asynchronous, we set the state to an intermediate state ('Binding'), which will then auto-complete if possible on a later frame.
-            bool IsDriverConnected(ref NetworkDriverStore.NetworkDriverInstance instance, ref FixedList32Bytes<int> errors, int driverId)
+            //If the playmode is Client/Server, the local client should always prefer to use Loopback addresses as well. Even though is
+            //not strictly mandatory
+            //This is only working for player build. In the editor the RequestedPlayType is not burst compatible.
+            if (ClientServerBootstrap.HasServerWorld.Data != 0)
             {
-                if (instance.driver.Bind(endpoint) != 0) { errors.Add(driverId); }
-                if (!instance.driver.Bound)
-                {
-                    return false;
-                }
-
-                if (instance.driver.Listen() != 0) { errors.Add(driverId); }
-
-                return instance.driver.Listening;
+                UnityEngine.Debug.LogWarning(
+                    $"The requested playmode type is Client/Server but the client is trying to connect to address {endpoint.ToFixedString()} that is not the loopback address. Forcing using the NetworkEndPoint.Loopback; family (IPV4/IPV6) and port will be preserved");
+                if (endpoint.Family == NetworkFamily.Ipv4)
+                    return NetworkEndpoint.LoopbackIpv4.WithPort(endpoint.Port);
+                else
+                    return NetworkEndpoint.LoopbackIpv6.WithPort(endpoint.Port);
             }
-
-            // Switching to server mode. Start listening all the driver interfaces
-            var errors = new FixedList32Bytes<int>();
-            switch (m_ConnectionStatus)
-            {
-                case ConnectionStatus.None:
-                {
-                    bool connected = true;
-                    DriverStore.ForEachDriver((ref NetworkDriverStore.NetworkDriverInstance instance, int driverId) =>
-                    {
-                        if (!IsDriverConnected(ref instance, ref errors, driverId))
-                        {
-                            connected = false;
-                        }
-                    });
-                    if (connected)
-                    {
-                        m_ConnectionStatus = ConnectionStatus.Connected;
-                        break;
-                    }
-
-                    m_ConnectionStatus = ConnectionStatus.Binding;
-                    goto case ConnectionStatus.Binding;
-                }
-                case ConnectionStatus.Binding:
-                {
-                    var listening = true;
-                    DriverStore.ForEachDriver((ref NetworkDriverStore.NetworkDriverInstance instance, int driverId) =>
-                    {
-                        if (!IsDriverListening(ref instance, ref errors, driverId))
-                        {
-                            listening = false;
-                        }
-                    });
-
-                    if (listening)
-                    {
-                        m_ConnectionStatus = ConnectionStatus.Connected;
-                    }
-
-                    break;
-                }
-                case ConnectionStatus.Connected:
-                default:
-                    break;
-            }
-
-            if (!errors.IsEmpty)
-            {
-                // The inconsistent state will be picked up and fixed by the network stream receive system
-                return false;
-            }
-            // FIXME: bad if this is not a ref of the driver store, but so is the state change for listen / connect
-            LastEndPoint = endpoint;
-            return true;
-        }
-
-        internal bool ConnectAsync(EntityManager entityManager, NetworkEndpoint endPoint, Entity ent = default)
-        {
-            switch (m_ConnectionStatus)
-            {
-                case ConnectionStatus.None:
-                {
-                    var nep = endPoint.Family == NetworkFamily.Ipv6 ? NetworkEndpoint.AnyIpv6 : NetworkEndpoint.AnyIpv4;
-                    if (DriverStore.GetNetworkDriver(NetworkDriverStore.FirstDriverId).Bind(nep) != 0)
-                    {
-                        return false;
-                    }
-
-                    m_ConnectionStatus = ConnectionStatus.Binding;
-                    goto case ConnectionStatus.Binding;
-                }
-                case ConnectionStatus.Binding:
-                {
-                    var networkDriver = DriverStore.GetNetworkDriver(NetworkDriverStore.FirstDriverId);
-                    if (!networkDriver.Bound)
-                    {
-                        return true;
-                    }
-
-                    Connect(entityManager, endPoint, ent);
-                    m_ConnectionStatus = ConnectionStatus.Connected;
-                    break;
-                }
-                case ConnectionStatus.Connected:
-                default:
-                    break;
-            }
-
-            return true;
+            return endpoint;
         }
 
         /// <summary>
@@ -194,11 +117,24 @@ namespace Unity.NetCode
         {
             // Switching to server mode. Start listening all the driver interfaces
             var errors = new FixedList32Bytes<int>();
-            DriverStore.ForEachDriver((ref NetworkDriverStore.NetworkDriverInstance instance, int driverId) =>
+            //It is possible to listen on a specific address/port. However, for IPC drivers there is a restriction:
+            //the ip address should be Any or the Loopback address.
+            //Because it is possible to have multiple drivers, we are going to force the IPC
+            //network interface to be bound and listen the ANY.Port or (if a real IP has been provided) to Loopback:Port
+            //Also, binding to Any:0 or Loopback:0 should also be considered avoid in this case.
+            for(int i=DriverStore.FirstDriver; i<DriverStore.LastDriver;++i)
             {
-                if(instance.driver.Bind(endpoint) != 0 || instance.driver.Listen() != 0)
-                    errors.Add(driverId);
-            });
+                var tempAddress = SanitizeListenAddress(endpoint, i);
+                //SanitizeListenAddress return an invalid address if the endpoint can't be sanised.
+                if(!tempAddress.IsValid)
+                {
+                    errors.Add(i);
+                    continue;
+                }
+                var driverInstance = DriverStore.GetDriverInstance(i);
+                if(driverInstance.driver.Bind(tempAddress) != 0 || driverInstance.driver.Listen() != 0)
+                    errors.Add(i);
+            }
             if(!errors.IsEmpty)
             {
                 // The inconsistent state will be picked up and fixed by the network stream receive system
@@ -215,10 +151,12 @@ namespace Unity.NetCode
         /// <param name="entityManager">The entity manager to use to create the new entity, if <paramref name="ent"/> equals <see cref="Entity.Null"/></param>
         /// <param name="endpoint">The remote address we want to connect</param>
         /// <param name="ent">An optional entity to use to create the connection. If not set, a new entity will be create instead</param>
-        /// <returns>The entity that hold the <see cref="NetworkStreamConnection"/></returns>
+        /// <returns>The entity that hold the <see cref="NetworkStreamConnection"/>.
+        /// If the endpoint is not valid </returns>
         /// <exception cref="InvalidOperationException">Throw an exception if the driver is not created or if multiple drivers are register</exception>
         public Entity Connect(EntityManager entityManager, NetworkEndpoint endpoint, Entity ent = default)
         {
+            //Still storing the last connecting andpoint as it passed
             LastEndPoint = endpoint;
 
             if (ent == Entity.Null)
@@ -229,14 +167,18 @@ namespace Unity.NetCode
                 throw new InvalidOperationException("Cannot connect to the server. NetworkDriver not created");
             if (DriverStore.DriversCount != 1)
                 throw new InvalidOperationException("Too many NetworkDriver created for the client. Only one NetworkDriver instance should exist");
+            var builder = new EntityQueryBuilder(Allocator.Temp).WithAll<NetworkSnapshotAck>();
+            if (!entityManager.CreateEntityQuery(builder).IsEmpty)
+                throw new InvalidOperationException("Connection to server already initiated, only one connection allowed at a time.");
 #endif
+            endpoint = SanitizeConnectAddress(endpoint, DriverStore.FirstDriver);
             var connection = DriverStore.GetNetworkDriver(NetworkDriverStore.FirstDriverId).Connect(endpoint);
             entityManager.AddComponentData(ent, new NetworkStreamConnection{Value = connection, DriverId = 1});
-            entityManager.AddComponentData(ent, new NetworkSnapshotAckComponent());
-            entityManager.AddComponentData(ent, new CommandTargetComponent());
-            entityManager.AddBuffer<IncomingRpcDataStreamBufferComponent>(ent);
-            entityManager.AddBuffer<OutgoingCommandDataStreamBufferComponent>(ent);
-            entityManager.AddBuffer<IncomingSnapshotDataStreamBufferComponent>(ent);
+            entityManager.AddComponentData(ent, new NetworkSnapshotAck());
+            entityManager.AddComponentData(ent, new CommandTarget());
+            entityManager.AddBuffer<IncomingRpcDataStreamBuffer>(ent);
+            entityManager.AddBuffer<OutgoingCommandDataStreamBuffer>(ent);
+            entityManager.AddBuffer<IncomingSnapshotDataStreamBuffer>(ent);
             entityManager.AddBuffer<LinkedEntityGroup>(ent).Add(new LinkedEntityGroup{Value = ent});
             return ent;
         }

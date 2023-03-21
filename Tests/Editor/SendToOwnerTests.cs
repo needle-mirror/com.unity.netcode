@@ -11,13 +11,14 @@ namespace Unity.NetCode.Tests
         {
             public void Bake(GameObject gameObject, IBaker baker)
             {
-                baker.AddComponent<GhostOwnerComponent>();
-                baker.AddComponent<GhostPredictedOnly>();
-                baker.AddComponent<GhostInterpolatedOnly>();
-                baker.AddComponent<GhostGen_IntStruct>();
-                baker.AddComponent<GhostTypeIndex>();
-                baker.AddBuffer<GhostGenBuffer_ByteBuffer>();
-                baker.AddBuffer<GhostGenTest_Buffer>();
+                var entity = baker.GetEntity(TransformUsageFlags.Dynamic);
+                baker.AddComponent<GhostOwner>(entity);
+                baker.AddComponent<GhostPredictedOnly>(entity);
+                baker.AddComponent<GhostInterpolatedOnly>(entity);
+                baker.AddComponent<GhostGen_IntStruct>(entity);
+                baker.AddComponent<GhostTypeIndex>(entity);
+                baker.AddBuffer<GhostGenBuffer_ByteBuffer>(entity);
+                baker.AddBuffer<GhostGenTest_Buffer>(entity);
             }
         }
 
@@ -105,15 +106,15 @@ namespace Unity.NetCode.Tests
                 Assert.IsTrue(testWorld.Connect(1.0f/60.0f, 64));
                 testWorld.GoInGame();
 
-                var net1 = testWorld.TryGetSingletonEntity<NetworkIdComponent>(testWorld.ClientWorlds[0]);
-                var netId1 = testWorld.ClientWorlds[0].EntityManager.GetComponentData<NetworkIdComponent>(net1);
+                var net1 = testWorld.TryGetSingletonEntity<NetworkId>(testWorld.ClientWorlds[0]);
+                var netId1 = testWorld.ClientWorlds[0].EntityManager.GetComponentData<NetworkId>(net1);
 
                 var serverEnt = testWorld.SpawnOnServer(ghostGameObject);
                 testWorld.ServerWorld.EntityManager.SetComponentData(serverEnt, new GhostGen_IntStruct {IntValue = 10000});
                 testWorld.ServerWorld.EntityManager.SetComponentData(serverEnt, new GhostTypeIndex {Value = 20000});
                 testWorld.ServerWorld.EntityManager.SetComponentData(serverEnt, new GhostPredictedOnly {Value = 30000});
                 testWorld.ServerWorld.EntityManager.SetComponentData(serverEnt, new GhostInterpolatedOnly {Value = 40000});
-                testWorld.ServerWorld.EntityManager.SetComponentData(serverEnt, new GhostOwnerComponent { NetworkId = netId1.Value});
+                testWorld.ServerWorld.EntityManager.SetComponentData(serverEnt, new GhostOwner { NetworkId = netId1.Value});
                 var serverBuffer1 = testWorld.ServerWorld.EntityManager.GetBuffer<GhostGenBuffer_ByteBuffer>(serverEnt);
                 serverBuffer1.Capacity = 10;
                 for (int i = 0; i < 10; ++i)
@@ -135,7 +136,7 @@ namespace Unity.NetCode.Tests
 
                 for (int i = 0; i < 2; ++i)
                 {
-                    var clientEnt = testWorld.TryGetSingletonEntity<GhostOwnerComponent>(testWorld.ClientWorlds[i]);
+                    var clientEnt = testWorld.TryGetSingletonEntity<GhostOwner>(testWorld.ClientWorlds[i]);
                     var clientComp1_ToOwner = testWorld.ClientWorlds[i].EntityManager.GetComponentData<GhostGen_IntStruct>(clientEnt);
                     var clientComp2_NonOwner = testWorld.ClientWorlds[i].EntityManager.GetComponentData<GhostTypeIndex>(clientEnt);
                     var clientPredOnly = testWorld.ClientWorlds[i].EntityManager.GetComponentData<GhostPredictedOnly>(clientEnt);

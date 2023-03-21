@@ -14,10 +14,10 @@ namespace Unity.NetCode.GeneratorTests
             originalDirectory = Environment.CurrentDirectory;
             //This will point to the com.unity.netcode directory
             var currentDir = originalDirectory;
-            while (currentDir?.Length > 0 && !currentDir.EndsWith("com.unity.netcode"))
+            while (currentDir?.Length > 0 && !currentDir.EndsWith("com.unity.netcode", StringComparison.Ordinal))
                 currentDir = Path.GetDirectoryName(currentDir);
 
-            if(!currentDir.EndsWith("com.unity.netcode"))
+            if(!currentDir.EndsWith("com.unity.netcode", StringComparison.Ordinal))
                 Assert.Fail("Cannot find com.unity.netcode folder");
 
             //Execute in Runtime/SourceGenerators/Source~/Temp

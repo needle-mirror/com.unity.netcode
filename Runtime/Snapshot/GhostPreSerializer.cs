@@ -78,10 +78,10 @@ namespace Unity.NetCode
             BufferLookup<GhostCollectionPrefab> GhostCollectionFromEntity,
             BufferTypeHandle<LinkedEntityGroup> linkedEntityGroupType,
             EntityStorageInfoLookup childEntityLookup,
-            ComponentTypeHandle<GhostComponent> ghostComponentType,
-            ComponentTypeHandle<GhostTypeComponent> ghostTypeComponentType,
+            ComponentTypeHandle<GhostInstance> ghostComponentType,
+            ComponentTypeHandle<GhostType> ghostTypeComponentType,
             EntityTypeHandle entityType,
-            ComponentLookup<GhostComponent> ghostFromEntity,
+            ComponentLookup<GhostInstance> ghostFromEntity,
             NetDebug netDebug,
             NetworkTick currentTick,
             ref SystemState system,
@@ -131,11 +131,11 @@ namespace Unity.NetCode
             [ReadOnly] public BufferTypeHandle<LinkedEntityGroup> linkedEntityGroupType;
             [ReadOnly] public EntityStorageInfoLookup childEntityLookup;
 
-            [ReadOnly] public ComponentTypeHandle<GhostComponent> ghostComponentType;
-            [ReadOnly] public ComponentTypeHandle<GhostTypeComponent> ghostTypeComponentType;
+            [ReadOnly] public ComponentTypeHandle<GhostInstance> ghostComponentType;
+            [ReadOnly] public ComponentTypeHandle<GhostType> ghostTypeComponentType;
             [ReadOnly] public EntityTypeHandle entityType;
 
-            [ReadOnly] public ComponentLookup<GhostComponent> ghostFromEntity;
+            [ReadOnly] public ComponentLookup<GhostInstance> ghostFromEntity;
 
 
             public NetDebug netDebug;

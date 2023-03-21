@@ -11,7 +11,8 @@ namespace Unity.NetCode.Tests
     {
         public override void Bake(SomeDataAuthoring authoring)
         {
-            AddComponent(new SomeData {Value = Random.Range(1, 100)});
+            var entity = GetEntity(TransformUsageFlags.Dynamic);
+            AddComponent(entity, new SomeData {Value = Random.Range(1, 100)});
         }
     }
 }

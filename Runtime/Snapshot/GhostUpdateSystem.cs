@@ -24,8 +24,8 @@ namespace Unity.NetCode
     /// System present only in client worlds, and responsible for:
     /// <para>- updating the state of interpolated ghosts, by copying and intepolating data from the received snapshosts.</para>
     /// <para>- restore the predicted ghost state from the <see cref="GhostPredictionHistoryState"/> before running the next prediction loop (until new snapshot aren't received).</para>
-    /// <para>- updating the <see cref="PredictedGhostComponent"/> properties for all predicted ghost, by reflecting the latest received snapshot (see <see cref="PredictedGhostComponent.AppliedTick"/>)
-    /// and setting up the correct tick from which the ghost should start predicting (see <see cref="PredictedGhostComponent.PredictionStartTick"/></para>
+    /// <para>- updating the <see cref="PredictedGhost"/> properties for all predicted ghost, by reflecting the latest received snapshot (see <see cref="PredictedGhost.AppliedTick"/>)
+    /// and setting up the correct tick from which the ghost should start predicting (see <see cref="PredictedGhost.PredictionStartTick"/></para>
     /// </summary>
     [UpdateInGroup(typeof(GhostSimulationSystemGroup))]
     [UpdateAfter(typeof(GhostReceiveSystem))]
@@ -49,13 +49,13 @@ namespace Unity.NetCode
             [NativeDisableContainerSafetyRestriction] private DynamicBuffer<GhostCollectionComponentIndex> GhostComponentIndex;
 
             [ReadOnly] public NativeParallelHashMap<SpawnedGhost, Entity>.ReadOnly GhostMap;
-    #if UNITY_EDITOR || DEVELOPMENT_BUILD
+    #if UNITY_EDITOR || NETCODE_DEBUG
             [NativeDisableParallelForRestriction] public NativeArray<NetworkTick> minMaxSnapshotTick;
     #endif
     #pragma warning disable 649
             [NativeSetThreadIndex] public int ThreadIndex;
     #pragma warning restore 649
-            [ReadOnly] public ComponentTypeHandle<GhostComponent> ghostType;
+            [ReadOnly] public ComponentTypeHandle<GhostInstance> ghostType;
             [ReadOnly] public ComponentTypeHandle<SnapshotData> ghostSnapshotDataType;
             [ReadOnly] public BufferTypeHandle<SnapshotDataBuffer> ghostSnapshotDataBufferType;
             [ReadOnly] public BufferTypeHandle<SnapshotDynamicDataBuffer> ghostSnapshotDynamicDataBufferType;
@@ -67,7 +67,7 @@ namespace Unity.NetCode
             public float predictedTargetTickFraction;
 
             public NativeParallelHashMap<NetworkTick, NetworkTick>.ParallelWriter appliedPredictedTicks;
-            public ComponentTypeHandle<PredictedGhostComponent> predictedGhostComponentType;
+            public ComponentTypeHandle<PredictedGhost> PredictedGhostType;
             public NetworkTick lastPredictedTick;
             public NetworkTick lastInterpolatedTick;
 
@@ -109,7 +109,7 @@ namespace Unity.NetCode
                 GhostTypeCollection = GhostTypeCollectionFromEntity[GhostCollectionSingleton];
                 GhostComponentIndex = GhostComponentIndexFromEntity[GhostCollectionSingleton];
 
-                bool predicted = chunk.Has(ref predictedGhostComponentType);
+                bool predicted = chunk.Has(ref PredictedGhostType);
                 NetworkTick targetTick = predicted ? predictedTargetTick : interpolatedTargetTick;
                 float targetTickFraction = predicted ? predictedTargetTickFraction : interpolatedTargetTickFraction;
 
@@ -137,13 +137,13 @@ namespace Unity.NetCode
                 int snapshotDataOffset = headerSize;
 
                 int snapshotDataAtTickSize = UnsafeUtility.SizeOf<SnapshotData.DataAtTick>();
-#if UNITY_EDITOR || DEVELOPMENT_BUILD
+#if UNITY_EDITOR || NETCODE_DEBUG
                 var minMaxOffset = ThreadIndex * (JobsUtility.CacheLineSize/4);
 #endif
                 var dataAtTick = new NativeArray<SnapshotData.DataAtTick>(ghostComponents.Length, Allocator.Temp);
                 var entityRange = new NativeList<int2>(ghostComponents.Length, Allocator.Temp);
                 int2 nextRange = default;
-                var predictedGhostComponentArray = chunk.GetNativeArray(ref predictedGhostComponentType);
+                var PredictedGhostArray = chunk.GetNativeArray(ref PredictedGhostType);
                 bool canBeStatic = typeData.StaticOptimization;
                 bool isPrespawn = chunk.Has(ref prespawnGhostIndexType);
                 // Find the ranges of entities which have data to apply, store the data to apply in an array while doing so
@@ -157,7 +157,7 @@ namespace Unity.NetCode
                         nextRange = default;
                         continue;
                     }
-#if UNITY_EDITOR || DEVELOPMENT_BUILD
+#if UNITY_EDITOR || NETCODE_DEBUG
                     // Validate that the ghost entity has been spawned by the client as predicted spawn or because a ghost as been
                     // received. In any case, validate that the ghost component contains pertinent data.
                     if((ghostComponents[ent].ghostId == 0) && (isPrespawn || !ghostComponents[ent].spawnTick.IsValid))
@@ -178,7 +178,7 @@ namespace Unity.NetCode
                     var ghostSnapshotData = ghostSnapshotDataArray[ent];
                     var latestTick = ghostSnapshotData.GetLatestTick(snapshotDataBuffer);
                     bool isStatic = canBeStatic && ghostSnapshotData.WasLatestTickZeroChange(snapshotDataBuffer, changeMaskUints);
-#if UNITY_EDITOR || DEVELOPMENT_BUILD
+#if UNITY_EDITOR || NETCODE_DEBUG
                     if (latestTick.IsValid && !isStatic)
                     {
                         if (!minMaxSnapshotTick[minMaxOffset].IsValid || minMaxSnapshotTick[minMaxOffset].IsNewerThan(latestTick))
@@ -204,7 +204,7 @@ namespace Unity.NetCode
                             // We might get an interpolation between the tick before and after our target - we have to apply the tick right before our target so we set interpolation to 0
                             data.InterpolationFactor = 0;
                             var snapshotTick = new NetworkTick{SerializedData = *(uint*)data.SnapshotBefore};
-                            var predictedData = predictedGhostComponentArray[ent];
+                            var predictedData = PredictedGhostArray[ent];
                             // We want to contiue prediction from the last full tick we predicted last time
                             var predictionStartTick = predictionStateBackupTick;
                             // If there is no history, try to use the tick where we left off last time, will only be a valid tick if we ended with a full prediction tick as opposed to a fractional one
@@ -241,12 +241,12 @@ namespace Unity.NetCode
                                 nextRange.y = ent+1;
                             }
                             predictedData.PredictionStartTick = predictionStartTick;
-                            predictedGhostComponentArray[ent] = predictedData;
+                            PredictedGhostArray[ent] = predictedData;
                         }
                         else
                         {
                             // If this snapshot is static, and the data for the latest tick was applied during last interpolation update, we can just skip copying data
-                            if (isStatic && !latestTick.IsNewerThan(lastInterpolatedTick))
+                            if (isStatic && latestTick.IsValid && lastInterpolatedTick.IsValid && !latestTick.IsNewerThan(lastInterpolatedTick))
                             {
                                 if (nextRange.y != 0)
                                     entityRange.Add(nextRange);
@@ -286,9 +286,9 @@ namespace Unity.NetCode
                                 predictionStartTick = targetTick;
                             }
                             AddPredictionStartTick(targetTick, predictionStartTick);
-                            var predictedData = predictedGhostComponentArray[ent];
+                            var predictedData = PredictedGhostArray[ent];
                             predictedData.PredictionStartTick = predictionStartTick;
-                            predictedGhostComponentArray[ent] = predictedData;
+                            PredictedGhostArray[ent] = predictedData;
                         }
                     }
                 }
@@ -900,7 +900,7 @@ namespace Unity.NetCode
         [BurstCompile]
         struct UpdateGhostOwnerIsLocal : IJobChunk
         {
-            [ReadOnly] public ComponentTypeHandle<GhostOwnerComponent> ghostOwnerType;
+            [ReadOnly] public ComponentTypeHandle<GhostOwner> ghostOwnerType;
             public ComponentTypeHandle<GhostOwnerIsLocal> ghostOwnerIsLocalType;
             public int localNetworkId;
             public void Execute(in ArchetypeChunk chunk, int unfilteredChunkIndex, bool useEnabledMask, in v128 chunkEnabledMask)
@@ -918,7 +918,7 @@ namespace Unity.NetCode
         struct UpdateLastInterpolatedTick : IJob
         {
             [ReadOnly]
-            public ComponentLookup<NetworkSnapshotAckComponent> AckFromEntity;
+            public ComponentLookup<NetworkSnapshotAck> AckFromEntity;
             public Entity                                               AckSingleton;
             public NativeReference<NetworkTick>                         LastInterpolatedTick;
             public NetworkTick                                          InterpolationTick;
@@ -949,17 +949,17 @@ namespace Unity.NetCode
         BufferLookup<GhostComponentSerializer.State> m_GhostComponentCollectionFromEntity;
         BufferLookup<GhostCollectionPrefabSerializer> m_GhostTypeCollectionFromEntity;
         BufferLookup<GhostCollectionComponentIndex> m_GhostComponentIndexFromEntity;
-        ComponentLookup<NetworkSnapshotAckComponent> m_NetworkSnapshotAckComponentFromEntity;
+        ComponentLookup<NetworkSnapshotAck> m_NetworkSnapshotAckLookup;
 
-        ComponentTypeHandle<PredictedGhostComponent> m_PredictedGhostComponentTypeHandle;
-        ComponentTypeHandle<GhostComponent> m_GhostComponentTypeHandle;
+        ComponentTypeHandle<PredictedGhost> m_PredictedGhostTypeHandle;
+        ComponentTypeHandle<GhostInstance> m_GhostComponentTypeHandle;
         ComponentTypeHandle<SnapshotData> m_SnapshotDataTypeHandle;
         BufferTypeHandle<SnapshotDataBuffer> m_SnapshotDataBufferTypeHandle;
         BufferTypeHandle<SnapshotDynamicDataBuffer> m_SnapshotDynamicDataBufferTypeHandle;
         BufferTypeHandle<LinkedEntityGroup> m_LinkedEntityGroupTypeHandle;
         ComponentTypeHandle<PreSpawnedGhostIndex> m_PreSpawnedGhostIndexTypeHandle;
         EntityTypeHandle m_EntityTypeHandle;
-        ComponentTypeHandle<GhostOwnerComponent> m_GhostOwnerType;
+        ComponentTypeHandle<GhostOwner> m_GhostOwnerType;
         ComponentTypeHandle<GhostOwnerIsLocal> m_GhostOwnerIsLocalType;
 
         public void OnCreate(ref SystemState systemState)
@@ -977,18 +977,18 @@ namespace Unity.NetCode
                 All = new []{
                     ComponentType.ReadWrite<SnapshotDataBuffer>(),
                     ComponentType.ReadOnly<SnapshotData>(),
-                    ComponentType.ReadOnly<GhostComponent>(),
+                    ComponentType.ReadOnly<GhostInstance>(),
                 },
                 None = new[]{
-                    ComponentType.ReadWrite<PendingSpawnPlaceholderComponent>(),
-                    ComponentType.ReadWrite<PredictedGhostSpawnRequestComponent>()
+                    ComponentType.ReadWrite<PendingSpawnPlaceholder>(),
+                    ComponentType.ReadWrite<PredictedGhostSpawnRequest>()
                 }
             });
             m_GhostOwnerIsLocalQuery = systemState.GetEntityQuery(new EntityQueryDesc
             {
                 All = new []{
                     ComponentType.ReadWrite<GhostOwnerIsLocal>(),
-                    ComponentType.ReadOnly<GhostOwnerComponent>(),
+                    ComponentType.ReadOnly<GhostOwner>(),
                 },
                 Options = EntityQueryOptions.IgnoreComponentEnabledState
             });
@@ -1002,17 +1002,17 @@ namespace Unity.NetCode
             m_GhostComponentCollectionFromEntity = systemState.GetBufferLookup<GhostComponentSerializer.State>(true);
             m_GhostTypeCollectionFromEntity = systemState.GetBufferLookup<GhostCollectionPrefabSerializer>(true);
             m_GhostComponentIndexFromEntity = systemState.GetBufferLookup<GhostCollectionComponentIndex>(true);
-            m_NetworkSnapshotAckComponentFromEntity = systemState.GetComponentLookup<NetworkSnapshotAckComponent>(true);
+            m_NetworkSnapshotAckLookup = systemState.GetComponentLookup<NetworkSnapshotAck>(true);
 
-            m_PredictedGhostComponentTypeHandle = systemState.GetComponentTypeHandle<PredictedGhostComponent>();
-            m_GhostComponentTypeHandle = systemState.GetComponentTypeHandle<GhostComponent>(true);
+            m_PredictedGhostTypeHandle = systemState.GetComponentTypeHandle<PredictedGhost>();
+            m_GhostComponentTypeHandle = systemState.GetComponentTypeHandle<GhostInstance>(true);
             m_SnapshotDataTypeHandle = systemState.GetComponentTypeHandle<SnapshotData>(true);
             m_SnapshotDataBufferTypeHandle = systemState.GetBufferTypeHandle<SnapshotDataBuffer>(true);
             m_SnapshotDynamicDataBufferTypeHandle = systemState.GetBufferTypeHandle<SnapshotDynamicDataBuffer>(true);
             m_LinkedEntityGroupTypeHandle = systemState.GetBufferTypeHandle<LinkedEntityGroup>(true);
             m_PreSpawnedGhostIndexTypeHandle = systemState.GetComponentTypeHandle<PreSpawnedGhostIndex>(true);
             m_EntityTypeHandle = systemState.GetEntityTypeHandle();
-            m_GhostOwnerType = systemState.GetComponentTypeHandle<GhostOwnerComponent>(true);
+            m_GhostOwnerType = systemState.GetComponentTypeHandle<GhostOwner>(true);
             m_GhostOwnerIsLocalType = systemState.GetComponentTypeHandle<GhostOwnerIsLocal>();
         }
         public void OnDestroy(ref SystemState systemState)
@@ -1047,7 +1047,7 @@ namespace Unity.NetCode
                 m_GhostComponentCollectionFromEntity.Update(ref systemState);
                 m_GhostTypeCollectionFromEntity.Update(ref systemState);
                 m_GhostComponentIndexFromEntity.Update(ref systemState);
-                m_PredictedGhostComponentTypeHandle.Update(ref systemState);
+                m_PredictedGhostTypeHandle.Update(ref systemState);
                 m_GhostComponentTypeHandle.Update(ref systemState);
                 m_SnapshotDataTypeHandle.Update(ref systemState);
                 m_SnapshotDataBufferTypeHandle.Update(ref systemState);
@@ -1055,7 +1055,7 @@ namespace Unity.NetCode
                 m_LinkedEntityGroupTypeHandle.Update(ref systemState);
                 m_PreSpawnedGhostIndexTypeHandle.Update(ref systemState);
                 m_EntityTypeHandle.Update(ref systemState);
-                var localNetworkId = GetSingleton<NetworkIdComponent>().Value;
+                var localNetworkId = GetSingleton<NetworkId>().Value;
                 var updateJob = new UpdateJob
                 {
                     GhostCollectionSingleton = GetSingletonEntity<GhostCollection>(),
@@ -1064,7 +1064,7 @@ namespace Unity.NetCode
                     GhostComponentIndexFromEntity = m_GhostComponentIndexFromEntity,
 
                     GhostMap = GetSingleton<SpawnedGhostEntityMap>().Value,
-#if UNITY_EDITOR || DEVELOPMENT_BUILD
+#if UNITY_EDITOR || NETCODE_DEBUG
                     minMaxSnapshotTick = GetSingletonRW<GhostStatsCollectionMinMaxTick>().ValueRO.Value,
 #endif
 
@@ -1074,7 +1074,7 @@ namespace Unity.NetCode
                     predictedTargetTick = networkTime.ServerTick,
                     predictedTargetTickFraction = networkTime.ServerTickFraction,
                     appliedPredictedTicks = m_AppliedPredictedTicks.AsParallelWriter(),
-                    predictedGhostComponentType = m_PredictedGhostComponentTypeHandle,
+                    PredictedGhostType = m_PredictedGhostTypeHandle,
                     lastPredictedTick = m_LastPredictedTick,
                     lastInterpolatedTick = m_LastInterpolatedTick.Value,
 
@@ -1118,11 +1118,11 @@ namespace Unity.NetCode
                 m_LastPredictedTick = NetworkTick.Invalid;
 
             // If the interpolation target for this frame was received we can update which the latest fully applied interpolation tick is
-            m_NetworkSnapshotAckComponentFromEntity.Update(ref systemState);
+            m_NetworkSnapshotAckLookup.Update(ref systemState);
             var updateInterpolatedTickJob = new UpdateLastInterpolatedTick
             {
-                AckFromEntity = m_NetworkSnapshotAckComponentFromEntity,
-                AckSingleton = SystemAPI.GetSingletonEntity<NetworkSnapshotAckComponent>(),
+                AckFromEntity = m_NetworkSnapshotAckLookup,
+                AckSingleton = SystemAPI.GetSingletonEntity<NetworkSnapshotAck>(),
                 LastInterpolatedTick = m_LastInterpolatedTick,
                 InterpolationTick = interpolationTick,
                 InterpolationTickFraction = interpolationTickFraction

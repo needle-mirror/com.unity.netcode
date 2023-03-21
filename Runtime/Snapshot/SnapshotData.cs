@@ -41,7 +41,7 @@ namespace Unity.NetCode
             /// </summary>
             public int AfterIdx;
             /// <summary>
-            /// The network id of the client owning the ghost. 0 if the ghost does not have a <see cref="GhostOwnerComponent"/>.
+            /// The network id of the client owning the ghost. 0 if the ghost does not have a <see cref="NetCode.GhostOwner"/>.
             /// </summary>
             public int GhostOwner;
         }

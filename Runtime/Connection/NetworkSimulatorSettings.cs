@@ -1,4 +1,4 @@
-﻿#if UNITY_EDITOR || DEVELOPMENT_BUILD
+﻿#if UNITY_EDITOR || NETCODE_DEBUG
 using System;
 using System.IO;
 using Unity.Networking.Transport;
@@ -18,8 +18,8 @@ namespace Unity.NetCode
         public static bool Enabled => MultiplayerPlayModePreferences.SimulatorEnabled;
         /// <summary>Values to use in simulation. Set values via 'Multiplayer PlayTools Window'.</summary>
         public static SimulatorUtility.Parameters ClientSimulatorParameters => MultiplayerPlayModePreferences.ClientSimulatorParameters;
-#elif DEVELOPMENT_BUILD && !UNITY_DOTSRUNTIME
-        /// <summary>Are the UTP Network Simulator stages in use? Toggleable in DEVELOPMENT_BUILDS.</summary>
+#elif !UNITY_DOTSRUNTIME
+        /// <summary>Are the UTP Network Simulator stages in use? Toggleable in development build.</summary>
         public static bool Enabled { get; private set; }
         /// <summary>Values to use in simulation. Set this to whatever you'd like in a development build.</summary>
         public static SimulatorUtility.Parameters ClientSimulatorParameters { get; private set; }
@@ -32,7 +32,7 @@ namespace Unity.NetCode
 
         static NetworkSimulatorSettings()
         {
-#if DEVELOPMENT_BUILD && !UNITY_DOTSRUNTIME
+#if !UNITY_EDITOR && !UNITY_DOTSRUNTIME
             CheckCommandLineArgs();
 #endif
         }
@@ -44,7 +44,7 @@ namespace Unity.NetCode
                 FuzzFactor = 0, PacketDelayMs = 100, PacketJitterMs = 10, PacketDropPercentage = 1, PacketDuplicationPercentage = 1
             };
 
-#if DEVELOPMENT_BUILD && !UNITY_DOTSRUNTIME
+#if !UNITY_EDITOR && !UNITY_DOTSRUNTIME
         /// <summary>
         ///     Checks for the existence of `--loadNetworkSimulatorJsonFile`, which, if set, will set <see cref="Enabled"/> to true, and write <see cref="ClientSimulatorParameters"/>.
         ///     If no file is found, logs an error, and defaults to <see cref="DefaultSimulatorParameters"/>. Use `--createNetworkSimulatorJsonFile` to automatically generate the file instead.
@@ -99,7 +99,6 @@ namespace Unity.NetCode
         }
 #endif
 
-#if UNITY_EDITOR || DEVELOPMENT_BUILD
         /// <summary>
         ///     Utility to cycle through drivers and update their simulator pipelines with the inputted settings.
         /// </summary>
@@ -149,7 +148,6 @@ namespace Unity.NetCode
             parameters.PacketDropPercentage = 0;
             settings.AddRawParameterStruct(ref parameters);
         }
-#endif
     }
 }
 #endif

@@ -33,7 +33,7 @@ namespace Unity.NetCode.Editor
                 GhostAuthoringInspectionComponent.forceSave = true;
 
                 // TODO - Handle exceptions due to invalid prefab setup. E.g.
-                // "InvalidOperationException: OwnerPrediction mode can only be used on prefabs which have a GhostOwnerComponent"
+                // "InvalidOperationException: OwnerPrediction mode can only be used on prefabs which have a GhostOwner"
                 using(var world = new World(nameof(EntityPrefabComponentsPreview)))
                 {
                     using var blobAssetStore = new BlobAssetStore(128);
@@ -45,7 +45,7 @@ namespace Unity.NetCode.Editor
                     var primaryEntitiesMap = new HashSet<Entity>(16);
 
                     var primaryEntity = bakingSystem.GetEntity(authoringComponent.gameObject);
-                    var ghostBlobAsset = world.EntityManager.GetComponentData<GhostPrefabMetaDataComponent>(primaryEntity).Value;
+                    var ghostBlobAsset = world.EntityManager.GetComponentData<GhostPrefabMetaData>(primaryEntity).Value;
 
                     CreatedBakedResultForPrimaryEntities(world, bakedDataMap, authoringComponent, bakingSystem, primaryEntitiesMap, ghostBlobAsset);
                     CreatedBakedResultForLinkedEntities(world, bakedDataMap, primaryEntitiesMap, ghostBlobAsset);
@@ -58,7 +58,7 @@ namespace Unity.NetCode.Editor
             }
         }
 
-        void CreatedBakedResultForPrimaryEntities(World world, Dictionary<GameObject, BakedGameObjectResult> bakedDataMap, GhostAuthoringComponent authoringComponent, BakingSystem bakingSystem, HashSet<Entity> primaryEntitiesMap, BlobAssetReference<GhostPrefabMetaData> blobAssetReference)
+        void CreatedBakedResultForPrimaryEntities(World world, Dictionary<GameObject, BakedGameObjectResult> bakedDataMap, GhostAuthoringComponent authoringComponent, BakingSystem bakingSystem, HashSet<Entity> primaryEntitiesMap, BlobAssetReference<GhostPrefabBlobMetaData> blobAssetReference)
         {
             foreach (var t in authoringComponent.GetComponentsInChildren<Transform>())
             {
@@ -85,7 +85,7 @@ namespace Unity.NetCode.Editor
             }
         }
 
-        void CreatedBakedResultForLinkedEntities(World world, Dictionary<GameObject, BakedGameObjectResult> bakedDataMap, HashSet<Entity> primaryEntitiesMap, BlobAssetReference<GhostPrefabMetaData> blobAssetReference)
+        void CreatedBakedResultForLinkedEntities(World world, Dictionary<GameObject, BakedGameObjectResult> bakedDataMap, HashSet<Entity> primaryEntitiesMap, BlobAssetReference<GhostPrefabBlobMetaData> blobAssetReference)
         {
             foreach (var kvp in bakedDataMap)
             {
@@ -113,7 +113,7 @@ namespace Unity.NetCode.Editor
             }
         }
 
-        BakedEntityResult CreateBakedEntityResult(BakedGameObjectResult parent, int entityIndex, World world, Entity convertedEntity, bool isLinkedEntity, BlobAssetReference<GhostPrefabMetaData> blobAssetReference)
+        BakedEntityResult CreateBakedEntityResult(BakedGameObjectResult parent, int entityIndex, World world, Entity convertedEntity, bool isLinkedEntity, BlobAssetReference<GhostPrefabBlobMetaData> blobAssetReference)
         {
             var isRoot = parent.SourceGameObject == parent.RootAuthoring.gameObject;
             var guid = world.EntityManager.GetComponentData<EntityGuid>(convertedEntity);
@@ -164,7 +164,7 @@ namespace Unity.NetCode.Editor
             return result;
         }
 
-        static void AddToComponentList(BakedEntityResult parent, List<BakedComponentItem> newComponents, GhostComponentSerializerCollectionData collectionData, World world, Entity convertedEntity, int entityIndex, BlobAssetReference<GhostPrefabMetaData> blobAssetReference)
+        static void AddToComponentList(BakedEntityResult parent, List<BakedComponentItem> newComponents, GhostComponentSerializerCollectionData collectionData, World world, Entity convertedEntity, int entityIndex, BlobAssetReference<GhostPrefabBlobMetaData> blobAssetReference)
         {
             var compTypes = world.EntityManager.GetComponentTypes(convertedEntity);
             compTypes.Sort(default(ComponentNameComparer));
@@ -177,7 +177,7 @@ namespace Unity.NetCode.Editor
             TryAddRemoved(ref blobAssetReference.Value.RemoveOnServer);
             TryAddRemoved(ref blobAssetReference.Value.RemoveOnClient);
 
-            void TryAddRemoved(ref BlobArray<GhostPrefabMetaData.ComponentReference> removedArray)
+            void TryAddRemoved(ref BlobArray<GhostPrefabBlobMetaData.ComponentReference> removedArray)
             {
                 for (var i = 0; i < removedArray.Length; i++)
                 {

@@ -8,7 +8,7 @@ namespace Unity.NetCode
     [WorldSystemFilter(WorldSystemFilterFlags.Default | WorldSystemFilterFlags.ThinClientSimulation)]
     [UpdateInGroup(typeof(GhostSimulationSystemGroup))]
     [UpdateAfter(typeof(GhostCollectionSystem))]
-    public class PrespawnGhostSystemGroup : ComponentSystemGroup
+    public partial class PrespawnGhostSystemGroup : ComponentSystemGroup
     {
     }
 }

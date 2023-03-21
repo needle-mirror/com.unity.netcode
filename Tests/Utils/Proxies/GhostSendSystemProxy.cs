@@ -137,7 +137,7 @@ namespace Unity.NetCode.Tests
                             base.OnUpdate();
                             EntityManager.CompleteAllTrackedJobs();
 
-#if UNITY_EDITOR || DEVELOPMENT_BUILD
+#if UNITY_EDITOR || NETCODE_DEBUG
                             var netStats = SystemAPI.GetSingletonRW<GhostStatsCollectionSnapshot>().ValueRW;
                             for (int worker = 1; worker < netStats.Workers; ++worker)
                             {

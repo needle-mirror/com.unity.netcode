@@ -40,7 +40,7 @@ namespace Unity.NetCode.Tests
         {
             var ecb = m_Barrier.CreateCommandBuffer();
             var serverTick = SystemAPI.GetSingleton<NetworkTime>().ServerTick;
-            Entities.ForEach((Entity entity, in NotifySceneLoaded streamingReq, in ReceiveRpcCommandRequestComponent requestComponent) =>
+            Entities.ForEach((Entity entity, in NotifySceneLoaded streamingReq, in ReceiveRpcCommandRequest requestComponent) =>
             {
                 var prespawnSceneAcks = SystemAPI.GetBuffer<PrespawnSectionAck>(requestComponent.SourceConnection);
                 int ackIdx = prespawnSceneAcks.IndexOf(streamingReq.SceneHash);
@@ -49,7 +49,7 @@ namespace Unity.NetCode.Tests
                 ecb.DestroyEntity(entity);
             }).Schedule();
 
-            Entities.ForEach((Entity entity, in NotifyUnloadingScene streamingReq, in ReceiveRpcCommandRequestComponent requestComponent) =>
+            Entities.ForEach((Entity entity, in NotifyUnloadingScene streamingReq, in ReceiveRpcCommandRequest requestComponent) =>
             {
                 var prespawnSceneAcks = SystemAPI.GetBuffer<PrespawnSectionAck>(requestComponent.SourceConnection);
                 int ackIdx = prespawnSceneAcks.IndexOf(streamingReq.SceneHash);
@@ -63,7 +63,7 @@ namespace Unity.NetCode.Tests
                         SceneHash = streamingReq.SceneHash,
                         ServerTick = serverTick
                     });
-                    ecb.AddComponent(reqEnt, new SendRpcCommandRequestComponent
+                    ecb.AddComponent(reqEnt, new SendRpcCommandRequest
                     {
                         TargetConnection = requestComponent.SourceConnection
                     });
@@ -91,7 +91,7 @@ namespace Unity.NetCode.Tests
             var ecb = barrier.CreateCommandBuffer();
             Entities
                 .WithDisposeOnCompletion(hashmap)
-                .ForEach((Entity entity, in RequestUnLoadScene unloadScene, in ReceiveRpcCommandRequestComponent requestComponent) =>
+                .ForEach((Entity entity, in RequestUnLoadScene unloadScene, in ReceiveRpcCommandRequest requestComponent) =>
                 {
                     if(hashmap.TryGetValue(unloadScene.SceneHash, out var sceneEntity))
                     {
@@ -158,7 +158,7 @@ namespace Unity.NetCode.Tests
                     {
                         SceneHash = loadedScenHash
                     });
-                    commandBuffer.AddComponent(notifyLoaded, new SendRpcCommandRequestComponent());
+                    commandBuffer.AddComponent(notifyLoaded, new SendRpcCommandRequest());
                     commandBuffer.Playback(testWorld.ClientWorlds[0].EntityManager);
                     commandBuffer.Dispose();
                     //Run some frame
@@ -171,7 +171,7 @@ namespace Unity.NetCode.Tests
                         //Unload the prev loaded scene. Send and an RPC for that
                         var reqUnload = commandBuffer.CreateEntity();
                         commandBuffer.AddComponent(reqUnload, new NotifyUnloadingScene { SceneHash = lastLoadedSceneHash });
-                        commandBuffer.AddComponent(reqUnload, new SendRpcCommandRequestComponent());
+                        commandBuffer.AddComponent(reqUnload, new SendRpcCommandRequest());
                         commandBuffer.Playback(testWorld.ClientWorlds[0].EntityManager);
                         commandBuffer.Dispose();
                     }

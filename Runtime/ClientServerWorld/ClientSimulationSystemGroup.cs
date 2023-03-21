@@ -140,7 +140,7 @@ namespace Unity.NetCode
     /// Base class for all the tick system, provide a common update mehod that deal with proper and safe
     /// handling of system removal at runtime, in particular when the world in which those systems are created is destroyd.
     /// </summary>
-    internal abstract class TickComponentSystemGroup : ComponentSystemGroup
+    internal abstract partial class TickComponentSystemGroup : ComponentSystemGroup
     {
         struct UpdateGroup
         {
@@ -197,7 +197,7 @@ namespace Unity.NetCode
     [DisableAutoCreation]
 #endif
     [WorldSystemFilter(WorldSystemFilterFlags.LocalSimulation)]
-    internal class TickClientSimulationSystem : TickComponentSystemGroup
+    internal partial class TickClientSimulationSystem : TickComponentSystemGroup
     {
     }
 #endif

@@ -15,16 +15,17 @@ namespace Unity.NetCode.Tests
     {
         public void Bake(GameObject gameObject, IBaker baker)
         {
-            baker.AddComponent(new GhostOwnerComponent());
+            var entity = baker.GetEntity(TransformUsageFlags.Dynamic);
+            baker.AddComponent(entity, new GhostOwner());
             // Dependency on the name
             baker.DependsOn(gameObject);
             if (gameObject.name == "ParentGhost")
             {
-                baker.AddBuffer<GhostGroup>();
-                baker.AddComponent(default(GhostGroupRoot));
+                baker.AddBuffer<GhostGroup>(entity);
+                baker.AddComponent(entity, default(GhostGroupRoot));
             }
             else
-                baker.AddComponent(default(GhostChildEntityComponent));
+                baker.AddComponent(entity, default(GhostChildEntity));
         }
     }
     public struct GhostGroupRoot : IComponentData
@@ -53,9 +54,9 @@ namespace Unity.NetCode.Tests
                 testWorld.SpawnOnServer(childGhostGameObject);
 
                 var serverEnt = testWorld.TryGetSingletonEntity<GhostGroupRoot>(testWorld.ServerWorld);
-                var serverChildEnt = testWorld.TryGetSingletonEntity<GhostChildEntityComponent>(testWorld.ServerWorld);
-                testWorld.ServerWorld.EntityManager.SetComponentData(serverEnt, new GhostOwnerComponent{NetworkId = 42});
-                testWorld.ServerWorld.EntityManager.SetComponentData(serverChildEnt, new GhostOwnerComponent{NetworkId = 43});
+                var serverChildEnt = testWorld.TryGetSingletonEntity<GhostChildEntity>(testWorld.ServerWorld);
+                testWorld.ServerWorld.EntityManager.SetComponentData(serverEnt, new GhostOwner{NetworkId = 42});
+                testWorld.ServerWorld.EntityManager.SetComponentData(serverChildEnt, new GhostOwner{NetworkId = 43});
 
                 float frameTime = 1.0f / 60.0f;
                 // Connect and make sure the connection could be established
@@ -70,8 +71,8 @@ namespace Unity.NetCode.Tests
 
                 // Check that the client world has the right thing and value
                 var clientEnt = testWorld.TryGetSingletonEntity<GhostGroupRoot>(testWorld.ClientWorlds[0]);
-                var clientChildEnt = testWorld.TryGetSingletonEntity<GhostChildEntityComponent>(testWorld.ClientWorlds[0]);
-                Assert.AreEqual(42, testWorld.ClientWorlds[0].EntityManager.GetComponentData<GhostOwnerComponent>(clientEnt).NetworkId);
+                var clientChildEnt = testWorld.TryGetSingletonEntity<GhostChildEntity>(testWorld.ClientWorlds[0]);
+                Assert.AreEqual(42, testWorld.ClientWorlds[0].EntityManager.GetComponentData<GhostOwner>(clientEnt).NetworkId);
                 Assert.AreEqual(Entity.Null, clientChildEnt);
             }
         }
@@ -97,9 +98,9 @@ namespace Unity.NetCode.Tests
                 testWorld.SpawnOnServer(childGhostGameObject);
 
                 var serverEnt = testWorld.TryGetSingletonEntity<GhostGroupRoot>(testWorld.ServerWorld);
-                var serverChildEnt = testWorld.TryGetSingletonEntity<GhostChildEntityComponent>(testWorld.ServerWorld);
-                testWorld.ServerWorld.EntityManager.SetComponentData(serverEnt, new GhostOwnerComponent{NetworkId = 42});
-                testWorld.ServerWorld.EntityManager.SetComponentData(serverChildEnt, new GhostOwnerComponent{NetworkId = 43});
+                var serverChildEnt = testWorld.TryGetSingletonEntity<GhostChildEntity>(testWorld.ServerWorld);
+                testWorld.ServerWorld.EntityManager.SetComponentData(serverEnt, new GhostOwner{NetworkId = 42});
+                testWorld.ServerWorld.EntityManager.SetComponentData(serverChildEnt, new GhostOwner{NetworkId = 43});
                 testWorld.ServerWorld.EntityManager.GetBuffer<GhostGroup>(serverEnt).Add(new GhostGroup{Value = serverChildEnt});
 
                 float frameTime = 1.0f / 60.0f;
@@ -115,10 +116,10 @@ namespace Unity.NetCode.Tests
 
                 // Check that the client world has the right thing and value
                 var clientEnt = testWorld.TryGetSingletonEntity<GhostGroupRoot>(testWorld.ClientWorlds[0]);
-                var clientChildEnt = testWorld.TryGetSingletonEntity<GhostChildEntityComponent>(testWorld.ClientWorlds[0]);
-                Assert.AreEqual(42, testWorld.ClientWorlds[0].EntityManager.GetComponentData<GhostOwnerComponent>(clientEnt).NetworkId);
+                var clientChildEnt = testWorld.TryGetSingletonEntity<GhostChildEntity>(testWorld.ClientWorlds[0]);
+                Assert.AreEqual(42, testWorld.ClientWorlds[0].EntityManager.GetComponentData<GhostOwner>(clientEnt).NetworkId);
                 Assert.AreNotEqual(Entity.Null, clientChildEnt);
-                Assert.AreEqual(43, testWorld.ClientWorlds[0].EntityManager.GetComponentData<GhostOwnerComponent>(clientChildEnt).NetworkId);
+                Assert.AreEqual(43, testWorld.ClientWorlds[0].EntityManager.GetComponentData<GhostOwner>(clientChildEnt).NetworkId);
             }
         }
         [Test]
@@ -152,8 +153,8 @@ namespace Unity.NetCode.Tests
                     var serverEnt = testWorld.SpawnOnServer(ghostGameObjects[i]);
                     var serverChildEnt = testWorld.SpawnOnServer(ghostGameObjects[i+32]);
 
-                    testWorld.ServerWorld.EntityManager.SetComponentData(serverEnt, new GhostOwnerComponent{NetworkId = 42});
-                    testWorld.ServerWorld.EntityManager.SetComponentData(serverChildEnt, new GhostOwnerComponent{NetworkId = 43});
+                    testWorld.ServerWorld.EntityManager.SetComponentData(serverEnt, new GhostOwner{NetworkId = 42});
+                    testWorld.ServerWorld.EntityManager.SetComponentData(serverChildEnt, new GhostOwner{NetworkId = 43});
                     testWorld.ServerWorld.EntityManager.GetBuffer<GhostGroup>(serverEnt).Add(new GhostGroup{Value = serverChildEnt});
                 }
 
@@ -169,7 +170,7 @@ namespace Unity.NetCode.Tests
                     testWorld.Tick(frameTime);
 
                 // Check that the client world has the right thing and value
-                var ghostQuery = testWorld.ClientWorlds[0].EntityManager.CreateEntityQuery(typeof(GhostOwnerComponent));
+                var ghostQuery = testWorld.ClientWorlds[0].EntityManager.CreateEntityQuery(typeof(GhostOwner));
                 var groupQuery = testWorld.ClientWorlds[0].EntityManager.CreateEntityQuery(typeof(GhostGroup));
                 Assert.AreEqual(64, ghostQuery.CalculateEntityCount());
                 Assert.AreEqual(32, groupQuery.CalculateEntityCount());
@@ -206,8 +207,8 @@ namespace Unity.NetCode.Tests
                     var serverEnt = testWorld.SpawnOnServer(ghostGameObjects[0]);
                     var serverChildEnt = testWorld.SpawnOnServer(ghostGameObjects[1]);
 
-                    testWorld.ServerWorld.EntityManager.SetComponentData(serverEnt, new GhostOwnerComponent{NetworkId = 42});
-                    testWorld.ServerWorld.EntityManager.SetComponentData(serverChildEnt, new GhostOwnerComponent{NetworkId = 43});
+                    testWorld.ServerWorld.EntityManager.SetComponentData(serverEnt, new GhostOwner{NetworkId = 42});
+                    testWorld.ServerWorld.EntityManager.SetComponentData(serverChildEnt, new GhostOwner{NetworkId = 43});
                     testWorld.ServerWorld.EntityManager.GetBuffer<GhostGroup>(serverEnt).Add(new GhostGroup{Value = serverChildEnt});
                 }
 
@@ -223,7 +224,7 @@ namespace Unity.NetCode.Tests
                     testWorld.Tick(frameTime);
 
                 // Check that the client world has the right thing and value
-                var ghostQuery = testWorld.ClientWorlds[0].EntityManager.CreateEntityQuery(typeof(GhostOwnerComponent));
+                var ghostQuery = testWorld.ClientWorlds[0].EntityManager.CreateEntityQuery(typeof(GhostOwner));
                 var groupQuery = testWorld.ClientWorlds[0].EntityManager.CreateEntityQuery(typeof(GhostGroup));
                 Assert.AreEqual(64, ghostQuery.CalculateEntityCount());
                 Assert.AreEqual(32, groupQuery.CalculateEntityCount());

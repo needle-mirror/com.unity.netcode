@@ -61,7 +61,7 @@ Create a file called *GoInGame.cs* in your __Assets__ folder and add the followi
 using Unity.Collections;
 using Unity.Entities;
 using Unity.NetCode;
-using UnityEngine;
+using Unity.Burst;
 
 // RPC request from client to server for game to go "in game" and send snapshots / inputs
 public struct GoInGameRequest : IRpcCommand
@@ -77,7 +77,7 @@ public partial struct GoInGameClientSystem : ISystem
     public void OnCreate(ref SystemState state)
     {
         var builder = new EntityQueryBuilder(Allocator.Temp)
-            .WithAll<NetworkIdComponent>()
+            .WithAll<NetworkId>()
             .WithNone<NetworkStreamInGame>();
         state.RequireForUpdate(state.GetEntityQuery(builder));
     }
@@ -86,12 +86,12 @@ public partial struct GoInGameClientSystem : ISystem
     public void OnUpdate(ref SystemState state)
     {
         var commandBuffer = new EntityCommandBuffer(Allocator.Temp);
-        foreach (var (id, entity) in SystemAPI.Query<RefRO<NetworkIdComponent>>().WithEntityAccess().WithNone<NetworkStreamInGame>())
+        foreach (var (id, entity) in SystemAPI.Query<RefRO<NetworkId>>().WithEntityAccess().WithNone<NetworkStreamInGame>())
         {
             commandBuffer.AddComponent<NetworkStreamInGame>(entity);
             var req = commandBuffer.CreateEntity();
             commandBuffer.AddComponent<GoInGameRequest>(req);
-            commandBuffer.AddComponent(req, new SendRpcCommandRequestComponent { TargetConnection = entity });
+            commandBuffer.AddComponent(req, new SendRpcCommandRequest { TargetConnection = entity });
         }
         commandBuffer.Playback(state.EntityManager);
     }
@@ -102,16 +102,16 @@ public partial struct GoInGameClientSystem : ISystem
 [WorldSystemFilter(WorldSystemFilterFlags.ServerSimulation)]
 public partial struct GoInGameServerSystem : ISystem
 {
-    private ComponentLookup<NetworkIdComponent> networkIdFromEntity;
+    private ComponentLookup<NetworkId> networkIdFromEntity;
 
     [BurstCompile]
     public void OnCreate(ref SystemState state)
     {
         var builder = new EntityQueryBuilder(Allocator.Temp)
             .WithAll<GoInGameRequest>()
-            .WithAll<ReceiveRpcCommandRequestComponent>();
+            .WithAll<ReceiveRpcCommandRequest>();
         state.RequireForUpdate(state.GetEntityQuery(builder));
-        networkIdFromEntity = state.GetComponentLookup<NetworkIdComponent>(true);
+        networkIdFromEntity = state.GetComponentLookup<NetworkId>(true);
     }
 
     [BurstCompile]
@@ -122,12 +122,12 @@ public partial struct GoInGameServerSystem : ISystem
         var commandBuffer = new EntityCommandBuffer(Allocator.Temp);
         networkIdFromEntity.Update(ref state);
 
-        foreach (var (reqSrc, reqEntity) in SystemAPI.Query<RefRO<ReceiveRpcCommandRequestComponent>>().WithAll<GoInGameRequest>().WithEntityAccess())
+        foreach (var (reqSrc, reqEntity) in SystemAPI.Query<RefRO<ReceiveRpcCommandRequest>>().WithAll<GoInGameRequest>().WithEntityAccess())
         {
             commandBuffer.AddComponent<NetworkStreamInGame>(reqSrc.ValueRO.SourceConnection);
-            var networkIdComponent = networkIdFromEntity[reqSrc.ValueRO.SourceConnection];
+            var networkId = networkIdFromEntity[reqSrc.ValueRO.SourceConnection];
 
-            Debug.Log($"'{worldName}' setting connection '{networkIdComponent.Value}' to in game");
+            Debug.Log($"'{worldName}' setting connection '{networkId.Value}' to in game");
 
             commandBuffer.DestroyEntity(reqEntity);
         }
@@ -150,51 +150,24 @@ To create a ghost Prefab:
 
 ![Create a Cube Prefab](images/cube-prefab.png)<br/>_Create a Cube Prefab_
 
-To identify and synchronize the Cube Prefab inside Netcode for Entities, you need to create a `IComponent` and Author it. To do so create a new file called *CubeComponentAuthoring.cs* and we enter the following:
+To identify and synchronize the Cube Prefab inside Netcode for Entities, you need to create a `IComponent` and Author it. To do so create a new file called *CubeAuthoring.cs* and we enter the following:
 
 ```c#
 using Unity.Entities;
 using UnityEngine;
 
-public struct CubeComponent : IComponentData
+public struct Cube : IComponentData
 {
 }
 
 [DisallowMultipleComponent]
-public class CubeComponentAuthoring : MonoBehaviour
+public class CubeAuthoring : MonoBehaviour
 {
-    class MovableCubeComponentBaker : Baker<CubeComponentAuthoring>
+    class Baker : Baker<CubeAuthoring>
     {
-        public override void Bake(CubeComponentAuthoring authoring)
+        public override void Bake(CubeAuthoring authoring)
         {
-            CubeComponent component = default(CubeComponent);
-            AddComponent(component);
-        }
-    }
-}
-```
-
-If you want to add a serialized value to the component, you can use the __GhostField Attribute__:
-
-```c#
-using Unity.Entities;
-using Unity.NetCode;
-
-[GenerateAuthoringComponent]
-public struct CubeComponent : IComponentData
-{
-    [GhostField]
-    public int ExampleValue;
-}
-
-[DisallowMultipleComponent]
-public class CubeComponentAuthoring : MonoBehaviour
-{
-    class MovableCubeComponentBaker : Baker<CubeComponentAuthoring>
-    {
-        public override void Bake(CubeComponentAuthoring authoring)
-        {
-            CubeComponent component = default(CubeComponent);
+            Cube component = default(Cube);
             AddComponent(component);
         }
     }
@@ -230,7 +203,7 @@ public class CubeSpawnerAuthoring : MonoBehaviour
 {
     public GameObject Cube;
 
-    class NetCubeSpawnerBaker : Baker<CubeSpawnerAuthoring>
+    class Baker : Baker<CubeSpawnerAuthoring>
     {
         public override void Bake(CubeSpawnerAuthoring authoring)
         {
@@ -257,6 +230,7 @@ To spawn the prefab, you need to update the _GoInGame.cs_ file. If you recall fr
 using Unity.Collections;
 using Unity.Entities;
 using Unity.NetCode;
+using Unity.Burst;
 
 public struct GoInGameRequest : IRpcCommand
 {
@@ -271,7 +245,7 @@ public partial struct GoInGameClientSystem : ISystem
     {
 +       state.RequireForUpdate<CubeSpawner>();
         var builder = new EntityQueryBuilder(Allocator.Temp)
-            .WithAll<NetworkIdComponent>()
+            .WithAll<NetworkId>()
             .WithNone<NetworkStreamInGame>();
         state.RequireForUpdate(state.GetEntityQuery(builder));
     }
@@ -280,12 +254,12 @@ public partial struct GoInGameClientSystem : ISystem
     public void OnUpdate(ref SystemState state)
     {
         var commandBuffer = new EntityCommandBuffer(Allocator.Temp);
-        foreach (var (id, entity) in SystemAPI.Query<RefRO<NetworkIdComponent>>().WithEntityAccess().WithNone<NetworkStreamInGame>())
+        foreach (var (id, entity) in SystemAPI.Query<RefRO<NetworkId>>().WithEntityAccess().WithNone<NetworkStreamInGame>())
         {
             commandBuffer.AddComponent<NetworkStreamInGame>(entity);
             var req = commandBuffer.CreateEntity();
             commandBuffer.AddComponent<GoInGameRequest>(req);
-            commandBuffer.AddComponent(req, new SendRpcCommandRequestComponent { TargetConnection = entity });
+            commandBuffer.AddComponent(req, new SendRpcCommandRequest { TargetConnection = entity });
         }
         commandBuffer.Playback(state.EntityManager);
     }
@@ -296,7 +270,7 @@ public partial struct GoInGameClientSystem : ISystem
 [WorldSystemFilter(WorldSystemFilterFlags.ServerSimulation)]
 public partial struct GoInGameServerSystem : ISystem
 {
-    private ComponentLookup<NetworkIdComponent> networkIdFromEntity;
+    private ComponentLookup<NetworkId> networkIdFromEntity;
 
     [BurstCompile]
     public void OnCreate(ref SystemState state)
@@ -304,9 +278,9 @@ public partial struct GoInGameServerSystem : ISystem
 +       state.RequireForUpdate<CubeSpawner>();
         var builder = new EntityQueryBuilder(Allocator.Temp)
             .WithAll<GoInGameRequest>()
-            .WithAll<ReceiveRpcCommandRequestComponent>();
+            .WithAll<ReceiveRpcCommandRequest>();
         state.RequireForUpdate(state.GetEntityQuery(builder));
-        networkIdFromEntity = state.GetComponentLookup<NetworkIdComponent>(true);
+        networkIdFromEntity = state.GetComponentLookup<NetworkId>(true);
     }
 
     [BurstCompile]
@@ -319,16 +293,16 @@ public partial struct GoInGameServerSystem : ISystem
         var commandBuffer = new EntityCommandBuffer(Allocator.Temp);
         networkIdFromEntity.Update(ref state);
 
-        foreach (var (reqSrc, reqEntity) in SystemAPI.Query<RefRO<ReceiveRpcCommandRequestComponent>>().WithAll<GoInGameRequest>().WithEntityAccess())
+        foreach (var (reqSrc, reqEntity) in SystemAPI.Query<RefRO<ReceiveRpcCommandRequest>>().WithAll<GoInGameRequest>().WithEntityAccess())
         {
             commandBuffer.AddComponent<NetworkStreamInGame>(reqSrc.ValueRO.SourceConnection);
-            var networkIdComponent = networkIdFromEntity[reqSrc.ValueRO.SourceConnection];
+            var networkId = networkIdFromEntity[reqSrc.ValueRO.SourceConnection];
 
--           UnityEngine.Debug.Log($"'{worldName}' setting connection '{networkIdComponent.Value}' to in game");
-+           UnityEngine.Debug.Log($"'{worldName}' setting connection '{networkIdComponent.Value}' to in game, spawning a Ghost '{prefabName}' for them!");
+-           UnityEngine.Debug.Log($"'{worldName}' setting connection '{networkId.Value}' to in game");
++           UnityEngine.Debug.Log($"'{worldName}' setting connection '{networkId.Value}' to in game, spawning a Ghost '{prefabName}' for them!");
 
 +           var player = commandBuffer.Instantiate(prefab);
-+           commandBuffer.SetComponent(player, new GhostOwnerComponent { NetworkId = networkIdComponent.Value});
++           commandBuffer.SetComponent(player, new GhostOwner { NetworkId = networkId.Value});
 
 +           // Add the player to the linked entity group so it is destroyed automatically on disconnect
 +           commandBuffer.AppendToBuffer(reqSrc.ValueRO.SourceConnection, new LinkedEntityGroup{Value = player});
@@ -364,7 +338,7 @@ public struct CubeInput : IInputComponentData
 [DisallowMultipleComponent]
 public class CubeInputAuthoring : MonoBehaviour
 {
-    class CubeInputBaking : Unity.Entities.Baker<CubeInputAuthoring>
+    class Baking : Unity.Entities.Baker<CubeInputAuthoring>
     {
         public override void Bake(CubeInputAuthoring authoring)
         {
@@ -376,13 +350,6 @@ public class CubeInputAuthoring : MonoBehaviour
 [UpdateInGroup(typeof(GhostInputSystemGroup))]
 public partial struct SampleCubeInput : ISystem
 {
-    public void OnCreate(ref SystemState state)
-    {
-        state.RequireForUpdate<CubeSpawner>();
-        state.RequireForUpdate<CubeInput>();
-        state.RequireForUpdate<NetworkIdComponent>();
-    }
-
     public void OnUpdate(ref SystemState state)
     {
         bool left = UnityEngine.Input.GetKey("left");
@@ -415,44 +382,22 @@ using Unity.Entities;
 using Unity.Mathematics;
 using Unity.NetCode;
 using Unity.Transforms;
-using Unity.Collections;
 using Unity.Burst;
 
 [UpdateInGroup(typeof(PredictedSimulationSystemGroup))]
 [BurstCompile]
 public partial struct CubeMovementSystem : ISystem
 {
-    [BurstCompile]
-    public void OnCreate(ref SystemState state)
-    {
-        var builder = new EntityQueryBuilder(Allocator.Temp)
-            .WithAll<Simulate>()
-            .WithAll<CubeInput>()
-            .WithAllRW<Translation>();
-        var query = state.GetEntityQuery(builder);
-        state.RequireForUpdate(query);
-    }
     
     [BurstCompile]
     public void OnUpdate(ref SystemState state)
     {
-        var moveJob = new MoveCubeJob
+        var speed = SystemAPI.Time.DeltaTime * 4;
+        foreach (var (input, trans) in SystemAPI.Query<RefRO<CubeInput>, RefRW<LocalTransform>>().WithAll<Simulate>())
         {
-            fixedCubeSpeed = SystemAPI.Time.DeltaTime * 4
-        };
-        state.Dependency = moveJob.ScheduleParallel(state.Dependency);
-    }
-    
-    [BurstCompile]
-    [WithAll(typeof(Simulate))]
-    partial struct MoveCubeJob : IJobEntity
-    {
-        public float fixedCubeSpeed;
-        public void Execute(CubeInput playerInput, ref Translation trans)
-        {
-            var moveInput = new float2(playerInput.Horizontal, playerInput.Vertical);
-            moveInput = math.normalizesafe(moveInput) * fixedCubeSpeed;
-            trans.Value += new float3(moveInput.x, 0, moveInput.y);
+            var moveInput = new float2(input.ValueRO.Horizontal, input.ValueRO.Vertical);
+            moveInput = math.normalizesafe(moveInput) * speed;
+            trans.ValueRW.Position += new float3(moveInput.x, 0, moveInput.y);
         }
     }
 }

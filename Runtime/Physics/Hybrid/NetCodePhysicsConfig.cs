@@ -44,16 +44,17 @@ namespace Unity.NetCode
     {
         public override void Bake(NetCodePhysicsConfig authoring)
         {
+            var entity = GetEntity(TransformUsageFlags.Dynamic);
             if (authoring.EnableLagCompensation)
             {
-                AddComponent(new LagCompensationConfig
+                AddComponent(entity, new LagCompensationConfig
                 {
                     ServerHistorySize = authoring.ServerHistorySize,
                     ClientHistorySize = authoring.ClientHistorySize
                 });
             }
             if (authoring.ClientNonGhostWorldIndex != 0)
-                AddComponent(new PredictedPhysicsNonGhostWorld{Value = authoring.ClientNonGhostWorldIndex});
+                AddComponent(entity, new PredictedPhysicsNonGhostWorld{Value = authoring.ClientNonGhostWorldIndex});
         }
     }
 }

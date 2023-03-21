@@ -32,63 +32,64 @@ namespace Unity.NetCode.Tests
         }
         public void Bake(GameObject gameObject, IBaker baker)
         {
+            var entity = baker.GetEntity(TransformUsageFlags.Dynamic);
             switch (_type)
             {
                 case GhostTypes.EnableableComponent:
-                    baker.AddComponent(new GhostOwnerComponent());
+                    baker.AddComponent(entity, new GhostOwner());
                     AddTestEnableableComponents(baker);
                     break;
                 case GhostTypes.MultipleEnableableComponent:
-                    baker.AddComponent(new GhostOwnerComponent());
+                    baker.AddComponent(entity, new GhostOwner());
                     SetupMultipleEnableableComponents(baker);
                     break;
                 case GhostTypes.EnableableBuffer:
-                    baker.AddComponent(new GhostOwnerComponent());
+                    baker.AddComponent(entity, new GhostOwner());
                     AddBufferWithLength<EnableableBuffer>(baker);
                     // TODO - Same tests for buffers.
                     break;
                 case GhostTypes.MultipleEnableableBuffer:
-                    baker.AddComponent(new GhostOwnerComponent());
+                    baker.AddComponent(entity, new GhostOwner());
                     SetupMultipleEnableableBuffer(baker);
                     break;
                 case GhostTypes.ChildComponent:
-                    baker.AddComponent(new GhostOwnerComponent());
+                    baker.AddComponent(entity, new GhostOwner());
                     AddTestEnableableComponents(baker);
                     var transform = baker.GetComponent<Transform>();
                     baker.DependsOn(transform.parent);
                     if (transform.parent == null)
                     {
-                        baker.AddComponent(new TopLevelGhostEntity());
+                        baker.AddComponent(entity, new TopLevelGhostEntity());
                     }
                     else
                     {
-                        baker.AddComponent<ChildOnlyComponent_1>();
-                        baker.AddComponent<ChildOnlyComponent_2>();
-                        baker.SetComponentEnabled<ChildOnlyComponent_1>(baker.GetEntity(), BakedEnabledBitValue(_enabledBitBakedValue));
-                        baker.SetComponentEnabled<ChildOnlyComponent_2>(baker.GetEntity(), BakedEnabledBitValue(_enabledBitBakedValue));
+                        baker.AddComponent<ChildOnlyComponent_1>(entity);
+                        baker.AddComponent<ChildOnlyComponent_2>(entity);
+                        baker.SetComponentEnabled<ChildOnlyComponent_1>(entity, BakedEnabledBitValue(_enabledBitBakedValue));
+                        baker.SetComponentEnabled<ChildOnlyComponent_2>(entity, BakedEnabledBitValue(_enabledBitBakedValue));
                         AddComponentWithDefaultValue<ChildOnlyComponent_3>(baker);
                         AddComponentWithDefaultValue<ChildOnlyComponent_4>(baker);
                     }
                     break;
                 case GhostTypes.ChildBufferComponent:
-                    baker.AddComponent(new GhostOwnerComponent());
+                    baker.AddComponent(entity, new GhostOwner());
                     AddBufferWithLength<EnableableBuffer>(baker);
                     if (gameObject.transform.parent == null)
-                        baker.AddComponent(new TopLevelGhostEntity());
+                        baker.AddComponent(entity, new TopLevelGhostEntity());
                     break;
                 case GhostTypes.GhostGroup:
-                    baker.AddComponent(new GhostOwnerComponent());
+                    baker.AddComponent(entity, new GhostOwner());
                     // Dependency on the name
                     baker.DependsOn(gameObject);
                     if (gameObject.name.StartsWith("ParentGhost"))
                     {
-                        baker.AddBuffer<GhostGroup>();
-                        baker.AddComponent(default(GhostGroupRoot));
+                        baker.AddBuffer<GhostGroup>(entity);
+                        baker.AddComponent(entity, default(GhostGroupRoot));
                         AddTestEnableableComponents(baker);
                     }
                     else
                     {
-                        baker.AddComponent(default(GhostChildEntityComponent));
+                        baker.AddComponent(entity, default(GhostChildEntity));
                         AddTestEnableableComponents(baker);
                     }
                     break;
@@ -274,20 +275,23 @@ namespace Unity.NetCode.Tests
         {
             var def = default(T);
             def.SetValue(GhostSerializationTestsForEnableableBits.kDefaultValueIfNotReplicated);
-            baker.AddComponent(def);
-            baker.SetComponentEnabled<T>(baker.GetEntity(), BakedEnabledBitValue(_enabledBitBakedValue));
+            var entity = baker.GetEntity(TransformUsageFlags.Dynamic);
+            baker.AddComponent(entity, def);
+            baker.SetComponentEnabled<T>(entity, BakedEnabledBitValue(_enabledBitBakedValue));
         }
 
         void AddComponent<T>(IBaker baker) where T : unmanaged, IEnableableComponent, IComponentData
         {
-            baker.AddComponent<T>();
-            baker.SetComponentEnabled<T>(baker.GetEntity(), BakedEnabledBitValue(_enabledBitBakedValue));
+            var entity = baker.GetEntity(TransformUsageFlags.Dynamic);
+            baker.AddComponent<T>(entity);
+            baker.SetComponentEnabled<T>(entity, BakedEnabledBitValue(_enabledBitBakedValue));
         }
 
         void AddBufferWithLength<T>(IBaker baker)
             where T : unmanaged, IBufferElementData, IComponentValue, IEnableableComponent
         {
-            var enableableBuffers = baker.AddBuffer<T>();
+            var entity = baker.GetEntity(TransformUsageFlags.Dynamic);
+            var enableableBuffers = baker.AddBuffer<T>(entity);
             enableableBuffers.Length = GhostSerializationTestsForEnableableBits.kBakedBufferSize;
             for (var index = 0; index < enableableBuffers.Length; index++)
             {
@@ -295,7 +299,7 @@ namespace Unity.NetCode.Tests
                 bufferElementData.SetValue(GhostSerializationTestsForEnableableBits.kDefaultValueIfNotReplicated);
                 enableableBuffers[index] = bufferElementData;
             }
-            baker.SetComponentEnabled<T>(baker.GetEntity(), BakedEnabledBitValue(_enabledBitBakedValue));
+            baker.SetComponentEnabled<T>(entity, BakedEnabledBitValue(_enabledBitBakedValue));
         }
 
         void SetupMultipleEnableableBuffer(IBaker baker)

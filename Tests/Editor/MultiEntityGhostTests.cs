@@ -16,12 +16,13 @@ namespace Unity.NetCode.Tests
     {
         public void Bake(GameObject gameObject, IBaker baker)
         {
-            baker.AddComponent(new GhostOwnerComponent());
-            baker.AddComponent(new ChildLevelComponent());
+            var entity = baker.GetEntity(TransformUsageFlags.Dynamic);
+            baker.AddComponent(entity, new GhostOwner());
+            baker.AddComponent(entity, new ChildLevelComponent());
             var transform = baker.GetComponent<Transform>();
             baker.DependsOn(transform.parent);
             if (transform.parent == null)
-                baker.AddComponent(new TopLevelGhostEntity());
+                baker.AddComponent(entity, new TopLevelGhostEntity());
         }
     }
     public struct TopLevelGhostEntity : IComponentData
@@ -102,8 +103,8 @@ namespace Unity.NetCode.Tests
                 Assert.IsTrue(testWorld.ServerWorld.EntityManager.HasComponent<LinkedEntityGroup>(serverEnt));
                 var serverEntityGroup = testWorld.ServerWorld.EntityManager.GetBuffer<LinkedEntityGroup>(serverEnt);
                 Assert.AreEqual(2, serverEntityGroup.Length);
-                testWorld.ServerWorld.EntityManager.SetComponentData(serverEntityGroup[0].Value, new GhostOwnerComponent{NetworkId = 42});
-                testWorld.ServerWorld.EntityManager.SetComponentData(serverEntityGroup[1].Value, new GhostOwnerComponent{NetworkId = 42});
+                testWorld.ServerWorld.EntityManager.SetComponentData(serverEntityGroup[0].Value, new GhostOwner{NetworkId = 42});
+                testWorld.ServerWorld.EntityManager.SetComponentData(serverEntityGroup[1].Value, new GhostOwner{NetworkId = 42});
 
                 float frameTime = 1.0f / 60.0f;
                 // Connect and make sure the connection could be established
@@ -121,8 +122,8 @@ namespace Unity.NetCode.Tests
                 Assert.IsTrue(testWorld.ClientWorlds[0].EntityManager.HasComponent<LinkedEntityGroup>(clientEnt));
                 var clientEntityGroup = testWorld.ClientWorlds[0].EntityManager.GetBuffer<LinkedEntityGroup>(clientEnt);
                 Assert.AreEqual(2, clientEntityGroup.Length);
-                Assert.AreEqual(42, testWorld.ClientWorlds[0].EntityManager.GetComponentData<GhostOwnerComponent>(clientEntityGroup[0].Value).NetworkId);
-                Assert.AreEqual(42, testWorld.ClientWorlds[0].EntityManager.GetComponentData<GhostOwnerComponent>(clientEntityGroup[1].Value).NetworkId);
+                Assert.AreEqual(42, testWorld.ClientWorlds[0].EntityManager.GetComponentData<GhostOwner>(clientEntityGroup[0].Value).NetworkId);
+                Assert.AreEqual(42, testWorld.ClientWorlds[0].EntityManager.GetComponentData<GhostOwner>(clientEntityGroup[1].Value).NetworkId);
             }
         }
     }

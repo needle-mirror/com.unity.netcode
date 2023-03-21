@@ -21,7 +21,7 @@ namespace Unity.NetCode
     /// <para>
     /// Note: Serializers are considered "optional". It is perfectly valid for a types "serialization strategy" to be: "Do nothing".
     /// An example of this is a component for which a variant has been declared (using the <see cref="GhostComponentVariationAttribute"/>)
-    /// but for which serialization is not generated, i.e: the <see cref="GhostComponent"/> attribute is specified in
+    /// but for which serialization is not generated, i.e: the <see cref="GhostInstance"/> attribute is specified in
     /// the base component declaration, but not in a variant. We call these "Empty Variants".
     /// </para>
     /// </summary>
@@ -64,7 +64,7 @@ namespace Unity.NetCode
         /// <summary>Hash identifier for the strategy. Should be non-zero by the time it's used in <see cref="GhostComponentSerializerCollectionData.SelectSerializationStrategyForComponentWithHash"/>.</summary>
         public ulong Hash;
         /// <summary>
-        /// The <see cref="GhostPrefabType"/> value set in <see cref="GhostComponent"/> present in the variant declaration.
+        /// The <see cref="GhostPrefabType"/> value set in <see cref="GhostInstance"/> present in the variant declaration.
         /// Some variants modify the serialization rules. Default is <see cref="GhostPrefabType.All"/>
         /// </summary>
         public GhostPrefabType PrefabType;

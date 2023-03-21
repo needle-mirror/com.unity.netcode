@@ -28,11 +28,11 @@ namespace Unity.NetCode
         [ReadOnly] public BufferLookup<GhostCollectionPrefabSerializer> GhostTypeCollectionFromEntity;
         [ReadOnly] public BufferLookup<GhostCollectionComponentIndex> GhostComponentIndexFromEntity;
         [ReadOnly] public BufferLookup<GhostCollectionPrefab> GhostCollectionFromEntity;
-        [ReadOnly] public ComponentTypeHandle<GhostTypeComponent> ghostTypeComponentType;
+        [ReadOnly] public ComponentTypeHandle<GhostType> ghostTypeComponentType;
         [ReadOnly] public EntityTypeHandle entityType;
         [ReadOnly] public EntityStorageInfoLookup childEntityLookup;
         [ReadOnly] public BufferTypeHandle<LinkedEntityGroup> linkedEntityGroupType;
-        [ReadOnly] public ComponentLookup<GhostComponent> ghostFromEntity;
+        [ReadOnly] public ComponentLookup<GhostInstance> ghostFromEntity;
         [ReadOnly] public DynamicTypeList ghostChunkComponentTypes;
         public NativeList<ulong>.ParallelWriter baselineHashes;
         [NativeDisableParallelForRestriction]
@@ -124,10 +124,10 @@ namespace Unity.NetCode
     [BurstCompile]
     internal struct PrespawnGhostStripComponentsJob : IJobChunk
     {
-        [ReadOnly]public ComponentTypeHandle<GhostTypeComponent> ghostTypeHandle;
-        [ReadOnly]public ComponentLookup<GhostPrefabMetaDataComponent> metaDataFromEntity;
+        [ReadOnly]public ComponentTypeHandle<GhostType> ghostTypeHandle;
+        [ReadOnly]public ComponentLookup<GhostPrefabMetaData> metaDataFromEntity;
         [ReadOnly]public BufferTypeHandle<LinkedEntityGroup> linkedEntityTypeHandle;
-        [ReadOnly]public NativeParallelHashMap<GhostTypeComponent, Entity> prefabFromType;
+        [ReadOnly]public NativeParallelHashMap<GhostType, Entity> prefabFromType;
         public EntityCommandBuffer.ParallelWriter commandBuffer;
         public NetDebug netDebug;
         public byte server;
@@ -174,7 +174,7 @@ namespace Unity.NetCode
                         commandBuffer.RemoveComponent(unfilteredChunkIndex,linkedEntityGroup[childIndexCompHashPair.EntityIndex].Value, rmCompType);
                     }
                     // FIXME: should disable instead of removing once we have a way of doing that without structural changes
-                    if (ghostMetaData.DefaultMode == GhostPrefabMetaData.GhostMode.Predicted)
+                    if (ghostMetaData.DefaultMode == GhostPrefabBlobMetaData.GhostMode.Predicted)
                     {
                         for (int rm = 0; rm < ghostMetaData.DisableOnPredictedClient.Length; ++rm)
                         {
@@ -183,7 +183,7 @@ namespace Unity.NetCode
                             commandBuffer.RemoveComponent(unfilteredChunkIndex,linkedEntityGroup[childIndexCompHashPair.EntityIndex].Value, rmCompType);
                         }
                     }
-                    else if (ghostMetaData.DefaultMode == GhostPrefabMetaData.GhostMode.Interpolated)
+                    else if (ghostMetaData.DefaultMode == GhostPrefabBlobMetaData.GhostMode.Interpolated)
                     {
                         for (int rm = 0; rm < ghostMetaData.DisableOnInterpolatedClient.Length; ++rm)
                         {
@@ -208,9 +208,9 @@ namespace Unity.NetCode
         [ReadOnly] public EntityTypeHandle entityType;
         [ReadOnly] public ComponentTypeHandle<PreSpawnedGhostIndex> prespawnIdType;
         [NativeDisableParallelForRestriction]
-        public ComponentTypeHandle<GhostComponent> ghostComponentType;
+        public ComponentTypeHandle<GhostInstance> ghostComponentType;
         [NativeDisableParallelForRestriction]
-        public ComponentTypeHandle<GhostCleanupComponent> ghostStateTypeHandle;
+        public ComponentTypeHandle<GhostCleanup> ghostStateTypeHandle;
         [NativeDisableParallelForRestriction]
         public NativeList<SpawnedGhostMapping>.ParallelWriter spawnedGhosts;
         public int startGhostId;
@@ -240,7 +240,7 @@ namespace Unity.NetCode
                 //Special encoding for prespawnId (sort of "namespace").
                 var ghostId = PrespawnHelper.MakePrespawGhostId(preSpawnedIds[index].Value + startGhostId);
                 if (ghostStates.IsCreated && ghostStates.Length > 0)
-                    ghostStates[index] = new GhostCleanupComponent {ghostId = ghostId, despawnTick = NetworkTick.Invalid, spawnTick = NetworkTick.Invalid};
+                    ghostStates[index] = new GhostCleanup {ghostId = ghostId, despawnTick = NetworkTick.Invalid, spawnTick = NetworkTick.Invalid};
 
                 chunkSpawnedGhostMappings[spawnedGhostCount++] = new SpawnedGhostMapping
                 {
@@ -250,7 +250,7 @@ namespace Unity.NetCode
                 // once the ghost ids are known
                 // Pre-spawned uses spawnTick = 0, if there is a reference to a ghost and it has spawnTick 0 the ref is always resolved
                 // This works because there despawns are high priority and we never create pre-spawned ghosts after connection
-                ghostComponents[index] = new GhostComponent {ghostId = ghostId, ghostType = -1, spawnTick = NetworkTick.Invalid};
+                ghostComponents[index] = new GhostInstance {ghostId = ghostId, ghostType = -1, spawnTick = NetworkTick.Invalid};
             }
             spawnedGhosts.AddRangeNoResize(chunkSpawnedGhostMappings, spawnedGhostCount);
         }
