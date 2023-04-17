@@ -18,6 +18,7 @@ namespace __GHOST_NAMESPACE__
     [System.Runtime.CompilerServices.CompilerGenerated]
     [UpdateInGroup(typeof(GhostComponentSerializerCollectionSystemGroup))]
     [CreateAfter(typeof(GhostComponentSerializerCollectionSystemGroup))]
+    [CreateBefore(typeof(DefaultVariantSystemGroup))]
     [BakingVersion(true)]
     public partial struct GhostComponentSerializerRegistrationSystem : ISystem, IGhostComponentSerializerRegistration
     {
@@ -47,7 +48,6 @@ namespace __GHOST_NAMESPACE__
                 IsInputBuffer = __TYPE_IS_INPUT_BUFFER__,
                 IsTestVariant = __TYPE_IS_TEST_VARIANT__,
                 HasDontSupportPrefabOverridesAttribute = __TYPE_HAS_DONT_SUPPORT_PREFAB_OVERRIDES_ATTRIBUTE__,
-                HasSupportsPrefabOverridesAttribute = __TYPE_HAS_SUPPORTS_PREFAB_OVERRIDES_ATTRIBUTE__,
             };
             data.AddSerializationStrategy(ref ss);
             #endregion

@@ -22,6 +22,7 @@ namespace Unity.NetCode
         public bool DumpPackets;
     }
 
+    [BakingVersion("cmarastoni", 1)]
     class NetCodeDebugConfigAuthoringBaker : Baker<NetCodeDebugConfigAuthoring>
     {
         public override void Bake(NetCodeDebugConfigAuthoring authoring)

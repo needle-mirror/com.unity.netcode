@@ -56,7 +56,7 @@ When a client only physics world exists, all non-ghost dynamic physics objects c
 As part of the entity baking process, a _PhysicsWorldIndex_ shared component is added to all the physics entities, indicating
 in which world the entity should be part of.
 > [!NOTE]
-> It is responsibility of the user to setup properly their prefab using the `PhysicBody` inspector, to make them run in the correct physics world.
+> It is the responsibility of the user to setup their prefab properly to make them run in the correct physics world. This can be achieved with the `PhysicsWorldIndexAuthoring` component, provided with the Unity Physics package, which allows setting the physics world index for rigid bodies. For more information, please refer to the [Unity Physics documentation](https://docs.unity3d.com/Packages/com.unity.physics@latest/index.html?subfolder=/manual/). 
 
 ### Interaction in between predicted and client-only physics entities
 

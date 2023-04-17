@@ -604,7 +604,6 @@ namespace Unity.NetCode.Tests
         public int value;
         public void SetValue(int value) => this.value = value;
         public int GetValue() => value;
-
     }
 
     ////////////////////////////////////////////////////////////////////////////

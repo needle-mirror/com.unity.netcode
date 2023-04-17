@@ -24,6 +24,7 @@ namespace Unity.NetCode
     [UpdateInGroup(typeof(PostBakingSystemGroup))]
     [UpdateAfter(typeof(GhostAuthoringBakingSystem))]
     [WorldSystemFilter(WorldSystemFilterFlags.BakingSystem)]
+    [BakingVersion("cmarastoni", 1)]
     partial class PreSpawnedGhostsBakingSystem : SystemBase
     {
         private EntityQuery                     m_SceneSectionEntityQuery;
@@ -47,13 +48,19 @@ namespace Unity.NetCode
                 if (!isPrefab && isInSubscene && activeInScene)
                 {
                     var hashData = new NativeList<ulong>(Allocator.Temp);
-                    var componentTypes = EntityManager.GetComponentTypes(entity, Allocator.Temp);
-                    var transformAuthoring = EntityManager.GetComponentData<TransformAuthoring>(entity);
-                    //What happen if the entity has been authored such that the position and rotation are not present?
+					//We are using the ghost type to identify the ghost archetype. It is the only reliable value
+                    //in between server and client. Baking can add/remove component on the entity based on the conversion
+                    //target. So using archetype.StableHash does not work in our case.
+                    hashData.Add(ghostAuthoringBakingData.GhostType.guid0);
+                    hashData.Add(ghostAuthoringBakingData.GhostType.guid1);
+                    hashData.Add(ghostAuthoringBakingData.GhostType.guid2);
+                    hashData.Add(ghostAuthoringBakingData.GhostType.guid3);
+
+					//What happen if the entity has been authored such that the position and rotation are not present?
                     //We are relying on the TransformAuthoring instead, to have stable data that depend only on the gameobject
                     //authoring
-                    var archetypeStableHash = EntityManager.GetStorageInfo(entity).Chunk.Archetype.StableHash;
-                    hashData.Add(archetypeStableHash);
+                    var transformAuthoring = EntityManager.GetComponentData<TransformAuthoring>(entity);
+
                     unsafe
                     {
                         var positionData = (byte*)&transformAuthoring.Position;
@@ -65,7 +72,7 @@ namespace Unity.NetCode
                     // but care needs to be taken as to only include components guaranteed to exist on the entity in general
                     // and also on both client and server. This just covers the safest route of taking only position/rotation.
 
-                    //Add the scene guid at the very end
+                    //Add the scene guid at the very end. This is to seed the scene-hash based also on the baked scene section.
                     var sceneSection = EntityManager.GetSharedComponent<SceneSection>(entity);
                     hashData.Add(sceneSection.SceneGUID.Value[0]);
                     hashData.Add(sceneSection.SceneGUID.Value[1]);
@@ -84,18 +91,20 @@ namespace Unity.NetCode
                         hashToEntity.Add(combinedComponentHash, entity);
                     else
                         Debug.LogError($"Two ghosts can't be in the same exact position and rotation {EntityManager.GetName(entity)}");
+
+                    hashData.Dispose();
                 }
             }).WithoutBurst().Run();
 
             if (hashToEntity.Count() > 0)
             {
                 //Add the components in batch
-                var values = hashToEntity.GetValueArray(Allocator.Temp);
+                var values = hashToEntity.GetValueArray(Allocator.TempJob);
                 EntityManager.AddComponent(values, typeof(PreSpawnedGhostIndex));
                 EntityManager.AddComponent(values, typeof(PrespawnGhostBaseline));
                 EntityManager.AddComponent(values, typeof(PrespawnedGhostBakedBefore));
 
-                var keys = hashToEntity.GetKeyArray(Allocator.Temp);
+                var keys = hashToEntity.GetKeyArray(Allocator.TempJob);
                 keys.Sort();
 
                 // Assign ghost IDs to the pre-spawned entities sorted by component data hash
@@ -145,6 +154,8 @@ namespace Unity.NetCode
                     EntityManager.AddComponent<PrespawnedGhostBakedBefore>(sectionEntity);
                 }
                 //We can add more here. Ideally the serialization. A way would be to use a sort of offset re-mapping
+                values.Dispose();
+                keys.Dispose();
             }
 
             hashToEntity.Dispose();
@@ -155,18 +166,6 @@ namespace Unity.NetCode
             var sceneSection = EntityManager.GetSharedComponent<SceneSection>(entity);
             return SerializeUtility.GetSceneSectionEntity(sceneSection.Section, EntityManager, ref m_SceneSectionEntityQuery);
         }
-
-        ulong ComponentDataToHash(Entity entity, ComponentType componentType)
-        {
-            var untypedType = EntityManager.GetDynamicComponentTypeHandle(componentType);
-            var chunkInfo = EntityManager.GetStorageInfo(entity);
-            var sizeInChunk = TypeManager.GetTypeInfo(componentType.TypeIndex).SizeInChunk;
-            var data = chunkInfo.Chunk.GetDynamicComponentDataArrayReinterpret<byte>(ref untypedType, sizeInChunk);
-            unsafe
-            {
-                return Unity.Core.XXHash.Hash64((byte*) data.GetUnsafeReadOnlyPtr() + (chunkInfo.IndexInChunk * sizeInChunk), sizeInChunk);
-            }
-        }
     }
 
     /// <summary>
@@ -175,6 +174,7 @@ namespace Unity.NetCode
     ///
     [UpdateInGroup(typeof(PreBakingSystemGroup))]
     [WorldSystemFilter(WorldSystemFilterFlags.BakingSystem)]
+    [BakingVersion("cmarastoni", 1)]
     partial class PreSpawnedGhostsCleanupBaking : SystemBase
     {
         private EntityQuery m_PreviouslyBakedEntities;

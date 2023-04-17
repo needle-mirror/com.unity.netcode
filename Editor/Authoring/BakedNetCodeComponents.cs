@@ -78,7 +78,7 @@ namespace Unity.NetCode.Editor
         /// Denotes if this type supports user modification of <see cref="ComponentTypeSerializationStrategy"/>.
         /// We obviously support it "implicitly" if we have multiple variant types.
         /// </summary>
-        public bool DoesAllowVariantModification => serializationStrategy.HasDontSupportPrefabOverridesAttribute == 0 && (serializationStrategy.HasSupportsPrefabOverridesAttribute != 0 || HasMultipleVariants) && serializationStrategy.IsInput == 0;
+        public bool DoesAllowVariantModification => serializationStrategy.HasDontSupportPrefabOverridesAttribute == 0 && serializationStrategy.IsInput == 0;
 
         /// <summary>
         /// Denotes if this type supports user modification of <see cref="SendTypeOptimization"/>.
@@ -88,7 +88,7 @@ namespace Unity.NetCode.Editor
         /// <summary>
         /// Denotes if this type supports user modification of <see cref="GhostAuthoringInspectionComponent.ComponentOverride.PrefabType"/>.
         /// </summary>
-        public bool DoesAllowPrefabTypeModification => serializationStrategy.HasDontSupportPrefabOverridesAttribute == 0 && serializationStrategy.HasSupportsPrefabOverridesAttribute != 0 && serializationStrategy.IsInput == 0;
+        public bool DoesAllowPrefabTypeModification => serializationStrategy.HasDontSupportPrefabOverridesAttribute == 0 && serializationStrategy.IsInput == 0;
 
         /// <summary>I.e. Implicitly supports prefab overrides.</summary>
         internal bool HasMultipleVariants => availableSerializationStrategies.Length > 1;

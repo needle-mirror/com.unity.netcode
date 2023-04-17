@@ -15,6 +15,7 @@ namespace Unity.NetCode
         [RegisterBinding(typeof(DefaultSmoothingActionUserParams), "delta")]
         [SerializeField] private float delta;
 
+        [BakingVersion("cmarastoni", 1)]
         class DefaultUserParamsBaker : Baker<DefaultSmoothingActionUserParamsAuthoring>
         {
             public override void Bake(DefaultSmoothingActionUserParamsAuthoring authoring)

@@ -774,11 +774,18 @@ namespace Unity.NetCode
         }
 
         /// <summary>
-        /// Convert an entity to a ghost prefab and register it with the collection. This method will add the Prefab component and LinkedEntityGroup if they do not already exist.
-        /// It will also add all component required for a prefab to be used as a ghost and register it with the GhostCollectionSystem.
-        /// The blob asset created as part of making it a ghost prefab is owned and will be freed by the GhostCollectionSystem, the calling code should not free the blob asset.
-        /// The prefabs must be created exactly the same way on both the client and the server, and they must contain all components, use component overrides if you want to have some components server or client only.
+        /// Converts an entity to a ghost prefab, and registers it with the collection.
+        /// This method will add the `Prefab` and `LinkedEntityGroup` components if they do not already exist.
+        /// It will also add all component required for a prefab to be used as a ghost, and register it with the `GhostCollectionSystem`.
+        /// The blob asset (which is created as part of making it a ghost prefab) is owned (and will be freed by) the `GhostCollectionSystem`.
+        /// Thus, the calling code should not free the blob asset.
+        /// The prefabs must be created exactly the same way on both the client and the server, and they must contain all components.
+        /// Use component overrides if you want to have some components server or client only.
         /// </summary>
+        /// <remarks>
+        /// Note that - when using this in a System `OnCreate` method - you must ensure your system is created after the `DefaultVariantSystemGroup`,
+        /// as we must register serialization strategies before you access them.
+        /// </remarks>
         /// <param name="entityManager">Used to add components data on ghost children.</param>
         /// <param name="prefab">Entity prefab to be converted.</param>
         /// <param name="config">Configuration used to create a ghost prefab.</param>
@@ -813,6 +820,13 @@ namespace Unity.NetCode
             var collectionData = collectionDataQuery.GetSingleton<GhostComponentSerializerCollectionData>();
             collectionDataQuery.Dispose();
 
+#if ENABLE_UNITY_COLLECTIONS_CHECKS
+            {
+                entityManager.GetName(prefab, out var prefabName);
+                collectionData.ThrowIfCollectionNotFinalized($"ConvertToGhostPrefab on prefab '{prefab.ToFixedString()} ({prefabName})'");
+            }
+#endif
+
             int childIndex = 0;
             int childStart = 0;
             for (int i = 0; i < allComponents.Length; ++i)
@@ -846,6 +860,12 @@ namespace Unity.NetCode
             var uuid5 = new SHA1($"f17641b8-279a-94b1-1b84-487e72d49ab5{config.Name}");
             // I need an unique identifier and should not clash with any loaded prefab, use uuid5 with a namespace + ghost name
             var ghostType = uuid5.ToGhostType();
+
+            //This should be present only for prefabs. FinalizePrefabComponents is also called for not prefab entities so it should not
+            //be added there.
+            if(target != NetcodeConversionTarget.Server && config.SupportedGhostModes != GhostModeMask.Interpolated)
+                entityManager.AddComponent<PredictedGhostSpawnRequest>(prefab);
+
             FinalizePrefabComponents(config, entityManager, prefab, ghostType, linkedEntitiesArray,
                         allComponents, componentCounts, target, prefabTypes);
 

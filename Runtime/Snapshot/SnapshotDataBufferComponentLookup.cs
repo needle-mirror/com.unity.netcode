@@ -7,79 +7,21 @@ using Unity.NetCode.LowLevel.Unsafe;
 namespace Unity.NetCode.LowLevel
 {
     /// <summary>
-    /// Helper struct that can be used in your spawn classification systems (and classification
-    /// jobs) to create <see cref="SnapshotDataBufferComponentLookup"/> instances.
-    /// </summary>
-    public struct SnapshotDataLookupHelper
-    {
-        [ReadOnly] private BufferLookup<GhostCollectionPrefabSerializer> m_GhostCollectionPrefabSerializerLookup;
-        [ReadOnly] private BufferLookup<GhostCollectionComponentIndex> m_GhostCollectionComponentIndexLookup;
-        [ReadOnly] private BufferLookup<GhostCollectionComponentType> m_GhostCollectionComponentTypeLookup;
-        [ReadOnly] private BufferLookup<GhostComponentSerializer.State> m_GhostCollectionSerializersLookup;
-        [NativeDisableUnsafePtrRestriction] private EntityQuery m_SnapshotDataLookupCacheSingleton;
-
-        /// <summary>
-        /// Default constructor, collect and initialize all the internal <see cref="BufferFromEntity{T}"/> handles.
-        /// </summary>
-        /// <param name="state"></param>
-        public SnapshotDataLookupHelper(ref SystemState state)
-        {
-            m_GhostCollectionPrefabSerializerLookup = state.GetBufferLookup<GhostCollectionPrefabSerializer>(true);
-            m_GhostCollectionComponentIndexLookup = state.GetBufferLookup<GhostCollectionComponentIndex>(true);
-            m_GhostCollectionComponentTypeLookup = state.GetBufferLookup<GhostCollectionComponentType>(true);
-            m_GhostCollectionSerializersLookup = state.GetBufferLookup<GhostComponentSerializer.State>(true);
-            m_SnapshotDataLookupCacheSingleton = new EntityQueryBuilder(Allocator.Temp).WithAll<SnapshotDataLookupCache>().WithOptions(EntityQueryOptions.IncludeSystems).Build(state.EntityManager);
-        }
-
-        /// <summary>
-        /// Call this method in your system OnUpdate to refresh all the internal <see cref="BufferFromEntity{T}"/> handles.
-        /// </summary>
-        /// <param name="state"></param>
-        public void Update(ref SystemState state)
-        {
-            m_GhostCollectionPrefabSerializerLookup.Update(ref state);
-            m_GhostCollectionComponentIndexLookup.Update(ref state);
-            m_GhostCollectionComponentTypeLookup.Update(ref state);
-            m_GhostCollectionSerializersLookup.Update(ref state);
-        }
-
-        /// <summary>
-        /// Create a new <see cref="SnapshotDataBufferComponentLookup"/> instance.
-        /// </summary>
-        /// <remarks>
-        /// The method requires that the <see cref="Update"/> method has been called and that all the internal handles
-        /// has been updated.
-        /// </remarks>
-        /// <param name="ghostCollectionSingleton">Singleton entity containing the GhostCollectionComponent lookups.</param>
-        /// <param name="ghostMap">Pass the existing map.</param>
-        /// <returns>A valid <see cref="SnapshotDataBufferComponentLookup"/> instance</returns>
-        public SnapshotDataBufferComponentLookup CreateSnapshotBufferLookup(Entity ghostCollectionSingleton, in NativeParallelHashMap<SpawnedGhost, Entity>.ReadOnly ghostMap)
-        {
-            return new SnapshotDataBufferComponentLookup(
-                m_GhostCollectionPrefabSerializerLookup[ghostCollectionSingleton],
-                m_GhostCollectionComponentIndexLookup[ghostCollectionSingleton],
-                m_GhostCollectionComponentTypeLookup[ghostCollectionSingleton],
-                m_GhostCollectionSerializersLookup[ghostCollectionSingleton],
-                m_SnapshotDataLookupCacheSingleton.GetSingleton<SnapshotDataLookupCache>().ComponentDataOffsets,
-                ghostMap);
-        }
-    }
-
-    /// <summary>
     /// Helper struct that can be used to inspect the presence of components from a <see cref="SnapshotData"/> buffer
     /// and retrieve their data.
+    /// The lookup can be passed ot jobs
     /// <remarks>
     /// The helper allow to only read component data. Buffers are not supported.
     /// </remarks>
     /// </summary>
     public struct SnapshotDataBufferComponentLookup
     {
-        private DynamicBuffer<GhostCollectionPrefabSerializer> m_ghostPrefabType;
-        private DynamicBuffer<GhostCollectionComponentIndex> m_ghostComponentIndices;
-        private DynamicBuffer<GhostCollectionComponentType> m_ghostComponentTypes;
-        private DynamicBuffer<GhostComponentSerializer.State> m_ghostSerializers;
-        private readonly NativeParallelHashMap<SpawnedGhost, Entity>.ReadOnly m_ghostMap;
-        private NativeHashMap<SnapshotLookupCacheKey, SnapshotDataLookupCache.SerializerIndexAndOffset> m_componentOffsetCacheRW;
+        [ReadOnly]DynamicBuffer<GhostCollectionPrefabSerializer> m_ghostPrefabType;
+        [ReadOnly]DynamicBuffer<GhostCollectionComponentIndex> m_ghostComponentIndices;
+        [ReadOnly]DynamicBuffer<GhostCollectionComponentType> m_ghostComponentTypes;
+        [ReadOnly]DynamicBuffer<GhostComponentSerializer.State> m_ghostSerializers;
+        readonly NativeParallelHashMap<SpawnedGhost, Entity>.ReadOnly m_ghostMap;
+        NativeHashMap<SnapshotLookupCacheKey, SnapshotDataLookupCache.SerializerIndexAndOffset> m_componentOffsetCacheRW;
 
         internal SnapshotDataBufferComponentLookup(
             in DynamicBuffer<GhostCollectionPrefabSerializer> ghostPrefabType,
@@ -359,7 +301,7 @@ namespace Unity.NetCode.LowLevel
         {
             m_SnapshotDataLookupCache = new NativeHashMap<SnapshotLookupCacheKey, SnapshotDataLookupCache.SerializerIndexAndOffset>(128, Allocator.Persistent);
             var collection = SystemAPI.GetSingletonEntity<GhostCollection>();
-            state.EntityManager.AddComponentData(collection, new SnapshotDataLookupCache
+            state.EntityManager.SetComponentData(collection, new SnapshotDataLookupCache
             {
                 ComponentDataOffsets = m_SnapshotDataLookupCache
             });

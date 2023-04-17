@@ -28,7 +28,7 @@ namespace Unity.NetCode.Editor
         {
             try
             {
-                EditorUtility.DisplayProgressBar($"Baking '{authoringComponent}'", "Baking allows you to view and modify ghost component meta-data.", .9f);
+                EditorUtility.DisplayProgressBar($"Baking '{authoringComponent}'...", "Baking triggered by the GhostAuthoringInspectionComponent.", .9f);
                 GhostAuthoringInspectionComponent.forceBake = false;
                 GhostAuthoringInspectionComponent.forceSave = true;
 

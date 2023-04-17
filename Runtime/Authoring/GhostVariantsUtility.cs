@@ -22,28 +22,31 @@ namespace Unity.NetCode
         internal static readonly ulong DontSerializeHash = TypeHash.CombineFNV1A64(k_NetCodeGhostNetVariantHash, TypeHash.FNV1A64((FixedString64Bytes)$"Unity.NetCode.{k_DontSerializeVariant}"));
 
         /// <summary>Calculates a stable hash for a variant via <see cref="TypeManager.GetTypeNameFixed"/>.</summary>
-        /// <param name="variantTypeName">Full type name of the variant type.</param>
+        /// <param name="variantTypeFullName">The Variant Type's <see cref="Type.FullName"/>.</param>
         /// <param name="componentType">The ComponentType that this variant applies to.</param>
         /// <returns>The calculated hash.</returns>
-        [GenerateTestsForBurstCompatibility]
-        internal static ulong UncheckedVariantHash(in FixedString512Bytes variantTypeName, ComponentType componentType)
+        public static ulong UncheckedVariantHash(in FixedString512Bytes variantTypeFullName, ComponentType componentType)
         {
             var componentTypeFullName = componentType.GetDebugTypeName();
-            return UncheckedVariantHash(variantTypeName, new FixedString512Bytes(componentTypeFullName));
+            return UncheckedVariantHash(variantTypeFullName, new FixedString512Bytes(componentTypeFullName));
         }
 
         /// <summary>Calculates the "variant hash" for the variant + component pair.</summary>
-        [GenerateTestsForBurstCompatibility]
-        internal static ulong UncheckedVariantHash(in FixedString512Bytes variantTypeName, in FixedString512Bytes componentTypeFullName)
+        /// <param name="variantTypeFullName">The Variant Type's System.Type.FullName.</param>
+        /// <param name="componentTypeFullName">The Component Type's System.Type.FullName that this variant applies to.</param>
+        /// <returns>The calculated hash.</returns>
+        public static ulong UncheckedVariantHash(in FixedString512Bytes variantTypeFullName, in FixedString512Bytes componentTypeFullName)
         {
             var hash = k_NetCodeGhostNetVariantHash;
             hash = TypeHash.CombineFNV1A64(hash, TypeHash.FNV1A64(componentTypeFullName));
-            hash = TypeHash.CombineFNV1A64(hash, TypeHash.FNV1A64(variantTypeName));
+            hash = TypeHash.CombineFNV1A64(hash, TypeHash.FNV1A64(variantTypeFullName));
             return hash;
         }
 
         /// <summary>Calculates the "variant hash" for the component type itself, so that we can fetch the meta-data.</summary>
         /// <remarks>It's a little odd, but the default serializer for a Component is the ComponentType itself. I.e. It is its own variant.</remarks>
+        /// <param name="componentType">The ComponentType to be used for both the component, and the variant.</param>
+        /// <returns>The calculated hash.</returns>
         public static ulong CalculateVariantHashForComponent(ComponentType componentType)
         {
             var baseComponentTypeName =  componentType.GetDebugTypeName();
@@ -51,12 +54,17 @@ namespace Unity.NetCode
             return UncheckedVariantHash(fs, fs);
         }
 
-        /// <summary>Calculates the "variant hash" for the variant + component pair. Non-Burst Compatible version.</summary>
-        internal static ulong UncheckedVariantHashNBC(string variantTypeName, string componentTypeFullName)
+        /// <summary>
+        /// Calculates the "variant hash" for the variant + component pair. Non-Burst Compatible version.
+        /// </summary>
+        /// <param name="variantTypeFullName">The Variant Type's System.Type.FullName.</param>
+        /// <param name="componentTypeFullName">The Component Type's System.Type.FullName that this variant applies to.</param>
+        /// <returns>The calculated hash.</returns>
+        public static ulong UncheckedVariantHashNBC(string variantTypeFullName, string componentTypeFullName)
         {
             var hash = k_NetCodeGhostNetVariantHash;
             hash = TypeHash.CombineFNV1A64(hash, TypeHash.FNV1A64(componentTypeFullName));
-            hash = TypeHash.CombineFNV1A64(hash, TypeHash.FNV1A64(variantTypeName));
+            hash = TypeHash.CombineFNV1A64(hash, TypeHash.FNV1A64(variantTypeFullName));
             return hash;
         }
     }

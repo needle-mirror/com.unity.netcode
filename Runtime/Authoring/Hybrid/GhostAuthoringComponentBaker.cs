@@ -31,13 +31,6 @@ namespace Unity.NetCode
         public ulong GhostNameHash;
     }
 
-    // Tracker for the predict spawn additional prefab created on clients so it can be cleaned up during baking process reset
-    [BakingType]
-    struct AdditionalPrefab : IComponentData
-    {
-        public Entity RootEntity;
-    }
-
     // This type is used to store the overrides
     [BakingType]
     struct GhostAuthoringComponentOverridesBaking : IBufferElementData
@@ -57,6 +50,7 @@ namespace Unity.NetCode
         public ulong ComponentVariant;
     }
 
+    [BakingVersion("cmarastoni", 1)]
     class GhostAuthoringComponentBaker : Baker<GhostAuthoringComponent>
     {
         public override void Bake(GhostAuthoringComponent ghostAuthoring)
@@ -155,6 +149,9 @@ namespace Unity.NetCode
                     // Flag this prefab as needing runtime stripping
                     AddComponent<GhostPrefabRuntimeStrip>(entity);
             }
+
+            if (isPrefab && (target != NetcodeConversionTarget.Server) && (bakingConfig.SupportedGhostModes != GhostModeMask.Interpolated))
+                AddComponent<PredictedGhostSpawnRequest>(entity);
         }
     }
 
@@ -172,6 +169,7 @@ namespace Unity.NetCode
     [UpdateInGroup(typeof(PostBakingSystemGroup))]
     [WorldSystemFilter(WorldSystemFilterFlags.BakingSystem)]
     [AlwaysSynchronizeSystem]
+    [BakingVersion("cmarastoni", 1)]
     partial class GhostAuthoringBakingSystem : SystemBase
     {
         EntityQuery m_NoLongerBakedRootEntities;
@@ -179,7 +177,6 @@ namespace Unity.NetCode
         EntityQuery m_BakedEntitiesQuery;
         EntityQuery m_GhostEntities;
         EntityQueryMask m_BakedEntityMask;
-        EntityQuery m_AdditionalPrefabsQuery;
 
         ComponentTypeSet m_ChildRevertBakingComponents = new ComponentTypeSet(new ComponentType[]
         {
@@ -240,8 +237,6 @@ namespace Unity.NetCode
             m_BakedEntitiesQuery = GetEntityQuery(bakedDesc);
             Assert.IsFalse(m_BakedEntitiesQuery.HasFilter(), "EntityQueryMask will not respect the query's active filter settings.");
             m_BakedEntityMask = m_BakedEntitiesQuery.GetEntityQueryMask();
-
-            m_AdditionalPrefabsQuery = EntityManager.CreateEntityQuery(ComponentType.ReadOnly<AdditionalPrefab>());
         }
 
         void RevertPreviousBakings(NativeParallelHashSet<Entity> rootsToRebake)
@@ -268,17 +263,6 @@ namespace Unity.NetCode
                     if (rootsToRebake.Contains(child.RootEntity) || m_NoLongerBakedRootEntitiesMask.MatchesIgnoreFilter(child.RootEntity))
                     {
                         EntityManager.RemoveComponent(childEntity, m_ChildRevertBakingComponents);
-                    }
-                }).WithEntityQueryOptions(EntityQueryOptions.IncludePrefab).WithStructuralChanges().Run();
-
-            Entities
-                .ForEach((Entity childEntity, in AdditionalPrefab additionalPrefab) =>
-                {
-                    if (rootsToRebake.Contains(additionalPrefab.RootEntity) ||
-                        m_NoLongerBakedRootEntitiesMask.MatchesIgnoreFilter(additionalPrefab.RootEntity))
-                    {
-                        // Remove previously created additional client prefabs (as they'll be recreated)
-                        EntityManager.DestroyEntity(childEntity);
                     }
                 }).WithEntityQueryOptions(EntityQueryOptions.IncludePrefab).WithStructuralChanges().Run();
         }
@@ -352,198 +336,157 @@ namespace Unity.NetCode
             // Revert the previously added components
             RevertPreviousBakings(rootsToProcess);
 
-            using (var context = new BlobAssetComputationContext<int, GhostPrefabBlobMetaData>(bakingSystem.BlobAssetStore, 16, Allocator.Temp))
+            var context = new BlobAssetComputationContext<int, GhostPrefabBlobMetaData>(bakingSystem.BlobAssetStore, 16, Allocator.Temp);
+            Entities.ForEach((Entity rootEntity, DynamicBuffer<LinkedEntityGroup> linkedEntityGroup, in GhostAuthoringComponentBakingData ghostAuthoringBakingData) =>
             {
-                Entities.ForEach((Entity rootEntity, DynamicBuffer<LinkedEntityGroup> linkedEntityGroup, in GhostAuthoringComponentBakingData ghostAuthoringBakingData) =>
+                if (!rootsToProcess.Contains(rootEntity))
+                    return;
+
+                NativeArray<Entity> linkedEntities = GetEntityArrayFromLinkedEntityGroup(linkedEntityGroup);
+                // Mark the entities so they can be reverted later on subsequent baking
+                AddRevertBakingTags(linkedEntities);
+
+                GhostPrefabCreation.CollectAllComponents(EntityManager, linkedEntities,
+                    out var allComponents, out var componentCounts);
+
+                //PrefabTypes is not part of the ghost metadata blob. But it is computed and stored in this array
+                //to simplify the subsequent logics. This value depend on serialization variant selected for the type
+                var prefabTypes = new NativeArray<GhostPrefabType>(allComponents.Length, Allocator.Temp);
+                var sendMasksOverride = new NativeArray<int>(allComponents.Length, Allocator.Temp);
+                var variants = new NativeArray<ulong>(allComponents.Length, Allocator.Temp);
+
+                // Setup all components GhostType, variants, sendMask and sendToChild arrays. Used later to mark components to be added or removed.
+                DynamicBuffer<GhostAuthoringComponentOverridesBaking> overrides = EntityManager.GetBuffer<GhostAuthoringComponentOverridesBaking>(rootEntity);
+                var compIdx = 0;
+                for (int k = 0; k < linkedEntities.Length; ++k)
                 {
-                    if (!rootsToProcess.Contains(rootEntity))
-                        return;
-
-                    NativeArray<Entity> linkedEntities = GetEntityArrayFromLinkedEntityGroup(linkedEntityGroup);
-
-                    var entityGuid = EntityManager.GetComponentData<EntityGuid>(rootEntity);
-                    int rootInstanceID = entityGuid.OriginatingId;
-
-                    // Mark the entities so they can be reverted later on subsequent baking
-                    AddRevertBakingTags(linkedEntities);
-
-                    GhostPrefabCreation.CollectAllComponents(EntityManager, linkedEntities,
-                        out var allComponents, out var componentCounts);
-
-                    //PrefabTypes is not part of the ghost metadata blob. But it is computed and stored in this array
-                    //to simplify the subsequent logics. This value depend on serialization variant selected for the type
-                    var prefabTypes = new NativeArray<GhostPrefabType>(allComponents.Length, Allocator.Temp);
-                    var sendMasksOverride = new NativeArray<int>(allComponents.Length, Allocator.Temp);
-                    var variants = new NativeArray<ulong>(allComponents.Length, Allocator.Temp);
-
-                    // Setup all components GhostType, variants, sendMask and sendToChild arrays. Used later to mark components to be added or removed.
-                    DynamicBuffer<GhostAuthoringComponentOverridesBaking> overrides = EntityManager.GetBuffer<GhostAuthoringComponentOverridesBaking>(rootEntity);
-                    var compIdx = 0;
-                    for (int k = 0; k < linkedEntities.Length; ++k)
+                    var isChild = k != 0;
+                    var entityGUID = EntityManager.GetComponentData<EntityGuid>(linkedEntities[k]);
+                    var instanceId = entityGUID.OriginatingId;
+                    var numComponents = componentCounts[k];
+                    for (int i = 0; i < numComponents; ++i, ++compIdx)
                     {
-                        var isChild = k != 0;
-                        var entityGUID = EntityManager.GetComponentData<EntityGuid>(linkedEntities[k]);
-                        var instanceId = entityGUID.OriginatingId;
-                        var numComponents = componentCounts[k];
-                        for (int i = 0; i < numComponents; ++i, ++compIdx)
+                        // Find the override
+                        GhostAuthoringComponentOverridesBaking? myOverride = default;
+                        foreach (var overrideEntry in overrides)
                         {
-                            // Find the override
-                            GhostAuthoringComponentOverridesBaking? myOverride = default;
-                            foreach (var overrideEntry in overrides)
+                            ulong fullTypeNameID = TypeManager.GetFullNameHash(allComponents[compIdx].TypeIndex);
+                            if (overrideEntry.FullTypeNameID == fullTypeNameID && overrideEntry.GameObjectID == instanceId)
                             {
-                                ulong fullTypeNameID = TypeManager.GetFullNameHash(allComponents[compIdx].TypeIndex);
-                                if (overrideEntry.FullTypeNameID == fullTypeNameID && overrideEntry.GameObjectID == instanceId)
-                                {
-                                    myOverride = overrideEntry;
-                                    break;
-                                }
+                                myOverride = overrideEntry;
+                                break;
                             }
-
-                            //Initialize the value with common default and they overwrite them in case is necessary.
-                            prefabTypes[compIdx] = GhostPrefabType.All;
-                            ulong variantHash = myOverride.HasValue ? myOverride.Value.ComponentVariant : 0;
-                            bool isRoot = !isChild;
-                            var variantType = serializerCollectionData.GetCurrentSerializationStrategyForComponent(allComponents[compIdx], variantHash, isRoot);
-                            variants[compIdx] = variantType.Hash;
-                            sendMasksOverride[compIdx] = GhostAuthoringInspectionComponent.ComponentOverride.NoOverride;
-
-                            // NW: Disabled warning while investigating CI timeout error on mac: [TimeoutExceptionMessage]: Timeout while waiting for a log message, no editor logging has happened during the timeout window
-                            //if (variantType.IsTestVariant != 0)
-                            //{
-                            //    Debug.LogWarning($"Ghost '{ghostAuthoringBakingData.GhostName}' uses a test variant {variantType.ToFixedString()}! Ensure this is only ever used in an Editor, test context.");
-                            //}
-
-                            //Initialize the common default and then overwrite in case
-                            if (myOverride.HasValue)
-                            {
-                                if (myOverride.Value.ComponentVariant != 0) // Not an error if the hash is 0 (default).
-                                {
-                                    if (variantType.Hash != myOverride.Value.ComponentVariant)
-                                    {
-                                        Debug.LogError($"Ghost '{ghostAuthoringBakingData.GhostName}' has an override for type {allComponents[compIdx].ToFixedString()} that sets the Variant to hash '{myOverride.Value.ComponentVariant}'. However, this hash is no longer present in code-gen, likely due to a code change removing or renaming the old variant. Thus, using Variant '{variantType.DisplayName}' (with hash: '{variantType.Hash}') and ignoring your \"Component Override\". Please open this prefab and re-apply.");
-                                    }
-                                }
-
-                                //Only override the the default if the property is meant to (so always check for UseDefaultValue first)
-                                if (myOverride.Value.PrefabType != GhostAuthoringInspectionComponent.ComponentOverride.NoOverride)
-                                    prefabTypes[compIdx] = (GhostPrefabType) myOverride.Value.PrefabType;
-                                else
-                                    // Problem: if the variant attribute changed, or we removed a variant,
-                                    // subscenes and prefabs aren't reconverted (they are not in the subscene or components).
-                                    // Unless we enforce only runtime stripping, checking what variant you expect at conversion
-                                    // is mandatory.
-                                    prefabTypes[compIdx] = variantType.PrefabType;
-                                if (myOverride.Value.SendTypeOptimization != GhostAuthoringInspectionComponent.ComponentOverride.NoOverride)
-                                    sendMasksOverride[compIdx] = myOverride.Value.SendTypeOptimization;
-                            }
-                            else
-                                prefabTypes[compIdx] = variantType.PrefabType;
                         }
+
+                        //Initialize the value with common default and they overwrite them in case is necessary.
+                        prefabTypes[compIdx] = GhostPrefabType.All;
+                        ulong variantHash = myOverride.HasValue ? myOverride.Value.ComponentVariant : 0;
+                        bool isRoot = !isChild;
+                        var variantType = serializerCollectionData.GetCurrentSerializationStrategyForComponent(allComponents[compIdx], variantHash, isRoot);
+                        variants[compIdx] = variantType.Hash;
+                        sendMasksOverride[compIdx] = GhostAuthoringInspectionComponent.ComponentOverride.NoOverride;
+
+                        // NW: Disabled warning while investigating CI timeout error on mac: [TimeoutExceptionMessage]: Timeout while waiting for a log message, no editor logging has happened during the timeout window
+                        //if (variantType.IsTestVariant != 0)
+                        //{
+                        //    Debug.LogWarning($"Ghost '{ghostAuthoringBakingData.GhostName}' uses a test variant {variantType.ToFixedString()}! Ensure this is only ever used in an Editor, test context.");
+                        //}
+
+                        //Initialize the common default and then overwrite in case
+                        if (myOverride.HasValue)
+                        {
+                            if (myOverride.Value.ComponentVariant != 0) // Not an error if the hash is 0 (default).
+                            {
+                                if (variantType.Hash != myOverride.Value.ComponentVariant)
+                                {
+                                    Debug.LogError($"Ghost '{ghostAuthoringBakingData.GhostName}' has an override for type {allComponents[compIdx].ToFixedString()} that sets the Variant to hash '{myOverride.Value.ComponentVariant}'. However, this hash is no longer present in code-gen, likely due to a code change removing or renaming the old variant. Thus, using Variant '{variantType.DisplayName}' (with hash: '{variantType.Hash}') and ignoring your \"Component Override\". Please open this prefab and re-apply.");
+                                }
+                            }
+
+                            //Only override the the default if the property is meant to (so always check for UseDefaultValue first)
+                            if (myOverride.Value.PrefabType != GhostAuthoringInspectionComponent.ComponentOverride.NoOverride)
+                                prefabTypes[compIdx] = (GhostPrefabType) myOverride.Value.PrefabType;
+                            else
+                                // Problem: if the variant attribute changed, or we removed a variant,
+                                // subscenes and prefabs aren't reconverted (they are not in the subscene or components).
+                                // Unless we enforce only runtime stripping, checking what variant you expect at conversion
+                                // is mandatory.
+                                prefabTypes[compIdx] = variantType.PrefabType;
+                            if (myOverride.Value.SendTypeOptimization != GhostAuthoringInspectionComponent.ComponentOverride.NoOverride)
+                                sendMasksOverride[compIdx] = myOverride.Value.SendTypeOptimization;
+                        }
+                        else
+                            prefabTypes[compIdx] = variantType.PrefabType;
+                    }
+                }
+
+                GhostPrefabCreation.Config config = new GhostPrefabCreation.Config
+                {
+                    Name = ghostAuthoringBakingData.GhostName,
+                    Importance = ghostAuthoringBakingData.BakingConfig.Importance,
+                    SupportedGhostModes = ghostAuthoringBakingData.BakingConfig.SupportedGhostModes,
+                    DefaultGhostMode = ghostAuthoringBakingData.BakingConfig.DefaultGhostMode,
+                    OptimizationMode = ghostAuthoringBakingData.BakingConfig.OptimizationMode,
+                    UsePreSerialization = ghostAuthoringBakingData.BakingConfig.UsePreSerialization
+                };
+
+                GhostPrefabCreation.FinalizePrefabComponents(config, EntityManager,
+                    rootEntity, ghostAuthoringBakingData.GhostType, linkedEntities,
+                    allComponents, componentCounts, ghostAuthoringBakingData.Target, prefabTypes);
+
+                if (ghostAuthoringBakingData.IsPrefab)
+                {
+                    var contentHash = TypeHash.FNV1A64(ghostAuthoringBakingData.BakingConfig.Importance);
+                    contentHash = TypeHash.CombineFNV1A64(contentHash,
+                        TypeHash.FNV1A64((int) ghostAuthoringBakingData.BakingConfig.SupportedGhostModes));
+                    contentHash = TypeHash.CombineFNV1A64(contentHash,
+                        TypeHash.FNV1A64((int) ghostAuthoringBakingData.BakingConfig.DefaultGhostMode));
+                    contentHash = TypeHash.CombineFNV1A64(contentHash,
+                        TypeHash.FNV1A64((int) ghostAuthoringBakingData.BakingConfig.OptimizationMode));
+                    contentHash = TypeHash.CombineFNV1A64(contentHash, ghostAuthoringBakingData.GhostNameHash);
+                    for (int i = 0; i < componentCounts[0]; ++i)
+                    {
+                        var comp = allComponents[i];
+                        var prefabType = prefabTypes[i];
+                        contentHash = TypeHash.CombineFNV1A64(contentHash,
+                            TypeManager.GetTypeInfo(comp.TypeIndex).StableTypeHash);
+                        contentHash = TypeHash.CombineFNV1A64(contentHash, TypeHash.FNV1A64((int) prefabType));
                     }
 
-                    GhostPrefabCreation.Config config = new GhostPrefabCreation.Config
+                    compIdx = componentCounts[0];
+                    for (int i = 1; i < linkedEntities.Length; ++i)
                     {
-                        Name = ghostAuthoringBakingData.GhostName,
-                        Importance = ghostAuthoringBakingData.BakingConfig.Importance,
-                        SupportedGhostModes = ghostAuthoringBakingData.BakingConfig.SupportedGhostModes,
-                        DefaultGhostMode = ghostAuthoringBakingData.BakingConfig.DefaultGhostMode,
-                        OptimizationMode = ghostAuthoringBakingData.BakingConfig.OptimizationMode,
-                        UsePreSerialization = ghostAuthoringBakingData.BakingConfig.UsePreSerialization
-                    };
-
-                    GhostPrefabCreation.FinalizePrefabComponents(config, EntityManager,
-                        rootEntity, ghostAuthoringBakingData.GhostType, linkedEntities,
-                        allComponents, componentCounts, ghostAuthoringBakingData.Target, prefabTypes);
-
-                    if (ghostAuthoringBakingData.IsPrefab)
-                    {
-                        var contentHash = TypeHash.FNV1A64(ghostAuthoringBakingData.BakingConfig.Importance);
-                        contentHash = TypeHash.CombineFNV1A64(contentHash,
-                            TypeHash.FNV1A64((int) ghostAuthoringBakingData.BakingConfig.SupportedGhostModes));
-                        contentHash = TypeHash.CombineFNV1A64(contentHash,
-                            TypeHash.FNV1A64((int) ghostAuthoringBakingData.BakingConfig.DefaultGhostMode));
-                        contentHash = TypeHash.CombineFNV1A64(contentHash,
-                            TypeHash.FNV1A64((int) ghostAuthoringBakingData.BakingConfig.OptimizationMode));
-                        contentHash = TypeHash.CombineFNV1A64(contentHash, ghostAuthoringBakingData.GhostNameHash);
-                        for (int i = 0; i < componentCounts[0]; ++i)
+                        contentHash = TypeHash.CombineFNV1A64(contentHash, TypeHash.FNV1A64(i));
+                        var numComponent = componentCounts[i];
+                        for (int k = 0; k < numComponent; ++k, ++compIdx)
                         {
-                            var comp = allComponents[i];
-                            var prefabType = prefabTypes[i];
+                            var comp = allComponents[compIdx];
+                            var prefabType = prefabTypes[compIdx];
                             contentHash = TypeHash.CombineFNV1A64(contentHash,
                                 TypeManager.GetTypeInfo(comp.TypeIndex).StableTypeHash);
                             contentHash = TypeHash.CombineFNV1A64(contentHash, TypeHash.FNV1A64((int) prefabType));
                         }
-
-                        compIdx = componentCounts[0];
-                        for (int i = 1; i < linkedEntities.Length; ++i)
-                        {
-                            contentHash = TypeHash.CombineFNV1A64(contentHash, TypeHash.FNV1A64(i));
-                            var numComponent = componentCounts[i];
-                            for (int k = 0; k < numComponent; ++k, ++compIdx)
-                            {
-                                var comp = allComponents[compIdx];
-                                var prefabType = prefabTypes[compIdx];
-                                contentHash = TypeHash.CombineFNV1A64(contentHash,
-                                    TypeManager.GetTypeInfo(comp.TypeIndex).StableTypeHash);
-                                contentHash = TypeHash.CombineFNV1A64(contentHash, TypeHash.FNV1A64((int) prefabType));
-                            }
-                        }
-
-                        var blobHash = new Unity.Entities.Hash128(
-                            ghostAuthoringBakingData.GhostType.guid0 ^ (uint) (contentHash >> 32),
-                            ghostAuthoringBakingData.GhostType.guid1 ^ (uint) (contentHash),
-                            ghostAuthoringBakingData.GhostType.guid2, ghostAuthoringBakingData.GhostType.guid3);
-                        // instanceIds[0] contains the root GameObject instance id
-                        if (context.NeedToComputeBlobAsset(blobHash))
-                        {
-                            var blobAsset = GhostPrefabCreation.CreateBlobAsset(config,
-                                EntityManager, rootEntity, linkedEntities,
-                                allComponents, componentCounts, ghostAuthoringBakingData.Target, prefabTypes,
-                                sendMasksOverride, variants);
-                            context.AddComputedBlobAsset(blobHash, blobAsset);
-                        }
-
-                        context.GetBlobAsset(blobHash, out var blob);
-                        EntityManager.SetComponentData(rootEntity, new GhostPrefabMetaData {Value = blob});
-
-                        // Create an additional prefab on _clients only_ which will be used for normal server triggered spawns of ghosts
-                        // local spawning will be by default predicted spawns (the only valid ghost spawn on clients)
-                        if (ghostAuthoringBakingData.IsPrefab &&
-                            (ghostAuthoringBakingData.Target == NetcodeConversionTarget.Client || ghostAuthoringBakingData.Target == NetcodeConversionTarget.ClientAndServer) &&
-                            (ghostAuthoringBakingData.BakingConfig.SupportedGhostModes & GhostModeMask.Predicted) == GhostModeMask.Predicted)
-                        {
-                            var additionalPrefab = EntityManager.Instantiate(rootEntity);
-                            EntityManager.AddComponentData(additionalPrefab, new AdditionalPrefab{RootEntity = rootEntity});
-                            var additionalLinkedEntities = EntityManager.GetBuffer<LinkedEntityGroup>(additionalPrefab);
-                            var childList = new NativeList<Entity>(Allocator.Temp);
-                            for (int i = 0; i < additionalLinkedEntities.Length; ++i)
-                            {
-                                var child = additionalLinkedEntities[i];
-                                var guid = EntityManager.GetComponentData<EntityGuid>(child.Value);
-                                var newGuid = new EntityGuid(guid.OriginatingId, 0, 0, (uint)(guid.b + 10000));
-                                EntityManager.SetComponentData<EntityGuid>(child.Value, newGuid);
-                                childList.Add(child.Value);
-                            }
-                            //We remove the TransformAuthoring component here because it is causing some issues with
-                            //baking, since the new root entity (and all its additional ones) are not referenced by the baking system.
-                            //In particular, when it comes to TransformAuthoringBakingSystem, because the TransformUsage is not
-                            //present in the TransformUsages hashmap, the LocalTransform, LocalToWorld and other components are
-                            //removed from the additional entity (some exception are triggered as well).
-
-                            //Given how these special instantiated entity work and the fact it is reverted when necessary by this system.
-                            //Another option is to remove the AdditionalEntityParent from all instantiated children to avoid involoutary
-                            //changes.
-                            //A better (an correct) solution would be to have a way to inform the baker about that new additional entity, that
-                            //can be added earlier by a normal baker
-                            EntityManager.RemoveComponent<TransformAuthoring>(childList.AsArray());
-                            EntityManager.AddComponent<Prefab>(childList.AsArray());
-                            EntityManager.AddComponent<PredictedGhostSpawnRequest>(rootEntity);
-
-                        }
                     }
-                }).WithStructuralChanges().WithoutBurst().WithEntityQueryOptions(EntityQueryOptions.IncludePrefab).Run();
-                rootsToProcess.Dispose();
-            }
+
+                    var blobHash = new Unity.Entities.Hash128(
+                        ghostAuthoringBakingData.GhostType.guid0 ^ (uint) (contentHash >> 32),
+                        ghostAuthoringBakingData.GhostType.guid1 ^ (uint) (contentHash),
+                        ghostAuthoringBakingData.GhostType.guid2, ghostAuthoringBakingData.GhostType.guid3);
+                    // instanceIds[0] contains the root GameObject instance id
+                    if (context.NeedToComputeBlobAsset(blobHash))
+                    {
+                        var blobAsset = GhostPrefabCreation.CreateBlobAsset(config,
+                            EntityManager, rootEntity, linkedEntities,
+                            allComponents, componentCounts, ghostAuthoringBakingData.Target, prefabTypes,
+                            sendMasksOverride, variants);
+                        context.AddComputedBlobAsset(blobHash, blobAsset);
+                    }
+
+                    context.GetBlobAsset(blobHash, out var blob);
+                    EntityManager.SetComponentData(rootEntity, new GhostPrefabMetaData {Value = blob});
+                }
+            }).WithStructuralChanges().WithoutBurst().WithEntityQueryOptions(EntityQueryOptions.IncludePrefab).Run();
+            rootsToProcess.Dispose();
         }
     }
 }

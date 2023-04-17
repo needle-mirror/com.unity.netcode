@@ -145,18 +145,18 @@ namespace Unity.NetCode
         public enum LoadingState
         {
             /// <summary>
-            /// The default state. Prefab not loaded or present (if the <see cref="GhostCollectionPrefab.GhostPrefab"/> reference is not <see cref="Entity.Null"/>.
+            /// The default state. Prefab not loaded or present (i.e. the <see cref="GhostCollectionPrefab.GhostPrefab"/> reference is <see cref="Entity.Null"/>).
             /// </summary>
             NotLoading = 0,
             /// <summary>
-            /// Signal the the client has started loading prefab (i.e the client is streaming the subscene content). The <see cref="GhostCollectionSystem"/>
-            /// will start monitoring the state of the resource, see <see cref="GhostCollectionPrefab.GhostPrefab"/>.
+            /// Denotes that the client has started loading the Entity Prefab (i.e the client is streaming the sub-scene content).
+            /// The <see cref="GhostCollectionSystem"/> will start monitoring the state of the resource (see <see cref="GhostCollectionPrefab.GhostPrefab"/>).
             /// </summary>
             LoadingActive,
             /// <summary>
-            /// The prefab is currently being loaded but either the entity does not exist or the prefab has been not processed yet.
-            /// This state should only be set the <see cref="GhostCollectionSystem"/>, and when the <see cref="GhostCollectionPrefab.Loading"/> state was set
-            /// to <see cref="LoadingActive"/>.
+            /// The prefab is currently being loaded, but either a) the prefab entity does not exist or b) the prefab has been not processed yet.
+            /// This state should only be set via the <see cref="GhostCollectionSystem"/>, and only when the <see cref="GhostCollectionPrefab.Loading"/> state
+            /// is currently set to <see cref="LoadingActive"/>.
             /// </summary>
             LoadingNotActive
         }

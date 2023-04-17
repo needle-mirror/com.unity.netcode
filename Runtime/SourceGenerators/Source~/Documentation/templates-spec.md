@@ -62,8 +62,8 @@ The following variables and regions can be used by the user when writing custom 
 ### REGIONS
 |||
 |------|------|
-|GHOST_FIELD| fields that will be added the snapshot for this type|
-|GHOST_IMPORTS| user defined using statement that should be included in the serializer code
+|GHOST_FIELD| fields that will be added the snapshot for this type | 
+|GHOST_IMPORTS| user defined using statement that should be included in the serializer code|
 |GHOST_RESTORE_FROM_BACKUP||
 |GHOST_PREDICT| code that calculate the predicted value for the current field |
 |GHOST_READ| code that deserialise the field value for the byte stream |

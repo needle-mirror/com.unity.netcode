@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.Linq;
 using System.Text.RegularExpressions;
 using Microsoft.CodeAnalysis;
@@ -154,7 +155,6 @@ namespace Unity.NetCode.Generators
                     replacements["TYPE_IS_INPUT_BUFFER"] = typeInfo.ComponentType == ComponentType.CommandData ? "1" : "0";
                     replacements["TYPE_IS_TEST_VARIANT"] = typeInfo.IsTestVariant ? "1" : "0";
                     replacements["TYPE_HAS_DONT_SUPPORT_PREFAB_OVERRIDES_ATTRIBUTE"] = typeInfo.HasDontSupportPrefabOverridesAttribute ? "1" : "0";
-                    replacements["TYPE_HAS_SUPPORTS_PREFAB_OVERRIDES_ATTRIBUTE"] = typeInfo.HasSupportsPrefabOverridesAttribute ? "1" : "0";
                     replacements["GHOST_PREFAB_TYPE"] = ss.GhostAttribute != null ? $"GhostPrefabType.{ss.GhostAttribute.PrefabType.ToString()}" : "GhostPrefabType.All";
 
                     if (typeInfo.GhostAttribute != null)
@@ -222,18 +222,9 @@ namespace Unity.NetCode.Generators
         {
             using(new Profiler.Auto("CodeGen"))
             {
-                var generator = InternalGenerateType(context, typeTree, typeTree.TypeFullName);
-                if (generator == null)
-                {
-                    context.diagnostic.LogError($"Unable to generate ghost serializer for GhostField '{context.generatorName}.{typeTree.FieldName}' (description: '{typeTree.Description}')!");
-                    return;
-                }
-
-                generator.GenerateMasks(context);
-
-                var serializeGenerator = new ComponentSerializer(context);
-                generator.AppendTarget(serializeGenerator);
-                serializeGenerator.GenerateSerializer(context, typeTree);
+                var generator = new ComponentSerializer(context, typeTree);
+                GenerateType(context, typeTree, generator, typeTree.TypeFullName, 0);
+                generator.GenerateSerializer(context, typeTree);
             }
         }
 
@@ -439,17 +430,83 @@ namespace Unity.NetCode.Generators
             GenerateGhost(context, bufferTypeTree);
         }
 
-        private static ComponentSerializer InternalGenerateType(Context context, TypeInformation type, string fullFieldName)
+        private static void GenerateType(Context context, TypeInformation type,
+            ComponentSerializer parentContainer, string fullFieldName, int fieldIndex)
         {
             context.executionContext.CancellationToken.ThrowIfCancellationRequested();
-
-            if (!type.IsValid)
-                return null;
-
             if (TryGetTypeTemplate(type, context, out var template))
             {
                 var generator = new ComponentSerializer(context, type, template);
-                return generator;
+                if (generator.Composite)
+                {
+                    // Find and apply the composite overrides, then skip those fragments when processing the composite fields
+                    var overrides = generator.GenerateCompositeOverrides(context, type.Parent);
+                    if (overrides != null)
+                        generator.AppendTarget(parentContainer);
+                    var fieldIt = 0;
+                    //Verify the assumptions: all generator must be primitive types
+                    if (generator.TypeInformation.GhostFields.Count > 0)
+                    {
+                        var areAllPrimitive = type.GhostFields.TrueForAll(f => f.Kind == GenTypeKind.Primitive);
+                        var field = type.GhostFields[0];
+                        if (!areAllPrimitive)
+                        {
+                            context.diagnostic.LogError(
+                                $"Can't generate a composite serializer for {type.Description}. The struct fields must be all primitive types but are {field.TypeFullName}!",
+                                type.Location);
+                            return;
+                        }
+                        var areAllSameType = type.GhostFields.TrueForAll(f => f.FieldTypeName == field.FieldTypeName);
+                        if (!areAllSameType)
+                        {
+                            context.diagnostic.LogError($"Can't generate a composite serializer for {type.Description}. The struct fields must be all of the same type.!. " +
+                                                        $"Check the template assignment in your UserDefinedTemplate class implementation. " +
+                                                        $"Composite templates should be used only for generating types that has all the same fields (i.e float3)", type.Location);
+                            return;
+                        }
+                    }
+                    foreach (var childGhostField in generator.TypeInformation.GhostFields)
+                    {
+                        //Composite templates forcibly aggregate the change masks. You can't override this behaviour with the
+                        //GhostField.Composite flags (at least the way it designed today).
+                        //Given also how they currently work, only basic fields types in practice can be supported. This is very limiting.
+                        //So, for now we restrict ourself to support only template here that generate always 1 bit change mask.
+                        //TODO: For these reasons, removing the concept of composite (from the template) make sense in my opinion.
+                        if (!TryGetTypeTemplate(type, context, out var fieldTemplate))
+                        {
+                            context.diagnostic.LogError(
+                                $"Inside type '{context.generatorName}', we could not find the exact template for field '{type.FieldName}' with configuration '{type.Description}', which means that netcode cannot serialize this type (with this configuration), as it does not know how. " +
+                                $"To rectify, either a) define your own template for this type (and configuration), b) resolve any other code-gen errors, or c) modify your GhostField(...) configuration (Quantization, SubType, SmoothingAction etc) to use a known, already existing template. Known templates are {context.registry.FormatAllKnownTypes()}. All known subTypes are {context.registry.FormatAllKnownSubTypes()}!",
+                                type.Location);
+                            context.diagnostic.LogError(
+                                $"Unable to generate serializer for GhostField '{type.TypeFullName}.{childGhostField.TypeFullName}.{childGhostField.TypeFullName}' (description: {childGhostField.Description}) while building the composite!",
+                                type.Location);
+                        }
+                        var g = new ComponentSerializer(context, childGhostField, fieldTemplate);
+                        g.GenerateFields(context, childGhostField.Parent, overrides);
+
+                        g.GenerateMasks(context, true, fieldIt);
+                        g.AppendTarget(parentContainer);
+                        ++fieldIt;
+                    }
+                    //We need to increment both the total current and total changemask bit counter if the
+                    //parent class does not aggregate field.
+                    if (!parentContainer.TypeInformation.Attribute.aggregateChangeMask)
+                    {
+                        ++context.changeMaskBitCount;
+                        ++context.curChangeMaskBits;
+                    }
+                    return;
+                }
+                generator.GenerateFields(context, type.Parent);
+                generator.GenerateMasks(context, type.Attribute.aggregateChangeMask, fieldIndex);
+                generator.AppendTarget(parentContainer);
+                if (!parentContainer.TypeInformation.Attribute.aggregateChangeMask)
+                {
+                    ++context.changeMaskBitCount;
+                    ++context.curChangeMaskBits;
+                }
+                return;
             }
             // If it's a primitive type and we still have not found a template to use, we can't go any deeper and it's an error
             var isErrorBecausePrimitive = type.Kind == GenTypeKind.Primitive;
@@ -457,73 +514,31 @@ namespace Unity.NetCode.Generators
             if (isErrorBecausePrimitive || isErrorBecauseMustFindSubType)
             {
                 context.diagnostic.LogError($"Inside type '{context.generatorName}', we could not find the exact template for field '{type.FieldName}' with configuration '{type.Description}', which means that netcode cannot serialize this type (with this configuration), as it does not know how. " +
-                    $"To rectify, either a) define your own template for this type (and configuration), b) resolve any other code-gen errors, or c) modify your GhostField(...) configuration (Quantization, SubType, SmoothingAction etc) to use a known, already existing template. Known templates are {context.registry.FormatAllKnownTypes()}. All known subTypes are {context.registry.FormatAllKnownSubTypes()}!", type.Location);
-                return null;
-            }
-
-            var typeGenerator = new ComponentSerializer(context, type);
-
-            bool composite = type.Attribute.composite;
-            int index = 0;
-
-            foreach (var field in type.GhostFields)
-            {
-                var generator = InternalGenerateType(context, field, $"{field.DeclaringTypeFullName}.{field.FieldName}");
-                if (generator == null)
-                {
-                    context.diagnostic.LogError($"Unable to generate serializer for GhostField '{type.TypeFullName}.{field.TypeFullName}' (description: {field.Description}) while iterating through GhostFields!", type.Location);
-                    continue;
-                }
-                if (generator.Composite)
-                {
-                    var fieldIt = 0;
-                    // Find and apply the composite overrides, then skip those fragments when processing the composite fields
-                    var overrides = generator.GenerateCompositeOverrides(context, field.Parent);
-                    if (overrides != null)
-                        generator.AppendTarget(typeGenerator);
-                    foreach (var childGhostField in generator.TypeInformation.GhostFields)
-                    {
-                        var g = InternalGenerateType(context, childGhostField, $"{childGhostField.DeclaringTypeFullName}.{childGhostField.FieldName}");
-                        if (g == null)
-                        {
-                            context.diagnostic.LogError($"Unable to generate serializer for GhostField '{type.TypeFullName}.{field.TypeFullName}.{childGhostField.TypeFullName}' (description: {field.Description}) while building the composite!", type.Location);
-                            continue;
-                        }
-                        g.GenerateFields(context, childGhostField.Parent, overrides);
-                        g.GenerateMasks(context, true, fieldIt++);
-                        g.AppendTarget(typeGenerator);
-                    }
-                    ++context.FieldState.numFields;
-                    ++context.FieldState.curChangeMask;
-                    typeGenerator.GenerateMasks(context);
-                }
-                else
-                {
-                    generator.GenerateFields(context, field.Parent);
-                    generator.GenerateMasks(context, composite, index++);
-                    if (!composite && !generator.IsContainerType)
-                    {
-                        ++context.FieldState.numFields;
-                        ++context.FieldState.curChangeMask;
-                    }
-                    generator.AppendTarget(typeGenerator);
-                }
+                                            $"To rectify, either a) define your own template for this type (and configuration), b) resolve any other code-gen errors, or c) modify your GhostField(...) configuration (Quantization, SubType, SmoothingAction etc) to use a known, already existing template. Known templates are {context.registry.FormatAllKnownTypes()}. All known subTypes are {context.registry.FormatAllKnownSubTypes()}!", type.Location);
+                return;
             }
 
             if (type.GhostFields.Count == 0 && !type.ShouldSerializeEnabledBit)
-                context.diagnostic.LogError($"Couldn't find the TypeDescriptor for GhostField '{context.generatorName}.{type.FieldName}' the type {type.Description} when processing {fullFieldName}! Types must have either valid [GhostField] attributes, or a [GhostEnabledBit] (on an IEnableableComponent).", type.Location);
-
-            if (composite)
             {
-                ++context.FieldState.numFields;
-                ++context.FieldState.curChangeMask;
+                context.diagnostic.LogError($"Couldn't find the TypeDescriptor for GhostField '{context.generatorName}.{type.FieldName}' the type {type.Description} when processing {fullFieldName}! Types must have either valid [GhostField] attributes, or a [GhostEnabledBit] (on an IEnableableComponent).", type.Location);
+                return;
             }
 
-            typeGenerator.GenerateMasks(context);
-
-            return typeGenerator;
+            //Make a temporary container that is used to copy the current generated code.
+            var temp = new ComponentSerializer(context, type);
+            for (var index = 0; index < type.GhostFields.Count; index++)
+            {
+                var field = type.GhostFields[index];
+                GenerateType(context, field, temp, $"{field.DeclaringTypeFullName}.{field.FieldName}", index);
+            }
+            temp.AppendTarget(parentContainer);
+            //increment the mask bits if the current aggregation scope is completed.
+            if (type.Attribute.aggregateChangeMask && !parentContainer.TypeInformation.Attribute.aggregateChangeMask)
+            {
+                ++context.curChangeMaskBits;
+                ++context.changeMaskBitCount;
+            }
         }
-
         #endregion
 
         public struct GeneratedFile
@@ -588,11 +603,11 @@ namespace Unity.NetCode.Generators
             public readonly string generatedNs;
             public readonly TypeRegistry registry;
             public readonly IDiagnosticReporter diagnostic;
-            public CodeGenCache codeGenCache;
-            public List<GeneratedFile> batch;
-            public List<TypeInformation> types;
-            public HashSet<string> imports;
-            public HashSet<string> generatedTypes;
+            public readonly CodeGenCache codeGenCache;
+            public readonly List<GeneratedFile> batch;
+            public readonly List<TypeInformation> types;
+            public readonly HashSet<string> imports;
+            public readonly HashSet<string> generatedTypes;
             public struct SerializationStrategyCodeGen
             {
                 public TypeInformation TypeInfo;
@@ -605,24 +620,23 @@ namespace Unity.NetCode.Generators
                 public string InputBufferComponentTypeName;
 
             }
-            public List<SerializationStrategyCodeGen> serializationStrategies;
+            public readonly List<SerializationStrategyCodeGen> serializationStrategies;
+
             public string variantType;
             public ulong variantHash;
             public string generatorName;
-
-            public struct CurrentFieldState
-            {
-                public int numFields;
-                public int curChangeMask;
-                public ulong ghostFieldHash;
-            }
-            public CurrentFieldState FieldState;
+            //Total number of changeMaskBits bits
+            public int changeMaskBitCount;
+            //The current used mask bits
+            public int curChangeMaskBits;
+            public ulong ghostFieldHash;
+            //public CurrentFieldState FieldState;
 
             public void ResetState()
             {
-                FieldState.numFields = 0;
-                FieldState.curChangeMask = 0;
-                FieldState.ghostFieldHash = 0;
+                changeMaskBitCount = 0;
+                curChangeMaskBits = 0;
+                ghostFieldHash = 0;
                 variantType = null;
                 variantHash = 0;
                 imports.Clear();

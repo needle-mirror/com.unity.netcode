@@ -285,9 +285,20 @@ namespace Unity.NetCode
     }
 
     /// <summary>
-    /// Component used to request predictive spawn of a ghost. Create an entity from a prefab
-    /// in the ghost collection with this tag added. You need to implement a custom spawn
-    /// classification system in order to use this.
+    /// Optional component, used to request predictive spawn of a ghosts by the client.
+    /// The component is automatically added to the authored ghost prefabs when:
+    /// <span>
+    /// - The baking target is <see cref="NetcodeConversionTarget.Client"/> or <see cref="NetcodeConversionTarget.ClientAndServer"/>.
+    /// - When using the hybrid authoring workflow, if the <see cref="GhostAuthoringComponent.SuypportedGhostModes"/>
+    /// is <see cref="GhostModeMask.Predicted"/> or <see cref="GhostModeMask.All"/>.
+    /// - When using the <see cref="GhostPrefabCreation.ConvertToGhostPrefab"/>, if the
+    /// <see cref="GhostPrefabCreation.Config.SupportedGhostModes"/> is set to <see cref="GhostModeMask.Predicted"/> or <see cref="GhostModeMask.All"/>.
+    /// </span>
+    /// The predicted spawn request is consumed by <see cref="PredictedGhostSpawnSystem"/>, which will remove the component from the
+    /// instantiated entity after an initial setup. <br/>
+    /// The package provides a default handling for predictive spawning (<see cref="DefaultGhostSpawnClassificationSystem"/>).
+    /// In case you need a custom or more accurate way to match the predicted spawned entities with the authoritive server spawned ones,
+    /// you can implement a custom spawn classification system. See <see cref="GhostSpawnClassificationSystem"/> for further details.
     /// </summary>
     public struct PredictedGhostSpawnRequest : IComponentData
     {

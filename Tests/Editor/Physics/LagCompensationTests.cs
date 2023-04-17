@@ -287,8 +287,8 @@ namespace Unity.NetCode.Physics.Tests
             {
                 // Test lag compensation with 100ms ping
                 testWorld.DriverSimulatedDelay = 50;
-                testWorld.NetCodeAssemblies.Add("Unity.NetCode.Physics,");
-                testWorld.NetCodeAssemblies.Add("Unity.Physics,");
+                testWorld.TestSpecificAdditionalAssemblies.Add("Unity.NetCode.Physics,");
+                testWorld.TestSpecificAdditionalAssemblies.Add("Unity.Physics,");
                 testWorld.Bootstrap(true);
 
                 testWorld.CreateWorlds(true, 1, false);
@@ -318,8 +318,8 @@ namespace Unity.NetCode.Physics.Tests
             {
                 // Test lag compensation with 100ms ping
                 testWorld.DriverSimulatedDelay = 50;
-                testWorld.NetCodeAssemblies.Add("Unity.NetCode.Physics,");
-                testWorld.NetCodeAssemblies.Add("Unity.Physics,");
+                testWorld.TestSpecificAdditionalAssemblies.Add("Unity.NetCode.Physics,");
+                testWorld.TestSpecificAdditionalAssemblies.Add("Unity.Physics,");
 
                 testWorld.Bootstrap(true,
                     typeof(TestAutoInGameSystem),

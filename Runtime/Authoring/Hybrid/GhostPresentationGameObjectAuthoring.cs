@@ -47,6 +47,7 @@ namespace Unity.NetCode.Hybrid
 #endif
     }
 
+    [BakingVersion("cmarastoni", 1)]
     class GhostPresentationGameObjectBaker : Baker<GhostPresentationGameObjectAuthoring>
 #if !UNITY_DISABLE_MANAGED_COMPONENTS
         , IRegisterPlayableData

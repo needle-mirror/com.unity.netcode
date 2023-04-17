@@ -133,7 +133,8 @@ namespace Unity.NetCode.Tests
 
                 //testWorld.ConvertGhostCollection(testWorld.ClientWorlds[0]);
                 onDemandSystem.IsLoading = false;
-                LogAssert.Expect(UnityEngine.LogType.Error, "The ghost collection contains a ghost which does not have a valid prefab on the client");
+                LogAssert.Expect(UnityEngine.LogType.Error, new Regex("The ghost collection contains a ghost which does not have a valid prefab on the client!"));
+                LogAssert.Expect(UnityEngine.LogType.Error, "Disconnecting all the connections because of errors while processing the ghost prefabs (see previous reported errors).");
                 for (int i = 0; i < 2; ++i)
                     testWorld.Tick(frameTime);
             }

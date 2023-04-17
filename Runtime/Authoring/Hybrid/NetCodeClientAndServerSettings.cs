@@ -3,21 +3,27 @@ using System;
 using Unity.Entities.Build;
 using UnityEditor;
 using UnityEngine;
+using UnityEngine.PlayerLoop;
+using UnityEngine.UIElements;
 
 namespace Unity.NetCode.Hybrid
 {
+    /// <summary>
+    /// The <see cref="IEntitiesPlayerSettings"/> baking settings to use for server builds. You can assign the <see cref="GUID"/>
+    /// to the <see cref="Unity.Scenes.SceneSystemData.BuildConfigurationGUID"/> to instrument the asset import worker to bake the
+    /// scene using this setting.
+    /// </summary>
     [FilePath("ProjectSettings/NetCodeClientAndServerSettings.asset", FilePathAttribute.Location.ProjectFolder)]
-    internal class NetCodeClientAndServerSettings : ScriptableSingleton<NetCodeClientAndServerSettings>, IEntitiesPlayerSettings, INetCodeConversionTarget
+    public class NetCodeClientAndServerSettings : ScriptableSingleton<NetCodeClientAndServerSettings>, IEntitiesPlayerSettings, INetCodeConversionTarget
     {
         NetcodeConversionTarget INetCodeConversionTarget.NetcodeTarget => NetcodeConversionTarget.ClientAndServer;
 
-        [SerializeField]
-        public BakingSystemFilterSettings FilterSettings;
+        [SerializeField] private BakingSystemFilterSettings FilterSettings;
 
-        [SerializeField]
-        public string[] AdditionalScriptingDefines = Array.Empty<string>();
+        [SerializeField] private string[] AdditionalScriptingDefines = Array.Empty<string>();
 
         static Entities.Hash128 s_Guid;
+        /// <inheritdoc/>
         public Entities.Hash128 GUID
         {
             get
@@ -28,13 +34,15 @@ namespace Unity.NetCode.Hybrid
             }
         }
 
+        /// <inheritdoc/>
         public string CustomDependency => GetFilePath();
+        /// <inheritdoc/>
         void IEntitiesPlayerSettings.RegisterCustomDependency()
         {
             var hash = GetHash();
             AssetDatabase.RegisterCustomDependency(CustomDependency, hash);
         }
-
+        /// <inheritdoc/>
         public UnityEngine.Hash128 GetHash()
         {
             var hash = (UnityEngine.Hash128)GUID;
@@ -48,17 +56,17 @@ namespace Unity.NetCode.Hybrid
                 hash.Append(define);
             return hash;
         }
-
+        /// <inheritdoc/>
         public BakingSystemFilterSettings GetFilterSettings()
         {
             return FilterSettings;
         }
-
+        /// <inheritdoc/>
         public string[] GetAdditionalScriptingDefines()
         {
             return AdditionalScriptingDefines;
         }
-
+        /// <inheritdoc/>
         ScriptableObject IEntitiesPlayerSettings.AsScriptableObject() => instance;
 
         internal void Save()

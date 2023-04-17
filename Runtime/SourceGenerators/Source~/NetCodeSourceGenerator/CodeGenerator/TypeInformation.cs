@@ -77,7 +77,6 @@ namespace Unity.NetCode.Generators
         public List<TypeInformation> GhostFields = new List<TypeInformation>();
         public bool ShouldSerializeEnabledBit;
         public bool HasDontSupportPrefabOverridesAttribute;
-        public bool HasSupportsPrefabOverridesAttribute;
         public bool IsTestVariant;
 
         public TypeDescription Description => new TypeDescription
@@ -91,7 +90,7 @@ namespace Unity.NetCode.Generators
 
         public override string ToString()
         {
-            return $"{TypeFullName} (quantized={Attribute.quantization} composite={Attribute.composite} smoothing={Attribute.smoothing} subtype={Attribute.subtype})";
+            return $"{TypeFullName} (quantized={Attribute.quantization} composite={Attribute.aggregateChangeMask} smoothing={Attribute.smoothing} subtype={Attribute.subtype})";
         }
     }
 }

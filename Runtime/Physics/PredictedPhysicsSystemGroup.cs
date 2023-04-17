@@ -110,7 +110,7 @@ namespace Unity.NetCode
             physicsSystemTypes.Add(typeof(PhysicsSystemGroup), true);
 
             bool didMove = true;
-            var fixedUpdateSystems = srcGrp.Systems;
+            var fixedUpdateSystems = srcGrp.ManagedSystems;
             while (didMove)
             {
                 didMove = false;

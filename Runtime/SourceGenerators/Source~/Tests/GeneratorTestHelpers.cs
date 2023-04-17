@@ -226,6 +226,18 @@ namespace Unity
         public struct FixedString32Bytes
         {
         }
+        public struct FixedString64Bytes
+        {
+        }
+        public struct FixedString128Bytes
+        {
+        }
+        public struct FixedString512Bytes
+        {
+        }
+        public struct FixedString4096Bytes
+        {
+        }
     }
     namespace Transforms
     {

@@ -36,7 +36,12 @@ namespace Unity.Scenes.Editor.Tests
                 EditorUserBuildSettings.development = originalValue;
             }
         }
+
+#if false
+        // APV doesn't respect the Ignore attribute to disable tests, so ifdef explicitly
+        // https://unity.slack.com/archives/C04UGPY27S9/p1683136704435259
         [Test]
+        [Ignore("Needs ADDR-3368 to work reliably on APV.")]
         public void SuccessfulClientBuildTest()
         {
             // Temporary hack to work around issue where headless no-graphics CI pass would spit out
@@ -79,6 +84,7 @@ namespace Unity.Scenes.Editor.Tests
         }
 
         [Test]
+        [Ignore("Needs ADDR-3368 to work reliably on APV.")]
         public void SuccessfulClientAndServerBuildTest()
         {
             // Temporary hack to work around issue where headless no-graphics CI pass would spit out
@@ -117,7 +123,7 @@ namespace Unity.Scenes.Editor.Tests
                 NetCodeClientSettings.instance.ClientTarget = originalNetCodeClientTarget;
             }
         }
-
+#endif
 
         static void EnsureResourceCatalogHasBeenDeployed(string uniqueTempPath, bool isOSXEditor, BuildReport report)
         {

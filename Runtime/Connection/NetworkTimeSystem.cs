@@ -232,7 +232,7 @@ namespace Unity.NetCode
             bool isInGame = SystemAPI.HasSingleton<NetworkStreamInGame>();
 
             float deltaTime = SystemAPI.Time.DeltaTime;
-            if(isInGame && ClientServerBootstrap.HasServerWorld.Data != 0)
+            if(isInGame && ClientServerBootstrap.HasServerWorld)
             {
                 var maxDeltaTicks = (uint)tickRate.MaxSimulationStepsPerFrame * (uint)tickRate.MaxSimulationStepBatchSize;
                 if (deltaTime > (float) maxDeltaTicks / (float) tickRate.SimulationTickRate)

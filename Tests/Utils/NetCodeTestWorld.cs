@@ -65,7 +65,6 @@ namespace Unity.NetCode.Tests
         private List<GameObject> m_GhostCollection;
         private BlobAssetStore m_BlobAssetStore;
 #endif
-        public List<string> NetCodeAssemblies = new List<string> { };
 
         private static void ForwardUnityLoggingToDebugLog()
         {
@@ -164,16 +163,15 @@ namespace Unity.NetCode.Tests
         private static IReadOnlyList<Type> s_AllClientSystems;
         private static IReadOnlyList<Type> s_AllThinClientSystems;
         private static IReadOnlyList<Type> s_AllServerSystems;
-        private static List<Type> s_NetCodeClientSystems;
-        private static List<Type> s_NetCodeThinClientSystems;
-        private static List<Type> s_NetCodeServerSystems;
 
         private static List<Type> m_ControlSystems;
         private static List<Type> m_ClientSystems;
         private static List<Type> m_ThinClientSystems;
         private static List<Type> m_ServerSystems;
 
-        public List<Type> TestSpecificAdditionalSystems = new List<Type>();
+        public List<Type> TestSpecificAdditionalSystems = new List<Type>(8);
+        public List<string> TestSpecificAdditionalAssemblies = new List<string>(8);
+
         int m_NumClients = -1;
 
         private static bool IsFromNetCodeAssembly(Type sys)
@@ -188,12 +186,23 @@ namespace Unity.NetCode.Tests
                 typeof(IGhostComponentSerializerRegistration).IsAssignableFrom(sys);
         }
 
+        private bool IsFromTestSpecificAdditionalAssembly(Type sys)
+        {
+            var sysAssemblyFullName = sys.Assembly.FullName;
+            foreach (var extraNetcodeAssembly in TestSpecificAdditionalAssemblies)
+            {
+                if (sysAssemblyFullName.StartsWith(extraNetcodeAssembly, StringComparison.Ordinal))
+                    return true;
+            }
+            return false;
+        }
+
         public void Bootstrap(bool includeNetCodeSystems, params Type[] userSystems)
         {
-            m_ControlSystems = new List<Type>();
-            m_ClientSystems = new List<Type>();
-            m_ThinClientSystems = new List<Type>();
-            m_ServerSystems = new List<Type>();
+            m_ControlSystems = new List<Type>(256);
+            m_ClientSystems = new List<Type>(256);
+            m_ThinClientSystems = new List<Type>(256);
+            m_ServerSystems = new List<Type>(256);
 #if !UNITY_SERVER
             m_ControlSystems.Add(typeof(TickClientInitializationSystem));
             m_ControlSystems.Add(typeof(TickClientSimulationSystem));
@@ -203,81 +212,23 @@ namespace Unity.NetCode.Tests
             m_ControlSystems.Add(typeof(TickServerSimulationSystem));
             m_ControlSystems.Add(typeof(DriverMigrationSystem));
 
-            if (s_NetCodeClientSystems == null)
-            {
-                s_NetCodeClientSystems = new List<Type>();
-                s_AllClientSystems = DefaultWorldInitialization.GetAllSystems(WorldSystemFilterFlags.ClientSimulation);
-                foreach (var sys in s_AllClientSystems)
-                {
-                    if (IsFromNetCodeAssembly(sys))
-                        s_NetCodeClientSystems.Add(sys);
-                }
-            }
+            s_AllClientSystems ??= DefaultWorldInitialization.GetAllSystems(WorldSystemFilterFlags.ClientSimulation);
+            s_AllThinClientSystems ??= DefaultWorldInitialization.GetAllSystems(WorldSystemFilterFlags.ThinClientSimulation);
+            s_AllServerSystems ??= DefaultWorldInitialization.GetAllSystems(WorldSystemFilterFlags.ServerSimulation);
 
-            if (s_NetCodeThinClientSystems == null)
-            {
-                s_NetCodeThinClientSystems = new List<Type>();
-                s_AllThinClientSystems = DefaultWorldInitialization.GetAllSystems(WorldSystemFilterFlags.ThinClientSimulation);
-                foreach (var sys in s_AllThinClientSystems)
-                {
-                    if (IsFromNetCodeAssembly(sys))
-                        s_NetCodeThinClientSystems.Add(sys);
-                }
-            }
+            bool IncludeNetcodeSystemsFilter(Type x) => IsFromNetCodeAssembly(x) || IsFromTestSpecificAdditionalAssembly(x);
 
-            if (s_NetCodeServerSystems == null)
-            {
-                s_NetCodeServerSystems = new List<Type>();
-                s_AllServerSystems = DefaultWorldInitialization.GetAllSystems(WorldSystemFilterFlags.ServerSimulation);
-                foreach (var sys in s_AllServerSystems)
-                {
-                    if (IsFromNetCodeAssembly(sys))
-                        s_NetCodeServerSystems.Add(sys);
-                }
-            }
+            Func<Type, bool> filter = includeNetCodeSystems
+                ? IncludeNetcodeSystemsFilter
+                : IsFromTestSpecificAdditionalAssembly;
 
-            if (includeNetCodeSystems)
-            {
-                m_ClientSystems.AddRange(s_NetCodeClientSystems);
-                m_ThinClientSystems.AddRange(s_NetCodeThinClientSystems);
-                m_ServerSystems.AddRange(s_NetCodeServerSystems);
-            }
+            m_ClientSystems.AddRange(s_AllClientSystems.Where(filter));
+            m_ThinClientSystems.AddRange(s_AllThinClientSystems.Where(filter));
+            m_ServerSystems.AddRange(s_AllServerSystems.Where(filter));
+
             m_ClientSystems.AddRange(TestSpecificAdditionalSystems);
             m_ThinClientSystems.AddRange(TestSpecificAdditionalSystems);
             m_ServerSystems.AddRange(TestSpecificAdditionalSystems);
-
-            if (NetCodeAssemblies.Count > 0)
-            {
-                foreach (var sys in s_AllClientSystems)
-                {
-                    bool shouldAdd = false;
-                    var sysName = sys.Assembly.FullName;
-                    foreach (var asm in NetCodeAssemblies)
-                        shouldAdd |= sysName.StartsWith(asm);
-                    if (shouldAdd)
-                        m_ClientSystems.Add(sys);
-                }
-
-                foreach (var sys in s_AllThinClientSystems)
-                {
-                    bool shouldAdd = false;
-                    var sysName = sys.Assembly.FullName;
-                    foreach (var asm in NetCodeAssemblies)
-                        shouldAdd |= sysName.StartsWith(asm);
-                    if (shouldAdd)
-                        m_ThinClientSystems.Add(sys);
-                }
-
-                foreach (var sys in s_AllServerSystems)
-                {
-                    bool shouldAdd = false;
-                    var sysName = sys.Assembly.FullName;
-                    foreach (var asm in NetCodeAssemblies)
-                        shouldAdd |= sysName.StartsWith(asm);
-                    if (shouldAdd)
-                        m_ServerSystems.Add(sys);
-                }
-            }
 
             foreach (var sys in userSystems)
             {
@@ -326,6 +277,7 @@ namespace Unity.NetCode.Tests
 #endif
             if (!m_DefaultWorldInitialized)
             {
+                TypeManager.SortSystemTypesInCreationOrder(m_ControlSystems); // Ensure CreationOrder is respected.
                 DefaultWorldInitialization.AddSystemsToRootLevelSystemGroups(m_DefaultWorld,
                     m_ControlSystems);
                 m_DefaultWorldInitialized = true;
@@ -390,6 +342,7 @@ namespace Unity.NetCode.Tests
         {
             if (world == null)
                 world = new World(name, WorldFlags.GameServer);
+            TypeManager.SortSystemTypesInCreationOrder(m_ServerSystems); // Ensure CreationOrder is respected.
             DefaultWorldInitialization.AddSystemsToRootLevelSystemGroups(world, m_ServerSystems);
             var initializationGroup = world.GetExistingSystemManaged<InitializationSystemGroup>();
             var simulationGroup = world.GetExistingSystemManaged<SimulationSystemGroup>();
@@ -411,6 +364,7 @@ namespace Unity.NetCode.Tests
                 world = new World(name, thinClient ? WorldFlags.GameThinClient : WorldFlags.GameClient);
 
             // TODO: GameThinClient for ThinClientSystem for ultra thin
+            TypeManager.SortSystemTypesInCreationOrder(m_ClientSystems); // Ensure CreationOrder is respected.
             DefaultWorldInitialization.AddSystemsToRootLevelSystemGroups(world, m_ClientSystems);
             var initializationGroup = world.GetExistingSystemManaged<InitializationSystemGroup>();
             var simulationGroup = world.GetExistingSystemManaged<SimulationSystemGroup>();
@@ -522,7 +476,6 @@ namespace Unity.NetCode.Tests
 
         public void CreateClientDriver(World world, ref NetworkDriverStore driverStore, NetDebug netDebug)
         {
-            var reliabilityParams = new ReliableUtility.Parameters {WindowSize = 32};
             var packetDelay = DriverSimulatedDelay;
             int networkRate = 60;
 
@@ -549,12 +502,13 @@ namespace Unity.NetCode.Tests
                 RandomSeed = DriverRandomSeed
             };
             var networkSettings = new NetworkSettings();
-            networkSettings.WithNetworkConfigParameters
+            networkSettings
+                .WithReliableStageParameters(windowSize:32)
+                .WithNetworkConfigParameters
             (
                 maxFrameTimeMS: 100,
                 fixedFrameTimeMS: DriverFixedTime
             );
-            networkSettings.AddRawParameterStruct(ref reliabilityParams);
             networkSettings.AddRawParameterStruct(ref simParams);
 
             //We are forcing here the connection type to be a socket but the connection is instead based on IPC.
@@ -604,18 +558,15 @@ namespace Unity.NetCode.Tests
 
         public void CreateServerDriver(World world, ref NetworkDriverStore driverStore, NetDebug netDebug)
         {
-            var reliabilityParams = new ReliableUtility.Parameters {WindowSize = 32};
-
             var networkSettings = new NetworkSettings();
-            networkSettings.WithNetworkConfigParameters(
+            networkSettings
+                .WithReliableStageParameters(windowSize: 32)
+                .WithNetworkConfigParameters(
                 maxFrameTimeMS: 100,
                 fixedFrameTimeMS: DriverFixedTime,
                 receiveQueueCapacity: QueueSizeFromPlayerCount(m_NumClients),
                 sendQueueCapacity: QueueSizeFromPlayerCount(m_NumClients)
             );
-
-            networkSettings.AddRawParameterStruct(ref reliabilityParams);
-
             var driverInstance = new NetworkDriverStore.NetworkDriverInstance();
             driverInstance.driver = NetworkDriver.Create(new IPCNetworkInterface(), networkSettings);
             DefaultDriverBuilder.CreateServerPipelines(ref driverInstance);
@@ -834,7 +785,7 @@ namespace Unity.NetCode.Tests
             var bakingSystem = intermediateWorld.GetExistingSystemManaged<BakingSystem>();
             var intermediateEntity = bakingSystem.GetEntity(go);
             var intermediateEntityGuid = intermediateWorld.EntityManager.GetComponentData<EntityGuid>(intermediateEntity);
-            
+
             // Copy all the tracked/baked entities. That TransformAuthoring is present on all entities added by the baker for the
             // converted gameobject. It is sufficient condition to copy all the additional entities as well.
             var builder = new EntityQueryBuilder(Allocator.Temp)

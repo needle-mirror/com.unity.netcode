@@ -30,6 +30,7 @@ namespace Unity.NetCode
     [WorldSystemFilter(WorldSystemFilterFlags.ServerSimulation | WorldSystemFilterFlags.ClientSimulation |
                        WorldSystemFilterFlags.ThinClientSimulation | WorldSystemFilterFlags.BakingSystem)]
     [CreateAfter(typeof(GhostComponentSerializerCollectionSystemGroup))]
+    [CreateBefore(typeof(DefaultVariantSystemGroup))]
     [UpdateInGroup(typeof(DefaultVariantSystemGroup))]
     public abstract partial class DefaultVariantSystemBase : SystemBase
     {
@@ -145,8 +146,14 @@ namespace Unity.NetCode
             //Some sanity check here are necessary
             var defaultVariants = new Dictionary<ComponentType, Rule>();
             RegisterDefaultVariants(defaultVariants);
-            // TODO - Prevent user-code from setting defaults for types with the DontSupportPrefabOverridesAttribute.
-            var variantRules = World.GetExistingSystemManaged<GhostComponentSerializerCollectionSystemGroup>().DefaultVariantRules;
+
+            var ghostComponentSerializerCollection = World.GetExistingSystemManaged<GhostComponentSerializerCollectionSystemGroup>();
+
+#if ENABLE_UNITY_COLLECTIONS_CHECKS
+            var cache = ghostComponentSerializerCollection.ghostComponentSerializerCollectionDataCache;
+            cache.ThrowIfNotInRegistrationPhase($"register `DefaultVariantSystemBase` child system `{GetType().Name}` in '{World.Name}'");
+#endif
+            var variantRules = ghostComponentSerializerCollection.DefaultVariantRules;
             foreach (var rule in defaultVariants)
                 variantRules.SetDefaultVariant(rule.Key, rule.Value, this);
             Enabled = false;

@@ -75,27 +75,33 @@ namespace Unity.NetCode
                 var ghostUpdateVersion = SystemAPI.GetSingleton<GhostUpdateVersion>();
                 var prefabs = SystemAPI.GetSingletonBuffer<GhostCollectionPrefab>().ToNativeArray(Allocator.Temp);
 
+                FixedList64Bytes<Entity> batchedDeletedWarnings = default;
+                uint batchedDeletedCount = 0;
                 while (m_ConvertToPredictedQueue.TryDequeue(out var conversion))
                 {
-                    //if entity has been already destroyed. silently skip;
-                    if (!state.EntityManager.Exists(conversion.TargetEntity))
-                    {
-                        netDebug.DebugLog("Attempt to convert entity {conversion.TargetEntity} to predicted but the entity has been destroyed.");
-                        continue;
-                    }
-                    ConvertGhostToPredicted(state.EntityManager, ghostUpdateVersion, netDebug, prefabs, conversion.TargetEntity, conversion.TransitionDurationSeconds);
+                    ConvertGhostToPredicted(state.EntityManager, ghostUpdateVersion, netDebug, prefabs, conversion.TargetEntity, conversion.TransitionDurationSeconds, ref batchedDeletedWarnings, ref batchedDeletedCount);
                 }
 
                 while (m_ConvertToInterpolatedQueue.TryDequeue(out var conversion))
                 {
-                    //if entity has been already destroyed. silently skip;
-                    if (!state.EntityManager.Exists(conversion.TargetEntity))
-                    {
-                        netDebug.DebugLog("Attempt to convert entity {conversion.TargetEntity} to interpolated but the entity has been destroyed.");
-                        continue;
-                    }
-                    ConvertGhostToInterpolated(state.EntityManager, ghostUpdateVersion, netDebug, prefabs, conversion.TargetEntity, conversion.TransitionDurationSeconds);
+                    ConvertGhostToInterpolated(state.EntityManager, ghostUpdateVersion, netDebug, prefabs, conversion.TargetEntity, conversion.TransitionDurationSeconds, ref batchedDeletedWarnings, ref batchedDeletedCount);
                 }
+
+#if ENABLE_UNITY_COLLECTIONS_CHECKS
+                if (batchedDeletedWarnings.Length > 0)
+                {
+                    FixedString512Bytes batchedWarning = $"Failed to 'switch prediction' on {batchedDeletedCount} entities as they don't exist! Likely destroyed after added to the queue. Subset of destroyed entities:[";
+                    foreach (var entity in batchedDeletedWarnings)
+                    {
+                        batchedWarning.Append(entity.ToFixedString());
+                        batchedWarning.Append(',');
+                    }
+                    if (batchedDeletedWarnings.Length == batchedWarning.Capacity)
+                        batchedWarning.Append((FixedString32Bytes)"etc");
+                    batchedWarning.Append((FixedString32Bytes)"].");
+                    netDebug.DebugLog(batchedWarning);
+                }
+#endif
             }
         }
 
@@ -104,8 +110,17 @@ namespace Unity.NetCode
         /// and it cannot be owner predicted. The new components added as a result of this operation will have the inital
         /// values from the ghost prefab.
         /// </summary>
-        static bool ConvertGhostToPredicted(EntityManager entityManager, GhostUpdateVersion ghostUpdateVersion, NetDebug netDbg, NativeArray<GhostCollectionPrefab> ghostCollectionPrefabs, Entity entity, float transitionDuration = 0)
+        static bool ConvertGhostToPredicted(EntityManager entityManager, GhostUpdateVersion ghostUpdateVersion, NetDebug netDbg, NativeArray<GhostCollectionPrefab> ghostCollectionPrefabs, Entity entity, float transitionDuration, ref FixedList64Bytes<Entity> destroyedEntities, ref uint batchedDeletedCount)
         {
+            if (!entityManager.Exists(entity))
+            {
+#if ENABLE_UNITY_COLLECTIONS_CHECKS
+                if(destroyedEntities.Length < destroyedEntities.Capacity)
+                    destroyedEntities.Add(entity);
+                batchedDeletedCount++;
+#endif
+                return false;
+            }
             if (!entityManager.HasComponent<GhostInstance>(entity))
             {
                 netDbg.LogError($"Trying to convert a ghost to predicted, but this is not a ghost entity! {entity.ToFixedString()}");
@@ -150,8 +165,17 @@ namespace Unity.NetCode
         /// and it cannot be owner predicted. The new components added as a result of this operation will have the inital
         /// values from the ghost prefab.
         /// </summary>
-        static bool ConvertGhostToInterpolated(EntityManager entityManager, GhostUpdateVersion ghostUpdateVersion, NetDebug netDbg, NativeArray<GhostCollectionPrefab> ghostCollectionPrefabs, Entity entity, float transitionDuration = 0)
+        static bool ConvertGhostToInterpolated(EntityManager entityManager, GhostUpdateVersion ghostUpdateVersion, NetDebug netDbg, NativeArray<GhostCollectionPrefab> ghostCollectionPrefabs, Entity entity, float transitionDuration, ref FixedList64Bytes<Entity> destroyedEntities, ref uint batchedDeletedCount)
         {
+            if (!entityManager.Exists(entity))
+            {
+#if ENABLE_UNITY_COLLECTIONS_CHECKS
+                if(destroyedEntities.Length < destroyedEntities.Capacity)
+                    destroyedEntities.Add(entity);
+                batchedDeletedCount++;
+#endif
+                return false;
+            }
             if (!entityManager.HasComponent<GhostInstance>(entity))
             {
                 netDbg.LogError($"Trying to convert a ghost to interpolated, but this is not a ghost entity! {entity.ToFixedString()}");

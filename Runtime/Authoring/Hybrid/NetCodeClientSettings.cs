@@ -5,6 +5,7 @@ using System.Linq;
 using Unity.Entities.Build;
 using UnityEditor;
 using UnityEditor.UIElements;
+using UnityEditorInternal;
 using UnityEngine;
 using UnityEngine.UIElements;
 using Hash128 = Unity.Entities.Hash128;
@@ -19,21 +20,27 @@ namespace Unity.NetCode.Hybrid
         ClientAndServer = 1
     }
 
+    /// <summary>
+    /// The <see cref="IEntitiesPlayerSettings"/> baking settings to use for client only builds. You can assign the <see cref="GUID"/>
+    /// to the <see cref="Unity.Scenes.SceneSystemData.BuildConfigurationGUID"/> to instrument the asset import worker to bake the
+    /// scene using this setting.
+    /// </summary>
     [FilePath("ProjectSettings/NetCodeClientSettings.asset", FilePathAttribute.Location.ProjectFolder)]
-    internal class NetCodeClientSettings : ScriptableSingleton<NetCodeClientSettings>, IEntitiesPlayerSettings, INetCodeConversionTarget
+    public class NetCodeClientSettings : ScriptableSingleton<NetCodeClientSettings>, IEntitiesPlayerSettings, INetCodeConversionTarget
     {
         NetcodeConversionTarget INetCodeConversionTarget.NetcodeTarget => NetcodeConversionTarget.Client;
 
         [SerializeField]
-        public BakingSystemFilterSettings FilterSettings;
+        private BakingSystemFilterSettings FilterSettings;
 
         [SerializeField]
-        public string[] AdditionalScriptingDefines = Array.Empty<string>();
+        private string[] AdditionalScriptingDefines = Array.Empty<string>();
 
         [SerializeField]
         public NetCodeClientTarget ClientTarget = NetCodeClientTarget.ClientAndServer;
 
         static Entities.Hash128 s_Guid;
+        /// <inheritdoc/>
         public Entities.Hash128 GUID
         {
             get
@@ -43,13 +50,15 @@ namespace Unity.NetCode.Hybrid
                 return s_Guid;
             }
         }
+        /// <inheritdoc/>
         public string CustomDependency => GetFilePath();
+        /// <inheritdoc/>
         void IEntitiesPlayerSettings.RegisterCustomDependency()
         {
             var hash = GetHash();
             AssetDatabase.RegisterCustomDependency(CustomDependency, hash);
         }
-
+        /// <inheritdoc/>
         public UnityEngine.Hash128 GetHash()
         {
             var hash = (UnityEngine.Hash128)GUID;
@@ -63,17 +72,17 @@ namespace Unity.NetCode.Hybrid
                 hash.Append(define);
             return hash;
         }
-
+        /// <inheritdoc/>
         public BakingSystemFilterSettings GetFilterSettings()
         {
             return FilterSettings;
         }
-
+        /// <inheritdoc/>
         public string[] GetAdditionalScriptingDefines()
         {
             return AdditionalScriptingDefines;
         }
-
+        /// <inheritdoc/>
         ScriptableObject IEntitiesPlayerSettings.AsScriptableObject() => instance;
 
         internal void Save()
@@ -88,15 +97,6 @@ namespace Unity.NetCode.Hybrid
 
     internal class ClientSettings : DotsPlayerSettingsProvider
     {
-        private const string m_EditorPrefsNetCodeClientTarget = "com.unity.entities.netcodeclient.target";
-
-        [Obsolete("Use NetCodeClientSettings.instance.ClientTarget instead. Note that this EditorPref has been clobbered by the default field value now, too. (RemovedAfter NetCode 1.0)")]
-        public NetCodeClientTarget NetCodeClientTarget
-        {
-            get => NetCodeClientSettings.instance.ClientTarget;
-            set => NetCodeClientSettings.instance.ClientTarget = value;
-        }
-
         private VisualElement m_rootElement;
 
         public override int Importance
@@ -109,23 +109,10 @@ namespace Unity.NetCode.Hybrid
             return DotsGlobalSettings.PlayerType.Client;
         }
 
-        protected override Hash128 DoGetPlayerSettingGUID()
+        protected override void DoReloadAsset()
         {
-            return GetSettingGUID(NetCodeClientSettings.instance.ClientTarget);
-        }
-
-        public Hash128 GetSettingGUID(NetCodeClientTarget target)
-        {
-            if (target == NetCodeClientTarget.Client)
-            {
-                return NetCodeClientSettings.instance.GUID;
-            }
-
-            if (target == NetCodeClientTarget.ClientAndServer)
-            {
-                return NetCodeClientAndServerSettings.instance.GUID;
-            }
-            return default;
+            ReloadAsset(NetCodeClientSettings.instance);
+            ReloadAsset(NetCodeClientAndServerSettings.instance);
         }
 
         public override void OnActivate(DotsGlobalSettings.PlayerType type, VisualElement rootElement)
@@ -185,7 +172,7 @@ namespace Unity.NetCode.Hybrid
             propField.RegisterCallback<ChangeEvent<string>>(
                 evt =>
                 {
-                    NetCodeClientSettings.instance.FilterSettings.SetDirty();
+                    NetCodeClientSettings.instance.GetFilterSettings().SetDirty();
                 });
             targetS.Add(propField);
 
@@ -197,16 +184,18 @@ namespace Unity.NetCode.Hybrid
             field.RegisterCallback<ChangeEvent<Enum>>(evt =>
             {
                 m_rootElement.Remove(targetElement);
-
+                var oldFlags = NetCodeClientSettings.instance.hideFlags;
                 var serializedObject = new SerializedObject(NetCodeClientSettings.instance);
                 var serializedProperty = serializedObject.FindProperty("ClientTarget");
                 serializedProperty.enumValueIndex = (int)(NetCodeClientTarget)evt.newValue;
-                serializedObject.ApplyModifiedProperties();
-
+                var hideFlags = serializedObject.FindProperty("m_ObjectHideFlags");
+                hideFlags.intValue = (int)HideFlags.HideAndDontSave;
+                if (serializedObject.ApplyModifiedProperties())
+                    NetCodeClientSettings.instance.Save();
+                NetCodeClientSettings.instance.hideFlags = oldFlags;
                 var newTargetElement = UpdateUI();
                 m_rootElement.Add(newTargetElement);
             });
-
             targetElement.Add(targetS);
             so.ApplyModifiedProperties();
 
@@ -231,17 +220,10 @@ namespace Unity.NetCode.Hybrid
         protected override IEntitiesPlayerSettings DoGetSettingAsset()
         {
             var netCodeClientSettings = NetCodeClientSettings.instance;
-            var netCodeClientTarget = netCodeClientSettings.ClientTarget;
-            if (netCodeClientTarget == NetCodeClientTarget.Client)
-            {
+            if (netCodeClientSettings.ClientTarget == NetCodeClientTarget.Client)
                 return netCodeClientSettings;
-            }
-
-            if (netCodeClientTarget == NetCodeClientTarget.ClientAndServer)
-            {
+            else
                 return NetCodeClientAndServerSettings.instance;
-            }
-            return null;
         }
     }
 }

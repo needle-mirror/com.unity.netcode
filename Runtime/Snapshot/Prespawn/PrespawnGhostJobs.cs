@@ -20,7 +20,6 @@ namespace Unity.NetCode
     // -------------------------------------------------------------
     // [COMPONENT DATA][SIZE][PADDING (3UINT)][DYNAMIC BUFFER DATA]
     // -------------------------------------------------------------
-    [GenerateTestsForBurstCompatibility]
     [BurstCompile]
     internal struct PrespawnGhostSerializer : IJobChunk
     {
@@ -201,7 +200,6 @@ namespace Unity.NetCode
     /// Assign to GhostComponent and GhostStateSystemComponent the ghost ids for all the prespawn ghosts.
     /// Also responsible to populate the SpawnedGhostMapping lists with all the spawned ghosts
     /// </summary>
-    [GenerateTestsForBurstCompatibility]
     [BurstCompile]
     internal struct AssignPrespawnGhostIdJob : IJobChunk
     {

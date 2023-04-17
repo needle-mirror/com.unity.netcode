@@ -143,62 +143,6 @@ namespace Unity.NetCode.GeneratorTests
         }
 
         [Test]
-        public void SourceGenerator_CompositeTypes()
-        {
-            var testData = @"
-            using Unity.Entities;
-            using Unity.NetCode;
-            using Unity.Mathematics;
-            public struct Compo1
-            {
-            public int x;
-            public int y;
-            }
-            public struct Compo2
-            {
-            public float x;
-            public float y;
-            }
-            public struct MyTest : IComponentData
-            {
-            [GhostField(Composite=true)] public Compo1 compo1;
-            [GhostField(Composite=true)] public Compo2 compo2;
-            }
-            ";
-            var receiver = GeneratorTestHelpers.CreateSyntaxReceiver();
-            var walker = new TestSyntaxWalker { receiver = receiver };
-            var tree = CSharpSyntaxTree.ParseText(testData);
-            tree.GetCompilationUnitRoot().Accept(walker);
-            Assert.AreEqual(1, walker.receiver.Candidates.Count);
-
-            var resuls = GeneratorTestHelpers.RunGenerators(tree);
-            var outputTree = resuls.GeneratedSources[0].SyntaxTree;
-            var snapshotDataSyntax = outputTree.GetRoot().DescendantNodes().OfType<StructDeclarationSyntax>()
-                .FirstOrDefault(node => node.Identifier.ValueText == "Snapshot");
-            Assert.IsNotNull(snapshotDataSyntax);
-            var expected = new[]
-            {
-                ("int", "compo1_x"),
-                ("int", "compo1_y"),
-                ("float", "compo2_x"),
-                ("float", "compo2_y"),
-            };
-            var maskBits = outputTree.GetRoot().DescendantNodes().OfType<FieldDeclarationSyntax>()
-                .FirstOrDefault(t => t.Declaration.Variables[0].Identifier.ValueText == "ChangeMaskBits");
-            Assert.IsNotNull(maskBits);
-            Assert.IsNotNull(maskBits.Declaration.Variables[0].Initializer);
-            Assert.AreEqual("2", maskBits.Declaration.Variables[0].Initializer.Value.ToString());
-            var members = snapshotDataSyntax.DescendantNodes().OfType<FieldDeclarationSyntax>().ToArray();
-            Assert.AreEqual(expected.Length, members.Length);
-            for (int i = 0; i < expected.Length; ++i)
-            {
-                Assert.AreEqual(expected[i].Item1, (members[i].Declaration.Type as PredefinedTypeSyntax)?.Keyword.Text,
-                    $"{i}");
-                Assert.AreEqual(expected[i].Item2, members[i].Declaration.Variables[0].Identifier.Text);
-            }
-        }
-
-        [Test]
         public void SourceGenerator_Mathematics()
         {
             var receiver = GeneratorTestHelpers.CreateSyntaxReceiver();
@@ -287,13 +231,14 @@ namespace Unity.NetCode.GeneratorTests
                 public struct Nested
                 {
                     public float2 f;
+                    public int a;
+                    public long b;
                 }
                 public struct InnerComponent : IComponentData
                 {
                     [GhostField] public float x;
                     [GhostField] public float y;
-                    [GhostField] public Nested n;
-                    [GhostField(Composite=true)] public Nested m;
+                    [GhostField] public Nested m;
                 }
             }";
             var receiver = GeneratorTestHelpers.CreateSyntaxReceiver();
@@ -312,10 +257,10 @@ namespace Unity.NetCode.GeneratorTests
             {
                 ("float", "x"),
                 ("float", "y"),
-                ("float", "n_f_x"),
-                ("float", "n_f_y"),
                 ("float", "m_f_x"),
                 ("float", "m_f_y"),
+                ("int", "m_a"),
+                ("long", "m_b"),
             };
             var maskBits = outputTree.GetRoot().DescendantNodes().OfType<FieldDeclarationSyntax>()
                 .FirstOrDefault(t => t.Declaration.Variables[0].Identifier.ValueText == "ChangeMaskBits");
@@ -333,6 +278,117 @@ namespace Unity.NetCode.GeneratorTests
         }
 
         [Test]
+        public void SourceGenerator_CompositeTemplates()
+        {
+            var testData = @"
+            using Unity.Entities;
+            using Unity.NetCode;
+            using Unity.Mathematics;
+            public struct AllCompositeTemplates : IComponentData
+            {
+            [GhostField] public float2 f2;
+            [GhostField] public float3 f3;
+            [GhostField] public float4 f4;
+            [GhostField] public quaternion q;
+            }
+            ";
+            var receiver = GeneratorTestHelpers.CreateSyntaxReceiver();
+            var walker = new TestSyntaxWalker { receiver = receiver };
+            var tree = CSharpSyntaxTree.ParseText(testData);
+            tree.GetCompilationUnitRoot().Accept(walker);
+            Assert.AreEqual(1, walker.receiver.Candidates.Count);
+            var resuls = GeneratorTestHelpers.RunGenerators(tree);
+            var outputTree = resuls.GeneratedSources[0].SyntaxTree;
+            var maskBits = outputTree.GetRoot().DescendantNodes().OfType<FieldDeclarationSyntax>()
+                .FirstOrDefault(t => t.Declaration.Variables[0].Identifier.ValueText == "ChangeMaskBits");
+            Assert.IsNotNull(maskBits);
+            Assert.IsNotNull(maskBits.Declaration.Variables[0].Initializer);
+            Assert.AreEqual("4", maskBits.Declaration.Variables[0].Initializer.Value.ToString());
+        }
+
+        [Test]
+        public void SourceGenerator_CompositeFlags()
+        {
+            var testData = @"
+            using Unity.Entities;
+            using Unity.NetCode;
+            using Unity.Mathematics;
+
+            //Normally it would have 2 bits mask.
+            //If used with aggregation will have one bit mask
+            public struct TwoFieldStruct
+            {
+                public float x; //1bit
+                public float y; //1bit
+            }
+            //not mask or bits
+            public struct EmptyStruct
+            {
+            }
+            //float2 uses 1bits mask, float 1 bit total 2 bits
+            //by setting composite (outside) we expect the whole struct takes 1 bit
+            public struct InnerCompositeStruct
+            {
+                public float2 f; //1bit always
+                public int g; //1bit
+                public TwoFieldStruct tf; //2bits
+                [GhostField(Composite=true) public TwoFieldStruct ctf; //1bit
+            }
+
+            public struct ComponentA : IComponentData
+            {
+                [GhostField] public Empty e;  //0 bit
+                [GhostField(Composite=true)] public InnerCompositeStruct a; //1bit
+                [GhostField(Composite=true)] public TwoFieldStruct b; //1bit
+            }
+            public struct ComponentB : IComponentData
+            {
+                [GhostField] public Empty e; //0 bit
+                [GhostField(Composite=false)] public InnerCompositeStruct a; //5bit (because composite cannot affect float2)
+                [GhostField(Composite=false)] public TwoFieldStruct b; //2bit
+            }";
+            var tree = CSharpSyntaxTree.ParseText(testData);
+            var resuls = GeneratorTestHelpers.RunGenerators(tree);
+            Assert.AreEqual(3, resuls.GeneratedSources.Length, "Num generated files does not match");
+
+            void CheckOutput(SyntaxTree outputTree, int numBits, (string, string)[] fields)
+            {
+                var snapshotDataSyntax = outputTree.GetRoot().DescendantNodes().OfType<StructDeclarationSyntax>()
+                    .FirstOrDefault(node => node.Identifier.ValueText == "Snapshot");
+                Assert.IsNotNull(snapshotDataSyntax);
+
+                var maskBits = outputTree.GetRoot().DescendantNodes().OfType<FieldDeclarationSyntax>()
+                    .FirstOrDefault(t => t.Declaration.Variables[0].Identifier.ValueText == "ChangeMaskBits");
+                Assert.IsNotNull(maskBits);
+                Assert.IsNotNull(maskBits.Declaration.Variables[0].Initializer);
+                Assert.AreEqual(numBits.ToString(), maskBits.Declaration.Variables[0].Initializer.Value.ToString());
+                var members = snapshotDataSyntax.DescendantNodes().OfType<FieldDeclarationSyntax>().ToArray();
+                Assert.AreEqual(fields.Length, members.Length);
+                for (int i = 0; i < fields.Length; ++i)
+                {
+                    Assert.AreEqual(fields[i].Item1, (members[i].Declaration.Type as PredefinedTypeSyntax)?.Keyword.Text,
+                        $"{i}");
+                    Assert.AreEqual(fields[i].Item2, members[i].Declaration.Variables[0].Identifier.Text);
+                }
+            }
+
+            var expected = new[]
+            {
+                ("float", "a_f_x"),
+                ("float", "a_f_y"),
+                ("int", "a_g"),
+                ("float", "a_tf_x"),
+                ("float", "a_tf_y"),
+                ("float", "a_ctf_x"),
+                ("float", "a_ctf_y"),
+                ("float", "b_x"),
+                ("float", "b_y"),
+            };
+            CheckOutput(resuls.GeneratedSources[0].SyntaxTree, 2, expected);
+            CheckOutput(resuls.GeneratedSources[1].SyntaxTree, 7, expected);
+        }
+
+        [Test]
         public void SourceGenerator_FlatType()
         {
             var receiver = GeneratorTestHelpers.CreateSyntaxReceiver();
@@ -342,8 +398,14 @@ namespace Unity.NetCode.GeneratorTests
             Assert.AreEqual(1, walker.receiver.Candidates.Count);
 
             var results = GeneratorTestHelpers.RunGenerators(tree);
-            Assert.AreEqual(4, results.Diagnostics.Count(d=>d.Severity == DiagnosticSeverity.Error));
+            var errors = results.Diagnostics.Where(d => d.Severity == DiagnosticSeverity.Error).ToArray();
             Assert.AreEqual(2, results.GeneratedSources.Length, "Num generated files does not match");
+            Assert.AreEqual(0, errors.Length);
+            var maskBits = results.GeneratedSources[0].SyntaxTree.GetRoot().DescendantNodes().OfType<FieldDeclarationSyntax>()
+                .FirstOrDefault(t => t.Declaration.Variables[0].Identifier.ValueText == "ChangeMaskBits");
+            Assert.IsNotNull(maskBits);
+            Assert.IsNotNull(maskBits.Declaration.Variables[0].Initializer);
+            Assert.AreEqual("44", maskBits.Declaration.Variables[0].Initializer.Value.ToString());
         }
 
         [Test]
@@ -844,7 +906,7 @@ namespace Unity.NetCode.GeneratorTests
             // foreach (var msg in results.Diagnostics)
             //     Console.WriteLine($"ERROR: {msg.GetMessage()}");
             var errors = results.Diagnostics.Where(m => m.Severity == DiagnosticSeverity.Error).ToArray();
-            Assert.AreEqual(2, errors.Length);
+            Assert.AreEqual(1, errors.Length);
             Assert.IsTrue(errors[0].GetMessage().Contains("Inside type 'MyType', we could not find the exact template for field 'MyField' with configuration 'Type:System.Char Key:System.Char (quantized=-1 composite=False smoothing=0 subtype=0)'"));
         }
 
@@ -899,7 +961,7 @@ namespace Unity.NetCode.GeneratorTests
             var templateTree = CSharpSyntaxTree.ParseText(customTemplates);
             var results = GeneratorTestHelpers.RunGenerators(tree, templateTree);
             var diagnostics = results.Diagnostics.Where(m => m.Severity == DiagnosticSeverity.Error).ToArray();
-            Assert.AreEqual(3, diagnostics.Length);
+            Assert.AreEqual(2, diagnostics.Length);
             Assert.IsTrue(diagnostics[0].GetMessage().Contains("Unable to find the Template associated with 'TypeRegistryEntry:[Type: System.Single, Template: NetCode.GhostSnapshotValueFloat.cs, TemplateOverride: , SubType: 1, Smoothing: Clamp, Quantized: True, SupportCommand: False, Composite: False]'."));
 
             tree = CSharpSyntaxTree.ParseText(testDataCorrect);

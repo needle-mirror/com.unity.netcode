@@ -591,6 +591,7 @@ namespace Unity.NetCode
                     {
                         int compIdx = GhostComponentIndex[baseOffset + comp].ComponentIndex;
                         int serializerIdx = GhostComponentIndex[baseOffset + comp].SerializerIndex;
+                        var handle = ghostChunkComponentTypesPtr[compIdx];
 #if ENABLE_UNITY_COLLECTIONS_CHECKS
                         if (compIdx >= ghostChunkComponentTypesLength)
                             throw new System.InvalidOperationException($"Component index {comp} (of numBaseComponents: {numBaseComponents}) out of range for child component in method 'Execute'. ghostChunkComponentTypesLength is {ghostChunkComponentTypesLength}.");
@@ -607,10 +608,9 @@ namespace Unity.NetCode
                                 var childEnt = linkedEntityGroup[GhostComponentIndex[baseOffset + comp].EntityIndex].Value;
                                 if (childEntityLookup.TryGetValue(childEnt, out var childChunk))
                                 {
-                                    var handle = ghostChunkComponentTypesPtr[compIdx];
-                                    var arr = chunk.GetEnableableBits(ref handle);
-                                    var bitArray = new UnsafeBitArray(&arr, sizeof(v128));
-                                    isSet = bitArray.IsSet(childChunk.IndexInChunk) ? 1u : 0u;
+                                    var arr = childChunk.Chunk.GetEnableableBits(ref handle);
+                                    var bits = new UnsafeBitArray(&arr, sizeof(v128));
+                                    isSet = bits.IsSet(childChunk.IndexInChunk) ? 1u : 0u;
                                 }
                                 enabledBitPtr[ent>>6] &= ~(1ul<<(ent&0x3f));
                                 enabledBitPtr[ent>>6] |= (isSet<<(ent&0x3f));

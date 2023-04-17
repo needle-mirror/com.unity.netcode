@@ -65,10 +65,15 @@ namespace Unity.NetCode
             if (networkTime.ServerTick != lastBackupTime.Value || !SystemAPI.GetSingleton<GhostStats>().IsConnected)
                 return;
 
+#if UNITY_2022_2_14F1_OR_NEWER
+            int maxThreadCount = JobsUtility.ThreadIndexCount;
+#else
+            int maxThreadCount = JobsUtility.MaxJobThreadCount;
+#endif
             var predictionErrorCount = SystemAPI.GetSingleton<GhostCollection>().NumPredictionErrors;
-            if (m_PredictionErrors.Length != predictionErrorCount * JobsUtility.MaxJobThreadCount)
+            if (m_PredictionErrors.Length != predictionErrorCount * maxThreadCount)
             {
-                m_PredictionErrors.Resize(predictionErrorCount * JobsUtility.MaxJobThreadCount, NativeArrayOptions.ClearMemory);
+                m_PredictionErrors.Resize(predictionErrorCount * maxThreadCount, NativeArrayOptions.ClearMemory);
             }
 
             m_GhostComponentHandle.Update(ref state);
@@ -142,7 +147,12 @@ namespace Unity.NetCode
             public int predictionErrorCount;
             public void Execute(int i)
             {
-                for (int job = 1; job < JobsUtility.MaxJobThreadCount; ++job)
+#if UNITY_2022_2_14F1_OR_NEWER
+                int maxThreadCount = JobsUtility.ThreadIndexCount;
+#else
+                int maxThreadCount = JobsUtility.MaxJobThreadCount;
+#endif
+                for (int job = 1; job < maxThreadCount; ++job)
                 {
                     PredictionErrors[i] = math.max(PredictionErrors[i], PredictionErrors[predictionErrorCount*job + i]);
                     PredictionErrors[predictionErrorCount*job + i] = 0;

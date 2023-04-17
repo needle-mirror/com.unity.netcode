@@ -626,7 +626,9 @@ namespace Unity.NetCode
                     if (GhostComponentCollection[serializerIdx].SerializesEnabledBit != 0)
                     {
                         var handle = ghostChunkComponentTypesPtr[compIdx];
-                        enableableMaskOffset = UpdateEnableableMasks(chunk, startIndex, endIndex, ref handle, snapshot, changeMaskUints, enableableMaskOffset, snapshotSize);
+                        UpdateEnableableMasks(chunk, startIndex, endIndex, ref handle, snapshot, changeMaskUints, enableableMaskOffset, snapshotSize);
+                        ++enableableMaskOffset;
+                        ValidateWrittenEnableBits(enableableMaskOffset, typeData.EnableableBits);
                     }
 
                     if (GhostComponentCollection[serializerIdx].ComponentType.IsBuffer)
@@ -712,12 +714,16 @@ namespace Unity.NetCode
                                 }
                                 snapshotPtr += snapshotSize;
                             }
-                            enableableMaskOffset++;
                             ComponentScopeBegin(serializerIdx);
                             GhostComponentCollection[serializerIdx].SerializeBuffer.Ptr.Invoke((IntPtr)UnsafeUtility.AddressOf(ref serializerState), (IntPtr)snapshot, snapshotOffset, snapshotSize, snapshotMaskOffsetInBits, (IntPtr)compData, (IntPtr)compDataLen, endIndex - startIndex, (IntPtr)baselinesPerEntity, ref tempWriter, ref compressionModel, (IntPtr)(entityStartBit+2*entityOffset*comp), (IntPtr)snapshotDynamicDataPtr, ref snapshotDynamicDataOffset, (IntPtr)dynamicDataLenPerEntity, dynamicSnapshotDataCapacity + dynamicDataHeaderSize);
                             ComponentScopeEnd(serializerIdx);
                             snapshotOffset += GhostComponentSerializer.SnapshotSizeAligned(GhostSystemConstants.DynamicBufferComponentSnapshotSize);
                             snapshotMaskOffsetInBits += GhostSystemConstants.DynamicBufferComponentMaskBits;
+                            if (GhostComponentCollection[serializerIdx].SerializesEnabledBit != 0)
+                            {
+                                ++enableableMaskOffset;
+                                ValidateWrittenEnableBits(enableableMaskOffset, typeData.EnableableBits);
+                            }
                         }
                         else
                         {
@@ -747,16 +753,20 @@ namespace Unity.NetCode
 
                                 snapshotPtr += snapshotSize;
                             }
-
-                            enableableMaskOffset++;
                             ComponentScopeBegin(serializerIdx);
                             GhostComponentCollection[serializerIdx].SerializeChild.Ptr.Invoke((IntPtr)UnsafeUtility.AddressOf(ref serializerState), (IntPtr)snapshot, snapshotOffset, snapshotSize, snapshotMaskOffsetInBits, (IntPtr)compData, endIndex - startIndex, (IntPtr)baselinesPerEntity, ref tempWriter, ref compressionModel, (IntPtr)(entityStartBit+2*entityOffset*comp));
                             ComponentScopeEnd(serializerIdx);
                             snapshotOffset += GhostComponentSerializer.SnapshotSizeAligned(GhostComponentCollection[serializerIdx].SnapshotSize);
                             snapshotMaskOffsetInBits += GhostComponentCollection[serializerIdx].ChangeMaskBits;
+                            if (GhostComponentCollection[serializerIdx].SerializesEnabledBit != 0)
+                            {
+                                ++enableableMaskOffset;
+                                ValidateWrittenEnableBits(enableableMaskOffset, typeData.EnableableBits);
+                            }
                         }
                     }
                 }
+                ValidateAllEnableBitsHasBeenWritten(enableableMaskOffset, typeData.EnableableBits);
             }
             if (tempWriter.HasFailedWrites)
             {
@@ -894,6 +904,10 @@ namespace Unity.NetCode
                         serializeMask = isOwner ? GhostComponentSerializer.SendMask.Predicted : GhostComponentSerializer.SendMask.Interpolated;
 
                     var curMaskOffsetInBits = 0;
+                    //FIXME: problem: what about the enable bits state here for that component if it is not meant to be
+                    //sent for this specific owner of component type?
+                    //we are not respecting the rule here. This probably require some changes that are too late for now
+                    //for 1.0.
                     for (int comp = 0; comp < typeData.NumComponents; ++comp)
                     {
                         int serializerIdx = GhostComponentIndex[typeData.FirstComponent + comp].SerializerIndex;
@@ -1073,6 +1087,20 @@ namespace Unity.NetCode
             return realEndIndex;
         }
 
+        [Conditional("ENABLE_UNITY_COLLECTIONS_CHECKS")]
+        internal static void ValidateAllEnableBitsHasBeenWritten(int enableableMaskOffset, int numEnableBits)
+        {
+            if (enableableMaskOffset != numEnableBits)
+                throw new InvalidOperationException($"Written only {enableableMaskOffset} enable bits data which are less than the expected {numEnableBits} for this ghost type. This is a serialization/replication error.");
+        }
+
+        [Conditional("ENABLE_UNITY_COLLECTIONS_CHECKS")]
+        internal static void ValidateWrittenEnableBits(int enableableMaskOffset, int numEnableBits)
+        {
+            if (enableableMaskOffset > numEnableBits)
+                throw new InvalidOperationException($"Written {enableableMaskOffset} enable bits, but expected to write exactly {numEnableBits} for this ghost type.");
+        }
+
         public static int TypeIndexToIndexInTypeArray(ArchetypeChunk chunk, int typeIndex)
         {
             var types = chunk.Archetype.GetComponentTypes();
@@ -1084,7 +1112,7 @@ namespace Unity.NetCode
             return -1;
         }
 
-        public static int UpdateEnableableMasks(ArchetypeChunk chunk, int startIndex, int endIndex, ref DynamicComponentTypeHandle handle, byte* snapshot,
+        public static void UpdateEnableableMasks(ArchetypeChunk chunk, int startIndex, int endIndex, ref DynamicComponentTypeHandle handle, byte* snapshot,
             int changeMaskUints, int enableableMaskOffset, int snapshotSize)
         {
             var array = chunk.GetEnableableBits(ref handle);
@@ -1092,25 +1120,21 @@ namespace Unity.NetCode
 
             var uintOffset = enableableMaskOffset >> 5;
             var maskOffset = enableableMaskOffset & 0x1f;
+            snapshotSize /= 4;
 
-            var offset = 0;
+            uint* enableableMasks = (uint*)(snapshot + sizeof(uint) + changeMaskUints * sizeof(uint)) + uintOffset;
             for (int i = startIndex; i < endIndex; ++i)
             {
-                uint* enableableMasks = (uint*)(snapshot + offset + sizeof(uint) + changeMaskUints * sizeof(uint));
-                enableableMasks += uintOffset;
-
                 if (maskOffset == 0)
                     *enableableMasks = 0U;
-                if (bitArray.IsCreated && bitArray.IsSet(i))
+                var isSetOnServer = bitArray.IsSet(i);
+                if (bitArray.IsCreated && isSetOnServer)
                     (*enableableMasks) |= 1U << maskOffset;
                 else
                     (*enableableMasks) &= ~(1U << maskOffset);
 
-                offset += snapshotSize;
+                enableableMasks += snapshotSize;
             }
-
-            enableableMaskOffset++;
-            return enableableMaskOffset;
         }
 
         private bool CanSerializeGroup(in DynamicBuffer<GhostGroup> ghostGroup)

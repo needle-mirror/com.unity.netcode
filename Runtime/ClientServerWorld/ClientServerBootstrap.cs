@@ -273,6 +273,11 @@ namespace Unity.NetCode
             }
         }
 
+        /// <summary>
+        /// Returns true if user-code has specified both a <see cref="AutoConnectPort"/> and <see cref="DefaultConnectAddress"/>.
+        /// </summary>
+        /// <param name="autoConnectEp">The resulting, combined <see cref="NetworkEndpoint"/>.</param>
+        /// <returns>True if user-code has specified both a <see cref="AutoConnectPort"/> and <see cref="DefaultConnectAddress"/>.</returns>
         internal static bool HasDefaultAddressAndPortSet(out NetworkEndpoint autoConnectEp)
         {
             if (AutoConnectPort != 0 && DefaultConnectAddress != NetworkEndpoint.AnyIpv4)
@@ -394,8 +399,23 @@ namespace Unity.NetCode
         /// </summary>
         public static PlayType RequestedPlayType => PlayType.ClientAndServer;
 #endif
-        internal static readonly SharedStatic<int> HasServerWorld = SharedStatic<int>.GetOrCreate<int>();
-        internal static readonly SharedStatic<int> HasClientWorlds = SharedStatic<int>.GetOrCreate<int>();
+        //Burst compatible counters that be used in job or ISystem to check when clients or server worlds are present
+        internal struct ServerClientCount
+        {
+            public int serverWorlds;
+            public int clientWorlds;
+        }
+        internal static readonly SharedStatic<ServerClientCount> WorldCounts = SharedStatic<ServerClientCount>.GetOrCreate<ClientServerBootstrap>();
+        /// <summary>
+        /// Check if a world with a <see cref="WorldFlags.GameServer"/> is present.
+        /// <returns>If at least one world with <see cref="WorldFlags.GameServer"/> flags has been created.</returns>
+        /// </summary>
+        public static bool HasServerWorld => WorldCounts.Data.serverWorlds > 0;
+        /// <summary>
+        /// Check if a world with a <see cref="WorldFlags.GameClient"/> is present.
+        /// <returns>If at least one world with <see cref="WorldFlags.GameClient"/> flags has been created.</returns>
+        /// </summary>
+        public static bool HasClientWorlds => WorldCounts.Data.clientWorlds > 0;
     }
 
     /// <summary>
@@ -473,7 +493,7 @@ namespace Unity.NetCode
             var predictionGroup = state.World.GetExistingSystemManaged<PredictedSimulationSystemGroup>();
             predictionGroup.RateManager = new NetcodeServerPredictionRateManager(predictionGroup);
 
-            ++ClientServerBootstrap.HasServerWorld.Data;
+            ++ClientServerBootstrap.WorldCounts.Data.serverWorlds;
             if (ClientServerBootstrap.WillServerAutoListen)
             {
                 SystemAPI.GetSingletonRW<NetworkStreamDriver>().ValueRW.Listen(ClientServerBootstrap.DefaultListenAddress.WithPort(ClientServerBootstrap.AutoConnectPort));
@@ -483,7 +503,7 @@ namespace Unity.NetCode
 
         public void OnDestroy(ref SystemState state)
         {
-            --ClientServerBootstrap.HasServerWorld.Data;
+            --ClientServerBootstrap.WorldCounts.Data.serverWorlds;
         }
     }
 
@@ -501,7 +521,7 @@ namespace Unity.NetCode
             var predictionGroup = state.World.GetExistingSystemManaged<PredictedSimulationSystemGroup>();
             predictionGroup.SetRateManagerCreateAllocator(new NetcodeClientPredictionRateManager(predictionGroup));
 
-            ++ClientServerBootstrap.HasClientWorlds.Data;
+            ++ClientServerBootstrap.WorldCounts.Data.clientWorlds;
             if (ClientServerBootstrap.TryFindAutoConnectEndPoint(out var autoConnectEp))
             {
                 SystemAPI.GetSingletonRW<NetworkStreamDriver>().ValueRW.Connect(state.EntityManager, autoConnectEp);
@@ -511,7 +531,7 @@ namespace Unity.NetCode
 
         public void OnDestroy(ref SystemState state)
         {
-            --ClientServerBootstrap.HasClientWorlds.Data;
+            --ClientServerBootstrap.WorldCounts.Data.clientWorlds;
         }
     }
 
@@ -526,7 +546,7 @@ namespace Unity.NetCode
             var simulationGroup = state.World.GetExistingSystemManaged<SimulationSystemGroup>();
             simulationGroup.RateManager = new NetcodeClientRateManager(simulationGroup);
 
-            ++ClientServerBootstrap.HasClientWorlds.Data;
+            ++ClientServerBootstrap.WorldCounts.Data.clientWorlds;
             if(ClientServerBootstrap.TryFindAutoConnectEndPoint(out var autoConnectEp))
             {
                 SystemAPI.GetSingletonRW<NetworkStreamDriver>().ValueRW.Connect(state.EntityManager, autoConnectEp);
@@ -556,7 +576,7 @@ namespace Unity.NetCode
 
         public void OnDestroy(ref SystemState state)
         {
-            --ClientServerBootstrap.HasClientWorlds.Data;
+            --ClientServerBootstrap.WorldCounts.Data.clientWorlds;
         }
     }
 }

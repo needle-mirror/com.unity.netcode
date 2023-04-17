@@ -6,7 +6,7 @@ using UnityEngine;
 
 namespace Unity.NetCode.Tests
 {
-#if UNITY_EDITOR
+#if UNITY_EDITOR && NETCODE_ENABLE_PERF_TESTS
     public class NetcodeScenarioUtils
     {
         public struct ScenarioDesc

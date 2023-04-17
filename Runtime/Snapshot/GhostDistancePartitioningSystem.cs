@@ -30,9 +30,9 @@ namespace Unity.NetCode
     // Update before almost everything to make sure there is no DestroyEntity pending in the command buffer
     [UpdateInGroup(typeof(GhostSimulationSystemGroup), OrderFirst = true)]
     [BurstCompile]
-    public partial struct GhostDistancePartitioningSystem : ISystem
+    public partial struct GhostDistancePartitioningSystem : ISystem, ISystemStartStop
     {
-        EntityQuery m_EntityQuery;
+        EntityQuery m_DistancePartitionedEntitiesQuery;
         EntityTypeHandle m_EntityTypeHandle;
         ComponentTypeHandle<LocalTransform> m_Transform;
         SharedComponentTypeHandle<GhostDistancePartitionShared> m_SharedPartition;
@@ -76,15 +76,17 @@ namespace Unity.NetCode
         }
 
         [BurstCompile]
+        [WithAll(typeof(GhostInstance))]
+        [WithAbsent(typeof(GhostDistancePartitionShared))]
         partial struct AddSharedDistancePartitionJob : IJobEntity
         {
             public GhostDistanceData Config;
             public EntityCommandBuffer.ParallelWriter ConcurrentCommandBuffer;
 
-            void Execute(Entity ent, [EntityIndexInQuery]int entityIndexInQuery, in LocalTransform trans, in GhostInstance ghost)
+            void Execute(Entity ent, [ChunkIndexInQuery]int chunkIndexInQuery, in LocalTransform trans)
             {
                 var tileIndex = ((int3) trans.Position - Config.TileCenter) / Config.TileSize;
-                ConcurrentCommandBuffer.AddSharedComponent(entityIndexInQuery, ent, new GhostDistancePartitionShared{Index = tileIndex});
+                ConcurrentCommandBuffer.AddSharedComponent(chunkIndexInQuery, ent, new GhostDistancePartitionShared{Index = tileIndex});
             }
         }
 
@@ -125,7 +127,7 @@ namespace Unity.NetCode
                 EntityTypeHandle = m_EntityTypeHandle,
                 TileTypeHandle = m_SharedPartition,
                 TransHandle = m_Transform,
-            }.ScheduleParallel(m_EntityQuery, sharedPartitionHandle);
+            }.ScheduleParallel(m_DistancePartitionedEntitiesQuery, sharedPartitionHandle);
         }
 
         [BurstCompile]
@@ -138,7 +140,23 @@ namespace Unity.NetCode
             state.RequireForUpdate<GhostDistanceData>();
             var builder = new EntityQueryBuilder(Allocator.Temp)
                 .WithAll<GhostDistancePartitionShared, LocalTransform, GhostInstance>();
-            m_EntityQuery = state.WorldUnmanaged.EntityManager.CreateEntityQuery(builder);
+            m_DistancePartitionedEntitiesQuery = state.WorldUnmanaged.EntityManager.CreateEntityQuery(builder);
+        }
+
+        [BurstCompile]
+        public void OnStartRunning(ref SystemState state)
+        {
+        }
+
+        /// <summary>
+        /// Clean up any/all GhostDistancePartitionShared components that we've added.
+        /// Note: This will not de-frag fragmented chunks automatically.
+        /// </summary>
+        /// <param name="state"></param>
+        [BurstCompile]
+        public void OnStopRunning(ref SystemState state)
+        {
+            state.EntityManager.RemoveComponent<GhostDistancePartitionShared>(m_DistancePartitionedEntitiesQuery);
         }
     }
 }

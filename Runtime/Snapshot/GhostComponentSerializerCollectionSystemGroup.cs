@@ -90,8 +90,7 @@ namespace Unity.NetCode
         public byte IsInputBuffer;
         /// <summary>Does this component explicitly opt-out of overrides (regardless of variant count)?</summary>
         public byte HasDontSupportPrefabOverridesAttribute;
-        /// <summary>Does this component explicitly opt-in to overrides (regardless of variant count)?</summary>
-        public byte HasSupportsPrefabOverridesAttribute;
+
         /// <summary><see cref="IsInputComponent"/> and <see cref="IsInputBuffer"/>.</summary>
         internal byte IsInput => (byte) (IsInputComponent | IsInputBuffer);
         /// <summary>The type name, unless it has a Variant (in which case it'll use the Variant Display name... assuming that is not null).</summary>
@@ -128,7 +127,6 @@ namespace Unity.NetCode
 
         /// <summary>Logs a burst compatible debug string (if in burst), otherwise logs even more info.</summary>
         /// <returns>A debug string.</returns>
-        [GenerateTestsForBurstCompatibility]
         public FixedString512Bytes ToFixedString()
         {
             var fs = new FixedString512Bytes((FixedString32Bytes) $"SS<");
@@ -189,6 +187,7 @@ namespace Unity.NetCode
             ghostComponentSerializerCollectionDataCache = new GhostComponentSerializerCollectionData
             {
                 WorldName = worldNameShortened,
+                CollectionFinalized = new NativeReference<byte>(Allocator.Persistent),
                 Serializers = new NativeList<GhostComponentSerializer.State>(CollectionDefaultCapacity, Allocator.Persistent),
                 SerializationStrategies = new NativeList<ComponentTypeSerializationStrategy>(CollectionDefaultCapacity, Allocator.Persistent),
                 SerializationStrategiesComponentTypeMap = new NativeParallelMultiHashMap<ComponentType, short>(CollectionDefaultCapacity, Allocator.Persistent),
@@ -207,14 +206,17 @@ namespace Unity.NetCode
             ghostComponentSerializerCollectionDataCache.Dispose();
             ghostComponentSerializerCollectionDataCache = default;
             DefaultVariantRules = null;
+            base.OnDestroy();
         }
     }
 
     /// <summary><see cref="GhostComponentSerializerCollectionSystemGroup"/>. Blittable. For internal use only.</summary>
     [StructLayout(LayoutKind.Sequential)]
+    [BurstCompile]
     public struct GhostComponentSerializerCollectionData : IComponentData
     {
-        internal byte CollectionInitialized;
+        internal NativeReference<byte> CollectionFinalized;
+
         /// <summary>
         /// All the Serializers. Allows us to serialize <see cref="ComponentType"/>'s to the snapshot.
         /// </summary>
@@ -257,12 +259,15 @@ namespace Unity.NetCode
         }
 
         /// <summary>
-        /// Used by code-generated systems and meant For internal use only.
-        /// Register an empty variant to the empty variants list.
+        /// Used by code-generated systems to register SerializationStrategies.
+        /// Internal use only.
         /// </summary>
         /// <param name="serializationStrategy"></param>
         public void AddSerializationStrategy(ref ComponentTypeSerializationStrategy serializationStrategy)
         {
+            ThrowIfNotInRegistrationPhase("register a SerializationStrategy");
+
+            // Validate that source-generator hashes don't collide.
 #if ENABLE_UNITY_COLLECTIONS_CHECKS
             ThrowIfNoHash(serializationStrategy.Hash, serializationStrategy.ToFixedString());
             if (serializationStrategy.DisplayName.IsEmpty)
@@ -304,11 +309,7 @@ namespace Unity.NetCode
         /// <param name="state"></param>
         public void AddSerializer(GhostComponentSerializer.State state)
         {
-            //This is always enforced to avoid bad usage of the api
-            if (CollectionInitialized != 0)
-            {
-                throw new InvalidOperationException($"'{WorldName}': Cannot register new GhostComponentSerializer for type {state.ComponentType} after the RpcSystem has started running!");
-            }
+            ThrowIfNotInRegistrationPhase("register a Serializer");
 
 #if ENABLE_UNITY_COLLECTIONS_CHECKS
             ThrowIfNoHash(state.VariantHash, $"'{WorldName}': AddSerializer for '{state.ComponentType}'.");
@@ -319,6 +320,41 @@ namespace Unity.NetCode
             state.SerializerHash = HashGhostComponentSerializer(state);
             Serializers.Add(state);
         }
+
+        /// <summary>
+        /// We have no idea how many code-generated types are left to be registered, so instead,
+        /// we have a flag that is set when we know ALL of them have been created.
+        /// If the user queries this collection BEFORE all queries have been created, then they used to get silent errors where GhostFields default to `DontSerializeVariant`.
+        /// This throw highlights that user-error.
+        /// </summary>
+        /// <param name="context">The context of this call, to aid in error reporting.</param>
+        /// <exception cref="InvalidOperationException">Throws if user-code queries too early.</exception>
+        [Conditional("ENABLE_UNITY_COLLECTIONS_CHECKS")]
+        public void ThrowIfNotInRegistrationPhase(FixedString128Bytes context)
+        {
+#if ENABLE_UNITY_COLLECTIONS_CHECKS
+            if(!CollectionFinalized.IsCreated)
+                throw new InvalidOperationException($"'{WorldName}': Fatal error: Attempting to {context} but OnCreate has not yet been called! You must delay this registration call to after the creation of the `GhostComponentSerializerCollectionSystemGroup`.");
+            if (CollectionFinalized.Value != 0)
+                throw new InvalidOperationException($"'{WorldName}': Fatal error: Attempting to {context} but we've already finalized or queried this collection! You must ensure that, when called from `OnCreate`, your system uses attribute `[CreateBefore(typeof(DefaultVariantSystemGroup))]`.");
+#endif
+        }
+
+        /// <summary>
+        /// We have no idea how many code-generated types are left to be registered, so instead,
+        /// we have a flag that is set when we know ALL of them have been created.
+        /// If the user queries this collection BEFORE all queries have been created, then they'll get silent errors where GhostFields default to `DontSerializeVariant`.
+        /// </summary>
+        /// <param name="context">The context of this call, to aid in error reporting.</param>
+        /// <exception cref="InvalidOperationException">Throws if user-code queries too early.</exception>
+        [Conditional("ENABLE_UNITY_COLLECTIONS_CHECKS")]
+        public void ThrowIfCollectionNotFinalized(FixedString512Bytes context)
+        {
+#if ENABLE_UNITY_COLLECTIONS_CHECKS
+            if (!CollectionFinalized.IsCreated || CollectionFinalized.Value == 0)
+                throw new InvalidOperationException($"'{WorldName}': Fatal error: Attempting to {context} but we have not yet finalized this collection! You must delay your call until after the creation of the `DefaultVariantSystemGroup` (e.g. `[CreateAfter(typeof(DefaultVariantSystemGroup))]` on your system).");
+#endif
+       }
 
         /// <summary>
         /// Used by code-generated systems and meant for internal use only.
@@ -367,7 +403,6 @@ namespace Unity.NetCode
         /// Without this nuance, this code would break.</param>
         /// <param name="isRoot">True if the entity is a root entity, false if it's a child.
         /// This distinction is because child entities default to <see cref="DontSerializeVariant"/>.</param>
-        [GenerateTestsForBurstCompatibility]
         [BurstCompile]
         internal ComponentTypeSerializationStrategy GetCurrentSerializationStrategyForComponent(ComponentType componentType, ulong chosenVariantHash, bool isRoot)
         {
@@ -376,7 +411,6 @@ namespace Unity.NetCode
         }
 
         /// <inheritdoc cref="GetCurrentSerializationStrategyForComponent"/>
-        [GenerateTestsForBurstCompatibility]
         internal ComponentTypeSerializationStrategy SelectSerializationStrategyForComponentWithHash(ComponentType componentType, ulong chosenVariantHash, in NativeList<ComponentTypeSerializationStrategy> available, bool isRoot)
         {
             if (available.Length != 0)
@@ -475,10 +509,13 @@ namespace Unity.NetCode
         /// <param name="chosenVariantHash"> If set, indicates that a variant has specifically been asked for (as an override). Zero implies find default.</param>
         /// <param name="isRoot">True if this component is on the root entity.</param>
         /// <returns>A list of all available variants for this `componentType`.</returns>
-        [GenerateTestsForBurstCompatibility]
         [BurstCompile]
         public NativeList<ComponentTypeSerializationStrategy> GetAllAvailableSerializationStrategiesForType(ComponentType componentType, ulong chosenVariantHash, bool isRoot)
         {
+#if ENABLE_UNITY_COLLECTIONS_CHECKS
+            ThrowIfCollectionNotFinalized($"attempting to GetAllAvailableSerializationStrategiesForType({componentType.ToFixedString()}, hash: {chosenVariantHash}, isRoot: {isRoot})");
+#endif
+
             var availableVariants = new NativeList<ComponentTypeSerializationStrategy>(4, Allocator.Temp);
             var numCustomVariants = 0;
             var customVariantIndex = -1;
@@ -642,7 +679,6 @@ namespace Unity.NetCode
                 var defaultSerializer = availableVariants[sourceVariantIndex];
                 dontSerializeVariant.PrefabType = defaultSerializer.PrefabType;
                 dontSerializeVariant.SendTypeOptimization = defaultSerializer.SendTypeOptimization;
-                dontSerializeVariant.HasSupportsPrefabOverridesAttribute = defaultSerializer.HasSupportsPrefabOverridesAttribute;
                 dontSerializeVariant.HasDontSupportPrefabOverridesAttribute = defaultSerializer.HasDontSupportPrefabOverridesAttribute;
             }
 
@@ -756,6 +792,7 @@ namespace Unity.NetCode
         /// <summary>Release the allocated resources used to store the ghost serializer strategies and mappings.</summary>
         public void Dispose()
         {
+            CollectionFinalized.Dispose();
             Serializers.Dispose();
             SerializationStrategies.Dispose();
             DefaultVariants.Dispose();

@@ -238,7 +238,7 @@ namespace Unity.NetCode.Tests
                         someDataHandle = testWorld.ServerWorld.EntityManager.GetComponentTypeHandle<SomeData>(false),
                         offset = 100 + i * 100
                     };
-                    InternalCompilerInterface.JobChunkInterface.RunWithoutJobs(ref job, q);
+                    Unity.Entities.Internal.InternalCompilerInterface.JobChunkInterface.RunWithoutJobs(ref job, q);
                 }
 
                 SubSceneHelper.LoadSubScene(testWorld.ClientWorlds[0], sub1);
@@ -332,7 +332,7 @@ namespace Unity.NetCode.Tests
                         someDataHandle = testWorld.ServerWorld.EntityManager.GetComponentTypeHandle<SomeData>(false),
                         offset = 100
                     };
-                    InternalCompilerInterface.JobChunkInterface.RunWithoutJobs(ref job, q);
+                    Unity.Entities.Internal.InternalCompilerInterface.JobChunkInterface.RunWithoutJobs(ref job, q);
                 }
 
                 for (int i = 0; i < 16; ++i)
@@ -513,7 +513,7 @@ namespace Unity.NetCode.Tests
                         testWorld.Tick(frameTime);
 
                     using var translations = query.ToComponentDataArray<LocalTransform>(Allocator.TempJob);
-                    
+
                     for (int i = 0; i < translations.Length; ++i)
                         Assert.AreNotEqual(0.0f, translations[i]);
 

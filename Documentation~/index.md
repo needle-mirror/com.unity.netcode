@@ -36,3 +36,6 @@ generated class inside the assembly it pertain and modify it there.
 // }
 ```
 
+## Additional resources
+
+* [Prerelease (1.0.0-pre.65) documentation](pre-release.md)

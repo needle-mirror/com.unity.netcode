@@ -1,8 +1,8 @@
 using System;
-using Unity.Collections;
 using Unity.Entities;
 using Unity.Burst;
 using Unity.Mathematics;
+using Unity.NetCode.LowLevel;
 
 namespace Unity.NetCode
 {
@@ -134,14 +134,18 @@ namespace Unity.NetCode
     [WorldSystemFilter(WorldSystemFilterFlags.ClientSimulation)]
     [UpdateInGroup(typeof(GhostSimulationSystemGroup))]
     [UpdateAfter(typeof(GhostReceiveSystem))]
+    [CreateAfter(typeof(GhostCollectionSystem))]
+    [CreateAfter(typeof(GhostReceiveSystem))]
     [BurstCompile]
     public partial struct GhostSpawnClassificationSystem : ISystem
     {
-        private LowLevel.SnapshotDataLookupHelper m_spawnBufferHelper;
+        private SnapshotDataLookupHelper m_spawnBufferHelper;
         [BurstCompile]
         public void OnCreate(ref SystemState state)
         {
-            m_spawnBufferHelper = new LowLevel.SnapshotDataLookupHelper(ref state);
+            m_spawnBufferHelper = new SnapshotDataLookupHelper(ref state,
+                SystemAPI.GetSingletonEntity<GhostCollection>(),
+                SystemAPI.GetSingletonEntity<SpawnedGhostEntityMap>());
             state.RequireForUpdate<NetworkId>();
             state.RequireForUpdate<GhostCollection>();
             state.RequireForUpdate<GhostSpawnQueue>();
@@ -152,9 +156,7 @@ namespace Unity.NetCode
             m_spawnBufferHelper.Update(ref state);
             var classificationJob = new GhostSpawnClassification
             {
-                helper = m_spawnBufferHelper,
-                spawningMap = SystemAPI.GetSingleton<SpawnedGhostEntityMap>().Value,
-                ghostCollectionSingleton = SystemAPI.GetSingletonEntity<GhostCollection>(),
+                SpawnBufferLookupHelper = m_spawnBufferHelper,
                 networkId = SystemAPI.GetSingleton<NetworkId>().Value
             };
             state.Dependency = classificationJob.Schedule(state.Dependency);
@@ -163,24 +165,21 @@ namespace Unity.NetCode
         [BurstCompile]
         partial struct GhostSpawnClassification : IJobEntity
         {
-            public LowLevel.SnapshotDataLookupHelper helper;
-            public NativeParallelHashMap<SpawnedGhost, Entity>.ReadOnly spawningMap;
-            public Entity ghostCollectionSingleton;
+            public SnapshotDataLookupHelper SpawnBufferLookupHelper;
             public int networkId;
-            public unsafe void Execute(DynamicBuffer<GhostSpawnBuffer> ghosts, in DynamicBuffer<SnapshotDataBuffer> data)
+            public void Execute(DynamicBuffer<GhostSpawnBuffer> ghosts, in DynamicBuffer<SnapshotDataBuffer> data)
             {
-                //TODO: find way to avoid passing the spawning map and collection singleton.
-                var spawnBufferInspector = helper.CreateSnapshotBufferLookup(ghostCollectionSingleton, spawningMap);
+                var spawnBufferLookup = SpawnBufferLookupHelper.CreateSnapshotBufferLookup();
                 for (int i = 0; i < ghosts.Length; ++i)
                 {
                     var ghost = ghosts[i];
                     if (ghost.SpawnType == GhostSpawnBuffer.Type.Unknown)
                     {
-                        ghost.SpawnType = spawnBufferInspector.GetFallbackPredictionMode(ghost);
-                        if(spawnBufferInspector.IsOwnerPredicted(ghost) && spawnBufferInspector.HasGhostOwner(ghost))
+                        ghost.SpawnType = spawnBufferLookup.GetFallbackPredictionMode(ghost);
+                        if(spawnBufferLookup.IsOwnerPredicted(ghost) && spawnBufferLookup.HasGhostOwner(ghost))
                         {
                             // Prediction mode is where the owner i is stored in the snapshot data
-                            var ghostOwner = spawnBufferInspector.GetGhostOwner(ghost, data);
+                            var ghostOwner = spawnBufferLookup.GetGhostOwner(ghost, data);
                             if(ghostOwner == networkId)
                                 ghost.SpawnType = GhostSpawnBuffer.Type.Predicted;
                         }

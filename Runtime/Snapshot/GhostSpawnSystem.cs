@@ -144,6 +144,8 @@ namespace Unity.NetCode
                         }
                         // Spawn directly
                         entity = ghost.PredictedSpawnEntity != Entity.Null ? ghost.PredictedSpawnEntity : stateEntityManager.Instantiate(prefabs[ghost.GhostType].GhostPrefab);
+                        if(stateEntityManager.HasComponent<PredictedGhostSpawnRequest>(entity))
+                            stateEntityManager.RemoveComponent<PredictedGhostSpawnRequest>(entity);
                         if (stateEntityManager.HasComponent<GhostPrefabMetaData>(prefabs[ghost.GhostType].GhostPrefab))
                         {
                             ref var toRemove = ref stateEntityManager.GetComponentData<GhostPrefabMetaData>(prefabs[ghost.GhostType].GhostPrefab).Value.Value.DisableOnPredictedClient;
@@ -306,6 +308,8 @@ namespace Unity.NetCode
 
             // Spawn actual entity
             entity = ghost.predictedSpawnEntity != Entity.Null ? ghost.predictedSpawnEntity : entityManager.Instantiate(prefabs[ghost.ghostType].GhostPrefab);
+            if(entityManager.HasComponent<PredictedGhostSpawnRequest>(entity))
+                entityManager.RemoveComponent<PredictedGhostSpawnRequest>(entity);
             if (entityManager.HasComponent<GhostPrefabMetaData>(prefabs[ghost.ghostType].GhostPrefab))
             {
                 ref var toRemove = ref entityManager.GetComponentData<GhostPrefabMetaData>(prefabs[ghost.ghostType].GhostPrefab).Value.Value.DisableOnInterpolatedClient;

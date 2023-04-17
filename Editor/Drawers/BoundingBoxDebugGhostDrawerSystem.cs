@@ -15,6 +15,7 @@ namespace Unity.NetCode.Samples.Common
 {
     [UpdateInGroup(typeof(PresentationSystemGroup))]
     [WorldSystemFilter(WorldSystemFilterFlags.ClientSimulation)]
+    [BurstCompile]
     partial class BoundingBoxDebugGhostDrawerClientSystem : SystemBase
     {
         const string k_ServerColorKey = "BoundingBoxDebugGhostDrawer_ServerColor";

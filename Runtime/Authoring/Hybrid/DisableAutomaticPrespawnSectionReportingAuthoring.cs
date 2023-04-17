@@ -10,6 +10,7 @@ namespace Unity.NetCode
     [HelpURL(Authoring.HelpURLs.DisableAutomaticPrespawnSectionReportingAuthoring)]
     public class DisableAutomaticPrespawnSectionReportingAuthoring : UnityEngine.MonoBehaviour
     {
+        [BakingVersion("cmarastoni", 1)]
         class DisableAutomaticPrespawnSectionReportingBaker : Baker<DisableAutomaticPrespawnSectionReportingAuthoring>
         {
             public override void Bake(DisableAutomaticPrespawnSectionReportingAuthoring authoring)

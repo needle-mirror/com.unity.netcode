@@ -164,9 +164,7 @@ namespace Unity.NetCode.Tests
                 var clientEntity = testWorld.ClientWorlds[0].EntityManager.Instantiate(predictedPrefab);
 
                 // Verify you've instantiated the predict spawn version of the prefab
-                var compQuery = testWorld.ClientWorlds[0].EntityManager
-                    .CreateEntityQuery(typeof(PredictedGhostSpawnRequest));
-                Assert.AreEqual(1, compQuery.CalculateEntityCount());
+                Assert.IsTrue(testWorld.ClientWorlds[0].EntityManager.HasComponent<PredictedGhostSpawnRequest>(clientEntity));
 
                 // Verify the predicted ghost has a linked entity (the child on the GO)
                 var linkedEntities = testWorld.ClientWorlds[0].EntityManager.GetBuffer<LinkedEntityGroup>(clientEntity);
@@ -176,13 +174,18 @@ namespace Unity.NetCode.Tests
                 prefabsListQuery = testWorld.ServerWorld.EntityManager.CreateEntityQuery(typeof(NetCodeTestPrefabCollection));
                 prefabList = prefabsListQuery.ToEntityArray(Allocator.Temp)[0];
                 prefabs = testWorld.ServerWorld.EntityManager.GetBuffer<NetCodeTestPrefab>(prefabList);
-                var serverEntity = testWorld.ServerWorld.EntityManager.Instantiate(prefabs[PREDICTED].Value);
+                Assert.IsFalse(testWorld.ServerWorld.EntityManager.HasComponent<PredictedGhostSpawnRequest>(prefabs[PREDICTED].Value));
+                testWorld.ServerWorld.EntityManager.Instantiate(prefabs[PREDICTED].Value);
+
 
                 for (int i = 0; i < 5; ++i)
                     testWorld.Tick(frameTime);
 
+                //The request has been consumed.
+                Assert.IsFalse(testWorld.ClientWorlds[0].EntityManager.HasComponent<PredictedGhostSpawnRequest>(clientEntity));
+
                 // Verify ghost field data has been updated on the clients instance, and we only have one entity spawned
-                compQuery = testWorld.ClientWorlds[0].EntityManager.CreateEntityQuery(ComponentType.ReadOnly<Data>());
+                var compQuery = testWorld.ClientWorlds[0].EntityManager.CreateEntityQuery(ComponentType.ReadOnly<Data>());
                 var clientData = compQuery.ToComponentDataArray<Data>(Allocator.Temp);
                 Assert.AreEqual(1, clientData.Length);
                 Assert.IsTrue(clientData[0].Value > 1);
@@ -192,6 +195,7 @@ namespace Unity.NetCode.Tests
                 prefabList = prefabsListQuery.ToEntityArray(Allocator.Temp)[0];
                 prefabs = testWorld.ServerWorld.EntityManager.GetBuffer<NetCodeTestPrefab>(prefabList);
                 testWorld.ServerWorld.EntityManager.Instantiate(prefabs[INTERPOLATED].Value);
+                Assert.IsFalse(testWorld.ServerWorld.EntityManager.HasComponent<PredictedGhostSpawnRequest>(prefabs[INTERPOLATED].Value));
 
                 for (int i = 0; i < 5; ++i)
                     testWorld.Tick(frameTime);
@@ -227,7 +231,7 @@ namespace Unity.NetCode.Tests
                     Options = EntityQueryOptions.IncludePrefab
                 };
                 compQuery = testWorld.ClientWorlds[0].EntityManager.CreateEntityQuery(queryDesc);
-                Assert.AreEqual(2, compQuery.CalculateEntityCount());
+                Assert.AreEqual(1, compQuery.CalculateEntityCount());
 
                 // Verify children are correctly replicated in the prefab copy.
                 // Iterate though the LinkedEntityGroup of each predicted prefab
@@ -243,9 +247,9 @@ namespace Unity.NetCode.Tests
                     Assert.AreEqual(parentEntity, parentLink);
                 }
 
-                // Server will have 3 prefabs (interpolated, predicted and spawn predicted (because we're in ClientAndServer mode here)
+                // Server will have 2 prefabs (interpolated, predicted)
                 compQuery = testWorld.ServerWorld.EntityManager.CreateEntityQuery(queryDesc);
-                Assert.AreEqual(3, compQuery.CalculateEntityCount());
+                Assert.AreEqual(2, compQuery.CalculateEntityCount());
             }
         }
 

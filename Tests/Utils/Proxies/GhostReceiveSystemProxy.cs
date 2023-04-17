@@ -1,5 +1,4 @@
 using Unity.Entities;
-using Unity.PerformanceTesting;
 using Unity.Profiling;
 
 namespace Unity.NetCode.Tests

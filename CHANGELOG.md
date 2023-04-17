@@ -1,18 +1,70 @@
 # Changelog
 
-## [1.0.0-pre.65] - 2023-03-21
-
-### Added
-
-* validate and sanitise connect and listen addresses when using IPCNetworkInterface. That was causing some nasty crash in the Transport without users understanding the actual problem.
+## [1.0.8] - 2023-04-17
 
 ### Changed
 
-* the following components has been renamed: | Original Name | New Name        | | ---------------| ---------------| |NetworkSnapshotAckComponent| NetworkSnapshotAck | |IncomingSnapshotDataStreamBufferComponent| IncomingSnapshotDataStreamBuffer | |IncomingRpcDataStreamBufferComponent| IncomingRpcDataStreamBuffer | |OutgoingRpcDataStreamBufferComponent| OutgoingRpcDataStreamBuffer  | |IncomingCommandDataStreamBufferComponent| IncomingCommandDataStreamBuffer | |OutgoingCommandDataStreamBufferComponent|OutgoingCommandDataStreamBuffer| |NetworkIdComponent|NetworkId| |CommandTargetComponent|CommandTarget| |GhostComponent|GhostInstance| |GhostChildEntityComponent|GhostChildEntity| |GhostOwnerComponent|GhostOwner| |PredictedGhostComponent|PredictedGhost| |GhostTypeComponent|GhostType| |SharedGhostTypeComponent|GhostTypePartition| |GhostCleanupComponent|GhostCleanup| |GhostPrefabMetaDataComponent|GhostPrefabMetaData| |PredictedGhostSpawnRequestComponent|PredictedGhostSpawnRequest| |PendingSpawnPlaceholderComponent|PendingSpawnPlaceholder| |ReceiveRpcCommandRequestComponent|ReceiveRpcCommandRequest| |SendRpcCommandRequestComponent|SendRpcCommandRequest| |MetricsMonitorComponent|MetricsMonitor|
+* Reduced the amount of memory allocated by allocating based on the maximum number of worker threads the running platform requires rather than defaulting to using a theoretical upper-bound of 128 worker threads.
+* Removed the additional entity created for each predicted ghost prefab, that was necessary to support predicted spawning. This has the addition benefit to cut almost in half (in case all ghost prefabs support all modes) the number of required archetypes.
+
+
+### Fixed
+
+* An issue with pre-spawned ghost not working correctly because sub-scene hash is calculated differently for client and server
+* an issue when sub-scene are opened for live-conversion and baking, causing spawned ghosts to contains invalid blob asset references (i.e colliders), introducing potential crashes and other problems (i.e missing collision and mis-prediction)
+* An issue with baking, not using the correct NetCodeClientTarget (either client or client/server) when baking a sub-scene for a client standalone build.
+* An issue with the Entities/Build project settings UI that was not updating the ClientTarget to use is the ProjectSettings window was not closed, or another settings "tab" was selected.
+* An issue with HasServerWorld reporting the presence of a server world even though no server was created.if it's not needed.
+* A sporadic InvalidOperationException: GetSingleton<Unity.NetCode.LowLevel.SnapshotDataLookupCache>() thrown when retrieving the Unity.NetCode.LowLevel.SnapshotDataLookupCache.
+* GhostCollectionSystem InvalidOperationException thrown when Ghost prefab validation fails, trying accessing invalidated DynamicBuffer.
+* An issue in the GhostChunkSerializer, that was overwriting the snapshot data with some enable bits masks.
+* An issue in the GhostUpdateSystem, that was reading and applying the wrong enable bits.
+* An issue when restoring enable bits state from the predicted ghost history buffer.
+* Fixed a "System Creation Order" bug causing components with `[GhostField]` fields (or the `[GhostEnableBit]` attribute) to silently default to the `DontSerializeVariant`, especially in cases where Ghost Prefabs are created at runtime (via `GhostPrefabCreation.ConvertToGhostPrefab`).
+  * "Ghost Registration" and "Default Variant Registration" Systems now use `[CreateBefore(typeof(DefaultVariantSystemGroup))]`, so that user-code can add `[CreateAfter(typeof(DefaultVariantSystemGroup))]` when accessing `GhostComponentSerializerCollectionData` data.
+  * We now also guard all of these calls, giving explicit (fatal) errors if used improperly.
+* An issue in `GhostDistancePartitioningSystem`, which caused Netcode to add a shared component ECB entry for every single ghost containing a `LocalTransform`, every single frame, when `GhostDistanceImportance` was enabled in a users project.
+
+
+### Deprecated
+
+* Now that the `GhostAuthoringInspectionComponent` shows all replicated components, you shouldn't have to opt-into prefab overrides. Thus, deprecated the `SupportsPrefabOverrides` attribute.
+
+
+## [1.0.0-pre.66] - 2023-03-21
+
+### Added
+
+* Validate and sanitise connect and listen addresses when using IPCNetworkInterface. That was causing some nasty crash in the Transport without users understanding the actual problem.
+
+### Changed
+
+* The following components have been renamed: 
+NetworkSnapshotAckComponent: NetworkSnapshotAck, 
+IncomingSnapshotDataStreamBufferComponent: IncomingSnapshotDataStreamBuffer, 
+IncomingRpcDataStreamBufferComponent: IncomingRpcDataStreamBuffer, 
+OutgoingRpcDataStreamBufferComponent: OutgoingRpcDataStreamBuffer,
+IncomingCommandDataStreamBufferComponent: IncomingCommandDataStreamBuffer, 
+OutgoingCommandDataStreamBufferComponent: OutgoingCommandDataStreamBuffer, 
+NetworkIdComponent: NetworkId, 
+CommandTargetComponent: CommandTarget,
+GhostComponent: GhostInstance,
+GhostChildEntityComponent: GhostChildEntity, 
+GhostOwnerComponent: GhostOwner, 
+PredictedGhostComponent: PredictedGhost, 
+GhostTypeComponent: GhostType, 
+SharedGhostTypeComponent: GhostTypePartition,
+GhostCleanupComponent: GhostCleanup,
+GhostPrefabMetaDataComponent: GhostPrefabMetaData, 
+PredictedGhostSpawnRequestComponent: PredictedGhostSpawnRequest, 
+PendingSpawnPlaceholderComponent: PendingSpawnPlaceholder, 
+ReceiveRpcCommandRequestComponent: ReceiveRpcCommandRequest, 
+SendRpcCommandRequestComponent: SendRpcCommandRequest, 
+MetricsMonitorComponent: MetricsMonitor,
 
 ### Removed
 
-* internal ListenAsync/ConnectAsync methods (no visible API changes for the users)
+* internal ListenAsync/ConnectAsync methods (no visible API changes for users)
 
 ### Fixed
 
@@ -40,6 +92,9 @@
 
 * Make EnablePacketLogging component public to allow for per connection debug information.
 * Updated `com.unity.transport` dependency to version 2.0.0-pre.6.
+
+### Deprecated
+* `ProjectSettings / NetCodeClientTarget` was not actually saved to the ProjectSettings. Instead, it was saved to `EditorPrefs`, breaking build determinism across machines. Now that this has been fixed, your EditorPref has been clobbered, and `ClientSettings.NetCodeClientTarget` has been deprecated (in favour of `NetCodeClientSettings.instance.ClientTarget`).
 
 ### Fixed
 
@@ -194,6 +249,45 @@
 * The GhostPredictionSystemGroup.IsFinalPredictionTick has been removed. Use the NetworkTime.IsFinalPredictionTick property instead.
 * The ClientSimulationSystemGroup ServerTick, ServerTickFraction, InterpolationTick and InterpolationTickFraction has been removed. You can retrieve the same properties from the NetworkTime singleton. Please refer to the `NetworkTime` component documentation for further information about the different timing properties and the flags behaviours.
 
+
+## [0.51.1] - 2022-06-27
+
+### Changed
+
+* Package Dependencies
+    * `com.unity.entities` to version `0.51.1`
+
+
+## [0.51.0] - 2022-05-04
+
+### Changed
+
+* Package Dependencies
+    * `com.unity.entities` to version `0.51.0`
+* Updated transport dependency to 1.0.0.
+
+### Added
+
+* prevent the netcode generator running if the assembly compilation that does not references netcode package.
+
+
+## [0.50.1] - 2022-03-18
+
+### Added
+
+* Hybrid assemblies will not be included in DOTS Runtime builds.
+
+### Changed
+
+* Changed: Tick systems (Initialization, Simulation, Presentation) are not created as part of the default client-server bootstrap for Hybrid and the Client and Server worlds are updated by the PlayerLoop instead.
+
+### Fixed
+
+* Fixed an exception in `PhysicsWorldHistory` when enabling lag compensation.
+* Fixed a rare compile error when source generators found invalid data in the package cache.
+* Fixed issue that prevent systems been shown in System Hierarchy window.
+* Fixed an issue where RPCs could be lost in rare cases when sending too many of them.
+* Fix an incorrect overflow exception when pre-spawned or predicted spawned ghost serialize a subset of the fields.
 
 
 ## [0.50.0] - 2021-09-17

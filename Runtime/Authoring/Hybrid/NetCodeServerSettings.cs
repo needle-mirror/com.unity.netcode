@@ -10,17 +10,22 @@ using Hash128 = Unity.Entities.Hash128;
 
 namespace Unity.NetCode.Hybrid
 {
+    /// <summary>
+    /// The <see cref="IEntitiesPlayerSettings"/> baking settings to use for server builds. You can assign the <see cref="GUID"/>
+    /// to the <see cref="Unity.Scenes.SceneSystemData.BuildConfigurationGUID"/> to instrument the asset import worker to bake the
+    /// scene using this setting.
+    /// </summary>
     [FilePath("ProjectSettings/NetCodeServerSettings.asset", FilePathAttribute.Location.ProjectFolder)]
-    internal class NetCodeServerSettings : ScriptableSingleton<NetCodeServerSettings>, IEntitiesPlayerSettings, INetCodeConversionTarget
+    public class NetCodeServerSettings : ScriptableSingleton<NetCodeServerSettings>, IEntitiesPlayerSettings, INetCodeConversionTarget
     {
         NetcodeConversionTarget INetCodeConversionTarget.NetcodeTarget => NetcodeConversionTarget.Server;
 
-        [SerializeField]
-        public BakingSystemFilterSettings FilterSettings;
-
-        [SerializeField] public string[] AdditionalScriptingDefines = Array.Empty<string>();
+        [SerializeField] private BakingSystemFilterSettings FilterSettings;
+        [SerializeField] private string[] AdditionalScriptingDefines = Array.Empty<string>();
 
         static Entities.Hash128 s_Guid;
+
+        /// <inheritdoc/>
         public Entities.Hash128 GUID
         {
             get
@@ -31,13 +36,15 @@ namespace Unity.NetCode.Hybrid
             }
         }
 
+        /// <inheritdoc/>
         public string CustomDependency => GetFilePath();
+        /// <inheritdoc/>
         void IEntitiesPlayerSettings.RegisterCustomDependency()
         {
             var hash = GetHash();
             AssetDatabase.RegisterCustomDependency(CustomDependency, hash);
         }
-
+        /// <inheritdoc/>
         public UnityEngine.Hash128 GetHash()
         {
             var hash = (UnityEngine.Hash128)GUID;
@@ -51,24 +58,24 @@ namespace Unity.NetCode.Hybrid
                 hash.Append(define);
             return hash;
         }
-
+        /// <inheritdoc/>
         public BakingSystemFilterSettings GetFilterSettings()
         {
             return FilterSettings;
         }
-
+        /// <inheritdoc/>
         public string[] GetAdditionalScriptingDefines()
         {
             return AdditionalScriptingDefines;
         }
-
-        public ScriptableObject AsScriptableObject()
+        /// <inheritdoc/>
+        ScriptableObject IEntitiesPlayerSettings.AsScriptableObject()
         {
             return instance;
         }
-
         internal void Save()
         {
+            //The asset importer should never save the data
             if (AssetDatabase.IsAssetImportWorkerProcess())
                 return;
             Save(true);
@@ -89,11 +96,6 @@ namespace Unity.NetCode.Hybrid
         public override DotsGlobalSettings.PlayerType GetPlayerType()
         {
             return DotsGlobalSettings.PlayerType.Server;
-        }
-
-        protected override Hash128 DoGetPlayerSettingGUID()
-        {
-            return NetCodeServerSettings.instance.GUID;
         }
 
         protected override IEntitiesPlayerSettings DoGetSettingAsset()
@@ -124,7 +126,7 @@ namespace Unity.NetCode.Hybrid
             propServerField.RegisterCallback<ChangeEvent<string>>(
                 evt =>
                 {
-                    NetCodeServerSettings.instance.FilterSettings.SetDirty();
+                    NetCodeServerSettings.instance.GetFilterSettings().SetDirty();
                 });
             targetS.Add(propServerField);
 

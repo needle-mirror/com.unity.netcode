@@ -30,7 +30,7 @@ namespace Unity.NetCode.Generators
 
         public override string ToString()
         {
-            return $"Type:{TypeFullName} Key:{Key} (quantized={Attribute.quantization} composite={Attribute.composite} smoothing={Attribute.smoothing} subtype={Attribute.subtype})";
+            return $"Type:{TypeFullName} Key:{Key} (quantized={Attribute.quantization} composite={Attribute.aggregateChangeMask} smoothing={Attribute.smoothing} subtype={Attribute.subtype})";
         }
 
         public override int GetHashCode()
@@ -60,13 +60,13 @@ namespace Unity.NetCode.Generators
         public int quantization;
         public uint smoothing;
         public float maxSmoothingDist;
-        public bool composite;
+        public bool aggregateChangeMask;
 
         public static TypeAttribute Empty()
         {
             return new TypeAttribute
             {
-                composite = false,
+                aggregateChangeMask = false,
                 smoothing = (uint)SmoothingAction.Clamp,
                 quantization = -1,
                 subtype = 0,
@@ -122,7 +122,7 @@ namespace Unity.NetCode.Generators
                     subtype = entry.SubType,
                     quantization = entry.Quantized ? 1 : -1,
                     smoothing = (uint)entry.Smoothing,
-                    composite = entry.Composite
+                    aggregateChangeMask = entry.Composite
                 }
             };
             var template = new TypeTemplate

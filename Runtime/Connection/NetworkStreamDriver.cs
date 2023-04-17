@@ -79,6 +79,7 @@ namespace Unity.NetCode
         /// <remarks>
         /// This function always return a valid address.
         /// </remarks>
+        #if UNITY_EDITOR || !UNITY_CLIENT
         private NetworkEndpoint SanitizeConnectAddress(in NetworkEndpoint endpoint, int driverId)
         {
             if (endpoint.IsLoopback)
@@ -96,7 +97,7 @@ namespace Unity.NetCode
             //If the playmode is Client/Server, the local client should always prefer to use Loopback addresses as well. Even though is
             //not strictly mandatory
             //This is only working for player build. In the editor the RequestedPlayType is not burst compatible.
-            if (ClientServerBootstrap.HasServerWorld.Data != 0)
+            if (ClientServerBootstrap.HasServerWorld)
             {
                 UnityEngine.Debug.LogWarning(
                     $"The requested playmode type is Client/Server but the client is trying to connect to address {endpoint.ToFixedString()} that is not the loopback address. Forcing using the NetworkEndPoint.Loopback; family (IPV4/IPV6) and port will be preserved");
@@ -107,6 +108,7 @@ namespace Unity.NetCode
             }
             return endpoint;
         }
+        #endif
 
         /// <summary>
         /// Tell all the registered <see cref="NetworkDriverStore"/> drivers to start listening for incoming connections.
@@ -171,7 +173,9 @@ namespace Unity.NetCode
             if (!entityManager.CreateEntityQuery(builder).IsEmpty)
                 throw new InvalidOperationException("Connection to server already initiated, only one connection allowed at a time.");
 #endif
+#if UNITY_EDITOR || !UNITY_CLIENT
             endpoint = SanitizeConnectAddress(endpoint, DriverStore.FirstDriver);
+#endif
             var connection = DriverStore.GetNetworkDriver(NetworkDriverStore.FirstDriverId).Connect(endpoint);
             entityManager.AddComponentData(ent, new NetworkStreamConnection{Value = connection, DriverId = 1});
             entityManager.AddComponentData(ent, new NetworkSnapshotAck());

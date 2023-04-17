@@ -50,7 +50,7 @@ namespace Unity.NetCode.Generators
         public SmoothingAction Smoothing { get; set; }
         public int SubType { get; set; }
         public float MaxSmoothingDistance { get; set; }
-        public bool Composite { get; set; }
+        public bool ?Composite { get; set; }
         public bool SendData { get; set; } = true;
     }
 

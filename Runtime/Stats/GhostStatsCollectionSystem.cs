@@ -146,7 +146,12 @@ namespace Unity.NetCode
             m_PredictionErrorStatsData = new NativeList<float>(128, Allocator.Persistent);
             SystemAPI.SetSingleton(new GhostStatsCollectionPredictionError{Data = m_PredictionErrorStatsData});
 
-            m_MinMaxTickStatsData = new NativeArray<NetworkTick>(JobsUtility.MaxJobThreadCount * JobsUtility.CacheLineSize/4, Allocator.Persistent);
+#if UNITY_2022_2_14F1_OR_NEWER
+            int maxThreadCount = JobsUtility.ThreadIndexCount;
+#else
+            int maxThreadCount = JobsUtility.MaxJobThreadCount;
+#endif
+            m_MinMaxTickStatsData = new NativeArray<NetworkTick>(maxThreadCount * JobsUtility.CacheLineSize/4, Allocator.Persistent);
             SystemAPI.SetSingleton(new GhostStatsCollectionMinMaxTick{Value = m_MinMaxTickStatsData});
 
             var ghostcollectionData = new GhostStatsCollectionData
@@ -244,9 +249,15 @@ namespace Unity.NetCode
             m_SnapshotTickMax = m_MinMaxTickStatsData[1];
             m_MinMaxTickStatsData[0] = NetworkTick.Invalid;
             m_MinMaxTickStatsData[1] = NetworkTick.Invalid;
+
             // Gather the min/max age stats
+#if UNITY_2022_2_14F1_OR_NEWER
+            int maxThreadCount = JobsUtility.ThreadIndexCount;
+#else
+            int maxThreadCount = JobsUtility.MaxJobThreadCount;
+#endif
             var intsPerCacheLine = JobsUtility.CacheLineSize/4;
-            for (int i = 1; i < JobsUtility.MaxJobThreadCount; ++i)
+            for (int i = 1; i < maxThreadCount; ++i)
             {
                 if (m_MinMaxTickStatsData[intsPerCacheLine*i].IsValid &&
                     (!m_SnapshotTickMin.IsValid ||

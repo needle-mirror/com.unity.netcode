@@ -10,6 +10,8 @@ namespace Unity.NetCode.Tests.Editor
     [WorldSystemFilter(WorldSystemFilterFlags.ClientSimulation)]
     [UpdateInGroup(typeof(GhostSimulationSystemGroup))]
     [UpdateAfter(typeof(GhostSpawnClassificationSystem))]
+    [CreateAfter(typeof(GhostCollectionSystem))]
+    [CreateAfter(typeof(GhostReceiveSystem))]
     partial struct TestSpawnBufferClassifier : ISystem
     {
         private LowLevel.SnapshotDataLookupHelper lookupHelper;
@@ -17,7 +19,9 @@ namespace Unity.NetCode.Tests.Editor
         public int ClassifiedPredictedSpawns { get; private set; }
         public void OnCreate(ref SystemState state)
         {
-            lookupHelper = new LowLevel.SnapshotDataLookupHelper(ref state);
+            lookupHelper = new LowLevel.SnapshotDataLookupHelper(ref state,
+                SystemAPI.GetSingletonEntity<GhostCollection>(),
+                SystemAPI.GetSingletonEntity<SpawnedGhostEntityMap>());
             snapshotBufferLookup = state.GetBufferLookup<SnapshotDataBuffer>(true);
             state.RequireForUpdate<GhostCollection>();
             state.RequireForUpdate<GhostSpawnQueue>();
@@ -29,9 +33,7 @@ namespace Unity.NetCode.Tests.Editor
         {
             lookupHelper.Update(ref state);
             snapshotBufferLookup.Update(ref state);
-            var ghostMap = SystemAPI.GetSingleton<SpawnedGhostEntityMap>().Value;
-            var ghostCollection = SystemAPI.GetSingletonEntity<GhostCollection>();
-            var snapshotLookup = lookupHelper.CreateSnapshotBufferLookup(ghostCollection, ghostMap);
+            var snapshotLookup = lookupHelper.CreateSnapshotBufferLookup();
             var predictedSpawnList = SystemAPI.GetSingletonBuffer<PredictedGhostSpawn>(true);
 
             foreach (var (spawnBuffer, spawnDataBuffer)
@@ -86,8 +88,8 @@ namespace Unity.NetCode.Tests.Editor
                 testWorld.Bootstrap(true, typeof(TestSpawnBufferClassifier));
                 testWorld.CreateGhostCollection();
                 testWorld.CreateWorlds(true, 1);
-                BuildPrefab(testWorld.ServerWorld.EntityManager, "TestPrefab");
-                BuildPrefab(testWorld.ClientWorlds[0].EntityManager, "TestPrefab");
+                BuildPrefab(testWorld.ServerWorld, "TestPrefab");
+                BuildPrefab(testWorld.ClientWorlds[0], "TestPrefab");
                 testWorld.Connect(1f / 60f, 10);
                 testWorld.GoInGame();
                 for(var i=0;i<32;++i)
@@ -109,10 +111,9 @@ namespace Unity.NetCode.Tests.Editor
                 testWorld.Bootstrap(true, typeof(TestSpawnBufferClassifier));
                 testWorld.CreateGhostCollection();
                 testWorld.CreateWorlds(true, 1);
-                BuildPrefab(testWorld.ServerWorld.EntityManager, "TestPrefab");
-                var clientPrefab = BuildPrefab(testWorld.ClientWorlds[0].EntityManager, "TestPrefab");
-                var predictedSpawnVariant = CreatePredictedSpawnVariant(testWorld.ClientWorlds[0].EntityManager, clientPrefab);
-                Assert.IsTrue(testWorld.ClientWorlds[0].EntityManager.HasComponent<PredictedGhostSpawnRequest>(predictedSpawnVariant));
+                BuildPrefab(testWorld.ServerWorld, "TestPrefab");
+                var clientPrefab = BuildPrefab(testWorld.ClientWorlds[0], "TestPrefab");
+                Assert.IsTrue(testWorld.ClientWorlds[0].EntityManager.HasComponent<PredictedGhostSpawnRequest>(clientPrefab));
                 testWorld.Connect(1f / 60f, 10);
                 testWorld.GoInGame();
                 for(var i=0;i<32;++i)
@@ -120,7 +121,7 @@ namespace Unity.NetCode.Tests.Editor
                 Assert.AreEqual(testWorld.GetSingletonBuffer<GhostCollectionPrefab>(testWorld.ServerWorld).Length,1);
                 Assert.AreEqual(testWorld.GetSingletonBuffer<GhostCollectionPrefab>(testWorld.ClientWorlds[0]).Length,1);
                 //Predict the spawning on the client. And match the one coming from server
-                var clientGhost = testWorld.ClientWorlds[0].EntityManager.Instantiate(predictedSpawnVariant);
+                var clientGhost = testWorld.ClientWorlds[0].EntityManager.Instantiate(clientPrefab);
                 Assert.IsTrue(testWorld.ClientWorlds[0].EntityManager.HasComponent<PredictedGhostSpawnRequest>(clientGhost));
                 SetComponentsData(testWorld.ClientWorlds[0], clientGhost);
                 for(var i=0;i<2;++i)
@@ -143,13 +144,12 @@ namespace Unity.NetCode.Tests.Editor
                 testWorld.Bootstrap(true, typeof(TestSpawnBufferClassifier));
                 testWorld.CreateGhostCollection();
                 testWorld.CreateWorlds(true, 1);
-                var ghostsPrefabs = new Entity[5];
-                for (int i = 0; i < ghostsPrefabs.Length; ++i)
+                var clientGhostPrefabs = new Entity[5];
+                for (int i = 0; i < clientGhostPrefabs.Length; ++i)
                 {
-                    BuildPrefab(testWorld.ServerWorld.EntityManager, $"TestPrefab_{i}");
-                    var clientPrefab = BuildPrefab(testWorld.ClientWorlds[0].EntityManager, $"TestPrefab_{i}");
-                    ghostsPrefabs[i] = CreatePredictedSpawnVariant(testWorld.ClientWorlds[0].EntityManager, clientPrefab);
-                    Assert.IsTrue(testWorld.ClientWorlds[0].EntityManager.HasComponent<PredictedGhostSpawnRequest>(ghostsPrefabs[i]));
+                    BuildPrefab(testWorld.ServerWorld, $"TestPrefab_{i}");
+                    clientGhostPrefabs[i] = BuildPrefab(testWorld.ClientWorlds[0], $"TestPrefab_{i}");
+                    Assert.IsTrue(testWorld.ClientWorlds[0].EntityManager.HasComponent<PredictedGhostSpawnRequest>(clientGhostPrefabs[i]));
                 }
 
 
@@ -157,19 +157,19 @@ namespace Unity.NetCode.Tests.Editor
                 testWorld.GoInGame();
                 for(var i=0;i<32;++i)
                     testWorld.Tick(1.0f/60f);
-                Assert.AreEqual(ghostsPrefabs.Length, testWorld.GetSingletonBuffer<GhostCollectionPrefab>(testWorld.ServerWorld).Length);
-                Assert.AreEqual(ghostsPrefabs.Length, testWorld.GetSingletonBuffer<GhostCollectionPrefab>(testWorld.ClientWorlds[0]).Length);
+                Assert.AreEqual(clientGhostPrefabs.Length, testWorld.GetSingletonBuffer<GhostCollectionPrefab>(testWorld.ServerWorld).Length);
+                Assert.AreEqual(clientGhostPrefabs.Length, testWorld.GetSingletonBuffer<GhostCollectionPrefab>(testWorld.ClientWorlds[0]).Length);
                 //Predict the spawning on the client. And match the one coming from server
-                for (int i = 0; i < ghostsPrefabs.Length; ++i)
+                for (int i = 0; i < clientGhostPrefabs.Length; ++i)
                 {
-                    var clientGhost = testWorld.ClientWorlds[0].EntityManager.Instantiate(ghostsPrefabs[i]);
+                    var clientGhost = testWorld.ClientWorlds[0].EntityManager.Instantiate(clientGhostPrefabs[i]);
                     Assert.IsTrue(testWorld.ClientWorlds[0].EntityManager.HasComponent<PredictedGhostSpawnRequest>(clientGhost));
                     SetComponentsData(testWorld.ClientWorlds[0], clientGhost);
                 }
                 for(var i=0;i<2;++i)
                     testWorld.Tick(1.0f/60f);
 
-                for (int i = 0; i < ghostsPrefabs.Length; ++i)
+                for (int i = 0; i < clientGhostPrefabs.Length; ++i)
                 {
                     var serverGhost = testWorld.ServerWorld.EntityManager.Instantiate(testWorld.GetSingletonBuffer<GhostCollectionPrefab>(testWorld.ServerWorld).ElementAt(i).GhostPrefab);
                     SetComponentsData(testWorld.ServerWorld, serverGhost);
@@ -178,7 +178,7 @@ namespace Unity.NetCode.Tests.Editor
                     testWorld.Tick(1.0f/60f);
                 var classifier = testWorld.ClientWorlds[0].GetExistingSystem<TestSpawnBufferClassifier>();
                 var systemRef = testWorld.ClientWorlds[0].Unmanaged.GetUnsafeSystemRef<TestSpawnBufferClassifier>(classifier);
-                Assert.AreEqual(ghostsPrefabs.Length, systemRef.ClassifiedPredictedSpawns);
+                Assert.AreEqual(clientGhostPrefabs.Length, systemRef.ClassifiedPredictedSpawns);
             }
         }
 
@@ -190,15 +190,15 @@ namespace Unity.NetCode.Tests.Editor
             world.EntityManager.GetBuffer<GhostGenTest_Buffer>(entity).Add(new GhostGenTest_Buffer{IntValue = 10});
         }
 
-        private Entity BuildPrefab(EntityManager entityManager, string prefabName)
+        private Entity BuildPrefab(World world, string prefabName)
         {
-            var archetype = entityManager.CreateArchetype(
+            var archetype = world.EntityManager.CreateArchetype(
                 new ComponentType(typeof(Transforms.LocalTransform)),
                 new ComponentType(typeof(GhostOwner)),
                 new ComponentType(typeof(GhostGenTest_Buffer)),
                 new ComponentType(typeof(SomeData)));
-            var prefab = entityManager.CreateEntity(archetype);
-            GhostPrefabCreation.ConvertToGhostPrefab(entityManager, prefab, new GhostPrefabCreation.Config
+            var prefab = world.EntityManager.CreateEntity(archetype);
+            GhostPrefabCreation.ConvertToGhostPrefab(world.EntityManager, prefab, new GhostPrefabCreation.Config
             {
                 Name = prefabName,
                 Importance = 1000,
@@ -208,20 +208,6 @@ namespace Unity.NetCode.Tests.Editor
                 UsePreSerialization = false
             });
             return prefab;
-        }
-
-        private Entity CreatePredictedSpawnVariant(EntityManager entityManager, Entity entity)
-        {
-            var predicted = entityManager.Instantiate(entity);
-            entityManager.AddComponent<Prefab>(entity);
-            if (entityManager.HasComponent<LinkedEntityGroup>(predicted))
-            {
-                var leg = entityManager.GetBuffer<LinkedEntityGroup>(predicted, true);
-                foreach (var ent in leg)
-                    entityManager.AddComponent<Prefab>(ent.Value);
-            }
-            entityManager.AddComponent<PredictedGhostSpawnRequest>(predicted);
-            return predicted;
         }
     }
 }

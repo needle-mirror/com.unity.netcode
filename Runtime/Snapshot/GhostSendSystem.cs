@@ -369,8 +369,13 @@ namespace Unity.NetCode
             m_DestroyedPrespawnsQueue = new NativeQueue<int>(Allocator.Persistent);
             m_DespawnAckedByAllTick = new NativeReference<NetworkTick>(Allocator.Persistent);
 #if UNITY_EDITOR
-            m_UpdateLen = new NativeArray<uint>(JobsUtility.MaxJobThreadCount, Allocator.Persistent);
-            m_UpdateCounts = new NativeArray<uint>(JobsUtility.MaxJobThreadCount, Allocator.Persistent);
+#if UNITY_2022_2_14F1_OR_NEWER
+            int maxThreadCount = JobsUtility.ThreadIndexCount;
+#else
+            int maxThreadCount = JobsUtility.MaxJobThreadCount;
+#endif
+            m_UpdateLen = new NativeArray<uint>(maxThreadCount, Allocator.Persistent);
+            m_UpdateCounts = new NativeArray<uint>(maxThreadCount, Allocator.Persistent);
 #endif
 
             connectionQuery = state.GetEntityQuery(
@@ -2093,13 +2098,19 @@ namespace Unity.NetCode
 #if UNITY_EDITOR || NETCODE_DEBUG
         private void UpdateNetStats(ref GhostStatsCollectionSnapshot netStats, NetworkTick serverTick)
         {
+#if UNITY_2022_2_14F1_OR_NEWER
+            int maxThreadCount = JobsUtility.ThreadIndexCount;
+#else
+            int maxThreadCount = JobsUtility.MaxJobThreadCount;
+#endif
+
             var numLoadedPrefabs = SystemAPI.GetSingleton<GhostCollection>().NumLoadedPrefabs;
             const int intsPerCacheLine = JobsUtility.CacheLineSize / 4;
             netStats.Size = numLoadedPrefabs * 3 + 3 + 1;
             // Round up to an even cache line size in order to reduce false sharing
             netStats.Stride = (netStats.Size + intsPerCacheLine-1) & (~(intsPerCacheLine-1));
-            netStats.Workers = JobsUtility.MaxJobThreadCount;
-            netStats.Data.Resize(netStats.Stride * JobsUtility.MaxJobThreadCount, NativeArrayOptions.ClearMemory);
+            netStats.Workers = maxThreadCount;
+            netStats.Data.Resize(netStats.Stride * maxThreadCount, NativeArrayOptions.ClearMemory);
             netStats.Data[0] = serverTick.SerializedData;
         }
 #endif

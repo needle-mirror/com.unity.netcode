@@ -52,7 +52,10 @@ namespace Generated
                 #region __GHOST_COPY_FROM_SNAPSHOT__
                 component.__GHOST_FIELD_REFERENCE__ = snapshotBefore.__GHOST_FIELD_NAME__;
                 #endregion
-
+                #region __GHOST_COPY_FROM_SNAPSHOT_INTERPOLATE_SETUP__
+                var __GHOST_FIELD_NAME___Before = snapshotBefore.__GHOST_FIELD_NAME__;
+                var __GHOST_FIELD_NAME___After = snapshotAfter.__GHOST_FIELD_NAME__;
+                #endregion
                 #region __GHOST_COPY_FROM_SNAPSHOT_INTERPOLATE_DISTSQ__
                 var __GHOST_FIELD_NAME___DistSq = math.distancesq(snapshotBefore.__GHOST_FIELD_NAME__, snapshotAfter.__GHOST_FIELD_NAME__);
                 #endregion

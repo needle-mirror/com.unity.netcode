@@ -36,4 +36,21 @@
     <EmbeddedResource Include="../../../../Editor/Templates/DefaultTypes/GhostSnapshotValueDouble.cs" Link="../../../../Editor/Templates/DefaultTypes/GhostSnapshotValueDouble.cs" LogicalName="NetCode.GhostSnapshotValueDouble.cs" />
     <EmbeddedResource Include="../../../../Editor/Templates/DefaultTypes/GhostSnapshotValueDoubleUnquantized.cs" Link="../../../../Editor/Templates/DefaultTypes/GhostSnapshotValueDoubleUnquantized.cs" LogicalName="NetCode.GhostSnapshotValueDoubleUnquantized.cs" />
   </ItemGroup>
+  <ItemGroup>
+    <Content Include="..\Documentation\code-gen-spec.md">
+      <Link>Documentation\code-gen-spec.md</Link>
+    </Content>
+    <Content Include="..\Documentation\diagram.png">
+      <Link>Documentation\diagram.png</Link>
+    </Content>
+    <Content Include="..\Documentation\README.md">
+      <Link>Documentation\README.md</Link>
+    </Content>
+    <Content Include="..\Documentation\README.md.meta">
+      <Link>Documentation\README.md.meta</Link>
+    </Content>
+    <Content Include="..\Documentation\templates-spec.md">
+      <Link>Documentation\templates-spec.md</Link>
+    </Content>
+  </ItemGroup>
 </Project>

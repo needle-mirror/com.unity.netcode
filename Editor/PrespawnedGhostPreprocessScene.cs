@@ -12,7 +12,6 @@ namespace Unity.NetCode.Editor
     /// To overcome that, the SubSceneWithPrespawnGhosts is added at runtime here and a LiveLinkPrespawnSectionReference
     /// is also added ot the scene section enity to provide some misisng information about the section is referring to.
     /// </summary>
-    [GenerateTestsForBurstCompatibility]
     [BurstCompile]
     [WorldSystemFilter(WorldSystemFilterFlags.ClientSimulation | WorldSystemFilterFlags.ServerSimulation | WorldSystemFilterFlags.ThinClientSimulation)]
     [UpdateInGroup(typeof(InitializationSystemGroup))]

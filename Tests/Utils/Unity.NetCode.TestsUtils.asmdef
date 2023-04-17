@@ -24,6 +24,12 @@
     "allowUnsafeCode": true,
     "overrideReferences": true,
     "autoReferenced": false,
-    "versionDefines": [],
+    "versionDefines": [
+      {
+        "name": "com.unity.test-framework.performance",
+        "expression": "0.0",
+        "define": "NETCODE_ENABLE_PERF_TESTS"
+      }
+    ],
     "noEngineReferences": false
 }

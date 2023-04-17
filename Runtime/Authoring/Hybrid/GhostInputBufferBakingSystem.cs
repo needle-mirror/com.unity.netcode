@@ -5,6 +5,7 @@ namespace Unity.NetCode
     // Needs to run before GhostAuthoringBakingSystem so the buffer is there before ghost processing, putting it in the normal baking group ensures that since GhostAuthoringBakingSystem is in PostBakingSystemGroup
     [UpdateInGroup(typeof(BakingSystemGroup))]
     [WorldSystemFilter(WorldSystemFilterFlags.BakingSystem)]
+    [BakingVersion("cmarastoni", 1)]
     internal partial class GhostInputBufferBakingSystem : SystemBase
     {
         protected override void OnUpdate()

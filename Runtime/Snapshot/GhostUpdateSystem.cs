@@ -1,9 +1,9 @@
 using System;
+using System.Diagnostics;
 using Unity.Assertions;
 using Unity.Entities;
 using Unity.Collections;
 using Unity.Burst;
-using Unity.Burst.CompilerServices;
 using Unity.Burst.Intrinsics;
 using Unity.Jobs.LowLevel.Unsafe;
 using Unity.Collections.LowLevel.Unsafe;
@@ -98,6 +98,19 @@ namespace Unity.NetCode
                     appliedPredictedTicks.TryAdd(startTick, predictionStartTick);
                 }
             }
+            [Conditional("ENABLE_UNITY_COLLECTIONS_CHECKS")]
+            private static void ValidateReadEnableBits(int enableableMaskOffset, int numEnableBits)
+            {
+                if(enableableMaskOffset > numEnableBits)
+                    throw new InvalidOperationException($"Read only {enableableMaskOffset} enable bits data whics are less than the expected {numEnableBits} for this ghost type. This is not a serializarion error but a problem restoring the component state from the decoded snapshot data.");
+            }
+            [Conditional("ENABLE_UNITY_COLLECTIONS_CHECKS")]
+            private void ValidateAllEnableBitsHasBeenRead(int enableableMaskOffset, int numEnableBits)
+            {
+                if (enableableMaskOffset != numEnableBits)
+                    throw new InvalidOperationException($"Read only {enableableMaskOffset} enable bits but expected to read exacly {numEnableBits} for this ghost type");
+            }
+
             public void Execute(in ArchetypeChunk chunk, int unfilteredChunkIndex, bool useEnabledMask, in v128 chunkEnabledMask)
             {
                 // This job is not written to support queries with enableable component types.
@@ -381,8 +394,10 @@ namespace Unity.NetCode
                                 snapshotData += snapshotDataAtTickSize * range.x;
                                 var dataAtTickPtr = (SnapshotData.DataAtTick*) snapshotData;
 
-                                enableableMaskOffset = UpdateEnableableMask(chunk, dataAtTickPtr, changeMaskUints, enableableMaskOffset, range, ghostChunkComponentTypesPtr, compIdx, ref componentHasChanges);
+                                UpdateEnableableMask(chunk, dataAtTickPtr, changeMaskUints, enableableMaskOffset, range, ghostChunkComponentTypesPtr, compIdx, ref componentHasChanges);
                             }
+                            ++enableableMaskOffset;
+                            ValidateReadEnableBits(enableableMaskOffset, typeData.EnableableBits);
                         }
                     }
                     else
@@ -452,11 +467,16 @@ namespace Unity.NetCode
                             snapshotData += snapshotDataAtTickSize * range.x;
                             var dataAtTickPtr = (SnapshotData.DataAtTick*) snapshotData;
                             if (typeData.EnableableBits > 0 && GhostComponentCollection[serializerIdx].SerializesEnabledBit != 0)
-                            {
-                                enableableMaskOffset = UpdateEnableableMask(chunk, dataAtTickPtr, changeMaskUints, enableableMaskOffset, range, ghostChunkComponentTypesPtr, compIdx, ref componentHasChanges);
-                            }
+                                UpdateEnableableMask(chunk, dataAtTickPtr, changeMaskUints, enableableMaskOffset, range, ghostChunkComponentTypesPtr, compIdx, ref componentHasChanges);
+                        }
+
+                        if (typeData.EnableableBits > 0 && GhostComponentCollection[serializerIdx].SerializesEnabledBit != 0)
+                        {
+                            ++enableableMaskOffset;
+                            ValidateReadEnableBits(enableableMaskOffset, typeData.EnableableBits);
                         }
                         snapshotDataOffset += snapshotSize;
+
                     }
                 }
                 if (typeData.NumChildComponents > 0)
@@ -487,7 +507,6 @@ namespace Unity.NetCode
                             for (var rangeIdx = 0; rangeIdx < entityRange.Length; ++rangeIdx)
                             {
                                 var range = entityRange[rangeIdx];
-                                var maskOffset = enableableMaskOffset;
                                 for (int ent = range.x; ent < range.y; ++ent)
                                 {
                                     var linkedEntityGroup = linkedEntityGroupAccessor[ent];
@@ -532,10 +551,14 @@ namespace Unity.NetCode
                                     {
                                         var childRange = new int2 { x = childChunk.IndexInChunk, y = childChunk.IndexInChunk + 1 };
                                         var unused = false;
-                                        UpdateEnableableMask(childChunk.Chunk, dataAtTickPtr, changeMaskUints, maskOffset, childRange, ghostChunkComponentTypesPtr, compIdx, ref unused);
+                                        UpdateEnableableMask(childChunk.Chunk, dataAtTickPtr, changeMaskUints, enableableMaskOffset, childRange, ghostChunkComponentTypesPtr, compIdx, ref unused);
                                     }
                                 }
-                                enableableMaskOffset = maskOffset + 1;
+                            }
+                            if (typeData.EnableableBits > 0 && GhostComponentCollection[serializerIdx].SerializesEnabledBit != 0)
+                            {
+                                ++enableableMaskOffset;
+                                ValidateReadEnableBits(enableableMaskOffset, typeData.EnableableBits);
                             }
                             snapshotDataOffset += snapshotSize;
                         }
@@ -620,12 +643,17 @@ namespace Unity.NetCode
                                         UpdateEnableableMask(childChunk.Chunk, dataAtTickPtr, changeMaskUints, maskOffset, childRange, ghostChunkComponentTypesPtr, compIdx, ref unused);
                                     }
                                 }
-                                enableableMaskOffset = maskOffset + 1;
+                            }
+                            if (typeData.EnableableBits > 0 && GhostComponentCollection[serializerIdx].SerializesEnabledBit != 0)
+                            {
+                                ++enableableMaskOffset;
+                                ValidateReadEnableBits(enableableMaskOffset, typeData.EnableableBits);
                             }
                             snapshotDataOffset += snapshotSize;
                         }
                     }
                 }
+                ValidateAllEnableBitsHasBeenRead(enableableMaskOffset, typeData.EnableableBits);
             }
 
             private static void CopyRODataIntoTempChangeBuffer(int requiredCompDataLength, ref byte* tempChangeBuffer, ref int tempChangeBufferSize, ref NativeArray<byte> tempChangeBufferLarge, byte* roCompData)
@@ -642,7 +670,7 @@ namespace Unity.NetCode
             }
 
             // TODO - We can perform this logic faster using the EnabledMask.
-            private static int UpdateEnableableMask(ArchetypeChunk chunk, SnapshotData.DataAtTick* dataAtTickPtr,
+            private static void UpdateEnableableMask(ArchetypeChunk chunk, SnapshotData.DataAtTick* dataAtTickPtr,
                 int changeMaskUints, int enableableMaskOffset, int2 range,
                 DynamicComponentTypeHandle* ghostChunkComponentTypesPtr, int compIdx, ref bool componentHasChanges)
             {
@@ -668,9 +696,6 @@ namespace Unity.NetCode
 
                     dataAtTickPtr++;
                 }
-
-                enableableMaskOffset++;
-                return enableableMaskOffset;
             }
 
             SnapshotData.DataAtTick SetupDynamicDataAtTick(in SnapshotData.DataAtTick dataAtTick,
@@ -964,35 +989,29 @@ namespace Unity.NetCode
 
         public void OnCreate(ref SystemState systemState)
         {
+#if UNITY_2022_2_14F1_OR_NEWER
+            int maxThreadCount = JobsUtility.ThreadIndexCount;
+#else
+            int maxThreadCount = JobsUtility.MaxJobThreadCount;
+#endif
+
             var ghostUpdateVersionSingleton = systemState.EntityManager.CreateEntity(ComponentType.ReadWrite<GhostUpdateVersion>());
             systemState.EntityManager.SetName(ghostUpdateVersionSingleton, "GhostUpdateVersion-Singleton");
 
-            m_AppliedPredictedTicks = new NativeParallelHashMap<NetworkTick, NetworkTick>(CommandDataUtility.k_CommandDataMaxSize*JobsUtility.MaxJobThreadCount / 4, Allocator.Persistent);
+            m_AppliedPredictedTicks = new NativeParallelHashMap<NetworkTick, NetworkTick>(CommandDataUtility.k_CommandDataMaxSize*maxThreadCount / 4, Allocator.Persistent);
             var singletonEntity = systemState.EntityManager.CreateEntity(ComponentType.ReadWrite<GhostPredictionGroupTickState>());
             systemState.EntityManager.SetName(singletonEntity, "AppliedPredictedTicks-Singleton");
             SystemAPI.SetSingleton(new GhostPredictionGroupTickState { AppliedPredictedTicks = m_AppliedPredictedTicks });
 
-            m_ghostQuery = systemState.GetEntityQuery(new EntityQueryDesc
-            {
-                All = new []{
-                    ComponentType.ReadWrite<SnapshotDataBuffer>(),
-                    ComponentType.ReadOnly<SnapshotData>(),
-                    ComponentType.ReadOnly<GhostInstance>(),
-                },
-                None = new[]{
-                    ComponentType.ReadWrite<PendingSpawnPlaceholder>(),
-                    ComponentType.ReadWrite<PredictedGhostSpawnRequest>()
-                }
-            });
-            m_GhostOwnerIsLocalQuery = systemState.GetEntityQuery(new EntityQueryDesc
-            {
-                All = new []{
-                    ComponentType.ReadWrite<GhostOwnerIsLocal>(),
-                    ComponentType.ReadOnly<GhostOwner>(),
-                },
-                Options = EntityQueryOptions.IgnoreComponentEnabledState
-            });
-
+            var queryBuilder = new EntityQueryBuilder(Allocator.Temp)
+                .WithAll<SnapshotData, GhostInstance>()
+                .WithAllRW<SnapshotDataBuffer>()
+                .WithAbsent<PendingSpawnPlaceholder, PredictedGhostSpawnRequest>();
+            m_ghostQuery = queryBuilder.Build(systemState.EntityManager);
+            queryBuilder.Reset();
+            m_GhostOwnerIsLocalQuery = queryBuilder.WithAllRW<GhostOwnerIsLocal>().WithAll<GhostOwner>()
+                .WithOptions(EntityQueryOptions.IgnoreComponentEnabledState)
+                .Build(systemState.EntityManager);
             systemState.RequireForUpdate<NetworkStreamInGame>();
             systemState.RequireForUpdate<GhostCollection>();
 
