@@ -92,7 +92,6 @@ namespace Unity.NetCode.Tests
                 Assert.IsTrue(testWorld.CreateGhostCollection(ghostGameObject));
 
                 testWorld.CreateWorlds(true, 1);
-
                 var tickRate = testWorld.ServerWorld.EntityManager.CreateEntity();
                 // Set low net tick rate to make sure interpolation is used
                 testWorld.ServerWorld.EntityManager.AddComponentData(tickRate, new ClientServerTickRate {NetworkTickRate = 30});

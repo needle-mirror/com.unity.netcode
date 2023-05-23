@@ -1,5 +1,27 @@
 # Changelog
 
+
+## [1.0.10] - 2023-05-23
+
+### Added
+
+* What's New and Upgrade Guide section in the docs.
+* New NetworkRequestListenResult cleanup component, that can be used to track the result of a listen request.
+
+### Changed
+
+* documentation index page with up-to-date info and links.
+* Removed forcing local client/server to alway use the loopback address to connect.
+* It is now possible to listen to the NetworkEndPoint.Any also for IPC connection.
+* The NetworkStreamDriver.GetRemoteAddress always return a consistent address for the connection when the NetworkDriver is configured to use the Unity Relay. Before, an invalid address was returned after the connection has been established, that was incorrect.
+* Exposed all the internal state of the NetworkTimeSystem as public API
+
+### Fixed
+
+* exceptions when NetworkRequestListen and/or. NetworkRequestConnect are handled and proper handling of multiple (erroneous) requests presents.
+* A problem with InterpolatedTick, going back and not recovering correctly in presence of large application, either the server or the client, stalls (i.e after loading).
+
+
 ## [1.0.8] - 2023-04-17
 
 ### Changed
@@ -39,27 +61,27 @@
 
 ### Changed
 
-* The following components have been renamed: 
-NetworkSnapshotAckComponent: NetworkSnapshotAck, 
-IncomingSnapshotDataStreamBufferComponent: IncomingSnapshotDataStreamBuffer, 
-IncomingRpcDataStreamBufferComponent: IncomingRpcDataStreamBuffer, 
+* The following components have been renamed:
+NetworkSnapshotAckComponent: NetworkSnapshotAck,
+IncomingSnapshotDataStreamBufferComponent: IncomingSnapshotDataStreamBuffer,
+IncomingRpcDataStreamBufferComponent: IncomingRpcDataStreamBuffer,
 OutgoingRpcDataStreamBufferComponent: OutgoingRpcDataStreamBuffer,
-IncomingCommandDataStreamBufferComponent: IncomingCommandDataStreamBuffer, 
-OutgoingCommandDataStreamBufferComponent: OutgoingCommandDataStreamBuffer, 
-NetworkIdComponent: NetworkId, 
+IncomingCommandDataStreamBufferComponent: IncomingCommandDataStreamBuffer,
+OutgoingCommandDataStreamBufferComponent: OutgoingCommandDataStreamBuffer,
+NetworkIdComponent: NetworkId,
 CommandTargetComponent: CommandTarget,
 GhostComponent: GhostInstance,
-GhostChildEntityComponent: GhostChildEntity, 
-GhostOwnerComponent: GhostOwner, 
-PredictedGhostComponent: PredictedGhost, 
-GhostTypeComponent: GhostType, 
+GhostChildEntityComponent: GhostChildEntity,
+GhostOwnerComponent: GhostOwner,
+PredictedGhostComponent: PredictedGhost,
+GhostTypeComponent: GhostType,
 SharedGhostTypeComponent: GhostTypePartition,
 GhostCleanupComponent: GhostCleanup,
-GhostPrefabMetaDataComponent: GhostPrefabMetaData, 
-PredictedGhostSpawnRequestComponent: PredictedGhostSpawnRequest, 
-PendingSpawnPlaceholderComponent: PendingSpawnPlaceholder, 
-ReceiveRpcCommandRequestComponent: ReceiveRpcCommandRequest, 
-SendRpcCommandRequestComponent: SendRpcCommandRequest, 
+GhostPrefabMetaDataComponent: GhostPrefabMetaData,
+PredictedGhostSpawnRequestComponent: PredictedGhostSpawnRequest,
+PendingSpawnPlaceholderComponent: PendingSpawnPlaceholder,
+ReceiveRpcCommandRequestComponent: ReceiveRpcCommandRequest,
+SendRpcCommandRequestComponent: SendRpcCommandRequest,
 MetricsMonitorComponent: MetricsMonitor,
 
 ### Removed
@@ -244,8 +266,8 @@ MetricsMonitorComponent: MetricsMonitor,
 
 ###  Use the new NetworkTime component
 
-                                       All the information in regards the current simulated tick MUST be retrieved from the singleton NetworkTime. In particular:
-* The GhostPredictionSystemGroup.PredictedTick has been removed. You must always use the NetworkTime.ServerTick instead. The ServerTick value will correcly reflect the current predicted tick when inspected inside the prediction loop.
+All the information in regards the current simulated tick MUST be retrieved from the singleton NetworkTime. In particular:
+* The GhostPredictionSystemGroup.PredictingTick has been removed. You must always use the NetworkTime.ServerTick instead. The ServerTick value will correcly reflect the current predicted tick when inspected inside the prediction loop.
 * The GhostPredictionSystemGroup.IsFinalPredictionTick has been removed. Use the NetworkTime.IsFinalPredictionTick property instead.
 * The ClientSimulationSystemGroup ServerTick, ServerTickFraction, InterpolationTick and InterpolationTickFraction has been removed. You can retrieve the same properties from the NetworkTime singleton. Please refer to the `NetworkTime` component documentation for further information about the different timing properties and the flags behaviours.
 

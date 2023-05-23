@@ -428,7 +428,7 @@ namespace Unity.NetCode
         /// Print the log message with Debug level priority;
         /// </summary>
         /// <param name="msg">The ascii message string. Unicode are not supported</param>
-        public void DebugLog(in FixedString512Bytes msg)
+        public readonly void DebugLog(in FixedString512Bytes msg)
         {
             Unity.Logging.Log.To(m_LoggerHandle).Debug(msg);
         }
@@ -437,7 +437,7 @@ namespace Unity.NetCode
         /// Print a log message with Notify level priority;
         /// </summary>
         /// <param name="msg">The ascii message string. Unicode are not supported</param>
-        public void Log(in FixedString512Bytes msg)
+        public readonly void Log(in FixedString512Bytes msg)
         {
             Unity.Logging.Log.To(m_LoggerHandle).Info(msg);
         }
@@ -446,7 +446,7 @@ namespace Unity.NetCode
         /// Print a log message with warning priority
         /// </summary>
         /// <param name="msg">The ascii message string. Unicode are not supported</param>
-        public void LogWarning(in FixedString512Bytes msg)
+        public readonly void LogWarning(in FixedString512Bytes msg)
         {
             Unity.Logging.Log.To(m_LoggerHandle).Warning(msg);
         }
@@ -455,7 +455,7 @@ namespace Unity.NetCode
         /// Print a log message with error priority
         /// </summary>
         /// <param name="msg">The ascii message string. Unicode are not supported</param>
-        public void LogError(in FixedString512Bytes msg)
+        public readonly void LogError(in FixedString512Bytes msg)
         {
             Unity.Logging.Log.To(m_LoggerHandle).Error(msg);
         }

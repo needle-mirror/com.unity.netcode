@@ -187,6 +187,52 @@ namespace Unity.NetCode
     }
 
     /// <summary>
+    /// Optional cleanup component that can be added to the <see cref="NetworkStreamRequestListen"/> entity when the request is created.
+    /// Used to monitor the state of the request. When present, the component is update by the <see cref="NetworkStreamListenSystem"/> system when the
+    /// request is handled.
+    /// </summary>
+    /// <remarks>
+    /// Being a cleanup component it is responsibility of the request creator to proper handle the request entity life-cycle.
+    /// </remarks>
+    public struct NetworkStreamRequestListenResult : ICleanupComponentData
+    {
+        /// <summary>
+        /// The status of the listen request./
+        /// </summary>
+        public enum State
+        {
+            /// <summary>
+            /// The listen request is still pending.
+            /// </summary>
+            Pending = 0,
+            /// <summary>
+            /// The listen request has been successfully handled.
+            /// </summary>
+            Succeeded,
+            /// <summary>
+            /// The listen request failed. Errors should be present in the log.
+            /// </summary>
+            Failed,
+            /// <summary>
+            /// The listen request has been refused. The driver was already listenining.
+            /// </summary>
+            RefusedAlreadyListening,
+            /// <summary>
+            /// The listen request has been refused because multiple requests were present
+            /// </summary>
+            RefusedMultipleRequests,
+        }
+        /// <summary>
+        /// The remote server address for that request/.
+        /// </summary>
+        public NetworkEndpoint Endpoint;
+        /// <summary>
+        /// The request status.
+        /// </summary>
+        public State RequestState;
+    }
+
+    /// <summary>
     /// Temporary type, used to upgrade to new component type, to be removed before final 1.0
     /// </summary>
     [Obsolete("IncomingCommandDataStreamBufferComponent has been deprecated. Use IncomingCommandDataStreamBuffer instead (UnityUpgradable) -> IncomingCommandDataStreamBuffer", true)]

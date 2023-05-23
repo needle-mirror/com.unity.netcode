@@ -11,7 +11,7 @@ namespace Unity.NetCode.GeneratorTests
         public void SyntaxReceiver_FindTypes()
         {
             var receiver = GeneratorTestHelpers.CreateSyntaxReceiver();
-            var walker = new TestSyntaxWalker {receiver = receiver};
+            var walker = new TestSyntaxWalker {Receiver = receiver};
 
             CSharpSyntaxTree.ParseText(TestDataSource.AllComponentsTypesData).GetCompilationUnitRoot().Accept(walker);
             Assert.AreEqual(3, receiver.Candidates.Count);
@@ -34,7 +34,7 @@ namespace Unity.NetCode.GeneratorTests
             }
             ";
             var receiver = GeneratorTestHelpers.CreateSyntaxReceiver();
-            var walker = new TestSyntaxWalker {receiver = receiver};
+            var walker = new TestSyntaxWalker {Receiver = receiver};
 
             CSharpSyntaxTree.ParseText(testData).GetCompilationUnitRoot().Accept(walker);
             Assert.AreEqual(2, receiver.Candidates.Count);
@@ -71,7 +71,7 @@ namespace Unity.NetCode.GeneratorTests
             }
             ";
             var receiver = GeneratorTestHelpers.CreateSyntaxReceiver();
-            var walker = new TestSyntaxWalker {receiver = receiver};
+            var walker = new TestSyntaxWalker {Receiver = receiver};
 
             CSharpSyntaxTree.ParseText(testData).GetCompilationUnitRoot().Accept(walker);
             Assert.AreEqual(0, receiver.Candidates.Count);
@@ -145,7 +145,7 @@ namespace Unity.NetCode.GeneratorTests
                 }
             }";
             var receiver = GeneratorTestHelpers.CreateSyntaxReceiver();
-            var walker = new TestSyntaxWalker {receiver = receiver};
+            var walker = new TestSyntaxWalker {Receiver = receiver};
 
             CSharpSyntaxTree.ParseText(testData).GetCompilationUnitRoot().Accept(walker);
             Assert.AreEqual(4, receiver.Candidates.Count);
@@ -193,7 +193,7 @@ namespace Unity.NetCode.GeneratorTests
 
             ";
             var receiver = GeneratorTestHelpers.CreateSyntaxReceiver();
-            var walker = new TestSyntaxWalker {receiver = receiver};
+            var walker = new TestSyntaxWalker {Receiver = receiver};
 
             CSharpSyntaxTree.ParseText(testData).GetCompilationUnitRoot().Accept(walker);
             Assert.AreEqual(6, receiver.Candidates.Count);

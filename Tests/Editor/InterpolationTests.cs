@@ -30,7 +30,7 @@ namespace Unity.NetCode.Tests
     [RequireMatchingQueriesForUpdate]
     [UpdateInGroup(typeof(GhostSimulationSystemGroup))]
     [UpdateAfter(typeof(GhostUpdateSystem))]
-    [WorldSystemFilter(WorldSystemFilterFlags.ClientSimulation | WorldSystemFilterFlags.ServerSimulation)]
+    [WorldSystemFilter(WorldSystemFilterFlags.ClientSimulation)]
     public partial class TestInterpGhost : SystemBase
     {
         private float3 prevPos;
@@ -184,7 +184,6 @@ namespace Unity.NetCode.Tests
             }
         }
 
-        //[Ignore("This test is disable until a fix for transport does not land in master")]
         [Test]
         public void InterpolationTickAdaptToPacketDrop()
         {
@@ -222,7 +221,7 @@ namespace Unity.NetCode.Tests
                     }
                 }
                 networkTimeSystemData = testWorld.GetSingleton<NetworkTimeSystemData>(testWorld.ClientWorlds[0]);
-                Assert.Greater(networkTimeSystemData.currentInterpolationFrames, 2.5f);
+                Assert.Greater(networkTimeSystemData.currentInterpolationFrames, 2f);
                 Assert.Less(networkTimeSystemData.currentInterpolationFrames, 4f);
             }
         }

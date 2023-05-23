@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
+using System.Diagnostics.CodeAnalysis;
 using System.IO;
 using System.Linq;
 using System.Threading;
@@ -10,48 +11,48 @@ using Microsoft.CodeAnalysis.CSharp.Syntax;
 using Microsoft.CodeAnalysis.Diagnostics;
 using Microsoft.CodeAnalysis.Text;
 using Unity.NetCode.Generators;
+using Debug = System.Diagnostics.Debug;
 
 namespace Unity.NetCode.GeneratorTests
 {
     class TestSyntaxWalker : CSharpSyntaxWalker
     {
-        public NetCodeSyntaxReceiver receiver = null;
+        public NetCodeSyntaxReceiver? Receiver;
 
-        public override void Visit(SyntaxNode node)
+        public override void Visit(SyntaxNode? node)
         {
-            receiver.OnVisitSyntaxNode(node);
+            Receiver?.OnVisitSyntaxNode(node);
             base.Visit(node);
         }
     }
 
     class InializationBlockWalker : CSharpSyntaxWalker
     {
-        public InitializerExpressionSyntax intializer;
+        public InitializerExpressionSyntax? Intializer;
         public override void VisitInitializerExpression(InitializerExpressionSyntax node)
         {
-            if (intializer == null)
-                intializer = node;
+            Intializer ??= node;
             base.VisitInitializerExpression(node);
         }
     }
 
     class DictBasedConfigOptions : AnalyzerConfigOptions
     {
-        private Dictionary<string, string> options;
+        private readonly Dictionary<string, string> m_Options;
 
         public DictBasedConfigOptions(params KeyValuePair<string, string>[] optionsPairs)
         {
-            options = new Dictionary<string, string>(optionsPairs);
+            m_Options = new Dictionary<string, string>(optionsPairs);
         }
 
-        public override bool TryGetValue(string key, out string value)
+        public override bool TryGetValue(string key, [MaybeNullWhen(false)] out string value)
         {
-            return options.TryGetValue(key, out value);
+            return m_Options.TryGetValue(key, out value);
         }
 
         public void AddOrSet(string key, string value)
         {
-            options[key] = value;
+            m_Options[key] = value;
         }
     }
 
@@ -89,10 +90,11 @@ namespace Unity.NetCode.GeneratorTests
             var options = new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary,
                     optimizationLevel: OptimizationLevel.Debug, allowUnsafe: true);
 
-            //the ! just suppress the nullable warning, nothing more
+            var directoryName = Path.GetDirectoryName(typeof(object).Assembly.Location);
+            Debug.Assert(directoryName != null, nameof(directoryName) + " != null");
             var compilation = CSharpCompilation.Create(GeneratedAssemblyName, metaReferences, options: options).AddReferences(
-                MetadataReference.CreateFromFile(Path.Combine(Path.GetDirectoryName(typeof(object).Assembly.Location), "netstandard.dll")),
-                    MetadataReference.CreateFromFile(Path.Combine(Path.GetDirectoryName(typeof(object).Assembly.Location), "System.Runtime.dll")),
+                MetadataReference.CreateFromFile(Path.Combine(directoryName, "netstandard.dll")),
+                    MetadataReference.CreateFromFile(Path.Combine(directoryName, "System.Runtime.dll")),
                     MetadataReference.CreateFromFile(typeof(object).Assembly.Location));
 
             //Enable this to check if there are some dependencies missing you don't expect.
@@ -121,7 +123,7 @@ namespace Unity.NetCode.GeneratorTests
             public override string Path => m_Path;
         }
 
-        public static GeneratorDriver CreateGeneratorDriver(Dictionary<string, string> customOptions=null)
+        public static GeneratorDriver CreateGeneratorDriver(Dictionary<string, string>? customOptions = null)
         {
             var options = new DictBasedConfigOptions(
                 KeyValuePair.Create(GlobalOptions.ProjectPath, Environment.CurrentDirectory),
@@ -147,7 +149,7 @@ namespace Unity.NetCode.GeneratorTests
             return driver.RunGenerators(compilation).GetRunResult().Results[0];
         }
 
-        public static GeneratorRunResult RunGeneratorsWithOptions(Dictionary<string, string> customOptions, params SyntaxTree[] syntaxTree)
+        public static GeneratorRunResult RunGeneratorsWithOptions(Dictionary<string, string>? customOptions, params SyntaxTree[] syntaxTree)
         {
             var compilation = CreateCompilation(syntaxTree);
             var driver = CreateGeneratorDriver(customOptions);

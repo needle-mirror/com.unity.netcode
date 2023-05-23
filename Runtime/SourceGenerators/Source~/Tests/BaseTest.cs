@@ -6,28 +6,32 @@ namespace Unity.NetCode.GeneratorTests
 {
     class BaseTest
     {
-        protected string originalDirectory;
+        string? m_OriginalDirectory;
 
         [SetUp]
         public void SetupCommon()
         {
-            originalDirectory = Environment.CurrentDirectory;
+            m_OriginalDirectory = Environment.CurrentDirectory;
             //This will point to the com.unity.netcode directory
-            var currentDir = originalDirectory;
+            string? currentDir = m_OriginalDirectory;
             while (currentDir?.Length > 0 && !currentDir.EndsWith("com.unity.netcode", StringComparison.Ordinal))
                 currentDir = Path.GetDirectoryName(currentDir);
 
-            if(!currentDir.EndsWith("com.unity.netcode", StringComparison.Ordinal))
+            if (currentDir == null || !currentDir.EndsWith("com.unity.netcode", StringComparison.Ordinal))
+            {
                 Assert.Fail("Cannot find com.unity.netcode folder");
+                return;
+            }
 
             //Execute in Runtime/SourceGenerators/Source~/Temp
             Environment.CurrentDirectory = Path.Combine(currentDir, "Runtime", "SourceGenerators", "Source~");
             Generators.Profiler.Initialize();
         }
+
         [TearDown]
         public void TearDownCommon()
         {
-            Environment.CurrentDirectory = originalDirectory;
+            Environment.CurrentDirectory = m_OriginalDirectory ?? string.Empty;
         }
     }
 }

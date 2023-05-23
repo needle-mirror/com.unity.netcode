@@ -3,6 +3,7 @@ using Unity.Collections;
 using Unity.Networking.Transport;
 using Unity.Collections.LowLevel.Unsafe;
 using System;
+using Unity.Networking.Transport.Relay;
 
 namespace Unity.NetCode
 {
@@ -53,11 +54,11 @@ namespace Unity.NetCode
         {
             if (DriverStore.GetDriverType(driverId) != TransportType.IPC)
                 return endpoint;
+            //This is just a debug log to remind that you are passing an ANY address and that the listen port is now going to be different for each driver. That would requires some special handling when it comes to the
+            //local IPC connection.
             if (endpoint.Port == 0)
             {
-                //FIXME: ideally this should be fixed in Transport. Right now I don't think this is working correctly.
-                UnityEngine.Debug.LogError($"Driver with ID {driverId} uses IPCNetworkInterface. The endpoint used for listening is using Port == 0 but a non-zero port is required for this interface. The interface can't start listening.");
-                return default;
+                UnityEngine.Debug.Log($"Driver with ID {driverId} uses IPCNetworkInterface. The endpoint used for listening is using Port == 0. A random port will be assigned to this interface. In order to connect to this endpoint, you will need to retrieve the local address. You can use the NetworkStreamDriver.GetLocalEndPoint({driverId}) to retrieve the assigned address.");
             }
             if(!endpoint.IsAny && !endpoint.IsLoopback)
             {
@@ -94,18 +95,6 @@ namespace Unity.NetCode
                     return NetworkEndpoint.LoopbackIpv4.WithPort(endpoint.Port);
                 return NetworkEndpoint.LoopbackIpv6.WithPort(endpoint.Port);
             }
-            //If the playmode is Client/Server, the local client should always prefer to use Loopback addresses as well. Even though is
-            //not strictly mandatory
-            //This is only working for player build. In the editor the RequestedPlayType is not burst compatible.
-            if (ClientServerBootstrap.HasServerWorld)
-            {
-                UnityEngine.Debug.LogWarning(
-                    $"The requested playmode type is Client/Server but the client is trying to connect to address {endpoint.ToFixedString()} that is not the loopback address. Forcing using the NetworkEndPoint.Loopback; family (IPV4/IPV6) and port will be preserved");
-                if (endpoint.Family == NetworkFamily.Ipv4)
-                    return NetworkEndpoint.LoopbackIpv4.WithPort(endpoint.Port);
-                else
-                    return NetworkEndpoint.LoopbackIpv6.WithPort(endpoint.Port);
-            }
             return endpoint;
         }
         #endif
@@ -120,10 +109,10 @@ namespace Unity.NetCode
             // Switching to server mode. Start listening all the driver interfaces
             var errors = new FixedList32Bytes<int>();
             //It is possible to listen on a specific address/port. However, for IPC drivers there is a restriction:
-            //the ip address should be Any or the Loopback address.
+            //the ip address should be Any or the Loopback address and the port must be != 0.
             //Because it is possible to have multiple drivers, we are going to force the IPC
             //network interface to be bound and listen the ANY.Port or (if a real IP has been provided) to Loopback:Port
-            //Also, binding to Any:0 or Loopback:0 should also be considered avoid in this case.
+            //Also, binding to Any:0 or Loopback:0 should also be considered invalid in this case.
             for(int i=DriverStore.FirstDriver; i<DriverStore.LastDriver;++i)
             {
                 var tempAddress = SanitizeListenAddress(endpoint, i);
@@ -158,6 +147,13 @@ namespace Unity.NetCode
         /// <exception cref="InvalidOperationException">Throw an exception if the driver is not created or if multiple drivers are register</exception>
         public Entity Connect(EntityManager entityManager, NetworkEndpoint endpoint, Entity ent = default)
         {
+            if (!endpoint.IsValid || endpoint.Port == 0)
+            {
+                //Can't connect to a any port. This must be a valid address
+                UnityEngine.Debug.LogError($"Trying to connect to the address {endpoint.ToFixedString()} that has port == 0. For connection, a port !=0 is required");
+                return default;
+            }
+
             //Still storing the last connecting andpoint as it passed
             LastEndPoint = endpoint;
 
@@ -191,10 +187,36 @@ namespace Unity.NetCode
         /// The remote connection address. This is the seen public ip address of the connection.
         /// </summary>
         /// <param name="connection"></param>
-        /// <returns></returns>
+        /// <returns>
+        /// When relay is used, the current relay host address. Otherwise the remote endpoint address.
+        /// </returns>
+        /// <remarks>
+        /// Be aware that this method work sliglty differnetly than the NetworkDriver.GetRemoteEndpoint.
+        /// The <see cref="NetworkDriver.GetRemoteEndpoint"/> does not always return a valid address when used with relay
+        /// (once the connection is established it become the RelayAllocationId).
+        /// We instead wanted a consistent behaviour for this method: always return the address to which this connection is
+        /// is connected/connecting to.
+        /// </remarks>
         public NetworkEndpoint GetRemoteEndPoint(NetworkStreamConnection connection)
         {
-            return DriverStore.GetNetworkDriver(connection.DriverId).GetRemoteEndpoint(connection.Value);
+            var driver = DriverStore.GetNetworkDriver(connection.DriverId);
+
+            if (driver.CurrentSettings.TryGet(out RelayNetworkParameter relayParams))
+                return relayParams.ServerData.Endpoint;
+            return driver.GetRemoteEndpoint(connection.Value);
+        }
+
+        /// <summary>
+        /// Check if the given connection is using relay to connect to the remote endpoint
+        /// </summary>
+        /// <param name="connection"></param>
+        /// <returns>
+        /// Either if the connection is using the relay or not.
+        /// </returns>
+        public bool UseRelay(NetworkStreamConnection connection)
+        {
+            var driver = DriverStore.GetNetworkDriver(connection.DriverId);
+            return driver.CurrentSettings.TryGet(out RelayNetworkParameter _);
         }
 
         /// <summary>

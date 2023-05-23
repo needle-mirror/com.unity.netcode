@@ -1,13 +1,10 @@
 using System;
-using System.Collections.Generic;
 using System.Runtime.InteropServices;
 using Unity.Burst;
 using Unity.Collections;
 using Unity.Collections.LowLevel.Unsafe;
 using Unity.Entities;
 using Unity.Jobs;
-
-using Unity.Networking.Transport.Utilities;
 using Unity.NetCode.LowLevel.Unsafe;
 using Unity.Networking.Transport;
 using Unity.Profiling;
@@ -80,24 +77,43 @@ namespace Unity.NetCode
             m_ConnectionStateFromEntity.Update(ref systemState);
             var stateFromEntity = m_ConnectionStateFromEntity;
 
-            foreach(var (request, ent) in SystemAPI.Query<RefRO<NetworkStreamRequestConnect>>().WithEntityAccess())
+            var requests = m_ConnectionRequestConnectQuery.ToComponentDataArray<NetworkStreamRequestConnect>(Allocator.Temp);
+            var requetEntity = m_ConnectionRequestConnectQuery.ToEntityArray(Allocator.Temp);
+            systemState.EntityManager.RemoveComponent<NetworkStreamRequestConnect>(m_ConnectionRequestConnectQuery);
+            if (requests.Length > 1)
             {
-                var endpoint = request.ValueRO.Endpoint;
-                var connection = networkStreamDriver.Connect(systemState.EntityManager, endpoint, ent);
-                if(connection == Entity.Null)
+                //There is more than 1 request. We don't know what was the last queued (there is not way to detect that reliably with
+                //chunk ordering). Unless we put something like a Timestamp (that requires users adding it or we need to provide a proper
+                //API. We can eventually support that later. For now we just get the first request and discard the others.
+                netDebug.LogError($"Found {requests.Length} pending connection requests. It is required that only one NetworkStreamRequestConnect is queued at any time. Only the connect request to {requests[0].Endpoint.ToFixedString()} will be handled.");
+
+                for (int i = 1; i < requests.Length; ++i)
                 {
-                    if (stateFromEntity.HasComponent(ent))
+                    if (stateFromEntity.HasComponent(requetEntity[i]))
                     {
-                        var state = stateFromEntity[ent];
+                        var state = stateFromEntity[requetEntity[i]];
                         state.DisconnectReason = NetworkStreamDisconnectReason.ConnectionClose;
                         state.CurrentState = ConnectionState.State.Disconnected;
-                        stateFromEntity[ent] = state;
+                        stateFromEntity[requetEntity[i]] = state;
                     }
-                    systemState.EntityManager.DestroyEntity(ent);
-                    netDebug.DebugLog("Connect request failed.");
+                    systemState.EntityManager.DestroyEntity(requetEntity[i]);
                 }
             }
-            systemState.EntityManager.RemoveComponent<NetworkStreamRequestConnect>(m_ConnectionRequestConnectQuery);
+            //TODO: add a proper handling of request connect and connection already connected.
+            //It may required disposing the driver and also some problem with NetworkStreamReceiveSystem
+            var connection = networkStreamDriver.Connect(systemState.EntityManager, requests[0].Endpoint, requetEntity[0]);
+            if(connection == Entity.Null)
+            {
+                netDebug.LogError($"Connect request for {requests[0].Endpoint.ToFixedString()} failed.");
+                if (stateFromEntity.HasComponent(requetEntity[0]))
+                {
+                    var state = stateFromEntity[requetEntity[0]];
+                    state.DisconnectReason = NetworkStreamDisconnectReason.ConnectionClose;
+                    state.CurrentState = ConnectionState.State.Disconnected;
+                    stateFromEntity[requetEntity[0]] = state;
+                }
+                systemState.EntityManager.DestroyEntity(requetEntity[0]);
+            }
         }
     }
     /// <summary>
@@ -110,11 +126,11 @@ namespace Unity.NetCode
     public unsafe partial struct NetworkStreamListenSystem : ISystem
     {
         EntityQuery m_ConnectionRequestListenQuery;
-        ComponentLookup<ConnectionState> m_ConnectionStateFromEntity;
+        ComponentLookup<NetworkStreamRequestListenResult> m_ConnectionStateFromEntity;
         public void OnCreate(ref SystemState state)
         {
             m_ConnectionRequestListenQuery = state.GetEntityQuery(ComponentType.ReadWrite<NetworkStreamRequestListen>());
-            m_ConnectionStateFromEntity = state.GetComponentLookup<ConnectionState>();
+            m_ConnectionStateFromEntity = state.GetComponentLookup<NetworkStreamRequestListenResult>();
             state.RequireForUpdate(m_ConnectionRequestListenQuery);
             state.RequireForUpdate<NetworkStreamDriver>();
             state.RequireForUpdate<NetDebug>();
@@ -126,24 +142,79 @@ namespace Unity.NetCode
 
             m_ConnectionStateFromEntity.Update(ref systemState);
             var stateFromEntity = m_ConnectionStateFromEntity;
-
-            foreach(var (request, ent) in SystemAPI.Query<RefRO<NetworkStreamRequestListen>>().WithEntityAccess())
+            var requestCount = m_ConnectionRequestListenQuery.CalculateEntityCount();
+            var requestListens = m_ConnectionRequestListenQuery.ToComponentDataArray<NetworkStreamRequestListen>(Allocator.Temp);
+            var requestEntity = m_ConnectionRequestListenQuery.ToEntityArray(Allocator.Temp);
+            var endpoint = requestListens[0].Endpoint;
+            var requestEnt = requestEntity[0];
+            if (requestListens.Length > 1)
             {
-                var endpoint = request.ValueRO.Endpoint;
-                if (!networkStreamDriver.Listen(endpoint))
+                //There is more than 1 request. We don't know what was the last queued (there is not way to detect that reliably with
+                //chunk ordering). Unless we put something like a Timestamp (that requires users adding it or we need to provide a proper
+                //API). A proper idea can be implemented for 1.1.
+                //For now we just get the first request and discard the others.
+                netDebug.LogError($"Found {requestCount} pending listen requests. Only one NetworkStreamRequestListen can be queued at any time. Only the request to listen at {requestListens[0].Endpoint.ToFixedString()} will be handled.");
+                for (int i = 1; i < requestEntity.Length; ++i)
                 {
-                    if (stateFromEntity.HasComponent(ent))
+                    if (stateFromEntity.HasComponent(requestEnt))
                     {
-                        var state = stateFromEntity[ent];
-                        state.DisconnectReason = NetworkStreamDisconnectReason.ConnectionClose;
-                        state.CurrentState = ConnectionState.State.Disconnected;
-                        stateFromEntity[ent] = state;
+                        stateFromEntity[requestEnt] = new NetworkStreamRequestListenResult
+                        {
+                            Endpoint = requestListens[0].Endpoint,
+                            RequestState = NetworkStreamRequestListenResult.State.RefusedMultipleRequests
+                        };
                     }
-                    systemState.EntityManager.DestroyEntity(ent);
-                    netDebug.DebugLog("Listen request failed.");
                 }
             }
-            systemState.EntityManager.RemoveComponent<NetworkStreamRequestListen>(m_ConnectionRequestListenQuery);
+
+            var anyInterfaceListening = false;
+            for (int i = networkStreamDriver.DriverStore.FirstDriver; i < networkStreamDriver.DriverStore.LastDriver; ++i)
+            {
+                anyInterfaceListening |= networkStreamDriver.DriverStore.GetDriverInstance(i).driver.Listening;
+            }
+
+            //TODO: we can support that but requires some extra work and disposing the drivers.
+            //Also because this is done before the NetworkStreamReceiveSystem some stuff may not work.
+            if (anyInterfaceListening)
+            {
+                netDebug.LogError($"Listen request for address {endpoint.ToFixedString()} refused. Driver is already listening");
+                if (stateFromEntity.HasComponent(requestEnt))
+                {
+                    stateFromEntity[requestEnt] = new NetworkStreamRequestListenResult
+                    {
+                        Endpoint = requestListens[0].Endpoint,
+                        RequestState = NetworkStreamRequestListenResult.State.RefusedAlreadyListening
+                    };
+                }
+            }
+            else
+            {
+                if (networkStreamDriver.Listen(endpoint))
+                {
+                    if (stateFromEntity.HasComponent(requestEnt))
+                    {
+                        stateFromEntity[requestEnt] = new NetworkStreamRequestListenResult
+                        {
+                            Endpoint = requestListens[0].Endpoint,
+                            RequestState = NetworkStreamRequestListenResult.State.Succeeded
+                        };
+                    }
+                }
+                else
+                {
+                    netDebug.LogError($"Listen request for address {endpoint.ToFixedString()} failed.");
+                    if (stateFromEntity.HasComponent(requestEnt))
+                    {
+                        stateFromEntity[requestEnt] = new NetworkStreamRequestListenResult
+                        {
+                            Endpoint = requestListens[0].Endpoint,
+                            RequestState = NetworkStreamRequestListenResult.State.Failed
+                        };
+                    }
+                }
+            }
+            //Consume all requests.
+            systemState.EntityManager.DestroyEntity(m_ConnectionRequestListenQuery);
         }
     }
 
@@ -658,7 +729,6 @@ namespace Unity.NetCode
                             netDebug.DebugLog(FixedString.Format("{0} {1} closed NetworkId={2} Reason={3}", debugPrefix, connection.Value.ToFixedString(), id, DisconnectReasonEnumToString.Convert((int)reason)));
                             return;
                         case NetworkEvent.Type.Data:
-                            // FIXME: do something with the data
                             var msgType = reader.ReadByte();
                             switch ((NetworkStreamProtocol)msgType)
                             {

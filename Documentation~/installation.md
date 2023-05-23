@@ -4,7 +4,14 @@ To setup Netcode for Entities, you need to make sure you are on the correct vers
 
 ## Unity Editor Version
 
-Netcode for Entities requires you to have Unity version __2022.2.0b8__ or higher.
+Netcode for Entities requires you to have Unity version __2022.3.0f1__ or higher.
+
+## IDE support
+The Entities package uses [Roslyn Source Generators](https://docs.microsoft.com/en-us/dotnet/csharp/roslyn-sdk/source-generators-overview). For a better editing experience, we suggest to use an IDE that's compatible with source generators. 
+The following IDEs are compatible with source generators:
+
+* Visual Studio 2022+
+* Rider 2021.3.3+
 
 ## Project Setup
 

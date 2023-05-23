@@ -183,9 +183,9 @@ namespace Unity.NetCode
         public int MaxPredictionStepBatchSizeFirstTimeTick;
         /// <summary>
         /// Multiplier used to compensate received snapshot rate jitter when calculating the Interpolation Delay.
-        /// Default Value: 3.
+        /// Default Value: 1.25.
         /// </summary>
-        public uint InterpolationDelayJitterScale;
+        public float InterpolationDelayJitterScale;
         /// <summary>
         /// Used to limit the maximum InterpolationDelay changes in one frame, as percentage of the frame deltaTicks.
         /// Default value: 10% of the frame delta ticks. Smaller values will result in slow adaptation to the network state (loss and jitter)

@@ -59,7 +59,7 @@ You must define the Template file correctly. It can be added to any package or f
 You will get errors if a) you define a `UserDefinedTemplate` that has no found Template file b) vice-versa, or c) you make errors when defining the `UserDefinedTemplate`.
 Code-Generation errors of the Template _may_ cause compiler errors.
 
-This new template `MyCustomNamespace.MyCustomTypeTemplate.NetCodeSourceGenerator.additionalfile` needs to be set up similarly to the default types templates. 
+This new template `MyCustomTypeTemplate.NetCodeSourceGenerator.additionalfile` needs to be set up similarly to the default types templates. 
 Here is an example copied from the default `float` template (where the float is quantized and stored in an int field):
 
 ```c#
@@ -170,7 +170,7 @@ namespace Generated
 }
 ```
 
-A good way to assign this "#templateid" is to use something like `CustomNamespace.CustomTemplateFileName`. All the default Netcode package template uses an internal
+A good way to assign this "#templateid" is to use something like `CustomNamespace.CustomTemplateFileName`. All the default Netcode package templates uses an internal
 id (not present in the template) with the following format: `NetCode.GhostSnapshotValueXXX.cs`.
 
 >[!NOTE] The default types uses a slightly different approach at the moment, being embedded in the generator dlls.
@@ -203,7 +203,7 @@ namespace Unity.NetCode.Generators
                     Smoothing = SmoothingAction.InterpolateAndExtrapolate,
                     SupportCommand = false,
                     Composite = false,
-                    Template = "Assets/Samples/NetCodeGen/Templates/MyCustomNamespace.MyCustomTypeTemplate.NetCodeSourceGenerator.additionalfile",
+                    Template = "MyCustomNamespace.MyCustomTypeTemplate",
                     TemplateOverride = "",
                 },
             });

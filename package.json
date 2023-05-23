@@ -1,26 +1,26 @@
 {
   "name": "com.unity.netcode",
   "displayName": "Netcode for Entities",
-  "version": "1.0.8",
+  "version": "1.0.10",
   "unity": "2022.2",
   "unityRelease": "15f1",
   "description": "Unity's Data Oriented Technology Stack (DOTS) multiplayer netcode layer - a high level netcode system built on entities. This package provides a foundation for creating networked multiplayer applications within DOTS.",
   "dependencies": {
     "com.unity.transport": "2.0.1",
-    "com.unity.entities": "1.0.8",
-    "com.unity.logging": "1.0.8",
+    "com.unity.entities": "1.0.10",
+    "com.unity.logging": "1.0.10",
     "com.unity.modules.animation": "1.0.0"
   },
   "_upm": {
-    "changelog": "### Changed\n\n* Reduced the amount of memory allocated by allocating based on the maximum number of worker threads the running platform requires rather than defaulting to using a theoretical upper-bound of 128 worker threads.\n* Removed the additional entity created for each predicted ghost prefab, that was necessary to support predicted spawning. This has the addition benefit to cut almost in half (in case all ghost prefabs support all modes) the number of required archetypes.\n\n\n### Fixed\n\n* An issue with pre-spawned ghost not working correctly because sub-scene hash is calculated differently for client and server\n* an issue when sub-scene are opened for live-conversion and baking, causing spawned ghosts to contains invalid blob asset references (i.e colliders), introducing potential crashes and other problems (i.e missing collision and mis-prediction)\n* An issue with baking, not using the correct NetCodeClientTarget (either client or client/server) when baking a sub-scene for a client standalone build.\n* An issue with the Entities/Build project settings UI that was not updating the ClientTarget to use is the ProjectSettings window was not closed, or another settings \"tab\" was selected.\n* An issue with HasServerWorld reporting the presence of a server world even though no server was created.if it's not needed.\n* A sporadic InvalidOperationException: GetSingleton<Unity.NetCode.LowLevel.SnapshotDataLookupCache>() thrown when retrieving the Unity.NetCode.LowLevel.SnapshotDataLookupCache.\n* GhostCollectionSystem InvalidOperationException thrown when Ghost prefab validation fails, trying accessing invalidated DynamicBuffer.\n* An issue in the GhostChunkSerializer, that was overwriting the snapshot data with some enable bits masks.\n* An issue in the GhostUpdateSystem, that was reading and applying the wrong enable bits.\n* An issue when restoring enable bits state from the predicted ghost history buffer.\n* Fixed a \"System Creation Order\" bug causing components with `[GhostField]` fields (or the `[GhostEnableBit]` attribute) to silently default to the `DontSerializeVariant`, especially in cases where Ghost Prefabs are created at runtime (via `GhostPrefabCreation.ConvertToGhostPrefab`).\n  * \"Ghost Registration\" and \"Default Variant Registration\" Systems now use `[CreateBefore(typeof(DefaultVariantSystemGroup))]`, so that user-code can add `[CreateAfter(typeof(DefaultVariantSystemGroup))]` when accessing `GhostComponentSerializerCollectionData` data.\n  * We now also guard all of these calls, giving explicit (fatal) errors if used improperly.\n* An issue in `GhostDistancePartitioningSystem`, which caused Netcode to add a shared component ECB entry for every single ghost containing a `LocalTransform`, every single frame, when `GhostDistanceImportance` was enabled in a users project.\n\n\n### Deprecated\n\n* Now that the `GhostAuthoringInspectionComponent` shows all replicated components, you shouldn't have to opt-into prefab overrides. Thus, deprecated the `SupportsPrefabOverrides` attribute."
+    "changelog": "### Added\n\n* What's New and Upgrade Guide section in the docs.\n* New NetworkRequestListenResult cleanup component, that can be used to track the result of a listen request.\n\n### Changed\n\n* documentation index page with up-to-date info and links.\n* Removed forcing local client/server to alway use the loopback address to connect.\n* It is now possible to listen to the NetworkEndPoint.Any also for IPC connection.\n* The NetworkStreamDriver.GetRemoteAddress always return a consistent address for the connection when the NetworkDriver is configured to use the Unity Relay. Before, an invalid address was returned after the connection has been established, that was incorrect.\n* Exposed all the internal state of the NetworkTimeSystem as public API\n\n### Fixed\n\n* exceptions when NetworkRequestListen and/or. NetworkRequestConnect are handled and proper handling of multiple (erroneous) requests presents.\n* A problem with InterpolatedTick, going back and not recovering correctly in presence of large application, either the server or the client, stalls (i.e after loading)."
   },
   "upmCi": {
-    "footprint": "906dee69c427dfbb2a9fd4c564a6a8207a25dcb0"
+    "footprint": "01c68054b283a8d97e7a446804d29d9a29e8ec72"
   },
   "documentationUrl": "https://docs.unity3d.com/Packages/com.unity.netcode@1.0/manual/index.html",
   "repository": {
     "url": "https://github.cds.internal.unity3d.com/unity/dots.git",
     "type": "git",
-    "revision": "25dfb648cd0fabcf13fed46219e5fbe0fdabe4ac"
+    "revision": "464acdc5351df3c5deeb425d7aa31f4c7b20c0cf"
   }
 }

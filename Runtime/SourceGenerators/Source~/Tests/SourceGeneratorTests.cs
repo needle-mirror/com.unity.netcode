@@ -97,17 +97,16 @@ namespace Unity.NetCode.GeneratorTests
         public void SourceGenerator_PrimitiveTypes()
         {
             var receiver = GeneratorTestHelpers.CreateSyntaxReceiver();
-            var walker = new TestSyntaxWalker { receiver = receiver };
+            var walker = new TestSyntaxWalker { Receiver = receiver };
             var tree = CSharpSyntaxTree.ParseText(TestDataSource.TestComponentsData);
             tree.GetCompilationUnitRoot().Accept(walker);
-            Assert.AreEqual(1, walker.receiver.Candidates.Count);
+            Assert.AreEqual(1, walker.Receiver.Candidates.Count);
             //Check generated files match
             var resuls = GeneratorTestHelpers.RunGenerators(tree);
             Assert.AreEqual(2, resuls.GeneratedSources.Length, "Num generated files does not match");
             var outputTree = resuls.GeneratedSources[0].SyntaxTree;
             var snapshotDataSyntax = outputTree.GetRoot().DescendantNodes().OfType<StructDeclarationSyntax>()
-                .FirstOrDefault(node => node.Identifier.ValueText == "Snapshot");
-            Assert.IsNotNull(snapshotDataSyntax);
+                .First(node => node.Identifier.ValueText == "Snapshot");
             var expected = new[]
             {
                 //byte
@@ -146,18 +145,17 @@ namespace Unity.NetCode.GeneratorTests
         public void SourceGenerator_Mathematics()
         {
             var receiver = GeneratorTestHelpers.CreateSyntaxReceiver();
-            var walker = new TestSyntaxWalker { receiver = receiver };
+            var walker = new TestSyntaxWalker { Receiver = receiver };
             var tree = CSharpSyntaxTree.ParseText(TestDataSource.MathematicsTestData);
             tree.GetCompilationUnitRoot().Accept(walker);
-            Assert.AreEqual(1, walker.receiver.Candidates.Count);
+            Assert.AreEqual(1, walker.Receiver.Candidates.Count);
 
             //Check generated files match
             var resuls = GeneratorTestHelpers.RunGenerators(tree);
             Assert.AreEqual(2, resuls.GeneratedSources.Length, "Num generated files does not match");
             var outputTree = resuls.GeneratedSources[0].SyntaxTree;
             var snapshotDataSyntax = outputTree.GetRoot().DescendantNodes().OfType<StructDeclarationSyntax>()
-                .FirstOrDefault(node => node.Identifier.ValueText == "Snapshot");
-            Assert.IsNotNull(snapshotDataSyntax);
+                .First(node => node.Identifier.ValueText == "Snapshot");
             var members = snapshotDataSyntax.DescendantNodes().OfType<FieldDeclarationSyntax>().ToArray();
             //Each block generate 13 variables
             var numVariablePerBlock = 13;
@@ -209,10 +207,10 @@ namespace Unity.NetCode.GeneratorTests
             }
             ";
             var receiver = GeneratorTestHelpers.CreateSyntaxReceiver();
-            var walker = new TestSyntaxWalker { receiver = receiver };
+            var walker = new TestSyntaxWalker { Receiver = receiver };
             var tree = CSharpSyntaxTree.ParseText(testData);
             tree.GetCompilationUnitRoot().Accept(walker);
-            Assert.AreEqual(1, walker.receiver.Candidates.Count);
+            Assert.AreEqual(1, walker.Receiver.Candidates.Count);
             //Make a full pass: generate the code and write files to disk
             GeneratorTestHelpers.RunGeneratorsWithOptions(new Dictionary<string, string> { {GlobalOptions.WriteFilesToDisk, "1"}}, tree);
             Assert.IsTrue(File.Exists($"{GeneratorTestHelpers.OutputFolder}/{GeneratorTestHelpers.GeneratedAssemblyName}/TestComponentSerializer.cs"));
@@ -242,17 +240,16 @@ namespace Unity.NetCode.GeneratorTests
                 }
             }";
             var receiver = GeneratorTestHelpers.CreateSyntaxReceiver();
-            var walker = new TestSyntaxWalker { receiver = receiver };
+            var walker = new TestSyntaxWalker { Receiver = receiver };
             var tree = CSharpSyntaxTree.ParseText(testData);
             tree.GetCompilationUnitRoot().Accept(walker);
-            Assert.AreEqual(1, walker.receiver.Candidates.Count);
+            Assert.AreEqual(1, walker.Receiver.Candidates.Count);
 
-            var resuls = GeneratorTestHelpers.RunGenerators(tree);
-            Assert.AreEqual(2, resuls.GeneratedSources.Length, "Num generated files does not match");
-            var outputTree = resuls.GeneratedSources[0].SyntaxTree;
+            var results = GeneratorTestHelpers.RunGenerators(tree);
+            Assert.AreEqual(2, results.GeneratedSources.Length, "Num generated files does not match");
+            var outputTree = results.GeneratedSources[0].SyntaxTree;
             var snapshotDataSyntax = outputTree.GetRoot().DescendantNodes().OfType<StructDeclarationSyntax>()
-                .FirstOrDefault(node => node.Identifier.ValueText == "Snapshot");
-            Assert.IsNotNull(snapshotDataSyntax);
+                .First(node => node.Identifier.ValueText == "Snapshot");
             var expected = new[]
             {
                 ("float", "x"),
@@ -263,10 +260,10 @@ namespace Unity.NetCode.GeneratorTests
                 ("long", "m_b"),
             };
             var maskBits = outputTree.GetRoot().DescendantNodes().OfType<FieldDeclarationSyntax>()
-                .FirstOrDefault(t => t.Declaration.Variables[0].Identifier.ValueText == "ChangeMaskBits");
-            Assert.IsNotNull(maskBits);
-            Assert.IsNotNull(maskBits.Declaration.Variables[0].Initializer);
-            Assert.AreEqual("5", maskBits.Declaration.Variables[0].Initializer.Value.ToString());
+                .First(t => t.Declaration.Variables[0].Identifier.ValueText == "ChangeMaskBits");
+            var equalsValueClauseSyntax = maskBits.Declaration.Variables[0].Initializer;
+            Assert.IsNotNull(equalsValueClauseSyntax);
+            Assert.AreEqual("5", equalsValueClauseSyntax!.Value.ToString());
             var members = snapshotDataSyntax.DescendantNodes().OfType<FieldDeclarationSyntax>().ToArray();
             Assert.AreEqual(expected.Length, members.Length);
             for (int i = 0; i < expected.Length; ++i)
@@ -293,17 +290,16 @@ namespace Unity.NetCode.GeneratorTests
             }
             ";
             var receiver = GeneratorTestHelpers.CreateSyntaxReceiver();
-            var walker = new TestSyntaxWalker { receiver = receiver };
+            var walker = new TestSyntaxWalker { Receiver = receiver };
             var tree = CSharpSyntaxTree.ParseText(testData);
             tree.GetCompilationUnitRoot().Accept(walker);
-            Assert.AreEqual(1, walker.receiver.Candidates.Count);
-            var resuls = GeneratorTestHelpers.RunGenerators(tree);
-            var outputTree = resuls.GeneratedSources[0].SyntaxTree;
+            Assert.AreEqual(1, walker.Receiver.Candidates.Count);
+            var results = GeneratorTestHelpers.RunGenerators(tree);
+            var outputTree = results.GeneratedSources[0].SyntaxTree;
             var maskBits = outputTree.GetRoot().DescendantNodes().OfType<FieldDeclarationSyntax>()
-                .FirstOrDefault(t => t.Declaration.Variables[0].Identifier.ValueText == "ChangeMaskBits");
-            Assert.IsNotNull(maskBits);
+                .First(t => t.Declaration.Variables[0].Identifier.ValueText == "ChangeMaskBits");
             Assert.IsNotNull(maskBits.Declaration.Variables[0].Initializer);
-            Assert.AreEqual("4", maskBits.Declaration.Variables[0].Initializer.Value.ToString());
+            Assert.AreEqual("4", maskBits.Declaration.Variables[0].Initializer?.Value.ToString());
         }
 
         [Test]
@@ -354,14 +350,12 @@ namespace Unity.NetCode.GeneratorTests
             void CheckOutput(SyntaxTree outputTree, int numBits, (string, string)[] fields)
             {
                 var snapshotDataSyntax = outputTree.GetRoot().DescendantNodes().OfType<StructDeclarationSyntax>()
-                    .FirstOrDefault(node => node.Identifier.ValueText == "Snapshot");
-                Assert.IsNotNull(snapshotDataSyntax);
-
+                    .First(node => node.Identifier.ValueText == "Snapshot");
                 var maskBits = outputTree.GetRoot().DescendantNodes().OfType<FieldDeclarationSyntax>()
-                    .FirstOrDefault(t => t.Declaration.Variables[0].Identifier.ValueText == "ChangeMaskBits");
-                Assert.IsNotNull(maskBits);
+                    .First(t => t.Declaration.Variables[0].Identifier.ValueText == "ChangeMaskBits");
+
                 Assert.IsNotNull(maskBits.Declaration.Variables[0].Initializer);
-                Assert.AreEqual(numBits.ToString(), maskBits.Declaration.Variables[0].Initializer.Value.ToString());
+                Assert.AreEqual(numBits.ToString(), maskBits.Declaration.Variables[0].Initializer!.Value.ToString());
                 var members = snapshotDataSyntax.DescendantNodes().OfType<FieldDeclarationSyntax>().ToArray();
                 Assert.AreEqual(fields.Length, members.Length);
                 for (int i = 0; i < fields.Length; ++i)
@@ -392,20 +386,19 @@ namespace Unity.NetCode.GeneratorTests
         public void SourceGenerator_FlatType()
         {
             var receiver = GeneratorTestHelpers.CreateSyntaxReceiver();
-            var walker = new TestSyntaxWalker { receiver = receiver };
+            var walker = new TestSyntaxWalker { Receiver = receiver };
             var tree = CSharpSyntaxTree.ParseText(TestDataSource.FlatTypeTest);
             tree.GetCompilationUnitRoot().Accept(walker);
-            Assert.AreEqual(1, walker.receiver.Candidates.Count);
+            Assert.AreEqual(1, walker.Receiver.Candidates.Count);
 
             var results = GeneratorTestHelpers.RunGenerators(tree);
             var errors = results.Diagnostics.Where(d => d.Severity == DiagnosticSeverity.Error).ToArray();
             Assert.AreEqual(2, results.GeneratedSources.Length, "Num generated files does not match");
             Assert.AreEqual(0, errors.Length);
             var maskBits = results.GeneratedSources[0].SyntaxTree.GetRoot().DescendantNodes().OfType<FieldDeclarationSyntax>()
-                .FirstOrDefault(t => t.Declaration.Variables[0].Identifier.ValueText == "ChangeMaskBits");
-            Assert.IsNotNull(maskBits);
+                .First(t => t.Declaration.Variables[0].Identifier.ValueText == "ChangeMaskBits");
             Assert.IsNotNull(maskBits.Declaration.Variables[0].Initializer);
-            Assert.AreEqual("44", maskBits.Declaration.Variables[0].Initializer.Value.ToString());
+            Assert.AreEqual("44", maskBits.Declaration.Variables[0].Initializer!.Value.ToString());
         }
 
         [Test]
@@ -435,10 +428,10 @@ namespace Unity.NetCode.GeneratorTests
                 }
             }";
             var receiver = GeneratorTestHelpers.CreateSyntaxReceiver();
-            var walker = new TestSyntaxWalker { receiver = receiver };
+            var walker = new TestSyntaxWalker { Receiver = receiver };
             var tree = CSharpSyntaxTree.ParseText(testData);
             tree.GetCompilationUnitRoot().Accept(walker);
-            Assert.AreEqual(2, walker.receiver.Candidates.Count);
+            Assert.AreEqual(2, walker.Receiver.Candidates.Count);
 
             var resuls = GeneratorTestHelpers.RunGenerators(tree);
             Assert.AreEqual(0, resuls.Diagnostics.Count(m=>m.Severity == DiagnosticSeverity.Error));
@@ -478,11 +471,11 @@ namespace Unity.NetCode.GeneratorTests
             }";
 
             var receiver = GeneratorTestHelpers.CreateSyntaxReceiver();
-            var walker = new TestSyntaxWalker { receiver = receiver };
+            var walker = new TestSyntaxWalker { Receiver = receiver };
             var tree = CSharpSyntaxTree.ParseText(testData);
             tree.GetCompilationUnitRoot().Accept(walker);
             //All the variants are detected as candidates
-            Assert.AreEqual(3, walker.receiver.Variants.Count);
+            Assert.AreEqual(3, walker.Receiver.Variants.Count);
 
             var resuls = GeneratorTestHelpers.RunGenerators(tree);
             var diagnostics = resuls.Diagnostics;
@@ -494,8 +487,7 @@ namespace Unity.NetCode.GeneratorTests
 
             var outputTree = resuls.GeneratedSources[0].SyntaxTree;
             var snapshotDataSyntax = outputTree.GetRoot().DescendantNodes().OfType<StructDeclarationSyntax>()
-                .FirstOrDefault(node => node.Identifier.ValueText == "Snapshot");
-            Assert.IsNotNull(snapshotDataSyntax);
+                .First(node => node.Identifier.ValueText == "Snapshot");
             //Quantizatio not used
             var expected = new[]
             {
@@ -504,10 +496,9 @@ namespace Unity.NetCode.GeneratorTests
                 ("float", "Value_z"),
             };
             var maskBits = outputTree.GetRoot().DescendantNodes().OfType<FieldDeclarationSyntax>()
-                .FirstOrDefault(t => t.Declaration.Variables[0].Identifier.ValueText == "ChangeMaskBits");
-            Assert.IsNotNull(maskBits);
+                .First(t => t.Declaration.Variables[0].Identifier.ValueText == "ChangeMaskBits");
             Assert.IsNotNull(maskBits.Declaration.Variables[0].Initializer);
-            Assert.AreEqual("1", maskBits.Declaration.Variables[0].Initializer.Value.ToString());
+            Assert.AreEqual("1", maskBits.Declaration.Variables[0].Initializer!.Value.ToString());
             var members = snapshotDataSyntax.DescendantNodes().OfType<FieldDeclarationSyntax>().ToArray();
             Assert.AreEqual(expected.Length, members.Length);
             for (int i = 0; i < expected.Length; ++i)
@@ -526,14 +517,12 @@ namespace Unity.NetCode.GeneratorTests
             };
             outputTree = resuls.GeneratedSources[1].SyntaxTree;
             snapshotDataSyntax = outputTree.GetRoot().DescendantNodes().OfType<StructDeclarationSyntax>()
-                .FirstOrDefault(node => node.Identifier.ValueText == "Snapshot");
-            Assert.IsNotNull(snapshotDataSyntax);
+                .First(node => node.Identifier.ValueText == "Snapshot");
 
             maskBits = outputTree.GetRoot().DescendantNodes().OfType<FieldDeclarationSyntax>()
-                .FirstOrDefault(t => t.Declaration.Variables[0].Identifier.ValueText == "ChangeMaskBits");
-            Assert.IsNotNull(maskBits);
+                .First(t => t.Declaration.Variables[0].Identifier.ValueText == "ChangeMaskBits");
             Assert.IsNotNull(maskBits.Declaration.Variables[0].Initializer);
-            Assert.AreEqual("1", maskBits.Declaration.Variables[0].Initializer.Value.ToString());
+            Assert.AreEqual("1", maskBits.Declaration.Variables[0].Initializer!.Value.ToString());
             members = snapshotDataSyntax.DescendantNodes().OfType<FieldDeclarationSyntax>().ToArray();
             Assert.AreEqual(expected.Length, members.Length);
             for (int i = 0; i < expected.Length; ++i)
@@ -570,11 +559,11 @@ namespace Unity.NetCode.GeneratorTests
             }";
 
             var receiver = GeneratorTestHelpers.CreateSyntaxReceiver();
-            var walker = new TestSyntaxWalker { receiver = receiver };
+            var walker = new TestSyntaxWalker { Receiver = receiver };
             var tree = CSharpSyntaxTree.ParseText(testData);
             tree.GetCompilationUnitRoot().Accept(walker);
             //All the variants are detected as candidates
-            Assert.AreEqual(2, walker.receiver.Variants.Count);
+            Assert.AreEqual(2, walker.Receiver.Variants.Count);
             var results = GeneratorTestHelpers.RunGenerators(tree);
             Assert.AreEqual(2, results.GeneratedSources.Length, "Num generated files does not match");
             var diagnostics = results.Diagnostics;
@@ -586,22 +575,18 @@ namespace Unity.NetCode.GeneratorTests
             var outputTree = results.GeneratedSources[0].SyntaxTree;
             var initBlockWalker = new InializationBlockWalker();
             outputTree.GetCompilationUnitRoot().Accept(initBlockWalker);
-            Assert.IsNotNull(initBlockWalker.intializer);
-            var componentTypeAssignment = initBlockWalker.intializer.Expressions
-                .FirstOrDefault(e => ((AssignmentExpressionSyntax)e).Left.ToString() == "ComponentType");
-            Assert.IsNotNull(componentTypeAssignment);
+            Assert.IsNotNull(initBlockWalker.Intializer);
+            var componentTypeAssignment = initBlockWalker.Intializer!.Expressions
+                .First(e => ((AssignmentExpressionSyntax)e).Left.ToString() == "ComponentType");
             Assert.IsTrue(componentTypeAssignment.ToString().Contains("Unity.Transforms.Translation"),
                 componentTypeAssignment.ToString());
-            var variantHashField = initBlockWalker.intializer.Expressions
-                .FirstOrDefault(e => ((AssignmentExpressionSyntax)e).Left.ToString() == "VariantHash");
-            Assert.IsNotNull(variantHashField);
+            var variantHashField = initBlockWalker.Intializer.Expressions
+                .First(e => ((AssignmentExpressionSyntax)e).Left.ToString() == "VariantHash");
             Assert.IsTrue(variantHashField.IsKind(SyntaxKind.SimpleAssignmentExpression));
             Assert.AreNotEqual("0", ((AssignmentExpressionSyntax)variantHashField).Right.ToString());
             //Check that the GhostSerializerAttribute also is present and initialized correctly
             var serializationAttribute = outputTree.GetRoot().DescendantNodes()
-                .FirstOrDefault(n =>
-                    n.IsKind(SyntaxKind.Attribute) && ((AttributeSyntax)n).Name.ToString() == "GhostSerializer");
-            Assert.IsNotNull(serializationAttribute);
+                .First(n => n.IsKind(SyntaxKind.Attribute) && ((AttributeSyntax)n).Name.ToString() == "GhostSerializer");
             Assert.AreEqual(2, ((AttributeSyntax)serializationAttribute).ArgumentList?.Arguments.Count);
             Assert.AreEqual("typeof(Unity.Transforms.Translation)",
                 ((AttributeSyntax)serializationAttribute).ArgumentList?.Arguments[0].ToString());
@@ -627,10 +612,10 @@ namespace Unity.NetCode.GeneratorTests
             ";
 
             var receiver = GeneratorTestHelpers.CreateSyntaxReceiver();
-            var walker = new TestSyntaxWalker { receiver = receiver };
+            var walker = new TestSyntaxWalker { Receiver = receiver };
             var tree = CSharpSyntaxTree.ParseText(testData);
             tree.GetCompilationUnitRoot().Accept(walker);
-            Assert.AreEqual(1, walker.receiver.Candidates.Count);
+            Assert.AreEqual(1, walker.Receiver.Candidates.Count);
             var results = GeneratorTestHelpers.RunGenerators(tree);
             Assert.AreEqual(3, results.GeneratedSources.Length, "Num generated files does not match");
             var diagnostics = results.Diagnostics;
@@ -653,8 +638,7 @@ namespace Unity.NetCode.GeneratorTests
             var outputTree = results.GeneratedSources[0].SyntaxTree;
             var snapshotDataSyntax = outputTree.GetRoot().DescendantNodes()
                 .OfType<StructDeclarationSyntax>()
-                .FirstOrDefault(node => node.Identifier.ValueText == "Snapshot");
-            Assert.IsNotNull(snapshotDataSyntax);
+                .First(node => node.Identifier.ValueText == "Snapshot");
             var members = snapshotDataSyntax.DescendantNodes().OfType<FieldDeclarationSyntax>().ToArray();
             Assert.AreEqual(expected.Length, members.Length);
             for (int i = 0; i < expected.Length; ++i)
@@ -706,10 +690,10 @@ namespace Unity.NetCode.GeneratorTests
             }
             ";
             var receiver = GeneratorTestHelpers.CreateSyntaxReceiver();
-            var walker = new TestSyntaxWalker { receiver = receiver };
+            var walker = new TestSyntaxWalker { Receiver = receiver };
             var tree = CSharpSyntaxTree.ParseText(testData);
             tree.GetCompilationUnitRoot().Accept(walker);
-            Assert.AreEqual(3, walker.receiver.Candidates.Count);
+            Assert.AreEqual(3, walker.Receiver.Candidates.Count);
             var results = GeneratorTestHelpers.RunGenerators(tree);
             //only the command serializer
             Assert.AreEqual(3, results.GeneratedSources.Length, "Num generated files does not match");
@@ -764,10 +748,10 @@ namespace Unity.NetCode.GeneratorTests
             }
             ";
             var receiver = GeneratorTestHelpers.CreateSyntaxReceiver();
-            var walker = new TestSyntaxWalker { receiver = receiver };
+            var walker = new TestSyntaxWalker { Receiver = receiver };
             var tree = CSharpSyntaxTree.ParseText(testData);
             tree.GetCompilationUnitRoot().Accept(walker);
-            Assert.AreEqual(5, walker.receiver.Candidates.Count);
+            Assert.AreEqual(5, walker.Receiver.Candidates.Count);
             var results = GeneratorTestHelpers.RunGenerators(tree);
             Assert.AreEqual(0, results.GeneratedSources.Length, "Num generated files does not match");
             var diagnostics = results.Diagnostics.Where(m=>m.Severity == DiagnosticSeverity.Error).ToArray();
@@ -822,10 +806,10 @@ namespace Unity.NetCode.GeneratorTests
             }
             ";
             var receiver = GeneratorTestHelpers.CreateSyntaxReceiver();
-            var walker = new TestSyntaxWalker { receiver = receiver };
+            var walker = new TestSyntaxWalker { Receiver = receiver };
             var tree = CSharpSyntaxTree.ParseText(testData);
             tree.GetCompilationUnitRoot().Accept(walker);
-            Assert.AreEqual(1, walker.receiver.Candidates.Count);
+            Assert.AreEqual(1, walker.Receiver.Candidates.Count);
             //Check generated files match
             var templateTree = CSharpSyntaxTree.ParseText(customTemplates);
             var results = GeneratorTestHelpers.RunGenerators(tree, templateTree);
@@ -833,8 +817,7 @@ namespace Unity.NetCode.GeneratorTests
 
             var outputTree = results.GeneratedSources[0].SyntaxTree;
             var snapshotDataSyntax = outputTree.GetRoot().DescendantNodes().OfType<StructDeclarationSyntax>()
-                .FirstOrDefault(node => node.Identifier.ValueText == "Snapshot");
-            Assert.IsNotNull(snapshotDataSyntax);
+                .First(node => node.Identifier.ValueText == "Snapshot");
             var expected = new[]
             {
                 ("float", "AngleType"),
@@ -874,7 +857,7 @@ namespace Unity.NetCode.GeneratorTests
             ";
 
             var receiver = GeneratorTestHelpers.CreateSyntaxReceiver();
-            var walker = new TestSyntaxWalker { receiver = receiver };
+            var walker = new TestSyntaxWalker { Receiver = receiver };
             var tree = CSharpSyntaxTree.ParseText(testData);
             tree.GetCompilationUnitRoot().Accept(walker);
             var results = GeneratorTestHelpers.RunGenerators(tree);
@@ -970,8 +953,7 @@ namespace Unity.NetCode.GeneratorTests
             Assert.AreEqual(2, results.GeneratedSources.Length, "Num generated files does not match");
             var outputTree = results.GeneratedSources[0].SyntaxTree;
             var snapshotDataSyntax = outputTree.GetRoot().DescendantNodes().OfType<StructDeclarationSyntax>()
-                .FirstOrDefault(node => node.Identifier.ValueText == "Snapshot");
-            Assert.IsNotNull(snapshotDataSyntax);
+                .First(node => node.Identifier.ValueText == "Snapshot");
             var expected = new[]
             {
                 ("int", "AngleType"),
@@ -1055,8 +1037,7 @@ namespace Unity.NetCode.GeneratorTests
                 Assert.AreEqual(2, results.GeneratedTrees.Length, "Num generated files does not match");
                 var outputTree = results.GeneratedTrees[0];
                 var snapshotDataSyntax = outputTree.GetRoot().DescendantNodes().OfType<StructDeclarationSyntax>()
-                    .FirstOrDefault(node => node.Identifier.ValueText == "Snapshot");
-                Assert.IsNotNull(snapshotDataSyntax);
+                    .First(node => node.Identifier.ValueText == "Snapshot");
                 var expected = new[]
                 {
                     ("int", "ValueX"),
@@ -1091,20 +1072,20 @@ namespace Unity.NetCode.GeneratorTests
             var outputTree = results.GeneratedSources[0].SyntaxTree;
             var initBlockWalker = new InializationBlockWalker();
             outputTree.GetCompilationUnitRoot().Accept(initBlockWalker);
-            Assert.IsNotNull(initBlockWalker.intializer);
+            Assert.IsNotNull(initBlockWalker.Intializer);
 
             // SendTypeOptimization=GhostSendType.All and PrefabType=GhostPrefabType.All makes the SendMask interpolated+predicted
-            var componentTypeAssignmet = initBlockWalker.intializer.Expressions.FirstOrDefault(e =>
+            var componentTypeAssignment = initBlockWalker.Intializer!.Expressions.First(e =>
                 ((AssignmentExpressionSyntax) e).Left.ToString() == "SendMask") as AssignmentExpressionSyntax;
-            Assert.IsNotNull(componentTypeAssignmet);
-            Assert.AreEqual(componentTypeAssignmet.Right.ToString(),
+            Assert.That(componentTypeAssignment, Is.Not.Null);
+            Assert.AreEqual(componentTypeAssignment!.Right.ToString(),
                 "GhostComponentSerializer.SendMask.Interpolated|GhostComponentSerializer.SendMask.Predicted");
 
             // OwnerSendType = SendToOwnerType.All
-            componentTypeAssignmet = initBlockWalker.intializer.Expressions.FirstOrDefault(e =>
+            componentTypeAssignment = initBlockWalker.Intializer.Expressions.FirstOrDefault(e =>
                 ((AssignmentExpressionSyntax) e).Left.ToString() == "SendToOwner") as AssignmentExpressionSyntax;
-            Assert.IsNotNull(componentTypeAssignmet);
-            Assert.AreEqual(componentTypeAssignmet.Right.ToString(), "SendToOwnerType.All");
+            Assert.That(componentTypeAssignment, Is.Not.Null);
+            Assert.AreEqual(componentTypeAssignment!.Right.ToString(), "SendToOwnerType.All");
 
             // TODO: Fix this, as it has been moved to the SS.
             // SendDataForChildEntity = false
@@ -1153,7 +1134,7 @@ namespace Unity.NetCode.GeneratorTests
                 var outputTree = results.GeneratedSources[i].SyntaxTree;
                 var initBlockWalker = new InializationBlockWalker();
                 outputTree.GetCompilationUnitRoot().Accept(initBlockWalker);
-                Assert.IsNotNull(initBlockWalker.intializer);
+                Assert.IsNotNull(initBlockWalker.Intializer);
 
                 // TODO: Fix this, as it has been moved to the SS.
                 // var componentTypeAssignmet = initBlockWalker.intializer.Expressions.FirstOrDefault(e =>
@@ -1206,11 +1187,11 @@ namespace Unity.NetCode.GeneratorTests
             var outputTree = results.GeneratedSources[0].SyntaxTree;
             var initBlockWalker = new InializationBlockWalker();
             outputTree.GetCompilationUnitRoot().Accept(initBlockWalker);
-            Assert.IsNotNull(initBlockWalker.intializer);
-            var componentTypeAssignmet = initBlockWalker.intializer.Expressions.FirstOrDefault(e =>
+            Assert.IsNotNull(initBlockWalker.Intializer);
+            var componentTypeAssignment = initBlockWalker.Intializer!.Expressions.FirstOrDefault(e =>
                 ((AssignmentExpressionSyntax) e).Left.ToString() == "SendMask") as AssignmentExpressionSyntax;
-            Assert.IsNotNull(componentTypeAssignmet);
-            return componentTypeAssignmet.Right.ToString();
+            Assert.IsNotNull(componentTypeAssignment);
+            return componentTypeAssignment!.Right.ToString();
         }
 
         [Test]
@@ -1301,8 +1282,7 @@ namespace Unity.NetCode.GeneratorTests
             Assert.IsTrue(results.GeneratedSources[1].SourceText.ToString().Contains("TestComponent2"));
 
             var outputTree = results.GeneratedSources[0].SyntaxTree;
-            var snapshotDataSyntax = outputTree.GetRoot().DescendantNodes().OfType<StructDeclarationSyntax>().FirstOrDefault(node => node.Identifier.ValueText == "Snapshot");
-            Assert.IsNotNull(snapshotDataSyntax);
+            var snapshotDataSyntax = outputTree.GetRoot().DescendantNodes().OfType<StructDeclarationSyntax>().First(node => node.Identifier.ValueText == "Snapshot");
             var members = snapshotDataSyntax.DescendantNodes().OfType<FieldDeclarationSyntax>().ToArray();
             Assert.AreEqual("int", (members[0].Declaration.Type as PredefinedTypeSyntax)?.Keyword.Text);
             Assert.AreEqual("genericEntity_ent", members[0].Declaration.Variables[0].Identifier.Text);
@@ -1310,8 +1290,7 @@ namespace Unity.NetCode.GeneratorTests
             Assert.AreEqual("genericEntity_entSpawnTick", members[1].Declaration.Variables[0].Identifier.Text);
 
             outputTree = results.GeneratedSources[1].SyntaxTree;
-            snapshotDataSyntax = outputTree.GetRoot().DescendantNodes().OfType<StructDeclarationSyntax>().FirstOrDefault(node => node.Identifier.ValueText == "Snapshot");
-            Assert.IsNotNull(snapshotDataSyntax);
+            snapshotDataSyntax = outputTree.GetRoot().DescendantNodes().OfType<StructDeclarationSyntax>().First(node => node.Identifier.ValueText == "Snapshot");
             members = snapshotDataSyntax.DescendantNodes().OfType<FieldDeclarationSyntax>().ToArray();
             Assert.AreEqual("int", (members[0].Declaration.Type as PredefinedTypeSyntax)?.Keyword.Text);
             Assert.AreEqual("entity", members[0].Declaration.Variables[0].Identifier.Text);
@@ -1415,10 +1394,10 @@ namespace Unity.NetCode.GeneratorTests
             }
             ";
             var receiver = GeneratorTestHelpers.CreateSyntaxReceiver();
-            var walker = new TestSyntaxWalker { receiver = receiver };
+            var walker = new TestSyntaxWalker { Receiver = receiver };
             var tree = CSharpSyntaxTree.ParseText(testData);
             tree.GetCompilationUnitRoot().Accept(walker);
-            Assert.AreEqual(1, walker.receiver.Candidates.Count);
+            Assert.AreEqual(1, walker.Receiver.Candidates.Count);
 
             // Should get input buffer struct (IInputBufferData etc) and the command data (ICommandDataSerializer etc) generated from that
             // and the registration system with the empty variant registration data
@@ -1468,10 +1447,10 @@ namespace Unity.NetCode.GeneratorTests
             }
             ";
             var receiver = GeneratorTestHelpers.CreateSyntaxReceiver();
-            var walker = new TestSyntaxWalker { receiver = receiver };
+            var walker = new TestSyntaxWalker { Receiver = receiver };
             var tree = CSharpSyntaxTree.ParseText(testData);
             tree.GetCompilationUnitRoot().Accept(walker);
-            Assert.AreEqual(1, walker.receiver.Candidates.Count);
+            Assert.AreEqual(1, walker.Receiver.Candidates.Count);
 
             // 1 - ParentClass1_ParentClass2_PlayerInputInputBufferData
             // 2 - ParentClass1_ParentClass2_PlayerInputInputBufferDataSerializer
@@ -1524,10 +1503,10 @@ namespace Unity.NetCode.GeneratorTests
             }
             ";
             var receiver = GeneratorTestHelpers.CreateSyntaxReceiver();
-            var walker = new TestSyntaxWalker { receiver = receiver };
+            var walker = new TestSyntaxWalker { Receiver = receiver };
             var tree = CSharpSyntaxTree.ParseText(testData);
             tree.GetCompilationUnitRoot().Accept(walker);
-            Assert.AreEqual(1, walker.receiver.Candidates.Count);
+            Assert.AreEqual(1, walker.Receiver.Candidates.Count);
 
             var results = GeneratorTestHelpers.RunGenerators(tree);
             Assert.AreEqual(4, results.GeneratedSources.Length, "Num generated files does not match");
@@ -1540,20 +1519,17 @@ namespace Unity.NetCode.GeneratorTests
             Assert.IsNotNull(inputBufferSyntax);
 
             var commandSyntax = commandSourceData.GetRoot().DescendantNodes().OfType<StructDeclarationSyntax>()
-                .FirstOrDefault(node => node.Identifier.ValueText == "PlayerInputInputBufferDataSerializer");
-            Assert.IsNotNull(commandSyntax);
+                .First(node => node.Identifier.ValueText == "PlayerInputInputBufferDataSerializer");
             var sourceText = commandSyntax.GetText();
             Assert.AreEqual(0, sourceText.Lines.Where((line => line.ToString().Contains("data.Tick"))).Count());
 
             var componentSyntax = componentSourceData.GetRoot().DescendantNodes().OfType<StructDeclarationSyntax>()
-                .FirstOrDefault(node => node.Identifier.ValueText == "PlayerInputInputBufferDataGhostComponentSerializer");
-            Assert.IsNotNull(componentSyntax);
+                .First(node => node.Identifier.ValueText == "PlayerInputInputBufferDataGhostComponentSerializer");
 
             // Verify the component snapshot data is set up correctly, this means the ghost fields
             // are configured properly in the generated input buffer for remote player prediction
             var snapshotSyntax = componentSyntax.DescendantNodes().OfType<StructDeclarationSyntax>()
-                .FirstOrDefault(node => node.Identifier.ValueText == "Snapshot");
-            Assert.IsNotNull(snapshotSyntax);
+                .First(node => node.Identifier.ValueText == "Snapshot");
             var fields = snapshotSyntax.DescendantNodes().OfType<FieldDeclarationSyntax>().ToArray();
             Assert.AreEqual("int", (fields[0].Declaration.Type as PredefinedTypeSyntax)?.Keyword.Text);
             Assert.AreEqual("InternalInput_Horizontal", fields[0].Declaration.Variables[0].Identifier.Text);
@@ -1573,9 +1549,10 @@ namespace Unity.NetCode.GeneratorTests
             Assert.AreEqual(1, sourceText.Lines.Where((line => line.ToString().Contains("SendToOwner = SendToOwnerType.SendToNonOwner"))).Count());
 
             var maskBits = componentSyntax.DescendantNodes().OfType<FieldDeclarationSyntax>()
-                .FirstOrDefault(t => t.Declaration.Variables[0].Identifier.ValueText == "ChangeMaskBits");
-            Assert.IsNotNull(maskBits);
-            Assert.AreEqual("4", maskBits.Declaration.Variables[0].Initializer.Value.ToString());
+                .First(t => t.Declaration.Variables[0].Identifier.ValueText == "ChangeMaskBits");
+            var equalsValueClauseSyntax = maskBits.Declaration.Variables[0].Initializer;
+            Assert.That(equalsValueClauseSyntax, Is.Not.Null);
+            Assert.AreEqual("4", equalsValueClauseSyntax!.Value.ToString());
 
             var registrationSyntax = registrationSourceData.GetRoot().DescendantNodes().OfType<SimpleBaseTypeSyntax>()
                 .FirstOrDefault(node => node.ToString().Contains("IGhostComponentSerializerRegistration"));
@@ -1618,10 +1595,10 @@ namespace Unity.NetCode.GeneratorTests
             }
             ";
             var receiver = GeneratorTestHelpers.CreateSyntaxReceiver();
-            var walker = new TestSyntaxWalker { receiver = receiver };
+            var walker = new TestSyntaxWalker { Receiver = receiver };
             var tree = CSharpSyntaxTree.ParseText(testData);
             tree.GetCompilationUnitRoot().Accept(walker);
-            Assert.AreEqual(1, walker.receiver.Candidates.Count);
+            Assert.AreEqual(1, walker.Receiver.Candidates.Count);
 
             var results = GeneratorTestHelpers.RunGenerators(tree);
             Assert.IsNotNull(results);
