@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.0.11] - 2023-06-02
+
+### Fixed
+
+* Updated logging dependency
+
 
 ## [1.0.10] - 2023-05-23
 
