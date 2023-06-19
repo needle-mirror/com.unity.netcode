@@ -94,6 +94,15 @@ namespace Unity.NetCode
         {
             return new SpawnedGhost(comp.ghostId, comp.spawnTick);
         }
+
+        /// <summary>
+        /// Returns a human-readable GhostComponent FixedString, containing its values.
+        /// </summary>
+        /// <returns>A human-readable GhostComponent FixedString, containing its values.</returns>
+        public FixedString128Bytes ToFixedString()
+        {
+            return $"GhostComponent[type:{ghostType}|id:{ghostId},st:{spawnTick.ToFixedString()}]";
+        }
     }
 
     /// <summary>

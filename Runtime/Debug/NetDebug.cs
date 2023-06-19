@@ -186,7 +186,7 @@ namespace Unity.NetCode.LowLevel.Unsafe
             m_NetDebugPacketLoggerHandle = new LoggerConfig()
                 .OutputTemplate("{Message}")
                 .MinimumLevel.Set(LogLevel.Verbose)
-                .WriteTo.File($"{logFolder}/NetcodePackets-New-{worldName}-{connectionId}.log")
+                .WriteTo.File($"{logFolder}/NetcodePacket-{worldName}-{connectionId}.log")
                 .CreateLogger(parameters).Handle;
         }
 
@@ -489,22 +489,18 @@ namespace Unity.NetCode
         /// <summary>
         /// Method that print a human readable error message when the version protocol mismatch.
         /// </summary>
-        /// <param name="netDebug"></param>
-        /// <param name="debugPrefix"></param>
+        /// <param name="error"></param>
         /// <param name="protocolVersion"></param>
-        internal static void PrintProtocolVersionError(NetDebug netDebug, FixedString64Bytes debugPrefix, NetworkProtocolVersion protocolVersion)
+        internal static void AppendProtocolVersionError(ref FixedString512Bytes error, NetworkProtocolVersion protocolVersion)
         {
-            FixedString512Bytes debugLog = default;
-            debugLog.Append(debugPrefix);
-            debugLog.Append(FixedString.Format("NetCode={0} Game={1}", protocolVersion.NetCodeVersion,
+            error.Append(FixedString.Format("NetCode={0} Game={1}", protocolVersion.NetCodeVersion,
                 protocolVersion.GameVersion));
             FixedString32Bytes msg = " RpcCollection=";
-            debugLog.Append(msg);
-            debugLog.Append(protocolVersion.RpcCollectionVersion);
+            error.Append(msg);
+            error.Append(protocolVersion.RpcCollectionVersion);
             msg = " ComponentCollection=";
-            debugLog.Append(msg);
-            debugLog.Append(protocolVersion.ComponentCollectionVersion);
-            netDebug.LogError(debugLog);
+            error.Append(msg);
+            error.Append(protocolVersion.ComponentCollectionVersion);
         }
 
         /// <summary>

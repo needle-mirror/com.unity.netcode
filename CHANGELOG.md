@@ -1,5 +1,16 @@
 # Changelog
 
+
+## [1.0.12] - 2023-06-19
+
+### Changed
+* Updated com.unity.entities dependency to 1.0.11
+
+### Fixed
+* `MultiplayerPlayModeWindow > Dump Packet Logs` now works more reliably, now works with NUnit tests, and dump files are named with more context.
+* Fixed bug in `GhostSendSystem` that caused it to not replicate ghosts when enabling packet dumps. `GhostValuesAreSerialized_WithPacketDumpsEnabled` test added.
+
+
 ## [1.0.11] - 2023-06-02
 
 ### Fixed

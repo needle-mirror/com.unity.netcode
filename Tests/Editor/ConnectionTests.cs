@@ -225,22 +225,8 @@ namespace Unity.NetCode.Tests
                 testWorld.GetSingletonRW<NetworkStreamDriver>(testWorld.ServerWorld).ValueRW.Listen(ep);
                 testWorld.GetSingletonRW<NetworkStreamDriver>(testWorld.ClientWorlds[0]).ValueRW.Connect(testWorld.ClientWorlds[0].EntityManager, ep);
 
-                if (debugServer)
-                {
-                    LogAssert.Expect(LogType.Error,
-                        "[ServerTest] RpcSystem received bad protocol version from NetworkConnection[id0,v1]");
-                    LogExpectProtocolError(
-                        "NetCode=1 Game=0 RpcCollection=(\\d+) ComponentCollection=(\\d+)",
-                        "NetCode=1 Game=9000 RpcCollection=(\\d+) ComponentCollection=(\\d+)", testWorld, testWorld.ServerWorld);
-                }
-                else
-                {
-                    LogAssert.Expect(LogType.Error,
-                        "[ClientTest0] RpcSystem received bad protocol version from NetworkConnection[id0,v1]");
-                    LogExpectProtocolError(
-                        "NetCode=1 Game=9000 RpcCollection=(\\d+) ComponentCollection=(\\d+)",
-                        "NetCode=1 Game=0 RpcCollection=(\\d+) ComponentCollection=(\\d+)", testWorld, testWorld.ClientWorlds[0]);
-                }
+                // This error obviously logs twice, so expecting only once doesn't work.
+                LogExpectProtocolError(testWorld, testWorld.ServerWorld, debugServer);
 
                 // Allow disconnect to happen
                 for (int i = 0; i < 16; ++i)
@@ -277,23 +263,7 @@ namespace Unity.NetCode.Tests
                 testWorld.GetSingletonRW<NetworkStreamDriver>(testWorld.ClientWorlds[0]).ValueRW.Connect(testWorld.ClientWorlds[0].EntityManager, ep);
                 testWorld.Tick(dt);
 
-                if (checkServer)
-                {
-                    // Connection is not included in the version error handling, so connection ID appears as -1 here
-                    LogAssert.Expect(LogType.Error,
-                        "[ServerTest] RpcSystem received bad protocol version from NetworkConnection[id0,v1]");
-                    LogExpectProtocolError(
-                        "NetCode=1 Game=0 RpcCollection=(\\d+) ComponentCollection=(\\d+)",
-                        "NetCode=1 Game=9000 RpcCollection=(\\d+) ComponentCollection=(\\d+)", testWorld, testWorld.ServerWorld);
-                }
-                else
-                {
-                    LogAssert.Expect(LogType.Error,
-                        "[ClientTest0] RpcSystem received bad protocol version from NetworkConnection[id0,v1]");
-                    LogExpectProtocolError(
-                        "NetCode=1 Game=9000 RpcCollection=(\\d+) ComponentCollection=(\\d+)",
-                        "NetCode=1 Game=0 RpcCollection=(\\d+) ComponentCollection=(\\d+)", testWorld, testWorld.ClientWorlds[0]);
-                }
+                LogExpectProtocolError(testWorld, testWorld.ServerWorld, checkServer);
                 for (int i = 0; i < 8; ++i)
                     testWorld.Tick(dt);
 
@@ -303,17 +273,18 @@ namespace Unity.NetCode.Tests
             }
         }
 
-        void LogExpectProtocolError(string localProtocol, string remoteProtocol, NetCodeTestWorld testWorld, World world)
+        void LogExpectProtocolError(NetCodeTestWorld testWorld, World world, bool checkServer)
         {
-            LogAssert.Expect(LogType.Error, new Regex($"Local protocol: {localProtocol}"));
-            LogAssert.Expect(LogType.Error, new Regex($"Remote protocol: {remoteProtocol}"));
+            LogAssert.Expect(LogType.Error, new Regex($"\\[{(checkServer ? "Server" : "Client")}Test(.*)\\] RpcSystem received bad protocol version from NetworkConnection\\[id0,v1\\]"
+                                                      + $"\nLocal protocol: NetCode=1 Game={(checkServer ? "0" : "9000")} RpcCollection=(\\d+) ComponentCollection=(\\d+)"
+                                                      + $"\nRemote protocol: NetCode=1 Game={(!checkServer ? "0" : "9000")} RpcCollection=(\\d+) ComponentCollection=(\\d+)"));
             var rpcs = testWorld.GetSingleton<RpcCollection>(world).Rpcs;
-            LogAssert.Expect(LogType.Error, "RPC List: " + rpcs.Length);
+            LogAssert.Expect(LogType.Error, "RPC List (for above 'bad protocol version' error): " + rpcs.Length);
             for (int i = 0; i < rpcs.Length; ++i)
                 LogAssert.Expect(LogType.Error, new Regex("Unity.NetCode"));
             var collection = world.EntityManager.CreateEntityQuery(ComponentType.ReadOnly<GhostCollection>());
             var serializers = world.EntityManager.GetBuffer<GhostComponentSerializer.State>(collection.ToEntityArray(Allocator.Temp)[0]);
-            LogAssert.Expect(LogType.Error, "Component serializer data: " + serializers.Length);
+            LogAssert.Expect(LogType.Error, "Component serializer data (for above 'bad protocol version' error): " + serializers.Length);
             for (int i = 0; i < serializers.Length; ++i)
                 LogAssert.Expect(LogType.Error, new Regex("Type:"));
         }

@@ -279,8 +279,7 @@ namespace Unity.NetCode.Tests
             var query = EntityManager.CreateEntityQuery(ComponentType.ReadOnly<NetworkId>());
             RequireForUpdate(query);
 
-            const int kStringLength = 10; // we name it ClientTest
-            worldId = int.Parse(World.Name.Substring(kStringLength, World.Name.Length - kStringLength));
+            worldId = NetCodeTestWorld.CalculateWorldId(World);
         }
 
         protected override void OnUpdate()
@@ -424,7 +423,7 @@ namespace Unity.NetCode.Tests
         protected override void OnCreate()
         {
             RequireForUpdate<NetworkId>();
-            worldId = int.Parse(World.Name.Substring(World.Name.Length - 1, 1));
+            worldId = NetCodeTestWorld.CalculateWorldId(World);
         }
 
         protected override void OnUpdate()

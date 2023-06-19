@@ -182,7 +182,7 @@ namespace Unity.NetCode.Tests
                 // Connect and make sure the connection could be established
                 Assert.IsTrue(testWorld.Connect(frameTime, 4));
 
-                LogAssert.Expect(LogType.Error, new Regex("\\[ServerTest\\] RpcSystem received invalid rpc \\(index (\\d+) out of range\\) from NetworkConnection\\[id0,v\\d\\]"));
+                LogAssert.Expect(LogType.Error, new Regex("RpcSystem received invalid rpc"));
                 for (int i = 0; i < 32; ++i)
                     testWorld.Tick(1f / 60f);
 
@@ -394,7 +394,7 @@ namespace Unity.NetCode.Tests
                 testWorld.Tick(dt);
 
                 // Now assert the final tick logs warning on both client and server (server is 1 frame behind):
-                var regex = new Regex("or remove the RPC component, or destroy the entity");
+                var regex = new Regex("NetCode RPC Entity\\(.*\\) has not been consumed or destroyed for '4'");
                 LogAssert.Expect(LogType.Warning, regex);
                 testWorld.Tick(dt);
                 LogAssert.Expect(LogType.Warning, regex);

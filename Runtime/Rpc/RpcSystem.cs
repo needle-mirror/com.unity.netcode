@@ -537,25 +537,27 @@ namespace Unity.NetCode
                             { Reason = NetworkStreamDisconnectReason.InvalidRpc });
                     connection = connections[rpcError.connection].Value.ToFixedString();
                 }
-                netDebug.LogError(FixedString.Format("[{0}] RpcSystem received bad protocol version from {1}", worldName, connection));
-                FixedString64Bytes prefix = "Local protocol: ";
-                NetDebug.PrintProtocolVersionError(netDebug, prefix, localProtocol);
-                prefix = "Remote protocol: ";
-                NetDebug.PrintProtocolVersionError(netDebug, prefix, rpcError.remoteProtocol);
 
-                var s = (FixedString512Bytes)"RPC List: ";
+                var errorHeader = (FixedString512Bytes)$"[{worldName}] RpcSystem received bad protocol version from {connection}";
+                errorHeader.Append((FixedString32Bytes)"\nLocal protocol: ");
+                NetDebug.AppendProtocolVersionError(ref errorHeader, localProtocol);
+                errorHeader.Append((FixedString32Bytes)"\nRemote protocol: ");
+                NetDebug.AppendProtocolVersionError(ref errorHeader, rpcError.remoteProtocol);
+                netDebug.LogError(errorHeader);
+
+                var s = (FixedString512Bytes)"RPC List (for above 'bad protocol version' error): ";
                 s.Append(rpcs.Length);
                 netDebug.LogError(s);
 
                 for (int i = 0; i < rpcs.Length; ++i)
-                    netDebug.LogError(rpcs[i]);
+                    netDebug.LogError($"RpcHash[{i}] = {rpcs[i]}");
 
-                s = (FixedString512Bytes)"Component serializer data: ";
+                s = (FixedString512Bytes)"Component serializer data (for above 'bad protocol version' error): ";
                 s.Append(componentInfo.Length);
                 netDebug.LogError(s);
 
                 for (int i = 0; i < componentInfo.Length; ++i)
-                    netDebug.LogError(componentInfo[i]);
+                    netDebug.LogError($"ComponentHash[{i}] = {componentInfo[i]}");
 
                 commandBuffer.DestroyEntity(entity);
             }

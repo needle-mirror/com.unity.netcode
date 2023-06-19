@@ -36,6 +36,11 @@ namespace Unity.NetCode
             var netDebug = new NetDebug();
             netDebug.Initialize();
 
+#if UNITY_EDITOR
+            if (MultiplayerPlayModePreferences.ApplyLoggerSettings)
+                netDebug.LogLevel = MultiplayerPlayModePreferences.TargetLogLevel;
+#endif
+
 #if NETCODE_DEBUG
             m_ComponentTypeNameLookupData = new NativeParallelHashMap<int, FixedString128Bytes>(1024, Allocator.Persistent);
             netDebug.ComponentTypeNameLookup = m_ComponentTypeNameLookupData.AsReadOnly();
@@ -57,11 +62,6 @@ namespace Unity.NetCode
                 ComponentType.ReadOnly<Prefab>(),
                 ComponentType.ReadOnly<GhostPrefabMetaData>(),
                 ComponentType.Exclude<PrefabDebugName>());
-
-#if UNITY_EDITOR
-            if (MultiplayerPlayModePreferences.ApplyLoggerSettings)
-                m_NetDebugQuery.GetSingletonRW<NetDebug>().ValueRW.LogLevel = MultiplayerPlayModePreferences.TargetLogLevel;
-#endif
 #endif
         }
 

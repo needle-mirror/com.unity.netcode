@@ -227,6 +227,45 @@ namespace Unity.NetCode.Tests
             }
         }
         [Test]
+        public void GhostValuesAreSerialized_WithPacketDumpsEnabled()
+        {
+            using (var testWorld = new NetCodeTestWorld())
+            {
+                testWorld.DebugPackets = true;
+                testWorld.Bootstrap(true);
+
+                var ghostGameObject = new GameObject();
+                ghostGameObject.AddComponent<TestNetCodeAuthoring>().Converter = new GhostValueSerializerConverter();
+
+                Assert.IsTrue(testWorld.CreateGhostCollection(ghostGameObject));
+
+                testWorld.CreateWorlds(true, 1);
+
+                testWorld.SpawnOnServer(ghostGameObject);
+                SetGhostValues(testWorld, 42);
+
+                float frameTime = 1.0f / 60.0f;
+                // Connect and make sure the connection could be established
+                Assert.IsTrue(testWorld.Connect(frameTime, 4));
+
+                // Go in-game
+                testWorld.GoInGame();
+
+                // Let the game run for a bit so the ghosts are spawned on the client
+                for (int i = 0; i < 64; ++i)
+                    testWorld.Tick(frameTime);
+
+                VerifyGhostValues(testWorld);
+                SetGhostValues(testWorld, 43);
+
+                for (int i = 0; i < 64; ++i)
+                    testWorld.Tick(frameTime);
+
+                // Assert that replicated version is correct
+                VerifyGhostValues(testWorld);
+            }
+        }
+        [Test]
         public void EntityReferenceSetAtSpawnIsResolved()
         {
             using (var testWorld = new NetCodeTestWorld())

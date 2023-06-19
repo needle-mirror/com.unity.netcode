@@ -1589,10 +1589,12 @@ namespace Unity.NetCode
 
                 foreach (var packet in SystemAPI.Query<AspectPacket>())
                 {
-                    if (!m_ConnectionStateLookup.ContainsKey(packet.Entity)) { return; }
+                    if (!m_ConnectionStateLookup.ContainsKey(packet.Entity))
+                        continue;
 
                     var conState = m_ConnectionStates[m_ConnectionStateLookup[packet.Entity]];
-                    if (conState.NetDebugPacket.IsCreated) { return; }
+                    if (conState.NetDebugPacket.IsCreated)
+                        continue;
 
                     NetDebugInterop.InitDebugPacketIfNotCreated(ref conState.NetDebugPacket, ref m_LogFolder, ref worldNameFixed, packet.Id.ValueRO.Value);
 

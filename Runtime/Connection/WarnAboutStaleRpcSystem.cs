@@ -29,8 +29,7 @@ namespace Unity.NetCode
             {
                 if (!command.IsConsumed && ++command.Age >= netDebug.MaxRpcAgeFrames)
                 {
-                    var warning = (FixedString512Bytes)FixedString.Format("In '{0}', NetCode RPC {1} has not been consumed or destroyed for '{2}' (MaxRpcAgeFrames) frames!", worldName, entity.ToFixedString(), command.Age);
-                    warning.Append((FixedString128Bytes)" Assumed unhandled. Call .Consume(), or remove the RPC component, or destroy the entity.");
+                    var warning = (FixedString512Bytes) $"[{worldName}] NetCode RPC {entity.ToFixedString()} has not been consumed or destroyed for '{command.Age}' (MaxRpcAgeFrames) frames! Assumed unhandled. Either a) call .Consume(), or b) remove the ReceiveRpcCommandRequestComponent component, or c) destroy the entity.";
                     netDebug.LogWarning(warning);
 
                     command.Consume();

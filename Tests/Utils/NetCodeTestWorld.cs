@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
+using System.Text.RegularExpressions;
 using NUnit.Framework;
 using Unity.Core;
 using Unity.Entities;
@@ -283,11 +284,12 @@ namespace Unity.NetCode.Tests
                 m_DefaultWorldInitialized = true;
             }
 
+            var testMethodName = NUnit.Framework.TestContext.CurrentContext.Test.MethodName;
             if (server)
             {
                 if (m_ServerWorld != null)
                     throw new InvalidOperationException("Server world already created");
-                m_ServerWorld = CreateServerWorld("ServerTest");
+                m_ServerWorld = CreateServerWorld($"ServerTest-{testMethodName}");
 #if UNITY_EDITOR
                 BakeGhostCollection(m_ServerWorld);
 #endif
@@ -309,7 +311,8 @@ namespace Unity.NetCode.Tests
                     try
                     {
                         WorldCreationIndex = i;
-                        m_ClientWorlds[i] = CreateClientWorld($"ClientTest{i}", useThinClients);
+
+                        m_ClientWorlds[i] = CreateClientWorld($"ClientTest{i}-{testMethodName}", useThinClients);
 
                         if (DebugPackets)
                         {
@@ -483,8 +486,8 @@ namespace Unity.NetCode.Tests
             int maxPackets = 2 * (networkRate * 3 * (packetDelay + DriverSimulatedJitter) + 999) / 1000;
 
             var fuzzFactor = 0;
-            const int kStringLength = 10; // we name it ClientTest e.g. 10 bytes long.
-            var worldId = int.Parse(world.Name.Substring(kStringLength, world.Name.Length - kStringLength));
+            // We name it "ClientTestXX-NameOfTest", so extract the XX.
+            var worldId = CalculateWorldId(world);
             if (DriverFuzzFactor?.Length >= worldId + 1)
             {
                 fuzzFactor = DriverFuzzFactor[worldId];
@@ -545,6 +548,13 @@ namespace Unity.NetCode.Tests
                 DefaultDriverBuilder.CreateClientPipelines(ref driverInstance);
                 driverStore.RegisterDriver(transportType, driverInstance);
             }
+        }
+
+        public static int CalculateWorldId(World world)
+        {
+            var regex = new Regex(@"(ClientTest)(\d)", RegexOptions.Singleline);
+            var match = regex.Match(world.Name);
+            return int.Parse(match.Groups[2].Value);
         }
 
         static int QueueSizeFromPlayerCount(int playerCount)

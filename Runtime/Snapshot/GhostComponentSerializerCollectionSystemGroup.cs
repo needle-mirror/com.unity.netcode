@@ -330,7 +330,7 @@ namespace Unity.NetCode
         /// <param name="context">The context of this call, to aid in error reporting.</param>
         /// <exception cref="InvalidOperationException">Throws if user-code queries too early.</exception>
         [Conditional("ENABLE_UNITY_COLLECTIONS_CHECKS")]
-        public void ThrowIfNotInRegistrationPhase(FixedString128Bytes context)
+        public void ThrowIfNotInRegistrationPhase(in FixedString512Bytes context)
         {
 #if ENABLE_UNITY_COLLECTIONS_CHECKS
             if(!CollectionFinalized.IsCreated)
@@ -348,7 +348,7 @@ namespace Unity.NetCode
         /// <param name="context">The context of this call, to aid in error reporting.</param>
         /// <exception cref="InvalidOperationException">Throws if user-code queries too early.</exception>
         [Conditional("ENABLE_UNITY_COLLECTIONS_CHECKS")]
-        public void ThrowIfCollectionNotFinalized(FixedString512Bytes context)
+        public void ThrowIfCollectionNotFinalized(in FixedString512Bytes context)
         {
 #if ENABLE_UNITY_COLLECTIONS_CHECKS
             if (!CollectionFinalized.IsCreated || CollectionFinalized.Value == 0)

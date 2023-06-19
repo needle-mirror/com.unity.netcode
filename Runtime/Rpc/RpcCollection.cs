@@ -88,13 +88,10 @@ namespace Unity.NetCode
                 {
 #if ENABLE_UNITY_COLLECTIONS_CHECKS
                     if (rpcData.RpcType == type)
-                        throw new InvalidOperationException(
-                            String.Format("Registering RPC {0} multiple times is not allowed", type.GetManagedType()));
-                    throw new InvalidOperationException(
-                        String.Format("Type hash collision between types {0} and {1}", type.GetManagedType(), rpcData.RpcType.GetManagedType()));
+                        throw new InvalidOperationException($"Registering RPC {type.ToFixedString()} multiple times is not allowed! Existing: {rpcData.RpcType.ToFixedString()}!");
+                    throw new InvalidOperationException($"StableTypeHash collision between types {type.ToFixedString()} and {rpcData.RpcType.ToFixedString()} while registering RPC!");
 #else
-                    throw new InvalidOperationException(
-                        String.Format("Hash collision or multiple registrations for {0}", type.GetManagedType()));
+                    throw new InvalidOperationException($"Hash collision or multiple registrations for {type.ToFixedString()} while registering RPC! Existing: {rpcData.TypeHash}!");
 #endif
                 }
 

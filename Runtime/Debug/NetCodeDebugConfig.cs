@@ -29,40 +29,47 @@ namespace Unity.NetCode
     /// When the <see cref="NetCodeDebugConfig.DumpPackets"/> is set to true, a <see cref="EnablePacketLogging"/> component is added to all connection.
     /// </summary>
     [BurstCompile]
+    [WorldSystemFilter(WorldSystemFilterFlags.ClientSimulation | WorldSystemFilterFlags.ServerSimulation)]
     [UpdateInGroup(typeof(GhostSimulationSystemGroup))]
     internal partial struct DebugConnections : ISystem
     {
         EntityQuery m_ConnectionsQueryWithout;
         EntityQuery m_ConnectionsQueryWith;
 
+        public bool EditorApplyLoggerSettings;
+        public NetCodeDebugConfig ForceSettings;
+
         [BurstCompile]
         public void OnCreate(ref SystemState state)
         {
             m_ConnectionsQueryWithout = state.EntityManager.CreateEntityQuery(new EntityQueryBuilder(Allocator.Temp).WithAll<NetworkStreamConnection>().WithNone<EnablePacketLogging>());
             m_ConnectionsQueryWith = state.EntityManager.CreateEntityQuery(new EntityQueryBuilder(Allocator.Temp).WithAll<NetworkStreamConnection>().WithAll<EnablePacketLogging>());
-            state.RequireForUpdate<NetCodeDebugConfig>();
         }
 
         public void OnUpdate(ref SystemState state)
         {
-            if (state.WorldUnmanaged.IsThinClient())
-                return;
-
-            var debugConfig = SystemAPI.GetSingleton<NetCodeDebugConfig>();
-            var targetLogLevel = debugConfig.LogLevel;
-            var shouldDumpPackets = debugConfig.DumpPackets;
+            var netDbg = SystemAPI.GetSingletonRW<NetDebug>();
+            if (!SystemAPI.TryGetSingleton<NetCodeDebugConfig>(out var debugConfig))
+            {
+                // No user-defined config, so take the NetDebug defaults:
+                debugConfig.LogLevel = netDbg.ValueRO.LogLevel;
+                debugConfig.DumpPackets = false;
+            }
 
 #if UNITY_EDITOR
             if (MultiplayerPlayModePreferences.ApplyLoggerSettings)
             {
-                targetLogLevel = MultiplayerPlayModePreferences.TargetLogLevel;
-                shouldDumpPackets = MultiplayerPlayModePreferences.TargetShouldDumpPackets;
+                debugConfig.LogLevel = MultiplayerPlayModePreferences.TargetLogLevel;
+                debugConfig.DumpPackets = MultiplayerPlayModePreferences.TargetShouldDumpPackets;
             }
 #endif
 
-            SystemAPI.GetSingletonRW<NetDebug>().ValueRW.LogLevel = targetLogLevel;
+            if (netDbg.ValueRO.LogLevel != debugConfig.LogLevel)
+            {
+                netDbg.ValueRW.LogLevel = debugConfig.LogLevel;
+            }
 
-            if (shouldDumpPackets)
+            if (debugConfig.DumpPackets)
             {
                 state.EntityManager.AddComponent<EnablePacketLogging>(m_ConnectionsQueryWithout);
             }

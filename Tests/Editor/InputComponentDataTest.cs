@@ -202,8 +202,6 @@ namespace Unity.NetCode.Tests
         protected override void OnUpdate()
         {
             var eventCounter = EventCounter;
-            FixedString32Bytes world = World.Name;
-            var tick = SystemAPI.GetSingleton<NetworkTime>().ServerTick;
             Entities.WithAll<Simulate>().ForEach(
                 (ref InputComponentData input, ref LocalTransform trans) =>
                 {
