@@ -627,10 +627,13 @@ namespace Unity.NetCode.Tests
             }
 
             var type = ComponentType.ReadOnly<NetworkId>();
-            var query = w.EntityManager.CreateEntityQuery(type);
-            var connections = query.ToEntityArray(Allocator.TempJob);
-            for (int i = 0; i < connections.Length; ++i)
-                w.EntityManager.AddComponentData(connections[i], new NetworkStreamInGame());
+            using var query = w.EntityManager.CreateEntityQuery(type);
+            var connections = query.ToEntityArray(Allocator.Temp);
+            foreach (var connection in connections)
+            {
+                w.EntityManager.AddComponentData(connection, new NetworkStreamInGame());
+            }
+
             connections.Dispose();
         }
 
@@ -639,7 +642,7 @@ namespace Unity.NetCode.Tests
             void RemoveTag(World world)
             {
                 var type = ComponentType.ReadOnly<NetworkId>();
-                var query = world.EntityManager.CreateEntityQuery(type);
+                using var query = world.EntityManager.CreateEntityQuery(type);
                 var connections = query.ToEntityArray(Allocator.Temp);
                 for (int i = 0; i < connections.Length; ++i)
                 {
@@ -659,13 +662,13 @@ namespace Unity.NetCode.Tests
         public void SetInGame(int client)
         {
             var type = ComponentType.ReadOnly<NetworkId>();
-            var clientQuery = ClientWorlds[client].EntityManager.CreateEntityQuery(type);
+            using var clientQuery = ClientWorlds[client].EntityManager.CreateEntityQuery(type);
             var clientEntity = clientQuery.ToEntityArray(Allocator.Temp);
             ClientWorlds[client].EntityManager.AddComponent<NetworkStreamInGame>(clientEntity[0]);
             var clientNetId = ClientWorlds[client].EntityManager.GetComponentData<NetworkId>(clientEntity[0]);
             clientEntity.Dispose();
 
-            var query = ServerWorld.EntityManager.CreateEntityQuery(type);
+            using var query = ServerWorld.EntityManager.CreateEntityQuery(type);
             var connections = query.ToEntityArray(Allocator.Temp);
             for (int i = 0; i < connections.Length; ++i)
             {
@@ -683,13 +686,13 @@ namespace Unity.NetCode.Tests
         public void RemoveFromGame(int client)
         {
             var type = ComponentType.ReadOnly<NetworkId>();
-            var clientQuery = ClientWorlds[client].EntityManager.CreateEntityQuery(type);
+            using var clientQuery = ClientWorlds[client].EntityManager.CreateEntityQuery(type);
             var clientEntity = clientQuery.ToEntityArray(Allocator.Temp);
             ClientWorlds[client].EntityManager.RemoveComponent<NetworkStreamInGame>(clientEntity[0]);
             var clientNetId = ClientWorlds[client].EntityManager.GetComponentData<NetworkId>(clientEntity[0]);
             clientEntity.Dispose();
 
-            var query = ServerWorld.EntityManager.CreateEntityQuery(type);
+            using var query = ServerWorld.EntityManager.CreateEntityQuery(type);
             var connections = query.ToEntityArray(Allocator.Temp);
             for (int i = 0; i < connections.Length; ++i)
             {
@@ -707,44 +710,36 @@ namespace Unity.NetCode.Tests
         public Entity TryGetSingletonEntity<T>(World w)
         {
             var type = ComponentType.ReadOnly<T>();
-            using (var query = w.EntityManager.CreateEntityQuery(type))
-            {
-                int entCount = query.CalculateEntityCount();
+            using var query = w.EntityManager.CreateEntityQuery(type);
+            int entCount = query.CalculateEntityCount();
 #if UNITY_EDITOR
-                if (entCount >= 2)
-                    Debug.LogError("Trying to get singleton, but there are multiple matching entities");
+            if (entCount >= 2)
+                Debug.LogError("Trying to get singleton, but there are multiple matching entities");
 #endif
-                if (entCount != 1)
-                    return Entity.Null;
-                return query.GetSingletonEntity();
-            }
+            if (entCount != 1)
+                return Entity.Null;
+            return query.GetSingletonEntity();
         }
 
         public T GetSingleton<T>(World w) where T : unmanaged, IComponentData
         {
             var type = ComponentType.ReadOnly<T>();
-            using (var query = w.EntityManager.CreateEntityQuery(type))
-            {
-                return query.GetSingleton<T>();
-            }
+            using var query = w.EntityManager.CreateEntityQuery(type);
+            return query.GetSingleton<T>();
         }
 
         public RefRW<T> GetSingletonRW<T>(World w) where T : unmanaged, IComponentData
         {
             var type = ComponentType.ReadWrite<T>();
-            using (var query = w.EntityManager.CreateEntityQuery(type))
-            {
-                return query.GetSingletonRW<T>();
-            }
+            using var query = w.EntityManager.CreateEntityQuery(type);
+            return query.GetSingletonRW<T>();
         }
 
         public DynamicBuffer<T> GetSingletonBuffer<T>(World w) where T : unmanaged, IBufferElementData
         {
             var type = ComponentType.ReadOnly<T>();
-            using (var query = w.EntityManager.CreateEntityQuery(type))
-            {
-                return query.GetSingletonBuffer<T>();
-            }
+            using var query = w.EntityManager.CreateEntityQuery(type);
+            return query.GetSingletonBuffer<T>();
         }
 
 #if UNITY_EDITOR
@@ -798,16 +793,15 @@ namespace Unity.NetCode.Tests
 
             // Copy all the tracked/baked entities. That TransformAuthoring is present on all entities added by the baker for the
             // converted gameobject. It is sufficient condition to copy all the additional entities as well.
-            var builder = new EntityQueryBuilder(Allocator.Temp)
-                .WithAll<Prefab, EntityGuid, LocalTransform>();
+            var builder = new EntityQueryBuilder(Allocator.Temp).WithAll<Prefab, EntityGuid, LocalTransform>();
 
             using var bakedEntities = intermediateWorld.EntityManager.CreateEntityQuery(builder);
             world.EntityManager.MoveEntitiesFrom(intermediateWorld.EntityManager, bakedEntities);
 
             // Search for the entity in the final world by comparing the EntityGuid from entity in the intermediate world
             using var query = world.EntityManager.CreateEntityQuery(typeof(EntityGuid), typeof(Prefab));
-            using var entityArray = query.ToEntityArray(Allocator.TempJob);
-            using var entityGUIDs = query.ToComponentDataArray<EntityGuid>(Allocator.TempJob);
+            var entityArray = query.ToEntityArray(Allocator.Temp);
+            var entityGUIDs = query.ToComponentDataArray<EntityGuid>(Allocator.Temp);
             for (int index = 0; index < entityGUIDs.Length; ++index)
             {
                 if (entityGUIDs[index] == intermediateEntityGuid)

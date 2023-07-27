@@ -50,7 +50,7 @@ namespace Unity.NetCode.Tests
     {
         protected override void OnCreate()
         {
-            RequireForUpdate(EntityManager.CreateEntityQuery(ComponentType.ReadOnly<SubScenePrespawnBaselineResolved>()));
+            RequireForUpdate<SubScenePrespawnBaselineResolved>();
         }
 
         protected override void OnUpdate()
@@ -102,8 +102,7 @@ namespace Unity.NetCode.Tests
                 float frameTime = 1.0f / 60.0f;
                 Assert.IsTrue(testWorld.Connect(frameTime, 4));
                 testWorld.GoInGame();
-                var query = testWorld.ServerWorld.EntityManager.CreateEntityQuery(ComponentType
-                    .ReadOnly<PrespawnsSceneInitialized>());
+                var query = testWorld.ServerWorld.EntityManager.CreateEntityQuery(ComponentType.ReadOnly<PrespawnsSceneInitialized>());
                 Assert.IsTrue(query.IsEmptyIgnoreFilter);
                 //First tick
                 // - the Populate prespawn should run and add the ghosts to the mapping on the server.
@@ -144,7 +143,6 @@ namespace Unity.NetCode.Tests
                 //Check that they are identically mapped.
                 foreach (var kv in sendGhostMap.Value)
                 {
-
                     var ghost = kv.Key;
                     if (PrespawnHelper.IsRuntimeSpawnedGhost(ghost.ghostId))
                         continue;
@@ -215,20 +213,18 @@ namespace Unity.NetCode.Tests
                     testWorld.Tick(frameTime);
                 }
 
-                var q = testWorld.ClientWorlds[0].EntityManager.CreateEntityQuery(
-                    ComponentType.ReadOnly<SomeData>());
-                Assert.IsFalse(q.IsEmptyIgnoreFilter);
-                Assert.AreEqual(5, q.CalculateEntityCount());
+                var someDataQuery = testWorld.ClientWorlds[0].EntityManager.CreateEntityQuery(ComponentType.ReadOnly<SomeData>());
+                Assert.IsFalse(someDataQuery.IsEmptyIgnoreFilter);
+                Assert.AreEqual(5, someDataQuery.CalculateEntityCount());
 
                 //Modify some data on the server
-                q = testWorld.ServerWorld.EntityManager.CreateEntityQuery(ComponentType
-                    .ReadOnly<SubSceneWithPrespawnGhosts>());
-                var subsceneList = q.ToComponentDataArray<SubSceneWithPrespawnGhosts>(Allocator.Temp);
+                var subsceneList = testWorld.ServerWorld.EntityManager.CreateEntityQuery(ComponentType.ReadOnly<SubSceneWithPrespawnGhosts>())
+                    .ToComponentDataArray<SubSceneWithPrespawnGhosts>(Allocator.Temp);
+                var q = testWorld.ServerWorld.EntityManager.CreateEntityQuery(
+                    ComponentType.ReadOnly<PreSpawnedGhostIndex>(),
+                    ComponentType.ReadWrite<SomeData>(), ComponentType.ReadOnly<SubSceneGhostComponentHash>());
                 for (int i = 0; i < subsceneList.Length; ++i)
                 {
-                    q = testWorld.ServerWorld.EntityManager.CreateEntityQuery(
-                        ComponentType.ReadOnly<PreSpawnedGhostIndex>(),
-                        ComponentType.ReadWrite<SomeData>(), ComponentType.ReadOnly<SubSceneGhostComponentHash>());
                     q.SetSharedComponentFilter(new SubSceneGhostComponentHash
                     {
                         Value = subsceneList[i].SubSceneHash
@@ -248,16 +244,15 @@ namespace Unity.NetCode.Tests
                     testWorld.Tick(frameTime);
                 }
 
-                q = testWorld.ClientWorlds[0].EntityManager.CreateEntityQuery(
-                    ComponentType.ReadOnly<PreSpawnedGhostIndex>());
+                q = testWorld.ClientWorlds[0].EntityManager.CreateEntityQuery(ComponentType.ReadOnly<PreSpawnedGhostIndex>());
                 Assert.AreEqual(10, q.CalculateEntityCount());
 
                 //Check everything is in sync
+                q = testWorld.ClientWorlds[0].EntityManager.CreateEntityQuery(
+                    ComponentType.ReadOnly<PreSpawnedGhostIndex>(),
+                    ComponentType.ReadWrite<SomeData>(), ComponentType.ReadOnly<SubSceneGhostComponentHash>());
                 for (int i = 0; i < subsceneList.Length; ++i)
                 {
-                    q = testWorld.ClientWorlds[0].EntityManager.CreateEntityQuery(
-                        ComponentType.ReadOnly<PreSpawnedGhostIndex>(),
-                        ComponentType.ReadWrite<SomeData>(), ComponentType.ReadOnly<SubSceneGhostComponentHash>());
                     q.SetSharedComponentFilter(new SubSceneGhostComponentHash
                     {
                         Value = subsceneList[i].SubSceneHash
@@ -268,7 +263,6 @@ namespace Unity.NetCode.Tests
                     {
                         Assert.AreEqual(100 + 100 * i + d, data[d].Value);
                     }
-
                     data.Dispose();
                 }
             }
@@ -337,11 +331,11 @@ namespace Unity.NetCode.Tests
 
                 for (int i = 0; i < 16; ++i)
                     testWorld.Tick(frameTime);
-
+                //Check everything is in sync
                 {
-                    //Check everything is in sync
                     var q = testWorld.ServerWorld.EntityManager.CreateEntityQuery(
-                        ComponentType.ReadOnly<PreSpawnedGhostIndex>(), ComponentType.ReadWrite<SomeData>());
+                        ComponentType.ReadOnly<PreSpawnedGhostIndex>(),
+                        ComponentType.ReadWrite<SomeData>());
                     var data = q.ToComponentDataArray<SomeData>(Allocator.Temp);
                     for (int i = 0; i < numObjects; ++i)
                     {
@@ -360,11 +354,11 @@ namespace Unity.NetCode.Tests
                 //Get all the ids and collect the ranges from the ghost components. They are going to be used later
                 //for checking ids re-use
                 var ranges = new Dictionary<ulong, uint2>();
+                using var q = world.EntityManager.CreateEntityQuery(
+                    ComponentType.ReadOnly<GhostInstance>(),
+                    ComponentType.ReadOnly<SubSceneGhostComponentHash>());
                 for (int i = 0; i < subSceneList.Length; ++i)
                 {
-                    var q = world.EntityManager.CreateEntityQuery(
-                        ComponentType.ReadOnly<GhostInstance>(),
-                        ComponentType.ReadOnly<SubSceneGhostComponentHash>());
                     q.SetSharedComponentFilter(new SubSceneGhostComponentHash
                     {
                         Value = subSceneList[i].SubSceneHash
@@ -512,7 +506,7 @@ namespace Unity.NetCode.Tests
                     for (int i = 0; i < 16; ++i)
                         testWorld.Tick(frameTime);
 
-                    using var translations = query.ToComponentDataArray<LocalTransform>(Allocator.TempJob);
+                    var translations = query.ToComponentDataArray<LocalTransform>(Allocator.Temp);
 
                     for (int i = 0; i < translations.Length; ++i)
                         Assert.AreNotEqual(0.0f, translations[i]);

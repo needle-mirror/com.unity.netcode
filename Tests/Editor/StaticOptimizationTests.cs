@@ -78,33 +78,31 @@ namespace Unity.NetCode.Tests
                 SetupBasicTest(testWorld, 16);
 
                 var clientEntityManager = testWorld.ClientWorlds[0].EntityManager;
-                var clientQuery = clientEntityManager.CreateEntityQuery(ComponentType.ReadOnly<GhostOwner>());
-                using (var clientEntities = clientQuery.ToEntityArray(Allocator.TempJob))
+                using var clientQuery = clientEntityManager.CreateEntityQuery(ComponentType.ReadOnly<GhostOwner>());
+                var clientEntities = clientQuery.ToEntityArray(Allocator.Temp);
+                Assert.AreEqual(16, clientEntities.Length);
+
+                var lastSnapshot = new NativeArray<NetworkTick>(clientEntities.Length, Allocator.Temp);
+                for (int i = 0; i < clientEntities.Length; ++i)
                 {
-                    Assert.AreEqual(16, clientEntities.Length);
+                    var clientEnt = clientEntities[i];
+                    // Store the last tick we got for this
+                    var clientSnapshotBuffer = clientEntityManager.GetBuffer<SnapshotDataBuffer>(clientEnt);
+                    var clientSnapshot = clientEntityManager.GetComponentData<SnapshotData>(clientEnt);
+                    lastSnapshot[i] = clientSnapshot.GetLatestTick(clientSnapshotBuffer);
+                }
 
-                    var lastSnapshot = new NativeArray<NetworkTick>(clientEntities.Length, Allocator.Temp);
-                    for (int i = 0; i < clientEntities.Length; ++i)
-                    {
-                        var clientEnt = clientEntities[i];
-                        // Store the last tick we got for this
-                        var clientSnapshotBuffer = clientEntityManager.GetBuffer<SnapshotDataBuffer>(clientEnt);
-                        var clientSnapshot = clientEntityManager.GetComponentData<SnapshotData>(clientEnt);
-                        lastSnapshot[i] = clientSnapshot.GetLatestTick(clientSnapshotBuffer);
-                    }
-
-                    // Run a bit longer
-                    for (int i = 0; i < 16; ++i)
-                        testWorld.Tick(frameTime);
-                    // Verify that we did not get any new snapshot
-                    for (int i = 0; i < clientEntities.Length; ++i)
-                    {
-                        var clientEnt = clientEntities[i];
-                        // Store the last tick we got for this
-                        var clientSnapshotBuffer = clientEntityManager.GetBuffer<SnapshotDataBuffer>(clientEnt);
-                        var clientSnapshot = clientEntityManager.GetComponentData<SnapshotData>(clientEnt);
-                        Assert.AreEqual(lastSnapshot[i], clientSnapshot.GetLatestTick(clientSnapshotBuffer));
-                    }
+                // Run a bit longer
+                for (int i = 0; i < 16; ++i)
+                    testWorld.Tick(frameTime);
+                // Verify that we did not get any new snapshot
+                for (int i = 0; i < clientEntities.Length; ++i)
+                {
+                    var clientEnt = clientEntities[i];
+                    // Store the last tick we got for this
+                    var clientSnapshotBuffer = clientEntityManager.GetBuffer<SnapshotDataBuffer>(clientEnt);
+                    var clientSnapshot = clientEntityManager.GetComponentData<SnapshotData>(clientEnt);
+                    Assert.AreEqual(lastSnapshot[i], clientSnapshot.GetLatestTick(clientSnapshotBuffer));
                 }
             }
         }
@@ -120,33 +118,31 @@ namespace Unity.NetCode.Tests
                 SetupBasicTest(testWorld, 16);
 
                 var clientEntityManager = testWorld.ClientWorlds[0].EntityManager;
-                var clientQuery = clientEntityManager.CreateEntityQuery(ComponentType.ReadOnly<GhostOwner>());
-                using (var clientEntities = clientQuery.ToEntityArray(Allocator.TempJob))
+                using var clientQuery = clientEntityManager.CreateEntityQuery(ComponentType.ReadOnly<GhostOwner>());
+                var clientEntities = clientQuery.ToEntityArray(Allocator.Temp);
+                Assert.AreEqual(16, clientEntities.Length);
+
+                var lastSnapshot = new NativeArray<NetworkTick>(clientEntities.Length, Allocator.Temp);
+                for (int i = 0; i < clientEntities.Length; ++i)
                 {
-                    Assert.AreEqual(16, clientEntities.Length);
+                    var clientEnt = clientEntities[i];
+                    // Store the last tick we got for this
+                    var clientSnapshotBuffer = clientEntityManager.GetBuffer<SnapshotDataBuffer>(clientEnt);
+                    var clientSnapshot = clientEntityManager.GetComponentData<SnapshotData>(clientEnt);
+                    lastSnapshot[i] = clientSnapshot.GetLatestTick(clientSnapshotBuffer);
+                }
 
-                    var lastSnapshot = new NativeArray<NetworkTick>(clientEntities.Length, Allocator.Temp);
-                    for (int i = 0; i < clientEntities.Length; ++i)
-                    {
-                        var clientEnt = clientEntities[i];
-                        // Store the last tick we got for this
-                        var clientSnapshotBuffer = clientEntityManager.GetBuffer<SnapshotDataBuffer>(clientEnt);
-                        var clientSnapshot = clientEntityManager.GetComponentData<SnapshotData>(clientEnt);
-                        lastSnapshot[i] = clientSnapshot.GetLatestTick(clientSnapshotBuffer);
-                    }
-
-                    // Run a bit longer
-                    for (int i = 0; i < 16; ++i)
-                        testWorld.Tick(frameTime);
-                    // Verify that we did not get any new snapshot
-                    for (int i = 0; i < clientEntities.Length; ++i)
-                    {
-                        var clientEnt = clientEntities[i];
-                        // Store the last tick we got for this
-                        var clientSnapshotBuffer = clientEntityManager.GetBuffer<SnapshotDataBuffer>(clientEnt);
-                        var clientSnapshot = clientEntityManager.GetComponentData<SnapshotData>(clientEnt);
-                        Assert.AreEqual(lastSnapshot[i], clientSnapshot.GetLatestTick(clientSnapshotBuffer));
-                    }
+                // Run a bit longer
+                for (int i = 0; i < 16; ++i)
+                    testWorld.Tick(frameTime);
+                // Verify that we did not get any new snapshot
+                for (int i = 0; i < clientEntities.Length; ++i)
+                {
+                    var clientEnt = clientEntities[i];
+                    // Store the last tick we got for this
+                    var clientSnapshotBuffer = clientEntityManager.GetBuffer<SnapshotDataBuffer>(clientEnt);
+                    var clientSnapshot = clientEntityManager.GetComponentData<SnapshotData>(clientEnt);
+                    Assert.AreEqual(lastSnapshot[i], clientSnapshot.GetLatestTick(clientSnapshotBuffer));
                 }
             }
         }
@@ -236,33 +232,29 @@ namespace Unity.NetCode.Tests
                 // Spawn 16 ghosts
                 SetupBasicTest(testWorld, 16);
                 // Set the ghost id for one of them to 1 so it is modified
-                var serverQuery = testWorld.ServerWorld.EntityManager.CreateEntityQuery(ComponentType.ReadOnly<GhostOwner>());
-                using (var serverEntities = serverQuery.ToEntityArray(Allocator.TempJob))
-                {
-                    Assert.AreEqual(16, serverEntities.Length);
-                    testWorld.ServerWorld.EntityManager.SetComponentData(serverEntities[0], new GhostOwner{NetworkId = 1});
-                }
+                using var serverQuery = testWorld.ServerWorld.EntityManager.CreateEntityQuery(ComponentType.ReadOnly<GhostOwner>());
+                var serverEntities = serverQuery.ToEntityArray(Allocator.Temp);
+                Assert.AreEqual(16, serverEntities.Length);
+                testWorld.ServerWorld.EntityManager.SetComponentData(serverEntities[0], new GhostOwner{NetworkId = 1});
 
                 // Get the changes across to the client
                 for (int i = 0; i < 16; ++i)
                     testWorld.Tick(frameTime);
 
                 var clientEntityManager = testWorld.ClientWorlds[0].EntityManager;
-                var clientQuery = clientEntityManager.CreateEntityQuery(ComponentType.ReadOnly<GhostOwner>());
+                using var clientQuery = clientEntityManager.CreateEntityQuery(ComponentType.ReadOnly<GhostOwner>());
                 Entity clientEnt = Entity.Null;
-                using (var clientEntities = clientQuery.ToEntityArray(Allocator.TempJob))
+                var clientEntities = clientQuery.ToEntityArray(Allocator.Temp);
+                Assert.AreEqual(16, clientEntities.Length);
+                for (int i = 0; i < clientEntities.Length; ++i)
                 {
-                    Assert.AreEqual(16, clientEntities.Length);
-                    for (int i = 0; i < clientEntities.Length; ++i)
+                    if (clientEntityManager.GetComponentData<GhostOwner>(clientEntities[i] ).NetworkId == 1)
                     {
-                        if (clientEntityManager.GetComponentData<GhostOwner>(clientEntities[i] ).NetworkId == 1)
-                        {
-                            Assert.AreEqual(Entity.Null, clientEnt);
-                            clientEnt = clientEntities[i];
-                        }
+                        Assert.AreEqual(Entity.Null, clientEnt);
+                        clientEnt = clientEntities[i];
                     }
-                    Assert.AreNotEqual(Entity.Null, clientEnt);
                 }
+                Assert.AreNotEqual(Entity.Null, clientEnt);
 
                 // Store the last tick we got for this
                 var clientSnapshotBuffer = clientEntityManager.GetBuffer<SnapshotDataBuffer>(clientEnt);
@@ -288,13 +280,11 @@ namespace Unity.NetCode.Tests
                 // Spawn 16 ghosts
                 SetupBasicTest(testWorld, 16);
                 // Set the ghost id for one of them to 1 so it is modified
-                var serverQuery = testWorld.ServerWorld.EntityManager.CreateEntityQuery(ComponentType.ReadOnly<GhostOwner>());
+                using var serverQuery = testWorld.ServerWorld.EntityManager.CreateEntityQuery(ComponentType.ReadOnly<GhostOwner>());
                 int ghostId;
-                using (var serverEntities = serverQuery.ToEntityArray(Allocator.TempJob))
-                {
-                    Assert.AreEqual(16, serverEntities.Length);
-                    ghostId = testWorld.ServerWorld.EntityManager.GetComponentData<GhostInstance>(serverEntities[0]).ghostId;
-                }
+                var serverEntities = serverQuery.ToEntityArray(Allocator.Temp);
+                Assert.AreEqual(16, serverEntities.Length);
+                ghostId = testWorld.ServerWorld.EntityManager.GetComponentData<GhostInstance>(serverEntities[0]).ghostId;
                 var con = testWorld.TryGetSingletonEntity<NetworkId>(testWorld.ServerWorld);
                 Assert.AreNotEqual(Entity.Null, con);
                 var connectionId = testWorld.ServerWorld.EntityManager.GetComponentData<NetworkId>(con).Value;
@@ -304,7 +294,7 @@ namespace Unity.NetCode.Tests
                     testWorld.Tick(frameTime);
 
                 var clientEntityManager = testWorld.ClientWorlds[0].EntityManager;
-                var clientQuery = clientEntityManager.CreateEntityQuery(ComponentType.ReadOnly<GhostOwner>());
+                using var clientQuery = clientEntityManager.CreateEntityQuery(ComponentType.ReadOnly<GhostOwner>());
                 var clientEntities = clientQuery.ToComponentDataArray<GhostOwner>(Allocator.Temp);
                 Assert.AreEqual(16, clientEntities.Length);
 

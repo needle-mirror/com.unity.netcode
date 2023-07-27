@@ -22,7 +22,7 @@ namespace Unity.NetCode.PrespawnTests
         private static void CheckPrespawnArePresent(int numObjects, NetCodeTestWorld testWorld)
         {
             //Before going in game there should N prespawned objects
-            var serverGhosts = testWorld.ServerWorld.EntityManager.CreateEntityQuery(new EntityQueryDesc
+            using var serverGhosts = testWorld.ServerWorld.EntityManager.CreateEntityQuery(new EntityQueryDesc
             {
                 All = new [] { ComponentType.ReadOnly(typeof(PreSpawnedGhostIndex))},
                 Options = EntityQueryOptions.IncludeDisabledEntities
@@ -30,7 +30,7 @@ namespace Unity.NetCode.PrespawnTests
             Assert.AreEqual(numObjects, serverGhosts.CalculateEntityCount());
             for (int i = 0; i < testWorld.ClientWorlds.Length; ++i)
             {
-                var clientGhosts = testWorld.ClientWorlds[i].EntityManager.CreateEntityQuery(new EntityQueryDesc
+                using var clientGhosts = testWorld.ClientWorlds[i].EntityManager.CreateEntityQuery(new EntityQueryDesc
                 {
                     All = new [] { ComponentType.ReadOnly(typeof(PreSpawnedGhostIndex))},
                     Options = EntityQueryOptions.IncludeDisabledEntities
@@ -120,9 +120,10 @@ namespace Unity.NetCode.PrespawnTests
 
         void ValidateReceivedSnapshotData(World clientWorld)
         {
-            var query = clientWorld.EntityManager.CreateEntityQuery(ComponentType.ReadOnly<GhostInstance>(), ComponentType.ReadOnly<PreSpawnedGhostIndex>());
+            using var query = clientWorld.EntityManager.CreateEntityQuery(ComponentType.ReadOnly<GhostInstance>(), ComponentType.ReadOnly<PreSpawnedGhostIndex>());
+            using var collectionQuery = clientWorld.EntityManager.CreateEntityQuery(typeof(GhostCollection));
             var entities = query.ToEntityArray(Allocator.Temp);
-            var ghostCollectionEntity = clientWorld.EntityManager.CreateEntityQuery(typeof(GhostCollection)).GetSingletonEntity();
+            var ghostCollectionEntity = collectionQuery.GetSingletonEntity();
             var ghostCollection = clientWorld.EntityManager.GetBuffer<GhostCollectionPrefabSerializer>(ghostCollectionEntity);
             var ghostComponentIndex = clientWorld.EntityManager.GetBuffer<GhostCollectionComponentIndex>(ghostCollectionEntity);
             var ghostSerializers = clientWorld.EntityManager.GetBuffer<GhostComponentSerializer.State>(ghostCollectionEntity);
@@ -197,12 +198,12 @@ namespace Unity.NetCode.PrespawnTests
                 //To Disable the prespawn optimization, just remove the baselines
                 if (!enableFallbackBaseline)
                 {
-                    var query = testWorld.ServerWorld.EntityManager.CreateEntityQuery(typeof(PrespawnGhostBaseline));
+                    using var query = testWorld.ServerWorld.EntityManager.CreateEntityQuery(typeof(PrespawnGhostBaseline));
                     testWorld.ServerWorld.EntityManager.RemoveComponent<PrespawnGhostBaseline>(query);
                     for (int i = 0; i < testWorld.ClientWorlds.Length; ++i)
                     {
-                        query = testWorld.ClientWorlds[i].EntityManager.CreateEntityQuery(typeof(PrespawnGhostBaseline));
-                        testWorld.ClientWorlds[i].EntityManager.RemoveComponent<PrespawnGhostBaseline>(query);
+                        using var clientQuery = testWorld.ClientWorlds[i].EntityManager.CreateEntityQuery(typeof(PrespawnGhostBaseline));
+                        testWorld.ClientWorlds[i].EntityManager.RemoveComponent<PrespawnGhostBaseline>(clientQuery);
                     }
                 }
 

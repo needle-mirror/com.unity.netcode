@@ -204,7 +204,7 @@ namespace Unity.NetCode
 
             builder.Reset();
             builder.WithAll<SubSceneWithGhostClenup>();
-            m_SubSceneQuery = state.EntityManager.CreateEntityQuery(builder);
+            m_SubSceneQuery = state.GetEntityQuery(builder);
 
             m_CompressionModel = StreamCompressionModel.Default;
 

@@ -199,10 +199,8 @@ namespace Unity.NetCode
 
         protected override void OnCreate()
         {
-            base.OnCreate();
-
             // Query to get all the root entities baked before
-            m_NoLongerBakedRootEntities = EntityManager.CreateEntityQuery(new EntityQueryDesc
+            m_NoLongerBakedRootEntities = GetEntityQuery(new EntityQueryDesc
             {
                 None = new []
                 {
@@ -218,7 +216,7 @@ namespace Unity.NetCode
             m_NoLongerBakedRootEntitiesMask = m_NoLongerBakedRootEntities.GetEntityQueryMask();
 
             // Query to get all the root entities baked before
-            m_GhostEntities = EntityManager.CreateEntityQuery(new EntityQueryDesc
+            m_GhostEntities = GetEntityQuery(new EntityQueryDesc
             {
                 All = new []
                 {

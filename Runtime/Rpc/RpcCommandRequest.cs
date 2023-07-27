@@ -89,7 +89,7 @@ namespace Unity.NetCode
         protected override void OnCreate()
         {
             base.OnCreate();
-            m_Query = EntityManager.CreateEntityQuery(ComponentType.ReadOnly<SendRpcCommandRequest>());
+            m_Query = GetEntityQuery(ComponentType.ReadOnly<SendRpcCommandRequest>());
         }
         protected override void OnUpdate()
         {

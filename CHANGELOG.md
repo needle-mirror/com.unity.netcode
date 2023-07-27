@@ -1,6 +1,19 @@
 # Changelog
 
 
+## [1.0.15] - 2023-07-27
+
+### Changed
+
+* Updated com.unity.entities dependency to 1.0.14
+* Use of non required TempJob allocation and use Allocator.Temp instead.
+
+### Fixed
+
+* Runtime EntityQuery leaks and reduce runtime memory pressure due to continuously allocating queries without disposing.
+* Reduced memory usage in Editor tests, by avoiding allocating queries continuously in hot paths.
+
+
 ## [1.0.12] - 2023-06-19
 
 ### Changed
@@ -37,6 +50,8 @@
 
 * exceptions when NetworkRequestListen and/or. NetworkRequestConnect are handled and proper handling of multiple (erroneous) requests presents.
 * A problem with InterpolatedTick, going back and not recovering correctly in presence of large application, either the server or the client, stalls (i.e after loading).
+* `MultiplayerPlayModeWindow > Dump Packet Logs` now works more reliably, now works with NUnit tests, and dump files are named with more context.
+* Fixed bug in `GhostSendSystem` that caused it to not replicate ghosts when enabling packet dumps. `GhostValuesAreSerialized_WithPacketDumpsEnabled` test added.
 
 
 ## [1.0.8] - 2023-04-17

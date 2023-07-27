@@ -816,9 +816,8 @@ namespace Unity.NetCode
             var variants = new NativeArray<ulong>(allComponents.Length, Allocator.Temp);
 
             // TODO - Consider changing the API to pass this as an arg.
-            var collectionDataQuery = entityManager.CreateEntityQuery(new EntityQueryBuilder(Allocator.Temp).WithAll<GhostComponentSerializerCollectionData>());
+            using var collectionDataQuery = entityManager.CreateEntityQuery(new EntityQueryBuilder(Allocator.Temp).WithAll<GhostComponentSerializerCollectionData>());
             var collectionData = collectionDataQuery.GetSingleton<GhostComponentSerializerCollectionData>();
-            collectionDataQuery.Dispose();
 
 #if ENABLE_UNITY_COLLECTIONS_CHECKS
             {
@@ -869,13 +868,12 @@ namespace Unity.NetCode
             FinalizePrefabComponents(config, entityManager, prefab, ghostType, linkedEntitiesArray,
                         allComponents, componentCounts, target, prefabTypes);
 
-            var codePrefabQuery = entityManager.CreateEntityQuery(new EntityQueryBuilder(Allocator.Temp).WithAll<CodeGhostPrefab>());
+            using var codePrefabQuery = entityManager.CreateEntityQuery(new EntityQueryBuilder(Allocator.Temp).WithAll<CodeGhostPrefab>());
             if (!codePrefabQuery.TryGetSingletonEntity<CodeGhostPrefab>(out var codePrefabSingleton))
                 codePrefabSingleton = entityManager.CreateSingletonBuffer<CodeGhostPrefab>();
             var codePrefabs = entityManager.GetBuffer<CodeGhostPrefab>(codePrefabSingleton);
-            codePrefabQuery.Dispose();
 
-            #if NETCODE_DEBUG
+#if NETCODE_DEBUG
             for (int i = 0; i < codePrefabs.Length; ++i)
             {
                 if (entityManager.GetComponentData<GhostType>(codePrefabs[i].entity) == ghostType)

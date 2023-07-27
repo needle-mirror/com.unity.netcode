@@ -82,8 +82,7 @@ namespace Unity.NetCode.Tests
                 // instantiate
 
                 var type = ComponentType.ReadOnly<NetworkId>();
-                var query = scenarioWorld.ServerWorld.EntityManager.CreateEntityQuery(type);
-                var connections = query.ToEntityArray(Allocator.TempJob);
+                var connections = scenarioWorld.ServerWorld.EntityManager.CreateEntityQuery(type).ToEntityArray(Allocator.Temp);
                 Assert.IsTrue(connections.Length == parameters.NumClients);
                 Assert.IsTrue(scenario.GhostPrefabs.Length == parameters.SpawnCount.Length);
 
@@ -128,9 +127,9 @@ namespace Unity.NetCode.Tests
 
                 for (int i = 0; i < scenario.GhostComponentForVerification?.Length; i++)
                 {
-                    var q = scenarioWorld.ServerWorld.EntityManager.CreateEntityQuery(
+                    using var query = scenarioWorld.ServerWorld.EntityManager.CreateEntityQuery(
                         scenario.GhostComponentForVerification[i]);
-                    Assert.IsTrue(parameters.SpawnCount[i] == q.CalculateEntityCount());
+                    Assert.IsTrue(parameters.SpawnCount[i] == query.CalculateEntityCount());
                 }
             }
         }

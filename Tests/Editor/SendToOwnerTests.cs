@@ -24,7 +24,8 @@ namespace Unity.NetCode.Tests
 
         void ChangeSendToOwnerOption(World world)
         {
-            var entity = world.EntityManager.CreateEntityQuery(typeof(GhostCollection)).GetSingletonEntity();
+            using var query = world.EntityManager.CreateEntityQuery(typeof(GhostCollection));
+            var entity = query.GetSingletonEntity();
             var collection = world.EntityManager.GetBuffer<GhostComponentSerializer.State>(entity);
             for (int i = 0; i < collection.Length; ++i)
             {
@@ -85,9 +86,9 @@ namespace Unity.NetCode.Tests
                 //Here I do a trick: I will wait until the CollectionSystem is run and the component collection built.
                 //Then I will change the serializer flags a little to make them behave the way I want.
                 //This is a temporary hack, can be remove whe override per prefab will be available.
-                var queryServer = testWorld.ServerWorld.EntityManager.CreateEntityQuery(ComponentType.ReadOnly<GhostCollection>());
-                var queryClient0 = testWorld.ClientWorlds[0].EntityManager.CreateEntityQuery(ComponentType.ReadOnly<GhostCollection>());
-                var queryClient1 = testWorld.ClientWorlds[1].EntityManager.CreateEntityQuery(ComponentType.ReadOnly<GhostCollection>());
+                using var queryServer = testWorld.ServerWorld.EntityManager.CreateEntityQuery(ComponentType.ReadOnly<GhostCollection>());
+                using var queryClient0 = testWorld.ClientWorlds[0].EntityManager.CreateEntityQuery(ComponentType.ReadOnly<GhostCollection>());
+                using var queryClient1 = testWorld.ClientWorlds[1].EntityManager.CreateEntityQuery(ComponentType.ReadOnly<GhostCollection>());
                 while (true)
                 {
                     testWorld.Tick(1.0f/60f);

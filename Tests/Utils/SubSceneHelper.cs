@@ -183,7 +183,7 @@ namespace Unity.NetCode.Tests
         static public void LoadSubScene(World world, params SubScene[] subScenes)
         {
             if(subScenes.Length == 0)
-                subScenes = Object.FindObjectsOfType<SubScene>();
+                subScenes = Object.FindObjectsByType<SubScene>(FindObjectsSortMode.None);
 
             var sceneEntities = new Entity[subScenes.Length];
             for(int i=0;i<subScenes.Length;++i)

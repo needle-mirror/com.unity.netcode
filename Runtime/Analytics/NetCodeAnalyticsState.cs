@@ -21,7 +21,7 @@ namespace Unity.NetCode.Analytics
 
         public static uint GetUpdateLength(World world)
         {
-            var query = world.EntityManager.CreateEntityQuery(ComponentType.ReadOnly<GhostSendSystemAnalyticsData>());
+            using var query = world.EntityManager.CreateEntityQuery(ComponentType.ReadOnly<GhostSendSystemAnalyticsData>());
             if (query.CalculateEntityCount() != 1)
             {
                 return 0;

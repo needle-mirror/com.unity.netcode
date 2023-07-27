@@ -273,7 +273,7 @@ namespace Unity.NetCode.Tests
 
             RpcWithEntity RecvRpc(World world)
             {
-                var query = world.EntityManager.CreateEntityQuery(ComponentType.ReadOnly<RpcWithEntity>());
+                using var query = world.EntityManager.CreateEntityQuery(ComponentType.ReadOnly<RpcWithEntity>());
                 Assert.AreEqual(1, query.CalculateEntityCount());
                 var rpcReceived = query.GetSingleton<RpcWithEntity>();
                 world.EntityManager.DestroyEntity(query);

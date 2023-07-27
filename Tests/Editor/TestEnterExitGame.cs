@@ -15,7 +15,7 @@ namespace Unity.NetCode.Tests
     {
         private void UnloadSubScene(World world)
         {
-            var subScene = Object.FindObjectOfType<SubScene>();
+            var subScene = Object.FindFirstObjectByType<SubScene>();
             SceneSystem.UnloadScene(world.Unmanaged, subScene.SceneGUID, SceneSystem.UnloadParameters.DestroyMetaEntities);
         }
 

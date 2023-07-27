@@ -274,7 +274,7 @@ namespace Unity.NetCode.Tests
                 var serverEnt = spawnAndSetId(testWorld, ghostGameObject, 1);
                 testWorld.ServerWorld.GetExistingSystemManaged<AutoMarkIrrelevantSystem>().IrrelevantGhosts.Add(1);
 
-                var query = testWorld.ClientWorlds[0].EntityManager.CreateEntityQuery(ComponentType.ReadOnly<GhostOwner>());
+                using var query = testWorld.ClientWorlds[0].EntityManager.CreateEntityQuery(ComponentType.ReadOnly<GhostOwner>());
                 for (int i = 0; i < 16; ++i)
                 {
                     var clientValues = query.ToComponentDataArray<GhostOwner>(Allocator.Temp);
@@ -309,7 +309,7 @@ namespace Unity.NetCode.Tests
                 for (int i = 0; i < 16; ++i)
                     testWorld.Tick(frameTime);
 
-                var query = testWorld.ClientWorlds[0].EntityManager.CreateEntityQuery(ComponentType.ReadOnly<GhostOwner>());
+                using var query = testWorld.ClientWorlds[0].EntityManager.CreateEntityQuery(ComponentType.ReadOnly<GhostOwner>());
                 var clientValues = query.ToComponentDataArray<GhostOwner>(Allocator.Temp);
                 Assert.AreEqual(129, clientValues.Length);
                 bool foundOne = false;
@@ -368,7 +368,7 @@ namespace Unity.NetCode.Tests
                 for (int i = 0; i < 16; ++i)
                     testWorld.Tick(frameTime);
 
-                var query = testWorld.ClientWorlds[0].EntityManager.CreateEntityQuery(ComponentType.ReadOnly<GhostOwner>());
+                using var query = testWorld.ClientWorlds[0].EntityManager.CreateEntityQuery(ComponentType.ReadOnly<GhostOwner>());
 
                 var checkHashSet = new HashSet<int>();
                 var clientValues = query.ToComponentDataArray<GhostOwner>(Allocator.Temp);
@@ -414,7 +414,7 @@ namespace Unity.NetCode.Tests
                 for (int i = 0; i < 16; ++i)
                     testWorld.Tick(frameTime);
 
-                var query = testWorld.ClientWorlds[0].EntityManager.CreateEntityQuery(ComponentType.ReadOnly<GhostOwner>());
+                using var query = testWorld.ClientWorlds[0].EntityManager.CreateEntityQuery(ComponentType.ReadOnly<GhostOwner>());
 
                 var checkHashSet = new HashSet<int>();
                 var clientValues = query.ToComponentDataArray<GhostOwner>(Allocator.Temp);
@@ -463,7 +463,7 @@ namespace Unity.NetCode.Tests
                 for (int i = 0; i < 16; ++i)
                     testWorld.Tick(frameTime);
 
-                var query = testWorld.ClientWorlds[0].EntityManager.CreateEntityQuery(ComponentType.ReadOnly<GhostOwner>());
+                using var query = testWorld.ClientWorlds[0].EntityManager.CreateEntityQuery(ComponentType.ReadOnly<GhostOwner>());
 
                 var checkHashSet = new HashSet<int>();
                 var clientValues = query.ToComponentDataArray<GhostOwner>(Allocator.Temp);
@@ -511,7 +511,7 @@ namespace Unity.NetCode.Tests
                 for (int i = 0; i < 16; ++i)
                     testWorld.Tick(frameTime);
 
-                var query = testWorld.ClientWorlds[0].EntityManager.CreateEntityQuery(ComponentType.ReadOnly<GhostOwner>());
+                using var query = testWorld.ClientWorlds[0].EntityManager.CreateEntityQuery(ComponentType.ReadOnly<GhostOwner>());
                 var clientValues = query.ToComponentDataArray<GhostOwner>(Allocator.Temp);
                 // Check that the ghost does not exist
                 Assert.AreEqual(128, clientValues.Length);

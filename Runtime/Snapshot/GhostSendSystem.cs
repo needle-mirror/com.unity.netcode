@@ -359,7 +359,7 @@ namespace Unity.NetCode
             };
             ghostSpawnQuery = state.GetEntityQuery(filterSpawn);
             ghostDespawnQuery = state.GetEntityQuery(filterDespawn);
-            prespawnSharedComponents = state.EntityManager.CreateEntityQuery(ComponentType.ReadOnly<SubSceneGhostComponentHash>());
+            prespawnSharedComponents = state.GetEntityQuery(ComponentType.ReadOnly<SubSceneGhostComponentHash>());
 
             m_FreeGhostIds = new NativeQueue<int>(Allocator.Persistent);
             m_AllocatedGhostIds = new NativeArray<int>(2, Allocator.Persistent);

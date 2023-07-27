@@ -155,8 +155,8 @@ namespace Unity.NetCode.Tests
     {
         void CheckComponent(World w, ComponentType testType, int expectedCount)
         {
-            var query = w.EntityManager.CreateEntityQuery(testType);
-            using (var ghosts = query.ToEntityArray(Allocator.TempJob))
+            using var query = w.EntityManager.CreateEntityQuery(testType);
+            using (var ghosts = query.ToEntityArray(Allocator.Temp))
             {
                 var compCount = ghosts.Length;
                 Assert.AreEqual(expectedCount, compCount);

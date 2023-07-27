@@ -37,10 +37,8 @@ namespace Unity.NetCode.PrespawnTests
 
         protected override void OnUpdate()
         {
-            var ghostComponents = _ghostComponentQuery.ToComponentDataArray<GhostInstance>(Allocator.TempJob);
-            var preSpawnedGhostIds = _preSpawnedGhostIdsQuery.ToComponentDataArray<PreSpawnedGhostIndex>(Allocator.TempJob);
-            using (ghostComponents)
-            using (preSpawnedGhostIds)
+            var ghostComponents = _ghostComponentQuery.ToComponentDataArray<GhostInstance>(Allocator.Temp);
+            var preSpawnedGhostIds = _preSpawnedGhostIdsQuery.ToComponentDataArray<PreSpawnedGhostIndex>(Allocator.Temp);
             {
                 Matches = 0;
                 var idList = new List<int>();
@@ -81,6 +79,7 @@ namespace Unity.NetCode.PrespawnTests
 
         void CheckAllPrefabsInWorld(World world)
         {
+            //TODO: dispose these
             Assert.IsFalse(world.EntityManager.CreateEntityQuery(new EntityQueryDesc
                 {
                     All = new [] {ComponentType.ReadOnly<PreSpawnedGhostIndex>()},
@@ -228,18 +227,21 @@ namespace Unity.NetCode.PrespawnTests
                 testWorld.SetInGame(0);
                 // Delete one prespawned entity on the server
                 var deletedId = 0;
+                var q = testWorld.ServerWorld.EntityManager.CreateEntityQuery(typeof(GhostInstance), ComponentType.ReadOnly<PreSpawnedGhostIndex>());
+                var prespawnedQuery = testWorld.ServerWorld.EntityManager.CreateEntityQuery(typeof(GhostInstance), ComponentType.ReadOnly<PreSpawnedGhostIndex>());
                 for (int i = 0; i < 16; ++i)
                 {
                     testWorld.Tick(1.0f/60.0f);
-                    var prespawnedGhost = testWorld.ServerWorld.EntityManager.CreateEntityQuery(typeof(GhostInstance), ComponentType.ReadOnly<PreSpawnedGhostIndex>()).ToComponentDataArray<GhostInstance>(Allocator.TempJob);
+                    var prespawnedGhost = q.ToComponentDataArray<GhostInstance>(Allocator.Temp);
                     // Filter for GhostComoponent and grab it after prespawn processing is done (ghost id valid)
                     if (prespawnedGhost.Length == 0 || (prespawnedGhost.Length > 0 && prespawnedGhost[0].ghostId == 0))
                     {
                         prespawnedGhost.Dispose();
                         continue;
                     }
-                    var prespawned = testWorld.ServerWorld.EntityManager.CreateEntityQuery(typeof(GhostInstance), ComponentType.ReadOnly<PreSpawnedGhostIndex>()).ToEntityArray(Allocator.TempJob);
+
                     deletedId = prespawnedGhost[0].ghostId;
+                    var prespawned = prespawnedQuery.ToEntityArray(Allocator.Temp);
                     testWorld.ServerWorld.EntityManager.DestroyEntity(prespawned[0]);
                     prespawned.Dispose();
                     prespawnedGhost.Dispose();
@@ -306,12 +308,12 @@ namespace Unity.NetCode.PrespawnTests
                 testWorld.GoInGame();
                 // If servers spawns something before connection is in game it will be registered as a prespawned entity
                 // Wait until prespawned ghosts have been initialized
+                var query = testWorld.ServerWorld.EntityManager.CreateEntityQuery(typeof(PreSpawnedGhostIndex),
+                    typeof(GhostInstance));
                 for (int i = 0; i < 16; ++i)
                 {
                     testWorld.Tick(1.0f/60f);
-                    var prespawns = testWorld.ServerWorld.EntityManager
-                        .CreateEntityQuery(typeof(PreSpawnedGhostIndex), typeof(GhostInstance))
-                        .CalculateEntityCount();
+                    var prespawns = query.CalculateEntityCount();
                     if (prespawns > 0)
                         break;
                 }
@@ -321,10 +323,11 @@ namespace Unity.NetCode.PrespawnTests
                 var ghostCount = testWorld.ServerWorld.EntityManager.CreateEntityQuery(typeof(GhostInstance), typeof(PreSpawnedGhostIndex)).CalculateEntityCount();
                 // Wait until it's spawned on client
                 int currentCount = 0;
+                var clientQuery = testWorld.ClientWorlds[0].EntityManager.CreateEntityQuery(typeof(GhostInstance), typeof(PreSpawnedGhostIndex));
                 for (int i = 0; i < 64 && currentCount != ghostCount; ++i)
                 {
                     testWorld.Tick(1.0f/60f);
-                    currentCount = testWorld.ClientWorlds[0].EntityManager.CreateEntityQuery(typeof(GhostInstance), typeof(PreSpawnedGhostIndex)).CalculateEntityCount();
+                    currentCount = clientQuery.CalculateEntityCount();
                 }
                 Assert.That(ghostCount == currentCount, "Client did not spawn runtime entity (clientCount=" + currentCount + " serverCount=" + ghostCount + ")");
 
@@ -344,14 +347,14 @@ namespace Unity.NetCode.PrespawnTests
                 int clientGhostCount = 0;
                 int expectedServerGhostCount = VerifyGhostIds.GhostsPerScene + 2; //Also the ghost list
                 int expectedClientGhostCount = VerifyGhostIds.GhostsPerScene; //only the prespawn should remain
+                var serverGhosts = testWorld.ServerWorld.EntityManager.CreateEntityQuery(typeof(GhostInstance));
+                var clientGhosts = testWorld.ClientWorlds[0].EntityManager.CreateEntityQuery(typeof(GhostInstance));
                 for (int i = 0; i < 16; ++i)
                 {
                     testWorld.Tick(1.0f/60f);
                     // clientGhostCount will be 6 for a bit as it creates an initial archetype ghost and later a delayed one when on the right tick
-                    serverGhostCount = testWorld.ServerWorld.EntityManager.CreateEntityQuery(typeof(GhostInstance))
-                        .CalculateEntityCount();
-                    clientGhostCount = testWorld.ClientWorlds[0].EntityManager.CreateEntityQuery(typeof(GhostInstance))
-                        .CalculateEntityCount();
+                    serverGhostCount = serverGhosts.CalculateEntityCount();
+                    clientGhostCount = clientGhosts.CalculateEntityCount();
                     //Debug.Log("serverCount=" + serverGhostCount + " clientCount=" + clientGhostCount);
                     //DumpGhosts(serverWorld, clientWorld);
                     if (serverGhostCount == expectedServerGhostCount && clientGhostCount == 0)

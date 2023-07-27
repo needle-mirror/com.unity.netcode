@@ -166,7 +166,8 @@ namespace Unity.NetCode
             if (DriverStore.DriversCount != 1)
                 throw new InvalidOperationException("Too many NetworkDriver created for the client. Only one NetworkDriver instance should exist");
             var builder = new EntityQueryBuilder(Allocator.Temp).WithAll<NetworkSnapshotAck>();
-            if (!entityManager.CreateEntityQuery(builder).IsEmpty)
+            using var query = entityManager.CreateEntityQuery(builder);
+            if (!query.IsEmpty)
                 throw new InvalidOperationException("Connection to server already initiated, only one connection allowed at a time.");
 #endif
 #if UNITY_EDITOR || !UNITY_CLIENT

@@ -102,13 +102,12 @@ namespace Unity.NetCode
 
             driverMap.Add(ticket, default);
 
-            var driverSingletonQuery = sourceWorld.EntityManager.CreateEntityQuery(ComponentType.ReadWrite<NetworkStreamDriver>());
+            using var driverSingletonQuery = sourceWorld.EntityManager.CreateEntityQuery(ComponentType.ReadWrite<NetworkStreamDriver>());
             ref var driverSingleton = ref driverSingletonQuery.GetSingletonRW<NetworkStreamDriver>().ValueRW;
             driverSingletonQuery.CompleteDependency();
-            driverSingletonQuery.Dispose();
             Store(driverSingleton.StoreMigrationState(), ticket);
 
-            var filter = sourceWorld.EntityManager.CreateEntityQuery(typeof(NetworkStreamConnection));
+            using var filter = sourceWorld.EntityManager.CreateEntityQuery(typeof(NetworkStreamConnection));
             var backupWorld = new World(sourceWorld.Name, sourceWorld.Flags);
 
             backupWorld.EntityManager.MoveEntitiesFrom(sourceWorld.EntityManager, filter);

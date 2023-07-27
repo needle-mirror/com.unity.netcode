@@ -973,9 +973,8 @@ namespace Unity.NetCode.Editor
         {
             entityManager.CompleteAllTrackedJobs();
             using var activeConnectionsQuery = entityManager.CreateEntityQuery(ComponentType.ReadOnly<NetworkId>(), ComponentType.Exclude<NetworkStreamRequestDisconnect>());
-
-            using var entities = activeConnectionsQuery.ToEntityArray(Allocator.Temp);
-            using var networkIds = activeConnectionsQuery.ToComponentDataArray<NetworkId>(Allocator.Temp);
+            var entities = activeConnectionsQuery.ToEntityArray(Allocator.Temp);
+            var networkIds = activeConnectionsQuery.ToComponentDataArray<NetworkId>(Allocator.Temp);
             for (var i = 0; i < entities.Length; i++)
             {
                 if (networkIds[i].Value == networkId.Value)
@@ -990,8 +989,7 @@ namespace Unity.NetCode.Editor
         {
             entityManager.CompleteAllTrackedJobs();
             using var activeConnectionsQuery = entityManager.CreateEntityQuery(ComponentType.ReadOnly<NetworkId>(), ComponentType.Exclude<NetworkStreamRequestDisconnect>());
-
-            using var entities = activeConnectionsQuery.ToEntityArray(Allocator.Temp);
+            var entities = activeConnectionsQuery.ToEntityArray(Allocator.Temp);
             for (var i = 0; i < entities.Length; i++)
             {
                 // TODO - Convert to batch when API supports 1 NetworkStreamRequestDisconnect for n entities.

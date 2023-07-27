@@ -277,11 +277,10 @@ namespace Unity.NetCode.Tests
                 //Assign the owner on the respective clients. Client3 is  passive (no entity)
                 for(int i=0;i<2;++i)
                 {
-                    var query = testWorld.ClientWorlds[i].EntityManager.CreateEntityQuery(typeof(GhostOwner));
+                    using var query = testWorld.ClientWorlds[i].EntityManager.CreateEntityQuery(typeof(GhostOwner));
                     var entities = query.ToEntityArray(Allocator.Temp);
                     var owners = query.ToComponentDataArray<GhostOwner>(Allocator.Temp);
-                    var connQuery = testWorld.ClientWorlds[i].EntityManager.CreateEntityQuery(
-                        typeof(NetworkId));
+                    using var connQuery = testWorld.ClientWorlds[i].EntityManager.CreateEntityQuery(typeof(NetworkId));
                     var conn = connQuery.GetSingletonEntity();
                     var networkId = connQuery.GetSingleton<NetworkId>();
                     for(int e=0;e<entities.Length;++e)
@@ -299,7 +298,7 @@ namespace Unity.NetCode.Tests
 
                 for (int i = 0; i < 3; ++i)
                 {
-                    var query = testWorld.ClientWorlds[i].EntityManager.CreateEntityQuery(typeof(GhostOwner));
+                    using var query = testWorld.ClientWorlds[i].EntityManager.CreateEntityQuery(typeof(GhostOwner));
                     var entities = query.ToEntityArray(Allocator.Temp);
                     for (int e = 0; e < entities.Length; ++e)
                     {
@@ -346,8 +345,9 @@ namespace Unity.NetCode.Tests
             var net1 = testWorld.TryGetSingletonEntity<NetworkId>(testWorld.ClientWorlds[clientOwner]);
             var netId1 = testWorld.ClientWorlds[clientOwner].EntityManager.GetComponentData<NetworkId>(net1);
 
-            var entities = testWorld.ServerWorld.EntityManager.CreateEntityQuery(ComponentType.ReadOnly<NetworkId>())
-                .ToEntityArray(Allocator.Temp);
+            //TODO: dispose this
+            using var entitiesQuery = testWorld.ServerWorld.EntityManager.CreateEntityQuery(ComponentType.ReadOnly<NetworkId>());
+            var entities = entitiesQuery.ToEntityArray(Allocator.Temp);
             testWorld.ServerWorld.EntityManager.SetComponentData(serverEnt, new GhostOwner {NetworkId = netId1.Value});
             testWorld.ServerWorld.EntityManager.SetComponentData(serverEnt, new GhostGen_IntStruct {IntValue = 1000});
             for (int i = 0; i < entities.Length; ++i)

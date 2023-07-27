@@ -98,7 +98,7 @@ namespace Unity.NetCode.Tests
                 for (int i = 0; i < 16; ++i)
                     testWorld.Tick(16f/1000f);
 
-                var query = testWorld.ClientWorlds[0].EntityManager.CreateEntityQuery(ComponentType.ReadOnly<NetworkStreamConnection>());
+                using var query = testWorld.ClientWorlds[0].EntityManager.CreateEntityQuery(ComponentType.ReadOnly<NetworkStreamConnection>());
                 Assert.AreEqual(1, query.CalculateEntityCount());
             }
         }
@@ -126,7 +126,7 @@ namespace Unity.NetCode.Tests
 
                 //Different NetCodeVersion
                 var clientVersion = testWorld.ClientWorlds[0].EntityManager.CreateEntity(typeof(NetworkProtocolVersion));
-                var query = testWorld.ClientWorlds[0].EntityManager.CreateEntityQuery(ComponentType.ReadOnly<NetworkStreamConnection>());
+                using var query = testWorld.ClientWorlds[0].EntityManager.CreateEntityQuery(ComponentType.ReadOnly<NetworkStreamConnection>());
                 testWorld.ClientWorlds[0].EntityManager.SetComponentData(clientVersion, new NetworkProtocolVersion
                 {
                     NetCodeVersion = 2,
@@ -233,7 +233,7 @@ namespace Unity.NetCode.Tests
                     testWorld.Tick(16f/1000f);
 
                 // Verify client connection is disconnected
-                var query = testWorld.ClientWorlds[0].EntityManager.CreateEntityQuery(ComponentType.ReadOnly<NetworkStreamConnection>());
+                using var query = testWorld.ClientWorlds[0].EntityManager.CreateEntityQuery(ComponentType.ReadOnly<NetworkStreamConnection>());
                 Assert.AreEqual(0, query.CalculateEntityCount());
             }
         }
@@ -268,7 +268,7 @@ namespace Unity.NetCode.Tests
                     testWorld.Tick(dt);
 
                 // Verify client connection is disconnected
-                var query = testWorld.ClientWorlds[0].EntityManager.CreateEntityQuery(ComponentType.ReadOnly<NetworkStreamConnection>());
+                using var query = testWorld.ClientWorlds[0].EntityManager.CreateEntityQuery(ComponentType.ReadOnly<NetworkStreamConnection>());
                 Assert.AreEqual(0, query.CalculateEntityCount());
             }
         }
@@ -282,7 +282,7 @@ namespace Unity.NetCode.Tests
             LogAssert.Expect(LogType.Error, "RPC List (for above 'bad protocol version' error): " + rpcs.Length);
             for (int i = 0; i < rpcs.Length; ++i)
                 LogAssert.Expect(LogType.Error, new Regex("Unity.NetCode"));
-            var collection = world.EntityManager.CreateEntityQuery(ComponentType.ReadOnly<GhostCollection>());
+            using var collection = world.EntityManager.CreateEntityQuery(ComponentType.ReadOnly<GhostCollection>());
             var serializers = world.EntityManager.GetBuffer<GhostComponentSerializer.State>(collection.ToEntityArray(Allocator.Temp)[0]);
             LogAssert.Expect(LogType.Error, "Component serializer data (for above 'bad protocol version' error): " + serializers.Length);
             for (int i = 0; i < serializers.Length; ++i)

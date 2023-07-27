@@ -276,9 +276,7 @@ namespace Unity.NetCode.Tests
             //Even if we would tag the connection synchronously (in the middle of the frame)
             //if the client system is schedule to execute AFTER the RpcCommandRequestSystem (or the RpcSystem) or the system that
             //change the connection state, clients can still queue commands even though the connection will be closed.
-            var query = EntityManager.CreateEntityQuery(ComponentType.ReadOnly<NetworkId>());
-            RequireForUpdate(query);
-
+            RequireForUpdate<NetworkId>();
             worldId = NetCodeTestWorld.CalculateWorldId(World);
         }
 

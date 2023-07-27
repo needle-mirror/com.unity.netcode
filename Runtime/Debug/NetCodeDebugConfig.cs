@@ -42,8 +42,8 @@ namespace Unity.NetCode
         [BurstCompile]
         public void OnCreate(ref SystemState state)
         {
-            m_ConnectionsQueryWithout = state.EntityManager.CreateEntityQuery(new EntityQueryBuilder(Allocator.Temp).WithAll<NetworkStreamConnection>().WithNone<EnablePacketLogging>());
-            m_ConnectionsQueryWith = state.EntityManager.CreateEntityQuery(new EntityQueryBuilder(Allocator.Temp).WithAll<NetworkStreamConnection>().WithAll<EnablePacketLogging>());
+            m_ConnectionsQueryWithout = state.GetEntityQuery(new EntityQueryBuilder(Allocator.Temp).WithAll<NetworkStreamConnection>().WithNone<EnablePacketLogging>());
+            m_ConnectionsQueryWith = state.GetEntityQuery(new EntityQueryBuilder(Allocator.Temp).WithAll<NetworkStreamConnection>().WithAll<EnablePacketLogging>());
         }
 
         public void OnUpdate(ref SystemState state)
@@ -77,13 +77,6 @@ namespace Unity.NetCode
             {
                 state.EntityManager.RemoveComponent<EnablePacketLogging>(m_ConnectionsQueryWith);
             }
-        }
-
-        [BurstCompile]
-        public void OnDestroy(ref SystemState state)
-        {
-            m_ConnectionsQueryWithout.Dispose();
-            m_ConnectionsQueryWith.Dispose();
         }
     }
 #endif

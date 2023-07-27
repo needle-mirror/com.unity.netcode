@@ -140,7 +140,7 @@ namespace Unity.NetCode
             state.RequireForUpdate<GhostDistanceData>();
             var builder = new EntityQueryBuilder(Allocator.Temp)
                 .WithAll<GhostDistancePartitionShared, LocalTransform, GhostInstance>();
-            m_DistancePartitionedEntitiesQuery = state.WorldUnmanaged.EntityManager.CreateEntityQuery(builder);
+            m_DistancePartitionedEntitiesQuery = state.GetEntityQuery(builder);
         }
 
         [BurstCompile]

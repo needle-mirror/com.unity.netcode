@@ -350,7 +350,7 @@ namespace Unity.NetCode.Tests
                 for (int i = 0; i < 16; ++i)
                     testWorld.Tick(deltaTime);
 
-                var query = testWorld.ClientWorlds[0].EntityManager.CreateEntityQuery(typeof(GhostOwner));
+                using var query = testWorld.ClientWorlds[0].EntityManager.CreateEntityQuery(typeof(GhostOwner));
                 var clientEnts = query.ToEntityArray(Allocator.Temp);
                 Assert.AreEqual(2, clientEnts.Length);
                 Assert.AreNotEqual(Entity.Null, clientEnts[0]);
@@ -358,9 +358,7 @@ namespace Unity.NetCode.Tests
                 if (testWorld.ClientWorlds[0].EntityManager.GetComponentData<GhostInstance>(clientEnts[0]).ghostId != testWorld.ServerWorld.EntityManager.GetComponentData<GhostInstance>(serverEnt).ghostId)
                 {
                     // swap 0 and 1
-                    var temp = clientEnts[0];
-                    clientEnts[0] = clientEnts[1];
-                    clientEnts[1] = temp;
+                    (clientEnts[0], clientEnts[1]) = (clientEnts[1], clientEnts[0]);
                 }
 
                 testWorld.ServerWorld.EntityManager.AddComponent<CommandDataTestsTickInput>(serverEnt);

@@ -182,13 +182,13 @@ namespace Unity.NetCode
 
             entityQueryBuilder.Reset();
             entityQueryBuilder.WithAll<NetworkStreamInGame>();
-            m_InGameQuery = state.EntityManager.CreateEntityQuery(entityQueryBuilder);
+            m_InGameQuery = state.GetEntityQuery(entityQueryBuilder);
             entityQueryBuilder.Reset();
             entityQueryBuilder.WithAll<NetworkId>();
-            m_AllConnectionsQuery = state.EntityManager.CreateEntityQuery(entityQueryBuilder);
+            m_AllConnectionsQuery = state.GetEntityQuery(entityQueryBuilder);
             entityQueryBuilder.Reset();
             entityQueryBuilder.WithAll<Prefab, GhostType>().WithNone<GhostPrefabRuntimeStrip>();
-            m_RegisterGhostTypesQuery = state.EntityManager.CreateEntityQuery(entityQueryBuilder);
+            m_RegisterGhostTypesQuery = state.GetEntityQuery(entityQueryBuilder);
 
             if (!SystemAPI.TryGetSingletonEntity<CodeGhostPrefab>(out m_CodePrefabSingleton))
                 m_CodePrefabSingleton = state.EntityManager.CreateSingletonBuffer<CodeGhostPrefab>();
@@ -207,8 +207,6 @@ namespace Unity.NetCode
                 m_AllComponentTypes.Dispose();
             if (m_StableHashToComponentTypeIndex.IsCreated)
                 m_StableHashToComponentTypeIndex.Dispose();
-            m_InGameQuery.Dispose();
-            m_AllConnectionsQuery.Dispose();
             state.EntityManager.DestroyEntity(m_CollectionSingleton);
 #if UNITY_EDITOR || NETCODE_DEBUG
             m_PredictionErrorNames.Dispose();

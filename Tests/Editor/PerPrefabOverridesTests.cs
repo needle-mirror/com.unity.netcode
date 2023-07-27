@@ -57,7 +57,8 @@ namespace Unity.NetCode.Tests
         //Check that the component prefab serializer and indexes are initialized as expected
         void CheckCollection(World world, int serializerIndex, int entityIndex)
         {
-            var collection = world.EntityManager.CreateEntityQuery(typeof(GhostCollection)).GetSingletonEntity();
+            using var collectionQuery = world.EntityManager.CreateEntityQuery(typeof(GhostCollection));
+            var collection = collectionQuery.GetSingletonEntity();
             var ghostSerializerCollection = world.EntityManager.GetBuffer<GhostCollectionPrefabSerializer>(collection);
             var ghostComponentIndex = world.EntityManager.GetBuffer<GhostCollectionComponentIndex>(collection);
             Assert.AreEqual(4, ghostSerializerCollection.Length);

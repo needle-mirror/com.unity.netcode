@@ -30,18 +30,16 @@ namespace Unity.NetCode.Tests
         void VerifyGhostTypes(World w)
         {
             var type = ComponentType.ReadOnly<GhostTypeIndex>();
-            var query = w.EntityManager.CreateEntityQuery(type);
+            using var query = w.EntityManager.CreateEntityQuery(type);
             var count = new NativeArray<int>(2, Allocator.Temp);
-            using (var ghosts = query.ToEntityArray(Allocator.TempJob))
+            var ghosts = query.ToEntityArray(Allocator.Temp);
+            for (int i = 0; i < ghosts.Length; ++i)
             {
-                for (int i = 0; i < ghosts.Length; ++i)
-                {
-                    var typeIndex = w.EntityManager.GetComponentData<GhostTypeIndex>(ghosts[i]);
-                    count[typeIndex.Value] = count[typeIndex.Value] + 1;
-                }
-                Assert.AreEqual(2, count[0]);
-                Assert.AreEqual(2, count[1]);
+                var typeIndex = w.EntityManager.GetComponentData<GhostTypeIndex>(ghosts[i]);
+                count[typeIndex.Value] = count[typeIndex.Value] + 1;
             }
+            Assert.AreEqual(2, count[0]);
+            Assert.AreEqual(2, count[1]);
         }
         [Test]
         public void GhostsWithSameArchetypeAreDifferent()

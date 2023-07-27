@@ -298,8 +298,7 @@ namespace Unity.NetCode.Tests
                 Assert.IsTrue(testWorld.Connect(m_DeltaTime, 64));
                 testWorld.GoInGame();
 
-                using var serverConnectionQuery =
-                    testWorld.ServerWorld.EntityManager.CreateEntityQuery(ComponentType.ReadOnly<NetworkId>());
+                using var serverConnectionQuery = testWorld.ServerWorld.EntityManager.CreateEntityQuery(ComponentType.ReadOnly<NetworkId>());
                 var serverConnectionEntities = serverConnectionQuery.ToEntityArray(Allocator.Temp);
                 Assert.AreEqual(2, serverConnectionEntities.Length);
                 var serverConnectionEntToClient1 = serverConnectionEntities[0];
@@ -315,8 +314,8 @@ namespace Unity.NetCode.Tests
                 testWorld.ServerWorld.EntityManager.SetComponentData(serverEntPlayer2, new GhostOwner {NetworkId = netId2});
 
                 // Wait for client spawn
-                EntityQuery clientQuery1 = testWorld.ClientWorlds[0].EntityManager.CreateEntityQuery(ComponentType.ReadOnly<InputRemoteTestComponentData>());
-                EntityQuery clientQuery2 = testWorld.ClientWorlds[1].EntityManager.CreateEntityQuery(ComponentType.ReadOnly<InputRemoteTestComponentData>());
+                using EntityQuery clientQuery1 = testWorld.ClientWorlds[0].EntityManager.CreateEntityQuery(ComponentType.ReadOnly<InputRemoteTestComponentData>());
+                using EntityQuery clientQuery2 = testWorld.ClientWorlds[1].EntityManager.CreateEntityQuery(ComponentType.ReadOnly<InputRemoteTestComponentData>());
                 for (int i = 0; i < 16; ++i)
                 {
                     if (clientQuery1.CalculateEntityCount() == 2 && clientQuery2.CalculateEntityCount() == 2) break;
@@ -602,8 +601,8 @@ namespace Unity.NetCode.Tests
 
         void CheckComponent(World w, ComponentType testType, int expectedCount)
         {
-            var query = w.EntityManager.CreateEntityQuery(testType);
-            using (var ghosts = query.ToEntityArray(Allocator.TempJob))
+            using var query = w.EntityManager.CreateEntityQuery(testType);
+            using (var ghosts = query.ToEntityArray(Allocator.Temp))
             {
                 var compCount = ghosts.Length;
                 Assert.AreEqual(expectedCount, compCount);

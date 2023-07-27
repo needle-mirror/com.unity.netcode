@@ -27,7 +27,7 @@ namespace Unity.NetCode
         }
         #endif
 
-        struct GhostStatsToSend : IDisposable
+        struct GhostStatsToSend
         {
             readonly public World managedWorld;
             public EntityQuery singletonQuery;
@@ -36,10 +36,6 @@ namespace Unity.NetCode
             {
                 managedWorld = world;
                 singletonQuery = query;
-            }
-            public void Dispose()
-            {
-                singletonQuery.Dispose();
             }
         }
         private DebugWebSocket m_Socket;
@@ -82,7 +78,6 @@ namespace Unity.NetCode
 
                     if (!collectionDataQry.HasSingleton<GhostStatsCollectionData>())
                     {
-                        collectionDataQry.Dispose();
                         continue;
                     }
                     SetStatIndex(collectionDataQry, m_StatsCollections.Count);

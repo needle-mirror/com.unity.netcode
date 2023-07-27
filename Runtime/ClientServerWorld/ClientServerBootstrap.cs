@@ -560,7 +560,7 @@ namespace Unity.NetCode
                     var world = World.All[i];
                     if (world.IsClient())
                     {
-                        var driver = world.EntityManager.CreateEntityQuery(ComponentType.ReadOnly<NetworkStreamDriver>());
+                        using var driver = world.EntityManager.CreateEntityQuery(ComponentType.ReadOnly<NetworkStreamDriver>());
                         UnityEngine.Assertions.Assert.IsFalse(driver.IsEmpty);
                         var driverData = driver.ToComponentDataArray<NetworkStreamDriver>(Allocator.Temp);
                         UnityEngine.Assertions.Assert.IsTrue(driverData.Length == 1);
