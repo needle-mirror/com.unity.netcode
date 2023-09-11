@@ -183,10 +183,25 @@ namespace Unity.NetCode.LowLevel.Unsafe
             parameters.InitialBufferCapacity *= 64;
             parameters.OverflowBufferSize *= 32;
 
+            var dateTime = DateTime.Now.ToString("yyyy-MM-dd--HH-mm-ss");
+            var fileName = $"{logFolder}/NetcodePackets-New-{worldName}-{connectionId}-{dateTime}.log";
+
+            var next = 0;
+            while (File.Exists(fileName))
+            {
+                fileName = $"{logFolder}/NetcodePackets-New-{worldName}-{connectionId}-{dateTime}-{next}.log";
+                next++;
+
+                if (next >= 100)
+                {
+                    break;
+                }
+            }
+
             m_NetDebugPacketLoggerHandle = new LoggerConfig()
                 .OutputTemplate("{Message}")
                 .MinimumLevel.Set(LogLevel.Verbose)
-                .WriteTo.File($"{logFolder}/NetcodePacket-{worldName}-{connectionId}.log")
+                .WriteTo.File(fileName)
                 .CreateLogger(parameters).Handle;
         }
 

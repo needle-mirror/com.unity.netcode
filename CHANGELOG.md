@@ -1,11 +1,30 @@
 # Changelog
 
 
+## [1.0.17] - 2023-09-11
+
+### Added
+
+* defining ENABLE_UNITY_RPC_REGISTRATION_LOGGING will now log information about registered RPCs during netcode startup
+
+### Changed
+
+* NetcodePacket debug log filenames changed to include date/time and version information
+
+### Fixed
+
+* addressed a case where it was possible for an exception to be thrown on the server if an RPC was queued for a then dropped connection.
+* "AssetDatabase.RegisterCustomDependency are restricted during importing" exception thrown by the NetCodeClientSettings, NetCodeClientServerSettings, NetCodeServerSettings in their OnDisable method, when using 2023.2 or newer.
+
+
 ## [1.0.15] - 2023-07-27
 
 ### Changed
 
 * Updated com.unity.entities dependency to 1.0.14
+
+### Removed
+
 * Use of non required TempJob allocation and use Allocator.Temp instead.
 
 ### Fixed

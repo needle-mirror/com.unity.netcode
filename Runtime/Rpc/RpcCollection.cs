@@ -17,7 +17,7 @@ namespace Unity.NetCode
         {
             public ulong TypeHash;
             public PortableFunctionPointer<RpcExecutor.ExecuteDelegate> Execute;
-#if ENABLE_UNITY_COLLECTIONS_CHECKS
+#if ENABLE_UNITY_COLLECTIONS_CHECKS || UNITY_DOTS_DEBUG
             public ComponentType RpcType;
 #endif
             public int CompareTo(RpcData other)
@@ -169,6 +169,14 @@ namespace Unity.NetCode
             for (int i = 0; i < m_RpcData.Length; ++i)
             {
                 m_RpcTypeHashToIndex.Add(m_RpcData[i].TypeHash, i);
+
+#if ENABLE_UNITY_RPC_REGISTRATION_LOGGING
+#if UNITY_DOTS_DEBUG
+                UnityEngine.Debug.Log(String.Format("NetCode RPC Method hash 0x{0:X} index {1} type {2}", m_RpcData[i].TypeHash, i, m_RpcData[i].RpcType));
+#else
+                UnityEngine.Debug.Log(String.Format("NetCode RPC Method hash {0} index {1}", m_RpcData[i].TypeHash, i));
+#endif
+#endif
             }
 
             ulong hash = m_RpcData[0].TypeHash;

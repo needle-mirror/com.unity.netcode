@@ -127,7 +127,7 @@ namespace Unity.NetCode.Tests
         }
 
         [Test]
-        public void Rpc_SendingBeforeGettingNetworkId_Throws()
+        public void Rpc_SendingBeforeGettingNetworkId_LogWarning()
         {
             using (var testWorld = new NetCodeTestWorld())
             {
@@ -145,7 +145,7 @@ namespace Unity.NetCode.Tests
                 // Connect and make sure the connection could be established
                 Assert.IsTrue(testWorld.Connect(frameTime, 4));
 
-                LogAssert.Expect(LogType.Exception, new Regex("InvalidOperationException: Cannot send RPC with no remote connection."));
+                LogAssert.Expect(LogType.Warning, new Regex("Cannot send RPC with no remote connection."));
                 for (int i = 0; i < 33; ++i)
                     testWorld.Tick(1f / 60f);
 
