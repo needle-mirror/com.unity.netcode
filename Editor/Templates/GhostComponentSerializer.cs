@@ -9,7 +9,6 @@
 
 using System;
 using System.Diagnostics;
-using AOT;
 using Unity.Burst;
 using Unity.NetCode.LowLevel.Unsafe;
 using Unity.Collections.LowLevel.Unsafe;
@@ -46,7 +45,8 @@ namespace __GHOST_NAMESPACE__
                     SerializationStrategyIndex = -1,
                     SerializesEnabledBit = __GHOST_SERIALIZES_ENABLED_BIT__,
 #if UNITY_EDITOR || NETCODE_DEBUG
-                    ProfilerMarker = new Unity.Profiling.ProfilerMarker("__GHOST_COMPONENT_TYPE__")
+                    ProfilerMarker = new Unity.Profiling.ProfilerMarker("__GHOST_COMPONENT_TYPE__"),
+                    VariantTypeFullNameHash = TypeHash.FNV1A64("__GHOST_VARIANT_TYPE__")
 #endif
                 };
 
@@ -256,7 +256,7 @@ namespace __GHOST_NAMESPACE__
     #endif
         }
         [BurstCompile(DisableDirectCall = true)]
-        [MonoPInvokeCallback(typeof(GhostComponentSerializer.PostSerializeBufferDelegate))]
+        [AOT.MonoPInvokeCallback(typeof(GhostComponentSerializer.PostSerializeBufferDelegate))]
         public static void PostSerializeBuffer(IntPtr snapshotData, int snapshotOffset, int snapshotStride, int maskOffsetInBits, int count, IntPtr baselines, ref DataStreamWriter writer, ref StreamCompressionModel compressionModel, IntPtr entityStartBit, IntPtr snapshotDynamicDataPtr, IntPtr dynamicSizePerEntity, int dynamicSnapshotMaxOffset)
         {
     #if COMPONENT_HAS_GHOST_FIELDS
@@ -273,7 +273,7 @@ namespace __GHOST_NAMESPACE__
     #endif
         }
         [BurstCompile(DisableDirectCall = true)]
-        [MonoPInvokeCallback(typeof(GhostComponentSerializer.SerializeBufferDelegate))]
+        [AOT.MonoPInvokeCallback(typeof(GhostComponentSerializer.SerializeBufferDelegate))]
         public static void SerializeBuffer(IntPtr stateData,
             IntPtr snapshotData, int snapshotOffset, int snapshotStride, int maskOffsetInBits,
             IntPtr componentData, IntPtr componentDataLen, int count, IntPtr baselines,
@@ -353,7 +353,7 @@ namespace __GHOST_NAMESPACE__
     #endif
         }
         [BurstCompile(DisableDirectCall = true)]
-        [MonoPInvokeCallback(typeof(GhostComponentSerializer.PostSerializeDelegate))]
+        [AOT.MonoPInvokeCallback(typeof(GhostComponentSerializer.PostSerializeDelegate))]
         public static void PostSerialize(IntPtr snapshotData, int snapshotOffset, int snapshotStride, int maskOffsetInBits, int count, IntPtr baselines, ref DataStreamWriter writer, ref StreamCompressionModel compressionModel, IntPtr entityStartBit)
         {
     #if COMPONENT_HAS_GHOST_FIELDS
@@ -374,7 +374,7 @@ namespace __GHOST_NAMESPACE__
     #endif
         }
         [BurstCompile(DisableDirectCall = true)]
-        [MonoPInvokeCallback(typeof(GhostComponentSerializer.SerializeDelegate))]
+        [AOT.MonoPInvokeCallback(typeof(GhostComponentSerializer.SerializeDelegate))]
         public static void Serialize(IntPtr stateData,
             IntPtr snapshotData, int snapshotOffset, int snapshotStride, int maskOffsetInBits,
             IntPtr componentData, int componentStride, int count, IntPtr baselines,
@@ -408,7 +408,7 @@ namespace __GHOST_NAMESPACE__
     #endif
         }
         [BurstCompile(DisableDirectCall = true)]
-        [MonoPInvokeCallback(typeof(GhostComponentSerializer.SerializeChildDelegate))]
+        [AOT.MonoPInvokeCallback(typeof(GhostComponentSerializer.SerializeChildDelegate))]
         public static void SerializeChild(IntPtr stateData,
             IntPtr snapshotData, int snapshotOffset, int snapshotStride, int maskOffsetInBits,
             IntPtr componentData, int count, IntPtr baselines,
@@ -452,7 +452,7 @@ namespace __GHOST_NAMESPACE__
 #endif
         }
         [BurstCompile(DisableDirectCall = true)]
-        [MonoPInvokeCallback(typeof(GhostComponentSerializer.CopyToFromSnapshotDelegate))]
+        [AOT.MonoPInvokeCallback(typeof(GhostComponentSerializer.CopyToFromSnapshotDelegate))]
         public static void CopyToSnapshot(IntPtr stateData, IntPtr snapshotData, int snapshotOffset, int snapshotStride, IntPtr componentData, int componentStride, int count)
         {
 #if COMPONENT_HAS_GHOST_FIELDS
@@ -466,7 +466,7 @@ namespace __GHOST_NAMESPACE__
 #endif
         }
         [BurstCompile(DisableDirectCall = true)]
-        [MonoPInvokeCallback(typeof(GhostComponentSerializer.CopyToFromSnapshotDelegate))]
+        [AOT.MonoPInvokeCallback(typeof(GhostComponentSerializer.CopyToFromSnapshotDelegate))]
         public static void CopyFromSnapshot(IntPtr stateData, IntPtr snapshotData, int snapshotOffset, int snapshotStride, IntPtr componentData, int componentStride, int count)
         {
 #if COMPONENT_HAS_GHOST_FIELDS
@@ -518,7 +518,7 @@ namespace __GHOST_NAMESPACE__
 
 
         [BurstCompile(DisableDirectCall = true)]
-        [MonoPInvokeCallback(typeof(GhostComponentSerializer.RestoreFromBackupDelegate))]
+        [AOT.MonoPInvokeCallback(typeof(GhostComponentSerializer.RestoreFromBackupDelegate))]
         public static void RestoreFromBackup(IntPtr componentData, IntPtr backupData)
         {
 #if COMPONENT_HAS_GHOST_FIELDS
@@ -530,7 +530,7 @@ namespace __GHOST_NAMESPACE__
         }
 
         [BurstCompile(DisableDirectCall = true)]
-        [MonoPInvokeCallback(typeof(GhostComponentSerializer.PredictDeltaDelegate))]
+        [AOT.MonoPInvokeCallback(typeof(GhostComponentSerializer.PredictDeltaDelegate))]
         public static void PredictDelta(IntPtr snapshotData, IntPtr baseline1Data, IntPtr baseline2Data, ref GhostDeltaPredictor predictor)
         {
 #if COMPONENT_HAS_GHOST_FIELDS
@@ -568,7 +568,7 @@ namespace __GHOST_NAMESPACE__
 #endif
         }
         [BurstCompile(DisableDirectCall = true)]
-        [MonoPInvokeCallback(typeof(GhostComponentSerializer.DeserializeDelegate))]
+        [AOT.MonoPInvokeCallback(typeof(GhostComponentSerializer.DeserializeDelegate))]
         public static void Deserialize(IntPtr snapshotData, IntPtr baselineData, ref DataStreamReader reader, ref StreamCompressionModel compressionModel, IntPtr changeMaskData, int startOffset)
         {
 #if COMPONENT_HAS_GHOST_FIELDS
@@ -581,7 +581,7 @@ namespace __GHOST_NAMESPACE__
         }
         #if UNITY_EDITOR || NETCODE_DEBUG
         [BurstCompile(DisableDirectCall = true)]
-        [MonoPInvokeCallback(typeof(GhostComponentSerializer.ReportPredictionErrorsDelegate))]
+        [AOT.MonoPInvokeCallback(typeof(GhostComponentSerializer.ReportPredictionErrorsDelegate))]
         public static void ReportPredictionErrors(IntPtr componentData, IntPtr backupData, IntPtr errorsList, int errorsCount)
         {
 #if COMPONENT_HAS_GHOST_FIELDS

@@ -1079,7 +1079,7 @@ namespace Unity.NetCode.GeneratorTests
                 ((AssignmentExpressionSyntax) e).Left.ToString() == "SendMask") as AssignmentExpressionSyntax;
             Assert.That(componentTypeAssignment, Is.Not.Null);
             Assert.AreEqual(componentTypeAssignment!.Right.ToString(),
-                "GhostComponentSerializer.SendMask.Interpolated|GhostComponentSerializer.SendMask.Predicted");
+                "GhostSendType.AllClients");
 
             // OwnerSendType = SendToOwnerType.All
             componentTypeAssignment = initBlockWalker.Intializer.Expressions.FirstOrDefault(e =>
@@ -1147,21 +1147,21 @@ namespace Unity.NetCode.GeneratorTests
 
         [Test]
         [TestCase(GhostPrefabType.All, GhostSendType.AllClients,
-            ExpectedResult =
-                "GhostComponentSerializer.SendMask.Interpolated|GhostComponentSerializer.SendMask.Predicted")]
+            ExpectedResult = "GhostSendType.AllClients")]
         [TestCase(GhostPrefabType.All, GhostSendType.OnlyPredictedClients,
-            ExpectedResult = "GhostComponentSerializer.SendMask.Predicted")]
+            ExpectedResult = "GhostSendType.OnlyPredictedClients")]
         [TestCase(GhostPrefabType.All, GhostSendType.OnlyInterpolatedClients,
-            ExpectedResult = "GhostComponentSerializer.SendMask.Interpolated")]
+            ExpectedResult = "GhostSendType.OnlyInterpolatedClients")]
         [TestCase(GhostPrefabType.PredictedClient, GhostSendType.OnlyPredictedClients,
-            ExpectedResult = "GhostComponentSerializer.SendMask.Predicted")]
+            ExpectedResult = "GhostSendType.OnlyPredictedClients")]
         [TestCase(GhostPrefabType.PredictedClient, GhostSendType.OnlyInterpolatedClients,
-            ExpectedResult = "GhostComponentSerializer.SendMask.Predicted")]
+            ExpectedResult = "GhostSendType.OnlyPredictedClients")]
         [TestCase(GhostPrefabType.InterpolatedClient, GhostSendType.OnlyPredictedClients,
-            ExpectedResult = "GhostComponentSerializer.SendMask.Interpolated")]
+            ExpectedResult = "GhostSendType.OnlyInterpolatedClients")]
         [TestCase(GhostPrefabType.InterpolatedClient, GhostSendType.OnlyInterpolatedClients,
-            ExpectedResult = "GhostComponentSerializer.SendMask.Interpolated")]
-        [TestCase(GhostPrefabType.Server, GhostSendType.AllClients, ExpectedResult = "GhostComponentSerializer.SendMask.None")]
+            ExpectedResult = "GhostSendType.OnlyInterpolatedClients")]
+        [TestCase(GhostPrefabType.Server, GhostSendType.AllClients,
+            ExpectedResult = "GhostSendType.DontSend")]
         public string SourceGenerator_SendType_IsSetCorrectly(GhostPrefabType prefabType, GhostSendType sendType)
         {
             var testData = $@"
@@ -1399,7 +1399,7 @@ namespace Unity.NetCode.GeneratorTests
             tree.GetCompilationUnitRoot().Accept(walker);
             Assert.AreEqual(1, walker.Receiver.Candidates.Count);
 
-            // Should get input buffer struct (IInputBufferData etc) and the command data (ICommandDataSerializer etc) generated from that
+            // Should get input buffer struct (InputBufferData etc) and the command data (ICommandDataSerializer etc) generated from that
             // and the registration system with the empty variant registration data
             var results = GeneratorTestHelpers.RunGenerators(tree);
             Assert.AreEqual(3, results.GeneratedSources.Length, "Num generated files does not match");
@@ -1407,7 +1407,7 @@ namespace Unity.NetCode.GeneratorTests
             var commandSourceData = results.GeneratedSources[1].SyntaxTree;
 
             var inputBufferSyntax = bufferSourceData.GetRoot().DescendantNodes().OfType<StructDeclarationSyntax>()
-                .FirstOrDefault(node => node.Identifier.ValueText == "PlayerInputInputBufferData");
+                .FirstOrDefault(node => node.Identifier.ValueText == "PlayerInputEventHelper");
             Assert.IsNotNull(inputBufferSyntax);
             var commandSyntax = commandSourceData.GetRoot().DescendantNodes().OfType<StructDeclarationSyntax>()
                 .FirstOrDefault(node => node.Identifier.ValueText == "PlayerInputInputBufferDataSerializer");
@@ -1461,7 +1461,7 @@ namespace Unity.NetCode.GeneratorTests
             var commandSourceData = results.GeneratedSources[1].SyntaxTree;
 
             var inputBufferSyntax = bufferSourceData.GetRoot().DescendantNodes().OfType<StructDeclarationSyntax>()
-                .FirstOrDefault(node => node.Identifier.ValueText == "ParentClass1_ParentClass2_PlayerInputInputBufferData");
+                .FirstOrDefault(node => node.Identifier.ValueText == "ParentClass1_ParentClass2_PlayerInputEventHelper");
             Assert.IsNotNull(inputBufferSyntax);
             var commandSyntax = commandSourceData.GetRoot().DescendantNodes().OfType<StructDeclarationSyntax>()
                 .FirstOrDefault(node => node.Identifier.ValueText == "ParentClass1_ParentClass2_PlayerInputInputBufferDataSerializer");
@@ -1515,7 +1515,7 @@ namespace Unity.NetCode.GeneratorTests
             var componentSourceData = results.GeneratedSources[2].SyntaxTree;
             var registrationSourceData = results.GeneratedSources[3].SyntaxTree;
             var inputBufferSyntax = bufferSourceData.GetRoot().DescendantNodes().OfType<StructDeclarationSyntax>()
-                .FirstOrDefault(node => node.Identifier.ValueText == "PlayerInputInputBufferData");
+                .FirstOrDefault(node => node.Identifier.ValueText == "PlayerInputEventHelper");
             Assert.IsNotNull(inputBufferSyntax);
 
             var commandSyntax = commandSourceData.GetRoot().DescendantNodes().OfType<StructDeclarationSyntax>()
@@ -1545,7 +1545,7 @@ namespace Unity.NetCode.GeneratorTests
             // in the ghost snapshots for remote players
             sourceText = componentSyntax.GetText();
             Assert.AreEqual(1, sourceText.Lines.Where((line => line.ToString().Contains("PrefabType = GhostPrefabType.All"))).Count());
-            Assert.AreEqual(1, sourceText.Lines.Where((line => line.ToString().Contains("SendMask = GhostComponentSerializer.SendMask.Interpolated|GhostComponentSerializer.SendMask.Predicted"))).Count());
+            Assert.AreEqual(1, sourceText.Lines.Where((line => line.ToString().Contains("SendMask = GhostSendType.AllClients"))).Count());
             Assert.AreEqual(1, sourceText.Lines.Where((line => line.ToString().Contains("SendToOwner = SendToOwnerType.SendToNonOwner"))).Count());
 
             var maskBits = componentSyntax.DescendantNodes().OfType<FieldDeclarationSyntax>()

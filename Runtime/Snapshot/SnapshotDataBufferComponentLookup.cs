@@ -290,6 +290,7 @@ namespace Unity.NetCode.LowLevel
     /// </summary>
     [WorldSystemFilter(WorldSystemFilterFlags.ClientSimulation)]
     [CreateAfter(typeof(GhostCollectionSystem))]
+    [CreateBefore(typeof(GhostReceiveSystem))]
     internal partial struct SnapshotLookupCacheSystem : ISystem
     {
         /// <summary>

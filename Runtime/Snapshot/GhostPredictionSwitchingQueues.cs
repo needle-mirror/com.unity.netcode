@@ -35,6 +35,14 @@ namespace Unity.NetCode
         public float TransitionDurationSeconds;
     }
 
+#if UNITY_EDITOR
+    internal struct PredictionSwitchingAnalyticsData : IComponentData
+    {
+        public long NumTimesSwitchedToPredicted;
+        public long NumTimesSwitchedToInterpolated;
+    }
+#endif
+
     /// <summary>System that applies the prediction switching on the queued entities (via <see cref="GhostPredictionSwitchingQueues"/>).</summary>
     [BurstCompile]
     [WorldSystemFilter(WorldSystemFilterFlags.ClientSimulation)]
@@ -47,6 +55,9 @@ namespace Unity.NetCode
 
         public void OnCreate(ref SystemState state)
         {
+#if UNITY_EDITOR
+            SetupAnalyticsSingleton(state.EntityManager);
+#endif
             m_ConvertToInterpolatedQueue = new NativeQueue<ConvertPredictionEntry>(Allocator.Persistent);
             m_ConvertToPredictedQueue = new NativeQueue<ConvertPredictionEntry>(Allocator.Persistent);
 
@@ -66,11 +77,22 @@ namespace Unity.NetCode
             m_ConvertToInterpolatedQueue.Dispose();
         }
 
+#if UNITY_EDITOR
+        static void SetupAnalyticsSingleton(EntityManager entityManager)
+        {
+            entityManager.CreateSingleton<PredictionSwitchingAnalyticsData>();
+        }
+#endif
+
         [BurstCompile]
         public void OnUpdate(ref SystemState state)
         {
             if (m_ConvertToPredictedQueue.Count + m_ConvertToInterpolatedQueue.Count > 0)
             {
+#if UNITY_EDITOR
+                UpdateAnalyticsSwitchCount();
+#endif
+
                 var netDebug = SystemAPI.GetSingleton<NetDebug>();
                 var ghostUpdateVersion = SystemAPI.GetSingleton<GhostUpdateVersion>();
                 var prefabs = SystemAPI.GetSingletonBuffer<GhostCollectionPrefab>().ToNativeArray(Allocator.Temp);
@@ -104,6 +126,15 @@ namespace Unity.NetCode
 #endif
             }
         }
+
+#if UNITY_EDITOR
+        void UpdateAnalyticsSwitchCount()
+        {
+            ref var analyticsData = ref SystemAPI.GetSingletonRW<PredictionSwitchingAnalyticsData>().ValueRW;
+            analyticsData.NumTimesSwitchedToPredicted += m_ConvertToPredictedQueue.Count;
+            analyticsData.NumTimesSwitchedToInterpolated += m_ConvertToInterpolatedQueue.Count;
+        }
+#endif
 
         /// <summary>
         /// Convert an interpolated ghost to a predicted ghost. The ghost must support both interpolated and predicted mode,

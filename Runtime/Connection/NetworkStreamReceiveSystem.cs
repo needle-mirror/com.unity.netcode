@@ -265,7 +265,6 @@ namespace Unity.NetCode
         ComponentLookup<ConnectionState> m_ConnectionStateFromEntity;
         ComponentLookup<GhostInstance> m_GhostComponentFromEntity;
         ComponentLookup<NetworkId> m_NetworkIdFromEntity;
-        ComponentLookup<ClientServerTickRate> m_ClientServerTickRateFromEntity;
         ComponentLookup<NetworkStreamRequestDisconnect> m_RequestDisconnectFromEntity;
         ComponentLookup<NetworkStreamInGame> m_InGameFromEntity;
         BufferLookup<OutgoingRpcDataStreamBuffer> m_OutgoingRpcBufferFromEntity;
@@ -289,7 +288,6 @@ namespace Unity.NetCode
             m_ConnectionStateFromEntity = state.GetComponentLookup<ConnectionState>(false);
             m_GhostComponentFromEntity = state.GetComponentLookup<GhostInstance>(true);
             m_NetworkIdFromEntity = state.GetComponentLookup<NetworkId>(true);
-            m_ClientServerTickRateFromEntity = state.GetComponentLookup<ClientServerTickRate>();
             m_RequestDisconnectFromEntity = state.GetComponentLookup<NetworkStreamRequestDisconnect>();
             m_InGameFromEntity = state.GetComponentLookup<NetworkStreamInGame>();
 
@@ -410,9 +408,7 @@ namespace Unity.NetCode
             if (driverListening)
             {
                 m_GhostComponentFromEntity.Update(ref state);
-
                 // Schedule accept job
-                SystemAPI.TryGetSingleton<ClientServerTickRate>(out var tickRate);
                 var acceptJob = new ConnectionAcceptJob
                 {
                     driverStore = DriverStore,
@@ -421,39 +417,32 @@ namespace Unity.NetCode
                     freeNetworkIds = m_FreeNetworkIds,
                     rpcQueue = m_RpcQueue,
                     ghostFromEntity = m_GhostComponentFromEntity,
-                    tickRate = tickRate,
                     protocolVersion = SystemAPI.GetSingleton<NetworkProtocolVersion>(),
                     netDebug = netDebug,
                     debugPrefix = debugPrefix
                 };
-                acceptJob.tickRate.ResolveDefaults();
+                SystemAPI.TryGetSingleton<ClientServerTickRate>(out var tickRate);
+                tickRate.ResolveDefaults();
+                acceptJob.tickRate = tickRate;
                 k_Scheduling.Begin();
                 state.Dependency = acceptJob.Schedule(state.Dependency);
                 k_Scheduling.End();
             }
             else
             {
-                if (!state.WorldUnmanaged.IsServer() && !SystemAPI.HasSingleton<ClientServerTickRate>())
-                {
-                    var newEntity = state.EntityManager.CreateEntity();
-                    var tickRate = new ClientServerTickRate();
-                    tickRate.ResolveDefaults();
-                    state.EntityManager.AddComponentData(newEntity, tickRate);
-                }
                 if (!m_RefreshTickRateQuery.IsEmptyIgnoreFilter)
                 {
-                    m_ClientServerTickRateFromEntity.Update(ref state);
-                    var refreshJob = new RefreshClientServerTickRate
+                    if (!SystemAPI.TryGetSingleton<ClientServerTickRate>(out var tickRate))
+                        state.EntityManager.CreateSingleton(tickRate);
+                    tickRate.ResolveDefaults();
+                    var requests = m_RefreshTickRateQuery.ToComponentDataArray<ClientServerTickRateRefreshRequest>(Allocator.Temp);
+                    foreach (var req in requests)
                     {
-                        commandBuffer = commandBuffer,
-                        netDebug = netDebug,
-                        debugPrefix = debugPrefix,
-                        tickRateEntity = SystemAPI.GetSingletonEntity<ClientServerTickRate>(),
-                        dataFromEntity = m_ClientServerTickRateFromEntity
-                    };
-                    k_Scheduling.Begin();
-                    state.Dependency = refreshJob.ScheduleByRef(state.Dependency);
-                    k_Scheduling.End();
+                        req.ApplyTo(ref tickRate);
+                        netDebug.DebugLog($"Using {debugPrefix} SimulationTickRate={tickRate.SimulationTickRate} NetworkTickRate={tickRate.NetworkTickRate} MaxSimulationStepsPerFrame={tickRate.MaxSimulationStepsPerFrame} TargetFrameRateMode={tickRate.TargetFrameRateMode} PredictedPhysicsPerTick={tickRate.PredictedFixedStepSimulationTickRatio}");
+                    }
+                    SystemAPI.SetSingleton(tickRate);
+                    state.EntityManager.DestroyEntity(m_RefreshTickRateQuery);
                 }
                 m_FreeNetworkIds.Clear();
             }
@@ -567,34 +556,12 @@ namespace Unity.NetCode
                             netTickRate = tickRate.NetworkTickRate,
                             simMaxSteps = tickRate.MaxSimulationStepsPerFrame,
                             simMaxStepLength = tickRate.MaxSimulationStepBatchSize,
-                            simTickRate = tickRate.SimulationTickRate
+                            simTickRate = tickRate.SimulationTickRate,
+                            fixStepTickRatio = (int)tickRate.PredictedFixedStepSimulationTickRatio
                         });
                         netDebug.DebugLog(FixedString.Format("{0} Accepted new connection {1} NetworkId={2}", debugPrefix, connection.Value.ToFixedString(), nid));
                     }
                 }
-            }
-        }
-
-        [BurstCompile]
-        [StructLayout(LayoutKind.Sequential)]
-        partial struct RefreshClientServerTickRate : IJobEntity
-        {
-            public EntityCommandBuffer commandBuffer;
-            public NetDebug netDebug;
-            public FixedString128Bytes debugPrefix;
-            public Entity tickRateEntity;
-            public ComponentLookup<ClientServerTickRate> dataFromEntity;
-            public void Execute(Entity entity, in ClientServerTickRateRefreshRequest req)
-            {
-                var tickRate = dataFromEntity[tickRateEntity];
-                tickRate.MaxSimulationStepsPerFrame = req.MaxSimulationStepsPerFrame;
-                tickRate.NetworkTickRate = req.NetworkTickRate;
-                tickRate.SimulationTickRate = req.SimulationTickRate;
-                tickRate.MaxSimulationStepBatchSize = req.MaxSimulationStepBatchSize;
-                dataFromEntity[tickRateEntity] = tickRate;
-                var dbgMsg = FixedString.Format("Using SimulationTickRate={0} NetworkTickRate={1} MaxSimulationStepsPerFrame={2} TargetFrameRateMode={3}", tickRate.SimulationTickRate, tickRate.NetworkTickRate, tickRate.MaxSimulationStepsPerFrame, (int)tickRate.TargetFrameRateMode);
-                netDebug.DebugLog(FixedString.Format("{0} {1}", debugPrefix, dbgMsg));
-                commandBuffer.RemoveComponent<ClientServerTickRateRefreshRequest>(entity);
             }
         }
 

@@ -63,6 +63,7 @@ namespace Unity.NetCode
             [BurstCompile]
             internal void CopyComponentToSnapshot(ArchetypeChunk chunk, int ent, in GhostComponentSerializer.State serializer)
             {
+                if(!serializer.HasGhostFields) return;
                 var compSize = serializer.ComponentSize;
                 var compData = (byte*) chunk.GetDynamicComponentDataArrayReinterpret<byte>(ref typeHandle, compSize).GetUnsafeReadOnlyPtr();
                 CheckValidSnapshotOffset(serializer.SnapshotSize);

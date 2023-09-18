@@ -91,6 +91,10 @@ namespace Unity.NetCode
         BadProtocolVersion,
         /// <summary>NetCode-specific: Denotes that we've detected a hash miss-match in an RPC, or an unknown RPC. Implies that this is an incompatible server/client pair.</summary>
         InvalidRpc,
+        /// <inheritdoc cref="DisconnectReason.AuthenticationFailure"/>
+        AuthenticationFailure,
+        /// <inheritdoc cref="DisconnectReason.ProtocolError"/>
+        ProtocolError,
     }
 
     /// <summary>

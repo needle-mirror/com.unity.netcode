@@ -1,5 +1,4 @@
 using System;
-using AOT;
 using Unity.Burst;
 using Unity.Collections.LowLevel.Unsafe;
 using Unity.Entities;
@@ -72,7 +71,7 @@ namespace Unity.NetCode
                 new PortableFunctionPointer<GhostPredictionSmoothing.SmoothingActionDelegate>(SmoothingAction);
 
         [BurstCompile(DisableDirectCall = true)]
-        [MonoPInvokeCallback(typeof(GhostPredictionSmoothing.SmoothingActionDelegate))]
+        [AOT.MonoPInvokeCallback(typeof(GhostPredictionSmoothing.SmoothingActionDelegate))]
         private static void SmoothingAction(IntPtr currentData, IntPtr previousData, IntPtr usrData)
         {
             ref var trans = ref UnsafeUtility.AsRef<LocalTransform>((void*)currentData);

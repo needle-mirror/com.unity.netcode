@@ -769,16 +769,16 @@ namespace Unity.NetCode
                 ref var compState = ref ctx.ghostSerializerCollection.ElementAt(serializerIndex);
 
                 var sendMask = componentInfo.SendMaskOverride >= 0
-                    ? (GhostComponentSerializer.SendMask) componentInfo.SendMaskOverride
+                    ? (GhostSendType) componentInfo.SendMaskOverride
                     : compState.SendMask;
 
                 if (sendMask == 0)
                     continue;
                 var supportedModes = ghostMeta.SupportedModes;
-                if ((sendMask & GhostComponentSerializer.SendMask.Interpolated) == 0 &&
+                if ((sendMask & GhostSendType.OnlyInterpolatedClients) == 0 &&
                     supportedModes == GhostPrefabBlobMetaData.GhostMode.Interpolated)
                     continue;
-                if ((sendMask & GhostComponentSerializer.SendMask.Predicted) == 0 &&
+                if ((sendMask & GhostSendType.OnlyPredictedClients) == 0 &&
                     supportedModes == GhostPrefabBlobMetaData.GhostMode.Predicted)
                     continue;
 
@@ -817,8 +817,7 @@ namespace Unity.NetCode
                     PredictionErrorBaseIndex = m_currentPredictionErrorCount
 #endif
                 });
-                if (sendMask != (GhostComponentSerializer.SendMask.Interpolated |
-                        GhostComponentSerializer.SendMask.Predicted))
+                if (sendMask != GhostSendType.AllClients)
                     ghostType.PartialComponents = 1;
 
                 if (compState.SendToOwner != SendToOwnerType.All)

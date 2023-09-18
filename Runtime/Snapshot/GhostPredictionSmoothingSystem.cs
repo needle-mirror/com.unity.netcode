@@ -277,7 +277,7 @@ namespace Unity.NetCode
             [ReadOnly] public NativeParallelHashMap<ComponentType, GhostPredictionSmoothing.SmoothingActionState> smoothingActions;
             public NetworkTick tick;
 
-            const GhostComponentSerializer.SendMask requiredSendMask = GhostComponentSerializer.SendMask.Predicted;
+            const GhostSendType requiredSendMask = GhostSendType.OnlyPredictedClients;
 
             public unsafe void Execute(in ArchetypeChunk chunk, int unfilteredChunkIndex, bool useEnabledMask, in v128 chunkEnabledMask)
             {

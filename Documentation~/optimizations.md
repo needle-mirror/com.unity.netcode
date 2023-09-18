@@ -147,7 +147,7 @@ How? Via another user-definable component: `GhostConnectionPosition` can store t
 In Asteroids, this component is added to the connection entity when the (steroids-specific) `RpcLevelLoaded` RPC is invoked:
 ```c#
     [BurstCompile(DisableDirectCall = true)]
-    [MonoPInvokeCallback(typeof(RpcExecutor.ExecuteDelegate))]
+    [AOT.MonoPInvokeCallback(typeof(RpcExecutor.ExecuteDelegate))]
     private static void InvokeExecute(ref RpcExecutor.Parameters parameters)
     {
         var rpcData = default(RpcLevelLoaded);

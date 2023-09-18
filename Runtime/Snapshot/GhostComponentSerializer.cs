@@ -29,21 +29,26 @@ namespace Unity.NetCode.LowLevel.Unsafe
         /// <summary>
         /// A bitflag used to mark to which ghost type a component should be serialized to.
         /// </summary>
+        /// <remarks>Duplicates <see cref="GhostSendType"/>, which should be used instead.</remarks>
         [Flags]
+        [Obsolete("Due to changes to the source generator, this enum is now both redundant and deprecated, as it duplicates `GhostSendType`. Unfortunately, not UnityUpgradable to GhostSendType as enum names have changed. (RemovedAfter Entities 1.0)", false)]
         public enum SendMask
         {
             /// <summary>
             /// The component should be not replicated.
             /// </summary>
+            /// <remarks>Maps to <see cref="GhostSendType.DontSend"/>.</remarks>
             None = 0,
             /// <summary>
             /// The component is replicated only to interpolated ghosts.
             /// </summary>
+            /// <remarks>Maps to <see cref="GhostSendType.OnlyInterpolatedClients"/>.</remarks>
             Interpolated = 1,
             /// <summary>
             /// The component is replicated only to predicted ghosts.
             /// </summary>
-            Predicted = 2
+            /// <remarks>Maps to <see cref="GhostSendType.OnlyPredictedClients"/>.</remarks>
+            Predicted = 2,
         }
 
         /// <summary>
@@ -163,7 +168,7 @@ namespace Unity.NetCode.LowLevel.Unsafe
             /// Indicates for which type of ghosts the component should be replicated. The mask is set by code-gen base on the
             /// <see cref="PrefabType"/> constraint.
             /// </summary>
-            public SendMask SendMask;
+            public GhostSendType SendMask;
             /// <summary>
             /// Store the <see cref="GhostComponentAttribute.OwnerSendType"/> if the attribute is present on the component. Otherwise is set
             /// to <see cref="SendToOwnerType.All"/>.
@@ -223,7 +228,7 @@ namespace Unity.NetCode.LowLevel.Unsafe
             /// </summary>
             public Unity.Profiling.ProfilerMarker ProfilerMarker;
             #endif
-            #if UNITY_EDITOR || NETCODE_DEBUG
+#if UNITY_EDITOR || NETCODE_DEBUG
             /// <summary>
             /// String buffer, containing the list of all replicated field names. Empty for component type that can be only interpolated.
             /// (see <see cref="PrefabType"/>).
@@ -242,6 +247,10 @@ namespace Unity.NetCode.LowLevel.Unsafe
             /// For internal use only. The index inside the prediction error names cache (see <see cref="GhostCollectionSystem"/>).
             /// </summary>
             internal int FirstNameIndex;
+            /// <summary>
+            /// For internal use only. The hash of the ghost variation type fullname. Used mostly for validation
+            /// </summary>
+            public ulong VariantTypeFullNameHash;
 #endif
         }
 

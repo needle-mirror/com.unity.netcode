@@ -4,6 +4,7 @@ using Unity.Collections;
 using Unity.Entities;
 using Unity.NetCode.LowLevel.Unsafe;
 using Unity.Networking.Transport;
+using Unity.Transforms;
 using UnityEngine;
 using UnityEngine.TestTools;
 
@@ -59,6 +60,48 @@ namespace Unity.NetCode.Tests
                 Assert.AreEqual(1, testWorld.ClientWorlds[0].GetExistingSystemManaged<CheckConnectionSystem>().numConnected);
                 Assert.AreEqual(1, testWorld.ClientWorlds[0].GetExistingSystemManaged<CheckConnectionSystem>().numInGame);
             }
+        }
+
+        [TestCase(60, 60, 1)]
+        [TestCase(40, 20, 2)]
+        public void ClientTickRate_ServerAndClientsUseTheSameRateSettings(
+            int simulationTickRate, int networkTickRate, int predictedFixedStepRatio)
+        {
+            using var testWorld = new NetCodeTestWorld();
+            var tickRate = new ClientServerTickRate
+            {
+                SimulationTickRate = simulationTickRate,
+                PredictedFixedStepSimulationTickRatio = predictedFixedStepRatio,
+                NetworkTickRate = networkTickRate,
+            };
+            SetupTickRate(tickRate, testWorld);
+            //Check that the predicted fixed step rate is also set accordingly.
+            LogAssert.NoUnexpectedReceived();
+            Assert.AreEqual(tickRate.PredictedFixedStepSimulationTimeStep, testWorld.ServerWorld.GetExistingSystemManaged<PredictedFixedStepSimulationSystemGroup>().Timestep);
+            Assert.AreEqual(tickRate.PredictedFixedStepSimulationTimeStep, testWorld.ClientWorlds[0].GetExistingSystemManaged<PredictedFixedStepSimulationSystemGroup>().Timestep);
+        }
+
+        static void SetupTickRate(ClientServerTickRate tickRate, NetCodeTestWorld testWorld)
+        {
+            testWorld.Bootstrap(true);
+            testWorld.CreateWorlds(true, 1);
+            testWorld.ServerWorld.EntityManager.CreateSingleton(tickRate);
+            tickRate.ResolveDefaults();
+            tickRate.Validate();
+            // Connect and make sure the connection could be established
+            const float frameTime = 1f / 60f;
+            testWorld.Connect(frameTime);
+
+            //Check that the simulation tick rate are the same
+            var serverRate = testWorld.GetSingleton<ClientServerTickRate>(testWorld.ServerWorld);
+            var clientRate = testWorld.GetSingleton<ClientServerTickRate>(testWorld.ClientWorlds[0]);
+            Assert.AreEqual(tickRate.SimulationTickRate, serverRate.SimulationTickRate);
+            Assert.AreEqual(tickRate.SimulationTickRate, clientRate.SimulationTickRate);
+            Assert.AreEqual(tickRate.PredictedFixedStepSimulationTickRatio, serverRate.PredictedFixedStepSimulationTickRatio);
+            Assert.AreEqual(tickRate.PredictedFixedStepSimulationTickRatio, clientRate.PredictedFixedStepSimulationTickRatio);
+
+            //Do one last step so all the new settings are applied
+            testWorld.Tick(frameTime);
         }
     }
 
@@ -203,16 +246,12 @@ namespace Unity.NetCode.Tests
         {
             using (var testWorld = new NetCodeTestWorld())
             {
-                testWorld.Bootstrap(true);
-                testWorld.CreateWorlds(true, 1, false);
-
                 // Only print the protocol version debug errors in one world, so the output can be deterministically validated
                 // if it's printed in both worlds (client and server) the output can interweave and log checks will fail
-                var debugWorld = testWorld.ServerWorld;
-                if (debugServer)
-                    debugWorld = testWorld.ClientWorlds[0];
-                var netDebug = debugWorld.EntityManager.CreateEntity(ComponentType.ReadWrite<NetCodeDebugConfig>());
-                debugWorld.EntityManager.SetComponentData(netDebug, new NetCodeDebugConfig(){ DumpPackets = false, LogLevel = NetDebug.LogLevelType.Exception });
+                testWorld.EnableLogsOnServer = debugServer;
+                testWorld.EnableLogsOnClients = !debugServer;
+                testWorld.Bootstrap(true);
+                testWorld.CreateWorlds(true, 1, false);
 
                 float dt = 16f / 1000f;
                 var entity = testWorld.ClientWorlds[0].EntityManager.CreateEntity(ComponentType.ReadWrite<GameProtocolVersion>());
@@ -245,16 +284,16 @@ namespace Unity.NetCode.Tests
         {
             using (var testWorld = new NetCodeTestWorld())
             {
+                // Only print the protocol version debug errors in one world, so the output can be deterministically validated
+                // if it's printed in both worlds (client and server) the output can interweave and log checks will fail
+                testWorld.EnableLogsOnServer = checkServer;
+                testWorld.EnableLogsOnClients = !checkServer;
                 testWorld.Bootstrap(true);
                 testWorld.CreateWorlds(true, 1, false);
 
                 float dt = 16f / 1000f;
                 var entity = testWorld.ClientWorlds[0].EntityManager.CreateEntity(ComponentType.ReadWrite<GameProtocolVersion>());
                 testWorld.ClientWorlds[0].EntityManager.SetComponentData(entity, new GameProtocolVersion(){Version = 9000});
-                entity = testWorld.ClientWorlds[0].EntityManager.CreateEntity(ComponentType.ReadWrite<NetCodeDebugConfig>());
-                testWorld.ClientWorlds[0].EntityManager.SetComponentData(entity, new NetCodeDebugConfig(){LogLevel = checkServer ? NetDebug.LogLevelType.Exception : NetDebug.LogLevelType.Debug});
-                entity = testWorld.ServerWorld.EntityManager.CreateEntity(ComponentType.ReadWrite<NetCodeDebugConfig>());
-                testWorld.ServerWorld.EntityManager.SetComponentData(entity, new NetCodeDebugConfig(){LogLevel = checkServer ? NetDebug.LogLevelType.Debug : NetDebug.LogLevelType.Exception});
                 testWorld.Tick(dt);
 
                 var ep = NetworkEndpoint.LoopbackIpv4;
@@ -336,13 +375,60 @@ namespace Unity.NetCode.Tests
                 }
 
                 //Check that and server can connect (same component hash)
-                Assert.IsTrue(testWorld.Connect(frameTime, 4));
+                testWorld.Connect(frameTime);
 
                 testWorld.GoInGame();
                 for(int i=0;i<10;++i)
                     testWorld.Tick(frameTime);
 
                 Assert.IsTrue(testWorld.TryGetSingletonEntity<NetworkId>(testWorld.ClientWorlds[0]) != Entity.Null);
+            }
+        }
+
+        [Test]
+        public void DefaultVariantHashAreCalculatedCorrectly()
+        {
+            var realHash = GhostVariantsUtility.UncheckedVariantHash(typeof(LocalTransform).FullName, typeof(LocalTransform).FullName);
+            Assert.AreEqual(realHash, GhostVariantsUtility.CalculateVariantHashForComponent(ComponentType.ReadWrite<LocalTransform>()));
+            var compName = new FixedString512Bytes(typeof(LocalTransform).FullName);
+            Assert.AreEqual(realHash, GhostVariantsUtility.UncheckedVariantHash(compName, compName));
+            Assert.AreEqual(realHash, GhostVariantsUtility.UncheckedVariantHash(compName, ComponentType.ReadWrite<LocalTransform>()));
+            Assert.AreEqual(realHash, GhostVariantsUtility.UncheckedVariantHashNBC(typeof(LocalTransform), ComponentType.ReadWrite<LocalTransform>()));
+        }
+        [Test]
+        public void tVariantHashAreCalculatedCorrectly()
+        {
+            var realHash = GhostVariantsUtility.UncheckedVariantHash(typeof(TransformDefaultVariant).FullName, typeof(LocalTransform).FullName);
+            var compName = new FixedString512Bytes(typeof(LocalTransform).FullName);
+            var variantName = new FixedString512Bytes(typeof(TransformDefaultVariant).FullName);
+            Assert.AreEqual(realHash, GhostVariantsUtility.UncheckedVariantHash(variantName, compName));
+            Assert.AreEqual(realHash, GhostVariantsUtility.UncheckedVariantHash(variantName, ComponentType.ReadWrite<LocalTransform>()));
+            Assert.AreEqual(realHash, GhostVariantsUtility.UncheckedVariantHashNBC(typeof(TransformDefaultVariant), ComponentType.ReadWrite<LocalTransform>()));
+        }
+        [Test]
+        public void RuntimeAndCodeGeneratedVariantHashMatch()
+        {
+            using (var testWorld = new NetCodeTestWorld())
+            {
+                testWorld.Bootstrap(true);
+                testWorld.CreateWorlds(true, 1);
+                //Grab all the serializers we have and recalculate locally the hash and verify they match.
+                //TODO: to have a complete end-to-end test we have a missing piece: we don't have the original variant System.Type.
+                //Either we add that in code-gen (as string, for test/debug purpose only) or we need to store somehow the type
+                //when we register the serialiser itself. It is not a priority, but great to have.
+                //Right now I exposed a a VariantTypeFullHashName in the serialiser that allow at lest to do the most
+                //important verification: the hash matches!
+                var data = testWorld.GetSingleton<GhostComponentSerializerCollectionData>(testWorld.ServerWorld);
+                for (int i = 0; i < data.Serializers.Length; ++i)
+                {
+                    var variantTypeHash = data.Serializers.ElementAt(i).VariantTypeFullNameHash;
+                    var componentType = data.Serializers.ElementAt(i).ComponentType;
+                    var variantHash = GhostVariantsUtility.UncheckedVariantHash(variantTypeHash, componentType);
+                    Assert.AreEqual(data.Serializers.ElementAt(i).VariantHash, variantHash,
+                        $"Expect variant hash for code-generated serializer is identical to the" +
+                        $"calculated at runtime for component {componentType.GetManagedType().FullName}." +
+                        $"generated: {data.Serializers.ElementAt(i).VariantHash} runtime:{variantHash}");
+                }
             }
         }
     }

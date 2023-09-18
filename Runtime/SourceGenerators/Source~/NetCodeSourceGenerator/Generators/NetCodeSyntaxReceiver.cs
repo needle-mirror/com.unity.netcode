@@ -53,6 +53,9 @@ namespace Unity.NetCode.Generators
                 if (structNode.Modifiers.Any(m => m.IsKind(SyntaxKind.PrivateKeyword)))
                     return;
 
+                if(structNode.TypeParameterList != null)
+                    return;
+
                 //Check for Variant attributes
                 if (structNode.AttributeLists.Count > 0)
                 {

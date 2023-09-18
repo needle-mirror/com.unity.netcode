@@ -183,7 +183,7 @@ namespace Unity.NetCode
             // FIXME: placeholder to show the idea behind prediction smoothing
             public ComponentType transformType;
 
-            const GhostComponentSerializer.SendMask requiredSendMask = GhostComponentSerializer.SendMask.Predicted;
+            const GhostSendType requiredSendMask = GhostSendType.OnlyPredictedClients;
 
     #pragma warning disable 649
             [NativeSetThreadIndex] public int ThreadIndex;

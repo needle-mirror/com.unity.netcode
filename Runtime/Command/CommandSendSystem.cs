@@ -36,6 +36,28 @@ namespace Unity.NetCode
     }
 
     /// <summary>
+    /// The parent group for all generated systems that copy data from the an <see cref="IInputComponentData"/> to the
+    /// underlying <see cref="InputBufferData{T}"/>, that is the ring buffer that will contains the generated user commands.
+    /// </summary>
+    [WorldSystemFilter(WorldSystemFilterFlags.ClientSimulation | WorldSystemFilterFlags.ThinClientSimulation,
+        WorldSystemFilterFlags.ClientSimulation)]
+    [UpdateInGroup(typeof(GhostInputSystemGroup), OrderLast = true)]
+    public partial class CopyInputToCommandBufferSystemGroup : ComponentSystemGroup
+    {
+    }
+
+    /// <summary>
+    /// The parent group for all generated systems that copy data from and underlying <see cref="InputBufferData{T}"/>
+    /// to its parent <see cref="IInputComponentData"/>.
+    /// </summary>
+    [WorldSystemFilter(WorldSystemFilterFlags.ClientSimulation | WorldSystemFilterFlags.ServerSimulation,
+                       WorldSystemFilterFlags.ClientSimulation | WorldSystemFilterFlags.ServerSimulation)]
+    [UpdateInGroup(typeof(PredictedSimulationSystemGroup), OrderFirst = true)]
+    public partial class CopyCommandBufferToInputSystemGroup : ComponentSystemGroup
+    {
+    }
+
+    /// <summary>
     /// This group contains all core-generated system that are used to compare commands for sake of identifing the ticks the client
     /// has changed input (see <see cref="m_UniqueInputTicks"/>.
     /// </summary>
@@ -157,8 +179,10 @@ namespace Unity.NetCode
                 var requiredPayloadSize = k_CommandHeadersBytes + rpcData.Length;
                 int maxSnapshotSizeWithoutFragmentation = NetworkParameterConstants.MTU - concurrentDriver.driver.MaxHeaderSize(concurrentDriver.unreliablePipeline);
                 var pipelineToUse = requiredPayloadSize > maxSnapshotSizeWithoutFragmentation ? concurrentDriver.unreliableFragmentedPipeline : concurrentDriver.unreliablePipeline;
-                if (concurrentDriver.driver.BeginSend(pipelineToUse, connection.Value, out var writer, requiredPayloadSize) != 0)
+                int result;
+                if ((result = concurrentDriver.driver.BeginSend(pipelineToUse, connection.Value, out var writer, requiredPayloadSize)) < 0)
                 {
+                    netDebug.LogWarning($"CommandSendPacket BeginSend failed with errorCode: {result}!");
                     rpcData.Clear();
                     return;
                 }
@@ -190,9 +214,8 @@ namespace Unity.NetCode
 
                 if(writer.HasFailedWrites)
                     netDebug.LogError("CommandSendPacket job triggered Writer.HasFailedWrites, despite allocating the collection based on needed size!");
-                var result = 0;
                 if ((result = concurrentDriver.driver.EndSend(writer)) <= 0)
-                    netDebug.LogError(FixedString.Format("An error occured during EndSend. ErrorCode: {0}", result));
+                    netDebug.LogError($"CommandSendPacket EndSend failed with errorCode: {result}!");
             }
         }
         [BurstCompile]

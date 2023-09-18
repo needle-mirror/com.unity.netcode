@@ -1,4 +1,4 @@
-#if UNITY_EDITOR && !UNITY_DOTSRUNTIME && USING_ENTITIES_GRAPHICS
+#if UNITY_EDITOR && USING_ENTITIES_GRAPHICS
 using System;
 using Unity.Burst;
 using Unity.Collections;
@@ -162,8 +162,6 @@ namespace Unity.NetCode.Samples.Common
 
         protected override void OnUpdate()
         {
-            DebugGhostDrawer.RefreshWorldCaches();
-
             var enabled = Enabled && s_CustomDrawer.Enabled && DebugGhostDrawer.HasRequiredWorlds;
             UpdateEntityMeshDrawer(EntityManager, enabled, m_ServerMeshRendererEntity, m_ServerMat, ServerColor);
             UpdateEntityMeshDrawer(EntityManager, enabled, m_ClientPredictedMeshRendererEntity, m_PredictedClientMat, PredictedClientColor);
@@ -177,7 +175,7 @@ namespace Unity.NetCode.Samples.Common
 
             Dependency.Complete();
 
-            var serverWorld = DebugGhostDrawer.FirstServerWorld;
+            var serverWorld = ClientServerBootstrap.ServerWorld;
             serverWorld.EntityManager.CompleteAllTrackedJobs();
 
             var serverSystem = serverWorld.GetOrCreateSystemManaged<BoundingBoxDebugGhostDrawerServerSystem>();

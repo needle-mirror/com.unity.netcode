@@ -42,6 +42,13 @@ There are different way to do it:
 - Automatically connect and listen by using the `AutoConnectPort` (and relative `DefaultConnectAddress`).
 - By creating a `NetworkStreamRequestConnect` and/or `NetworkStreamRequestListen` request in the client and/ot server world respectively. 
 
+> [!NOTE]
+> Regardless of how you choose to connect to the server, we strongly recommend ensuring `Application.runInBackground` is `true` while connected.
+> You can do so by a) setting `Application.runInBackground = true;` directly, or b) project-wide via "Project Settings > Player > Resolution and Presentation". 
+> If you don't, your multiplayer will stall (and likely disconnect) if and when the application loses focus (e.g. by the player tabbing out), as netcode will be unable to tick.
+> The server should likely always have this enabled.
+> We provide error warnings for both via `WarnAboutApplicationRunInBackground`.
+
 ### Manually Listen/Connect 
 To establish a connection, you must get the [NetworkStreamDriver](https://docs.unity3d.com/Packages/com.unity.netcode@latest/index.html?subfolder=/api/Unity.NetCode.NetworkStreamDriver.html) singleton (present on both client and server worlds) 
 and then call either `Connect` or `Listen` on it.
@@ -62,7 +69,7 @@ public class AutoConnectBootstrap : ClientServerBootstrap
     {
         // This will enable auto connect.       
         AutoConnectPort = 7979;
-        // Create the default client and server worlds, depending on build type in a player or the Multiplayer PlayMode Tools in the editor
+        // Create the default client and server worlds, depending on build type in a player or the PlayMode Tools in the editor
         CreateDefaultClientServerWorlds();
         return true;
     }

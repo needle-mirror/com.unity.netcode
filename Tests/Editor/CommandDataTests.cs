@@ -81,7 +81,7 @@ namespace Unity.NetCode.Tests
                 ghostConfig.HasOwner = true;
                 Assert.IsTrue(testWorld.CreateGhostCollection(ghostGameObject));
                 testWorld.CreateWorlds(true, 1);
-                Assert.IsTrue(testWorld.Connect(deltaTime, 4));
+                testWorld.Connect(deltaTime);
                 testWorld.GoInGame();
 
                 var serverConnectionEnt = testWorld.TryGetSingletonEntity<NetworkId>(testWorld.ServerWorld);
@@ -119,7 +119,7 @@ namespace Unity.NetCode.Tests
                 ghostConfig.HasOwner = true;
                 Assert.IsTrue(testWorld.CreateGhostCollection(ghostGameObject));
                 testWorld.CreateWorlds(true, 1);
-                Assert.IsTrue(testWorld.Connect(deltaTime, 4));
+                testWorld.Connect(deltaTime);
                 testWorld.GoInGame();
 
                 var serverConnectionEnt = testWorld.TryGetSingletonEntity<NetworkId>(testWorld.ServerWorld);
@@ -170,7 +170,7 @@ namespace Unity.NetCode.Tests
                 ghostConfig.HasOwner = true;
                 Assert.IsTrue(testWorld.CreateGhostCollection(ghostGameObject));
                 testWorld.CreateWorlds(true, 1);
-                Assert.IsTrue(testWorld.Connect(deltaTime, 4));
+                testWorld.Connect(deltaTime);
                 testWorld.GoInGame();
 
                 var serverConnectionEnt = testWorld.TryGetSingletonEntity<NetworkId>(testWorld.ServerWorld);
@@ -239,7 +239,7 @@ namespace Unity.NetCode.Tests
                 ghostConfig.DefaultGhostMode = GhostMode.OwnerPredicted;
                 Assert.IsTrue(testWorld.CreateGhostCollection(ghostGameObject));
                 testWorld.CreateWorlds(true, 1);
-                Assert.IsTrue(testWorld.Connect(deltaTime, 4));
+                testWorld.Connect(deltaTime);
                 testWorld.GoInGame();
 
                 var serverConnectionEnt = testWorld.TryGetSingletonEntity<NetworkId>(testWorld.ServerWorld);
@@ -281,7 +281,7 @@ namespace Unity.NetCode.Tests
                 ghostConfig.DefaultGhostMode = GhostMode.OwnerPredicted;
                 Assert.IsTrue(testWorld.CreateGhostCollection(ghostGameObject));
                 testWorld.CreateWorlds(true, 1);
-                Assert.IsTrue(testWorld.Connect(deltaTime, 4));
+                testWorld.Connect(deltaTime);
                 testWorld.GoInGame();
 
                 var serverConnectionEnt = testWorld.TryGetSingletonEntity<NetworkId>(testWorld.ServerWorld);
@@ -335,7 +335,7 @@ namespace Unity.NetCode.Tests
                 ghostConfig.DefaultGhostMode = GhostMode.OwnerPredicted;
                 Assert.IsTrue(testWorld.CreateGhostCollection(ghostGameObject));
                 testWorld.CreateWorlds(true, 1);
-                Assert.IsTrue(testWorld.Connect(deltaTime, 4));
+                testWorld.Connect(deltaTime);
                 testWorld.GoInGame();
 
                 var serverConnectionEnt = testWorld.TryGetSingletonEntity<NetworkId>(testWorld.ServerWorld);
@@ -399,7 +399,7 @@ namespace Unity.NetCode.Tests
                 ghostConfig.DefaultGhostMode = GhostMode.OwnerPredicted;
                 Assert.IsTrue(testWorld.CreateGhostCollection(ghostGameObject));
                 testWorld.CreateWorlds(true, 1);
-                Assert.IsTrue(testWorld.Connect(deltaTime, 4));
+                testWorld.Connect(deltaTime);
                 testWorld.GoInGame();
 
                 var serverConnectionEnt = testWorld.TryGetSingletonEntity<NetworkId>(testWorld.ServerWorld);
@@ -457,7 +457,7 @@ namespace Unity.NetCode.Tests
                 ghostConfig.DefaultGhostMode = GhostMode.OwnerPredicted;
                 Assert.IsTrue(testWorld.CreateGhostCollection(ghostGameObject));
                 testWorld.CreateWorlds(true, 1);
-                Assert.IsTrue(testWorld.Connect(deltaTime, 4));
+                testWorld.Connect(deltaTime);
                 testWorld.GoInGame();
 
                 var serverConnectionEnt = testWorld.TryGetSingletonEntity<NetworkId>(testWorld.ServerWorld);
@@ -500,7 +500,7 @@ namespace Unity.NetCode.Tests
                 ghostConfig.DefaultGhostMode = GhostMode.Interpolated;
                 Assert.IsTrue(testWorld.CreateGhostCollection(ghostGameObject));
                 testWorld.CreateWorlds(true, 1);
-                Assert.IsTrue(testWorld.Connect(deltaTime, 4));
+                testWorld.Connect(deltaTime);
                 testWorld.GoInGame();
 
                 var serverConnectionEnt = testWorld.TryGetSingletonEntity<NetworkId>(testWorld.ServerWorld);
@@ -542,7 +542,7 @@ namespace Unity.NetCode.Tests
                 ghostConfig.DefaultGhostMode = GhostMode.Predicted;
                 Assert.IsTrue(testWorld.CreateGhostCollection(ghostGameObject));
                 testWorld.CreateWorlds(true, 1);
-                Assert.IsTrue(testWorld.Connect(deltaTime, 4));
+                testWorld.Connect(deltaTime);
                 testWorld.GoInGame();
 
                 var serverConnectionEnt = testWorld.TryGetSingletonEntity<NetworkId>(testWorld.ServerWorld);

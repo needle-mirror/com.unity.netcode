@@ -31,22 +31,19 @@ namespace Unity.NetCode
 
         private void CreateNetDebugSingleton(EntityManager entityManager)
         {
-            var netDebugEntity = entityManager.CreateEntity(ComponentType.ReadWrite<NetDebug>());
-            entityManager.SetName(netDebugEntity, "NetDebug");
             var netDebug = new NetDebug();
             netDebug.Initialize();
-
 #if UNITY_EDITOR
             if (MultiplayerPlayModePreferences.ApplyLoggerSettings)
                 netDebug.LogLevel = MultiplayerPlayModePreferences.TargetLogLevel;
 #endif
-
 #if NETCODE_DEBUG
             m_ComponentTypeNameLookupData = new NativeParallelHashMap<int, FixedString128Bytes>(1024, Allocator.Persistent);
             netDebug.ComponentTypeNameLookup = m_ComponentTypeNameLookupData.AsReadOnly();
 #endif
-            entityManager.SetComponentData(netDebugEntity, netDebug);
+            entityManager.CreateSingleton(netDebug);
         }
+
         public void OnCreate(ref SystemState state)
         {
             m_NetDebugQuery = state.GetEntityQuery(ComponentType.ReadWrite<NetDebug>());

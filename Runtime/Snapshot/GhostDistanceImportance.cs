@@ -1,5 +1,4 @@
 using System;
-using AOT;
 using Unity.Burst;
 using Unity.Entities;
 using Unity.Mathematics;
@@ -64,7 +63,7 @@ namespace Unity.NetCode
             new PortableFunctionPointer<GhostImportance.ScaleImportanceDelegate>(Scale);
 
         [BurstCompile(DisableDirectCall = true)]
-        [MonoPInvokeCallback(typeof(GhostImportance.ScaleImportanceDelegate))]
+        [AOT.MonoPInvokeCallback(typeof(GhostImportance.ScaleImportanceDelegate))]
         private static int Scale(IntPtr connectionDataPtr, IntPtr distanceDataPtr, IntPtr chunkTilePtr, int basePriority)
         {
             var distanceData = GhostComponentSerializer.TypeCast<GhostDistanceData>(distanceDataPtr);

@@ -204,11 +204,11 @@ namespace Unity.NetCode
         /// </summary>
         public int NumChildComponents;
         /// <summary>
-        /// The total size in bytes of the serialized component data.
+        /// The total size in bytes of the entire ghost type, including space for enable bits and change masks.
         /// </summary>
         public int SnapshotSize;
         /// <summary>
-        /// The number of bits used by change mask bitarray.
+        /// The number of bits used by change mask bitarray for this entire ghost type.
         /// </summary>
         public int ChangeMaskBits;
         /// <summary>
@@ -313,7 +313,7 @@ namespace Unity.NetCode
         /// <summary>Index in the GhostComponentSerializer.State collection, used to get the type of serializer to use.</summary>
         public int SerializerIndex;
         /// <summary>Current send mask for that component, used to not send/receive components in some configuration.</summary>
-        public GhostComponentSerializer.SendMask SendMask;
+        public GhostSendType SendMask;
 #if UNITY_EDITOR || NETCODE_DEBUG
         public int PredictionErrorBaseIndex;
         #endif

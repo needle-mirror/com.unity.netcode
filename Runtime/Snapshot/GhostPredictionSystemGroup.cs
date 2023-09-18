@@ -157,7 +157,6 @@ namespace Unity.NetCode
         private EntityQuery m_GhostChildQuery;
 
         private NetworkTick m_LastFullPredictionTick;
-        readonly PredictedFixedStepSimulationSystemGroup m_PredictedFixedStepSimulationSystemGroup;
 
         private int m_TickIdx;
         private NetworkTick m_TargetTick;
@@ -198,8 +197,6 @@ namespace Unity.NetCode
             m_AppliedPredictedTicksQuery = group.World.EntityManager.CreateEntityQuery(ComponentType.ReadWrite<GhostPredictionGroupTickState>());
             m_UniqueInputTicksQuery = group.World.EntityManager.CreateEntityQuery(ComponentType.ReadWrite<UniqueInputTickMap>());
 
-            m_PredictedFixedStepSimulationSystemGroup = group.World.GetExistingSystemManaged<PredictedFixedStepSimulationSystemGroup>();
-
             var builder = new EntityQueryDesc
             {
                 All = new[]{ComponentType.ReadWrite<Simulate>(), ComponentType.ReadOnly<GhostInstance>()},
@@ -236,7 +233,6 @@ namespace Unity.NetCode
                 }
 
                 m_TargetTick = m_CurrentTime.ServerTick;
-
                 m_ClientServerTickRateQuery.TryGetSingleton<ClientServerTickRate>(out var clientServerTickRate);
                 clientServerTickRate.ResolveDefaults();
                 m_FixedTimeStep = clientServerTickRate.SimulationFixedTimeStep;
@@ -246,21 +242,6 @@ namespace Unity.NetCode
                     m_TargetTick.Decrement();
                     m_ElapsedTime -= m_FixedTimeStep * networkTime.ServerTickFraction;
                 }
-
-                if (m_PredictedFixedStepSimulationSystemGroup != null)
-                {
-                    var simulationTickRate = clientServerTickRate.SimulationTickRate;
-                    var timestep = m_PredictedFixedStepSimulationSystemGroup.RateManager.Timestep;
-                    var timestepFPS = (int)math.ceil(1f / timestep);
-                    if (timestepFPS % simulationTickRate != 0)
-                    {
-                        m_PredictedFixedStepSimulationSystemGroup.RateManager.Timestep = 1f / simulationTickRate;
-                        UnityEngine.Debug.LogWarning($"1 / {nameof(PredictedFixedStepSimulationSystemGroup)}.{nameof(ComponentSystemGroup.RateManager)}.{nameof(IRateManager.Timestep)}(ms): {timestepFPS}(FPS) " +
-                                                     $"must be an integer multiple of {nameof(ClientServerTickRate)}.{nameof(ClientServerTickRate.SimulationTickRate)}:{simulationTickRate}(FPS).\n" +
-                                                     $"Timestep will default to 1 / SimulationTickRate: {m_PredictedFixedStepSimulationSystemGroup.RateManager.Timestep} to fix this issue for now.");
-                    }
-                }
-
                 // We must simulate the last full tick since the history backup is applied there
                 appliedPredictedTicks.TryAdd(m_TargetTick, m_TargetTick);
                 // We must simulate at the tick we used as last full tick last time since smoothing and error reporting is happening there
@@ -431,16 +412,41 @@ namespace Unity.NetCode
     {
         public float Timestep
         {
-            get;
-            set;
+            get => m_TimeStep;
+            set
+            {
+                m_TimeStep = value;
+#if UNITY_EDITOR || NETCODE_DEBUG
+                m_DeprecatedTimeStep = value;
+#endif
+            }
         }
 
         int m_RemainingUpdates;
+        float m_TimeStep;
+        //used to track invalid usage of the TimeStep setter.
+#if UNITY_EDITOR || NETCODE_DEBUG
+        float m_DeprecatedTimeStep;
+        public float DeprecatedTimeStep
+        {
+            get=> m_DeprecatedTimeStep;
+            set => m_DeprecatedTimeStep = value;
+        }
+
+#endif
         DoubleRewindableAllocators* m_OldGroupAllocators = null;
 
-        public NetcodePredictionFixedRateManager(float fixedDeltaTime)
+        public NetcodePredictionFixedRateManager(float defaultTimeStep)
         {
-            Timestep = fixedDeltaTime;
+            SetTimeStep(defaultTimeStep);
+        }
+
+        public void SetTimeStep(float timeStep)
+        {
+            m_TimeStep = timeStep;
+#if UNITY_EDITOR || NETCODE_DEBUG
+            m_DeprecatedTimeStep = 0f;
+#endif
         }
 
         public bool ShouldGroupUpdate(ComponentSystemGroup group)
@@ -452,16 +458,16 @@ namespace Unity.NetCode
                 group.World.RestoreGroupAllocator(m_OldGroupAllocators);
                 --m_RemainingUpdates;
             }
-            else
+            else if(m_TimeStep > 0f)
             {
-                // Add epsilon to acount for floating point inaccuracy
-                m_RemainingUpdates = (int)((group.World.Time.DeltaTime + 0.001f) / Timestep);
+                // Add epsilon to account for floating point inaccuracy
+                m_RemainingUpdates = (int)((group.World.Time.DeltaTime + 0.001f) / m_TimeStep);
             }
             if (m_RemainingUpdates == 0)
                 return false;
             group.World.PushTime(new TimeData(
-                elapsedTime: group.World.Time.ElapsedTime - (m_RemainingUpdates-1)*Timestep,
-                deltaTime: Timestep));
+                elapsedTime: group.World.Time.ElapsedTime - (m_RemainingUpdates-1)*m_TimeStep,
+                deltaTime: m_TimeStep));
             m_OldGroupAllocators = group.World.CurrentGroupAllocators;
             group.World.SetGroupAllocator(group.RateGroupAllocators);
             return true;
@@ -486,6 +492,7 @@ namespace Unity.NetCode
     /// <para>Pragmatically: This group contains most of the game simulation (or, at least, all simulation that should be "predicted"
     /// (i.e. simulation that is the same on both client and server)). On the server, all prediction logic is treated as
     /// authoritative game state (although thankfully it only needs to be simulated once, as it's authoritative).</para>
+    /// <para>Note: This SystemGroup is intentionally added to non-netcode worlds, to help enable single-player testing.</para>
     /// </summary>
     /// <remarks> To reiterate: Because child systems in this group are updated so frequently (multiple times per frame on the client,
     /// and for all predicted ghosts on the server), this group is usually the most expensive on both builds.
@@ -499,24 +506,9 @@ namespace Unity.NetCode
     {}
 
     /// <summary>
-    /// Temporary type for upgradability, to be removed before 1.0
-    /// </summary>
-    [Obsolete("'GhostPredictionSystemGroup' has been renamed to 'PredictedSimulationSystemGroup'. (UnityUpgradable) -> PredictedSimulationSystemGroup")]
-    [DisableAutoCreation]
-    public partial class GhostPredictionSystemGroup : ComponentSystemGroup
-    {}
-    /// <summary>
-    /// Temporary type for upgradability, to be removed before 1.0
-    /// </summary>
-    [Obsolete("'FixedStepGhostPredictionSystemGroup' has been renamed to 'PredictedFixedStepSimulationSystemGroup'. (UnityUpgradable) -> PredictedFixedStepSimulationSystemGroup")]
-    [DisableAutoCreation]
-    public partial class FixedStepGhostPredictionSystemGroup : ComponentSystemGroup
-    {}
-
-
-    /// <summary>
-    /// A fixed update group inside the ghost prediction. This is equivalent to <see cref="FixedStepSimulationSystemGroup"/> but for prediction.
-    /// The fixed update group can have a higher update frequency than the rest of the prediction, and it does not do partial ticks.
+    /// <para>A fixed update group inside the ghost prediction. This is equivalent to <see cref="FixedStepSimulationSystemGroup"/> but for prediction.
+    /// The fixed update group can have a higher update frequency than the rest of the prediction, and it does not do partial ticks.</para>
+    /// <para>Note: This SystemGroup is intentionally added to non-netcode worlds, to help enable single-player testing.</para>
     /// </summary>
     [WorldSystemFilter(WorldSystemFilterFlags.Default)]
     [UpdateInGroup(typeof(PredictedSimulationSystemGroup), OrderFirst = true)]
@@ -524,18 +516,50 @@ namespace Unity.NetCode
     {
         private BeginFixedStepSimulationEntityCommandBufferSystem m_BeginFixedStepSimulationEntityCommandBufferSystem;
         private EndFixedStepSimulationEntityCommandBufferSystem m_EndFixedStepSimulationEntityCommandBufferSystem;
+
         /// <summary>
         /// Set the timestep used by this group, in seconds. The default value is 1/60 seconds.
-        /// This value will be clamped to the range [0.0001f ... 10.0f].
         /// </summary>
         public float Timestep
         {
-            get => RateManager != null ? RateManager.Timestep : 0;
+            get
+            {
+                return RateManager?.Timestep ?? 0f;
+            }
+            [Obsolete("The PredictedFixedStepSimulationSystemGroup.TimeStep setter has been deprecated and will be removed (RemovedAfter Entities 1.0)." +
+                      "Please use the ClientServerTickRate.PredictedFixedStepSimulationTickRatio to set the desired rate for this group. " +
+                      "Any TimeStep value set using the RateManager directly will be overwritten with the setting provided in the ClientServerTickRate", false)]
             set
             {
-                if (RateManager != null)
-                    RateManager.Timestep = value;
+                if (RateManager != null) RateManager.Timestep = value;
             }
+        }
+
+        /// <summary>
+        /// Set the current time step as ratio at which the this group run in respect to the simulation/prediction loop. Default value is 1,
+        /// that it, the group run at the same fixed rate as the <see cref="PredictedSimulationSystemGroup"/>.
+        /// </summary>
+        /// <param name="tickRate">The ClientServerTickRate used for the simulation.</param>
+        internal void ConfigureTimeStep(in ClientServerTickRate tickRate)
+        {
+            if(RateManager == null)
+                return;
+            tickRate.Validate();
+            var fixedTimeStep = tickRate.PredictedFixedStepSimulationTimeStep;
+            var rateManager = ((NetcodePredictionFixedRateManager)RateManager);
+#if UNITY_EDITOR || NETCODE_DEBUG
+            if (rateManager.DeprecatedTimeStep != 0f)
+            {
+                var timestep = RateManager.Timestep;
+                if (math.distance(timestep, fixedTimeStep) > 1e-4f)
+                {
+                    UnityEngine.Debug.LogWarning($"The PredictedFixedStepSimulationSystemGroup.TimeStep is {timestep}ms ({math.ceil(1f/timestep)}FPS) but should be equals to ClientServerTickRate.PredictedFixedStepSimulationTimeStep: {fixedTimeStep}ms ({math.ceil(1f/fixedTimeStep)}FPS).\n" +
+                                                 "The current timestep will be changed to match the ClientServerTickRate settings. You should never set the rate of this system directly with neither the PredictedFixedStepSimulationSystemGroup.TimeStep nor the RateManager.TimeStep method.\n " +
+                                                 "Instead, you must always configure the desired rate by changing the ClientServerTickRate.PredictedFixedStepSimulationTickRatio property.");
+                }
+            }
+#endif
+            rateManager.SetTimeStep(tickRate.PredictedFixedStepSimulationTimeStep);
         }
 
         /// <summary>
@@ -544,8 +568,8 @@ namespace Unity.NetCode
         [UnityEngine.Scripting.Preserve]
         public PredictedFixedStepSimulationSystemGroup()
         {
-            float defaultFixedTimestep = 1.0f / 60.0f;
-            SetRateManagerCreateAllocator(new NetcodePredictionFixedRateManager(defaultFixedTimestep));
+            //we are passing 0 as time step so the group does not run until a proper setting is setup.
+            SetRateManagerCreateAllocator(new NetcodePredictionFixedRateManager(0f));
         }
         protected override void OnCreate()
         {

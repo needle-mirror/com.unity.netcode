@@ -381,7 +381,7 @@ namespace Unity.NetCode
         [Conditional("ENABLE_UNITY_COLLECTIONS_CHECKS")]
         private static void ValidatePrespawnBaseline(Entity ghost, int ghostId, int ent, int baselinesCount)
         {
-            if(!PrespawnHelper.IsPrespawGhostId(ghostId))
+            if(!PrespawnHelper.IsPrespawnGhostId(ghostId))
                 throw new InvalidOperationException("Invalid prespawn ghost id. All prespawn ghost ids must be < 0");
             if (baselinesCount <= ent)
                 throw new InvalidOperationException($"Could not find prespawn baseline data for entity {ghost.Index}:{ghost.Version}.");
@@ -876,7 +876,7 @@ namespace Unity.NetCode
                         if (baselineDynamicData != null)
                         {
                             //for prespawn ghosts only consider the fallback baseline if the tick is 0.
-                            if (PrespawnHelper.IsPrespawGhostId(ghost.ghostId) && (*(uint*)baseline) == 0)
+                            if (PrespawnHelper.IsPrespawnGhostId(ghost.ghostId) && (*(uint*)baseline) == 0)
                                 prevDynamicSize = ((uint*) baselineDynamicData)[0];
                             else
                                 prevDynamicSize = ((uint*) baselineDynamicData)[ent];
@@ -896,12 +896,12 @@ namespace Unity.NetCode
 
                 if (hasPartialSends)
                 {
-                    GhostComponentSerializer.SendMask serializeMask = GhostComponentSerializer.SendMask.Interpolated | GhostComponentSerializer.SendMask.Predicted;
+                    GhostSendType serializeMask = GhostSendType.AllClients;
                     var sendToOwner = SendToOwnerType.All;
                     var isOwner = (NetworkId == *(int*) (snapshot + typeData.PredictionOwnerOffset));
                     sendToOwner = isOwner ? SendToOwnerType.SendToOwner : SendToOwnerType.SendToNonOwner;
                     if (typeData.PartialComponents != 0 && typeData.OwnerPredicted != 0)
-                        serializeMask = isOwner ? GhostComponentSerializer.SendMask.Predicted : GhostComponentSerializer.SendMask.Interpolated;
+                        serializeMask = isOwner ? GhostSendType.OnlyPredictedClients : GhostSendType.OnlyInterpolatedClients;
 
                     var curMaskOffsetInBits = 0;
                     //FIXME: problem: what about the enable bits state here for that component if it is not meant to be
@@ -925,10 +925,18 @@ namespace Unity.NetCode
                                 GhostComponentSerializer.CopyToChangeMask((IntPtr)changeMasks, 0, curMaskOffsetInBits+subMaskOffset, 32);
                                 remainingChangeBits -=32;
                                 subMaskOffset += 32;
+
+                                // FIXME: We need to modify the test to ensure that the enableableMasks is a MIX of 1s and 0s,
+                                // otherwise this code could be broken (by removing the wrong 1) and we wont know.
+
+                                // FIXME: Cut out the enable bit from the enableBitMask here (32).
                             }
                             if (remainingChangeBits > 0)
                                 GhostComponentSerializer.CopyToChangeMask((IntPtr)changeMasks, 0, curMaskOffsetInBits+subMaskOffset, remainingChangeBits);
                             entityStartBit[(entityOffset*comp + entOffset)*2+1] = 0;
+
+                            // FIXME: Cut out the enable bit from the enableBitMask here.
+
                             // TODO: buffers could also reduce the required dynamic buffer size to save some memory on clients
                         }
                         curMaskOffsetInBits += changeBits;
@@ -1118,17 +1126,17 @@ namespace Unity.NetCode
             var array = chunk.GetEnableableBits(ref handle);
             var bitArray = new UnsafeBitArray(&array, 2 * sizeof(ulong));
 
-            var uintOffset = enableableMaskOffset >> 5;
-            var maskOffset = enableableMaskOffset & 0x1f;
+            var uintOffset = enableableMaskOffset >> 5; // This is a shortcut for `floor(enableableMaskOffset / 32)`.
+            var maskOffset = enableableMaskOffset & 0x1f; // This is a shortcut for `enableableMaskOffset % 32`.
             snapshotSize /= 4;
 
             uint* enableableMasks = (uint*)(snapshot + sizeof(uint) + changeMaskUints * sizeof(uint)) + uintOffset;
             for (int i = startIndex; i < endIndex; ++i)
             {
-                if (maskOffset == 0)
+                if (maskOffset == 0) // First time writing, reset the entire 32 bits.
                     *enableableMasks = 0U;
                 var isSetOnServer = bitArray.IsSet(i);
-                if (bitArray.IsCreated && isSetOnServer)
+                if (bitArray.IsCreated && isSetOnServer) // FIXME: How can bitArray.IsCreated ever be false?
                     (*enableableMasks) |= 1U << maskOffset;
                 else
                     (*enableableMasks) &= ~(1U << maskOffset);
@@ -1306,7 +1314,7 @@ namespace Unity.NetCode
                         ghostState.Flags &= (~ConnectionStateData.GhostStateFlags.IsRelevant);
 
                         // If this is a prespawned ghost the prespawn baseline cannot be used after being despawned (as it's gone on clients)
-                        if (PrespawnHelper.IsPrespawGhostId(ghost[ent].ghostId))
+                        if (PrespawnHelper.IsPrespawnGhostId(ghost[ent].ghostId))
                             ghostState.Flags |= ConnectionStateData.GhostStateFlags.CantUsePrespawnBaseline;
                     }
                     if (ent >= startIndex)

@@ -203,7 +203,7 @@ namespace Unity.NetCode
             m_GhostCleanupQuery = state.GetEntityQuery(builder);
 
             builder.Reset();
-            builder.WithAll<SubSceneWithGhostClenup>();
+            builder.WithAll<SubSceneWithGhostCleanup>();
             m_SubSceneQuery = state.GetEntityQuery(builder);
 
             m_CompressionModel = StreamCompressionModel.Default;
@@ -328,7 +328,7 @@ namespace Unity.NetCode
             public Entity GhostSpawnEntity;
             public NativeArray<int> GhostCompletionCount;
             public NativeList<byte> TempDynamicData;
-            public NativeList<SubSceneWithGhostClenup> PrespawnSceneStateArray;
+            public NativeList<SubSceneWithGhostCleanup> PrespawnSceneStateArray;
 
             public NetDebug NetDebug;
 #if NETCODE_DEBUG
@@ -684,7 +684,7 @@ namespace Unity.NetCode
                 if (data.BaselineTick == serverTick)
                 {
                     //restrieve spawn tick only for non-prespawn ghosts
-                    if (!PrespawnHelper.IsPrespawGhostId(ghostId))
+                    if (!PrespawnHelper.IsPrespawnGhostId(ghostId))
                     {
                         serverSpawnTick = new NetworkTick{SerializedData = dataStream.ReadPackedUInt(CompressionModel)};
 #if NETCODE_DEBUG
@@ -743,7 +743,7 @@ namespace Unity.NetCode
                     snapshotDataComponent.LatestIndex = (snapshotDataComponent.LatestIndex + 1) % GhostSystemConstants.SnapshotHistorySize;
                     SnapshotDataFromEntity[gent] = snapshotDataComponent;
                     // If this is a prespawned ghost with no baseline tick set use the prespawn baseline
-                    if (!data.BaselineTick.IsValid && PrespawnHelper.IsPrespawGhostId(GhostFromEntity[gent].ghostId))
+                    if (!data.BaselineTick.IsValid && PrespawnHelper.IsPrespawnGhostId(GhostFromEntity[gent].ghostId))
                     {
                         CheckPrespawnBaselineIsPresent(gent, ghostId);
                         var prespawnBaselineBuffer = PrespawnBaselineBufferFromEntity[gent];
@@ -866,7 +866,7 @@ namespace Unity.NetCode
                             var bufferPtr = (byte*)buf.GetUnsafeReadOnlyPtr();
                             baselineDynamicDataSize = ((uint*) bufferPtr)[baselineDynamicDataIndex];
                         }
-                        else if (PrespawnHelper.IsPrespawGhostId(ghostId) && PrespawnBaselineBufferFromEntity.HasBuffer(gent))
+                        else if (PrespawnHelper.IsPrespawnGhostId(ghostId) && PrespawnBaselineBufferFromEntity.HasBuffer(gent))
                         {
                             CheckPrespawnBaselinePtrsAreValid(data, baselineData, ghostId, baselineDynamicDataPtr);
                             baselineDynamicDataSize = ((uint*)(baselineDynamicDataPtr))[0];
@@ -910,7 +910,7 @@ namespace Unity.NetCode
                 }
                 else
                 {
-                    bool isPrespawn = PrespawnHelper.IsPrespawGhostId(ghostId);
+                    bool isPrespawn = PrespawnHelper.IsPrespawnGhostId(ghostId);
                     if (existingGhost)
                     {
                         // The ghost entity map is out of date, clean it up
@@ -1342,7 +1342,7 @@ namespace Unity.NetCode
 
             var connections = m_ConnectionsQuery.ToEntityListAsync(state.WorldUpdateAllocator, out var connectionHandle);
             var prespawnSceneStateArray =
-                m_SubSceneQuery.ToComponentDataListAsync<SubSceneWithGhostClenup>(state.WorldUpdateAllocator,
+                m_SubSceneQuery.ToComponentDataListAsync<SubSceneWithGhostCleanup>(state.WorldUpdateAllocator,
                     out var prespawnHandle);
             ref readonly var ghostDespawnQueues = ref SystemAPI.GetSingletonRW<GhostDespawnQueues>().ValueRO;
             UpdateLookupsForReadStreamJob(ref state);

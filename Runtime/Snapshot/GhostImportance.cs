@@ -1,6 +1,5 @@
 ﻿using System;
 using System.Runtime.InteropServices;
-using AOT;
 using Unity.Burst;
 using Unity.Collections;
 using Unity.Entities;
@@ -55,7 +54,7 @@ namespace Unity.NetCode
         public ComponentType GhostImportancePerChunkDataType;
 
         [BurstCompile(DisableDirectCall = true)]
-        [MonoPInvokeCallback(typeof(ScaleImportanceDelegate))]
+        [AOT.MonoPInvokeCallback(typeof(ScaleImportanceDelegate))]
         private static int NoScale(IntPtr connectionData, IntPtr importanceData, IntPtr chunkTile, int basePriority)
         {
             return basePriority;

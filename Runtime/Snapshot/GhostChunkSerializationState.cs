@@ -291,7 +291,7 @@ namespace Unity.NetCode.LowLevel.Unsafe
         {
             //Map the right index by unmasking the prespawn bit (if present)
             var index = (int)(cleanup.ghostId & ~PrespawnHelper.PrespawnGhostIdBase);
-            var isPrespawnGhost = PrespawnHelper.IsPrespawGhostId(cleanup.ghostId);
+            var isPrespawnGhost = PrespawnHelper.IsPrespawnGhostId(cleanup.ghostId);
             var list = isPrespawnGhost ? self.PrespawnList : self.List;
             ref var state = ref list.ElementAt(index);
 

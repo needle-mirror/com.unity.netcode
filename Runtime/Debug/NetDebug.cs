@@ -84,8 +84,6 @@ namespace Unity.NetCode.LowLevel.Unsafe
 
         public static void InitDebugPacketIfNotCreated(ref NetDebugPacket m_NetDebugPacket, ref FixedString512Bytes logFolder, ref FixedString128Bytes worldName, int connectionId)
         {
-// TODO: Burst (1.7.3) does not provide a BurstCompiler.IsEnabled for DOTS Runtime. Remove once a newer version adds this property
-#if !UNITY_DOTSRUNTIME
             if (BurstCompiler.IsEnabled)
             {
                 CheckInteropClassInitialized(_bfp_InitDebugPacketIfNotCreated.Data);
@@ -93,15 +91,12 @@ namespace Unity.NetCode.LowLevel.Unsafe
                 fp.Invoke(ref m_NetDebugPacket, ref logFolder, ref worldName, connectionId);
                 return;
             }
-#endif
 
             _InitDebugPacketIfNotCreated(ref m_NetDebugPacket, ref logFolder, ref worldName, connectionId);
         }
 
         public static void GetTimestamp(out FixedString32Bytes timestamp)
         {
-// TODO: Burst (1.7.3) does not provide a BurstCompiler.IsEnabled for DOTS Runtime. Remove once a newer version adds this property
-#if !UNITY_DOTSRUNTIME
             if (BurstCompiler.IsEnabled)
             {
                 CheckInteropClassInitialized(_bfp_GetTimestamp.Data);
@@ -109,15 +104,12 @@ namespace Unity.NetCode.LowLevel.Unsafe
                 fp.Invoke(out timestamp);
                 return;
             }
-#endif
 
             _GetTimestamp(out timestamp);
         }
 
         public static void GetTimestampWithTick(NetworkTick serverTick, out FixedString128Bytes timestampWithTick)
         {
-// TODO: Burst (1.7.3) does not provide a BurstCompiler.IsEnabled for DOTS Runtime. Remove once a newer version adds this property
-#if !UNITY_DOTSRUNTIME
             if (BurstCompiler.IsEnabled)
             {
                 CheckInteropClassInitialized(_bfp_GetTimestampWithTick.Data);
@@ -125,7 +117,6 @@ namespace Unity.NetCode.LowLevel.Unsafe
                 fp.Invoke(serverTick, out timestampWithTick);
                 return;
             }
-#endif
 
             _GetTimestampWithTick(serverTick, out timestampWithTick);
         }
@@ -201,6 +192,8 @@ namespace Unity.NetCode.LowLevel.Unsafe
             m_NetDebugPacketLoggerHandle = new LoggerConfig()
                 .OutputTemplate("{Message}")
                 .MinimumLevel.Set(LogLevel.Verbose)
+                .CaptureStacktrace(false)
+                .RedirectUnityLogs(false)
                 .WriteTo.File(fileName)
                 .CreateLogger(parameters).Handle;
         }
@@ -247,6 +240,8 @@ namespace Unity.NetCode
         private static readonly FixedString32Bytes ClosedByRemote = "ClosedByRemote";
         private static readonly FixedString32Bytes BadProtocolVersion = "BadProtocolVersion";
         private static readonly FixedString32Bytes InvalidRpc = "InvalidRpc";
+        private static readonly FixedString32Bytes AuthenticationFailure = "AuthenticationFailure";
+        private static readonly FixedString32Bytes ProtocolError = "ProtocolError";
 
         /// <summary>
         /// Translate the error code into a human friendly error message.
@@ -265,6 +260,8 @@ namespace Unity.NetCode
                 case 3: return ClosedByRemote;
                 case 4: return BadProtocolVersion;
                 case 5: return InvalidRpc;
+                case 6: return AuthenticationFailure;
+                case 7: return ProtocolError;
             }
             return "";
         }
@@ -285,13 +282,7 @@ namespace Unity.NetCode
         /// <returns>A string containg the log folder full path</returns>
         public static string LogFolderForPlatform()
         {
-#if UNITY_DOTSRUNTIME
-            var args = Environment.GetCommandLineArgs();
-            var optIndex = System.Array.IndexOf(args, "-logFile");
-            if (optIndex >=0 && ++optIndex < (args.Length - 1) && !args[optIndex].StartsWith('-'))
-                return args[optIndex];
-            //FIXME: should return the common application log path (if that exist defined somewhere)
-#elif UNITY_ANDROID || UNITY_IOS
+#if UNITY_ANDROID || UNITY_IOS
             var persistentLogPath = UnityEngine.Application.persistentDataPath;
             if (!string.IsNullOrEmpty(persistentLogPath))
                 return persistentLogPath;
@@ -313,7 +304,6 @@ namespace Unity.NetCode
             return logPath;
         }
 
-        private ushort m_MaxRpcAgeFrames;
         private LogLevelType m_LogLevel;
 
 #if NETCODE_DEBUG
@@ -347,15 +337,12 @@ namespace Unity.NetCode
 
             if (logger == null)
             {
-                logger = new LoggerConfig().MinimumLevel
-                    .Set(m_CurrentLogLevel)
-#if !UNITY_DOTSRUNTIME
+                logger = new LoggerConfig()
+                    .MinimumLevel.Set(m_CurrentLogLevel)
+                    .CaptureStacktrace(false)
+                    .RedirectUnityLogs(false)
                     //Use correct format that is compatible with current unity logging
                     .WriteTo.UnityDebugLog(minLevel: m_CurrentLogLevel, outputTemplate: new FixedString512Bytes("{Message}"))
-#else
-                    .WriteTo.StdOut()
-                    .WriteTo.File($"{NetDebug.GetAndCreateLogFolder()}/Netcode-{Guid.NewGuid()}.txt")
-#endif
                     .CreateLogger();
                 m_LoggerHandle = logger.Handle;
             }
@@ -383,19 +370,27 @@ namespace Unity.NetCode
         }
 
         /// <summary>
+        /// If you disable <see cref="UnityEngine.Application.runInBackground"/>, users will experience client disconnects
+        /// when tabbing out of (or otherwise un-focusing) your game application.
+        /// It is therefore highly recommended to enable "Run in "Background" via ticking `Project Settings... Player... Resolution and Presentation... Run In Background`.
+        /// </summary>
+        /// <remarks>
+        /// Setting <see cref="SuppressApplicationRunInBackgroundWarning"/> to true will allow you to
+        /// toggle off "Run in Background" without triggering the advice log.
+        /// </remarks>
+        public bool SuppressApplicationRunInBackgroundWarning { get; set; }
+
+        /// <summary>Prevents log-spam for <see cref="SuppressApplicationRunInBackgroundWarning"/>.</summary>
+        internal bool HasWarnedAboutApplicationRunInBackground { get; set; }
+
+        /// <summary>
         ///     A NetCode RPC will trigger a warning if it hasn't been consumed or destroyed (which is a proxy for 'handled') after
         ///     this many simulation frames (inclusive).
         ///     <see cref="ReceiveRpcCommandRequest.Age" />.
         ///     Set to 0 to opt out.
         /// </summary>
-        public ushort MaxRpcAgeFrames
-        {
-            get => m_MaxRpcAgeFrames;
-            set
-            {
-                m_MaxRpcAgeFrames = value;
-            }
-        }
+        public ushort MaxRpcAgeFrames { get; set; }
+
         /// <summary>
         /// The current debug logging level. Default value is <see cref="LogLevelType.Notify"/>.
         /// </summary>

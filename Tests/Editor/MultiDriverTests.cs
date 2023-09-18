@@ -131,7 +131,7 @@ namespace Unity.NetCode.Tests
 
                 testWorld.UseMultipleDrivers = 1;
                 testWorld.CreateWorlds(true, 2);
-                Assert.IsTrue(testWorld.Connect(1f/60f, 8));
+                testWorld.Connect(1f/60f);
                 testWorld.GoInGame();
 
                 var clientConnectionEnt = new[]
