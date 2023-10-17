@@ -2,6 +2,7 @@
 using System;
 using System.Collections.Generic;
 using JetBrains.Annotations;
+using Unity.Entities;
 
 namespace Unity.NetCode
 {
@@ -15,6 +16,12 @@ namespace Unity.NetCode
         static DebugGhostDrawer s_Instance;
 
         public static List<CustomDrawer> CustomDrawers = new List<CustomDrawer>(2);
+        
+        [Obsolete("Use ClientServerBootstrap.ServerWorld instead. RemoveAfter Entities 1.x")]
+        public static World FirstServerWorld => ClientServerBootstrap.ServerWorld;
+        
+        [Obsolete("Use ClientServerBootstrap.ClientWorld instead. RemoveAfter Entities 1.x")]
+        public static World FirstClientWorld => ClientServerBootstrap.ClientWorld;
 
         static ulong s_LastNextSequenceNumber;
 
@@ -29,6 +36,9 @@ namespace Unity.NetCode
             CustomDrawers.Add(newDrawAction);
             CustomDrawers.Sort();
         }
+        
+        [Obsolete("This functionality is obsolete, worlds are no longer cached here. RemoveAfter Entities 1.x")]
+        public static void RefreshWorldCaches() {}
 
         public static bool HasRequiredWorlds => ClientServerBootstrap.ServerWorld != default && ClientServerBootstrap.ClientWorld != default;
 

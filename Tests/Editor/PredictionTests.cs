@@ -147,6 +147,25 @@ namespace Unity.NetCode.Tests
         }
     }
 
+    [DisableAutoCreation]
+    [UpdateInGroup(typeof(PredictedFixedStepSimulationSystemGroup))]
+    partial struct CheckElapsedTime : ISystem
+    {
+        private double ElapsedTime;
+        public void OnUpdate(ref SystemState state)
+        {
+            var timestep = state.World.GetExistingSystemManaged<PredictedFixedStepSimulationSystemGroup>().Timestep;
+            var time = SystemAPI.Time;
+            if (ElapsedTime == 0.0)
+            {
+                ElapsedTime = time.ElapsedTime;
+            }
+            var totalElapsed = math.fmod(time.ElapsedTime - ElapsedTime,  timestep);
+            //the elapsed time must be always an integral multiple of the time step
+            Assert.LessOrEqual(totalElapsed, 1e-6);
+        }
+    }
+
     public class PredictionTests
     {
         [TestCase((uint)0x229321)]
@@ -351,6 +370,45 @@ namespace Unity.NetCode.Tests
                                                       "Instead, you must always configure the desired rate by changing the ClientServerTickRate.PredictedFixedStepSimulationTickRatio property.");
                     Assert.That(clientTimestep, Is.EqualTo(1f / clientRate.SimulationTickRate));
                     Assert.That(serverTimeStep, Is.EqualTo(1f / clientRate.SimulationTickRate));
+                }
+            }
+        }
+
+        [TestCase(1)]
+        [TestCase(2)]
+        [TestCase(3)]
+        public void PredictedFixedStepSimulation_ElapsedTimeReportedCorrectly(int ratio)
+        {
+            using (var testWorld = new NetCodeTestWorld())
+            {
+                testWorld.Bootstrap(true, typeof(CheckElapsedTime));
+                testWorld.CreateWorlds(true, 1);
+                var tickRate = testWorld.ServerWorld.EntityManager.CreateEntity(typeof(ClientServerTickRate));
+                testWorld.ServerWorld.EntityManager.SetComponentData(tickRate, new ClientServerTickRate
+                {
+                    PredictedFixedStepSimulationTickRatio = ratio
+                });
+                const float frameTime = 1f / 60f;
+                testWorld.Connect(frameTime);
+                //Check that the simulation tick rate are the same
+                var clientRate = testWorld.GetSingleton<ClientServerTickRate>(testWorld.ClientWorlds[0]);
+                Assert.AreEqual(60, clientRate.SimulationTickRate);
+                Assert.AreEqual(ratio, clientRate.PredictedFixedStepSimulationTickRatio);
+                for (int i = 0; i < 16; ++i)
+                {
+                    testWorld.Tick(1f / 60f);
+                }
+                for (int i = 0; i < 16; ++i)
+                {
+                    testWorld.Tick(1f / 30f);
+                }
+                for (int i = 0; i < 16; ++i)
+                {
+                    testWorld.Tick(1f / 45f);
+                }
+                for (int i = 0; i < 16; ++i)
+                {
+                    testWorld.Tick(1f / 117f);
                 }
             }
         }

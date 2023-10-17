@@ -273,10 +273,10 @@ namespace Unity.NetCode
     /// <summary>For the PlayMode Tools Window.</summary>
     public enum SimulatorView
     {
-        [Obsolete("RemovedAfter Entities 1.0")]
-        Disabled = -1,
-        PingView = 0,
-        PerPacketView = 1,
+        [Obsolete("Disabled is no longer supported. Use MultiplayerPlayModePreferences.SimulatorEnabled instead. RemovedAfter Entities 1.x")]
+        Disabled = 0,
+        PingView = 1,
+        PerPacketView = 2,
     }
 }
 #endif

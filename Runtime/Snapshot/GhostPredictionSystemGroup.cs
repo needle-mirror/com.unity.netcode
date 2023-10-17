@@ -424,6 +424,8 @@ namespace Unity.NetCode
 
         int m_RemainingUpdates;
         float m_TimeStep;
+        double m_ElapsedTime;
+        private EntityQuery networkTimeQuery;
         //used to track invalid usage of the TimeStep setter.
 #if UNITY_EDITOR || NETCODE_DEBUG
         float m_DeprecatedTimeStep;
@@ -439,6 +441,11 @@ namespace Unity.NetCode
         public NetcodePredictionFixedRateManager(float defaultTimeStep)
         {
             SetTimeStep(defaultTimeStep);
+        }
+
+        public void OnCreate(ComponentSystemGroup group)
+        {
+            networkTimeQuery = group.EntityManager.CreateEntityQuery(typeof(NetworkTime));
         }
 
         public void SetTimeStep(float timeStep)
@@ -462,11 +469,23 @@ namespace Unity.NetCode
             {
                 // Add epsilon to account for floating point inaccuracy
                 m_RemainingUpdates = (int)((group.World.Time.DeltaTime + 0.001f) / m_TimeStep);
+                if (m_RemainingUpdates > 0)
+                {
+                    var networkTime = networkTimeQuery.GetSingleton<NetworkTime>();
+                    m_ElapsedTime = group.World.Time.ElapsedTime;
+                    if (networkTime.IsPartialTick)
+                    {
+                        //dt = m_FixedTimeStep * networkTime.ServerTickFraction;
+                        //elapsed since last full tick = m_ElapsedTime - dt;
+                        m_ElapsedTime -= group.World.Time.DeltaTime;
+                        m_ElapsedTime += m_RemainingUpdates * m_TimeStep;
+                    }
+                }
             }
             if (m_RemainingUpdates == 0)
                 return false;
             group.World.PushTime(new TimeData(
-                elapsedTime: group.World.Time.ElapsedTime - (m_RemainingUpdates-1)*m_TimeStep,
+                elapsedTime: m_ElapsedTime - (m_RemainingUpdates-1)*m_TimeStep,
                 deltaTime: m_TimeStep));
             m_OldGroupAllocators = group.World.CurrentGroupAllocators;
             group.World.SetGroupAllocator(group.RateGroupAllocators);
@@ -574,6 +593,7 @@ namespace Unity.NetCode
         protected override void OnCreate()
         {
             base.OnCreate();
+            ((NetcodePredictionFixedRateManager)RateManager).OnCreate(this);
             m_BeginFixedStepSimulationEntityCommandBufferSystem = World.GetExistingSystemManaged<BeginFixedStepSimulationEntityCommandBufferSystem>();
             m_EndFixedStepSimulationEntityCommandBufferSystem = World.GetExistingSystemManaged<EndFixedStepSimulationEntityCommandBufferSystem>();
         }
@@ -584,4 +604,19 @@ namespace Unity.NetCode
             m_EndFixedStepSimulationEntityCommandBufferSystem.Update();
         }
     }
+
+    /// <summary>
+    /// Temporary type for upgradability, to be removed before 1.0
+    /// </summary>
+    [Obsolete("'GhostPredictionSystemGroup' has been renamed to 'PredictedSimulationSystemGroup'. (UnityUpgradable) -> PredictedSimulationSystemGroup")]
+    [DisableAutoCreation]
+    public partial class GhostPredictionSystemGroup : ComponentSystemGroup
+    {}
+    /// <summary>
+    /// Temporary type for upgradability, to be removed before 1.0
+    /// </summary>
+    [Obsolete("'FixedStepGhostPredictionSystemGroup' has been renamed to 'PredictedFixedStepSimulationSystemGroup'. (UnityUpgradable) -> PredictedFixedStepSimulationSystemGroup")]
+    [DisableAutoCreation]
+    public partial class FixedStepGhostPredictionSystemGroup : ComponentSystemGroup
+    {}
 }

@@ -1619,5 +1619,135 @@ namespace Unity.NetCode.GeneratorTests
             foreach (var serializerMethod in commandDeserializerSyntax)
                 Assert.AreEqual(3, serializerMethod.GetText().Lines.Where((line => line.ToString().Contains("data."))).Count());
         }
+
+        [Test]
+        public void SourceGenerator_ChangeMaskIncreaseCorrectly()
+        {
+            var testData = @"
+            using Unity.Entities;
+            using Unity.NetCode;
+            namespace Unity.NetCode
+            {
+                public struct TestLargeNumberOfFields : IComponentData
+                {
+[GhostField] public int Value1;
+[GhostField] public int Value2;
+[GhostField] public int Value3;
+[GhostField] public int Value4;
+[GhostField] public int Value5;
+[GhostField] public int Value6;
+[GhostField] public int Value7;
+[GhostField] public int Value8;
+[GhostField] public int Value9;
+[GhostField] public int Value11;
+[GhostField] public int Value12;
+[GhostField] public int Value13;
+[GhostField] public int Value14;
+[GhostField] public int Value15;
+[GhostField] public int Value16;
+[GhostField] public int Value17;
+[GhostField] public int Value18;
+[GhostField] public int Value19;
+[GhostField] public int Value21;
+[GhostField] public int Value22;
+[GhostField] public int Value23;
+[GhostField] public int Value24;
+[GhostField] public int Value25;
+[GhostField] public int Value26;
+[GhostField] public int Value27;
+[GhostField] public int Value28;
+[GhostField] public int Value29;
+[GhostField] public int Value31;
+[GhostField] public int Value32;
+[GhostField] public int Value33;
+[GhostField] public int Value34;
+[GhostField] public int Value35;
+[GhostField] public int Value36;
+[GhostField] public int Value37;
+[GhostField] public int Value38;
+[GhostField] public int Value39;
+[GhostField] public int Value41;
+[GhostField] public int Value42;
+[GhostField] public int Value43;
+[GhostField] public int Value44;
+[GhostField] public int Value45;
+[GhostField] public int Value46;
+[GhostField] public int Value47;
+[GhostField] public int Value48;
+[GhostField] public int Value49;
+[GhostField] public int Value51;
+[GhostField] public int Value52;
+[GhostField] public int Value53;
+[GhostField] public int Value54;
+[GhostField] public int Value55;
+[GhostField] public int Value56;
+[GhostField] public int Value57;
+[GhostField] public int Value58;
+[GhostField] public int Value59;
+[GhostField] public int Value51;
+[GhostField] public int Value52;
+[GhostField] public int Value53;
+[GhostField] public int Value54;
+[GhostField] public int Value55;
+[GhostField] public int Value56;
+[GhostField] public int Value57;
+[GhostField] public int Value58;
+[GhostField] public int Value59;
+[GhostField] public int Value61;
+[GhostField] public int Value62;
+[GhostField] public int Value63;
+[GhostField] public int Value64;
+[GhostField] public int Value65;
+[GhostField] public int Value66;
+[GhostField] public int Value67;
+[GhostField] public int Value68;
+[GhostField] public int Value69;
+[GhostField] public int Value71;
+[GhostField] public int Value72;
+[GhostField] public int Value73;
+[GhostField] public int Value74;
+[GhostField] public int Value75;
+[GhostField] public int Value76;
+[GhostField] public int Value77;
+[GhostField] public int Value78;
+[GhostField] public int Value79;
+[GhostField] public int Value81;
+[GhostField] public int Value82;
+[GhostField] public int Value83;
+[GhostField] public int Value84;
+[GhostField] public int Value85;
+[GhostField] public int Value86;
+[GhostField] public int Value87;
+[GhostField] public int Value88;
+[GhostField] public int Value89;
+[GhostField] public int Value91;
+[GhostField] public int Value92;
+[GhostField] public int Value93;
+[GhostField] public int Value94;
+[GhostField] public int Value95;
+[GhostField] public int Value96;
+[GhostField] public int Value97;
+[GhostField] public int Value98;
+[GhostField] public int Value99;
+                }
+            }";
+
+            var tree = CSharpSyntaxTree.ParseText(testData);
+            var results = GeneratorTestHelpers.RunGenerators(tree);
+            var diagnostics = results.Diagnostics;
+            Assert.AreEqual(0, diagnostics.Count(d => d.Severity == DiagnosticSeverity.Error));
+
+            //There should be three increments for the change mask i
+            var text = results.GeneratedSources[0].SourceText.ToString();
+            Assert.IsTrue(text.Contains("CopyToChangeMask(bits, changeMask, startOffset + 0, 32)"));
+            Assert.IsTrue(text.Contains("CopyToChangeMask(bits, changeMask, startOffset + 32, 32)"));
+            Assert.IsTrue(text.Contains("CopyToChangeMask(bits, changeMask, startOffset + 64, 32)"));
+            Assert.IsTrue(text.Contains("CopyToChangeMask(bits, changeMask, startOffset + 96, 3)"));
+
+            Assert.IsTrue(text.Contains("CopyFromChangeMask(changeMaskData, startOffset, ChangeMaskBits)"));
+            Assert.IsTrue(text.Contains("CopyFromChangeMask(changeMaskData, startOffset + 32, ChangeMaskBits - 32)"));
+            Assert.IsTrue(text.Contains("CopyFromChangeMask(changeMaskData, startOffset + 64, ChangeMaskBits - 64)"));
+            Assert.IsTrue(text.Contains("CopyFromChangeMask(changeMaskData, startOffset + 96, ChangeMaskBits - 96)"));
+        }
     }
 }

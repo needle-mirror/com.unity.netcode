@@ -113,7 +113,7 @@ namespace Unity.NetCode
             if (IsSerialized != other.IsSerialized)
                 return IsSerialized - other.IsSerialized;
             if (DefaultRule != other.DefaultRule)
-                return DefaultRule - other.DefaultRule;
+                return (int)DefaultRule - (int)other.DefaultRule;
             if (Hash != other.Hash)
                 return Hash < other.Hash ? -1 : 1;
             return 0;
@@ -355,6 +355,20 @@ namespace Unity.NetCode
                 throw new InvalidOperationException($"'{WorldName}': Fatal error: Attempting to {context} but we have not yet finalized this collection! You must delay your call until after the creation of the `DefaultVariantSystemGroup` (e.g. `[CreateAfter(typeof(DefaultVariantSystemGroup))]` on your system).");
 #endif
        }
+
+        /// <summary>
+        /// Lookup a component type to use as a buffer for a given IInputComponentData.
+        /// </summary>
+        /// <param name="inputType"></param>
+        /// <param name="bufferType"></param>
+        /// <returns>True if the component has an assosiated buffer to use, false if it does not.</returns>
+        [Obsolete("TryGetBufferForInputComponent has been deprecated. In order to find the buffer associated with an IInputComponentData please just use" +
+                  "IInputBuffer<T> where T is the IInputComponentData type you are looking for.", false)]
+        public bool TryGetBufferForInputComponent(ComponentType inputType, out ComponentType bufferType)
+        {
+            bufferType = default;
+            return false;
+        }
 
         /// <summary>
         /// Used by code-generated systems and meant for internal use only.

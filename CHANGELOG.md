@@ -1,4 +1,22 @@
+---
+uid: changelog
+---
+
 # Changelog
+
+## [1.1.0-pre.3] - 2023-10-17
+
+### Changed
+
+* the DefaultTranslationSmoothingAction.DefaultStaticUserParams is now public and can be used by user code (to either change the defaults or use them in their own custom smoothing methods).
+
+### Fixed
+
+* issue when using prediction error smoothing, causing wrong component data retrieved from the backup buffer and consequently not making the smoothing function work as expected.
+* an issue in the reported elapsed time when executing the PredictedFixedStepSystemGroup in presence of partial ticks and PredictedFixedStepSimulationTickRatio grater than 1, causing problem with physics and character controller interpolation.
+* An issue with the change mask not read correctly when serializing/deserializing components with more than 32 fields.
+* `InvalidOperationException: Comparison function is incorrect` inside `GhostComponentSerializerCollectionSystemGroup` due to `ComponentTypeSerializationStrategy.DefaultType` being a `byte` flag enum (so it erroneously matched `128 - 0` the same as `0 - 128` due to wrapping).
+
 
 ## [1.1.0-exp.1] - 2023-09-18
 

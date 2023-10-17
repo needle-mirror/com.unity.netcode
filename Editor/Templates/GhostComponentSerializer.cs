@@ -548,11 +548,10 @@ namespace __GHOST_NAMESPACE__
             #region __GHOST_CALCULATE_CHANGE_MASK__
             #endregion
             #region __GHOST_FLUSH_COMPONENT_CHANGE_MASK__
-            GhostComponentSerializer.CopyToChangeMask(bits, changeMask, startOffset, 32);
-            startOffset += 32;
+            GhostComponentSerializer.CopyToChangeMask(bits, changeMask, startOffset + __GHOST_CURRENT_MASK_BITS__, 32);
             #endregion
             #region __GHOST_FLUSH_FINAL_COMPONENT_CHANGE_MASK__
-            GhostComponentSerializer.CopyToChangeMask(bits, changeMask, startOffset, __GHOST_CHANGE_MASK_BITS__);
+            GhostComponentSerializer.CopyToChangeMask(bits, changeMask, startOffset + __GHOST_CHANGE_MASK_BITS__, __GHOST_CURRENT_MASK_BITS__);
             #endregion
 #endif
         }
