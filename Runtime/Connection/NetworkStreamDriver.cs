@@ -147,7 +147,8 @@ namespace Unity.NetCode
         /// <exception cref="InvalidOperationException">Throw an exception if the driver is not created or if multiple drivers are register</exception>
         public Entity Connect(EntityManager entityManager, NetworkEndpoint endpoint, Entity ent = default)
         {
-            if (!endpoint.IsValid || endpoint.Port == 0)
+            var isIpEndpoint = endpoint.Family == NetworkFamily.Ipv4 || endpoint.Family == NetworkFamily.Ipv6;
+            if (!endpoint.IsValid || (isIpEndpoint && endpoint.Port == 0))
             {
                 //Can't connect to a any port. This must be a valid address
                 UnityEngine.Debug.LogError($"Trying to connect to the address {endpoint.ToFixedString()} that has port == 0. For connection, a port !=0 is required");

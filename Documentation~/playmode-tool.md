@@ -52,3 +52,10 @@ Alternatively, `--createNetworkSimulatorJsonFile [optionalJsonFilePath]` can be 
 It expects a json file containing `SimulatorUtility.Parameters`.
 
 Passing in either parameter will **always** enable a simulator profile, as we fallback to using the `DefaultSimulatorProfile` if the file is not found (or generated).
+
+### Bounding boxes on GameObjects
+To draw bounding boxes around objects not using entities graphics, you need to add the `GhostDebugMeshBounds` component to its supporting entity. You can call `Initialize` for convenience to set it up.
+See GhostPresentationGameObjectEntityOwner for an example.
+Entities using Entities Graphics will automatically draw bounding boxes.
+
+<img src="images/DebugBoundingBox.png" width="600" alt="Predicted and Server Debug Bounding Boxes"/>

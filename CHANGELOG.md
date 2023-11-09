@@ -4,6 +4,41 @@ uid: changelog
 
 # Changelog
 
+## [1.2.0-exp.3] - 2023-11-09
+
+### Added
+
+* `GhostInputSystemGroup` and `GhostSimulationSystemGroup` are now included in the LocalSimulation world, which means your Input polling systems will now automatically get added to the LocalWorld. This helps facilitate support for singleplayer testing workflows. LocalWorld performance is unaffected (as it's a negligible overhead to tick these empty `SystemGroup`s).
+* support for GameObject rendering for debug bounding boxes. Entities Graphics was already supported, this adds support for GameObjects rendering. See Playmode Tools in docs for more details.
+* `ConvertToGhostPrefab` will now set the `EntityName` to the configured GhostName (if null). Useful for dynamically created Entity prefabs.
+* components, buffers and commands that implement generic interfaces that inherit from the IComponentData and IBufferElementData (i.e IComponentData) are now detected correctly and serialization code generated.
+
+### Changed
+
+* mostly for maintenance, code-generation for the component and buffer serialiser, using helper methods living all inside the package. No user visible changes
+* Updated Transport dependency to version 2.1.0.
+* The minimum supported editor version is now 2022.3.11f1
+* all Simulate component enable states are reset to using a job instead of doing that synchronously on the main thread. Reason for the change is the fact this was inducing a big stall at the end of the Prediction loop. However, the benefits is only visible when there are a large number of jobified workload.
+* components, command, buffers and rpc are now replicated also if they are private or internal
+
+### Removed
+
+* dependency from com.unity.logging. Before, in order to use Netcode for Entities, the logging package was required. Now it is optional.
+
+### Fixed
+
+* We now correctly throw a `PlatformNotSupportedException` in the three locations we previously threw `NotImplementedException`s in `ClientServerBootStrap` (methods; `CreateServerWorld`, `CreateClientWorld`, and `CreateThinClientWorld`).
+* when the server change owner for a ghost configured as owner-predicted, the ghost automatically switch the operation mode from interpolated to predicted (or vice versa) based on the owner.
+* an issue with "partial component" send optimisation (component present only on interpolated or predicted ghost, or based on the owner) that was causing data being deserialised incorrectly.
+* an issue with enable-bits serialisation not respecting the SendToOwner property set in the GhostComponentAttribute, cluttering the state always with the latest server data, regardless of the setting.
+* an issue with code-gen when using combination of flags for the GhostComponent.PrefabType property.
+* `Error: Invalid context argument index` errors when using the Timeout feature of the PlayMode Tools.
+* Updated log message for overriding variants rule
+* `IndexOutOfRangeException` in the `GhostCollectionSystem` when ghost hash mismatches are present (a common error during dev).
+* An issue accessing the m_PredictionSwitchingSmoothingLookup buffer when multiple ghosts change their owner and they need to switch prediction mode.
+* GhostPrefabCreation.ConvertToGhostPrefab api that incorrectly replicated and assign to child entity components the root entity variant.
+
+
 ## [1.1.0-pre.3] - 2023-10-17
 
 ### Changed
@@ -103,15 +138,11 @@ uid: changelog
 * Runtime EntityQuery leaks and reduce runtime memory pressure due to continuously allocating queries without disposing.
 * Reduced memory usage in Editor tests, by avoiding allocating queries continuously in hot paths.
 
-### Security
-
 
 ## [1.0.12] - 2023-06-19
 
 ### Changed
 * Updated com.unity.entities dependency to 1.0.11
-
-### Fixed
 
 
 ## [1.0.11] - 2023-06-02
@@ -183,7 +214,28 @@ uid: changelog
 
 ### Changed
 
-* the following components has been renamed: | Original Name | New Name        | | ---------------| ---------------| |NetworkSnapshotAckComponent| NetworkSnapshotAck | |IncomingSnapshotDataStreamBufferComponent| IncomingSnapshotDataStreamBuffer | |IncomingRpcDataStreamBufferComponent| IncomingRpcDataStreamBuffer | |OutgoingRpcDataStreamBufferComponent| OutgoingRpcDataStreamBuffer  | |IncomingCommandDataStreamBufferComponent| IncomingCommandDataStreamBuffer | |OutgoingCommandDataStreamBufferComponent|OutgoingCommandDataStreamBuffer| |NetworkIdComponent|NetworkId| |CommandTargetComponent|CommandTarget| |GhostComponent|GhostInstance| |GhostChildEntityComponent|GhostChildEntity| |GhostOwnerComponent|GhostOwner| |PredictedGhostComponent|PredictedGhost| |GhostTypeComponent|GhostType| |SharedGhostTypeComponent|GhostTypePartition| |GhostCleanupComponent|GhostCleanup| |GhostPrefabMetaDataComponent|GhostPrefabMetaData| |PredictedGhostSpawnRequestComponent|PredictedGhostSpawnRequest| |PendingSpawnPlaceholderComponent|PendingSpawnPlaceholder| |ReceiveRpcCommandRequestComponent|ReceiveRpcCommandRequest| |SendRpcCommandRequestComponent|SendRpcCommandRequest| |MetricsMonitorComponent|MetricsMonitor|
+* The following components have been renamed:
+NetworkSnapshotAckComponent: NetworkSnapshotAck,
+IncomingSnapshotDataStreamBufferComponent: IncomingSnapshotDataStreamBuffer,
+IncomingRpcDataStreamBufferComponent: IncomingRpcDataStreamBuffer,
+OutgoingRpcDataStreamBufferComponent: OutgoingRpcDataStreamBuffer,
+IncomingCommandDataStreamBufferComponent: IncomingCommandDataStreamBuffer,
+OutgoingCommandDataStreamBufferComponent: OutgoingCommandDataStreamBuffer,
+NetworkIdComponent: NetworkId,
+CommandTargetComponent: CommandTarget,
+GhostComponent: GhostInstance,
+GhostChildEntityComponent: GhostChildEntity,
+GhostOwnerComponent: GhostOwner,
+PredictedGhostComponent: PredictedGhost,
+GhostTypeComponent: GhostType,
+SharedGhostTypeComponent: GhostTypePartition,
+GhostCleanupComponent: GhostCleanup,
+GhostPrefabMetaDataComponent: GhostPrefabMetaData,
+PredictedGhostSpawnRequestComponent: PredictedGhostSpawnRequest,
+PendingSpawnPlaceholderComponent: PendingSpawnPlaceholder,
+ReceiveRpcCommandRequestComponent: ReceiveRpcCommandRequest,
+SendRpcCommandRequestComponent: SendRpcCommandRequest,
+MetricsMonitorComponent: MetricsMonitor,
 
 ### Removed
 
@@ -460,6 +512,7 @@ All the information in regards the current simulated tick MUST be retrieved from
 
 * Package Dependencies
     * `com.unity.entities` to version `0.51.1`
+
 
 ## [0.51.0] - 2022-05-04
 

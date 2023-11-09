@@ -243,7 +243,8 @@ namespace Unity.NetCode
                 if (!rulesAreTheSame)
                 {
                     UnityEngine.Debug.Log($"`Overriding the default variant rule for type `{componentType.ToFixedString()}` with '{rule}' ('{newRuleHash}'). Previous rule was " +
-                                          $"('{existingRule.Rule}' ('{existingRule.Rule.CreateHashRule(componentType)}'), setup by {TypeManager.GetSystemName(existingRule.LastSystem.GetType())}.");
+                                          $"('{existingRule.Rule}' ('{existingRule.Rule.CreateHashRule(componentType)}'), setup by {TypeManager.GetSystemName(existingRule.LastSystem.GetType())}." +
+                                          $"In your implementation of DefaultVariantSystemBase use [CreateBefore(typeof({TypeManager.GetSystemName(existingRule.LastSystem.GetType())}))] to resolve this issue.");
                 }
             }
             DefaultVariantsManaged[componentType] = new RuleAssignment{Rule = rule, LastSystem = currentSystem};

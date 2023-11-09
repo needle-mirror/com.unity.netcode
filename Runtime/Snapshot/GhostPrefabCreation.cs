@@ -798,17 +798,25 @@ namespace Unity.NetCode
             if (!overrides.IsCreated)
                 overrides = new NativeParallelHashMap<Component, ComponentOverride>(1, Allocator.Temp);
 
-            entityManager.AddComponent<Prefab>(prefab);
+#if !DOTS_DISABLE_DEBUG_NAMES
+            entityManager.GetName(prefab, out var name);
+            if(name.IsEmpty)
+                entityManager.SetName(prefab, config.Name);
+#endif
+
+            //the prefab tag must be added also to the child entities
             if (!entityManager.HasComponent<LinkedEntityGroup>(prefab))
             {
-                var linkedEntities = entityManager.AddBuffer<LinkedEntityGroup>(prefab);
-                linkedEntities.Add(prefab);
+                var buffer = entityManager.AddBuffer<LinkedEntityGroup>(prefab);
+                buffer.Add(prefab);
             }
             var linkedEntityBuffer = entityManager.GetBuffer<LinkedEntityGroup>(prefab);
             var linkedEntitiesArray = new NativeArray<Entity>(linkedEntityBuffer.Length, Allocator.Temp);
             for (int i = 0; i < linkedEntityBuffer.Length; ++i)
                 linkedEntitiesArray[i] = linkedEntityBuffer[i].Value;
-
+            //added here as second pass to avoid invalidating the buffer safety handle
+            for (int i = 0; i < linkedEntitiesArray.Length; ++i)
+                entityManager.AddComponent<Prefab>(linkedEntitiesArray[i]);
             CollectAllComponents(entityManager, linkedEntitiesArray, out var allComponents, out var componentCounts);
 
             var prefabTypes = new NativeArray<GhostPrefabType>(allComponents.Length, Allocator.Temp);
@@ -840,7 +848,7 @@ namespace Unity.NetCode
                 if (hasOverrides && (compOverride.OverrideType & ComponentOverrideType.Variant) != 0)
                     variant = compOverride.Variant;
 
-                var variantType = collectionData.GetCurrentSerializationStrategyForComponent(allComponents[i], variant, true);
+                var variantType = collectionData.GetCurrentSerializationStrategyForComponent(allComponents[i], variant, childIndex == 0);
                 prefabTypes[i] = variantType.PrefabType;
                 sendMasksOverride[i] = -1;
                 variants[i] = variantType.Hash;

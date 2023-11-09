@@ -118,8 +118,7 @@ namespace Unity.NetCode.Hybrid
                     var owner = go.GetComponent<GhostPresentationGameObjectEntityOwner>();
                     if (owner != null)
                     {
-                        owner.World = World;
-                        owner.Entity = entity;
+                        owner.Initialize(entity, World);
                     }
                     idx = m_GameObjects.Count;
                     m_GameObjects.Add(go);

@@ -96,6 +96,7 @@ namespace Unity.NetCode.Tests
             defaultVariants.Add(new ComponentType(typeof(EnableableComponent_0)), Rule.OnlyChildren(typeof(EnableableComponent_0)));
             defaultVariants.Add(new ComponentType(typeof(EnableableComponent_1)), Rule.OnlyChildren(typeof(EnableableComponent_1)));
             defaultVariants.Add(new ComponentType(typeof(EnableableComponent_2)), Rule.OnlyChildren(typeof(EnableableComponent_2)));
+            defaultVariants.Add(new ComponentType(typeof(EnableableComponent_3)), Rule.OnlyChildren(typeof(EnableableComponent_3)));
             defaultVariants.Add(new ComponentType(typeof(EnableableBuffer_0)), Rule.OnlyChildren(typeof(EnableableBuffer_0)));
             defaultVariants.Add(new ComponentType(typeof(EnableableBuffer_1)), Rule.OnlyChildren(typeof(EnableableBuffer_1)));
             defaultVariants.Add(new ComponentType(typeof(EnableableBuffer_2)), Rule.OnlyChildren(typeof(EnableableBuffer_2)));

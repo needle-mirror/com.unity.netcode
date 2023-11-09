@@ -19,7 +19,7 @@ namespace Unity.NetCode
         
         [Obsolete("Use ClientServerBootstrap.ServerWorld instead. RemoveAfter Entities 1.x")]
         public static World FirstServerWorld => ClientServerBootstrap.ServerWorld;
-        
+
         [Obsolete("Use ClientServerBootstrap.ClientWorld instead. RemoveAfter Entities 1.x")]
         public static World FirstClientWorld => ClientServerBootstrap.ClientWorld;
 

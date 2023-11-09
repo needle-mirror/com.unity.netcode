@@ -129,10 +129,10 @@ namespace Unity.NetCode
         /// it will return tick 5 (latest without going over). If the command buffer is
         /// 1,2,3 and targetTick is 5 it will return tick 3.
         /// </summary>
-        /// <param name="commandArray"></param>
-        /// <param name="targetTick"></param>
-        /// <param name="commandData"></param>
-        /// <typeparam name="T"></typeparam>
+        /// <param name="commandArray">Command input buffer.</param>
+        /// <param name="targetTick">Target tick to fetch from.</param>
+        /// <param name="commandData">The last-received input.</param>
+        /// <typeparam name="T">Command input buffer type.</typeparam>
         /// <returns>Returns true if any data was found, false when no tick data is equal or older to the target tick in the buffer.</returns>
         public static bool GetDataAtTick<T>(this DynamicBuffer<T> commandArray, NetworkTick targetTick, out T commandData)
             where T : unmanaged, ICommandData

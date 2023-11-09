@@ -51,6 +51,11 @@ namespace Unity.NetCode.Editor
         static GUIContent s_SimulatorPreset = new GUIContent("?? Presets", "Simulate a variety of connection types & server locations.\n\nThese presets have been created by Multiplayer devs.\n\n<b>We strongly recommend that you test every new multiplayer feature with this simulator enabled.</b>\n\nBy default, switching platform will change which presets are available to you. To toggle showing all presets, use the context menu. Alternatively, you can inject your own presets by modifying the `InUseSimulatorPresets` delegate.");
         static GUIContent s_ShowAllSimulatorPresets = new GUIContent("Show All Simulator Presets", "Toggle to view all simulator presets, or only your platform specific ones?");
 
+        static GUIContent s_WebSocket = new GUIContent("[WebSocket]", "<b>WebSocket</b>\nThis World is using Unity's WebSocket NetworkInterface to communicate with the server.");
+        static GUIContent s_UdpSocket = new GUIContent("[UDP]", "<b>UDP | User Datagram Protocol</b>\nThis World is using Unity's UDP socket NetworkInterface (formerly 'baselib') to communicate with the server.");
+        static GUIContent s_Ipc = new GUIContent("[IPC]", "<b>IPC | Intra-Process Communication</b>\nThis World is using an IPC NetworkInterface to communicate with the server. IPC is an in-memory, socket-like wrapper, emulating the Transport API but without any OS overhead and unreliability.\n\nTherefore, IPC operations will be instantaneous, but can only be used to communicate with other NetworkDriver instances inside the same process (which is why IPC really means intra-process and not inter-process here). Useful for testing, or to implement a single player mode in a multiplayer game.");
+        static GUIContent s_NetworkEmulation = new GUIContent(string.Empty, "Denotes whether or not this world uses Network Emulation with the above settings.");
+
         static GUIContent s_SimulatorView = new GUIContent(string.Empty, string.Empty);
         private const string s_SimulatorExplination = "The simulator works by adding a delay before processing all packets sent from - and received by - the ClientWorld's Socket Driver.\n\nIn this view, you can observe and modify ";
         static GUIContent[] s_SimulatorViewContents = {
@@ -77,7 +82,7 @@ namespace Unity.NetCode.Editor
         static GUILayoutOption s_DontExpandWidth = GUILayout.ExpandWidth(false);
         static GUIContent s_ServerName = new GUIContent("", "Name of server world.");
         static GUIContent s_ServerPort = new GUIContent("", "Listening Port");
-        static GUIContent s_ServerPlayers = new GUIContent("", "Players In Game | Players Connected");
+        static GUIContent s_ServerPlayers = new GUIContent("", "Count of connected players. | Count of players who have registered as 'in-game' via the `NetworkStreamInGame` component, on the Server.");
         static GUIContent s_ClientConnect = new GUIContent("", "Trigger all clients to disconnect from the server they're connected to and [re]connect to the specified address and port.");
         static GUIContent s_ServerDcAllClients = new GUIContent("DC All", "Trigger the server to attempt to gracefully disconnect all clients. Useful to batch-test a bunch of client disconnect scenarios (e.g. mid-game).");
         static GUIContent s_ServerReconnectAllClients = new GUIContent("Reconnect All", "Trigger the server to attempt to gracefully disconnect all clients, then have them automatically reconnect. Useful to batch-test player rejoining scenarios (e.g. people dropping out mid-match).\n\nNote that clients will also disconnect themselves from the server in the same frame as they're attempting to reconnect, so you can test same frame DCing.");
@@ -765,9 +770,28 @@ namespace Unity.NetCode.Editor
                 GUILayout.Label(world.Name, s_WorldNameWidth);
                 GUI.color = Color.white;
                 if(conSystem.IsUsingIpc)
-                    GUILayout.Label("[IPC]");
-                if(conSystem.IsUsingSocket)
-                    GUILayout.Label("[Socket]");
+                    GUILayout.Label(s_Ipc);
+                if (conSystem.IsUsingSocket)
+                {
+                    GUILayout.Label(conSystem.IsUsingWebSocket ? s_WebSocket : s_UdpSocket);
+                }
+
+                switch (conSystem.SocketFamily)
+                {
+                    case NetworkFamily.Invalid:
+                        break;
+                    case NetworkFamily.Ipv4:
+                        GUILayout.Label("[IPv4]");
+                        break;
+                    case NetworkFamily.Ipv6:
+                        GUILayout.Label("[IPv6]");
+                        break;
+                    case NetworkFamily.Custom:
+                        GUILayout.Label("[Custom]");
+                        break;
+                    default:
+                        throw new ArgumentOutOfRangeException();
+                }
 
                 if (conSystem.IsSimulatingLagSpike)
                 {
@@ -776,7 +800,8 @@ namespace Unity.NetCode.Editor
                 }
 
                 GUI.color = connectionColor;
-                GUILayout.Label(conSystem.IsAnyUsingSimulator ? "[Using Simulator]" : "[No Simulator]");
+                s_NetworkEmulation.text = conSystem.IsAnyUsingSimulator ? "[Using Network Emulation]" : "[No Emulation]";
+                GUILayout.Label(s_NetworkEmulation);
 
                 GUI.color = connectionColor;
                 if(conSystem.LastEndpoint != default)
@@ -855,7 +880,7 @@ namespace Unity.NetCode.Editor
                 var numConnections = conSystem.NumActiveConnections;
                 var numInGame = conSystem.NumActiveConnectionsInGame;
                 GUI.color = numConnections > 0 ? ActiveColor : Color.white;
-                s_ServerPlayers.text = $"[{numInGame} In Game | {numConnections} Connected]";
+                s_ServerPlayers.text = $"[{numConnections} Connected | {numInGame} In Game]";
                 GUILayout.Label(s_ServerPlayers, s_DontExpandWidth);
 
                 if (GUILayout.Button(s_ServerDcAllClients))
@@ -1079,13 +1104,16 @@ namespace Unity.NetCode.Editor
 
         public bool UpdateSimulator;
 
+
+
         public bool IsAnyUsingSimulator{get; private set;}
 
         public NetworkEndpoint LastEndpoint{get; private set;}
 
         internal bool IsUsingIpc { get; private set; }
-
+        internal bool IsUsingWebSocket { get; private set; }
         internal bool IsUsingSocket { get; private set; }
+        internal NetworkFamily SocketFamily { get; private set; }
 
         internal int LagSpikeMillisecondsLeft { get; private set; } = -1;
         internal float TimeoutSimulationDurationSeconds { get; private set; } = -1;
@@ -1135,6 +1163,15 @@ namespace Unity.NetCode.Editor
                         break;
                     case TransportType.Socket:
                         IsUsingSocket = true;
+                        var driverInstance = driverStore.GetDriverInstance(i);
+                        SocketFamily = driverInstance.driver.GetLocalEndpoint().Family;
+
+                        // todo: Fetch the NetworkInterface from the driver directly, by Type name, to future proof this.
+#if UNITY_WEBGL
+                        IsUsingWebSocket = true;
+#else
+                        IsUsingWebSocket = false;
+#endif
                         break;
                     default:
                         netDebug.LogError($"{World.Name} has unknown or invalid driver type passed into DriverStore!");
@@ -1244,6 +1281,12 @@ namespace Unity.NetCode.Editor
 
         public void ToggleLagSpikeSimulator()
         {
+            if (!IsAnyUsingSimulator)
+            {
+                SystemAPI.GetSingletonRW<NetDebug>().ValueRW.LogError($"Cannot enable LagSpike simulator as Simulator disabled!");
+                return;
+            }
+
             if(IsSimulatingTimeout)
                 ToggleTimeoutSimulation();
 
@@ -1255,11 +1298,17 @@ namespace Unity.NetCode.Editor
 
         public void ToggleTimeoutSimulation()
         {
+            if (!IsAnyUsingSimulator)
+            {
+                SystemAPI.GetSingletonRW<NetDebug>().ValueRW.LogError($"Cannot enable Timeout Simulation as Simulator disabled!");
+                return;
+            }
+
             if(LagSpikeMillisecondsLeft > 0)
                 ToggleLagSpikeSimulator();
 
             var isSimulatingTimeout = IsSimulatingTimeout;
-            SystemAPI.GetSingletonRW<NetDebug>().ValueRW.DebugLog($"Timeout Simulation: Toggled {(isSimulatingTimeout ? "OFF after {TimeoutSimulationDurationSeconds:0.0}s!" : "ON")}!");
+            SystemAPI.GetSingletonRW<NetDebug>().ValueRW.DebugLog($"Timeout Simulation: Toggled {(isSimulatingTimeout ? $"OFF after {TimeoutSimulationDurationSeconds}s!" : "ON")}!");
 
             UpdateSimulator = true;
             if (isSimulatingTimeout)

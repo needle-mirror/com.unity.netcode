@@ -22,15 +22,15 @@ namespace Unity.NetCode
     }
 
     /// <summary>
-    /// The parent group for all input gather systems. Only present in client worlds,
-    /// it runs before the <see cref="CommandSendSystemGroup"/> in order to remove any latency in betwen the input gathering and
-    /// the command submission.
+    /// The parent group for all input gather systems. Only present in client worlds
+    /// (and local worlds, to allow singleplayer to use the same input gathering system).
+    /// It runs before the <see cref="CommandSendSystemGroup"/>, in order to remove any latency in between
+    /// the input gathering and the command submission.
     /// All the your systems that translate user input (ex: using the <see cref="UnityEngine.Input"/> into
-    /// <see cref="ICommandData"/> command data must should update in this group.
+    /// <see cref="ICommandData"/> command data must update in this group.
     /// </summary>
-    [WorldSystemFilter(WorldSystemFilterFlags.ClientSimulation | WorldSystemFilterFlags.ThinClientSimulation, WorldSystemFilterFlags.ClientSimulation)]
+    [WorldSystemFilter(WorldSystemFilterFlags.ClientSimulation | WorldSystemFilterFlags.ThinClientSimulation | WorldSystemFilterFlags.LocalSimulation, WorldSystemFilterFlags.ClientSimulation | WorldSystemFilterFlags.LocalSimulation)]
     [UpdateInGroup(typeof(GhostSimulationSystemGroup))]
-    [UpdateBefore(typeof(CommandSendSystemGroup))]
     public partial class GhostInputSystemGroup : ComponentSystemGroup
     {
     }
@@ -99,6 +99,7 @@ namespace Unity.NetCode
     /// </summary>
     [WorldSystemFilter(WorldSystemFilterFlags.ClientSimulation | WorldSystemFilterFlags.ThinClientSimulation, WorldSystemFilterFlags.ClientSimulation | WorldSystemFilterFlags.ThinClientSimulation)]
     [UpdateInGroup(typeof(GhostSimulationSystemGroup))]
+    [UpdateAfter(typeof(GhostInputSystemGroup))]
     // dependency just for acking
     [UpdateAfter(typeof(GhostReceiveSystem))]
     public partial class CommandSendSystemGroup : ComponentSystemGroup

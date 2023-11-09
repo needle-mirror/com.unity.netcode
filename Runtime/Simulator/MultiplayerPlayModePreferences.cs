@@ -248,7 +248,10 @@ namespace Unity.NetCode
         /// <summary>Returns true if the editor-inputted address is a valid connection address.</summary>
         public static bool IsEditorInputtedAddressValidForConnect(out NetworkEndpoint ep)
         {
-            if (AutoConnectionPort != 0 && NetworkEndpoint.TryParse(AutoConnectionAddress, AutoConnectionPort, out ep) && ep.IsValid && !ep.IsAny)
+            if (AutoConnectionPort != 0 && NetworkEndpoint.TryParse(AutoConnectionAddress, AutoConnectionPort, out ep, NetworkFamily.Ipv4) && !ep.IsAny)
+                return true;
+
+            if (AutoConnectionPort != 0 && NetworkEndpoint.TryParse(AutoConnectionAddress, AutoConnectionPort, out ep, NetworkFamily.Ipv6) && !ep.IsAny)
                 return true;
 
             ep = default;

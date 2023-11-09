@@ -245,14 +245,14 @@ namespace Unity.NetCode.Tests
             AddComponentWithDefaultValue<ComponentWithNonReplicatedVariant>(baker);
 
             // FIXME: GhostComponentAttribute coverage.
-            // AddComponentWithDefaultValue<SendForChildren_OnlyPredictedGhosts_SendToOwner_EnableableComponent>(baker);
-            // AddComponentWithDefaultValue<SendForChildren_OnlyInterpolatedGhosts_SendToOwner_EnableableComponent>(baker);
-            // AddComponentWithDefaultValue<SendForChildren_OnlyPredictedGhosts_SendToNonOwner_EnableableComponent>(baker);
-            // AddComponentWithDefaultValue<SendForChildren_OnlyInterpolatedGhosts_SendToNonOwner_EnableableComponent>(baker);
-            // AddComponentWithDefaultValue<DontSendForChildren_OnlyPredictedGhosts_SendToOwner_EnableableComponent>(baker);
-            // AddComponentWithDefaultValue<DontSendForChildren_OnlyInterpolatedGhosts_SendToOwner_EnableableComponent>(baker);
-            // AddComponentWithDefaultValue<DontSendForChildren_OnlyPredictedGhosts_SendToNonOwner_EnableableComponent>(baker);
-            // AddComponentWithDefaultValue<DontSendForChildren_OnlyInterpolatedGhosts_SendToNonOwner_EnableableComponent>(baker);
+            AddComponentWithDefaultValue<SendForChildren_OnlyPredictedGhosts_SendToOwner_EnableableComponent>(baker);
+            AddComponentWithDefaultValue<SendForChildren_OnlyInterpolatedGhosts_SendToOwner_EnableableComponent>(baker);
+            AddComponentWithDefaultValue<SendForChildren_OnlyPredictedGhosts_SendToNonOwner_EnableableComponent>(baker);
+            AddComponentWithDefaultValue<SendForChildren_OnlyInterpolatedGhosts_SendToNonOwner_EnableableComponent>(baker);
+            AddComponentWithDefaultValue<DontSendForChildren_OnlyPredictedGhosts_SendToOwner_EnableableComponent>(baker);
+            AddComponentWithDefaultValue<DontSendForChildren_OnlyInterpolatedGhosts_SendToOwner_EnableableComponent>(baker);
+            AddComponentWithDefaultValue<DontSendForChildren_OnlyPredictedGhosts_SendToNonOwner_EnableableComponent>(baker);
+            AddComponentWithDefaultValue<DontSendForChildren_OnlyInterpolatedGhosts_SendToNonOwner_EnableableComponent>(baker);
         }
 
         void SetupMultipleEnableableComponents(IBaker baker)

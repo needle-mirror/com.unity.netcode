@@ -1,211 +1,15 @@
-#if UNITY_EDITOR && !NETCODE_NDEBUG
-#define NETCODE_DEBUG
-#endif
-
 #if USING_OBSOLETE_METHODS_VIA_INTERNALSVISIBLETO
 #pragma warning disable 0436
 #endif
-
 using System;
-using System.Diagnostics;
 using System.IO;
-using System.Runtime.InteropServices;
 using Unity.Collections;
-using Unity.Burst;
 using Unity.Entities;
+#if USING_UNITY_LOGGING
 using Logger = Unity.Logging.Logger;
-
 using Unity.Logging;
 using Unity.Logging.Internal;
 using Unity.Logging.Sinks;
-
-#if NETCODE_DEBUG
-namespace Unity.NetCode.LowLevel.Unsafe
-{
-    internal partial struct NetDebugInterop
-    {
-        static class Managed
-        {
-            public static bool _initialized;
-            public delegate void _dlg_GetTimeStamp(out FixedString32Bytes timestamp);
-            public static object _gcDefeat_GetTimeStamp;
-
-            public delegate void _dlg_GetTimestampWithTick(NetworkTick serverTick, out FixedString128Bytes timestampAndTick);
-            public static object _gcDefeat_GetTimestampWithTick;
-
-            public delegate void _dlg_InitDebugPacketIfNotCreated(ref NetDebugPacket m_NetDebugPacket, ref FixedString512Bytes logFolder, ref FixedString128Bytes worldName, int connectionId);
-            public static object _gcDefeat_InitDebugPacketIfNotCreated;
-        }
-
-        struct TagType_InitDebugPacketIfNotCreated {}
-        public static readonly SharedStatic<IntPtr> _bfp_InitDebugPacketIfNotCreated = SharedStatic<IntPtr>.GetOrCreate<TagType_InitDebugPacketIfNotCreated>();
-
-        struct TagType_GetTimestamp {}
-        public static readonly SharedStatic<IntPtr> _bfp_GetTimestamp = SharedStatic<IntPtr>.GetOrCreate<TagType_GetTimestamp>();
-
-        struct TagType_GetTimestampWithTick {}
-        public static readonly SharedStatic<IntPtr> _bfp_GetTimestampWithTick = SharedStatic<IntPtr>.GetOrCreate<TagType_GetTimestampWithTick>();
-
-        public static void Initialize()
-        {
-            if (Managed._initialized) { return; }
-            Managed._initialized = true;
-
-            Managed._dlg_InitDebugPacketIfNotCreated delegateInitDebugPacket = _wrapper_InitDebugPacketIfNotCreated;
-            Managed._gcDefeat_InitDebugPacketIfNotCreated = delegateInitDebugPacket;
-            _bfp_InitDebugPacketIfNotCreated.Data = Marshal.GetFunctionPointerForDelegate(delegateInitDebugPacket);
-
-            Managed._dlg_GetTimeStamp delegateGetTimestamp = _wrapper_GetTimestamp;
-            Managed._gcDefeat_GetTimeStamp = delegateGetTimestamp;
-            _bfp_GetTimestamp.Data = Marshal.GetFunctionPointerForDelegate(delegateGetTimestamp);
-
-            Managed._dlg_GetTimestampWithTick delegateGetTimestampWithTick = _wrapper_GetTimestampWithTick;
-            Managed._gcDefeat_GetTimestampWithTick = delegateGetTimestampWithTick;
-            _bfp_GetTimestampWithTick.Data = Marshal.GetFunctionPointerForDelegate(delegateGetTimestampWithTick);
-        }
-
-        [AOT.MonoPInvokeCallback(typeof(Managed._dlg_InitDebugPacketIfNotCreated))]
-        private static void _wrapper_InitDebugPacketIfNotCreated(ref NetDebugPacket m_NetDebugPacket, ref FixedString512Bytes logFolder, ref FixedString128Bytes worldName, int connectionId)
-        {
-            _InitDebugPacketIfNotCreated(ref m_NetDebugPacket, ref logFolder, ref worldName, connectionId);
-        }
-
-        [AOT.MonoPInvokeCallback(typeof(Managed._dlg_GetTimeStamp))]
-        private static void _wrapper_GetTimestamp(out FixedString32Bytes timestamp)
-        {
-            _GetTimestamp(out timestamp);
-        }
-
-        [AOT.MonoPInvokeCallback(typeof(Managed._dlg_InitDebugPacketIfNotCreated))]
-        private static void _wrapper_GetTimestampWithTick(NetworkTick tick, out FixedString128Bytes timestampWithTick)
-        {
-            _GetTimestampWithTick(tick, out timestampWithTick);
-        }
-
-        public static void InitDebugPacketIfNotCreated(ref NetDebugPacket m_NetDebugPacket, ref FixedString512Bytes logFolder, ref FixedString128Bytes worldName, int connectionId)
-        {
-            if (BurstCompiler.IsEnabled)
-            {
-                CheckInteropClassInitialized(_bfp_InitDebugPacketIfNotCreated.Data);
-                var fp = new FunctionPointer<Managed._dlg_InitDebugPacketIfNotCreated>(_bfp_InitDebugPacketIfNotCreated.Data);
-                fp.Invoke(ref m_NetDebugPacket, ref logFolder, ref worldName, connectionId);
-                return;
-            }
-
-            _InitDebugPacketIfNotCreated(ref m_NetDebugPacket, ref logFolder, ref worldName, connectionId);
-        }
-
-        public static void GetTimestamp(out FixedString32Bytes timestamp)
-        {
-            if (BurstCompiler.IsEnabled)
-            {
-                CheckInteropClassInitialized(_bfp_GetTimestamp.Data);
-                var fp = new FunctionPointer<Managed._dlg_GetTimeStamp>(_bfp_GetTimestamp.Data);
-                fp.Invoke(out timestamp);
-                return;
-            }
-
-            _GetTimestamp(out timestamp);
-        }
-
-        public static void GetTimestampWithTick(NetworkTick serverTick, out FixedString128Bytes timestampWithTick)
-        {
-            if (BurstCompiler.IsEnabled)
-            {
-                CheckInteropClassInitialized(_bfp_GetTimestampWithTick.Data);
-                var fp = new FunctionPointer<Managed._dlg_GetTimestampWithTick>(_bfp_GetTimestampWithTick.Data);
-                fp.Invoke(serverTick, out timestampWithTick);
-                return;
-            }
-
-            _GetTimestampWithTick(serverTick, out timestampWithTick);
-        }
-
-        [Conditional("ENABLE_UNITY_COLLECTIONS_CHECKS")]
-        static void CheckInteropClassInitialized(IntPtr intPtr)
-        {
-            if (intPtr == IntPtr.Zero)
-            {
-                throw new InvalidOperationException("Burst Interop Classes must be initialized manually");
-            }
-        }
-    }
-
-    [GenerateBurstMonoInterop("NetDebugInterop")]
-    [BurstCompile]
-    internal partial struct NetDebugInterop
-    {
-        [BurstMonoInteropMethod]
-        [BurstDiscard]
-        private static void _InitDebugPacketIfNotCreated(ref NetDebugPacket netDebugPacket, ref FixedString512Bytes logFolder, ref FixedString128Bytes worldName, int connectionId)
-        {
-            if (!netDebugPacket.IsCreated)
-            {
-                netDebugPacket.Init(ref logFolder, ref worldName, connectionId);
-            }
-        }
-
-        [BurstMonoInteropMethod]
-        [BurstDiscard]
-        private static void _GetTimestamp(out FixedString32Bytes timestamp)
-        {
-            timestamp = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff", System.Globalization.CultureInfo.InvariantCulture);
-        }
-
-        [BurstMonoInteropMethod]
-        [BurstDiscard]
-        private static void _GetTimestampWithTick(NetworkTick predictedTick, out FixedString128Bytes timestampAndTick)
-        {
-            _GetTimestamp(out var timestamp);
-            if (predictedTick.IsValid)
-                timestampAndTick = FixedString.Format("[{0}][PredictedTick:{1}]", timestamp, (predictedTick.TickIndexForValidTick));
-            else
-                timestampAndTick = FixedString.Format("[{0}][PredictedTick:Invalid]", timestamp);
-        }
-    }
-
-    public struct NetDebugPacket
-    {
-        private LoggerHandle m_NetDebugPacketLoggerHandle;
-
-        public void Init(ref FixedString512Bytes logFolder, ref FixedString128Bytes worldName, int connectionId)
-        {
-            LogMemoryManagerParameters.GetDefaultParameters(out var parameters);
-            parameters.InitialBufferCapacity *= 64;
-            parameters.OverflowBufferSize *= 32;
-
-            var dateTime = DateTime.Now.ToString("yyyy-MM-dd--HH-mm-ss");
-            var fileName = $"{logFolder}/NetcodePackets-New-{worldName}-{connectionId}-{dateTime}.log";
-
-            var next = 0;
-            while (File.Exists(fileName))
-            {
-                fileName = $"{logFolder}/NetcodePackets-New-{worldName}-{connectionId}-{dateTime}-{next}.log";
-                next++;
-
-                if (next >= 100)
-                {
-                    break;
-                }
-            }
-
-            m_NetDebugPacketLoggerHandle = new LoggerConfig()
-                .OutputTemplate("{Message}")
-                .MinimumLevel.Set(LogLevel.Verbose)
-                .CaptureStacktrace(false)
-                .RedirectUnityLogs(false)
-                .WriteTo.File(fileName)
-                .CreateLogger(parameters).Handle;
-        }
-
-        public bool IsCreated => m_NetDebugPacketLoggerHandle.IsValid;
-
-        public void Log(in FixedString512Bytes msg)
-        {
-            Unity.Logging.Log.To(m_NetDebugPacketLoggerHandle).Info(msg);
-        }
-    }
-}
 #endif
 
 namespace Unity.NetCode
@@ -217,17 +21,6 @@ namespace Unity.NetCode
     /// </summary>
     public struct EnablePacketLogging : IComponentData
     { }
-
-#if NETCODE_DEBUG
-    /// <summary>
-    /// The name of ghost prefab. Used for debugging purpose to pretty print ghost names. Available only once the
-    /// NETCODE_DEBUG define is set.
-    /// </summary>
-    public struct PrefabDebugName : IComponentData
-    {
-        public FixedString64Bytes Name;
-    }
-#endif
 
     /// <summary>
     /// Convert disconnection reason error code into human readable error messages.
@@ -305,29 +98,11 @@ namespace Unity.NetCode
         }
 
         private LogLevelType m_LogLevel;
+        internal NativeHashMap<int, FixedString128Bytes>.ReadOnly ComponentTypeNameLookup;
 
-#if NETCODE_DEBUG
-        internal NativeParallelHashMap<int, FixedString128Bytes>.ReadOnly ComponentTypeNameLookup;
-#endif
-
+#if USING_UNITY_LOGGING
         private LogLevel m_CurrentLogLevel;
         private LoggerHandle m_LoggerHandle;
-
-        private void SetLoggerLevel(LogLevelType newLevel)
-        {
-            m_CurrentLogLevel = newLevel switch
-            {
-                LogLevelType.Debug => Logging.LogLevel.Debug,
-                LogLevelType.Notify => Logging.LogLevel.Info,
-                LogLevelType.Warning => Logging.LogLevel.Warning,
-                LogLevelType.Error => Logging.LogLevel.Error,
-                LogLevelType.Exception => Logging.LogLevel.Fatal,
-                _ => throw new ArgumentOutOfRangeException()
-            };
-
-            var logger = GetOrCreateLogger();
-            logger.SetMinimalLogLevelAcrossAllSinks(m_CurrentLogLevel);
-        }
 
         private Logger GetOrCreateLogger()
         {
@@ -349,7 +124,24 @@ namespace Unity.NetCode
 
             return logger;
         }
+#endif
+        private void SetLoggerLevel(LogLevelType newLevel)
+        {
+#if USING_UNITY_LOGGING
+            m_CurrentLogLevel = newLevel switch
+            {
+                LogLevelType.Debug => Logging.LogLevel.Debug,
+                LogLevelType.Notify => Logging.LogLevel.Info,
+                LogLevelType.Warning => Logging.LogLevel.Warning,
+                LogLevelType.Error => Logging.LogLevel.Error,
+                LogLevelType.Exception => Logging.LogLevel.Fatal,
+                _ => throw new ArgumentOutOfRangeException()
+            };
 
+            var logger = GetOrCreateLogger();
+            logger.SetMinimalLogLevelAcrossAllSinks(m_CurrentLogLevel);
+#endif
+        }
         internal void Initialize()
         {
             MaxRpcAgeFrames = 4;
@@ -361,12 +153,14 @@ namespace Unity.NetCode
         /// </summary>
         public void Dispose()
         {
+#if USING_UNITY_LOGGING
             if (!m_LoggerHandle.IsValid)
                 return;
             var logger = LoggerManager.GetLogger(m_LoggerHandle);
             logger?.Dispose();
 
             m_LoggerHandle = default;
+#endif
         }
 
         /// <summary>
@@ -394,6 +188,7 @@ namespace Unity.NetCode
         /// <summary>
         /// The current debug logging level. Default value is <see cref="LogLevelType.Notify"/>.
         /// </summary>
+        [ExcludeFromBurstCompatTesting("may use managed objects")]
         public LogLevelType LogLevel
         {
             set
@@ -440,7 +235,12 @@ namespace Unity.NetCode
         /// <param name="msg">The ascii message string. Unicode are not supported</param>
         public readonly void DebugLog(in FixedString512Bytes msg)
         {
+#if USING_UNITY_LOGGING
             Unity.Logging.Log.To(m_LoggerHandle).Debug(msg);
+#else
+            if(m_LogLevel <= LogLevelType.Debug)
+                UnityEngine.Debug.Log(msg);
+#endif
         }
 
         /// <summary>
@@ -449,7 +249,12 @@ namespace Unity.NetCode
         /// <param name="msg">The ascii message string. Unicode are not supported</param>
         public readonly void Log(in FixedString512Bytes msg)
         {
+#if USING_UNITY_LOGGING
             Unity.Logging.Log.To(m_LoggerHandle).Info(msg);
+#else
+            if(m_LogLevel <= LogLevelType.Notify)
+                UnityEngine.Debug.Log(msg);
+#endif
         }
 
         /// <summary>
@@ -458,7 +263,12 @@ namespace Unity.NetCode
         /// <param name="msg">The ascii message string. Unicode are not supported</param>
         public readonly void LogWarning(in FixedString512Bytes msg)
         {
+#if USING_UNITY_LOGGING
             Unity.Logging.Log.To(m_LoggerHandle).Warning(msg);
+#else
+            if(m_LogLevel <= LogLevelType.Warning)
+                UnityEngine.Debug.LogWarning(msg);
+#endif
         }
 
         /// <summary>
@@ -467,7 +277,12 @@ namespace Unity.NetCode
         /// <param name="msg">The ascii message string. Unicode are not supported</param>
         public readonly void LogError(in FixedString512Bytes msg)
         {
+#if USING_UNITY_LOGGING
             Unity.Logging.Log.To(m_LoggerHandle).Error(msg);
+#else
+            if(m_LogLevel <= LogLevelType.Error)
+                UnityEngine.Debug.LogError(msg);
+#endif
         }
 
         /// <summary>

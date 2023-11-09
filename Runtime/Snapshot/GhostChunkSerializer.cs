@@ -589,7 +589,8 @@ namespace Unity.NetCode
                     if (GhostComponentCollection[serializerIdx].ComponentType.IsBuffer)
                     {
                         ComponentScopeBegin(serializerIdx);
-                        GhostComponentCollection[serializerIdx].PostSerializeBuffer.Ptr.Invoke((IntPtr)snapshot, snapshotOffset, snapshotSize, snapshotMaskOffsetInBits, endIndex - startIndex, (IntPtr)baselinesPerEntity, ref tempWriter, ref compressionModel, (IntPtr)(entityStartBit+2*entityOffset*comp), (IntPtr)snapshotDynamicDataPtr, (IntPtr)dynamicDataLenPerEntity, dynamicSnapshotDataCapacity + dynamicDataHeaderSize);
+                        GhostComponentCollection[serializerIdx].PostSerializeBuffer.Ptr.Invoke((IntPtr)snapshot, snapshotOffset, snapshotSize, snapshotMaskOffsetInBits,
+                            GhostComponentCollection[serializerIdx].ChangeMaskBits, endIndex - startIndex, (IntPtr)baselinesPerEntity, ref tempWriter, ref compressionModel, (IntPtr)(entityStartBit+2*entityOffset*comp), (IntPtr)snapshotDynamicDataPtr, (IntPtr)dynamicDataLenPerEntity, dynamicSnapshotDataCapacity + dynamicDataHeaderSize);
                         ComponentScopeEnd(serializerIdx);
 
                         snapshotOffset += GhostComponentSerializer.SnapshotSizeAligned(GhostSystemConstants.DynamicBufferComponentSnapshotSize);
@@ -654,18 +655,25 @@ namespace Unity.NetCode
                             }
                         }
                         ComponentScopeBegin(serializerIdx);
-                        GhostComponentCollection[serializerIdx].SerializeBuffer.Ptr.Invoke((IntPtr)UnsafeUtility.AddressOf(ref serializerState), (IntPtr)snapshot, snapshotOffset, snapshotSize, snapshotMaskOffsetInBits, (IntPtr)compData, (IntPtr)compDataLen, endIndex - startIndex, (IntPtr)baselinesPerEntity, ref tempWriter, ref compressionModel, (IntPtr)(entityStartBit+2*entityOffset*comp), (IntPtr)snapshotDynamicDataPtr, ref snapshotDynamicDataOffset, (IntPtr)dynamicDataLenPerEntity, dynamicSnapshotDataCapacity + dynamicDataHeaderSize);
+                        GhostComponentCollection[serializerIdx].SerializeBuffer.Ptr.Invoke((IntPtr)UnsafeUtility.AddressOf(ref serializerState), (IntPtr)snapshot, snapshotOffset, snapshotSize, snapshotMaskOffsetInBits,
+                            GhostComponentCollection[serializerIdx].ChangeMaskBits, (IntPtr)compData, (IntPtr)compDataLen, endIndex - startIndex, (IntPtr)baselinesPerEntity, ref tempWriter, ref compressionModel, (IntPtr)(entityStartBit+2*entityOffset*comp), (IntPtr)snapshotDynamicDataPtr, ref snapshotDynamicDataOffset, (IntPtr)dynamicDataLenPerEntity, dynamicSnapshotDataCapacity + dynamicDataHeaderSize);
                         ComponentScopeEnd(serializerIdx);
                         snapshotOffset += GhostComponentSerializer.SnapshotSizeAligned(GhostSystemConstants.DynamicBufferComponentSnapshotSize);
                         snapshotMaskOffsetInBits += GhostSystemConstants.DynamicBufferComponentMaskBits;
                     }
                     else
                     {
-                        byte* compData = null;
+                        byte** compData = tempComponentDataPerEntity;
                         if (GhostComponentCollection[serializerIdx].HasGhostFields && chunk.Has(ref ghostChunkComponentTypesPtr[compIdx]))
                         {
-                            compData = (byte*) chunk.GetDynamicComponentDataArrayReinterpret<byte>(ref ghostChunkComponentTypesPtr[compIdx], compSize).GetUnsafeReadOnlyPtr();
-                            compData += startIndex * compSize;
+                            var data = (byte*) chunk.GetDynamicComponentDataArrayReinterpret<byte>(ref ghostChunkComponentTypesPtr[compIdx], compSize).GetUnsafeReadOnlyPtr();
+                            for (int ent = startIndex; ent < endIndex; ++ent)
+                                compData[ent-startIndex] = data + ent * compSize;
+                        }
+                        else
+                        {
+                            for (int ent = startIndex; ent < endIndex; ++ent)
+                                compData[ent-startIndex] = null;
                         }
 
                         ComponentScopeBegin(serializerIdx);
@@ -715,7 +723,8 @@ namespace Unity.NetCode
                                 snapshotPtr += snapshotSize;
                             }
                             ComponentScopeBegin(serializerIdx);
-                            GhostComponentCollection[serializerIdx].SerializeBuffer.Ptr.Invoke((IntPtr)UnsafeUtility.AddressOf(ref serializerState), (IntPtr)snapshot, snapshotOffset, snapshotSize, snapshotMaskOffsetInBits, (IntPtr)compData, (IntPtr)compDataLen, endIndex - startIndex, (IntPtr)baselinesPerEntity, ref tempWriter, ref compressionModel, (IntPtr)(entityStartBit+2*entityOffset*comp), (IntPtr)snapshotDynamicDataPtr, ref snapshotDynamicDataOffset, (IntPtr)dynamicDataLenPerEntity, dynamicSnapshotDataCapacity + dynamicDataHeaderSize);
+                            GhostComponentCollection[serializerIdx].SerializeBuffer.Ptr.Invoke((IntPtr)UnsafeUtility.AddressOf(ref serializerState), (IntPtr)snapshot, snapshotOffset, snapshotSize, snapshotMaskOffsetInBits,
+                                GhostComponentCollection[serializerIdx].ChangeMaskBits, (IntPtr)compData, (IntPtr)compDataLen, endIndex - startIndex, (IntPtr)baselinesPerEntity, ref tempWriter, ref compressionModel, (IntPtr)(entityStartBit+2*entityOffset*comp), (IntPtr)snapshotDynamicDataPtr, ref snapshotDynamicDataOffset, (IntPtr)dynamicDataLenPerEntity, dynamicSnapshotDataCapacity + dynamicDataHeaderSize);
                             ComponentScopeEnd(serializerIdx);
                             snapshotOffset += GhostComponentSerializer.SnapshotSizeAligned(GhostSystemConstants.DynamicBufferComponentSnapshotSize);
                             snapshotMaskOffsetInBits += GhostSystemConstants.DynamicBufferComponentMaskBits;
@@ -904,41 +913,64 @@ namespace Unity.NetCode
                         serializeMask = isOwner ? GhostSendType.OnlyPredictedClients : GhostSendType.OnlyInterpolatedClients;
 
                     var curMaskOffsetInBits = 0;
-                    //FIXME: problem: what about the enable bits state here for that component if it is not meant to be
-                    //sent for this specific owner of component type?
-                    //we are not respecting the rule here. This probably require some changes that are too late for now
-                    //for 1.0.
+                    int curSnapshotDataOffset = GhostComponentSerializer.SnapshotSizeAligned(sizeof(uint) + (changeMaskUints * sizeof(uint)) + (enableableMaskUints * sizeof(uint)));
+
+                    // SIDE NOTE:
+                    // IF, we sort the component differently and we allow an order like
+                    // GhostOwner (always 0 or even always serialised, it is just 1 bit the by default instead of 2
+                    // All non optional components
+                    // All optimisable components (predicted-only)
+                    // All send-onwer masked components
+                    // All optimisable components (interpolated-only)
+                    // we may have a better mask order in general for both changemaks and enablemasks that would lead to better compression
+                    // (delta).
+                    // Also, as added benefith, it may give better opportunity for perf improvement as well, since we can perform certain
+                    // logic again on "per-range" of stuff.
                     for (int comp = 0; comp < typeData.NumComponents; ++comp)
                     {
                         int serializerIdx = GhostComponentIndex[typeData.FirstComponent + comp].SerializerIndex;
                         var changeBits = GhostComponentCollection[serializerIdx].ComponentType.IsBuffer
                             ? GhostSystemConstants.DynamicBufferComponentMaskBits
                             : GhostComponentCollection[serializerIdx].ChangeMaskBits;
+                        var componentSize = GhostComponentCollection[serializerIdx].ComponentType.IsBuffer
+                            ? GhostSystemConstants.DynamicBufferComponentSnapshotSize
+                            : GhostComponentCollection[serializerIdx].SnapshotSize;
+                        var hasGhostFields = GhostComponentCollection[serializerIdx].HasGhostFields;
+                        componentSize = GhostComponentSerializer.SnapshotSizeAligned(componentSize);
+                        //For the context: this is a very rarely used feature, only a bunch of component on some entity (usually the player)
+                        //may benefit from these. So it is fundamental to avoid slowing down the serialisation fast path with any of
+                        //these.
+                        //However, (and this is an opt for another PR) we are doing work for nothing in that case (that may be still faster because of SIMD
+                        //but I doubt in that case, because of the nature of DataStreamWriter and Huffman compression).
                         if ((serializeMask & GhostComponentIndex[typeData.FirstComponent + comp].SendMask) == 0 ||
                             (sendToOwner & GhostComponentCollection[serializerIdx].SendToOwner) == 0)
                         {
                             // This component should not be sent for this specific entity, clear the change mask and number of bits to prevent it from being sent
-                            var subMaskOffset = 0;
-                            var remainingChangeBits = changeBits;
-                            while (remainingChangeBits > 32)
-                            {
-                                GhostComponentSerializer.CopyToChangeMask((IntPtr)changeMasks, 0, curMaskOffsetInBits+subMaskOffset, 32);
-                                remainingChangeBits -=32;
-                                subMaskOffset += 32;
-
-                                // FIXME: We need to modify the test to ensure that the enableableMasks is a MIX of 1s and 0s,
-                                // otherwise this code could be broken (by removing the wrong 1) and we wont know.
-
-                                // FIXME: Cut out the enable bit from the enableBitMask here (32).
-                            }
-                            if (remainingChangeBits > 0)
-                                GhostComponentSerializer.CopyToChangeMask((IntPtr)changeMasks, 0, curMaskOffsetInBits+subMaskOffset, remainingChangeBits);
+                            GhostComponentSerializer.ResetChangeMask((IntPtr)changeMasks, curMaskOffsetInBits, changeBits);
                             entityStartBit[(entityOffset*comp + entOffset)*2+1] = 0;
-
-                            // FIXME: Cut out the enable bit from the enableBitMask here.
-
+                            //Resetting the enablemaks is not necessary here. The mask itself is not a change mask.
+                            //Furthermore, the gain (1 bit) in term of compression inside a uint mask is hard to predicy, probably not much if nothing at all.
+                            //Also, in term of delta compression (done later), because the default values of enable components is true, a better value would be to use
+                            //as default the ~0 mask instead. Or change the way they are encoded by actually xoring against the true value instead.
+                            if (!hasGhostFields)
+                                continue;
+                            //Ideally, here we need to reset the snapshot data to value of the predicted baseline. This will allow to then
+                            //resend the data (in case) using less bits. However, the longer the component is not sent, the highest is the
+                            //odd that the value is way different from this baseline anyway. That may not make then any sensible different
+                            //from using the default baseline instead.
+                            //The big advantage of the former is that it keep the value of the snapshot identical, that is "cleaner".
+                            //The client is already honour the fact he don't update the component anymore, so in that
+                            //sense the value of the snapshot data is irrelvant (even though it is nicer to keep the last value of it)
+                            //For sake of simplicity a reset to 0 is done here, and the same does the client when receive the component
+                            //data update. That complicate the receiving side a bit but the logic is a mirror of this one (and it is necessary to ensure consistency).
+                            var snapshotData = (uint*)(snapshot + curSnapshotDataOffset);
+                            for(int i=0;i<componentSize/4;++i)
+                                snapshotData[i] = 0;
+                            // FIXME: We need to modify the test to ensure that the enableableMasks is a MIX of 1s and 0s,
+                            // otherwise this code could be broken (by removing the wrong 1) and we wont know.
                             // TODO: buffers could also reduce the required dynamic buffer size to save some memory on clients
                         }
+                        curSnapshotDataOffset += componentSize;
                         curMaskOffsetInBits += changeBits;
                     }
                 }

@@ -41,8 +41,11 @@ namespace Unity.NetCode.Hybrid
         /// <inheritdoc/>
         void IEntitiesPlayerSettings.RegisterCustomDependency()
         {
-            var hash = GetHash();
-            AssetDatabase.RegisterCustomDependency(CustomDependency, hash);
+            if (!AssetDatabase.IsAssetImportWorkerProcess())
+            {
+                var hash = GetHash();
+                AssetDatabase.RegisterCustomDependency(CustomDependency, hash);
+            }
         }
         /// <inheritdoc/>
         public UnityEngine.Hash128 GetHash()
@@ -77,7 +80,12 @@ namespace Unity.NetCode.Hybrid
         {
             if (AssetDatabase.IsAssetImportWorkerProcess())
                 return;
-            ((IEntitiesPlayerSettings)this).RegisterCustomDependency();
+
+            if (!EditorApplication.isUpdating)
+            {
+                ((IEntitiesPlayerSettings) this).RegisterCustomDependency();
+            }
+
             Save(true);
             AssetDatabase.Refresh();
         }
@@ -85,7 +93,10 @@ namespace Unity.NetCode.Hybrid
 #if UNITY_2023_2_OR_NEWER
         private void OnEnable()
         {
-            ((IEntitiesPlayerSettings)this).RegisterCustomDependency();
+            if (!AssetDatabase.IsAssetImportWorkerProcess())
+            {
+                ((IEntitiesPlayerSettings)this).RegisterCustomDependency();
+            }
         }
 #endif
         private void OnDisable()

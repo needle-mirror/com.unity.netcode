@@ -48,6 +48,10 @@ namespace Unity.NetCode
                 // Validate owner ID in case all entities are being predicted, only inputs from local player should be collected
                 if (owner.NetworkId != ConnectionId)
                     continue;
+                //Why this work: because when the tick transition to new one, the GetDataAtTick will return the value for
+                //the previous tick. Thus this method is always guaranteed to increment (using the current counter for
+                //for the event) in respect to the previous tick, that is the requirement for having an always incrementing
+                //counter.
                 inputBuffer.GetDataAtTick(Tick, out var inputDataElement);
                 // Increment event count for current tick. There could be an event and then no event but on the same
                 // predicted/simulated tick, this will still be registered as an event (count > 0) instead of the later

@@ -205,13 +205,13 @@ namespace Unity.NetCode
                     }
 #endif
 
-                    bool hasSnapshot = ghostSnapshotData.GetDataAtTick(targetTick, typeData.PredictionOwnerOffset, targetTickFraction, snapshotDataBuffer, out var data, MaxExtrapolationTicks);
+                    bool hasSnapshot = ghostSnapshotData.GetDataAtTick(targetTick, typeData.PredictionOwnerOffset, ghostOwnerId, targetTickFraction, snapshotDataBuffer, out var data, MaxExtrapolationTicks);
                     if (!hasSnapshot)
                     {
                         // If there is no snapshot before our target tick, try to get the oldest tick we do have and use that
                         // This deals better with ticks moving backwards and clamps ghosts at the oldest state we do have data for
                         var oldestSnapshot = ghostSnapshotData.GetOldestTick(snapshotDataBuffer);
-                        hasSnapshot = (oldestSnapshot.IsValid && ghostSnapshotData.GetDataAtTick(oldestSnapshot, typeData.PredictionOwnerOffset, 1, snapshotDataBuffer, out data, MaxExtrapolationTicks));
+                        hasSnapshot = (oldestSnapshot.IsValid && ghostSnapshotData.GetDataAtTick(oldestSnapshot, typeData.PredictionOwnerOffset, ghostOwnerId, 1, snapshotDataBuffer, out data, MaxExtrapolationTicks));
                     }
 
                     if (hasSnapshot)
@@ -349,6 +349,11 @@ namespace Unity.NetCode
                     if (!chunk.Has(ref ghostChunkComponentTypesPtr[compIdx]) || (GhostComponentIndex[typeData.FirstComponent + comp].SendMask&requiredSendMask) == 0)
                     {
                         snapshotDataOffset += snapshotSize;
+                        if (typeData.EnableableBits > 0 && ghostSerializer.SerializesEnabledBit != 0)
+                        {
+                            ++enableableMaskOffset;
+                            ValidateReadEnableBits(enableableMaskOffset, typeData.EnableableBits);
+                        }
                         continue;
                     }
 
@@ -403,7 +408,8 @@ namespace Unity.NetCode
                                 var range = entityRange[rangeIdx];
                                 var dataAtTickPtr = (SnapshotData.DataAtTick*)dataAtTick.GetUnsafeReadOnlyPtr();
                                 dataAtTickPtr += range.x;
-                                UpdateEnableableMask(chunk, dataAtTickPtr, changeMaskUints, enableableMaskOffset, range, ghostChunkComponentTypesPtr, compIdx, ref componentHasChanges);
+                                UpdateEnableableMask(chunk, dataAtTickPtr, ghostSerializer.SendToOwner,
+                                    changeMaskUints, enableableMaskOffset, range, ghostChunkComponentTypesPtr, compIdx, ref componentHasChanges);
                             }
                             ++enableableMaskOffset;
                             ValidateReadEnableBits(enableableMaskOffset, typeData.EnableableBits);
@@ -423,14 +429,8 @@ namespace Unity.NetCode
                             {
                                 //Compute the required owner mask for the buffers and skip the copyfromsnapshot. The check must be done
                                 //for each entity.
-                                if (dataAtTick[ent].GhostOwner > 0)
-                                {
-                                    var requiredOwnerMask = dataAtTick[ent].GhostOwner == deserializerState.GhostOwner
-                                        ? SendToOwnerType.SendToOwner
-                                        : SendToOwnerType.SendToNonOwner;
-                                    if ((ghostSerializer.SendToOwner & requiredOwnerMask) == 0)
-                                        continue;
-                                }
+                                if((ghostSerializer.SendToOwner & dataAtTick[ent].RequiredOwnerSendMask) == 0)
+                                    continue;
 
                                 var dynamicDataBuffer = ghostSnapshotDynamicBufferArray[ent];
                                 var dynamicDataAtTick = SetupDynamicDataAtTick(dataAtTick[ent], snapshotDataOffset, dynamicDataSize, maskBits, dynamicDataBuffer, out var bufLen);
@@ -481,7 +481,9 @@ namespace Unity.NetCode
                             var dataAtTickPtr = (SnapshotData.DataAtTick*)dataAtTick.GetUnsafeReadOnlyPtr();
                             dataAtTickPtr += range.x;
                             if (typeData.EnableableBits > 0 && ghostSerializer.SerializesEnabledBit != 0)
-                                UpdateEnableableMask(chunk, dataAtTickPtr, changeMaskUints, enableableMaskOffset, range, ghostChunkComponentTypesPtr, compIdx, ref componentHasChanges);
+                                UpdateEnableableMask(chunk, dataAtTickPtr,
+                                    ghostSerializer.SendToOwner,
+                                    changeMaskUints, enableableMaskOffset, range, ghostChunkComponentTypesPtr, compIdx, ref componentHasChanges);
                         }
 
                         if (typeData.EnableableBits > 0 && ghostSerializer.SerializesEnabledBit != 0)
@@ -512,6 +514,11 @@ namespace Unity.NetCode
                         if ((GhostComponentIndex[typeData.FirstComponent + comp].SendMask & requiredSendMask) == 0)
                         {
                             snapshotDataOffset += snapshotSize;
+                            if (typeData.EnableableBits > 0 && ghostSerializer.SerializesEnabledBit != 0)
+                            {
+                                ++enableableMaskOffset;
+                                ValidateReadEnableBits(enableableMaskOffset, typeData.EnableableBits);
+                            }
                             continue;
                         }
 
@@ -564,7 +571,8 @@ namespace Unity.NetCode
                                     {
                                         var childRange = new int2 { x = childChunk.IndexInChunk, y = childChunk.IndexInChunk + 1 };
                                         var unused = false;
-                                        UpdateEnableableMask(childChunk.Chunk, dataAtTickPtr, changeMaskUints, enableableMaskOffset, childRange, ghostChunkComponentTypesPtr, compIdx, ref unused);
+                                        UpdateEnableableMask(childChunk.Chunk, dataAtTickPtr, ghostSerializer.SendToOwner,
+                                            changeMaskUints, enableableMaskOffset, childRange, ghostChunkComponentTypesPtr, compIdx, ref unused);
                                     }
                                 }
                             }
@@ -595,14 +603,8 @@ namespace Unity.NetCode
                                         continue;
 
                                     //Compute the required owner mask for the buffers and skip the copyfromsnapshot. The check must be done
-                                    if (dataAtTick[rootEntity].GhostOwner > 0)
-                                    {
-                                        var requiredOwnerMask = dataAtTick[rootEntity].GhostOwner == deserializerState.GhostOwner
-                                            ? SendToOwnerType.SendToOwner
-                                            : SendToOwnerType.SendToNonOwner;
-                                        if ((deserializerState.SendToOwner & requiredOwnerMask) == 0)
-                                            continue;
-                                    }
+                                    if((ghostSerializer.SendToOwner & dataAtTick[rootEntity].RequiredOwnerSendMask) == 0)
+                                        continue;
 
                                     var roDynamicComponentTypeHandle = ghostChunkComponentTypesPtr[compIdx].CopyToReadOnly();
                                     var roBufferAccessor = childChunk.Chunk.GetUntypedBufferAccessor(ref roDynamicComponentTypeHandle);
@@ -652,7 +654,9 @@ namespace Unity.NetCode
 
                                         var childRange = new int2 {x = childChunk.IndexInChunk, y = childChunk.IndexInChunk + 1};
                                         var unused = false;
-                                        UpdateEnableableMask(childChunk.Chunk, dataAtTickPtr, changeMaskUints, maskOffset, childRange, ghostChunkComponentTypesPtr, compIdx, ref unused);
+                                        UpdateEnableableMask(childChunk.Chunk, dataAtTickPtr,
+                                            ghostSerializer.SendToOwner,
+                                            changeMaskUints, maskOffset, childRange, ghostChunkComponentTypesPtr, compIdx, ref unused);
                                     }
                                 }
                             }
@@ -683,20 +687,21 @@ namespace Unity.NetCode
 
             // TODO - We can perform this logic faster using the EnabledMask.
             private static void UpdateEnableableMask(ArchetypeChunk chunk, SnapshotData.DataAtTick* dataAtTickPtr,
+                SendToOwnerType ownerSendMask,
                 int changeMaskUints, int enableableMaskOffset, int2 range,
                 DynamicComponentTypeHandle* ghostChunkComponentTypesPtr, int compIdx, ref bool componentHasChanges)
             {
                 var uintOffset = enableableMaskOffset >> 5;
                 var maskOffset = enableableMaskOffset & 0x1f;
 
-                for (int i = range.x; i < range.y; ++i)
+                for (int i = range.x; i < range.y; ++i, ++dataAtTickPtr)
                 {
                     var snapshotDataPtr = (byte*)dataAtTickPtr->SnapshotBefore;
                     uint* enableableMasks = (uint*)(snapshotDataPtr + sizeof(uint) + changeMaskUints * sizeof(uint));
                     enableableMasks += uintOffset;
-
+                    if ((dataAtTickPtr->RequiredOwnerSendMask & ownerSendMask) == 0)
+                        continue;
                     var isSet = ((*enableableMasks) & (1U << maskOffset)) != 0;
-
                     k_ChangeFiltering.Begin();
                     if (isSet != chunk.IsComponentEnabled(ref ghostChunkComponentTypesPtr[compIdx], i))
                     {
@@ -705,8 +710,6 @@ namespace Unity.NetCode
                         chunk.SetComponentEnabled(ref ghostChunkComponentTypesPtr[compIdx], i, isSet);
                     }
                     else k_ChangeFiltering.End();
-
-                    dataAtTickPtr++;
                 }
             }
 

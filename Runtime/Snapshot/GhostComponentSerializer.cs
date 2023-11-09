@@ -60,7 +60,7 @@ namespace Unity.NetCode.LowLevel.Unsafe
         /// Delegate method to use to post-serialize buffers when the ghost use pre-serialization optimization.
         /// </summary>
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
-        public delegate void PostSerializeBufferDelegate(IntPtr snapshotData, int snapshotOffset, int snapshotStride, int maskOffsetInBits, int count, IntPtr baselines, ref DataStreamWriter writer, ref StreamCompressionModel compressionModel, IntPtr entityStartBit, IntPtr snapshotDynamicDataPtr, IntPtr dynamicSizePerEntity, int dynamicSnapshotMaxOffset);
+        public delegate void PostSerializeBufferDelegate(IntPtr snapshotData, int snapshotOffset, int snapshotStride, int maskOffsetInBits, int changeMaskBits, int count, IntPtr baselines, ref DataStreamWriter writer, ref StreamCompressionModel compressionModel, IntPtr entityStartBit, IntPtr snapshotDynamicDataPtr, IntPtr dynamicSizePerEntity, int dynamicSnapshotMaxOffset);
         /// <summary>
         /// Delegate method used to serialize the component data for the root entity into the outgoing data stream.
         /// Works in batches.
@@ -78,7 +78,7 @@ namespace Unity.NetCode.LowLevel.Unsafe
         /// Works in batches.
         /// </summary>
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
-        public delegate void SerializeBufferDelegate(IntPtr stateData, IntPtr snapshotData, int snapshotOffset, int snapshotStride, int maskOffsetInBits, IntPtr componentData, IntPtr componentDataLen, int count, IntPtr baselines, ref DataStreamWriter writer, ref StreamCompressionModel compressionModel, IntPtr entityStartBit, IntPtr snapshotDynamicDataPtr, ref int snapshotDynamicDataOffset, IntPtr dynamicSizePerEntity, int dynamicSnapshotMaxOffset);
+        public delegate void SerializeBufferDelegate(IntPtr stateData, IntPtr snapshotData, int snapshotOffset, int snapshotStride, int maskOffsetInBits, int changeMaskBits, IntPtr componentData, IntPtr componentDataLen, int count, IntPtr baselines, ref DataStreamWriter writer, ref StreamCompressionModel compressionModel, IntPtr entityStartBit, IntPtr snapshotDynamicDataPtr, ref int snapshotDynamicDataOffset, IntPtr dynamicSizePerEntity, int dynamicSnapshotMaxOffset);
         /// <summary>
         /// Delegate method used to transfer the component data to/from the snapshot buffer.
         /// </summary>
@@ -282,6 +282,17 @@ namespace Unity.NetCode.LowLevel.Unsafe
             return ref UnsafeUtility.AsRef<T>((byte*)value+offset);
         }
         /// <summary>
+        /// Helper method to get a reference to a struct data from its address in memory.
+        /// </summary>
+        /// <param name="value"></param>
+        /// <param name="offset"></param>
+        /// <typeparam name="T"></typeparam>
+        /// <returns></returns>
+        public static ref readonly T TypeCastReadonly<T>(IntPtr value, int offset = 0) where T: struct
+        {
+            return ref UnsafeUtility.AsRef<T>((byte*)value+offset);
+        }
+        /// <summary>
         /// Return a pointer to the memory address for the given <paramref name="value"/> instance.
         /// </summary>
         /// <param name="value"></param>
@@ -302,6 +313,10 @@ namespace Unity.NetCode.LowLevel.Unsafe
         /// <param name="numBits"></param>
         public static void CopyToChangeMask(IntPtr bitData, uint src, int offset, int numBits)
         {
+            Assertions.Assert.IsTrue(offset >= 0);
+            Assertions.Assert.IsTrue(numBits >= 0);
+            Assertions.Assert.IsTrue(numBits <= 32);
+            //Expect the src[31:numBits] to be equals to 0.
             var bits = (uint*)bitData;
             int idx = offset >> 5;
             int bitIdx = offset & 0x1f;
@@ -319,9 +334,63 @@ namespace Unity.NetCode.LowLevel.Unsafe
                 bits[idx+1] |= src >> usedBits;
             }
         }
+
+        /// <summary>
+        /// For internal use only, reset the <paramref name="bitData"/> bitmask bits from the given <paramref name="offset"/>
+        /// and for the required number of bits.
+        /// </summary>
+        /// <param name="bitData"></param>
+        /// <param name="offset"></param>
+        /// <param name="numBits"></param>
+        static internal void ResetChangeMask(IntPtr bitData, int offset, int numBits)
+        {
+            Assertions.Assert.IsTrue(offset >= 0);
+            Assertions.Assert.IsTrue(numBits >= 0);
+            var bits = (uint*)bitData;
+            int idx = offset >> 5;
+            int bitIdx = offset & 0x1f;
+            var remainingBits = 32 - bitIdx;
+            //If the bits fit in the current int mask out the region to 0
+            if (numBits < remainingBits)
+            {
+                bits[idx] &= (uint)(((1UL << bitIdx)-1) | ~((1UL << (bitIdx+numBits))-1));
+            }
+            else
+            {
+                //reset up to the next 32-offset bits to 0 (align to the next work)
+                bits[idx] &= (uint)(((1UL << bitIdx)-1));
+                numBits -= remainingBits;
+                //fill to 0 all mask words
+                while (numBits > 32)
+                {
+                    bits[++idx] = 0;
+                    numBits -=32;
+                }
+                //clear the remaining bits in the next change mask uint (starting from offset 0)
+                if (numBits > 0)
+                {
+                    bits[++idx] &= ~((1u << numBits)-1);
+                }
+            }
+        }
+
+        /// <summary>
+        /// For internal use only, reset one bit in the bitmask array at the given <param name="offset"></param>
+        /// </summary>
+        /// <param name="bitData"></param>
+        /// <param name="offset"></param>
+        static internal void ResetChangeMaskBit(IntPtr bitData, int offset)
+        {
+            Assertions.Assert.IsTrue(offset >= 0);
+            var bits = (uint*)bitData;
+            int idx = offset >> 5;
+            int bitIdx = offset & 0x1f;
+            bits[idx] &= ~(1U << bitIdx);
+        }
+
         /// <summary>
         /// Extract from the source buffer an unsigned integer, representing a portion of a bitmask
-        /// starting from the given offset and number of bits.
+        /// starting from the given offset and number of bits (up to 32 bits max).
         /// </summary>
         /// <param name="bitData"></param>
         /// <param name="offset"></param>
@@ -329,6 +398,8 @@ namespace Unity.NetCode.LowLevel.Unsafe
         /// <returns></returns>
         public static uint CopyFromChangeMask(IntPtr bitData, int offset, int numBits)
         {
+            Assertions.Assert.IsTrue(offset >= 0);
+            Assertions.Assert.IsTrue(numBits >= 0);
             var bits = (uint*)bitData;
             int idx = offset >> 5;
             int bitIdx = offset & 0x1f;

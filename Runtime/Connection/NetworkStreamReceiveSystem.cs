@@ -22,6 +22,7 @@ namespace Unity.NetCode
         WorldSystemFilterFlags.ClientSimulation | WorldSystemFilterFlags.ServerSimulation)]
     [UpdateInGroup(typeof(SimulationSystemGroup), OrderFirst = true)]
     [UpdateAfter(typeof(BeginSimulationEntityCommandBufferSystem))]
+    [UpdateBefore(typeof(GhostSimulationSystemGroup))]
     public partial class NetworkReceiveSystemGroup : ComponentSystemGroup
     {
     }
@@ -231,7 +232,6 @@ namespace Unity.NetCode
     /// </summary>
     [WorldSystemFilter(WorldSystemFilterFlags.ClientSimulation | WorldSystemFilterFlags.ServerSimulation | WorldSystemFilterFlags.ThinClientSimulation)]
     [UpdateInGroup(typeof(NetworkReceiveSystemGroup))]
-    [CreateAfter(typeof(NetDebugSystem))]
     [CreateAfter(typeof(RpcSystem))]
     [BurstCompile]
     public unsafe partial struct NetworkStreamReceiveSystem : ISystem

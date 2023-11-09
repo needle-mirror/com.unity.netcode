@@ -152,7 +152,7 @@ namespace Unity.NetCode
         public static World CreateThinClientWorld()
         {
 #if UNITY_SERVER && !UNITY_EDITOR
-            throw new NotImplementedException();
+            throw new PlatformNotSupportedException("This executable was built using a 'server-only' build target (likely DGS). Thus, cannot create thin client worlds.");
 #else
             var world = new World("ThinClientWorld" + NextThinClientId++, WorldFlags.GameThinClient);
 
@@ -175,7 +175,7 @@ namespace Unity.NetCode
         public static World CreateClientWorld(string name)
         {
 #if UNITY_SERVER && !UNITY_EDITOR
-            throw new NotImplementedException();
+            throw new PlatformNotSupportedException("This executable was built using a 'server-only' build target (likely DGS). Thus, cannot create client worlds.");
 #else
             var world = new World(name, WorldFlags.GameClient);
 
@@ -263,7 +263,7 @@ namespace Unity.NetCode
         public static World CreateServerWorld(string name)
         {
 #if UNITY_CLIENT && !UNITY_SERVER && !UNITY_EDITOR
-            throw new NotImplementedException();
+            throw new PlatformNotSupportedException("This executable was built using a 'client-only' build target. Thus, cannot create a server world. In your ProjectSettings, change your 'Client Build Target' to `ClientAndServer` to support creating client-hosted servers.");
 #else
 
             var world = new World(name, WorldFlags.GameServer);

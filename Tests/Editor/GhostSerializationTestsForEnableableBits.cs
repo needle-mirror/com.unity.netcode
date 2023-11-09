@@ -755,15 +755,14 @@ namespace Unity.NetCode.Tests
                     SetComponentValues<ComponentWithNonReplicatedVariant>(value, enabled);
                     SetComponentEnabled<NeverReplicatedEnableableFlagComponent>(enabled);
 
-                    // FIXME: GhostComponentAttribute coverage, tests disabled due to GhostCHunkSerializer issue.
-                    // SetComponentValues<SendForChildren_OnlyPredictedGhosts_SendToOwner_EnableableComponent>(value, enabled);
-                    // SetComponentValues<SendForChildren_OnlyInterpolatedGhosts_SendToOwner_EnableableComponent>(value, enabled);
-                    // SetComponentValues<SendForChildren_OnlyPredictedGhosts_SendToNonOwner_EnableableComponent>(value, enabled);
-                    // SetComponentValues<SendForChildren_OnlyInterpolatedGhosts_SendToNonOwner_EnableableComponent>(value, enabled);
-                    // SetComponentValues<DontSendForChildren_OnlyPredictedGhosts_SendToOwner_EnableableComponent>(value, enabled);
-                    // SetComponentValues<DontSendForChildren_OnlyInterpolatedGhosts_SendToOwner_EnableableComponent>(value, enabled);
-                    // SetComponentValues<DontSendForChildren_OnlyPredictedGhosts_SendToNonOwner_EnableableComponent>(value, enabled);
-                    // SetComponentValues<DontSendForChildren_OnlyInterpolatedGhosts_SendToNonOwner_EnableableComponent>(value, enabled);
+                    SetComponentValues<SendForChildren_OnlyPredictedGhosts_SendToOwner_EnableableComponent>(value, enabled);
+                    SetComponentValues<SendForChildren_OnlyInterpolatedGhosts_SendToOwner_EnableableComponent>(value, enabled);
+                    SetComponentValues<SendForChildren_OnlyPredictedGhosts_SendToNonOwner_EnableableComponent>(value, enabled);
+                    SetComponentValues<SendForChildren_OnlyInterpolatedGhosts_SendToNonOwner_EnableableComponent>(value, enabled);
+                    SetComponentValues<DontSendForChildren_OnlyPredictedGhosts_SendToOwner_EnableableComponent>(value, enabled);
+                    SetComponentValues<DontSendForChildren_OnlyInterpolatedGhosts_SendToOwner_EnableableComponent>(value, enabled);
+                    SetComponentValues<DontSendForChildren_OnlyPredictedGhosts_SendToNonOwner_EnableableComponent>(value, enabled);
+                    SetComponentValues<DontSendForChildren_OnlyInterpolatedGhosts_SendToNonOwner_EnableableComponent>(value, enabled);
                     break;
                 case GhostTypeConverter.GhostTypes.MultipleEnableableComponent:
                     SetComponentValues<EnableableComponent_0>(value, enabled);
@@ -849,15 +848,14 @@ namespace Unity.NetCode.Tests
                     SetLinkedComponentValues<ComponentWithNonReplicatedVariant>(value, enabled);
                     SetLinkedComponentEnabled<NeverReplicatedEnableableFlagComponent>(enabled);
 
-                    // FIXME: GhostComponentAttribute coverage, tests disabled due to GhostCHunkSerializer issue.
-                    // SetLinkedComponentValues<SendForChildren_OnlyPredictedGhosts_SendToOwner_EnableableComponent>(value, enabled);
-                    // SetLinkedComponentValues<SendForChildren_OnlyInterpolatedGhosts_SendToOwner_EnableableComponent>(value, enabled);
-                    // SetLinkedComponentValues<SendForChildren_OnlyPredictedGhosts_SendToNonOwner_EnableableComponent>(value, enabled);
-                    // SetLinkedComponentValues<SendForChildren_OnlyInterpolatedGhosts_SendToNonOwner_EnableableComponent>(value, enabled);
-                    // SetLinkedComponentValues<DontSendForChildren_OnlyPredictedGhosts_SendToOwner_EnableableComponent>(value, enabled);
-                    // SetLinkedComponentValues<DontSendForChildren_OnlyInterpolatedGhosts_SendToOwner_EnableableComponent>(value, enabled);
-                    // SetLinkedComponentValues<DontSendForChildren_OnlyPredictedGhosts_SendToNonOwner_EnableableComponent>(value, enabled);
-                    // SetLinkedComponentValues<DontSendForChildren_OnlyInterpolatedGhosts_SendToNonOwner_EnableableComponent>(value, enabled);
+                    SetLinkedComponentValues<SendForChildren_OnlyPredictedGhosts_SendToOwner_EnableableComponent>(value, enabled);
+                    SetLinkedComponentValues<SendForChildren_OnlyInterpolatedGhosts_SendToOwner_EnableableComponent>(value, enabled);
+                    SetLinkedComponentValues<SendForChildren_OnlyPredictedGhosts_SendToNonOwner_EnableableComponent>(value, enabled);
+                    SetLinkedComponentValues<SendForChildren_OnlyInterpolatedGhosts_SendToNonOwner_EnableableComponent>(value, enabled);
+                    SetLinkedComponentValues<DontSendForChildren_OnlyPredictedGhosts_SendToOwner_EnableableComponent>(value, enabled);
+                    SetLinkedComponentValues<DontSendForChildren_OnlyInterpolatedGhosts_SendToOwner_EnableableComponent>(value, enabled);
+                    SetLinkedComponentValues<DontSendForChildren_OnlyPredictedGhosts_SendToNonOwner_EnableableComponent>(value, enabled);
+                    SetLinkedComponentValues<DontSendForChildren_OnlyInterpolatedGhosts_SendToNonOwner_EnableableComponent>(value, enabled);
 
                     SetLinkedComponentEnabledOnlyOnChildren<ChildOnlyComponent_1>(enabled);
                     SetLinkedComponentEnabledOnlyOnChildren<ChildOnlyComponent_2>(enabled);
@@ -878,15 +876,14 @@ namespace Unity.NetCode.Tests
                     SetGhostGroupValues<ComponentWithNonReplicatedVariant>(value, enabled);
                     SetGhostGroupEnabled<NeverReplicatedEnableableFlagComponent>(enabled);
 
-                    // FIXME: GhostComponentAttribute coverage, tests disabled due to GhostCHunkSerializer issue.
-                    // SetGhostGroupValues<SendForChildren_OnlyPredictedGhosts_SendToOwner_EnableableComponent>(value, enabled);
-                    // SetGhostGroupValues<SendForChildren_OnlyInterpolatedGhosts_SendToOwner_EnableableComponent>(value, enabled);
-                    // SetGhostGroupValues<SendForChildren_OnlyPredictedGhosts_SendToNonOwner_EnableableComponent>(value, enabled);
-                    // SetGhostGroupValues<SendForChildren_OnlyInterpolatedGhosts_SendToNonOwner_EnableableComponent>(value, enabled);
-                    // SetGhostGroupValues<DontSendForChildren_OnlyPredictedGhosts_SendToOwner_EnableableComponent>(value, enabled);
-                    // SetGhostGroupValues<DontSendForChildren_OnlyInterpolatedGhosts_SendToOwner_EnableableComponent>(value, enabled);
-                    // SetGhostGroupValues<DontSendForChildren_OnlyPredictedGhosts_SendToNonOwner_EnableableComponent>(value, enabled);
-                    // SetGhostGroupValues<DontSendForChildren_OnlyInterpolatedGhosts_SendToNonOwner_EnableableComponent>(value, enabled);
+                    SetGhostGroupValues<SendForChildren_OnlyPredictedGhosts_SendToOwner_EnableableComponent>(value, enabled);
+                    SetGhostGroupValues<SendForChildren_OnlyInterpolatedGhosts_SendToOwner_EnableableComponent>(value, enabled);
+                    SetGhostGroupValues<SendForChildren_OnlyPredictedGhosts_SendToNonOwner_EnableableComponent>(value, enabled);
+                    SetGhostGroupValues<SendForChildren_OnlyInterpolatedGhosts_SendToNonOwner_EnableableComponent>(value, enabled);
+                    SetGhostGroupValues<DontSendForChildren_OnlyPredictedGhosts_SendToOwner_EnableableComponent>(value, enabled);
+                    SetGhostGroupValues<DontSendForChildren_OnlyInterpolatedGhosts_SendToOwner_EnableableComponent>(value, enabled);
+                    SetGhostGroupValues<DontSendForChildren_OnlyPredictedGhosts_SendToNonOwner_EnableableComponent>(value, enabled);
+                    SetGhostGroupValues<DontSendForChildren_OnlyInterpolatedGhosts_SendToNonOwner_EnableableComponent>(value, enabled);
                     break;
                 default:
                     Assert.True(true);
@@ -913,15 +910,14 @@ namespace Unity.NetCode.Tests
                     VerifyComponentValues<ComponentWithNonReplicatedVariant>();
                     VerifyFlagComponentEnabledBit<NeverReplicatedEnableableFlagComponent>();
 
-                    // FIXME: GhostComponentAttribute coverage, tests disabled due to GhostCHunkSerializer issue.
-                    // VerifyComponentValues<SendForChildren_OnlyPredictedGhosts_SendToOwner_EnableableComponent>();
-                    // VerifyComponentValues<SendForChildren_OnlyInterpolatedGhosts_SendToOwner_EnableableComponent>();
-                    // VerifyComponentValues<SendForChildren_OnlyPredictedGhosts_SendToNonOwner_EnableableComponent>();
-                    // VerifyComponentValues<SendForChildren_OnlyInterpolatedGhosts_SendToNonOwner_EnableableComponent>();
-                    // VerifyComponentValues<DontSendForChildren_OnlyPredictedGhosts_SendToOwner_EnableableComponent>();
-                    // VerifyComponentValues<DontSendForChildren_OnlyInterpolatedGhosts_SendToOwner_EnableableComponent>();
-                    // VerifyComponentValues<DontSendForChildren_OnlyPredictedGhosts_SendToNonOwner_EnableableComponent>();
-                    // VerifyComponentValues<DontSendForChildren_OnlyInterpolatedGhosts_SendToNonOwner_EnableableComponent>();
+                    VerifyComponentValues<SendForChildren_OnlyPredictedGhosts_SendToOwner_EnableableComponent>();
+                    VerifyComponentValues<SendForChildren_OnlyInterpolatedGhosts_SendToOwner_EnableableComponent>();
+                    VerifyComponentValues<SendForChildren_OnlyPredictedGhosts_SendToNonOwner_EnableableComponent>();
+                    VerifyComponentValues<SendForChildren_OnlyInterpolatedGhosts_SendToNonOwner_EnableableComponent>();
+                    VerifyComponentValues<DontSendForChildren_OnlyPredictedGhosts_SendToOwner_EnableableComponent>();
+                    VerifyComponentValues<DontSendForChildren_OnlyInterpolatedGhosts_SendToOwner_EnableableComponent>();
+                    VerifyComponentValues<DontSendForChildren_OnlyPredictedGhosts_SendToNonOwner_EnableableComponent>();
+                    VerifyComponentValues<DontSendForChildren_OnlyInterpolatedGhosts_SendToNonOwner_EnableableComponent>();
                     break;
                 case GhostTypeConverter.GhostTypes.MultipleEnableableComponent:
                     VerifyComponentValues<EnableableComponent_1>();
@@ -1008,15 +1004,14 @@ namespace Unity.NetCode.Tests
                     VerifyLinkedComponentValues<ComponentWithDontSendChildrenVariant>();
                     VerifyLinkedComponentEnabled<NeverReplicatedEnableableFlagComponent>();
 
-                    // FIXME: GhostComponentAttribute coverage, tests disabled due to GhostCHunkSerializer issue.
-                    // VerifyLinkedComponentValues<SendForChildren_OnlyPredictedGhosts_SendToOwner_EnableableComponent>();
-                    // VerifyLinkedComponentValues<SendForChildren_OnlyInterpolatedGhosts_SendToOwner_EnableableComponent>();
-                    // VerifyLinkedComponentValues<SendForChildren_OnlyPredictedGhosts_SendToNonOwner_EnableableComponent>();
-                    // VerifyLinkedComponentValues<SendForChildren_OnlyInterpolatedGhosts_SendToNonOwner_EnableableComponent>();
-                    // VerifyLinkedComponentValues<DontSendForChildren_OnlyPredictedGhosts_SendToOwner_EnableableComponent>();
-                    // VerifyLinkedComponentValues<DontSendForChildren_OnlyInterpolatedGhosts_SendToOwner_EnableableComponent>();
-                    // VerifyLinkedComponentValues<DontSendForChildren_OnlyPredictedGhosts_SendToNonOwner_EnableableComponent>();
-                    // VerifyLinkedComponentValues<DontSendForChildren_OnlyInterpolatedGhosts_SendToNonOwner_EnableableComponent>();
+                    VerifyLinkedComponentValues<SendForChildren_OnlyPredictedGhosts_SendToOwner_EnableableComponent>();
+                    VerifyLinkedComponentValues<SendForChildren_OnlyInterpolatedGhosts_SendToOwner_EnableableComponent>();
+                    VerifyLinkedComponentValues<SendForChildren_OnlyPredictedGhosts_SendToNonOwner_EnableableComponent>();
+                    VerifyLinkedComponentValues<SendForChildren_OnlyInterpolatedGhosts_SendToNonOwner_EnableableComponent>();
+                    VerifyLinkedComponentValues<DontSendForChildren_OnlyPredictedGhosts_SendToOwner_EnableableComponent>();
+                    VerifyLinkedComponentValues<DontSendForChildren_OnlyInterpolatedGhosts_SendToOwner_EnableableComponent>();
+                    VerifyLinkedComponentValues<DontSendForChildren_OnlyPredictedGhosts_SendToNonOwner_EnableableComponent>();
+                    VerifyLinkedComponentValues<DontSendForChildren_OnlyInterpolatedGhosts_SendToNonOwner_EnableableComponent>();
 
                     VerifyLinkedComponentEnabledOnChild<ChildOnlyComponent_1>();
                     VerifyLinkedComponentEnabledOnChild<ChildOnlyComponent_2>();
@@ -1038,15 +1033,14 @@ namespace Unity.NetCode.Tests
                     VerifyGhostGroupValues<ComponentWithNonReplicatedVariant>();
                     VerifyGhostGroupEnabledBits<NeverReplicatedEnableableFlagComponent>();
 
-                    // FIXME: GhostComponentAttribute coverage, tests disabled due to GhostCHunkSerializer issue.
-                    // VerifyGhostGroupValues<SendForChildren_OnlyPredictedGhosts_SendToOwner_EnableableComponent>();
-                    // VerifyGhostGroupValues<SendForChildren_OnlyInterpolatedGhosts_SendToOwner_EnableableComponent>();
-                    // VerifyGhostGroupValues<SendForChildren_OnlyPredictedGhosts_SendToNonOwner_EnableableComponent>();
-                    // VerifyGhostGroupValues<SendForChildren_OnlyInterpolatedGhosts_SendToNonOwner_EnableableComponent>();
-                    // VerifyGhostGroupValues<DontSendForChildren_OnlyPredictedGhosts_SendToOwner_EnableableComponent>();
-                    // VerifyGhostGroupValues<DontSendForChildren_OnlyInterpolatedGhosts_SendToOwner_EnableableComponent>();
-                    // VerifyGhostGroupValues<DontSendForChildren_OnlyPredictedGhosts_SendToNonOwner_EnableableComponent>();
-                    // VerifyGhostGroupValues<DontSendForChildren_OnlyInterpolatedGhosts_SendToNonOwner_EnableableComponent>();
+                    VerifyGhostGroupValues<SendForChildren_OnlyPredictedGhosts_SendToOwner_EnableableComponent>();
+                    VerifyGhostGroupValues<SendForChildren_OnlyInterpolatedGhosts_SendToOwner_EnableableComponent>();
+                    VerifyGhostGroupValues<SendForChildren_OnlyPredictedGhosts_SendToNonOwner_EnableableComponent>();
+                    VerifyGhostGroupValues<SendForChildren_OnlyInterpolatedGhosts_SendToNonOwner_EnableableComponent>();
+                    VerifyGhostGroupValues<DontSendForChildren_OnlyPredictedGhosts_SendToOwner_EnableableComponent>();
+                    VerifyGhostGroupValues<DontSendForChildren_OnlyInterpolatedGhosts_SendToOwner_EnableableComponent>();
+                    VerifyGhostGroupValues<DontSendForChildren_OnlyPredictedGhosts_SendToNonOwner_EnableableComponent>();
+                    VerifyGhostGroupValues<DontSendForChildren_OnlyInterpolatedGhosts_SendToNonOwner_EnableableComponent>();
 
                     // Ghost groups cannot have children.
                     break;
@@ -1169,6 +1163,14 @@ namespace Unity.NetCode.Tests
             var ghostConfig = objects[0].AddComponent<GhostAuthoringComponent>();
             ghostConfig.DefaultGhostMode = predictionSetting == PredictionSetting.WithPredictedEntities ? GhostMode.Predicted : GhostMode.Interpolated;
             ghostConfig.SupportedGhostModes = GhostModeMask.All;
+            if (type == GhostTypeConverter.GhostTypes.GhostGroup)
+            {
+                //do we want to have the child the same as the root or different? This depend on what we want to test.
+                //for now let's make them identical, tests logic right now are designed to work that way, but should be a little more flexible.
+                ghostConfig = objects[1].AddComponent<GhostAuthoringComponent>();
+                ghostConfig.DefaultGhostMode = predictionSetting == PredictionSetting.WithPredictedEntities ? GhostMode.Predicted : GhostMode.Interpolated;
+                ghostConfig.SupportedGhostModes = GhostModeMask.All;
+            }
 
             if ((flags & GhostFlags.StaticOptimization) == GhostFlags.StaticOptimization)
             {
@@ -1394,10 +1396,17 @@ namespace Unity.NetCode.Tests
 
             var variantType = FindTestVariantForType<T>();
             var ghostComponent = GetGhostComponentAttribute(variantType);
-
             if (!IsExpectedToReplicateGivenOwnerSendTypeAttribute(ghostComponent))
                 return false;
-            if (!IsExpectedToReplicateGivenSendTypeOptimizationAttribute(ghostComponent))
+            //this is a little wonky, and need a better handling. When we override per prefab,
+            //the correct value is not the setup of the GhostComponent but the overrides of the
+            //authoring that take precedence.
+            //As such, technically speaking we would need to get not the ghostComponent value for
+            //SendOptimisation but the value of the override for the prefab if present.
+            //The assumptions in many tests are anyway that everything is enabled in case of this override
+            //so we can simplify by only testing the SendOptimisation if there aren't ComponentOverride.
+            if (m_SendForChildrenTestCase != SendForChildrenTestCase.YesViaInspectionComponentOverride
+                && !IsExpectedToReplicateGivenSendTypeOptimizationAttribute(ghostComponent))
                 return false;
             if (!HasGhostEnabledBitAttribute(variantType))
                 return false;
@@ -1437,8 +1446,16 @@ namespace Unity.NetCode.Tests
             var ghostComponent = GetGhostComponentAttribute(variantType);
 
             if (!IsExpectedToReplicateGivenOwnerSendTypeAttribute(ghostComponent))
-                return false;
-            if (!IsExpectedToReplicateGivenSendTypeOptimizationAttribute(ghostComponent))
+                 return false;
+            //this is a little wonky, and need a better handling. When we override per prefab,
+            //the correct value is not the setup of the GhostComponent but the overrides of the
+            //authoring that take precedence.
+            //As such, technically speaking we would need to get not the ghostComponent value for
+            //SendOptimisation but the value of the override for the prefab if present.
+            //The assumptions in many tests are anyway that everything is enabled in case of this override
+            //so we can simplify by only testing the SendOptimisation if there aren't ComponentOverride.
+            if (m_SendForChildrenTestCase != SendForChildrenTestCase.YesViaInspectionComponentOverride &&
+                !IsExpectedToReplicateGivenSendTypeOptimizationAttribute(ghostComponent))
                 return false;
             if (!HasGhostFieldMainValue(variantType))
                 return false;
@@ -1468,16 +1485,23 @@ namespace Unity.NetCode.Tests
 
         private bool IsExpectedToReplicateGivenOwnerSendTypeAttribute(GhostComponentAttribute attribute)
         {
+            // FIXME: owner is never set so checking for the m_PredictionSetting is useless.
+            // Also, the owner check don't depend on the prediction/interpolation but only
+            // on the presence of the GhostOwner and its value.
+            // The logic would make sense if the interpolated ghosts don't have owners. But they have owner,
+            // as suche the conditions need to be slighly changed.
             switch (attribute.OwnerSendType)
             {
                 case SendToOwnerType.None:
                     return false;
                 case SendToOwnerType.SendToOwner:
                     // Note: This will return true for interpolated entities.
-                    return m_PredictionSetting != PredictionSetting.WithPredictedEntities;
+                    //return m_PredictionSetting != PredictionSetting.WithPredictedEntities;
+                    return false;
                 case SendToOwnerType.SendToNonOwner:
                     // Note: This will return true for interpolated entities.
-                    return m_PredictionSetting == PredictionSetting.WithPredictedEntities;
+                    // return m_PredictionSetting == PredictionSetting.WithPredictedEntities;
+                    return true;
                     // FIXME: Once we test ownership, this should be:
                     // return m_PredictionSetting != PredictionSetting.WithPredictedAndOwnedEntities;
                 case SendToOwnerType.All:

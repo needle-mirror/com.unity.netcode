@@ -191,7 +191,7 @@ namespace Unity.NetCode.LowLevel
             {
                 SnapshotBefore = (System.IntPtr)compDataPtr,
                 SnapshotAfter = (System.IntPtr)compDataPtr,
-                GhostOwner = 0
+                RequiredOwnerSendMask = SendToOwnerType.All
             };
             m_ghostSerializers[serializerIndex].CopyFromSnapshot.Ptr.Invoke(
                 (System.IntPtr)UnsafeUtility.AddressOf(ref deserializerState),

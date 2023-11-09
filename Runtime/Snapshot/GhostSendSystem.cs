@@ -1596,8 +1596,7 @@ namespace Unity.NetCode
                     if (conState.NetDebugPacket.IsCreated)
                         continue;
 
-                    NetDebugInterop.InitDebugPacketIfNotCreated(ref conState.NetDebugPacket, ref m_LogFolder, ref worldNameFixed, packet.Id.ValueRO.Value);
-
+                    NetDebugInterop.InitDebugPacketIfNotCreated(ref conState.NetDebugPacket, m_LogFolder, worldNameFixed, packet.Id.ValueRO.Value);
                     m_ConnectionStates[m_ConnectionStateLookup[packet.Entity]] = conState;
                     // Find connection state in the list sent to the serialize job and replace with this updated version
                     for (int i = 0; i < connectionsToProcess.Length; ++i)
@@ -1877,6 +1876,13 @@ namespace Unity.NetCode
             var flushHandle = networkStreamDriver.DriverStore.ScheduleFlushSendAllDrivers(serializeHandle);
             k_Scheduling.End();
             state.Dependency = JobHandle.CombineDependencies(flushHandle, cleanupHandle);
+#if NETCODE_DEBUG && !USING_UNITY_LOGGING
+            state.Dependency = new FlushNetDebugPacket
+            {
+                EnablePacketLogging = m_EnablePacketLoggingFromEntity,
+                ConnectionStates = m_ConnectionsToProcess.AsDeferredJobArray(),
+            }.Schedule(m_ConnectionsToProcess, 1, state.Dependency);
+#endif
         }
 
         void UpdateSerializeJobDependencies(ref SystemState state)
@@ -1996,6 +2002,22 @@ namespace Unity.NetCode
                     ConnectionsToProcess.Add(ConnectionStates[sendStartPos + i]);
             }
         }
+
+#if NETCODE_DEBUG && !USING_UNITY_LOGGING
+        struct FlushNetDebugPacket : IJobParallelForDefer
+        {
+            [ReadOnly] public ComponentLookup<EnablePacketLogging> EnablePacketLogging;
+            [ReadOnly] public NativeArray<ConnectionStateData> ConnectionStates;
+            public void Execute(int index)
+            {
+                var state = ConnectionStates[index];
+                if (EnablePacketLogging.HasComponent(state.Entity))
+                {
+                    state.NetDebugPacket.Flush();
+                }
+            }
+        }
+#endif
 
         [BurstCompile]
         struct CleanupGhostSerializationStateJob : IJob

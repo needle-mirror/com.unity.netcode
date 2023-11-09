@@ -31,6 +31,11 @@
             "define": "USING_OBSOLETE_METHODS_VIA_INTERNALSVISIBLETO"
         },
         {
+          "name": "com.unity.logging",
+          "expression": "0.0",
+          "define": "USING_UNITY_LOGGING"
+        },
+        {
             "name": "Unity",
             "expression": "2022.2.14f1",
             "define": "UNITY_2022_2_14F1_OR_NEWER"

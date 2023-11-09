@@ -6,13 +6,9 @@ using System.Text.RegularExpressions;
 using NUnit.Framework;
 using Unity.Core;
 using Unity.Entities;
-using Unity.NetCode;
 using Unity.Networking.Transport;
 using Unity.Networking.Transport.Utilities;
 using Unity.Collections;
-
-using Unity.Logging;
-using Unity.Logging.Sinks;
 using Unity.Profiling;
 using Unity.Transforms;
 using UnityEngine.TestTools;
@@ -20,6 +16,10 @@ using Debug = UnityEngine.Debug;
 #if UNITY_EDITOR
 using Unity.NetCode.Editor;
 using UnityEngine;
+#endif
+#if USING_UNITY_LOGGING
+using Unity.Logging;
+using Unity.Logging.Sinks;
 #endif
 
 namespace Unity.NetCode.Tests
@@ -455,9 +455,10 @@ namespace Unity.NetCode.Tests
             m_DefaultWorld.GetExistingSystemManaged<TickClientPresentationSystem>().Update();
             k_TickClientPresentationSystem.End();
 #endif
-
+#if USING_UNITY_LOGGING
             // Flush the pending logs since the system doing that might not have run yet which means Log.Expect does not work
             Logging.Internal.LoggerManager.ScheduleUpdateLoggers().Complete();
+#endif
         }
 
         public void MigrateServerWorld(World suppliedWorld = null)

@@ -191,13 +191,15 @@ namespace Unity.NetCode.Roslyn
                 return true;
             }
 
-            if (interfaceQualifiedName == "Unity.NetCode.IRpcCommand")
+            if (interfaceQualifiedName == "Unity.NetCode.IRpcCommand" ||
+                interfaceSymbol.InheritsFromInterface("Unity.NetCode.IRpcCommand"))
             {
                 componentType = ComponentType.Rpc;
                 return true;
             }
 
-            if (interfaceQualifiedName == "Unity.NetCode.IInputComponentData")
+            if (interfaceQualifiedName == "Unity.NetCode.IInputComponentData" ||
+                interfaceSymbol.InheritsFromInterface("Unity.NetCode.IInputComponentData"))
             {
                 componentType = ComponentType.Input;
                 return true;

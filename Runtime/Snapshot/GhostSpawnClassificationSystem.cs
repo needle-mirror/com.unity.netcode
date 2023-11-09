@@ -3,6 +3,8 @@ using Unity.Entities;
 using Unity.Burst;
 using Unity.Mathematics;
 using Unity.NetCode.LowLevel;
+using UnityEngine;
+using Hash128 = Unity.Entities.Hash128;
 
 namespace Unity.NetCode
 {
@@ -61,7 +63,7 @@ namespace Unity.NetCode
         /// </summary>
         public Type SpawnType;
         /// <summary>
-        /// The index of the ghost type in the <seealso cref="GhostCollectionPrefab"/> collection to use to spawn to ghost.
+        /// The index of the ghost type in the <seealso cref="GhostCollectionPrefab"/> collection. Used to classify the ghost (<see cref="GhostSpawnClassificationSystem"/>).
         /// </summary>
         public int GhostType;
         /// <summary>

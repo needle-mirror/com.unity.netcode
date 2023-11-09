@@ -24,6 +24,12 @@
     "allowUnsafeCode": true,
     "overrideReferences": true,
     "autoReferenced": false,
-    "versionDefines": [],
+    "versionDefines": [
+      {
+        "name": "com.unity.logging",
+        "expression": "0.0",
+        "define": "USING_UNITY_LOGGING"
+      }
+    ],
     "noEngineReferences": false
 }

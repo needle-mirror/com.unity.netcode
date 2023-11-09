@@ -146,21 +146,9 @@ The prediction runs in the [PredictedSimulationSystemGroup](https://docs.unity3d
 **The `ClientServerTickRate` configuration is sent (by the server, to the client) during the initial connection handshake. The client prediction loop runs at the exact same `SimulationTickRate` as the server (as mentioned).**
 
 ## Standalone builds
-When you build a standalone game, Netcode uses the __DOTS Settings__ in the __Project Settings__ window to:
-- To decide which type of build to make (only valid for standalone player builds).
-- To choose mode-specific baking settings.
+Netcode exposes build configuration options inside **ProjectSettings** > **Entities** > **Build**. 
 
-### Building standalone servers
-In order to build standalone server, you need to switch to a `Dedicated Server` platform. When building a server, the `UNITY_SERVER` define is set automatically (**and also automatically set in the editor**). <br/> 
-The `DOTS` project setting will reflect this change, by using the setting for the server build type.
-
-### Building standalone client
-When using a normal standalone player target (i.e Windows), it is possible to select the type of build to make (in the `DOTS` project setting):
-- A `client-only` build. The `UNITY_CLIENT` define will be set in the build (**but not in-editor**).
-- A `client/server` build. Neither the `UNITY_CLIENT`, nor the `UNITY_SERVER` are set (i.e. not in built players, nor in-editor).
-
-For either build type, specific baking filters can be specified in the `DOTS` project setting.
-
+[Please refer to the Project Settings page for details.](project-settings.md)
 
 ## World migration
 Sometimes you want to be able to destroy the world you are in and spin up another world without loosing your connection state. In order to do this we supply a DriverMigrationSystem, that allows a user to Store and Load Transport related information so a smooth world transition can be made.

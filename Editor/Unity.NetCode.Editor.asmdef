@@ -31,6 +31,11 @@
     "defineConstraints": [],
     "versionDefines": [
         {
+          "name": "com.unity.logging",
+          "expression": "0.0",
+          "define": "USING_UNITY_LOGGING"
+        },
+        {
             "name": "com.unity.dedicated-server",
             "expression": "0.8.0",
             "define": "UNITY_USE_MULTIPLAYER_ROLES"

@@ -9,12 +9,12 @@ namespace Unity.NetCode
     /// Collection of utility that are used by the editor and runtime to compute and check ghost
     /// component variants hashes.
     /// </summary>
-    internal static class GhostVariantsUtility
+    public static class GhostVariantsUtility
     {
-        public const string k_DefaultVariantName = "Default";
-        public const string k_ClientOnlyVariant = nameof(ClientOnlyVariant);
-        public const string k_ServerOnlyVariant = nameof(ServerOnlyVariant);
-        public const string k_DontSerializeVariant = nameof(DontSerializeVariant);
+        internal const string k_DefaultVariantName = "Default";
+        internal const string k_ClientOnlyVariant = nameof(ClientOnlyVariant);
+        internal const string k_ServerOnlyVariant = nameof(ServerOnlyVariant);
+        internal const string k_DontSerializeVariant = nameof(DontSerializeVariant);
         static readonly FixedString32Bytes k_NetCodeGhostNetVariant = "NetCode.GhostNetVariant";
         static readonly ulong k_NetCodeGhostNetVariantHash = TypeHash.FNV1A64(k_NetCodeGhostNetVariant);
 

@@ -1,3 +1,4 @@
+#if USING_UNITY_LOGGING
 using Unity.Logging;
 using Unity.Logging.Sinks;
 
@@ -28,3 +29,4 @@ namespace Unity.NetCode.Tests
         }
     }
 }
+#endif

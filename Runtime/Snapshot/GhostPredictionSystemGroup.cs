@@ -517,7 +517,7 @@ namespace Unity.NetCode
     /// and for all predicted ghosts on the server), this group is usually the most expensive on both builds.
     /// Pay particular attention to the systems that run in this group to keep your performance in check.
     /// </remarks>
-    [WorldSystemFilter(WorldSystemFilterFlags.Default)]
+    [WorldSystemFilter(WorldSystemFilterFlags.Default | WorldSystemFilterFlags.ThinClientSimulation)]
     [UpdateInGroup(typeof(SimulationSystemGroup), OrderFirst=true)]
     [UpdateBefore(typeof(FixedStepSimulationSystemGroup))]
     [UpdateAfter(typeof(BeginSimulationEntityCommandBufferSystem))]

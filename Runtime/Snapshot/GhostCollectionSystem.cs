@@ -375,12 +375,21 @@ namespace Unity.NetCode
                 {
                     // This can be setup - do so
                     ProcessGhostPrefab(ref state, ref data, ref ctx, ghost.GhostPrefab);
-                    hash = HashGhostType(ctx.ghostPrefabSerializerCollection[i], in netDebug, in ctx.ghostName, in entityPrefabName, in ghost.GhostPrefab);
+                    // Ensure it was added (can fail due to collection checks):
+                    if (ctx.ghostPrefabSerializerCollection.Length > i)
+                        hash = HashGhostType(ctx.ghostPrefabSerializerCollection[i], in netDebug, in ctx.ghostName, in entityPrefabName, in ghost.GhostPrefab);
                 }
+
                 if ((ghost.Hash != 0 && ghost.Hash != hash) || hash == 0)
                 {
                     if (hash == 0)
-                        netDebug.LogError($"The ghost collection contains a ghost which does not have a valid prefab on the client! Ghost: '{ctx.ghostName}'.");
+                    {
+                        FixedString512Bytes error = $"The ghost collection contains a ghost which does not have a valid prefab on the client! Ghost: '{ctx.ghostName}' ('{entityPrefabName}').";
+#if UNITY_EDITOR || ENABLE_UNITY_COLLECTIONS_CHECKS
+                        BurstDiscardAppendBetterExceptionMessage(ghost, ref error);
+#endif
+                        netDebug.LogError(error);
+                    }
                     else
                     {
                         netDebug.LogError($"Received a ghost - {ctx.ghostName} - from the server which has a different hash on the client (got {ghost.Hash} but expected {hash}). GhostPrefab: {ghost.GhostPrefab} ('{entityPrefabName}').");
@@ -446,6 +455,46 @@ namespace Unity.NetCode
                 NumLoadedPrefabs = ctx.ghostPrefabSerializerCollection.Length,
                 IsInGame = true
             });
+#endif
+        }
+
+        /// <summary>
+        /// Small helper function (a hack, really) to manually look for this invalid hash inside the in-process ServerWorld[s], for easier debugging.
+        /// </summary>
+        [BurstDiscard]
+        private void BurstDiscardAppendBetterExceptionMessage(in GhostCollectionPrefab clientGhost, ref FixedString512Bytes error)
+        {
+#if UNITY_EDITOR || ENABLE_UNITY_COLLECTIONS_CHECKS
+            if (ClientServerBootstrap.ServerWorlds.Count == 0)
+                return;
+
+            foreach (var serverWorld in ClientServerBootstrap.ServerWorlds)
+            {
+                if(!serverWorld.IsCreated) continue;
+                serverWorld.EntityManager.CompleteAllTrackedJobs();
+                using var query = serverWorld.EntityManager.CreateEntityQuery(ComponentType.ReadOnly<GhostCollectionPrefab>());
+                if (query.TryGetSingletonBuffer<GhostCollectionPrefab>(out var ghostCollectionPrefabs))
+                {
+                    var found = false;
+                    foreach (var serverGhost in ghostCollectionPrefabs)
+                    {
+                        if (serverGhost.Hash == clientGhost.Hash)
+                        {
+                            serverWorld.EntityManager.GetName(serverGhost.GhostPrefab, out var serverEntityName);
+                            var ghostPrefabMetadata = serverWorld.EntityManager.GetComponentData<GhostPrefabMetaData>(serverGhost.GhostPrefab);
+                            ref var ghostMetaData = ref ghostPrefabMetadata.Value.Value;
+                            FixedString128Bytes ghostName = default;
+                            ghostMetaData.Name.CopyTo(ref ghostName);
+                            error.Append($"\n Manually searching for this hash inside in-proc '{serverWorld.Unmanaged.Name}' and FOUND ghost {serverGhost.GhostPrefab.ToFixedString()} '{serverEntityName}' ('{ghostName}')!");
+                            found = true;
+                            break;
+                        }
+                    }
+                    if (!found)
+                        error.Append($"\n Manually searching for this hash inside in-proc '{serverWorld.Unmanaged.Name}', but NOT found!");
+                    error.Append(" Ensure this Ghost is registered on the client before the server syncs its prefab list!");
+                }
+            }
 #endif
         }
 

@@ -408,6 +408,9 @@ namespace Unity.NetCode.LowLevel.Unsafe
             AckedPrespawnSceneMap.Dispose();
             UnsafeList<PrespawnHelper.GhostIdInterval>.Destroy(m_NewLoadedPrespawnRanges);
             GhostStateData.Dispose();
+#if NETCODE_DEBUG
+            NetDebugPacket.Dispose();
+#endif
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
