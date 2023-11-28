@@ -285,10 +285,6 @@ namespace Unity.NetCode
             /// </summary>
             [ReadOnly] public ComponentTypeHandle<CommandTarget> commmandTargetType;
             /// <summary>
-            /// The readonly <see cref="networkIdType"/> type handle for accessing the chunk data.
-            /// </summary>
-            [ReadOnly] public ComponentTypeHandle<NetworkId> networkIdType;
-            /// <summary>
             /// <see cref="OutgoingCommandDataStreamBuffer"/> buffer type handle for accessing the chunk data.
             /// This is the output of buffer for the job
             /// </summary>
@@ -423,19 +419,16 @@ namespace Unity.NetCode
             public void Execute(ArchetypeChunk chunk, int orderIndex)
             {
                 var commandTargets = chunk.GetNativeArray(ref commmandTargetType);
-                var networkIds = chunk.GetNativeArray(ref networkIdType);
                 var rpcDatas = chunk.GetBufferAccessor(ref outgoingCommandBufferType);
 
                 for (int i = 0, chunkEntityCount = chunk.Count; i < chunkEntityCount; ++i)
                 {
                     var targetEntity = commandTargets[i].targetEntity;
-                    var owner = networkIds[i].Value;
                     bool sentTarget = false;
                     for (int ent = 0; ent < autoCommandTargetEntities.Length; ++ent)
                     {
                         var autoTarget = autoCommandTargetEntities[ent];
-                        if (ghostOwnerFromEntity[autoTarget].NetworkId == owner &&
-                            autoCommandTargetFromEntity[autoTarget].Enabled &&
+                        if (autoCommandTargetFromEntity[autoTarget].Enabled &&
                             inputFromEntity.HasBuffer(autoTarget))
                         {
                             Serialize(rpcDatas[i], autoTarget, true);
@@ -459,7 +452,6 @@ namespace Unity.NetCode
         private NetworkTick m_PrevInputTargetTick;
 
         private ComponentTypeHandle<CommandTarget> m_CommandTargetComponentHandle;
-        private ComponentTypeHandle<NetworkId> m_NetworkIdComponentHandle;
         private BufferTypeHandle<OutgoingCommandDataStreamBuffer> m_OutgoingCommandDataStreamBufferComponentHandle;
         private BufferLookup<TCommandData> m_TCommandDataFromEntity;
         private ComponentLookup<GhostInstance> m_GhostComponentFromEntity;
@@ -474,7 +466,7 @@ namespace Unity.NetCode
                 .WithAll<NetworkStreamInGame, CommandTarget>();
             m_connectionQuery = state.GetEntityQuery(builder);
             builder.Reset();
-            builder.WithAll<GhostInstance, GhostOwner, PredictedGhost, TCommandData, AutoCommandTarget>();
+            builder.WithAll<GhostInstance, GhostOwner, GhostOwnerIsLocal, TCommandData, AutoCommandTarget>();
             m_autoTargetQuery = state.GetEntityQuery(builder);
             builder.Reset();
             builder.WithAll<NetworkTime>();
@@ -482,7 +474,6 @@ namespace Unity.NetCode
 
             m_CompressionModel = StreamCompressionModel.Default;
             m_CommandTargetComponentHandle = state.GetComponentTypeHandle<CommandTarget>(true);
-            m_NetworkIdComponentHandle = state.GetComponentTypeHandle<NetworkId>(true);
             m_OutgoingCommandDataStreamBufferComponentHandle = state.GetBufferTypeHandle<OutgoingCommandDataStreamBuffer>();
             m_TCommandDataFromEntity = state.GetBufferLookup<TCommandData>(true);
             m_GhostComponentFromEntity = state.GetComponentLookup<GhostInstance>(true);
@@ -502,7 +493,6 @@ namespace Unity.NetCode
         public SendJobData InitJobData(ref SystemState state)
         {
             m_CommandTargetComponentHandle.Update(ref state);
-            m_NetworkIdComponentHandle.Update(ref state);
             m_OutgoingCommandDataStreamBufferComponentHandle.Update(ref state);
             m_TCommandDataFromEntity.Update(ref state);
             m_GhostComponentFromEntity.Update(ref state);
@@ -515,7 +505,6 @@ namespace Unity.NetCode
             var sendJob = new SendJobData
             {
                 commmandTargetType = m_CommandTargetComponentHandle,
-                networkIdType = m_NetworkIdComponentHandle,
                 outgoingCommandBufferType = m_OutgoingCommandDataStreamBufferComponentHandle,
                 inputFromEntity = m_TCommandDataFromEntity,
                 ghostFromEntity = m_GhostComponentFromEntity,

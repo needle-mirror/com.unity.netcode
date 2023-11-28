@@ -286,7 +286,7 @@ namespace Unity.NetCode
                         Connection = entities[i],
                         JobIndex = unfilteredChunkIndex
                     };
-                    int msgHeaderLen = (dynamicAssemblyList == 1) ? 10 : 4;
+                    int msgHeaderLen = RpcCollection.GetInnerRpcMessageHeaderLength(dynamicAssemblyList == 1);
                     while (parameters.Reader.GetBytesRead() < parameters.Reader.Length)
                     {
                         int rpcIndex = 0;
@@ -391,6 +391,10 @@ namespace Unity.NetCode
                             returnTime += (localTime - ack.LastReceiveTimestamp);
                         tmp.WriteUInt(returnTime);
                         var headerLength = tmp.Length;
+
+#if ENABLE_UNITY_COLLECTIONS_CHECKS
+                        UnityEngine.Debug.Assert(headerLength == RpcCollection.k_RpcCommonHeaderLengthBytes);
+#endif
 
                         // If sending failed we stop and wait until next frame
                         if (sendBuffer.Length + headerLength > tmp.Capacity)

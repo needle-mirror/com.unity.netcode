@@ -11,7 +11,7 @@ namespace Unity.NetCode.Editor
         /// Create the Default.globalconfig file in the Assets folder root.
         /// </summary>
         /// <returns></returns>
-        [MenuItem("Multiplayer/Create SourceGenerator AnalyzerConfig")]
+        [MenuItem("Multiplayer/Create SourceGenerator AnalyzerConfig", priority = 101)]
         static void CreateGlobalConfig()
         {
             var assetPath = Path.Combine(Application.dataPath, "Default.globalconfig");

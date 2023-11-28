@@ -70,7 +70,7 @@ namespace Unity.NetCode.Tests
         private const float deltaTime = 1.0f / 60.0f;
 
         [Test]
-        public void MissingCommandTargetUpdatesAckAndCommandAge()
+        public void MissingCommandTargetUpdatesAckAndCommandAge([Values]GhostMode ghostMode)
         {
             using (var testWorld = new NetCodeTestWorld())
             {
@@ -79,6 +79,7 @@ namespace Unity.NetCode.Tests
                 var ghostGameObject = new GameObject();
                 var ghostConfig = ghostGameObject.AddComponent<GhostAuthoringComponent>();
                 ghostConfig.HasOwner = true;
+                ghostConfig.SupportAutoCommandTarget = false;
                 Assert.IsTrue(testWorld.CreateGhostCollection(ghostGameObject));
                 testWorld.CreateWorlds(true, 1);
                 testWorld.Connect(deltaTime);
@@ -108,7 +109,7 @@ namespace Unity.NetCode.Tests
             }
         }
         [Test]
-        public void ConnectionCommandTargetComponentSendsDataForSingleBuffer()
+        public void ConnectionCommandTargetComponentSendsDataForSingleBuffer([Values]GhostMode ghostMode)
         {
             using (var testWorld = new NetCodeTestWorld())
             {
@@ -117,6 +118,7 @@ namespace Unity.NetCode.Tests
                 var ghostGameObject = new GameObject();
                 var ghostConfig = ghostGameObject.AddComponent<GhostAuthoringComponent>();
                 ghostConfig.HasOwner = true;
+                ghostConfig.SupportAutoCommandTarget = false;
                 Assert.IsTrue(testWorld.CreateGhostCollection(ghostGameObject));
                 testWorld.CreateWorlds(true, 1);
                 testWorld.Connect(deltaTime);
@@ -159,7 +161,7 @@ namespace Unity.NetCode.Tests
             }
         }
         [Test]
-        public void ConnectionCommandTargetComponentSendsDataForMultipleBuffers()
+        public void ConnectionCommandTargetComponentSendsDataForMultipleBuffers([Values]GhostMode ghostMode)
         {
             using (var testWorld = new NetCodeTestWorld())
             {
@@ -168,6 +170,7 @@ namespace Unity.NetCode.Tests
                 var ghostGameObject = new GameObject();
                 var ghostConfig = ghostGameObject.AddComponent<GhostAuthoringComponent>();
                 ghostConfig.HasOwner = true;
+                ghostConfig.SupportAutoCommandTarget = false;
                 Assert.IsTrue(testWorld.CreateGhostCollection(ghostGameObject));
                 testWorld.CreateWorlds(true, 1);
                 testWorld.Connect(deltaTime);
@@ -226,7 +229,7 @@ namespace Unity.NetCode.Tests
             }
         }
         [Test]
-        public void AutoCommandTargetSendsDataForSingleBuffer()
+        public void AutoCommandTargetSendsDataForSingleBuffer([Values]GhostMode ghostMode)
         {
             using (var testWorld = new NetCodeTestWorld())
             {
@@ -236,7 +239,7 @@ namespace Unity.NetCode.Tests
                 var ghostConfig = ghostGameObject.AddComponent<GhostAuthoringComponent>();
                 ghostConfig.HasOwner = true;
                 ghostConfig.SupportAutoCommandTarget = true;
-                ghostConfig.DefaultGhostMode = GhostMode.OwnerPredicted;
+                ghostConfig.DefaultGhostMode = ghostMode;
                 Assert.IsTrue(testWorld.CreateGhostCollection(ghostGameObject));
                 testWorld.CreateWorlds(true, 1);
                 testWorld.Connect(deltaTime);
@@ -268,7 +271,7 @@ namespace Unity.NetCode.Tests
             }
         }
         [Test]
-        public void AutoCommandTargetSendsDataForMultipleBuffers()
+        public void AutoCommandTargetSendsDataForMultipleBuffers([Values]GhostMode ghostMode)
         {
             using (var testWorld = new NetCodeTestWorld())
             {
@@ -278,7 +281,7 @@ namespace Unity.NetCode.Tests
                 var ghostConfig = ghostGameObject.AddComponent<GhostAuthoringComponent>();
                 ghostConfig.HasOwner = true;
                 ghostConfig.SupportAutoCommandTarget = true;
-                ghostConfig.DefaultGhostMode = GhostMode.OwnerPredicted;
+                ghostConfig.DefaultGhostMode = ghostMode;
                 Assert.IsTrue(testWorld.CreateGhostCollection(ghostGameObject));
                 testWorld.CreateWorlds(true, 1);
                 testWorld.Connect(deltaTime);
@@ -322,7 +325,7 @@ namespace Unity.NetCode.Tests
             }
         }
         [Test]
-        public void MultipleAutoCommandTargetSendsData()
+        public void MultipleAutoCommandTargetSendsData([Values]GhostMode ghostMode)
         {
             using (var testWorld = new NetCodeTestWorld())
             {
@@ -332,7 +335,7 @@ namespace Unity.NetCode.Tests
                 var ghostConfig = ghostGameObject.AddComponent<GhostAuthoringComponent>();
                 ghostConfig.HasOwner = true;
                 ghostConfig.SupportAutoCommandTarget = true;
-                ghostConfig.DefaultGhostMode = GhostMode.OwnerPredicted;
+                ghostConfig.DefaultGhostMode = ghostMode;
                 Assert.IsTrue(testWorld.CreateGhostCollection(ghostGameObject));
                 testWorld.CreateWorlds(true, 1);
                 testWorld.Connect(deltaTime);
@@ -386,7 +389,7 @@ namespace Unity.NetCode.Tests
             }
         }
         [Test]
-        public void ConnectionCommandTargetAndAutoCommandTargetSendsDataAtTheSameTime()
+        public void ConnectionCommandTargetAndAutoCommandTargetSendsDataAtTheSameTime([Values]GhostMode ghostMode)
         {
             using (var testWorld = new NetCodeTestWorld())
             {
@@ -396,7 +399,7 @@ namespace Unity.NetCode.Tests
                 var ghostConfig = ghostGameObject.AddComponent<GhostAuthoringComponent>();
                 ghostConfig.HasOwner = true;
                 ghostConfig.SupportAutoCommandTarget = true;
-                ghostConfig.DefaultGhostMode = GhostMode.OwnerPredicted;
+                ghostConfig.DefaultGhostMode = ghostMode;
                 Assert.IsTrue(testWorld.CreateGhostCollection(ghostGameObject));
                 testWorld.CreateWorlds(true, 1);
                 testWorld.Connect(deltaTime);
@@ -444,7 +447,7 @@ namespace Unity.NetCode.Tests
             }
         }
         [Test]
-        public void AutoCommandTargetDoesNotSendWhenDisabled()
+        public void AutoCommandTargetDoesNotSendWhenDisabled([Values]GhostMode ghostMode)
         {
             using (var testWorld = new NetCodeTestWorld())
             {
@@ -454,7 +457,7 @@ namespace Unity.NetCode.Tests
                 var ghostConfig = ghostGameObject.AddComponent<GhostAuthoringComponent>();
                 ghostConfig.HasOwner = true;
                 ghostConfig.SupportAutoCommandTarget = true;
-                ghostConfig.DefaultGhostMode = GhostMode.OwnerPredicted;
+                ghostConfig.DefaultGhostMode = ghostMode;
                 Assert.IsTrue(testWorld.CreateGhostCollection(ghostGameObject));
                 testWorld.CreateWorlds(true, 1);
                 testWorld.Connect(deltaTime);
@@ -487,7 +490,7 @@ namespace Unity.NetCode.Tests
             }
         }
         [Test]
-        public void AutoCommandTargetDoesNotSendWhenNotPredicted()
+        public void AutoCommandTargetDoesNotSendWhenNotOwned([Values]GhostMode ghostMode)
         {
             using (var testWorld = new NetCodeTestWorld())
             {
@@ -497,49 +500,7 @@ namespace Unity.NetCode.Tests
                 var ghostConfig = ghostGameObject.AddComponent<GhostAuthoringComponent>();
                 ghostConfig.HasOwner = true;
                 ghostConfig.SupportAutoCommandTarget = true;
-                ghostConfig.DefaultGhostMode = GhostMode.Interpolated;
-                Assert.IsTrue(testWorld.CreateGhostCollection(ghostGameObject));
-                testWorld.CreateWorlds(true, 1);
-                testWorld.Connect(deltaTime);
-                testWorld.GoInGame();
-
-                var serverConnectionEnt = testWorld.TryGetSingletonEntity<NetworkId>(testWorld.ServerWorld);
-                var clientConnectionEnt = testWorld.TryGetSingletonEntity<NetworkId>(testWorld.ClientWorlds[0]);
-                var netId = testWorld.ClientWorlds[0].EntityManager.GetComponentData<NetworkId>(clientConnectionEnt).Value;
-
-                var serverEnt = testWorld.SpawnOnServer(ghostGameObject);
-                testWorld.ServerWorld.EntityManager.SetComponentData(serverEnt, new GhostOwner {NetworkId = netId});
-
-                for (int i = 0; i < 16; ++i)
-                    testWorld.Tick(deltaTime);
-
-                var clientEnt = testWorld.TryGetSingletonEntity<GhostOwner>(testWorld.ClientWorlds[0]);
-                Assert.AreNotEqual(Entity.Null, clientEnt);
-
-                testWorld.ServerWorld.EntityManager.AddComponent<CommandDataTestsTickInput>(serverEnt);
-                testWorld.ClientWorlds[0].EntityManager.AddComponent<CommandDataTestsTickInput>(clientEnt);
-
-                for (int i = 0; i < 16; ++i)
-                    testWorld.Tick(deltaTime);
-
-                var clientBuffer = testWorld.ClientWorlds[0].EntityManager.GetBuffer<CommandDataTestsTickInput>(clientEnt);
-                var serverBuffer = testWorld.ServerWorld.EntityManager.GetBuffer<CommandDataTestsTickInput>(serverEnt);
-                Assert.AreEqual(0, serverBuffer.Length);
-                Assert.AreNotEqual(0, clientBuffer.Length);
-            }
-        }
-        [Test]
-        public void AutoCommandTargetDoesNotSendWhenNotOwned()
-        {
-            using (var testWorld = new NetCodeTestWorld())
-            {
-                testWorld.Bootstrap(true, typeof(CommandDataTestsTickInputSystem), typeof(CommandDataTestsTickInput2System));
-
-                var ghostGameObject = new GameObject();
-                var ghostConfig = ghostGameObject.AddComponent<GhostAuthoringComponent>();
-                ghostConfig.HasOwner = true;
-                ghostConfig.SupportAutoCommandTarget = true;
-                ghostConfig.DefaultGhostMode = GhostMode.Predicted;
+                ghostConfig.DefaultGhostMode = ghostMode;
                 Assert.IsTrue(testWorld.CreateGhostCollection(ghostGameObject));
                 testWorld.CreateWorlds(true, 1);
                 testWorld.Connect(deltaTime);

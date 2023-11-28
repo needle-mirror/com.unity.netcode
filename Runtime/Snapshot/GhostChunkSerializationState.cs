@@ -422,7 +422,7 @@ namespace Unity.NetCode.LowLevel.Unsafe
                 SerializationState = new UnsafeParallelHashMap<ArchetypeChunk, GhostChunkSerializationState>(1024, Allocator.Persistent),
                 ClearHistory = new UnsafeParallelHashMap<int, NetworkTick>(256, Allocator.Persistent),
 #if NETCODE_DEBUG
-                NetDebugPacket = new NetDebugPacket(),
+                NetDebugPacket = new PacketDumpLogger(),
 #endif
                 GhostStateData = new GhostStateList(1024, 1024, Allocator.Persistent),
                 AckedPrespawnSceneMap = new UnsafeParallelHashMap<ulong, int>(256, Allocator.Persistent),
@@ -434,7 +434,7 @@ namespace Unity.NetCode.LowLevel.Unsafe
         public UnsafeParallelHashMap<ArchetypeChunk, GhostChunkSerializationState> SerializationState;
         public UnsafeParallelHashMap<int, NetworkTick> ClearHistory;
 #if NETCODE_DEBUG
-        public NetDebugPacket NetDebugPacket;
+        public PacketDumpLogger NetDebugPacket;
 #endif
 
         public GhostStateList GhostStateData;

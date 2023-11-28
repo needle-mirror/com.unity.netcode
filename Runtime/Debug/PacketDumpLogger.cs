@@ -16,7 +16,27 @@ using Unity.Logging.Sinks;
 
 namespace Unity.NetCode.LowLevel.Unsafe
 {
-    unsafe struct NetDebugPacket : IDisposable
+    [Obsolete("The NetDebugPacket has been deprecated and will be removed in future releases.", false)]
+    public struct NetDebugPacket : IDisposable
+    {
+        public bool IsCreated => false;
+
+        public void Init(in FixedString512Bytes logFolder, in FixedString128Bytes worldName, int connectionId)
+        {
+        }
+        public void Log(in FixedString512Bytes msg)
+        {
+        }
+        public void Dispose()
+        {
+        }
+    }
+
+    /// <summary>
+    /// Internal class, used to append packet dumps logs to file. Detect and ses Unity.Logging if present, ortherwise the
+    /// System.IO.File api is used by default.
+    /// </summary>
+    unsafe struct PacketDumpLogger : IDisposable
     {
 #if USING_UNITY_LOGGING
         private LoggerHandle m_NetDebugPacketLoggerHandle;

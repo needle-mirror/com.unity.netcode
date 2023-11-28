@@ -32,7 +32,7 @@ namespace Unity.NetCode.LowLevel.Unsafe
         }
         [BurstMonoInteropMethod]
         [BurstDiscard]
-        private static void _InitDebugPacketIfNotCreated(ref NetDebugPacket netDebugPacket, in FixedString512Bytes logFolder, in FixedString128Bytes worldName, int connectionId)
+        private static void _InitDebugPacketIfNotCreated(ref PacketDumpLogger netDebugPacket, in FixedString512Bytes logFolder, in FixedString128Bytes worldName, int connectionId)
         {
             if (!netDebugPacket.IsCreated)
             {
@@ -50,7 +50,7 @@ namespace Unity.NetCode.LowLevel.Unsafe
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
         public delegate void _dlg_GetTimestampWithTick(NetworkTick serverTick, out FixedString128Bytes timestampAndTick);
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
-        public delegate void _dlg_InitDebugPacketIfNotCreated(ref NetDebugPacket netDebugPacket, in FixedString512Bytes logFolder, in FixedString128Bytes worldName, int connectionId);
+        public delegate void _dlg_InitDebugPacketIfNotCreated(ref PacketDumpLogger netDebugPacket, in FixedString512Bytes logFolder, in FixedString128Bytes worldName, int connectionId);
 
         [AOT.MonoPInvokeCallback(typeof(_dlg_GetTimeStamp))]
         private static void _wrapper_GetTimestamp(out FixedString32Bytes timestamp)
@@ -63,7 +63,7 @@ namespace Unity.NetCode.LowLevel.Unsafe
             _GetTimestampWithTick(tick, out timestampWithTick);
         }
         [AOT.MonoPInvokeCallback(typeof(_dlg_InitDebugPacketIfNotCreated))]
-        private static void _wrapper_InitDebugPacketIfNotCreated(ref NetDebugPacket netDebugPacket, in FixedString512Bytes logFolder, in FixedString128Bytes worldName, int connectionId)
+        private static void _wrapper_InitDebugPacketIfNotCreated(ref PacketDumpLogger netDebugPacket, in FixedString512Bytes logFolder, in FixedString128Bytes worldName, int connectionId)
         {
             _InitDebugPacketIfNotCreated(ref netDebugPacket, logFolder, worldName, connectionId);
         }
@@ -79,12 +79,12 @@ namespace Unity.NetCode.LowLevel.Unsafe
 
         }
 
-        public static unsafe void InitDebugPacketIfNotCreated(ref NetDebugPacket m_NetDebugPacket, in FixedString512Bytes logFolder, in FixedString128Bytes worldName, int connectionId)
+        public static unsafe void InitDebugPacketIfNotCreated(ref PacketDumpLogger m_NetDebugPacket, in FixedString512Bytes logFolder, in FixedString128Bytes worldName, int connectionId)
         {
             if (BurstCompiler.IsEnabled)
             {
                 var ptr = ManagedFunctionPtr<_dlg_InitDebugPacketIfNotCreated, NetDebugInterop>.Ptr;
-                ((delegate *unmanaged[Cdecl]<ref NetDebugPacket, in FixedString512Bytes, in FixedString512Bytes, int, void>)ptr)(
+                ((delegate *unmanaged[Cdecl]<ref PacketDumpLogger, in FixedString512Bytes, in FixedString512Bytes, int, void>)ptr)(
                     ref m_NetDebugPacket, logFolder, worldName, connectionId);
                 return;
             }

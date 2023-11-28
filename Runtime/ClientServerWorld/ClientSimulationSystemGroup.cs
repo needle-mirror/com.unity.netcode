@@ -73,20 +73,22 @@ namespace Unity.NetCode
             ref var previousServerTick = ref m_PreviousServerTickQuery.GetSingletonRW<PreviousServerTick>().ValueRW;
 			var currentTime = group.World.Time;
 
-            // If the tick is within +/- 5% of a frame from matching a tick - just use the actual tick instead
-            if (curServerTick.IsValid)
+            // If the tick is within ±5% of a frame from matching a tick - just use the actual tick instead
+            if (curServerTick.IsValid && tickRate.ClampPartialTicksThreshold > 0)
             {
-                if (serverTickFraction < 0.05f)
+                var fClamp = tickRate.ClampPartialTicksThreshold * 0.01f;
+                var oneOverFClamp = 1 - fClamp;
+                if (serverTickFraction < fClamp)
                     serverTickFraction = 1;
                 else
                     curServerTick.Increment();
-                if (serverTickFraction > 0.95f)
+                if (serverTickFraction > oneOverFClamp)
                     serverTickFraction = 1;
-                if (interpolationTickFraction < 0.05f)
+                if (interpolationTickFraction < fClamp)
                     interpolationTickFraction = 1;
                 else
                     curInterpoationTick.Increment();
-                if (interpolationTickFraction > 0.95f)
+                if (interpolationTickFraction > oneOverFClamp)
                     interpolationTickFraction = 1;
             }
 

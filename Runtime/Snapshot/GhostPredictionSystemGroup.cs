@@ -215,6 +215,7 @@ namespace Unity.NetCode
             ref var networkTime = ref m_NetworkTimeQuery.GetSingletonRW<NetworkTime>().ValueRW;
             if (m_TickIdx == 0)
             {
+                networkTime.PredictedTickIndex = 0;
                 m_CurrentTime = networkTime;
 
                 m_AppliedPredictedTicksQuery.CompleteDependency();
@@ -355,6 +356,7 @@ namespace Unity.NetCode
                 group.World.PushTime(new TimeData(m_ElapsedTime - m_FixedTimeStep*tickAge, m_FixedTimeStep*batchSize));
                 m_OldGroupAllocators = group.World.CurrentGroupAllocators;
                 group.World.SetGroupAllocator(group.RateGroupAllocators);
+                networkTime.PredictedTickIndex++;
                 return true;
             }
 
@@ -373,6 +375,7 @@ namespace Unity.NetCode
                 m_OldGroupAllocators = group.World.CurrentGroupAllocators;
                 group.World.SetGroupAllocator(group.RateGroupAllocators);
                 ++m_TickIdx;
+                networkTime.PredictedTickIndex++;
                 return true;
             }
             group.World.EntityManager.SetComponentEnabled<Simulate>(m_GhostQuery, true);

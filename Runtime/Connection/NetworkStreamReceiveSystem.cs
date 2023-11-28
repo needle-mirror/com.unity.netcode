@@ -7,6 +7,7 @@ using Unity.Entities;
 using Unity.Jobs;
 using Unity.NetCode.LowLevel.Unsafe;
 using Unity.Networking.Transport;
+using Unity.Networking.Transport.Utilities;
 using Unity.Profiling;
 
 namespace Unity.NetCode
@@ -476,7 +477,7 @@ namespace Unity.NetCode
 
                 protocolVersion = SystemAPI.GetSingleton<NetworkProtocolVersion>(),
                 localTime = NetworkTimeSystem.TimestampMS,
-                serverTick = networkTime.ServerTick
+                lastServerTick = networkTime.ServerTick
             };
 #if UNITY_EDITOR || NETCODE_DEBUG
             handleJob.netStats = SystemAPI.GetSingletonRW<GhostStatsCollectionCommand>().ValueRO.Value;
@@ -586,7 +587,7 @@ namespace Unity.NetCode
             public NetworkProtocolVersion protocolVersion;
 
             public uint localTime;
-            public NetworkTick serverTick;
+            public NetworkTick lastServerTick;
 #if UNITY_EDITOR || NETCODE_DEBUG
             public NativeArray<uint> netStats;
 #endif
@@ -668,7 +669,10 @@ namespace Unity.NetCode
                     switch (evt)
                     {
                         case NetworkEvent.Type.Connect:
+                        {
+                            snapshotAck.SnapshotPacketLoss = default;
                             break;
+                        }
                         case NetworkEvent.Type.Disconnect:
                             var reason = NetworkStreamDisconnectReason.ConnectionClose;
                             if (reader.Length == 1)
@@ -718,10 +722,12 @@ namespace Unity.NetCode
                                     var cmdTick = new NetworkTick{SerializedData = tickReader.ReadUInt()};
                                     var isValidCmdTick = !snapshotAck.LastReceivedSnapshotByLocal.IsValid || cmdTick.IsNewerThan(snapshotAck.LastReceivedSnapshotByLocal);
 #if UNITY_EDITOR || NETCODE_DEBUG
-                                    netStats[0] = serverTick.SerializedData;
+                                    netStats[0] = lastServerTick.SerializedData;
                                     netStats[1] = (uint)reader.Length - 1u;
                                     if (!isValidCmdTick || buffer.Length > 0)
+                                    {
                                         netStats[2] = netStats[2] + 1;
+                                    }
 #endif
                                     // Do not try to process incoming commands which are older than commands we already processed
                                     if (!isValidCmdTick)
@@ -734,19 +740,40 @@ namespace Unity.NetCode
                                 }
                                 case NetworkStreamProtocol.Snapshot:
                                 {
-                                    if (!snapshotBuffer.HasBuffer(entity))
+                                    if (!snapshotBuffer.TryGetBuffer(entity, out var buffer))
                                         break;
+
                                     uint remoteTime = reader.ReadUInt();
                                     uint localTimeMinusRTT = reader.ReadUInt();
                                     snapshotAck.ServerCommandAge = reader.ReadInt();
                                     snapshotAck.UpdateRemoteTime(remoteTime, localTimeMinusRTT, localTime);
 
-                                    var buffer = snapshotBuffer[entity];
-#if UNITY_EDITOR || NETCODE_DEBUG
+                                    // SSId:
+                                    var currentSnapshotSequenceId = reader.ReadByte();
+
+                                    // Copy the reader here, as we want to pass the ServerTick into the GhostReceiveSystem,
+                                    // and that'll fail if we read too far.
+                                    var copyOfReader = reader;
+                                    var newServerTick = new NetworkTick{SerializedData = copyOfReader.ReadUInt()};
+
+                                    // Skip old snapshots:
+                                    var isValid = !snapshotAck.LastReceivedSnapshotByLocal.IsValid || newServerTick.IsNewerThan(snapshotAck.LastReceivedSnapshotByLocal);
+                                    UpdatePacketLossStats(ref snapshotAck.SnapshotPacketLoss, isValid, currentSnapshotSequenceId, ref snapshotAck, in netDebug, buffer);
+                                    if (!isValid)
+                                        break;
+                                    snapshotAck.LastReceivedSnapshotByLocal = newServerTick;
+                                    snapshotAck.CurrentSnapshotSequenceId = currentSnapshotSequenceId;
+
+                                    // Limitation: Clobber any previous snapshot, even if said snapshot has not been processed yet.
                                     if (buffer.Length > 0)
+                                    {
+#if UNITY_EDITOR || NETCODE_DEBUG
                                         netStats[2] = netStats[2] + 1;
 #endif
-                                    buffer.Clear();
+                                        buffer.Clear();
+                                    }
+
+                                    // Save the new snapshot to the buffer, so we can process it in GhostReceiveSystem.
                                     buffer.Add(ref reader);
                                     break;
                                 }
@@ -754,6 +781,9 @@ namespace Unity.NetCode
                                 {
                                     uint remoteTime = reader.ReadUInt();
                                     uint localTimeMinusRTT = reader.ReadUInt();
+#if ENABLE_UNITY_COLLECTIONS_CHECKS
+                                    UnityEngine.Debug.Assert(reader.GetBytesRead() == RpcCollection.k_RpcCommonHeaderLengthBytes);
+#endif
                                     snapshotAck.UpdateRemoteTime(remoteTime, localTimeMinusRTT, localTime);
                                     var buffer = rpcBuffer[entity];
                                     buffer.Add(ref reader);
@@ -770,6 +800,62 @@ namespace Unity.NetCode
                             break;
                     }
                 }
+            }
+
+            /// <summary>
+            /// Records SnapshotSequenceId [SSId] statistics, detecting packet loss, packet duplication, and out of order packets.
+            /// </summary>
+            // ReSharper disable once UnusedParameter.Local
+            private static void UpdatePacketLossStats(ref SnapshotPacketLossStatistics stats, bool snapshotIsConfirmedNewer, in byte currentSnapshotSequenceId, ref NetworkSnapshotAck snapshotAck, in NetDebug netDebug, DynamicBuffer<IncomingSnapshotDataStreamBuffer> buffer)
+            {
+                if (stats.NumPacketsReceived == 0) snapshotAck.CurrentSnapshotSequenceId = (byte) (currentSnapshotSequenceId - 1);
+                stats.NumPacketsReceived++;
+
+                var sequenceIdDelta = snapshotAck.CalculateSequenceIdDelta(currentSnapshotSequenceId, snapshotIsConfirmedNewer);
+                if (snapshotIsConfirmedNewer)
+                {
+                    // Detect packet loss:
+                    var numDroppedPackets = sequenceIdDelta - 1;
+                    if (numDroppedPackets > 0)
+                    {
+                        stats.NumPacketsDroppedNeverArrived += (ulong) numDroppedPackets;
+#if NETCODE_DEBUG
+                        // TODO - Make it possible to access NetDebugPacket.Log((FixedString512Bytes)$"[SSId:{currentSnapshotSequenceId}] Inferred {numDroppedPackets} snapshots dropped!");
+#endif
+                    }
+
+                    // Netcode limitation: We can only process one snapshot per tick!
+                    if (buffer.Length > 0)
+                    {
+                        stats.NumPacketsCulledAsArrivedOnSameFrame++;
+#if NETCODE_DEBUG
+                    // TODO - Make it possible to access NetDebugPacket.Log((FixedString512Bytes)$"[SSId:{currentSnapshotSequenceId}] Clobbering previous snapshot ({stats->LastSnapshotSequenceId}) as it arrived on same frame!");
+#endif
+                    }
+
+                    return;
+                }
+
+                // Detect out of order and duplicate packets:
+                if (sequenceIdDelta == 0)
+                {
+                    // We can't track any previous duplicate packets (unless we keep an ack history),
+                    // so we don't track it at all. Just log.
+#if NETCODE_DEBUG
+                        // TODO - Make it possible to access NetDebugPacket.Log((FixedString512Bytes) $"[SSId:{currentSnapshotSequenceId}] Detected duplicated snapshot packet!");
+#endif
+                    return;
+                }
+
+                stats.NumPacketsCulledOutOfOrder++;
+                // Technically a packet we skipped over was counted as dropped, but it just arrived.
+                // We may not even know about it, as jitter during connection can cause us to detect
+                // dropped packets that we should never have received anyway.
+                if (stats.NumPacketsDroppedNeverArrived > 0)
+                    stats.NumPacketsDroppedNeverArrived--;
+#if NETCODE_DEBUG
+                        // TODO - Make it possible to access NetDebugPacket.Log((FixedString512Bytes) $"[SSId:{currentSnapshotSequenceId}] Arrived {math.abs(sequenceIdDelta)} ServerTicks late!");
+#endif
             }
         }
     }

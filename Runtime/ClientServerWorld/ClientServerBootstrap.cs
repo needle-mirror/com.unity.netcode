@@ -4,6 +4,9 @@ using Unity.Burst;
 using Unity.Collections;
 using Unity.Entities;
 using Unity.Networking.Transport;
+using Unity.Transforms;
+using UnityEngine;
+using UnityEngine.SceneManagement;
 
 namespace Unity.NetCode
 {
@@ -112,8 +115,87 @@ namespace Unity.NetCode
         /// <returns></returns>
         public virtual bool Initialize(string defaultWorldName)
         {
+            // If the user added an OverrideDefaultNetcodeBootstrap MonoBehaviour to their active scene,
+            // or disabled Bootstrapping project-wide, we should respect that here.
+            if (!DetermineIfBootstrappingEnabled())
+                return false;
+
             CreateDefaultClientServerWorlds();
             return true;
+        }
+
+        /// <summary>
+        /// Returns the first Override in the Active scene. Overrides in the non-active scene will report as errors.
+        /// </summary>
+        /// <remarks>Unfortunately, this code includes a FindObjectsOfType call, for validation purposes.</remarks>
+        /// <param name="logNonErrors">If true, we'll log more details, enabling debugging of flows.</param>
+        /// <returns>The first Override in the Active scene.</returns>
+        public static OverrideAutomaticNetcodeBootstrap DiscoverAutomaticNetcodeBootstrap(bool logNonErrors = false)
+        {
+            var activeScene = SceneManager.GetActiveScene();
+            // We must includeInactive here, otherwise we'll get zero results.
+            var sceneConfigurations = UnityEngine.Object.FindObjectsByType<OverrideAutomaticNetcodeBootstrap>(FindObjectsInactive.Include, FindObjectsSortMode.InstanceID);
+            if (sceneConfigurations.Length <= 0) return null;
+            OverrideAutomaticNetcodeBootstrap selectedConfig = null;
+            for (int i = 0; i < sceneConfigurations.Length; i++)
+            {
+                var config = sceneConfigurations[i];
+                // Root-level only:
+                if (config.transform.root != config.transform)
+                {
+                    Debug.LogError($"[DiscoverAutomaticNetcodeBootstrap] Ignoring OverrideAutomaticNetcodeBootstrap on GameObject '{config.name}' with value `{config.ForceAutomaticBootstrapInScene}` (in scene '{config.gameObject.scene.path}') as it's not at the root of the Hierarchy!", config);
+                    continue;
+                }
+
+                // A scene comparison here DOES NOT WORK in builds, as - in a build - the GameObject has not yet been attached to its scene.
+                // Thus, Active Scene Validation is only performed in editor.
+                // Note: Double click on a scene to set it as the Active scene.
+                var isConfigInActiveScene = !UnityEngine.Application.isEditor || config.gameObject.scene == activeScene;
+                if (selectedConfig != null)
+                {
+                    var msg = $"[DiscoverAutomaticNetcodeBootstrap] Cannot select OverrideAutomaticNetcodeBootstrap on GameObject '{config.name}' with value `{config.ForceAutomaticBootstrapInScene}` (in scene '{config.gameObject.scene.path}') as we've already selected another ('{selectedConfig.name}' with value `{selectedConfig.ForceAutomaticBootstrapInScene}` in scene '{selectedConfig.gameObject.scene.path}')!";
+                    if (isConfigInActiveScene)
+                    {
+                        msg += " It's erroneous to have multiple in the same scene!";
+                        UnityEngine.Debug.LogError(msg, config);
+                    }
+                    else
+                    {
+                        if (logNonErrors)
+                        {
+                            msg += $" AND this config ('{config.name}') is not in the Active scene!";
+                            UnityEngine.Debug.Log(msg, config);
+                        }
+                    }
+                    continue;
+                }
+
+                if (isConfigInActiveScene)
+                {
+                    selectedConfig = config;
+                    if(logNonErrors)
+                        UnityEngine.Debug.Log($"[DiscoverAutomaticNetcodeBootstrap] Using discovered OverrideAutomaticNetcodeBootstrap on GameObject '{selectedConfig.name}' with value `{selectedConfig.ForceAutomaticBootstrapInScene}` (in Active scene '{selectedConfig.gameObject.scene.path}')!");
+                    continue;
+                }
+                if(logNonErrors)
+                    UnityEngine.Debug.Log($"[DiscoverAutomaticNetcodeBootstrap] Ignoring OverrideAutomaticNetcodeBootstrap on GameObject '{config.name}' with value `{config.ForceAutomaticBootstrapInScene}` (in scene '{config.gameObject.scene.path}') as this scene is not the Active scene!");
+            }
+            return selectedConfig;
+        }
+
+        /// <summary>
+        ///     Automatically discovers whether or not there is an <see cref="OverrideAutomaticNetcodeBootstrap" /> present
+        ///     in the active scene, and if there is, uses its value to clobber the default.
+        /// </summary>
+        /// <param name="logNonErrors">If true, we'll log more details, enabling debugging of flows.</param>
+        /// <returns></returns>
+        public static bool DetermineIfBootstrappingEnabled(bool logNonErrors = false)
+        {
+            var automaticNetcodeBootstrap = DiscoverAutomaticNetcodeBootstrap(logNonErrors);
+            var automaticBootstrapSettingValue = automaticNetcodeBootstrap
+                ? automaticNetcodeBootstrap.ForceAutomaticBootstrapInScene
+                : (NetCodeConfig.Global ? NetCodeConfig.Global.EnableClientServerBootstrap : NetCodeConfig.AutomaticBootstrapSetting.EnableAutomaticBootstrap);
+            return automaticBootstrapSettingValue == NetCodeConfig.AutomaticBootstrapSetting.EnableAutomaticBootstrap;
         }
 
         /// <summary>
@@ -470,7 +552,27 @@ namespace Unity.NetCode
             {
                 SystemAPI.GetSingletonRW<NetworkStreamDriver>().ValueRW.Listen(ClientServerBootstrap.DefaultListenAddress.WithPort(ClientServerBootstrap.AutoConnectPort));
             }
-            state.Enabled = false;
+            ApplyGlobalNetCodeConfigIfPresent(ref state);
+        }
+
+#if UNITY_EDITOR
+        public void OnUpdate(ref SystemState state)
+        {
+            ApplyGlobalNetCodeConfigIfPresent(ref state);
+        }
+#endif
+
+        private void ApplyGlobalNetCodeConfigIfPresent(ref SystemState state)
+        {
+            var serverConfig = NetCodeConfig.Global;
+            if (serverConfig)
+            {
+                if (SystemAPI.TryGetSingletonRW<ClientServerTickRate>(out var clientServerTickRate))
+                    clientServerTickRate.ValueRW = serverConfig.ClientServerTickRate;
+                else
+                    state.EntityManager.CreateSingleton(serverConfig.ClientServerTickRate);
+                SystemAPI.GetSingletonRW<GhostSendSystemData>().ValueRW = serverConfig.GhostSendSystemData;
+            }
         }
 
         public void OnDestroy(ref SystemState state)
@@ -499,7 +601,27 @@ namespace Unity.NetCode
             {
                 SystemAPI.GetSingletonRW<NetworkStreamDriver>().ValueRW.Connect(state.EntityManager, autoConnectEp);
             }
-            state.Enabled = false;
+
+            ApplyGlobalNetCodeConfigIfPresent(ref state);
+        }
+
+#if UNITY_EDITOR
+        public void OnUpdate(ref SystemState state)
+        {
+            ApplyGlobalNetCodeConfigIfPresent(ref state);
+        }
+#endif
+
+        private void ApplyGlobalNetCodeConfigIfPresent(ref SystemState state)
+        {
+            var clientConfig = NetCodeConfig.Global;
+            if (clientConfig)
+            {
+                if (SystemAPI.TryGetSingletonRW<ClientTickRate>(out var clientTickRate))
+                    clientTickRate.ValueRW = clientConfig.ClientTickRate;
+                else
+                    state.EntityManager.CreateSingleton(clientConfig.ClientTickRate);
+            }
         }
 
         public void OnDestroy(ref SystemState state)

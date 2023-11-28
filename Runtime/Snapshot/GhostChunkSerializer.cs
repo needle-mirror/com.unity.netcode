@@ -51,7 +51,7 @@ namespace Unity.NetCode
 
         public NetDebug netDebug;
 #if NETCODE_DEBUG
-        public NetDebugPacket netDebugPacket;
+        public PacketDumpLogger netDebugPacket;
         public byte enablePacketLogging;
         public byte enablePerComponentProfiling;
         public FixedString64Bytes ghostTypeName;

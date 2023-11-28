@@ -1,6 +1,7 @@
 using System;
 using System.Diagnostics;
 using Unity.Entities;
+using Unity.Mathematics;
 
 namespace Unity.NetCode
 {
@@ -159,6 +160,17 @@ namespace Unity.NetCode
         private byte m_SendSnapshotsForCatchUpTicks;
 
         /// <summary>
+        /// On the client, Netcode attempts to align its own fixed step with the render refresh rate, with the goal of
+        /// reducing Partial ticks, and increasing stability.
+        /// Defaults to 5 (5%), which is applied each way: I.e. If you're within 5% of the last full tick, or if you're
+        /// within 5% of the next full tick, we'll clamp.
+        /// -1 is 'turn clamping off', 0 is 'use default'.
+        /// Max value is 50 (i.e. 50% each way, leading to full clamping, as it's applied in both directions).
+        /// </summary>
+        /// <remarks>High values will lead to more aggressive alignment, which may be perceivable (as we'll need to shift time further).</remarks>
+        public int ClampPartialTicksThreshold { get; set; }
+
+        /// <summary>
         /// Set all the properties that hasn't been changed by the user or that have invalid ranges to a proper default value.
         /// In particular this guarantee that both <see cref="NetworkTickRate"/> and <see cref="SimulationTickRate"/> are never 0.
         /// </summary>
@@ -176,6 +188,8 @@ namespace Unity.NetCode
                 MaxSimulationStepsPerFrame = 1;
             if (MaxSimulationStepBatchSize <= 0)
                 MaxSimulationStepBatchSize = 4;
+            if (ClampPartialTicksThreshold == 0)
+                ClampPartialTicksThreshold = 5;
         }
 
         [Conditional("ENABLE_UNITY_COLLECTIONS_CHECKS")]
@@ -192,7 +206,9 @@ namespace Unity.NetCode
             if (MaxSimulationStepsPerFrame <= 0)
                 throw new ArgumentException($"The {nameof(MaxSimulationStepsPerFrame)} must be always > 0");
             if (MaxSimulationStepBatchSize <= 0)
-                throw new ArgumentException($"The {nameof(MaxSimulationStepBatchSize)} be always > 0");
+                throw new ArgumentException($"The {nameof(MaxSimulationStepBatchSize)} must be always > 0");
+            if (ClampPartialTicksThreshold > 50)
+                throw new ArgumentException($"The {nameof(ClampPartialTicksThreshold)} must always be within [-1, 50]");
         }
     }
 

@@ -114,7 +114,7 @@ namespace Unity.NetCode.Tests
         }
 
         [Test]
-        public void SwitchingOwner_ServerReceiveCommandFromOwningClient()
+        public void SwitchingOwner_ServerReceiveCommandFromOwningClient([Values]GhostMode ghostMode)
         {
             using (var testWorld = new NetCodeTestWorld())
             {
@@ -123,7 +123,7 @@ namespace Unity.NetCode.Tests
                 var ghostConfig = ghostGameObject.AddComponent<GhostAuthoringComponent>();
                 ghostConfig.HasOwner = true;
                 ghostConfig.SupportAutoCommandTarget = true;
-                ghostConfig.DefaultGhostMode = GhostMode.OwnerPredicted;
+                ghostConfig.DefaultGhostMode = ghostMode;
                 ghostGameObject.AddComponent<NetcodeTransformUsageFlagsTestAuthoring>();
                 ghostGameObject.AddComponent<TestNetCodeAuthoring>().Converter = new InputComponentDataConverter();
                 Assert.IsTrue(testWorld.CreateGhostCollection(ghostGameObject));
@@ -144,20 +144,22 @@ namespace Unity.NetCode.Tests
                 //We should have a ghost and should have been spawn as interpolated
                 var clientGhost = testWorld.TryGetSingletonEntity<GhostOwner>(testWorld.ClientWorlds[0]);
                 Assert.AreNotEqual(Entity.Null, clientGhost);
-                Assert.IsFalse(testWorld.ClientWorlds[0].EntityManager.HasComponent<PredictedGhost>(clientGhost));
+                Assert.AreEqual(ghostMode == GhostMode.Predicted, testWorld.ClientWorlds[0].EntityManager.HasComponent<PredictedGhost>(clientGhost),
+                    "We don't currently own this ghost.");
                 //Server change owner and enable auto-command.
                 testWorld.ServerWorld.EntityManager.SetComponentData(serverEnt, new GhostOwner { NetworkId = 1 });
                 testWorld.ServerWorld.EntityManager.SetComponentData(serverEnt,
                     new AutoCommandTarget { Enabled = true });
                 for (int i = 0; i < 8; ++i)
                     testWorld.Tick(1f / 60f);
-                Assert.IsTrue(testWorld.ClientWorlds[0].EntityManager.HasComponent<PredictedGhost>(clientGhost));
+                Assert.AreEqual(ghostMode == GhostMode.Predicted || ghostMode == GhostMode.OwnerPredicted, testWorld.ClientWorlds[0].EntityManager.HasComponent<PredictedGhost>(clientGhost),
+                    "We currently own this ghost.");
                 Assert.IsTrue(testWorld.ClientWorlds[0].EntityManager
                     .GetComponentData<NetCode.AutoCommandTarget>(clientGhost).Enabled);
                 var serverBuffer =
                     testWorld.ServerWorld.EntityManager.GetBuffer<InputBufferData<InputComponentData>>(serverEnt);
                 var serverTick = testWorld.GetNetworkTime(testWorld.ServerWorld).ServerTick;
-                Assert.GreaterOrEqual(serverBuffer.Length, 0,
+                Assert.NotZero(serverBuffer.Length,
                     "Server should have received commands from the client but the input command buffer is empty");
                 Assert.IsTrue(serverBuffer.GetDataAtTick(serverTick, out var commandData));
                 Assert.AreEqual(serverTick, commandData.Tick);

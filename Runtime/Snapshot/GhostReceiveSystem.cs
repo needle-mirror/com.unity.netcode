@@ -165,7 +165,7 @@ namespace Unity.NetCode
         BufferLookup<PrespawnGhostBaseline> m_PrespawnBaselineBufferFromEntity;
 
 #if NETCODE_DEBUG
-        NetDebugPacket m_NetDebugPacket;
+        PacketDumpLogger m_NetDebugPacket;
 #endif
 
         // This cannot be burst compiled due to NetDebugInterop.Initialize
@@ -341,7 +341,7 @@ namespace Unity.NetCode
 
             public NetDebug NetDebug;
 #if NETCODE_DEBUG
-            public NetDebugPacket NetDebugPacket;
+            public PacketDumpLogger NetDebugPacket;
             [ReadOnly] public ComponentLookup<PrefabDebugName> PrefabNamesFromEntity;
             [ReadOnly] public ComponentLookup<EnablePacketLogging> EnableLoggingFromEntity;
             public FixedString128Bytes TimestampAndTick;
@@ -390,10 +390,7 @@ namespace Unity.NetCode
                     debugLog.Append(FixedString.Format(" ServerTick:{0}\n", serverTick.ToFixedString()));
 #endif
 
-                var ack = SnapshotAckFromEntity[Connections[0]];
-                if (ack.LastReceivedSnapshotByLocal.IsValid &&
-                    !serverTick.IsNewerThan(ack.LastReceivedSnapshotByLocal))
-                    return;
+                ref var ack = ref SnapshotAckFromEntity.GetRefRW(Connections[0]).ValueRW;
                 if (ack.LastReceivedSnapshotByLocal.IsValid)
                 {
                     var shamt = serverTick.TicksSince(ack.LastReceivedSnapshotByLocal);
@@ -402,9 +399,7 @@ namespace Unity.NetCode
                     else
                         ack.ReceivedSnapshotByLocalMask = 0;
                 }
-
                 ack.ReceivedSnapshotByLocalMask |= 1;
-                ack.LastReceivedSnapshotByLocal = serverTick;
 
                 // Load all new prefabs
                 uint numPrefabs = dataStream.ReadPackedUInt(CompressionModel);
@@ -460,10 +455,12 @@ namespace Unity.NetCode
                         }
                     }
                 }
-                SnapshotAckFromEntity[Connections[0]] = ack;
 
                 if (IsThinClient == 1)
+                {
+                    snapshot.Clear();
                     return;
+                }
 
                 uint totalGhostCount = dataStream.ReadPackedUInt(CompressionModel);
                 GhostCompletionCount[0] = (int)totalGhostCount;
@@ -554,7 +551,6 @@ namespace Unity.NetCode
                     // Desync - reset received snapshots
                     ack.ReceivedSnapshotByLocalMask = 0;
                     ack.LastReceivedSnapshotByLocal = NetworkTick.Invalid;
-                    SnapshotAckFromEntity[Connections[0]] = ack;
                 }
             }
             struct DeserializeData
@@ -617,7 +613,7 @@ namespace Unity.NetCode
                     {
                         var ghostCollection = GhostCollectionFromEntity[GhostCollectionSingleton];
                         debugLog.Append(FixedString.Format("\t GhostType:{0}({1}) RelevantGhostCount:{2}\n",
-                            PrefabNamesFromEntity[ghostCollection[(int)data.TargetArch].GhostPrefab].Name,
+                            PrefabNamesFromEntity[ghostCollection[(int)data.TargetArch].GhostPrefab].PrefabName,
                             data.TargetArch, data.TargetArchLen));
                     }
 #endif
@@ -1258,7 +1254,7 @@ namespace Unity.NetCode
                     var bitsRead = dataStream.GetBitsRead()-ghostDataStreamStartBitsRead;
 #if NETCODE_DEBUG
                     var ghostCollection = GhostCollectionFromEntity[GhostCollectionSingleton];
-                    var prefabName = FixedString.Format("{0}({1})", PrefabNamesFromEntity[ghostCollection[(int)data.TargetArch].GhostPrefab].Name, data.TargetArch);
+                    var prefabName = FixedString.Format("{0}({1})", PrefabNamesFromEntity[ghostCollection[(int)data.TargetArch].GhostPrefab].PrefabName, data.TargetArch);
                     NetDebug.LogError(FixedString.Format("Failed to decode ghost {0} of type {1}, got {2} bits, expected {3} bits", ghostId, prefabName, bitsRead, ghostDataSizeInBits));
 
                     if (m_EnablePacketLogging == 1)

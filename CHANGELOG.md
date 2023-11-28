@@ -4,6 +4,28 @@ uid: changelog
 
 # Changelog
 
+## [1.2.0-pre.4] - 2023-11-28
+
+### Added
+
+* You can now disable the automatic Entities `ICustomBootstrap` bootstrapping (which calls NetCode's own `ClientServerBootstrap`) by either; a) disabling it in the ProjectSettings (default value is enabled), or b) adding the new `OverrideAutomaticNetcodeBootstrap` MonoBehaviour to your first build scene (i.e. your Active scene). Thus, there is no longer any need to write a custom bootstrap just to support a Frontend scene vs a Gameplay scene.
+* A `NetCodeConfig` ScriptableObject, containing most NetCode configuration variables, allowing customization without needing to modify code. Most variables are live-tweakable.
+* A 'Snapshot Sequence Id' (SSId), which is used to accurately measure packet loss. It adds 1 byte of header to each snapshot, but enables us to measure Netcode-caused causes of PL (i.e. out of order snapshots being discarded, and discarding a snapshot if another arrives on the same frame). Access statistics via a new struct on the client's `NetworkSnapshotAck`.
+* `RpcCollection.GetRpcHeaderLength` and `NetworkStreamDriver.GetMaximumHeaderSize` to allow users to determine max safe payload sizes.
+
+### Fixed
+
+* Esoteric exception in `MultiplayerPlaymodeWindow` in server-only cases.
+* Interpolated ghosts now support `IInputComponentData` and `AutoCommandTarget`.
+* Improved `UpdateGhostOwnerIsLocal` to make it reactive to `GhostOwner` changes, thus it no longer needs to poll.
+* NetDbg `ArgumentException` when a predicted ghost contains a replicated enableable flag component.
+* Display-only issue where the variants for additional entities (created via baking) were calculated as if they were 'root' entities. They are - in fact - child entities, thus the variants automatically selected for them should default to child defaults.
+* QoL issue; we now allow users to opt-out of auto-baking `GhostAuthoringInspectionComponent`s when selecting their GameObject, reducing stalls when clicking around the Hierarchy or Project.
+* QoL issue where `GhostAuthoringInspectionComponent` was not always modifiable in areas of the Editor where it is valid to modify them.
+* Issue where `GhostAuthoringComponent` was disallowed in nested prefab setups (where the root prefab is NOT a ghost).
+* Log verbiage when creating a driver in DefaultDriverConstructor read like a 'call to action'. It's not.
+
+
 ## [1.2.0-exp.3] - 2023-11-09
 
 ### Added

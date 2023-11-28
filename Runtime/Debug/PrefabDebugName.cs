@@ -1,6 +1,8 @@
 #if UNITY_EDITOR && !NETCODE_NDEBUG
 #define NETCODE_DEBUG
 #endif
+using System;
+using Unity.Collections;
 using Unity.Entities;
 using UnityEngine.Scripting.APIUpdating;
 
@@ -16,7 +18,13 @@ namespace Unity.NetCode
         /// <summary>
         /// The name of the prefab.
         /// </summary>
-        public LowLevel.BlobStringText Name;
+        [Obsolete("The PrefabDebugName.Name field has been deprecated. Please use the PrefabName instea.", false)]
+        public FixedString64Bytes Name;
+
+        /// <summary>
+        /// The name of the prefab.
+        /// </summary>
+        public LowLevel.BlobStringText PrefabName;
     }
 }
 #endif

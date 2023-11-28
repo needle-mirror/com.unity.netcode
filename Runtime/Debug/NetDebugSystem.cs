@@ -77,7 +77,10 @@ namespace Unity.NetCode
             foreach (var entity in prefabsWithoutDebugName)
             {
                 var prefabMetaData = m_GhostPrefabMetadata[entity];
-                m_PrefabDebugNameData[entity] = new PrefabDebugName {Name = new LowLevel.BlobStringText(ref prefabMetaData.Value.Value.Name)};
+                m_PrefabDebugNameData[entity] = new PrefabDebugName
+                {
+                    PrefabName = new LowLevel.BlobStringText(ref prefabMetaData.Value.Value.Name)
+                };
             }
 
             state.CompleteDependency();

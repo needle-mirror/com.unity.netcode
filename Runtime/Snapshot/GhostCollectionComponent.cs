@@ -93,21 +93,21 @@ namespace Unity.NetCode
     public struct GhostCollection : IComponentData
     {
         /// <summary>
-        /// The number prefab that has been loaded into the <see cref="GhostCollectionPrefab"/> collection.
+        /// The number of prefabs that have been loaded into the <see cref="GhostCollectionPrefab"/> collection.
         /// Use to determine which ghosts types the server can stream to the clients.
         /// <para>
-        /// The server report to the client the list of loaded prefabs (with their see <see cref="GhostType"/> guid)
+        /// The server reports (to the client) the list of loaded prefabs (with their see <see cref="GhostTypeComponent"/> guid)
         /// as part of the snapshot protocol.
-        /// The list is dynamic; new prefabs can be added/loaded at runtime on the server, and the ones will be reported to the client.
+        /// The list is dynamic; new prefabs can be added/loaded at runtime (on the server), and the new ones will be reported to the client.
         /// </para>
         /// <para>
-        /// Clients reports to the server the number of loaded prefab as part of the command protocol.
-        /// When the client receive a ghost snapshot, the ghost prefab list is processed and the <see cref="GhostCollectionPrefab"/> collection
-        /// is updated with any new ghost types not present in the collection.
+        /// Clients report (to the server) the number of loaded prefabs, as part of the command protocol.
+        /// When the client receives a ghost snapshot, the ghost prefab list is processed, and the <see cref="GhostCollectionPrefab"/> collection
+        /// is updated with any new ghost types not already present in the collection.
         /// <para>
-        /// The client is not required to have all prefab type in the <see cref="GhostCollectionPrefab"/> to be loaded into the world. They can
-        /// be loaded/added dynamically to the world (i.e when streaming a sub-scene), and the <see cref="GhostCollectionPrefab.Loading"/> state
-        /// should be used in that case to inform the <see cref="GhostCollection"/> that the specified prefabs are getting loaded into the world.
+        /// The client does not need to have loaded ALL prefab types in the <see cref="GhostCollectionPrefab"/> to initialize the world. I.e. They can
+        /// be loaded/added dynamically into the world (i.e when streaming a sub-scene), and the <see cref="GhostCollectionPrefab.Loading"/> state
+        /// should be used in that case (to inform the <see cref="GhostCollection"/> that the specified prefabs are currently being loaded into the world).
         /// </para>
         /// </para>
         /// </summary>

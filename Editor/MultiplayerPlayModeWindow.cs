@@ -883,15 +883,15 @@ namespace Unity.NetCode.Editor
                 s_ServerPlayers.text = $"[{numConnections} Connected | {numInGame} In Game]";
                 GUILayout.Label(s_ServerPlayers, s_DontExpandWidth);
 
+                GUI.color = Color.white;
+
                 if (GUILayout.Button(s_ServerDcAllClients))
                 {
-                    serverWorld.EntityManager.CompleteAllTrackedJobs();
                     DisconnectAllClients(serverWorld.EntityManager, NetworkStreamDisconnectReason.ConnectionClose);
                 }
 
                 if (GUILayout.Button(s_ServerReconnectAllClients))
                 {
-                    serverWorld.EntityManager.CompleteAllTrackedJobs();
                     DisconnectAllClients(serverWorld.EntityManager, NetworkStreamDisconnectReason.ConnectionClose);
 
                     foreach (var clientWorld in ClientServerBootstrap.ClientWorlds.Concat(ClientServerBootstrap.ThinClientWorlds))
@@ -901,7 +901,6 @@ namespace Unity.NetCode.Editor
                     }
                 }
 
-                GUI.color = Color.white;
                 GUILayout.FlexibleSpace();
             }
             GUILayout.EndHorizontal();
@@ -1099,16 +1098,13 @@ namespace Unity.NetCode.Editor
         internal NetworkId NetworkId;
         internal NetworkEndpoint OverrideEndpoint;
         EndSimulationEntityCommandBufferSystem m_EndSimulationEcbSystem;
-
         ConnectionState m_LastConnectionState;
 
         public bool UpdateSimulator;
 
+        public bool IsAnyUsingSimulator {get; private set;}
 
-
-        public bool IsAnyUsingSimulator{get; private set;}
-
-        public NetworkEndpoint LastEndpoint{get; private set;}
+        public NetworkEndpoint LastEndpoint {get; private set;}
 
         internal bool IsUsingIpc { get; private set; }
         internal bool IsUsingWebSocket { get; private set; }
@@ -1150,32 +1146,35 @@ namespace Unity.NetCode.Editor
                 }
             }
 
-            ref var netStream = ref SystemAPI.GetSingletonRW<NetworkStreamDriver>().ValueRW;
-            ref var driverStore = ref netStream.DriverStore;
-            LastEndpoint = netStream.LastEndPoint;
-            IsAnyUsingSimulator = driverStore.IsAnyUsingSimulator;
-            for (int i = driverStore.FirstDriver; i < driverStore.LastDriver; i++)
+            var hasNetworkStreamDriver = SystemAPI.TryGetSingletonRW<NetworkStreamDriver>(out var netStream);
+            if (hasNetworkStreamDriver)
             {
-                switch (driverStore.GetDriverType(i))
+                ref var driverStore = ref netStream.ValueRO.DriverStore;
+                LastEndpoint = netStream.ValueRO.LastEndPoint;
+                IsAnyUsingSimulator = driverStore.IsAnyUsingSimulator;
+                for (int i = driverStore.FirstDriver; i < driverStore.LastDriver; i++)
                 {
-                    case TransportType.IPC:
-                        IsUsingIpc = true;
-                        break;
-                    case TransportType.Socket:
-                        IsUsingSocket = true;
-                        var driverInstance = driverStore.GetDriverInstance(i);
-                        SocketFamily = driverInstance.driver.GetLocalEndpoint().Family;
+                    switch (driverStore.GetDriverType(i))
+                    {
+                        case TransportType.IPC:
+                            IsUsingIpc = true;
+                            break;
+                        case TransportType.Socket:
+                            IsUsingSocket = true;
+                            var driverInstance = driverStore.GetDriverInstance(i);
+                            SocketFamily = driverInstance.driver.GetLocalEndpoint().Family;
 
-                        // todo: Fetch the NetworkInterface from the driver directly, by Type name, to future proof this.
+                            // todo: Fetch the NetworkInterface from the driver directly, by Type name, to future proof this.
 #if UNITY_WEBGL
                         IsUsingWebSocket = true;
 #else
-                        IsUsingWebSocket = false;
+                            IsUsingWebSocket = false;
 #endif
-                        break;
-                    default:
-                        netDebug.LogError($"{World.Name} has unknown or invalid driver type passed into DriverStore!");
-                        break;
+                            break;
+                        default:
+                            netDebug.LogError($"{World.Name} has unknown or invalid driver type passed into DriverStore!");
+                            break;
+                    }
                 }
             }
 
@@ -1194,17 +1193,16 @@ namespace Unity.NetCode.Editor
                 else isConnecting = true;
             }
 
-            if (UpdateSimulator)
+            if (UpdateSimulator && hasNetworkStreamDriver)
             {
-                EntityManager.CompleteAllTrackedJobs();
+                UpdateSimulator = false;
 
                 var clientSimulatorParameters = Prefs.ClientSimulatorParameters;
                 if (IsSimulatingTimeout || IsSimulatingLagSpike)
                 {
                     clientSimulatorParameters.PacketDropPercentage = 100;
                 }
-                NetworkSimulatorSettings.RefreshSimulationPipelineParametersLive(in clientSimulatorParameters, ref driverStore);
-                UpdateSimulator = false;
+                NetworkSimulatorSettings.RefreshSimulationPipelineParametersLive(in clientSimulatorParameters, ref netStream.ValueRW.DriverStore);
             }
 
             var refreshConnectionStatus = true;
@@ -1229,19 +1227,18 @@ namespace Unity.NetCode.Editor
                 case ConnectionState.TriggerConnect when isDisconnecting:
                     refreshConnectionStatus = false;
                     break;
-                case ConnectionState.TriggerConnect when !isConnecting:
+                case ConnectionState.TriggerConnect when hasNetworkStreamDriver:
                     var clientSimulatorParameters = Prefs.ClientSimulatorParameters;
-                    EntityManager.CompleteAllTrackedJobs();
-
+                    ref var driverStore = ref netStream.ValueRW.DriverStore;
                     NetworkSimulatorSettings.RefreshSimulationPipelineParametersLive(in clientSimulatorParameters, ref driverStore);
 
-                    var ep = OverrideEndpoint != default ? OverrideEndpoint : netStream.LastEndPoint;
+                    var ep = OverrideEndpoint != default ? OverrideEndpoint : netStream.ValueRO.LastEndPoint;
                     if (ep != default || Prefs.IsEditorInputtedAddressValidForConnect(out ep))
                     {
                         OverrideEndpoint = default;
                         LagSpikeMillisecondsLeft = -1;
                         UpdateSimulator = true;
-                        netStream.Connect(EntityManager, ep);
+                        netStream.ValueRW.Connect(EntityManager, ep);
                         netDebug.DebugLog($"{World.Name} triggered a reconnection to {ep.Address} via {nameof(MultiplayerPlayModeWindow)}!");
                     }
                     else
@@ -1318,6 +1315,7 @@ namespace Unity.NetCode.Editor
             MultiplayerPlayModeWindow.ForceRepaint();
         }
     }
+
     [WorldSystemFilter(WorldSystemFilterFlags.ServerSimulation)]
     [UpdateInGroup(typeof(NetworkReceiveSystemGroup))]
     [UpdateBefore(typeof(NetworkStreamReceiveSystem))]

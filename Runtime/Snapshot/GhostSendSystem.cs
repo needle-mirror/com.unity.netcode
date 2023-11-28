@@ -81,6 +81,7 @@ namespace Unity.NetCode
     /// <summary>
     /// Singleton entity that contains all the tweakable settings for the <see cref="GhostSendSystem"/>.
     /// </summary>
+    [Serializable]
     public struct GhostSendSystemData : IComponentData
     {
         /// <summary>
@@ -105,6 +106,13 @@ namespace Unity.NetCode
                 m_FirstSendImportanceMultiplier = value;
             }
         }
+
+        /// <summary>
+        /// If not 0, denotes the desired size of an individual snapshot (unless clobbered by <see cref="NetworkStreamSnapshotTargetSize"/>).
+        /// If zero, <see cref="NetworkParameterConstants.MTU"/> is used (minus headers).
+        /// </summary>
+        public int DefaultSnapshotPacketSize;
+
         /// <summary>
         /// The minimum importance considered for inclusion in a snapshot. Any ghost importance lower
         /// than this value will not be send every frame even if there is enough space in the packet.
@@ -423,7 +431,7 @@ namespace Unity.NetCode
 #endif
 
             m_NetworkIdFromEntity = state.GetComponentLookup<NetworkId>();
-            m_SnapshotAckFromEntity = state.GetComponentLookup<NetworkSnapshotAck>(true);
+            m_SnapshotAckFromEntity = state.GetComponentLookup<NetworkSnapshotAck>(false);
             m_GhostTypeFromEntity = state.GetComponentLookup<GhostType>(true);
 #if NETCODE_DEBUG
             m_PrefabDebugNameFromEntity = state.GetComponentLookup<PrefabDebugName>(true);
@@ -582,7 +590,7 @@ namespace Unity.NetCode
 #if NETCODE_DEBUG
                         FixedString64Bytes prefabNameString = default;
                         if (prefabNames.HasComponent(GhostCollection[ghostType].GhostPrefab))
-                            prefabNameString.Append(prefabNames[GhostCollection[ghostType].GhostPrefab].Name);
+                            prefabNameString.Append(prefabNames[GhostCollection[ghostType].GhostPrefab].PrefabName);
                         netDebug.DebugLog(FixedString.Format("[Spawn] GID:{0} Prefab:{1} TypeID:{2} spawnTick:{3}", newId, prefabNameString, ghostType, serverTick.ToFixedString()));
 #endif
                     }
@@ -630,7 +638,7 @@ namespace Unity.NetCode
             [ReadOnly] public NativeList<ArchetypeChunk> ghostChunks;
 
             [ReadOnly] public NativeArray<ConnectionStateData> connectionState;
-            [ReadOnly] public ComponentLookup<NetworkSnapshotAck> ackFromEntity;
+            [NativeDisableParallelForRestriction] public ComponentLookup<NetworkSnapshotAck> ackFromEntity;
             [ReadOnly] public ComponentLookup<NetworkStreamConnection> connectionFromEntity;
             [ReadOnly] public ComponentLookup<NetworkId> networkIdFromEntity;
 
@@ -680,7 +688,7 @@ namespace Unity.NetCode
             public uint CurrentSystemVersion;
             public NetDebug netDebug;
 #if NETCODE_DEBUG
-            public NetDebugPacket netDebugPacket;
+            public PacketDumpLogger netDebugPacket;
             [ReadOnly] public ComponentLookup<PrefabDebugName> prefabNamesFromEntity;
             [ReadOnly] public ComponentLookup<EnablePacketLogging> enableLoggingFromEntity;
             public FixedString32Bytes timestamp;
@@ -710,6 +718,7 @@ namespace Unity.NetCode
             public byte forceSingleBaseline;
             public byte keepSnapshotHistoryOnStructuralChange;
             public byte snaphostHasCompressedGhostSize;
+            public int defaultSnapshotPacketSize;
 
             [ReadOnly] public NativeParallelHashMap<ArchetypeChunk, SnapshotPreSerializeData> SnapshotPreSerializeData;
 #if UNITY_EDITOR
@@ -750,10 +759,16 @@ namespace Unity.NetCode
                 if (driver.GetConnectionState(connectionId) != NetworkConnection.State.Connected)
                     return;
                 int maxSnapshotSizeWithoutFragmentation = NetworkParameterConstants.MTU - driver.MaxHeaderSize(unreliablePipeline);
+
+
                 int targetSnapshotSize = maxSnapshotSizeWithoutFragmentation;
                 if (snapshotTargetSizeFromEntity.HasComponent(connectionEntity))
                 {
                     targetSnapshotSize = snapshotTargetSizeFromEntity[connectionEntity].Value;
+                }
+                else if (defaultSnapshotPacketSize > 0)
+                {
+                    targetSnapshotSize = math.min(defaultSnapshotPacketSize, targetSnapshotSize);
                 }
 
                 if (prespawnSceneLoadedEntity != Entity.Null)
@@ -774,10 +789,15 @@ namespace Unity.NetCode
                         serializeResult = SerializeEnitiesResult.Unknown;
                         try
                         {
-                            serializeResult = sendEntities(ref driver, ref dataStream, ghostChunkComponentTypesPtr, ghostChunkComponentTypesLength);
+                            ref var snapshotAck = ref ackFromEntity.GetRefRW(connectionEntity).ValueRW;
+                            serializeResult = sendEntities(ref dataStream, snapshotAck, ghostChunkComponentTypesPtr, ghostChunkComponentTypesLength);
                             if (serializeResult == SerializeEnitiesResult.Ok)
                             {
-                                if ((result = driver.EndSend(dataStream)) < (int)Networking.Transport.Error.StatusCode.Success)
+                                if ((result = driver.EndSend(dataStream)) >= (int) Networking.Transport.Error.StatusCode.Success)
+                                {
+                                    snapshotAck.CurrentSnapshotSequenceId++;
+                                }
+                                else
                                 {
                                     netDebug.LogWarning($"Failed to send a snapshot to a client with EndSend error: {result}!");
                                 }
@@ -809,12 +829,11 @@ namespace Unity.NetCode
                     {
                         netDebug.LogError($"Failed to send a snapshot to a client with BeginSend error: {result}!");
                     }
-
                     targetSnapshotSize += targetSnapshotSize;
                 }
             }
 
-            unsafe SerializeEnitiesResult sendEntities(ref NetworkDriver.Concurrent driver, ref DataStreamWriter dataStream, DynamicComponentTypeHandle* ghostChunkComponentTypesPtr, int ghostChunkComponentTypesLength)
+            unsafe SerializeEnitiesResult sendEntities(ref DataStreamWriter dataStream, NetworkSnapshotAck snapshotAckCopy, DynamicComponentTypeHandle* ghostChunkComponentTypesPtr, int ghostChunkComponentTypesLength)
             {
 #if NETCODE_DEBUG
                 FixedString512Bytes debugLog = default;
@@ -826,36 +845,36 @@ namespace Unity.NetCode
                     GhostFromEntity = ghostFromEntity
                 };
                 var NetworkId = networkIdFromEntity[connectionEntity].Value;
-                var snapshotAck = ackFromEntity[connectionEntity];
-                var ackTick = snapshotAck.LastReceivedSnapshotByRemote;
+                var ackTick = snapshotAckCopy.LastReceivedSnapshotByRemote;
 
                 dataStream.WriteByte((byte) NetworkStreamProtocol.Snapshot);
 
                 dataStream.WriteUInt(localTime);
-                uint returnTime = snapshotAck.LastReceivedRemoteTime;
+                uint returnTime = snapshotAckCopy.LastReceivedRemoteTime;
                 if (returnTime != 0)
-                    returnTime += (localTime - snapshotAck.LastReceiveTimestamp);
+                    returnTime += (localTime - snapshotAckCopy.LastReceiveTimestamp);
                 dataStream.WriteUInt(returnTime);
-                dataStream.WriteInt(snapshotAck.ServerCommandAge);
+                dataStream.WriteInt(snapshotAckCopy.ServerCommandAge);
+                dataStream.WriteByte(snapshotAckCopy.CurrentSnapshotSequenceId);
                 dataStream.WriteUInt(currentTick.SerializedData);
 #if NETCODE_DEBUG
                 if (enablePacketLogging == 1)
                 {
                     debugLog.Append(FixedString.Format(" Protocol:{0} LocalTime:{1} ReturnTime:{2} CommandAge:{3}",
-                        (byte) NetworkStreamProtocol.Snapshot, localTime, returnTime, snapshotAck.ServerCommandAge));
-                    debugLog.Append(FixedString.Format(" Tick: {0}\n", currentTick.ToFixedString()));
+                        (byte) NetworkStreamProtocol.Snapshot, localTime, returnTime, snapshotAckCopy.ServerCommandAge));
+                    debugLog.Append(FixedString.Format(" Tick: {0}, SSId: {1}\n", currentTick.ToFixedString(), snapshotAckCopy.CurrentSnapshotSequenceId));
                 }
 #endif
 
                 // Write the list of ghost snapshots the client has not acked yet
                 var GhostCollection = GhostCollectionFromEntity[GhostCollectionSingleton];
-                uint numLoadedPrefabs = snapshotAck.NumLoadedPrefabs;
+                uint numLoadedPrefabs = snapshotAckCopy.NumLoadedPrefabs;
                 if (numLoadedPrefabs > (uint)GhostCollection.Length)
                 {
                     // The received ghosts by remote might not have been updated yet
                     numLoadedPrefabs = 0;
                     // Override the copy of the snapshot ack so the GhostChunkSerializer can skip this check
-                    snapshotAck.NumLoadedPrefabs = 0;
+                    snapshotAckCopy.NumLoadedPrefabs = 0;
                 }
                 uint numNewPrefabs = math.min((uint)GhostCollection.Length - numLoadedPrefabs, GhostSystemConstants.MaxNewPrefabsPerSnapshot);
                 dataStream.WritePackedUInt(numNewPrefabs, compressionModel);
@@ -922,7 +941,7 @@ namespace Unity.NetCode
 #if UNITY_EDITOR || NETCODE_DEBUG
                 int startPos = dataStream.LengthInBits;
 #endif
-                uint despawnLen = WriteDespawnGhosts(ref dataStream, ackTick);
+                uint despawnLen = WriteDespawnGhosts(ref dataStream, ackTick, in snapshotAckCopy);
                 if (dataStream.HasFailedWrites)
                 {
                     RevertDespawnGhostState(ackTick);
@@ -958,7 +977,7 @@ namespace Unity.NetCode
                     preSerializedGhostType = preSerializedGhostType,
                     ghostChildEntityComponentType = ghostChildEntityComponentType,
                     ghostGroupType = ghostGroupType,
-                    snapshotAck = snapshotAck,
+                    snapshotAck = snapshotAckCopy,
                     chunkSerializationData = chunkSerializationData,
                     ghostChunkComponentTypesPtr = ghostChunkComponentTypesPtr,
                     ghostChunkComponentTypesLength = ghostChunkComponentTypesLength,
@@ -999,7 +1018,7 @@ namespace Unity.NetCode
                     {
                         if (prefabNamesFromEntity.HasComponent(GhostCollection[ghostType].GhostPrefab))
                             serializerData.ghostTypeName.Append(
-                                prefabNamesFromEntity[GhostCollection[ghostType].GhostPrefab].Name);
+                                prefabNamesFromEntity[GhostCollection[ghostType].GhostPrefab].PrefabName);
                     }
 #endif
 
@@ -1117,7 +1136,7 @@ namespace Unity.NetCode
             }
 
             /// Write a list of all ghosts which have been despawned after the last acked packet. Return the number of ghost ids written
-            uint WriteDespawnGhosts(ref DataStreamWriter dataStream, NetworkTick ackTick)
+            uint WriteDespawnGhosts(ref DataStreamWriter dataStream, NetworkTick ackTick, in NetworkSnapshotAck snapshotAck)
             {
                 //For despawns we use a custom ghost id encoding.
                 //We left shift the ghost id by one bit and exchange the LSB <> MSB.
@@ -1134,7 +1153,6 @@ namespace Unity.NetCode
 #endif
                 uint despawnLen = 0;
                 ghostStateData.AckedDespawnTick = ackTick;
-                var snapshotAck = ackFromEntity[connectionEntity];
                 uint despawnRepeatTicks = 5u;
                 uint repeatNextFrame = 0;
                 uint repeatThisFrame = ghostStateData.DespawnRepeatCount;
@@ -1774,6 +1792,7 @@ namespace Unity.NetCode
                 forceSingleBaseline = systemData.m_ForceSingleBaseline,
                 keepSnapshotHistoryOnStructuralChange = systemData.m_KeepSnapshotHistoryOnStructuralChange,
                 snaphostHasCompressedGhostSize = GhostSystemConstants.SnaphostHasCompressedGhostSize ? (byte)1u :(byte)0u,
+                defaultSnapshotPacketSize = systemData.DefaultSnapshotPacketSize,
 
 #if UNITY_EDITOR
                 UpdateLen = m_UpdateLen,

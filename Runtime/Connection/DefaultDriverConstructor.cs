@@ -174,7 +174,7 @@ namespace Unity.NetCode
             //if the emulator is enabled we always force to use sockets. It also work with IPC but this is preferred choice.
             if (NetworkSimulatorSettings.Enabled)
             {
-                netDebug.DebugLog("Network simulator enabled. Forcing client to use a socket network driver, rather than an IPC.");
+                netDebug.DebugLog("[DefaultDriverConstructor.ClientUseSocketDriver] Network simulator enabled. Forcing client to use a socket network driver, rather than an IPC.");
                 return true;
             }
 #endif
@@ -185,11 +185,11 @@ namespace Unity.NetCode
             }
             //PlayMode is client server the simulator is disabled. We are in client-server mode
             Assert.IsTrue(ClientServerBootstrap.RequestedPlayType == ClientServerBootstrap.PlayType.ClientAndServer);
-            netDebug.DebugLog("Lookup for a server world instance in the same process");
+            netDebug.DebugLog("[DefaultDriverConstructor.ClientUseSocketDriver] RequestedPlayType is ClientAndServer, so looking for a server world instance in the same process.");
 
             if (ClientServerBootstrap.ServerWorld != null && ClientServerBootstrap.ServerWorld.IsCreated)
             {
-                netDebug.DebugLog("Found server world instance. Prefer use IPC network interface");
+                netDebug.DebugLog("[DefaultDriverConstructor.ClientUseSocketDriver] Found server world instance. Thus, preferring IPC network interface.");
                 return false;
             }
 #endif
@@ -256,7 +256,7 @@ namespace Unity.NetCode
         {
             Assert.IsTrue(ClientServerBootstrap.RequestedPlayType != ClientServerBootstrap.PlayType.Server);
             Assert.IsTrue(world.IsClient());
-            netDebug.DebugLog("Create client default udp socket network interface driver");
+            netDebug.DebugLog("[DefaultDriverConstructor.RegisterClientUdpDriver] Creating the client default UDP socket network interface driver.");
             var driverInstance = DefaultDriverBuilder.CreateClientNetworkDriver(new UDPNetworkInterface(), settings);
             driverStore.RegisterDriver(TransportType.Socket, driverInstance);
         }
@@ -313,7 +313,7 @@ namespace Unity.NetCode
         {
             Assert.IsTrue(ClientServerBootstrap.RequestedPlayType != ClientServerBootstrap.PlayType.Server);
             Assert.IsTrue(world.IsClient());
-            netDebug.DebugLog("Create client default IPC network interface driver");
+            netDebug.DebugLog("[DefaultDriverConstructor.RegisterClientIpcDriver] Creating the client default IPC network interface driver.");
             var driverInstance = DefaultDriverBuilder.CreateClientNetworkDriver(new IPCNetworkInterface(), settings);
             driverStore.RegisterDriver(TransportType.IPC, driverInstance);
         }
@@ -381,7 +381,7 @@ namespace Unity.NetCode
                 return;
             }
 
-            netDebug.DebugLog("Create server default IPC network interface driver");
+            netDebug.DebugLog("[DefaultDriverConstructor.RegisterServerIpcDriver] Creating the server default IPC network interface driver.");
             var ipcDriver = CreateServerNetworkDriver(new IPCNetworkInterface(), settings);
             driverStore.RegisterDriver(TransportType.IPC, ipcDriver);
         }
@@ -398,7 +398,7 @@ namespace Unity.NetCode
         public static void RegisterServerUdpDriver(World world, ref NetworkDriverStore driverStore, NetDebug netDebug, NetworkSettings settings)
         {
             Assert.IsTrue(world.IsServer());
-            netDebug.DebugLog("Create server default socket network interface driver");
+            netDebug.DebugLog("[DefaultDriverConstructor.RegisterServerIpcDriver] Creating the server default socket network interface driver.");
             var socketDriver = CreateServerNetworkDriver(new UDPNetworkInterface(), settings);
             driverStore.RegisterDriver(TransportType.Socket, socketDriver);
         }
@@ -419,7 +419,7 @@ namespace Unity.NetCode
         {
             Assert.IsTrue(ClientServerBootstrap.RequestedPlayType != ClientServerBootstrap.PlayType.Client);
             Assert.IsTrue(world.IsServer());
-            netDebug.DebugLog("Create server websocket network interface driver");
+            netDebug.DebugLog("[DefaultDriverConstructor.RegisterServerWebSocketDriver] Creating the server WebSocket network interface driver.");
             var driverInstance = new NetworkDriverStore.NetworkDriverInstance
             {
                 driver = NetworkDriver.Create(new WebSocketNetworkInterface(), settings)

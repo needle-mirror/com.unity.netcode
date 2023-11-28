@@ -984,20 +984,12 @@ namespace Unity.NetCode
             }
         }
         [BurstCompile]
-        struct UpdateGhostOwnerIsLocal : IJobChunk
+        [WithOptions(EntityQueryOptions.IgnoreComponentEnabledState)]
+        [WithChangeFilter(typeof(GhostOwner), typeof(GhostOwnerIsLocal))]
+        partial struct UpdateGhostOwnerIsLocal : IJobEntity
         {
-            [ReadOnly] public ComponentTypeHandle<GhostOwner> ghostOwnerType;
-            public ComponentTypeHandle<GhostOwnerIsLocal> ghostOwnerIsLocalType;
             public int localNetworkId;
-            public void Execute(in ArchetypeChunk chunk, int unfilteredChunkIndex, bool useEnabledMask, in v128 chunkEnabledMask)
-            {
-                // This job is not written to support queries with enableable component types.
-                Assert.IsFalse(useEnabledMask);
-
-                var owners = chunk.GetNativeArray(ref ghostOwnerType);
-                for (int i = 0; i < owners.Length; ++i)
-                    chunk.SetComponentEnabled(ref ghostOwnerIsLocalType, i, owners[i].NetworkId == localNetworkId);
-            }
+            public void Execute(in GhostOwner ghostOwner, EnabledRefRW<GhostOwnerIsLocal> isLocalEnabledRef) => isLocalEnabledRef.ValueRW = ghostOwner.NetworkId == localNetworkId;
         }
 
         [BurstCompile]
@@ -1028,7 +1020,6 @@ namespace Unity.NetCode
         static readonly Unity.Profiling.ProfilerMarker k_ChangeFiltering = new Unity.Profiling.ProfilerMarker("GhostUpdateSystem_ChangeFiltering");
         static readonly Unity.Profiling.ProfilerMarker k_RestoreFromBackup = new Unity.Profiling.ProfilerMarker("GhostUpdateSystem_RestoreFromBackup");
         private EntityQuery m_ghostQuery;
-        private EntityQuery m_GhostOwnerIsLocalQuery;
         private NetworkTick m_LastPredictedTick;
         private NativeReference<NetworkTick> m_LastInterpolatedTick;
         private NativeParallelHashMap<NetworkTick, NetworkTick> m_AppliedPredictedTicks;
@@ -1070,10 +1061,6 @@ namespace Unity.NetCode
                 .WithAllRW<SnapshotDataBuffer>()
                 .WithAbsent<PendingSpawnPlaceholder, PredictedGhostSpawnRequest>();
             m_ghostQuery = queryBuilder.Build(systemState.EntityManager);
-            queryBuilder.Reset();
-            m_GhostOwnerIsLocalQuery = queryBuilder.WithAllRW<GhostOwnerIsLocal>().WithAll<GhostOwner>()
-                .WithOptions(EntityQueryOptions.IgnoreComponentEnabledState)
-                .Build(systemState.EntityManager);
             systemState.RequireForUpdate<NetworkStreamInGame>();
             systemState.RequireForUpdate<GhostCollection>();
 
@@ -1185,12 +1172,10 @@ namespace Unity.NetCode
                 m_GhostOwnerIsLocalType.Update(ref systemState);
                 var updateOwnerIsLocal = new UpdateGhostOwnerIsLocal
                 {
-                    ghostOwnerType = m_GhostOwnerType,
-                    ghostOwnerIsLocalType = m_GhostOwnerIsLocalType,
                     localNetworkId = localNetworkId
                 };
                 k_Scheduling.Begin();
-                systemState.Dependency = updateOwnerIsLocal.ScheduleParallel(m_GhostOwnerIsLocalQuery, systemState.Dependency);
+                systemState.Dependency = updateOwnerIsLocal.ScheduleParallel(systemState.Dependency);
                 k_Scheduling.End();
             }
 
