@@ -1,25 +1,25 @@
 {
   "name": "com.unity.netcode",
   "displayName": "Netcode for Entities",
-  "version": "1.2.0-pre.4",
+  "version": "1.2.0-pre.6",
   "unity": "2022.3",
   "unityRelease": "11f1",
   "description": "Unity's Data Oriented Technology Stack (DOTS) multiplayer netcode layer - a high level netcode system built on entities. This package provides a foundation for creating networked multiplayer applications within DOTS.",
   "dependencies": {
     "com.unity.transport": "2.1.0",
-    "com.unity.entities": "1.2.0-pre.4",
+    "com.unity.entities": "1.2.0-pre.6",
     "com.unity.modules.animation": "1.0.0"
   },
   "_upm": {
-    "changelog": "### Added\n\n* You can now disable the automatic Entities `ICustomBootstrap` bootstrapping (which calls NetCode's own `ClientServerBootstrap`) by either; a) disabling it in the ProjectSettings (default value is enabled), or b) adding the new `OverrideAutomaticNetcodeBootstrap` MonoBehaviour to your first build scene (i.e. your Active scene). Thus, there is no longer any need to write a custom bootstrap just to support a Frontend scene vs a Gameplay scene.\n* A `NetCodeConfig` ScriptableObject, containing most NetCode configuration variables, allowing customization without needing to modify code. Most variables are live-tweakable.\n* A 'Snapshot Sequence Id' (SSId), which is used to accurately measure packet loss. It adds 1 byte of header to each snapshot, but enables us to measure Netcode-caused causes of PL (i.e. out of order snapshots being discarded, and discarding a snapshot if another arrives on the same frame). Access statistics via a new struct on the client's `NetworkSnapshotAck`.\n* `RpcCollection.GetRpcHeaderLength` and `NetworkStreamDriver.GetMaximumHeaderSize` to allow users to determine max safe payload sizes.\n\n### Fixed\n\n* Esoteric exception in `MultiplayerPlaymodeWindow` in server-only cases.\n* Interpolated ghosts now support `IInputComponentData` and `AutoCommandTarget`.\n* Improved `UpdateGhostOwnerIsLocal` to make it reactive to `GhostOwner` changes, thus it no longer needs to poll.\n* NetDbg `ArgumentException` when a predicted ghost contains a replicated enableable flag component.\n* Display-only issue where the variants for additional entities (created via baking) were calculated as if they were 'root' entities. They are - in fact - child entities, thus the variants automatically selected for them should default to child defaults.\n* QoL issue; we now allow users to opt-out of auto-baking `GhostAuthoringInspectionComponent`s when selecting their GameObject, reducing stalls when clicking around the Hierarchy or Project.\n* QoL issue where `GhostAuthoringInspectionComponent` was not always modifiable in areas of the Editor where it is valid to modify them.\n* Issue where `GhostAuthoringComponent` was disallowed in nested prefab setups (where the root prefab is NOT a ghost).\n* Log verbiage when creating a driver in DefaultDriverConstructor read like a 'call to action'. It's not."
+    "changelog": "### Changed\n\n* Promotion preparation"
   },
   "upmCi": {
-    "footprint": "9a0ca01acd8f36ba0b6d69406c2e0bc136e197b2"
+    "footprint": "3a1e6b9bc4307b7c333cd180de21b9f13b936e1b"
   },
   "documentationUrl": "https://docs.unity3d.com/Packages/com.unity.netcode@1.2/manual/index.html",
   "repository": {
     "url": "https://github.cds.internal.unity3d.com/unity/dots.git",
     "type": "git",
-    "revision": "38c44b22a14cc4a35bc1b7a2f5ab1846208176d5"
+    "revision": "c2136868e2bfbe78d7c68475d8ced6c623b4cb6d"
   }
 }
