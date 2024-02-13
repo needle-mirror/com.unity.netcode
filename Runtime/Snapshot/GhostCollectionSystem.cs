@@ -90,6 +90,8 @@ namespace Unity.NetCode
         private NativeHashMap<ulong, int> m_StableHashToComponentTypeIndex;
         private Entity m_CodePrefabSingleton;
         EntityQuery m_RegisterGhostTypesQuery;
+        private NativeHashMap<Hash128, GhostPrefabCustomSerializer> m_CustomSerializers;
+
 
         //Hash requirements:
         // R0: if components are different or in different order the hash should change
@@ -172,6 +174,7 @@ namespace Unity.NetCode
             state.EntityManager.AddBuffer<GhostComponentSerializer.State>(m_CollectionSingleton);
             state.EntityManager.AddBuffer<GhostCollectionComponentType>(m_CollectionSingleton);
             state.EntityManager.AddComponent<SnapshotDataLookupCache>(m_CollectionSingleton);
+            state.EntityManager.AddComponent<GhostCollectionCustomSerializers>(m_CollectionSingleton);
 
 #if UNITY_EDITOR || NETCODE_DEBUG
             m_PredictionErrorNames = new NativeList<PredictionErrorNames>(16, Allocator.Persistent);
@@ -179,7 +182,11 @@ namespace Unity.NetCode
             m_PendingNameAssignments = new NativeList<PendingNameAssignment>(256, Allocator.Persistent);
             m_PredictionErrorNamesStartEndCache = new UnsafeList<(short, short)>(256, Allocator.Persistent);
 #endif
-
+            m_CustomSerializers = new NativeHashMap<Hash128, GhostPrefabCustomSerializer>(256, Allocator.Persistent);
+            state.EntityManager.SetComponentData(m_CollectionSingleton, new GhostCollectionCustomSerializers
+            {
+                Serializers = m_CustomSerializers
+            });
             entityQueryBuilder.Reset();
             entityQueryBuilder.WithAll<NetworkStreamInGame>();
             m_InGameQuery = state.GetEntityQuery(entityQueryBuilder);
@@ -214,6 +221,7 @@ namespace Unity.NetCode
             m_PendingNameAssignments.Dispose();
             m_PredictionErrorNamesStartEndCache.Dispose();
 #endif
+            m_CustomSerializers.Dispose();
         }
 
         struct AddComponentCtx
@@ -223,8 +231,10 @@ namespace Unity.NetCode
             public DynamicBuffer<GhostCollectionComponentType> ghostComponentCollection;
             public DynamicBuffer<GhostCollectionComponentIndex> ghostComponentIndex;
             public DynamicBuffer<GhostCollectionPrefab> ghostPrefabCollection;
+            public GhostCollectionCustomSerializers customSerializers;
             public int ghostChildIndex;
             public int childOffset;
+            public GhostType ghostType;
             public FixedString64Bytes ghostName;
             public NetDebug netDebug;
         }
@@ -352,6 +362,7 @@ namespace Unity.NetCode
                 ghostPrefabSerializerCollection = state.EntityManager.GetBuffer<GhostCollectionPrefabSerializer>(collectionSingleton),
                 ghostComponentCollection = state.EntityManager.GetBuffer<GhostCollectionComponentType>(collectionSingleton),
                 ghostComponentIndex = state.EntityManager.GetBuffer<GhostCollectionComponentIndex>(collectionSingleton),
+                customSerializers = state.EntityManager.GetComponentData<GhostCollectionCustomSerializers>(collectionSingleton),
                 netDebug = netDebug
             };
             var data = SystemAPI.GetSingletonRW<GhostComponentSerializerCollectionData>().ValueRW;
@@ -371,6 +382,7 @@ namespace Unity.NetCode
                 }
                 ulong hash = 0;
                 state.EntityManager.GetName(ghost.GhostPrefab, out var entityPrefabName);
+                ctx.ghostType = ghost.GhostType;
                 if (ghost.GhostPrefab != Entity.Null)
                 {
                     // This can be setup - do so
@@ -571,9 +583,10 @@ namespace Unity.NetCode
             if (ghostMetaData.DefaultMode == GhostPrefabBlobMetaData.GhostMode.Predicted)
                 fallbackPredictionMode = GhostSpawnBuffer.Type.Predicted;
 
+            var nameHash = TypeHash.FNV1A64(ctx.ghostName);
             var ghostType = new GhostCollectionPrefabSerializer
             {
-                TypeHash = TypeHash.FNV1A64(ctx.ghostName),
+                TypeHash = nameHash,
                 FirstComponent = ctx.ghostComponentIndex.Length,
                 NumComponents = 0,
                 NumChildComponents = 0,
@@ -585,7 +598,7 @@ namespace Unity.NetCode
                 BaseImportance = ghostMetaData.Importance,
                 FallbackPredictionMode = fallbackPredictionMode,
                 IsGhostGroup = state.EntityManager.HasComponent<GhostGroup>(prefabEntity) ? 1 : 0,
-                StaticOptimization = ghostMetaData.StaticOptimization,
+                StaticOptimization = (byte)(ghostMetaData.StaticOptimization ? 1 :0),
                 NumBuffers = 0,
                 MaxBufferSnapshotSize = 0,
                 profilerMarker = profilerMarker,
@@ -648,7 +661,14 @@ namespace Unity.NetCode
             var enabledBitsInBytes = GhostComponentSerializer.ChangeMaskArraySizeInBytes(ghostType.EnableableBits);
             var changeMaskBitsInBytes = GhostComponentSerializer.ChangeMaskArraySizeInBytes(ghostType.ChangeMaskBits);
             ghostType.SnapshotSize += GhostComponentSerializer.SnapshotSizeAligned(sizeof(uint) + changeMaskBitsInBytes + enabledBitsInBytes);
-
+            if(ctx.customSerializers.Serializers.TryGetValue((Hash128)ctx.ghostType, out var custom))
+            {
+                ghostType.CustomSerializer = custom.SerializeChunk;
+                ghostType.CustomPreSerializer = custom.PreSerializeChunk;
+#if UNITY_EDITOR || NETCODE_DEBUG
+                ctx.netDebug.Log($"Successfully registered a custom serializer for ghost with name {ctx.ghostName} and type {(Hash128)ctx.ghostType}");
+#endif
+            }
             ctx.ghostPrefabSerializerCollection.Add(ghostType);
 #if UNITY_EDITOR || NETCODE_DEBUG
             m_GhostNames.Add(ctx.ghostName);
@@ -842,8 +862,8 @@ namespace Unity.NetCode
                 }
                 else
                 {
-                    ghostType.SnapshotSize += GhostComponentSerializer.SnapshotSizeAligned(GhostSystemConstants.DynamicBufferComponentSnapshotSize);
-                    ghostType.ChangeMaskBits += GhostSystemConstants.DynamicBufferComponentMaskBits; //1bit for the content and 1 bit for the len
+                    ghostType.SnapshotSize += GhostComponentSerializer.SnapshotSizeAligned(GhostComponentSerializer.DynamicBufferComponentSnapshotSize);
+                    ghostType.ChangeMaskBits += GhostComponentSerializer.DynamicBufferComponentMaskBits; //1bit for the content and 1 bit for the len
                     ghostType.MaxBufferSnapshotSize = math.max(compState.SnapshotSize, ghostType.MaxBufferSnapshotSize);
                     ++ghostType.NumBuffers;
                 }
@@ -861,7 +881,11 @@ namespace Unity.NetCode
                     EntityIndex = ctx.ghostChildIndex,
                     ComponentIndex = usedComponent.UsedIndex,
                     SerializerIndex = serializerIndex,
+                    TypeIndex = compState.ComponentType.TypeIndex,
+                    ComponentSize = compState.ComponentSize,
+                    SnapshotSize = compState.SnapshotSize,
                     SendMask = sendMask,
+                    SendToOwner = compState.SendToOwner,
 #if UNITY_EDITOR || NETCODE_DEBUG
                     PredictionErrorBaseIndex = m_currentPredictionErrorCount
 #endif

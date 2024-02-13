@@ -501,6 +501,8 @@ namespace Unity.NetCode.Generators
                     //parent class does not aggregate field.
                     if (!parentContainer.TypeInformation.Attribute.aggregateChangeMask)
                     {
+                        parentContainer.m_TargetGenerator.AppendFragment("GHOST_AGGREGATE_WRITE", parentContainer.m_TargetGenerator, "GHOST_WRITE_COMBINED");
+                        parentContainer.m_TargetGenerator.Fragments["__GHOST_AGGREGATE_WRITE__"].Content = "";
                         ++context.changeMaskBitCount;
                         ++context.curChangeMaskBits;
                     }
@@ -511,6 +513,8 @@ namespace Unity.NetCode.Generators
                 generator.AppendTarget(parentContainer);
                 if (!parentContainer.TypeInformation.Attribute.aggregateChangeMask)
                 {
+                    parentContainer.m_TargetGenerator.AppendFragment("GHOST_AGGREGATE_WRITE", parentContainer.m_TargetGenerator, "GHOST_WRITE_COMBINED");
+                    parentContainer.m_TargetGenerator.Fragments["__GHOST_AGGREGATE_WRITE__"].Content = "";
                     ++context.changeMaskBitCount;
                     ++context.curChangeMaskBits;
                 }
@@ -543,6 +547,8 @@ namespace Unity.NetCode.Generators
             //increment the mask bits if the current aggregation scope is completed.
             if (type.Attribute.aggregateChangeMask && !parentContainer.TypeInformation.Attribute.aggregateChangeMask)
             {
+                parentContainer.m_TargetGenerator.AppendFragment("GHOST_AGGREGATE_WRITE", parentContainer.m_TargetGenerator, "GHOST_WRITE_COMBINED");
+                parentContainer.m_TargetGenerator.Fragments["__GHOST_AGGREGATE_WRITE__"].Content = "";
                 ++context.curChangeMaskBits;
                 ++context.changeMaskBitCount;
             }

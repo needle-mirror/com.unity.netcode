@@ -193,7 +193,7 @@ namespace Unity.NetCode.LowLevel
                 SnapshotAfter = (System.IntPtr)compDataPtr,
                 RequiredOwnerSendMask = SendToOwnerType.All
             };
-            m_ghostSerializers[serializerIndex].CopyFromSnapshot.Ptr.Invoke(
+            m_ghostSerializers[serializerIndex].CopyFromSnapshot.Invoke(
                 (System.IntPtr)UnsafeUtility.AddressOf(ref deserializerState),
                 (System.IntPtr)UnsafeUtility.AddressOf(ref dataAtTick),
                 0,
@@ -247,7 +247,7 @@ namespace Unity.NetCode.LowLevel
                     return offset;
                 }
                 var compSize =  comType.IsBuffer
-                    ? GhostSystemConstants.DynamicBufferComponentSnapshotSize
+                    ? GhostComponentSerializer.DynamicBufferComponentSnapshotSize
                     : m_ghostSerializers.ElementAtRO(compIndices.SerializerIndex).SnapshotSize;
                 offset += GhostComponentSerializer.SnapshotSizeAligned(compSize);
             }

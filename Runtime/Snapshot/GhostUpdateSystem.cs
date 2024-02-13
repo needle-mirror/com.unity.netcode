@@ -156,7 +156,7 @@ namespace Unity.NetCode
                 var entityRange = new NativeList<int2>(ghostComponents.Length, Allocator.Temp);
                 int2 nextRange = default;
                 var PredictedGhostArray = chunk.GetNativeArray(ref PredictedGhostType);
-                bool canBeStatic = typeData.StaticOptimization;
+                var canBeStatic = typeData.StaticOptimization;
                 bool isPrespawn = chunk.Has(ref prespawnGhostIndexType);
                 var restoreFromBackupRange = new NativeList<int>(ghostComponents.Length, Allocator.Temp);
                 var chunkEntities = chunk.GetNativeArray(entityType);
@@ -194,7 +194,7 @@ namespace Unity.NetCode
                     var snapshotDataBuffer = ghostSnapshotDataBufferArray[ent];
                     var ghostSnapshotData = ghostSnapshotDataArray[ent];
                     var latestTick = ghostSnapshotData.GetLatestTick(snapshotDataBuffer);
-                    bool isStatic = canBeStatic && ghostSnapshotData.WasLatestTickZeroChange(snapshotDataBuffer, changeMaskUints);
+                    bool isStatic = canBeStatic != 0 && ghostSnapshotData.WasLatestTickZeroChange(snapshotDataBuffer, changeMaskUints);
 #if UNITY_EDITOR || NETCODE_DEBUG
                     if (latestTick.IsValid && !isStatic)
                     {
@@ -342,9 +342,9 @@ namespace Unity.NetCode
                     if (compIdx >= ghostChunkComponentTypesLength)
                         throw new System.InvalidOperationException("Component index out of range");
 #endif
-                    var ghostSerializer = GhostComponentCollection[serializerIdx];
+                    ref readonly var ghostSerializer = ref GhostComponentCollection.ElementAtRO(serializerIdx);
                     var snapshotSize = ghostSerializer.ComponentType.IsBuffer
-                        ? GhostComponentSerializer.SnapshotSizeAligned(GhostSystemConstants.DynamicBufferComponentSnapshotSize)
+                        ? GhostComponentSerializer.SnapshotSizeAligned(GhostComponentSerializer.DynamicBufferComponentSnapshotSize)
                         : GhostComponentSerializer.SnapshotSizeAligned(ghostSerializer.SnapshotSize);
                     if (!chunk.Has(ref ghostChunkComponentTypesPtr[compIdx]) || (GhostComponentIndex[typeData.FirstComponent + comp].SendMask&requiredSendMask) == 0)
                     {
@@ -376,7 +376,7 @@ namespace Unity.NetCode
                                 if (componentHasChanges)
                                 {
                                     var rwCompData = compDataPtr + range.x * compSize;
-                                    ghostSerializer.CopyFromSnapshot.Ptr.Invoke((System.IntPtr) UnsafeUtility.AddressOf(ref deserializerState), (System.IntPtr) snapshotData, snapshotDataOffset, snapshotDataAtTickSize, (System.IntPtr) rwCompData, compSize, range.y - range.x);
+                                    ghostSerializer.CopyFromSnapshot.Invoke((System.IntPtr) UnsafeUtility.AddressOf(ref deserializerState), (System.IntPtr) snapshotData, snapshotDataOffset, snapshotDataAtTickSize, (System.IntPtr) rwCompData, compSize, range.y - range.x);
                                     continue;
                                 }
 
@@ -386,7 +386,7 @@ namespace Unity.NetCode
                                 CopyRODataIntoTempChangeBuffer(requiredNumBytes, ref tempChangeBuffer, ref tempChangeBufferSize, ref tempChangeBufferLarge, roCompData);
 
                                 // 3. Invoke CopyFromSnapshot with the ro buffer as destination (yes, hacky!).
-                                ghostSerializer.CopyFromSnapshot.Ptr.Invoke((System.IntPtr) UnsafeUtility.AddressOf(ref deserializerState), (System.IntPtr) snapshotData, snapshotDataOffset, snapshotDataAtTickSize, (System.IntPtr) roCompData, compSize, range.y - range.x);
+                                ghostSerializer.CopyFromSnapshot.Invoke((System.IntPtr) UnsafeUtility.AddressOf(ref deserializerState), (System.IntPtr) snapshotData, snapshotDataOffset, snapshotDataAtTickSize, (System.IntPtr) roCompData, compSize, range.y - range.x);
 
                                 // 4. Compare the two buffers (for changes).
                                 k_ChangeFiltering.Begin();
@@ -445,7 +445,7 @@ namespace Unity.NetCode
                                     }
                                     bufferAccessor.ResizeUninitialized(ent, bufLen);
                                     var rwBufData = (byte*)bufferAccessor.GetUnsafePtr(ent);
-                                    ghostSerializer.CopyFromSnapshot.Ptr.Invoke(
+                                    ghostSerializer.CopyFromSnapshot.Invoke(
                                         (System.IntPtr)UnsafeUtility.AddressOf(ref deserializerState),
                                         (System.IntPtr) UnsafeUtility.AddressOf(ref dynamicDataAtTick), 0, dynamicDataSize,
                                         (IntPtr)rwBufData, compSize, bufLen);
@@ -458,7 +458,7 @@ namespace Unity.NetCode
 
                                 // Again, hack to pass in the roBufData to be written into.
                                 // NOTE: We know that these two buffers will be the EXACT same size, due to the above assurances.
-                                ghostSerializer.CopyFromSnapshot.Ptr.Invoke(
+                                ghostSerializer.CopyFromSnapshot.Invoke(
                                     (System.IntPtr)UnsafeUtility.AddressOf(ref deserializerState),
                                     (System.IntPtr) UnsafeUtility.AddressOf(ref dynamicDataAtTick), 0, dynamicDataSize,
                                     (IntPtr)roBufData, compSize, bufLen);
@@ -507,9 +507,9 @@ namespace Unity.NetCode
                             throw new System.InvalidOperationException("Component index out of range");
 #endif
 
-                        var ghostSerializer = GhostComponentCollection[serializerIdx];
+                        ref readonly var ghostSerializer = ref GhostComponentCollection.ElementAtRO(serializerIdx);
                         var snapshotSize = ghostSerializer.ComponentType.IsBuffer
-                            ? GhostComponentSerializer.SnapshotSizeAligned(GhostSystemConstants.DynamicBufferComponentSnapshotSize)
+                            ? GhostComponentSerializer.SnapshotSizeAligned(GhostComponentSerializer.DynamicBufferComponentSnapshotSize)
                             : GhostComponentSerializer.SnapshotSizeAligned(ghostSerializer.SnapshotSize);
                         if ((GhostComponentIndex[typeData.FirstComponent + comp].SendMask & requiredSendMask) == 0)
                         {
@@ -556,7 +556,7 @@ namespace Unity.NetCode
                                         CopyRODataIntoTempChangeBuffer(requiredNumBytes, ref tempChangeBuffer, ref tempChangeBufferSize, ref tempChangeBufferLarge, roCompData);
 
                                         // 3. Invoke CopyFromSnapshot with the ro buffer as destination (yes, hacky!).
-                                        ghostSerializer.CopyFromSnapshot.Ptr.Invoke((System.IntPtr) UnsafeUtility.AddressOf(ref deserializerState), (System.IntPtr) dataAtTickPtr, snapshotDataOffset, snapshotDataAtTickSize, (System.IntPtr) roCompData, compSize, 1);
+                                        ghostSerializer.CopyFromSnapshot.Invoke((System.IntPtr) UnsafeUtility.AddressOf(ref deserializerState), (System.IntPtr) dataAtTickPtr, snapshotDataOffset, snapshotDataAtTickSize, (System.IntPtr) roCompData, compSize, 1);
 
                                         // 4. MemCmp the two buffers.
                                         k_ChangeFiltering.Begin();
@@ -618,7 +618,7 @@ namespace Unity.NetCode
                                         rwBufferAccessor.ResizeUninitialized(childChunk.IndexInChunk, bufLen);
                                         var rwBufData = rwBufferAccessor.GetUnsafePtr(childChunk.IndexInChunk);
 
-                                        ghostSerializer.CopyFromSnapshot.Ptr.Invoke(
+                                        ghostSerializer.CopyFromSnapshot.Invoke(
                                             (System.IntPtr) UnsafeUtility.AddressOf(ref deserializerState),
                                             (System.IntPtr) UnsafeUtility.AddressOf(ref dynamicDataAtTick), 0, dynamicDataSize,
                                             (IntPtr) rwBufData, compSize, bufLen);
@@ -631,7 +631,7 @@ namespace Unity.NetCode
 
                                         // Again, hack to pass in the roBufData to be written into.
                                         // NOTE: We know that these two buffers will be the EXACT same size, due to the above assurances.
-                                        ghostSerializer.CopyFromSnapshot.Ptr.Invoke(
+                                        ghostSerializer.CopyFromSnapshot.Invoke(
                                             (System.IntPtr) UnsafeUtility.AddressOf(ref deserializerState),
                                             (System.IntPtr) UnsafeUtility.AddressOf(ref dynamicDataAtTick), 0, dynamicDataSize,
                                             (IntPtr) roBufData, compSize, bufLen);
@@ -779,9 +779,9 @@ namespace Unity.NetCode
                     if ((GhostComponentIndex[baseOffset + comp].SendMask&requiredSendMask) == 0)
                         continue;
 
-                    var ghostSerializer = GhostComponentCollection[serializerIdx];
-                    var compSize = GhostComponentCollection[serializerIdx].ComponentType.IsBuffer
-                        ? GhostSystemConstants.DynamicBufferComponentSnapshotSize
+                    ref readonly var ghostSerializer = ref GhostComponentCollection.ElementAtRO(serializerIdx);
+                    var compSize = ghostSerializer.ComponentType.IsBuffer
+                        ? GhostComponentSerializer.DynamicBufferComponentSnapshotSize
                         : ghostSerializer.ComponentSize;
 
                     if (!chunk.Has(ref ghostChunkComponentTypesPtr[compIdx]))
@@ -840,7 +840,7 @@ namespace Unity.NetCode
                         for (var entIndex = 0; entIndex < toRestore.Length; entIndex++)
                         {
                             var ent = toRestore[entIndex];
-                            ghostSerializer.RestoreFromBackup.Ptr.Invoke((System.IntPtr)(compData + ent * compSize), (System.IntPtr)(dataPtr + ent * compSize));
+                            ghostSerializer.RestoreFromBackup.Invoke((System.IntPtr)(compData + ent * compSize), (System.IntPtr)(dataPtr + ent * compSize));
                         }
                     }
                     else
@@ -878,7 +878,7 @@ namespace Unity.NetCode
                             //TODO: batch this
                             for (int bufElement = 0; bufElement < bufLen; ++bufElement)
                             {
-                                ghostSerializer.RestoreFromBackup.Ptr.Invoke((System.IntPtr)(bufferPointer), (System.IntPtr)(bufferDataPtr));
+                                ghostSerializer.RestoreFromBackup.Invoke((System.IntPtr)(bufferPointer), (System.IntPtr)(bufferDataPtr));
                                 bufferPointer += elemSize;
                                 bufferDataPtr += elemSize;
                             }
@@ -901,9 +901,9 @@ namespace Unity.NetCode
                         //Not present in the backup buffer (see rules in GhostPredictionHistorySystem.cs, line 460)
                         if ((GhostComponentIndex[baseOffset + comp].SendMask & requiredSendMask) == 0)
                             continue;
-                        var ghostSerializer = GhostComponentCollection[serializerIdx];
+                        ref readonly var ghostSerializer = ref GhostComponentCollection.ElementAtRO(serializerIdx);
                         var compSize = ghostSerializer.ComponentType.IsBuffer
-                            ? GhostSystemConstants.DynamicBufferComponentSnapshotSize
+                            ? GhostComponentSerializer.DynamicBufferComponentSnapshotSize
                             : ghostSerializer.ComponentSize;
 
                         var readonlyHandle = ghostChunkComponentTypesPtr[compIdx].CopyToReadOnly();
@@ -942,7 +942,7 @@ namespace Unity.NetCode
                                 var compData = (byte*)childChunk.Chunk
                                     .GetDynamicComponentDataArrayReinterpret<byte>(ref readonlyHandle, compSize)
                                     .GetUnsafeReadOnlyPtr();
-                                ghostSerializer.RestoreFromBackup.Ptr.Invoke(
+                                ghostSerializer.RestoreFromBackup.Invoke(
                                     (System.IntPtr)(compData + childChunk.IndexInChunk * compSize),
                                     (System.IntPtr)(dataPtr + rootEnt * compSize));
                             }
@@ -962,7 +962,7 @@ namespace Unity.NetCode
                                 var bufferPointer = (byte*)bufferAccessor.GetUnsafePtr(childChunk.IndexInChunk);
                                 for (int bulElement = 0; bulElement < bufLen; ++bulElement)
                                 {
-                                    ghostSerializer.RestoreFromBackup.Ptr.Invoke((System.IntPtr)(bufferPointer), (System.IntPtr)(bufferDataPtr));
+                                    ghostSerializer.RestoreFromBackup.Invoke((System.IntPtr)(bufferPointer), (System.IntPtr)(bufferDataPtr));
                                     bufferPointer += elemSize;
                                     bufferDataPtr += elemSize;
                                 }

@@ -5,6 +5,8 @@
 using System;
 using Unity.Entities;
 using Unity.Collections;
+using Unity.Collections.LowLevel.Unsafe;
+using Unity.NetCode.LowLevel.Unsafe;
 
 /// <summary>
 /// Specify for which type of world the entity should be converted to. Based on the conversion setting, some components
@@ -138,6 +140,13 @@ namespace Unity.NetCode
             /// Enable pre-serialization for this ghost. Pre-serialization makes it possible to share part of the serialization cpu cost between connections, but it also has that cost when the ghost is not sent.
             /// </summary>
             public bool UsePreSerialization;
+            /// <summary>
+            /// Optional, custom deterministic function that retrieve all no-backing and serializable component types for this ghost. By serializable,
+            /// we means components that either have ghost fields (fields with a <see cref="GhostFieldAttribute"/> attribute)
+            /// or a <see cref="GhostComponentAttribute"/>.
+            /// </summary>
+            /// <returns></returns>
+            public PortableFunctionPointer<GhostPrefabCustomSerializer.CollectComponentDelegate> CollectComponentFunc;
         }
         /// <summary>
         /// Identifier for a specific component type on a specific child of a ghost prefab.
@@ -817,7 +826,19 @@ namespace Unity.NetCode
             //added here as second pass to avoid invalidating the buffer safety handle
             for (int i = 0; i < linkedEntitiesArray.Length; ++i)
                 entityManager.AddComponent<Prefab>(linkedEntitiesArray[i]);
-            CollectAllComponents(entityManager, linkedEntitiesArray, out var allComponents, out var componentCounts);
+
+            var allComponents = default(NativeList<ComponentType>);
+            var componentCounts = default(NativeArray<int>);
+            if (!config.CollectComponentFunc.Ptr.IsCreated)
+            {
+                CollectAllComponents(entityManager, linkedEntitiesArray, out allComponents, out componentCounts);
+            }
+            else
+            {
+                allComponents = new NativeList<ComponentType>(256, Allocator.Temp);
+                componentCounts = new NativeArray<int>(linkedEntitiesArray.Length, Allocator.Temp);
+                config.CollectComponentFunc.Ptr.Invoke(GhostComponentSerializer.IntPtrCast(ref allComponents), GhostComponentSerializer.IntPtrCast(ref componentCounts));
+            }
 
             var prefabTypes = new NativeArray<GhostPrefabType>(allComponents.Length, Allocator.Temp);
             var sendMasksOverride = new NativeArray<int>(allComponents.Length, Allocator.Temp);

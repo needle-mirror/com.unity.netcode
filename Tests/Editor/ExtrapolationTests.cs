@@ -105,8 +105,9 @@ namespace Unity.NetCode.Tests
                 // Go in-game
                 testWorld.GoInGame();
 
-
-                for (int i = 0; i < 8; ++i)
+                // Takes longer to replicate a ghost because we only replicate snapshots every other frame
+                // (due to NetworkTickRate = 30 + GhostSendSystem.m_ConnectionsToProcess == 0).
+                for (int i = 0; i < 9; ++i)
                     testWorld.Tick(frameTime);
 
                 var clientEnt = testWorld.TryGetSingletonEntity<TestExtrapolated>(testWorld.ClientWorlds[0]);

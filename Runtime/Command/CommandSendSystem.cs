@@ -176,6 +176,9 @@ namespace Unity.NetCode
             public unsafe void Execute(DynamicBuffer<OutgoingCommandDataStreamBuffer> rpcData,
                     in NetworkStreamConnection connection, in NetworkSnapshotAck ack)
             {
+                if (!connection.Value.IsCreated)
+                    return;
+
                 var concurrentDriver = concurrentDriverStore.GetConcurrentDriver(connection.DriverId);
                 var requiredPayloadSize = k_CommandHeadersBytes + rpcData.Length;
                 int maxSnapshotSizeWithoutFragmentation = NetworkParameterConstants.MTU - concurrentDriver.driver.MaxHeaderSize(concurrentDriver.unreliablePipeline);
@@ -183,7 +186,7 @@ namespace Unity.NetCode
                 int result;
                 if ((result = concurrentDriver.driver.BeginSend(pipelineToUse, connection.Value, out var writer, requiredPayloadSize)) < 0)
                 {
-                    netDebug.LogWarning($"CommandSendPacket BeginSend failed with errorCode: {result}!");
+                    netDebug.LogWarning($"CommandSendPacket BeginSend failed with errorCode: {result} on {connection.Value.ToFixedString()}!");
                     rpcData.Clear();
                     return;
                 }
@@ -214,9 +217,9 @@ namespace Unity.NetCode
 #endif
 
                 if(writer.HasFailedWrites)
-                    netDebug.LogError("CommandSendPacket job triggered Writer.HasFailedWrites, despite allocating the collection based on needed size!");
+                    netDebug.LogError($"CommandSendPacket job triggered Writer.HasFailedWrites on {connection.Value.ToFixedString()}, despite allocating the collection based on needed size!");
                 if ((result = concurrentDriver.driver.EndSend(writer)) <= 0)
-                    netDebug.LogError($"CommandSendPacket EndSend failed with errorCode: {result}!");
+                    netDebug.LogError($"CommandSendPacket EndSend failed with errorCode: {result} on {connection.Value.ToFixedString()}!");
             }
         }
         [BurstCompile]

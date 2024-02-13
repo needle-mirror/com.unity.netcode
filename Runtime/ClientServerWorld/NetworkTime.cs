@@ -67,7 +67,7 @@ namespace Unity.NetCode
         /// </summary>
         public float ServerTickFraction;
         /// <summary>
-        /// The current interpolated tick (integral part). Always less then the ServerTick on the Client (and equals to ServerTick on the server).
+        /// The current interpolated tick (integral part). Always less than the ServerTick on the Client (and equal to ServerTick on the server).
         /// </summary>
         public NetworkTick InterpolationTick;
         /// <summary>

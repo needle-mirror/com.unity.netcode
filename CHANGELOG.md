@@ -4,6 +4,31 @@ uid: changelog
 
 # Changelog
 
+## [1.2.0-pre.12] - 2024-02-13
+
+### Added
+
+* Optimisations for the gather-ghost-chunk by batching function pointer calls and using a better hash map.
+* BatchScaleImportanceDelegate, a new version of the importance scaling function that work in batches. It is not required to set both the ScaleImportance and the BatchScaleImportance function pointers. If the BatchScaleImportance is set, it is the preferred.
+* TempStreamInitialSize, a new parameter in the GhostSendSystemData for tuning the initial size of the temporary buffer used by server to serialise ghosts. By default now the size is 8KB.
+* AlwaysRelevantQuery to specify general rules for relevancy without specifying it ghost by ghost.
+
+### Changed
+
+* StreamCompressionDataModel is passed as in parameter to avoid many copy every time a WriteXXX or ReadXXX was called.
+* Updated Burst dependency to version 1.8.12
+
+### Fixed
+
+* UI issue disallowing the user from enabling the Network Emulator utility when upgrading with a now-deprecated EditorPref value.
+* an issue with pre-serialised ghosts, corrupting memory, crashing or copying wrong data into the snapshot buffer in certain conditions.
+* avoided GC allocation and the costly Marshal.GetDelegateFromFunctionPointer every time an FunctionPointer.Invoke is called. This is done by using directly unmanaged function pointers.  All this, compatible with Burst enabled/disabled at any time.
+* lot of memory copies for loop invariants. This also reduced some SafetyChecks and costly operations.
+* avoid costly re-serialization of the whole chunk when the temp buffer can't fit all the data. This is one of the biggest costs during the serialisation loop. By default now the buffer is 8KB that reduce this possibility almost to 0.
+* Assigned InterpolationTick to always be equal ServerTick on the Server simulation (as stated in the summary for this parameter). Additionally the typos pointed out in the parameter summary were corrected.
+* Issue where prespawn failed to initialize when relevancy list was updated before replicating internal prespawn ghosts.
+
+
 ## [1.2.0-pre.6] - 2023-12-13
 
 ### Changed

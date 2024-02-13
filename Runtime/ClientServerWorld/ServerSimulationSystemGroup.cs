@@ -131,6 +131,7 @@ namespace Unity.NetCode
             var nextTick = currentServerTick;
             nextTick.Add((uint)(m_UpdateCount.Length - 1));
             networkTime.ServerTick = nextTick;
+            networkTime.InterpolationTick = networkTime.ServerTick;
             networkTime.SimulationStepBatchSize = m_UpdateCount.Length;
             if (m_CurrentTickAge == 0)
                 networkTime.Flags &= ~NetworkTimeFlags.IsCatchUpTick;

@@ -3,8 +3,10 @@
 #endif
 using System;
 using System.IO;
+using Unity.Burst.CompilerServices;
 using Unity.Collections;
 using Unity.Entities;
+using Unity.Networking.Transport;
 #if USING_UNITY_LOGGING
 using Logger = Unity.Logging.Logger;
 using Unity.Logging;
@@ -25,17 +27,9 @@ namespace Unity.NetCode
     /// <summary>
     /// Convert disconnection reason error code into human readable error messages.
     /// </summary>
+    [Obsolete("Use ToFixedString extension methods. (RemovedAfter Entities 2.0)", false)]
     public struct DisconnectReasonEnumToString
     {
-        private static readonly FixedString32Bytes ConnectionClose = "ConnectionClose";
-        private static readonly FixedString32Bytes Timeout = "Timeout";
-        private static readonly FixedString32Bytes MaxConnectionAttempts = "MaxConnectionAttempts";
-        private static readonly FixedString32Bytes ClosedByRemote = "ClosedByRemote";
-        private static readonly FixedString32Bytes BadProtocolVersion = "BadProtocolVersion";
-        private static readonly FixedString32Bytes InvalidRpc = "InvalidRpc";
-        private static readonly FixedString32Bytes AuthenticationFailure = "AuthenticationFailure";
-        private static readonly FixedString32Bytes ProtocolError = "ProtocolError";
-
         /// <summary>
         /// Translate the error code into a human friendly error message.
         /// </summary>
@@ -45,18 +39,73 @@ namespace Unity.NetCode
         /// </returns>
         public static FixedString32Bytes Convert(int index)
         {
-            switch (index)
+            return ((NetworkStreamDisconnectReason) index).ToFixedString();
+        }
+    }
+
+    /// <summary>
+    /// ToFixedString utilities for enums.
+    /// </summary>
+    public static class NetCodeUtils
+    {
+        /// <summary>
+        /// Returns the Fixed String enum value name.
+        /// </summary>
+        /// <param name="reason"></param>
+        /// <returns>Returns the Fixed String enum value name.</returns>
+        public static FixedString32Bytes ToFixedString(this NetworkStreamDisconnectReason reason)
+        {
+            switch (reason)
             {
-                case 0: return ConnectionClose;
-                case 1: return Timeout;
-                case 2: return MaxConnectionAttempts;
-                case 3: return ClosedByRemote;
-                case 4: return BadProtocolVersion;
-                case 5: return InvalidRpc;
-                case 6: return AuthenticationFailure;
-                case 7: return ProtocolError;
+                case NetworkStreamDisconnectReason.ConnectionClose: return nameof(NetworkStreamDisconnectReason.ConnectionClose);
+                case NetworkStreamDisconnectReason.Timeout: return nameof(NetworkStreamDisconnectReason.Timeout);
+                case NetworkStreamDisconnectReason.MaxConnectionAttempts: return nameof(NetworkStreamDisconnectReason.MaxConnectionAttempts);
+                case NetworkStreamDisconnectReason.ClosedByRemote: return nameof(NetworkStreamDisconnectReason.ClosedByRemote);
+                case NetworkStreamDisconnectReason.BadProtocolVersion: return nameof(NetworkStreamDisconnectReason.BadProtocolVersion);
+                case NetworkStreamDisconnectReason.InvalidRpc: return nameof(NetworkStreamDisconnectReason.InvalidRpc);
+                case NetworkStreamDisconnectReason.AuthenticationFailure: return nameof(NetworkStreamDisconnectReason.AuthenticationFailure);
+                case NetworkStreamDisconnectReason.ProtocolError: return nameof(NetworkStreamDisconnectReason.ProtocolError);
+                default: return $"DisconnectReason_{(int) reason}";
             }
-            return "";
+        }
+
+
+        /// <summary>
+        /// Converts from the Transport state to ours.
+        /// </summary>
+        /// <param name="transportState"></param>
+        /// <param name="hasHandshaked"></param>
+        /// <returns></returns>
+        /// <exception cref="ArgumentOutOfRangeException"></exception>
+        public static ConnectionState.State ToNetcodeState(this NetworkConnection.State transportState, bool hasHandshaked)
+        {
+            switch (transportState)
+            {
+                case NetworkConnection.State.Connected: return Hint.Likely(hasHandshaked) ? ConnectionState.State.Connected : ConnectionState.State.Handshake;
+                case NetworkConnection.State.Disconnected: return ConnectionState.State.Disconnected;
+                case NetworkConnection.State.Disconnecting: return ConnectionState.State.Disconnected;
+                case NetworkConnection.State.Connecting: return ConnectionState.State.Connecting;
+                default:
+                    throw new ArgumentOutOfRangeException(nameof(transportState), transportState, nameof(ToNetcodeState));
+            }
+        }
+
+        /// <summary>
+        /// Returns the Fixed String enum value name.
+        /// </summary>
+        /// <param name="state"></param>
+        /// <returns>Returns the Fixed String enum value name.</returns>
+        public static FixedString32Bytes ToFixedString(this ConnectionState.State state)
+        {
+            switch (state)
+            {
+                case ConnectionState.State.Unknown: return nameof(ConnectionState.State.Unknown);
+                case ConnectionState.State.Disconnected: return nameof(ConnectionState.State.Disconnected);
+                case ConnectionState.State.Connecting: return nameof(ConnectionState.State.Connecting);
+                case ConnectionState.State.Handshake: return nameof(ConnectionState.State.Handshake);
+                case ConnectionState.State.Connected: return nameof(ConnectionState.State.Connected);
+                default: return $"ConnectionState_{(int) state}";
+            }
         }
     }
 

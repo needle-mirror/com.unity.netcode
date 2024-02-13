@@ -3,6 +3,8 @@
 #endif
 using System;
 using System.Diagnostics;
+using Unity.Assertions;
+using Unity.Burst.CompilerServices;
 using Unity.Entities;
 using Unity.Collections;
 using Unity.Collections.LowLevel.Unsafe;
@@ -36,7 +38,7 @@ namespace Unity.NetCode
         public ComponentTypeHandle<GhostChildEntity> ghostChildEntityComponentType;
         public BufferTypeHandle<GhostGroup> ghostGroupType;
         public NetworkSnapshotAck snapshotAck;
-        public UnsafeParallelHashMap<ArchetypeChunk, GhostChunkSerializationState> chunkSerializationData;
+        public UnsafeHashMap<ArchetypeChunk, GhostChunkSerializationState> chunkSerializationData;
         public DynamicComponentTypeHandle* ghostChunkComponentTypesPtr;
         public int ghostChunkComponentTypesLength;
         public NetworkTick currentTick;
@@ -45,6 +47,8 @@ namespace Unity.NetCode
         public int NetworkId;
         public NativeParallelHashMap<RelevantGhostForConnection, int> relevantGhostForConnection;
         public GhostRelevancyMode relevancyMode;
+        public EntityQueryMask userGlobalRelevantMask;
+        public EntityQueryMask internalGlobalRelevantMask;
         public UnsafeParallelHashMap<int, NetworkTick> clearHistoryData;
         public ConnectionStateData.GhostStateList ghostStateData;
         public uint CurrentSystemVersion;
@@ -62,6 +66,7 @@ namespace Unity.NetCode
         public byte forceSingleBaseline;
         public byte keepSnapshotHistoryOnStructuralChange;
         public byte snaphostHasCompressedGhostSize;
+        public byte useCustomSerializer;
 
         private NativeArray<byte> tempRelevancyPerEntity;
         private NativeList<SnapshotBaseline> tempAvailableBaselines;
@@ -72,8 +77,8 @@ namespace Unity.NetCode
         private int* tempDynamicDataLenPerEntity;
         private int* tempSameBaselinePerEntity;
         private DataStreamWriter tempWriter;
-        private DataStreamWriter tempHeaderWriter;
         private int* tempEntityStartBit;
+        private byte* tempZeroBaseline;
 
         struct CurrentSnapshotState
         {
@@ -110,17 +115,22 @@ namespace Unity.NetCode
             tempRelevancyPerEntity = new NativeArray<byte>(maxCount, Allocator.Temp);
 
             int maxComponentCount = 0;
+            int maxSnapshotSize = 0;
             for (int i = 0; i < GhostTypeCollection.Length; ++i)
+            {
                 maxComponentCount = math.max(maxComponentCount, GhostTypeCollection[i].NumComponents);
-
+                maxSnapshotSize = math.max(maxSnapshotSize, GhostComponentSerializer.SnapshotSizeAligned(GhostTypeCollection[i].SnapshotSize));
+            }
+            
             tempBaselinesPerEntity = (byte**)UnsafeUtility.Malloc(maxCount*4*UnsafeUtility.SizeOf<IntPtr>(), 16, Allocator.Temp);
             tempComponentDataPerEntity = (byte**)UnsafeUtility.Malloc(maxCount*UnsafeUtility.SizeOf<IntPtr>(), 16, Allocator.Temp);
             tempComponentDataLenPerEntity = (int*)UnsafeUtility.Malloc(maxCount*4, 16, Allocator.Temp);
             tempDynamicDataLenPerEntity = (int*)UnsafeUtility.Malloc(maxCount*4, 16, Allocator.Temp);
             tempSameBaselinePerEntity = (int*)UnsafeUtility.Malloc(maxCount*4, 16, Allocator.Temp);
-            tempWriter = new DataStreamWriter(dataStreamCapacity, Allocator.Temp);
-            tempHeaderWriter = new DataStreamWriter(128, Allocator.Temp);
-            tempEntityStartBit = (int*)UnsafeUtility.Malloc(2*4*maxCount*maxComponentCount, 16, Allocator.Temp);
+            tempWriter = new DataStreamWriter(math.max(dataStreamCapacity, 1024), Allocator.Temp);
+            tempEntityStartBit = (int*)UnsafeUtility.Malloc(8*maxCount+8*maxCount*maxComponentCount, 16, Allocator.Temp);
+            tempZeroBaseline = (byte*)UnsafeUtility.Malloc(maxSnapshotSize, 16, Allocator.Temp);
+            UnsafeUtility.MemSet(tempZeroBaseline, 0, maxSnapshotSize);
         }
 
         private void SetupDataAndAvailableBaselines(ref CurrentSnapshotState currentSnapshot, ref GhostChunkSerializationState chunkState, ArchetypeChunk chunk, int snapshotSize, int writeIndex, uint* snapshotIndex)
@@ -477,6 +487,7 @@ namespace Unity.NetCode
             int sameBaseline2 = -1;
             int sameBaselineIndex = 0;
             int lastRelevantEntity = startIndex+1;
+            uint baseGhostId = chunk.Has(ref PrespawnIndexType) ? PrespawnHelper.PrespawnGhostIdBase : 0;
             for (int ent = startIndex; ent < endIndex; ++ent)
             {
                 var baselineIndex = ent - startIndex;
@@ -566,242 +577,291 @@ namespace Unity.NetCode
                 snapshotDynamicDataPtr = (byte*)UnsafeUtility.Malloc(currentSnapshot.SnapshotDynamicDataSize + dynamicDataHeaderSize, 16, Allocator.Temp);
                 dynamicSnapshotDataCapacity = currentSnapshot.SnapshotDynamicDataSize;
             }
-
             var oldTempWriter = tempWriter;
 
             SnapshotPreSerializeData preSerializedSnapshot = default;
             var hasPreserializeData = chunk.Has(ref preSerializedGhostType) && SnapshotPreSerializeData.TryGetValue(chunk, out preSerializedSnapshot);
-            if (hasPreserializeData)
+            var hasCustomSerializer = useCustomSerializer != 0 && typeData.CustomSerializer.Ptr.IsCreated;
+            var lastSerializedEntity = endIndex;
+
+            if (hasCustomSerializer)
             {
-                UnsafeUtility.MemCpy(snapshot, (byte*)preSerializedSnapshot.Data+snapshotSize*startIndex, snapshotSize*(endIndex-startIndex));
-                // If this chunk has been processed for this tick before we cannot copy the dynamic snapshot data since doing so would
-                // overwrite already computed change masks and break delta compression.
-                // Sending the same chunk multiple times only happens for non-root members of a ghost group
-                if (preSerializedSnapshot.DynamicSize > 0 && currentSnapshot.AlreadyUsedChunk == 0)
-                    UnsafeUtility.MemCpy(snapshotDynamicDataPtr + dynamicDataHeaderSize, (byte*)preSerializedSnapshot.Data+preSerializedSnapshot.Capacity, preSerializedSnapshot.DynamicSize);
-                int numComponents = typeData.NumComponents;
-                for (int comp = 0; comp < numComponents; ++comp)
+                var context = new GhostPrefabCustomSerializer.Context
                 {
-                    int compIdx = GhostComponentIndex[typeData.FirstComponent + comp].ComponentIndex;
-                    int serializerIdx = GhostComponentIndex[typeData.FirstComponent + comp].SerializerIndex;
-                    ValidateGhostComponentIndex(compIdx);
-
-                    if (GhostComponentCollection[serializerIdx].ComponentType.IsBuffer)
-                    {
-                        ComponentScopeBegin(serializerIdx);
-                        GhostComponentCollection[serializerIdx].PostSerializeBuffer.Ptr.Invoke((IntPtr)snapshot, snapshotOffset, snapshotSize, snapshotMaskOffsetInBits,
-                            GhostComponentCollection[serializerIdx].ChangeMaskBits, endIndex - startIndex, (IntPtr)baselinesPerEntity, ref tempWriter, ref compressionModel, (IntPtr)(entityStartBit+2*entityOffset*comp), (IntPtr)snapshotDynamicDataPtr, (IntPtr)dynamicDataLenPerEntity, dynamicSnapshotDataCapacity + dynamicDataHeaderSize);
-                        ComponentScopeEnd(serializerIdx);
-
-                        snapshotOffset += GhostComponentSerializer.SnapshotSizeAligned(GhostSystemConstants.DynamicBufferComponentSnapshotSize);
-                        snapshotMaskOffsetInBits += GhostSystemConstants.DynamicBufferComponentMaskBits;
-                    }
-                    else
-                    {
-                        // TODO: Ensure these pointer invocations are NOT called in the ZeroSize case (but we must update entityStartBit)!
-                        // Which means we can remove the #ifdef in Serializer Template.
-                        ComponentScopeBegin(serializerIdx);
-                        GhostComponentCollection[serializerIdx].PostSerialize.Ptr.Invoke((IntPtr)snapshot, snapshotOffset, snapshotSize, snapshotMaskOffsetInBits, endIndex - startIndex, (IntPtr)baselinesPerEntity, ref tempWriter, ref compressionModel, (IntPtr)(entityStartBit+2*entityOffset*comp));
-                        ComponentScopeEnd(serializerIdx);
-                        snapshotOffset += GhostComponentSerializer.SnapshotSizeAligned(GhostComponentCollection[serializerIdx].SnapshotSize);
-                        snapshotMaskOffsetInBits += GhostComponentCollection[serializerIdx].ChangeMaskBits;
-                    }
+                    startIndex = startIndex,
+                    endIndex = endIndex,
+                    ghostType = ghostType,
+                    networkId = NetworkId,
+                    childEntityLookup = childEntityLookup,
+                    serializerState = serializerState,
+                    ghostChunkComponentTypes = (IntPtr)ghostChunkComponentTypesPtr,
+                    linkedEntityGroupTypeHandle = linkedEntityGroupType,
+                    snapshotDataPtr = (IntPtr)snapshot,
+                    baselinePerEntityPtr = (IntPtr)baselinesPerEntity,
+                    sameBaselinePerEntityPtr = (IntPtr)sameBaselinePerEntity,
+                    snapshotDynamicDataPtr = (IntPtr)snapshotDynamicDataPtr,
+                    dynamicDataSizePerEntityPtr = (IntPtr)dynamicDataLenPerEntity,
+                    zeroBaseline = (IntPtr)tempZeroBaseline,
+                    entityStartBit = (IntPtr)entityStartBit,
+                    ghostInstances = (IntPtr)ghosts.GetUnsafeReadOnlyPtr(),
+                    snapshotOffset = snapshotOffset,
+                    snapshotStride = snapshotSize,
+                    hasPreserializedData = hasPreserializeData
+                        ? 1
+                        : 0,
+                    dynamicDataOffset = dynamicDataHeaderSize,
+                    dynamicDataCapacity = dynamicSnapshotDataCapacity + dynamicDataHeaderSize
+                };
+                typeData.CustomSerializer.Ptr.Invoke(ref chunk,
+                    typeData, GhostComponentIndex,
+                    ref context,
+                    ref tempWriter, compressionModel,
+                    ref lastSerializedEntity);
+                //Temp writer in this case only fails if there is not enough space for a single entity.
+                //There is no need to retry serializing the whole chunk in this case, we know is not going to fit in the
+                //current data stream size (because the size of temp writer is going to be same).
+                if (tempWriter.HasFailedWrites)
+                {
+                    return startIndex;
                 }
             }
             else
             {
-                // Loop through all components and call the serialize method which will write the snapshot data and serialize the entities to the temporary stream
-                int numBaseComponents = typeData.NumComponents - typeData.NumChildComponents;
-                int enableableMaskOffset = 0;
-                for (int comp = 0; comp < numBaseComponents; ++comp)
+                if (hasPreserializeData)
                 {
-                    int compIdx = GhostComponentIndex[typeData.FirstComponent + comp].ComponentIndex;
-                    int serializerIdx = GhostComponentIndex[typeData.FirstComponent + comp].SerializerIndex;
-                    ValidateGhostComponentIndex(compIdx);
-                    var compSize = GhostComponentCollection[serializerIdx].ComponentSize;
-                    //Don't access the data but always increment the offset by the component SnapshotSize.
-                    //Otherwise, the next serialized component would technically copy the data in the wrong memory slot
-                    //It might still work in some cases but if this snapshot is then part of the history and used for
-                    //interpolated data we might get incorrect results
-
-                    if (GhostComponentCollection[serializerIdx].SerializesEnabledBit != 0)
-                    {
-                        var handle = ghostChunkComponentTypesPtr[compIdx];
-                        UpdateEnableableMasks(chunk, startIndex, endIndex, ref handle, snapshot, changeMaskUints, enableableMaskOffset, snapshotSize);
-                        ++enableableMaskOffset;
-                        ValidateWrittenEnableBits(enableableMaskOffset, typeData.EnableableBits);
-                    }
-
-                    if (GhostComponentCollection[serializerIdx].ComponentType.IsBuffer)
-                    {
-                        // Buffers cannot be zero sized, so no need to guard here.
-                        byte** compData = tempComponentDataPerEntity;
-                        int* compDataLen = tempComponentDataLenPerEntity;
-                        if (chunk.Has(ref ghostChunkComponentTypesPtr[compIdx]))
-                        {
-                            var bufData = chunk.GetUntypedBufferAccessor(ref ghostChunkComponentTypesPtr[compIdx]);
-                            for (int ent = startIndex; ent < endIndex; ++ent)
-                            {
-                                compData[ent-startIndex] = (byte*)bufData.GetUnsafeReadOnlyPtrAndLength(ent, out var len);
-                                compDataLen[ent-startIndex] = len;
-                            }
-                        }
-                        else
-                        {
-                            for (int ent = startIndex; ent < endIndex; ++ent)
-                            {
-                                compData[ent-startIndex] = null;
-                                compDataLen[ent-startIndex] = 0;
-                            }
-                        }
-                        ComponentScopeBegin(serializerIdx);
-                        GhostComponentCollection[serializerIdx].SerializeBuffer.Ptr.Invoke((IntPtr)UnsafeUtility.AddressOf(ref serializerState), (IntPtr)snapshot, snapshotOffset, snapshotSize, snapshotMaskOffsetInBits,
-                            GhostComponentCollection[serializerIdx].ChangeMaskBits, (IntPtr)compData, (IntPtr)compDataLen, endIndex - startIndex, (IntPtr)baselinesPerEntity, ref tempWriter, ref compressionModel, (IntPtr)(entityStartBit+2*entityOffset*comp), (IntPtr)snapshotDynamicDataPtr, ref snapshotDynamicDataOffset, (IntPtr)dynamicDataLenPerEntity, dynamicSnapshotDataCapacity + dynamicDataHeaderSize);
-                        ComponentScopeEnd(serializerIdx);
-                        snapshotOffset += GhostComponentSerializer.SnapshotSizeAligned(GhostSystemConstants.DynamicBufferComponentSnapshotSize);
-                        snapshotMaskOffsetInBits += GhostSystemConstants.DynamicBufferComponentMaskBits;
-                    }
-                    else
-                    {
-                        byte** compData = tempComponentDataPerEntity;
-                        if (GhostComponentCollection[serializerIdx].HasGhostFields && chunk.Has(ref ghostChunkComponentTypesPtr[compIdx]))
-                        {
-                            var data = (byte*) chunk.GetDynamicComponentDataArrayReinterpret<byte>(ref ghostChunkComponentTypesPtr[compIdx], compSize).GetUnsafeReadOnlyPtr();
-                            for (int ent = startIndex; ent < endIndex; ++ent)
-                                compData[ent-startIndex] = data + ent * compSize;
-                        }
-                        else
-                        {
-                            for (int ent = startIndex; ent < endIndex; ++ent)
-                                compData[ent-startIndex] = null;
-                        }
-
-                        ComponentScopeBegin(serializerIdx);
-                        GhostComponentCollection[serializerIdx].Serialize.Ptr.Invoke((IntPtr) UnsafeUtility.AddressOf(ref serializerState), (IntPtr) snapshot, snapshotOffset, snapshotSize, snapshotMaskOffsetInBits, (IntPtr) compData, compSize, endIndex - startIndex, (IntPtr) baselinesPerEntity, ref tempWriter, ref compressionModel, (IntPtr) (entityStartBit + 2 * entityOffset * comp));
-                        ComponentScopeEnd(serializerIdx);
-                        snapshotOffset += GhostComponentSerializer.SnapshotSizeAligned(GhostComponentCollection[serializerIdx].SnapshotSize);
-                        snapshotMaskOffsetInBits += GhostComponentCollection[serializerIdx].ChangeMaskBits;
-                    }
-                }
-                if (typeData.NumChildComponents > 0)
-                {
-                    var linkedEntityGroupAccessor = chunk.GetBufferAccessor(ref linkedEntityGroupType);
-                    for (int comp = numBaseComponents; comp < typeData.NumComponents; ++comp)
+                    UnsafeUtility.MemCpy(snapshot, (byte*)preSerializedSnapshot.Data+snapshotSize*startIndex, snapshotSize*(endIndex-startIndex));
+                    // If this chunk has been processed for this tick before we cannot copy the dynamic snapshot data since doing so would
+                    // overwrite already computed change masks and break delta compression.
+                    // Sending the same chunk multiple times only happens for non-root members of a ghost group
+                    if (preSerializedSnapshot.DynamicSize > 0 && currentSnapshot.AlreadyUsedChunk == 0)
+                        UnsafeUtility.MemCpy(snapshotDynamicDataPtr + dynamicDataHeaderSize, (byte*)preSerializedSnapshot.Data+preSerializedSnapshot.Capacity, preSerializedSnapshot.DynamicSize);
+                    int numComponents = typeData.NumComponents;
+                    for (int comp = 0; comp < numComponents; ++comp)
                     {
                         int compIdx = GhostComponentIndex[typeData.FirstComponent + comp].ComponentIndex;
                         int serializerIdx = GhostComponentIndex[typeData.FirstComponent + comp].SerializerIndex;
                         ValidateGhostComponentIndex(compIdx);
-                        var compSize = GhostComponentCollection[serializerIdx].ComponentSize;
-                        if(GhostComponentCollection[serializerIdx].ComponentType.IsBuffer)
+
+                        ref readonly var ghostSerializer = ref GhostComponentCollection.ElementAtRO(serializerIdx);
+                        if (ghostSerializer.ComponentType.IsBuffer)
                         {
+                            ComponentScopeBegin(serializerIdx);
+                            ghostSerializer.PostSerializeBuffer.Invoke((IntPtr)snapshot, snapshotOffset, snapshotSize, snapshotMaskOffsetInBits,
+                                ghostSerializer.ChangeMaskBits, endIndex - startIndex, (IntPtr)baselinesPerEntity, ref tempWriter, ref compressionModel, (IntPtr)(entityStartBit+2*entityOffset*comp), (IntPtr)snapshotDynamicDataPtr, (IntPtr)dynamicDataLenPerEntity, dynamicSnapshotDataCapacity + dynamicDataHeaderSize);
+                            ComponentScopeEnd(serializerIdx);
+
+                            snapshotOffset += GhostComponentSerializer.SnapshotSizeAligned(GhostComponentSerializer.DynamicBufferComponentSnapshotSize);
+                            snapshotMaskOffsetInBits += GhostComponentSerializer.DynamicBufferComponentMaskBits;
+                        }
+                        else
+                        {
+                            // TODO: Ensure these pointer invocations are NOT called in the ZeroSize case (but we must update entityStartBit)!
+                            // Which means we can remove the #ifdef in Serializer Template.
+                            ComponentScopeBegin(serializerIdx);
+                            ghostSerializer.PostSerialize.Invoke((IntPtr)snapshot, snapshotOffset, snapshotSize, snapshotMaskOffsetInBits, endIndex - startIndex, (IntPtr)baselinesPerEntity, ref tempWriter, ref compressionModel, (IntPtr)(entityStartBit+2*entityOffset*comp));
+                            ComponentScopeEnd(serializerIdx);
+                            snapshotOffset += GhostComponentSerializer.SnapshotSizeAligned(ghostSerializer.SnapshotSize);
+                            snapshotMaskOffsetInBits += ghostSerializer.ChangeMaskBits;
+                        }
+                    }
+                }
+                else
+                {
+                    // Loop through all components and call the serialize method which will write the snapshot data and serialize the entities to the temporary stream
+                    int numBaseComponents = typeData.NumComponents - typeData.NumChildComponents;
+                    int enableableMaskOffset = 0;
+                    for (int comp = 0; comp < numBaseComponents; ++comp)
+                    {
+                        int compIdx = GhostComponentIndex[typeData.FirstComponent + comp].ComponentIndex;
+                        int serializerIdx = GhostComponentIndex[typeData.FirstComponent + comp].SerializerIndex;
+                        ValidateGhostComponentIndex(compIdx);
+                        ref readonly var ghostSerializer = ref GhostComponentCollection.ElementAtRO(serializerIdx);
+                        var compSize = ghostSerializer.ComponentSize;
+                        //Don't access the data but always increment the offset by the component SnapshotSize.
+                        //Otherwise, the next serialized component would technically copy the data in the wrong memory slot
+                        //It might still work in some cases but if this snapshot is then part of the history and used for
+                        //interpolated data we might get incorrect results
+
+                        if (ghostSerializer.SerializesEnabledBit != 0)
+                        {
+                            var handle = ghostChunkComponentTypesPtr[compIdx];
+                            UpdateEnableableMasks(chunk, startIndex, endIndex, ref handle, snapshot, changeMaskUints, enableableMaskOffset, snapshotSize);
+                            ++enableableMaskOffset;
+                            ValidateWrittenEnableBits(enableableMaskOffset, typeData.EnableableBits);
+                        }
+
+                        if (ghostSerializer.ComponentType.IsBuffer)
+                        {
+                            // Buffers cannot be zero sized, so no need to guard here.
                             byte** compData = tempComponentDataPerEntity;
                             int* compDataLen = tempComponentDataLenPerEntity;
-
-                            var snapshotPtr = snapshot;
-                            for (int ent = startIndex; ent < endIndex; ++ent)
+                            if (chunk.Has(ref ghostChunkComponentTypesPtr[compIdx]))
                             {
-                                var linkedEntityGroup = linkedEntityGroupAccessor[ent];
-                                var childEnt = linkedEntityGroup[GhostComponentIndex[typeData.FirstComponent + comp].EntityIndex].Value;
-                                if (childEntityLookup.TryGetValue(childEnt, out var childChunk) && childChunk.Chunk.Has(ref ghostChunkComponentTypesPtr[compIdx]))
+                                var bufData = chunk.GetUntypedBufferAccessor(ref ghostChunkComponentTypesPtr[compIdx]);
+                                for (int ent = startIndex; ent < endIndex; ++ent)
                                 {
-                                    if (GhostComponentCollection[serializerIdx].SerializesEnabledBit != 0)
-                                    {
-                                        var entityIndex = childChunk.IndexInChunk;
-                                        var handle = ghostChunkComponentTypesPtr[compIdx];
-                                        UpdateEnableableMasks(childChunk.Chunk, entityIndex, entityIndex+1, ref handle, snapshotPtr, changeMaskUints, enableableMaskOffset, snapshotSize);
-                                    }
-
-                                    var bufData = childChunk.Chunk.GetUntypedBufferAccessor(ref ghostChunkComponentTypesPtr[compIdx]);
-                                    compData[ent-startIndex] = (byte*)bufData.GetUnsafeReadOnlyPtrAndLength(childChunk.IndexInChunk, out var len);
+                                    compData[ent-startIndex] = (byte*)bufData.GetUnsafeReadOnlyPtrAndLength(ent, out var len);
                                     compDataLen[ent-startIndex] = len;
                                 }
-                                else
+                            }
+                            else
+                            {
+                                for (int ent = startIndex; ent < endIndex; ++ent)
                                 {
                                     compData[ent-startIndex] = null;
                                     compDataLen[ent-startIndex] = 0;
                                 }
-                                snapshotPtr += snapshotSize;
                             }
                             ComponentScopeBegin(serializerIdx);
-                            GhostComponentCollection[serializerIdx].SerializeBuffer.Ptr.Invoke((IntPtr)UnsafeUtility.AddressOf(ref serializerState), (IntPtr)snapshot, snapshotOffset, snapshotSize, snapshotMaskOffsetInBits,
-                                GhostComponentCollection[serializerIdx].ChangeMaskBits, (IntPtr)compData, (IntPtr)compDataLen, endIndex - startIndex, (IntPtr)baselinesPerEntity, ref tempWriter, ref compressionModel, (IntPtr)(entityStartBit+2*entityOffset*comp), (IntPtr)snapshotDynamicDataPtr, ref snapshotDynamicDataOffset, (IntPtr)dynamicDataLenPerEntity, dynamicSnapshotDataCapacity + dynamicDataHeaderSize);
+                            ghostSerializer.SerializeBuffer.Invoke((IntPtr)UnsafeUtility.AddressOf(ref serializerState), (IntPtr)snapshot, snapshotOffset, snapshotSize, snapshotMaskOffsetInBits,
+                                ghostSerializer.ChangeMaskBits, (IntPtr)compData, (IntPtr)compDataLen, endIndex - startIndex, (IntPtr)baselinesPerEntity, ref tempWriter, ref compressionModel, (IntPtr)(entityStartBit+2*entityOffset*comp), (IntPtr)snapshotDynamicDataPtr, ref snapshotDynamicDataOffset, (IntPtr)dynamicDataLenPerEntity, dynamicSnapshotDataCapacity + dynamicDataHeaderSize);
                             ComponentScopeEnd(serializerIdx);
-                            snapshotOffset += GhostComponentSerializer.SnapshotSizeAligned(GhostSystemConstants.DynamicBufferComponentSnapshotSize);
-                            snapshotMaskOffsetInBits += GhostSystemConstants.DynamicBufferComponentMaskBits;
-                            if (GhostComponentCollection[serializerIdx].SerializesEnabledBit != 0)
-                            {
-                                ++enableableMaskOffset;
-                                ValidateWrittenEnableBits(enableableMaskOffset, typeData.EnableableBits);
-                            }
+                            snapshotOffset += GhostComponentSerializer.SnapshotSizeAligned(GhostComponentSerializer.DynamicBufferComponentSnapshotSize);
+                            snapshotMaskOffsetInBits += GhostComponentSerializer.DynamicBufferComponentMaskBits;
                         }
                         else
                         {
                             byte** compData = tempComponentDataPerEntity;
-                            var snapshotPtr = snapshot;
-                            for (int ent = startIndex; ent < endIndex; ++ent)
+                            if (ghostSerializer.HasGhostFields && chunk.Has(ref ghostChunkComponentTypesPtr[compIdx]))
                             {
-                                var linkedEntityGroup = linkedEntityGroupAccessor[ent];
-                                var childEnt = linkedEntityGroup[GhostComponentIndex[typeData.FirstComponent + comp].EntityIndex].Value;
-                                compData[ent-startIndex] = null;
-                                //We can skip here, because the memory buffer offset is computed using the start-end entity indices
-                                if (childEntityLookup.TryGetValue(childEnt, out var childChunk) && childChunk.Chunk.Has(ref ghostChunkComponentTypesPtr[compIdx]))
-                                {
-                                    if (GhostComponentCollection[serializerIdx].SerializesEnabledBit != 0)
-                                    {
-                                        var entityIndex = childChunk.IndexInChunk;
-                                        var handle = ghostChunkComponentTypesPtr[compIdx];
-                                        UpdateEnableableMasks(childChunk.Chunk, entityIndex, entityIndex + 1, ref handle, snapshotPtr, changeMaskUints, enableableMaskOffset, snapshotSize);
-                                    }
-
-                                    if (GhostComponentCollection[serializerIdx].HasGhostFields)
-                                    {
-                                        compData[ent - startIndex] = (byte*) childChunk.Chunk.GetDynamicComponentDataArrayReinterpret<byte>(ref ghostChunkComponentTypesPtr[compIdx], compSize).GetUnsafeReadOnlyPtr();
-                                        compData[ent - startIndex] += childChunk.IndexInChunk * compSize;
-                                    }
-                                }
-
-                                snapshotPtr += snapshotSize;
+                                var data = (byte*) chunk.GetDynamicComponentDataArrayReinterpret<byte>(ref ghostChunkComponentTypesPtr[compIdx], compSize).GetUnsafeReadOnlyPtr();
+                                for (int ent = startIndex; ent < endIndex; ++ent)
+                                    compData[ent-startIndex] = data + ent * compSize;
                             }
-                            ComponentScopeBegin(serializerIdx);
-                            GhostComponentCollection[serializerIdx].SerializeChild.Ptr.Invoke((IntPtr)UnsafeUtility.AddressOf(ref serializerState), (IntPtr)snapshot, snapshotOffset, snapshotSize, snapshotMaskOffsetInBits, (IntPtr)compData, endIndex - startIndex, (IntPtr)baselinesPerEntity, ref tempWriter, ref compressionModel, (IntPtr)(entityStartBit+2*entityOffset*comp));
-                            ComponentScopeEnd(serializerIdx);
-                            snapshotOffset += GhostComponentSerializer.SnapshotSizeAligned(GhostComponentCollection[serializerIdx].SnapshotSize);
-                            snapshotMaskOffsetInBits += GhostComponentCollection[serializerIdx].ChangeMaskBits;
-                            if (GhostComponentCollection[serializerIdx].SerializesEnabledBit != 0)
+                            else
                             {
-                                ++enableableMaskOffset;
-                                ValidateWrittenEnableBits(enableableMaskOffset, typeData.EnableableBits);
+                                for (int ent = startIndex; ent < endIndex; ++ent)
+                                    compData[ent-startIndex] = null;
+                            }
+
+                            ComponentScopeBegin(serializerIdx);
+                            ghostSerializer.Serialize.Invoke((IntPtr) UnsafeUtility.AddressOf(ref serializerState), (IntPtr) snapshot, snapshotOffset, snapshotSize, snapshotMaskOffsetInBits, (IntPtr) compData, endIndex - startIndex, (IntPtr) baselinesPerEntity, ref tempWriter, ref compressionModel, (IntPtr) (entityStartBit + 2 * entityOffset * comp));
+                            ComponentScopeEnd(serializerIdx);
+                            snapshotOffset += GhostComponentSerializer.SnapshotSizeAligned(ghostSerializer.SnapshotSize);
+                            snapshotMaskOffsetInBits += ghostSerializer.ChangeMaskBits;
+                        }
+                    }
+                    if (typeData.NumChildComponents > 0)
+                    {
+                        var linkedEntityGroupAccessor = chunk.GetBufferAccessor(ref linkedEntityGroupType);
+                        for (int comp = numBaseComponents; comp < typeData.NumComponents; ++comp)
+                        {
+                            int compIdx = GhostComponentIndex[typeData.FirstComponent + comp].ComponentIndex;
+                            int serializerIdx = GhostComponentIndex[typeData.FirstComponent + comp].SerializerIndex;
+                            ValidateGhostComponentIndex(compIdx);
+                            ref readonly var ghostSerializer = ref GhostComponentCollection.ElementAtRO(serializerIdx);
+                            var compSize = ghostSerializer.ComponentSize;
+                            if(ghostSerializer.ComponentType.IsBuffer)
+                            {
+                                byte** compData = tempComponentDataPerEntity;
+                                int* compDataLen = tempComponentDataLenPerEntity;
+
+                                var snapshotPtr = snapshot;
+                                for (int ent = startIndex; ent < endIndex; ++ent)
+                                {
+                                    var linkedEntityGroup = linkedEntityGroupAccessor[ent];
+                                    var childEnt = linkedEntityGroup[GhostComponentIndex[typeData.FirstComponent + comp].EntityIndex].Value;
+                                    if (childEntityLookup.TryGetValue(childEnt, out var childChunk) && childChunk.Chunk.Has(ref ghostChunkComponentTypesPtr[compIdx]))
+                                    {
+                                        if (ghostSerializer.SerializesEnabledBit != 0)
+                                        {
+                                            var entityIndex = childChunk.IndexInChunk;
+                                            var handle = ghostChunkComponentTypesPtr[compIdx];
+                                            UpdateEnableableMasks(childChunk.Chunk, entityIndex, entityIndex+1, ref handle, snapshotPtr, changeMaskUints, enableableMaskOffset, snapshotSize);
+                                        }
+
+                                        var bufData = childChunk.Chunk.GetUntypedBufferAccessor(ref ghostChunkComponentTypesPtr[compIdx]);
+                                        compData[ent-startIndex] = (byte*)bufData.GetUnsafeReadOnlyPtrAndLength(childChunk.IndexInChunk, out var len);
+                                        compDataLen[ent-startIndex] = len;
+                                    }
+                                    else
+                                    {
+                                        compData[ent-startIndex] = null;
+                                        compDataLen[ent-startIndex] = 0;
+                                    }
+                                    snapshotPtr += snapshotSize;
+                                }
+                                ComponentScopeBegin(serializerIdx);
+                                ghostSerializer.SerializeBuffer.Invoke((IntPtr)UnsafeUtility.AddressOf(ref serializerState), (IntPtr)snapshot, snapshotOffset, snapshotSize, snapshotMaskOffsetInBits,
+                                    ghostSerializer.ChangeMaskBits, (IntPtr)compData, (IntPtr)compDataLen, endIndex - startIndex, (IntPtr)baselinesPerEntity, ref tempWriter, ref compressionModel, (IntPtr)(entityStartBit+2*entityOffset*comp), (IntPtr)snapshotDynamicDataPtr, ref snapshotDynamicDataOffset, (IntPtr)dynamicDataLenPerEntity, dynamicSnapshotDataCapacity + dynamicDataHeaderSize);
+                                ComponentScopeEnd(serializerIdx);
+                                snapshotOffset += GhostComponentSerializer.SnapshotSizeAligned(GhostComponentSerializer.DynamicBufferComponentSnapshotSize);
+                                snapshotMaskOffsetInBits += GhostComponentSerializer.DynamicBufferComponentMaskBits;
+                                if (ghostSerializer.SerializesEnabledBit != 0)
+                                {
+                                    ++enableableMaskOffset;
+                                    ValidateWrittenEnableBits(enableableMaskOffset, typeData.EnableableBits);
+                                }
+                            }
+                            else
+                            {
+                                byte** compData = tempComponentDataPerEntity;
+                                var snapshotPtr = snapshot;
+                                for (int ent = startIndex; ent < endIndex; ++ent)
+                                {
+                                    var linkedEntityGroup = linkedEntityGroupAccessor[ent];
+                                    var childEnt = linkedEntityGroup[GhostComponentIndex[typeData.FirstComponent + comp].EntityIndex].Value;
+                                    compData[ent-startIndex] = null;
+                                    //We can skip here, because the memory buffer offset is computed using the start-end entity indices
+                                    if (childEntityLookup.TryGetValue(childEnt, out var childChunk) && childChunk.Chunk.Has(ref ghostChunkComponentTypesPtr[compIdx]))
+                                    {
+                                        if (ghostSerializer.SerializesEnabledBit != 0)
+                                        {
+                                            var entityIndex = childChunk.IndexInChunk;
+                                            var handle = ghostChunkComponentTypesPtr[compIdx];
+                                            UpdateEnableableMasks(childChunk.Chunk, entityIndex, entityIndex + 1, ref handle, snapshotPtr, changeMaskUints, enableableMaskOffset, snapshotSize);
+                                        }
+
+                                        if (ghostSerializer.HasGhostFields)
+                                        {
+                                            compData[ent - startIndex] = (byte*) childChunk.Chunk.GetDynamicComponentDataArrayReinterpret<byte>(ref ghostChunkComponentTypesPtr[compIdx], compSize).GetUnsafeReadOnlyPtr();
+                                            compData[ent - startIndex] += childChunk.IndexInChunk * compSize;
+                                        }
+                                    }
+
+                                    snapshotPtr += snapshotSize;
+                                }
+                                ComponentScopeBegin(serializerIdx);
+                                ghostSerializer.Serialize.Invoke((IntPtr) UnsafeUtility.AddressOf(ref serializerState), (IntPtr) snapshot, snapshotOffset, snapshotSize, snapshotMaskOffsetInBits, (IntPtr) compData, endIndex - startIndex, (IntPtr) baselinesPerEntity, ref tempWriter, ref compressionModel, (IntPtr) (entityStartBit + 2 * entityOffset * comp));
+                                ComponentScopeEnd(serializerIdx);
+                                snapshotOffset += GhostComponentSerializer.SnapshotSizeAligned(ghostSerializer.SnapshotSize);
+                                snapshotMaskOffsetInBits += ghostSerializer.ChangeMaskBits;
+                                if (ghostSerializer.SerializesEnabledBit != 0)
+                                {
+                                    ++enableableMaskOffset;
+                                    ValidateWrittenEnableBits(enableableMaskOffset, typeData.EnableableBits);
+                                }
                             }
                         }
                     }
+                    ValidateAllEnableBitsHasBeenWritten(enableableMaskOffset, typeData.EnableableBits);
                 }
-                ValidateAllEnableBitsHasBeenWritten(enableableMaskOffset, typeData.EnableableBits);
-            }
-            if (tempWriter.HasFailedWrites)
-            {
-                // The temporary buffer could not fit the content for all entities, make it bigger and retry
-                tempWriter = new DataStreamWriter(tempWriter.Capacity*2, Allocator.Temp);
-                tempWriter.WriteBytes(oldTempWriter.AsNativeArray());
-                netDebug.DebugLog($"Could not fit content in temporary buffer, increasing size to {tempWriter.Capacity} and trying again");
-                return SerializeEntities(ref dataStream, out skippedEntityCount, out anyChangeMask,
-                    ghostType, chunk, realStartIndex, realEndIndex, useSingleBaseline, currentSnapshot,
-                    baselinesPerEntity, sameBaselinePerEntity, dynamicDataLenPerEntity, entityStartBit);
+                if (tempWriter.HasFailedWrites)
+                {
+                    //We are paying the cost of this string concatenation even though the log level will skip this.
+                    if (Hint.Unlikely(netDebug.LogLevel == NetDebug.LogLevelType.Debug))
+                    {
+                        netDebug.LogWarning($"PERFORMANCE: Could not fit snapshot content into temporary buffer of size {tempWriter.Capacity}, increasing size to {tempWriter.Capacity*2} and trying again! If this happens frequently, increase the size of this buffer via `GhostSendSystemData.TempStreamInitialSize`.");
+                    }
+                    // The temporary buffer could not fit the content for all entities, make it bigger and retry
+                    tempWriter = new DataStreamWriter(tempWriter.Capacity*2, Allocator.Temp);
+                    tempWriter.WriteBytes(oldTempWriter.AsNativeArray());
+                    return SerializeEntities(ref dataStream, out skippedEntityCount, out anyChangeMask,
+                        ghostType, chunk, realStartIndex, realEndIndex, useSingleBaseline, currentSnapshot,
+                        baselinesPerEntity, sameBaselinePerEntity, dynamicDataLenPerEntity, entityStartBit);
+                }
             }
             tempWriter.Flush();
-
+            // Copy the content per entity from the temporary stream to the output stream in the correct order
+            var writerData = (uint*)tempWriter.AsNativeArray().GetUnsafePtr();
+            uint zeroChangeMask = 0;
             bool hasPartialSends = false;
             if (typeData.PredictionOwnerOffset !=0)
             {
                 hasPartialSends = ((typeData.PartialComponents != 0) && (typeData.OwnerPredicted != 0));
                 hasPartialSends |= typeData.PartialSendToOwner != 0;
             }
-
-            // Copy the content per entity from the temporary stream to the output stream in the correct order
-            var writerData = (uint*)tempWriter.AsNativeArray().GetUnsafePtr();
-            uint zeroChangeMask = 0;
-            uint baseGhostId = chunk.Has(ref PrespawnIndexType) ? PrespawnHelper.PrespawnGhostIdBase : 0;
-
-            for (int ent = startIndex; ent < endIndex; ++ent)
+            for (int ent = startIndex; ent < lastSerializedEntity; ++ent)
             {
                 var oldStream = dataStream;
                 int entOffset = ent-startIndex;
@@ -903,7 +963,9 @@ namespace Unity.NetCode
                 uint* changeMasks = (uint*)(snapshot+sizeof(uint));
                 uint* enableableMasks = (uint*)(snapshot+sizeof(uint) + changeMaskUints * sizeof(uint));
 
-                if (hasPartialSends)
+                //This can't work with custom serializer and it is expected they will do that as part of the
+                //serialization
+                if (hasPartialSends && !hasCustomSerializer)
                 {
                     GhostSendType serializeMask = GhostSendType.AllClients;
                     var sendToOwner = SendToOwnerType.All;
@@ -929,11 +991,12 @@ namespace Unity.NetCode
                     for (int comp = 0; comp < typeData.NumComponents; ++comp)
                     {
                         int serializerIdx = GhostComponentIndex[typeData.FirstComponent + comp].SerializerIndex;
-                        var changeBits = GhostComponentCollection[serializerIdx].ComponentType.IsBuffer
-                            ? GhostSystemConstants.DynamicBufferComponentMaskBits
-                            : GhostComponentCollection[serializerIdx].ChangeMaskBits;
-                        var componentSize = GhostComponentCollection[serializerIdx].ComponentType.IsBuffer
-                            ? GhostSystemConstants.DynamicBufferComponentSnapshotSize
+                        ref readonly var ghostSerializer = ref GhostComponentCollection.ElementAtRO(serializerIdx);
+                        var changeBits = ghostSerializer.ComponentType.IsBuffer
+                            ? GhostComponentSerializer.DynamicBufferComponentMaskBits
+                            : ghostSerializer.ChangeMaskBits;
+                        var componentSize = ghostSerializer.ComponentType.IsBuffer
+                            ? GhostComponentSerializer.DynamicBufferComponentSnapshotSize
                             : GhostComponentCollection[serializerIdx].SnapshotSize;
                         var hasGhostFields = GhostComponentCollection[serializerIdx].HasGhostFields;
                         componentSize = GhostComponentSerializer.SnapshotSizeAligned(componentSize);
@@ -943,7 +1006,7 @@ namespace Unity.NetCode
                         //However, (and this is an opt for another PR) we are doing work for nothing in that case (that may be still faster because of SIMD
                         //but I doubt in that case, because of the nature of DataStreamWriter and Huffman compression).
                         if ((serializeMask & GhostComponentIndex[typeData.FirstComponent + comp].SendMask) == 0 ||
-                            (sendToOwner & GhostComponentCollection[serializerIdx].SendToOwner) == 0)
+                            (sendToOwner & ghostSerializer.SendToOwner) == 0)
                         {
                             // This component should not be sent for this specific entity, clear the change mask and number of bits to prevent it from being sent
                             GhostComponentSerializer.ResetChangeMask((IntPtr)changeMasks, curMaskOffsetInBits, changeBits);
@@ -975,88 +1038,64 @@ namespace Unity.NetCode
                     }
                 }
                 // make sure the last few bits of the changemask is cleared
-                if ((snapshotMaskOffsetInBits&31) != 0)
-                    GhostComponentSerializer.CopyToChangeMask((IntPtr)changeMasks, 0, snapshotMaskOffsetInBits, 32 - (snapshotMaskOffsetInBits&31));
+                if ((typeData.ChangeMaskBits&31) != 0)
+                    GhostComponentSerializer.CopyToChangeMask((IntPtr)changeMasks, 0, typeData.ChangeMaskBits, 32 - (typeData.ChangeMaskBits&31));
                 PacketDumpChangeMasks(changeMasks, changeMaskUints);
 
                 uint anyChangeMaskThisEntity = 0;
                 uint anyEnableableMaskChangedThisEntity = 0;
                 if (snaphostHasCompressedGhostSize == 1)
                 {
-                    bool hasFailedWrite;
-                    do
-                    {
-                        hasFailedWrite = false;
-                        tempHeaderWriter.Clear();
-                        //write the dynamic data size in the snapshot and sent it delta compressed against the current available baseline
-                        if (typeData.NumBuffers != 0)
-                            tempHeaderWriter.WritePackedUIntDelta(curDynamicSize, prevDynamicSize, compressionModel);
-                        for (int i = 0; i < changeMaskUints; ++i)
-                        {
-                            uint changeMaskUint = changeMasks[i];
-                            anyChangeMaskThisEntity |= changeMaskUint;
-                            tempHeaderWriter.WritePackedUIntDelta(changeMaskUint,
-                                changeMaskBaseline[i & changeMaskBaselineMask], compressionModel);
-                        }
-
-                        for (int i = 0; i < enableableMaskUints; ++i)
-                        {
-                            uint enableableMaskUint = enableableMasks[i];
-                            anyEnableableMaskChangedThisEntity |= enableableMaskUint ^
-                                                                  enableableMaskBaseline
-                                                                      [i & enableableMaskBaselineMask];
-                            tempHeaderWriter.WritePackedUIntDelta(enableableMaskUint,
-                                enableableMaskBaseline[i & enableableMaskBaselineMask], compressionModel);
-                        }
-
-                        if(tempHeaderWriter.HasFailedWrites)
-                        {
-                            netDebug.LogWarning($"Could not serialized ghost header in temporary buffer. Doubling header buffer size");
-                            tempHeaderWriter = new DataStreamWriter(tempHeaderWriter.Capacity * 2, Allocator.Temp);
-                            hasFailedWrite = true;
-                        }
-                    } while (hasFailedWrite);
-
-                    var headerLen = tempHeaderWriter.LengthInBits;
-                    //Flush must be always after we get the LengthInBits
-                    tempHeaderWriter.Flush();
-                    var headerData = (uint*)tempHeaderWriter.AsNativeArray().GetUnsafeReadOnlyPtr();
-                    int ghostSizeInBits = 0;
-                    if (anyChangeMaskThisEntity != 0)
-                    {
-                        for (int comp = 0; comp < typeData.NumComponents; ++comp)
-                            ghostSizeInBits += entityStartBit[(entityOffset * comp + entOffset) * 2 + 1];
-                    }
-                    dataStream.WritePackedUIntDelta((uint)(ghostSizeInBits+headerLen), 0, compressionModel);
-                    while (headerLen > 32)
-                    {
-                        dataStream.WriteRawBits(*headerData, 32);
-                        ++headerData;
-                        headerLen -= 32;
-                    }
-                    dataStream.WriteRawBits((uint)(*headerData & ((1ul<<headerLen)-1)), headerLen);
-                }
-                else
-                {
-                    //write the dynamic data size in the snapshot and sent it delta compressed against the current available baseline
+                    var headerLen = 0;
+                    //Calculate the compressed size of the header part and add that to the final ghost size
                     if (typeData.NumBuffers != 0)
-                        dataStream.WritePackedUIntDelta(curDynamicSize, prevDynamicSize, compressionModel);
+                    {
+                        var compressedSize = GhostComponentSerializer.GetDeltaCompressedSizeInBits(curDynamicSize, prevDynamicSize, compressionModel);
+                        headerLen += compressedSize;
+                    }
 
                     for (int i = 0; i < changeMaskUints; ++i)
                     {
                         uint changeMaskUint = changeMasks[i];
                         anyChangeMaskThisEntity |= changeMaskUint;
-                        dataStream.WritePackedUIntDelta(changeMaskUint, changeMaskBaseline[i&changeMaskBaselineMask], compressionModel);
+                        headerLen += GhostComponentSerializer.GetDeltaCompressedSizeInBits(changeMaskUint, changeMaskBaseline[i & changeMaskBaselineMask], compressionModel);
                     }
 
                     for (int i = 0; i < enableableMaskUints; ++i)
                     {
-                        uint enableableMaskUint = enableableMasks[i];
-                        anyEnableableMaskChangedThisEntity |=
-                            enableableMaskUint ^ enableableMaskBaseline[i & enableableMaskBaselineMask];
-                        dataStream.WritePackedUIntDelta(enableableMaskUint,
-                            enableableMaskBaseline[i & enableableMaskBaselineMask], compressionModel);
+                        uint enableBitUint = enableableMasks[i];
+                        headerLen += GhostComponentSerializer.GetDeltaCompressedSizeInBits(enableBitUint, enableableMaskBaseline[i & enableableMaskBaselineMask], compressionModel);
                     }
+                    int ghostSizeInBits = 0;
+                    if (anyChangeMaskThisEntity != 0)
+                    {
+                        if (hasCustomSerializer)
+                        {
+                            ghostSizeInBits = entityStartBit[entOffset * 2 + 1];
+                        }
+                        else
+                        {
+                            for (int comp = 0; comp < typeData.NumComponents; ++comp)
+                                ghostSizeInBits += entityStartBit[(entityOffset * comp + entOffset) * 2 + 1];
+                        }
+                    }
+                    dataStream.WritePackedUIntDelta((uint)(ghostSizeInBits+headerLen), 0, compressionModel);
+                }
+                //write the dynamic data size in the snapshot and sent it delta compressed against the current available baseline
+                if (typeData.NumBuffers != 0)
+                    dataStream.WritePackedUIntDelta(curDynamicSize, prevDynamicSize, compressionModel);
+
+                for (int i = 0; i < changeMaskUints; ++i)
+                {
+                    uint changeMaskUint = changeMasks[i];
+                    anyChangeMaskThisEntity |= changeMaskUint;
+                    dataStream.WritePackedUIntDelta(changeMaskUint, changeMaskBaseline[i&changeMaskBaselineMask], compressionModel);
+                }
+                for (int i = 0; i < enableableMaskUints; ++i)
+                {
+                    uint enableableMaskUint = enableableMasks[i];
+                    anyEnableableMaskChangedThisEntity |= enableableMaskUint ^ enableableMaskBaseline[i & enableableMaskBaselineMask];
+                    dataStream.WritePackedUIntDelta(enableableMaskUint, enableableMaskBaseline[i & enableableMaskBaselineMask], compressionModel);
                 }
                 snapshot += snapshotSize;
                 anyChangeMask |= anyChangeMaskThisEntity;
@@ -1064,11 +1103,11 @@ namespace Unity.NetCode
 
                 if (anyChangeMaskThisEntity != 0)
                 {
-                    PacketDumpComponentSize(typeData, entityStartBit, entityOffset, entOffset);
-                    for (int comp = 0; comp < typeData.NumComponents; ++comp)
+                    if (hasCustomSerializer)
                     {
-                        int start = entityStartBit[(entityOffset*comp + entOffset)*2];
-                        int len = entityStartBit[(entityOffset*comp + entOffset)*2+1];
+                        PacketDumpComponentSize(typeData, entityStartBit+entityOffset*2, entityOffset, entOffset);
+                        int start = entityStartBit[(entOffset)*2];
+                        int len = entityStartBit[(entOffset)*2+1];
                         if (len > 0)
                         {
                             while (len > 32)
@@ -1077,6 +1116,24 @@ namespace Unity.NetCode
                                 len -= 32;
                             }
                             dataStream.WriteRawBits(writerData[start], len);
+                        }
+                    }
+                    else
+                    {
+                        PacketDumpComponentSize(typeData, entityStartBit, entityOffset, entOffset);
+                        for (int comp = 0; comp < typeData.NumComponents; ++comp)
+                        {
+                            int start = entityStartBit[(entityOffset*comp + entOffset)*2];
+                            int len = entityStartBit[(entityOffset*comp + entOffset)*2+1];
+                            if (len > 0)
+                            {
+                                while (len > 32)
+                                {
+                                    dataStream.WriteRawBits(writerData[start++], 32);
+                                    len -= 32;
+                                }
+                                dataStream.WriteRawBits(writerData[start], len);
+                            }
                         }
                     }
                 }
@@ -1122,6 +1179,8 @@ namespace Unity.NetCode
                 }
             }
 
+            if (hasCustomSerializer && lastSerializedEntity != endIndex)
+                return lastSerializedEntity;
             // If all entities were processes, remember to include the ones we skipped in the end of the chunk
             skippedEntityCount += realEndIndex - endIndex;
             return realEndIndex;
@@ -1264,7 +1323,7 @@ namespace Unity.NetCode
                 var baselinesPerEntity = stackalloc byte*[4];
                 int sameBaselinePerEntity;
                 int dynamicDataLenPerEntity;
-                var entityStartBit = stackalloc int[GhostTypeCollection[chunkState.ghostType].NumComponents*2];
+                var entityStartBit = stackalloc int[GhostTypeCollection[chunkState.ghostType].NumComponents*2 + 2];
                 if (SerializeEntities(ref dataStream, out _, out _, childGhostType, groupChunk.Chunk, groupChunk.IndexInChunk, groupChunk.IndexInChunk+1, useSingleBaseline, groupSnapshot,
                     baselinesPerEntity, &sameBaselinePerEntity, &dynamicDataLenPerEntity, entityStartBit) != groupChunk.IndexInChunk+1)
                 {
@@ -1319,12 +1378,21 @@ namespace Unity.NetCode
             var ghostSystemState = chunk.GetNativeArray(ref ghostSystemStateType);
             // First figure out the baselines to use per entity so they can be sent as baseline + maxCount instead of one per entity
             int irrelevantCount = 0;
+            var chunkMatchesGlobalRelevantRule = internalGlobalRelevantMask.Matches(chunk.Archetype) || userGlobalRelevantMask.Matches(chunk.Archetype);
             for (int ent = 0, chunkEntityCount = chunk.Count; ent < chunkEntityCount; ++ent)
             {
                 var key = new RelevantGhostForConnection(NetworkId, ghost[ent].ghostId);
                 // If this ghost was previously irrelevant we need to wait until that despawn is acked to avoid sending spawn + despawn in the same snapshot
                 bool setIsRelevant = (relevancyMode == GhostRelevancyMode.SetIsRelevant);
-                bool isRelevant = (relevantGhostForConnection.ContainsKey(key) == setIsRelevant);
+                var containsRelevancyKey = relevantGhostForConnection.ContainsKey(key);
+                bool isRelevant = (containsRelevancyKey == setIsRelevant);
+
+                // use query only if ghost is not manually marked with a specific rule. Relevancy set overrides global rules, so keep the rule if there's one
+                if (!containsRelevancyKey && chunkMatchesGlobalRelevantRule)
+                {
+                    isRelevant = true;
+                }
+
                 ref var ghostState = ref ghostStateData.GetGhostState(ghostSystemState[ent]);
                 bool wasRelevant = (ghostState.Flags&ConnectionStateData.GhostStateFlags.IsRelevant) != 0;
                 relevancyData[ent] = 1;
@@ -1519,7 +1587,7 @@ namespace Unity.NetCode
                 }
             }
         }
-        public SerializeEnitiesResult SerializeChunk(in GhostSendSystem.PrioChunk serialChunk, ref DataStreamWriter dataStream,
+        public SerializeEnitiesResult SerializeChunk(in PrioChunk serialChunk, ref DataStreamWriter dataStream,
             ref uint updateLen, ref bool didFillPacket)
         {
             int entitySize = UnsafeUtility.SizeOf<Entity>();
@@ -1536,7 +1604,7 @@ namespace Unity.NetCode
             var endIndex = chunk.Count;
             var ghostType = serialChunk.ghostType;
 
-            bool useStaticOptimization = GhostTypeCollection[ghostType].StaticOptimization;
+            var useStaticOptimization = GhostTypeCollection[ghostType].StaticOptimization != 0;
 
             int snapshotSize = GhostTypeCollection[ghostType].SnapshotSize;
 

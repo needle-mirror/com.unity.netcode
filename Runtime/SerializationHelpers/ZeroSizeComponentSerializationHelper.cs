@@ -20,7 +20,6 @@ namespace Unity.NetCode
             {
                 state.PostSerialize = new PortableFunctionPointer<GhostComponentSerializer.PostSerializeDelegate>(PostSerialize);
                 state.Serialize = new PortableFunctionPointer<GhostComponentSerializer.SerializeDelegate>(Serialize);
-                state.SerializeChild = new PortableFunctionPointer<GhostComponentSerializer.SerializeChildDelegate>(SerializeChild);
             }
             state.CopyToSnapshot = new PortableFunctionPointer<GhostComponentSerializer.CopyToFromSnapshotDelegate>(CopyToSnapshot);
             state.CopyFromSnapshot = new PortableFunctionPointer<GhostComponentSerializer.CopyToFromSnapshotDelegate>(CopyFromSnapshot);
@@ -54,24 +53,6 @@ namespace Unity.NetCode
         [BurstCompile(DisableDirectCall = true)]
         [MonoPInvokeCallback(typeof(GhostComponentSerializer.SerializeDelegate))]
         private static void Serialize(IntPtr stateData,
-            IntPtr snapshotData, int snapshotOffset, int snapshotStride, int maskOffsetInBits,
-            IntPtr componentData, int componentStride, int count, IntPtr baselines,
-            ref DataStreamWriter writer, ref StreamCompressionModel compressionModel, IntPtr entityStartBit)
-        {
-            // TODO: Move this outside code-gen, as we really dont need to do this here!
-            for (int ent = 0; ent < count; ++ent)
-            {
-                const int IntSize = 4;
-                ref var startuint = ref GhostComponentSerializer.TypeCast<int>(entityStartBit, IntSize*2*ent);
-                startuint = writer.Length/IntSize;
-                startuint = ref GhostComponentSerializer.TypeCast<int>(entityStartBit, IntSize*2*ent+IntSize);
-                startuint = 0;
-            }
-        }
-
-        [BurstCompile(DisableDirectCall = true)]
-        [MonoPInvokeCallback(typeof(GhostComponentSerializer.SerializeChildDelegate))]
-        private static void SerializeChild(IntPtr stateData,
             IntPtr snapshotData, int snapshotOffset, int snapshotStride, int maskOffsetInBits,
             IntPtr componentData, int count, IntPtr baselines,
             ref DataStreamWriter writer, ref StreamCompressionModel compressionModel, IntPtr entityStartBit)

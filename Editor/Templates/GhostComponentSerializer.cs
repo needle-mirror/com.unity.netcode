@@ -21,18 +21,162 @@ using __GHOST_USING__;
 #endregion
 namespace __GHOST_NAMESPACE__
 {
-    internal partial struct __GHOST_NAME__GhostComponentSerializer : IGhostSerializer<
-        __GHOST_COMPONENT_TYPE__, __GHOST_NAME__GhostComponentSerializer.Snapshot>
+    /// <summary>
+    /// Auto-Generated struct implementing the IGhostSerializer and used to
+    /// serialize/deserialize components and buffers.
+    /// </summary>
+    public partial struct __GHOST_NAME__GhostComponentSerializer: IGhostSerializer
     {
+        /// <summary>
+        /// Internal compoment representation used for serialization/deserialization purpose.
+        /// </summary>
         public struct Snapshot
         {
             #region __GHOST_FIELD__
             #endregion
         }
         private const int ChangeMaskBits = __GHOST_CHANGE_MASK_BITS__;
+		/// <summary>The number of bits used for the change mask.</summary>
+        public int ChangeMaskSizeInBits => ChangeMaskBits;
+		#if COMPONENT_HAS_GHOST_FIELDS
+		/// <summary>Denote if fields are serialized or not.</summary>
+        public bool HasGhostFields => true;
+		/// <summary>The size in bytes of the Snasphot struct.</summary>
+		public int SizeInSnapshot => UnsafeUtility.SizeOf<Snapshot>();
+		#else
+		/// <summary>Denote if fields are serialized or not.</summary>
+		public bool HasGhostFields => false;
+		/// <summary>The size in bytes of the Snasphot struct.</summary>
+		public int SizeInSnapshot => 0;
+		#endif
 
+        /// <inheritdoc cref="IGhostSerializer.CopyToSnapshot"/>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public void CopyToSnapshotGenerated(in GhostSerializerState serializerState, ref Snapshot snapshot, in __GHOST_COMPONENT_TYPE__ component)
+        public void CopyToSnapshot(in GhostSerializerState serializerState, [NoAlias]IntPtr snapshot, [NoAlias][ReadOnly]IntPtr component)
+        {
+            this.CopyToSnapshotGenerated(serializerState, ref GhostComponentSerializer.TypeCast<Snapshot>(snapshot),
+                GhostComponentSerializer.TypeCast<__GHOST_COMPONENT_TYPE__>(component));
+        }
+
+        /// <inheritdoc cref="IGhostSerializer.CopyToSnapshot"/>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public void CopyFromSnapshot(in GhostDeserializerState serializerState, [NoAlias]IntPtr component,
+            float snapshotInterpolationFactor, float snapshotInterpolationFactorRaw, [NoAlias][ReadOnly]IntPtr snapshotBefore,
+            [NoAlias][ReadOnly]IntPtr snapshotAfter)
+        {
+            this.CopyFromSnapshotGenerated(serializerState,
+                ref GhostComponentSerializer.TypeCast<__GHOST_COMPONENT_TYPE__>(component),
+                snapshotInterpolationFactor,snapshotInterpolationFactorRaw,
+                GhostComponentSerializer.TypeCastReadonly<Snapshot>(snapshotBefore),
+                GhostComponentSerializer.TypeCastReadonly<Snapshot>(snapshotAfter));
+        }
+
+        /// <inheritdoc cref="IGhostSerializer.CalculateChangeMask"/>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public void CalculateChangeMask([NoAlias] [ReadOnly] IntPtr snapshot,
+            [NoAlias] [ReadOnly] IntPtr baseline, [NoAlias] IntPtr changeMaskData, int startOffset)
+        {
+            CalculateChangeMaskGenerated(GhostComponentSerializer.TypeCastReadonly<Snapshot>(snapshot),
+                GhostComponentSerializer.TypeCastReadonly<Snapshot>(baseline),
+                changeMaskData, startOffset);
+        }
+
+        /// <inheritdoc cref="IGhostSerializer.PredictDelta"/>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public void PredictDelta([NoAlias] IntPtr snapshotData,
+            [NoAlias] IntPtr baseline1Data, [NoAlias] IntPtr baseline2Data, ref GhostDeltaPredictor predictor)
+        {
+            ref var snapshot = ref GhostComponentSerializer.TypeCast<Snapshot>(snapshotData);
+            ref readonly var baseline1 = ref GhostComponentSerializer.TypeCastReadonly<Snapshot>(baseline1Data);
+            ref readonly var baseline2 = ref GhostComponentSerializer.TypeCastReadonly<Snapshot>(baseline2Data);
+            PredictDeltaGenerated(ref snapshot, baseline1, baseline2, ref predictor);
+        }
+
+        /// <inheritdoc cref="IGhostSerializer.SerializeWithPredictedBaseline"/>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public void SerializeWithPredictedBaseline([ReadOnly] [NoAlias] IntPtr snapshot,
+            [ReadOnly] [NoAlias] IntPtr baseline0,
+            [ReadOnly] [NoAlias] IntPtr baseline1,
+            [ReadOnly] [NoAlias] IntPtr baseline2,
+            ref GhostDeltaPredictor predictor,
+            [NoAlias] [ReadOnly] IntPtr changeMaskData, int startOffset,
+            ref DataStreamWriter writer, in StreamCompressionModel compressionModel)
+        {
+            var baseline = GhostComponentSerializer.TypeCast<Snapshot>(baseline0);
+            this.PredictDeltaGenerated(ref baseline,
+                GhostComponentSerializer.TypeCastReadonly<Snapshot>(baseline1),
+                GhostComponentSerializer.TypeCastReadonly<Snapshot>(baseline2),
+                ref predictor);
+            this.SerializeCombinedGenerated(
+                GhostComponentSerializer.TypeCastReadonly<Snapshot>(snapshot),
+                baseline,
+                changeMaskData, startOffset,
+                ref writer, compressionModel);
+        }
+
+        /// <inheritdoc cref="IGhostSerializer.SerializeCombined"/>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public void SerializeCombined([ReadOnly] [NoAlias] IntPtr snapshot,
+            [ReadOnly] [NoAlias] IntPtr baseline,
+            [NoAlias] [ReadOnly] IntPtr changeMaskData, int startOffset,
+            ref DataStreamWriter writer, in StreamCompressionModel compressionModel)
+        {
+            this.SerializeCombinedGenerated(
+                GhostComponentSerializer.TypeCastReadonly<Snapshot>(snapshot),
+                GhostComponentSerializer.TypeCastReadonly<Snapshot>(baseline),
+                changeMaskData, startOffset,
+                ref writer, compressionModel);
+        }
+
+        /// <inheritdoc cref="IGhostSerializer.Serialize"/>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public void Serialize([ReadOnly] [NoAlias] IntPtr snapshot,
+            [ReadOnly] [NoAlias] IntPtr baseline,
+            [NoAlias] [ReadOnly] IntPtr changeMaskData, int startOffset,
+            ref DataStreamWriter writer, in StreamCompressionModel compressionModel)
+        {
+            this.SerializeGenerated(
+                GhostComponentSerializer.TypeCastReadonly<Snapshot>(snapshot),
+                GhostComponentSerializer.TypeCastReadonly<Snapshot>(baseline),
+                changeMaskData, startOffset,
+                ref writer, compressionModel);
+        }
+
+        /// <inheritdoc cref="IGhostSerializer.Deserialize"/>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public void Deserialize(ref DataStreamReader reader, in StreamCompressionModel compressionModel,
+            IntPtr changeMask,
+            int startOffset, [NoAlias]IntPtr snapshot, [NoAlias][ReadOnly]IntPtr baseline)
+
+        {
+            DeserializeGenerated(ref reader, compressionModel, changeMask, startOffset,
+                ref GhostComponentSerializer.TypeCast<Snapshot>(snapshot),
+                GhostComponentSerializer.TypeCastReadonly<Snapshot>(baseline));
+        }
+
+        /// <inheritdoc cref="IGhostSerializer.Deserialize"/>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public void RestoreFromBackup([NoAlias] IntPtr component, [NoAlias] [ReadOnly] IntPtr backup)
+        {
+            RestoreFromBackupGenerated(
+                ref GhostComponentSerializer.TypeCast<__GHOST_COMPONENT_TYPE__>(component),
+                GhostComponentSerializer.TypeCastReadonly<__GHOST_COMPONENT_TYPE__>(backup));
+        }
+
+#if UNITY_EDITOR || NETCODE_DEBUG
+        /// <inheritdoc cref="IGhostSerializer{TComponent,TSnapshot}.ReportPredictionErrorsGenerated"/>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public void ReportPredictionErrors([NoAlias][ReadOnly]IntPtr component, [NoAlias][ReadOnly]IntPtr backup, IntPtr errorsList,
+            int errorsCount)
+        {
+            ReportPredictionErrorsGenerated(GhostComponentSerializer.TypeCastReadonly<__GHOST_COMPONENT_TYPE__>(component),
+                GhostComponentSerializer.TypeCastReadonly<__GHOST_COMPONENT_TYPE__>(backup), errorsList, errorsCount);
+        }
+#endif
+
+        /// <inheritdoc cref="IGhostSerializer{TComponent,TSnapshot}.CopyToSnapshotGenerated"/>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        void CopyToSnapshotGenerated(in GhostSerializerState serializerState, ref Snapshot snapshot, in __GHOST_COMPONENT_TYPE__ component)
         {
 #if COMPONENT_HAS_GHOST_FIELDS
             #region __GHOST_COPY_TO_SNAPSHOT__
@@ -40,8 +184,9 @@ namespace __GHOST_NAMESPACE__
 #endif
         }
 
+        /// <inheritdoc cref="IGhostSerializer{TComponent,TSnapshot}.CopyFromSnapshotGenerated"/>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public void CopyFromSnapshotGenerated(in GhostDeserializerState deserializerState, ref __GHOST_COMPONENT_TYPE__ component,
+        void CopyFromSnapshotGenerated(in GhostDeserializerState deserializerState, ref __GHOST_COMPONENT_TYPE__ component,
             float snapshotInterpolationFactor, float snapshotInterpolationFactorRaw, in Snapshot snapshotBefore, in Snapshot snapshotAfter)
         {
 #if COMPONENT_HAS_GHOST_FIELDS
@@ -60,8 +205,9 @@ namespace __GHOST_NAMESPACE__
             #endregion
         }
 
+        /// <inheritdoc cref="IGhostSerializer{TComponent,TSnapshot}.RestoreFromBackupGenerated"/>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public void RestoreFromBackupGenerated(ref __GHOST_COMPONENT_TYPE__ component, in __GHOST_COMPONENT_TYPE__ backup)
+        void RestoreFromBackupGenerated(ref __GHOST_COMPONENT_TYPE__ component, in __GHOST_COMPONENT_TYPE__ backup)
         {
 #if COMPONENT_HAS_GHOST_FIELDS
             #region __GHOST_RESTORE_FROM_BACKUP__
@@ -69,8 +215,9 @@ namespace __GHOST_NAMESPACE__
 #endif
         }
 
+        /// <inheritdoc cref="IGhostSerializer{TComponent,TSnapshot}.PredictDeltaGenerated"/>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public void PredictDeltaGenerated(ref Snapshot snapshot, in Snapshot baseline1, in Snapshot baseline2,
+        void PredictDeltaGenerated(ref Snapshot snapshot, in Snapshot baseline1, in Snapshot baseline2,
             ref GhostDeltaPredictor predictor)
         {
 #if COMPONENT_HAS_GHOST_FIELDS
@@ -79,8 +226,9 @@ namespace __GHOST_NAMESPACE__
 #endif
         }
 
+        /// <inheritdoc cref="IGhostSerializer{TComponent,TSnapshot}.CalculateChangeMaskGenerated"/>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public void CalculateChangeMaskGenerated(in Snapshot snapshot, in Snapshot baseline,
+        void CalculateChangeMaskGenerated(in Snapshot snapshot, in Snapshot baseline,
             [NoAlias]IntPtr changeMaskData, int startOffset)
         {
 #if COMPONENT_HAS_GHOST_FIELDS
@@ -96,8 +244,9 @@ namespace __GHOST_NAMESPACE__
             #endregion
         }
 
+        /// <inheritdoc cref="IGhostSerializer{TComponent,TSnapshot}.SerializeGenerated"/>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public void SerializeGenerated(in Snapshot snapshot, in Snapshot baseline,
+        void SerializeGenerated(in Snapshot snapshot, in Snapshot baseline,
             [NoAlias]IntPtr changeMaskData, int startOffset,
             ref DataStreamWriter writer, in StreamCompressionModel compressionModel)
         {
@@ -112,7 +261,22 @@ namespace __GHOST_NAMESPACE__
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public void DeserializeGenerated(ref DataStreamReader reader,
+        void SerializeCombinedGenerated(in Snapshot snapshot, in Snapshot baseline,
+            [NoAlias]IntPtr changeMaskData, int startOffset,
+            ref DataStreamWriter writer, in StreamCompressionModel compressionModel)
+        {
+#if COMPONENT_HAS_GHOST_FIELDS
+            uint changeMask;
+            #region __GHOST_WRITE_COMBINED__
+            #endregion
+            #region __GHOST_AGGREGATE_WRITE___
+            #endregion
+#endif
+        }
+
+        /// <inheritdoc cref="IGhostSerializer{TComponent,TSnapshot}.DeserializeGenerated"/>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        void DeserializeGenerated(ref DataStreamReader reader,
             in StreamCompressionModel compressionModel,
             IntPtr changeMaskData, int startOffset, ref Snapshot snapshot, in Snapshot baseline)
         {
@@ -124,7 +288,8 @@ namespace __GHOST_NAMESPACE__
         }
 
 #if UNITY_EDITOR || NETCODE_DEBUG
-        public void ReportPredictionErrorsGenerated(in __GHOST_COMPONENT_TYPE__ component, in __GHOST_COMPONENT_TYPE__ backup, IntPtr errorsList,
+        /// <inheritdoc cref="IGhostSerializer{TComponent,TSnapshot}.ReportPredictionErrorsGenerated"/>
+        void ReportPredictionErrorsGenerated(in __GHOST_COMPONENT_TYPE__ component, in __GHOST_COMPONENT_TYPE__ backup, IntPtr errorsList,
             int errorsCount)
         {
             #region __GHOST_PREDICTION_ERROR_HEADER__
@@ -152,10 +317,9 @@ namespace __GHOST_NAMESPACE__
     //Registration
     [BurstCompile]
     [System.Runtime.CompilerServices.CompilerGenerated]
-    internal partial struct __GHOST_NAME__GhostComponentSerializer : IGhostSerializer<
-        __GHOST_COMPONENT_TYPE__, __GHOST_NAME__GhostComponentSerializer.Snapshot>
+    public partial struct __GHOST_NAME__GhostComponentSerializer : IGhostSerializer
     {
-        static public GhostComponentSerializer.State GetState(ref SystemState state)
+        static internal GhostComponentSerializer.State GetState(ref SystemState state)
         {
             // This needs to be lazy initialized because otherwise there is a depenency on the static initialization order which breaks il2cpp builds, due to TypeManager not being initialized yet.
             // Also, Burst function pointer compilation can take a while.

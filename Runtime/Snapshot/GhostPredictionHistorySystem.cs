@@ -377,16 +377,16 @@ namespace Unity.NetCode
                     if ((GhostComponentIndex[baseOffset + comp].SendMask & requiredSendMask) == 0)
                         continue;
 
-                    if (!GhostComponentCollection[serializerIdx].ComponentType.IsBuffer)
+                    ref readonly var ghostSerializer = ref GhostComponentCollection.ElementAtRO(serializerIdx);
+                    if (!ghostSerializer.ComponentType.IsBuffer)
                         continue;
 
                     if (chunk.Has(ref ghostChunkComponentTypesPtr[compIdx]))
                     {
                         var bufferData = chunk.GetUntypedBufferAccessor(ref ghostChunkComponentTypesPtr[compIdx]);
-                        ref readonly var ghostSerialiser = ref GhostComponentCollection.ElementAtRO(serializerIdx);
                         for (int i = 0; i < bufferData.Length; ++i)
                         {
-                            bufferTotalSize += bufferData.GetBufferCapacity(i) * ghostSerialiser.ComponentSize;
+                            bufferTotalSize += bufferData.GetBufferCapacity(i) * ghostSerializer.ComponentSize;
                         }
                         bufferTotalSize = GhostComponentSerializer.SnapshotSizeAligned(bufferTotalSize);
                     }
@@ -506,7 +506,7 @@ namespace Unity.NetCode
                             dataSize += PredictionBackupState.GetDataSize(
                                 ghostSerializer.ComponentSize, chunk.Capacity);
                         else
-                            dataSize += PredictionBackupState.GetDataSize(GhostSystemConstants.DynamicBufferComponentSnapshotSize, chunk.Capacity);
+                            dataSize += PredictionBackupState.GetDataSize(GhostComponentSerializer.DynamicBufferComponentSnapshotSize, chunk.Capacity);
                     }
 
                     //compute the space necessary to store the dynamic buffers data for the chunk
@@ -564,7 +564,7 @@ namespace Unity.NetCode
                     uint chunkVersion = chunk.GetChangeVersion(ref ghostChunkComponentTypesPtr[compIdx]);
                     ref readonly var ghostSerializer = ref GhostComponentCollection.ElementAtRO(serializerIdx);
                     var compSize = ghostSerializer.ComponentType.IsBuffer
-                        ? GhostSystemConstants.DynamicBufferComponentSnapshotSize
+                        ? GhostComponentSerializer.DynamicBufferComponentSnapshotSize
                         : ghostSerializer.ComponentSize;
 
                     //store the change version for this component for the root entity. There is only one entry
@@ -662,7 +662,7 @@ namespace Unity.NetCode
                             enabledBitPtr = PredictionBackupState.GetNextEnabledBits(enabledBitPtr, chunk.Capacity);
                         }
                         var isBuffer = ghostSerializer.ComponentType.IsBuffer;
-                        var compSize = isBuffer ? GhostSystemConstants.DynamicBufferComponentSnapshotSize : ghostSerializer.ComponentSize;
+                        var compSize = isBuffer ? GhostComponentSerializer.DynamicBufferComponentSnapshotSize : ghostSerializer.ComponentSize;
 
                         if (!ghostSerializer.HasGhostFields)
                             continue;

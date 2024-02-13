@@ -26,6 +26,21 @@ namespace Unity.NetCode
         /// The network identifier assigned by the server. A valid identifier it is always greater than 0.
         /// </summary>
         public int Value;
+
+        /// <summary>
+        /// Returns 'NID[value]'.
+        /// </summary>
+        /// <returns>Returns 'NID[value]'.</returns>
+        public FixedString32Bytes ToFixedString()
+        {
+            var s = new FixedString32Bytes((FixedString32Bytes)"NID[");
+            s.Append(Value);
+            s.Append(']');
+            return s;
+        }
+
+        /// <inheritdoc cref="ToFixedString"/>>
+        public override string ToString() => ToFixedString().ToString();
     }
 
     /// <summary>

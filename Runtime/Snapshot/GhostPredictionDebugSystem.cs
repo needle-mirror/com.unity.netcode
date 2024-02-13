@@ -235,7 +235,7 @@ namespace Unity.NetCode
 
                     ref readonly var ghostSerializer = ref GhostComponentCollection.ElementAtRO(serializerIdx);
                     var compSize = ghostSerializer.ComponentType.IsBuffer
-                        ? GhostSystemConstants.DynamicBufferComponentSnapshotSize
+                        ? GhostComponentSerializer.DynamicBufferComponentSnapshotSize
                         : ghostSerializer.ComponentSize;
                     if (chunk.Has(ref ghostChunkComponentTypesPtr[compIdx]) && ghostSerializer.HasGhostFields)
                     {
@@ -254,7 +254,7 @@ namespace Unity.NetCode
                                     float* errorsPtr = ((float*)predictionErrors.GetUnsafePtr()) + errorIndex + ThreadIndex * numPredictionErrors;
                                     int errorsLength = numPredictionErrors - errorIndex;
 
-                                    ghostSerializer.ReportPredictionErrors.Ptr.Invoke((System.IntPtr)(compData + compSize * ent), (System.IntPtr)(dataPtr + compSize * ent), (System.IntPtr)(errorsPtr), errorsLength);
+                                    ghostSerializer.ReportPredictionErrors.Invoke((System.IntPtr)(compData + compSize * ent), (System.IntPtr)(dataPtr + compSize * ent), (System.IntPtr)(errorsPtr), errorsLength);
                                 }
                             }
                         }
@@ -282,7 +282,7 @@ namespace Unity.NetCode
 
                         ref readonly var ghostSerializer = ref GhostComponentCollection.ElementAtRO(serializerIdx);
                         var compSize = ghostSerializer.ComponentType.IsBuffer
-                            ? GhostSystemConstants.DynamicBufferComponentSnapshotSize
+                            ? GhostComponentSerializer.DynamicBufferComponentSnapshotSize
                             : ghostSerializer.ComponentSize;
 
                         if (ghostSerializer.HasGhostFields)
@@ -307,7 +307,7 @@ namespace Unity.NetCode
                                         float* errorsPtr = ((float*) predictionErrors.GetUnsafePtr()) + errorIndex + ThreadIndex * numPredictionErrors;
                                         int errorsLength = numPredictionErrors - errorIndex;
 
-                                        ghostSerializer.ReportPredictionErrors.Ptr.Invoke((System.IntPtr)(compData + compSize * childChunk.IndexInChunk), (System.IntPtr)(dataPtr + compSize * ent), (System.IntPtr)(errorsPtr), errorsLength);
+                                        ghostSerializer.ReportPredictionErrors.Invoke((System.IntPtr)(compData + compSize * childChunk.IndexInChunk), (System.IntPtr)(dataPtr + compSize * ent), (System.IntPtr)(errorsPtr), errorsLength);
                                     }
                                     else
                                     {

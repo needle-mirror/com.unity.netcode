@@ -13,12 +13,12 @@ namespace Unity.NetCode
     /// </summary>
     /// <typeparam name="TComponentType">The unmanaged buffer the helper serialise</typeparam>
     /// <typeparam name="TSnapshot">The snaphost data struct that contains the <see cref="IBufferElementData"/> data.</typeparam>
-    /// <typeparam name="TSerializer">A concrete type that implement the <see cref="IGhostSerializer{TComponent,TSnapshot}"/> interface.</typeparam>
+    /// <typeparam name="TSerializer">A concrete type that implement the <see cref="IGhostSerializer"/> interface.</typeparam>
     [BurstCompile]
     public static unsafe class ComponentSerializationHelper<TComponentType, TSnapshot, TSerializer>
         where TComponentType : unmanaged
         where TSnapshot : unmanaged
-        where TSerializer : unmanaged, IGhostSerializer<TComponentType, TSnapshot>
+        where TSerializer : unmanaged, IGhostSerializer
     {
         /// <summary>
         /// Setup all the <see cref="GhostComponentSerializer.State"/> data and function pointers.
@@ -45,8 +45,6 @@ namespace Unity.NetCode
                 PostSerialize);
             state.Serialize = new PortableFunctionPointer<GhostComponentSerializer.SerializeDelegate>(
                 Serialize);
-            state.SerializeChild = new PortableFunctionPointer<GhostComponentSerializer.SerializeChildDelegate>(
-                SerializeChild);
             state.CopyFromSnapshot = new PortableFunctionPointer<GhostComponentSerializer.CopyToFromSnapshotDelegate>(
                 CopyComponentFromSnapshot);
             state.CopyToSnapshot = new PortableFunctionPointer<GhostComponentSerializer.CopyToFromSnapshotDelegate>(
@@ -96,9 +94,10 @@ namespace Unity.NetCode
                     }
                 }
 
-                ref var snapshot = ref GhostComponentSerializer.TypeCast<TSnapshot>(snapshotData, snapshotOffset + snapshotStride * ent);
-                serializer.CalculateChangeMaskGenerated(snapshot, baseline, snapshotData + IntSize + snapshotStride * ent, maskOffsetInBits);
-                serializer.SerializeGenerated(snapshot, baseline, snapshotData + IntSize + snapshotStride * ent, maskOffsetInBits, ref writer, compressionModel);
+                var snapshotPtr = snapshotData + snapshotOffset + snapshotStride * ent;
+                var baselinePtr = GhostComponentSerializer.IntPtrCast(ref baseline);
+                serializer.CalculateChangeMask(snapshotPtr, baselinePtr, snapshotData + IntSize + snapshotStride * ent, maskOffsetInBits);
+                serializer.Serialize(snapshotPtr, baselinePtr, snapshotData + IntSize + snapshotStride * ent, maskOffsetInBits, ref writer, compressionModel);
                 ref var sbit = ref GhostComponentSerializer.TypeCast<int>(entityStartBit, IntSize * 2 * ent + IntSize);
                 sbit = writer.LengthInBits - startuint * 32;
                 var missing = 32 - writer.LengthInBits & 31;
@@ -123,7 +122,7 @@ namespace Unity.NetCode
         [MonoPInvokeCallback(typeof(GhostComponentSerializer.SerializeDelegate))]
         private static void Serialize([NoAlias] IntPtr stateData,
             [NoAlias] IntPtr snapshotData, int snapshotOffset, int snapshotStride, int maskOffsetInBits,
-            [NoAlias] IntPtr componentData, int componentStride, int count, [NoAlias] IntPtr baselines,
+            [NoAlias] IntPtr componentData, int count, [NoAlias] IntPtr baselines,
             ref DataStreamWriter writer, ref StreamCompressionModel compressionModel, [NoAlias] IntPtr entityStartBit)
         {
             ref var serializerState = ref GhostComponentSerializer.TypeCast<GhostSerializerState>(stateData);
@@ -132,44 +131,14 @@ namespace Unity.NetCode
             for (int ent = 0; ent < count; ++ent)
             {
                 IntPtr curCompData = GhostComponentSerializer.TypeCast<IntPtr>(componentData, IntPtrSize * ent);
-                ref var snapshot = ref GhostComponentSerializer.TypeCast<TSnapshot>(snapshotData, snapshotOffset + snapshotStride * ent);
+                var snapshot = snapshotData + snapshotOffset + snapshotStride * ent;
                 if (curCompData != IntPtr.Zero)
                 {
-                    ref var component = ref GhostComponentSerializer.TypeCast<TComponentType>(curCompData);
-                    serializer.CopyToSnapshotGenerated(serializerState, ref snapshot, component);
+                    serializer.CopyToSnapshot(serializerState, snapshot, curCompData);
                 }
                 else
                 {
-                    snapshot = default;
-                }
-            }
-
-            SerializeEntities(snapshotData, snapshotOffset, snapshotStride, maskOffsetInBits, count, baselines,
-                ref writer, compressionModel, entityStartBit);
-        }
-
-        [BurstCompile(DisableDirectCall = true)]
-        [MonoPInvokeCallback(typeof(GhostComponentSerializer.SerializeChildDelegate))]
-        private static void SerializeChild([NoAlias] IntPtr stateData,
-            [NoAlias] IntPtr snapshotData, int snapshotOffset, int snapshotStride, int maskOffsetInBits,
-            [NoAlias] IntPtr componentData, int count, [NoAlias] IntPtr baselines,
-            ref DataStreamWriter writer, ref StreamCompressionModel compressionModel, [NoAlias] IntPtr entityStartBit)
-        {
-            ref var serializerState = ref GhostComponentSerializer.TypeCast<GhostSerializerState>(stateData);
-            var IntPtrSize = UnsafeUtility.SizeOf<IntPtr>();
-            var serializer = default(TSerializer);
-            for (int i = 0; i < count; ++i)
-            {
-                IntPtr curCompData = GhostComponentSerializer.TypeCast<IntPtr>(componentData, IntPtrSize * i);
-                ref var snapshot = ref GhostComponentSerializer.TypeCast<TSnapshot>(snapshotData, snapshotOffset + snapshotStride * i);
-                if (curCompData != IntPtr.Zero)
-                {
-                    ref var component = ref GhostComponentSerializer.TypeCast<TComponentType>(curCompData);
-                    serializer.CopyToSnapshotGenerated(serializerState, ref snapshot, component);
-                }
-                else
-                {
-                    snapshot = default;
+                    *(TSnapshot*)snapshot = default;
                 }
             }
 
@@ -183,12 +152,12 @@ namespace Unity.NetCode
             [NoAlias] IntPtr componentData, int componentStride, int count)
         {
             var serializer = default(TSerializer);
+            ref var serializerState = ref GhostComponentSerializer.TypeCast<GhostSerializerState>(stateData);
             for (int i = 0; i < count; ++i)
             {
-                ref var snapshot = ref GhostComponentSerializer.TypeCast<TSnapshot>(snapshotData, snapshotOffset + snapshotStride * i);
-                ref var component = ref GhostComponentSerializer.TypeCast<TComponentType>(componentData, componentStride * i);
-                ref var serializerState = ref GhostComponentSerializer.TypeCast<GhostSerializerState>(stateData);
-                serializer.CopyToSnapshotGenerated(serializerState, ref snapshot, component);
+                var snapshot = snapshotData + snapshotOffset + snapshotStride * i;
+                var component = componentData + componentStride * i;
+                serializer.CopyToSnapshot(serializerState, snapshot, component);
             }
         }
 
@@ -208,10 +177,10 @@ namespace Unity.NetCode
                     continue;
 
                 deserializerState.SnapshotTick = snapshotInterpolationData.Tick;
-                ref var component = ref GhostComponentSerializer.TypeCast<TComponentType>(componentData, componentStride * i);
-                ref var snapshotBefore = ref GhostComponentSerializer.TypeCast<TSnapshot>(snapshotInterpolationData.SnapshotBefore, snapshotOffset);
-                ref var snapshotAfter = ref GhostComponentSerializer.TypeCast<TSnapshot>(snapshotInterpolationData.SnapshotAfter, snapshotOffset);
-                serializer.CopyFromSnapshotGenerated(deserializerState, ref component, snapshotInterpolationData.InterpolationFactor,
+                var snapshotBefore = snapshotInterpolationData.SnapshotBefore + snapshotOffset;
+                var snapshotAfter = snapshotInterpolationData.SnapshotAfter + snapshotOffset;
+                serializer.CopyFromSnapshot(deserializerState, componentData + componentStride * i,
+                    snapshotInterpolationData.InterpolationFactor,
                     snapshotInterpolationData.InterpolationFactor, snapshotBefore, snapshotAfter);
             }
         }
@@ -220,8 +189,7 @@ namespace Unity.NetCode
         [MonoPInvokeCallback(typeof(GhostComponentSerializer.RestoreFromBackupDelegate))]
         private static void RestoreFromBackup([NoAlias] IntPtr componentData, [NoAlias] IntPtr backupData)
         {
-            default(TSerializer).RestoreFromBackupGenerated(ref GhostComponentSerializer.TypeCast<TComponentType>(componentData),
-                GhostComponentSerializer.TypeCastReadonly<TComponentType>(backupData));
+            default(TSerializer).RestoreFromBackup(componentData, backupData);
         }
 
         [BurstCompile(DisableDirectCall = true)]
@@ -229,10 +197,7 @@ namespace Unity.NetCode
         private static void PredictDelta([NoAlias] IntPtr snapshotData,
             [NoAlias] IntPtr baseline1Data, [NoAlias] IntPtr baseline2Data, ref GhostDeltaPredictor predictor)
         {
-            ref var snapshot = ref GhostComponentSerializer.TypeCast<TSnapshot>(snapshotData);
-            ref readonly var baseline1 = ref GhostComponentSerializer.TypeCastReadonly<TSnapshot>(baseline1Data);
-            ref readonly var baseline2 = ref GhostComponentSerializer.TypeCastReadonly<TSnapshot>(baseline2Data);
-            default(TSerializer).PredictDeltaGenerated(ref snapshot, baseline1, baseline2, ref predictor);
+            default(TSerializer).PredictDelta(snapshotData, baseline1Data, baseline2Data, ref predictor);
         }
 
         [BurstCompile(DisableDirectCall = true)]
@@ -241,9 +206,7 @@ namespace Unity.NetCode
             ref DataStreamReader reader, ref StreamCompressionModel compressionModel,
             [NoAlias] IntPtr changeMaskData, int startOffset)
         {
-            ref var snapshot = ref GhostComponentSerializer.TypeCast<TSnapshot>(snapshotData);
-            ref readonly var baseline = ref GhostComponentSerializer.TypeCastReadonly<TSnapshot>(baselineData);
-            default(TSerializer).DeserializeGenerated(ref reader, compressionModel, changeMaskData, startOffset, ref snapshot, baseline);
+            default(TSerializer).Deserialize(ref reader, compressionModel, changeMaskData, startOffset, snapshotData, baselineData);
         }
 
 #if UNITY_EDITOR || NETCODE_DEBUG
@@ -252,9 +215,7 @@ namespace Unity.NetCode
         private static void ReportPredictionErrors([NoAlias] IntPtr componentData, [NoAlias] IntPtr backupData,
             [NoAlias] IntPtr errorsList, int errorsCount)
         {
-            ref readonly var component = ref GhostComponentSerializer.TypeCastReadonly<TComponentType>(componentData);
-            ref readonly var backup = ref GhostComponentSerializer.TypeCastReadonly<TComponentType>(backupData);
-            default(TSerializer).ReportPredictionErrorsGenerated(component, backup, errorsList, errorsCount);
+            default(TSerializer).ReportPredictionErrors(componentData, backupData, errorsList, errorsCount);
         }
 #endif
     }

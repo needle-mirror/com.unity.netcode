@@ -106,3 +106,58 @@ The request will be then consumed at runtime by the [NetworkStreamReceiveSystem]
 Unity Transport provides a [SimulatorUtility](playmode-tool.md#networksimulator), which is available (and configurable) in the Netcode package. Access it via `Multiplayer > PlayMode Tools`.
 
 We strongly recommend that you frequently test your gameplay with the simulator enabled, as it more closely resembles real-world conditions.
+
+## Listening for Client Connection Events
+We provide a `public NativeArray<NetCodeConnectionEvent>.ReadOnly ConnectionEventsForTick` collection (via the `NetworkStreamDriver` singleton), allowing you to iterate over (and thus react to) client connection events on the Client & Server.
+
+```csharp
+// Example System:
+[UpdateAfter(typeof(NetworkReceiveSystemGroup))]
+[BurstCompile]
+public partial struct NetCodeConnectionEventListener : ISystem
+{
+    [BurstCompile]
+    public void OnUpdate(ref SystemState state)
+    {
+        var connectionEventsForClient = SystemAPI.GetSingleton<NetworkStreamDriver>().ConnectionEventsForTick;
+        foreach (var evt in connectionEventsForClient)
+        {
+            UnityEngine.Debug.Log($"[{state.WorldUnmanaged.Name}] {evt.ToFixedString()}!");
+        }
+    }
+}
+```
+> [!NOTE]
+> These events will only live for a single `SimulationSystemGroup` tick, and are reset during `NetworkStreamConnectSystem` and `NetworkStreamListenSystem` respectively.
+> Therefore, if your system runs **_after_** these aforementioned system's job's execute, you'll receive notifications on the same tick that they were raised.
+> However, if you query this collection **_before_** this system's job's execute, you'll be iterating over the **_previous_** tick's values.
+
+> [!NOTE]
+> Because the Server runs on a fixed delta-time, the `SimulationSystemGroup` may tick any number of times (including zero times) on each render frame.
+> Because of this, `ConnectionEventsForTick` is only valid to be read inside a system running inside the `SimulationSystemGroup`.
+> I.e. Trying to access it outside the `SimulationSystemGroup` can lead to a) either **_only_** seeing events for the current tick (meaning you miss events for previous ticks) or b) receiving events multiple times, if the simulation doesn't tick on this render frame.
+> Therefore, do not access `ConnectionEventsForTick` inside the `InitializationSystemGroup`, nor inside the `PresentationSystemGroup`, nor inside any `MonoBehaviour` Unity method (non-exhaustive list!).
+
+### NetCodeConnectionEvent's on the Client
+| Connection Status | Invocation Rules                                                                                                                                        |
+|-------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `Unknown`         | Never raised.                                                                                                                                           |
+| `Connecting`      | Raised once for your own client, once the `NetworkStreamReceiveSystem` registers your `Connect` call (which may be one frame after you call `Connect`). |
+| `Handshake`       | Raised once for your own client, once your client has received a message from the server notifying your client that its connection was accepted.        |
+| `Connected`       | Raised once for your own client, once the server sends you your `NetworkId`.                                                                            | 
+| `Disconnected`    | Raised once for your own client, once you disconnect from / timeout from / are disconnected by the server. The `DisconnectReason` will be set.          |
+
+> [!NOTE]
+> Clients do **_not_** receive events for other clients. Any events raised in a client world will only be for it's own client connection.
+
+### NetCodeConnectionEvent's on the Server
+| Connection Status | Invocation Rules                                                                                                                                          |
+|-------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `Unknown`         | Never raised.                                                                                                                                             |
+| `Connecting`      | Never raised on the server, as the server does not know when a client begins to connect.                                                                  |
+| `Handshake`       | Never raised on the server, as accepted clients are assigned `NetworkId`'s immediately. I.e. Handshake is instant.                                        |
+| `Connected`       | Raised once for every accepted client, on the frame the server accepts the connection (and assigns said client a `NetworkId`).                            | 
+| `Disconnected`    | Raised once for every accepted client, which then disconnects, on the frame we receive the Disconnect event or state. The `DisconnectReason` will be set. |
+
+> [!NOTE]
+> The server does not raise any events when it successfully `Binds`, nor when it begins to `Listen`. Use existing APIs to query these statuses.

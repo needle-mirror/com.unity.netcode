@@ -11,6 +11,7 @@ using Unity.Scenes;
 using UnityEditor;
 using UnityEngine;
 using Unity.Entities.Build;
+using Unity.Jobs;
 using Unity.NetCode.Hybrid;
 using Prefs = Unity.NetCode.MultiplayerPlayModePreferences;
 
@@ -54,7 +55,10 @@ namespace Unity.NetCode.Editor
         static GUIContent s_WebSocket = new GUIContent("[WebSocket]", "<b>WebSocket</b>\nThis World is using Unity's WebSocket NetworkInterface to communicate with the server.");
         static GUIContent s_UdpSocket = new GUIContent("[UDP]", "<b>UDP | User Datagram Protocol</b>\nThis World is using Unity's UDP socket NetworkInterface (formerly 'baselib') to communicate with the server.");
         static GUIContent s_Ipc = new GUIContent("[IPC]", "<b>IPC | Intra-Process Communication</b>\nThis World is using an IPC NetworkInterface to communicate with the server. IPC is an in-memory, socket-like wrapper, emulating the Transport API but without any OS overhead and unreliability.\n\nTherefore, IPC operations will be instantaneous, but can only be used to communicate with other NetworkDriver instances inside the same process (which is why IPC really means intra-process and not inter-process here). Useful for testing, or to implement a single player mode in a multiplayer game.");
+        static GUIContent s_PendingServerDc = new GUIContent("[Pending Server DC]", "You triggered the ServerWorld to disconnect this client. Waiting for said disconnect message to arrive on this client.");
+        static GUIContent s_Awaiting = new GUIContent(string.Empty, "We must wait for the previous `NetworkStreamConnection` to be disposed, before we can connect this client to this address.");
         static GUIContent s_NetworkEmulation = new GUIContent(string.Empty, "Denotes whether or not this world uses Network Emulation with the above settings.");
+        static GUIContent s_Unknown = new GUIContent("[No Connection Entity]", "No entity exists containing a `NetworkStreamConnection` component. Call `Connect` to create one.");
 
         static GUIContent s_SimulatorView = new GUIContent(string.Empty, string.Empty);
         private const string s_SimulatorExplination = "The simulator works by adding a delay before processing all packets sent from - and received by - the ClientWorld's Socket Driver.\n\nIn this view, you can observe and modify ";
@@ -86,6 +90,7 @@ namespace Unity.NetCode.Editor
         static GUIContent s_ClientConnect = new GUIContent("", "Trigger all clients to disconnect from the server they're connected to and [re]connect to the specified address and port.");
         static GUIContent s_ServerDcAllClients = new GUIContent("DC All", "Trigger the server to attempt to gracefully disconnect all clients. Useful to batch-test a bunch of client disconnect scenarios (e.g. mid-game).");
         static GUIContent s_ServerReconnectAllClients = new GUIContent("Reconnect All", "Trigger the server to attempt to gracefully disconnect all clients, then have them automatically reconnect. Useful to batch-test player rejoining scenarios (e.g. people dropping out mid-match).\n\nNote that clients will also disconnect themselves from the server in the same frame as they're attempting to reconnect, so you can test same frame DCing.");
+        static GUIContent s_ServerLogRelevancy = new GUIContent("Log Relevancy", "Log the current relevancy rules for this server. Useful to debug why a client is not receiving a specific ghost.");
         static GUIContent s_ClientReconnect = new GUIContent("Client Reconnect", "Attempt to gracefully disconnect from the server, followed by an immediate reconnect attempt.");
         static GUIContent s_ClientDc = new GUIContent("Client DC", "Attempt to gracefully disconnect from the server. Triggered by the client (e.g. a player closing the application).");
         static GUIContent s_ServerDc = new GUIContent("Server DC", "Trigger the server to attempt to gracefully disconnect this client, identified by their 'NetworkId'. Server-authored (e.g. like a server kicking a client when the match has ended).");
@@ -125,6 +130,7 @@ namespace Unity.NetCode.Editor
         public static SimulatorPresetsSelectionDelegate InUseSimulatorPresets = SimulatorPreset.DefaultInUseSimulatorPresets;
 
         static GUILayoutOption s_RightButtonWidth = GUILayout.Width(120);
+        private int m_PreviousFrameCount;
 
         [MenuItem("Multiplayer/Window: PlayMode Tools", priority = 50)]
         private static void ShowWindow()
@@ -193,7 +199,15 @@ namespace Unity.NetCode.Editor
             UpdateNumThinClientWorlds();
 
             var utcNow = DateTime.UtcNow;
-            m_DidRepaint = utcNow - s_LastRepaintedUtc >= s_RepaintDelayTimeSpan;
+            // Don't repaint if not playing, except when we tick.
+            var frameCountChanged = false;
+            if (EditorApplication.isPaused)
+            {
+                var frameCount = Time.frameCount;
+                frameCountChanged = frameCount != m_PreviousFrameCount;
+                m_PreviousFrameCount = frameCount;
+            }
+            m_DidRepaint = utcNow - s_LastRepaintedUtc >= s_RepaintDelayTimeSpan && (!EditorApplication.isPaused || frameCountChanged);
             if (m_DidRepaint)
             {
                 s_LastRepaintedUtc = utcNow;
@@ -454,8 +468,7 @@ namespace Unity.NetCode.Editor
                         foreach (var clientWorld in ClientServerBootstrap.ClientWorlds.Concat(ClientServerBootstrap.ThinClientWorlds))
                         {
                             var connSystem = clientWorld.GetExistingSystemManaged<MultiplayerClientPlayModeConnectionSystem>();
-                            connSystem.ClientConnectionState = MultiplayerClientPlayModeConnectionSystem.ConnectionState.TriggerConnect;
-                            connSystem.OverrideEndpoint = targetEp;
+                            connSystem.ChangeStateImmediate(targetEp);
                         }
                     }
                 }
@@ -470,7 +483,7 @@ namespace Unity.NetCode.Editor
                 if (!ClientServerBootstrap.WillServerAutoListen)
                 {
                     var anyConnected = ClientServerBootstrap.ServerWorlds.Any(x => x.IsCreated && x.GetExistingSystemManaged<MultiplayerServerPlayModeConnectionSystem>().IsListening)
-                        || ClientServerBootstrap.ClientWorlds.Concat(ClientServerBootstrap.ThinClientWorlds).Any(x => x.IsCreated && x.GetExistingSystemManaged<MultiplayerClientPlayModeConnectionSystem>().ClientConnectionState != MultiplayerClientPlayModeConnectionSystem.ConnectionState.NotConnected);
+                        || ClientServerBootstrap.ClientWorlds.Concat(ClientServerBootstrap.ThinClientWorlds).Any(x => x.IsCreated && x.GetExistingSystemManaged<MultiplayerClientPlayModeConnectionSystem>().ClientConnectionState != ConnectionState.State.Disconnected);
                     if (!anyConnected)
                     {
                         switch (Prefs.RequestedPlayType)
@@ -589,9 +602,12 @@ namespace Unity.NetCode.Editor
             {
                 GUILayout.FlexibleSpace();
 
+                // HACK: Subtract and add 1 to resolve the issue with '[Obsolete] Disabled' being 0.
+                // It's a breaking change to fix properly.
                 var requestedSimulatorView = (int) Prefs.RequestedSimulatorView;
+                requestedSimulatorView -= 1;
                 EditorPopup(s_SimulatorView, s_SimulatorViewContents, ref requestedSimulatorView, s_SimulatorViewWidth);
-                Prefs.RequestedSimulatorView = (SimulatorView) requestedSimulatorView;
+                Prefs.RequestedSimulatorView = (SimulatorView) requestedSimulatorView + 1;
             }
 
             GUILayout.EndHorizontal();
@@ -686,7 +702,7 @@ namespace Unity.NetCode.Editor
                             // Show nothing.
                             break;
                         default:
-                            Debug.LogError("Unknown Prefs.SimulatorModeInEditor, using default!");
+                            Debug.LogError($"Unknown Prefs.RequestedSimulatorView value '{Prefs.RequestedSimulatorView}', using default!");
                             Prefs.RequestedSimulatorView = Prefs.DefaultSimulatorView;
                             HandleSimulatorValuesChanged(false);
                             break;
@@ -759,13 +775,13 @@ namespace Unity.NetCode.Editor
 
             var conSystem = world.GetExistingSystemManaged<MultiplayerClientPlayModeConnectionSystem>();
 
-            var isConnected = conSystem.ClientConnectionState == MultiplayerClientPlayModeConnectionSystem.ConnectionState.Connected;
-            var isConnecting = conSystem.ClientConnectionState == MultiplayerClientPlayModeConnectionSystem.ConnectionState.Connecting;
-            var connectionColor = isConnected ? ActiveColor  : (isConnecting ? Color.yellow : GhostAuthoringComponentEditor.brokenColor);
+            var isConnected = conSystem.ClientConnectionState == ConnectionState.State.Connected;
+            var isHandshake = conSystem.ClientConnectionState == ConnectionState.State.Handshake;
+            var connectionColor = GetConnectionStateColor(conSystem.ClientConnectionState);
             GUILayout.BeginHorizontal();
             {
                 GUI.color = connectionColor;
-                GUILayout.Box(isConnected ? conSystem.NetworkId.Value.ToString() : "-", s_BoxStyleHack, s_NetworkIdWidth);
+                GUILayout.Box(isConnected && !isHandshake ? conSystem.NetworkId.Value.ToString() : "-", s_BoxStyleHack, s_NetworkIdWidth);
 
                 GUILayout.Label(world.Name, s_WorldNameWidth);
                 GUI.color = Color.white;
@@ -799,47 +815,56 @@ namespace Unity.NetCode.Editor
                     GUILayout.Label("[Lag Spike]");
                 }
 
-                GUI.color = connectionColor;
                 s_NetworkEmulation.text = conSystem.IsAnyUsingSimulator ? "[Using Network Emulation]" : "[No Emulation]";
                 GUILayout.Label(s_NetworkEmulation);
 
                 GUI.color = connectionColor;
                 if(conSystem.LastEndpoint != default)
                     GUILayout.Label($"[{conSystem.LastEndpoint}]");
-                GUILayout.Label($"[{conSystem.ClientConnectionState.ToString()}]");
+                if(conSystem.ClientConnectionState == ConnectionState.State.Unknown)
+                    GUILayout.Label(s_Unknown);
+                else GUILayout.Label($"[{conSystem.ClientConnectionState.ToString()}]");
+
+                if (conSystem.ServerDisconnectPending)
+                {
+                    GUI.color = GhostAuthoringComponentEditor.brokenColor;
+                    GUILayout.Label(s_PendingServerDc);
+                }
+                else if (conSystem.TargetEp.HasValue)
+                {
+                    GUI.color = Color.yellow;
+                    s_Awaiting.text = $"[Awaiting {conSystem.TargetEp.Value.Address}]";
+                    GUILayout.Label(s_Awaiting);
+                }
+
                 GUILayout.FlexibleSpace();
             }
             GUILayout.EndHorizontal();
 
             EditorGUILayout.BeginHorizontal();
             GUI.color = Color.white;
-            switch (conSystem.ClientConnectionState)
+            if ((conSystem.ClientConnectionState != ConnectionState.State.Disconnected && conSystem.ClientConnectionState != ConnectionState.State.Unknown) || conSystem.TargetEp.HasValue)
             {
-                case MultiplayerClientPlayModeConnectionSystem.ConnectionState.Connected:
-                case MultiplayerClientPlayModeConnectionSystem.ConnectionState.Connecting:
+                GUI.enabled = conSystem.ClientConnectionState != ConnectionState.State.Disconnected;
+                if (GUILayout.Button(s_ClientReconnect))
                 {
-
-                    if (GUILayout.Button(s_ClientReconnect))
-                        conSystem.ClientConnectionState = MultiplayerClientPlayModeConnectionSystem.ConnectionState.TriggerConnect;
-
-                    if (GUILayout.Button(s_ClientDc))
-                        conSystem.ClientConnectionState = MultiplayerClientPlayModeConnectionSystem.ConnectionState.TriggerDisconnect;
-
-                    if (GUILayout.Button(s_ServerDc))
-                        ServerDisconnectNetworkId(conSystem.NetworkId, NetworkStreamDisconnectReason.ConnectionClose);
-
-                    break;
+                    Prefs.IsEditorInputtedAddressValidForConnect(out var ep);
+                    conSystem.ChangeStateImmediate(conSystem.LastEndpoint ?? ep);
                 }
-                case MultiplayerClientPlayModeConnectionSystem.ConnectionState.NotConnected:
+
+                GUI.enabled = true;
+                if (GUILayout.Button(s_ClientDc))
+                    conSystem.ChangeStateImmediate(null);
+
+                if (GUILayout.Button(s_ServerDc))
+                    ServerDisconnectNetworkId(conSystem);
+            }
+            else
+            {
+                if (GUILayout.Button("Connect"))
                 {
-                    if (GUILayout.Button("Connect"))
-                        conSystem.ClientConnectionState = MultiplayerClientPlayModeConnectionSystem.ConnectionState.TriggerConnect;
-                    break;
-                }
-                default:
-                {
-                    GUILayout.Box("-", s_BoxStyleHack, s_ExpandWidth);
-                    break;
+                    Prefs.IsEditorInputtedAddressValidForConnect(out var ep);
+                    conSystem.ChangeStateImmediate(conSystem.LastEndpoint ?? ep);
                 }
             }
 
@@ -850,23 +875,44 @@ namespace Unity.NetCode.Editor
             if (GUILayout.Button(s_Timeout))
                 conSystem.ToggleTimeoutSimulation();
 
-            GUI.color = connectionColor;
+                GUI.color = connectionColor;
             if (m_DidRepaint)
                 conSystem.UpdatePingText();
             GUILayout.Box(conSystem.PingText, s_BoxStyleHack, s_PingWidth);
             EditorGUILayout.EndHorizontal();
 
+            DrawConnectionEvents(conSystem.ConnectionEventsForTick);
+
             EditorGUILayout.Separator();
+        }
+
+        private static Color GetConnectionStateColor(ConnectionState.State state)
+        {
+            switch (state)
+            {
+                case ConnectionState.State.Unknown:
+                    return GhostAuthoringComponentEditor.brokenColor;
+                default:
+                case ConnectionState.State.Disconnected:
+                    return new Color(1f, 0.25f, 0.22f);
+                case ConnectionState.State.Connecting:
+                    return Color.yellow;
+                case ConnectionState.State.Handshake:
+                    return new Color(1f, 0.68f, 0f);
+                case ConnectionState.State.Connected:
+                    return ActiveColor;
+            }
         }
 
         static void DrawServerWorld(World serverWorld)
         {
+            var conSystem = serverWorld.GetExistingSystemManaged<MultiplayerServerPlayModeConnectionSystem>();
+
             GUILayout.BeginHorizontal();
             {
                 GUI.color = Color.white;
                 s_ServerName.text = serverWorld.Name;
                 EditorGUILayout.LabelField(s_ServerName, s_WorldNameWidth);
-                var conSystem = serverWorld.GetExistingSystemManaged<MultiplayerServerPlayModeConnectionSystem>();
 
                 if (conSystem.IsListening)
                 {
@@ -887,23 +933,63 @@ namespace Unity.NetCode.Editor
 
                 if (GUILayout.Button(s_ServerDcAllClients))
                 {
-                    DisconnectAllClients(serverWorld.EntityManager, NetworkStreamDisconnectReason.ConnectionClose);
+                    DisconnectAllClients(serverWorld);
                 }
 
                 if (GUILayout.Button(s_ServerReconnectAllClients))
                 {
-                    DisconnectAllClients(serverWorld.EntityManager, NetworkStreamDisconnectReason.ConnectionClose);
+                    DisconnectAllClients(serverWorld);
 
                     foreach (var clientWorld in ClientServerBootstrap.ClientWorlds.Concat(ClientServerBootstrap.ThinClientWorlds))
                     {
                         var connSystem = clientWorld.GetExistingSystemManaged<MultiplayerClientPlayModeConnectionSystem>();
-                        connSystem.ClientConnectionState = MultiplayerClientPlayModeConnectionSystem.ConnectionState.TriggerConnect;
+                        Prefs.IsEditorInputtedAddressValidForConnect(out var ep);
+                        connSystem.ChangeStateImmediate(connSystem.LastEndpoint ?? ep);
                     }
+                }
+
+                if (GUILayout.Button(s_ServerLogRelevancy))
+                {
+                    LogRelevancy(serverWorld);
                 }
 
                 GUILayout.FlexibleSpace();
             }
             GUILayout.EndHorizontal();
+
+            DrawConnectionEvents(conSystem.ConnectionEventsForTick);
+        }
+
+        private static void DrawConnectionEvents(List<NetCodeConnectionEvent> connectionEvents)
+        {
+            if (connectionEvents.Count == 0)
+                return;
+            ForceRepaint();
+            GUI.color = new Color(0.51f, 0.85f, 0.49f);
+            FixedString4096Bytes s = "";
+            for (int i = 0; i < connectionEvents.Count; i++)
+            {
+                var evt = connectionEvents[i];
+                s.Append(evt.ConnectionId.ToFixedString());
+                s.Append('-');
+                if (evt.Id.Value < 0)
+                    s.Append('?');
+                else s.Append(evt.Id.Value);
+                s.Append('-');
+                s.Append(evt.State.ToFixedString());
+                if (evt.State == ConnectionState.State.Disconnected)
+                {
+                    s.Append('-');
+                    s.Append(evt.DisconnectReason.ToFixedString());
+                }
+                if (i < connectionEvents.Count - 1)
+                {
+                    s.Append(' ');
+                    s.Append('|');
+                    s.Append(' ');
+                }
+            }
+            GUILayout.Label(s.ToString(), EditorStyles.wordWrappedLabel);
         }
 
         static string EditorPopup(GUIContent content, GUIContent[] list, string value)
@@ -1024,32 +1110,42 @@ namespace Unity.NetCode.Editor
             return ref netDebugQuery.GetSingletonRW<NetDebug>().ValueRW;
         }
 
-        static void DisconnectSpecificClient(EntityManager entityManager, NetworkId networkId, NetworkStreamDisconnectReason reason = NetworkStreamDisconnectReason.ConnectionClose)
+        static void LogRelevancy(World serverWorld)
         {
-            entityManager.CompleteAllTrackedJobs();
-            using var activeConnectionsQuery = entityManager.CreateEntityQuery(ComponentType.ReadOnly<NetworkId>(), ComponentType.Exclude<NetworkStreamRequestDisconnect>());
-            var entities = activeConnectionsQuery.ToEntityArray(Allocator.Temp);
-            var networkIds = activeConnectionsQuery.ToComponentDataArray<NetworkId>(Allocator.Temp);
-            for (var i = 0; i < entities.Length; i++)
+            using var relevancyQuery = serverWorld.EntityManager.CreateEntityQuery(typeof(GhostRelevancy));
+            var relevancy = relevancyQuery.GetSingleton<GhostRelevancy>();
+            string relevantMode = (relevancy.GhostRelevancyMode == GhostRelevancyMode.SetIsRelevant ? "relevant" : "irrelevant");
+            string message = $"Mode {relevancy.GhostRelevancyMode}. {relevantMode} count: {relevancy.GhostRelevancySet.Count()}\n";
+            if (relevancy.GhostRelevancyMode != GhostRelevancyMode.Disabled)
             {
-                if (networkIds[i].Value == networkId.Value)
+                foreach (var entry in relevancy.GhostRelevancySet)
                 {
-                    entityManager.AddComponentData(entities[i], new NetworkStreamRequestDisconnect { Reason = reason });
-                    break;
+                    message += $"- ghostId {entry.Key.Ghost} {relevantMode} for\t {entry.Key.Connection}\n";
                 }
             }
+
+            var allChunks = relevancy.DefaultRelevancyQuery.ToArchetypeChunkArray(Allocator.Temp);
+            NativeHashSet<EntityArchetype> archetypeSet = new NativeHashSet<EntityArchetype>(allChunks.Length, Allocator.Temp);
+            foreach (var chunk in allChunks)
+            {
+                archetypeSet.Add(chunk.Archetype);
+            }
+
+            message += $"\nTotal matching archetype count for global relevancy query {archetypeSet.Count}\n";
+            foreach (var entityArchetype in archetypeSet)
+            {
+                message += $"- archetype {entityArchetype.ToString()}\n";
+            }
+                    
+            Debug.Log(message);
         }
 
-        static void DisconnectAllClients(EntityManager entityManager, NetworkStreamDisconnectReason reason)
+        static void DisconnectAllClients(World serverWorld)
         {
-            entityManager.CompleteAllTrackedJobs();
-            using var activeConnectionsQuery = entityManager.CreateEntityQuery(ComponentType.ReadOnly<NetworkId>(), ComponentType.Exclude<NetworkStreamRequestDisconnect>());
-            var entities = activeConnectionsQuery.ToEntityArray(Allocator.Temp);
-            for (var i = 0; i < entities.Length; i++)
-            {
-                // TODO - Convert to batch when API supports 1 NetworkStreamRequestDisconnect for n entities.
-                entityManager.AddComponentData(entities[i], new NetworkStreamRequestDisconnect { Reason = reason });
-            }
+            serverWorld.EntityManager.CompleteAllTrackedJobs();
+            using var activeConnectionsQuery = serverWorld.EntityManager.CreateEntityQuery(ComponentType.ReadOnly<NetworkId>(), ComponentType.ReadOnly<NetworkStreamConnection>());
+            var networkIds = activeConnectionsQuery.ToComponentDataArray<NetworkId>(Allocator.Temp);
+            serverWorld.GetExistingSystemManaged<MultiplayerServerPlayModeConnectionSystem>().TryDisconnectImmediate(networkIds.ToArray());
         }
 
         void DrawSeparator()
@@ -1067,44 +1163,33 @@ namespace Unity.NetCode.Editor
         }
 
         /// <summary>Note: Will disconnect this NetworkId from all server worlds it is found in.</summary>
-        static void ServerDisconnectNetworkId(NetworkId networkId, NetworkStreamDisconnectReason reason)
+        static void ServerDisconnectNetworkId(MultiplayerClientPlayModeConnectionSystem connSystem)
         {
             foreach (var serverWorld in ClientServerBootstrap.ServerWorlds)
             {
-                DisconnectSpecificClient(serverWorld.EntityManager, networkId, reason);
-
-                GetNetDbgForWorld(serverWorld).DebugLog($"{serverWorld.Name} triggered '{nameof(ServerDisconnectNetworkId)}' on NetworkId '{networkId.Value}' via {nameof(MultiplayerPlayModeWindow)}!");
+                serverWorld.GetExistingSystemManaged<MultiplayerServerPlayModeConnectionSystem>().TryDisconnectImmediate(connSystem.NetworkId);
+                GetNetDbgForWorld(serverWorld).DebugLog($"{serverWorld.Name} triggered '{nameof(ServerDisconnectNetworkId)}' on NetworkId '{connSystem.NetworkId.Value}' via {nameof(MultiplayerPlayModeWindow)}!");
+                connSystem.ServerDisconnectPending = true;
             }
         }
     }
 
     [WorldSystemFilter(WorldSystemFilterFlags.ClientSimulation|WorldSystemFilterFlags.ThinClientSimulation)]
-    [UpdateInGroup(typeof(NetworkReceiveSystemGroup))]
-    [UpdateBefore(typeof(NetworkStreamReceiveSystem))]
+    [UpdateAfter(typeof(NetworkReceiveSystemGroup))]
     internal partial class MultiplayerClientPlayModeConnectionSystem : SystemBase
     {
-        internal enum ConnectionState
-        {
-            NotConnected,
-            Connecting,
-            Connected,
-            TriggerDisconnect,
-            TriggerConnect,
-        }
-
         internal string PingText;
-        internal ConnectionState ClientConnectionState;
+        internal ConnectionState.State ClientConnectionState;
         internal NetworkSnapshotAck ClientNetworkSnapshotAck;
         internal NetworkId NetworkId;
-        internal NetworkEndpoint OverrideEndpoint;
-        EndSimulationEntityCommandBufferSystem m_EndSimulationEcbSystem;
-        ConnectionState m_LastConnectionState;
 
         public bool UpdateSimulator;
+        public bool ServerDisconnectPending;
 
         public bool IsAnyUsingSimulator {get; private set;}
-
-        public NetworkEndpoint LastEndpoint {get; private set;}
+        public List<NetCodeConnectionEvent> ConnectionEventsForTick { get; } = new(4);
+        public NetworkEndpoint? LastEndpoint {get; private set;}
+        public NetworkEndpoint? TargetEp {get; private set;}
 
         internal bool IsUsingIpc { get; private set; }
         internal bool IsUsingWebSocket { get; private set; }
@@ -1119,13 +1204,13 @@ namespace Unity.NetCode.Editor
 
         protected override void OnCreate()
         {
-            m_EndSimulationEcbSystem = World.GetExistingSystemManaged<EndSimulationEntityCommandBufferSystem>();
             UpdatePingText();
         }
 
         protected override void OnUpdate()
         {
             Dependency.Complete();
+
             var netDebug = SystemAPI.GetSingleton<NetDebug>();
 
             var unscaledClientTime = SystemAPI.GetSingleton<UnscaledClientTime>();
@@ -1137,7 +1222,7 @@ namespace Unity.NetCode.Editor
             if (IsSimulatingLagSpike)
             {
                 LagSpikeMillisecondsLeft -= Mathf.CeilToInt(unscaledClientTime.UnscaleDeltaTime * 1000);
-                if (!IsSimulatingLagSpike || ClientConnectionState == ConnectionState.NotConnected)
+                if (!IsSimulatingLagSpike || ClientConnectionState == ConnectionState.State.Disconnected)
                 {
                     LagSpikeMillisecondsLeft = -1;
                     UpdateSimulator = true;
@@ -1152,6 +1237,9 @@ namespace Unity.NetCode.Editor
                 ref var driverStore = ref netStream.ValueRO.DriverStore;
                 LastEndpoint = netStream.ValueRO.LastEndPoint;
                 IsAnyUsingSimulator = driverStore.IsAnyUsingSimulator;
+                ConnectionEventsForTick.Clear();
+                if(EditorApplication.isPaused) // Can't see one frame events when unpaused anyway.
+                    ConnectionEventsForTick.AddRange(netStream.ValueRO.ConnectionEventsForTick);
                 for (int i = driverStore.FirstDriver; i < driverStore.LastDriver; i++)
                 {
                     switch (driverStore.GetDriverType(i))
@@ -1178,19 +1266,21 @@ namespace Unity.NetCode.Editor
                 }
             }
 
-            var isConnected = false;
-            var isConnecting = false;
-            var isDisconnecting = false;
-            if (SystemAPI.TryGetSingletonEntity<NetworkStreamConnection>(out var singletonEntity))
+            var lastState = ClientConnectionState;
+            ClientConnectionState = SystemAPI.TryGetSingleton(out NetworkStreamConnection conn) ? conn.CurrentState : ConnectionState.State.Unknown;
+            if (ClientConnectionState != lastState)
+                MultiplayerPlayModeWindow.ForceRepaint();
+
+            if (ClientConnectionState != ConnectionState.State.Disconnected && SystemAPI.TryGetSingletonEntity<NetworkStreamConnection>(out var singletonEntity) && EntityManager.HasComponent<NetworkId>(singletonEntity))
             {
-                if (EntityManager.HasComponent<NetworkId>(singletonEntity))
-                {
-                    NetworkId = EntityManager.GetComponentData<NetworkId>(singletonEntity);
-                    ClientNetworkSnapshotAck = EntityManager.GetComponentData<NetworkSnapshotAck>(singletonEntity);
-                    isConnected = true;
-                    isDisconnecting = EntityManager.HasComponent<NetworkStreamRequestDisconnect>(singletonEntity);
-                }
-                else isConnecting = true;
+                NetworkId = EntityManager.GetComponentData<NetworkId>(singletonEntity);
+                ClientNetworkSnapshotAck = EntityManager.GetComponentData<NetworkSnapshotAck>(singletonEntity);
+            }
+            else
+            {
+                NetworkId = default;
+                ClientNetworkSnapshotAck = default;
+                ServerDisconnectPending = false;
             }
 
             if (UpdateSimulator && hasNetworkStreamDriver)
@@ -1202,71 +1292,16 @@ namespace Unity.NetCode.Editor
                 {
                     clientSimulatorParameters.PacketDropPercentage = 100;
                 }
+
                 NetworkSimulatorSettings.RefreshSimulationPipelineParametersLive(in clientSimulatorParameters, ref netStream.ValueRW.DriverStore);
             }
-
-            var refreshConnectionStatus = true;
-            var ecb = m_EndSimulationEcbSystem.CreateCommandBuffer();
-
-            switch (ClientConnectionState)
-            {
-                case ConnectionState.TriggerDisconnect when (isConnected || isConnecting) && !isDisconnecting:
-                    ecb.AddComponent(singletonEntity, new NetworkStreamRequestDisconnect
-                    {
-                        Reason = NetworkStreamDisconnectReason.ConnectionClose,
-                    });
-                    netDebug.DebugLog($"{World.Name} triggered a connection close via {nameof(MultiplayerPlayModeWindow)}!");
-                    break;
-                case ConnectionState.TriggerConnect when (isConnected || isConnecting) && !isDisconnecting:
-                    ecb.AddComponent(singletonEntity, new NetworkStreamRequestDisconnect
-                    {
-                        Reason = NetworkStreamDisconnectReason.ConnectionClose,
-                    });
-                    refreshConnectionStatus = false;
-                    break;
-                case ConnectionState.TriggerConnect when isDisconnecting:
-                    refreshConnectionStatus = false;
-                    break;
-                case ConnectionState.TriggerConnect when hasNetworkStreamDriver:
-                    var clientSimulatorParameters = Prefs.ClientSimulatorParameters;
-                    ref var driverStore = ref netStream.ValueRW.DriverStore;
-                    NetworkSimulatorSettings.RefreshSimulationPipelineParametersLive(in clientSimulatorParameters, ref driverStore);
-
-                    var ep = OverrideEndpoint != default ? OverrideEndpoint : netStream.ValueRO.LastEndPoint;
-                    if (ep != default || Prefs.IsEditorInputtedAddressValidForConnect(out ep))
-                    {
-                        OverrideEndpoint = default;
-                        LagSpikeMillisecondsLeft = -1;
-                        UpdateSimulator = true;
-                        netStream.ValueRW.Connect(EntityManager, ep);
-                        netDebug.DebugLog($"{World.Name} triggered a reconnection to {ep.Address} via {nameof(MultiplayerPlayModeWindow)}!");
-                    }
-                    else
-                        netDebug.LogError($"{World.Name} triggered a reconnection, but cannot find a suitable endpoint!");
-                    break;
-            }
-            m_EndSimulationEcbSystem.AddJobHandleForProducer(Dependency);
-
-            if (refreshConnectionStatus)
-            {
-                if (isConnected)
-                    ClientConnectionState = ConnectionState.Connected;
-                else if (isConnecting)
-                    ClientConnectionState = ConnectionState.Connecting;
-                else
-                    ClientConnectionState = ConnectionState.NotConnected;
-            }
-
-            if (ClientConnectionState != m_LastConnectionState)
-            {
-                MultiplayerPlayModeWindow.ForceRepaint();
-                m_LastConnectionState = ClientConnectionState;
-            }
+            if (TargetEp.HasValue)
+                ChangeStateImmediate(TargetEp);
         }
 
         internal void UpdatePingText()
         {
-            if (ClientConnectionState == ConnectionState.Connected)
+            if (ClientConnectionState == ConnectionState.State.Connected)
             {
                 var estimatedRTT = (int) ClientNetworkSnapshotAck.EstimatedRTT;
                 var deviationRTT = (int) ClientNetworkSnapshotAck.DeviationRTT;
@@ -1314,69 +1349,164 @@ namespace Unity.NetCode.Editor
 
             MultiplayerPlayModeWindow.ForceRepaint();
         }
+
+        public void ChangeStateImmediate(NetworkEndpoint? targetEp)
+        {
+            if (!SystemAPI.TryGetSingletonRW<NetworkStreamDriver>(out var netStream))
+            {
+                UnityEngine.Debug.LogError($"{World.Name} does not have a NetworkStreamDriver, unable to perform actions via {nameof(MultiplayerPlayModeWindow)}!");
+                return;
+            }
+            TargetEp = targetEp;
+
+            // Disconnect first:
+            // - F0: Disconnect is invoked somewhere on Frame0.
+            // - F1: NetworkStreamReceiveSystem will poll the connection entity, and create a BeginSimulation ECB destroying the existing entity.
+            // - F2: ECB is invoked, so now there is no NetworkStreamConnection. Connect can safely be called.
+            if (SystemAPI.TryGetSingletonEntity<NetworkStreamConnection>(out var connectedEntity))
+            {
+                var existingConn = EntityManager.GetComponentData<NetworkStreamConnection>(connectedEntity);
+                if (existingConn.Value.IsCreated)
+                {
+                    ClientConnectionState = netStream.ValueRO.DriverStore.GetConnectionState(existingConn).ToNetcodeState(NetworkId.Value != default);
+                    if (ClientConnectionState != ConnectionState.State.Disconnected)
+                    {
+                        UnityEngine.Debug.Log($"[{World.Name}] You triggered a disconnection of {existingConn.Value.ToFixedString()} (on {connectedEntity.ToFixedString()}) via {nameof(MultiplayerPlayModeWindow)}!");
+                        MultiplayerPlayModeWindow.ForceRepaint();
+                        netStream.ValueRW.DriverStore.Disconnect(existingConn);
+                        // Wait 1 frame before reconnecting:
+                        ClientConnectionState = ConnectionState.State.Disconnected;
+                        UpdatePingText();
+                    }
+                }
+                return;
+            }
+
+            // Connect:
+            var clientSimulatorParameters = Prefs.ClientSimulatorParameters;
+            NetworkSimulatorSettings.RefreshSimulationPipelineParametersLive(in clientSimulatorParameters, ref netStream.ValueRO.DriverStore);
+
+            if (targetEp != default)
+            {
+                if (targetEp.Value.IsValid)
+                {
+                    LagSpikeMillisecondsLeft = -1;
+                    UpdateSimulator = true;
+                    UnityEngine.Debug.Log($"[{World.Name}] You triggered a reconnection to {targetEp.Value.Address} via {nameof(MultiplayerPlayModeWindow)}!");
+                    MultiplayerPlayModeWindow.ForceRepaint();
+                    netStream.ValueRW.Connect(EntityManager, targetEp.Value);
+                    ClientConnectionState = ConnectionState.State.Connecting;
+                }
+                else
+                {
+                    UnityEngine.Debug.LogError($"[{World.Name}] You triggered a reconnection, but {targetEp.Value.Address} is not valid!");
+                }
+            }
+            TargetEp = null;
+        }
     }
 
     [WorldSystemFilter(WorldSystemFilterFlags.ServerSimulation)]
-    [UpdateInGroup(typeof(NetworkReceiveSystemGroup))]
-    [UpdateBefore(typeof(NetworkStreamReceiveSystem))]
+    [UpdateAfter(typeof(NetworkReceiveSystemGroup))]
     internal partial class MultiplayerServerPlayModeConnectionSystem : SystemBase
     {
-        public bool IsListening{get; private set;}
-        public NetworkEndpoint LastEndpoint{get; private set;}
+        public bool IsListening { get; private set; }
+        public NetworkEndpoint LastEndpoint { get; private set; }
 
         public int NumActiveConnections => m_activeConnectionsQuery.CalculateEntityCount();
 
         public int NumActiveConnectionsInGame => NumActiveConnections - m_notInGameQuery.CalculateEntityCount();
 
+        public List<NetCodeConnectionEvent> ConnectionEventsForTick { get; } = new(4);
+
         private EntityQuery m_activeConnectionsQuery;
         private EntityQuery m_notInGameQuery;
+
         protected override void OnCreate()
         {
             m_activeConnectionsQuery = GetEntityQuery(ComponentType.ReadOnly<NetworkId>(), ComponentType.Exclude<NetworkStreamRequestDisconnect>());
             m_notInGameQuery = GetEntityQuery(ComponentType.ReadOnly<NetworkId>(), ComponentType.Exclude<NetworkStreamRequestDisconnect>(), ComponentType.Exclude<NetworkStreamInGame>());
         }
+
+        internal void TryDisconnectImmediate(params NetworkId[] networkIdsToDisconnect)
+        {
+            Dependency.Complete();
+            m_activeConnectionsQuery.CompleteDependency();
+            var networkIdEntities = m_activeConnectionsQuery.ToEntityArray(WorldUpdateAllocator);
+            var networkIdValues = m_activeConnectionsQuery.ToComponentDataArray<NetworkId>(WorldUpdateAllocator);
+            ref readonly var netStream = ref SystemAPI.GetSingletonRW<NetworkStreamDriver>().ValueRW;
+            var connectionLookup = SystemAPI.GetComponentLookup<NetworkStreamConnection>(true);
+
+            foreach (var networkIdToDc in networkIdsToDisconnect)
+            {
+                for (int i = 0; i < networkIdValues.Length; i++)
+                {
+                    var networkId = networkIdValues[i];
+                    if (networkId.Value == networkIdToDc.Value)
+                    {
+                        var entity = networkIdEntities[i];
+                        if (!connectionLookup.TryGetComponent(entity, out var conn))
+                        {
+                            Debug.LogError($"Unable to disconnect NetworkId[{networkId.Value}] (found on Entity {entity.ToFixedString()} on {World.Name}) as no NetworkStreamConnection component found!");
+                            continue;
+                        }
+                        netStream.DriverStore.Disconnect(conn);
+                        goto found;
+                    }
+                }
+
+                Debug.LogError($"Unable to disconnect NetworkId[{networkIdToDc.Value}] from {World.Name} as unable to find connection with this NetworkId!");
+                found: ;
+            }
+        }
+
         protected override void OnUpdate()
         {
-            ref readonly var netStream = ref SystemAPI.GetSingletonRW<NetworkStreamDriver>().ValueRO;
+            ref readonly var netStream = ref SystemAPI.GetSingletonRW<NetworkStreamDriver>().ValueRW;
             IsListening = netStream.DriverStore.GetDriverInstance(netStream.DriverStore.FirstDriver).driver.Listening;
             LastEndpoint = netStream.LastEndPoint;
+            ConnectionEventsForTick.Clear();
+            if(EditorApplication.isPaused) // Can't see one frame events when unpaused anyway.
+                ConnectionEventsForTick.AddRange(netStream.ConnectionEventsForTick);
         }
-    }
 
-    [WorldSystemFilter(WorldSystemFilterFlags.ClientSimulation | WorldSystemFilterFlags.ThinClientSimulation | WorldSystemFilterFlags.Editor)]
-    [CreateAfter(typeof(SceneSystem))]
-    internal partial struct ConfigureClientGUIDSystem : ISystem
-    {
-        public void OnCreate(ref SystemState state)
+        [WorldSystemFilter(WorldSystemFilterFlags.ClientSimulation | WorldSystemFilterFlags.ThinClientSimulation | WorldSystemFilterFlags.Editor)]
+        [CreateAfter(typeof(SceneSystem))]
+        internal partial struct ConfigureClientGUIDSystem : ISystem
         {
-            bool canChangeSettings = (!UnityEditor.EditorApplication.isPlaying || state.WorldUnmanaged.IsClient());
-            if (canChangeSettings)
+            public void OnCreate(ref SystemState state)
+            {
+                bool canChangeSettings = (!UnityEditor.EditorApplication.isPlaying || state.WorldUnmanaged.IsClient());
+                if (canChangeSettings)
+                {
+                    ref var sceneSystemGuid = ref state.EntityManager.GetComponentDataRW<SceneSystemData>(state.World.GetExistingSystem<SceneSystem>()).ValueRW;
+                    sceneSystemGuid.BuildConfigurationGUID = DotsGlobalSettings.Instance.GetClientGUID();
+                }
+
+                state.Enabled = false;
+            }
+
+        }
+
+        [WorldSystemFilter(WorldSystemFilterFlags.ServerSimulation)]
+        [CreateAfter(typeof(SceneSystem))]
+        internal partial struct ConfigureServerGUIDSystem : ISystem
+        {
+            public void OnCreate(ref SystemState state)
             {
                 ref var sceneSystemGuid = ref state.EntityManager.GetComponentDataRW<SceneSystemData>(state.World.GetExistingSystem<SceneSystem>()).ValueRW;
-                sceneSystemGuid.BuildConfigurationGUID = DotsGlobalSettings.Instance.GetClientGUID();
+                // If client type is client-only, the server must use dedicated server data:
+                if (NetCodeClientSettings.instance.ClientTarget == NetCodeClientTarget.Client)
+                    sceneSystemGuid.BuildConfigurationGUID = DotsGlobalSettings.Instance.GetServerGUID();
+                // If playmode is simulating dedicated server, we must also use server data:
+                else if (Prefs.SimulateDedicatedServer)
+                    sceneSystemGuid.BuildConfigurationGUID = DotsGlobalSettings.Instance.GetServerGUID();
+                // Otherwise we use client & server data, as we know that 'client hosted' is possible in the editor at this point:
+                else
+                    sceneSystemGuid.BuildConfigurationGUID = DotsGlobalSettings.Instance.GetClientGUID();
+
+                state.Enabled = false;
             }
-            state.Enabled = false;
-        }
-
-    }
-    [WorldSystemFilter(WorldSystemFilterFlags.ServerSimulation)]
-    [CreateAfter(typeof(SceneSystem))]
-    internal partial struct ConfigureServerGUIDSystem : ISystem
-    {
-        public void OnCreate(ref SystemState state)
-        {
-            ref var sceneSystemGuid = ref state.EntityManager.GetComponentDataRW<SceneSystemData>(state.World.GetExistingSystem<SceneSystem>()).ValueRW;
-            // If client type is client-only, the server must use dedicated server data:
-            if (NetCodeClientSettings.instance.ClientTarget == NetCodeClientTarget.Client)
-                sceneSystemGuid.BuildConfigurationGUID = DotsGlobalSettings.Instance.GetServerGUID();
-            // If playmode is simulating dedicated server, we must also use server data:
-            else if (Prefs.SimulateDedicatedServer)
-                sceneSystemGuid.BuildConfigurationGUID = DotsGlobalSettings.Instance.GetServerGUID();
-            // Otherwise we use client & server data, as we know that 'client hosted' is possible in the editor at this point:
-            else
-                sceneSystemGuid.BuildConfigurationGUID = DotsGlobalSettings.Instance.GetClientGUID();
-
-            state.Enabled = false;
         }
     }
 }

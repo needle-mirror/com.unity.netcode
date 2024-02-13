@@ -332,7 +332,7 @@ namespace Unity.NetCode
                     //Buffer does not have any smoothing
                     if (GhostComponentCollection[serializerIdx].ComponentType.IsBuffer)
                     {
-                        dataPtr = PredictionBackupState.GetNextData(dataPtr, GhostSystemConstants.DynamicBufferComponentSnapshotSize, chunk.Capacity);
+                        dataPtr = PredictionBackupState.GetNextData(dataPtr, GhostComponentSerializer.DynamicBufferComponentSnapshotSize, chunk.Capacity);
                         continue;
                     }
                     var compSize = GhostComponentCollection[serializerIdx].ComponentSize;
