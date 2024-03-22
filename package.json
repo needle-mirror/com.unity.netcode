@@ -1,25 +1,25 @@
 {
   "name": "com.unity.netcode",
   "displayName": "Netcode for Entities",
-  "version": "1.2.0-pre.12",
+  "version": "1.2.0",
   "unity": "2022.3",
   "unityRelease": "11f1",
   "description": "Unity's Data Oriented Technology Stack (DOTS) multiplayer netcode layer - a high level netcode system built on entities. This package provides a foundation for creating networked multiplayer applications within DOTS.",
   "dependencies": {
     "com.unity.transport": "2.1.0",
-    "com.unity.entities": "1.2.0-pre.12",
+    "com.unity.entities": "1.2.0",
     "com.unity.modules.animation": "1.0.0"
   },
   "_upm": {
-    "changelog": "### Added\n\n* Optimisations for the gather-ghost-chunk by batching function pointer calls and using a better hash map.\n* BatchScaleImportanceDelegate, a new version of the importance scaling function that work in batches. It is not required to set both the ScaleImportance and the BatchScaleImportance function pointers. If the BatchScaleImportance is set, it is the preferred.\n* TempStreamInitialSize, a new parameter in the GhostSendSystemData for tuning the initial size of the temporary buffer used by server to serialise ghosts. By default now the size is 8KB.\n* AlwaysRelevantQuery to specify general rules for relevancy without specifying it ghost by ghost.\n\n### Changed\n\n* StreamCompressionDataModel is passed as in parameter to avoid many copy every time a WriteXXX or ReadXXX was called.\n* Updated Burst dependency to version 1.8.12\n\n### Fixed\n\n* UI issue disallowing the user from enabling the Network Emulator utility when upgrading with a now-deprecated EditorPref value.\n* an issue with pre-serialised ghosts, corrupting memory, crashing or copying wrong data into the snapshot buffer in certain conditions.\n* avoided GC allocation and the costly Marshal.GetDelegateFromFunctionPointer every time an FunctionPointer.Invoke is called. This is done by using directly unmanaged function pointers.  All this, compatible with Burst enabled/disabled at any time.\n* lot of memory copies for loop invariants. This also reduced some SafetyChecks and costly operations.\n* avoid costly re-serialization of the whole chunk when the temp buffer can't fit all the data. This is one of the biggest costs during the serialisation loop. By default now the buffer is 8KB that reduce this possibility almost to 0.\n* Assigned InterpolationTick to always be equal ServerTick on the Server simulation (as stated in the summary for this parameter). Additionally the typos pointed out in the parameter summary were corrected.\n* Issue where prespawn failed to initialize when relevancy list was updated before replicating internal prespawn ghosts."
+    "changelog": "### Changed\n*Release Preparation"
   },
   "upmCi": {
-    "footprint": "e6362f31dc4ec15a45c61de6d15816f5473a1b49"
+    "footprint": "14f73fe31687e3259c784ff7454311310d71c70f"
   },
   "documentationUrl": "https://docs.unity3d.com/Packages/com.unity.netcode@1.2/manual/index.html",
   "repository": {
     "url": "https://github.cds.internal.unity3d.com/unity/dots.git",
     "type": "git",
-    "revision": "1ae43e0525b8a09c7fe52ab40c762938a4937244"
+    "revision": "ea4236421d61011e37e71d22108c5e4e70cf71d7"
   }
 }

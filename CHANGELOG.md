@@ -4,6 +4,12 @@ uid: changelog
 
 # Changelog
 
+## [1.2.0] - 2024-03-22
+
+### Changed
+*Release Preparation
+
+
 ## [1.2.0-pre.12] - 2024-02-13
 
 ### Added
@@ -27,7 +33,6 @@ uid: changelog
 * avoid costly re-serialization of the whole chunk when the temp buffer can't fit all the data. This is one of the biggest costs during the serialisation loop. By default now the buffer is 8KB that reduce this possibility almost to 0.
 * Assigned InterpolationTick to always be equal ServerTick on the Server simulation (as stated in the summary for this parameter). Additionally the typos pointed out in the parameter summary were corrected.
 * Issue where prespawn failed to initialize when relevancy list was updated before replicating internal prespawn ghosts.
-
 
 ## [1.2.0-pre.6] - 2023-12-13
 

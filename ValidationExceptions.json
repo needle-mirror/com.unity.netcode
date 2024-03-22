@@ -1,10 +1,15 @@
 {
-    "ErrorExceptions": [
-        {
-            "ValidationTest": "API Validation",
-            "ExceptionMessage": "Breaking changes require a new major version.",
-            "PackageVersion": "1.2.0-pre.12"
-        }
-    ],
-    "WarningExceptions": []
+  "ErrorExceptions": [
+    {
+      "ValidationTest": "API Validation",
+      "ExceptionMessage": "For Experimental or Preview Packages, breaking changes require a new minor version.",
+      "PackageVersion": "1.2.0"
+    },
+    {
+      "ValidationTest": "API Validation",
+      "ExceptionMessage": "Breaking changes require a new major version.",
+      "PackageVersion": "1.2.0"
+    }
+  ],
+  "WarningExceptions": []
 }
