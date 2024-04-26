@@ -4,10 +4,17 @@ uid: changelog
 
 # Changelog
 
+## [1.2.1] - 2024-04-26
+
+### Changed
+
+* Updated Burst dependency to version 1.8.13
+* Updated entities packages dependencies
+
 ## [1.2.0] - 2024-03-22
 
 ### Changed
-*Release Preparation
+* Release Preparation
 
 
 ## [1.2.0-pre.12] - 2024-02-13
