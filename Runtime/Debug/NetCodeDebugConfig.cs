@@ -52,7 +52,7 @@ namespace Unity.NetCode
             if (!SystemAPI.TryGetSingleton<NetCodeDebugConfig>(out var debugConfig))
             {
                 // No user-defined config, so take the NetDebug defaults:
-                debugConfig.LogLevel = netDbg.ValueRO.LogLevel;
+                debugConfig.LogLevel = NetDebug.DefaultLogLevel;
                 debugConfig.DumpPackets = false;
             }
 

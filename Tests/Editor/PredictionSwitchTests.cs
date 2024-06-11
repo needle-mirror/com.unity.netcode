@@ -1,23 +1,20 @@
+using System.Collections.Generic;
 using NUnit.Framework;
 using Unity.Entities;
-using Unity.Networking.Transport;
-using Unity.NetCode.Tests;
-using Unity.Jobs;
 using UnityEngine;
-using Unity.NetCode;
 using Unity.Mathematics;
 using Unity.Transforms;
-using Unity.Collections;
-using System.Collections.Generic;
 
 namespace Unity.NetCode.Tests
 {
+    public struct PredictionSwitchComponent : IComponentData { } // Component to identify the ghosts we're testing
+
     public class PredictionSwitchTestConverter : TestNetCodeAuthoring.IConverter
     {
         public void Bake(GameObject gameObject, IBaker baker)
         {
             var entity = baker.GetEntity(TransformUsageFlags.Dynamic);
-            baker.AddComponent(entity, new GhostOwner());
+            baker.AddComponent(entity, new PredictionSwitchComponent());
             baker.AddComponent(entity, new PredictedOnlyTestComponent{Value = 42});
             baker.AddComponent(entity, new InterpolatedOnlyTestComponent{Value = 43});
         }
@@ -37,20 +34,33 @@ namespace Unity.NetCode.Tests
     [UpdateInGroup(typeof(PredictedSimulationSystemGroup))]
     internal partial class PredictionSwitchMoveTestSystem : SystemBase
     {
+        public static NetworkTick TickFreeze;
+        public static bool SkipOneOfTwo;
+        protected override void OnCreate()
+        {
+            TickFreeze = NetworkTick.Invalid;
+            SkipOneOfTwo = false;
+        }
+
+        public const float k_valueIncrease = 5f;
+
         protected override void OnUpdate()
         {
-            // Only update position every second tick
-            if ((SystemAPI.GetSingleton<NetworkTime>().ServerTick.TickIndexForValidTick&1u) == 0)
+            var currentTick = SystemAPI.GetSingleton<NetworkTime>().ServerTick;
+            if (TickFreeze != NetworkTick.Invalid && currentTick.IsNewerThan(TickFreeze)) return;
+            // Only update transform every second tick
+            if (SkipOneOfTwo && (currentTick.TickIndexForValidTick&1u) == 0)
                 return;
-            foreach (var trans in SystemAPI.Query<RefRW<LocalTransform>>().WithAll<GhostOwner>().WithAll<Simulate>())
+            foreach (var trans in SystemAPI.Query<RefRW<LocalTransform>>().WithAll<PredictionSwitchComponent>().WithAll<Simulate>())
             {
-                trans.ValueRW.Position += new float3(1, 0, 0);
+                trans.ValueRW.Position += new float3(k_valueIncrease, 0, 0);
+                trans.ValueRW = trans.ValueRO.RotateX(math.radians(k_valueIncrease));
             }
         }
     }
+
     public class PredictionSwitchTests
     {
-        const float frameTime = 1.0f / 60.0f;
         [Test]
         public void SwitchingPredictionAddsAndRemovesComponent()
         {
@@ -70,17 +80,17 @@ namespace Unity.NetCode.Tests
                 Assert.AreNotEqual(Entity.Null, serverEnt);
 
                 // Connect and make sure the connection could be established
-                testWorld.Connect(frameTime);
+                testWorld.Connect();
 
                 // Go in-game
                 testWorld.GoInGame();
 
                 // Let the game run for a bit so the ghosts are spawned on the client
                 for (int i = 0; i < 16; ++i)
-                    testWorld.Tick(frameTime);
+                    testWorld.Tick();
 
                 var firstClientWorld = testWorld.ClientWorlds[0];
-                var clientEnt = testWorld.TryGetSingletonEntity<GhostOwner>(firstClientWorld);
+                var clientEnt = testWorld.TryGetSingletonEntity<PredictionSwitchComponent>(firstClientWorld);
                 Assert.AreNotEqual(Entity.Null, clientEnt);
 
                 // Validate that the entity is interpolated
@@ -98,7 +108,7 @@ namespace Unity.NetCode.Tests
                     TargetEntity = clientEnt,
                     TransitionDurationSeconds = 0f,
                 });
-                testWorld.Tick(frameTime);
+                testWorld.Tick();
                 Assert.IsTrue(entityManager.HasComponent<PredictedGhost>(clientEnt));
                 Assert.IsTrue(entityManager.HasComponent<PredictedOnlyTestComponent>(clientEnt));
                 Assert.IsFalse(entityManager.HasComponent<InterpolatedOnlyTestComponent>(clientEnt));
@@ -110,7 +120,7 @@ namespace Unity.NetCode.Tests
                     TargetEntity = clientEnt,
                     TransitionDurationSeconds = 2f,
                 });
-                testWorld.Tick(frameTime);
+                testWorld.Tick();
                 Assert.IsFalse(entityManager.HasComponent<PredictedGhost>(clientEnt));
                 Assert.IsFalse(entityManager.HasComponent<PredictedOnlyTestComponent>(clientEnt));
                 Assert.IsTrue(entityManager.HasComponent<InterpolatedOnlyTestComponent>(clientEnt));
@@ -118,47 +128,89 @@ namespace Unity.NetCode.Tests
                 Assert.AreEqual(43, entityManager.GetComponentData<InterpolatedOnlyTestComponent>(clientEnt).Value);
             }
         }
+        
+        // To get as much precision as possible with no interpolation noise
+        [GhostComponentVariation(typeof(Transforms.LocalTransform), nameof(ClampedTransformVariant))]
+        [GhostComponent(PrefabType=GhostPrefabType.All, SendTypeOptimization=GhostSendType.AllClients)]
+        public struct ClampedTransformVariant
+        {
+            [GhostField(Quantization=0, Smoothing=SmoothingAction.Clamp)]
+            public float3 Position;
+        
+            [GhostField(Quantization=0, Smoothing=SmoothingAction.Clamp)]
+            public float Scale;
+        
+            [GhostField(Quantization=0, Smoothing=SmoothingAction.Clamp)]
+            public quaternion Rotation;
+        }
+        
+        [DisableAutoCreation]
+        [CreateBefore(typeof(Unity.NetCode.TransformDefaultVariantSystem))]
+        sealed partial class ClampedTransformVariantRegisterSystem : DefaultVariantSystemBase
+        {
+            protected override void RegisterDefaultVariants(Dictionary<ComponentType, Rule> defaultVariants)
+            {
+                defaultVariants.Add(typeof(LocalTransform), Rule.ForAll(typeof(ClampedTransformVariant)));
+            }
+        }
+
+        static ref GhostPredictionSwitchingQueues InitTest(NetCodeTestWorld testWorld, bool UseOwnerPredicted, out Vector3 originalPosParent, out World firstClientWorld, out EntityManager entityManager, out EntityQuery timeQuery, out Entity clientEnt, out float originalRotation)
+        {
+            var ghostGameObject = new GameObject();
+            var childGameObject = new GameObject();
+
+            childGameObject.transform.parent = ghostGameObject.transform;
+
+            childGameObject.AddComponent<NetcodeTransformUsageFlagsTestAuthoring>();
+            ghostGameObject.AddComponent<TestNetCodeAuthoring>().Converter = new PredictionSwitchTestConverter();
+            originalRotation = 45f;
+            ghostGameObject.transform.Rotate(new Vector3(0, originalRotation, 0)); // give it an original rotation that's non-zero, to make sure matrix operations work properly
+            originalPosParent = new Vector3(10, 20, 30);
+            ghostGameObject.transform.position = originalPosParent;
+            var ghostConfig = ghostGameObject.AddComponent<GhostAuthoringComponent>();
+            ghostConfig.DefaultGhostMode = GhostMode.Interpolated;
+            ghostConfig.HasOwner = UseOwnerPredicted;
+            ghostConfig.SupportAutoCommandTarget = UseOwnerPredicted;
+
+            Assert.IsTrue(testWorld.CreateGhostCollection(ghostGameObject));
+
+            testWorld.CreateWorlds(true, 1);
+
+            var serverEnt = testWorld.SpawnOnServer(ghostGameObject);
+            Assert.AreNotEqual(Entity.Null, serverEnt);
+
+            // Connect and make sure the connection could be established
+            testWorld.Connect();
+
+            // Go in-game
+            testWorld.GoInGame();
+
+            firstClientWorld = testWorld.ClientWorlds[0];
+            entityManager = firstClientWorld.EntityManager;
+            timeQuery = entityManager.CreateEntityQuery(typeof(NetworkTime));
+            PredictionSwitchMoveTestSystem.SkipOneOfTwo = false;
+            // Let time sync client side and so the ghosts are spawned on the client
+            for (int i = 0; i < 60; ++i)
+                testWorld.Tick();
+
+            clientEnt = testWorld.TryGetSingletonEntity<PredictionSwitchComponent>(firstClientWorld);
+            Assert.AreNotEqual(Entity.Null, clientEnt);
+
+            // Validate that the entity is interpolated
+            Assert.That(entityManager.HasComponent<PredictedGhost>(clientEnt), Is.Not.True, "Sanity check failed, the entity should be marked as interpolated now");
+            return ref testWorld.GetSingletonRW<GhostPredictionSwitchingQueues>(firstClientWorld).ValueRW;
+        }
 
         [Test]
         public void SwitchingPredictionSmoothChildEntities()
         {
             using (var testWorld = new NetCodeTestWorld())
             {
-                testWorld.Bootstrap(true, typeof(PredictionSwitchMoveTestSystem));
+                var fuzzyEqual = 0.0001f;
 
-                var ghostGameObject = new GameObject();
-                var childGameObject = new GameObject();
+                testWorld.Bootstrap(true, typeof(PredictionSwitchMoveTestSystem), typeof(ClampedTransformVariantRegisterSystem));
 
-                childGameObject.transform.parent = ghostGameObject.transform;
-
-                childGameObject.AddComponent<NetcodeTransformUsageFlagsTestAuthoring>();
-                ghostGameObject.AddComponent<TestNetCodeAuthoring>().Converter = new PredictionSwitchTestConverter();
-                var ghostConfig = ghostGameObject.AddComponent<GhostAuthoringComponent>();
-
-                Assert.IsTrue(testWorld.CreateGhostCollection(ghostGameObject));
-
-                testWorld.CreateWorlds(true, 1);
-
-                var serverEnt = testWorld.SpawnOnServer(ghostGameObject);
-                Assert.AreNotEqual(Entity.Null, serverEnt);
-
-                // Connect and make sure the connection could be established
-                testWorld.Connect(frameTime);
-
-                // Go in-game
-                testWorld.GoInGame();
-
-                // Let the game run for a bit so the ghosts are spawned on the client
-                for (int i = 0; i < 16; ++i)
-                    testWorld.Tick(frameTime);
-
-                var firstClientWorld = testWorld.ClientWorlds[0];
-                var clientEnt = testWorld.TryGetSingletonEntity<GhostOwner>(firstClientWorld);
-                Assert.AreNotEqual(Entity.Null, clientEnt);
-
-                // Validate that the entity is interpolated
-                var entityManager = firstClientWorld.EntityManager;
-                ref var ghostPredictionSwitchingQueues = ref testWorld.GetSingletonRW<GhostPredictionSwitchingQueues>(firstClientWorld).ValueRW;
+                ref var ghostPredictionSwitchingQueues = ref InitTest(testWorld, false, out var originalPosParent, out var firstClientWorld, out var entityManager, out var timeQuery, out var clientEnt, out var originalRotation);
 
                 var childEnt = entityManager.GetBuffer<LinkedEntityGroup>(clientEnt)[1].Value;
                 Assert.AreNotEqual(Entity.Null, childEnt);
@@ -167,21 +219,181 @@ namespace Unity.NetCode.Tests
                     TargetEntity = clientEnt,
                     TransitionDurationSeconds = 1f,
                 });
-                testWorld.Tick(frameTime);
 
-                // validate that the position updates every frame and that the child and parent entity has identical LocalToWorld
-                var localToWorld = entityManager.GetComponentData<LocalToWorld>(clientEnt);
-                for (int i = 0; i < 32; ++i)
+                var originalLocalToWorld = entityManager.GetComponentData<LocalToWorld>(clientEnt);
+
+                testWorld.Tick(); // one prediction iteration, position everything in its place
+                PredictionSwitchMoveTestSystem.TickFreeze = timeQuery.GetSingleton<NetworkTime>().ServerTick; // have the entity interpolate to a now frozen predicted position (to make testing value changes easier)
+
+                Assert.That(entityManager.HasComponent<PredictedGhost>(clientEnt), "Sanity check failed, the entity should be marked as predicted now");
+                var expectedTickDiffBetweenInterpolatedPredicted = 7f; // Expected tick count between predicted tick and interpolated tick. 2 InterpolationTimeNetTicks + 2 TargetCommandSlack + 3 syncing
+                expectedTickDiffBetweenInterpolatedPredicted += 1; // since we're doing one more tick after copying originalLocalToWorld
+                var expectedIncrementPerTick = (expectedTickDiffBetweenInterpolatedPredicted * PredictionSwitchMoveTestSystem.k_valueIncrease) / 60f; // we expect to move by this much to catch up to the predicted value
+                // with 1 second interpolation duration and 60 hz, it should take 60 frames to reach the target predicted position
+                // with a +1 per tick and 8 ticks of diff between interpolated pos and predicted pos, we should expect a move of 8/60 per frame to reach the target
                 {
-                    testWorld.Tick(frameTime);
-                    var nextLocalToWorld = entityManager.GetComponentData<LocalToWorld>(clientEnt);
-                    Assert.AreNotEqual(localToWorld.Value, nextLocalToWorld.Value);
-                    var childLocalToWorld = entityManager.GetComponentData<LocalToWorld>(childEnt);
-                    Assert.AreEqual(nextLocalToWorld.Value, childLocalToWorld.Value);
+                    var localToWorld = entityManager.GetComponentData<LocalToWorld>(clientEnt);
+                    var predictedTargetTransform = entityManager.GetComponentData<LocalTransform>(clientEnt);
 
-                    localToWorld = nextLocalToWorld;
+                    Assert.That(math.distance(localToWorld.Position, predictedTargetTransform.Position), Is.Not.InRange(-fuzzyEqual, fuzzyEqual), "Sanity check failed, current value shouldn't be equal to predicted value");
+                    Assert.That(math.degrees(math.angle(localToWorld.Rotation, predictedTargetTransform.Rotation)), Is.Not.InRange(-fuzzyEqual, fuzzyEqual), "Sanity check failed, current value shouldn't be equal to predicted value");
+
+                    // validate the start transform is close to original value (in interpolation mode). This is testing we don't have a regression on MTT-8430
+                    Assert.That(math.distance(localToWorld.Position, originalLocalToWorld.Position), Is.InRange(expectedIncrementPerTick - fuzzyEqual, expectedIncrementPerTick + fuzzyEqual), "Wrong expected first tick value for pos after switch smoothing lerp");
+                    Assert.That(math.degrees(math.angle(localToWorld.Rotation, originalLocalToWorld.Rotation)), Is.InRange(expectedIncrementPerTick - fuzzyEqual, expectedIncrementPerTick + fuzzyEqual), "Wrong expected first tick value for rot after switch smoothing lerp");
+                    Assert.That((localToWorld.Position - originalLocalToWorld.Position).x, Is.InRange(expectedIncrementPerTick - fuzzyEqual, expectedIncrementPerTick + fuzzyEqual));
+                    Assert.That(localToWorld.Position.y, Is.EqualTo(originalPosParent.y));
+                    Assert.That(localToWorld.Position.z, Is.EqualTo(originalPosParent.z));
+                    Assert.That(localToWorld.Position, Is.Not.EqualTo(Vector3.zero));
+                    Assert.That(math.degrees(math.Euler(localToWorld.Rotation).x) - math.degrees(math.Euler(originalLocalToWorld.Rotation).x), Is.InRange(expectedIncrementPerTick - fuzzyEqual, expectedIncrementPerTick + fuzzyEqual));
+                    Assert.That(math.degrees(math.Euler(localToWorld.Rotation)).y, Is.InRange(originalRotation - fuzzyEqual, originalRotation + fuzzyEqual));
+                    Assert.That(math.Euler(localToWorld.Rotation).z, Is.InRange(-fuzzyEqual, +fuzzyEqual));
+
+                    for (int i = 0; i < 60; i++)
+                    {
+                        testWorld.Tick();
+                    }
+
+                    localToWorld = entityManager.GetComponentData<LocalToWorld>(clientEnt);
+
+                    // make sure we're now at the predicted target position
+                    Assert.That(localToWorld.Position, Is.EqualTo(predictedTargetTransform.Position));
+                    Assert.That(math.angle(localToWorld.Rotation, predictedTargetTransform.Rotation), Is.InRange(-fuzzyEqual, +fuzzyEqual));
+                }
+
+                {
+                    // validate that the position updates every frame and that the child and parent entity has identical LocalToWorld
+                    // and that this works with a moving predicted ghost
+
+                    // Setup
+                    {
+                        // Set it back to interpolated
+                        ghostPredictionSwitchingQueues = ref testWorld.GetSingletonRW<GhostPredictionSwitchingQueues>(firstClientWorld).ValueRW;
+                        Assert.That(entityManager.HasComponent<PredictedGhost>(clientEnt), Is.True, "Sanity check failed, the entity should be marked as interpolated now");
+                        ghostPredictionSwitchingQueues.ConvertToInterpolatedQueue.Enqueue(new ConvertPredictionEntry
+                        {
+                            TargetEntity = clientEnt,
+                            TransitionDurationSeconds = 0f,
+                        });
+                        for (int i = 0; i < 16; i++)
+                        {
+                            testWorld.Tick();
+                        }
+                    }
+                    {
+                        // Set it to predicted for following test step
+                        ghostPredictionSwitchingQueues = ref testWorld.GetSingletonRW<GhostPredictionSwitchingQueues>(firstClientWorld).ValueRW;
+                        Assert.That(entityManager.HasComponent<PredictedGhost>(clientEnt), Is.Not.True, "Sanity check failed, the entity should be marked as interpolated now");
+
+                        ghostPredictionSwitchingQueues.ConvertToPredictedQueue.Enqueue(new ConvertPredictionEntry
+                        {
+                            TargetEntity = clientEnt,
+                            TransitionDurationSeconds = 1f,
+                        });
+                    }
+
+                    // allow movements
+                    PredictionSwitchMoveTestSystem.SkipOneOfTwo = true;
+                    PredictionSwitchMoveTestSystem.TickFreeze = NetworkTick.Invalid;
+
+                    testWorld.Tick(); // converting and predicting
+                    
+                    var oldLocalToWorld = entityManager.GetComponentData<LocalToWorld>(clientEnt);
+                    
+                    // Test
+
+                    for (int i = 0; i < 60; ++i)
+                    {
+                        testWorld.Tick();
+                        var nextLocalToWorld = entityManager.GetComponentData<LocalToWorld>(clientEnt);
+                        Assert.AreNotEqual(oldLocalToWorld.Value, nextLocalToWorld.Value, $"i is {i}");
+                        var childLocalToWorld = entityManager.GetComponentData<LocalToWorld>(childEnt);
+                        Assert.AreEqual(nextLocalToWorld.Value, childLocalToWorld.Value, $"i is {i}");
+
+                        oldLocalToWorld = nextLocalToWorld;
+                    }
+                    PredictionSwitchMoveTestSystem.TickFreeze = testWorld.GetSingleton<NetworkTime>(testWorld.ClientWorlds[0]).ServerTick;
+
+                    testWorld.Tick(); // one last tick to make sure things stabilize
+
+                    Assert.That(math.distance(oldLocalToWorld.Position, entityManager.GetComponentData<LocalToWorld>(clientEnt).Position), Is.InRange(-fuzzyEqual, fuzzyEqual));
+                    Assert.That(math.angle(oldLocalToWorld.Rotation, entityManager.GetComponentData<LocalToWorld>(clientEnt).Rotation), Is.InRange(-fuzzyEqual, +fuzzyEqual));
                 }
             }
+        }
+
+
+        [Test]
+        public void TestSwitchAndInterpolation([Values] bool UseOwnerPredicted, [Values] bool testInterruptSwitch)
+        {
+            using var testWorld = new NetCodeTestWorld();
+            PredictionSwitchMoveTestSystem.SkipOneOfTwo = false;
+            PredictionSwitchMoveTestSystem.TickFreeze = NetworkTick.Invalid;
+
+            testWorld.Bootstrap(true, typeof(PredictionSwitchMoveTestSystem));
+
+            ref var ghostPredictionSwitchingQueues = ref InitTest(testWorld, UseOwnerPredicted, out var originalPosParent, out var firstClientWorld, out var entityManager, out var timeQuery, out var clientEnt, out var originalRotation);
+            
+            var oldLocalToWorld = entityManager.GetComponentData<LocalToWorld>(clientEnt);
+            // Set it to predicted for following test step
+            ghostPredictionSwitchingQueues = ref testWorld.GetSingletonRW<GhostPredictionSwitchingQueues>(firstClientWorld).ValueRW;
+            Assert.That(entityManager.HasComponent<PredictedGhost>(clientEnt), Is.Not.True, "Sanity check failed, the entity should be marked as interpolated now");
+
+            ghostPredictionSwitchingQueues.ConvertToPredictedQueue.Enqueue(new ConvertPredictionEntry
+            {
+                TargetEntity = clientEnt,
+                TransitionDurationSeconds = 1f,
+            });
+
+            testWorld.Tick();
+
+            Assert.That(entityManager.HasComponent<PredictedGhost>(clientEnt), Is.True, "Sanity check failed, the entity should be marked as interpolated now");
+
+            var predictedTickDiff = 7; // number of ticks between predicted and interpolated
+            var valueIncreasePerTick = PredictionSwitchMoveTestSystem.k_valueIncrease;
+            var distancePredictedToInterpolated = valueIncreasePerTick * predictedTickDiff;
+            var incrementApproximation = distancePredictedToInterpolated / 60f + valueIncreasePerTick;
+            var veryFuzzyEqual = incrementApproximation * 0.5f; // We don't care about precise movements of this double interpolation, just that it moves forward in a somewhat expected manner. So we +/- 50%
+
+            for (int i = 0; i < 59; ++i)
+            {
+                testWorld.Tick();
+                var nextLocalToWorld = entityManager.GetComponentData<LocalToWorld>(clientEnt);
+                if (testInterruptSwitch)
+                {
+                    // This is undefined, so not testing for value changes, but still shouldn't error out
+                    ghostPredictionSwitchingQueues = ref testWorld.GetSingletonRW<GhostPredictionSwitchingQueues>(firstClientWorld).ValueRW;
+                    if (i == 20)
+                    {
+                        ghostPredictionSwitchingQueues.ConvertToInterpolatedQueue.Enqueue(new ConvertPredictionEntry()
+                        {
+                            TargetEntity = clientEnt,
+                            TransitionDurationSeconds = 0.1f,
+                        });
+                    }
+                    else if (i == 30)
+                    {
+                        ghostPredictionSwitchingQueues.ConvertToPredictedQueue.Enqueue(new ConvertPredictionEntry()
+                        {
+                            TargetEntity = clientEnt,
+                            TransitionDurationSeconds = 0.1f,
+                        });
+                    }
+                    Assert.AreNotEqual(oldLocalToWorld.Value, nextLocalToWorld.Value, $"i is {i}");
+                }
+                else
+                {
+                    // we expect the ghost to move at +PredictionSwitchMoveTestSystem.k_valueIncrease per 2 ticks.
+                    // with a +1 per tick and 8 ticks of diff between interpolated pos and predicted pos, we should expect a move of 8/60 per frame to reach the target
+                    Assert.That((nextLocalToWorld.Position - oldLocalToWorld.Position).x, Is.InRange(incrementApproximation - veryFuzzyEqual, incrementApproximation + veryFuzzyEqual), $"i is {i}");
+                }
+
+                oldLocalToWorld = nextLocalToWorld;
+            }
+
+            testWorld.Tick();
+            // we're done switching, increment should be simple expected k_valueIncrease
+            Assert.That((entityManager.GetComponentData<LocalToWorld>(clientEnt).Position - oldLocalToWorld.Position).x, Is.EqualTo(valueIncreasePerTick));
         }
     }
 }

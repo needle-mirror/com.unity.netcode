@@ -169,9 +169,7 @@ namespace Unity.NetCode.Tests
         {
             using (var testWorld = new NetCodeTestWorld())
             {
-                testWorld.TestSpecificAdditionalSystems.Add(typeof(HybridComponentWeWillOverrideDefaultVariantSystem));
-
-                testWorld.Bootstrap(true);
+                testWorld.Bootstrap(true, typeof(HybridComponentWeWillOverrideDefaultVariantSystem));
 
                 var gameObject0 = new GameObject();
                 // SupportedGhostModes=All DefaultGhostMode=Interpolated
@@ -253,11 +251,10 @@ namespace Unity.NetCode.Tests
                 CheckComponent(testWorld.ServerWorld, ComponentType.ReadOnly<AllComponentData>(), 3);
                 CheckComponent(testWorld.ServerWorld, ComponentType.ReadOnly<AllPredictedComponentData>(), 3);
 
-                float frameTime = 1.0f / 60.0f;
-                testWorld.Connect(frameTime);
+                testWorld.Connect();
                 testWorld.GoInGame();
                 for (int i = 0; i < 64; ++i)
-                    testWorld.Tick(frameTime);
+                    testWorld.Tick();
 
 #if !UNITY_DISABLE_MANAGED_COMPONENTS
                 CheckComponent(testWorld.ClientWorlds[0], ComponentType.ReadOnly<HybridComponentWeWillOverride>(), 1);

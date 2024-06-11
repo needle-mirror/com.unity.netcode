@@ -213,16 +213,16 @@ namespace Unity.NetCode.Tests
             }
         }
 
-        static public Entity LoadSubSceneAsync(World world, in NetCodeTestWorld testWorld, Hash128 subSceneGUID, float frameTime, int maxTicks=256)
+        public static Entity LoadSubSceneAsync(World world, in NetCodeTestWorld testWorld, Hash128 subSceneGUID)
         {
             WaitUntilSceneEntityPresent(subSceneGUID, world);
             var subSceneEntity = SceneSystem.LoadSceneAsync(world.Unmanaged, subSceneGUID, new SceneSystem.LoadParameters
             {
                 Flags = 0
             });
-            for (int i = 0; i < maxTicks; ++i)
+            for (int i = 0; i < 256; ++i)
             {
-                testWorld.Tick(frameTime);
+                testWorld.Tick();
                 if(SceneSystem.IsSceneLoaded(world.Unmanaged, subSceneEntity))
                     return subSceneEntity;
             }

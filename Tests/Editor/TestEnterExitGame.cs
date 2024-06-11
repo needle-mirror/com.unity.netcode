@@ -1,12 +1,8 @@
-using System;
 using System.IO;
 using NUnit.Framework;
 using Unity.Collections;
 using Unity.Entities;
-using Unity.NetCode.PrespawnTests;
 using Unity.Scenes;
-using UnityEditor;
-using UnityEngine;
 using Object = UnityEngine.Object;
 
 namespace Unity.NetCode.Tests
@@ -35,8 +31,7 @@ namespace Unity.NetCode.Tests
                 testWorld.CreateWorlds(true, numClients);
                 //Stream the sub scene in
                 SubSceneHelper.LoadSubSceneInWorlds(testWorld);
-                float frameTime = 1.0f / 60.0f;
-                testWorld.Connect(frameTime);
+                testWorld.Connect();
                 var firstTimeJoinStats = new uint[testWorld.ClientWorlds.Length * 3];
                 var rejoinStats = new uint[testWorld.ClientWorlds.Length * 3];
                 testWorld.GoInGame();
@@ -45,7 +40,7 @@ namespace Unity.NetCode.Tests
                 for(int i=0;i<32;++i)
                 {
                     ++firstJoinTickCount;
-                    testWorld.Tick(frameTime);
+                    testWorld.Tick();
                     for (int client = 0; client < testWorld.ClientWorlds.Length; ++client)
                     {
                         var netStats = testWorld.ClientWorlds[client].EntityManager.GetComponentData<GhostStatsCollectionSnapshot>(testWorld.TryGetSingletonEntity<GhostStatsCollectionSnapshot>(testWorld.ClientWorlds[client])).Data;
@@ -69,7 +64,7 @@ namespace Unity.NetCode.Tests
                     UnloadSubScene(testWorld.ClientWorlds[client]);
                     //Run some ticks to reset all the internal data structure.
                     for (int k = 0; k < 6; ++k)
-                        testWorld.Tick(frameTime);
+                        testWorld.Tick();
                     //Verify that all the mappings are empty
                     var netStats = testWorld.ClientWorlds[client].EntityManager.GetComponentData<GhostStatsCollectionSnapshot>(testWorld.TryGetSingletonEntity<GhostStatsCollectionSnapshot>(testWorld.ClientWorlds[client])).Data;
                     var recvGhostMapSingleton = testWorld.TryGetSingletonEntity<SpawnedGhostEntityMap>(testWorld.ClientWorlds[client]);
@@ -87,7 +82,7 @@ namespace Unity.NetCode.Tests
                     for(int k=0;k<32;++k)
                     {
                         ++rejoinTickCount;
-                        testWorld.Tick(frameTime);
+                        testWorld.Tick();
                         netStats = testWorld.ClientWorlds[client].EntityManager.GetComponentData<GhostStatsCollectionSnapshot>(testWorld.TryGetSingletonEntity<GhostStatsCollectionSnapshot>(testWorld.ClientWorlds[client])).Data;
                         if (netStats.Length == 10)
                         {
@@ -119,7 +114,7 @@ namespace Unity.NetCode.Tests
                     UnloadSubScene(testWorld.ClientWorlds[i]);
                 //Run at least one tick for proper reset of all the systems
                 for (int k = 0; k < 4; ++k)
-                    testWorld.Tick(frameTime);
+                    testWorld.Tick();
                 //What I want to check:
                 // 1 - all data is clean up on the server
                 // 2- no prespawn data present
@@ -155,7 +150,7 @@ namespace Unity.NetCode.Tests
                 for (int i = 0; i < 16; ++i)
                 {
                     ++rejoinTickCount;
-                    testWorld.Tick(frameTime);
+                    testWorld.Tick();
                     for (int client = 0; client < testWorld.ClientWorlds.Length; ++client)
                     {
                         var netStats = testWorld.ClientWorlds[client].EntityManager.GetComponentData<GhostStatsCollectionSnapshot>(testWorld.TryGetSingletonEntity<GhostStatsCollectionSnapshot>(testWorld.ClientWorlds[client])).Data;

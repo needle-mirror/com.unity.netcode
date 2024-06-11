@@ -223,7 +223,7 @@ namespace Unity.NetCode
 #if NETCODE_DEBUG
             m_PrefabNamesFromEntity = state.GetComponentLookup<PrefabDebugName>(true);
 #endif
-            m_EnableLoggingFromEntity = state.GetComponentLookup<EnablePacketLogging>(true);
+            m_EnableLoggingFromEntity = state.GetComponentLookup<EnablePacketLogging>(false);
             m_GhostComponentCollectionFromEntity = state.GetBufferLookup<GhostComponentSerializer.State>(true);
             m_GhostTypeCollectionFromEntity = state.GetBufferLookup<GhostCollectionPrefabSerializer>(true);
             m_GhostComponentIndexFromEntity = state.GetBufferLookup<GhostCollectionComponentIndex>(true);
@@ -321,6 +321,7 @@ namespace Unity.NetCode
             [ReadOnly]public ComponentLookup<NetworkId> NetworkIdFromEntity;
             [ReadOnly]public ComponentLookup<GhostOwner> GhostOwnerFromEntity;
             public NativeParallelHashMap<int, Entity> GhostEntityMap;
+            public NativeHashMap<GhostType, int> PendingGhostPrefabAssignment;
             public StreamCompressionModel CompressionModel;
 #if UNITY_EDITOR || NETCODE_DEBUG
             public NativeArray<uint> NetStats;
@@ -343,22 +344,13 @@ namespace Unity.NetCode
 #if NETCODE_DEBUG
             public PacketDumpLogger NetDebugPacket;
             [ReadOnly] public ComponentLookup<PrefabDebugName> PrefabNamesFromEntity;
-            [ReadOnly] public ComponentLookup<EnablePacketLogging> EnableLoggingFromEntity;
+            [NativeDisableContainerSafetyRestriction] public ComponentLookup<EnablePacketLogging> EnableLoggingFromEntity;
             public FixedString128Bytes TimestampAndTick;
             byte m_EnablePacketLogging;
 #endif
 
             public void Execute()
             {
-#if NETCODE_DEBUG
-                FixedString512Bytes debugLog = TimestampAndTick;
-                m_EnablePacketLogging = EnableLoggingFromEntity.HasComponent(Connections[0]) ? (byte)1u : (byte)0u;
-                if ((m_EnablePacketLogging == 1) && !NetDebugPacket.IsCreated)
-                {
-                    NetDebug.LogError("GhostReceiveSystem: Packet logger has not been set. Aborting.");
-                    return;
-                }
-#endif
 #if UNITY_EDITOR || NETCODE_DEBUG
                 for (int i = 0; i < NetStats.Length; ++i)
                 {
@@ -385,22 +377,15 @@ namespace Unity.NetCode
                 // Read the ghost stream
                 // find entities to spawn or destroy
                 var serverTick = new NetworkTick{SerializedData = dataStream.ReadUInt()};
+
 #if NETCODE_DEBUG
+                FixedString512Bytes debugLog = TimestampAndTick;
+                m_EnablePacketLogging = EnablePacketLogging.InitAndFetch(Connections[0], EnableLoggingFromEntity, in NetDebugPacket);
                 if (m_EnablePacketLogging == 1)
                     debugLog.Append(FixedString.Format(" ServerTick:{0}\n", serverTick.ToFixedString()));
 #endif
 
                 ref var ack = ref SnapshotAckFromEntity.GetRefRW(Connections[0]).ValueRW;
-                if (ack.LastReceivedSnapshotByLocal.IsValid)
-                {
-                    var shamt = serverTick.TicksSince(ack.LastReceivedSnapshotByLocal);
-                    if (shamt < 32)
-                        ack.ReceivedSnapshotByLocalMask <<= shamt;
-                    else
-                        ack.ReceivedSnapshotByLocalMask = 0;
-                }
-                ack.ReceivedSnapshotByLocalMask |= 1;
-
                 // Load all new prefabs
                 uint numPrefabs = dataStream.ReadPackedUInt(CompressionModel);
 #if NETCODE_DEBUG
@@ -437,6 +422,12 @@ namespace Unity.NetCode
 #endif
                         if (firstPrefab+i == ghostCollection.Length)
                         {
+                            //track pending entries to be assigned.
+                            PendingGhostPrefabAssignment.Add(type, ghostCollection.Length);
+                            //Notify that the list PendingGhostPrefabAssignment (and subsequently the ghost collection list)
+                            //has been modified.
+                            // TODO: I may achieve this also by tracking the lenght of the ghostCollection itself
+                            PendingGhostPrefabAssignment[default] = 1;
                             // This just adds the type, the prefab entity will be populated by the GhostCollectionSystem
                             ghostCollection.Add(new GhostCollectionPrefab{GhostType = type, GhostPrefab = Entity.Null, Hash = hash, Loading = GhostCollectionPrefab.LoadingState.NotLoading});
                         }
@@ -924,11 +915,11 @@ namespace Unity.NetCode
                         // The ghost entity map is out of date, clean it up
                         GhostEntityMap.Remove(ghostId);
                         if (GhostFromEntity.HasComponent(gent) && GhostFromEntity[gent].ghostType != data.TargetArch)
-                            NetDebug.LogError(FixedString.Format("Received a ghost ({0}) with an invalid ghost type {1} (expected {2})", ghostId, data.TargetArch, GhostFromEntity[gent].ghostType));
+                            NetDebug.LogError($"Received a ghost (ID {ghostId} {gent.ToFixedString()}) with an invalid ghost type {data.TargetArch} (expected {GhostFromEntity[gent].ghostType})");
                         else if (isPrespawn)
-                            NetDebug.LogError("Found a prespawn ghost that has no entity connected to it. This can happend if you unload a scene or destroy the ghost entity on the client");
+                            NetDebug.LogError($"Found a prespawn ghost (ID {ghostId} {gent.ToFixedString()}) that has no entity connected to it. This can happend if you unload a scene or destroy the ghost entity on the client");
                         else
-                            NetDebug.LogError("Found a ghost in the ghost map which does not have an entity connected to it. This can happen if you delete ghost entities on the client.");
+                            NetDebug.LogError($"Found a ghost (ID {ghostId} {gent.ToFixedString()}) in the ghost map which does not have an entity connected to it or an invalid entity. This can happen if you delete ghost entities on the client.");
                     }
                     int prespawnSceneIndex = -1;
                     if (isPrespawn)
@@ -976,7 +967,7 @@ namespace Unity.NetCode
                         }
                         if(!isPrespawn || data.BaselineTick.IsValid)
                             // If the server specifies a baseline for a ghost we do not have that is an error
-                            NetDebug.LogError($"Received baseline for a ghost we do not have ghostId={ghostId} baselineTick={data.BaselineTick} serverTick={serverTick}");
+                            NetDebug.LogError($"Received baseline for a ghost we do not have ghostId={ghostId} baselineTick={data.BaselineTick.ToFixedString()} serverTick={serverTick.ToFixedString()}");
 #if NETCODE_DEBUG
                         if (m_EnablePacketLogging == 1)
                         {
@@ -1414,9 +1405,11 @@ namespace Unity.NetCode
             ref readonly var ghostDespawnQueues = ref SystemAPI.GetSingletonRW<GhostDespawnQueues>().ValueRO;
             ref readonly var ownerPredictedQueues = ref SystemAPI.GetSingletonRW<GhostOwnerPredictedSwitchingQueue>().ValueRW;
             UpdateLookupsForReadStreamJob(ref state);
+            var ghostCollectionSingleton = SystemAPI.GetSingletonEntity<GhostCollection>();
+            var pendingAssignment = SystemAPI.GetSingletonRW<GhostCollection>().ValueRW.PendingGhostPrefabAssignment;
             var readJob = new ReadStreamJob
             {
-                GhostCollectionSingleton = SystemAPI.GetSingletonEntity<GhostCollection>(),
+                GhostCollectionSingleton = ghostCollectionSingleton,
                 GhostComponentCollectionFromEntity = m_GhostComponentCollectionFromEntity,
                 GhostTypeCollectionFromEntity = m_GhostTypeCollectionFromEntity,
                 GhostComponentIndexFromEntity = m_GhostComponentIndexFromEntity,
@@ -1432,6 +1425,7 @@ namespace Unity.NetCode
                 GhostOwnerFromEntity = m_GhostOwnerFromEntity,
                 NetworkIdFromEntity = m_NetworkIdFromEntity,
                 GhostEntityMap = m_GhostEntityMap,
+                PendingGhostPrefabAssignment = pendingAssignment,
                 CompressionModel = m_CompressionModel,
 #if UNITY_EDITOR || NETCODE_DEBUG
                 NetStats = netStats.Data.AsArray(),

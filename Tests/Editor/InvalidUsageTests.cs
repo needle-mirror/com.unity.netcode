@@ -1,15 +1,7 @@
-using System.Diagnostics;
 using NUnit.Framework;
 using Unity.Entities;
-using Unity.Networking.Transport;
-using Unity.NetCode.Tests;
-using Unity.Jobs;
 using UnityEngine;
 using UnityEngine.TestTools;
-using Unity.NetCode;
-using Unity.Mathematics;
-using Unity.Transforms;
-using Unity.Collections;
 using System.Text.RegularExpressions;
 
 namespace Unity.NetCode.Tests
@@ -62,20 +54,19 @@ namespace Unity.NetCode.Tests
                 var serverEnt = testWorld.TryGetSingletonEntity<GhostOwner>(testWorld.ServerWorld);
                 testWorld.ServerWorld.EntityManager.SetComponentData(serverEnt, new GhostOwner{NetworkId = 42});
 
-                float frameTime = 1.0f / 60.0f;
                 // Connect and make sure the connection could be established
-                testWorld.Connect(frameTime);
+                testWorld.Connect();
 
                 // Go in-game
                 testWorld.GoInGame();
 
-                LogAssert.Expect(LogType.Error, new Regex("Found a ghost in the ghost map which does not have an entity connected to it. This can happen if you delete ghost entities on the client."));
+                LogAssert.Expect(LogType.Error, new Regex("Found a ghost \\(ID \\d+ Entity\\(\\d+:\\d+\\)\\) in the ghost map which does not have an entity connected to it or an invalid entity. This can happen if you delete ghost entities on the client."));
                 LogAssert.Expect(LogType.Error, new Regex("Ghost ID \\d+ has already been added to the spawned ghost map"));
                 // Let the game run for a bit so the ghosts are spawned on the client
                 // There will be a bunch of "Received baseline for a ghost we do not have ghostId=0 baselineTick=1 serverTick=2" messages, ignore them
                 LogAssert.ignoreFailingMessages = true;
                 for (int i = 0; i < 64; ++i)
-                    testWorld.Tick(frameTime);
+                    testWorld.Tick();
                 LogAssert.ignoreFailingMessages = false;
 
                 // Validate that the ghost was deleted on the cliet
@@ -89,7 +80,7 @@ namespace Unity.NetCode.Tests
                 // Delete on server
                 testWorld.ServerWorld.EntityManager.DestroyEntity(serverEnt);
                 for (int i = 0; i < 5; ++i)
-                    testWorld.Tick(frameTime);
+                    testWorld.Tick();
                 clientEnt = testWorld.TryGetSingletonEntity<GhostOwner>(testWorld.ClientWorlds[0]);
                 Assert.AreEqual(Entity.Null, clientEnt);
             }
@@ -111,9 +102,8 @@ namespace Unity.NetCode.Tests
 
                 testWorld.SpawnOnServer(ghostGameObject);
 
-                float frameTime = 1.0f / 60.0f;
                 // Connect and make sure the connection could be established
-                testWorld.Connect(frameTime);
+                testWorld.Connect();
 
                 // Go in-game
                 testWorld.GoInGame();
@@ -121,7 +111,7 @@ namespace Unity.NetCode.Tests
                 LogAssert.Expect(LogType.Error, new Regex("Trying to spawn an owner predicted ghost which does not have a valid owner set. When using owner prediction you must set GhostOwner.NetworkId when spawning the ghost. If the ghost is not owned by a player you can set NetworkId to -1."));
                 // Let the game run for a bit so the ghosts are spawned on the client
                 for (int i = 0; i < 4; ++i)
-                    testWorld.Tick(frameTime);
+                    testWorld.Tick();
             }
         }
     }

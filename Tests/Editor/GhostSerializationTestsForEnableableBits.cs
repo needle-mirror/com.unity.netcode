@@ -28,13 +28,11 @@ namespace Unity.NetCode.Tests
 
     public class GhostSerializationTestsForEnableableBits
     {
-        float frameTime = 1.0f / 60.0f;
-
         void TickMultipleFrames(int numTicksToProperlyReplicate)
         {
             for (int i = 0; i < numTicksToProperlyReplicate; ++i)
             {
-                m_TestWorld.Tick(frameTime);
+                m_TestWorld.Tick();
             }
         }
 
@@ -1090,17 +1088,18 @@ namespace Unity.NetCode.Tests
             switch (sendForChildrenTestCase)
             {
                 case SendForChildrenTestCase.YesViaExplicitVariantRule:
-                    m_TestWorld.TestSpecificAdditionalSystems.Add(typeof(ForceSerializeSystem));
+                    m_TestWorld.Bootstrap(true, typeof(ForceSerializeSystem));
                     break;
                 case SendForChildrenTestCase.YesViaExplicitVariantOnlyAllowChildrenToReplicateRule:
-                    m_TestWorld.TestSpecificAdditionalSystems.Add(typeof(ForceSerializeOnlyChildrenSystem));
+                    m_TestWorld.Bootstrap(true, typeof(ForceSerializeOnlyChildrenSystem));
                     break;
                 case SendForChildrenTestCase.NoViaExplicitDontSerializeVariantRule:
-                    m_TestWorld.TestSpecificAdditionalSystems.Add(typeof(ForceDontSerializeSystem));
+                    m_TestWorld.Bootstrap(true, typeof(ForceDontSerializeSystem));
+                    break;
+                default:
+                    m_TestWorld.Bootstrap(true);
                     break;
             }
-
-            m_TestWorld.Bootstrap(true);
 
             // Create ghosts:
             var prefabCount = 1;
@@ -1213,7 +1212,7 @@ namespace Unity.NetCode.Tests
                 }
             }
 
-            m_TestWorld.Connect(frameTime);
+            m_TestWorld.Connect();
             m_TestWorld.GoInGame();
 
             // Perform test:

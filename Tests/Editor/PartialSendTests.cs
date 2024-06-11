@@ -1,13 +1,6 @@
 using NUnit.Framework;
 using Unity.Entities;
-using Unity.Networking.Transport;
-using Unity.NetCode.Tests;
-using Unity.Jobs;
 using UnityEngine;
-using Unity.NetCode;
-using Unity.Mathematics;
-using Unity.Transforms;
-using Unity.Collections;
 
 namespace Unity.NetCode.Tests
 {
@@ -83,9 +76,8 @@ namespace Unity.NetCode.Tests
                 testWorld.ServerWorld.EntityManager.SetComponentData(serverEnt, new GhostInterpolatedOnly{Value = 1});
                 testWorld.ServerWorld.EntityManager.SetComponentData(serverEnt, new GhostOwner{NetworkId = predicted ? 1 : 2});
 
-                float frameTime = 1.0f / 60.0f;
                 // Connect and make sure the connection could be established
-                testWorld.Connect(frameTime);
+                testWorld.Connect();
 
                 // Check the clients network id
                 var serverCon = testWorld.TryGetSingletonEntity<NetworkId>(testWorld.ServerWorld);
@@ -97,7 +89,7 @@ namespace Unity.NetCode.Tests
 
                 // Let the game run for a bit so the ghosts are spawned on the client
                 for (int i = 0; i < 64; ++i)
-                    testWorld.Tick(frameTime);
+                    testWorld.Tick();
 
                 // Check that the client world has the right thing and value
                 var clientEnt = testWorld.TryGetSingletonEntity<GhostOwner>(testWorld.ClientWorlds[0]);

@@ -26,23 +26,66 @@ namespace Unity.NetCode
             //DriverStore = driverStore;
             //ConcurrentDriverStore = driverStore.ToConcurrent();
             LastEndPoint = endPoint;
-            DriverState = (int) NetworkStreamReceiveSystem.DriverState.Default;
+            DriverState = NetworkStreamReceiveSystem.DriverState.Default;
             m_NumNetworkIds = numIds;
             m_FreeNetworkIds = freeIds;
             ConnectionEventsList = connectionEventsList;
             ConnectionEventsForTick = connectionEventsForTick;
+            RequireConnectionApprovalInternal = 0;
         }
 
         private void* m_DriverPointer;
-        internal ref NetworkDriverStore DriverStore => ref UnsafeUtility.AsRef<Pointers>(m_DriverPointer).DriverStore;
+
+        /// <summary>
+        /// A pointer to the underlying <see cref="DriverStore"/>, giving access to raw Transport APIs.<br/>
+        /// <b>Warning: You MUST fetch <see cref="NetworkStreamDriver"/> as RW access when performing Driver operations!</b>
+        /// </summary>
+        /// <remarks>
+        /// <see cref="NetworkDriverStore"/> has specific usage patterns (see for loop use-cases below). Use with care!<br/>
+        /// Copying such a large struct is expensive, prefer <code>ref var driverStore = ref networkStreamDriver.RefRW.DriverStore;</code> syntax.
+        /// </remarks>
+        public ref NetworkDriverStore DriverStore => ref UnsafeUtility.AsRef<Pointers>(m_DriverPointer).DriverStore;
         internal ref ConcurrentDriverStore ConcurrentDriverStore => ref UnsafeUtility.AsRef<Pointers>(m_DriverPointer).ConcurrentDriverStore;
 
-        internal NetworkEndpoint LastEndPoint;
+        /// <summary>
+        /// Convenience. Records the DriverStore used in the latest call to <see cref="Listen"/> or <see cref="Connect"/>.
+        /// </summary>
+        /// <remarks>
+        /// Note that the actual Endpoint used by each <see cref="NetworkStreamDriver"/> may be different,
+        /// due to <see cref="IPCNetworkInterface"/>.<para/>
+        /// See <see cref="SanitizeConnectAddress"/> and <see cref="SanitizeListenAddress"/>.
+        /// </remarks>
+        public NetworkEndpoint LastEndPoint { get; internal set; }
 
-        internal int DriverState{get; private set;}
+        internal NetworkStreamReceiveSystem.DriverState DriverState { get; private set; }
 
         private NativeReference<int> m_NumNetworkIds;
         private NativeQueue<int> m_FreeNetworkIds;
+
+        /// <summary>
+        /// Require all incoming connections to all the drivers in the driver store to go through the connection
+        /// approval process. If turned off the connections are immediately approved and go from connecting to
+        /// the handshake state.
+        /// <br/>Server-only. Always false on the client.
+        /// </summary>
+        public bool RequireConnectionApproval
+        {
+            get => RequireConnectionApprovalInternal == 1;
+            set
+            {
+                for (var i = DriverStore.FirstDriver; i <= DriverStore.LastDriver; ++i)
+                {
+                    ref readonly var driverInstance = ref DriverStore.GetDriverInstanceRO(i);
+                    if (driverInstance.driver.IsCreated && driverInstance.driver.Bound)
+                    {
+                        UnityEngine.Debug.LogError("Attempting to set RequireConnectionApproval while network driver has already been started. This must be done before connecting/listening.");
+                        return;
+                    }
+                }
+                RequireConnectionApprovalInternal = value ? (byte)1 : (byte)0;
+            }
+        }
+        internal byte RequireConnectionApprovalInternal;
 
         /// <summary>
         ///     Stores all <see cref="NetCodeConnectionEvent"/>'s raised by Netcode for this <see cref="SimulationSystemGroup"/> tick.
@@ -140,7 +183,7 @@ namespace Unity.NetCode
                     errors.Add(i);
                     continue;
                 }
-                var driverInstance = DriverStore.GetDriverInstance(i);
+                ref var driverInstance = ref DriverStore.GetDriverInstanceRW(i);
                 if(driverInstance.driver.Bind(tempAddress) != 0 || driverInstance.driver.Listen() != 0)
                     errors.Add(i);
             }
@@ -165,15 +208,18 @@ namespace Unity.NetCode
         /// <exception cref="InvalidOperationException">Throw an exception if the driver is not created or if multiple drivers are register</exception>
         public Entity Connect(EntityManager entityManager, NetworkEndpoint endpoint, Entity ent = default)
         {
+            var netDebugQuery = entityManager.CreateEntityQuery(new EntityQueryBuilder(Allocator.Temp).WithAll<NetDebug>());
+            var netDebug = netDebugQuery.GetSingleton<NetDebug>();
+
             var isIpEndpoint = endpoint.Family == NetworkFamily.Ipv4 || endpoint.Family == NetworkFamily.Ipv6;
             if (!endpoint.IsValid || (isIpEndpoint && endpoint.Port == 0))
             {
                 //Can't connect to a any port. This must be a valid address
-                UnityEngine.Debug.LogError($"Trying to connect to the address {endpoint.ToFixedString()} that has port == 0. For connection, a port !=0 is required");
+                netDebug.LogError($"Trying to connect to the address {endpoint.ToFixedString()} that has port == 0. For connection, a port !=0 is required");
                 return default;
             }
 
-            //Still storing the last connecting andpoint as it passed
+            //Still storing the last connecting endpoint as it passed
             LastEndPoint = endpoint;
 
             if (ent == Entity.Null)
@@ -192,14 +238,32 @@ namespace Unity.NetCode
 #if UNITY_EDITOR || !UNITY_CLIENT
             endpoint = SanitizeConnectAddress(endpoint, DriverStore.FirstDriver);
 #endif
-            var connection = DriverStore.GetNetworkDriver(NetworkDriverStore.FirstDriverId).Connect(endpoint);
-            entityManager.AddComponentData(ent, new NetworkStreamConnection{Value = connection, DriverId = 1, CurrentState = ConnectionState.State.Unknown});
+            ref var driver = ref DriverStore.GetDriverRW(NetworkDriverStore.FirstDriverId);
+            var connection = driver.Connect(endpoint);
+            var state = driver.GetConnectionState(connection).ToNetcodeState(hasHandshaked: false, hasApproval: false);
+            entityManager.AddComponentData(ent, new NetworkStreamConnection
+            {
+                Value = connection,
+                DriverId = 1,
+                CurrentState = state,
+                CurrentStateDirty = true, // Delay the `NetCodeConnectionEvent` for `Connecting` by up to 1 frame,
+                                          // so that it gets created and destroyed in line with the others.
+            });
+            if (entityManager.HasComponent<ConnectionState>(ent))
+            {
+                entityManager.SetComponentData(ent, new ConnectionState()
+                {
+                    CurrentState = state
+                });
+            }
             entityManager.AddComponentData(ent, new NetworkSnapshotAck());
             entityManager.AddComponentData(ent, new CommandTarget());
+            entityManager.AddBuffer<OutgoingRpcDataStreamBuffer>(ent);
             entityManager.AddBuffer<IncomingRpcDataStreamBuffer>(ent);
             entityManager.AddBuffer<OutgoingCommandDataStreamBuffer>(ent);
             entityManager.AddBuffer<IncomingSnapshotDataStreamBuffer>(ent);
             entityManager.AddBuffer<LinkedEntityGroup>(ent).Add(new LinkedEntityGroup{Value = ent});
+            netDebug.DebugLog($"[{entityManager.WorldUnmanaged.Name}][Connection] Connect called: Connection={connection.ToFixedString()}, State={state}.");
             return ent;
         }
 
@@ -219,8 +283,8 @@ namespace Unity.NetCode
         /// </remarks>
         public NetworkEndpoint GetRemoteEndPoint(NetworkStreamConnection connection)
         {
-            var driver = DriverStore.GetNetworkDriver(connection.DriverId);
-
+            // TODO - Fetch as readonly when inner methods are marked as readonly (to prevent copy).
+            ref var driver = ref DriverStore.GetDriverRW(connection.DriverId);
             if (driver.CurrentSettings.TryGet(out RelayNetworkParameter relayParams))
                 return relayParams.ServerData.Endpoint;
             return driver.GetRemoteEndpoint(connection.Value);
@@ -235,7 +299,8 @@ namespace Unity.NetCode
         /// </returns>
         public bool UseRelay(NetworkStreamConnection connection)
         {
-            var driver = DriverStore.GetNetworkDriver(connection.DriverId);
+            // TODO - Fetch as readonly when inner methods are marked as readonly (to prevent copy).
+            ref var driver = ref DriverStore.GetDriverRW(connection.DriverId);
             return driver.CurrentSettings.TryGet(out RelayNetworkParameter _);
         }
 
@@ -256,11 +321,12 @@ namespace Unity.NetCode
         /// When multiple drivers exist, e.g. when using both IPC and Socket connection, multiple drivers will be available
         /// in the <see cref="NetworkDriverStore"/>.
         /// </summary>
-        /// <param name="driverId">Id of the driver. See <see cref="NetworkDriverStore.GetNetworkDriver"/></param>
+        /// <param name="driverId">Id of the driver. See <see cref="NetworkDriverStore.GetDriverRO"/>.</param>
         /// <returns>The local endpoint of the driver.</returns>
         public NetworkEndpoint GetLocalEndPoint(int driverId)
         {
-            return DriverStore.GetNetworkDriver(driverId).GetLocalEndpoint();
+            // TODO - Fetch as readonly when inner methods are marked as readonly (to prevent copy).
+            return DriverStore.GetDriverRW(driverId).GetLocalEndpoint();
         }
 
         /// <summary>
@@ -286,7 +352,7 @@ namespace Unity.NetCode
             driverStoreState.FreeList = m_FreeNetworkIds.ToArray(Allocator.Persistent);
             m_FreeNetworkIds.Clear();
 
-            DriverState = (int) NetworkStreamReceiveSystem.DriverState.Migrating;
+            DriverState = NetworkStreamReceiveSystem.DriverState.Migrating;
             return driverStoreState;
         }
     }

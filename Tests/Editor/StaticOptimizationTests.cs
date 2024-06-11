@@ -1,14 +1,8 @@
 using NUnit.Framework;
 using Unity.Entities;
-using Unity.Networking.Transport;
-using Unity.NetCode.Tests;
-using Unity.Jobs;
 using UnityEngine;
-using Unity.NetCode;
-using Unity.Mathematics;
 using Unity.Transforms;
 using Unity.Collections;
-using System.Collections.Generic;
 
 namespace Unity.NetCode.Tests
 {
@@ -40,7 +34,6 @@ namespace Unity.NetCode.Tests
 
     public class StaticOptimizationTests
     {
-        const float frameTime = 1.0f / 60.0f;
         void SetupBasicTest(NetCodeTestWorld testWorld, int entitiesToSpawn = 1)
         {
             var ghostGameObject = new GameObject();
@@ -59,14 +52,14 @@ namespace Unity.NetCode.Tests
             }
 
             // Connect and make sure the connection could be established
-            testWorld.Connect(frameTime);
+            testWorld.Connect();
 
             // Go in-game
             testWorld.GoInGame();
 
             // Let the game run for a bit so the ghosts are spawned on the client
             for (int i = 0; i < 16; ++i)
-                testWorld.Tick(frameTime);
+                testWorld.Tick();
         }
         [Test]
         public void StaticGhostsAreNotSent()
@@ -94,7 +87,7 @@ namespace Unity.NetCode.Tests
 
                 // Run a bit longer
                 for (int i = 0; i < 16; ++i)
-                    testWorld.Tick(frameTime);
+                    testWorld.Tick();
                 // Verify that we did not get any new snapshot
                 for (int i = 0; i < clientEntities.Length; ++i)
                 {
@@ -134,7 +127,7 @@ namespace Unity.NetCode.Tests
 
                 // Run a bit longer
                 for (int i = 0; i < 16; ++i)
-                    testWorld.Tick(frameTime);
+                    testWorld.Tick();
                 // Verify that we did not get any new snapshot
                 for (int i = 0; i < clientEntities.Length; ++i)
                 {
@@ -165,7 +158,7 @@ namespace Unity.NetCode.Tests
 
                 // Run a bit longer
                 for (int i = 0; i < 16; ++i)
-                    testWorld.Tick(frameTime);
+                    testWorld.Tick();
 
                 Assert.AreEqual(42, clientEntityManager.GetComponentData<GhostOwner>(clientEnt).NetworkId);
             }
@@ -191,7 +184,7 @@ namespace Unity.NetCode.Tests
 
                 // Run a bit longer
                 for (int i = 0; i < 16; ++i)
-                    testWorld.Tick(frameTime);
+                    testWorld.Tick();
 
                 // Verify taht we did not get any new snapshot
                 clientSnapshotBuffer = clientEntityManager.GetBuffer<SnapshotDataBuffer>(clientEnt);
@@ -200,11 +193,11 @@ namespace Unity.NetCode.Tests
 
                 // Run one tick with modification
                 StaticOptimizationTestSystem.s_ModifyNetworkId = 0;
-                testWorld.Tick(frameTime);
+                testWorld.Tick();
                 StaticOptimizationTestSystem.s_ModifyNetworkId = 1;
 
                 for (int i = 0; i < 16; ++i)
-                    testWorld.Tick(frameTime);
+                    testWorld.Tick();
 
                 // Verify taht we did not get any new snapshot
                 clientSnapshotBuffer = clientEntityManager.GetBuffer<SnapshotDataBuffer>(clientEnt);
@@ -213,7 +206,7 @@ namespace Unity.NetCode.Tests
                 Assert.AreNotEqual(lastSnapshot, newLastSnapshot);
 
                 for (int i = 0; i < 16; ++i)
-                    testWorld.Tick(frameTime);
+                    testWorld.Tick();
 
                 // Verify that the snapshot stayed static at the new position
                 clientSnapshotBuffer = clientEntityManager.GetBuffer<SnapshotDataBuffer>(clientEnt);
@@ -239,7 +232,7 @@ namespace Unity.NetCode.Tests
 
                 // Get the changes across to the client
                 for (int i = 0; i < 16; ++i)
-                    testWorld.Tick(frameTime);
+                    testWorld.Tick();
 
                 var clientEntityManager = testWorld.ClientWorlds[0].EntityManager;
                 using var clientQuery = clientEntityManager.CreateEntityQuery(ComponentType.ReadOnly<GhostOwner>());
@@ -263,7 +256,7 @@ namespace Unity.NetCode.Tests
 
                 // Run a bit longer
                 for (int i = 0; i < 16; ++i)
-                    testWorld.Tick(frameTime);
+                    testWorld.Tick();
                 // Verify that we are getting updates for the ghost
                 clientSnapshotBuffer = clientEntityManager.GetBuffer<SnapshotDataBuffer>(clientEnt);
                 clientSnapshot = clientEntityManager.GetComponentData<SnapshotData>(clientEnt);
@@ -291,7 +284,7 @@ namespace Unity.NetCode.Tests
 
                 // Get the changes across to the client
                 for (int i = 0; i < 16; ++i)
-                    testWorld.Tick(frameTime);
+                    testWorld.Tick();
 
                 var clientEntityManager = testWorld.ClientWorlds[0].EntityManager;
                 using var clientQuery = clientEntityManager.CreateEntityQuery(ComponentType.ReadOnly<GhostOwner>());
@@ -307,7 +300,7 @@ namespace Unity.NetCode.Tests
 
                 // Get the changes across to the client
                 for (int i = 0; i < 16; ++i)
-                    testWorld.Tick(frameTime);
+                    testWorld.Tick();
 
                 clientEntities = clientQuery.ToComponentDataArray<GhostOwner>(Allocator.Temp);
                 Assert.AreEqual(15, clientEntities.Length);
@@ -317,7 +310,7 @@ namespace Unity.NetCode.Tests
 
                 // Get the changes across to the client
                 for (int i = 0; i < 16; ++i)
-                    testWorld.Tick(frameTime);
+                    testWorld.Tick();
 
                 clientEntities = clientQuery.ToComponentDataArray<GhostOwner>(Allocator.Temp);
                 Assert.AreEqual(16, clientEntities.Length);

@@ -275,7 +275,7 @@ namespace Unity.NetCode
                         dynamicDataOffset = helper.dynamicSnapshotDataOffset,
                         dynamicDataCapacity = helper.dynamicSnapshotCapacity,
                         ghostChunkComponentTypes = (IntPtr)helper.ghostChunkComponentTypesPtr,
-                        linkedEntityGroupTypeHandle = helper.linkedEntityGroupType
+                        linkedEntityGroupTypeHandle = helper.linkedEntityGroupType,
                         // irrelevant data
                         // networkId = default,
                         // hasPreserializedData = default,

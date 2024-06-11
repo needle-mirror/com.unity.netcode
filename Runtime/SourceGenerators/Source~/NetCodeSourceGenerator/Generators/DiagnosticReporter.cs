@@ -64,7 +64,7 @@ namespace Unity.NetCode.Generators
         public void LogError(string message, Location location)
         {
             context.ReportDiagnostic(Diagnostic.Create(DiagnosticHelper.CreateErrorDescriptor(message), location));
-            Debug.LogError(message);
+            Debug.LogError(message, location.ToString());
         }
         public void LogError(string message,
             [System.Runtime.CompilerServices.CallerFilePath]
@@ -75,7 +75,7 @@ namespace Unity.NetCode.Generators
             context.ReportDiagnostic(Diagnostic.Create(
                 DiagnosticHelper.CreateErrorDescriptor(message),
                 DiagnosticHelper.GenerateExtenalLocation(sourceFilePath, sourceLineNumber)));
-            Debug.LogError(message);
+            Debug.LogError(message, $"{sourceFilePath}:{sourceLineNumber}");
         }
         public void LogException(Exception e,
             [System.Runtime.CompilerServices.CallerFilePath]

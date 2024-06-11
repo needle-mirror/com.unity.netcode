@@ -3,6 +3,7 @@ using Unity.Entities;
 using Unity.Mathematics;
 using Unity.NetCode.LowLevel.Unsafe;
 using Unity.Networking.Transport.Utilities;
+using Unity.Profiling;
 
 namespace Unity.NetCode
 {
@@ -71,7 +72,7 @@ namespace Unity.NetCode
         /// </summary>
         /// <param name="buffer"></param>
         /// <returns>A valid tick if the buffer is not empty, otherwise 0.</returns>
-        internal unsafe NetworkTick GetLatestTick(in DynamicBuffer<SnapshotDataBuffer> buffer)
+        readonly internal unsafe NetworkTick GetLatestTick(in DynamicBuffer<SnapshotDataBuffer> buffer)
         {
             if (buffer.Length == 0)
                 return NetworkTick.Invalid;
@@ -84,7 +85,7 @@ namespace Unity.NetCode
         /// </summary>
         /// <param name="buffer"></param>
         /// <returns>a valid tick if the buffer is not empty, 0 otherwise </returns>
-        internal unsafe NetworkTick GetOldestTick(in DynamicBuffer<SnapshotDataBuffer> buffer)
+        readonly internal unsafe NetworkTick GetOldestTick(in DynamicBuffer<SnapshotDataBuffer> buffer)
         {
             if (buffer.Length == 0)
                 return NetworkTick.Invalid;
@@ -139,8 +140,8 @@ namespace Unity.NetCode
         /// <param name="MaxExtrapolationTicks"></param>
         /// <returns>True if at least one snapshot has been received and if its tick is less or equal the current target tick.</returns>
         internal unsafe bool GetDataAtTick(NetworkTick targetTick, int predictionOwnerOffset,
-            int localNetworkId,
-            float targetTickFraction, in DynamicBuffer<SnapshotDataBuffer> buffer, out DataAtTick data, uint MaxExtrapolationTicks)
+            int localNetworkId, float targetTickFraction, in DynamicBuffer<SnapshotDataBuffer> buffer,
+            out DataAtTick data, uint MaxExtrapolationTicks)
         {
             data = default;
             if (buffer.Length == 0)
@@ -155,11 +156,13 @@ namespace Unity.NetCode
                 targetTick.Decrement();
             // Loop from latest available to oldest available snapshot
             int slot;
+            var bufferData = (byte*)buffer.GetUnsafeReadOnlyPtr();
             for (slot = 0; slot < numBuffers; ++slot)
             {
                 var curIndex = (LatestIndex + GhostSystemConstants.SnapshotHistorySize - slot) % GhostSystemConstants.SnapshotHistorySize;
-                var snapshotData = (byte*)buffer.GetUnsafeReadOnlyPtr() + curIndex * SnapshotSize;
+                var snapshotData = bufferData + curIndex * SnapshotSize;
                 var tick = new NetworkTick{SerializedData = *(uint*)snapshotData};
+                //var tick = new NetworkTick{SerializedData = Ticks[curIndex]};
                 if (!tick.IsValid)
                     continue;
                 if (tick.IsNewerThan(targetTick))
@@ -174,13 +177,11 @@ namespace Unity.NetCode
                     break;
                 }
             }
-
             if (!beforeTick.IsValid)
             {
                 return false;
             }
-
-            data.SnapshotBefore = (System.IntPtr)((byte*)buffer.GetUnsafeReadOnlyPtr() + beforeIdx * SnapshotSize);
+            data.SnapshotBefore = (System.IntPtr)(bufferData + beforeIdx * SnapshotSize);
             data.Tick = beforeTick;
             data.GhostOwner = predictionOwnerOffset != 0 ? *(int*) (data.SnapshotBefore + predictionOwnerOffset) : 0;
             if (predictionOwnerOffset == 0)
@@ -199,8 +200,9 @@ namespace Unity.NetCode
                     for (++slot; slot < numBuffers; ++slot)
                     {
                         var curIndex = (LatestIndex + GhostSystemConstants.SnapshotHistorySize - slot) % GhostSystemConstants.SnapshotHistorySize;
-                        var snapshotData = (byte*)buffer.GetUnsafeReadOnlyPtr() + curIndex * SnapshotSize;
+                        var snapshotData = bufferData + curIndex * SnapshotSize;
                         var tick = new NetworkTick{SerializedData = *(uint*)snapshotData};
+                        //var tick = new NetworkTick{SerializedData = Ticks[curIndex]};
                         if (!tick.IsValid)
                             continue;
                         beforeBeforeTick = tick;
@@ -211,7 +213,7 @@ namespace Unity.NetCode
                 if (beforeBeforeTick.IsValid)
                 {
                     data.AfterIdx = beforeBeforeIdx;
-                    data.SnapshotAfter = (System.IntPtr)((byte*)buffer.GetUnsafeReadOnlyPtr() + beforeBeforeIdx * SnapshotSize);
+                    data.SnapshotAfter = (System.IntPtr)(bufferData + beforeBeforeIdx * SnapshotSize);
 
                     if (targetTick.TicksSince(beforeTick) > MaxExtrapolationTicks)
                     {
@@ -234,12 +236,11 @@ namespace Unity.NetCode
             {
                 data.BeforeIdx = beforeIdx;
                 data.AfterIdx = afterIdx;
-                data.SnapshotAfter = (System.IntPtr)((byte*)buffer.GetUnsafeReadOnlyPtr() + afterIdx * SnapshotSize);
+                data.SnapshotAfter = (System.IntPtr)(bufferData + afterIdx * SnapshotSize);
                 data.InterpolationFactor = (float) (targetTick.TicksSince(beforeTick)) / (float) (afterTick.TicksSince(beforeTick));
                 if (targetTickFraction < 1)
                     data.InterpolationFactor += targetTickFraction / (float) (afterTick.TicksSince(beforeTick));
             }
-
             return true;
         }
     }

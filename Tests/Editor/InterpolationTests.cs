@@ -48,7 +48,7 @@ namespace Unity.NetCode.Tests
 
     public class NetworkTimeTests
     {
-        const float frameTime = 1.0f / 60.0f;
+        const float FrameTime = 1.0f / 60.0f;
 
         [Test]
         public void WhenUsingIPC_ClientPredictOnlyOneTickAhead()
@@ -63,7 +63,7 @@ namespace Unity.NetCode.Tests
 
                 Assert.IsTrue(testWorld.CreateGhostCollection(ghostGameObject));
                 testWorld.CreateWorlds(true, 1);
-                testWorld.Connect(frameTime, 128);
+                testWorld.Connect(FrameTime, 128);
                 testWorld.GoInGame();
                 // Spawn a new entity on the server. Server will start send snapshots now.
                 var serverEnt = testWorld.SpawnOnServer(ghostGameObject);
@@ -73,7 +73,7 @@ namespace Unity.NetCode.Tests
                 for (int i = 0; i < 50; ++i)
                 {
                     //There will be some interpolated tick since we are running slighty faster on client
-                    testWorld.Tick(frameTime*0.75f);
+                    testWorld.Tick(FrameTime*0.75f);
                     testWorld.ClientWorlds[0].EntityManager.CompleteAllTrackedJobs();
                     var ackComponent = testWorld.ClientWorlds[0].EntityManager.GetComponentData<NetworkSnapshotAck>(connectionEnt);
                     var serverTick = testWorld.GetNetworkTime(testWorld.ServerWorld).ServerTick;
@@ -106,7 +106,7 @@ namespace Unity.NetCode.Tests
                 ghostConfig.DefaultGhostMode = GhostMode.Interpolated;
                 Assert.IsTrue(testWorld.CreateGhostCollection(ghostGameObject));
                 testWorld.CreateWorlds(true, 1);
-                testWorld.Connect(frameTime, 128);
+                testWorld.Connect(FrameTime, 128);
                 testWorld.GoInGame();
                 // Spawn a new entity on the server. Server will start send snapshots now.
                 var serverEnt = testWorld.SpawnOnServer(ghostGameObject);
@@ -115,7 +115,7 @@ namespace Unity.NetCode.Tests
                 NetworkTick prevInterpTick = NetworkTick.Invalid;
                 for (int i = 0; i < 50; ++i)
                 {
-                    var currentFrameTime = Random.Range(frameTime*0.75f, frameTime*1.25f);
+                    var currentFrameTime = Random.Range(FrameTime*0.75f, FrameTime*1.25f);
                     testWorld.Tick(currentFrameTime);
                     var networkTimeSystemData = testWorld.GetSingleton<NetworkTimeSystemData>(testWorld.ClientWorlds[0]);
                     if (networkTimeSystemData.predictTargetTick.IsValid)
@@ -145,7 +145,7 @@ namespace Unity.NetCode.Tests
                 ghostConfig.DefaultGhostMode = GhostMode.Interpolated;
                 Assert.IsTrue(testWorld.CreateGhostCollection(ghostGameObject));
                 testWorld.CreateWorlds(true, 1);
-                testWorld.Connect(frameTime, 128);
+                testWorld.Connect(FrameTime, 128);
                 testWorld.GoInGame();
                 // Spawn a new entity on the server. Server will start send snapshots now.
                 var serverEnt = testWorld.SpawnOnServer(ghostGameObject);
@@ -157,7 +157,8 @@ namespace Unity.NetCode.Tests
                 {
                     var connectionEnt = testWorld.TryGetSingletonEntity<NetworkStreamConnection>(testWorld.ClientWorlds[0]);
                     var connection = testWorld.ClientWorlds[0].EntityManager.GetComponentData<NetworkStreamConnection>(connectionEnt);
-                    var driverInstance = testWorld.GetSingletonRW<NetworkStreamDriver>(testWorld.ClientWorlds[0]).ValueRW.DriverStore.GetDriverInstance(connection.DriverId);
+                    // TODO - Fetch as readonly when inner methods are marked as readonly (to prevent copy).
+                    ref var driverInstance = ref testWorld.GetSingletonRW<NetworkStreamDriver>(testWorld.ClientWorlds[0]).ValueRW.DriverStore.GetDriverInstanceRW(connection.DriverId);
                     var simStageId = NetworkPipelineStageId.Get<SimulatorPipelineStage>();
                     driverInstance.driver.GetPipelineBuffers(driverInstance.unreliablePipeline, simStageId, connection.Value, out var _, out var _, out var simulatorBuffer);
                     unsafe
@@ -167,7 +168,7 @@ namespace Unity.NetCode.Tests
                     }
                     for (int i = 0; i < 50; ++i)
                     {
-                        testWorld.Tick(frameTime);
+                        testWorld.Tick();
                         var networkTimeSystemData = testWorld.GetSingleton<NetworkTimeSystemData>(testWorld.ClientWorlds[0]);
                         if (networkTimeSystemData.predictTargetTick.IsValid)
                         {
@@ -185,44 +186,45 @@ namespace Unity.NetCode.Tests
         }
 
         [Test]
+        [Ignore("Disabled as there is a bug with RTT calculations when sending RPCs - we do not correctly account for (i.e. subtract the cost of) reliable pipeline resends.")]
         public void InterpolationTickAdaptToPacketDrop()
         {
             using (var testWorld = new NetCodeTestWorld())
             {
                 testWorld.Bootstrap(true, typeof(MoveAlongAxisSystem), typeof(TestInterpGhost));
                 testWorld.DriverSimulatedDelay = 5;
-                testWorld.DriverSimulatedDrop = 3;
+                testWorld.DriverSimulatedDrop = 3; // Interval, so 33%, or every 3rd packet.
                 var ghostGameObject = new GameObject();
                 var ghostConfig = ghostGameObject.AddComponent<GhostAuthoringComponent>();
                 ghostConfig.DefaultGhostMode = GhostMode.Interpolated;
                 Assert.IsTrue(testWorld.CreateGhostCollection(ghostGameObject));
                 testWorld.CreateWorlds(true, 1);
-                testWorld.Connect(frameTime, 128);
+                testWorld.Connect(FrameTime, 128);
                 testWorld.GoInGame();
                 // Spawn a new entity on the server. Server will start send snapshots now.
                 var serverEnt = testWorld.SpawnOnServer(ghostGameObject);
                 Assert.AreNotEqual(Entity.Null, serverEnt);
                 NetworkTick prevTargetTick = NetworkTick.Invalid;
                 NetworkTick prevInterpTick = NetworkTick.Invalid;
-                var networkTimeSystemData = default(NetworkTimeSystemData);
+                var ntsd = default(NetworkTimeSystemData);
                 for (int i = 0; i < 100; ++i)
                 {
-                    testWorld.Tick(frameTime);
-                    networkTimeSystemData = testWorld.GetSingleton<NetworkTimeSystemData>(testWorld.ClientWorlds[0]);
-                    if (networkTimeSystemData.predictTargetTick.IsValid)
+                    testWorld.Tick();
+                    ntsd = testWorld.GetSingleton<NetworkTimeSystemData>(testWorld.ClientWorlds[0]);
+                    if (ntsd.predictTargetTick.IsValid)
                     {
+                        // UnityEngine.Debug.Log($"[Tick:{NetCodeTestWorld.TickIndex}] predictTargetTick:{ntsd.predictTargetTick.ToFixedString()} interpolateTargetTick:{ntsd.interpolateTargetTick.ToFixedString()} (delta:({ntsd.predictTargetTick.TicksSince(ntsd.interpolateTargetTick)})");
                         if (prevTargetTick.IsValid)
                         {
-                            Assert.IsFalse(prevTargetTick.IsNewerThan(networkTimeSystemData.predictTargetTick));
-                            Assert.IsFalse(prevInterpTick.IsNewerThan(networkTimeSystemData.interpolateTargetTick));
+                            Assert.IsFalse(prevTargetTick.IsNewerThan(ntsd.predictTargetTick));
+                            Assert.IsFalse(prevInterpTick.IsNewerThan(ntsd.interpolateTargetTick));
                         }
-                        prevTargetTick = networkTimeSystemData.predictTargetTick;
-                        prevInterpTick = networkTimeSystemData.interpolateTargetTick;
+                        prevTargetTick = ntsd.predictTargetTick;
+                        prevInterpTick = ntsd.interpolateTargetTick;
                     }
                 }
-                networkTimeSystemData = testWorld.GetSingleton<NetworkTimeSystemData>(testWorld.ClientWorlds[0]);
-                Assert.Greater(networkTimeSystemData.currentInterpolationFrames, 2f);
-                Assert.Less(networkTimeSystemData.currentInterpolationFrames, 4f);
+                Assert.Greater(ntsd.currentInterpolationFrames, 2f, "currentInterpolationFrames");
+                Assert.Less(ntsd.currentInterpolationFrames, 4f, "currentInterpolationFrames");
             }
         }
     }

@@ -155,6 +155,8 @@ namespace Unity.NetCode.Editor
 
         public override VisualElement CreateInspectorGUI()
         {
+            if (m_Root != null) return m_Root;
+
             inspection = target as GhostAuthoringInspectionComponent;
 
             m_Root = new VisualElement();
@@ -217,8 +219,7 @@ namespace Unity.NetCode.Editor
         {
             inspection = target as GhostAuthoringInspectionComponent;
 
-            if (m_Root == null)
-                return; // Wait for CreateInspectorGUI.
+            if (m_Root == null) CreateInspectorGUI();
             GhostAuthoringInspectionComponent.forceRebuildInspector = false;
             m_ResultsPane.Clear();
 
@@ -249,7 +250,7 @@ namespace Unity.NetCode.Editor
                     "Displays the entity or entities created during Baking of this GameObject.", false);
 
                 entityHeader.AddToClassList("ghost-inspection-entity-header");
-                entityHeader.style.marginLeft = 15;
+                entityHeader.style.marginLeft = 10;
                 //entityLabel.label.AddToClassList("ghost-inspection-entity-header__label");
                 entityHeader.icon.AddToClassList("ghost-inspection-entity-header__icon");
                 entityHeader.icon.style.backgroundImage = PrefabEntityIcon;
@@ -384,8 +385,6 @@ namespace Unity.NetCode.Editor
 
         VisualElement CreateMetaDataInspector(BakedComponentItem bakedComponent)
         {
-            var tooltip = $"NetCode meta data for the `{bakedComponent.fullname}` component.";
-
             static OverrideTracking CreateOverrideTracking(BakedComponentItem bakedComponentItem, VisualElement insertIntoOverrideTracking)
             {
                 return new OverrideTracking("MetaDataInspector", insertIntoOverrideTracking, bakedComponentItem.HasPrefabOverride(),
@@ -404,11 +403,10 @@ namespace Unity.NetCode.Editor
                 componentMetaDataFoldout.focusable = false;
 
                 var toggle = componentMetaDataFoldout.Q<Toggle>();
-                toggle.tooltip = tooltip;
                 toggle.style.flexShrink = 1;
+                toggle.style.marginLeft = 0; // Don't -12px.
                 var foldoutLabel = toggle.Q<Label>(className: UssClasses.UIToolkit.Toggle.Text); // TODO - DropdownField should expose!
                 LabelStyle(foldoutLabel);
-
                 var checkmark = toggle.Q<VisualElement>(className: UssClasses.UIToolkit.Toggle.Checkmark);
                 checkmark.style.display = new StyleEnum<DisplayStyle>(DisplayStyle.None);
 
@@ -442,7 +440,7 @@ namespace Unity.NetCode.Editor
             InsertGhostModeToggles(bakedComponent, componentMetaDataLabel);
             componentMetaDataLabel.name = "ComponentMetaDataLabel";
             componentMetaDataLabel.text = bakedComponent.managedType.Name;
-            componentMetaDataLabel.tooltip = tooltip;
+            componentMetaDataLabel.style.alignSelf = new StyleEnum<Align>(Align.Stretch);
             componentMetaDataLabel.style.unityTextAlign = new StyleEnum<TextAnchor>(TextAnchor.MiddleLeft);
             // TODO - The text here doesn't clip properly because the buttons are CHILDREN of the label. I.e. The buttons are INSIDE the labels rect.
             LabelStyle(componentMetaDataLabel);
@@ -526,13 +524,18 @@ Note that:
         /// <summary>Visualizes prefab overrides for custom controls attached to this.</summary>
         class OverrideTracking : VisualElement
         {
-            public VisualElement MainField;
+            /// <summary>The UI element wrapping the <see cref="ChildRenderingElement"/>, allowing flex-direction:Horizontal.</summary>
+            public VisualElement ChildContainer;
+            /// <summary>The custom, unknown UI element that we're wrapping this override tracking around.</summary>
+            public VisualElement ChildRenderingElement;
+            /// <summary>The override widget itself.</summary>
             public VisualElement Override;
 
             public OverrideTracking(string prefabType, VisualElement mainField, bool defaultOverride, string rightClickResetTitle, Action<DropdownMenuAction> rightClickResetAction, bool shrink)
             {
                 name = $"{prefabType}OverrideTracking";
-                style.flexDirection = new StyleEnum<FlexDirection>(FlexDirection.Column);
+                style.flexDirection = new StyleEnum<FlexDirection>(FlexDirection.Column); // Ensure the override is BELOW the ChildRenderingElement widget.
+                style.alignSelf = new StyleEnum<Align>(Align.Stretch);
                 style.alignItems = new StyleEnum<Align>(Align.Center);
                 style.flexGrow = 0;
                 style.flexShrink = shrink ? 1 : 0;
@@ -548,8 +551,8 @@ Note that:
                     name = nameof(Override),
                 };
                 Override.style.height = Override.style.maxHeight = 2;
-                Override.style.minWidth = 15;
-                Override.style.marginLeft = Override.style.marginRight = 2;
+                Override.style.minWidth = 35;
+                Override.style.paddingLeft = Override.style.paddingRight = 2;
                 Override.style.paddingTop = Override.style.paddingBottom = 1;
 
                 Override.style.flexGrow = 1;
@@ -632,8 +635,7 @@ Note that:
             var dropdown = new DropdownField();
             dropdown.name = "SendToDropdownField";
             dropdown.label = "Send To Owner";
-            dropdown.tooltip = "Denotes which clients will receive snapshot updates containing this component. Only modifiable via attribute." +
-                                "\n\nOther send rules may still apply. See documentation for further details.";
+            dropdown.tooltip = "<b>Only modifiable via attribute.</b>\n\nDenotes which clients will receive snapshot updates containing this component.\n\nOther send rules may still apply. See documentation for further details.";
             dropdown.SetEnabled(false);
             dropdown.SetValueWithoutNotify(bakedComponent.sendToOwnerType.ToString());
             DropdownStyle(dropdown);
@@ -645,22 +647,24 @@ Note that:
 
         static void DropdownStyle(DropdownField dropdownRoot)
         {
+            // Root:
+            dropdownRoot.style.alignSelf = new StyleEnum<Align>(Align.Stretch);
             dropdownRoot.style.flexGrow = 0;
             dropdownRoot.style.flexShrink = 1;
 
             // Label:
             var label = dropdownRoot.Q<Label>();
+            label.style.alignSelf = new StyleEnum<Align>(Align.Stretch);
             label.style.flexGrow = 0;
             label.style.flexShrink = 1;
-
-            label.style.minWidth = 15;
+            label.style.minWidth = 75;
             label.style.width = 110;
 
             // Dropdown widget:
             var dropdownWidget = dropdownRoot.Q<VisualElement>(className: UssClasses.UIToolkit.BaseField.Input); // TODO - DropdownField should expose!
             dropdownWidget.style.flexGrow = 1;
             dropdownWidget.style.flexShrink = 1;
-            dropdownWidget.style.minWidth = 45;
+            dropdownWidget.style.minWidth = 75;
             dropdownWidget.style.width = 100;
         }
 
@@ -759,12 +763,11 @@ Note that:
                     var isSet = (bakedComponent.PrefabType & type) != 0;
                     button.style.backgroundColor = isSet ? new Color(0.17f, 0.17f, 0.17f) : new Color(0.48f, 0.15f, 0.15f);
 
-                    //button.style.color = isSet ? Color.cyan : Color.red;
                     button.tooltip = $"NetCode creates multiple versions of the '{bakedComponent.EntityParent.EntityName}' ghost prefab (one for each mode [Server, Interpolated Client, PredictedClient])." +
                         $"\n\nThis toggle determines if the `{bakedComponent.fullname}` component should be added to the `{prefabType}` version of this ghost." +
-                        $" Current value indicates {(isSet ? "<color=cyan>YES</color>" : "<color=red>NO</color>")} and thus <color=yellow>PrefabType is `{bakedComponent.PrefabType}`</color>." +
-                        $"\n\nDefault value is: {(defaultValue ? "YES" : "NO")}\n\nTo enable write-access to this toggle, add a `SupportsPrefabOverrides` attribute to your component type." +
-                        " <b>Note: It's better practice to create a custom Variant that sets the desired PrefabType (and apply it as the default variant).</b>";
+                        $" Current value indicates {(isSet ? "<color=green>YES</color>" : "<color=red>NO</color>")} and thus <color=yellow>PrefabType is `{bakedComponent.PrefabType}`</color>." +
+                        $"\n\nDefault value is: {(defaultValue ? "YES" : "NO")}\n\nTo disable write-access to this toggle, add a `DontSupportPrefabOverrides` attribute to your component type." +
+                        "\n\nRecommendation: It's better practice to create a custom Variant that sets the desired `PrefabType`. This way, said `PrefabType` will be applied automatically to all ghost prefabs.";
 
                     if(!bakedComponent.DoesAllowPrefabTypeModification)
                         button.tooltip += "\n\n<color=grey>This dropdown is currently disabled as this type has a [DontSupportPrefabOverrides] attribute.</color>";

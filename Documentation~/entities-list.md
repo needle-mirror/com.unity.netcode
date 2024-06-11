@@ -88,12 +88,14 @@ RPC entities are created with a send request in order to send RPCs. When they ar
 
 ### Netcode RPCs
 
-| Component                              | Description                                                                                                                                         |
-|----------------------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------|
-| __RpcSetNetworkId__                    | Special RPC only sent on connect.                                                                                                                   |
-| __ClientServerTickRateRefreshRequest__ | Special RPC only sent on connect.                                                                                                                   |
-| __StartStreamingSceneGhosts__          | Sent from client to server when a subscene has been loaded. Used to instruct the server to start sending prespawned ghosts for that scene.          |
-| __StopStreamingSceneGhosts__           | Sent from client to server when a subscene will be unloaded. Used to instruct the server to stop sending prespawned ghosts that live in that scene. |
+| Component                               | Description                                                                                                                                         |
+|-----------------------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------|
+| __ServerApprovedConnection__            | Special RPC only sent on connect.                                                                                                                   |
+| __RequestProtocolVersionHandshake__     | Special RPC only sent on connect.                                                                                                                   |
+| __ServerRequestApprovalAfterHandshake__ | Special RPC only sent on connect.                                                                                                                   |
+| __ClientServerTickRateRefreshRequest__  | Special RPC only sent on connect.                                                                                                                   |
+| __StartStreamingSceneGhosts__           | Sent from client to server when a subscene has been loaded. Used to instruct the server to start sending prespawned ghosts for that scene.          |
+| __StopStreamingSceneGhosts__            | Sent from client to server when a subscene will be unloaded. Used to instruct the server to stop sending prespawned ghosts that live in that scene. |
 
 ### CommandData
 
@@ -180,9 +182,9 @@ This singleton is a special kind of ghost without a prefab asset.
  | [__NetworkTime__](xref:Unity.NetCode.NetworkTime) | Singleton component that contains all the timing characterist of the client/server simulation loop. |
 
 ### NetDebug
-| Component                                   | Description                                                              |
-|---------------------------------------------|--------------------------------------------------------------------------|
-| [__NetDebug__](xref:Unity.NetCode.NetDebug) | Singleton that can be used for debug log and managing the logging level. |
+| Component                                   | Description                                                                                                                                           |
+|---------------------------------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------|
+| [__NetDebug__](xref:Unity.NetCode.NetDebug) | Singleton that can be used for debug log and managing the logging level. Like the built-in UnityEngine logging, this works even in production builds. |
 
 ### NetworkStreamDriver
 | Component                                                         | Description                                                                                                                                           |

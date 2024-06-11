@@ -1,5 +1,3 @@
-using System;
-using System.Collections.Generic;
 using NUnit.Framework;
 using Unity.Entities;
 
@@ -109,11 +107,11 @@ namespace Unity.NetCode.Tests
                 testWorld.Bootstrap(false);
                 testWorld.CreateWorlds(true, 1);
 
-                testWorld.Tick(1.0f / 60.0f);
+                testWorld.Tick();
                 testWorld.DisposeAllClientWorlds();
-                testWorld.Tick(1.0f / 60.0f);
+                testWorld.Tick();
                 testWorld.DisposeServerWorld();
-                testWorld.Tick(1.0f / 60.0f);
+                testWorld.Tick();
             }
         }
         [Test]
@@ -124,7 +122,7 @@ namespace Unity.NetCode.Tests
                 testWorld.Bootstrap(false);
                 testWorld.CreateWorlds(true, 1);
 
-                testWorld.Tick(1.0f / 60.0f);
+                testWorld.Tick();
                 testWorld.DisposeDefaultWorld();
             }
         }

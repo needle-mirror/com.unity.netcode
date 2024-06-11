@@ -2,7 +2,6 @@ using NUnit.Framework;
 using Unity.Entities;
 using Unity.Networking.Transport;
 using Unity.NetCode.Tests;
-using Unity.Jobs;
 using UnityEngine;
 using Unity.Mathematics;
 using Unity.Transforms;
@@ -301,7 +300,7 @@ namespace Unity.NetCode.Physics.Tests
                 testWorld.GetSingletonRW<NetworkStreamDriver>(testWorld.ClientWorlds[0]).ValueRW.Connect(testWorld.ClientWorlds[0].EntityManager, ep);
 
                 for (int i = 0; i < 16; ++i)
-                    testWorld.Tick(16f/1000f);
+                    testWorld.Tick();
 
                 var serverPhy = testWorld.GetSingleton<PhysicsWorldHistorySingleton>(testWorld.ServerWorld);
                 Assert.AreEqual(NetworkTick.Invalid, serverPhy.m_LastStoreTick);
@@ -356,17 +355,17 @@ namespace Unity.NetCode.Physics.Tests
                 LagCompensationTestCommandSystem.Target = default;
                 // Give the netcode some time to spawn entities and settle on a good time synchronization
                 for (int i = 0; i < 128; ++i)
-                    testWorld.Tick(1f/60f);
+                    testWorld.Tick();
                 LagCompensationTestCommandSystem.Target = new float3(-0.35f,0,-0.5f);
                 for (int i = 0; i < 32; ++i)
-                    testWorld.Tick(1f/60f);
+                    testWorld.Tick();
                 Assert.AreEqual(3, LagCompensationTestHitScanSystem.HitStatus);
 
                 // Test miss
                 LagCompensationTestHitScanSystem.HitStatus = 0;
                 LagCompensationTestCommandSystem.Target = new float3(-0.55f,0,-0.5f);
                 for (int i = 0; i < 32; ++i)
-                    testWorld.Tick(1f/60f);
+                    testWorld.Tick();
                 Assert.AreEqual(0, LagCompensationTestHitScanSystem.HitStatus);
 
                 // Make sure there is no hit without lag compensation
@@ -374,14 +373,14 @@ namespace Unity.NetCode.Physics.Tests
                 LagCompensationTestHitScanSystem.EnableLagCompensation = false;
                 LagCompensationTestCommandSystem.Target = new float3(-0.35f,0,-0.5f);
                 for (int i = 0; i < 32; ++i)
-                    testWorld.Tick(1f/60f);
+                    testWorld.Tick();
                 Assert.AreEqual(2, LagCompensationTestHitScanSystem.HitStatus);
 
                 // Test miss
                 LagCompensationTestHitScanSystem.HitStatus = 0;
                 LagCompensationTestCommandSystem.Target = new float3(-0.55f,0,-0.5f);
                 for (int i = 0; i < 32; ++i)
-                    testWorld.Tick(1f/60f);
+                    testWorld.Tick();
                 Assert.AreEqual(0, LagCompensationTestHitScanSystem.HitStatus);
             }
         }

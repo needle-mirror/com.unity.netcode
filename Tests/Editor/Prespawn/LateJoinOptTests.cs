@@ -1,6 +1,3 @@
-using System;
-using System.Collections.Generic;
-using System.IO;
 using NUnit.Framework;
 using Unity.Collections;
 using Unity.Entities;
@@ -8,8 +5,6 @@ using Unity.NetCode.LowLevel.Unsafe;
 using UnityEditor;
 using UnityEngine;
 using Unity.NetCode.Tests;
-using Unity.Transforms;
-using UnityEngine.SceneManagement;
 
 namespace Unity.NetCode.PrespawnTests
 {
@@ -191,8 +186,7 @@ namespace Unity.NetCode.PrespawnTests
 
                 //Stream the sub scene in
                 SubSceneHelper.LoadSubSceneInWorlds(testWorld);
-                float frameTime = 1.0f / 60.0f;
-                testWorld.Connect(frameTime);
+                testWorld.Connect();
                 CheckPrespawnArePresent(numObjects, testWorld);
                 CheckComponents(numObjects, testWorld);
                 //To Disable the prespawn optimization, just remove the baselines
@@ -212,7 +206,7 @@ namespace Unity.NetCode.PrespawnTests
                 var connections = testWorld.ServerWorld.EntityManager.CreateEntityQuery(ComponentType.ReadOnly<PrespawnSectionAck>()).ToEntityArray(Allocator.Temp);
                 for (int i = 0; i< 32; ++i)
                 {
-                    testWorld.Tick(frameTime);
+                    testWorld.Tick();
                     bool allSceneAcked = false;
                     foreach (var connection in (connections))
                     {
@@ -230,7 +224,7 @@ namespace Unity.NetCode.PrespawnTests
                 uint totalSceneData = 0;
                 for(int tick=0;tick<32;++tick)
                 {
-                    testWorld.Tick(frameTime);
+                    testWorld.Tick();
                     for (int i = 0; i < testWorld.ClientWorlds.Length; ++i)
                     {
                         var netStats = testWorld.ClientWorlds[i].EntityManager.GetComponentData<GhostStatsCollectionSnapshot>(testWorld.TryGetSingletonEntity<GhostStatsCollectionSnapshot>(testWorld.ClientWorlds[i])).Data;
@@ -269,7 +263,7 @@ namespace Unity.NetCode.PrespawnTests
                 //change a bit because of the baselines and tick encoding)
                 for (int tick = 0; tick < 32; ++tick)
                 {
-                    testWorld.Tick(frameTime);
+                    testWorld.Tick();
                     for (int i = 0; i < testWorld.ClientWorlds.Length; ++i)
                     {
                         var netStats = testWorld.ClientWorlds[i].EntityManager.GetComponentData<GhostStatsCollectionSnapshot>(testWorld.TryGetSingletonEntity<GhostStatsCollectionSnapshot>(testWorld.ClientWorlds[i])).Data;
@@ -361,14 +355,13 @@ namespace Unity.NetCode.PrespawnTests
                 testWorld.CreateWorlds(true, 1);
                 //Stream the sub scene in
                 SubSceneHelper.LoadSubSceneInWorlds(testWorld);
-                float frameTime = 1.0f / 60.0f;
-                testWorld.Connect(frameTime);
+                testWorld.Connect();
                 CheckPrespawnArePresent(numObjects*2, testWorld);
                 CheckComponents(numObjects*2, testWorld);
                 testWorld.GoInGame();
                 //Run some another tick to retrieve and process the prefabs and initialize the baselines
                 for(int i=0;i<2;++i)
-                    testWorld.Tick(frameTime);
+                    testWorld.Tick();
                 CheckBaselineAreCreated(testWorld.ServerWorld);
                 for (int i = 0; i < testWorld.ClientWorlds.Length; ++i)
                 {
@@ -401,8 +394,7 @@ namespace Unity.NetCode.PrespawnTests
 
                 //Stream the sub scene in
                 SubSceneHelper.LoadSubSceneInWorlds(testWorld);
-                float frameTime = 1.0f / 60.0f;
-                testWorld.Connect(frameTime);
+                testWorld.Connect();
                 CheckPrespawnArePresent(numObjects, testWorld);
                 testWorld.GoInGame();
 
@@ -413,7 +405,7 @@ namespace Unity.NetCode.PrespawnTests
                 var recvGhostMapSingleton = testWorld.TryGetSingletonEntity<SpawnedGhostEntityMap>(testWorld.ClientWorlds[0]);
                 for(int tick=0;tick<16;++tick)
                 {
-                    testWorld.Tick(frameTime);
+                    testWorld.Tick();
                     var netStats = testWorld.ClientWorlds[0].EntityManager.GetComponentData<GhostStatsCollectionSnapshot>(testWorld.TryGetSingletonEntity<GhostStatsCollectionSnapshot>(testWorld.ClientWorlds[0])).Data;
                     //Skip the frist ghost type (is be the subscene list)
                     if (netStats.Length > 6)
@@ -449,7 +441,7 @@ namespace Unity.NetCode.PrespawnTests
 
                 for (int i = 0; i < 16; ++i)
                 {
-                    testWorld.Tick(frameTime);
+                    testWorld.Tick();
                     var netStats = testWorld.ClientWorlds[0].EntityManager.GetComponentData<GhostStatsCollectionSnapshot>(testWorld.TryGetSingletonEntity<GhostStatsCollectionSnapshot>(testWorld.ClientWorlds[0])).Data;
                     if (netStats.Length > 6)
                     {
@@ -473,7 +465,7 @@ namespace Unity.NetCode.PrespawnTests
                 //Since ghost are interpolated I need at least 2 tick to see the reflected values on the components
                 for (int i = 0; i < 2; ++i)
                 {
-                    testWorld.Tick(frameTime);
+                    testWorld.Tick();
                     var netStats = testWorld.ClientWorlds[0].EntityManager.GetComponentData<GhostStatsCollectionSnapshot>(testWorld.TryGetSingletonEntity<GhostStatsCollectionSnapshot>(testWorld.ClientWorlds[0])).Data;
                     if (netStats.Length > 7)
                     {
@@ -529,7 +521,7 @@ namespace Unity.NetCode.PrespawnTests
                 totalDataReceived = 0;
                 for (int i = 0; i < 16; ++i)
                 {
-                    testWorld.Tick(frameTime);
+                    testWorld.Tick();
                     var netStats = testWorld.ClientWorlds[0].EntityManager.GetComponentData<GhostStatsCollectionSnapshot>(testWorld.TryGetSingletonEntity<GhostStatsCollectionSnapshot>(testWorld.ClientWorlds[0])).Data;
                     if (netStats.Length > 6)
                     {
@@ -560,7 +552,7 @@ namespace Unity.NetCode.PrespawnTests
                 totalDataReceived = 0;
                 for (int i = 0; i < 4; ++i)
                 {
-                    testWorld.Tick(frameTime);
+                    testWorld.Tick();
                     var netStats = testWorld.ClientWorlds[0].EntityManager.GetComponentData<GhostStatsCollectionSnapshot>(testWorld.TryGetSingletonEntity<GhostStatsCollectionSnapshot>(testWorld.ClientWorlds[0])).Data;
                     if (netStats.Length > 6)
                     {
@@ -616,7 +608,7 @@ namespace Unity.NetCode.PrespawnTests
                 totalDataReceived = 0;
                 for (int i = 0; i < 4; ++i)
                 {
-                    testWorld.Tick(frameTime);
+                    testWorld.Tick();
                     var netStats = testWorld.ClientWorlds[0].EntityManager.GetComponentData<GhostStatsCollectionSnapshot>(testWorld.TryGetSingletonEntity<GhostStatsCollectionSnapshot>(testWorld.ClientWorlds[0])).Data;
                     if (netStats.Length > 6)
                     {

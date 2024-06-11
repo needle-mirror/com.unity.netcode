@@ -497,26 +497,27 @@ namespace Unity.NetCode
     }
 
     /// <summary>
-    /// <para>The parent group for all "deterministic" gameplay systems that modify predicted ghosts.
+    /// <para>The parent group for all (roughly) deterministic gameplay systems that modify predicted ghosts.
     /// This system group runs for both the client and server worlds at a fixed time step, as specified by
-    /// the <see cref="ClientServerTickRate.SimulationTickRate"/> setting.</para>
-    /// <para>On the server, this group is only updated once per tick, because it runs in tandem with the <see cref="SimulationSystemGroup"/>
-    /// (i.e. at a fixed time step, at the same rate).
-    /// On the client, the group implements the client-side prediction logic by running the client simulation ahead of the server.</para>
-    /// <para><b>Importantly: Because the client is predicting ahead of the server, all systems in this group will be updated multiple times
-    /// per simulation frame, every single time the client receives a new snapshot (see <see cref="ClientServerTickRate.NetworkTickRate"/>
-    /// and <see cref="ClientServerTickRate.SimulationTickRate"/>). This is called "rollback and re-simulation".</b></para>
+    /// the <see cref="ClientServerTickRate.SimulationTickRate"/> setting.
+    /// To understand the differences between this group and the PredictedFixedStepSimulationSystemGroup,
+    /// refer to the <see cref="PredictedFixedStepSimulationSystemGroup"/> documentation.</para>
+    /// <para>On the server, this group is only updated once per tick, because it runs in tandem with the <see cref="SimulationSystemGroup"/>.
+    /// In other words, because the SimulationSystemGroup runs at a fixed time step, and only once per frame, this system inherits those properties.
+    /// On the client, the group implements client-side prediction logic by running the client simulation ahead of the server.</para>
+    /// <para><b>Important: Because the client is predicting ahead of the server, all systems in this group are updated multiple times
+    /// per simulation frame, every time the client receives a new snapshot (see <see cref="ClientServerTickRate.NetworkTickRate"/>
+    /// and <see cref="ClientServerTickRate.SimulationTickRate"/>). This is called rollback and re-simulation.</b></para>
     /// <para>These re-simulation prediction group ticks also get more frequent at higher pings.
-    /// I.e. Simplified: A 200ms client will likely re-simulate roughly x2 more frames than a 100ms connection, with caveats.
-    /// And note: The number of predicted, re-simulated frames can easily reach double digits. Thus, systems in this group
-    /// must be exceptionally fast, and are likely your CPU "hot path".
-    /// <i>To help mitigate this, take a look at prediction group batching here <see cref="ClientTickRate.MaxPredictionStepBatchSizeRepeatedTick"/>.</i></para>
-    /// <para>Pragmatically: This group contains most of the game simulation (or, at least, all simulation that should be "predicted"
-    /// (i.e. simulation that is the same on both client and server)). On the server, all prediction logic is treated as
-    /// authoritative game state (although thankfully it only needs to be simulated once, as it's authoritative).</para>
+    /// For example, a client with a 200ms ping is likely to re-simulate roughly twice as many frames than a client with a 100ms connection, with caveats.
+    /// The number of predicted, re-simulated frames can easily reach double digits, so systems in this group
+    /// must be exceptionally fast, and are likely to use a lot of CPU.
+    /// <i>You can use prediction group batching to help mitigate this. Refer to <see cref="ClientTickRate.MaxPredictionStepBatchSizeRepeatedTick"/>.</i></para>
+    /// <para>This group contains all predicted simulation (simulation that is the same on both client and server).
+    /// On the server, all prediction logic is treated as the authoritative game state, which is only simulated once.</para>
     /// <para>Note: This SystemGroup is intentionally added to non-netcode worlds, to help enable single-player testing.</para>
     /// </summary>
-    /// <remarks> To reiterate: Because child systems in this group are updated so frequently (multiple times per frame on the client,
+    /// <remarks>Because child systems in this group are updated so frequently (multiple times per frame on the client,
     /// and for all predicted ghosts on the server), this group is usually the most expensive on both builds.
     /// Pay particular attention to the systems that run in this group to keep your performance in check.
     /// </remarks>

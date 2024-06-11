@@ -1,6 +1,7 @@
-# PLAY MODE TOOL WINDOW
+# PlayMode Tool window
+
 The __PlayMode Tools__ window in the Unity Editor provide a set of utility to:
-- select what type of mode (client, server, client/server) you would like the game start. 
+- select what type of mode (client, server, client/server) you would like the game start.
 - enable and configure the [network simulator](network-connection.md#network-simulator).
 - configure the number of [thin-clients](client-server-worlds.md#thin-clients) to use.
 - changing the current logging level and enabling packet dumps.

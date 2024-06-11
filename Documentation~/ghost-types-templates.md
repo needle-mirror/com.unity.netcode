@@ -1,6 +1,6 @@
 # Ghost Templates
 
-Ghost component types (i.e. all components with a GhostField attribute, or other netcode interfaces) are all handled a certain way during Baking, and by the NetCode code generator, to produce the right code when building players. 
+Ghost component types (i.e. all components with a GhostField attribute, or other netcode interfaces) are all handled a certain way during Baking, and by the NetCode code generator, to produce the right code when building players.
 It's possible to define the desired behavior in code, and on a per-ghost prefab basis, and on a per-component basis.
 
 ## Supported Types
@@ -29,23 +29,23 @@ Inside the package, we have default templates for how to generate serializers (c
 * quaternion
 * double
 
-For certain types (i.e float, double, quaternion ,float2/3/4) multiple templates exists, which handle different ways to serialise the type: 
+There are multiple templates for certain types (float, double, quaternion, float2/3/4) which provide different ways to serialize the type:
 
-* Quantization [Quantized or un-quantized]: Quantized means a float value is sent as an int, with a certain multiplication factor, which sets its precision (e.g. 12.456789 can be sent as 12345 with a quantization factor of 1000). Unquantized means the float will be sent with full precision.
-* Smoothing method [`Clamp`, `Interpolate`, or `InterpolateAndExtrapolate`]: Denotes how a new value is applied on the client, when a snapshot is received. See docs for `SmoothingAction` for more details).
+* Quantization (quantized or unquantized): Quantized means a float value is sent as an int with a certain multiplication factor that sets its precision (for example, a float value `12.456789` with a quantization factor of `1000` will be sent as `int 12345`). Unquantized means the float will be sent with full precision. Refer to [quantization](compression.md#quantization) for more details.
+* Smoothing method (`Clamp`, `Interpolate`, or `InterpolateAndExtrapolate`): Denotes how a new value is applied on the client when a snapshot is received. See docs for `SmoothingAction` for more details.
 
-Since each of these can change how the source value is serialized, deserialized, and applied on the target, we have multiple serialization templates. 
+Since each of these can change how the source value is serialized, deserialized, and applied on the target, we have multiple serialization templates.
 Additionally; each template uses different, named regions to handle these cases. The code generator will pick the appropriate regions to generate, and thus bake your user-defined serialization settings for fields on your types, directly into the "Serializer" for your type.
 You can explore these generated types in the projects `Temp/NetCodeGenerated` folder (note that they are deleted when Unity is closed).
 
 ### Changing how a ComponentType is serialized via "Ghost Component *Variants*"
 
-[Ghost Component Variants](ghost-snapshots.md#ghost-component-variants) give you the ability to clobber the "Default Serializer" generated for a given type, replacing it with your own serializer. 
-Variants can also be applied on a per-ghost, per-component basis, via the `GhostAuthoringInspectionComponent`. See docs through the above link for futher details.
+[Ghost Component Variants](ghost-snapshots.md#ghost-component-variants) give you the ability to clobber the "Default Serializer" generated for a given type, replacing it with your own serializer.
+Variants can also be applied on a per-ghost, per-component basis, via the `GhostAuthoringInspectionComponent`. See [docs](ghost-snapshots.md#ghost-component-variants) for futher details.
 
 ### Changing how a ComponentType is serialized via "Ghost Component *SubTypes*"
 
-You may have multiple Templates defined and available for a given Type (e.g. a 2D and a 3D Template, for a float3). 
+You may have multiple Templates defined and available for a given Type (e.g. a 2D and a 3D Template, for a float3).
 SubTypes allow you to choose which one to use, on a per-GhostField basis. See example below.
 
 ## Defining Additional Templates
@@ -59,7 +59,7 @@ You must define the Template file correctly. It can be added to any package or f
 You will get errors if a) you define a `UserDefinedTemplate` that has no found Template file b) vice-versa, or c) you make errors when defining the `UserDefinedTemplate`.
 Code-Generation errors of the Template _may_ cause compiler errors.
 
-This new template `MyCustomTypeTemplate.NetCodeSourceGenerator.additionalfile` needs to be set up similarly to the default types templates. 
+This new template `MyCustomTypeTemplate.NetCodeSourceGenerator.additionalfile` needs to be set up similarly to the default types templates.
 Here is an example copied from the default `float` template (where the float is quantized and stored in an int field):
 
 ```c#
@@ -211,7 +211,7 @@ namespace Unity.NetCode.Generators
     }
 }
 ```
->![NOTE]: This above example only registers `MyCustomType` when the GhostField is defined as follows `[GhostField(Quantization=100, Smoothing=SmoothingAction.InterpolateAndExtrapolate, Composite=false)]`.
+>[!NOTE]: This above example only registers `MyCustomType` when the GhostField is defined as follows `[GhostField(Quantization=100, Smoothing=SmoothingAction.InterpolateAndExtrapolate, Composite=false)]`.
 > You must register all exact combinations you wish to support (and register them exactly as used).
 
 
@@ -227,7 +227,7 @@ namespace Unity.NetCode.Generators
 
 - The `Template` value is mandatory, and must point to the `#templateid` defined in the target Template file.
 
-- The `TemplateOverride` is optional (can be null or empty). `TemplateOverride` is used when you want to re-use an existing template, but only override a specific section of it. 
+- The `TemplateOverride` is optional (can be null or empty). `TemplateOverride` is used when you want to re-use an existing template, but only override a specific section of it.
 This works well when using `Composite` types, as you'll point `Template` to the basic type (like the float template), and then point to the `TemplateOverride` only for the sections which need to be customized.
 For example; `float2` only defines `CopyFromSnapshot`, `ReportPredictionErrors` and `GetPredictionErrorNames`, the rest uses the basic float template as a composite of the 2 values `float2` contains.
 The assigned value must be the `#templateid` of the "base" template, as declared inside the other template file.
@@ -240,7 +240,7 @@ These changemasks can then be correctly found for any/all additional field(s). S
 
 All sections must be filled in.
 
->![NOTE]: When making changes to the templates you need to use the _Multiplayer->Force Code Generation_ menu to force a new code compilation (which will then use the updated templates).
+>[!NOTE]: When making changes to the templates you need to use the _Multiplayer->Force Code Generation_ menu to force a new code compilation (which will then use the updated templates).
 
 
 ## Defining SubType Templates
@@ -274,7 +274,7 @@ namespace Unity.NetCode
 }
 ```
 
-Templates for the SubTypes are handled identically to other `UserDefinedTemplates`, but need to set the `SubType` field index. 
+Templates for the SubTypes are handled identically to other `UserDefinedTemplates`, but need to set the `SubType` field index.
 Therefore, see the above tutorial to define a Template, and note the only difference is: `SubType = GhostFieldSubType.MySubType,`.
 
 ```c#

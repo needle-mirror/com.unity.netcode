@@ -3,6 +3,7 @@ using Unity.Collections;
 using Unity.Entities;
 using UnityEngine;
 using Unity.Entities.Hybrid.Baking;
+using UnityEngine.Serialization;
 
 namespace Unity.NetCode
 {
@@ -75,10 +76,11 @@ namespace Unity.NetCode
         [Tooltip("Automatically adds a `GhostOwner`, which allows the server to set (and track) which connection owns this ghost. In your server code, you must set the `GhostOwner` to a valid `NetworkId.Value` at runtime.")]
         public bool HasOwner;
         /// <summary>
-        /// Automatically send all ICommandData buffers if the ghost is owned by the current connection,
-        /// AutoCommandTarget.Enabled is true and the ghost is predicted.
+        /// Automatically adds the <see cref="AutoCommandTarget"/> component to your ghost prefab,
+        /// which enables the "Auto Command Target" feature, which automatically sends all `ICommandData` and `IInputComponentData`
+        /// buffers to the server (assuming the ghost is owned by the current connection, and `AutoCommandTarget.Enabled` is true).
         /// </summary>
-        [Tooltip("Automatically sends all `ICommandData` buffers when the following conditions are met: \n\n - The ghost is owned by the current connection.\n\n - AutoCommandTarget is added, and Enabled is true.\n\n - The ghost is predicted.")]
+        [Tooltip("Enables the \"Auto Command Target\" feature, which automatically sends all `ICommandData` and `IInputComponentData` auto-generated buffers to the server if the following conditions are met: \n\n - The ghost is owned by the current connection (handled by user-code).\n\n - The `AutoCommandTarget` component is added to the ghost entity (enabled by this checkbox), and it's `[GhostField] public bool Enabled;` field is true (the default value).\n\nSupports both predicted and interpolated ghosts.")]
         public bool SupportAutoCommandTarget = true;
         /// <summary>
         /// Add a CommandDataInterpolationDelay component so the interpolation delay of each client is tracked.
@@ -100,6 +102,28 @@ namespace Unity.NetCode
         /// </summary>
         [Tooltip("CPU optimization that forces this ghost to be quantized and copied to the snapshot format <b>once for all connections</b> (instead of once <b>per connection</b>). This can save CPU time in the `GhostSendSystem` assuming all of the following:\n\n - The ghost contains many serialized components, serialized components on child entities, or serialized buffers.\n\n - The ghost is almost always sent to at least one connection.\n\n<i>Example use-cases: Players, important gameplay items like footballs and crowns, global entities like map settings and dynamic weather conditions.</i>")]
         public bool UsePreSerialization;
+        /// <summary>
+        /// Only for client, force <i>predicted spawn ghost</i> of this type to rollback and re-predict their state from the tick client spawned them until
+        /// the authoritative server spawn has been received and classified. In order to save some CPU, the ghost state is rollback only in case a
+        /// new snapshot has been received, and it contains new predicted ghost data for this or other ghosts.
+        /// <para>
+        /// By default this options is set to false, meaning that predicted spawned ghost by the client never rollback their original state and re-predict
+        /// until the authoritative data is received. This behaviour is usually fine in many situation and it is cheaper in term of CPU.
+        /// </para>
+        /// </summary>
+        [Tooltip("Only for client, force <i>predicted spawn ghost</i> of this type to rollback and re-predict their state from their spawn tick until the authoritative server spawn has been received and classified. In order to save some CPU, the ghost state is rollback only in case a new snapshot has been received, and it contains new predicted ghost data for this or other ghosts.\nBy default this options is set to false, meaning that predicted spawned ghost by the client never rollback their original state and re-predict until the authoritative data is received. This behaviour is usually fine in many situation and it is cheaper in term of CPU.")]
+        public bool RollbackPredictedSpawnedGhostState;
+        /// <summary>
+        /// Client CPU optimization, force <i>predicted ghost</i> of this type to replay and re-predict their state from the last received snapshot tick in case of a structural change
+        /// or in general when an entry for the entity cannot be found in the prediction backup (see <see cref="GhostPredictionHistorySystem"/>).
+        /// <para>
+        /// By default this options is set to true, to preserve the original 1.0 behavior. Once the optimization is turned on, removing or adding replicated components from the predicted ghost on the client may cause issue on the restored value. Please check the documentation, in particular the Prediction edge case and known issue.
+        /// </para>
+        /// </summary>
+        [Tooltip("Client CPU optimization, force <i>predicted ghost</i> of this type to replay and re-predict their state from the last received snapshot tick in case of a structural change or in general when an entry for the entity cannot be found in the prediction backup.\nBy default this options is set to false, to preserve the original 1.0 behavior. Once the optimization is turned on, removing or adding replicated components from the predicted ghost on the client may cause some issue in regard the restored value when the component is re-added. Please check the documentation for more details, in particular the <i>Prediction edge case and known issue</i> section.")]
+        public bool RollbackPredictionOnStructuralChanges = true;
+
+
         /// <summary>
         /// Validate the name of the GameObject prefab.
         /// </summary>

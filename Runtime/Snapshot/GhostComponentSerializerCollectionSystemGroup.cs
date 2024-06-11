@@ -215,6 +215,11 @@ namespace Unity.NetCode
     [BurstCompile]
     public struct GhostComponentSerializerCollectionData : IComponentData
     {
+        /// <summary>
+        /// 0 if in registration phase.
+        /// <br/>1 once serializers have been finalized.
+        /// <br/>2 denotes the GhostCollectionSystem has finalized the ghost collection.
+        /// </summary>
         internal NativeReference<byte> CollectionFinalized;
 
         /// <summary>

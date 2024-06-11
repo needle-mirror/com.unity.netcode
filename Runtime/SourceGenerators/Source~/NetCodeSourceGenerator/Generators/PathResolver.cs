@@ -80,7 +80,7 @@ namespace Unity.NetCode.Generators
                     if (Directory.Exists(location))
                         packageManifest[key] = location;
                     else
-                        Debug.LogError($"Cannot find package reference {location}");
+                        Debug.LogError($"Cannot find package reference {location}", Environment.StackTrace);
                 }
             }
             else if(manifestMandatory)

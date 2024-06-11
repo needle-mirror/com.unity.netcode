@@ -1,5 +1,3 @@
-using System;
-using System.Collections.Generic;
 using NUnit.Framework;
 using Unity.Collections;
 using Unity.Entities;
@@ -219,8 +217,6 @@ namespace Unity.NetCode.Tests
 
     public class InputComponentDataTest
     {
-        private const float m_DeltaTime = 1.0f / 60.0f;
-
         [Test]
         public void InputComponentData_IsCorrectlySynchronized()
         {
@@ -235,7 +231,7 @@ namespace Unity.NetCode.Tests
                 ghostConfig.SupportAutoCommandTarget = true;
                 Assert.IsTrue(testWorld.CreateGhostCollection(ghostGameObject));
                 testWorld.CreateWorlds(true, 1);
-                testWorld.Connect(m_DeltaTime);
+                testWorld.Connect();
                 testWorld.GoInGame();
 
                 var serverConnectionEnt = testWorld.TryGetSingletonEntity<NetworkId>(testWorld.ServerWorld);
@@ -246,12 +242,12 @@ namespace Unity.NetCode.Tests
                 testWorld.ServerWorld.EntityManager.SetComponentData(serverEnt, new GhostOwner {NetworkId = netId});
 
                 // Wait for client spawn
-                Entity clientEnt = Entity.Null;
+                Entity clientEnt;
                 for (int i = 0; i < 16; ++i)
                 {
                     clientEnt = testWorld.TryGetSingletonEntity<InputComponentData>(testWorld.ClientWorlds[0]);
                     if (clientEnt != Entity.Null) break;
-                    testWorld.Tick(m_DeltaTime);
+                    testWorld.Tick();
                 }
 
                 clientEnt = testWorld.TryGetSingletonEntity<InputComponentData>(testWorld.ClientWorlds[0]);
@@ -261,7 +257,7 @@ namespace Unity.NetCode.Tests
                 testWorld.ClientWorlds[0].EntityManager.SetComponentData(clientConnectionEnt, new CommandTarget{targetEntity = clientEnt});
 
                 for (int i = 0; i < 16; ++i)
-                    testWorld.Tick(m_DeltaTime);
+                    testWorld.Tick();
 
                 // The IInputComponentData should have been copied to buffer, sent to server, and then transform
                 // result sent back to the client.
@@ -295,7 +291,7 @@ namespace Unity.NetCode.Tests
                 ghostConfig.DefaultGhostMode = GhostMode.Predicted;
                 Assert.IsTrue(testWorld.CreateGhostCollection(ghostGameObject));
                 testWorld.CreateWorlds(true, 2);
-                testWorld.Connect(m_DeltaTime);
+                testWorld.Connect();
                 testWorld.GoInGame();
 
                 using var serverConnectionQuery = testWorld.ServerWorld.EntityManager.CreateEntityQuery(ComponentType.ReadOnly<NetworkId>());
@@ -319,7 +315,7 @@ namespace Unity.NetCode.Tests
                 for (int i = 0; i < 16; ++i)
                 {
                     if (clientQuery1.CalculateEntityCount() == 2 && clientQuery2.CalculateEntityCount() == 2) break;
-                    testWorld.Tick(m_DeltaTime);
+                    testWorld.Tick();
                 }
 
                 using var inputsQueryOnClient1 = testWorld.ClientWorlds[0].EntityManager
@@ -342,7 +338,7 @@ namespace Unity.NetCode.Tests
                 testWorld.ClientWorlds[1].EntityManager.SetComponentData(clientConnectionEnt2, new CommandTarget{targetEntity = clientEnt2OwnPlayer});
 
                 for (int i = 0; i < 16; ++i)
-                    testWorld.Tick(m_DeltaTime);
+                    testWorld.Tick();
 
                 // Input buffer must be added to the prefab
                 Assert.IsTrue(testWorld.ServerWorld.EntityManager.HasBuffer<InputBufferData<InputRemoteTestComponentData>>(serverEntPlayer1));
@@ -390,8 +386,7 @@ namespace Unity.NetCode.Tests
                     gameObject0, gameObject1));
 
                 testWorld.CreateWorlds(true, 1);
-                float frameTime = 1.0f / 60.0f;
-                testWorld.Connect(frameTime);
+                testWorld.Connect();
                 testWorld.GoInGame();
 
                 testWorld.SpawnOnServer(gameObject0);
@@ -402,7 +397,7 @@ namespace Unity.NetCode.Tests
                 CheckComponent(testWorld.ServerWorld, ComponentType.ReadOnly<InputBufferData<InputRemoteTestComponentData>>(), 1);
 
                 for (int i = 0; i < 64; ++i)
-                    testWorld.Tick(frameTime);
+                    testWorld.Tick();
 
                 CheckComponent(testWorld.ClientWorlds[0], ComponentType.ReadOnly<InputComponentData>(), 1);
                 CheckComponent(testWorld.ClientWorlds[0], ComponentType.ReadOnly<InputRemoteTestComponentData>(), 1);
@@ -438,8 +433,7 @@ namespace Unity.NetCode.Tests
                     gameObject0, gameObject1));
 
                 testWorld.CreateWorlds(true, 1);
-                float frameTime = 1.0f / 60.0f;
-                testWorld.Connect(frameTime);
+                testWorld.Connect();
                 testWorld.GoInGame();
 
                 var clientConnectionEnt = testWorld.TryGetSingletonEntity<NetworkId>(testWorld.ClientWorlds[0]);
@@ -454,7 +448,7 @@ namespace Unity.NetCode.Tests
                 CheckComponent(testWorld.ServerWorld, ComponentType.ReadOnly<InputComponentDataAllPredicted>(), 1);
 
                 for (int i = 0; i < 64; ++i)
-                    testWorld.Tick(frameTime);
+                    testWorld.Tick();
 
                 CheckComponent(testWorld.ClientWorlds[0], ComponentType.ReadOnly<InputComponentDataAllPredictedWithGhostFields>(), 1);
                 CheckComponent(testWorld.ClientWorlds[0], ComponentType.ReadOnly<InputComponentDataAllPredicted>(), 1);
@@ -549,11 +543,10 @@ namespace Unity.NetCode.Tests
                 CheckComponent(testWorld.ServerWorld, ComponentType.ReadOnly<InputComponentDataWithGhostComponentAndGhostFields>(), 0);
                 CheckComponent(testWorld.ServerWorld, inputBufferWithFieldsType, 0);
 
-                float frameTime = 1.0f / 60.0f;
-                testWorld.Connect(frameTime);
+                testWorld.Connect();
                 testWorld.GoInGame();
                 for (int i = 0; i < 64; ++i)
-                    testWorld.Tick(frameTime);
+                    testWorld.Tick();
 
                 CheckComponent(testWorld.ClientWorlds[0], ComponentType.ReadOnly<InputComponentDataWithGhostComponent>(), 1);
                 CheckComponent(testWorld.ClientWorlds[0], inputBufferType, 1);

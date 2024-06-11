@@ -1,3 +1,6 @@
+#if UNITY_EDITOR && !NETCODE_NDEBUG
+#define NETCODE_DEBUG
+#endif
 using System;
 using System.Runtime.InteropServices;
 using Unity.Burst;
@@ -8,8 +11,8 @@ using Unity.Entities;
 using Unity.Jobs;
 using Unity.NetCode.LowLevel.Unsafe;
 using Unity.Networking.Transport;
-using Unity.Networking.Transport.Utilities;
 using Unity.Profiling;
+using UnityEngine;
 
 namespace Unity.NetCode
 {
@@ -177,7 +180,7 @@ namespace Unity.NetCode
             var anyInterfaceListening = false;
             for (int i = networkStreamDriver.DriverStore.FirstDriver; i < networkStreamDriver.DriverStore.LastDriver; ++i)
             {
-                anyInterfaceListening |= networkStreamDriver.DriverStore.GetDriverInstance(i).driver.Listening;
+                anyInterfaceListening |= networkStreamDriver.DriverStore.GetDriverInstanceRO(i).driver.Listening;
             }
 
             //TODO: we can support that but requires some extra work and disposing the drivers.
@@ -263,7 +266,9 @@ namespace Unity.NetCode
         ref NetworkDriverStore DriverStore => ref UnsafeUtility.AsRef<NetworkStreamDriver.Pointers>((void*)m_DriverPointers).DriverStore;
         NativeReference<int> m_NumNetworkIds;
         NativeQueue<int> m_FreeNetworkIds;
-        RpcQueue<RpcSetNetworkId, RpcSetNetworkId> m_RpcQueue;
+        RpcQueue<ServerApprovedConnection, ServerApprovedConnection> m_ServerApprovedConnectionRpcQueue;
+        RpcQueue<RequestProtocolVersionHandshake, RequestProtocolVersionHandshake> m_RequestProtocolVersionHandshakeRpcQueue;
+        RpcQueue<ServerRequestApprovalAfterHandshake,ServerRequestApprovalAfterHandshake> m_ServerRequestApprovalRpcQueue;
 
         EntityQuery m_RefreshTickRateQuery;
 
@@ -271,13 +276,16 @@ namespace Unity.NetCode
         ComponentLookup<ConnectionState> m_ConnectionStateFromEntity;
         ComponentLookup<GhostInstance> m_GhostComponentFromEntity;
         ComponentLookup<NetworkId> m_NetworkIdFromEntity;
+        ComponentLookup<ConnectionApproved> m_ApprovedFromEntity;
         ComponentLookup<NetworkStreamRequestDisconnect> m_RequestDisconnectFromEntity;
         ComponentLookup<NetworkStreamInGame> m_InGameFromEntity;
+        ComponentLookup<EnablePacketLogging> m_EnablePacketLoggingFromEntity;
         BufferLookup<OutgoingRpcDataStreamBuffer> m_OutgoingRpcBufferFromEntity;
         BufferLookup<IncomingRpcDataStreamBuffer> m_RpcBufferFromEntity;
         BufferLookup<IncomingCommandDataStreamBuffer> m_CmdBufferFromEntity;
         BufferLookup<IncomingSnapshotDataStreamBuffer> m_SnapshotBufferFromEntity;
         NativeList<NetCodeConnectionEvent> m_ConnectionEvents;
+        private NetworkPipelineStageId m_reliableSequencedPipelineStageId;
 
         public void OnCreate(ref SystemState state)
         {
@@ -292,17 +300,23 @@ namespace Unity.NetCode
             m_FreeNetworkIds = new NativeQueue<int>(Allocator.Persistent);
             m_ConnectionEvents = new NativeList<NetCodeConnectionEvent>(32, Allocator.Persistent);
 
-            m_RpcQueue = SystemAPI.GetSingleton<RpcCollection>().GetRpcQueue<RpcSetNetworkId, RpcSetNetworkId>();
+            var rpcCollection = SystemAPI.GetSingleton<RpcCollection>();
+            m_ServerApprovedConnectionRpcQueue = rpcCollection.GetRpcQueue<ServerApprovedConnection>();
+            m_RequestProtocolVersionHandshakeRpcQueue = rpcCollection.GetRpcQueue<RequestProtocolVersionHandshake>();
+            m_ServerRequestApprovalRpcQueue = rpcCollection.GetRpcQueue<ServerRequestApprovalAfterHandshake>();
             m_ConnectionStateFromEntity = state.GetComponentLookup<ConnectionState>(false);
             m_GhostComponentFromEntity = state.GetComponentLookup<GhostInstance>(true);
             m_NetworkIdFromEntity = state.GetComponentLookup<NetworkId>(true);
+            m_ApprovedFromEntity = state.GetComponentLookup<ConnectionApproved>(true);
             m_RequestDisconnectFromEntity = state.GetComponentLookup<NetworkStreamRequestDisconnect>();
             m_InGameFromEntity = state.GetComponentLookup<NetworkStreamInGame>();
+            m_EnablePacketLoggingFromEntity = state.GetComponentLookup<EnablePacketLogging>();
 
             m_OutgoingRpcBufferFromEntity = state.GetBufferLookup<OutgoingRpcDataStreamBuffer>();
             m_RpcBufferFromEntity = state.GetBufferLookup<IncomingRpcDataStreamBuffer>();
             m_CmdBufferFromEntity = state.GetBufferLookup<IncomingCommandDataStreamBuffer>();
             m_SnapshotBufferFromEntity = state.GetBufferLookup<IncomingSnapshotDataStreamBuffer>();
+            m_reliableSequencedPipelineStageId = NetworkPipelineStageId.Get<ReliableSequencedPipelineStage>();
 
             NetworkEndpoint lastEp = default;
             NetworkDriverStore driverStore = default;
@@ -353,7 +367,7 @@ namespace Unity.NetCode
             m_ConnectionEvents.Dispose();
 
             ref readonly var networkStreamDriver = ref SystemAPI.GetSingletonRW<NetworkStreamDriver>().ValueRO;
-            if ((int)DriverState.Default == networkStreamDriver.DriverState)
+            if (DriverState.Default == networkStreamDriver.DriverState)
             {
                 var driverStore = DriverStore;
                 foreach (var connection in SystemAPI.Query<RefRO<NetworkStreamConnection>>())
@@ -376,35 +390,43 @@ namespace Unity.NetCode
 
             if (!SystemAPI.HasSingleton<NetworkProtocolVersion>())
             {
-                var entity = state.EntityManager.CreateEntity();
-                state.EntityManager.SetName(entity, "NetworkProtocolVersion");
-                // RW is required because this call marks the collection as final which means no further rpcs can be registered
-                var rpcVersion = SystemAPI.GetSingletonRW<RpcCollection>().ValueRW.CalculateVersionHash();
-                var componentsVersion = GhostCollectionSystem.CalculateComponentCollectionHash(SystemAPI.GetSingletonBuffer<GhostComponentSerializer.State>());
-                var gameVersion = SystemAPI.HasSingleton<GameProtocolVersion>() ? SystemAPI.GetSingleton<GameProtocolVersion>().Version : 0;
-                state.EntityManager.AddComponentData(entity, new NetworkProtocolVersion
+                // Fix: Wait for the CreateComponentCollection to have been called, otherwise we'd create a
+                // NetworkProtocolVersion with GhostCollection:0.
+                var data = SystemAPI.GetSingleton<GhostComponentSerializerCollectionData>();
+                if (data.CollectionFinalized.Value != 2)
+                    return;
+
+                // RW is required because this call marks the collection as final, which means no further rpcs can be registered.
+                ref var rpcCollection = ref SystemAPI.GetSingletonRW<RpcCollection>().ValueRW;
+                var serializerState = SystemAPI.GetSingletonBuffer<GhostComponentSerializer.State>();
+                var npv = new NetworkProtocolVersion
                 {
                     NetCodeVersion = NetworkProtocolVersion.k_NetCodeVersion,
-                    GameVersion = gameVersion,
-                    RpcCollectionVersion = rpcVersion,
-                    ComponentCollectionVersion = componentsVersion
-                });
+                    GameVersion = SystemAPI.TryGetSingleton(out GameProtocolVersion gameProtocolVersion) ? gameProtocolVersion.Version : 0,
+                    RpcCollectionVersion = rpcCollection.CalculateVersionHash(),
+                    ComponentCollectionVersion = GhostCollectionSystem.CalculateComponentCollectionHash(serializerState),
+                };
+                netDebug.DebugLog($"[{state.WorldUnmanaged.Name}] NetworkProtocolVersion finalized with: {npv.ToFixedString()}, DefaultVariants:{data.DefaultVariants.Count}, Serializers:{data.Serializers.Length}, SS:{data.SerializationStrategies.Length}, InputBuffers:{data.InputComponentBufferMap.Count}, RPCs:{rpcCollection.Rpcs.Length}, DynamicAssemblyList:{rpcCollection.DynamicAssemblyList}!");
+                state.EntityManager.CreateSingleton(npv);
+                npv.AssertIsValid();
             }
+            var networkProtocolVersion = SystemAPI.GetSingleton<NetworkProtocolVersion>();
 
-            var driverListening = DriverStore.DriversCount > 0 && DriverStore.GetDriverInstance(DriverStore.FirstDriver).driver.Listening;
+            var driverListening = DriverStore.DriversCount > 0 && DriverStore.GetDriverInstanceRO(DriverStore.FirstDriver).driver.Listening;
             if (driverListening)
             {
                 for (int i = DriverStore.FirstDriver + 1; i < DriverStore.LastDriver; ++i)
                 {
-                    driverListening &= DriverStore.GetDriverInstance(i).driver.Listening;
+                    driverListening &= DriverStore.GetDriverInstanceRO(i).driver.Listening;
                 }
                 // Detect failed listen by checking if some but not all drivers are listening
                 if (!driverListening)
                 {
                     for (int i = DriverStore.FirstDriver + 1; i < DriverStore.LastDriver; ++i)
                     {
-                        if (DriverStore.GetDriverInstance(i).driver.Listening)
-                            DriverStore.GetDriverInstance(i).StopListening();
+                        ref var instance = ref DriverStore.GetDriverInstanceRW(i);
+                        if (instance.driver.Listening)
+                            instance.StopListening();
                     }
                 }
             }
@@ -413,10 +435,14 @@ namespace Unity.NetCode
             state.Dependency = DriverStore.ScheduleUpdateAllDrivers(state.Dependency);
             k_Scheduling.End();
 
+            ref var networkStreamDriver = ref SystemAPI.GetSingletonRW<NetworkStreamDriver>().ValueRW;
+            SystemAPI.TryGetSingleton<ClientServerTickRate>(out var clientServerTickRate);
+            clientServerTickRate.ResolveDefaults();
+            var timestampMS = NetworkTimeSystem.TimestampMS;
+
             if (driverListening)
             {
                 m_GhostComponentFromEntity.Update(ref state);
-                // Schedule accept job
                 var acceptJob = new ConnectionAcceptJob
                 {
                     driverStore = DriverStore,
@@ -424,15 +450,16 @@ namespace Unity.NetCode
                     numNetworkId = m_NumNetworkIds,
                     freeNetworkIds = m_FreeNetworkIds,
                     connectionEvents = m_ConnectionEvents,
-                    rpcQueue = m_RpcQueue,
+                    serverApprovedConnectionRpcQueue = m_ServerApprovedConnectionRpcQueue,
+                    requestProtocolVersionHandshakeQueue = m_RequestProtocolVersionHandshakeRpcQueue,
                     ghostFromEntity = m_GhostComponentFromEntity,
-                    protocolVersion = SystemAPI.GetSingleton<NetworkProtocolVersion>(),
+                    protocolVersion = networkProtocolVersion,
                     netDebug = netDebug,
                     debugPrefix = debugPrefix,
+                    currentTime = timestampMS,
+                    tickRate = clientServerTickRate,
+                    requireConnectionApproval = networkStreamDriver.RequireConnectionApproval ? (byte) 1 : (byte) 0,
                 };
-                SystemAPI.TryGetSingleton<ClientServerTickRate>(out var tickRate);
-                tickRate.ResolveDefaults();
-                acceptJob.tickRate = tickRate;
                 k_Scheduling.Begin();
                 state.Dependency = acceptJob.Schedule(state.Dependency);
                 k_Scheduling.End();
@@ -448,7 +475,7 @@ namespace Unity.NetCode
                     foreach (var req in requests)
                     {
                         req.ApplyTo(ref tickRate);
-                        netDebug.DebugLog($"Using {debugPrefix} SimulationTickRate={tickRate.SimulationTickRate} NetworkTickRate={tickRate.NetworkTickRate} MaxSimulationStepsPerFrame={tickRate.MaxSimulationStepsPerFrame} TargetFrameRateMode={tickRate.TargetFrameRateMode} PredictedPhysicsPerTick={tickRate.PredictedFixedStepSimulationTickRatio}.");
+                        netDebug.DebugLog($"{debugPrefix} Using SimulationTickRate={tickRate.SimulationTickRate} NetworkTickRate={tickRate.NetworkTickRate} MaxSimulationStepsPerFrame={tickRate.MaxSimulationStepsPerFrame} TargetFrameRateMode={tickRate.TargetFrameRateMode} PredictedPhysicsPerTick={tickRate.PredictedFixedStepSimulationTickRatio}.");
                     }
                     SystemAPI.SetSingleton(tickRate);
                     state.EntityManager.DestroyEntity(m_RefreshTickRateQuery);
@@ -456,14 +483,17 @@ namespace Unity.NetCode
                 m_FreeNetworkIds.Clear();
             }
 
+            m_ApprovedFromEntity.Update(ref state);
             m_ConnectionStateFromEntity.Update(ref state);
             m_NetworkIdFromEntity.Update(ref state);
             m_RequestDisconnectFromEntity.Update(ref state);
             m_InGameFromEntity.Update(ref state);
+            m_EnablePacketLoggingFromEntity.Update(ref state);
             m_OutgoingRpcBufferFromEntity.Update(ref state);
             m_RpcBufferFromEntity.Update(ref state);
             m_CmdBufferFromEntity.Update(ref state);
             m_SnapshotBufferFromEntity.Update(ref state);
+            m_GhostComponentFromEntity.Update(ref state);
 
             // FIXME: because it uses buffer from entity
             var handleJob = new HandleDriverEvents
@@ -473,9 +503,12 @@ namespace Unity.NetCode
                 debugPrefix = debugPrefix,
                 driverStore = DriverStore,
                 networkIdFromEntity = m_NetworkIdFromEntity,
+                ghostInstanceFromEntity = m_GhostComponentFromEntity,
                 connectionStateFromEntity = m_ConnectionStateFromEntity,
                 requestDisconnectFromEntity = m_RequestDisconnectFromEntity,
+                requestProtocolVersionHandshakeQueue = m_RequestProtocolVersionHandshakeRpcQueue,
                 inGameFromEntity = m_InGameFromEntity,
+                enablePacketLoggingFromEntity = m_EnablePacketLoggingFromEntity,
                 freeNetworkIds = m_FreeNetworkIds,
                 connectionEvents = m_ConnectionEvents,
 
@@ -483,10 +516,19 @@ namespace Unity.NetCode
                 rpcBuffer = m_RpcBufferFromEntity,
                 cmdBuffer = m_CmdBufferFromEntity,
                 snapshotBuffer = m_SnapshotBufferFromEntity,
+                reliableSequencedPipelineStageId = m_reliableSequencedPipelineStageId,
 
-                protocolVersion = SystemAPI.GetSingleton<NetworkProtocolVersion>(),
-                localTime = NetworkTimeSystem.TimestampMS,
+                requireConnectionApproval = networkStreamDriver.RequireConnectionApproval ? (byte)1 : (byte)0,
+                protocolVersion = networkProtocolVersion,
+                localTime = timestampMS,
                 lastServerTick = networkTime.ServerTick,
+                tickRate = clientServerTickRate,
+                numNetworkId = m_NumNetworkIds,
+                connectionApprovedLookup = m_ApprovedFromEntity,
+                serverApprovedConnectionRpcQueue = m_ServerApprovedConnectionRpcQueue,
+                serverRequestApprovalRpcQueue = m_ServerRequestApprovalRpcQueue,
+                ghostFromEntity = m_GhostComponentFromEntity,
+                isServer = state.WorldUnmanaged.IsServer(),
             };
 #if UNITY_EDITOR || NETCODE_DEBUG
             handleJob.netStats = SystemAPI.GetSingletonRW<GhostStatsCollectionCommand>().ValueRO.Value;
@@ -495,6 +537,7 @@ namespace Unity.NetCode
             state.Dependency = handleJob.ScheduleByRef(state.Dependency);
             k_Scheduling.End();
         }
+
 
         [BurstCompile]
         [StructLayout(LayoutKind.Sequential)]
@@ -505,24 +548,26 @@ namespace Unity.NetCode
             public NativeReference<int> numNetworkId;
             public NativeQueue<int> freeNetworkIds;
             public NativeList<NetCodeConnectionEvent> connectionEvents;
-            public RpcQueue<RpcSetNetworkId, RpcSetNetworkId> rpcQueue;
+            public RpcQueue<ServerApprovedConnection, ServerApprovedConnection> serverApprovedConnectionRpcQueue;
+            public RpcQueue<RequestProtocolVersionHandshake, RequestProtocolVersionHandshake> requestProtocolVersionHandshakeQueue;
             public ClientServerTickRate tickRate;
             public NetworkProtocolVersion protocolVersion;
             public NetDebug netDebug;
             public FixedString128Bytes debugPrefix;
+            public uint currentTime;
+            public byte requireConnectionApproval;
             [ReadOnly] public ComponentLookup<GhostInstance> ghostFromEntity;
 
             public void Execute()
             {
                 for (int i = driverStore.FirstDriver; i < driverStore.LastDriver; ++i)
                 {
-                    var driver = driverStore.GetNetworkDriver(i);
+                    ref var driver = ref driverStore.GetDriverRW(i);
                     NetworkConnection con;
-                    while ((con = driver.Accept()) != default(NetworkConnection))
+                    while ((con = driver.Accept()) != default)
                     {
                         // New connection can never have any events, if this one does - just close it
-                        DataStreamReader reader;
-                        var evt = con.PopEvent(driver, out reader);
+                        var evt = con.PopEvent(driver, out _);
                         if (evt != NetworkEvent.Type.Empty)
                         {
                             con.Disconnect(driver);
@@ -532,56 +577,42 @@ namespace Unity.NetCode
 
                         //TODO: Lookup for any connection that is already connected with the same ip address or any other player identity.
                         //Relying on the IP is pretty weak test but at least is remove already some positives
+                        Debug.Assert(tickRate.HandshakeApprovalTimeoutMS > 0);
                         var connection = new NetworkStreamConnection
                         {
                             Value = con,
                             DriverId = i,
-                            CurrentState = ConnectionState.State.Connected,
+                            CurrentState = ConnectionState.State.Handshake,
+                            CurrentStateDirty = false,
+                            ConnectionApprovalTimeoutStart = currentTime,
                         };
                         var ent = commandBuffer.CreateEntity();
                         commandBuffer.AddComponent(ent, connection);
-                        // rpc send buffer might need to be migrated...
                         commandBuffer.AddComponent(ent, new NetworkSnapshotAck());
                         commandBuffer.AddBuffer<PrespawnSectionAck>(ent);
                         commandBuffer.AddComponent(ent, new CommandTarget());
                         commandBuffer.AddBuffer<IncomingRpcDataStreamBuffer>(ent);
-                        var rpcBuffer = commandBuffer.AddBuffer<OutgoingRpcDataStreamBuffer>(ent);
+                        var outgoingBuf = commandBuffer.AddBuffer<OutgoingRpcDataStreamBuffer>(ent);
                         commandBuffer.AddBuffer<IncomingCommandDataStreamBuffer>(ent);
                         commandBuffer.AddBuffer<LinkedEntityGroup>(ent).Add(new LinkedEntityGroup{Value = ent});
+                        commandBuffer.SetName(ent, (FixedString64Bytes)$"NetworkConnection (Handshake:{tickRate.HandshakeApprovalTimeoutMS}ms)");
 
-                        RpcCollection.SendProtocolVersion(rpcBuffer, protocolVersion);
-
-                        // Send RPC - assign network id
-                        int nid;
-                        if (!freeNetworkIds.TryDequeue(out nid))
+                        requestProtocolVersionHandshakeQueue.Schedule(outgoingBuf, ghostFromEntity, new RequestProtocolVersionHandshake
                         {
-                            // Avoid using 0
-                            nid = numNetworkId.Value + 1;
-                            numNetworkId.Value = nid;
-                        }
-
-                        commandBuffer.AddComponent(ent, new NetworkId {Value = nid});
-                        commandBuffer.SetName(ent, new FixedString64Bytes(FixedString.Format("NetworkConnection ({0})", nid)));
-                        rpcQueue.Schedule(rpcBuffer, ghostFromEntity, new RpcSetNetworkId
-                        {
-                            nid = nid,
-                            netTickRate = tickRate.NetworkTickRate,
-                            simMaxSteps = tickRate.MaxSimulationStepsPerFrame,
-                            simMaxStepLength = tickRate.MaxSimulationStepBatchSize,
-                            simTickRate = tickRate.SimulationTickRate,
-                            fixStepTickRatio = (int)tickRate.PredictedFixedStepSimulationTickRatio
+                            Data = protocolVersion,
                         });
 
+                        connection.CurrentState = ConnectionState.State.Handshake;
+                        connection.CurrentStateDirty = false;
                         connectionEvents.Add(new NetCodeConnectionEvent
                         {
-                            Id = new NetworkId {Value = nid},
+                            Id = default,
                             ConnectionId = connection.Value,
-                            State = ConnectionState.State.Connected, // Handshake is not raised on the server, go straight to Connected.
+                            State = ConnectionState.State.Handshake,
                             DisconnectReason = default,
                             ConnectionEntity = ent,
                         });
-
-                        netDebug.DebugLog(FixedString.Format("{0} Accepted new connection {1} NetworkId={2}.", debugPrefix, connection.Value.ToFixedString(), nid));
+                        netDebug.DebugLog((FixedString512Bytes) $"{debugPrefix} Server accepted new connection {connection.Value.ToFixedString()}, waiting for handshake...");
                     }
                 }
             }
@@ -595,9 +626,12 @@ namespace Unity.NetCode
             public FixedString128Bytes debugPrefix;
             public NetworkDriverStore driverStore;
             [ReadOnly] public ComponentLookup<NetworkId> networkIdFromEntity;
+            [ReadOnly] public ComponentLookup<GhostInstance> ghostInstanceFromEntity;
             public ComponentLookup<ConnectionState> connectionStateFromEntity;
+            public RpcQueue<RequestProtocolVersionHandshake, RequestProtocolVersionHandshake> requestProtocolVersionHandshakeQueue;
             public ComponentLookup<NetworkStreamRequestDisconnect> requestDisconnectFromEntity;
             public ComponentLookup<NetworkStreamInGame> inGameFromEntity;
+            public ComponentLookup<EnablePacketLogging> enablePacketLoggingFromEntity;
             public NativeQueue<int> freeNetworkIds;
             public NativeList<NetCodeConnectionEvent> connectionEvents;
 
@@ -605,17 +639,28 @@ namespace Unity.NetCode
             public BufferLookup<IncomingRpcDataStreamBuffer> rpcBuffer;
             public BufferLookup<IncomingCommandDataStreamBuffer> cmdBuffer;
             public BufferLookup<IncomingSnapshotDataStreamBuffer> snapshotBuffer;
+            public NetworkPipelineStageId reliableSequencedPipelineStageId;
 
             public NetworkProtocolVersion protocolVersion;
 
+            public byte requireConnectionApproval;
+            public ClientServerTickRate tickRate;
             public uint localTime;
             public NetworkTick lastServerTick;
+
+            // Stuff for Approval:
+            public NativeReference<int> numNetworkId;
+            public RpcQueue<ServerApprovedConnection, ServerApprovedConnection> serverApprovedConnectionRpcQueue;
+            public RpcQueue<ServerRequestApprovalAfterHandshake, ServerRequestApprovalAfterHandshake> serverRequestApprovalRpcQueue;
+            [ReadOnly] public ComponentLookup<GhostInstance> ghostFromEntity;
+            [ReadOnly] public ComponentLookup<ConnectionApproved> connectionApprovedLookup;
+            public bool isServer;
+
 #if UNITY_EDITOR || NETCODE_DEBUG
             public NativeArray<uint> netStats;
 #endif
 
-            public void Execute(Entity entity, ref NetworkStreamConnection connection,
-                ref NetworkSnapshotAck snapshotAck)
+            public void Execute(Entity entity, ref NetworkStreamConnection connection, ref NetworkSnapshotAck snapshotAck)
             {
                 var disconnectReason = NetworkStreamDisconnectReason.ConnectionClose;
                 if (Hint.Unlikely(requestDisconnectFromEntity.TryGetComponent(entity, out var disconnectRequest)))
@@ -631,48 +676,74 @@ namespace Unity.NetCode
                         LastReceivedRemoteTime = snapshotAck.LastReceivedRemoteTime,
                         LastReceiveTimestamp = snapshotAck.LastReceiveTimestamp,
                         EstimatedRTT = snapshotAck.EstimatedRTT,
-                        DeviationRTT = snapshotAck.DeviationRTT
+                        DeviationRTT = snapshotAck.DeviationRTT,
                     };
                 }
 
                 if (Hint.Unlikely(!connection.Value.IsCreated))
                 {
-                    netDebug.LogError($"{debugPrefix} Stale NetworkStreamConnection.Value ({connection.Value.ToFixedString()}, driverId: {connection.DriverId}, protocolVersionReceived: {connection.ProtocolVersionReceived}) found on {entity.ToFixedString()}! Did you modify `Value` in your code?");
+                    netDebug.LogError($"{debugPrefix} Stale NetworkStreamConnection.Value ({connection.Value.ToFixedString()}, DriverId: {connection.DriverId}, VPVR: {connection.ProtocolVersionReceived}) found on {entity.ToFixedString()}! Did you modify `Value` in your code?");
                     return;
                 }
 
-                if (Hint.Unlikely(!outgoingRpcBuffer.HasBuffer(entity)))
-                {
-                    var buf = commandBuffer.AddBuffer<OutgoingRpcDataStreamBuffer>(entity);
-                    RpcCollection.SendProtocolVersion(buf, protocolVersion);
-                }
-                var driver = driverStore.GetNetworkDriver(connection.DriverId);
+                networkIdFromEntity.TryGetComponent(entity, out var networkId);
+                HandleApproval(entity, ref connection, ref networkId, ref disconnectReason);
 
                 // Update State:
-                var lastState = connection.CurrentState;
-                connection.CurrentState = driver.GetConnectionState(connection.Value).ToNetcodeState(networkIdFromEntity.TryGetComponent(entity, out var nid));
+                ref var driverInstance = ref driverStore.GetDriverInstanceRW(connection.DriverId);
+                ref var driver = ref driverInstance.driver;
 
                 // Event popping:
-                DataStreamReader reader;
                 NetworkEvent.Type evt;
-                while ((evt = driver.PopEventForConnection(connection.Value, out reader)) != NetworkEvent.Type.Empty)
+                while ((evt = driver.PopEventForConnection(connection.Value, out var reader, out var pipelineStage)) != NetworkEvent.Type.Empty)
                 {
                     switch (evt)
                     {
                         case NetworkEvent.Type.Connect:
                         {
                             // This event is only invoked on the client. The server bypasses, as part of the Accept() call.
+                            Debug.Assert(!isServer);
+                            netDebug.DebugLog($"{debugPrefix} Client connected to driver, sending {protocolVersion.ToFixedString()} to server to begin handshake...");
                             snapshotAck.SnapshotPacketLoss = default;
+                            var buf = outgoingRpcBuffer[entity];
+                            requestProtocolVersionHandshakeQueue.Schedule(buf, ghostInstanceFromEntity, new RequestProtocolVersionHandshake
+                            {
+                                Data = protocolVersion,
+                            });
+                            connectionEvents.Add(new NetCodeConnectionEvent
+                            {
+                                Id = default,
+                                ConnectionId = connection.Value,
+                                State = ConnectionState.State.Handshake,
+                                DisconnectReason = disconnectReason,
+                                ConnectionEntity = entity,
+                            });
+                            connection.CurrentState = ConnectionState.State.Handshake;
+                            connection.ConnectionApprovalTimeoutStart = localTime;
+                            connection.CurrentStateDirty = false;
                             break;
                         }
                         case NetworkEvent.Type.Disconnect:
                             if (reader.Length == 1)
                                 disconnectReason = (NetworkStreamDisconnectReason) reader.ReadByte();
                             // Disconnect cleanup will be handled below.
+                            connection.CurrentState = ConnectionState.State.Disconnected;
+                            connection.CurrentStateDirty = false;
                             goto doubleBreak;
                         case NetworkEvent.Type.Data:
-                            var msgType = reader.ReadByte();
-                            switch ((NetworkStreamProtocol)msgType)
+                            var msgType = (NetworkStreamProtocol)reader.ReadByte();
+
+                            // Handle connection approval phase, without it we won't process game data further.
+                            if (isServer && connection.IsHandshakeOrApproval)
+                            {
+                                if (msgType != NetworkStreamProtocol.Rpc)
+                                {
+                                    netDebug.LogError($"{debugPrefix} Ignoring NetworkStreamProtocol msgType {(byte)msgType} as {connection.Value.ToFixedString()} is in approval stage. Only approval RPCs are allowed.");
+                                    continue;
+                                }
+                            }
+
+                            switch (msgType)
                             {
                                 case NetworkStreamProtocol.Command:
                                 {
@@ -688,7 +759,8 @@ namespace Unity.NetCode
                                     uint numLoadedPrefabs = reader.ReadUInt();
 
                                     snapshotAck.UpdateRemoteAckedData(remoteTime, numLoadedPrefabs, interpolationDelay);
-                                    snapshotAck.UpdateRemoteTime(remoteTime, localTimeMinusRTT, localTime);
+                                    var rtt = NetworkSnapshotAck.CalculateRttViaLocalTime(localTime, localTimeMinusRTT);
+                                    snapshotAck.UpdateRemoteTime(remoteTime, rtt, localTime);
                                     var tickReader = reader;
                                     var cmdTick = new NetworkTick{SerializedData = tickReader.ReadUInt()};
                                     var isValidCmdTick = !snapshotAck.LastReceivedSnapshotByLocal.IsValid || cmdTick.IsNewerThan(snapshotAck.LastReceivedSnapshotByLocal);
@@ -717,7 +789,8 @@ namespace Unity.NetCode
                                     uint remoteTime = reader.ReadUInt();
                                     uint localTimeMinusRTT = reader.ReadUInt();
                                     snapshotAck.ServerCommandAge = reader.ReadInt();
-                                    snapshotAck.UpdateRemoteTime(remoteTime, localTimeMinusRTT, localTime);
+                                    var rtt = NetworkSnapshotAck.CalculateRttViaLocalTime(localTime, localTimeMinusRTT);
+                                    snapshotAck.UpdateRemoteTime(remoteTime, rtt, localTime);
 
                                     // SSId:
                                     var currentSnapshotSequenceId = reader.ReadByte();
@@ -729,9 +802,24 @@ namespace Unity.NetCode
 
                                     // Skip old snapshots:
                                     var isValid = !snapshotAck.LastReceivedSnapshotByLocal.IsValid || newServerTick.IsNewerThan(snapshotAck.LastReceivedSnapshotByLocal);
-                                    UpdatePacketLossStats(ref snapshotAck.SnapshotPacketLoss, isValid, currentSnapshotSequenceId, ref snapshotAck, in netDebug, buffer);
+                                    UpdatePacketLossStats(ref snapshotAck.SnapshotPacketLoss, isValid, currentSnapshotSequenceId, ref snapshotAck, in entity, buffer);
                                     if (!isValid)
                                         break;
+                                    //This is partially valid: if we receive 3 packets, it is valid to only ack the last one
+                                    if (snapshotAck.LastReceivedSnapshotByLocal.IsValid)
+                                    {
+                                        //remove the last acked packet, we will never process this if multiple packets are received in the same frame
+                                        //so we can't communicate to the server that we have data for that specific server tick.
+                                        if (buffer.Length > 0)
+                                            snapshotAck.ReceivedSnapshotByLocalMask ^= 0x1;
+                                        //shift the ack window. It is correct to shift
+                                        var shamt = newServerTick.TicksSince(snapshotAck.LastReceivedSnapshotByLocal);
+                                        if (shamt < 32)
+                                            snapshotAck.ReceivedSnapshotByLocalMask <<= shamt;
+                                        else
+                                            snapshotAck.ReceivedSnapshotByLocalMask = 0;
+                                    }
+                                    snapshotAck.ReceivedSnapshotByLocalMask |= 1;
                                     snapshotAck.LastReceivedSnapshotByLocal = newServerTick;
                                     snapshotAck.CurrentSnapshotSequenceId = currentSnapshotSequenceId;
 
@@ -751,17 +839,17 @@ namespace Unity.NetCode
                                 case NetworkStreamProtocol.Rpc:
                                 {
                                     uint remoteTime = reader.ReadUInt();
-                                    uint localTimeMinusRTT = reader.ReadUInt();
 #if ENABLE_UNITY_COLLECTIONS_CHECKS
                                     UnityEngine.Debug.Assert(reader.GetBytesRead() == RpcCollection.k_RpcCommonHeaderLengthBytes);
 #endif
-                                    snapshotAck.UpdateRemoteTime(remoteTime, localTimeMinusRTT, localTime);
+                                    var rtt = NetworkSnapshotAck.GetRpcRttFromReliablePipeline(connection, ref driver, ref driverInstance, pipelineStage, reliableSequencedPipelineStageId);
+                                    snapshotAck.UpdateRemoteTime(remoteTime, rtt, localTime);
                                     var buffer = rpcBuffer[entity];
                                     buffer.Add(ref reader);
                                     break;
                                 }
                                 default:
-                                    netDebug.LogError(FixedString.Format("Received unknown message type {0}", msgType));
+                                    netDebug.LogError(FixedString.Format("Received unknown message type {0}", (byte)msgType));
                                     break;
                             }
 
@@ -773,15 +861,18 @@ namespace Unity.NetCode
                 }
                 doubleBreak:
 
-                // React to changes:
-                if(Hint.Unlikely(connection.CurrentState != lastState))
+                // Now react to changes:
+
+                // CurrentStateDirty is a bit of a hack: It only exists for:
+                // - The `Connecting` state on the client.
+                // - The `Approval` state on the client.
+                // We intentionally this in most places (see various event evocations scattered around).
+                if(Hint.Unlikely(connection.CurrentStateDirty))
                 {
-                    // Raise Events: See rules in network-connection.md.
-                    // Note that we intentionally bypass states on the server here,
-                    // so there are other event evocations scattered around.
+                    connection.CurrentStateDirty = false;
                     connectionEvents.Add(new NetCodeConnectionEvent
                     {
-                        Id = new NetworkId {Value = nid.Value},
+                        Id = networkId,
                         ConnectionId = connection.Value,
                         State = connection.CurrentState,
                         DisconnectReason = disconnectReason,
@@ -792,7 +883,9 @@ namespace Unity.NetCode
                 // Handle disconnects:
                 // Fix for issue where: Transport does not raise the Disconnect event locally for any connection that is manually Disconnected.
                 // Thus, we (Netcode) need to duplicate the event via status polling.
-                if (Hint.Unlikely(connection.CurrentState == ConnectionState.State.Disconnected))
+                // TODO - Local events will be supported via feature flag `EnableDisconnectEventOnSelf = true` at some point.
+                if (Hint.Unlikely(connection.CurrentState == ConnectionState.State.Disconnected
+                                  || driver.GetConnectionState(connection.Value) == NetworkConnection.State.Disconnected))
                 {
                     commandBuffer.RemoveComponent<NetworkStreamConnection>(entity);
                     commandBuffer.DestroyEntity(entity);
@@ -800,15 +893,22 @@ namespace Unity.NetCode
                     if (cmdBuffer.HasBuffer(entity))
                         cmdBuffer[entity].Clear();
 
-                    var id = -1;
-                    if (networkIdFromEntity.HasComponent(entity))
-                    {
-                        id = networkIdFromEntity[entity].Value;
-                        freeNetworkIds.Enqueue(id);
-                    }
+                    if (networkId.Value != default)
+                        freeNetworkIds.Enqueue(networkId.Value);
 
-                    netDebug.DebugLog($"{debugPrefix} {connection.Value.ToFixedString()} closed NetworkId={id} Reason={disconnectReason.ToFixedString()}.");
+                    netDebug.DebugLog($"{debugPrefix} {connection.Value.ToFixedString()} closed NetworkId={networkId.Value} Reason={disconnectReason.ToFixedString()}.");
+                    connectionEvents.Add(new NetCodeConnectionEvent
+                    {
+                        Id = networkId,
+                        ConnectionId = connection.Value,
+                        State = ConnectionState.State.Disconnected,
+                        DisconnectReason = disconnectReason,
+                        ConnectionEntity = entity,
+                    });
+
                     connection.Value = default;
+                    connection.CurrentState = ConnectionState.State.Disconnected;
+                    connection.CurrentStateDirty = false;
                 }
 
                 // Update ConnectionState:
@@ -817,17 +917,130 @@ namespace Unity.NetCode
                     var newState = existingState;
                     newState.DisconnectReason = disconnectReason;
                     newState.CurrentState = connection.CurrentState;
-                    newState.NetworkId = nid.Value;
+                    newState.NetworkId = networkId.Value;
                     if (Hint.Unlikely(!existingState.Equals(newState)))
                         connectionStateFromEntity[entity] = newState;
                 }
+            }
+
+            /// <summary>Called inline, as we need to update the NetworkId as soon as possible.</summary>
+            private void HandleApproval(Entity entity, ref NetworkStreamConnection connection, ref NetworkId networkId, ref NetworkStreamDisconnectReason disconnectReason)
+            {
+                if (!connection.IsHandshakeOrApproval) return;
+
+                // Handle Handshake:
+                if (isServer && connection.ProtocolVersionReceived != 0 && connection.CurrentState == ConnectionState.State.Handshake)
+                {
+                    if (requireConnectionApproval == 0)
+                    {
+                        var buf = outgoingRpcBuffer[entity];
+                        ApproveConnection(entity, ref connection, buf, ref networkId);
+                    }
+                    else
+                    {
+                        // Begin approval process:
+                        connection.CurrentState = ConnectionState.State.Approval;
+                        connection.CurrentStateDirty = false;
+                        connectionEvents.Add(new NetCodeConnectionEvent
+                        {
+                            Id = default,
+                            ConnectionId = connection.Value,
+                            State = ConnectionState.State.Approval,
+                            DisconnectReason = default,
+                            ConnectionEntity = entity,
+                        });
+                        netDebug.DebugLog($"{debugPrefix} Server ProtocolVersion handshake successful for {connection.Value.ToFixedString()}, requesting (and awaiting) valid approval RPC from client...");
+                        commandBuffer.SetName(entity, (FixedString64Bytes) $"NetworkConnection (Approval:{tickRate.HandshakeApprovalTimeoutMS}ms)");
+                        var buf = outgoingRpcBuffer[entity];
+                        serverRequestApprovalRpcQueue.Schedule(buf, ghostFromEntity, new ServerRequestApprovalAfterHandshake());
+                    }
+                }
+
+                // Handle ConnectionApproved component:
+                if (!networkIdFromEntity.HasComponent(entity) && connectionApprovedLookup.HasComponent(entity))
+                {
+                    if (isServer)
+                    {
+                        if (requireConnectionApproval != 0)
+                        {
+                            switch (connection.CurrentState)
+                            {
+                                case ConnectionState.State.Approval:
+                                    var buf = outgoingRpcBuffer[entity];
+                                    ApproveConnection(entity, ref connection, buf, ref networkId);
+                                    break;
+                                case ConnectionState.State.Handshake:
+                                    // Waiting for the Handshake to complete...
+                                    break;
+                                default:
+#if ENABLE_UNITY_COLLECTIONS_CHECKS
+                                    if(!netDebug.SuppressApprovalRpcSentWhenApprovalFlowDisabledWarning)
+                                        netDebug.LogWarning($"{debugPrefix} Approved {connection.Value.ToFixedString()} but in state {connection.CurrentState.ToFixedString()}.");
+#endif
+                                    break;
+                            }
+                        }
+                        else
+                        {
+#if ENABLE_UNITY_COLLECTIONS_CHECKS
+                            netDebug.LogWarning($"{debugPrefix} Approved connection {connection.Value.ToFixedString()} but this server does not require connection approval!");
+#endif
+                        }
+                    }
+                }
+
+                // Handle timeout: Note: Client can time itself out, too.
+                if (Hint.Unlikely(connection.ConnectionApprovalTimeoutStart != 0))
+                {
+                    var elapsedSinceApprovalStartMS = localTime - connection.ConnectionApprovalTimeoutStart;
+                    if (Hint.Unlikely(elapsedSinceApprovalStartMS >= tickRate.HandshakeApprovalTimeoutMS))
+                    {
+                        Debug.Assert(connection.CurrentState == ConnectionState.State.Handshake || connection.CurrentState == ConnectionState.State.Approval);
+                        netDebug.LogError($"{debugPrefix} {connection.Value.ToFixedString()} timed out after {elapsedSinceApprovalStartMS}ms (threshold:{tickRate.HandshakeApprovalTimeoutMS}ms, state:{connection.CurrentState.ToFixedString()})!");
+                        disconnectReason = connection.CurrentState == ConnectionState.State.Handshake
+                            ? NetworkStreamDisconnectReason.HandshakeTimeout
+                            : NetworkStreamDisconnectReason.ApprovalTimeout;
+                        driverStore.Disconnect(connection);
+                    }
+                }
+            }
+
+            /// <summary>Logic to actually fully accept a connection. Only called once handshake + approval (if enabled) is successful.</summary>
+            private void ApproveConnection(Entity ent, ref NetworkStreamConnection connection, DynamicBuffer<OutgoingRpcDataStreamBuffer> outgoingBuffer, ref NetworkId networkId)
+            {
+                if (!freeNetworkIds.TryDequeue(out var nid))
+                {
+                    // Avoid using 0
+                    nid = numNetworkId.Value + 1;
+                    numNetworkId.Value = nid;
+                }
+
+                networkId = new NetworkId {Value = nid};
+                commandBuffer.AddComponent(ent, networkId);
+                commandBuffer.SetName(ent, new FixedString64Bytes(FixedString.Format("NetworkConnection ({0})", nid)));
+                var serverApprovedConnection = new ServerApprovedConnection();
+                serverApprovedConnection.NetworkId = nid;
+                serverApprovedConnection.RefreshRequest.ReadFrom(in tickRate);
+                serverApprovedConnectionRpcQueue.Schedule(outgoingBuffer, ghostFromEntity, serverApprovedConnection);
+                connection.CurrentState = ConnectionState.State.Connected;
+                connection.CurrentStateDirty = false;
+                connection.ConnectionApprovalTimeoutStart = 0;
+                connectionEvents.Add(new NetCodeConnectionEvent
+                {
+                    Id = networkId,
+                    ConnectionId = connection.Value,
+                    State = ConnectionState.State.Connected,
+                    DisconnectReason = default,
+                    ConnectionEntity = ent,
+                });
+                netDebug.DebugLog($"{debugPrefix} Server approved connection {connection.Value.ToFixedString()}, assigning NetworkId={nid} State={connection.CurrentState}.");
             }
 
             /// <summary>
             /// Records SnapshotSequenceId [SSId] statistics, detecting packet loss, packet duplication, and out of order packets.
             /// </summary>
             // ReSharper disable once UnusedParameter.Local
-            private static void UpdatePacketLossStats(ref SnapshotPacketLossStatistics stats, bool snapshotIsConfirmedNewer, in byte currentSnapshotSequenceId, ref NetworkSnapshotAck snapshotAck, in NetDebug netDebug, DynamicBuffer<IncomingSnapshotDataStreamBuffer> buffer)
+            private void UpdatePacketLossStats(ref SnapshotPacketLossStatistics stats, bool snapshotIsConfirmedNewer, in byte currentSnapshotSequenceId, ref NetworkSnapshotAck snapshotAck, in Entity entity, DynamicBuffer<IncomingSnapshotDataStreamBuffer> buffer)
             {
                 if (stats.NumPacketsReceived == 0) snapshotAck.CurrentSnapshotSequenceId = (byte) (currentSnapshotSequenceId - 1);
                 stats.NumPacketsReceived++;
@@ -841,7 +1054,7 @@ namespace Unity.NetCode
                     {
                         stats.NumPacketsDroppedNeverArrived += (ulong) numDroppedPackets;
 #if NETCODE_DEBUG
-                        // TODO - Make it possible to access NetDebugPacket.Log((FixedString512Bytes)$"[SSId:{currentSnapshotSequenceId}] Inferred {numDroppedPackets} snapshots dropped!");
+                        TryLog(entity, (FixedString512Bytes)$"[SSId:{currentSnapshotSequenceId}] Inferred {numDroppedPackets} snapshots dropped!");
 #endif
                     }
 
@@ -850,7 +1063,7 @@ namespace Unity.NetCode
                     {
                         stats.NumPacketsCulledAsArrivedOnSameFrame++;
 #if NETCODE_DEBUG
-                    // TODO - Make it possible to access NetDebugPacket.Log((FixedString512Bytes)$"[SSId:{currentSnapshotSequenceId}] Clobbering previous snapshot ({stats->LastSnapshotSequenceId}) as it arrived on same frame!");
+                        TryLog(entity, (FixedString512Bytes)$"[SSId:{currentSnapshotSequenceId}] Clobbering previous snapshot, arrived same frame.");
 #endif
                     }
 
@@ -863,7 +1076,7 @@ namespace Unity.NetCode
                     // We can't track any previous duplicate packets (unless we keep an ack history),
                     // so we don't track it at all. Just log.
 #if NETCODE_DEBUG
-                        // TODO - Make it possible to access NetDebugPacket.Log((FixedString512Bytes) $"[SSId:{currentSnapshotSequenceId}] Detected duplicated snapshot packet!");
+                    TryLog(entity, (FixedString512Bytes) $"[SSId:{currentSnapshotSequenceId}] Detected duplicated snapshot packet!");
 #endif
                     return;
                 }
@@ -875,9 +1088,17 @@ namespace Unity.NetCode
                 if (stats.NumPacketsDroppedNeverArrived > 0)
                     stats.NumPacketsDroppedNeverArrived--;
 #if NETCODE_DEBUG
-                        // TODO - Make it possible to access NetDebugPacket.Log((FixedString512Bytes) $"[SSId:{currentSnapshotSequenceId}] Arrived {math.abs(sequenceIdDelta)} ServerTicks late!");
+                TryLog(entity, (FixedString512Bytes) $"[SSId:{currentSnapshotSequenceId}] Arrived {Unity.Mathematics.math.abs(sequenceIdDelta)} ServerTicks late!");
 #endif
             }
+
+#if NETCODE_DEBUG
+            private void TryLog(in Entity entity, in FixedString512Bytes msg)
+            {
+                if(enablePacketLoggingFromEntity.TryGetComponent(entity, out var comp) && comp.NetDebugPacketCache.IsCreated)
+                    comp.NetDebugPacketCache.Log(msg);
+            }
+#endif
         }
     }
 }

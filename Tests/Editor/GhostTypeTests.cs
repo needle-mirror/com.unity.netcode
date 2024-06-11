@@ -1,12 +1,6 @@
 using NUnit.Framework;
 using Unity.Entities;
-using Unity.Networking.Transport;
-using Unity.NetCode.Tests;
-using Unity.Jobs;
 using UnityEngine;
-using Unity.NetCode;
-using Unity.Mathematics;
-using Unity.Transforms;
 using Unity.Collections;
 
 namespace Unity.NetCode.Tests
@@ -68,16 +62,15 @@ namespace Unity.NetCode.Tests
 
                 VerifyGhostTypes(testWorld.ServerWorld);
 
-                float frameTime = 1.0f / 60.0f;
                 // Connect and make sure the connection could be established
-                testWorld.Connect(frameTime);
+                testWorld.Connect();
 
                 // Go in-game
                 testWorld.GoInGame();
 
                 // Let the game run for a bit so the ghosts are spawned on the client
                 for (int i = 0; i < 64; ++i)
-                    testWorld.Tick(frameTime);
+                    testWorld.Tick();
 
                 // Assert that replicated version is correct
                 VerifyGhostTypes(testWorld.ClientWorlds[0]);

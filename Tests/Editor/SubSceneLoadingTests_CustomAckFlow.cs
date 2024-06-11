@@ -1,13 +1,7 @@
-using System;
-using System.IO;
 using NUnit.Framework;
 using Unity.Collections;
 using Unity.Entities;
-using Unity.NetCode.PrespawnTests;
-using UnityEditor;
-using UnityEngine;
 using Unity.Scenes;
-using UnityEngine.SceneManagement;
 
 namespace Unity.NetCode.Tests
 {
@@ -129,25 +123,24 @@ namespace Unity.NetCode.Tests
                     typeof(ServerSceneNotificationSystem),
                     typeof(ClientUnloadSceneSystem));
                 testWorld.CreateWorlds(true, 1);
-                float frameTime = 1.0f / 60.0f;
                 //Server load all the scenes
                 SubSceneHelper.LoadSubScene(testWorld.ServerWorld, subScenes);
-                testWorld.Connect(frameTime);
+                testWorld.Connect();
                 //Disable the automatic reporting
                 testWorld.ServerWorld.EntityManager.CreateEntity(typeof(DisableAutomaticPrespawnSectionReporting));
                 testWorld.ClientWorlds[0].EntityManager.CreateEntity(typeof(DisableAutomaticPrespawnSectionReporting));
                 testWorld.GoInGame();
                 for (int i = 0; i < 16; ++i)
-                    testWorld.Tick(frameTime);
+                    testWorld.Tick();
                 var subSceneList = SubSceneStreamingTestHelper.GetPrespawnLoaded(testWorld, testWorld.ServerWorld);
                 Assert.AreEqual(4, subSceneList.Length);
                 ulong lastLoadedSceneHash = 0ul;
                 for(int scene=0; scene<4; ++scene)
                 {
-                    var sceneEntity = SubSceneHelper.LoadSubSceneAsync(testWorld.ClientWorlds[0], testWorld, subScenes[scene].SceneGUID, frameTime);
+                    var sceneEntity = SubSceneHelper.LoadSubSceneAsync(testWorld.ClientWorlds[0], testWorld, subScenes[scene].SceneGUID);
                     //Run a bunch of frame so scene are initialized
                     for (int i = 0; i < 16; ++i)
-                        testWorld.Tick(frameTime);
+                        testWorld.Tick();
 
                     var prespawnSection = testWorld.ClientWorlds[0].EntityManager.GetBuffer<LinkedEntityGroup>(sceneEntity)[1].Value;
                     var loadedScenHash = testWorld.ClientWorlds[0].EntityManager.GetComponentData<SubSceneWithPrespawnGhosts>(prespawnSection).SubSceneHash;
@@ -163,7 +156,7 @@ namespace Unity.NetCode.Tests
                     commandBuffer.Dispose();
                     //Run some frame
                     for (int i = 0; i < 32; ++i)
-                        testWorld.Tick(frameTime);
+                        testWorld.Tick();
                     //Unload the previous one. Send the rpc.
                     if (lastLoadedSceneHash != 0)
                     {
@@ -177,7 +170,7 @@ namespace Unity.NetCode.Tests
                     }
                     lastLoadedSceneHash = loadedScenHash;
                     for (int i = 0; i < 32; ++i)
-                        testWorld.Tick(frameTime);
+                        testWorld.Tick();
                     //Only one scene should be active
                     var subSceneEntity = testWorld.TryGetSingletonEntity<PrespawnsSceneInitialized>(testWorld.ClientWorlds[0]);
                     Assert.AreNotEqual(Entity.Null, subSceneEntity);

@@ -22,6 +22,11 @@ namespace Unity.NetCode.Hybrid
 
         [SerializeField] private string[] AdditionalScriptingDefines = Array.Empty<string>();
 
+        /// <summary>
+        ///     The <see cref="NetCodeConfig"/> automatically added to the build, accessed via user-code via <see cref="NetCodeConfig.Global"/>.
+        /// </summary>
+        [SerializeField] public NetCodeConfig GlobalNetCodeConfig;
+
         static Entities.Hash128 s_Guid;
         /// <inheritdoc/>
         public Entities.Hash128 GUID
@@ -36,6 +41,7 @@ namespace Unity.NetCode.Hybrid
 
         /// <inheritdoc/>
         public string CustomDependency => GetFilePath();
+
         /// <inheritdoc/>
         void IEntitiesPlayerSettings.RegisterCustomDependency()
         {

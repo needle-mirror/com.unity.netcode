@@ -1,6 +1,4 @@
-using System.Collections.Generic;
 using Unity.Entities;
-using Unity.Transforms;
 
 namespace Unity.NetCode
 {

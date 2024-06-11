@@ -1,5 +1,4 @@
 using System;
-using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
 using NUnit.Framework;
@@ -120,7 +119,7 @@ namespace Unity.NetCode.Tests
 
                 //Register serializers and setup all the system
                 for(int i=0;i<16;++i)
-                    testWorld.Tick(1.0f/60.0f);
+                    testWorld.Tick();
 
                 //Then check the expected results
                 var ghostCollection = testWorld.TryGetSingletonEntity<NetCodeTestPrefabCollection>(testWorld.ServerWorld);
@@ -182,7 +181,7 @@ namespace Unity.NetCode.Tests
 
                 //Register serializers and setup all the system
                 for(int i=0;i<16;++i)
-                    testWorld.Tick(1.0f/60.0f);
+                    testWorld.Tick();
 
                 //Then check the expected results
                 //Server
@@ -247,7 +246,7 @@ namespace Unity.NetCode.Tests
 
                 //Register serializers and setup all the system
                 for(int i=0;i<16;++i)
-                    testWorld.Tick(1.0f/60.0f);
+                    testWorld.Tick();
 
                 //Then check the expected results
                 //Server
@@ -308,17 +307,17 @@ namespace Unity.NetCode.Tests
 
                 //Register serializers and setup all the system
                 for(int i=0;i<16;++i)
-                    testWorld.Tick(1.0f/60.0f);
+                    testWorld.Tick();
 
                 //In order to get the collection setup I need to enter in game
-                testWorld.Connect(1.0f / 60f);
+                testWorld.Connect();
                 testWorld.GoInGame();
 
                 for (int i = 0; i < collection.Length; ++i)
                     testWorld.SpawnOnServer(collection[i]);
 
                 for(int i=0;i<16;++i)
-                    testWorld.Tick(1.0f/60.0f);
+                    testWorld.Tick();
 
                 //Then check the expected results
                 var collectionEntity = testWorld.TryGetSingletonEntity<GhostCollection>(testWorld.ServerWorld);
@@ -366,17 +365,17 @@ namespace Unity.NetCode.Tests
 
                 //Register serializers and setup all the system
                 for(int i=0;i<16;++i)
-                    testWorld.Tick(1.0f/60.0f);
+                    testWorld.Tick();
 
                 //In order to get the collection setup I need to enter in game
-                testWorld.Connect(1.0f / 60f);
+                testWorld.Connect();
                 testWorld.GoInGame();
 
                 for (int i = 0; i < collection.Length; ++i)
                     testWorld.SpawnOnServer(collection[i]);
 
                 for(int i=0;i<16;++i)
-                    testWorld.Tick(1.0f/60.0f);
+                    testWorld.Tick();
 
                 //Then check the expected results
                 var collectionEntity = testWorld.TryGetSingletonEntity<GhostCollection>(testWorld.ServerWorld);
@@ -425,17 +424,17 @@ namespace Unity.NetCode.Tests
 
                 //Register serializers and setup all the system
                 for(int i=0;i<16;++i)
-                    testWorld.Tick(1.0f/60.0f);
+                    testWorld.Tick();
 
                 //In order to get the collection setup I need to enter in game
-                testWorld.Connect(1.0f / 60f);
+                testWorld.Connect();
                 testWorld.GoInGame();
 
                 for (int i = 0; i < collection.Length; ++i)
                     testWorld.SpawnOnServer(collection[i]);
 
                 for(int i=0;i<16;++i)
-                    testWorld.Tick(1.0f/60.0f);
+                    testWorld.Tick();
 
                 //Then check the expected results
                 var collectionEntity = testWorld.TryGetSingletonEntity<GhostCollection>(testWorld.ServerWorld);
@@ -545,15 +544,15 @@ namespace Unity.NetCode.Tests
 
                 //Register serializers and setup all the system
                 for(int i=0;i<16;++i)
-                    testWorld.Tick(1.0f/60.0f);
+                    testWorld.Tick();
 
                 //In order to get the collection setup I need to enter in game
-                testWorld.Connect(1.0f / 60f);
+                testWorld.Connect();
                 testWorld.GoInGame();
                 testWorld.SpawnOnServer(ghostGameObject);
 
                 for(int i=0;i<16;++i)
-                    testWorld.Tick(1.0f/60.0f);
+                    testWorld.Tick();
 
                 var typeIndex = TypeManager.GetTypeIndex<Transforms.LocalTransform>();
 

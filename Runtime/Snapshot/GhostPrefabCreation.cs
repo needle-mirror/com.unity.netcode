@@ -141,6 +141,16 @@ namespace Unity.NetCode
             /// </summary>
             public bool UsePreSerialization;
             /// <summary>
+            /// Enable predicted spawned ghost to rollback their initial spawn state and re-predict until the authoritative spawn has been received from the server.
+            /// </summary>
+            /// <returns></returns>
+            public bool PredictedSpawnedGhostRollbackToSpawnTick;
+            /// <summary>
+            /// Client CPU optimization. Force predicted ghost to always try to continue from the last prediction in case of structural changes. True by default (because may introduce some issue when replicated component are removed).
+            /// </summary>
+            /// <returns></returns>
+            public bool RollbackPredictionOnStructuralChanges;
+            /// <summary>
             /// Optional, custom deterministic function that retrieve all no-backing and serializable component types for this ghost. By serializable,
             /// we means components that either have ghost fields (fields with a <see cref="GhostFieldAttribute"/> attribute)
             /// or a <see cref="GhostComponentAttribute"/>.
@@ -429,6 +439,16 @@ namespace Unity.NetCode
                 root.DefaultMode = GhostPrefabBlobMetaData.GhostMode.Predicted;
             }
             root.StaticOptimization = (ghostConfig.OptimizationMode == GhostOptimizationMode.Static);
+            if (root.SupportedModes != GhostPrefabBlobMetaData.GhostMode.Interpolated)
+            {
+                root.PredictedSpawnedGhostRollbackToSpawnTick = ghostConfig.PredictedSpawnedGhostRollbackToSpawnTick;
+                root.RollbackPredictionOnStructuralChanges = ghostConfig.RollbackPredictionOnStructuralChanges;
+            }
+            else
+            {
+                root.PredictedSpawnedGhostRollbackToSpawnTick = false;
+                root.RollbackPredictionOnStructuralChanges = false;
+            }
             builder.AllocateString(ref root.Name, ref ghostConfig.Name);
 
             var serverComponents = new NativeList<ulong>(allComponents.Length, Allocator.Temp);

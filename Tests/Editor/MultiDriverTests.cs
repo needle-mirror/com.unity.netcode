@@ -60,7 +60,7 @@ namespace Unity.NetCode.Tests
                 Assert.AreEqual(TransportType.Socket, serverDriverStore.GetDriverType(NetworkDriverStore.FirstDriverId+1));
 
                 for (int i = 0; i < 16; ++i)
-                    testWorld.Tick(16f/1000f);
+                    testWorld.Tick();
 
                 Assert.AreEqual(2, testWorld.ServerWorld.GetExistingSystemManaged<CheckConnectionSystem>().numConnected);
                 foreach (var world in testWorld.ClientWorlds)
@@ -68,7 +68,7 @@ namespace Unity.NetCode.Tests
 
                 testWorld.GoInGame();
                 for (int i = 0; i < 16; ++i)
-                    testWorld.Tick(16f/1000f);
+                    testWorld.Tick();
 
                 Assert.AreEqual(2, testWorld.ServerWorld.GetExistingSystemManaged<CheckConnectionSystem>().numConnected);
                 Assert.AreEqual(2, testWorld.ServerWorld.GetExistingSystemManaged<CheckConnectionSystem>().numInGame);
@@ -101,7 +101,7 @@ namespace Unity.NetCode.Tests
                     testWorld.GetSingletonRW<NetworkStreamDriver>(world).ValueRW.Connect(world.EntityManager, ep);
 
                 for (int i = 0; i < 16; ++i)
-                    testWorld.Tick(16f/1000f);
+                    testWorld.Tick();
 
                 ServerRpcReceiveSystem.ReceivedCount = 0;
                 ServerRpcBroadcastSendSystem.SendCount = 5;
@@ -109,7 +109,7 @@ namespace Unity.NetCode.Tests
 
                 testWorld.GoInGame();
                 for (int i = 0; i < 64; ++i)
-                    testWorld.Tick(16f/1000f);
+                    testWorld.Tick();
 
                 Assert.AreEqual(5 * testWorld.ClientWorlds.Length, ServerRpcReceiveSystem.ReceivedCount);
                 foreach (var world in testWorld.ClientWorlds)
@@ -133,7 +133,7 @@ namespace Unity.NetCode.Tests
 
                 testWorld.UseMultipleDrivers = 1;
                 testWorld.CreateWorlds(true, 2);
-                testWorld.Connect(1f/60f);
+                testWorld.Connect();
                 testWorld.GoInGame();
 
                 var clientConnectionEnt = new[]
@@ -151,7 +151,7 @@ namespace Unity.NetCode.Tests
                     testWorld.ServerWorld.EntityManager.SetComponentData(serverEnts[i], new GhostOwner {NetworkId = netId.Value});
                 }
                 for (int i = 0; i < 16; ++i)
-                    testWorld.Tick(1f/60f);
+                    testWorld.Tick();
 
                 for (int i = 0; i < 2; ++i)
                 {
@@ -165,7 +165,7 @@ namespace Unity.NetCode.Tests
                 }
 
                 for (int i = 0; i < 16; ++i)
-                    testWorld.Tick(1f/60f);
+                    testWorld.Tick();
 
                 for (int i = 0; i < 2; ++i)
                 {

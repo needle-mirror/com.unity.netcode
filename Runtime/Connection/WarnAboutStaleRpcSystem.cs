@@ -29,6 +29,7 @@ namespace Unity.NetCode
             {
                 if (!command.IsConsumed && ++command.Age >= netDebug.MaxRpcAgeFrames)
                 {
+                    // TODO - Add RPC name once they become available in jobs.
                     var warning = (FixedString512Bytes) $"[{worldName}] NetCode RPC {entity.ToFixedString()} has not been consumed or destroyed for '{command.Age}' (MaxRpcAgeFrames) frames! Assumed unhandled. Either a) call .Consume(), or b) remove the ReceiveRpcCommandRequestComponent component, or c) destroy the entity.";
                     netDebug.LogWarning(warning);
 
@@ -39,9 +40,11 @@ namespace Unity.NetCode
         [BurstCompile]
         public void OnUpdate(ref SystemState state)
         {
+            var netDebug = SystemAPI.GetSingleton<NetDebug>();
+            if (netDebug.MaxRpcAgeFrames <= 0) return;
             var warnJob = new WarnAboutStaleRpc
             {
-                netDebug = SystemAPI.GetSingleton<NetDebug>(),
+                netDebug = netDebug,
                 worldName = state.WorldUnmanaged.Name
             };
             state.Dependency = warnJob.Schedule(state.Dependency);

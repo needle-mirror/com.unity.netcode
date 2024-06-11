@@ -35,7 +35,7 @@ namespace Unity.NetCode
         /// <summary>A decent default for testing realistic, poor network conditions.</summary>
         public static SimulatorUtility.Parameters DefaultSimulatorParameters => new SimulatorUtility.Parameters
             {
-                Mode = ApplyMode.AllPackets, MaxPacketSize = NetworkParameterConstants.MTU, MaxPacketCount = 200,
+                Mode = ApplyMode.AllPackets, MaxPacketSize = NetworkParameterConstants.MaxMessageSize, MaxPacketCount = 200,
                 FuzzFactor = 0, PacketDelayMs = 100, PacketJitterMs = 10, PacketDropPercentage = 1, PacketDuplicationPercentage = 1
             };
 
@@ -103,7 +103,7 @@ namespace Unity.NetCode
         {
             for (var i = store.FirstDriver; i <= store.LastDriver; ++i)
             {
-                var driverInstance = store.GetDriverInstance(i);
+                ref var driverInstance = ref store.GetDriverInstanceRW(i);
                 if (!driverInstance.simulatorEnabled) continue;
 
                 var driverCurrentSettings = driverInstance.driver.CurrentSettings;

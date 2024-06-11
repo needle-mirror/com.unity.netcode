@@ -1,18 +1,15 @@
-using System.Diagnostics;
 using NUnit.Framework;
-using Unity.Collections;
 using Unity.Entities;
 using Unity.Networking.Transport;
-using UnityEngine;
 
 namespace Unity.NetCode.Tests
 {
     public class WorldMigrationTests
     {
-        void StepTicks(NetCodeTestWorld world, int count, float dt)
+        static void StepTicks(NetCodeTestWorld world, int count)
         {
-                for(int i = 0; i < count; ++i)
-                    world.Tick(dt);
+            for(int i = 0; i < count; ++i)
+                world.Tick();
         }
         void PrepareSend(int count)
         {
@@ -52,8 +49,6 @@ namespace Unity.NetCode.Tests
         {
             using (var testWorld = new NetCodeTestWorld())
             {
-                float frameTime = 1.0f / 60.0f;
-
                 testWorld.Bootstrap(true,
                     typeof(SerializedClientRcpSendSystem),
                     typeof(DriverMigrationSystem),
@@ -63,10 +58,10 @@ namespace Unity.NetCode.Tests
                     typeof(SerializedRpcCommandRequestSystem));
                 testWorld.CreateWorlds(true, 1);
 
-                testWorld.Connect(frameTime);
+                testWorld.Connect();
 
                 PrepareSend(1);
-                StepTicks(testWorld, 15, frameTime);
+                StepTicks(testWorld, 15);
                 ValidateSend(1);
 
                 var sseqn = testWorld.ServerWorld.SequenceNumber;
@@ -76,10 +71,10 @@ namespace Unity.NetCode.Tests
                 Assert.AreNotEqual(sseqn, testWorld.ServerWorld.SequenceNumber);
                 Assert.AreNotEqual(cseqn, testWorld.ClientWorlds[0].SequenceNumber);
 
-                StepTicks(testWorld, 15, frameTime);
+                StepTicks(testWorld, 15);
 
                 PrepareSend(1);
-                StepTicks(testWorld, 15, frameTime);
+                StepTicks(testWorld, 15);
                 ValidateSend(1);
             }
         }
@@ -89,8 +84,6 @@ namespace Unity.NetCode.Tests
         {
             using (var testWorld = new NetCodeTestWorld())
             {
-                float frameTime = 1.0f / 60.0f;
-
                 testWorld.Bootstrap(true,
                     typeof(DriverMigrationSystem),
                     typeof(SerializedClientRcpSendSystem),
@@ -100,10 +93,10 @@ namespace Unity.NetCode.Tests
                     typeof(SerializedRpcCommandRequestSystem));
                 testWorld.CreateWorlds(true, 1);
 
-                testWorld.Connect(frameTime);
+                testWorld.Connect();
 
                 PrepareSend(1);
-                StepTicks(testWorld, 15, frameTime);
+                StepTicks(testWorld, 15);
                 ValidateSend(1);
 
                 var sseqn = testWorld.ServerWorld.SequenceNumber;
@@ -121,10 +114,10 @@ namespace Unity.NetCode.Tests
                 Assert.AreNotEqual(sseqn, testWorld.ServerWorld.SequenceNumber);
                 Assert.AreNotEqual(cseqn, testWorld.ClientWorlds[0].SequenceNumber);
 
-                StepTicks(testWorld, 15, frameTime);
+                StepTicks(testWorld, 15);
 
                 PrepareSend(1);
-                StepTicks(testWorld, 15, frameTime);
+                StepTicks(testWorld, 15);
                 ValidateSend(1);
             }
         }
@@ -134,8 +127,6 @@ namespace Unity.NetCode.Tests
         {
             using (var testWorld = new NetCodeTestWorld())
             {
-                float frameTime = 1.0f / 60.0f;
-
                 testWorld.Bootstrap(true,
                     typeof(DriverMigrationSystem),
                     typeof(SerializedClientRcpSendSystem),
@@ -145,7 +136,7 @@ namespace Unity.NetCode.Tests
                     typeof(SerializedRpcCommandRequestSystem));
                 testWorld.CreateWorlds(true, 10);
 
-                testWorld.Connect(frameTime);
+                testWorld.Connect();
                 Unity.Mathematics.Random random = new Unity.Mathematics.Random(42);
                 var rndClient = random.NextInt(0, 10);
 
@@ -153,13 +144,13 @@ namespace Unity.NetCode.Tests
                 var id = testWorld.ClientWorlds[rndClient].EntityManager.GetComponentData<NetworkId>(c).Value;
 
                 var name = testWorld.ClientWorlds[3].Name;
-                StepTicks(testWorld, 5, frameTime);
+                StepTicks(testWorld, 5);
                 testWorld.RestartClientWorld(rndClient);
 
-                StepTicks(testWorld, 5, frameTime);
+                StepTicks(testWorld, 5);
                 testWorld.MigrateServerWorld();
 
-                StepTicks(testWorld, 5, frameTime);
+                StepTicks(testWorld, 5);
 
                 var ep = NetworkEndpoint.LoopbackIpv4;
                 ep.Port = 7979;
@@ -171,7 +162,7 @@ namespace Unity.NetCode.Tests
                               Entity.Null);
                     ++i)
                 {
-                    testWorld.Tick(frameTime);
+                    testWorld.Tick();
                 }
                 var connectionId = testWorld.ClientWorlds[rndClient].EntityManager.GetComponentData<NetworkId>(con).Value;
                 Assert.AreEqual(id , connectionId);

@@ -19,8 +19,8 @@ namespace Unity.NetCode.Editor
         SerializedProperty GhostGroup;
         SerializedProperty UsePreSerialization;
         SerializedProperty Importance;
-
-
+        SerializedProperty PredictedSpawnedGhostRollbackToSpawnTick;
+        SerializedProperty RollbackPredictionOnStructuralChanges;
 
         internal static Color brokenColor = new Color(1f, 0.56f, 0.54f);
         internal static Color brokenColorUIToolkit = new Color(0.35f, 0.19f, 0.19f);
@@ -31,15 +31,17 @@ namespace Unity.NetCode.Editor
 
         void OnEnable()
         {
-            DefaultGhostMode = serializedObject.FindProperty("DefaultGhostMode");
-            SupportedGhostModes = serializedObject.FindProperty("SupportedGhostModes");
-            OptimizationMode = serializedObject.FindProperty("OptimizationMode");
-            HasOwner = serializedObject.FindProperty("HasOwner");
-            SupportAutoCommandTarget = serializedObject.FindProperty("SupportAutoCommandTarget");
-            TrackInterpolationDelay = serializedObject.FindProperty("TrackInterpolationDelay");
-            GhostGroup = serializedObject.FindProperty("GhostGroup");
-            UsePreSerialization = serializedObject.FindProperty("UsePreSerialization");
-            Importance = serializedObject.FindProperty("Importance");
+            DefaultGhostMode = serializedObject.FindProperty(nameof(GhostAuthoringComponent.DefaultGhostMode));
+            SupportedGhostModes = serializedObject.FindProperty(nameof(GhostAuthoringComponent.SupportedGhostModes));
+            OptimizationMode = serializedObject.FindProperty(nameof(GhostAuthoringComponent.OptimizationMode));
+            HasOwner = serializedObject.FindProperty(nameof(GhostAuthoringComponent.HasOwner));
+            SupportAutoCommandTarget = serializedObject.FindProperty(nameof(GhostAuthoringComponent.SupportAutoCommandTarget));
+            TrackInterpolationDelay = serializedObject.FindProperty(nameof(GhostAuthoringComponent.TrackInterpolationDelay));
+            GhostGroup = serializedObject.FindProperty(nameof(GhostAuthoringComponent.GhostGroup));
+            UsePreSerialization = serializedObject.FindProperty(nameof(GhostAuthoringComponent.UsePreSerialization));
+            Importance = serializedObject.FindProperty(nameof(GhostAuthoringComponent.Importance));
+            PredictedSpawnedGhostRollbackToSpawnTick = serializedObject.FindProperty(nameof(GhostAuthoringComponent.RollbackPredictedSpawnedGhostState));
+            RollbackPredictionOnStructuralChanges = serializedObject.FindProperty(nameof(GhostAuthoringComponent.RollbackPredictionOnStructuralChanges));
         }
 
         public override void OnInspectorGUI()
@@ -101,6 +103,12 @@ namespace Unity.NetCode.Editor
             }
             EditorGUILayout.PropertyField(GhostGroup);
             EditorGUILayout.PropertyField(UsePreSerialization);
+
+            if(self.SupportedGhostModes != GhostModeMask.Interpolated)
+            {
+                EditorGUILayout.PropertyField(PredictedSpawnedGhostRollbackToSpawnTick);
+                EditorGUILayout.PropertyField(RollbackPredictionOnStructuralChanges);
+            }
 
             if (serializedObject.ApplyModifiedProperties())
             {

@@ -15,7 +15,7 @@ namespace Unity.NetCode
     {
         /// <summary>
         /// Floating point numbers will be multiplied by this number and rounded to an integer, enabling better delta-compression via huffman encoding.
-        /// Specifying a Quantization is mandatory for floating point numbers and not supported for integer numbers.
+        /// Quantization is not supported for integer numbers and is disabled by default for floats.
         /// To send a floating point number unquantized, use 0.
         /// Examples:
         /// Quantization=0 implies full precision.

@@ -1,6 +1,8 @@
 using System;
+using Unity.Collections.LowLevel.Unsafe;
 using Unity.Entities;
 using Unity.Mathematics;
+using Unity.Networking.Transport;
 using Unity.Networking.Transport.Utilities;
 
 namespace Unity.NetCode
@@ -142,8 +144,7 @@ namespace Unity.NetCode
         /// </summary>
         public uint NumLoadedPrefabs;
 
-        /// <summary><inheritdoc cref="SnapshotPacketLossStatistics"/></summary>
-        /// <remarks>Client-only.</remarks>
+        /// <inheritdoc cref="SnapshotPacketLossStatistics"/>
         public SnapshotPacketLossStatistics SnapshotPacketLoss;
 
         /// <summary>
@@ -169,6 +170,54 @@ namespace Unity.NetCode
         }
 
         /// <summary>
+        /// Sanitizes the RTT from the localTime correctly.
+        /// </summary>
+        /// <param name="localTime"></param>
+        /// <param name="localTimeMinusRTT"></param>
+        /// <returns>Returns -1 if invalid.</returns>
+        internal static int CalculateRttViaLocalTime(uint localTime, uint localTimeMinusRTT)
+        {
+            if (localTimeMinusRTT == 0)
+                return -1;
+            // Highest bit set means we got a negative value, which can happen on low ping due to clock difference between client and server
+            uint lastReceivedRTT = localTime - localTimeMinusRTT;
+            if ((lastReceivedRTT & (1 << 31)) != 0)
+                return -1;
+            return (int) lastReceivedRTT;
+        }
+
+        /// <summary>
+        /// Because RPCs are reliable, they may arrive many RTTs after being sent.
+        /// Thus, it does not make sense to calculate the RTT of them manually.
+        /// We use the transport feature instead.
+        /// </summary>
+        /// <param name="connection"></param>
+        /// <param name="driver"></param>
+        /// <param name="driverInstance"></param>
+        /// <param name="pipelineStage"></param>
+        /// <param name="reliableSequencedPipelineStageId"></param>
+        /// <returns></returns>
+        internal static unsafe int GetRpcRttFromReliablePipeline(NetworkStreamConnection connection,
+            ref NetworkDriver driver, ref NetworkDriverStore.NetworkDriverInstance driverInstance,
+            in NetworkPipeline pipelineStage, NetworkPipelineStageId reliableSequencedPipelineStageId)
+        {
+#if ENABLE_UNITY_COLLECTIONS_CHECKS
+            UnityEngine.Debug.Assert(pipelineStage.Id == driverInstance.reliablePipeline.Id);
+#endif
+            driver.GetPipelineBuffers(driverInstance.reliablePipeline, reliableSequencedPipelineStageId, connection.Value, out _, out _, out var sharedBuffer);
+            var sharedCtx = (ReliableUtility.SharedContext*)sharedBuffer.GetUnsafePtr();
+            // Note: The Transport `RTTInfo` value has already accounted for client CPU processing time.
+            var rttInfo = sharedCtx->RttInfo;
+            // Bit of a hack: Discard the value if it's EXACTLY identical to the default `RTTInfo` struct.
+            // TODO - Fix this if/once transport exposes a way to see if this is the default RTT.
+            var isExactlyDefaultRttValue = rttInfo.SmoothedRtt == 50
+                                           && rttInfo.LastRtt == 50
+                                           && rttInfo.SmoothedVariance == 5
+                                           && rttInfo.ResendTimeout == 50;
+            return isExactlyDefaultRttValue ? -1 : rttInfo.LastRtt;
+        }
+
+        /// <summary>
         /// Store the time (local) at which a message/packet has been received,
         /// as well as the latest received remote time (than will send back to the remote peer) and update the
         /// <see cref="EstimatedRTT"/> and <see cref="DeviationRTT"/> for the connection.
@@ -178,27 +227,25 @@ namespace Unity.NetCode
         /// because that will indicate a more recent message has been already processed.
         /// </remarks>
         /// <param name="remoteTime"></param>
-        /// <param name="localTimeMinusRTT"></param>
+        /// <param name="lastReceivedRTT">Our calculation of the RTT, using whatever metrics are available to us.
+        /// Assumes CPU processing time is already accounted for!</param>
         /// <param name="localTime"></param>
-        internal void UpdateRemoteTime(uint remoteTime, uint localTimeMinusRTT, uint localTime)
+        internal void UpdateRemoteTime(uint remoteTime, int lastReceivedRTT, uint localTime)
         {
             //Because we sync time using both RPC and snapshot it is more correct to also accept
-            //update the stats for a remotetime that is equals to the last received one.
+            //update the stats for a remoteTime that is equals to the last received one.
             if (remoteTime != 0 && (!SequenceHelpers.IsNewer(LastReceivedRemoteTime, remoteTime) || LastReceivedRemoteTime == 0))
             {
                 LastReceivedRemoteTime = remoteTime;
                 LastReceiveTimestamp = localTime;
-                if (localTimeMinusRTT == 0)
+                if (lastReceivedRTT < 0)
                     return;
-                uint lastReceivedRTT = localTime - localTimeMinusRTT;
-                // Highest bit set means we got a negative value, which can happen on low ping due to clock difference between client and server
-                if ((lastReceivedRTT & (1<<31)) != 0)
-                    lastReceivedRTT = 0;
                 if (EstimatedRTT == 0)
                     EstimatedRTT = lastReceivedRTT;
                 else
                     EstimatedRTT = EstimatedRTT * 0.875f + lastReceivedRTT * 0.125f;
-                DeviationRTT = DeviationRTT * 0.75f + math.abs(lastReceivedRTT - EstimatedRTT) * 0.25f;
+                var latestDeviationRTT = math.abs(lastReceivedRTT - EstimatedRTT);
+                DeviationRTT = DeviationRTT * 0.75f + latestDeviationRTT * 0.25f;
             }
         }
 
@@ -250,5 +297,19 @@ namespace Unity.NetCode
         /// The reported interpolation delay reported by the client (in number of ticks).
         /// </summary>
         public uint RemoteInterpolationDelay;
+
+        /// <summary>Modifies the <see cref="LastReceivedRemoteTime"/> by accounting for this machines processing time.</summary>
+        /// <param name="localTime"></param>
+        /// <returns></returns>
+        internal readonly uint CalculateReturnTime(uint localTime)
+        {
+            var returnTime = LastReceivedRemoteTime;
+            if (returnTime != 0)
+            {
+                var processingTime = (localTime - LastReceiveTimestamp);
+                returnTime += processingTime;
+            }
+            return returnTime;
+        }
     }
 }

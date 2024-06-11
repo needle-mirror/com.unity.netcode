@@ -121,7 +121,7 @@ namespace Unity.NetCode
                 maxComponentCount = math.max(maxComponentCount, GhostTypeCollection[i].NumComponents);
                 maxSnapshotSize = math.max(maxSnapshotSize, GhostComponentSerializer.SnapshotSizeAligned(GhostTypeCollection[i].SnapshotSize));
             }
-            
+
             tempBaselinesPerEntity = (byte**)UnsafeUtility.Malloc(maxCount*4*UnsafeUtility.SizeOf<IntPtr>(), 16, Allocator.Temp);
             tempComponentDataPerEntity = (byte**)UnsafeUtility.Malloc(maxCount*UnsafeUtility.SizeOf<IntPtr>(), 16, Allocator.Temp);
             tempComponentDataLenPerEntity = (int*)UnsafeUtility.Malloc(maxCount*4, 16, Allocator.Temp);
@@ -159,25 +159,29 @@ namespace Unity.NetCode
                 if (baselineTick.IsValid && currentTick.TicksSince(baselineTick) >= GhostSystemConstants.MaxBaselineAge)
                 {
                     chunkState.ClearAckFlag(baseline);
-                    continue;
+                    PacketDumpExceededMaxBaselineAge(currentTick, baselineTick);
                 }
-                if (snapshotAck.IsReceivedByRemote(baselineTick))
-                    chunkState.SetAckFlag(baseline);
-                if (chunkState.HasAckFlag(baseline))
+                else
                 {
-                    currentSnapshot.AvailableBaselines.Add(new SnapshotBaseline
+                    if (snapshotAck.IsReceivedByRemote(baselineTick))
+                        chunkState.SetAckFlag(baseline);
+                    if (chunkState.HasAckFlag(baseline))
                     {
-                        tick = snapshotIndex[baseline],
-                        snapshot = chunkState.GetData(snapshotSize, chunk.Capacity, baseline),
-                        entity = chunkState.GetEntity(snapshotSize, chunk.Capacity, baseline),
-                        dynamicData = chunkState.GetDynamicDataPtr(baseline, chunk.Capacity, out var _),
-                    });
+                        currentSnapshot.AvailableBaselines.Add(new SnapshotBaseline
+                        {
+                            tick = snapshotIndex[baseline],
+                            snapshot = chunkState.GetData(snapshotSize, chunk.Capacity, baseline),
+                            entity = chunkState.GetEntity(snapshotSize, chunk.Capacity, baseline),
+                            dynamicData = chunkState.GetDynamicDataPtr(baseline, chunk.Capacity, out var _),
+                        });
+                    }
                 }
 
                 baseline = (GhostSystemConstants.SnapshotHistorySize + baseline - 1) %
-                            GhostSystemConstants.SnapshotHistorySize;
+                           GhostSystemConstants.SnapshotHistorySize;
             }
         }
+
         private void FindBaselines(int entIdx, Entity ent, in CurrentSnapshotState currentSnapshot, ref int baseline0, ref int baseline1, ref int baseline2, bool useSingleBaseline)
         {
             int numAvailableBaselines = currentSnapshot.AvailableBaselines.Length;
@@ -206,6 +210,14 @@ namespace Unity.NetCode
 #if NETCODE_DEBUG
             if (enablePacketLogging == 1)
                 netDebugPacket.Log(FixedString.Format("Structural change in chunk with ghost type {0}\n", ghostType));
+#endif
+        }
+        [Conditional("NETCODE_DEBUG")]
+        private void PacketDumpExceededMaxBaselineAge(NetworkTick current, NetworkTick baselineTick)
+        {
+#if NETCODE_DEBUG
+            if (enablePacketLogging == 1)
+                netDebugPacket.Log($"\tcurrentTick:{current.ToFixedString()} vs baseline:{baselineTick.ToFixedString()} exceeded MaxBaselineAge!\n");
 #endif
         }
         [Conditional("NETCODE_DEBUG")]
@@ -372,18 +384,18 @@ namespace Unity.NetCode
                     "A ghost changed type, ghost must keep the same serializer type throughout their lifetime");
             }
         }
-        [Conditional("UNITY_EDITOR"), Conditional("NETCODE_DEBUG")]
+        [Conditional("NETCODE_DEBUG")]
         private void ComponentScopeBegin(int serializerIdx)
         {
-            #if UNITY_EDITOR || NETCODE_DEBUG
+            #if NETCODE_DEBUG
             if (enablePerComponentProfiling == 1)
                 GhostComponentCollection[serializerIdx].ProfilerMarker.Begin();
             #endif
         }
-        [Conditional("UNITY_EDITOR"), Conditional("NETCODE_DEBUG")]
+        [Conditional("NETCODE_DEBUG")]
         private void ComponentScopeEnd(int serializerIdx)
         {
-            #if UNITY_EDITOR || NETCODE_DEBUG
+            #if NETCODE_DEBUG
             if (enablePerComponentProfiling == 1)
                 GhostComponentCollection[serializerIdx].ProfilerMarker.End();
             #endif
@@ -839,6 +851,7 @@ namespace Unity.NetCode
                 if (tempWriter.HasFailedWrites)
                 {
                     //We are paying the cost of this string concatenation even though the log level will skip this.
+                    //At least try to avoid that with an if
                     if (Hint.Unlikely(netDebug.LogLevel == NetDebug.LogLevelType.Debug))
                     {
                         netDebug.LogWarning($"PERFORMANCE: Could not fit snapshot content into temporary buffer of size {tempWriter.Capacity}, increasing size to {tempWriter.Capacity*2} and trying again! If this happens frequently, increase the size of this buffer via `GhostSendSystemData.TempStreamInitialSize`.");
@@ -1226,8 +1239,7 @@ namespace Unity.NetCode
             {
                 if (maskOffset == 0) // First time writing, reset the entire 32 bits.
                     *enableableMasks = 0U;
-                var isSetOnServer = bitArray.IsSet(i);
-                if (bitArray.IsCreated && isSetOnServer) // FIXME: How can bitArray.IsCreated ever be false?
+                if (bitArray.IsSet(i))
                     (*enableableMasks) |= 1U << maskOffset;
                 else
                     (*enableableMasks) &= ~(1U << maskOffset);

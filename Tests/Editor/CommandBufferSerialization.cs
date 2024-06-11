@@ -1,12 +1,8 @@
-using System;
-using System.Text.RegularExpressions;
 using NUnit.Framework;
 using Unity.Collections;
 using Unity.Entities;
 using UnityEngine;
 using Unity.Transforms;
-using UnityEngine.Networking.PlayerConnection;
-using UnityEngine.TestTools;
 
 namespace Unity.NetCode.Tests
 {
@@ -86,8 +82,6 @@ namespace Unity.NetCode.Tests
     }
     public class CommandBufferTests
     {
-        private const float deltaTime = 1.0f / 60.0f;
-
         [Test]
         [TestCase(GhostModeMask.All, GhostMode.OwnerPredicted)]
         [TestCase(GhostModeMask.All, GhostMode.Interpolated)]
@@ -108,14 +102,14 @@ namespace Unity.NetCode.Tests
                 ghostConfig.DefaultGhostMode = mode;
                 Assert.IsTrue(testWorld.CreateGhostCollection(ghostGameObject));
                 testWorld.CreateWorlds(true, 1);
-                testWorld.Connect(deltaTime);
+                testWorld.Connect();
                 testWorld.GoInGame();
 
                 var serverEnt = SpawnEntityAndAssignOwnerOnServer(testWorld, ghostGameObject, 0);
                 var clientEnt = WaitEntitySpawnedOnClientsAndAssignOwner(testWorld, 1, 0);
 
                 for (int i = 0; i < 16; ++i)
-                    testWorld.Tick(deltaTime);
+                    testWorld.Tick();
 
                 var clientBuffer = testWorld.ClientWorlds[0].EntityManager.GetBuffer<TestInput>(clientEnt[0]);
                 var serverBuffer = testWorld.ServerWorld.EntityManager.GetBuffer<TestInput>(serverEnt);
@@ -137,7 +131,7 @@ namespace Unity.NetCode.Tests
                     serverBuffer[i] = new TestInput {Tick = serverBuffer[i].Tick, Value = 2};
 
                 for (int i = 0; i < 10; ++i)
-                    testWorld.Tick(deltaTime);
+                    testWorld.Tick();
 
                 clientBuffer = testWorld.ClientWorlds[0].EntityManager.GetBuffer<TestInput>(clientEnt[0]);
                 Assert.Less(serverBuffer.Length, clientBuffer.Length);
@@ -166,7 +160,7 @@ namespace Unity.NetCode.Tests
                 Assert.IsTrue(testWorld.CreateGhostCollection(ghostGameObject));
 
                 testWorld.CreateWorlds(true, 2);
-                testWorld.Connect(deltaTime);
+                testWorld.Connect();
                 testWorld.GoInGame();
 
                 var serverEnt = SpawnEntityAndAssignOwnerOnServer(testWorld, ghostGameObject, 0);
@@ -174,7 +168,7 @@ namespace Unity.NetCode.Tests
 
                 //Run a series of full ticks and check that the buffers are replicated to the non owner
                 for (int i = 0; i < 16; ++i)
-                    testWorld.Tick(deltaTime);
+                    testWorld.Tick();
 
                 var clientBuffer0 = testWorld.ClientWorlds[0].EntityManager.GetBuffer<TestInput>(clientEnt[0]);
                 var clientBuffer1 = testWorld.ClientWorlds[1].EntityManager.GetBuffer<TestInput>(clientEnt[1]);
@@ -224,7 +218,7 @@ namespace Unity.NetCode.Tests
                 int numClients = 2;
 
                 testWorld.CreateWorlds(true, numClients);
-                testWorld.Connect(deltaTime);
+                testWorld.Connect();
                 testWorld.GoInGame();
 
                 var serverEnt = SpawnEntityAndAssignOwnerOnServer(testWorld, ghostGameObject, 0);
@@ -232,7 +226,7 @@ namespace Unity.NetCode.Tests
 
                 //Run a series of full ticks and check that the buffers are replicated to the non owner
                 for (int i = 0; i < 16; ++i)
-                    testWorld.Tick(deltaTime);
+                    testWorld.Tick();
 
                 var serverBuffer = testWorld.ServerWorld.EntityManager.GetBuffer<TestInput>(serverEnt);
                 for (int i = 0; i < numClients; ++i)
@@ -265,7 +259,7 @@ namespace Unity.NetCode.Tests
                 int numClients = 3;
 
                 testWorld.CreateWorlds(true, numClients);
-                testWorld.Connect(deltaTime);
+                testWorld.Connect();
                 testWorld.GoInGame();
 
                 var serverEnt1 = SpawnEntityAndAssignOwnerOnServer(testWorld, ghostGameObject, 0);
@@ -273,7 +267,7 @@ namespace Unity.NetCode.Tests
                 var clientEnt = new Entity[2];
                 //Tick a little and wait all entities spawns
                 for(int i=0;i<16;++i)
-                    testWorld.Tick(deltaTime);
+                    testWorld.Tick();
                 //Assign the owner on the respective clients. Client3 is  passive (no entity)
                 for(int i=0;i<2;++i)
                 {
@@ -294,7 +288,7 @@ namespace Unity.NetCode.Tests
                 }
                 //Run a series of full ticks and check that the buffers are not replicated to the interpolated clients ghost
                 for (int i = 0; i < 16; ++i)
-                    testWorld.Tick(deltaTime);
+                    testWorld.Tick();
 
                 for (int i = 0; i < 3; ++i)
                 {
@@ -325,7 +319,7 @@ namespace Unity.NetCode.Tests
             do
             {
                 ++iterations;
-                testWorld.Tick(deltaTime);
+                testWorld.Tick();
                 entitiesAreNotSpawned = false;
                 for (int i = 0; i < numClients; ++i)
                 {

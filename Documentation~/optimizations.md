@@ -57,7 +57,7 @@ _Note that applying this setting will cause **all** ghosts to default to **not b
 * **SetIsIrrelevant** - Ghosts added to relevancy set (`GhostRelevancySet`, below) are considered "not-relevant to that client", and thus will be not serialized for the specified connection. In other words: Set this mode if you want to specifically ignore specific entities for a given client.
 
 `GhostRelevancySet` is the map that stores a these (connection, ghost) pairs. The behaviour (of adding a (connection, ghost) item) is determined according to the above rule.
-`DefaultRelevancyQuery` is a global rule denoting that all ghost chunks matching this query are always considered relevant to all connections (unless you've added the ghosts in said chunk to the `GhostRelevancySet`). This is useful for creating general relevancy rules (e.g. "the entities in charge of tracking player scores are always relevant"). `GhostRelevancySet` takes precedence over this rule. See the [example](https://github.com/Unity-Technologies/EntityComponentSystemSamples/tree/master/NetcodeSamples/Assets/Samples/Asteroids/Authoring/Server/SetAlwaysRelevantSystem.cs) in Asteroids.
+`GlobalRelevantQuery` is a global rule denoting that all ghost chunks matching this query are always considered relevant to all connections (unless you've added the ghosts in said chunk to the `GhostRelevancySet`). This is useful for creating general relevancy rules (e.g. "the entities in charge of tracking player scores are always relevant"). `GhostRelevancySet` takes precedence over this rule. See the [example](https://github.com/Unity-Technologies/EntityComponentSystemSamples/tree/master/NetcodeSamples/Assets/Samples/Asteroids/Authoring/Server/SetAlwaysRelevantSystem.cs) in Asteroids.
 ```c#
 var relevancy = SystemAPI.GetSingletonRW<GhostRelevancy>();
 relevancy.ValueRW.DefaultRelevancyQuery = GetEntityQuery(typeof(AsteroidScore));
@@ -190,3 +190,25 @@ You simply need to:
 3. Define your own version of a `GhostDistancePartitioningSystem` which moves your entities between chunks (via writing to the shared component).
 
 Job done!
+
+## Avoid rollback predicted ghost on structural changes
+When the client predict ghost (either using predicted or owner-predicted mode), in case of structural changes (add/remove component on a ghost), the entity
+state is rollback to the `latest received` snapshot from the server and re-simulated up to the current client predicted server tick.
+
+This behavior is due to the fact, in case of structural changes, the current prediction history backup for the entity is "invalidated", and we don't continue predicting
+since the last fully simulated tick (backup). We do that to ensure that when component are re-added the state of the component is re-predicted (even though this is a fair assumption, it still an approximation, because the other entities are not doing the same), 
+
+This operation can be extremely costly, especially with physics (because of the build reworld step).
+It is possible to disable this bahaviour on a per-prefab basis, by unackecking the `RollbackPredictionOnStructuralChanges` toggle in the GhostAuthoringComponent inspector.
+
+When the `RollbackPredictionOnStructuralChanges` is set to false, the GhostUpdateSystem will try to reuse the current backup if possible, preserving a lot of CPU cycle. This is in general a very good optimization that you would like to enable by default. 
+
+However there are (at the moment) some race conditions and **differences in behaviour when a replicated component is removed from the ghost**. In that case, because the entity is not rollback, the value of this component when it is re-added to entity
+may vary and, depending on the timing, different scenario can happen.
+
+In particular, If a new update for this ghost is received, the snapshot data will contains the last value from the server. However, if the component is missing at that time, the value of the component will be not restored. 
+When later, ther component is re-added, because the entity is not rollback and re-predicted, the current state of the re-added component is still `default` (all zeros).
+For comparison, if this optimization is off, because the entity is re-predicted, the value of the re-added component is restored correctly.
+
+If you know that none of the replicated component are removed for your ghost at runtime (removing others does not cause problem), it is strongly suggested to enable this optimzation, by disabling the default behaviour.
+

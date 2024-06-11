@@ -64,7 +64,7 @@ namespace Unity.NetCode.Tests
                 Assert.IsTrue(testWorld.CreateGhostCollection(ghostGameObject));
 
                 testWorld.CreateWorlds(true, 2);
-                testWorld.Connect(1f / 60f);
+                testWorld.Connect();
                 testWorld.GoInGame();
 
                 //Spanw the ghost, no-owner is assigned yet. The spawned ghost on the client should be interpolated.
@@ -73,7 +73,7 @@ namespace Unity.NetCode.Tests
                 Assert.AreNotEqual(Entity.Null, serverEnt);
                 testWorld.ServerWorld.EntityManager.SetComponentData(serverEnt, new GhostOwner { NetworkId = -1 });
                 for (int i = 0; i < 8; ++i)
-                    testWorld.Tick(1f / 60f);
+                    testWorld.Tick();
                 //We should have a ghost and should have been spawn as interpolated
                 var clientGhosts = new Entity[2];
                 for (var index = 0; index < testWorld.ClientWorlds.Length; index++)
@@ -93,7 +93,7 @@ namespace Unity.NetCode.Tests
                     testWorld.ServerWorld.EntityManager.SetComponentData(serverEnt,
                         new GhostOwner { NetworkId = owner + 1 });
                     for (int i = 0; i < 8; ++i)
-                        testWorld.Tick(1f / 60f);
+                        testWorld.Tick();
                     //client should have changed the ghost to be predicted
                     Assert.IsTrue(testWorld.ClientWorlds[index].EntityManager
                         .HasComponent<PredictedGhost>(clientGhosts[owner]));
@@ -103,7 +103,7 @@ namespace Unity.NetCode.Tests
                     testWorld.ServerWorld.EntityManager.SetComponentData(serverEnt,
                         new GhostOwner { NetworkId = -1 });
                     for (int i = 0; i < 8; ++i)
-                        testWorld.Tick(1f / 60f);
+                        testWorld.Tick();
                     //client should have changed the ghost to be interpolated
                     Assert.IsFalse(testWorld.ClientWorlds[owner].EntityManager
                         .HasComponent<PredictedGhost>(clientGhosts[owner]));
@@ -129,7 +129,7 @@ namespace Unity.NetCode.Tests
                 Assert.IsTrue(testWorld.CreateGhostCollection(ghostGameObject));
 
                 testWorld.CreateWorlds(true, 1);
-                testWorld.Connect(1f / 60f);
+                testWorld.Connect();
                 testWorld.GoInGame();
 
                 //Spanw the ghost, no-owner is assigned yet. The spawned ghost on the client should be interpolated.
@@ -140,7 +140,7 @@ namespace Unity.NetCode.Tests
                     new AutoCommandTarget { Enabled = false });
                 testWorld.ServerWorld.EntityManager.SetComponentData(serverEnt, new GhostOwner { NetworkId = -1 });
                 for (int i = 0; i < 8; ++i)
-                    testWorld.Tick(1f / 60f);
+                    testWorld.Tick();
                 //We should have a ghost and should have been spawn as interpolated
                 var clientGhost = testWorld.TryGetSingletonEntity<GhostOwner>(testWorld.ClientWorlds[0]);
                 Assert.AreNotEqual(Entity.Null, clientGhost);
@@ -151,7 +151,7 @@ namespace Unity.NetCode.Tests
                 testWorld.ServerWorld.EntityManager.SetComponentData(serverEnt,
                     new AutoCommandTarget { Enabled = true });
                 for (int i = 0; i < 8; ++i)
-                    testWorld.Tick(1f / 60f);
+                    testWorld.Tick();
                 Assert.AreEqual(ghostMode == GhostMode.Predicted || ghostMode == GhostMode.OwnerPredicted, testWorld.ClientWorlds[0].EntityManager.HasComponent<PredictedGhost>(clientGhost),
                     "We currently own this ghost.");
                 Assert.IsTrue(testWorld.ClientWorlds[0].EntityManager
@@ -201,7 +201,7 @@ namespace Unity.NetCode.Tests
                 Assert.IsTrue(testWorld.CreateGhostCollection(ghostGameObject));
 
                 testWorld.CreateWorlds(true, 1);
-                testWorld.Connect(1f / 60f);
+                testWorld.Connect();
                 testWorld.GoInGame();
 
                 //Spanw the ghost, no-owner is assigned yet. The spawned ghost on the client should be interpolated.
@@ -211,7 +211,7 @@ namespace Unity.NetCode.Tests
                 Assert.AreNotEqual(Entity.Null, serverEnt);
                 testWorld.ServerWorld.EntityManager.SetComponentData(serverEnt, new GhostOwner { NetworkId = -1 });
                 for (int i = 0; i < 8; ++i)
-                    testWorld.Tick(1f / 60f);
+                    testWorld.Tick();
                 //We should have a ghost and should have been spawn as interpolated
                 var clientGhost = testWorld.TryGetSingletonEntity<GhostOwner>(testWorld.ClientWorlds[0]);
                 Assert.AreNotEqual(Entity.Null, clientGhost);
@@ -236,7 +236,7 @@ namespace Unity.NetCode.Tests
                 }
                 testWorld.ServerWorld.EntityManager.SetComponentData(serverEnt, new GhostOwner { NetworkId = 1 });
                 for (int i = 0; i < 8; ++i)
-                    testWorld.Tick(1f / 60f);
+                    testWorld.Tick();
                 Assert.IsTrue(testWorld.ClientWorlds[0].EntityManager.HasComponent<PredictedGhost>(clientGhost));
                 {
                     var s1 = testWorld.ServerWorld.EntityManager.GetComponentData<InterpolatedComponentData>(serverEnt);
@@ -258,7 +258,7 @@ namespace Unity.NetCode.Tests
                 //And change it back
                 testWorld.ServerWorld.EntityManager.SetComponentData(serverEnt, new GhostOwner { NetworkId = -1 });
                 for (int i = 0; i < 8; ++i)
-                    testWorld.Tick(1f / 60f);
+                    testWorld.Tick();
                 Assert.IsFalse(testWorld.ClientWorlds[0].EntityManager.HasComponent<PredictedGhost>(clientGhost));
                 {
                     var s1 = testWorld.ServerWorld.EntityManager.GetComponentData<InterpolatedComponentData>(serverEnt);
@@ -280,7 +280,7 @@ namespace Unity.NetCode.Tests
                 //And change it again
                 testWorld.ServerWorld.EntityManager.SetComponentData(serverEnt, new GhostOwner { NetworkId = 1 });
                 for (int i = 0; i < 8; ++i)
-                    testWorld.Tick(1f / 60f);
+                    testWorld.Tick();
                 Assert.IsTrue(testWorld.ClientWorlds[0].EntityManager.HasComponent<PredictedGhost>(clientGhost));
                 {
                     var s1 = testWorld.ServerWorld.EntityManager.GetComponentData<InterpolatedComponentData>(serverEnt);

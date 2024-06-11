@@ -59,10 +59,10 @@ Create a file called *GoInGame.cs* in your __Assets__ folder and add the followi
 
 ```c#
 using UnityEngine;
+using Unity.Burst;
 using Unity.Collections;
 using Unity.Entities;
 using Unity.NetCode;
-using Unity.Burst;
 
 /// <summary>
 /// This allows sending RPCs between a stand alone build and the editor for testing purposes in the event when you finish this example
@@ -151,9 +151,7 @@ public partial struct GoInGameServerSystem : ISystem
         }
         commandBuffer.Playback(state.EntityManager);
     }
-
 }
-
 ```
 
 ## Create a ghost Prefab
@@ -172,6 +170,7 @@ To identify and synchronize the Cube Prefab inside Netcode for Entities, you nee
 
 ```c#
 using Unity.Entities;
+using Unity.NetCode;
 using UnityEngine;
 
 public struct Cube : IComponentData
@@ -275,6 +274,7 @@ Your `GoInGameServerSystem.OnCreate` method should look like this now:
     public void OnCreate(ref SystemState state)
     {
         state.RequireForUpdate<CubeSpawner>();
+
         var builder = new EntityQueryBuilder(Allocator.Temp)
             .WithAll<GoInGameRequest>()
             .WithAll<ReceiveRpcCommandRequest>();
@@ -359,6 +359,7 @@ public struct GoInGameRequest : IRpcCommand
 {
 }
 
+// When client has a connection with network id, go in game and tell server to also go in game
 [BurstCompile]
 [WorldSystemFilter(WorldSystemFilterFlags.ClientSimulation | WorldSystemFilterFlags.ThinClientSimulation)]
 public partial struct GoInGameClientSystem : ISystem
@@ -390,8 +391,8 @@ public partial struct GoInGameClientSystem : ISystem
     }
 }
 
-[BurstCompile]
 // When server receives go in game request, go in game and delete request
+[BurstCompile]
 [WorldSystemFilter(WorldSystemFilterFlags.ServerSimulation)]
 public partial struct GoInGameServerSystem : ISystem
 {
@@ -401,6 +402,7 @@ public partial struct GoInGameServerSystem : ISystem
     public void OnCreate(ref SystemState state)
     {
         state.RequireForUpdate<CubeSpawner>();
+
         var builder = new EntityQueryBuilder(Allocator.Temp)
             .WithAll<GoInGameRequest>()
             .WithAll<ReceiveRpcCommandRequest>();
@@ -455,6 +457,7 @@ Because you used the _Support Auto Command Target_ feature when you set up the g
 Create a script called *CubeInputAuthoring.cs* and add the following code:
 
 ```c#
+using Unity.Burst;
 using Unity.Entities;
 using Unity.NetCode;
 using UnityEngine;
@@ -468,7 +471,7 @@ public struct CubeInput : IInputComponentData
 [DisallowMultipleComponent]
 public class CubeInputAuthoring : MonoBehaviour
 {
-    class Baking : Baker<CubeInputAuthoring >
+    class CubeInputBaking : Unity.Entities.Baker<CubeInputAuthoring>
     {
         public override void Bake(CubeInputAuthoring authoring)
         {
@@ -481,23 +484,24 @@ public class CubeInputAuthoring : MonoBehaviour
 [UpdateInGroup(typeof(GhostInputSystemGroup))]
 public partial struct SampleCubeInput : ISystem
 {
+    public void OnCreate(ref SystemState state)
+    {
+        state.RequireForUpdate<NetworkStreamInGame>();
+        state.RequireForUpdate<CubeSpawner>();
+    }
+
     public void OnUpdate(ref SystemState state)
     {
-        bool left = UnityEngine.Input.GetKey("left");
-        bool right = UnityEngine.Input.GetKey("right");
-        bool down = UnityEngine.Input.GetKey("down");
-        bool up = UnityEngine.Input.GetKey("up");
-        
         foreach (var playerInput in SystemAPI.Query<RefRW<CubeInput>>().WithAll<GhostOwnerIsLocal>())
         {
             playerInput.ValueRW = default;
-            if (left)
+            if (Input.GetKey("left"))
                 playerInput.ValueRW.Horizontal -= 1;
-            if (right)
+            if (Input.GetKey("right"))
                 playerInput.ValueRW.Horizontal += 1;
-            if (down)
+            if (Input.GetKey("down"))
                 playerInput.ValueRW.Vertical -= 1;
-            if (up)
+            if (Input.GetKey("up"))
                 playerInput.ValueRW.Vertical += 1;
         }
     }
@@ -519,7 +523,6 @@ using Unity.Burst;
 [BurstCompile]
 public partial struct CubeMovementSystem : ISystem
 {
-    
     [BurstCompile]
     public void OnUpdate(ref SystemState state)
     {

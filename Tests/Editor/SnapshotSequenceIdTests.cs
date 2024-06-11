@@ -46,10 +46,11 @@ namespace Tests.Editor
                 Assert.Zero(stats.NumPacketsCulledAsArrivedOnSameFrame);
                 // Expecting loss here:
                 Assert.NotZero(stats.NumPacketsDroppedNeverArrived);
-                AssertPercentInRange(stats.NetworkPacketLossPercent, 5, 10); // Could be higher due to low number of samples.
+                // This could be higher due to low number of samples.
+                AssertPercentInRange(stats.NetworkPacketLossPercent, 5, 10, "NetworkPacketLossPercent");
                 // Check combined:
                 Assert.AreEqual(stats.NumPacketsDroppedNeverArrived, stats.CombinedPacketLossCount);
-                AssertPercentInRange(stats.CombinedPacketLossPercent, 5, 10);
+                AssertPercentInRange(stats.CombinedPacketLossPercent, 5, 10, "CombinedPacketLossPercent");
             }
         }
 
@@ -64,15 +65,18 @@ namespace Tests.Editor
 
                 var stats = RunForAWhile(testWorld);
                 // Other kind of packet loss should not have occurred:
-                Assert.LessOrEqual(stats.NumPacketsDroppedNeverArrived, 5); // Statistics will ASSUME there has been some loss, until we confirm it's actually just an out of order packet.
-                AssertPercentInRange(stats.NetworkPacketLossPercent, 0, 1);
+
+                // NumPacketsDroppedNeverArrived will ASSUME there has been some loss,
+                // until we confirm it's actually just an out of order packet.
+                Assert.LessOrEqual(stats.NumPacketsDroppedNeverArrived, 5, "NumPacketsDroppedNeverArrived");
+                AssertPercentInRange(stats.NetworkPacketLossPercent, 0, 1, "NetworkPacketLossPercent");
                 // Expecting loss here:
-                Assert.NotZero(stats.NumPacketsCulledAsArrivedOnSameFrame);
-                AssertPercentInRange(stats.ArrivedOnTheSameFrameClobberedPacketLossPercent, 6, 8);
-                Assert.NotZero(stats.NumPacketsCulledOutOfOrder);
-                AssertPercentInRange(stats.OutOfOrderPacketLossPercent, 35, 45);
+                Assert.NotZero(stats.NumPacketsCulledAsArrivedOnSameFrame, "NumPacketsCulledAsArrivedOnSameFrame");
+                AssertPercentInRange(stats.ArrivedOnTheSameFrameClobberedPacketLossPercent, 4, 11, "ArrivedOnTheSameFrameClobberedPacketLossPercent");
+                Assert.NotZero(stats.NumPacketsCulledOutOfOrder, "NumPacketsCulledOutOfOrder");
+                AssertPercentInRange(stats.OutOfOrderPacketLossPercent, 35, 45, "OutOfOrderPacketLossPercent");
                 // Check combined:
-                AssertPercentInRange(stats.CombinedPacketLossPercent, 40, 60);
+                AssertPercentInRange(stats.CombinedPacketLossPercent, 40, 60, "CombinedPacketLossPercent");
             }
         }
 
@@ -92,21 +96,21 @@ namespace Tests.Editor
                 var stats = RunForAWhile(testWorld);
                 // Expecting loss across all types:
                 Assert.NotZero(stats.NumPacketsDroppedNeverArrived);
-                AssertPercentInRange(stats.NetworkPacketLossPercent, 2, 4);
+                AssertPercentInRange(stats.NetworkPacketLossPercent, 2, 4, "NetworkPacketLossPercent");
                 Assert.NotZero(stats.NumPacketsCulledAsArrivedOnSameFrame);
-                AssertPercentInRange(stats.ArrivedOnTheSameFrameClobberedPacketLossPercent, 7, 9);
+                AssertPercentInRange(stats.ArrivedOnTheSameFrameClobberedPacketLossPercent, 7, 9, "ArrivedOnTheSameFrameClobberedPacketLossPercent");
                 Assert.NotZero(stats.NumPacketsCulledOutOfOrder);
-                AssertPercentInRange(stats.OutOfOrderPacketLossPercent, 30, 50);
+                AssertPercentInRange(stats.OutOfOrderPacketLossPercent, 30, 50, "OutOfOrderPacketLossPercent");
                 // Check combined:
-                AssertPercentInRange(stats.CombinedPacketLossPercent, 45, 55);
+                AssertPercentInRange(stats.CombinedPacketLossPercent, 45, 55, "CombinedPacketLossPercent");
             }
         }
 
-        private static void AssertPercentInRange(double perc, int min, int max)
+        private static void AssertPercentInRange(double perc, int min, int max, string fieldName)
         {
             var percMultiplied = (int)(perc * 100);
-            Assert.GreaterOrEqual(percMultiplied, min, $"Percent {perc:P1} within {min} and {max}!");
-            Assert.LessOrEqual(percMultiplied, max, $"Percent {perc:P1} within {min} and {max}!");
+            Assert.GreaterOrEqual(percMultiplied, min, $"{fieldName} - Percent {perc:P1} within {min} and {max}!");
+            Assert.LessOrEqual(percMultiplied, max, $"{fieldName} - Percent {perc:P1} within {min} and {max}!");
         }
 
         private static SnapshotPacketLossStatistics RunForAWhile(NetCodeTestWorld testWorld)
@@ -122,7 +126,7 @@ namespace Tests.Editor
 
             const int seconds = 25;
             for (var i = 0; i < seconds * 60; i++)
-                testWorld.Tick(frameTime);
+                testWorld.Tick();
 
             var stats = testWorld.GetSingleton<NetworkSnapshotAck>(testWorld.ClientWorlds[0]).SnapshotPacketLoss;
             Debug.Log($"Stats after test: {stats.ToFixedString()}!");

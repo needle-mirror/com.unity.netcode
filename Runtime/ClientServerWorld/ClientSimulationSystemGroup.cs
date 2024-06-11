@@ -1,6 +1,7 @@
 using Unity.Core;
 using Unity.Entities;
 using System.Collections.Generic;
+using UnityEngine;
 
 namespace Unity.NetCode
 {
@@ -104,6 +105,12 @@ namespace Unity.NetCode
                     ++networkTime.SimulationStepBatchSize;
             }
 
+            if (networkDeltaTime <= 0)
+            {
+                Debug.Log("Delta time was negative. To avoid undefined behaviour the frame is skipped.");
+                return false;
+            }
+
             if (!m_NetworkStreamInGameQuery.HasSingleton<NetworkStreamInGame>())
             {
                 previousServerTick.Value = NetworkTick.Invalid;
@@ -115,6 +122,7 @@ namespace Unity.NetCode
                 previousServerTick.Value = curServerTick;
                 previousServerTick.Fraction = serverTickFraction;
             }
+
             unscaledTime.UnscaleElapsedTime = currentTime.ElapsedTime;
             unscaledTime.UnscaleDeltaTime = currentTime.DeltaTime;
             networkTime.ElapsedNetworkTime += networkDeltaTime;
@@ -127,6 +135,7 @@ namespace Unity.NetCode
             m_DidPushTime = true;
             return true;
         }
+
         public float Timestep
         {
             get

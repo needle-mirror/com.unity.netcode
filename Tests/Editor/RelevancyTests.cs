@@ -1,12 +1,7 @@
 using NUnit.Framework;
 using Unity.Entities;
-using Unity.Networking.Transport;
-using Unity.NetCode.Tests;
 using Unity.Jobs;
 using UnityEngine;
-using Unity.NetCode;
-using Unity.Mathematics;
-using Unity.Transforms;
 using Unity.Collections;
 using System.Collections.Generic;
 
@@ -57,7 +52,6 @@ namespace Unity.NetCode.Tests
 
     public class RelevancyTests
     {
-        const float frameTime = 1.0f / 60.0f;
         GameObject bootstrapAndSetup(NetCodeTestWorld testWorld, System.Type additionalSystem = null)
         {
             if (additionalSystem != null)
@@ -82,10 +76,10 @@ namespace Unity.NetCode.Tests
             return serverEnt;
         }
 
-        int connectAndGoInGame(NetCodeTestWorld testWorld, int maxFrames = 4)
+        static int ConnectAndGoInGame(NetCodeTestWorld testWorld)
         {
             // Connect and make sure the connection could be established
-            testWorld.Connect(frameTime, maxFrames);
+            testWorld.Connect();
 
             // Go in-game
             testWorld.GoInGame();
@@ -106,11 +100,11 @@ namespace Unity.NetCode.Tests
 
                 spawnAndSetId(testWorld, ghostGameObject, 1);
 
-                connectAndGoInGame(testWorld);
+                ConnectAndGoInGame(testWorld);
 
                 // Let the game run for a bit so the ghosts are spawned on the client
                 for (int i = 0; i < 16; ++i)
-                    testWorld.Tick(frameTime);
+                    testWorld.Tick();
 
                 // Check that the client world has the right thing and value
                 var clientEnt = testWorld.TryGetSingletonEntity<GhostOwner>(testWorld.ClientWorlds[0]);
@@ -127,16 +121,16 @@ namespace Unity.NetCode.Tests
                 ref var ghostRelevancy = ref testWorld.GetSingletonRW<GhostRelevancy>(testWorld.ServerWorld).ValueRW;
                 ghostRelevancy.GhostRelevancyMode = GhostRelevancyMode.SetIsRelevant;
 
-                var serverConnectionId = connectAndGoInGame(testWorld);
+                var serverConnectionId = ConnectAndGoInGame(testWorld);
 
                 var serverEnt = spawnAndSetId(testWorld, ghostGameObject, 1);
-                testWorld.Tick(frameTime);
+                testWorld.Tick();
                 var serverGhostId = testWorld.ServerWorld.EntityManager.GetComponentData<GhostInstance>(serverEnt).ghostId;
                 ghostRelevancy.GhostRelevancySet.TryAdd(new RelevantGhostForConnection(serverConnectionId, serverGhostId), 1);
 
                 // Let the game run for a bit so the ghosts are spawned on the client
                 for (int i = 0; i < 16; ++i)
-                    testWorld.Tick(frameTime);
+                    testWorld.Tick();
 
                 // Check that the client world has the right thing and value
                 var clientEnt = testWorld.TryGetSingletonEntity<GhostOwner>(testWorld.ClientWorlds[0]);
@@ -154,17 +148,17 @@ namespace Unity.NetCode.Tests
                 ref var ghostRelevancy = ref testWorld.GetSingletonRW<GhostRelevancy>(testWorld.ServerWorld).ValueRW;
                 ghostRelevancy.GhostRelevancyMode = GhostRelevancyMode.SetIsRelevant;
 
-                var serverConnectionId = connectAndGoInGame(testWorld);
+                var serverConnectionId = ConnectAndGoInGame(testWorld);
 
                 var serverEnt = spawnAndSetId(testWorld, ghostGameObject, 1);
-                testWorld.Tick(frameTime);
+                testWorld.Tick();
                 var serverGhostId = testWorld.ServerWorld.EntityManager.GetComponentData<GhostInstance>(serverEnt).ghostId;
                 ghostRelevancy.GhostRelevancySet.TryAdd(new RelevantGhostForConnection(serverConnectionId, serverGhostId), 1);
                 spawnAndSetId(testWorld, ghostGameObject, 2);
 
                 // Let the game run for a bit so the ghosts are spawned on the client
                 for (int i = 0; i < 16; ++i)
-                    testWorld.Tick(frameTime);
+                    testWorld.Tick();
 
                 // Check that the client world has the right thing and value
                 var clientEnt = testWorld.TryGetSingletonEntity<GhostOwner>(testWorld.ClientWorlds[0]);
@@ -184,11 +178,11 @@ namespace Unity.NetCode.Tests
 
                 spawnAndSetId(testWorld, ghostGameObject, 1);
 
-                connectAndGoInGame(testWorld);
+                ConnectAndGoInGame(testWorld);
 
                 // Let the game run for a bit so the ghosts are spawned on the client
                 for (int i = 0; i < 16; ++i)
-                    testWorld.Tick(frameTime);
+                    testWorld.Tick();
 
                 // Check that the client world has the right thing and value
                 var clientEnt = testWorld.TryGetSingletonEntity<GhostOwner>(testWorld.ClientWorlds[0]);
@@ -206,16 +200,16 @@ namespace Unity.NetCode.Tests
                 ref var ghostRelevancy = ref testWorld.GetSingletonRW<GhostRelevancy>(testWorld.ServerWorld).ValueRW;
                 ghostRelevancy.GhostRelevancyMode = GhostRelevancyMode.SetIsIrrelevant;
 
-                var serverConnectionId = connectAndGoInGame(testWorld);
+                var serverConnectionId = ConnectAndGoInGame(testWorld);
 
                 var serverEnt = spawnAndSetId(testWorld, ghostGameObject, 1);
-                testWorld.Tick(frameTime);
+                testWorld.Tick();
                 var serverGhostId = testWorld.ServerWorld.EntityManager.GetComponentData<GhostInstance>(serverEnt).ghostId;
                 ghostRelevancy.GhostRelevancySet.TryAdd(new RelevantGhostForConnection(serverConnectionId, serverGhostId), 1);
 
                 // Let the game run for a bit so the ghosts are spawned on the client
                 for (int i = 0; i < 16; ++i)
-                    testWorld.Tick(frameTime);
+                    testWorld.Tick();
 
                 // Check that the client world has the right thing and value
                 var clientEnt = testWorld.TryGetSingletonEntity<GhostOwner>(testWorld.ClientWorlds[0]);
@@ -232,17 +226,17 @@ namespace Unity.NetCode.Tests
                 ref var ghostRelevancy = ref testWorld.GetSingletonRW<GhostRelevancy>(testWorld.ServerWorld).ValueRW;
                 ghostRelevancy.GhostRelevancyMode = GhostRelevancyMode.SetIsIrrelevant;
 
-                var serverConnectionId = connectAndGoInGame(testWorld);
+                var serverConnectionId = ConnectAndGoInGame(testWorld);
 
                 var serverEnt = spawnAndSetId(testWorld, ghostGameObject, 1);
-                testWorld.Tick(frameTime);
+                testWorld.Tick();
                 var serverGhostId = testWorld.ServerWorld.EntityManager.GetComponentData<GhostInstance>(serverEnt).ghostId;
                 ghostRelevancy.GhostRelevancySet.TryAdd(new RelevantGhostForConnection(serverConnectionId, serverGhostId), 1);
                 spawnAndSetId(testWorld, ghostGameObject, 2);
 
                 // Let the game run for a bit so the ghosts are spawned on the client
                 for (int i = 0; i < 16; ++i)
-                    testWorld.Tick(frameTime);
+                    testWorld.Tick();
 
                 // Check that the client world has the right thing and value
                 var clientEnt = testWorld.TryGetSingletonEntity<GhostOwner>(testWorld.ClientWorlds[0]);
@@ -260,7 +254,7 @@ namespace Unity.NetCode.Tests
                 ref var ghostRelevancy = ref testWorld.GetSingletonRW<GhostRelevancy>(testWorld.ServerWorld).ValueRW;
                 ghostRelevancy.GhostRelevancyMode = GhostRelevancyMode.SetIsIrrelevant;
 
-                var serverConnectionId = connectAndGoInGame(testWorld);
+                var serverConnectionId = ConnectAndGoInGame(testWorld);
                 testWorld.ServerWorld.GetExistingSystemManaged<AutoMarkIrrelevantSystem>().ConnectionId = serverConnectionId;
 
                 for (int ghost = 0; ghost < 128; ++ghost)
@@ -269,7 +263,7 @@ namespace Unity.NetCode.Tests
                 }
 
                 for (int i = 0; i < 16; ++i)
-                    testWorld.Tick(frameTime);
+                    testWorld.Tick();
 
                 var serverEnt = spawnAndSetId(testWorld, ghostGameObject, 1);
                 testWorld.ServerWorld.GetExistingSystemManaged<AutoMarkIrrelevantSystem>().IrrelevantGhosts.Add(1);
@@ -282,7 +276,7 @@ namespace Unity.NetCode.Tests
                     for (int ghost = 0; ghost < clientValues.Length; ++ghost)
                         Assert.AreEqual(2, clientValues[ghost].NetworkId);
 
-                    testWorld.Tick(frameTime);
+                    testWorld.Tick();
                 }
             }
         }
@@ -296,7 +290,7 @@ namespace Unity.NetCode.Tests
                 ref var ghostRelevancy = ref testWorld.GetSingletonRW<GhostRelevancy>(testWorld.ServerWorld).ValueRW;
                 ghostRelevancy.GhostRelevancyMode = GhostRelevancyMode.SetIsIrrelevant;
 
-                var serverConnectionId = connectAndGoInGame(testWorld);
+                var serverConnectionId = ConnectAndGoInGame(testWorld);
                 var autoMarkIrrelevantSystem = testWorld.ServerWorld.GetExistingSystemManaged<AutoMarkIrrelevantSystem>();
                 autoMarkIrrelevantSystem.ConnectionId = serverConnectionId;
 
@@ -307,7 +301,7 @@ namespace Unity.NetCode.Tests
                 var serverEnt = spawnAndSetId(testWorld, ghostGameObject, 1);
 
                 for (int i = 0; i < 16; ++i)
-                    testWorld.Tick(frameTime);
+                    testWorld.Tick();
 
                 using var query = testWorld.ClientWorlds[0].EntityManager.CreateEntityQuery(ComponentType.ReadOnly<GhostOwner>());
                 var clientValues = query.ToComponentDataArray<GhostOwner>(Allocator.Temp);
@@ -325,7 +319,7 @@ namespace Unity.NetCode.Tests
                 testWorld.ServerWorld.GetExistingSystemManaged<AutoMarkIrrelevantSystem>().IrrelevantGhosts.Add(1);
 
                 for (int i = 0; i < 16; ++i)
-                    testWorld.Tick(frameTime);
+                    testWorld.Tick();
 
                 clientValues = query.ToComponentDataArray<GhostOwner>(Allocator.Temp);
                 Assert.AreEqual(128, clientValues.Length);
@@ -357,7 +351,7 @@ namespace Unity.NetCode.Tests
                 ref var ghostRelevancy = ref testWorld.GetSingletonRW<GhostRelevancy>(testWorld.ServerWorld).ValueRW;
                 ghostRelevancy.GhostRelevancyMode = GhostRelevancyMode.SetIsIrrelevant;
 
-                var serverConnectionId = connectAndGoInGame(testWorld);
+                var serverConnectionId = ConnectAndGoInGame(testWorld);
                 testWorld.ServerWorld.GetExistingSystemManaged<AutoMarkIrrelevantSystem>().ConnectionId = serverConnectionId;
 
                 for (int ghost = 0; ghost < 128; ++ghost)
@@ -366,7 +360,7 @@ namespace Unity.NetCode.Tests
                 }
 
                 for (int i = 0; i < 16; ++i)
-                    testWorld.Tick(frameTime);
+                    testWorld.Tick();
 
                 using var query = testWorld.ClientWorlds[0].EntityManager.CreateEntityQuery(ComponentType.ReadOnly<GhostOwner>());
 
@@ -382,7 +376,7 @@ namespace Unity.NetCode.Tests
                         autoMarkIrrelevantSystem.IrrelevantGhosts.Add(start + i + 1);
 
                     for (int i = 0; i < 6; ++i)
-                        testWorld.Tick(frameTime);
+                        testWorld.Tick();
 
                     clientValues = query.ToComponentDataArray<GhostOwner>(Allocator.Temp);
                     checkValidSet(checkHashSet, clientValues, start+ghostsPerFrame, 128);
@@ -401,7 +395,7 @@ namespace Unity.NetCode.Tests
                 ref var ghostRelevancy = ref testWorld.GetSingletonRW<GhostRelevancy>(testWorld.ServerWorld).ValueRW;
                 ghostRelevancy.GhostRelevancyMode = GhostRelevancyMode.SetIsIrrelevant;
 
-                var serverConnectionId = connectAndGoInGame(testWorld);
+                var serverConnectionId = ConnectAndGoInGame(testWorld);
                 var autoMarkIrrelevantSystem = testWorld.ServerWorld.GetExistingSystemManaged<AutoMarkIrrelevantSystem>();
                 autoMarkIrrelevantSystem.ConnectionId = serverConnectionId;
 
@@ -412,7 +406,7 @@ namespace Unity.NetCode.Tests
                 }
 
                 for (int i = 0; i < 16; ++i)
-                    testWorld.Tick(frameTime);
+                    testWorld.Tick();
 
                 using var query = testWorld.ClientWorlds[0].EntityManager.CreateEntityQuery(ComponentType.ReadOnly<GhostOwner>());
 
@@ -428,7 +422,7 @@ namespace Unity.NetCode.Tests
                     for (int i = 0; i < ghostsPerFrame; ++i)
                         autoMarkIrrelevantSystem.IrrelevantGhosts.Remove(start+i+1);
                     for (int i = 0; i < 4; ++i)
-                        testWorld.Tick(frameTime);
+                        testWorld.Tick();
 
                     clientValues = query.ToComponentDataArray<GhostOwner>(Allocator.Temp);
                     checkValidSet(checkHashSet, clientValues, 0, start+ghostsPerFrame);
@@ -447,7 +441,7 @@ namespace Unity.NetCode.Tests
                 ref var ghostRelevancy = ref testWorld.GetSingletonRW<GhostRelevancy>(testWorld.ServerWorld).ValueRW;
                 ghostRelevancy.GhostRelevancyMode = GhostRelevancyMode.SetIsIrrelevant;
 
-                var serverConnectionId = connectAndGoInGame(testWorld);
+                var serverConnectionId = ConnectAndGoInGame(testWorld);
                 var autoMarkIrrelevantSystem = testWorld.ServerWorld.GetExistingSystemManaged<AutoMarkIrrelevantSystem>();
                 autoMarkIrrelevantSystem.ConnectionId = serverConnectionId;
 
@@ -461,7 +455,7 @@ namespace Unity.NetCode.Tests
                 }
 
                 for (int i = 0; i < 16; ++i)
-                    testWorld.Tick(frameTime);
+                    testWorld.Tick();
 
                 using var query = testWorld.ClientWorlds[0].EntityManager.CreateEntityQuery(ComponentType.ReadOnly<GhostOwner>());
 
@@ -478,7 +472,7 @@ namespace Unity.NetCode.Tests
                         autoMarkIrrelevantSystem.IrrelevantGhosts.Remove(end+i+1);
                     }
                     for (int i = 0; i < 6; ++i)
-                        testWorld.Tick(frameTime);
+                        testWorld.Tick();
 
                     clientValues = query.ToComponentDataArray<GhostOwner>(Allocator.Temp);
                     checkValidSet(checkHashSet, clientValues, start+ghostsPerFrame, end+ghostsPerFrame);
@@ -496,7 +490,7 @@ namespace Unity.NetCode.Tests
                 ref var ghostRelevancy = ref testWorld.GetSingletonRW<GhostRelevancy>(testWorld.ServerWorld).ValueRW;
                 ghostRelevancy.GhostRelevancyMode = GhostRelevancyMode.SetIsIrrelevant;
 
-                var serverConnectionId = connectAndGoInGame(testWorld, 16);
+                var serverConnectionId = ConnectAndGoInGame(testWorld);
                 var autoMarkIrrelevantSystem = testWorld.ServerWorld.GetExistingSystemManaged<AutoMarkIrrelevantSystem>();
                 autoMarkIrrelevantSystem.ConnectionId = serverConnectionId;
 
@@ -509,7 +503,7 @@ namespace Unity.NetCode.Tests
                 autoMarkIrrelevantSystem.IrrelevantGhosts.Add(1);
 
                 for (int i = 0; i < 16; ++i)
-                    testWorld.Tick(frameTime);
+                    testWorld.Tick();
 
                 using var query = testWorld.ClientWorlds[0].EntityManager.CreateEntityQuery(ComponentType.ReadOnly<GhostOwner>());
                 var clientValues = query.ToComponentDataArray<GhostOwner>(Allocator.Temp);
@@ -552,13 +546,13 @@ namespace Unity.NetCode.Tests
                         autoMarkIrrelevantSystem.IrrelevantGhosts.Remove(1);
                     else
                         autoMarkIrrelevantSystem.IrrelevantGhosts.Add(1);
-                    testWorld.Tick(frameTime);
+                    testWorld.Tick();
                 }
                 // The ghost should have been relevant less than half the frames, since some spawns were skipped to to a pending despawn
                 Assert.Less(sawGhost, 32);
 
                 for (int i = 0; i < 16; ++i)
-                    testWorld.Tick(frameTime);
+                    testWorld.Tick();
                 // Check that it ended up relevant after toggling for many frames since it ended on relevant
                 clientValues = query.ToComponentDataArray<GhostOwner>(Allocator.Temp);
                 foundOne = false;
@@ -590,16 +584,15 @@ namespace Unity.NetCode.Tests
                 var prefab = testWorld.ServerWorld.EntityManager.GetBuffer<NetCodeTestPrefab>(prefabCollection)[0].Value;
                 using (var entities = testWorld.ServerWorld.EntityManager.Instantiate(prefab, 10000, Allocator.Persistent))
                 {
-                    float frameTime = 1.0f / 60.0f;
                     // Connect and make sure the connection could be established
-                    testWorld.Connect(frameTime);
+                    testWorld.Connect();
 
                     // Go in-game
                     testWorld.GoInGame();
 
                     // Let the game run for a bit so the ghosts are spawned on the client
                     for (int i = 0; i < 128; ++i)
-                        testWorld.Tick(frameTime);
+                        testWorld.Tick();
 
                     var ghostCount = testWorld.GetSingleton<GhostCount>(testWorld.ClientWorlds[0]);
                     Assert.AreEqual(10000, ghostCount.GhostCountOnClient);
@@ -609,7 +602,7 @@ namespace Unity.NetCode.Tests
                     ghostRelevancy.GhostRelevancyMode = GhostRelevancyMode.SetIsRelevant;
 
                     for (int i = 0; i < 256; ++i)
-                        testWorld.Tick(frameTime);
+                        testWorld.Tick();
 
                     // Assert that replicated version is correct
                     Assert.AreEqual(0, ghostCount.GhostCountOnClient);
@@ -617,7 +610,7 @@ namespace Unity.NetCode.Tests
                     testWorld.ServerWorld.EntityManager.DestroyEntity(entities);
 
                     for (int i = 0; i < 128; ++i)
-                        testWorld.Tick(frameTime);
+                        testWorld.Tick();
 
                     // Assert that replicated version is correct
                     Assert.AreEqual(0, ghostCount.GhostCountOnClient);
@@ -629,7 +622,7 @@ namespace Unity.NetCode.Tests
         public void TestAlwaysRelevantQuery()
         {
             // basic feature test, custom components set user side in that query should always be relevant
-            
+
             // Setup spawn
             using var testWorld = new NetCodeTestWorld();
             testWorld.Bootstrap(true);
@@ -646,26 +639,26 @@ namespace Unity.NetCode.Tests
             var relevancy = serverRelevancyQuery.GetSingletonRW<GhostRelevancy>();
             relevancy.ValueRW.GhostRelevancyMode = GhostRelevancyMode.SetIsRelevant;
             relevancy.ValueRW.GhostRelevancySet.Clear(); // make sure the only way to get the ghost is through the query
-            testWorld.Connect(frameTime);
+            testWorld.Connect();
             testWorld.GoInGame();
             for (int i = 0; i < 100; i++)
             {
-                testWorld.Tick(frameTime);
+                testWorld.Tick();
             }
 
             // test nothing is relevant for now
             Assert.That(clientGhostQuery.IsEmpty);
-            
+
             // test add query and check that the ghost is relevant now
             relevancy = serverRelevancyQuery.GetSingletonRW<GhostRelevancy>();
             relevancy.ValueRW.DefaultRelevancyQuery = testWorld.ServerWorld.EntityManager.CreateEntityQuery(typeof(GhostValueSerializer));
             for (int i = 0; i < 4; i++)
             {
-                testWorld.Tick(frameTime);
+                testWorld.Tick();
             }
             Assert.That(clientGhostQuery.CalculateEntityCount(), Is.EqualTo(1));
         }
-        
+
         public class GhostRelevancyConverterA : TestNetCodeAuthoring.IConverter
         {
             public void Bake(GameObject gameObject, IBaker baker)
@@ -723,15 +716,15 @@ namespace Unity.NetCode.Tests
             var relevancy = serverRelevancyQuery.GetSingletonRW<GhostRelevancy>();
             relevancy.ValueRW.GhostRelevancyMode = GhostRelevancyMode.SetIsRelevant;
             relevancy.ValueRW.GhostRelevancySet.Clear(); // make sure the only way to get the ghost is through the query
-            testWorld.Connect(frameTime);
+            testWorld.Connect();
             testWorld.GoInGame();
             for (int i = 0; i < 100; i++)
             {
-                testWorld.Tick(frameTime);
+                testWorld.Tick();
             }
 
             int tickCountForReplication = 4;
-            
+
             // Clear for next tests
             void Clear()
             {
@@ -742,7 +735,7 @@ namespace Unity.NetCode.Tests
                 relevancy.ValueRW.GhostRelevancySet.Clear();
                 for (int i = 0; i < tickCountForReplication; i++)
                 {
-                    testWorld.Tick(frameTime);
+                    testWorld.Tick();
                 }
 
                 Assert.That(clientGhostQueryA.IsEmpty);
@@ -758,31 +751,31 @@ namespace Unity.NetCode.Tests
             relevancy.ValueRW.DefaultRelevancyQuery = testWorld.ServerWorld.EntityManager.CreateEntityQuery(typeof(GhostRelevancyA));
             for (int i = 0; i < tickCountForReplication; i++)
             {
-                testWorld.Tick(frameTime);
+                testWorld.Tick();
             }
             Assert.That(clientGhostQueryA.CalculateEntityCount(), Is.EqualTo(1));
             Assert.That(clientGhostQueryB.IsEmpty);
 
             Clear();
-            
+
             // test add query for B and check that the ghost is relevant now
             relevancy = serverRelevancyQuery.GetSingletonRW<GhostRelevancy>();
             relevancy.ValueRW.DefaultRelevancyQuery = testWorld.ServerWorld.EntityManager.CreateEntityQuery(typeof(GhostRelevancyB));
             for (int i = 0; i < tickCountForReplication; i++)
             {
-                testWorld.Tick(frameTime);
+                testWorld.Tick();
             }
             Assert.That(clientGhostQueryA.IsEmpty);
             Assert.That(clientGhostQueryB.CalculateEntityCount(), Is.EqualTo(1));
 
             Clear();
-            
+
             // test add query and check that both ghosts are relevant now
             relevancy = serverRelevancyQuery.GetSingletonRW<GhostRelevancy>();
             relevancy.ValueRW.DefaultRelevancyQuery = new EntityQueryBuilder(Allocator.Temp).WithAny<GhostRelevancyA, GhostRelevancyB>().Build(testWorld.ServerWorld.EntityManager);
             for (int i = 0; i < tickCountForReplication; i++)
             {
-                testWorld.Tick(frameTime);
+                testWorld.Tick();
             }
             Assert.That(clientGhostQueryA.CalculateEntityCount(), Is.EqualTo(1));
             Assert.That(clientGhostQueryB.CalculateEntityCount(), Is.EqualTo(1));
@@ -800,7 +793,7 @@ namespace Unity.NetCode.Tests
             relevancy.ValueRW.DefaultRelevancyQuery = testWorld.ServerWorld.EntityManager.CreateEntityQuery(typeof(GhostRelevancyB));
             for (int i = 0; i < tickCountForReplication; i++)
             {
-                testWorld.Tick(frameTime);
+                testWorld.Tick();
             }
             Assert.That(clientGhostQueryA.CalculateEntityCount(), Is.EqualTo(1));
             Assert.That(clientGhostQueryB.CalculateEntityCount(), Is.EqualTo(1));
@@ -814,29 +807,29 @@ namespace Unity.NetCode.Tests
             relevancy.ValueRW.DefaultRelevancyQuery = new EntityQueryBuilder(Allocator.Temp).WithNone<GhostRelevancyA, GhostRelevancyB>().Build(testWorld.ServerWorld.EntityManager);
             for (int i = 0; i < tickCountForReplication; i++)
             {
-                testWorld.Tick(frameTime);
+                testWorld.Tick();
             }
             Assert.That(clientGhostQueryA.CalculateEntityCount(), Is.EqualTo(1));
             Assert.That(clientGhostQueryB.IsEmpty);
-            
+
             // Test same ghost set, but with new relevancy query
             relevancy = serverRelevancyQuery.GetSingletonRW<GhostRelevancy>();
             // A should already be relevant
             relevancy.ValueRW.DefaultRelevancyQuery = new EntityQueryBuilder(Allocator.Temp).WithAll<GhostRelevancyB>().Build(testWorld.ServerWorld.EntityManager);
             for (int i = 0; i < tickCountForReplication; i++)
             {
-                testWorld.Tick(frameTime);
+                testWorld.Tick();
             }
             Assert.That(clientGhostQueryA.CalculateEntityCount(), Is.EqualTo(1));
             Assert.That(clientGhostQueryB.CalculateEntityCount(), Is.EqualTo(1));
-            
+
             // Test no query has no relevant ghosts
             relevancy = serverRelevancyQuery.GetSingletonRW<GhostRelevancy>();
             relevancy.ValueRW.DefaultRelevancyQuery = default;
             relevancy.ValueRW.GhostRelevancySet.Clear();
             for (int i = 0; i < tickCountForReplication; i++)
             {
-                testWorld.Tick(frameTime);
+                testWorld.Tick();
             }
             Assert.That(clientGhostQueryA.IsEmpty);
             Assert.That(clientGhostQueryB.IsEmpty);
@@ -849,7 +842,7 @@ namespace Unity.NetCode.Tests
             relevancy.ValueRW.DefaultRelevancyQuery = new EntityQueryBuilder(Allocator.Temp).WithNone<GhostRelevancyA, GhostRelevancyB>().Build(testWorld.ServerWorld.EntityManager); // should be ignored
             for (int i = 0; i < tickCountForReplication; i++)
             {
-                testWorld.Tick(frameTime);
+                testWorld.Tick();
             }
             Assert.That(clientGhostQueryA.CalculateEntityCount(), Is.EqualTo(1));
             Assert.That(clientGhostQueryB.CalculateEntityCount(), Is.EqualTo(1));
@@ -864,7 +857,7 @@ namespace Unity.NetCode.Tests
             relevancy.ValueRW.GhostRelevancySet.Add(new RelevantGhostForConnection(connection.Value, ghostIDA), 0);
             for (int i = 0; i < tickCountForReplication; i++)
             {
-                testWorld.Tick(frameTime);
+                testWorld.Tick();
             }
             Assert.That(clientGhostQueryA.IsEmpty);
             Assert.That(clientGhostQueryB.CalculateEntityCount(), Is.EqualTo(1));
@@ -879,11 +872,11 @@ namespace Unity.NetCode.Tests
             relevancy.ValueRW.GhostRelevancySet.Add(new RelevantGhostForConnection(connection.Value, ghostIDB), 0);
             for (int i = 0; i < tickCountForReplication; i++)
             {
-                testWorld.Tick(frameTime);
+                testWorld.Tick();
             }
             Assert.That(clientGhostQueryA.CalculateEntityCount(), Is.EqualTo(1));
             Assert.That(clientGhostQueryB.IsEmpty);
-            
+
             Clear();
             // test None filter in query vs SetIsIrrelevant
             relevancy = serverRelevancyQuery.GetSingletonRW<GhostRelevancy>();
@@ -894,7 +887,7 @@ namespace Unity.NetCode.Tests
             relevancy.ValueRW.GhostRelevancySet.Add(new RelevantGhostForConnection(connection.Value, ghostIDB), 0);
             for (int i = 0; i < tickCountForReplication; i++)
             {
-                testWorld.Tick(frameTime);
+                testWorld.Tick();
             }
             Assert.That(clientGhostQueryA.CalculateEntityCount(), Is.EqualTo(1));
             Assert.That(clientGhostQueryB.IsEmpty);
@@ -934,11 +927,11 @@ namespace Unity.NetCode.Tests
 
             relevancy.ValueRW.GhostRelevancyMode = mode;
             relevancy.ValueRW.GhostRelevancySet.Clear(); // make sure the only way to get the ghost is through the query
-            testWorld.Connect(frameTime);
+            testWorld.Connect();
             testWorld.GoInGame();
             for (int i = 0; i < 100; i++)
             {
-                testWorld.Tick(frameTime);
+                testWorld.Tick();
             }
 
             var connection = testWorld.ServerWorld.EntityManager.CreateEntityQuery(typeof(NetworkId)).GetSingleton<NetworkId>();
@@ -961,7 +954,7 @@ namespace Unity.NetCode.Tests
 
             for (int i = 0; i < 4; i++)
             {
-                testWorld.Tick(frameTime);
+                testWorld.Tick();
             }
 
             Assert.That(clientGhostQueryA.CalculateEntityCount(), expectedRelevancyResult ? Is.EqualTo(1) : Is.EqualTo(0));

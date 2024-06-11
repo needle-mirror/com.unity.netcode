@@ -83,18 +83,23 @@ The RpcSystem automatically finds all of the requests, sends them, and then dele
 
 ## Creating an RPC without generating code
 
-The code generation for RPCs is optional, if you do not wish to use it you need to create a component and a serializer. These can be the same struct or two different ones. To create a single struct which is both the component and the serializer you would need to add:
+The code generation for RPCs is optional; if you do not wish to use it, you need to create a component and a serializer yourself. 
+These can be the same struct, or two different ones. To create a single struct - which is both the component and the serializer - you would need to add:
 
 ```c#
 [BurstCompile]
 public struct OurRpcCommand : IComponentData, IRpcCommandSerializer<OurRpcCommand>
 {
-    public void Serialize(ref DataStreamWriter writer, in OurRpcCommand data)
+    public int SpawnIndex;
+    public void Serialize(ref DataStreamWriter writer, in RpcSerializerState state, in OurRpcCommand data)
     {
+        // Example writing the delta against a baseline of zero.
+        writer.WritePackedIntDelta(data.SpawnIndex, 2, state.CompressionModel);  
     }
 
-    public void Deserialize(ref DataStreamReader reader, ref OurRpcCommand data)
+    public void Deserialize(ref DataStreamReader reader, in RpcSerializerState state, ref OurRpcCommand data)
     {
+        data.SpawnIndex = reader.ReadPackedIntDelta(2, state.CompressionModel);
     }
 
     public PortableFunctionPointer<RpcExecutor.ExecuteDelegate> CompileExecute()
@@ -110,14 +115,17 @@ public struct OurRpcCommand : IComponentData, IRpcCommandSerializer<OurRpcComman
 }
 ```
 
-The [IRpcCommandSerializer](https://docs.unity3d.com/Packages/com.unity.netcode@latest/index.html?subfolder=/api/Unity.NetCode.IRpcCommandSerializer.html) interface has three methods: __Serialize, Deserialize__, and __CompileExecute__. __Serialize__ and __Deserialize__ store the data in a packet, while __CompileExecute__ uses Burst to create a `FunctionPointer`. The function it compiles takes a [RpcExecutor.Parameters](https://docs.unity3d.com/Packages/com.unity.netcode@latest/index.html?subfolder=/api/Unity.NetCode.RpcExecutor.Parameters.html) by ref that contains:
+> [!NOTE]
+> Gotcha: Do not read from (or write to) the struct field values themselves (i.e. do not read or write in-place), read from (and write to) the by-ref argument `data`!
 
-* `DataStreamReader` reader
-* `Entity` connection
-* `EntityCommandBuffer.Concurrent` commandBuffer
-* `int` jobIndex
+The [IRpcCommandSerializer](https://docs.unity3d.com/Packages/com.unity.netcode@latest/index.html?subfolder=/api/Unity.NetCode.IRpcCommandSerializer.html) interface has three methods: __Serialize, Deserialize__, and __CompileExecute__. __Serialize__ and __Deserialize__ store the data in a packet, while __CompileExecute__ uses Burst to create a `FunctionPointer`. 
+The function it compiles takes a [RpcExecutor.Parameters](https://docs.unity3d.com/Packages/com.unity.netcode@latest/index.html?subfolder=/api/Unity.NetCode.RpcExecutor.Parameters.html) by ref that contains entries that you're able to use as needed.
 
-Because the function is static, it needs to use `Deserialize` to read the struct data before it executes the RPC. The RPC then either uses the command buffer to modify the connection entity, or uses it to create a new request entity for more complex tasks. It then applies the command in a separate system at a later time. This means that you don’t need to perform any additional operations to receive an RPC; its `Execute` method is called on the receiving end automatically.
+Because the function is static, it needs to use `Deserialize` to read the struct data before it executes the RPC.
+
+The RPC then either uses the command buffer to modify the connection entity, or uses it to create a new request entity for more complex tasks. 
+It then applies the command in a separate system (at a later time).
+This means that you don’t need to perform any additional operations to receive an RPC; its `Execute` method is called on the receiving end automatically.
 
 To create an entity that holds an RPC, use the function `ExecuteCreateRequestComponent<T>`. To do this, extend the previous `InvokeExecute` function example with:
 
@@ -130,6 +138,11 @@ private static void InvokeExecute(ref RpcExecutor.Parameters parameters)
 ```
 
 This creates an entity with a [ReceiveRpcCommandRequest](https://docs.unity3d.com/Packages/com.unity.netcode@latest/index.html?subfolder=/api/Unity.NetCode.ReceiveRpcCommandRequest.html) and `OurRpcCommand` components.
+
+> [!NOTE]
+> You don't need to create a receiving RPC entity here, if you don't need one.
+> For example: For an RPC denoting new chat messages, it may be simpler to append your chat message to a buffer on the 
+> NetworkConnection entity, then consume said buffer directly via a system.
 
 Once you create an [IRpcCommandSerializer](https://docs.unity3d.com/Packages/com.unity.netcode@latest/index.html?subfolder=/api/Unity.NetCode.IRpcCommanSerializer.html), you need to make sure that the [RpcCommandRequest](https://docs.unity3d.com/Packages/com.unity.netcode@latest/index.html?subfolder=/api/Unity.NetCode.RpcCommandRequestSystem-1.html) system picks it up. To do this, you can create a system that invokes the `RpcCommandRequest`, as follows:
 
@@ -203,15 +216,16 @@ public struct OurDataRpcCommand : IComponentData, IRpcCommandSerializer<OurDataR
 ```
 
 > [!NOTE]
-> To avoid problems, make sure the `serialize` and `deserialize` calls are symmetric. The example above writes an `int` then a `short`, so your code needs to read an `int` then a `short` in that order.  If you omit reading a value, forget to write a value, or change the order of the way the code reads and writes, you might have unforeseen consequences.
+> To avoid problems, make sure the `serialize` and `deserialize` calls are symmetric. The example above writes an `int` then a `short`, so your code needs to read an `int` then a `short` in that order.  
+> If you omit reading a value, forget to write a value, or change the order of the way the code reads and writes, you might have unforeseen consequences.
 
 
 ## RpcQueue
 
 The [RpcQueue](https://docs.unity3d.com/Packages/com.unity.netcode@latest/index.html?subfolder=/api/Unity.NetCode.RpcQueue-1.html) is used internally to schedule outgoing RPCs. 
-However, you can manually create your own queue and use it to schedule RPCs. 
+However, you can manually fetch the `RpcQueue` for your own type, and use it to schedule RPCs, without having to create `SendRpcCommandRequest` container entities. 
 To do this, call `GetSingleton<RpcCollection>().GetRpcQueue<OurRpcCommand>();`. You can either call it in `OnUpdate` or call it in `OnCreate` and cache the value through the lifetime of your application. 
-If you do call it in `OnCreate` you must make sure that the system calling it is created after `RpcSystem`. 
+If you do call it in `OnCreate`, you must make sure that the system calling it is created after the `RpcSystem`. 
 
 When you have the queue, get the `OutgoingRpcDataStreamBuffer` from an entity to schedule events in the queue and then call `rpcQueue.Schedule(rpcBuffer, new OurRpcCommand);`, as follows:
 

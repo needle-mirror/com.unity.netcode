@@ -11,6 +11,7 @@ using Unity.Jobs.LowLevel.Unsafe;
 using Unity.Mathematics;
 using Unity.NetCode.LowLevel.Unsafe;
 using Unity.Networking.Transport;
+using UnityEngine;
 
 
 namespace Unity.NetCode
@@ -70,7 +71,7 @@ namespace Unity.NetCode
     {
         public readonly Entity Entity;
         public readonly RefRO<NetworkId> Id;
-        public readonly RefRO<EnablePacketLogging> EnablePacketLogging;
+        public readonly RefRW<EnablePacketLogging> EnablePacketLogging;
         public readonly RefRO<NetworkStreamConnection> Connection;
         public readonly RefRO<NetworkStreamInGame> InGame;
     }
@@ -113,40 +114,60 @@ namespace Unity.NetCode
         }
 
         /// <summary>
-        /// If not 0, denotes the desired size of an individual snapshot (unless clobbered by <see cref="NetworkStreamSnapshotTargetSize"/>).
+        /// If not 0, denotes the desired size of an individual snapshot (unless the per-connection <see cref="NetworkStreamSnapshotTargetSize"/> component is present).
         /// If zero, <see cref="NetworkParameterConstants.MTU"/> is used (minus headers).
         /// </summary>
+        [Tooltip("- If zero (the default), NetworkParameterConstants.MTU is used (minus headers).\n\n - Otherwise, denotes the desired size of an individual snapshot (unless the per-connection NetworkStreamSnapshotTargetSize component is present).")]
+        [Range(0, NetworkParameterConstants.MTU)]
         public int DefaultSnapshotPacketSize;
 
         /// <summary>
-        /// The minimum importance considered for inclusion in a snapshot. Any ghost importance lower
-        /// than this value will not be send every frame even if there is enough space in the packet.
-        /// E.g. Value=60, tick-rate=60, ghost.importance=1 implies a ghost will be replicated roughly once per second.
+        /// The minimum importance considered for inclusion in a snapshot. Any ghost chunk with an importance value lower
+        /// than this value will not be added to the snapshot, even if there is enough space in the packet.
         /// </summary>
+        /// <remarks>
+        /// Counted on a per-connection, per-chunk basis, where importance increases by the Importance value every tick, until sent (NOT confirmed delivered).
+        /// E.g. Value=60, SimulationTickRate=60, GhostAuthoringComponent.Importance=1 implies a ghost will be replicated roughly once per second.
+        /// </remarks>
+        [Tooltip("The minimum importance considered for inclusion in a snapshot. The Defaults to 0 (disabled).\n\nAny ghost chunk with an importance value lower than this value will not be added to the snapshot, even if there is enough space in the packet. Use to reduce send-rate for low-importance ghosts.\n\nDefaults to 0 (OFF).")]
+        [Min(0)]
         public int MinSendImportance;
 
         /// <summary>
         /// The minimum importance considered for inclusion in a snapshot after applying distance based
-        /// priority scaling. Any ghost importance lower than this value will not be send every frame
-        /// even if there is enough space in the packet.
+        /// priority scaling to the ghost chunk. Any ghost chunk with a downscaled importance value lower
+        /// than this will not be added to the snapshot, even if there is enough space in the packet.
         /// </summary>
+        [Tooltip("The minimum importance considered for inclusion in a snapshot after applying distance based priority scaling to the ghost chunk. Any ghost chunk with a downscaled importance value lower than this will not be added to the snapshot, even if there is enough space in the packet.\n\nDefaults to 0 (OFF).")]
+        [Min(0)]
         public int MinDistanceScaledSendImportance;
 
         /// <summary>
-        /// The maximum number of chunks the system will try to send to a single connection in a single frame.
+        /// The maximum number of chunks the GhostSendSystem will try to send to a single connection in a single NetworkTickRate snapshot send interval.
         /// A chunk will count as sent even if it does not contain any ghosts which needed to be sent (because
         /// of relevancy or static optimization).
-        /// If there are more chunks than this the least important chunks will not be sent even if there is space
-        /// in the packet. This can be used to control CPU time on the server.
+        /// If there are more chunks than this, the least important chunks will not be sent even if there is space
+        /// in the packet. This can be used to reduce / control CPU time on the server.
         /// </summary>
+        /// <remarks>
+        /// Note: MaxSendChunks limits the number of chunks we process, and this filtering is applied BEFORE we check if ghosts are irrelevant.
+        /// Therefore, if MaxSendChunks is 4 (for example), and the 4 highest importance chunks ONLY contain irrelevant ghosts,
+        /// we will NOT send any ghosts in this snapshot.
+        /// If this is undesirable, you can correct this by tweaking the multiplier for irrelevant chunks (see <see cref="IrrelevantImportanceDownScale"/>)
+        /// so that they are rarely the most important chunks.
+        /// </remarks>
+        [Tooltip("The maximum number of chunks the GhostSendSystem will try to send to a single connection in a single NetworkTickRate snapshot send interval. A chunk will count as sent even if it does not contain any ghosts which needed to be sent (because of relevancy or static optimization).\n\nDefaults to 0 (OFF).\n\nIf there are more chunks than this, the least important chunks will not be sent even if there is space in the packet. This can be used to reduce / control CPU time on the server.")]
+        [Min(0)]
         public int MaxSendChunks;
 
         /// <summary>
-        /// The maximum number of entities the system will try to send to a single connection in a single frame.
+        /// The maximum number of entities the system will try to send to a single connection in a single NetworkTickRate snapshot send interval.
         /// An entity will count even if it is not actually sent (because of relevancy or static optimization).
-        /// If there are more chunks than this the least important chunks will not be sent even if there is space
-        /// in the packet. This can be used to control CPU time on the server.
+        /// If there are more chunks than this, the least important chunks will not be sent even if there is space
+        /// in the packet. This can be used to reduce / control CPU time on the server.
         /// </summary>
+        [Tooltip("The maximum number of entities the system will try to send to a single connection in a single NetworkTickRate snapshot send interval. An entity will count even if it is not actually sent (because of relevancy or static optimization).\n\nDefaults to 0 (OFF).\n\nIf there are more chunks than this, the least important chunks will not be sent even if there is space in the packet. This can be used to reduce / control CPU time on the server.")]
+        [Min(0)]
         public int MaxSendEntities;
 
         /// <summary>
@@ -168,77 +189,92 @@ namespace Unity.NetCode
         }
 
         /// <summary>
-        /// Force all ghosts to use a single baseline. This will reduce CPU usage at the expense of increased
-        /// bandwidth usage. This is mostly meant as a way of measuring which ghosts should use static optimization
-        /// instead of dynamic. If the bits / ghost does not significantly increase when enabling this the ghost
-        /// can use static optimization to save CPU.
+        /// Force all ghosts to use a single snapshot delta-compression value prediction baseline. This will reduce CPU
+        /// usage at the expense of increased bandwidth usage. This is mostly meant as a way of measuring which ghosts
+        /// should use static optimization instead of dynamic. If the bits / ghost does not significantly increase when
+        /// enabling this the ghost can use static optimization to save CPU.
         /// </summary>
         public bool ForceSingleBaseline
         {
-            get { return m_ForceSingleBaseline == 1; }
-            set { m_ForceSingleBaseline = value ? (byte)1 : (byte)0; }
+            get { return m_ForceSingleBaseline; }
+            set { m_ForceSingleBaseline = value; }
         }
-        internal byte m_ForceSingleBaseline;
+        [Tooltip("Force all ghosts to use a single snapshot delta-compression value prediction baseline. This will reduce CPU usage at the expense of increased bandwidth usage.\n\nDefaults to false (no).\n\nThis is mostly meant as a way of measuring which ghosts should use static optimization instead of dynamic. If the bits / ghost does not significantly increase when enabling this the ghost can use static optimization to save CPU.")]
+        [SerializeField]
+        internal bool m_ForceSingleBaseline;
 
         /// <summary>
-        /// Force all ghosts to use pre serialization. This means part of the serialization will be done once for
-        /// all connection instead of once per connection. This can increase CPU time for simple ghosts and ghosts
-        /// which are rarely sent. This switch is meant as a way of measuring which ghosts would benefit from using
-        /// pre-serialization.
+        /// Debug Feature: Force all ghosts to use pre-serialization. This means part of the serialization will be done once for
+        /// all connection, instead of once per-connection. This can increase CPU time for simple ghosts and ghosts
+        /// which are rarely sent. This switch is meant as a DEBUG feature, providing a way of measuring which ghosts
+        /// would benefit from using pre-serialization.
         /// </summary>
+        /// <remarks>Should not be enabled in Production!</remarks>
         public bool ForcePreSerialize
         {
-            get { return m_ForcePreSerialize == 1; }
-            set { m_ForcePreSerialize = value ? (byte)1 : (byte)0; }
+            get { return m_ForcePreSerialize; }
+            set { m_ForcePreSerialize = value; }
         }
-        internal byte m_ForcePreSerialize;
+        [Tooltip("DEBUG FEATURE: Force all ghosts to use pre-serialization. This means part of the serialization will be done once for all connection, instead of once per-connection.\n\nDefaults to false (don't).\n\nThis can increase CPU time for simple ghosts and ghosts which are rarely sent. This switch is meant as a way of measuring which ghosts would benefit from using pre-serialization.\n\n<b>Should not be enabled in Production builds!</b>")]
+        [SerializeField]
+        internal bool m_ForcePreSerialize;
 
         /// <summary>
-        /// Try to keep the snapshot history buffer for an entity when there is a structucal change.
-        /// Doing this will require a lookup and copy of data whenever a ghost has a structucal change
+        /// Try to keep the snapshot history buffer for an entity when there is a structural change.
+        /// Doing this will require a lookup and copy of data whenever a ghost has a structural change,
         /// which will add additional CPU cost on the server.
-        /// Keeping the snapshot history will not always be possible so this flag does no give a 100% guarantee,
-        /// you are expected to measure CPU and bandwidth when changing this.
+        /// Keeping the snapshot history will not always be possible, so, this flag does no give a 100% guarantee,
+        /// and you are expected to measure CPU and bandwidth when changing this.
         /// </summary>
         public bool KeepSnapshotHistoryOnStructuralChange
         {
-            get { return m_KeepSnapshotHistoryOnStructuralChange == 1; }
-            set { m_KeepSnapshotHistoryOnStructuralChange = value ? (byte)1 : (byte)0; }
+            get { return m_KeepSnapshotHistoryOnStructuralChange; }
+            set { m_KeepSnapshotHistoryOnStructuralChange = value; }
         }
-        internal byte m_KeepSnapshotHistoryOnStructuralChange;
+        [Tooltip("Try to keep the snapshot history buffer for an entity when there is a structural change. Doing this will require a lookup and copy of data whenever a ghost has a structural change, which will add additional CPU cost on the server.\n\nDefaults to true (do).\n\nKeeping the snapshot history will not always be possible, so, this flag does no give a 100% guarantee, and you are expected to measure CPU and bandwidth when changing this.")]
+        [SerializeField]
+        internal bool m_KeepSnapshotHistoryOnStructuralChange;
 
         /// <summary>
-        /// Enable profiling scopes for each component in a ghost. They can help tracking down why a ghost
-        /// is expensive to serialize - but they come with a performance cost so they are not enabled by default.
+        /// Enable profiling scopes for each component in a ghost.
+        /// This can help track down why a ghost is expensive to serialize - but it comes with a performance cost, so is not enabled by default.
         /// </summary>
         public bool EnablePerComponentProfiling
         {
-            get { return m_EnablePerComponentProfiling == 1; }
-            set { m_EnablePerComponentProfiling = value ? (byte)1 : (byte)0; }
+            get { return m_EnablePerComponentProfiling; }
+            set { m_EnablePerComponentProfiling = value; }
         }
-        internal byte m_EnablePerComponentProfiling;
+
+        [Tooltip("Enable profiling scopes for each component in a ghost. This can help track down why a ghost is expensive to serialize - but it comes with a performance cost, so is not enabled by default.")]
+        [SerializeField]
+        internal bool m_EnablePerComponentProfiling;
 
         /// <summary>
-        /// The number of connections to cleanup unused serialization data for in a single tick. Setting this
-        /// higher can recover memory faster, but uses more CPU time.
+        /// The number of connections to cleanup unused serialization data for, in a single tick.
+        /// Setting this higher can recover memory faster, but uses more CPU time.
         /// </summary>
+        [Tooltip("The number of connections to cleanup unused serialization data for, in a single tick. Setting this higher can recover memory faster, but uses more CPU time.\n\nDefaults to 1.")]
+        [Min(1)]
         public int CleanupConnectionStatePerTick;
 
+        [Tooltip("This multiplies the importance value used on new (new to the player, or new to the world) ghost chunks.\n\nDefaults to 1 (OFF).\n\nNon-zero values for MinSendImportance can cause both: a) 'unchanged chunks that are new to a new-joiner' and b) 'newly spawned chunks' to be ignored by the replication priority system for multiple seconds. If this behaviour is undesirable, set this to be above MinSendImportance.\n\nNote: This does not guarantee delivery of all new chunks, it only guarantees that every ghost chunk will get serialized and sent at least once per connection, as quickly as possible (e.g. assuming you have the bandwidth for it).")]
+        [Min(1)]
+        [SerializeField]
         uint m_FirstSendImportanceMultiplier;
+        [Tooltip("Value used to scale down the importance of chunks where all entities were irrelevant last time it was sent. The importance is divided by this value.\n\nDefaults to 1 (OFF).\n\nIt can be used together with MinSendImportance to make sure relevancy is not updated every frame, for ghosts with low importance.")]
+        [Min(1)]
+        [SerializeField]
         int m_IrrelevantImportanceDownScale;
 
         /// <summary>
         /// Value used to set the initial size of the internal temporary stream in which
-        /// ghost data is serialized. The default value is 8kb;
-        /// <para>
-        /// Using a small size will incur in extra serialization costs (because
+        /// ghost data is serialized. Using a small size will incur in extra serialization costs (because
         /// of multiple round of serialization), while using a larger size provide better performance (overall).
-        /// The initial size of the temporary stream is set to be equals to the capacity of the outgoing data
-        /// stream (usually an MTU or larger for fragmented payloads).
-        /// The suggested default (8kb), while extremely large in respect to the packet size, would allow in general
-        /// to be able to to write a large range of mid/small ghost entities type, with varying size (up to hundreds of bytes
-        /// each) without incurring in extra serialization overhead.
-        /// </para>
+        /// The minimum size of this buffer is forced to be the initial capacity of the outgoing data
+        /// stream (usually MaxMessageSize or larger for fragmented payloads).
+        /// The suggested default (8kb), while extremely large in respect to the packet size, would allow the <see cref="GhostSendSystem"/>
+        /// to be able to to write a large range of mid/small ghost entities types, with varying size (up to hundreds of bytes
+        /// each), without incurring in extra serialization overhead.
         /// </summary>
         public int TempStreamInitialSize
         {
@@ -254,17 +290,20 @@ namespace Unity.NetCode
         }
 
         /// <summary>
-        /// When set, enable using any registered <see cref="GhostPrefabCustomSerializer"/> for
-        /// serializing ghost chunks.
+        /// When set, enables support for using any registered <see cref="GhostPrefabCustomSerializer"/> to serialize ghost chunks.
         /// </summary>
         public int UseCustomSerializer
         {
-            get => m_UseCustomSerializer;
-            set => m_UseCustomSerializer = value;
+            get => m_UseCustomSerializer ? 1 : 0;
+            set => m_UseCustomSerializer = value > 0;
         }
+        [Tooltip("Value used to set the initial size of the internal temporary stream in which ghost data is serialized.\n - Smaller sizes will incur in extra serialization costs (as it may need to be resized mid-serialization, causing multiple round of serialization).\n - Larger sizes provide better performance (overall).\n\nThe minimum size of this buffer is forced to be the initial capacity of the outgoing data stream (usually MaxMessageSize or larger for fragmented payloads).\n\nThe suggested default (8kb), while extremely large in respect to the packet size, would allow the GhostSendSystem to be able to to write a large range of mid/small ghost entities types, with varying size (up to hundreds of bytes each), without incurring in extra serialization overhead.")]
+        [Range(2 * 1024, 10 * 1024)]
+        [SerializeField]
         internal int m_TempStreamSize;
-        internal int m_UseCustomSerializer;
-
+        [Tooltip("When set, enables support for using any registered GhostPrefabCustomSerializer to serialize ghost chunks.")]
+        [SerializeField]
+        internal bool m_UseCustomSerializer;
 
         internal void Initialize()
         {
@@ -306,7 +345,7 @@ namespace Unity.NetCode
     /// Ghost entities are replicated on "per-chunk" basis; all ghosts for the same chunk, are replicated
     /// together. The importance, as well as the importance scaling, apply to whole chunk.
     /// <para>
-    /// The send system can also be configured to send multiple ghost packets per frame and to to use snaphost larger than a single MTU.
+    /// The send system can also be configured to send multiple ghost packets per frame and to to use snaphost larger than the MaxMessageSize.
     /// In that case, the snapshot packet is sent using another unreliable channel, setup with a <see cref="FragmentationPipelineStage"/>.
     /// </para>
     /// </summary>
@@ -487,7 +526,7 @@ namespace Unity.NetCode
             m_ConnectionFromEntity = state.GetComponentLookup<NetworkStreamConnection>(true);
             m_GhostFromEntity = state.GetComponentLookup<GhostInstance>(true);
             m_SnapshotTargetFromEntity = state.GetComponentLookup<NetworkStreamSnapshotTargetSize>(true);
-            m_EnablePacketLoggingFromEntity = state.GetComponentLookup<EnablePacketLogging>();
+            m_EnablePacketLoggingFromEntity = state.GetComponentLookup<EnablePacketLogging>(false);
 
             m_GhostSystemStateType = state.GetComponentTypeHandle<GhostCleanup>(true);
             m_PreSerializedGhostType = state.GetComponentTypeHandle<PreSerializedGhost>(true);
@@ -742,7 +781,7 @@ namespace Unity.NetCode
 #if NETCODE_DEBUG
             public PacketDumpLogger netDebugPacket;
             [ReadOnly] public ComponentLookup<PrefabDebugName> prefabNamesFromEntity;
-            [ReadOnly] public ComponentLookup<EnablePacketLogging> enableLoggingFromEntity;
+            [NativeDisableContainerSafetyRestriction] public ComponentLookup<EnablePacketLogging> enableLoggingFromEntity;
             public FixedString32Bytes timestamp;
             public byte enablePerComponentProfiling;
             byte enablePacketLogging;
@@ -796,12 +835,7 @@ namespace Unity.NetCode
                 ghostStateData = curConnectionState.GhostStateData;
 #if NETCODE_DEBUG
                 netDebugPacket = curConnectionState.NetDebugPacket;
-                enablePacketLogging = enableLoggingFromEntity.HasComponent(connectionEntity) ? (byte)1 :(byte)0;
-                if ((enablePacketLogging == 1) && !netDebugPacket.IsCreated)
-                {
-                    netDebug.LogError("GhostSendSystem: Packet logger has not been set. Aborting.");
-                    return;
-                }
+                enablePacketLogging = EnablePacketLogging.InitAndFetch(connectionEntity, enableLoggingFromEntity, curConnectionState.NetDebugPacket);
 #endif
                 var connectionId = connectionFromEntity[connectionEntity].Value;
                 var concurrent = concurrentDriverStore.GetConcurrentDriver(connectionFromEntity[connectionEntity].DriverId);
@@ -810,8 +844,8 @@ namespace Unity.NetCode
                 var unreliableFragmentedPipeline = concurrent.unreliableFragmentedPipeline;
                 if (driver.GetConnectionState(connectionId) != NetworkConnection.State.Connected)
                     return;
-                int maxSnapshotSizeWithoutFragmentation = NetworkParameterConstants.MTU - driver.MaxHeaderSize(unreliablePipeline);
 
+                int maxSnapshotSizeWithoutFragmentation = driver.m_DriverSender.m_SendQueue.PayloadCapacity - driver.MaxHeaderSize(unreliablePipeline);
 
                 int targetSnapshotSize = maxSnapshotSizeWithoutFragmentation;
                 if (snapshotTargetSizeFromEntity.HasComponent(connectionEntity))
@@ -833,7 +867,7 @@ namespace Unity.NetCode
                 while (serializeResult != SerializeEnitiesResult.Abort &&
                        serializeResult != SerializeEnitiesResult.Ok)
                 {
-                    // If the requested packet size if larger than one MTU we have to use the fragmentation pipeline
+                    // If the requested packet size if larger than MaxMessageSize we have to use the fragmentation pipeline
                     var pipelineToUse = (targetSnapshotSize <= maxSnapshotSizeWithoutFragmentation) ? unreliablePipeline : unreliableFragmentedPipeline;
                     var result = driver.BeginSend(pipelineToUse, connectionId, out var dataStream, targetSnapshotSize);
                     if ((int)Networking.Transport.Error.StatusCode.Success == result)
@@ -880,7 +914,13 @@ namespace Unity.NetCode
                     else
                     {
                         netDebug.LogError($"Failed to send a snapshot to a client with BeginSend error: {result}!");
+
+                        if ( result == (int)Networking.Transport.Error.StatusCode.NetworkPacketOverflow)
+                        {
+                            serializeResult = SerializeEnitiesResult.Abort;
+                        }
                     }
+                    Debug.Assert( targetSnapshotSize > 0 );
                     targetSnapshotSize += targetSnapshotSize;
                 }
             }
@@ -902,9 +942,7 @@ namespace Unity.NetCode
                 dataStream.WriteByte((byte) NetworkStreamProtocol.Snapshot);
 
                 dataStream.WriteUInt(localTime);
-                uint returnTime = snapshotAckCopy.LastReceivedRemoteTime;
-                if (returnTime != 0)
-                    returnTime += (localTime - snapshotAckCopy.LastReceiveTimestamp);
+                uint returnTime = snapshotAckCopy.CalculateReturnTime(localTime);
                 dataStream.WriteUInt(returnTime);
                 dataStream.WriteInt(snapshotAckCopy.ServerCommandAge);
                 dataStream.WriteByte(snapshotAckCopy.CurrentSnapshotSequenceId);
@@ -1895,7 +1933,7 @@ namespace Unity.NetCode
                 ghostMap = m_GhostMap,
                 ghostTypeFromEntity = m_GhostTypeFromEntity,
                 serverTick = currentTick,
-                forcePreSerialize = systemData.m_ForcePreSerialize,
+                forcePreSerialize = (byte) (systemData.ForcePreSerialize ? 1 : 0),
                 netDebug = netDebug,
 #if NETCODE_DEBUG
                 prefabNames = m_PrefabDebugNameFromEntity,
@@ -1977,7 +2015,7 @@ namespace Unity.NetCode
                 prefabNamesFromEntity = m_PrefabDebugNameFromEntity,
                 enableLoggingFromEntity = m_EnablePacketLoggingFromEntity,
                 timestamp = packetDumpTimestamp,
-                enablePerComponentProfiling = systemData.m_EnablePerComponentProfiling,
+                enablePerComponentProfiling = (byte) (systemData.m_EnablePerComponentProfiling ? 1 : 0),
 #endif
                 netDebug = netDebug,
                 FirstSendImportanceMultiplier = systemData.FirstSendImportanceMultiplier,
@@ -1987,8 +2025,8 @@ namespace Unity.NetCode
                 MaxSendEntities = systemData.MaxSendEntities,
                 IrrelevantImportanceDownScale = systemData.IrrelevantImportanceDownScale,
                 useCustomSerializer = systemData.UseCustomSerializer,
-                forceSingleBaseline = systemData.m_ForceSingleBaseline,
-                keepSnapshotHistoryOnStructuralChange = systemData.m_KeepSnapshotHistoryOnStructuralChange,
+                forceSingleBaseline = (byte) (systemData.m_ForceSingleBaseline ? 1 : 0),
+                keepSnapshotHistoryOnStructuralChange = (byte) (systemData.m_KeepSnapshotHistoryOnStructuralChange ? 1 : 0),
                 snaphostHasCompressedGhostSize = GhostSystemConstants.SnaphostHasCompressedGhostSize ? (byte)1u :(byte)0u,
                 defaultSnapshotPacketSize = systemData.DefaultSnapshotPacketSize,
                 initialTempWriterCapacity = systemData.TempStreamInitialSize,
@@ -2081,7 +2119,7 @@ namespace Unity.NetCode
                 serializeJob.connectionState,
                 serializeJob.netDebug,
                 currentTick,
-                systemData.m_UseCustomSerializer,
+                systemData.m_UseCustomSerializer ? 1 : 0,
                 ref state,
                 ghostComponentCollection);
             k_Scheduling.End();
@@ -2261,10 +2299,10 @@ namespace Unity.NetCode
             public unsafe void Execute()
             {
                 var conCount = math.min(CleanupConnectionStatePerTick, ConnectionStates.Length);
-                var existingChunks = new UnsafeHashMap<ArchetypeChunk, int>(GhostChunks.Length, Allocator.Temp);
+                var existingChunks = new UnsafeHashMap<ArchetypeChunk, ulong>(GhostChunks.Length, Allocator.Temp);
                 foreach (var chunk in GhostChunks)
                 {
-                    existingChunks.TryAdd(chunk, 1);
+                    existingChunks.TryAdd(chunk, chunk.SequenceNumber);
                 }
                 for (int con = 0; con < conCount; ++con)
                 {
@@ -2273,7 +2311,7 @@ namespace Unity.NetCode
                     var oldChunks = chunkSerializationData->GetKeyArray(Allocator.Temp);
                     foreach (var oldChunk in oldChunks)
                     {
-                        if (existingChunks.ContainsKey(oldChunk))
+                        if (existingChunks.TryGetValue(oldChunk, out var sequence) && sequence == oldChunk.SequenceNumber)
                         {
                             continue;
                         }

@@ -1,16 +1,11 @@
 using System;
 using System.Collections.Generic;
-using System.Linq;
-using System.Reflection.Emit;
 using NUnit.Framework;
 using Unity.Collections;
-using Unity.Collections.LowLevel.Unsafe;
 using Unity.Entities;
 using Unity.Mathematics;
 using UnityEngine;
-using Unity.NetCode.Editor;
 using Unity.NetCode.LowLevel.Unsafe;
-using UnityEditor.Compilation;
 
 namespace Unity.NetCode.Tests
 {
@@ -242,22 +237,21 @@ namespace Unity.NetCode.Tests
                 var serverEntity = testWorld.SpawnOnServer(ghostGameObject);
                 BufferTestHelper.SetBufferValues(testWorld.ServerWorld, serverEntity, 3, 6);
 
-                float frameTime = 1.0f / 60.0f;
                 // Connect and make sure the connection could be established
-                testWorld.Connect(frameTime);
+                testWorld.Connect();
 
                 // Go in-game
                 testWorld.GoInGame();
 
                 // Let the game run for a bit so the ghosts are spawned on the client
                 for (int i = 0; i < 32; ++i)
-                    testWorld.Tick(frameTime);
+                    testWorld.Tick();
 
                 var clientEntities = BufferTestHelper.GetClientEntities(testWorld, new [] {serverEntity});
                 BufferTestHelper.CheckBuffersValues(testWorld, serverEntity, clientEntities[0], true);
                 BufferTestHelper.SetBufferValues(testWorld.ServerWorld, serverEntity, 3, 10);
                 for (int i = 0; i < 8; ++i)
-                    testWorld.Tick(frameTime);
+                    testWorld.Tick();
                 BufferTestHelper.CheckBuffersValues(testWorld, serverEntity, clientEntities[0], true);
             }
         }
@@ -277,16 +271,15 @@ namespace Unity.NetCode.Tests
                 testWorld.CreateWorlds(true, 1);
                 var serverEntity = testWorld.SpawnOnServer(ghostGameObject);
 
-                float frameTime = 1.0f / 60.0f;
                 // Connect and make sure the connection could be established
-                testWorld.Connect(frameTime);
+                testWorld.Connect();
 
                 // Go in-game
                 testWorld.GoInGame();
 
                 // Let the game run for a bit so the ghosts are spawned on the client
                 for (int i = 0; i < 64; ++i)
-                    testWorld.Tick(frameTime);
+                    testWorld.Tick();
 
                 var clientEntities = BufferTestHelper.GetClientEntities(testWorld, new [] {serverEntity});
                 //Buffer are empty on both sides
@@ -294,17 +287,17 @@ namespace Unity.NetCode.Tests
                 //Set bufferrs
                 BufferTestHelper.SetBufferValues(testWorld.ServerWorld, serverEntity, 3, 10);
                 for (int i = 0; i < 32; ++i)
-                    testWorld.Tick(frameTime);
+                    testWorld.Tick();
                 BufferTestHelper.CheckBuffersValues(testWorld, serverEntity, clientEntities[0], true);
                 //Shrink
                 BufferTestHelper.SetBufferValues(testWorld.ServerWorld, serverEntity, 2, 20);
                 for (int i = 0; i < 32; ++i)
-                    testWorld.Tick(frameTime);
+                    testWorld.Tick();
                 BufferTestHelper.CheckBuffersValues(testWorld, serverEntity, clientEntities[0], true);
                 //Resize larger
                 BufferTestHelper.SetBufferValues(testWorld.ServerWorld, serverEntity, 5, 30);
                 for (int i = 0; i < 32; ++i)
-                    testWorld.Tick(frameTime);
+                    testWorld.Tick();
                 BufferTestHelper.CheckBuffersValues(testWorld, serverEntity, clientEntities[0], true);
             }
         }
@@ -325,16 +318,15 @@ namespace Unity.NetCode.Tests
                 testWorld.CreateWorlds(true, 1);
                 var serverEntity = testWorld.SpawnOnServer(ghostGameObject);
 
-                float frameTime = 1.0f / 60.0f;
                 // Connect and make sure the connection could be established
-                testWorld.Connect(frameTime);
+                testWorld.Connect();
 
                 // Go in-game
                 testWorld.GoInGame();
 
                 // Let the game run for a bit so the ghosts are spawned on the client
                 for (int i = 0; i < 32; ++i)
-                    testWorld.Tick(frameTime);
+                    testWorld.Tick();
 
                 var clientEntities = BufferTestHelper.GetClientEntities(testWorld, new [] {serverEntity});
 
@@ -351,27 +343,27 @@ namespace Unity.NetCode.Tests
                 BufferTestHelper.SetBufferValues(testWorld.ServerWorld, serverEntity, 3, 0);
 
                 for (int i = 0; i < 32; ++i)
-                    testWorld.Tick(frameTime);
+                    testWorld.Tick();
                 Validate(3, 0, 10, 10);
                 //Shrink second buffer
                 BufferTestHelper.SetBufferValues(testWorld.ServerWorld, serverEntity, 2, 20);
                 for (int i = 0; i < 32; ++i)
-                    testWorld.Tick(frameTime);
+                    testWorld.Tick();
                 Validate(2, 20, 10, 10);
                 //Resize second buffer
                 BufferTestHelper.SetBufferValues(testWorld.ServerWorld, serverEntity, 5, 30);
                 for (int i = 0; i < 32; ++i)
-                    testWorld.Tick(frameTime);
+                    testWorld.Tick();
                 Validate(5, 30, 10, 10);
                 //Shrink first buffer
                 BufferTestHelper.SetByteBufferValues(testWorld.ServerWorld, serverEntity, 5, 100);
                 for (int i = 0; i < 32; ++i)
-                    testWorld.Tick(frameTime);
+                    testWorld.Tick();
                 Validate(5, 30, 5, 100);
                 //Resize first buffer
                 BufferTestHelper.SetByteBufferValues(testWorld.ServerWorld, serverEntity, 15, 1000);
                 for (int i = 0; i < 32; ++i)
-                    testWorld.Tick(frameTime);
+                    testWorld.Tick();
                 Validate(5, 30, 15, 1000);
             }
         }
@@ -456,16 +448,15 @@ namespace Unity.NetCode.Tests
                     };
                 }
 
-                float frameTime = 1.0f / 60.0f;
                 // Connect and make sure the connection could be established
-                testWorld.Connect(frameTime);
+                testWorld.Connect();
 
                 // Go in-game
                 testWorld.GoInGame();
 
                 // Let the game run for a bit so the ghosts are spawned on the client
                 for (int i = 0; i < 64; ++i)
-                    testWorld.Tick(frameTime);
+                    testWorld.Tick();
 
                 serverEntity = testWorld.TryGetSingletonEntity<GhostGen_IntStruct>(testWorld.ServerWorld);
                 var clientEntity = testWorld.TryGetSingletonEntity<GhostGen_IntStruct>(testWorld.ClientWorlds[0]);
@@ -535,14 +526,13 @@ namespace Unity.NetCode.Tests
                 BufferTestHelper.SetByteBufferValues(testWorld.ServerWorld, serverEntity, 800, 0);
                 //Because of the size the entity will be only sent using fragmentation. Buffers does not support
                 //sending partial contents
-                float frameTime = 1.0f / 60.0f;
                 // Connect and make sure the connection could be established
-                testWorld.Connect(frameTime);
+                testWorld.Connect();
                 // Go in-game
                 testWorld.GoInGame();
                 // Let the game run for a bit so the ghosts are spawned on the client
                 for (int i = 0; i < 32; ++i)
-                    testWorld.Tick(frameTime);
+                    testWorld.Tick();
                 var clientEntities = BufferTestHelper.GetClientEntities(testWorld, new [] {serverEntity});
                 BufferTestHelper.CheckByteBufferValues(testWorld, serverEntity, clientEntities[0]);
             }
@@ -570,16 +560,15 @@ namespace Unity.NetCode.Tests
                     BufferTestHelper.SetByteBufferValues(testWorld.ServerWorld, serverEntities[i], 15, 10);
                 }
 
-                float frameTime = 1.0f / 60.0f;
                 // Connect and make sure the connection could be established
-                testWorld.Connect(frameTime);
+                testWorld.Connect();
 
                 // Go in-game
                 testWorld.GoInGame();
 
                 // Let the game run for a bit so the ghosts are spawned on the client
                 for (int i = 0; i < 32; ++i)
-                    testWorld.Tick(frameTime);
+                    testWorld.Tick();
 
                 var clientEntities = BufferTestHelper.GetClientEntities(testWorld, serverEntities);
                 for (int i = 0; i < serverEntities.Length; ++i)
@@ -623,16 +612,18 @@ namespace Unity.NetCode.Tests
                 switch (sendForChildrenTestCase)
                 {
                     case SendForChildrenTestCase.YesViaExplicitVariantRule:
-                        testWorld.TestSpecificAdditionalSystems.Add(typeof(ForceSerializeBufferSystem));
+                        testWorld.Bootstrap(true, typeof(ForceSerializeBufferSystem));
                         break;
                     case SendForChildrenTestCase.YesViaExplicitVariantOnlyAllowChildrenToReplicateRule:
-                        testWorld.TestSpecificAdditionalSystems.Add(typeof(ForceSerializeOnlyChildBufferSystem));
+                        testWorld.Bootstrap(true, typeof(ForceSerializeOnlyChildBufferSystem));
                         break;
                     case SendForChildrenTestCase.NoViaExplicitDontSerializeVariantRule:
-                        testWorld.TestSpecificAdditionalSystems.Add(typeof(ForceDontSerializeBufferSystem));
+                        testWorld.Bootstrap(true, typeof(ForceDontSerializeBufferSystem));
+                        break;
+                    default:
+                        testWorld.Bootstrap(true);
                         break;
                 }
-                testWorld.Bootstrap(true);
 
                 var ghostGameObject = new GameObject();
                 //Parent and children can have different buffers types (or the same)
@@ -671,9 +662,8 @@ namespace Unity.NetCode.Tests
                 BufferTestHelper.SetByteBufferValues(testWorld.ServerWorld, serverEntityGroup[0].Value, 10, 10);
                 BufferTestHelper.SetBufferValues(testWorld.ServerWorld, serverEntityGroup[1].Value, 3, 0);
 
-                float frameTime = 1.0f / 60.0f;
                 // Connect and make sure the connection could be established
-                testWorld.Connect(frameTime);
+                testWorld.Connect();
 
                 // Go in-game
                 testWorld.GoInGame();
@@ -682,7 +672,7 @@ namespace Unity.NetCode.Tests
                 // This requires 32 states to be sent, and we need a few frames for the ghost types to be synchronized
                 const int sendIterationCount = 32 + 4;
                 for (int i = 0; i < sendIterationCount; ++i)
-                    testWorld.Tick(frameTime);
+                    testWorld.Tick();
 
                 var clientEntities = BufferTestHelper.GetClientEntities(testWorld, new [] {serverEntity});
                 serverEntityGroup = testWorld.ServerWorld.EntityManager.GetBuffer<LinkedEntityGroup>(serverEntity);
@@ -702,35 +692,35 @@ namespace Unity.NetCode.Tests
                 BufferTestHelper.SetByteBufferValues(testWorld.ServerWorld, serverEntityGroup[0].Value, 10, 30);
                 BufferTestHelper.SetBufferValues(testWorld.ServerWorld, serverEntityGroup[1].Value, 3, 5);
                 for (int i = 0; i < sendIterationCount; ++i)
-                    testWorld.Tick(frameTime);
+                    testWorld.Tick();
                 BufferTestHelper.CheckByteBufferValues(testWorld, serverEntityGroup[0].Value,
                     clientEntityGroup[0].Value);
                 BufferTestHelper.CheckBuffersValues(testWorld, serverEntityGroup[1].Value, clientEntityGroup[1].Value, shouldChildReceiveData);
                 //Shrink child buffer
                 BufferTestHelper.SetBufferValues(testWorld.ServerWorld, serverEntityGroup[1].Value, 2, 20);
                 for (int i = 0; i < sendIterationCount; ++i)
-                    testWorld.Tick(frameTime);
+                    testWorld.Tick();
                 BufferTestHelper.CheckByteBufferValues(testWorld, serverEntityGroup[0].Value,
                     clientEntityGroup[0].Value);
                 BufferTestHelper.CheckBuffersValues(testWorld, serverEntityGroup[1].Value, clientEntityGroup[1].Value, shouldChildReceiveData);
                 //Grow child buffer
                 BufferTestHelper.SetBufferValues(testWorld.ServerWorld, serverEntityGroup[1].Value, 5, 30);
                 for (int i = 0; i < sendIterationCount; ++i)
-                    testWorld.Tick(frameTime);
+                    testWorld.Tick();
                 BufferTestHelper.CheckByteBufferValues(testWorld, serverEntityGroup[0].Value,
                     clientEntityGroup[0].Value);
                 BufferTestHelper.CheckBuffersValues(testWorld, serverEntityGroup[1].Value, clientEntityGroup[1].Value, shouldChildReceiveData);
                 //Shrink root buffer
                 BufferTestHelper.SetByteBufferValues(testWorld.ServerWorld, serverEntityGroup[0].Value, 5, 50);
                 for (int i = 0; i < sendIterationCount; ++i)
-                    testWorld.Tick(frameTime);
+                    testWorld.Tick();
                 BufferTestHelper.CheckByteBufferValues(testWorld, serverEntityGroup[0].Value,
                     clientEntityGroup[0].Value);
                 BufferTestHelper.CheckBuffersValues(testWorld, serverEntityGroup[1].Value, clientEntityGroup[1].Value, shouldChildReceiveData);
                 //grow root buffer
                 BufferTestHelper.SetByteBufferValues(testWorld.ServerWorld, serverEntityGroup[0].Value, 15, 100);
                 for (int i = 0; i < sendIterationCount; ++i)
-                    testWorld.Tick(frameTime);
+                    testWorld.Tick();
                 BufferTestHelper.CheckByteBufferValues(testWorld, serverEntityGroup[0].Value, clientEntityGroup[0].Value);
                 BufferTestHelper.CheckBuffersValues(testWorld, serverEntityGroup[1].Value, clientEntityGroup[1].Value, shouldChildReceiveData);
             }
@@ -779,11 +769,10 @@ namespace Unity.NetCode.Tests
                 var buffer = testWorld.ServerWorld.EntityManager.GetBuffer<GhostGenBuffer_ByteBuffer>(serverChild);
                 BufferTestHelper.SetByteBufferValues(testWorld.ServerWorld, serverChild, 10, 10);
 
-                float frameTime = 1.0f / 60.0f;
-                testWorld.Connect(frameTime);
+                testWorld.Connect();
                 testWorld.GoInGame();
                 for (int i = 0; i < 32; ++i)
-                    testWorld.Tick(frameTime);
+                    testWorld.Tick();
 
                 var clientEntities = BufferTestHelper.GetClientEntities(testWorld, new [] {serverRoot, serverChild});
                 BufferTestHelper.CheckByteBufferValues(testWorld, serverChild, clientEntities[1]);
@@ -847,8 +836,7 @@ namespace Unity.NetCode.Tests
 
                 testWorld.CreateWorlds(true, 1);
 
-                float frameTime = 1.0f / 60.0f;
-                testWorld.Connect(frameTime);
+                testWorld.Connect();
                 testWorld.GoInGame();
 
                 var serverEntity = testWorld.SpawnOnServer(ghostGameObject);
@@ -860,7 +848,7 @@ namespace Unity.NetCode.Tests
                 Assert.AreNotEqual(Entity.Null, clientCollectionEntity);
 
                 for (int i = 0; i < 32; ++i)
-                    testWorld.Tick(frameTime);
+                    testWorld.Tick();
 
                 var ghostType = testWorld.ServerWorld.EntityManager.GetComponentData<GhostInstance>(serverEntity).ghostType;
                 var serverCollection = testWorld.ServerWorld.EntityManager.GetBuffer<GhostCollectionPrefabSerializer>(serverCollectionEntity);
@@ -923,8 +911,7 @@ namespace Unity.NetCode.Tests
 
                 testWorld.CreateWorlds(true, 1);
 
-                float frameTime = 1.0f / 60.0f;
-                testWorld.Connect(frameTime);
+                testWorld.Connect();
                 testWorld.GoInGame();
 
                 //Disable the prediction logic
@@ -946,7 +933,7 @@ namespace Unity.NetCode.Tests
                 }
 
                 for (int i = 0; i < 8; ++i)
-                    testWorld.Tick(frameTime);
+                    testWorld.Tick();
 
                 var clientEntities = BufferTestHelper.GetClientEntities(testWorld, new [] {serverEntity});
                 var serverEntityGroup = testWorld.ServerWorld.EntityManager.GetBuffer<LinkedEntityGroup>(serverEntity);
@@ -974,7 +961,7 @@ namespace Unity.NetCode.Tests
                 firstPredTick.Increment();
                 for (int i = 0; i < 32; ++i)
                 {
-                    testWorld.Tick(frameTime / 4.0f);
+                    testWorld.Tick(1.0f / 60f / 4.0f);
                 }
                 testWorld.ServerWorld.GetExistingSystemManaged<BufferTestPredictionSystem>().Enabled = false;
                 testWorld.ClientWorlds[0].GetExistingSystemManaged<BufferTestPredictionSystem>().Enabled = false;
@@ -1007,7 +994,7 @@ namespace Unity.NetCode.Tests
                 }
                 //run a bit and check everything is in sync
                 for (int i = 0; i < 8; ++i)
-                    testWorld.Tick(frameTime);
+                    testWorld.Tick();
 
                 for (int i = 0; i < 16; ++i)
                 {
@@ -1025,7 +1012,7 @@ namespace Unity.NetCode.Tests
 
                 //run a bit and check everything is in sync
                 for (int i = 0; i < 8; ++i)
-                    testWorld.Tick(frameTime);
+                    testWorld.Tick();
 
                 clientBuffers = new[]
                 {
@@ -1145,13 +1132,12 @@ namespace Unity.NetCode.Tests
 
                 testWorld.CreateWorlds(true, 1);
 
-                float frameTime = 1.0f / 60.0f;
-                testWorld.Connect(frameTime);
+                testWorld.Connect();
                 testWorld.GoInGame();
 
                 //run for a bit to sync server time and ghost collections
                 for (int i = 0; i < 32; ++i)
-                    testWorld.Tick(frameTime);
+                    testWorld.Tick();
 
                 //Spawn entity on both client and server
                 Entity clientEntity = Entity.Null;
@@ -1168,7 +1154,7 @@ namespace Unity.NetCode.Tests
                 testWorld.ServerWorld.GetExistingSystemManaged<SpawnPredictedGhost>().spawnAtTick = spawnTick;
                 clientWorld.GetExistingSystemManaged<SpawnPredictedGhost>().spawnAtTick = spawnTick;
                 for (int i = 0; i < 32; ++i)
-                    testWorld.Tick(frameTime);
+                    testWorld.Tick();
 
                 serverEntity = testWorld.ServerWorld.GetExistingSystemManaged<SpawnPredictedGhost>().spawnedEntity;
                 clientEntity = clientWorld.GetExistingSystemManaged<SpawnPredictedGhost>().spawnedEntity;

@@ -1,13 +1,6 @@
 using NUnit.Framework;
 using Unity.Entities;
-using Unity.Networking.Transport;
-using Unity.NetCode.Tests;
-using Unity.Jobs;
 using UnityEngine;
-using Unity.NetCode;
-using Unity.Mathematics;
-using Unity.Transforms;
-using Unity.Collections;
 
 namespace Unity.NetCode.Tests
 {
@@ -58,16 +51,15 @@ namespace Unity.NetCode.Tests
                 testWorld.ServerWorld.EntityManager.SetComponentData(serverEnt, new GhostOwner{NetworkId = 42});
                 testWorld.ServerWorld.EntityManager.SetComponentData(serverChildEnt, new GhostOwner{NetworkId = 43});
 
-                float frameTime = 1.0f / 60.0f;
                 // Connect and make sure the connection could be established
-                testWorld.Connect(frameTime);
+                testWorld.Connect();
 
                 // Go in-game
                 testWorld.GoInGame();
 
                 // Let the game run for a bit so the ghosts are spawned on the client
                 for (int i = 0; i < 64; ++i)
-                    testWorld.Tick(frameTime);
+                    testWorld.Tick();
 
                 // Check that the client world has the right thing and value
                 var clientEnt = testWorld.TryGetSingletonEntity<GhostGroupRoot>(testWorld.ClientWorlds[0]);
@@ -103,16 +95,15 @@ namespace Unity.NetCode.Tests
                 testWorld.ServerWorld.EntityManager.SetComponentData(serverChildEnt, new GhostOwner{NetworkId = 43});
                 testWorld.ServerWorld.EntityManager.GetBuffer<GhostGroup>(serverEnt).Add(new GhostGroup{Value = serverChildEnt});
 
-                float frameTime = 1.0f / 60.0f;
                 // Connect and make sure the connection could be established
-                testWorld.Connect(frameTime);
+                testWorld.Connect();
 
                 // Go in-game
                 testWorld.GoInGame();
 
                 // Let the game run for a bit so the ghosts are spawned on the client
                 for (int i = 0; i < 64; ++i)
-                    testWorld.Tick(frameTime);
+                    testWorld.Tick();
 
                 // Check that the client world has the right thing and value
                 var clientEnt = testWorld.TryGetSingletonEntity<GhostGroupRoot>(testWorld.ClientWorlds[0]);
@@ -158,16 +149,15 @@ namespace Unity.NetCode.Tests
                     testWorld.ServerWorld.EntityManager.GetBuffer<GhostGroup>(serverEnt).Add(new GhostGroup{Value = serverChildEnt});
                 }
 
-                float frameTime = 1.0f / 60.0f;
                 // Connect and make sure the connection could be established
-                testWorld.Connect(frameTime);
+                testWorld.Connect();
 
                 // Go in-game
                 testWorld.GoInGame();
 
                 // Let the game run for a bit so the ghosts are spawned on the client
                 for (int i = 0; i < 64; ++i)
-                    testWorld.Tick(frameTime);
+                    testWorld.Tick();
 
                 // Check that the client world has the right thing and value
                 var ghostQuery = testWorld.ClientWorlds[0].EntityManager.CreateEntityQuery(typeof(GhostOwner));
@@ -212,16 +202,15 @@ namespace Unity.NetCode.Tests
                     testWorld.ServerWorld.EntityManager.GetBuffer<GhostGroup>(serverEnt).Add(new GhostGroup{Value = serverChildEnt});
                 }
 
-                float frameTime = 1.0f / 60.0f;
                 // Connect and make sure the connection could be established
-                testWorld.Connect(frameTime);
+                testWorld.Connect();
 
                 // Go in-game
                 testWorld.GoInGame();
 
                 // Let the game run for a bit so the ghosts are spawned on the client
                 for (int i = 0; i < 64; ++i)
-                    testWorld.Tick(frameTime);
+                    testWorld.Tick();
 
                 // Check that the client world has the right thing and value
                 var ghostQuery = testWorld.ClientWorlds[0].EntityManager.CreateEntityQuery(typeof(GhostOwner));

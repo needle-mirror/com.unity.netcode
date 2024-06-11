@@ -8,7 +8,6 @@ using UnityEngine;
 
 #if UNITY_USE_MULTIPLAYER_ROLES
 using Unity.Multiplayer;
-using Unity.Multiplayer.Editor;
 #endif
 
 namespace Unity.NetCode
@@ -76,7 +75,7 @@ namespace Unity.NetCode
         /// <inheritdoc cref="SimulatorUtility.Parameters"/>
         public static SimulatorUtility.Parameters ClientSimulatorParameters => new SimulatorUtility.Parameters
         {
-            Mode = ApplyMode.AllPackets, MaxPacketSize = NetworkParameterConstants.MTU, MaxPacketCount = k_DefaultSimulatorMaxPacketCount,
+            Mode = ApplyMode.AllPackets, MaxPacketSize = NetworkParameterConstants.MaxMessageSize, MaxPacketCount = k_DefaultSimulatorMaxPacketCount,
             PacketDelayMs = PacketDelayMs, PacketJitterMs = PacketJitterMs,
             PacketDropPercentage = PacketDropPercentage, FuzzFactor = PacketFuzzPercentage, PacketDuplicationPercentage = 0,
         };
@@ -119,9 +118,9 @@ namespace Unity.NetCode
             get
             {
 #if UNITY_USE_MULTIPLAYER_ROLES
-                if (Unity.Multiplayer.Editor.EditorMultiplayerManager.enableMultiplayerRoles)
+                if (Unity.Multiplayer.Editor.EditorMultiplayerRolesManager.EnableMultiplayerRoles)
                 {
-                    return MultiplayerRoleFlagsToPlayType(Unity.Multiplayer.Editor.EditorMultiplayerManager.activeMultiplayerRoleMask);
+                    return MultiplayerRoleFlagsToPlayType(Unity.Multiplayer.Editor.EditorMultiplayerRolesManager.ActiveMultiplayerRoleMask);
                 }
 #endif
                 return (ClientServerBootstrap.PlayType) EditorPrefs.GetInt(s_PlayModeTypeKey, (int) ClientServerBootstrap.PlayType.ClientAndServer);
@@ -129,9 +128,9 @@ namespace Unity.NetCode
             set
             {
 #if UNITY_USE_MULTIPLAYER_ROLES
-                if (Unity.Multiplayer.Editor.EditorMultiplayerManager.enableMultiplayerRoles)
+                if (Unity.Multiplayer.Editor.EditorMultiplayerRolesManager.EnableMultiplayerRoles)
                 {
-                    Unity.Multiplayer.Editor.EditorMultiplayerManager.activeMultiplayerRoleMask = PlayTypeToMultiplayerRoleFlags(value);
+                    Unity.Multiplayer.Editor.EditorMultiplayerRolesManager.ActiveMultiplayerRoleMask = PlayTypeToMultiplayerRoleFlags(value);
                     return;
                 }
 #endif
@@ -234,8 +233,20 @@ namespace Unity.NetCode
         /// <summary>If <see cref="ApplyLoggerSettings"/>, forces all <see cref="NetDebugSystem"/> loggers to have this value for ShouldDumpPackets.</summary>
         public static bool TargetShouldDumpPackets
         {
-            get => EditorPrefs.GetBool(s_TargetShouldDumpPackets, false);
-            set => EditorPrefs.SetBool(s_TargetShouldDumpPackets, value);
+            get
+            {
+#if NETCODE_NDEBUG
+                return false;
+#else
+                return EditorPrefs.GetBool(s_TargetShouldDumpPackets, false);
+#endif
+            }
+            set
+            {
+#if !NETCODE_NDEBUG // Prevent writing the above force-false.
+                EditorPrefs.SetBool(s_TargetShouldDumpPackets, value);
+#endif
+            }
         }
 
         /// <summary>If true, all simulator presets will be visible, rather than only platform specific ones.</summary>

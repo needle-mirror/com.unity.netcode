@@ -17,6 +17,7 @@ namespace Unity.NetCode
         {
             public byte* snapshotPtr;
             public byte* snapshotDynamicPtr;
+            public byte* snapshotDynamicHeaderPtr;
             public int snapshotOffset;
             public int dynamicSnapshotDataOffset;
             public int snapshotSize;
@@ -84,6 +85,7 @@ namespace Unity.NetCode
                 //Serialize the buffer contents
                 var maskSize = SnapshotDynamicBuffersHelper.GetDynamicDataChangeMaskSize(serializer.ChangeMaskBits, bufferLen);
                 CheckValidDynamicSnapshotOffset(serializer, maskSize, bufferLen);
+                //Prepare data at tick here
                 serializer.CopyToSnapshot.Invoke(
                     (IntPtr)UnsafeUtility.AddressOf(ref serializerState),
                     (IntPtr)(snapshotDynamicPtr + maskSize), dynamicSnapshotDataOffset, serializer.SnapshotSize,
@@ -92,9 +94,19 @@ namespace Unity.NetCode
             }
 
             [BurstCompile]
-            public void CopyEntityToSnapshot(ArchetypeChunk chunk, int ent, in GhostCollectionPrefabSerializer typeData, ClearOption option = ClearOption.Clear)
+            public void CopyEntityToSnapshot(ArchetypeChunk chunk, int ent,
+                in GhostCollectionPrefabSerializer typeData, ClearOption option = ClearOption.Clear)
             {
                 int numBaseComponents = typeData.NumComponents - typeData.NumChildComponents;
+                int currentDynamicDataOffset = dynamicSnapshotDataOffset;
+                int enableableMaskOffset = 0;
+                if (option == ClearOption.Clear)
+                {
+                    //Clear changemask and enable bitmask
+                    var bitmaskSize = changeMaskUints + GhostComponentSerializer.ChangeMaskArraySizeInUInts(typeData.EnableableBits);
+                    bitmaskSize = GhostComponentSerializer.SnapshotSizeAligned(bitmaskSize * sizeof(uint));
+                    UnsafeUtility.MemClear(snapshotPtr+snapshotOffset, bitmaskSize);
+                }
                 for (int comp = 0; comp < numBaseComponents; ++comp)
                 {
                     int compIdx = GhostComponentIndex[typeData.FirstComponent + comp].ComponentIndex;
@@ -105,6 +117,10 @@ namespace Unity.NetCode
                     var sizeInSnapshot = GhostComponentSerializer.SizeInSnapshot(ghostSerializer);
                     if (chunk.Has(ref typeHandle))
                     {
+                        if (ghostSerializer.SerializesEnabledBit != 0)
+                        {
+                            GhostChunkSerializer.UpdateEnableableMasks(chunk, ent, ent + 1, ref typeHandle, snapshotPtr, changeMaskUints, enableableMaskOffset, snapshotSize);
+                        }
                         if (ghostSerializer.ComponentType.IsBuffer)
                         {
                             CopyBufferToSnapshot(chunk, ent, ref typeHandle, ghostSerializer);
@@ -129,6 +145,11 @@ namespace Unity.NetCode
                             }
                         }
                     }
+                    if (ghostSerializer.SerializesEnabledBit != 0)
+                    {
+                        ++enableableMaskOffset;
+                        GhostChunkSerializer.ValidateWrittenEnableBits(enableableMaskOffset, typeData.EnableableBits);
+                    }
                     snapshotOffset += sizeInSnapshot;
                 }
 
@@ -147,6 +168,11 @@ namespace Unity.NetCode
                         var childEnt = linkedEntityGroup[GhostComponentIndex[typeData.FirstComponent + comp].EntityIndex].Value;
                         if (childEntityLookup.TryGetValue(childEnt, out var childChunk) && childChunk.Chunk.Has(ref typeHandle))
                         {
+                            if (ghostSerializer.SerializesEnabledBit != 0)
+                            {
+                                GhostChunkSerializer.UpdateEnableableMasks(childChunk.Chunk, childChunk.IndexInChunk, childChunk.IndexInChunk + 1,
+                                    ref typeHandle, snapshotPtr, changeMaskUints, enableableMaskOffset, snapshotSize);
+                            }
                             if (ghostSerializer.ComponentType.IsBuffer)
                             {
                                 CopyBufferToSnapshot(childChunk.Chunk, childChunk.IndexInChunk, ref typeHandle, ghostSerializer);
@@ -171,12 +197,17 @@ namespace Unity.NetCode
                                 }
                             }
                         }
+                        if (ghostSerializer.SerializesEnabledBit != 0)
+                        {
+                            ++enableableMaskOffset;
+                            GhostChunkSerializer.ValidateWrittenEnableBits(enableableMaskOffset, typeData.EnableableBits);
+                        }
                         snapshotOffset += sizeInSnapshot;
                     }
                 }
-                //Update the dynamic data total size
-                if(typeData.NumBuffers > 0)
-                    ((uint*)snapshotDynamicPtr)[0] = (uint)(dynamicSnapshotDataOffset - GhostComponentSerializer.SnapshotSizeAligned(sizeof(uint)));
+                //Update the dynamic data total size if the header has been assigned to be updated
+                if(typeData.NumBuffers > 0 && snapshotDynamicHeaderPtr != null)
+                    *(uint*)snapshotDynamicHeaderPtr = (uint)(dynamicSnapshotDataOffset - currentDynamicDataOffset);
             }
 
             [BurstCompile]

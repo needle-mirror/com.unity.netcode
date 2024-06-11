@@ -44,58 +44,63 @@ namespace Unity.NetCode
     }
 
     /// <summary>
-    /// System RPC sent from the server to client to assign a newtork id  (see <see cref="NetworkId"/>) to a new
-    /// accepted connection.
+    /// System RPC sent from the server to client to assign a <see cref="NetCode.NetworkId"/> to a newly accepted connection.
+    /// I.e. <see cref="ConnectionState.State.Handshake"/> and <see cref="ConnectionState.State.Approval"/> (if enabled) succeeded!
     /// </summary>
+    /// <remarks>
+    /// Also responsible for telling the client some additional server configuration information.
+    /// Previously called `RpcSetNetworkId`.
+    /// </remarks>
     [BurstCompile]
-    internal struct RpcSetNetworkId : IComponentData, IRpcCommandSerializer<RpcSetNetworkId>
+    internal struct ServerApprovedConnection : IApprovalRpcCommand, IRpcCommandSerializer<ServerApprovedConnection>
     {
-        public int nid;
-        public int simTickRate;
-        public int netTickRate;
-        public int simMaxSteps;
-        public int simMaxStepLength;
-        public int fixStepTickRatio;
+        private const uint NetworkIdBaseline = 2;
+        public int NetworkId;
+        public ClientServerTickRateRefreshRequest RefreshRequest;
 
-        public void Serialize(ref DataStreamWriter writer, in RpcSerializerState state, in RpcSetNetworkId data)
+        public void Serialize(ref DataStreamWriter writer, in RpcSerializerState state, in ServerApprovedConnection data)
         {
-            writer.WriteInt(data.nid);
-            writer.WriteInt(data.simTickRate);
-            writer.WriteInt(data.netTickRate);
-            writer.WriteInt(data.simMaxSteps);
-            writer.WriteInt(data.simMaxStepLength);
-            writer.WriteInt(data.fixStepTickRatio);
+            UnityEngine.Debug.Assert(data.NetworkId != 0);
+
+            writer.WritePackedUIntDelta((uint)data.NetworkId, NetworkIdBaseline, state.CompressionModel);
+            data.RefreshRequest.Serialize(ref writer, in state.CompressionModel);
         }
 
-        public void Deserialize(ref DataStreamReader reader, in RpcDeserializerState state, ref RpcSetNetworkId data)
+        public void Deserialize(ref DataStreamReader reader, in RpcDeserializerState state, ref ServerApprovedConnection data)
         {
-            data.nid = reader.ReadInt();
-            data.simTickRate = reader.ReadInt();
-            data.netTickRate = reader.ReadInt();
-            data.simMaxSteps = reader.ReadInt();
-            data.simMaxStepLength = reader.ReadInt();
-            data.fixStepTickRatio = reader.ReadInt();
+            data.NetworkId = (int) reader.ReadPackedUIntDelta(NetworkIdBaseline, state.CompressionModel);
+            data.RefreshRequest.Deserialize(ref reader, in state.CompressionModel);
         }
 
         [BurstCompile(DisableDirectCall = true)]
         [AOT.MonoPInvokeCallback(typeof(RpcExecutor.ExecuteDelegate))]
         private static void InvokeExecute(ref RpcExecutor.Parameters parameters)
         {
-            var rpcData = default(RpcSetNetworkId);
-            var rpcSerializer = default(RpcSetNetworkId);
-            rpcSerializer.Deserialize(ref parameters.Reader, parameters.DeserializerState, ref rpcData);
+            // Client received confirmation that they've successfully connected to the server!
+            var rpcData = default(ServerApprovedConnection);
+            rpcData.Deserialize(ref parameters.Reader, parameters.DeserializerState, ref rpcData);
 
-            parameters.CommandBuffer.AddComponent(parameters.JobIndex, parameters.Connection, new NetworkId {Value = rpcData.nid});
-            var ent = parameters.CommandBuffer.CreateEntity(parameters.JobIndex);
-            parameters.CommandBuffer.AddComponent(parameters.JobIndex, ent, new ClientServerTickRateRefreshRequest
+            // Validate this is allowed to execute but after deserialization to prevent deserialization errors
+            if (parameters.IsServer)
             {
-                MaxSimulationStepsPerFrame = rpcData.simMaxSteps,
-                NetworkTickRate = rpcData.netTickRate,
-                SimulationTickRate = rpcData.simTickRate,
-                MaxSimulationStepBatchSize = rpcData.simMaxStepLength,
-                PredictedFixedStepSimulationTickRatio = rpcData.fixStepTickRatio
-            });
-            parameters.CommandBuffer.SetName(parameters.JobIndex, parameters.Connection, new FixedString64Bytes(FixedString.Format("NetworkConnection ({0})", rpcData.nid)));
+                parameters.NetDebug.LogError($"[{parameters.WorldName}][Connection] Server received internal client-only RPC request '{ComponentType.ReadWrite<ServerApprovedConnection>().ToFixedString()}' from client. This is not allowed, and the client connection will be disconnected.");
+                parameters.CommandBuffer.AddComponent(parameters.JobIndex, parameters.Connection, new NetworkStreamRequestDisconnect
+                {
+                    Reason = NetworkStreamDisconnectReason.InvalidRpc,
+                });
+                return;
+            }
+
+            parameters.CommandBuffer.AddComponent<ConnectionApproved>(parameters.JobIndex, parameters.Connection);
+            parameters.CommandBuffer.AddComponent(parameters.JobIndex, parameters.Connection, new NetworkId {Value = rpcData.NetworkId});
+            var ent = parameters.CommandBuffer.CreateEntity(parameters.JobIndex);
+            parameters.CommandBuffer.AddComponent(parameters.JobIndex, ent, rpcData.RefreshRequest);
+            parameters.CommandBuffer.SetName(parameters.JobIndex, parameters.Connection, new FixedString64Bytes(FixedString.Format("NetworkConnection ({0})", rpcData.NetworkId)));
+            parameters.NetDebug.DebugLog($"[{parameters.WorldName}][Connection] Client {parameters.Connection.ToFixedString()} received approval from server, we were assigned NetworkId:{rpcData.NetworkId}.");
+            parameters.ConnectionStateRef.CurrentState = ConnectionState.State.Connected;
+            parameters.ConnectionStateRef.ProtocolVersionReceived = 1;
+            parameters.ConnectionStateRef.ConnectionApprovalTimeoutStart = 0;
+            parameters.ConnectionStateRef.CurrentStateDirty = true;
         }
 
         static readonly PortableFunctionPointer<RpcExecutor.ExecuteDelegate> InvokeExecuteFunctionPointer =

@@ -123,7 +123,7 @@ namespace Unity.NetCode.Generators
                 m_CommandGenerator.GenerateFragment("COMMAND_USING_STATEMENT", replacements);
             }
 
-            var serializerName = context.generatorName + "CommandSerializer.cs";
+            var serializerName = context.generatedFilePrefix + "CommandSerializer.cs";
             m_CommandGenerator.GenerateFile(serializerName, typeInfo.Namespace, replacements, context.batch);
         }
 

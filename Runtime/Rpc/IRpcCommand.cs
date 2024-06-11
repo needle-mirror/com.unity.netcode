@@ -20,11 +20,11 @@ namespace Unity.NetCode
     /// </para>
     /// <para>
     /// An RPC struct can contain any number of burst-compatible fields. However, once serialized, its size must fit into a single packet.
-    /// Large messages are not supported (<see cref="NetworkParameterConstants.MTU"/> and account for header sizes).
+    /// Large messages are not supported (<see cref="NetworkParameterConstants.MaxMessageSize"/> and account for header sizes).
     /// </para>
     /// <para>
     /// It is possible to partially mitigate this limitation by creating a custom <see cref="INetworkStreamDriverConstructor"/> and
-    /// setting a larger MTU (but that will only work in favourable conditions and networks (ensure thorough testing!)) or by
+    /// setting a larger MaxMessageSize (but that will only work in favourable conditions and networks (ensure thorough testing!)) or by
     /// adding a <see cref="FragmentationPipelineStage"/> stage into the reliable pipeline (channel).
     /// </para>
     /// <para>
@@ -77,6 +77,18 @@ namespace Unity.NetCode
     {}
 
     /// <summary>
+    /// An interface which can be used to implement RPCs for use in the connection approval flow.
+    /// Only <see cref="IApprovalRpcCommand"/> commands are allowed to be sent and received, while in
+    /// <see cref="ConnectionState.State.Handshake"/> and/or <see cref="ConnectionState.State.Approval"/> states.
+    /// <br/>Connection approval can be optionally required for all incoming connection on a server. The connection flow
+    /// can only proceed when the server received an Approval RPC payload which it can validate.
+    /// Approval tokens are game-specific, thus netcode expects user-code to add an <see cref="ConnectionApproved"/>
+    /// to the connection entity, once a valid <see cref="IApprovalRpcCommand"/> has been received by the server.
+    /// </summary>
+    public interface IApprovalRpcCommand : IComponentData
+    {}
+
+    /// <summary>
     /// Interop struct used to pass additional data to the <see cref="IRpcCommandSerializer{T}.Serialize"/> method.
     /// </summary>
     public struct RpcSerializerState
@@ -86,6 +98,11 @@ namespace Unity.NetCode
         /// Used to serialize the a replicated ghost entity reference.
         /// </summary>
         public ComponentLookup<GhostInstance> GhostFromEntity;
+
+        /// <summary>
+        /// Read-only map for retrieving the <see cref="StreamCompressionModel"/> assigned to be used for RPCs.
+        /// </summary>
+        public StreamCompressionModel CompressionModel;
     }
 
     /// <summary>
@@ -98,6 +115,11 @@ namespace Unity.NetCode
         /// Used to deserialize replicated ghost entity references.
         /// </summary>
         public NativeParallelHashMap<SpawnedGhost, Entity>.ReadOnly ghostMap;
+
+        /// <summary>
+        /// Read-only map for retrieving the <see cref="StreamCompressionModel"/> assigned to be used for RPCs.
+        /// </summary>
+        public StreamCompressionModel CompressionModel;
     }
 
     /// <summary>

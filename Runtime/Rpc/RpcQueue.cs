@@ -2,6 +2,7 @@ using System;
 using Unity.Collections;
 using Unity.Collections.LowLevel.Unsafe;
 using Unity.Entities;
+using Unity.Networking.Transport;
 
 namespace Unity.NetCode
 {
@@ -56,19 +57,25 @@ namespace Unity.NetCode
             ComponentLookup<GhostInstance> ghostFromEntity, TActionRequest data)
         {
             var serializer = default(TActionSerializer);
-            var serializerState = new RpcSerializerState {GhostFromEntity = ghostFromEntity};
-            var msgHeaderLen = RpcCollection.GetInnerRpcMessageHeaderLength(dynamicAssemblyList.Value == 1);
-            int maxSize = UnsafeUtility.SizeOf<TActionRequest>() + msgHeaderLen + 1;
+            // TODO - Expose a user-configurable StreamCompressionModel for both RPCs and ghosts, and hook it up here.
+            var serializerState = new RpcSerializerState
+            {
+                GhostFromEntity = ghostFromEntity,
+                CompressionModel = StreamCompressionModel.Default,
+            };
+            var msgHeaderLenBytes = RpcCollection.GetInnerRpcMessageHeaderLength(dynamicAssemblyList.Value == 1);
+            int maxSizeBytes = UnsafeUtility.SizeOf<TActionRequest>() + msgHeaderLenBytes + 1;
             int rpcIndex = 0;
             if (!(dynamicAssemblyList.Value == 1) && !rpcTypeHashToIndex.TryGetValue(rpcType, out rpcIndex))
-                throw new InvalidOperationException("Could not find RPC index for type");
+                throw new InvalidOperationException($"Could not find RPC index for type '{rpcType}'!");
             while (true)
             {
-                DataStreamWriter writer = new DataStreamWriter(maxSize, Allocator.Temp);
+                DataStreamWriter writer = new DataStreamWriter(maxSizeBytes, Allocator.Temp);
                 if (dynamicAssemblyList.Value == 1)
                     writer.WriteULong(rpcType);
                 else
                     writer.WriteUShort((ushort)rpcIndex);
+
                 var lenWriter = writer;
                 writer.WriteUShort((ushort)0);
 
@@ -77,19 +84,29 @@ namespace Unity.NetCode
 #endif
 
                 serializer.Serialize(ref writer, serializerState, data);
+
                 if (!writer.HasFailedWrites)
                 {
-                    if (writer.Length > ushort.MaxValue)
-                        throw new InvalidOperationException("RPC is too large to serialize");
-                    lenWriter.WriteUShort((ushort)(writer.Length - msgHeaderLen));
+                    // If this RPC is delta-compressed (supported in 1.3), then we MUST flush (ceil to byte),
+                    // and we MUST store the RPC length in bits.
+                    var rpcDataSizeBits = (writer.LengthInBits - (msgHeaderLenBytes * 8));
+                    writer.Flush();
+
+                    // Note: 8KiB for one RPC is obviously absurd, but it's transports job (via BeginSend) to tell us
+                    // what our max packet size is (via the `RpcSystem`), AND users can opt-into fragmentation.
+                    if (rpcDataSizeBits > ushort.MaxValue)
+                        throw new InvalidOperationException($"Individual RPC (of type {ComponentType.ReadOnly<TActionRequest>().ToFixedString()}) is too large to serialize into the RpcQueue! It is {rpcDataSizeBits} bits [8192 bytes], which is greater than ushort.MaxValue of {ushort.MaxValue}!");
+                    lenWriter.WriteUShort((ushort) rpcDataSizeBits);
+
                     var prevLen = buffer.Length;
-                    buffer.ResizeUninitialized(buffer.Length + writer.Length);
+                    var desiredLength = buffer.Length + writer.Length;
+                    buffer.ResizeUninitialized(desiredLength);
                     byte* ptr = (byte*) buffer.GetUnsafePtr();
                     ptr += prevLen;
                     UnsafeUtility.MemCpy(ptr, writer.AsNativeArray().GetUnsafeReadOnlyPtr(), writer.Length);
                     break;
                 }
-                maxSize *= 2;
+                maxSizeBytes *= 2;
             }
         }
     }

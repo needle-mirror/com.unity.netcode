@@ -37,3 +37,16 @@ Use the following scripting defines to determine mode-specific baking settings (
 ## Additional resources
 
 * [Entities Project Settings reference](https://docs.unity3d.com/Packages/com.unity.entities@latest/index.html?subfolder=/manual/editor-project-settings.html)
+
+## NetCode Config ScriptableObject
+We added a ScriptableObject asset, removing the need to write C# to tweak `ClientServerTickRate`, `ClientTickRate`, and `GhostSendSystemData` parameters.
+We also added a dedicated 'Netcode for Entities' Project Settings page. Find it via **Edit** &gt; **Project Settings** &gt; **Netcode for Entities**.
+
+> [!NOTE]
+> We will soon be consolidating netcode settings under this label.
+
+### Using the Config
+
+1. Create a NetCodeConfig ScriptableObject via either Unity's Create menu, our Multiplayer menu, or the Project Settings helper button. Default values are our recommended defaults.
+2. Open the Netcode for Entities Project Settings window, and set your ScriptableObject as the global one.<br>**Warning**: This action may cause runtime errors in your project, as this config will clobber any user-code which adds, removes, or modifies these singleton components directly.
+3. Modify any settings you'd like to. Most fields support live-tweaking, and those that don't are disabled during play-mode.

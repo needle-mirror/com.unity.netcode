@@ -143,7 +143,11 @@ namespace Unity.NetCode
                 if (delayFromEntity.HasComponent(targetEntity))
                     delayFromEntity[targetEntity] = new CommandDataInterpolationDelay{ Delay = snapshotAck.RemoteInterpolationDelay};
 
-                var deserializeState = new RpcDeserializerState {ghostMap = ghostMap};
+                var deserializeState = new RpcDeserializerState
+                {
+                    ghostMap = ghostMap,
+                    CompressionModel = compressionModel,
+                };
                 var buffers = new NativeArray<TCommandData>((int)CommandSendSystem<TCommandDataSerializer, TCommandData>.k_InputBufferSendSize, Allocator.Temp);
                 var command = commandData[targetEntity];
                 var baselineReceivedCommand = default(TCommandData);

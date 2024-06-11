@@ -1,3 +1,4 @@
+using System;
 using Unity.Burst;
 using Unity.Burst.Intrinsics;
 using Unity.Entities;
@@ -77,6 +78,11 @@ namespace Unity.NetCode.Tests
             new PortableFunctionPointer<RpcExecutor.ExecuteDelegate>(InvokeExecute);
     }
 
+    public struct SerializedSmallRpcCommand : IRpcCommand
+    {
+        public long Value;
+    }
+
     [BurstCompile]
     public struct SerializedLargeRpcCommand : IComponentData, IRpcCommandSerializer<SerializedLargeRpcCommand>
     {
@@ -102,6 +108,67 @@ namespace Unity.NetCode.Tests
         private static void InvokeExecute(ref RpcExecutor.Parameters parameters)
         {
             var serializedData = default(SerializedLargeRpcCommand);
+            serializedData.Deserialize(ref parameters.Reader, parameters.DeserializerState, ref serializedData);
+
+            var entity = parameters.CommandBuffer.CreateEntity(parameters.JobIndex);
+            parameters.CommandBuffer.AddComponent(parameters.JobIndex, entity,
+                new ReceiveRpcCommandRequest {SourceConnection = parameters.Connection});
+            parameters.CommandBuffer.AddComponent(parameters.JobIndex, entity, serializedData);
+        }
+
+        static readonly PortableFunctionPointer<RpcExecutor.ExecuteDelegate> InvokeExecuteFunctionPointer =
+            new PortableFunctionPointer<RpcExecutor.ExecuteDelegate>(InvokeExecute);
+    }
+
+    [BurstCompile]
+    public struct SerializedTooBigCommand : IRpcCommand
+    {
+        public FixedBytes4094 bytes;
+    }
+
+    [BurstCompile]
+    public struct IncorrectDeserializationCommand : IComponentData, IRpcCommandSerializer<IncorrectDeserializationCommand>
+    {
+        public enum IncorrectMode : byte
+        {
+            DeserializeTooManyBytes = 1,
+            DeserializeTooFewBytes = 2,
+        }
+        public IncorrectMode mode;
+        public int bytes;
+
+        public void Serialize(ref DataStreamWriter writer, in RpcSerializerState state, in IncorrectDeserializationCommand data)
+        {
+            writer.WriteByte((byte)data.mode);
+            writer.WriteInt(data.bytes);
+        }
+
+        public void Deserialize(ref DataStreamReader reader, in RpcDeserializerState state, ref IncorrectDeserializationCommand data)
+        {
+            data.mode = (IncorrectMode) reader.ReadByte();
+            switch (data.mode)
+            {
+                case IncorrectMode.DeserializeTooManyBytes:
+                    data.bytes = (int) reader.ReadULong();
+                    break;
+                case IncorrectMode.DeserializeTooFewBytes:
+                    data.bytes = reader.ReadByte();
+                    break;
+                default:
+                    throw new ArgumentOutOfRangeException(nameof(mode), mode, nameof(Deserialize));
+            }
+        }
+
+        public PortableFunctionPointer<RpcExecutor.ExecuteDelegate> CompileExecute()
+        {
+            return InvokeExecuteFunctionPointer;
+        }
+
+        [BurstCompile(DisableDirectCall = true)]
+        [AOT.MonoPInvokeCallback(typeof(RpcExecutor.ExecuteDelegate))]
+        private static void InvokeExecute(ref RpcExecutor.Parameters parameters)
+        {
+            var serializedData = default(IncorrectDeserializationCommand);
             serializedData.Deserialize(ref parameters.Reader, parameters.DeserializerState, ref serializedData);
 
             var entity = parameters.CommandBuffer.CreateEntity(parameters.JobIndex);
@@ -145,6 +212,59 @@ namespace Unity.NetCode.Tests
             parameters.CommandBuffer.AddComponent(parameters.JobIndex, entity,
                 new ReceiveRpcCommandRequest {SourceConnection = parameters.Connection});
             parameters.CommandBuffer.AddComponent(parameters.JobIndex, entity, serializedData);
+        }
+
+        static readonly PortableFunctionPointer<RpcExecutor.ExecuteDelegate> InvokeExecuteFunctionPointer =
+            new PortableFunctionPointer<RpcExecutor.ExecuteDelegate>(InvokeExecute);
+    }
+
+    [BurstCompile]
+    public struct VariableSizedRpc : IComponentData, IRpcCommandSerializer<VariableSizedRpc>
+    {
+        public const int Value1Multiplier = 86;
+        public const int Value1Baseline = 5;
+        public const int Value2Multiplier = 1_000;
+        public const int Value2Baseline = 10_000;
+        public const int Value3Multiplier = -152;
+        public const int Value3Baseline = -152;
+        public int Value1;
+        public int Value2;
+        public int Value3;
+
+        public void Serialize(ref DataStreamWriter writer, in RpcSerializerState state, in VariableSizedRpc data)
+        {
+            writer.WriteRawBits(1, 1);
+            writer.WritePackedIntDelta(data.Value1, Value1Baseline, state.CompressionModel);
+            writer.WritePackedIntDelta(data.Value2, Value2Baseline, state.CompressionModel);
+            writer.WritePackedIntDelta(data.Value3, Value3Baseline, state.CompressionModel);
+            writer.WriteRawBits(1, 1);
+        }
+
+        public void Deserialize(ref DataStreamReader reader, in RpcDeserializerState state, ref VariableSizedRpc data)
+        {
+            Assert.IsTrue(reader.ReadRawBits(1) == 1, "Sanity bit BEFORE");
+            data.Value1 = reader.ReadPackedIntDelta(Value1Baseline, state.CompressionModel);
+            data.Value2 = reader.ReadPackedIntDelta(Value2Baseline, state.CompressionModel);
+            data.Value3 = reader.ReadPackedIntDelta(Value3Baseline, state.CompressionModel);
+            Assert.IsTrue(reader.ReadRawBits(1) == 1, "Sanity bit AFTER");
+        }
+
+        public PortableFunctionPointer<RpcExecutor.ExecuteDelegate> CompileExecute()
+        {
+            return InvokeExecuteFunctionPointer;
+        }
+
+        [BurstCompile(DisableDirectCall = true)]
+        [AOT.MonoPInvokeCallback(typeof(RpcExecutor.ExecuteDelegate))]
+        private static void InvokeExecute(ref RpcExecutor.Parameters parameters)
+        {
+            var serializedData = default(VariableSizedRpc);
+            serializedData.Deserialize(ref parameters.Reader, parameters.DeserializerState, ref serializedData);
+
+            Assert.AreEqual(serializedData.Value1, Value1Multiplier * RpcTests.VariableSizedResultCnt.Data);
+            Assert.AreEqual(serializedData.Value2, Value2Multiplier * RpcTests.VariableSizedResultCnt.Data);
+            Assert.AreEqual(serializedData.Value3, Value3Multiplier * RpcTests.VariableSizedResultCnt.Data);
+            RpcTests.VariableSizedResultCnt.Data++;
         }
 
         static readonly PortableFunctionPointer<RpcExecutor.ExecuteDelegate> InvokeExecuteFunctionPointer =
@@ -212,6 +332,13 @@ namespace Unity.NetCode.Tests
         {
             return InvokeExecuteFunctionPointer;
         }
+    }
+
+    [BurstCompile]
+    public struct VeryLargeRPC : IRpcCommand
+    {
+        public FixedString512Bytes value;
+        public FixedString512Bytes value1;
     }
 
     #region Send Systems
@@ -347,7 +474,8 @@ namespace Unity.NetCode.Tests
     public partial class SerializedClientLargeRcpSendSystem : SystemBase
     {
         public static int SendCount = 0;
-        public static SerializedLargeRpcCommand Cmd;
+        public static SerializedLargeRpcCommand LargeCmd;
+        public static SerializedSmallRpcCommand SmallCmd;
 
         protected override void OnCreate()
         {
@@ -358,10 +486,12 @@ namespace Unity.NetCode.Tests
         {
             while (SendCount > 0)
             {
-                var req = EntityManager.CreateEntity();
-                EntityManager.AddComponentData(req, Cmd);
-                EntityManager.AddComponentData(req,
-                    new SendRpcCommandRequest {TargetConnection = Entity.Null});
+                var reqLarge = EntityManager.CreateEntity();
+                EntityManager.AddComponentData(reqLarge, LargeCmd);
+                EntityManager.AddComponentData(reqLarge, new SendRpcCommandRequest {TargetConnection = Entity.Null});
+                var reqSmall = EntityManager.CreateEntity();
+                EntityManager.AddComponentData(reqSmall, SmallCmd);
+                EntityManager.AddComponentData(reqSmall, new SendRpcCommandRequest {TargetConnection = Entity.Null});
                 --SendCount;
             }
         }
@@ -448,10 +578,12 @@ namespace Unity.NetCode.Tests
         protected override void OnUpdate()
         {
             var PostUpdateCommands = new EntityCommandBuffer(Allocator.Temp);
+            var networkConnections = GetComponentLookup<NetworkStreamConnection>(true);
             Entities.WithoutBurst()
                 .WithAll<SimpleRpcCommand>()
                 .ForEach((Entity entity, ref ReceiveRpcCommandRequest req) =>
             {
+                Assert.IsTrue(networkConnections.HasComponent(req.SourceConnection), "Connection has been deleted and this RPC should not have been triggered");
                 PostUpdateCommands.DestroyEntity(entity);
                 ++ReceivedCount;
             }).Run();
@@ -526,17 +658,26 @@ namespace Unity.NetCode.Tests
     [WorldSystemFilter(WorldSystemFilterFlags.ServerSimulation)]
     public partial class SerializedServerLargeRpcReceiveSystem : SystemBase
     {
-        public static int ReceivedCount = 0;
-        public static SerializedLargeRpcCommand ReceivedCmd;
+        public static int ReceivedLargeCount = 0;
+        public static int ReceivedSmallCount = 0;
+        // Test multiple RPCs being sent.
+        public static SerializedLargeRpcCommand ReceivedLargeCmd;
+        public static SerializedSmallRpcCommand ReceivedSmallCmd;
 
         protected override void OnUpdate()
         {
             var PostUpdateCommands = new EntityCommandBuffer(Allocator.Temp);
             Entities.WithoutBurst().ForEach((Entity entity, ref SerializedLargeRpcCommand cmd, ref ReceiveRpcCommandRequest req) =>
             {
-                ReceivedCmd = cmd;
+                ReceivedLargeCmd = cmd;
                 PostUpdateCommands.DestroyEntity(entity);
-                ++ReceivedCount;
+                ++ReceivedLargeCount;
+            }).Run();
+            Entities.WithoutBurst().ForEach((Entity entity, ref SerializedSmallRpcCommand cmd, ref ReceiveRpcCommandRequest req) =>
+            {
+                ReceivedSmallCmd = cmd;
+                PostUpdateCommands.DestroyEntity(entity);
+                ++ReceivedSmallCount;
             }).Run();
             PostUpdateCommands.Playback(EntityManager);
         }
@@ -554,6 +695,34 @@ namespace Unity.NetCode.Tests
         struct SendRpc : IJobChunk
         {
             public RpcCommandRequest<SerializedLargeRpcCommand, SerializedLargeRpcCommand>.SendRpcData data;
+            public void Execute(in ArchetypeChunk chunk, int unfilteredChunkIndex, bool useEnabledMask, in v128 chunkEnabledMask)
+            {
+                Assert.IsFalse(useEnabledMask);
+                data.Execute(chunk, unfilteredChunkIndex);
+            }
+        }
+        public void OnCreate(ref SystemState state)
+        {
+            m_Request.OnCreate(ref state);
+        }
+        [BurstCompile]
+        public void OnUpdate(ref SystemState state)
+        {
+            var sendJob = new SendRpc{data = m_Request.InitJobData(ref state)};
+            state.Dependency = sendJob.Schedule(m_Request.Query, state.Dependency);
+        }
+    }
+    [DisableAutoCreation]
+    [UpdateInGroup(typeof(RpcCommandRequestSystemGroup))]
+    [CreateAfter(typeof(RpcSystem))]
+    [BurstCompile]
+    partial struct IncorrectDeserializationCommandRequestSystem : ISystem
+    {
+        RpcCommandRequest<IncorrectDeserializationCommand, IncorrectDeserializationCommand> m_Request;
+        [BurstCompile]
+        struct SendRpc : IJobChunk
+        {
+            public RpcCommandRequest<IncorrectDeserializationCommand, IncorrectDeserializationCommand>.SendRpcData data;
             public void Execute(in ArchetypeChunk chunk, int unfilteredChunkIndex, bool useEnabledMask, in v128 chunkEnabledMask)
             {
                 Assert.IsFalse(useEnabledMask);
@@ -713,6 +882,297 @@ namespace Unity.NetCode.Tests
         {
             var sendJob = new SendRpc{data = m_Request.InitJobData(ref state)};
             state.Dependency = sendJob.Schedule(m_Request.Query, state.Dependency);
+        }
+    }
+
+    public struct MyApprovalRpc : IApprovalRpcCommand
+    {
+
+    }
+
+    [DisableAutoCreation]
+    [RequireMatchingQueriesForUpdate]
+    [WorldSystemFilter(WorldSystemFilterFlags.ServerSimulation)]
+    public partial class VeryLargeRpcReceiveSystem : SystemBase
+    {
+        public static int ReceivedCount = 0;
+        public static VeryLargeRPC ReceivedCmd;
+
+        protected override void OnUpdate()
+        {
+            var PostUpdateCommands = new EntityCommandBuffer(Allocator.Temp);
+            Entities.WithoutBurst().ForEach((Entity entity, ref VeryLargeRPC cmd, ref ReceiveRpcCommandRequest req) =>
+            {
+                ReceivedCmd = cmd;
+                PostUpdateCommands.DestroyEntity(entity);
+                ++ReceivedCount;
+            }).Run();
+            PostUpdateCommands.Playback(EntityManager);
+        }
+    }
+
+    [DisableAutoCreation]
+    [WorldSystemFilter(WorldSystemFilterFlags.ClientSimulation)]
+    public partial class VeryLargeRcpSendSystem : SystemBase
+    {
+        public static int SendCount = 0;
+        public static VeryLargeRPC Cmd;
+
+        protected override void OnCreate()
+        {
+            RequireForUpdate<NetworkId>();
+        }
+
+        protected override void OnUpdate()
+        {
+            while (SendCount > 0)
+            {
+                var req = EntityManager.CreateEntity();
+                EntityManager.AddComponentData(req, Cmd);
+                EntityManager.AddComponentData(req,
+                    new SendRpcCommandRequest { TargetConnection = Entity.Null });
+                --SendCount;
+            }
+        }
+    }
+
+public struct FastReconnectRpc : IRpcCommand
+    {
+        public int Value;
+    }
+
+    public struct FastReconnectApprovalRpc : IApprovalRpcCommand
+    {
+        public int Value;
+    }
+
+    public struct FastReconnectRpcStartedApproval : IComponentData
+    { }
+
+    [DisableAutoCreation]
+    [WorldSystemFilter(WorldSystemFilterFlags.ClientSimulation)]
+    [UpdateInGroup(typeof(NetworkReceiveSystemGroup))]
+    [UpdateBefore(typeof(NetworkGroupCommandBufferSystem))]
+    [RequireMatchingQueriesForUpdate]
+    public partial class FastReconnectRpcConnectBeforeSystem : SystemBase
+    {
+        public static bool ConnectNow;
+        EntityQuery m_ConnectionQuery;
+
+        protected override void OnCreate()
+        {
+            m_ConnectionQuery = GetEntityQuery(ComponentType.ReadOnly<NetworkStreamConnection>());
+        }
+
+        protected override void OnUpdate()
+        {
+            if (m_ConnectionQuery.CalculateEntityCount() > 0)
+                return;
+            if (ConnectNow)
+            {
+                SystemAPI.GetSingletonRW<NetworkStreamDriver>().ValueRW.Connect(EntityManager, NetworkEndpoint.LoopbackIpv4.WithPort(7979));
+                //UnityEngine.Debug.Log($"[{NetCodeTestWorld.TickIndex}]: Connect via {GetType().FullName}!");
+                ConnectNow = false;
+            }
+        }
+    }
+
+    [DisableAutoCreation]
+    [WorldSystemFilter(WorldSystemFilterFlags.ClientSimulation)]
+    [UpdateInGroup(typeof(NetworkReceiveSystemGroup), OrderLast = true)]
+    [UpdateAfter(typeof(NetworkGroupCommandBufferSystem))]
+    [RequireMatchingQueriesForUpdate]
+    public partial class FastReconnectRpcConnectAfterSystem : SystemBase
+    {
+        public static bool ConnectNow;
+        EntityQuery m_ConnectionQuery;
+
+        protected override void OnCreate()
+        {
+            m_ConnectionQuery = GetEntityQuery(ComponentType.ReadOnly<NetworkStreamConnection>());
+        }
+
+        protected override void OnUpdate()
+        {
+            if (m_ConnectionQuery.CalculateEntityCount() > 0)
+                return;
+            if (ConnectNow)
+            {
+                SystemAPI.GetSingletonRW<NetworkStreamDriver>().ValueRW.Connect(EntityManager, NetworkEndpoint.LoopbackIpv4.WithPort(7979));
+                //UnityEngine.Debug.Log($"[{NetCodeTestWorld.TickIndex}]: Connect via {GetType().FullName}!");
+                ConnectNow = false;
+            }
+        }
+    }
+
+    [DisableAutoCreation]
+    [WorldSystemFilter(WorldSystemFilterFlags.ClientSimulation)]
+    [UpdateInGroup(typeof(NetworkReceiveSystemGroup))]
+    [UpdateBefore(typeof(NetworkGroupCommandBufferSystem))]
+    [RequireMatchingQueriesForUpdate]
+    public partial class FastReconnectRpcDisconnectBeforeSystem : SystemBase
+    {
+        public static int DisconnectDelay = -1;
+
+        protected override void OnCreate()
+        {
+            RequireForUpdate<NetworkStreamConnection>();
+        }
+
+        protected override void OnUpdate()
+        {
+            if (DisconnectDelay-- == 0)
+            {
+                var clientConnection = SystemAPI.GetSingletonRW<NetworkStreamConnection>();
+                SystemAPI.GetSingletonRW<NetworkStreamDriver>().ValueRW.DriverStore.Disconnect(clientConnection.ValueRO);
+                //UnityEngine.Debug.Log($"[{NetCodeTestWorld.TickIndex}]: Disconnect via {GetType().FullName}!");
+            }
+        }
+    }
+
+    [DisableAutoCreation]
+    [WorldSystemFilter(WorldSystemFilterFlags.ClientSimulation)]
+    [UpdateInGroup(typeof(NetworkReceiveSystemGroup), OrderLast = true)]
+    [UpdateAfter(typeof(NetworkGroupCommandBufferSystem))]
+    [RequireMatchingQueriesForUpdate]
+    public partial class FastReconnectRpcDisconnectAfterSystem : SystemBase
+    {
+        public static int DisconnectDelay = -1;
+
+        protected override void OnCreate()
+        {
+            RequireForUpdate<NetworkStreamConnection>();
+        }
+
+        protected override void OnUpdate()
+        {
+            if (DisconnectDelay-- == 0)
+            {
+                var clientConnection = SystemAPI.GetSingletonRW<NetworkStreamConnection>();
+                SystemAPI.GetSingletonRW<NetworkStreamDriver>().ValueRW.DriverStore.Disconnect(clientConnection.ValueRO);
+                //UnityEngine.Debug.Log($"[{NetCodeTestWorld.TickIndex}]: Disconnect via {GetType().FullName}!");
+            }
+        }
+    }
+
+    [DisableAutoCreation]
+    [WorldSystemFilter(WorldSystemFilterFlags.ClientSimulation)]
+    [UpdateInGroup(typeof(NetworkReceiveSystemGroup))]
+    [UpdateBefore(typeof(NetworkGroupCommandBufferSystem))]
+    [RequireMatchingQueriesForUpdate]
+    public partial class SendFastReconnectRpc : SystemBase
+    {
+        protected override void OnUpdate()
+        {
+            var commandBuffer = new EntityCommandBuffer(Allocator.Temp);
+            foreach (var (id, entity) in SystemAPI.Query<RefRO<NetworkId>>().WithEntityAccess().WithNone<NetworkStreamInGame>())
+            {
+                commandBuffer.AddComponent<NetworkStreamInGame>(entity);
+                var req = commandBuffer.CreateEntity();
+                commandBuffer.AddComponent<FastReconnectRpc>(req);
+                commandBuffer.AddComponent(req, new SendRpcCommandRequest { TargetConnection = entity });
+            }
+            commandBuffer.Playback(EntityManager);
+        }
+    }
+
+    [DisableAutoCreation]
+    [WorldSystemFilter(WorldSystemFilterFlags.ClientSimulation)]
+    [RequireMatchingQueriesForUpdate]
+    public partial class SendFastReconnectApprovalRpc : SystemBase
+    {
+        protected override void OnUpdate()
+        {
+            if (!SystemAPI.GetSingleton<NetworkStreamDriver>().RequireConnectionApproval)
+            {
+                Enabled = false;
+                return;
+            }
+
+            var commandBuffer = new EntityCommandBuffer(Allocator.Temp);
+            foreach (var (connection, entity) in SystemAPI.Query<RefRO<NetworkStreamConnection>>().WithEntityAccess().WithNone<FastReconnectRpcStartedApproval>())
+            {
+                var req = commandBuffer.CreateEntity();
+                commandBuffer.AddComponent<FastReconnectApprovalRpc>(req);
+                commandBuffer.AddComponent(req, new SendRpcCommandRequest { TargetConnection = entity });
+                commandBuffer.AddComponent<FastReconnectRpcStartedApproval>(entity);
+            }
+            commandBuffer.Playback(EntityManager);
+        }
+    }
+
+    [DisableAutoCreation]
+    [WorldSystemFilter(WorldSystemFilterFlags.ServerSimulation)]
+    [RequireMatchingQueriesForUpdate]
+    public partial class ReceiveFastReconnectApprovalRpc : SystemBase
+    {
+        protected override void OnUpdate()
+        {
+            var commandBuffer = new EntityCommandBuffer(Allocator.Temp);
+            foreach (var (rpcRequest, rpcData, entity) in SystemAPI.Query<RefRO<ReceiveRpcCommandRequest>, RefRO<FastReconnectRpc>>().WithEntityAccess())
+            {
+                commandBuffer.AddComponent<ConnectionApproved>(rpcRequest.ValueRO.SourceConnection);
+                commandBuffer.DestroyEntity(entity);
+            }
+            commandBuffer.Playback(EntityManager);
+        }
+    }
+
+    [DisableAutoCreation]
+    [WorldSystemFilter(WorldSystemFilterFlags.ServerSimulation)]
+    [UpdateInGroup(typeof(NetworkReceiveSystemGroup))]
+    [UpdateBefore(typeof(NetworkGroupCommandBufferSystem))]
+    [RequireMatchingQueriesForUpdate]
+    public partial class ReceiveFastReconnectRpcBefore : SystemBase
+    {
+        protected override void OnUpdate()
+        {
+            var networkConnections = GetComponentLookup<NetworkStreamConnection>(true);
+            var commandBuffer = new EntityCommandBuffer(Allocator.Temp);
+            foreach (var (rpcRequest, rpcData, entity) in SystemAPI.Query<RefRO<ReceiveRpcCommandRequest>, RefRO<FastReconnectRpc>>().WithEntityAccess())
+            {
+                Assert.IsTrue(networkConnections.HasComponent(rpcRequest.ValueRO.SourceConnection));
+                commandBuffer.DestroyEntity(entity);
+            }
+            commandBuffer.Playback(EntityManager);
+        }
+    }
+
+    [DisableAutoCreation]
+    [WorldSystemFilter(WorldSystemFilterFlags.ServerSimulation)]
+    [UpdateInGroup(typeof(NetworkReceiveSystemGroup), OrderLast = true)]
+    [UpdateAfter(typeof(NetworkGroupCommandBufferSystem))]
+    [RequireMatchingQueriesForUpdate]
+    public partial class ReceiveFastReconnectRpcAfter : SystemBase
+    {
+        protected override void OnUpdate()
+        {
+            var commandBuffer = new EntityCommandBuffer(Allocator.Temp);
+            foreach (var (rpcRequest, rpcData, entity) in SystemAPI.Query<RefRO<ReceiveRpcCommandRequest>, RefRO<FastReconnectRpc>>().WithEntityAccess())
+            {
+                // If connection is gone this will throw an exception
+                commandBuffer.AddComponent<NetworkStreamInGame>(rpcRequest.ValueRO.SourceConnection);
+                commandBuffer.DestroyEntity(entity);
+            }
+            commandBuffer.Playback(EntityManager);
+        }
+    }
+
+    [DisableAutoCreation]
+    [WorldSystemFilter(WorldSystemFilterFlags.ServerSimulation)]
+    [RequireMatchingQueriesForUpdate]
+    public partial class ReceiveFastReconnectRpc : SystemBase
+    {
+        protected override void OnUpdate()
+        {
+            var commandBuffer = new EntityCommandBuffer(Allocator.Temp);
+            foreach (var (rpcRequest, rpcData, entity) in SystemAPI.Query<RefRO<ReceiveRpcCommandRequest>, RefRO<FastReconnectRpc>>().WithEntityAccess())
+            {
+                // If connection is gone this will throw an exception
+                commandBuffer.AddComponent<NetworkStreamInGame>(rpcRequest.ValueRO.SourceConnection);
+                commandBuffer.DestroyEntity(entity);
+            }
+            commandBuffer.Playback(EntityManager);
         }
     }
 }

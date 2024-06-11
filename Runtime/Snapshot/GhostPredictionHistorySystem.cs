@@ -61,6 +61,12 @@ namespace Unity.NetCode
             state->bufferDataOffset = state->dataOffset + dataSize;
             return (IntPtr)state;
         }
+
+        public static int GetEntityCapacity(IntPtr state)
+        {
+            var ps = ((PredictionBackupState*) state);
+            return ps->entityCapacity;
+        }
         public static int GetHeaderSize()
         {
             return (UnsafeUtility.SizeOf<PredictionBackupState>() + 15) & (~15);
@@ -118,13 +124,13 @@ namespace Unity.NetCode
         {
             return data + (chunkCapacity+63)/64;
         }
-        public static int GetGhostOwner(IntPtr state)
+        public static int GetGhostOwner(IntPtr state, int ent)
         {
             var ps = ((PredictionBackupState*) state);
-            if (ps->ghostOwnerOffset != -1)
-                return *(((byte*)state) + ps->dataOffset + ps->ghostOwnerOffset);
-            //return an invalid owner (0)
-            return 0;
+            if (ps->ghostOwnerOffset == -1)
+                return -1;
+            var owners = (int*)((byte*)state + ps->dataOffset + ps->ghostOwnerOffset);
+            return owners[ent];
         }
 
         public static uint* GetNextChildChunkVersion(uint* changeVersionPtr, int chunkCapacity)
@@ -144,6 +150,7 @@ namespace Unity.NetCode
     internal struct GhostPredictionHistoryState : IComponentData
     {
         public NativeParallelHashMap<ArchetypeChunk, System.IntPtr>.ReadOnly PredictionState;
+        public NativeParallelHashMap<Entity, GhostPredictionHistorySystem.PredictionBufferHistoryData>.ReadOnly EntityData;
     }
 
     /// <summary>
@@ -168,7 +175,31 @@ namespace Unity.NetCode
             public System.IntPtr data;
         }
 
+        /// <summary>
+        /// Data structure used to preserve the ability to retrieve or infer, even in case of structural changes,
+        /// the prediction history data for a given entity.
+        /// The struct store, at backup time, the chunk and index the
+        /// entity has been stored in history.
+        /// This information are used later, when we restore the entity state from the backup by the GhostUpdateSystem
+        /// </summary>
+        internal struct PredictionBufferHistoryData
+        {
+            /// <summary>
+            /// The archetype chunk at the time of the last history backup
+            /// </summary>
+            public ArchetypeChunk lastChunk;
+            /// <summary>
+            /// The index in chunk at the time of the last history backup
+            /// </summary>
+            public int LastIndexInChunk;
+            /// <summary>
+            /// The capacity of the that chunk, that it used to correctly decode the history data.
+            /// </summary>
+            public int LastChunkCapacity;
+        }
+
         NativeParallelHashMap<ArchetypeChunk, System.IntPtr> m_PredictionState;
+        NativeParallelHashMap<Entity, PredictionBufferHistoryData> m_EntityData;
         NativeParallelHashMap<ArchetypeChunk, int> m_StillUsedPredictionState;
         NativeQueue<PredictionStateEntry> m_NewPredictionState;
         NativeQueue<PredictionStateEntry> m_UpdatedPredictionState;
@@ -177,6 +208,7 @@ namespace Unity.NetCode
         ComponentTypeHandle<GhostInstance> m_GhostComponentHandle;
         ComponentTypeHandle<GhostType> m_GhostTypeComponentHandle;
         ComponentTypeHandle<PreSpawnedGhostIndex> m_PreSpawnedGhostIndexHandle;
+        ComponentTypeHandle<PredictedGhostSpawnRequest> m_PredictedSpawnRequestTypeHandle;
         BufferTypeHandle<LinkedEntityGroup> m_LinkedEntityGroupHandle;
         EntityTypeHandle m_EntityTypeHandle;
 
@@ -190,6 +222,7 @@ namespace Unity.NetCode
         {
             m_PredictionState = new NativeParallelHashMap<ArchetypeChunk, System.IntPtr>(128, Allocator.Persistent);
             m_StillUsedPredictionState = new NativeParallelHashMap<ArchetypeChunk, int>(128, Allocator.Persistent);
+            m_EntityData = new NativeParallelHashMap<Entity, PredictionBufferHistoryData>(128, Allocator.Persistent);
             m_NewPredictionState = new NativeQueue<PredictionStateEntry>(Allocator.Persistent);
             m_UpdatedPredictionState = new NativeQueue<PredictionStateEntry>(Allocator.Persistent);
             var builder = new EntityQueryBuilder(Allocator.Temp)
@@ -201,6 +234,7 @@ namespace Unity.NetCode
             m_GhostComponentHandle = state.GetComponentTypeHandle<GhostInstance>(true);
             m_GhostTypeComponentHandle = state.GetComponentTypeHandle<GhostType>(true);
             m_PreSpawnedGhostIndexHandle = state.GetComponentTypeHandle<PreSpawnedGhostIndex>(true);
+            m_PredictedSpawnRequestTypeHandle = state.GetComponentTypeHandle<PredictedGhostSpawnRequest>(true);
             m_LinkedEntityGroupHandle = state.GetBufferTypeHandle<LinkedEntityGroup>(true);
             m_EntityTypeHandle = state.GetEntityTypeHandle();
 
@@ -215,7 +249,9 @@ namespace Unity.NetCode
             FixedString64Bytes singletonName = "GhostPredictionHistoryState-Singleton";
             state.EntityManager.SetName(historySingleton, singletonName);
             // Declare that we are writing to GhostPredictionHistoryState, so we depend on all readers of this singleton during OnUpdate
-            SystemAPI.GetSingletonRW<GhostPredictionHistoryState>().ValueRW.PredictionState = m_PredictionState.AsReadOnly();
+            ref var predictionHistoryState = ref SystemAPI.GetSingletonRW<GhostPredictionHistoryState>().ValueRW;
+            predictionHistoryState.PredictionState = m_PredictionState.AsReadOnly();
+            predictionHistoryState.EntityData = m_EntityData.AsReadOnly();
         }
 
         [BurstCompile]
@@ -230,6 +266,7 @@ namespace Unity.NetCode
             m_StillUsedPredictionState.Dispose();
             m_NewPredictionState.Dispose();
             m_UpdatedPredictionState.Dispose();
+            m_EntityData.Dispose();
         }
 
         [BurstCompile]
@@ -245,12 +282,17 @@ namespace Unity.NetCode
             var stillUsedPredictionState = m_StillUsedPredictionState;
             var updatedPredictionState = m_UpdatedPredictionState;
             stillUsedPredictionState.Clear();
+            m_EntityData.Clear();
+            var count = m_PredictionQuery.CalculateEntityCount();
+            if(count > m_EntityData.Capacity)
+                m_EntityData.Capacity = count;
             if (stillUsedPredictionState.Capacity < predictionState.Capacity)
                 stillUsedPredictionState.Capacity = predictionState.Capacity;
 
             m_GhostComponentHandle.Update(ref state);
             m_GhostTypeComponentHandle.Update(ref state);
             m_PreSpawnedGhostIndexHandle.Update(ref state);
+            m_PredictedSpawnRequestTypeHandle.Update(ref state);
             m_LinkedEntityGroupHandle.Update(ref state);
             m_EntityTypeHandle.Update(ref state);
             m_GhostComponentSerializerStateFromEntity.Update(ref state);
@@ -263,9 +305,11 @@ namespace Unity.NetCode
                 stillUsedPredictionState = stillUsedPredictionState.AsParallelWriter(),
                 newPredictionState = newPredictionState.AsParallelWriter(),
                 updatedPredictionState = updatedPredictionState.AsParallelWriter(),
+                entityData = m_EntityData.AsParallelWriter(),
                 ghostComponentType = m_GhostComponentHandle,
                 ghostType = m_GhostTypeComponentHandle,
                 prespawnIndexType = m_PreSpawnedGhostIndexHandle,
+                predictedGhostSpawnRequestType = m_PredictedSpawnRequestTypeHandle,
                 entityType = m_EntityTypeHandle,
 
                 GhostCollectionSingleton = SystemAPI.GetSingletonEntity<GhostCollection>(),
@@ -273,6 +317,7 @@ namespace Unity.NetCode
                 GhostTypeCollectionFromEntity = m_GhostCollectionPrefabSerializerFromEntity,
                 GhostComponentIndexFromEntity = m_GhostCollectionComponentIndexFromEntity,
                 GhostPrefabCollectionFromEntity = m_GhostCollectionPrefabFromEntity,
+                netDebug = SystemAPI.GetSingleton<NetDebug>(),
 
                 childEntityLookup = state.GetEntityStorageInfoLookup(),
                 linkedEntityGroupType = m_LinkedEntityGroupHandle,
@@ -340,11 +385,13 @@ namespace Unity.NetCode
 
             [ReadOnly]public NativeParallelHashMap<ArchetypeChunk, System.IntPtr> predictionState;
             public NativeParallelHashMap<ArchetypeChunk, int>.ParallelWriter stillUsedPredictionState;
+            public NativeParallelHashMap<Entity, PredictionBufferHistoryData>.ParallelWriter entityData;
             public NativeQueue<PredictionStateEntry>.ParallelWriter newPredictionState;
             public NativeQueue<PredictionStateEntry>.ParallelWriter updatedPredictionState;
             [ReadOnly] public ComponentTypeHandle<GhostInstance> ghostComponentType;
             [ReadOnly] public ComponentTypeHandle<GhostType> ghostType;
             [ReadOnly] public ComponentTypeHandle<PreSpawnedGhostIndex> prespawnIndexType;
+            [ReadOnly] public ComponentTypeHandle<PredictedGhostSpawnRequest> predictedGhostSpawnRequestType;
             [ReadOnly] public EntityTypeHandle entityType;
 
             public Entity GhostCollectionSingleton;
@@ -352,11 +399,10 @@ namespace Unity.NetCode
             [ReadOnly] public BufferLookup<GhostCollectionPrefabSerializer> GhostTypeCollectionFromEntity;
             [ReadOnly] public BufferLookup<GhostCollectionComponentIndex> GhostComponentIndexFromEntity;
             [ReadOnly] public BufferLookup<GhostCollectionPrefab> GhostPrefabCollectionFromEntity;
-
-
             [ReadOnly] public EntityStorageInfoLookup childEntityLookup;
             [ReadOnly] public BufferTypeHandle<LinkedEntityGroup> linkedEntityGroupType;
 
+            public NetDebug netDebug;
             const GhostSendType requiredSendMask = GhostSendType.OnlyPredictedClients;
 
             //Sum up all the dynamic buffers raw data content size. Each buffer content size is aligned to 16 bytes
@@ -442,26 +488,33 @@ namespace Unity.NetCode
                 var ghostComponents = chunk.GetNativeArray(ref ghostComponentType);
                 var ghostTypes = chunk.GetNativeArray(ref ghostType);
                 int ghostTypeId = ghostComponents.GetFirstGhostTypeId();
-                if (ghostTypeId < 0)
+                var isPrespawnedGhost = chunk.Has(ref prespawnIndexType);
+                var isPredictedSpawnedGhost = chunk.Has(ref predictedGhostSpawnRequestType);
+                if (ghostTypeId < 0 && !isPrespawnedGhost)
                 {
-                    if(!chunk.Has(ref prespawnIndexType))
-                        return;
+                    netDebug.LogError($"Found chunk with ghost type {(Hash128)ghostTypes[0]} that is not a pre-spawned ghost (there is not PreSpawnedGhostIndex component), and has a negative GhostInstance.type. Only prespawned ghosts are allowed to use a negative type index.");
+                    return;
+                }
 
-                    //Prespawn chunk that hasn't been received/processed yet. Since it is predicted we still
-                    //need to store the entities in the history buffer. This is why we are resolving the the ghost type
-                    //here
+                //We need to resolve the type for prespawned ghost and predicted spawned ghost that hasn't received yet and update from the server
+                if (ghostTypeId < 0 || isPredictedSpawnedGhost)
+                {
+                    //We iterate over the GhostTypeCollection instead of the GhostPrefabCollection as counter because it is guarateed
+                    //that the GhostPrefabCollection length is always less or equal the GhostPrefabCollection size. But we assert this here.
+                    Assertions.Assert.IsTrue(GhostTypeCollection.Length <= GhostPrefabCollection.Length);
                     for (ghostTypeId = 0; ghostTypeId < GhostTypeCollection.Length; ++ghostTypeId)
                     {
                         if (GhostPrefabCollection[ghostTypeId].GhostType == ghostTypes[0])
                             break;
                     }
-
-                    if (ghostTypeId < 0)
-                        throw new InvalidOperationException($"Cannot find ghostTypeId in GhostPrefabCollection as expected to match {ghostTypes[0]} but didn't. (GhostPrefabCollection.Length: {GhostPrefabCollection.Length}).");
+                    //This is a valid condition in case the ghost collection prefab serializers hasn't been completely initialized
+                    if (ghostTypeId >= GhostTypeCollection.Length)
+                        return;
                 }
+                if(ghostTypeId >= GhostTypeCollection.Length)
+                    throw new InvalidOperationException($"Cannot find ghostTypeId in GhostPrefabCollection as expected to match {ghostTypes[0]} but didn't. (GhostPrefabCollection.Length: {GhostPrefabCollection.Length}).");
 
                 var typeData = GhostTypeCollection[ghostTypeId];
-
                 var singleEntitySize = UnsafeUtility.SizeOf<Entity>();
                 int baseOffset = typeData.FirstComponent;
                 int predictionOwnerOffset = -1;
@@ -503,8 +556,7 @@ namespace Unity.NetCode
                         // uint length: the num of elements
                         // uint backupDataOffset: the start position in the backup buffer
                         if (!ghostSerializer.ComponentType.IsBuffer)
-                            dataSize += PredictionBackupState.GetDataSize(
-                                ghostSerializer.ComponentSize, chunk.Capacity);
+                            dataSize += PredictionBackupState.GetDataSize(ghostSerializer.ComponentSize, chunk.Capacity);
                         else
                             dataSize += PredictionBackupState.GetDataSize(GhostComponentSerializer.DynamicBufferComponentSnapshotSize, chunk.Capacity);
                     }
@@ -543,7 +595,15 @@ namespace Unity.NetCode
                 UnsafeUtility.MemCpy(entities, srcEntities, chunk.Count * singleEntitySize);
                 if (chunk.Count < chunk.Capacity)
                     UnsafeUtility.MemClear(entities + chunk.Count, (chunk.Capacity - chunk.Count) * singleEntitySize);
-
+                for (int i = 0; i < chunk.Count; ++i)
+                {
+                    entityData.TryAdd(entities[i], new PredictionBufferHistoryData
+                    {
+                        lastChunk = chunk,
+                        LastIndexInChunk = i,
+                        LastChunkCapacity = chunk.Capacity
+                    });
+                }
                 byte* dataPtr = PredictionBackupState.GetData(state);
                 byte* bufferBackupDataPtr = PredictionBackupState.GetBufferDataPtr(state);
                 ulong* enabledBitPtr = PredictionBackupState.GetEnabledBits(state);

@@ -181,6 +181,11 @@ namespace Unity.NetCode
         {
             public DefaultVariantSystemBase.Rule Rule;
             public SystemBase LastSystem;
+
+            public override string ToString()
+            {
+                return $"{nameof(RuleAssignment)}: {Rule} assigned from LastSystem: {LastSystem.GetType()}";
+            }
         }
         private NativeHashMap<ComponentType, DefaultVariantSystemBase.HashRule> DefaultVariants;
 
@@ -202,8 +207,8 @@ namespace Unity.NetCode
         /// <summary>
         /// Set the current <see cref="GhostComponentVariationAttribute"/> variant to use by default
         /// for the given component type.
-        /// <para>If an entry for the component is already preent, the new <paramref name="rule"/> will overwrite the current
-        /// assignment </para>
+        /// <para>If an entry for the component is already present, the new <paramref name="rule"/> won't overwrite the current
+        /// assignment. Use this with CreateBefore on your registration system to set a priority between default variants.</para>
         /// </summary>
         /// <param name="componentType">The component type for which you want to specify the variant to use.</param>
         /// <param name="rule">The rule to assign.</param>
@@ -224,7 +229,8 @@ namespace Unity.NetCode
 
         /// <summary>
         /// Will set the current <see cref="GhostComponentVariationAttribute"/> variant to use by default
-        /// for the given component type if a rule for the <paramref name="componentType"/> is not already present.
+        /// for the given component type. Will log an error if a rule for the <paramref name="componentType"/> is already present, but will still override it.
+        /// Use TrySetDefaultVariant and CreateBefore to have a project with multiple default variants for the same type.
         /// </summary>
         /// <param name="componentType">The component type for which you want to specify the variant to use.</param>
         /// <param name="rule">The rule to assign.</param>
@@ -242,8 +248,8 @@ namespace Unity.NetCode
                 var rulesAreTheSame = existingRule.Rule.Equals(rule);
                 if (!rulesAreTheSame)
                 {
-                    UnityEngine.Debug.Log($"`Overriding the default variant rule for type `{componentType.ToFixedString()}` with '{rule}' ('{newRuleHash}'). Previous rule was " +
-                                          $"('{existingRule.Rule}' ('{existingRule.Rule.CreateHashRule(componentType)}'), setup by {TypeManager.GetSystemName(existingRule.LastSystem.GetType())}." +
+                    UnityEngine.Debug.LogError($"`Overriding the default variant rule for type `{componentType.ToFixedString()}` with '{rule}' ('{newRuleHash}'). Previous rule was " +
+                                          $"('{existingRule.Rule}' ('{existingRule.Rule.CreateHashRule(componentType)}'), setup by {TypeManager.GetSystemName(existingRule.LastSystem.GetType())}. " +
                                           $"In your implementation of DefaultVariantSystemBase use [CreateBefore(typeof({TypeManager.GetSystemName(existingRule.LastSystem.GetType())}))] to resolve this issue.");
                 }
             }

@@ -22,11 +22,11 @@ namespace Unity.NetCode
     }
 
     /// <summary>
-    /// The parent group for all input gather systems. Only present in client worlds
+    /// The parent group for all input gathering systems. Only present in client worlds
     /// (and local worlds, to allow singleplayer to use the same input gathering system).
-    /// It runs before the <see cref="CommandSendSystemGroup"/>, in order to remove any latency in between
-    /// the input gathering and the command submission.
-    /// All the your systems that translate user input (ex: using the <see cref="UnityEngine.Input"/> into
+    /// It runs before the <see cref="CommandSendSystemGroup"/> to remove any latency between
+    /// input gathering and command submission.
+    /// All systems that translate user input (for example, using the <see cref="UnityEngine.Input"/> into
     /// <see cref="ICommandData"/> command data must update in this group.
     /// </summary>
     [WorldSystemFilter(WorldSystemFilterFlags.ClientSimulation | WorldSystemFilterFlags.ThinClientSimulation | WorldSystemFilterFlags.LocalSimulation, WorldSystemFilterFlags.ClientSimulation | WorldSystemFilterFlags.LocalSimulation)]
@@ -181,7 +181,7 @@ namespace Unity.NetCode
 
                 var concurrentDriver = concurrentDriverStore.GetConcurrentDriver(connection.DriverId);
                 var requiredPayloadSize = k_CommandHeadersBytes + rpcData.Length;
-                int maxSnapshotSizeWithoutFragmentation = NetworkParameterConstants.MTU - concurrentDriver.driver.MaxHeaderSize(concurrentDriver.unreliablePipeline);
+                int maxSnapshotSizeWithoutFragmentation = concurrentDriver.driver.m_DriverSender.m_SendQueue.PayloadCapacity - concurrentDriver.driver.MaxHeaderSize(concurrentDriver.unreliablePipeline);
                 var pipelineToUse = requiredPayloadSize > maxSnapshotSizeWithoutFragmentation ? concurrentDriver.unreliableFragmentedPipeline : concurrentDriver.unreliablePipeline;
                 int result;
                 if ((result = concurrentDriver.driver.BeginSend(pipelineToUse, connection.Value, out var writer, requiredPayloadSize)) < 0)
@@ -196,11 +196,7 @@ namespace Unity.NetCode
                 writer.WriteUInt(ack.LastReceivedSnapshotByLocal.SerializedData);
                 writer.WriteUInt(ack.ReceivedSnapshotByLocalMask);
                 writer.WriteUInt(localTime);
-
-                uint returnTime = ack.LastReceivedRemoteTime;
-                if (returnTime != 0)
-                    returnTime += (localTime - ack.LastReceiveTimestamp);
-
+                uint returnTime = ack.CalculateReturnTime(localTime);
                 writer.WriteUInt(returnTime);
                 writer.WriteUInt(interpolationDelay);
                 writer.WriteUInt((uint)numLoadedPrefabs);
@@ -370,7 +366,11 @@ namespace Unity.NetCode
                     writer.WriteUInt(0);
                 }
 
-                var serializerState = new RpcSerializerState {GhostFromEntity = ghostFromEntity};
+                var serializerState = new RpcSerializerState
+                {
+                    GhostFromEntity = ghostFromEntity,
+                    CompressionModel = compressionModel,
+                };
                 var serializer = default(TCommandDataSerializer);
                 writer.WriteUInt(baselineInputData.Tick.SerializedData);
                 serializer.Serialize(ref writer, serializerState, baselineInputData);

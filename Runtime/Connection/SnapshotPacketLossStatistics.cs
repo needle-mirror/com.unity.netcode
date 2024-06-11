@@ -4,16 +4,21 @@ using Unity.Mathematics;
 namespace Unity.NetCode
 {
     /// <summary>
-    /// Added to <see cref="NetworkMetrics"/>, stores snapshot related loss calculated via <see cref="GhostReceiveSystem"/>.
+    /// Stores packet loss causes and statistics for all received snapshots. Thus, client-only.
+    /// Access via <see cref="NetworkSnapshotAck"/>.
     /// </summary>
-    /// <remarks>Very similar approach to <see cref="Unity.Networking.Transport.UnreliableSequencedPipelineStage.Statistics"/>.</remarks>
+    /// <remarks>Very similar approach to <see cref="Unity.Networking.Transport.UnreliableSequencedPipelineStage"/> Statistics.</remarks>
     public struct SnapshotPacketLossStatistics
     {
         /// <summary>Count of snapshot packets received - on the client - from the server.</summary>
         public ulong NumPacketsReceived;
         /// <summary>Counts the number of snapshot packets dropped (i.e. "culled") due to invalid SequenceId. I.e. Implies the packet arrived, but out of order.</summary>
         public ulong NumPacketsCulledOutOfOrder;
-        /// <summary>The Netcode package can only process one snapshot per render frame. If 2+ arrive on the same frame, we'll clobber one of them without processing it.</summary>
+        /// <summary>
+        /// The Netcode package can only process one snapshot per render frame. If 2 or more arrive on the same frame, we'll delete all but one, without processing them.
+        /// Therefore, this form of packet loss is common when your connection jitter is higher than a <see cref="ClientServerTickRate.NetworkTickRate"/> interval.
+        /// E.g. If your jitter is ±20ms, but your NetworkTickRate is 60Hz (16.67ms), you can expect a lot of packet clobbering.
+        /// </summary>
         /// <remarks>This is also called a "Packet Burst".</remarks>
         public ulong NumPacketsCulledAsArrivedOnSameFrame;
         /// <summary>Detects gaps in <see cref="NetworkSnapshotAck.CurrentSnapshotSequenceId"/> to determine real packet loss.</summary>

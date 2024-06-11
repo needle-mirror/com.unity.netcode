@@ -1,7 +1,10 @@
 using System;
 using System.Diagnostics;
+using Unity.Collections;
 using Unity.Entities;
 using Unity.Mathematics;
+using UnityEngine;
+using UnityEngine.Serialization;
 
 namespace Unity.NetCode
 {
@@ -23,6 +26,7 @@ namespace Unity.NetCode
     /// </list>
     /// It is not mandatory to set all the fields to a proper value when creating the singleton. It is sufficient to change only the relevant setting, and call the <see cref="ResolveDefaults"/> method to
     /// configure the fields that does not have a value set.
+    /// ```
     /// <example>
     /// class MyCustomClientServerBootstrap : ClientServerBootstrap
     /// {
@@ -47,6 +51,7 @@ namespace Unity.NetCode
     ///    }
     /// }
     /// </example>
+    /// ```
     /// The <see cref="ClientServerTickRate"/> settings are synced as part of the of the initial client connection handshake.
     /// (<see cref="Unity.NetCode.ClientServerTickRateRefreshRequest"/> data).
     /// The ClientServerTickRate should also be used to customise other server only timing settings, such as
@@ -93,18 +98,28 @@ namespace Unity.NetCode
         }
 
         /// <summary>
-        /// The fixed simulation frequency on the server and prediction loop. The client can render
-        /// at a higher or lower rate than this.
+        /// The fixed simulation frequency on the server and prediction loop.
+        /// The client can render at a higher or lower rate than this.
+        /// Default: 60Hz.
         /// </summary>
+        /// <remarks>
+        /// Note: Clients are not locked to this refresh rate (see Partial Ticks documentation).
+        /// Higher values increase gameplay quality, but incur higher CPU and bandwidth costs.
+        /// Higher values are particularly expensive on the client, as prediction cost increases.
+        /// </remarks>
+        [Tooltip("The fixed simulation frequency of the Netcode gameplay simulation. Higher values incur higher CPU costs on both the client and server, especially during client prediction.")]
+        [Min(1)]
         public int SimulationTickRate;
 
         /// <summary>
-        /// Multiplier used to calculate the tick rate/frequency for the <see cref="PredictedFixedStepSimulationSystemGroup"/>.
+        /// Multiplier used to calculate the tick rate (i.e. frequency) for the <see cref="PredictedFixedStepSimulationSystemGroup"/>.
         /// The group rate must be an integer multiple of the <see cref="SimulationTickRate"/>.
-        /// Default value is 1, meaning that the <see cref="PredictedFixedStepSimulationSystemGroup"/> run at the same frequency
-        /// of the prediction loop.
-        /// The calculated frequency is 1.0/(SimulationTickRate*PredictedFixedStepSimulationTickRatio)
+        /// The default value is 1, meaning that the <see cref="PredictedFixedStepSimulationSystemGroup"/> run at the same frequency
+        /// as the prediction loop.
+        /// The calculated delta is 1.0/(SimulationTickRate*PredictedFixedStepSimulationTickRatio).
         /// </summary>
+        [Tooltip("Multiplier used to calculate the tick rate (i.e. frequency) for the PredictedFixedStepSimulationSystemGroup.\n\nThe default (and recommendation) is 0 (which becomes 1 i.e. one fixed step per tick), where higher values allow physics to tick more frequently (i.e. at smaller intervals).")]
+        [Range(0, 8)]
         public int PredictedFixedStepSimulationTickRatio;
 
         /// <summary>1f / <see cref="SimulationTickRate"/>. Think of this as the netcode version of `fixedDeltaTime`.</summary>
@@ -117,99 +132,173 @@ namespace Unity.NetCode
         public float PredictedFixedStepSimulationTimeStep => 1f / (PredictedFixedStepSimulationTickRatio*SimulationTickRate);
 
         /// <summary>
-        /// The rate at which the server sends snapshots to the clients. This can be lower than than
-        /// the simulation frequency which means the server only sends new snapshots to the clients
-        /// every N frames. The effect of this on the client is similar to having a higher ping,
-        /// on the server it will save CPU time and bandwidth.
+        /// The rate at which the server creates (and sends) a snapshots to each client.
+        /// This can be lower than than the simulation frequency, which means the server only sends new snapshots to the clients
+        /// every N frames.
+        /// Defaults to the <see cref="SimulationTickRate"/>.
         /// </summary>
+        /// <remarks>
+        /// The CPU work performed to build and send snapshots (via <see cref="GhostSendSystem"/>) is often the most significant
+        /// CPU cost in a multiplayer game. Thus, reducing this send-rate can lead to significant CPU savings, but at
+        /// the expense of gameplay quality (especially when packets are lost to the network).
+        /// Note that the server can still send data on every simulation tick, but to different subsets of clients. This is to distribute CPU
+        /// load over multiple simulation ticks (to avoid CPU spikes). For example, with a NetworkTickRate of 30 and a SimulationTickRate of 60,
+        /// the server will send snapshots to half of the clients for one tick, and the other half, the next tick. So each client still end up with
+        /// a packet every 2 simulation ticks, while the server is distributing the CPU load over each tick (via a 'round robin' strategy).
+        /// </remarks>
+        [Tooltip("The rate at which the server creates (and sends) a snapshot to each client.\n\nIf zero (the default), this value will be set to the <b>SimulationTickRate</b>, but half (or one third) is often good enough.\n\nThe CPU work performed to build and send snapshots is often the most significant CPU cost in a multiplayer game. Thus, reducing this send-rate can lead to significant CPU savings, but at the expense of gameplay quality (especially when packets are lost to the network).")]
+        [Min(0)]
         public int NetworkTickRate;
         /// <summary>
-        /// If the server updates at a lower rate than the simulation tick rate it will perform
-        /// multiple ticks in the same frame. This setting puts a limit on how many such updates
-        /// it can do in a single frame. When this limit is reached the simulation time will update
-        /// slower than real time.
+        /// If the server cannot keep up with the passing of realtime (i.e. the server is ticking at too low a rate to
+        /// match the <see cref="SimulationTickRate"/>), it will perform multiple ticks in a single frame (in an attempt to 'catch up').
+        /// This setting puts a limit on how many such updates it can perform in a single frame.
+        /// Once this limit is reached, the simulation time will update slower than real time.
+        /// The default value is 1.
+        /// </summary>
+        /// <remarks>
         /// The network tick rate only applies to snapshots, the frequency commands and RPCs is not
         /// affected by this setting.
-        /// </summary>
+        /// </remarks>
+        [Tooltip("Denotes how many fixed-step ticks can be performed on any given Unity frame, when 'catching up', when running too slowly.\n\nDefault value is 0 (which becomes 1).")]
+        [Range(0, 16)]
         public int MaxSimulationStepsPerFrame;
         /// <summary>
         /// If the server cannot keep up with the simulation frequency with running `MaxSimulationStepsPerFrame`
-        /// ticks it is possible to allow each tick to run with a longer delta time in order to keep the game
+        /// ticks, it is possible to allow each tick to run with a longer delta time in order to keep the game
         /// time updating correctly. This means that instead of running two ticks with delta time N each, the
         /// system will run a single tick with delta time 2*N. It is a less expensive but more inaccurate way
         /// of dealing with server performance spikes, it also requires the game logic to be able to handle it.
         /// </summary>
+        [Tooltip("Denotes how many individual ticks will be batched together (into a single tick) when recovering from a severe slowdown.\n\nDefault value is 0 (which becomes 4).\n\n<b>Warning: You lose accuracy when batching ticks, and gameplay code must account for it.</b>")]
+        [Range(0, 16)]
         public int MaxSimulationStepBatchSize;
         /// <summary>
-        /// If the server is capable of updating more often than the simulation tick rate it can either
-        /// skip the simulation tick for some updates (`BusyWait`) or limit the updates using
+        /// If the server is capable of updating more often than the simulation tick rate, it can either
+        /// skip the simulation tick for some updates (`BusyWait`), or limit the updates using
         /// `Application.TargetFrameRate` (`Sleep`). `Auto` makes it use `Sleep` for dedicated server
         /// builds and `BusyWait` for client and server builds (as well as the editor).
         /// </summary>
+        [Tooltip("Denotes how the server should sleep, when determining when it should next tick.\n\nDefaults to <b>Auto</b>, which will use <b>Sleep</b> for dedicated server builds, and <b>BusyWait</b> for client and server builds (as well as the editor).")]
         public FrameRateMode TargetFrameRateMode;
         /// <summary>
-        /// If the server has to run multiple simulation ticks in the same frame the server can either
-        /// send snapshots for all those ticks or just the last one.
+        /// If the server has to run multiple simulation ticks in the same frame, the server can either
+        /// send snapshots for all those ticks (true), or just the last one (false).
         /// </summary>
         public bool SendSnapshotsForCatchUpTicks
         {
-            get { return m_SendSnapshotsForCatchUpTicks == 1; }
-            set { m_SendSnapshotsForCatchUpTicks = value ? (byte)1 : (byte)0; }
+            get { return m_SendSnapshotsForCatchUpTicks; }
+            set { m_SendSnapshotsForCatchUpTicks = value; }
         }
 
-        private byte m_SendSnapshotsForCatchUpTicks;
+        [Tooltip("When the server has to run multiple simulation ticks in the same frame (to catch-up), this flag denotes whether or not the server will send snapshots for all catch-up ticks, or just the last one. Default is <b>false</b> (only the last).")]
+        [SerializeField]
+        private bool m_SendSnapshotsForCatchUpTicks;
 
         /// <summary>
         /// On the client, Netcode attempts to align its own fixed step with the render refresh rate, with the goal of
-        /// reducing Partial ticks, and increasing stability.
+        /// reducing Partial ticks, and increasing stability. This setting denotes the window (in %) to snap and align.
         /// Defaults to 5 (5%), which is applied each way: I.e. If you're within 5% of the last full tick, or if you're
         /// within 5% of the next full tick, we'll clamp.
         /// -1 is 'turn clamping off', 0 is 'use default'.
         /// Max value is 50 (i.e. 50% each way, leading to full clamping, as it's applied in both directions).
         /// </summary>
         /// <remarks>High values will lead to more aggressive alignment, which may be perceivable (as we'll need to shift time further).</remarks>
+        [Tooltip("On the client, Netcode attempts to align its own fixed step with the render refresh rate, with the goal of reducing Partial ticks, and increasing stability.\n\nThis setting denotes the window (in %) to snap and align.\n\nDefaults to 5 (5%), which is applied each way.\nI.e. If you're within 5% of the last full tick, or if you're within 5% of the next full tick, we'll clamp. 50 (50%) to always clamp.")]
+        // FIX! [Range(-1, 50)]
         public int ClampPartialTicksThreshold { get; set; }
 
         /// <summary>
-        /// Set all the properties that hasn't been changed by the user or that have invalid ranges to a proper default value.
-        /// In particular this guarantee that both <see cref="NetworkTickRate"/> and <see cref="SimulationTickRate"/> are never 0.
+        /// The timeout for the connection handshake and approval procedure.
+        /// Note: This is one counter for both states. In other words: The client must complete both Handshake
+        /// and Approval before this timeout expires - it's not reset upon entering Approval.
+        /// <br/>As soon as the client is accepted on the server, the timer will start.
+        /// Timeout will occur if the server has not handshaked and approved the connection
+        /// within the given duration. The default is 5000ms.
+        /// </summary>
+        /// <remarks>
+        /// The overall timeout sequence when a client is connecting is:
+        /// <br/>   1. The client goes through the transport-level connection timeout first (max connect attempt * connect timeout).
+        /// <br/>   2. Then, once the UTP connection succeeds, netcode begins the handshake process, where protocol
+        /// version RPCs are automatically exchanged.
+        /// <br/>   3. If the client protocol is valid, the server will move the client to either the connected state,
+        ///  or to the approval state (if approval is enabled via <see cref="NetworkStreamDriver.RequireConnectionApproval"/>).
+        /// <br/>This timeout applies to both the Handshake and Approval elapsed durations. It's a single timer for both.
+        /// </remarks>
+        [Tooltip("The timeout for the connection handshake and approval procedure. Both must succeed within the allotted time!\n\nDefaults to 0ms (which becomes 5s).")]
+        [Range(0, 120_000)]
+        public uint HandshakeApprovalTimeoutMS;
+
+        internal const int DefaultTickRate = 60;
+        internal const int DefaultMaxSimulationStepsPerFrame = 1;
+        internal const int DefaultMaxSimulationStepBatchSize = 4;
+        internal const int DefaultPredictedFixedStepSimulationTickRatio = 1;
+
+        /// <summary>
+        /// Set all the properties that haven't been changed by the user (or that have invalid ranges) to a proper default value.
+        /// In particular, this guarantees that both <see cref="NetworkTickRate"/> and <see cref="SimulationTickRate"/> are never 0.
         /// </summary>
         public void ResolveDefaults()
         {
             if (SimulationTickRate <= 0)
-                SimulationTickRate = 60;
+                SimulationTickRate = DefaultTickRate;
             if (PredictedFixedStepSimulationTickRatio <= 0)
-                PredictedFixedStepSimulationTickRatio = 1;
+                PredictedFixedStepSimulationTickRatio = DefaultPredictedFixedStepSimulationTickRatio;
             if (NetworkTickRate <= 0)
                 NetworkTickRate = SimulationTickRate;
             if (NetworkTickRate > SimulationTickRate)
                 NetworkTickRate = SimulationTickRate;
             if (MaxSimulationStepsPerFrame <= 0)
-                MaxSimulationStepsPerFrame = 1;
+                MaxSimulationStepsPerFrame = DefaultMaxSimulationStepsPerFrame;
             if (MaxSimulationStepBatchSize <= 0)
-                MaxSimulationStepBatchSize = 4;
+                MaxSimulationStepBatchSize = DefaultMaxSimulationStepBatchSize;
             if (ClampPartialTicksThreshold == 0)
                 ClampPartialTicksThreshold = 5;
+            if (HandshakeApprovalTimeoutMS == 0)
+                HandshakeApprovalTimeoutMS = 5_000;
         }
 
         [Conditional("ENABLE_UNITY_COLLECTIONS_CHECKS")]
         internal readonly void Validate()
         {
-            if (SimulationTickRate <= 0)
-                throw new ArgumentException($"The {nameof(SimulationTickRate)} must be always > 0");
-            if (PredictedFixedStepSimulationTickRatio <= 0)
-                throw new ArgumentException($"The {nameof(PredictedFixedStepSimulationTickRatio)} must be always > 0");
-            if (NetworkTickRate <= 0)
-                throw new ArgumentException($"The {nameof(NetworkTickRate)} must be always > 0");
-            if (NetworkTickRate > SimulationTickRate)
-                throw new ArgumentException($"The {nameof(NetworkTickRate)} must be always less or equal");
-            if (MaxSimulationStepsPerFrame <= 0)
-                throw new ArgumentException($"The {nameof(MaxSimulationStepsPerFrame)} must be always > 0");
-            if (MaxSimulationStepBatchSize <= 0)
-                throw new ArgumentException($"The {nameof(MaxSimulationStepBatchSize)} must be always > 0");
-            if (ClampPartialTicksThreshold > 50)
-                throw new ArgumentException($"The {nameof(ClampPartialTicksThreshold)} must always be within [-1, 50]");
+            FixedList4096Bytes<FixedString64Bytes> errors = default;
+            ValidateAll(ref errors);
+            if (errors.Length > 0)
+                throw new ArgumentException(errors[0].ToString());
         }
+
+        [Conditional("ENABLE_UNITY_COLLECTIONS_CHECKS")]
+        internal readonly void ValidateAll(ref FixedList4096Bytes<FixedString64Bytes> errors)
+        {
+            // ReSharper is technically correct here, some of these are impossible when you use the NetCodeConfig, thanks to attribute validation.
+            // But users can modify these values directly in C#, so we must validate them.
+            // ReSharper disable ConditionIsAlwaysTrueOrFalse
+            if (SimulationTickRate <= 0)
+                errors.Add($"{nameof(SimulationTickRate)} must always be > 0");
+            if (PredictedFixedStepSimulationTickRatio <= 0)
+                errors.Add($"{nameof(PredictedFixedStepSimulationTickRatio)} must always be > 0");
+            if (NetworkTickRate <= 0)
+                errors.Add($"{nameof(NetworkTickRate)} must always be > 0");
+            if (NetworkTickRate > SimulationTickRate)
+                errors.Add($"{nameof(NetworkTickRate)} must always be <= {nameof(SimulationTickRate)}");
+            if (MaxSimulationStepsPerFrame <= 0)
+                errors.Add($"{nameof(MaxSimulationStepsPerFrame)} must always be > 0");
+            if (MaxSimulationStepBatchSize <= 0)
+                errors.Add($"{nameof(MaxSimulationStepBatchSize)} must always be > 0");
+            if (ClampPartialTicksThreshold > 50)
+                errors.Add($"{nameof(ClampPartialTicksThreshold)} must always within be [-1, 50]");
+            if(HandshakeApprovalTimeoutMS < 1000)
+                errors.Add($"{nameof(HandshakeApprovalTimeoutMS)} must be >= 1000ms.");
+            // ReSharper restore ConditionIsAlwaysTrueOrFalse
+        }
+
+        /// <summary>
+        /// Helper:
+        /// Returns 1 when NetworkTickRate is equal to (or close enough - via rounding - to) SimulationTickRate.
+        /// Returns 2 when half, 3 when 1/3rd etc.
+        /// </summary>
+        /// <returns>The snapshot send interval.</returns>
+        public int CalculateNetworkSendRateInterval() => (SimulationTickRate + NetworkTickRate - 1) / NetworkTickRate;
     }
 
     /// <summary>
@@ -218,28 +307,34 @@ namespace Unity.NetCode
     /// </summary>
     internal struct ClientServerTickRateRefreshRequest : IComponentData
     {
-        /// <summary>
-        /// The simulation rate setting on the server
-        /// </summary>
+        /// <inheritdoc cref="ClientServerTickRate.SimulationTickRate"/>
         public int SimulationTickRate;
-        /// <summary>
-        /// The ratio between the <see cref="PredictedFixedStepSimulationSystemGroup"/> and the <see cref="SimulationTickRate"/>.
-        /// </summary>
+        /// <inheritdoc cref="ClientServerTickRate.PredictedFixedStepSimulationTickRatio"/>
         public int PredictedFixedStepSimulationTickRatio;
-        /// <summary>
-        /// The rate at which the packet are sent to the client
-        /// </summary>
+        /// <inheritdoc cref="ClientServerTickRate.NetworkTickRate"/>
         public int NetworkTickRate;
-        /// <summary>
-        /// The maximum step the server can do in one frame. Used to properly sync the prediction loop.
-        ///  See <see cref="ClientServerTickRate.MaxSimulationStepsPerFrame"/>
-        /// </summary>
+        /// <inheritdoc cref="ClientServerTickRate.MaxSimulationStepsPerFrame"/>
         public int MaxSimulationStepsPerFrame;
-        /// <summary>
-        /// The maximum number of step that can be batched togeher when the server is caching up because of slow
-        /// frame rate. See <see cref="ClientServerTickRate.MaxSimulationStepBatchSize"/>
-        /// </summary>
+        /// <inheritdoc cref="ClientServerTickRate.MaxSimulationStepBatchSize"/>
         public int MaxSimulationStepBatchSize;
+
+        internal readonly void Serialize(ref DataStreamWriter writer, in StreamCompressionModel compressionModel)
+        {
+            writer.WritePackedUIntDelta((uint) SimulationTickRate, ClientServerTickRate.DefaultTickRate, compressionModel);
+            writer.WritePackedUIntDelta((uint) NetworkTickRate, ClientServerTickRate.DefaultTickRate, compressionModel);
+            writer.WritePackedUIntDelta((uint) MaxSimulationStepBatchSize, ClientServerTickRate.DefaultMaxSimulationStepBatchSize, compressionModel);
+            writer.WritePackedUIntDelta((uint) MaxSimulationStepsPerFrame, ClientServerTickRate.DefaultMaxSimulationStepsPerFrame, compressionModel);
+            writer.WritePackedUIntDelta((uint) PredictedFixedStepSimulationTickRatio, ClientServerTickRate.DefaultPredictedFixedStepSimulationTickRatio, compressionModel);
+        }
+
+        internal void Deserialize(ref DataStreamReader reader, in StreamCompressionModel compressionModel)
+        {
+            SimulationTickRate = (int) reader.ReadPackedUIntDelta(ClientServerTickRate.DefaultTickRate, compressionModel);
+            NetworkTickRate = (int) reader.ReadPackedUIntDelta(ClientServerTickRate.DefaultTickRate, compressionModel);
+            MaxSimulationStepBatchSize = (int) reader.ReadPackedUIntDelta(ClientServerTickRate.DefaultMaxSimulationStepBatchSize, compressionModel);
+            MaxSimulationStepsPerFrame = (int) reader.ReadPackedUIntDelta(ClientServerTickRate.DefaultMaxSimulationStepsPerFrame, compressionModel);
+            PredictedFixedStepSimulationTickRatio = (int) reader.ReadPackedUIntDelta(ClientServerTickRate.DefaultPredictedFixedStepSimulationTickRatio, compressionModel);
+        }
 
         public void ApplyTo(ref ClientServerTickRate tickRate)
         {
@@ -248,6 +343,15 @@ namespace Unity.NetCode
             tickRate.SimulationTickRate = SimulationTickRate;
             tickRate.MaxSimulationStepBatchSize = MaxSimulationStepBatchSize;
             tickRate.PredictedFixedStepSimulationTickRatio = PredictedFixedStepSimulationTickRatio;
+        }
+
+        public void ReadFrom(in ClientServerTickRate tickRate)
+        {
+            NetworkTickRate = tickRate.NetworkTickRate;
+            MaxSimulationStepsPerFrame = tickRate.MaxSimulationStepsPerFrame;
+            MaxSimulationStepBatchSize = tickRate.MaxSimulationStepBatchSize;
+            SimulationTickRate = tickRate.SimulationTickRate;
+            PredictedFixedStepSimulationTickRatio = tickRate.PredictedFixedStepSimulationTickRatio;
         }
     }
 
@@ -262,47 +366,64 @@ namespace Unity.NetCode
         /// <summary>
         /// The number of network ticks to use as an interpolation buffer for interpolated ghosts.
         /// </summary>
+        [Tooltip("If not zero, denotes the number of network ticks to use as an interpolation buffer for interpolated ghosts.\n\nDefaults to 2.\n\n<b>Warning: Ignored when InterpolationTimeMS is set.</b>")]
+        [Min(0)]
         public uint InterpolationTimeNetTicks;
         /// <summary>
         /// The time in ms to use as an interpolation buffer for interpolated ghosts, this will take precedence and override the
         /// interpolation time in ticks if specified.
         /// </summary>
+        [Tooltip("If not zero, denotes the number of milliseconds to use as an interpolation buffer for interpolated ghosts.\n\nDefaults to 0 (OFF).\n\n<b>Warning: Is used instead of InterpolationTimeNetTicks, if set.</b>")]
+        [Min(0)]
         public uint InterpolationTimeMS;
         /// <summary>
-        /// The maximum time in simulation ticks which the client can extrapolate ahead when data is missing.
+        /// The maximum time (in simulation ticks) which the client can extrapolate ahead, when data is missing.
         /// </summary>
+        [Tooltip("The maximum time (in simulation ticks) which the client can extrapolate ahead, when data is missing.\n\nDefaults to 20.")]
+        [Min(0)]
         public uint MaxExtrapolationTimeSimTicks;
         /// <summary>
-        /// This is the maximum accepted ping, rtt will be clamped to this value when calculating server tick on the client,
-        /// which means if ping is higher than this the server will get old commands.
-        /// Increasing this makes the client able to deal with higher ping, but the client needs to run more prediction steps which takes more CPU time
+        /// This is the maximum accepted ping. RTT will be clamped to this value when calculating the server tick on the client,
+        /// which means if ping is higher than this, the server will get old commands.
+        /// Increasing this makes the client able to deal with higher ping, but higher-ping clients will then need to run more prediction steps, which incurs more CPU time.
         /// </summary>
+        [Tooltip("This is the maximum accepted ping. RTT will be clamped to this value when calculating the server tick on the client, which means if ping is higher than this, the server will get old commands.\n\nIncreasing this makes the client able to deal with higher ping, but higher-ping clients will then need to run more prediction steps, which incurs more CPU time.")]
+        [Range(0, 500)]
         public uint MaxPredictAheadTimeMS;
         /// <summary>
-        /// Specifies the number of simulation ticks the client tries to make sure the commands are received by the server
-        /// before they are used on the server.
+        /// Specifies the number of simulation ticks that the client tries to stay ahead of the server, to try to make sure the commands are received by the server
+        /// before they are actually consumed.
         /// </summary>
+        /// <remarks>Higher values increase command arrival reliability, at the cost of a longer client prediction window (which can itself degrade gameplay performance).</remarks>
+        [Tooltip("Specifies the number of simulation ticks that the client tries to stay ahead of the server, to try to make sure the commands are received by the server before they are actually consumed.\n\nDefaults to 2.\n\nHigher values increase command arrival reliability, at the cost of a longer client prediction window (which can itself degrade gameplay performance). This contributes to the overall RTT, including frame time, target command slack, etc.")]
+        [Range(0, 16)]
         public uint TargetCommandSlack;
         /// <summary>
         /// The client can batch simulation steps in the prediction loop. This setting controls
-        /// how many simulation steps the simulation can batch for ticks which have previously
+        /// how many simulation steps the simulation can batch, for ticks which have previously
         /// been predicted.
         /// Setting this to a value larger than 1 will save performance, but the gameplay systems
-        /// needs to be adapted.
+        /// must account for it.
         /// </summary>
+        [Tooltip("The client can batch simulation steps in the prediction loop. This setting controls how many simulation steps the simulation can batch, <b>for ticks which have previously been predicted</b>.\n\nWhen 0, defaults to 1 at runtime.\n\nSetting this to a value larger than 1 will save performance at the cost of simulation accuracy. Gameplay systems need to account for it.")]
+        [Range(0, 16)]
         public int MaxPredictionStepBatchSizeRepeatedTick;
         /// <summary>
         /// The client can batch simulation steps in the prediction loop. This setting controls
-        /// how many simulation steps the simulation can batch for ticks which are being predicted
+        /// how many simulation steps the simulation can batch, for ticks which are being predicted
         /// for the first time.
         /// Setting this to a value larger than 1 will save performance, but the gameplay systems
         /// needs to be adapted.
         /// </summary>
+        [Tooltip("The client can batch simulation steps in the prediction loop. This setting controls how many simulation steps the simulation can batch, <b>for ticks which are being predicted for the first time</b>.\n\nWhen 0, defaults to 1 at runtime.\n\nSetting this to a value larger than 1 will save performance at the cost of simulation accuracy. Gameplay systems needs to be adapted.")]
+        [Range(0, 16)]
         public int MaxPredictionStepBatchSizeFirstTimeTick;
         /// <summary>
         /// Multiplier used to compensate received snapshot rate jitter when calculating the Interpolation Delay.
         /// Default Value: 1.25.
         /// </summary>
+        [Tooltip("Multiplier used to compensate received snapshot rate jitter when calculating the Interpolation Delay.\n\nDefaults to 1.25.")]
+        [Min(0.001f)]
         public float InterpolationDelayJitterScale;
         /// <summary>
         /// Used to limit the maximum InterpolationDelay changes in one frame, as percentage of the frame deltaTicks.
@@ -311,6 +432,8 @@ namespace Unity.NetCode
         /// may cause sudden jump in the interpolated values.
         /// Good ranges: [0.10 - 0.3]
         /// </summary>
+        [Tooltip("Used to limit the maximum InterpolationDelay changes in one frame, as percentage of the frame deltaTicks.\n\nDefaults to 10% of the frame delta ticks. Recommended range is [0.10 - 0.3].\n\n - Smaller values will result in slow adaptation to the network state (loss and jitter) but would result in smooth delay changes.\n - Larger values would make the InterpolationDelay change quickly adapt but may cause sudden jump in the interpolated values.")]
+        [Range(0.01f, 0.5f)]
         public float InterpolationDelayMaxDeltaTicksFraction;
         /// <summary>
         /// The percentage of the error in the interpolation delay that can be corrected in one frame. Used to control InterpolationTickTimeScale.
@@ -325,14 +448,20 @@ namespace Unity.NetCode
         /// DefaultValue: 10% of the delta in between the current and next desired interpolation tick.
         /// Good ranges: [0.075 - 0.2]
         /// </summary>
+        [Tooltip("The percentage of the error in the interpolation delay that can be corrected in one frame. Used to control InterpolationTickTimeScale.\n\nRecommended range is [0.075 - 0.2].")]
+        [Range(0f, 1f)]
         public float InterpolationDelayCorrectionFraction;
         /// <summary>
         /// The minimum value for the InterpolateTimeScale. Must be in range (0, 1) Default: 0.85.
         /// </summary>
+        [Tooltip("The minimum value for the InterpolateTimeScale.\n\nDefaults to 0.85.")]
+        [Range(0f, 1f)]
         public float InterpolationTimeScaleMin;
         /// <summary>
         /// The maximum value for the InterpolateTimeScale. Must be greater that 1.0. Default: 1.1.
         /// </summary>
+        [Tooltip("The maximum value for the InterpolateTimeScale.\n\nDefaults to 1.1.")]
+        [Min(1f)]
         public float InterpolationTimeScaleMax;
         /// <summary>
         /// The percentage of the error in the predicted server tick that can be corrected each frame. Used to control the client deltaTime scaling, used to
@@ -356,18 +485,24 @@ namespace Unity.NetCode
         /// predicted ticks delta are larger.
         /// Good ranges: [0.075 - 0.2]
         /// </summary>
+        [Tooltip("The percentage of the error in the predicted server tick that can be corrected each frame. Used to control the client deltaTime scaling, used to slow-down/speed-up the server tick estimate.\n\nDefaults to 10% of the error. Recommended range is [0.075 - 0.2].\n\n - Small time scale values allow for smooth adjustments of the prediction tick, but slower reaction to changes in both network and server frame rate.\n - Larger values causes recovery to be faster in desync situations, but the predicted ticks delta are larger.")]
+        [Range(0f, 1f)]
         public float CommandAgeCorrectionFraction;
         /// <summary>
         /// PredictionTick time scale min value, max be less then 1.0f. Default: 0.9f.
         /// Note: it is not mandatory to have the min-max symmetric.
         /// Good Range: (0.8 - 0.95)
         /// </summary>
+        [Tooltip("The PredictionTick time scale min value.\n\nDefaults to 0.9. Recommended range is (0.8 - 0.95).\n\nNote: It is not mandatory to have the min and max values symmetric.")]
+        [Range(0f, 1f)]
         public float PredictionTimeScaleMin;
         /// <summary>
         /// PredictionTick time scale max value, max be greater then 1.0f. Default: 1.1f
         /// Note: it is not mandatory to have the min-max symmetric.
         /// Good Range: (1.05 - 1.2)
         /// </summary>
+        [Tooltip("PredictionTick time scale max value.\n\nDefaults to 1.1. Recommended range is (1.05 - 1.2).\n\nNote: It is not mandatory to have the min and max values symmetric.")]
+        [Range(1f, 2f)]
         public float PredictionTimeScaleMax;
     }
 }

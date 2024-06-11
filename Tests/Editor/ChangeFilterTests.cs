@@ -1,14 +1,10 @@
 using System.Collections.Generic;
-using System.Diagnostics;
 using System.Text;
 using NUnit.Framework;
 using Unity.Collections;
 using Unity.Collections.LowLevel.Unsafe;
 using Unity.Entities;
-using Unity.Jobs.LowLevel.Unsafe;
 using Unity.Transforms;
-using UnityEngine;
-using UnityEngine.Profiling;
 
 namespace Unity.NetCode.Tests
 {
@@ -107,7 +103,7 @@ namespace Unity.NetCode.Tests
     {
         [TestCase(1)]
         [TestCase(10)]
-        public void RestoreFromBackupDoesNotAffecUnchangeComponents(int entityCount)
+        public void RestoreFromBackupDoesNotAffectUnchangedComponents(int entityCount)
         {
             using var testWorld = new NetCodeTestWorld();
             testWorld.Bootstrap(true, typeof(TestChangeFilterDefaultConfig), typeof(TestChangeFilter));
@@ -118,9 +114,8 @@ namespace Unity.NetCode.Tests
             testWorld.Connect(1f / 60f, 8);
             testWorld.GoInGame();
 
-            var dt = 1f / 60f;
             for (int i = 0; i < 32; ++i)
-                testWorld.Tick(dt);
+                testWorld.Tick();
 
             var testFilter = testWorld.ClientWorlds[0].GetOrCreateSystemManaged<TestChangeFilter>();
             //All components are replicated and use the default variant for serialisation.
@@ -141,7 +136,7 @@ namespace Unity.NetCode.Tests
 
             //Spawn all entities, reach a stable state.
             for (int i = 0; i < 32; ++i)
-                testWorld.Tick(dt);
+                testWorld.Tick();
 
             //Expectation: all entities has changed, all components has changed once!
             //There is no data changes, so apart from the first spawn no change filter should trigger
@@ -150,8 +145,9 @@ namespace Unity.NetCode.Tests
             //Checks that also partial ticks does not invalidate the filters
             testFilter.changedEntities.Clear();
             testFilter.changedComponents.Clear();
+            const float dt = 1f / 60f / 3f;
             for (int i = 0; i < 128; ++i)
-                testWorld.Tick(dt/3f);
+                testWorld.Tick(dt);
 
 
             testWorld.ClientWorlds[0].EntityManager.CompleteAllTrackedJobs();
@@ -177,7 +173,7 @@ namespace Unity.NetCode.Tests
             testFilter.changedEntities.Clear();
             testFilter.changedComponents.Clear();
             for (int i = 0; i < 128; ++i)
-                testWorld.Tick(dt/3f);
+                testWorld.Tick(dt);
             testWorld.ServerWorld.EntityManager.CompleteAllTrackedJobs();
             testWorld.ClientWorlds[0].EntityManager.CompleteAllTrackedJobs();
 
@@ -197,7 +193,7 @@ namespace Unity.NetCode.Tests
             testFilter.changedEntities.Clear();
             testFilter.changedComponents.Clear();
             for (int i = 0; i < 32; ++i)
-                testWorld.Tick(dt/3f);
+                testWorld.Tick(dt);
             Assert.AreEqual(0, testFilter.changedComponents.Count, "No component should change, if server does not change the data again");
 
             var ghostQuery = testWorld.ClientWorlds[0].EntityManager.CreateEntityQuery(typeof(GhostInstance));
@@ -207,7 +203,7 @@ namespace Unity.NetCode.Tests
             testFilter.changedEntities.Clear();
             testFilter.changedComponents.Clear();
             for (int i = 0; i < 128; ++i)
-                testWorld.Tick(dt/3f);
+                testWorld.Tick(dt);
             testWorld.ServerWorld.EntityManager.CompleteAllTrackedJobs();
             testWorld.ClientWorlds[0].EntityManager.CompleteAllTrackedJobs();
             Assert.AreEqual(entityCount, testFilter.changedEntities.Count, "Only the root should have changed");
@@ -225,7 +221,7 @@ namespace Unity.NetCode.Tests
             testFilter.changedEntities.Clear();
             testFilter.changedComponents.Clear();
             for (int i = 0; i < 128; ++i)
-                testWorld.Tick(dt/3f);
+                testWorld.Tick(dt);
             testWorld.ServerWorld.EntityManager.CompleteAllTrackedJobs();
             testWorld.ClientWorlds[0].EntityManager.CompleteAllTrackedJobs();
             Assert.AreEqual(5, testFilter.changedComponents.Count);

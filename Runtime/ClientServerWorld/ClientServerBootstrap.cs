@@ -11,18 +11,18 @@ using UnityEngine.SceneManagement;
 namespace Unity.NetCode
 {
     /// <summary>
-    /// ClientServerBootstrap is responsible to configure and create the Server and Client worlds at runtime when
-    /// the game start (in the editor when entering PlayMode).
-    /// The ClientServerBootstrap is meant to be a base class for your own custom boostrap code and provides utility methods
-    /// that make it easy creating the client and server worlds.
-    /// It also support connecting the client to server automatically, using the <see cref="AutoConnectPort"/> port and
+    /// ClientServerBootstrap is responsible for configuring and creating the server and client worlds at runtime when
+    /// the game starts (or when entering Play Mode in the Editor).
+    /// ClientServerBootstrap is intended as a base class for your own custom bootstrap code and provides utility methods
+    /// for creating the client and server worlds.
+    /// It also supports connecting the client to the server automatically, using the <see cref="AutoConnectPort"/> port and
     /// <see cref="DefaultConnectAddress"/>.
-    /// For the server, it allow binding the server transport to a specific listening port and address (especially useful
-    /// when running the server on some cloud provider) via <see cref="DefaultListenAddress"/>.
+    /// For the server, ClientServerBootstrap allows binding the server transport to a specific listening port and address (especially useful
+    /// when running the server on cloud providers) via <see cref="DefaultListenAddress"/>.
     /// </summary>
     /// <remarks>
     /// We strongly recommend setting `Application.runInBackground = true;` (or project-wide via Project Settings) once you intend to connect to the server (or accept connections on said server).
-    /// If you don't, your multiplayer will stall (and likely disconnect) if and when the application loses focus (e.g. by the player tabbing out), as netcode will be unable to tick (due to the application pausing).
+    /// If you don't, your multiplayer game will stall (and likely disconnect) if and when the application loses focus (such as by the player tabbing out), as netcode will be unable to tick (due to the application pausing).
     /// In fact, a Dedicated Server Build should probably always have `Run in Background` enabled.
     /// We provide suppressible error warnings for this case via `WarnAboutApplicationRunInBackground`.
     /// </remarks>
@@ -30,7 +30,7 @@ namespace Unity.NetCode
     public class ClientServerBootstrap : ICustomBootstrap
     {
         /// <summary>
-        /// The maximum number of thin clients that can be created in the editor.
+        /// The maximum number of thin clients that can be created in the Editor.
         /// Created to avoid self-inflicted long editor hangs,
         /// although removed as users should be able to test large player counts (e.g. for UTP reasons).
         /// </summary>
@@ -85,9 +85,9 @@ namespace Unity.NetCode
 #endif
 
         /// <summary>
-        /// Utility method for creating a local world without any NetCode systems.
+        /// Utility method for creating a local world without any netcode systems.
         /// <param name="defaultWorldName">Name of the world instantiated.</param>
-        /// <returns>World with default systems added, set to run as the Main Live world.
+        /// <returns>World with default systems added, set to run as the main local world.
         /// See <see cref="WorldFlags"/>.<see cref="WorldFlags.Game"/></returns>
         /// </summary>
         /// <param name="defaultWorldName">The name to use for the default world.</param>
@@ -95,7 +95,7 @@ namespace Unity.NetCode
         public static World CreateLocalWorld(string defaultWorldName)
         {
             // The default world must be created before generating the system list in order to have a valid TypeManager instance.
-            // The TypeManage is initialised the first time we create a world.
+            // The TypeManager is initialized the first time any world is created.
             var world = new World(defaultWorldName, WorldFlags.Game);
             if (World.DefaultGameObjectInjectionWorld == null)
                 World.DefaultGameObjectInjectionWorld = world;
@@ -109,14 +109,14 @@ namespace Unity.NetCode
         /// <summary>
         /// Implement the ICustomBootstrap interface. Create the default client and server worlds
         /// based on the <see cref="RequestedPlayType"/>.
-        /// In the editor, it also creates thin client worlds, if <see cref="RequestedNumThinClients"/> is not 0.
+        /// In the Editor, it also creates thin client worlds, if <see cref="RequestedNumThinClients"/> is not 0.
         /// </summary>
-        /// <param name="defaultWorldName">The name to use for the default world. Unused, can be null or empty</param>
-        /// <returns></returns>
+        /// <param name="defaultWorldName">The name to use for the default world. Unused, can be null or empty.</param>
+        /// <returns><inheritdoc cref="ICustomBootstrap.Initialize"/></returns>
         public virtual bool Initialize(string defaultWorldName)
         {
             // If the user added an OverrideDefaultNetcodeBootstrap MonoBehaviour to their active scene,
-            // or disabled Bootstrapping project-wide, we should respect that here.
+            // or disabled Bootstrapping project-wide, this is respected here.
             if (!DetermineIfBootstrappingEnabled())
                 return false;
 
@@ -125,11 +125,11 @@ namespace Unity.NetCode
         }
 
         /// <summary>
-        /// Returns the first Override in the Active scene. Overrides in the non-active scene will report as errors.
+        /// Returns the first <see cref="OverrideAutomaticNetcodeBootstrap"/> in the active scene. Overrides added to any non-active scenes will report as errors.
         /// </summary>
-        /// <remarks>Unfortunately, this code includes a FindObjectsOfType call, for validation purposes.</remarks>
-        /// <param name="logNonErrors">If true, we'll log more details, enabling debugging of flows.</param>
-        /// <returns>The first Override in the Active scene.</returns>
+        /// <remarks>This code includes an expensive FindObjectsOfType call, for validation purposes.</remarks>
+        /// <param name="logNonErrors">If true, more details are logged, enabling debugging of flows.</param>
+        /// <returns>The first override in the active scene.</returns>
         public static OverrideAutomaticNetcodeBootstrap DiscoverAutomaticNetcodeBootstrap(bool logNonErrors = false)
         {
             var activeScene = SceneManager.GetActiveScene();
@@ -184,10 +184,10 @@ namespace Unity.NetCode
         }
 
         /// <summary>
-        ///     Automatically discovers whether or not there is an <see cref="OverrideAutomaticNetcodeBootstrap" /> present
-        ///     in the active scene, and if there is, uses its value to clobber the default.
+        /// Automatically discovers whether or not there is an <see cref="OverrideAutomaticNetcodeBootstrap" /> present
+        /// in the active scene, and if there is, uses its value to clobber the default.
         /// </summary>
-        /// <param name="logNonErrors">If true, we'll log more details, enabling debugging of flows.</param>
+        /// <param name="logNonErrors">If true, more details are logged, enabling debugging of flows.</param>
         /// <returns></returns>
         public static bool DetermineIfBootstrappingEnabled(bool logNonErrors = false)
         {
@@ -200,7 +200,7 @@ namespace Unity.NetCode
 
         /// <summary>
         /// Utility method for creating the default client and server worlds based on the settings
-        /// in the playmode tools in the editor or client / server defined in a player.
+        /// in the PlayMode tools in the Editor or client/server defined in a player.
         /// Should be used in custom implementations of `Initialize`.
         /// </summary>
         protected virtual void CreateDefaultClientServerWorlds()
@@ -227,7 +227,7 @@ namespace Unity.NetCode
 
         /// <summary>
         /// Utility method for creating thin clients worlds.
-        /// Can be used in custom implementations of `Initialize` as well at runtime,
+        /// Can be used in custom implementations of `Initialize` as well as at runtime
         /// to add new clients dynamically.
         /// </summary>
         /// <returns></returns>
@@ -250,7 +250,7 @@ namespace Unity.NetCode
 
         /// <summary>
         /// Utility method for creating new clients worlds.
-        /// Can be used in custom implementations of `Initialize` as well at runtime, to add new clients dynamically.
+        /// Can be used in custom implementations of `Initialize` as well as at runtime to add new clients dynamically.
         /// </summary>
         /// <param name="name">The client world name</param>
         /// <returns></returns>
@@ -319,10 +319,10 @@ namespace Unity.NetCode
         }
 
         /// <summary>
-        /// Returns true if user-code has specified both a <see cref="AutoConnectPort"/> and <see cref="DefaultConnectAddress"/>.
+        /// Returns true if user code has specified both an <see cref="AutoConnectPort"/> and <see cref="DefaultConnectAddress"/>.
         /// </summary>
-        /// <param name="autoConnectEp">The resulting, combined <see cref="NetworkEndpoint"/>.</param>
-        /// <returns>True if user-code has specified both a <see cref="AutoConnectPort"/> and <see cref="DefaultConnectAddress"/>.</returns>
+        /// <param name="autoConnectEp">The resulting combined <see cref="NetworkEndpoint"/>.</param>
+        /// <returns>True if user code has specified both an <see cref="AutoConnectPort"/> and <see cref="DefaultConnectAddress"/>.</returns>
         internal static bool HasDefaultAddressAndPortSet(out NetworkEndpoint autoConnectEp)
         {
             if (AutoConnectPort != 0 && DefaultConnectAddress != NetworkEndpoint.AnyIpv4)
@@ -338,9 +338,9 @@ namespace Unity.NetCode
         /// <summary>
         /// Utility method for creating a new server world.
         /// Can be used in custom implementations of `Initialize` as well as in your game logic (in particular client/server build)
-        /// when you need to create server programmatically (ex: frontend that allow selecting the role or other logic).
+        /// when you need to create the server programmatically (for example, a frontend that allows selecting the role or other logic).
         /// </summary>
-        /// <param name="name">The server world name</param>
+        /// <param name="name">The server world name.</param>
         /// <returns></returns>
         public static World CreateServerWorld(string name)
         {
@@ -364,8 +364,8 @@ namespace Unity.NetCode
 
         /// <summary>
         /// The default port to use for auto connection. The default value is zero, which means do not auto connect.
-        /// If this is set to a valid port any call to `CreateClientWorld` - including `CreateDefaultWorlds` and `Initialize` -
-        /// will try to connect to the specified port and address - assuming `DefaultConnectAddress` is valid.
+        /// If this is set to a valid port, any call to `CreateClientWorld` - including `CreateDefaultWorlds` and `Initialize` -
+        /// will try to connect to the specified port and address, assuming `DefaultConnectAddress` is valid.
         /// Any call to `CreateServerWorld` - including `CreateDefaultWorlds` and `Initialize` - will listen on the specified
         /// port and listen address.
         /// </summary>
@@ -374,7 +374,7 @@ namespace Unity.NetCode
         /// <para>The default address to connect to when using auto connect (`AutoConnectPort` is not zero).
         /// If this value is `NetworkEndPoint.AnyIpv4` auto connect will not be used, even if the port is specified.
         /// This is to allow auto listen without auto connect.</para>
-        /// <para>The address specified in the `PlayMode Tools` window takes precedence over this when running in the editor (in `PlayType.Client`).
+        /// <para>The address specified in the `PlayMode Tools` window takes precedence over this when running in the Editor (in `PlayType.Client`).
         /// If that address is not valid or you are running in a player, then `DefaultConnectAddress` will be used instead.</para>
         /// </summary>
         /// <remarks>Note that the `DefaultConnectAddress.Port` will be clobbered by the `AutoConnectPort` if it's set.</remarks>
@@ -397,21 +397,21 @@ namespace Unity.NetCode
         public enum PlayType
         {
             /// <summary>
-            /// The application can run as client, server or both. By default, both client and server world are created
+            /// The application can run as client, server, or both. By default, both client and server worlds are created
             /// and the application can host and play as client at the same time.
             /// <para>
-            /// This is the default modality when playing in the editor, unless changed by using the play mode tool.
+            /// This is the default modality when playing in the Editor, unless changed by using the PlayMode tool.
             /// </para>
             /// </summary>
             ClientAndServer = 0,
             /// <summary>
-            /// The application run as a client. Only clients worlds are created and the application should connect to
+            /// The application runs as a client. Only client worlds are created and the application should connect to
             /// a server.
             /// </summary>
             Client = 1,
             /// <summary>
-            /// The application run as a server. Usually only the server world is created and the application can only
-            /// listen for incoming connection.
+            /// The application runs as a server. Usually only the server world is created and the application can only
+            /// listen for incoming connections.
             /// </summary>
             Server = 2
         }
@@ -473,7 +473,7 @@ namespace Unity.NetCode
     }
 
     /// <summary>
-    /// Netcode specific extension methods for worlds.
+    /// Netcode-specific extension methods for worlds.
     /// </summary>
     public static class ClientServerWorldExtensions
     {

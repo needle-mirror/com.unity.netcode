@@ -134,7 +134,7 @@ namespace Unity.NetCode
     }
 
     /// <summary>
-    /// System that optinally setup the Netcode default variants used for transform components in case a default is not already present.
+    /// System that optionally setup the Netcode default variants used for transform components in case a default is not already present.
     /// The following variants are set by default by the package:
     /// - <see cref="Unity.Transforms.LocalTransform"/>
     /// - <see cref="Unity.Transforms.Translation"/>
@@ -142,7 +142,7 @@ namespace Unity.NetCode
     /// <remarks>
     /// It will never override the default assignment for the transform components if they are already present in the
     /// <see cref="GhostComponentSerializerCollectionData.DefaultVariants"/> map.
-    /// <para>Any system deriving from <see cref="DefaultVariantSystemBase"/> will take precendence, even if they are created
+    /// <para>Any system deriving from <see cref="DefaultVariantSystemBase"/> will take precedence, even if they are created
     /// after this system.</para>
     /// </remarks>
     /// </summary>

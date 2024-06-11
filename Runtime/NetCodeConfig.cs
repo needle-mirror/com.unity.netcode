@@ -30,7 +30,6 @@ namespace Unity.NetCode
         /// <summary>
         /// Netcode helper: Allows you to add multiple configs to the PreloadedAssets list. There can only be one global one.
         /// </summary>
-        [HideInInspector]
         public bool IsGlobalConfig;
 
         /// <summary>
@@ -72,6 +71,8 @@ namespace Unity.NetCode
         {
             ClientServerTickRate = default;
             ClientServerTickRate.ResolveDefaults();
+            ClientServerTickRate.NetworkTickRate = 0; // Special case: For the config, let this be "dynamic" i.e. zero.
+
             ClientTickRate = NetworkTimeSystem.DefaultClientTickRate;
             GhostSendSystemData = default;
             GhostSendSystemData.Initialize();
@@ -85,40 +86,43 @@ namespace Unity.NetCode
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterAssembliesLoaded)]
         private static void RuntimeTryFindSettings()
         {
+            if (Application.isEditor)
+            {
+                void OnQuit()
+                {
+                    Application.quitting -= OnQuit;
+                    Global = default; // resetting for convenience, to make sure we don't carry over settings with no domain reloads. Normally this should get reset next time we enter playmode, but that doesn't happen for editor tests when running them after having tested a project which changes settings at runtime
+                }
+
+                Application.quitting += OnQuit;
+            }
+
             var configs = Resources.FindObjectsOfTypeAll<NetCodeConfig>();
             Array.Sort(configs);
             if (configs.Length > 0)
             {
-                var hasError = false;
-                var errSb = new StringBuilder($"[NetCodeConfig] Discovered {configs.Length} NetcodeConfig files in Resources. Using '{configs[0].name}', but the following errors occured:");
+                NetCodeConfig erringConfig = default;
+                var errSb = new StringBuilder($"[NetCodeConfig] Discovered {configs.Length} loaded NetcodeConfig files. Using '{configs[0].name}', but the following errors occured:");
+                bool isUsingGlobalConfig = false;
                 for (var i = 0; i < configs.Length; i++)
                 {
                     var config = configs[i];
-                    errSb.Append($"\n[{i}] {config.name} (global: {config.IsGlobalConfig})");
-                    if (i == 0)
+                    errSb.Append($"\n[{i}] '{config.name}' (global: {config.IsGlobalConfig})");
+                    if (i != 0 && config.IsGlobalConfig && isUsingGlobalConfig)
                     {
-                        if (!config.IsGlobalConfig)
-                        {
-                            hasError = true;
-                            errSb.Append($"\t <-- Expected this to have IsGlobalConfig flag set!");
-                        }
+                        erringConfig = config;
+                        errSb.Append($"\t <-- Expected this NOT to have IsGlobalConfig set!");
                     }
-                    else
-                    {
-                        if (config.IsGlobalConfig)
-                        {
-                            hasError = true;
-                            errSb.Append($"\t <-- Expected this NOT to have IsGlobalConfig set!");
-                        }
-                    }
+                    isUsingGlobalConfig |= config.IsGlobalConfig;
                 }
 
-                if (hasError)
+                if (erringConfig)
                 {
-                    errSb.Append("\nImplies an error during ProjectSettings selection!");
-                    Debug.LogError(errSb);
+                    errSb.Append("\nImplies an error during ProjectSettings selection! Please open the ProjectSettings and re-apply the NetCodeConfig!");
+                    Debug.LogError(errSb, erringConfig); // Support the ping, allowing quick-jump to error.
                 }
             }
+            // It is valid to NOT have a Global config, but to have multiple NetCodeConfigs in your build.
             Global = configs.Length > 0 ? configs[0] : null;
         }
 

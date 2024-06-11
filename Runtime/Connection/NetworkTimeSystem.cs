@@ -250,6 +250,16 @@ namespace Unity.NetCode
         }
         private static readonly SharedStatic<FixedTime> s_FixedTime = SharedStatic<FixedTime>.GetOrCreate<FixedTime>();
 
+
+        /// <summary>Fixes any stray FixedTime values when domain reloads are disabled.</summary>
+        [UnityEngine.RuntimeInitializeOnLoadMethod(UnityEngine.RuntimeInitializeLoadType.SubsystemRegistration)]
+        public static void ResetFixedTime()
+        {
+            s_FixedTime.Data.FixedTimestampMS = default;
+            s_FixedTime.Data.PrevTimestampMS = default;
+            s_FixedTime.Data.TimestampAdjustMS = default;
+        }
+
         /// <summary>
         /// Return a low precision real-time stamp that represents the number of milliseconds since the process started.
         /// In Development build and Editor, the maximum reported delta in between two calls of the TimestampMS is capped
@@ -390,7 +400,7 @@ namespace Unity.NetCode
             }
 
             var estimatedRTT = math.min(ack.EstimatedRTT, clientTickRate.MaxPredictAheadTimeMS);
-            var netTickRate = (tickRate.SimulationTickRate + tickRate.NetworkTickRate - 1) / tickRate.NetworkTickRate;
+            var netTickRate = tickRate.CalculateNetworkSendRateInterval();
             // The desired number of interpolation frames depend on the ratio in between the simulation and the network tick rate
             // ex: if the server run the sim at 60hz but send at 20hz we need to stay back at least 3 ticks, or
             // any integer multiple of that
@@ -468,7 +478,7 @@ namespace Unity.NetCode
                     //and predictDelta is negative (client is too far ahead)
                     if (predictDelta < 0.0f)
                     {
-                        SystemAPI.GetSingleton<NetDebug>().LogError($"Large serverTick prediction error. Server tick rollback to {curPredict} delta: {predictDelta}");
+                        SystemAPI.GetSingleton<NetDebug>().LogError($"Large serverTick prediction error encountered! The serverTick rolled back to {curPredict.ToFixedString()} (a delta of {predictDelta} ticks)! Common causes: a) Poor client and / or server performance, b) network instability, c) Application.runInBackground is not correctly set (to true).");
                     }
                     netTimeData.predictTargetTick = curPredict;
                     netTimeData.subPredictTargetTick = 0;

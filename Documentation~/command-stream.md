@@ -1,13 +1,13 @@
 # Command stream
 
-The client continuously sends a command stream to the server when the `NetworkStreamConnection` is tagged to be "in-game". This stream includes all inputs, and acknowledgements of the last received snapshot. 
+The client continuously sends a command stream to the server when the `NetworkStreamConnection` is tagged to be "in-game". This stream includes all inputs, and acknowledgements of the last received snapshot.
 Thus, the connection will be kept alive, even if the client does not have controlled entities, and does not generate any inputs that need to be transmitted to the server.
 The command packet is still sent at a regular interval (every full simulated tick), to automatically acknowledge received snapshots, and to report other important information to the server.
 
 ## Creating inputs (i.e. commands)
 To create a new input type, create a struct that implements the `ICommandData` interface. To implement that interface you need to provide a property for accessing the `Tick`.
 
-The serialization and registration code for the `ICommandData` will be generated automatically, but it is also possible to disable that and write the serialization [manually](command-stream.md#manual-serialization).
+The serialization and registration code for the `ICommandData` will be generated automatically, but it is also possible to disable that and write the serialization [manually](#manual-serialization).
 
 The `ICommandData` buffer can be added to the entity controlled by the player either at baking time (using an authoring component) or at runtime. <br/>In the latter, make sure the dynamic buffer is present on both server and client.
 
@@ -19,10 +19,10 @@ The systems responsible for writing to the command buffers must all run inside t
 
 ### ICommandData serialization and payload limit
 When using ICommand, the Netcode for Entities package automatically generated the command serialization code for you. </br>
-Commands serialization take place in the `CommandSendSystemGroup`. Each individual command is serialized and enqueued into the `OutgoingCommandDataStreamBuffer` (present on the network connection) 
-by its own code-generated system. </br> The `CommandSendPacketSystem` is then responsible to flush the outgoing buffer at `SimulationTickRate` interval. 
+Commands serialization take place in the `CommandSendSystemGroup`. Each individual command is serialized and enqueued into the `OutgoingCommandDataStreamBuffer` (present on the network connection)
+by its own code-generated system. </br> The `CommandSendPacketSystem` is then responsible to flush the outgoing buffer at `SimulationTickRate` interval.
 
-In order to fight packet losses, along with with last input, we also include as a form of redundancy the last 3 input. 
+In order to fight packet losses, along with with last input, we also include as a form of redundancy the last 3 input.
 Each redundant command is delta compressed against the command for the current tick. The final serialized data looks something like:
 
 ```
@@ -33,7 +33,7 @@ Each redundant command is delta compressed against the command for the current t
 an error will be reported to the application if the encoded payload that does not respect the constraint.
 
 ### Receiving commands on the server
-`ICommandData` are automatically received by the server by the `NetworkStreamReceiveSystem` and added to the `IncomingCommandDataStreamBuffer` buffer. The `CommandReceiveSystem` is then responsible 
+`ICommandData` are automatically received by the server by the `NetworkStreamReceiveSystem` and added to the `IncomingCommandDataStreamBuffer` buffer. The `CommandReceiveSystem` is then responsible
 to dispatch the command data to the target entity (which the command belong to).
 
 > [!NOTE]
@@ -42,22 +42,22 @@ to dispatch the command data to the target entity (which the command belong to).
 ## Automatic handling of commands. The AutoCommandTarget component.
 If you add your `ICommandData` component to a ghost (for which the following options has been enabled in the `GhostAuthoring):
 1. `Has Owner` set
-2. `Support Auto Command Target` 
+2. `Support Auto Command Target`
 
 <img src="images/enable-autocommand.png" width="500" alt="enable-autocommand"/>
 
 the commands for that ghost will **automatically be sent to the server**. The following rules apply:
-- the ghost must be owned by your client (requiring the server to set the `GhostOwner` to your `NetworkId.Value`), 
+- the ghost must be owned by your client (requiring the server to set the `GhostOwner` to your `NetworkId.Value`),
 - the ghost is `Predicted` or `OwnerPredicted` (i.e. you cannot use an `ICommandData` to control interpolated ghosts),
 - the [AutoCommandTarget](https://docs.unity3d.com/Packages/com.unity.netcode@latest/index.html?subfolder=/api/Unity.NetCode.AutoCommandTarget.html).Enabled flag is set to true.
 
-If you are not using `Auto Command Target`, your game code must set the [CommandTarget](https://docs.unity3d.com/Packages/com.unity.netcode@latest/index.html?subfolder=/api/Unity.NetCode.CommandTarget.html) on the connection entity to reference the entity that the `ICommandData` component has been attached to. 
+If you are not using `Auto Command Target`, your game code must set the [CommandTarget](https://docs.unity3d.com/Packages/com.unity.netcode@latest/index.html?subfolder=/api/Unity.NetCode.CommandTarget.html) on the connection entity to reference the entity that the `ICommandData` component has been attached to.
 <br/> You can have multiple `ICommandData` in your game, and Netcode for Entities will only send the `ICommandData` for the entity that `CommandTarget` points to.
 
 When you need to access the inputs from the buffer, you can use an extension method for `DynamicBuffer<ICommandData>` called `GetDataAtTick` which gets the matching tick for a specific frame. You can also use the `AddCommandData` utility method (which adds more commands to the ring-buffer for you).
 
 > [!NOTE]
-> When you update the state of your simulation inside the prediction loop, you must rely only on the commands present in the `ICommandData` buffer (for a given input type). 
+> When you update the state of your simulation inside the prediction loop, you must rely only on the commands present in the `ICommandData` buffer (for a given input type).
 Polling input directly, by using UnityEngine.Input or other similar method, or relying on input information not present in the struct implementing the `ICommandData` interface may cause client
 mis-prediction. </br>
 
@@ -65,8 +65,8 @@ mis-prediction. </br>
 > [!NOTE]
 > It is required you use (and implement) the `GhostOwner` functionality, for commands to work properly. For example: By checking the 'Has Owner' checkbox in the `GhostAuthoringComponent`.
 
-**On the client, it is very common to want to lookup (i.e. query for) entities that are owned by the local player.** 
-This is problematic, as multiple ghosts may have the same `CommandBuffer` as your "locally owned" ghost (e.g. when using [Remove Player Prediction](prediction.md#remote-players-prediction), _every other "player" ghost_ will have this buffer),
+**On the client, it is very common to want to lookup (i.e. query for) entities that are owned by the local player.**
+This is problematic, as multiple ghosts may have the same `CommandBuffer` as your "locally owned" ghost (e.g. when using [Remove Player Prediction](prediction.md#remote-player-prediction), _every other "player" ghost_ will have this buffer),
 and your input systems (that populate the input command buffer) may accidentally clobber other players buffers.
 
 There are two ways to handle this properly:
@@ -108,7 +108,7 @@ It's possible to have most of the things mentioned above for command data usage 
 > [!NOTE]
 > Per prefab overrides done in the ghost authoring component inspector are disabled for input components and their companion buffer. You can add a ghost component attribute on the input component in code and it will apply to the buffer as well.
 
-Because input struct implementing `IInputComponentData` are baked by `ICommandData`, [the 1024 bytes limit for the payload](ICommandData serialization and payload limit) also apply. 
+Because input struct implementing `IInputComponentData` are baked by `ICommandData`, [the 1024 bytes limit for the payload](#ICommandData-serialization-and-payload-limit) also apply.
 
 ### Input events
 

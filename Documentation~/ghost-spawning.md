@@ -8,14 +8,14 @@ Netcode for Entities does not have and nor does requires a specific spawn messag
 When the client receives a new ghost, the ghost is first "classified" by a set of **classification systems** to determine its **spawning type**.
 Once the `spawn type` has been set, the [GhostSpawnSystem](https://docs.unity3d.com/Packages/com.unity.netcode@latest/index.html?subfolder=/api/Unity.NetCode.GhostSpawnSystem.html) will take care of instantiating the new entity.
 
-### Different type of spawning
+## Different type of spawning
 Spawning is split into three main types as follows:
 * __Delayed or interpolated spawning__: Because the client interpolates snapshot data, non predicted ghosts cannot be immediately spawned. Otherwise, the object would appear and then not get any more updates until we receive new data from server and we can start interpolating it. 
 <br/>This spawn delay is governed by the `Interpolation Delay`. The interpolated ghosts spawn when the `Interpolated Tick` is greater or equals their spawn tick. See [time synchronization](time-synchronization.md) for more information about interpolation delay and interpolation tick. 
 * __Predicted spawning for the client predicted player object__: The object is predicted so the input handling applies immediately. Therefore, it doesn't need to be delay spawned. When the snapshot data for this object arrives, the update system applies the data directly to the object and then plays back the local inputs which have happened since that time, and corrects mistakes in the prediction.
 * __Predicted spawning for player spawned objects__: This usually applies to objects that the player spawns, like in-game bullets or rockets that the player fires.
 
->![NOTE] Ghost entities can be spawned only if the ghost prefabs are loaded/present in the world. Server and client should agree upon the prefabs they have and the server will only report to the client
+>[!NOTE] Ghost entities can be spawned only if the ghost prefabs are loaded/present in the world. Server and client should agree upon the prefabs they have and the server will only report to the client
 > ghosts for which the client has the prefab.
 
 ### Implement Predicted Spawning for player spawned objects
@@ -43,6 +43,16 @@ These client spawned objects are automatically handled by the [GhostSpawnClassif
 that matches the new received ghosts with any of the client predicted spawned ones, based by their types and spawning tick (should be within 5 ticks).
 
 You can implement a custom classification with more advanced logic than this to override the default behaviour.
+
+#### Specify specific rollback options for predicted spawned ghosts
+When a ghost is predicted by the client (owner-predicted or predicted ghost modes), it is possible to specify how predicted spawned ghost handle [prediction and rollback](prediction-high-level-explanation.md#rollback-and-replay)
+until the auhtoritative spawned ghost has been confirmed and received by the client.
+
+By checking the "Rollback Predicted Spawned Ghost State" toggle in the Ghost Authoring component inspector,  
+the unclassified spawned ghosts on the client roll back and resimulate its state starting from its spawn tick when a new snapshots (that must contains predicted ghost) 
+is received from the server.
+
+This can alleviate some misprediction error due to ghost-ghost interaction (see [prediction error and mitigation](prediction-details.md#predicted-spawn-interactions-with-other-predicted-ghosts))
 
 #### Adding your own classification system
 To override the default client classification you can create your own classification system. The system is required to:
@@ -131,10 +141,10 @@ At runtime, when a sub-scene has been loaded, it is processed by both client and
   - Assign to the pre-spawned ghosts the server authoritative IDs.
   - Report to the server it is ready to stream the pre-spawned ghosts (via RPC).
 
->![NOTE] If prespawned ghosts are moved before going in game or in general before the baseline is calculated properly, data may be not replicated correctly (the snapshot delta compression will fail). 
+>[!NOTE] If prespawned ghosts are moved before going in game or in general before the baseline is calculated properly, data may be not replicated correctly (the snapshot delta compression will fail). 
 > Both server and client calculate a CRC of the baseline and this hash is validated when clients connect. A mismatch will cause a disconnection. This is also the reason why the ghost are `Disabled` when the scene is loaded.
 
->![NOTE] All the prespawn ghost ID setup described here is done automatically so nothing special needs to be done in order to keep them in sync between client and server.
+>[!NOTE] All the prespawn ghost ID setup described here is done automatically so nothing special needs to be done in order to keep them in sync between client and server.
 
 For both client and server, when a sub-scene has been processed (ghost ID assigned) a `PrespawnsSceneInitialized`
 internal component is added to the main `SceneSection`. </br>
@@ -145,7 +155,7 @@ The client automatically tracks when sub-scene with pre-spawned ghosts are loade
 It is possible to load at runtime a sub-scene with pre-spawned ghosts while you are already `in-game`. The pre-spawned ghosts will be automatically handled and synchronized. It also possible to unload sub-scenes that
 contains pre-spawned ghosts on demand. Netcode for Entities will handle that automatically, and the server will stop reporting the pre-spawned ghosts for sections the client has unloaded.
 
->![NOTE] Pre-spawned ghost when baked become `Disabled` (the `Disable` tag is added to the entity at baking time). The entity is re-enabled after the scene is loaded and the serialization baseline has been calculated.
+>[!NOTE] Pre-spawned ghost when baked become `Disabled` (the `Disable` tag is added to the entity at baking time). The entity is re-enabled after the scene is loaded and the serialization baseline has been calculated.
 
 You can get more information about the pre-spawned ghost synchronization flow, by checking the API documentation:
 - [ClientPopulatePrespawnedGhostsSystem](https://docs.unity3d.com/Packages/com.unity.netcode@latest/index.html?subfolder=/api/Unity.NetCode.ClientPopulatePrespawnedGhostsSystem.html)

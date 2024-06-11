@@ -1,14 +1,8 @@
 using System;
-using System.Collections;
-using System.Collections.Generic;
-using System.Linq;
-using System.Reflection;
 using System.Text.RegularExpressions;
 using NUnit.Framework;
-using Unity.Collections;
 using Unity.Collections.LowLevel.Unsafe;
 using Unity.Entities;
-using Unity.Mathematics;
 using UnityEngine;
 using UnityEngine.TestTools;
 
@@ -41,16 +35,15 @@ namespace Unity.NetCode.Tests
                 var newInterpolateValues = GhostGenTestUtils.CreateGhostValuesInterpolate(42);
                 testWorld.ServerWorld.EntityManager.SetComponentData(serverEntity, new GhostGenTestUtils.GhostGenTestType_IComponentData {GhostGenTypesClamp_Values = newClampValues, GhostGenTypesClamp_Strings = newClampStrings, GhostGenTypesInterpolate = newInterpolateValues});
 
-                float frameTime = 1.0f / 60.0f;
                 // Connect and make sure the connection could be established
-                testWorld.Connect(frameTime);
+                testWorld.Connect();
 
                 // Go in-game
                 testWorld.GoInGame();
 
                 // Let the game run for a bit so the ghosts are spawned on the client
                 for (int i = 0; i < 64; ++i)
-                    testWorld.Tick(frameTime);
+                    testWorld.Tick();
 
                 var clientEntity = testWorld.TryGetSingletonEntity<GhostGenTestUtils.GhostGenTestType_IComponentData>(testWorld.ClientWorlds[0]);
                 Assert.AreNotEqual(Entity.Null, clientEntity);
@@ -68,7 +61,7 @@ namespace Unity.NetCode.Tests
                 testWorld.ServerWorld.EntityManager.SetComponentData(serverEntity, new GhostGenTestUtils.GhostGenTestType_IComponentData {GhostGenTypesClamp_Values = newClampValues, GhostGenTypesClamp_Strings = newClampStrings, GhostGenTypesInterpolate = newInterpolateValues});
 
                 for (int i = 0; i < 64; ++i)
-                    testWorld.Tick(frameTime);
+                    testWorld.Tick();
 
                 // Assert that replicated version is correct
                 serverValues = testWorld.ServerWorld.EntityManager.GetComponentData<GhostGenTestUtils.GhostGenTestType_IComponentData>(serverEntity);
@@ -124,16 +117,15 @@ namespace Unity.NetCode.Tests
                 // We don't care what is on the ghost though, that is tested in the IComponentData variant of this test
                 testWorld.SpawnOnServer(ghostGameObject);
 
-                float frameTime = 1.0f / 60.0f;
                 // Connect and make sure the connection could be established
-                testWorld.Connect(frameTime);
+                testWorld.Connect();
 
                 // Go in-game
                 testWorld.GoInGame();
 
                 // Let the world run for a bit so the ghosts are spawned on the client
                 for (int i = 0; i < 8; ++i)
-                    testWorld.Tick(frameTime);
+                    testWorld.Tick();
 
                 // Add and set server command target
                 var serverConnection = testWorld.TryGetSingletonEntity<NetworkId>(testWorld.ServerWorld);
@@ -158,7 +150,7 @@ namespace Unity.NetCode.Tests
                 clientBuffer.AddCommandData(newValues);
 
                 for (int i = 0; i < 4; i++)
-                    testWorld.Tick(frameTime);
+                    testWorld.Tick();
 
                 // Verify values
                 clientBuffer = testWorld.ClientWorlds[0].EntityManager.GetBuffer<T>(clientConnection);
@@ -210,9 +202,8 @@ namespace Unity.NetCode.Tests
                 Assert.IsTrue(testWorld.CreateGhostCollection(ghostGameObject));
 
                 // Connect and make sure the connection could be established
-                float frameTime = 1.0f / 60.0f;
                 testWorld.CreateWorlds(true, 2);
-                testWorld.Connect(frameTime);
+                testWorld.Connect();
                 testWorld.GoInGame();
 
                 // Spawn ghost and set owner
@@ -224,7 +215,7 @@ namespace Unity.NetCode.Tests
 
                 // Let the world run for a bit so the ghosts are spawned on the client
                 for (int i = 0; i < 8; ++i)
-                    testWorld.Tick(frameTime);
+                    testWorld.Tick();
 
                 // Change input on client
                 var clientGhostEntity = testWorld.TryGetSingletonEntity<T>(testWorld.ClientWorlds[0]); // Ghost entity
@@ -235,7 +226,7 @@ namespace Unity.NetCode.Tests
                 // Tick to ensure data has been changed
                 for (int i = 0; i < 16; i++)
                 {
-                    testWorld.Tick(frameTime);
+                    testWorld.Tick();
                     var testValues = testWorld.GetSingleton<T>(testWorld.ServerWorld);
                 }
 
@@ -265,16 +256,15 @@ namespace Unity.NetCode.Tests
                 // We don't care what is on the ghost though, that is tested in the IComponentData variant of this test
                 testWorld.SpawnOnServer(ghostGameObject);
 
-                float frameTime = 1.0f / 60.0f;
                 // Connect and make sure the connection could be established
-                testWorld.Connect(frameTime);
+                testWorld.Connect();
 
                 // Go in-game
                 testWorld.GoInGame();
 
                 // Let the world run for a bit so the ghosts are spawned on the client
                 for (int i = 0; i < 8; ++i)
-                    testWorld.Tick(frameTime);
+                    testWorld.Tick();
 
                 // Create RPC on client
                 var clientGhostEntity = testWorld.TryGetSingletonEntity<GhostGenTestUtils.GhostGenTestType_IComponentData>(testWorld.ClientWorlds[0]); // Ghost entity
@@ -288,7 +278,7 @@ namespace Unity.NetCode.Tests
                 int maxTicks = 100;
                 while (query.CalculateEntityCount() < 1)
                 {
-                    testWorld.Tick(frameTime);
+                    testWorld.Tick();
                     maxTicks--;
                     if (maxTicks <= 0)
                         Debug.LogError("Max ticks reached without finding RPC on server");
@@ -311,7 +301,7 @@ namespace Unity.NetCode.Tests
                 maxTicks = 100;
                 while (query.CalculateEntityCount() < 1)
                 {
-                    testWorld.Tick(frameTime);
+                    testWorld.Tick();
                     maxTicks--;
                     if (maxTicks <= 0)
                         Debug.LogError("Max ticks reached without finding RPC on server");
@@ -335,15 +325,14 @@ namespace Unity.NetCode.Tests
                 testWorld.CreateWorlds(true, 1);
 
                 // Connect and make sure the connection could be established
-                float frameTime = 1.0f / 60.0f;
-                testWorld.Connect(frameTime);
+                testWorld.Connect();
 
                 // Go in-game
                 testWorld.GoInGame();
 
                 // Let the world run for a bit so the ghosts are spawned on the client
                 for (int i = 0; i < 8; ++i)
-                    testWorld.Tick(frameTime);
+                    testWorld.Tick();
 
                 // Add and set server command target
                 var serverConnection = testWorld.TryGetSingletonEntity<NetworkId>(testWorld.ServerWorld);
@@ -368,7 +357,7 @@ namespace Unity.NetCode.Tests
 
 
                 for (int i = 0; i < 1; ++i)
-                    testWorld.Tick(frameTime);
+                    testWorld.Tick();
 
                 // Expect it to log an error as it's far too large.
                 LogAssert.Expect(LogType.Error, new Regex("the serialized payload is too large"));
@@ -517,16 +506,15 @@ namespace Unity.NetCode.Tests
                 }
                 testWorld.ServerWorld.EntityManager.SetComponentData(serverEntity, data);
 
-                float frameTime = 1.0f / 60.0f;
                 // Connect and make sure the connection could be established
-                testWorld.Connect(frameTime);
+                testWorld.Connect();
 
                 // Go in-game
                 testWorld.GoInGame();
 
                 // Let the game run for a bit so the ghosts are spawned on the client
                 for (int i = 0; i < 16; ++i)
-                    testWorld.Tick(frameTime);
+                    testWorld.Tick();
 
                 var clientEntity = testWorld.TryGetSingletonEntity<GhostGenBigStruct>(testWorld.ClientWorlds[0]);
                 var clientData = testWorld.ClientWorlds[0].EntityManager.GetComponentData<GhostGenBigStruct>(clientEntity);

@@ -181,13 +181,16 @@ namespace Unity.NetCode
                         var headerSize = SnapshotDynamicBuffersHelper.GetHeaderSize();
                         snapshotDynamicDataBuffer.ResizeUninitialized((int)dynamicDataCapacity);
 
-                        helper.snapshotDynamicPtr = (byte*)snapshotDynamicDataBuffer.GetUnsafePtr();
-                        helper.dynamicSnapshotDataOffset = (int)headerSize;
-                        //add the header size so that the boundary check that into the consideration the header size
-                        helper.dynamicSnapshotCapacity = (int)(dynamicSnapshotSize + headerSize);
+                        //Explanation: on the client the dynamic buffer data offset is relative to the beginning of
+                        //the dynamic data slot, not to the header.
+                        //That means, the dynamicSnapshotDataOffset always start from 0, and the data instead
+                        //start right after the header (for the first slot).
+                        helper.snapshotDynamicPtr = (byte*)snapshotDynamicDataBuffer.GetUnsafePtr() + headerSize;
+                        helper.snapshotDynamicHeaderPtr = (byte*)snapshotDynamicDataBuffer.GetUnsafePtr();
+                        helper.dynamicSnapshotDataOffset = 0;
+                        helper.dynamicSnapshotCapacity = (int)(dynamicSnapshotSize);
                     }
                     helper.CopyEntityToSnapshot(chunk, i, typeData, GhostSerializeHelper.ClearOption.DontClear);
-
                     // Remove request component
                     commandBuffer.RemoveComponent<PredictedGhostSpawnRequest>(entity);
                     // Add to list of predictive spawn component - maybe use a singleton for this so spawn systems can just access it too

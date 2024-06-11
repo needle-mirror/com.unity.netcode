@@ -50,6 +50,8 @@ namespace Unity.NetCode
         public GhostMode SupportedModes;
         public GhostMode DefaultMode;
         public bool StaticOptimization;
+        public bool PredictedSpawnedGhostRollbackToSpawnTick;
+        public bool RollbackPredictionOnStructuralChanges;
         public BlobString Name;
         ///<summary>Array of components for each child in the hierarchy.</summary>
         public BlobArray<ComponentInfo> ServerComponentList;
@@ -90,6 +92,20 @@ namespace Unity.NetCode
     {}
 
     /// <summary>
+    /// Internal component used to track new ghost prefabs after they have been loaded or created.
+    /// </summary>
+    internal struct GhostPrefabTracking : ICleanupComponentData
+    {
+        /// <summary>
+        /// The index inside the GhostCollectionPrefab list.
+        /// </summary>
+        public int GhostCollectionPrefabIndex;
+        /// <summary>
+        /// The <see cref="GhostType"/> associated with the prefab.
+        /// </summary>
+        public GhostType GhostType;
+    }
+    /// <summary>
     /// A component used to identify the singleton which owns the ghost collection lists and data.
     /// The singleton contains buffers for GhostCollectionPrefab, GhostCollectionPrefabSerializer,
     /// GhostCollectionComponentIndex and GhostComponentSerializer.State
@@ -122,6 +138,19 @@ namespace Unity.NetCode
         /// </summary>
         internal int NumPredictionErrors;
         #endif
+        /// <summary>
+        /// The index in the <see cref="GhostCollectionPrefab"/> list where the prefab with the given <see cref="GhostType"/>.
+        /// It is populated by the <see cref="GhostReceiveSystem"/> when new prefabs hash are received from the server and it used to track what prefabs need to be mapped/loaded.
+        /// <remarks>
+        /// Should be used only by the client. For server the map is always empty. It also contains a special key for the default(GhostType) that indicate if the list has been changed since the
+        /// last time has been processed.
+        /// </remarks>
+        /// </summary>
+        public NativeHashMap<GhostType, int> PendingGhostPrefabAssignment;
+        /// <summary>
+        /// The index in the <see cref="GhostCollectionPrefab"/> list for given <see cref="GhostType"/>.
+        /// </summary>
+        public NativeHashMap<GhostType, int>.ReadOnly GhostTypeToColletionIndex;
         /// <summary>
         /// Flag set when there is at least one <see cref="NetworkStreamConnection"/> that is game.
         /// </summary>
@@ -246,6 +275,15 @@ namespace Unity.NetCode
         /// <see cref="GhostAuthoringComponent"/>.
         /// </summary>
         public byte StaticOptimization;
+        /// <summary>
+        /// Enable predicted spawned ghost to rollback their initial spawn state and re-predict until the authoritative spawn has been received from the server.
+        /// </summary>
+        public byte PredictedSpawnedGhostRollbackToSpawnTick;
+        /// <summary>
+        /// Client CPU optimization. Force predicted ghost to always try to continue from the last prediction in case of structural changes. True by default (because may introduce some issue when replicated component are removed).
+        /// </summary>
+        /// <returns></returns>
+        public byte RollbackPredictionOnStructuralChanges;
         /// <summary>
         /// Reflect the importance value set in the <see cref="GhostAuthoringComponent"/>. Is used as the base value for the
         /// scaled importance calculated at runtime.

@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using Microsoft.CodeAnalysis;
 using System.Linq;
+using Unity.NetCode.Roslyn;
 
 namespace Unity.NetCode.Generators
 {
@@ -15,6 +16,7 @@ namespace Unity.NetCode.Generators
         public static void Generate(IReadOnlyList<SyntaxNode> rpcCandidates, CodeGenerator.Context codeGenContext)
         {
             var typeBuilder = new TypeInformationBuilder(codeGenContext.diagnostic, codeGenContext.executionContext, TypeInformationBuilder.SerializationMode.Commands);
+            var rootNamespace = codeGenContext.generatedNs;
             foreach (var syntaxNode in rpcCandidates)
             {
                 codeGenContext.executionContext.CancellationToken.ThrowIfCancellationRequested();
@@ -34,10 +36,16 @@ namespace Unity.NetCode.Generators
                     codeGenContext.diagnostic.LogInfo($"Skipping code-gen for {candidateSymbol.Name} because an rpc serializer for it already exists");
                     continue;
                 }
+                if (candidateSymbol.ImplementsGenericInterface("Unity.NetCode.IRpcCommandSerializer"))
+                {
+                    codeGenContext.diagnostic.LogInfo($"Skipping code-gen for {candidateSymbol.Name} because an IRpcCommandSerializer for it already exists");
+                    continue;
+                }
 
                 codeGenContext.ResetState();
-                codeGenContext.generatorName = Roslyn.Extensions.GetTypeNameWithDeclaringTypename(candidateSymbol);
                 var typeInfo = typeBuilder.BuildTypeInformation(candidateSymbol, null);
+
+                NameUtils.UpdateNameAndNamespace(ref typeInfo, rootNamespace, ref codeGenContext, ref candidateSymbol);
                 if (typeInfo == null)
                     continue;
 
@@ -45,6 +53,7 @@ namespace Unity.NetCode.Generators
                 codeGenContext.diagnostic.LogInfo($"Generating rpc for ${typeInfo.TypeFullName}");
                 CodeGenerator.GenerateCommand(codeGenContext, typeInfo, CommandSerializer.Type.Rpc);
             }
+            codeGenContext.generatedNs = rootNamespace;
         }
         static private string GetRpcSerializerName(INamedTypeSymbol symbol)
         {

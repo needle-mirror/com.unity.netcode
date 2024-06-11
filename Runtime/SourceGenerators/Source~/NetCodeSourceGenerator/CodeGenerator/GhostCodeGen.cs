@@ -284,7 +284,7 @@ namespace Unity.NetCode.Generators
             batch.Add(new CodeGenerator.GeneratedFile
             {
                 Namespace = generatorNamespace,
-                GeneratedClassName = generatorName,
+                GeneratedFileName = generatorName,
                 Code = content
             });
         }

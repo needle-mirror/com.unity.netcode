@@ -92,7 +92,7 @@ namespace Unity.NetCode.Editor
 
                     data.SnapshotTargetSize = TryGetSingleton<NetworkStreamSnapshotTargetSize>(world, out var snapshotTargetSize)
                         ? snapshotTargetSize.Value
-                        : NetworkParameterConstants.MTU;
+                        : NetworkParameterConstants.MaxMessageSize;
                 }
 
                 var sent = NetCodeAnalyticsState.GetUpdateLength(world);

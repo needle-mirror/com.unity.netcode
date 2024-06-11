@@ -4,27 +4,41 @@ The Netcode package has some integration with Unity Physics which makes it easie
 
 This works without any configuration but will assume all dynamic physics objects are ghosts, so either fully simulated by the server (interpolated ghosts), or by both with the client also simulating forward (at predicted/server tick) and server correcting prediction errors (predicted ghosts), the two types can be mixed together. To run the physics simulation only locally for certain objects some setup is required.
 
+Physics Ghost Setup Checklist:
+
+| GhostAuthoringComponent | Rigidbody             | Static | In a separate physics world | ------------ |
+|-------------------------|-----------------------|--------|-----------------------------|-------------:|
+| yes                     | yes                   | both   | no                          |        valid |
+| no                      | yes                   | no     | yes                         |        valid |
+| not required            | no                    | yes    | both                        |        valid |
+| yes                     | both                  | yes    | both                        |        valid |
+| no                      | on a child of a ghost | no     | both                        |        error |
+| no                      | yes                   | no     | no                          |        error |
+
+**Important**: For physics to run at all, Netcode currently requires at least a single predicted ghost to exist in your scene. With this, the prediction update loop will run and tick the physics loop.
+
 ## Interpolated ghosts
 
-For interpolated ghosts it is important that the physics simulation only runs on the server.
-On the client the ghosts position and rotation are controlled by the snapshots from the server and the client should not run the physics simulation for interpolated ghosts.
+For interpolated ghosts it's important that the physics simulation only runs on the server.On the client, the ghost's position and rotation are controlled by the snapshots from the server and the client shouldn't run the physics simulation for interpolated ghosts.
 
-In order to make sure this is true Netcode will disable the `Simulate` component data tag on clients on appropriate ghost entities at the beginning on each frame. That make the physics object `kinematic` and they will not be moved by the physics simulation.
+To make sure this is true, Netcode disables the `Simulate` component data tag on clients on appropriate ghost entities at the beginning on each frame. This makes the physics object `kinematic` and they won't be moved by the physics simulation.
 
 In particular:
 
-- The `PhysicsVelocity` will be ignored (set to zero).
-- Yhe `Translation` and `Rotation` are preserved.
+- The `PhysicsVelocity` is ignored (set to zero).
+- The `Translation` and `Rotation` are preserved.
 
 ## Predicted ghosts and physics simulation
 
-By the term _Predicted Physics_ we mean that the physics simulation runs in the prediction loop (possibly multiple times per update from the tick of the last received snapshot update) on the client, as well as running normally on the server.
+Predicted physics means that the physics simulation runs in the prediction loop (possibly multiple times per update from the tick of the last received snapshot update) on the client, as well as running normally on the server.
 
-During initialization Netcode will move the `PhysicsSystemGroup` and all `FixedStepSimulationSystemGroup` systems into the `PredictedFixedStepSimulationSystemGroup`. This group is the predicted version of `FixedStepSimulationSystemGroup`, so everything here will be called multiple times up to the required number of predicted ticks. These groups are then only updated when there is actually a dynamic predicted physics ghost present in the world.
+During initialization, Netcode moves the `PhysicsSystemGroup` and all `FixedStepSimulationSystemGroup` systems into the `PredictedFixedStepSimulationSystemGroup`. This group is the predicted version of `FixedStepSimulationSystemGroup`, so everything here will be called multiple times up to the required number of predicted ticks. These groups are then only updated when there is actually a dynamic predicted physics ghost present in the world.
 
-All predicted ghosts with physics components will run this kind of simulation when they are dynamic. Like with interpolated ghosts the `Simulate` tag will be enabled/disabled as appropriate at the beginning of each predicted frame, but this time multiple simulation steps might be needed.
+All predicted ghosts with physics components run this kind of simulation when they are dynamic. Like with interpolated ghosts, the `Simulate` tag will be enabled/disabled as appropriate at the beginning of each predicted frame, but this time multiple simulation steps might be needed.
 
-Since the physics simulation can be quite CPU intensive it can spiral out of control when it needs to run multiple times. Needing to predict multiple simulation frames could then result in needing to run multiple ticks in one frame as the fixed timesteps falls behind the simulation tick rate, making the situation worse. On server it may be beneficial to enable simulation batching in the [`ClientServerTickRate`](https://docs.unity3d.com/Packages/com.unity.netcode@latest/index.html?subfolder=/api/Unity.NetCode.ClientServerTickRate.html) component, see the `MaxSimulationStepBatchSize` and `MaxSimulationStepsPerFrame` options. On clients there are options for prediction batching exposed in the [`ClientTickRate`](https://docs.unity3d.com/Packages/com.unity.netcode@latest/index.html?subfolder=/api/Unity.NetCode.ClientTickRate.html), see `MaxPredictionStepBatchSizeFirstTimeTick` and `MaxPredictionStepBatchSizeRepeatedTick`.
+Since the physics simulation can be quite CPU intensive, it can spiral out of control when it needs to run multiple times. Needing to predict multiple simulation frames could then result in needing to run multiple ticks in one frame as the fixed timesteps falls behind the simulation tick rate, making the situation worse. On the server it can be beneficial to enable simulation batching in the [`ClientServerTickRate`](https://docs.unity3d.com/Packages/com.unity.netcode@latest/index.html?subfolder=/api/Unity.NetCode.ClientServerTickRate.html) component, see the `MaxSimulationStepBatchSize` and `MaxSimulationStepsPerFrame` options. On clients there are options for prediction batching exposed in the [`ClientTickRate`](https://docs.unity3d.com/Packages/com.unity.netcode@latest/index.html?subfolder=/api/Unity.NetCode.ClientTickRate.html), see `MaxPredictionStepBatchSizeFirstTimeTick` and `MaxPredictionStepBatchSizeRepeatedTick`. However, this WILL increase the chance of mispredictions.
+
+By default, the current [quantization](compression.md#quantization) level is set to 1000 for transform and velocity. This is enough in most cases, but does create discrepancies in simulation which can create visible corrections or jitter. [Increasing quantization](ghost-snapshots.md#ghost-component-variants) for physics ghosts will result in more precise simulations at the cost of more bandwidth consumption.
 
 ### Using lag compensation predicted collision worlds
 
@@ -55,24 +69,25 @@ When a client only physics world exists, all non-ghost dynamic physics objects c
 
 As part of the entity baking process, a _PhysicsWorldIndex_ shared component is added to all the physics entities, indicating
 in which world the entity should be part of.
-> [!NOTE]
-> It is the responsibility of the user to setup their prefab properly to make them run in the correct physics world. This can be achieved with the `PhysicsWorldIndexAuthoring` component, provided with the Unity Physics package, which allows setting the physics world index for rigid bodies. For more information, please refer to the [Unity Physics documentation](https://docs.unity3d.com/Packages/com.unity.physics@latest/index.html?subfolder=/manual/). 
 
-### Interaction in between predicted and client-only physics entities
+> [!NOTE]
+> It is the responsibility of the user to setup their prefab properly to make them run in the correct physics world. This can be achieved with the `PhysicsWorldIndexAuthoring` component, provided with the Unity Physics package, which allows setting the physics world index for rigid bodies. For more information, please refer to the [Unity Physics documentation](https://docs.unity3d.com/Packages/com.unity.physics@latest/index.html?subfolder=/manual/).
+
+### Interaction between predicted and client-only physics entities
 
 There are situation when you would like to make the ghosts interact with physics object that are present only on the client (ex: debris). However, them being a part of a different simulation islands they can't interact with each-other.
 The Physics package provides for that use-case a specific workflow using `Custom Physics Proxy` entities.
 
 For each physics entity present in the predicted world where you would like to interact with the client-only world, you need to add the `CustomPhysicsProxyAuthoring` component. The baking process will then automatically create a proxy entity with the necessary physics components (PhysicsBody, PhysicsMass, PhysicsVelocity) along with a [`CustomPhysicsProxyDriver`](https://docs.unity3d.com/Packages/com.unity.physics@latest/index.html?subfolder=/api/Unity.Physics.CustomPhysicsProxyDriver.html) which is the link to the root ghost entity. It will make a copy of the ghosts collider as well and configure the proxy physics body as kinematic. The simulated ghost entity in the predicted world will then be used to _drive_ the proxy by copying the necessary component data and setup the physics velocity to let the proxy move and interact with the other physics entities in the  client-only world.
 
-The ghost proxy position and rotation and are automatically handled by [`SyncCustomPhysicsProxySystem`](https://docs.unity3d.com/Packages/com.unity.physics@latest/index.html?subfolder=/api/Unity.Physics.Systems.SyncCustomPhysicsProxySystem.html) system. 
-By default the kinematic physics entity is moved using kinematic velocity, by altering the PhysicsVelocity component. It is possible to change the default behavior for the prefab by setting the 
-`GenerateGhostPhysicsProxy.DriveMode` component property. 
-Furthermore, it is possible to change that beahviour dynamically at runtime by setting the `PhysicsProxyGhostDriver.driveMode` property to the desired mode.
+The ghost proxy position and rotation and are automatically handled by [`SyncCustomPhysicsProxySystem`](https://docs.unity3d.com/Packages/com.unity.physics@latest/index.html?subfolder=/api/Unity.Physics.Systems.SyncCustomPhysicsProxySystem.html) system.
+By default the kinematic physics entity is moved using kinematic velocity, by altering the PhysicsVelocity component. It is possible to change the default behavior for the prefab by setting the
+`GenerateGhostPhysicsProxy.DriveMode` component property.
+Furthermore, it is possible to change that behavior dynamically at runtime by setting the `PhysicsProxyGhostDriver.driveMode` property to the desired mode.
 
 ## Limitations
 
-As mentioned on this page there are some limitations you must be aware of to use physics and netcode together.
+As mentioned on this page there are some limitations you must be aware of to use physics and Netcode together.
 
 - Physics simulation will not use partial ticks on the client, you must use physics interpolation if you want physics to update more frequently than it is simulating.
 - The Unity.Physics debug systems does not work correctly in presence of multiple world (only the default physics world is displayed).

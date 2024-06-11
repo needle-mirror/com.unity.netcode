@@ -1,15 +1,8 @@
-using System.Collections.Generic;
-using System.Diagnostics;
-using System.Text;
 using NUnit.Framework;
 using Unity.Collections;
-using Unity.Collections.LowLevel.Unsafe;
 using Unity.Entities;
-using Unity.Jobs.LowLevel.Unsafe;
 using Unity.NetCode.LowLevel.Unsafe;
 using Unity.Transforms;
-using UnityEngine;
-using UnityEngine.Profiling;
 
 namespace Unity.NetCode.Tests
 {
@@ -23,10 +16,10 @@ namespace Unity.NetCode.Tests
             testWorld.CreateWorlds(true, 1);
             CreatePrefab(testWorld.ServerWorld.EntityManager);
             CreatePrefab(testWorld.ClientWorlds[0].EntityManager);
-            testWorld.Connect(1f/60f, 4);
+            testWorld.Connect();
             testWorld.GoInGame();
             //register the prefab to the ghost collection system
-            testWorld.Tick(1f/60f);
+            testWorld.Tick();
             var serverCollection = testWorld.TryGetSingletonEntity<GhostCollection>(testWorld.ServerWorld);
             var components = testWorld.ServerWorld.EntityManager.GetBuffer<GhostCollectionComponentType>(serverCollection);
             var types = testWorld.ServerWorld.EntityManager.GetBuffer<GhostCollectionPrefabSerializer>(serverCollection);

@@ -103,7 +103,6 @@ namespace Unity.NetCode.Generators
             {
                 var message = $"Unable to find the Template associated with '{typeRegistryEntry}'. Looking for '{typeRegistryEntry.Template}'. There are {additionalFiles.Length} additionalFiles:[{string.Join(",", additionalFiles.Select(x => x.Path))}]!";
                 diagnostic.LogError(message);
-
             }
 
             string GetKnownCustomUserTemplates()

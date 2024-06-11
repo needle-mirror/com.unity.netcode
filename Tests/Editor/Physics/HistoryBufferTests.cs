@@ -1,5 +1,4 @@
 using System;
-using System.Text.RegularExpressions;
 using NUnit.Framework;
 using Unity.Burst;
 using Unity.Collections;
@@ -10,7 +9,6 @@ using Unity.NetCode.Tests;
 using Unity.Physics;
 using Unity.Transforms;
 using UnityEngine;
-using UnityEngine.TestTools;
 
 namespace Unity.NetCode.Physics.Tests
 {
@@ -282,7 +280,7 @@ namespace Unity.NetCode.Physics.Tests
 
                 for (int i = 0; i < 200; ++i)
                 {
-                    testWorld.Tick(16f/1000f);
+                    testWorld.Tick();
                 }
             }
         }

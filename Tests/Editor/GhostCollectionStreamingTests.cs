@@ -1,14 +1,7 @@
 using NUnit.Framework;
 using Unity.Entities;
-using Unity.Networking.Transport;
-using Unity.NetCode.Tests;
-using Unity.Jobs;
 using UnityEngine;
 using UnityEngine.TestTools;
-using Unity.NetCode;
-using Unity.Mathematics;
-using Unity.Transforms;
-using Unity.Collections;
 using System.Text.RegularExpressions;
 
 namespace Unity.NetCode.Tests
@@ -67,9 +60,8 @@ namespace Unity.NetCode.Tests
                 for (int i = 0; i < 8; ++i)
                     testWorld.SpawnOnServer(ghostGameObject);
 
-                float frameTime = 1.0f / 60.0f;
                 // Connect and make sure the connection could be established
-                testWorld.Connect(frameTime);
+                testWorld.Connect();
 
                 // Go in-game
                 testWorld.GoInGame();
@@ -77,7 +69,7 @@ namespace Unity.NetCode.Tests
 
                 // Let the game run for a bit so the ghosts are spawned on the client
                 for (int i = 0; i < 4; ++i)
-                    testWorld.Tick(frameTime);
+                    testWorld.Tick();
 
                 var ghostCount = testWorld.GetSingleton<GhostCount>(testWorld.ClientWorlds[0]);
                 // Validate that the ghost was deleted on the client
@@ -87,7 +79,7 @@ namespace Unity.NetCode.Tests
                 testWorld.BakeGhostCollection(testWorld.ClientWorlds[0]);
                 onDemandSystem.IsLoading = false;
                 for (int i = 0; i < 4; ++i)
-                    testWorld.Tick(frameTime);
+                    testWorld.Tick();
                 // Validate that the ghost was deleted on the client
                 Assert.AreEqual(8, ghostCount.GhostCountOnServer);
                 Assert.AreEqual(8, ghostCount.GhostCountOnClient);
@@ -114,9 +106,8 @@ namespace Unity.NetCode.Tests
                 for (int i = 0; i < 8; ++i)
                     testWorld.SpawnOnServer(ghostGameObject);
 
-                float frameTime = 1.0f / 60.0f;
                 // Connect and make sure the connection could be established
-                testWorld.Connect(frameTime);
+                testWorld.Connect();
 
                 // Go in-game
                 testWorld.GoInGame();
@@ -124,7 +115,7 @@ namespace Unity.NetCode.Tests
 
                 // Let the game run for a bit so the ghosts are spawned on the client
                 for (int i = 0; i < 4; ++i)
-                    testWorld.Tick(frameTime);
+                    testWorld.Tick();
 
                 var ghostCount = testWorld.GetSingleton<GhostCount>(testWorld.ClientWorlds[0]);
                 // Validate that the ghost was deleted on the client
@@ -136,7 +127,7 @@ namespace Unity.NetCode.Tests
                 LogAssert.Expect(UnityEngine.LogType.Error, new Regex("^The ghost collection contains a ghost which does not have a valid prefab on the client!"));
                 LogAssert.Expect(UnityEngine.LogType.Error, "Disconnecting all the connections because of errors while processing the ghost prefabs (see previous reported errors).");
                 for (int i = 0; i < 2; ++i)
-                    testWorld.Tick(frameTime);
+                    testWorld.Tick();
             }
         }
     }

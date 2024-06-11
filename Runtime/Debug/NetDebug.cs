@@ -1,11 +1,16 @@
 #if USING_OBSOLETE_METHODS_VIA_INTERNALSVISIBLETO
 #pragma warning disable 0436
 #endif
+#if UNITY_EDITOR && !NETCODE_NDEBUG
+#define NETCODE_DEBUG
+#endif
 using System;
 using System.IO;
+using System.Runtime.InteropServices;
 using Unity.Burst.CompilerServices;
 using Unity.Collections;
 using Unity.Entities;
+using Unity.NetCode.LowLevel.Unsafe;
 using Unity.Networking.Transport;
 #if USING_UNITY_LOGGING
 using Logger = Unity.Logging.Logger;
@@ -17,12 +22,55 @@ using Unity.Logging.Sinks;
 namespace Unity.NetCode
 {
     /// <summary>
-    /// Add this component to connection entities <see cref="NetworkStreamConnection"/> to get more detailed Netcode
-    /// debug information (`Debug` level) in general or to enable ghost snapshot or packet logging per connection.
-    /// Debug information can be toggled globally in the Playmode Tools Window and in the `NetCodeDebugConfigAuthoring` component.
+    /// Add this component to any connection entities (i.e. entities with the <see cref="NetworkStreamConnection"/> component)
+    /// to enable detailed netcode packet dump logging.
     /// </summary>
+    /// <remarks>
+    /// Packet dumps can be enabled for all connections globally via the Playmode Tools Window.
+    /// Alternatively, you can add the <see cref="NetCodeDebugConfig"/> to any sub-scene (via the `NetCodeDebugConfigAuthoring`)
+    /// and set the <see cref="NetCodeDebugConfig.DumpPackets"/> flag to true.
+    /// </remarks>
     public struct EnablePacketLogging : IComponentData
-    { }
+    {
+#if NETCODE_DEBUG
+        internal PacketDumpLogger NetDebugPacketCache;
+        /// <summary>
+        /// Add your own custom logs to Netcode's per-connection packet dump.
+        /// </summary>
+        /// <remarks>For safety reasons, ensure you fetch this component with write access!</remarks>
+        /// <param name="msg">Message to append. Newlines are not automatically added!</param>
+        public void LogToPacket(in FixedString512Bytes msg)
+        {
+            if (!NetDebugPacketCache.IsCreated)
+                throw new InvalidOperationException("LogToPacket failed as cache has not been created yet! Wait for InitAndFetch to be called via netcode's GhostSend/ReceiveSystem.");
+            NetDebugPacketCache.Log(msg);
+        }
+#endif
+
+#if NETCODE_DEBUG
+        /// <summary>
+        /// NetDebugPacket is a struct whose lifetime is maintained by other systems.
+        /// This method fetches whether or not it's enabled, and while doing so,
+        /// ensures the cache (<see cref="NetDebugPacketCache"/>) is setup.
+        /// </summary>
+        /// <param name="entity"></param>
+        /// <param name="lookup"></param>
+        /// <param name="netDebugPacket"></param>
+        /// <returns>1 if the entity has an EnablePacketLogging component.</returns>
+        /// <exception cref="InvalidOperationException"></exception>
+        internal static byte InitAndFetch(Entity entity, ComponentLookup<EnablePacketLogging> lookup, in PacketDumpLogger netDebugPacket)
+        {
+            var componentRef = lookup.GetRefRWOptional(entity);
+            if (!componentRef.IsValid)
+                return 0;
+            if (!netDebugPacket.IsCreated)
+                throw new InvalidOperationException("Packet logger has not been setup, InitAndFetch failed! Aborting.");
+            if (!componentRef.ValueRO.NetDebugPacketCache.IsCreated)
+                componentRef.ValueRW.NetDebugPacketCache = netDebugPacket;
+            return 1;
+        }
+#endif
+    }
 
     /// <summary>
     /// Convert disconnection reason error code into human readable error messages.
@@ -70,18 +118,24 @@ namespace Unity.NetCode
         }
 
 
+        // TODO: This is used all the time to set the connection state, so not really a NetDebug method
         /// <summary>
         /// Converts from the Transport state to ours.
         /// </summary>
         /// <param name="transportState"></param>
         /// <param name="hasHandshaked"></param>
+        /// <param name="hasApproval">True if (we have been approved AND the approval flow is enabled) OR if we don't need approval.</param>
         /// <returns></returns>
         /// <exception cref="ArgumentOutOfRangeException"></exception>
-        public static ConnectionState.State ToNetcodeState(this NetworkConnection.State transportState, bool hasHandshaked)
+        public static ConnectionState.State ToNetcodeState(this NetworkConnection.State transportState, bool hasHandshaked, bool hasApproval = true)
         {
             switch (transportState)
             {
-                case NetworkConnection.State.Connected: return Hint.Likely(hasHandshaked) ? ConnectionState.State.Connected : ConnectionState.State.Handshake;
+                // See docs.
+                case NetworkConnection.State.Connected:
+                    if (Hint.Likely(hasHandshaked && hasApproval))
+                        return ConnectionState.State.Connected;
+                    return hasHandshaked ? ConnectionState.State.Approval : ConnectionState.State.Handshake;
                 case NetworkConnection.State.Disconnected: return ConnectionState.State.Disconnected;
                 case NetworkConnection.State.Disconnecting: return ConnectionState.State.Disconnected;
                 case NetworkConnection.State.Connecting: return ConnectionState.State.Connecting;
@@ -103,6 +157,7 @@ namespace Unity.NetCode
                 case ConnectionState.State.Disconnected: return nameof(ConnectionState.State.Disconnected);
                 case ConnectionState.State.Connecting: return nameof(ConnectionState.State.Connecting);
                 case ConnectionState.State.Handshake: return nameof(ConnectionState.State.Handshake);
+                case ConnectionState.State.Approval: return nameof(ConnectionState.State.Approval);
                 case ConnectionState.State.Connected: return nameof(ConnectionState.State.Connected);
                 default: return $"ConnectionState_{(int) state}";
             }
@@ -112,6 +167,8 @@ namespace Unity.NetCode
     /// <summary>Singleton handling NetCode logging and log management.</summary>
     public struct NetDebug : IComponentData
     {
+        internal const LogLevelType DefaultLogLevel = LogLevelType.Notify;
+
         /// <summary>
         /// Use this method to retrieve the platform specific folder where the NetCode logs files
         /// will be stored.
@@ -147,7 +204,10 @@ namespace Unity.NetCode
         }
 
         private LogLevelType m_LogLevel;
+
+#if NETCODE_DEBUG
         internal NativeHashMap<int, FixedString128Bytes>.ReadOnly ComponentTypeNameLookup;
+#endif
 
 #if USING_UNITY_LOGGING
         private LogLevel m_CurrentLogLevel;
@@ -194,7 +254,9 @@ namespace Unity.NetCode
         internal void Initialize()
         {
             MaxRpcAgeFrames = 4;
-            LogLevel = LogLevelType.Notify;
+            LogLevel = DefaultLogLevel;
+            // Suppressing by default because it leads to many test false positives.
+            SuppressApprovalRpcSentWhenApprovalFlowDisabledWarning = true;
         }
 
         /// <summary>
@@ -221,9 +283,20 @@ namespace Unity.NetCode
         /// Setting <see cref="SuppressApplicationRunInBackgroundWarning"/> to true will allow you to
         /// toggle off "Run in Background" without triggering the advice log.
         /// </remarks>
+        [field: MarshalAs(UnmanagedType.U1)]
         public bool SuppressApplicationRunInBackgroundWarning { get; set; }
 
+        /// <summary>
+        /// When debugging, it's helpful to treat 'sending an <see cref="IApprovalRpcCommand"/> RPC when approval is disabled' as a warning.
+        /// However, you may use approval RPCs to also send match join information, thus you may wish to suppress this warning.
+        /// Do so by setting this to true.
+        /// This log suppression is enabled by default! Set this flag to false to see the warning.
+        /// </summary>
+        [field: MarshalAs(UnmanagedType.U1)]
+        public bool SuppressApprovalRpcSentWhenApprovalFlowDisabledWarning { get; set; }
+
         /// <summary>Prevents log-spam for <see cref="SuppressApplicationRunInBackgroundWarning"/>.</summary>
+        [field: MarshalAs(UnmanagedType.U1)]
         internal bool HasWarnedAboutApplicationRunInBackground { get; set; }
 
         /// <summary>
@@ -358,23 +431,6 @@ namespace Unity.NetCode
             if (maskString.Length == 0)
                 maskString = "0";
             return maskString;
-        }
-
-        /// <summary>
-        /// Method that print a human readable error message when the version protocol mismatch.
-        /// </summary>
-        /// <param name="error"></param>
-        /// <param name="protocolVersion"></param>
-        internal static void AppendProtocolVersionError(ref FixedString512Bytes error, NetworkProtocolVersion protocolVersion)
-        {
-            error.Append(FixedString.Format("NetCode={0} Game={1}", protocolVersion.NetCodeVersion,
-                protocolVersion.GameVersion));
-            FixedString32Bytes msg = " RpcCollection=";
-            error.Append(msg);
-            error.Append(protocolVersion.RpcCollectionVersion);
-            msg = " ComponentCollection=";
-            error.Append(msg);
-            error.Append(protocolVersion.ComponentCollectionVersion);
         }
 
         /// <summary>

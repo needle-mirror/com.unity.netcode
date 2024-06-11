@@ -165,6 +165,7 @@ namespace Unity.NetCode.Generators
 
     internal static class Debug
     {
+        public static string LastErrorLog { get; set; } // used for tests. TODO have something fancier that tracks all logs
         public static void LaunchDebugger()
         {
             if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
@@ -244,6 +245,7 @@ namespace Unity.NetCode.Generators
         }
         public static void LogException(Exception exception)
         {
+            LastErrorLog = exception.ToString();
             try
             {
                 using var writer = GetOutputStream();
@@ -276,8 +278,11 @@ namespace Unity.NetCode.Generators
                 return;
             LogToDebugStream("Warning", message);
         }
-        public static void LogError(string message)
+        public static void LogError(string message, string additionalInfo)
         {
+            message += $"\n\nAdditional info:\n{additionalInfo}\n\nStacktrace:\n";
+            message += Environment.StackTrace;
+            LastErrorLog = message;
             LogToDebugStream("Error", message);
         }
     }

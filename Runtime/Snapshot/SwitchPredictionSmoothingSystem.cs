@@ -135,7 +135,7 @@ namespace Unity.NetCode
                         if (smoothing.CurrentFactor == 0)
                         {
                             smoothing.InitialPosition = transforms[i].Position - smoothing.InitialPosition;
-                            smoothing.InitialRotation = math.mul(transforms[i].Rotation, math.inverse(smoothing.InitialRotation));
+                            smoothing.InitialRotation = math.mul(math.inverse(smoothing.InitialRotation), transforms[i].Rotation);
                         }
 
                         smoothing.CurrentFactor = math.saturate(smoothing.CurrentFactor + DeltaTime / smoothing.Duration);

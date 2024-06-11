@@ -4,6 +4,89 @@ uid: changelog
 
 # Changelog
 
+## [1.3.0-exp.1] - 2024-06-11
+
+### Added
+
+* The Multiplayer PlayMode Tools Window now calls synchronous `Connect` and `Disconnect` methods, and now shows the `Handshake` connection step. Handshake occurs when the client connection has been accepted by the server, but said client is awaiting a `NetworkId` assignment RPC from said server.
+* Possibility to optimise the ghost serialization and pre-serialization by registering a custom chunk serialization function pointer that will let users reason on a per-archetype and write the serialization code without requiring virtual methods (function pointer call indirection) and optimised for the use case.
+* Further clarifications, minor improvements, and fixes to the PlayMode Tools Window.
+* `DefaultRelevancyQuery` to specify general rules for relevancy without specifying it ghost by ghost.
+* Tooltips and additional info for the NetCodeConfig, supporting `ClientServerTickRate`, `ClientTickRate`, and `GhostSendSystemData`.
+* Method `EnablePacketLogging.LogToPacket`, allowing user-code to add custom events to the netcode per-connection packet dump.
+* An optional connection approval procedure so you can validate that a connection is allowed to connect before a network ID is assigned to it. Connection Approval requests can be sent by client to server via an IApprovalRpcCommand RPC. The server can validate the arbitrary payload included in the RPC. No other data is processed by the server until the connection is approved.
+* More documentation on prediction, edge cases to be careful about, interpolation, compression, physics ghost setup checklist and the general update loop.
+* Increased validation applied to RPC serialization (including better error logging). We now ensure their deserialized size is the expected number of bytes.
+* Test coverage for `windowSize: 64` for `ReliableSequencedPipelineStage`.
+* PredictedSpawnedGhostRollbackToSpawnTick property to the GhostAuthoringComponent to allow predicted ghost spawned by client to rollback and re-simulate their state starting from their spawn tick, until the authoritative spawn has been received from the server. The rollback only occurs if the client receives new snapshots from server that contains at least one predicted ghost.
+* Changed usage of NetworkParameterConstants.MTU to use user configurable NetworkParameterConstants.MaxMessageSize. This allows snapshot and command buffers to reference the correct value and scale buffers accordingly.
+* Exposed `NetworkStreamDriver.DriverStore` and `LastEndPoint`.
+* Copy-free accessors for `NetworkStreamDriver` instances (via `GetDriverInstanceRW` and `GetDriverInstanceRO`) and underlying drivers (via `GetDriverRW` and `GetDriverRO`), which are also now used internally. The struct copy originals have been weakly deprecated.
+* Support for serializing non-byte-aligned RPCs. I.e. You can now delta-compress RPC fields using the `IRpcCommandSerializer` by delta-compressing against hardcoded baseline values.
+
+### Changed
+
+* Added the full type name of the RPC component to the RPC entity name (behind "NetcodeRPC_" prefix).
+* The netcode RPC header size has now changed (from 9B to 5B per packet, plus either 10B or 4B per RPC, depending on `DynamicAssemblyList`).
+* The max size of a serialized RPC is now 8192 bytes (ushort.MaxValue bits), as we now send the bits written, to be able to validate that the exact number of bits were read in the `RpcSystem`.
+* Reduced bandwidth consumption of netcode's `RpcSetNetworkId` RPC payload.
+* Updated `com.unity.transport` dependency to version 2.2.0.
+* Fixed another issue with predicted ghosts spawned again inside the prediction loop, not rolling back to the backup or re-predicting from the spawn tick, after being initialized by the PredictedSpawnGhostSystem (because of command buffer delay), effectively mispredicting again the first full tick and subsequent partial, and making the backup also contain mispredicted information.
+* Renamed `RpcSetNetworkId` to `ServerApprovedConnection`.
+* The servers `Handshake` process is no longer instantaneous, resulting in a few extra ticks being required (typically) before a connection can be fully established (approximately 7 ticks, up from 4). See bug fix entry.
+* `NetCodeConnectionEvent`s are now raised on the server for the protocol version handshake process (the `ConnectionState.State.Handshake` enum value). See bug fix entry.
+* Reduced bandwidth consumption of netcode's `NetworkProtocolVersion` RPC.
+
+### Removed
+
+* NoScale function delegate.
+
+### Fixed
+
+* Compile error when having both com.unity.netcode and com.unity.dedicated-server package together.
+* Issue where disconnecting your own client (via a direct `Disconnect` call) would fail to recycle the `NetworkId` component, and fail to dispose of the Entity.
+* We now also correctly report and clean-up stale connections. I.e. Connections that are entered into invalid states by user-code.
+* Issue where the `CommandSendSystem` was attempting to send RPCs with stale connections.
+* some slow path in the normal ghost serialization that was causing many re-serialization of the same chunk, in case the chunk data was not fitting inside the temporary stream buffer. That was almost the norm in many cases, when the serialised entities are large enough (either because of the number of components or because of the size of them).
+* NetworkStreamConnection now holds an accurate connection state right after the call to driver's Connect, instead of having to wait a frame to get it updated.
+* Minor documentation issues.
+* InvalidOperationException: cases where EntityManager is part of an exclusive transaction we skip gathering analytics for its world.
+* Breaking change where NoScale function was removed.
+* Issue where the `NetCodeDebugConfig` would not reset to the `LogLevel` default (of `Notify`) if toggled ON, changed, then toggled OFF, during playmode.
+* Minor documentation errors and improving overall grammar.
+* Issue where `NetCodeConfig.Global` did not load correctly on first boot, if not selected in the Project assets window. If you have a global `NetCodeConfig` set in your PreloadedAssets Project Setting, we'll also auto-upgrade your project, moving the save to Project Settings (via `NetCodeClientAndServerSettings`).
+* Negative network delta time will skip updating the system group.
+* `NETCODE_NDEBUG` define compiler error, and related missing documentation.
+* Issue where two IInputComponentData with the same name but in different namespaces would result in conflicted generated code. Namespace is now taken into account for source gen.
+* Network emulation tooltip clarification.
+* Off-by-one error causing RPCs sent on the same tick as the `ProtocolVersion` RPC to be corrupted.
+* Language improvements to PredictedSimulationSystemGroup and ClientServerBootstrap.
+* Performance problems with GhostCollectionSystem, with large number of prefabs.
+* PredictedGhostSpawnSystem incorrectly set the offset for serialized buffer data inside the snapshot buffer, making that incompatible with the GhostUpdateSystem logic and causing wrong data potentially copied back to the entity buffer.
+* An issue with preserialized ghost, that were stomping component data with incorrect values.
+* an issue in GhostUpdateSystem that was incorrectly handling the GhostComponentAttribute.SendToOwner flag, causing during continuation and partial ticks replicated data being overwritten incorrectly for predicted ghosts.
+* An issue due to structural changes, that was causing a large number of prediction step performed by the client due to the fact a given ghost could not continue the current prediction from the last full ticks (either partial ticks or another full tick) because the entity data could not be found anymore in the prediction history buffer.
+* Issue where RPCs appeared on deleted connection entities, leading to user code runtime exceptions, where, occasionally, the `NetworkId` component could not be found on the `ReceiveRpcCommandRequest.SourceConnection` (as the connection was already disconnected).
+* the client was acknowledging to the server only the last received snapshot instead of the last 32 (this was used to defeat packet loss). This was affecting both the ability to correct use all the available baseline for delta compression, and multiple re-sending static optimized ghost.
+* Rendering issue in `GhostAuthoringInspectionComponent`, causing UI to right-clip.
+* Defensive fix for other rendering issue in `GhostAuthoringInspectionComponent`, causing the Refresh and auto-refresh buttons to not appear correctly.
+* Fixed check to early release allocations in the case where a ghost chunk has been reused. We now correctly free these chunks, reducing allocated memory overhead on the server.
+* Rotation glitch issue with prediction switching interpolation
+* Issue where RTT calculation would be incorrectly high when first connecting, especially with high packet loss.
+* Issue where running a netcode test would invalidate the `NetworkTimeSystem.TimestampMS` for subsequent play-mode runs, when Domain Reloads are disabled, leading to `0±0` ping readout (and related issues).
+* an issue with predicted spawned ghost and enableable components state not being saved correctly in the snapshot buffer when the PredictedSpawnGhostRequest is processed and the entity initialized.
+* an issue with pre-spawned ghost and enableable components state not being saved correctly in the predicted spawn baseline buffer.
+* exception thrown by the `GhostPresentationGameObjectSystem` when an entity is destroyed. The system was accessing the tracked `GameObject` list using an invalid index in cases where the removed `GameObject` was the last element.
+* Exceptionally rare infinite loop crash in `SetupDataAndAvailableBaselines`.
+* an issue in the PredictedGhostHistorySystem, that was storing the backup of newly spawned ghost using the wrong ghost type and serializer. It was causing weird problem later in the GhostUpdateSystem, in case predicted spawned ghost are eligible to start re-simulating from the spawn tick. In particular, crashes, big memory allocation or other component data could be clobbered with invalid data.
+* an issue with predicted spawned not restored from backup correctly whence spawned immediately at the tick they are supposed to (no command buffer) inside a system executing in the prediction loop (using the IsFirstTimePredictedTick condiition). The snapshot data at spawn, that is initialized the next frame, it is not going to be a full tick, but a partial tick, causing more misprediction. The backup in general should be preferred in this case, because at least it is aligned with the last full tick.
+* broken multiphysics sample particles colliding with the player character only on the client (they are supposed to be only visual) because of a missing WorldIndex authoring component.
+* `IRpcCommandSerializer<T>` can now be used with structs implementing `IRpcCommand` and `IApprovalRpcCommand` (rather than just `IComponentData`). I.e. The limitation is restricted, and code-gen will handle this case correctly (by skipping the generation of the RPC systems and serializer).
+* We now (correctly) wait for the server to receive a valid protocol version from the client before moving said client from the `Handshake` state to the `Connected` state. Therefore; `Handshake` events are now correctly raised on the server.
+* The protocol version handshake process can now correctly timeout (see: `HandshakeApprovalTimeoutMS`) in the exceptional case where the server does not receive a `RequestProtocolVersionHandshake` RPC from the client. If the approval flow is enabled, this single timeout counter is used for both states.
+* Removed the hardcoded 'Protocol Version' RPC logic, simplifying RPC sending and receiving. Netcode's handshake RPCs now use the existing `IApprovalRpcCommand` flows.
+
+
 ## [1.2.3] - 2024-05-30
 
 ### Changed
@@ -21,7 +104,7 @@ uid: changelog
 ## [1.2.0] - 2024-03-22
 
 ### Changed
-* Release Preparation
+*Release Preparation
 
 
 ## [1.2.0-pre.12] - 2024-02-13
