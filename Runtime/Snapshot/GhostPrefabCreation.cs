@@ -121,6 +121,12 @@ namespace Unity.NetCode
             /// </summary>
             public FixedString64Bytes Name;
             /// <summary>
+            /// Optional UUID5 identifier used to unique determine the ghost type. By default that ghost type of the generated prefab
+            /// is calculated using the SHA1 hash of the mandatory <see cref="Name"/> property (combined with some unique GUID prefix).
+            /// If user provide a non-default ghost unique UUID5 guid the ghost will use that instead.
+            /// </summary>
+            public Hash128 UUID5GhostType;
+            /// <summary>
             /// Higher importance means the ghost will be sent more frequently if there is not enough bandwidth to send everything.
             /// </summary>
             public int Importance;
@@ -250,6 +256,29 @@ namespace Unity.NetCode
                 return 0;
             }
         }
+
+        /// <summary>
+        /// Convert a general <see cref="Hash128"/> to a proper UUID5 hash format by enforcing bits and version
+        /// to be set.
+        /// </summary>
+        /// <param name="hash128">the hash to convert to UUID5 format</param>
+        /// <returns>a new hash with the appropriate bytes set as specified by the RFC 4122</returns>
+        public static Hash128 ConvertHash128ToUUID5(Hash128 hash128)
+        {
+            return new Hash128(
+                hash128.Value.x,
+                (hash128.Value.y & (~0xf000u)) | 0x5000u, // Set version to 5
+                (hash128.Value.z & (0x3fffffffu)) | 0x80000000u, // Set upper bits to 1 and 0
+                hash128.Value.w);
+        }
+
+        private static bool ValidateIsUUID5(this ref GhostType ghostType)
+        {
+            //verify version is 5 and upper bits are 10
+            return (ghostType.guid1 & 0xf000u) == 0x5000 &&
+                   (ghostType.guid2 & 0xC0000000u) == 0x80000000;
+        }
+
         internal unsafe struct SHA1
         {
             private void UpdateABCDE(int i, ref uint a, ref uint b, ref uint c, ref uint d, ref uint e, uint f, uint k)
@@ -374,16 +403,10 @@ namespace Unity.NetCode
                 }
             }
 
-            public GhostType ToGhostType()
+            public Hash128 ToHash128()
             {
                 // Construct a guid, store it in the GhostType
-                return new GhostType
-                {
-                    guid0 = h0,
-                    guid1 = (h1 & (~0xf000u)) | 0x5000u, // Set version to 5
-                    guid2 = (h2 & (0x3fffffffu)) | 0x80000000u, // Set upper bits to 1 and 0
-                    guid3 = h3
-                };
+                return new Hash128(h0, h1, h2, h3);
             }
 
             private fixed uint words[80];
@@ -905,10 +928,21 @@ namespace Unity.NetCode
             NetcodeConversionTarget target = (entityManager.World.IsServer()) ? NetcodeConversionTarget.Server : NetcodeConversionTarget.Client;
             // Calculate a uuid v5 using the guid of this .cs file as namespace and the prefab name as name. See rfc 4122 for more info on uuid5
             // TODO: should probably be the raw bytes from the namespace guid + name
-            var uuid5 = new SHA1($"f17641b8-279a-94b1-1b84-487e72d49ab5{config.Name}");
-            // I need an unique identifier and should not clash with any loaded prefab, use uuid5 with a namespace + ghost name
-            var ghostType = uuid5.ToGhostType();
-
+            GhostType ghostType;
+            if (config.UUID5GhostType != default)
+            {
+                ghostType = GhostType.FromHash128(config.UUID5GhostType);
+#if NETCODE_DEBUG
+                if (!ghostType.ValidateIsUUID5())
+                    throw new InvalidOperationException($"The custom UUID5 ghost type {config.UUID5GhostType} is not a valid UUID5 compliant unique identifier. Please refer to https://datatracker.ietf.org/doc/html/rfc4122 for more details");
+#endif
+            }
+            else
+            {
+                var uuid5 = new SHA1($"f17641b8-279a-94b1-1b84-487e72d49ab5{config.Name}");
+                // I need an unique identifier and should not clash with any loaded prefab, use uuid5 with a namespace + ghost name
+                ghostType = GhostType.FromHash128(ConvertHash128ToUUID5(uuid5.ToHash128()));
+            }
             //This should be present only for prefabs. FinalizePrefabComponents is also called for not prefab entities so it should not
             //be added there.
             if(target != NetcodeConversionTarget.Server && config.SupportedGhostModes != GhostModeMask.Interpolated)

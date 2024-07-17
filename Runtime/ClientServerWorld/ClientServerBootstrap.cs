@@ -273,7 +273,14 @@ namespace Unity.NetCode
 #endif
         }
 
-        internal static bool TryFindAutoConnectEndPoint(out NetworkEndpoint autoConnectEp)
+        /// <summary>
+        /// Optional client bootstrap helper method, so your custom bootstrap flows can copy this subset of auto-connect logic.
+        /// Reads <see cref="RequestedPlayType"/>, and checks for default AutoConnect arguments if valid.
+        /// </summary>
+        /// <param name="autoConnectEp">A valid endpoint for auto-connection.</param>
+        /// <returns>True if the auto-connect Endpoint is specified for this given <see cref="RequestedPlayType"/>.</returns>
+        /// <exception cref="ArgumentOutOfRangeException">Thrown if the RequestedPlayType enum has an unknown value.</exception>
+        public static bool TryFindAutoConnectEndPoint(out NetworkEndpoint autoConnectEp)
         {
             autoConnectEp = default;
 
@@ -319,11 +326,11 @@ namespace Unity.NetCode
         }
 
         /// <summary>
-        /// Returns true if user code has specified both an <see cref="AutoConnectPort"/> and <see cref="DefaultConnectAddress"/>.
+        /// Returns true if user code has specified both an <see cref="AutoConnectPort"/> and <see cref="DefaultConnectAddress"/> set.
         /// </summary>
         /// <param name="autoConnectEp">The resulting combined <see cref="NetworkEndpoint"/>.</param>
         /// <returns>True if user code has specified both an <see cref="AutoConnectPort"/> and <see cref="DefaultConnectAddress"/>.</returns>
-        internal static bool HasDefaultAddressAndPortSet(out NetworkEndpoint autoConnectEp)
+        public static bool HasDefaultAddressAndPortSet(out NetworkEndpoint autoConnectEp)
         {
             if (AutoConnectPort != 0 && DefaultConnectAddress != NetworkEndpoint.AnyIpv4)
             {
@@ -384,7 +391,7 @@ namespace Unity.NetCode
         /// </summary>
         public static NetworkEndpoint DefaultListenAddress = NetworkEndpoint.AnyIpv4;
         /// <summary>
-        /// Check if the server should start listening for incoming connection automatically after the world has been created.
+        /// Denotes if the server should start listening for incoming connection automatically after the world has been created.
         /// <para>
         /// If the <see cref="AutoConnectPort"/> is set, the server should start listening for connection using the <see cref="DefaultConnectAddress"/>
         /// and <see cref="AutoConnectPort"/>.
@@ -392,7 +399,8 @@ namespace Unity.NetCode
         /// </summary>
         public static bool WillServerAutoListen => AutoConnectPort != 0;
         /// <summary>
-        /// The current modality
+        /// The current modality.
+        /// <seealso cref="ClientServerBootstrap.RequestedPlayType"/>.
         /// </summary>
         public enum PlayType
         {
@@ -415,30 +423,38 @@ namespace Unity.NetCode
             /// </summary>
             Server = 2
         }
-#if UNITY_EDITOR
+
         /// <summary>
         /// The current play mode, used to configure drivers and worlds.
+        /// <br/> - In editor, this is determined by the PlayMode tools window.
+        /// <br/> - In builds, this is determined by the platform (and thus UNITY_SERVER and UNITY_CLIENT defines),
+        /// which in turn are controlled by the Project Settings.
         /// </summary>
-        public static PlayType RequestedPlayType => MultiplayerPlayModePreferences.RequestedPlayType;
+        /// <remarks>
+        /// In builds, use this flag to determine whether your build supports running as a client,
+        /// a server, or both.
+        /// </remarks>
+        public static PlayType RequestedPlayType
+        {
+            get
+            {
+#if UNITY_EDITOR
+                return MultiplayerPlayModePreferences.RequestedPlayType;
+#elif UNITY_SERVER
+                return PlayType.Server;
+#elif UNITY_CLIENT
+                return PlayType.Client;
+#else
+                return PlayType.ClientAndServer;
+#endif
+            }
+        }
+
+#if UNITY_EDITOR
         /// <summary>
         /// The number of thin clients to create. Only available in the Editor.
         /// </summary>
         public static int RequestedNumThinClients => MultiplayerPlayModePreferences.RequestedNumThinClients;
-#elif UNITY_SERVER
-        /// <summary>
-        /// The current play mode, used to configure drivers and worlds.
-        /// </summary>
-        public static PlayType RequestedPlayType => PlayType.Server;
-#elif UNITY_CLIENT
-        /// <summary>
-        /// The current play mode, used to configure drivers and worlds.
-        /// </summary>
-        public static PlayType RequestedPlayType => PlayType.Client;
-#else
-        /// <summary>
-        /// The current play mode, used to configure drivers and worlds.
-        /// </summary>
-        public static PlayType RequestedPlayType => PlayType.ClientAndServer;
 #endif
         //Burst compatible counters that be used in job or ISystem to check when clients or server worlds are present
         internal struct ServerClientCount

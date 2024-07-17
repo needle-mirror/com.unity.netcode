@@ -8,7 +8,7 @@ namespace Unity.NetCode
     ///     Config file, allowing the package user to tweak netcode variables without having to write code.
     ///     Create as many instances as you like.
     /// </summary>
-    [CreateAssetMenu(menuName = "NetCode/NetCodeConfig Asset", fileName = "NetCodeConfig")]
+    [CreateAssetMenu(menuName = "Multiplayer/NetCodeConfig Asset", fileName = "NetCodeConfig", order = 1)]
     public class NetCodeConfig : ScriptableObject, IComparable<NetCodeConfig>
     {
         /// <summary>

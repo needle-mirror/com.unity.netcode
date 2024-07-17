@@ -82,7 +82,7 @@ namespace Unity.NetCode
         /// Struct that contains a the <see cref="NetworkDriver.Concurrent"/> version of the <see cref="NetworkDriver"/>
         /// and relative pipelines.
         /// </summary>
-        internal struct Concurrent
+        public struct Concurrent
         {
             /// <summary>
             /// The <see cref="NetworkDriver.Concurrent"/> version of the network driver.
@@ -120,6 +120,7 @@ namespace Unity.NetCode
         internal NetworkDriverData m_Driver1;
         internal NetworkDriverData m_Driver2;
         private int m_numDrivers;
+        private int m_Finalized;
 
         /// <summary>
         /// The fixed capacity of the driver container.
@@ -174,6 +175,27 @@ namespace Unity.NetCode
             }
         }
 
+        /// <summary>
+        /// Return true if there is at least one driver listening for incoming connections.
+        /// </summary>
+        public bool HasListeningInterfaces
+        {
+            get
+            {
+                for (var i = FirstDriver; i <= LastDriver; ++i)
+                {
+                    ref readonly var driverInstance = ref GetDriverInstanceRO(i);
+                    if (driverInstance.driver.IsCreated && driverInstance.driver.Listening)
+                        return true;
+                }
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// Denote if the store has at least one driver registered
+        /// </summary>
+        public bool IsCreated => m_numDrivers > 0 && m_Driver0.IsCreated;
 
         /// <summary>
         /// Add a new driver to the store. Throw exception if all drivers slot are already occupied or the driver is not created/valid
@@ -188,7 +210,8 @@ namespace Unity.NetCode
                 throw new InvalidOperationException("Cannot register non valid driver (IsCreated == false)");
             if (m_numDrivers == Capacity)
                 throw new InvalidOperationException("Cannot register more driver. All slot are already used");
-
+            if(m_Finalized != 0)
+                throw new InvalidOperationException("It is invalid to register a NetworkDriver instance to an already finalized NetworkDriverStore.\nIn order to register a new driver, you need to create a new NetworkDriverStore or invoke the RegisterNetworkDriver before the store instance is assigned to NetworkStreamDriver.");
             int nextDriverId = FirstDriverId + m_numDrivers;
             ++m_numDrivers;
             ref var driverRef = ref GetDriverDataRW(nextDriverId);
@@ -199,23 +222,15 @@ namespace Unity.NetCode
             return nextDriverId;
         }
 
-        /// <summary>
-        /// Reset the current state of the store and must be called before registering the drivers.
-        /// </summary>
-        internal void BeginDriverRegistration()
-        {
-            m_numDrivers = 0;
-            m_Driver0.Dispose();
-            m_Driver1.Dispose();
-            m_Driver2.Dispose();
-        }
 
         /// <summary>
         /// Finalize the registration phase by initializing all missing driver instances with a NullNetworkInterface.
         /// This final step is necessary to make the job safety system able to track all the safety handles.
         /// </summary>
-        internal void EndDriverRegistration()
+        internal void FinalizeDriverStore()
         {
+            if (m_Finalized != 0)
+                throw new InvalidOperationException("FinalizeDriverStore is called on already finalized NetworkDriverStore instance.");
             //The ifdef is to prevent allocating driver internal data when not necessary.
             //Allocating all drivers is necessary only in case safety handles are enabled.
 #if ENABLE_UNITY_COLLECTIONS_CHECKS
@@ -396,6 +411,7 @@ namespace Unity.NetCode
         /// Invoke the delegate on all registered drivers.
         /// </summary>
         /// <param name="visitor"></param>
+        [Obsolete("The ForEachDriver has been deprecated. Please always iterate over the driver using a for loop, using the FirstDriver and LastDriver ids instead.")]
         public void ForEachDriver(DriverVisitor visitor)
         {
             if (m_numDrivers == 0)
@@ -472,7 +488,7 @@ namespace Unity.NetCode
     /// <summary>
     /// The concurrent version of the DriverStore. Contains the concurrent copy of the drivers and relative pipelines.
     /// </summary>
-    internal struct ConcurrentDriverStore
+    public struct ConcurrentDriverStore
     {
         internal NetworkDriverStore.Concurrent m_Concurrent0;
         internal NetworkDriverStore.Concurrent m_Concurrent1;
@@ -482,8 +498,8 @@ namespace Unity.NetCode
         /// Get the concurrent driver with the given driver id
         /// </summary>
         /// <param name="driverId">the id of the driver. Must always greater or equals <see cref="NetworkDriverStore.FirstDriverId"/></param>
-        /// <returns></returns>
-        /// <exception cref="InvalidOperationException"></exception>
+        /// <returns>the concurrent version of the NetworkdDriverStore</returns>
+        /// <exception cref="InvalidOperationException">Throws if driverId is out of range.</exception>
         public NetworkDriverStore.Concurrent GetConcurrentDriver(int driverId)
         {
             switch (driverId)

@@ -211,7 +211,7 @@ This singleton is a special kind of ghost without a prefab asset.
 ### GhostStats
 | Component                               | Description                                                         |
 |-----------------------------------------|---------------------------------------------------------------------|
-| __GhostStats__                          | State if the NetDbg tools is connected or not.                      |
+| __GhostStats__                          | State if the Network Debugger tools is connected or not.            |
 | __GhostStatsCollectionCommand__         | Internal stats data for commands.                                   |
 | __GhostStatsCollectionSnapshot__        | Internal stats data used to track sent/received snapshot data.      |
 | __GhostStatsCollectionPredictionError__ | Record the prediction stats for various ghost/component types pair. |

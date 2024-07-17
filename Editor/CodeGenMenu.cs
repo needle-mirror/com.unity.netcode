@@ -1,13 +1,12 @@
 using UnityEditor;
 using UnityEngine;
-using UnityEditorInternal;
 
 namespace Unity.NetCode.Editor
 {
     class CodeGenMenu
     {
-        [MenuItem("Multiplayer/Force Code Generation", priority = 10)]
-        static private void ForceRunCodeGen()
+        [MenuItem("Assets/Multiplayer/Force Code Generation", priority = 1000)]
+        private static void ForceRunCodeGen()
         {
             EditorApplication.delayCall += () =>
             {
@@ -29,8 +28,8 @@ namespace Unity.NetCode.Editor
             };
         }
 
-        [MenuItem("Multiplayer/Open Source Generated Folder", priority = 12)]
-        static private void OpenSourceGeneratedFolder()
+        [MenuItem("Assets/Multiplayer/Open Source Generated Folder", priority = 1000)]
+        private static void OpenSourceGeneratedFolder()
         {
             if (!System.IO.File.Exists("Temp/NetCodeGenerated"))
             {

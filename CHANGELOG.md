@@ -4,12 +4,30 @@ uid: changelog
 
 # Changelog
 
+## [1.3.0-pre.4] - 2024-07-17
+
+### Added
+
+* Optional UUID5GhostType property to the GhostCreation.Config struct, which allows you to provide your own unique UUID5 identifier when creating a ghost prefab at runtime, instead of relying on the auto-generated one (which uses the SHA1 of the ghost name).
+* NetworkStreamDriver.ResetDriverStore to properly reset the NetworkDriverStore
+
+### Changed
+
+* All Simulate component enable states are reset to using a job instead of doing that synchronously on the main thread. Reason for the change is the fact this was inducing a big stall at the end of the Prediction loop. However, the benefits is only visible when there are a large number of jobified workload.
+* Corrected incorrect/missing CHANGELOG entries across many previous versions.
+* Updated Burst dependency to version 1.8.16
+* Unified Multiplayer Project settings.
+* Moved menu items to a collective place to improve workflows. This removes the Multiplayer menu and integrates into common places Window, Assets/Create, right-click menus, etc.
+* The dependency on Unity Transport has been updated to version 2.2.1
+* Re-exposed `TryFindAutoConnectEndPoint` and `HasDefaultAddressAndPortSet`, with small documentation updates.
+* ConcurrentDriverStore and NetworkDriverStore.Concurrent are now public and you can use the NetworkDriverStore.Concurrent in your jobs to send/receive data.
+
+
 ## [1.3.0-exp.1] - 2024-06-11
 
 ### Added
 
 * The Multiplayer PlayMode Tools Window now calls synchronous `Connect` and `Disconnect` methods, and now shows the `Handshake` connection step. Handshake occurs when the client connection has been accepted by the server, but said client is awaiting a `NetworkId` assignment RPC from said server.
-* Possibility to optimise the ghost serialization and pre-serialization by registering a custom chunk serialization function pointer that will let users reason on a per-archetype and write the serialization code without requiring virtual methods (function pointer call indirection) and optimised for the use case.
 * Further clarifications, minor improvements, and fixes to the PlayMode Tools Window.
 * `DefaultRelevancyQuery` to specify general rules for relevancy without specifying it ghost by ghost.
 * Tooltips and additional info for the NetCodeConfig, supporting `ClientServerTickRate`, `ClientTickRate`, and `GhostSendSystemData`.
@@ -47,7 +65,6 @@ uid: changelog
 * Issue where disconnecting your own client (via a direct `Disconnect` call) would fail to recycle the `NetworkId` component, and fail to dispose of the Entity.
 * We now also correctly report and clean-up stale connections. I.e. Connections that are entered into invalid states by user-code.
 * Issue where the `CommandSendSystem` was attempting to send RPCs with stale connections.
-* some slow path in the normal ghost serialization that was causing many re-serialization of the same chunk, in case the chunk data was not fitting inside the temporary stream buffer. That was almost the norm in many cases, when the serialised entities are large enough (either because of the number of components or because of the size of them).
 * NetworkStreamConnection now holds an accurate connection state right after the call to driver's Connect, instead of having to wait a frame to get it updated.
 * Minor documentation issues.
 * InvalidOperationException: cases where EntityManager is part of an exclusive transaction we skip gathering analytics for its world.
@@ -115,6 +132,8 @@ uid: changelog
 * BatchScaleImportanceDelegate, a new version of the importance scaling function that work in batches. It is not required to set both the ScaleImportance and the BatchScaleImportance function pointers. If the BatchScaleImportance is set, it is the preferred.
 * TempStreamInitialSize, a new parameter in the GhostSendSystemData for tuning the initial size of the temporary buffer used by server to serialise ghosts. By default now the size is 8KB.
 * AlwaysRelevantQuery to specify general rules for relevancy without specifying it ghost by ghost.
+* Added support for `NetCodeConnectionEvents` (accessed via singleton `NetworkStreamDriver`, `ConnectionEventsForFrame` property), allowing users an alternative to the `ConnectionState` component for tracking client connection and disconnection events.
+* When single-stepping the Unity Editor, you'll see `NetCodeConnectionEvent`s in our Multiplayer PlayMode Tools Window.
 
 ### Changed
 
@@ -158,7 +177,7 @@ uid: changelog
 * QoL issue where `GhostAuthoringInspectionComponent` was not always modifiable in areas of the Editor where it is valid to modify them.
 * Issue where `GhostAuthoringComponent` was disallowed in nested prefab setups (where the root prefab is NOT a ghost).
 * Log verbiage when creating a driver in DefaultDriverConstructor read like a 'call to action'. It's not.
-
+* Internal driver clobbering error when calling `NetworkDriverStore.Disconnect` leading to rare exceptions in esoteric situations.
 
 ## [1.2.0-exp.3] - 2023-11-09
 
@@ -174,7 +193,6 @@ uid: changelog
 * mostly for maintenance, code-generation for the component and buffer serialiser, using helper methods living all inside the package. No user visible changes
 * Updated Transport dependency to version 2.1.0.
 * The minimum supported editor version is now 2022.3.11f1
-* all Simulate component enable states are reset to using a job instead of doing that synchronously on the main thread. Reason for the change is the fact this was inducing a big stall at the end of the Prediction loop. However, the benefits is only visible when there are a large number of jobified workload.
 * components, command, buffers and rpc are now replicated also if they are private or internal
 
 ### Removed
@@ -193,6 +211,8 @@ uid: changelog
 * `IndexOutOfRangeException` in the `GhostCollectionSystem` when ghost hash mismatches are present (a common error during dev).
 * An issue accessing the m_PredictionSwitchingSmoothingLookup buffer when multiple ghosts change their owner and they need to switch prediction mode.
 * GhostPrefabCreation.ConvertToGhostPrefab api that incorrectly replicated and assign to child entity components the root entity variant.
+* Possibility to optimise the ghost serialization and pre-serialization by registering a custom chunk serialization function pointer that will let users reason on a per-archetype and write the serialization code without requiring virtual methods (function pointer call indirection) and optimised for the use case.
+* some slow path in the normal ghost serialization that was causing many re-serialization of the same chunk, in case the chunk data was not fitting inside the temporary stream buffer. That was almost the norm in many cases, when the serialised entities are large enough (either because of the number of components or because of the size of them).
 
 
 ## [1.1.0-pre.3] - 2023-10-17
@@ -468,11 +488,6 @@ MetricsMonitorComponent: MetricsMonitor,
 * It is not necessary anymore to define a custom `DefaultGhostVariant` system if a `LocalTransform` (`Rotation` or `Position` for V1) or `PhysicsVelocity` variants are added to project (since a `default` selection is already provided by the package).
 * Updated `com.unity.transport` dependency to 2.0.0-pre.2
 
-
-### Deprecated
-
-* `ProjectSettings / NetCodeClientTarget` was not actually saved to the ProjectSettings. Instead, it was saved to `EditorPrefs`, breaking build determinism across machines. Now that this has been fixed, your EditorPref has been clobbered, and `ClientSettings.NetCodeClientTarget` has been deprecated (in favour of `NetCodeClientSettings.instance.ClientTarget`).
-
 ### Removed
 
 * Removing dependencies on `com.unity.jobs` package.
@@ -497,18 +512,8 @@ MetricsMonitorComponent: MetricsMonitor,
 * Removed CSS warning in package.
 * A problem with baking and additional ghost entities that was removing `LocalTransform`, `WorldTransform` and `LocalToWorld` matrix.
 * Mismatched ClientServerTickRate.SimulationTickRate and PredictedFixedStepSimulationSystemGroup.RateManager.Timestep will throw an error and will set the values to match each other.
-* An issue with pre-spawned ghost baking when the baked entity has not LocalTransform (position/rotation for transform v1) component.
-* "Ghost Distance Importance Scaling" is now working again. Ensure you read the updated documentation.
-* Missing field write in `NetworkStreamListenSystem.OnCreate`, fixing Relay servers.
-* Code-Generated Burst-compiled Serializer methods will now only compile inside worlds with `WorldFlag.GameClient` and `WorldFlag.GameServer` WorldFlags. This improves exit play-mode speeds (when Domain Reload is enabled), baking (in all cases), and recompilation speeds.
-* Fixed an issue where multiple ghost types with the same archetype but difference data could sometime trigger errors about ghosts changing type.
 * Improvements to the `GhostAuthoringInspectionComponent`, including removing the freeze when a baker creates lots of "Additional" entities, better display of Inputs, and fixed bug where the EntityGuid was not being saved (so modifying additional Entities is now supported). We now also detect (but don't destroy) broken ComponentOverrides, making it easier to switch from TRANSFORMS_V1 (for example).
-* Fix a mistake where the relay sample will create a client driver rather than a server driver
-* Fix logic for relay set up on the client. Making sure when calling DefaultDriverConstructor.RegisterClientDriver with relay settings that we skip this unless, requested playtype is client or clientandserver (if no server is found), the simulator is enabled, or on a client only build.
-* Fixed `ArgumentException: ArchetypeChunk.GetDynamicComponentDataArrayReinterpret<System.Byte> cannot be called on zero-sized IComponentData` in `GhostPredictionHistorySystem.PredictionBackupJob`. Added comprehensive test coverage for the `GhostPredictionHistorySystem` (via adding a predicted ghost version of the `GhostSerializationTestsForEnableableBits` tests).
 * Fixed serialization of components on child entities in the case where `SentForChildEntities = true`. This fix may introduce a small performance regression in baking and netcode world initialization.
-* `GhostUpdateSystem` now supports Change Filtering, so components on the client will now only be marked as changed _when they actually are changed_. We strongly recommend implementing change filtering when reading components containing `[GhostField]`s and `[GhostEnabledBit]`s on the client.
-* Fixed input component codegen issue when the type is nested in a parent class
 * Exposed NetworkTick value to Entity Inspector.
 * Fixed code-gen error where `ICommandData.Tick` was not being replicated.
 * Fixed code-gen GhostField error handling when dealing with properties on Buffers, Commands, and Components.
@@ -534,7 +539,6 @@ MetricsMonitorComponent: MetricsMonitor,
 * added some sanity check to prevent updating invalid ghosts
 * Added a new method, `GhostPrefabCreation.ConvertToGhostPrefab` which can be used to create ghost prefabs from code without having an asset for them.
 * Added a support for creating multiple network drivers. It is now possible to have a server that listen to the same port using different network interfaces (ex: IPC, Socket, WebSocket at the same time).
-* Hybrid assemblies will not be included in DOTS Runtime builds.
 * code generation documentation
 * RegisterPredictedPhysicsRuntimeSystemReadWrite and RegisterPredictedPhysicsRuntimeSystemReadOnly extension methods, for tracking dependencies when using predicted networked physics systems.
 * Support for runtime editing the number of ThinClients.

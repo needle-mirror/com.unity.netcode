@@ -141,7 +141,7 @@ namespace Unity.NetCode.Editor
         static GUILayoutOption s_RightButtonWidth = GUILayout.Width(120);
         private int m_PreviousFrameCount;
 
-        [MenuItem("Multiplayer/Window: PlayMode Tools", priority = 50)]
+        [MenuItem("Window/Multiplayer/PlayMode Tools", priority = 3007)]
         private static void ShowWindow()
         {
             GetWindow<MultiplayerPlayModeWindow>(false, k_Title, true);
@@ -227,7 +227,7 @@ namespace Unity.NetCode.Editor
             }
         }
 
-        [MenuItem("Multiplayer/Toggle Lag Spike Simulation _F12", priority = 51)]
+        [MenuItem("Window/Multiplayer/Toggle Lag Spike Simulation _F12", priority = 3007)]
         static void ToggleLagSpikeSimulatorShortcut()
         {
             if (ClientServerBootstrap.ClientWorld != null)

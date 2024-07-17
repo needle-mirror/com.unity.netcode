@@ -60,22 +60,22 @@ The following variables and regions can be used by the user when writing custom 
 |GHOST_USING|the using statement list|
 |GHOST_MASK_INDEX|the current bit index in the change mask. From 0 to 31|
 ### REGIONS
-|||
-|------|------|
-|GHOST_FIELD| fields that will be added the snapshot for this type | 
-|GHOST_IMPORTS| user defined using statement that should be included in the serializer code|
-|GHOST_RESTORE_FROM_BACKUP||
-|GHOST_PREDICT| code that calculate the predicted value for the current field |
-|GHOST_READ| code that deserialise the field value for the byte stream |
-|GHOST_WRITE| code that serialize the field value to the byte stream |
-|GHOST_COPY_TO_SNAPSHOT| contains the code to copy component field data to the snapshot struct |
-|COPY_FROM_SNAPSHOT_SETUP| placeholder region that will contains the code for setting the serialization based if the struct is a buffer or component|
-|GHOST_COPY_FROM_SNAPSHOT|copied into the COPY_FROM_SNAPSHOT_SETUP|
-|GHOST_COPY_FROM_BUFFER | copied into the COPY_FROM_SNAPSHOT_SETUP|
-|GHOST_COPY_FROM_SNAPSHOT_INTERPOLATE_SETUP|optional region, can contains initialization code used by the GHOST_COPY_FROM_SNAPSHOT_INTERPOLATE region|
-|GHOST_COPY_FROM_SNAPSHOT_INTERPOLATE_DISTSQ|calculate the current field's square distance in between the Before and After snapshots |
-|GHOST_COPY_FROM_SNAPSHOT_INTERPOLATE|code for interpolate the field value in between the Before and After snapshot values|
-|GHOST_CALCULATE_CHANGE_MASK|contains the code to check and update the change mask bits|
-|GHOST_CALCULATE_CHANGE_MASK_ZERO|contains the code to check and set the change mask bits. Used when the mask is reset or after 32 mask bits has been written|
-|GHOST_REPORT_PREDICTION_ERROR|the code tha calculate the error (as distance usually) in between the current and predicted value for the current field|
-|GHOST_GET_PREDICTION_ERROR_NAME|the error name, will be used in the NetDbgTool or for debugging purpose|
+||                                                                                                                             |
+|------|-----------------------------------------------------------------------------------------------------------------------------|
+|GHOST_FIELD| fields that will be added the snapshot for this type                                                                        | 
+|GHOST_IMPORTS| user defined using statement that should be included in the serializer code                                                 |
+|GHOST_RESTORE_FROM_BACKUP|                                                                                                                             |
+|GHOST_PREDICT| code that calculate the predicted value for the current field                                                               |
+|GHOST_READ| code that deserialise the field value for the byte stream                                                                   |
+|GHOST_WRITE| code that serialize the field value to the byte stream                                                                      |
+|GHOST_COPY_TO_SNAPSHOT| contains the code to copy component field data to the snapshot struct                                                       |
+|COPY_FROM_SNAPSHOT_SETUP| placeholder region that will contains the code for setting the serialization based if the struct is a buffer or component   |
+|GHOST_COPY_FROM_SNAPSHOT| copied into the COPY_FROM_SNAPSHOT_SETUP                                                                                    |
+|GHOST_COPY_FROM_BUFFER | copied into the COPY_FROM_SNAPSHOT_SETUP                                                                                    |
+|GHOST_COPY_FROM_SNAPSHOT_INTERPOLATE_SETUP| optional region, can contains initialization code used by the GHOST_COPY_FROM_SNAPSHOT_INTERPOLATE region                   |
+|GHOST_COPY_FROM_SNAPSHOT_INTERPOLATE_DISTSQ| calculate the current field's square distance in between the Before and After snapshots                                     |
+|GHOST_COPY_FROM_SNAPSHOT_INTERPOLATE| code for interpolate the field value in between the Before and After snapshot values                                        |
+|GHOST_CALCULATE_CHANGE_MASK| contains the code to check and update the change mask bits                                                                  |
+|GHOST_CALCULATE_CHANGE_MASK_ZERO| contains the code to check and set the change mask bits. Used when the mask is reset or after 32 mask bits has been written |
+|GHOST_REPORT_PREDICTION_ERROR| the code tha calculate the error (as distance usually) in between the current and predicted value for the current field     |
+|GHOST_GET_PREDICTION_ERROR_NAME| the error name, will be used in the Network Debugger or for debugging purpose                                               |

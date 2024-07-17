@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Diagnostics;
 using System.Linq;
 using Unity.Collections;
 using Unity.NetCode.Hybrid;
@@ -39,7 +38,6 @@ namespace Unity.NetCode.Editor
             }
         }
 
-        [MenuItem("Multiplayer/Create NetcodeConfig Asset", priority = 100)]
         internal static void CreateNetcodeSettingsAsset()
         {
             var assetPath = AssetDatabase.GenerateUniqueAssetPath("Assets/NetcodeConfig.asset");
@@ -84,10 +82,10 @@ namespace Unity.NetCode.Editor
         {
             // First parameter is the path in the Settings window.
             // Second parameter is the scope of this setting: it only appears in the Project Settings window.
-            var provider = new SettingsProvider("Project/NetCodeConfig.asset", SettingsScope.Project)
+            var provider = new SettingsProvider("Project/Multiplayer", SettingsScope.Project)
             {
                 // By default the last token of the path is used as display name if no label is provided.
-                label = "NetCode for Entities",
+                label = "Multiplayer",
                 // Create the SettingsProvider and initialize its drawing (IMGUI) function in place:
                 guiHandler = (searchContext) =>
                 {

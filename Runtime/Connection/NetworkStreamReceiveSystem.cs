@@ -335,23 +335,19 @@ namespace Unity.NetCode
             else
             {
                 driverStore = new NetworkDriverStore();
-                driverStore.BeginDriverRegistration();
                 if (state.World.IsServer())
                     DriverConstructor.CreateServerDriver(state.World, ref driverStore, SystemAPI.GetSingleton<NetDebug>());
                 else
                     DriverConstructor.CreateClientDriver(state.World, ref driverStore, SystemAPI.GetSingleton<NetDebug>());
-                driverStore.EndDriverRegistration();
             }
 
             m_DriverPointers = (IntPtr)UnsafeUtility.Malloc(UnsafeUtility.SizeOf<NetworkStreamDriver.Pointers>(), UnsafeUtility.AlignOf<NetworkStreamDriver.Pointers>(), Allocator.Persistent);
-
-            ref var store = ref UnsafeUtility.AsRef<NetworkStreamDriver.Pointers>((void*)m_DriverPointers);
-            store.DriverStore = driverStore;
-            store.ConcurrentDriverStore = driverStore.ToConcurrent();
-
+            UnsafeUtility.MemClear((void*)m_DriverPointers, UnsafeUtility.SizeOf<NetworkStreamDriver.Pointers>());
             var networkStreamEntity = state.EntityManager.CreateEntity(ComponentType.ReadWrite<NetworkStreamDriver>());
             state.EntityManager.SetName(networkStreamEntity, "NetworkStreamDriver");
             SystemAPI.SetSingleton(new NetworkStreamDriver((void*)m_DriverPointers, m_NumNetworkIds, m_FreeNetworkIds, lastEp, m_ConnectionEvents, m_ConnectionEvents.AsReadOnly()));
+            SystemAPI.GetSingleton<NetworkStreamDriver>().ResetDriverStore(state.WorldUnmanaged, ref driverStore);
+
             state.RequireForUpdate<GhostCollection>();
             state.RequireForUpdate<NetworkTime>();
             state.RequireForUpdate<NetDebug>();

@@ -45,7 +45,12 @@ namespace Unity.NetCode
         /// Copying such a large struct is expensive, prefer <code>ref var driverStore = ref networkStreamDriver.RefRW.DriverStore;</code> syntax.
         /// </remarks>
         public ref NetworkDriverStore DriverStore => ref UnsafeUtility.AsRef<Pointers>(m_DriverPointer).DriverStore;
-        internal ref ConcurrentDriverStore ConcurrentDriverStore => ref UnsafeUtility.AsRef<Pointers>(m_DriverPointer).ConcurrentDriverStore;
+
+        /// <summary>
+        /// A reference to the concurrent version of the <see cref="NetworkDriverStore"/> (<see cref="ConcurrentDriverStore"/>), used for send/receiving
+        /// messages in jobs.
+        /// </summary>
+        public ref ConcurrentDriverStore ConcurrentDriverStore => ref UnsafeUtility.AsRef<Pointers>(m_DriverPointer).ConcurrentDriverStore;
 
         /// <summary>
         /// Convenience. Records the DriverStore used in the latest call to <see cref="Listen"/> or <see cref="Connect"/>.
@@ -167,6 +172,10 @@ namespace Unity.NetCode
         /// <returns></returns>
         public bool Listen(NetworkEndpoint endpoint)
         {
+            //Check that at least the first driver have been created. This is a sufficient condition.
+            if (!DriverStore.m_Driver0.IsCreated)
+                throw new InvalidOperationException($"You cannot call Listen on a NetworkStreamDriver for which the DriverStore have been not created. Please ensure the NetworkDriverStore is setup before calling the Listen method.");
+
             // Switching to server mode. Start listening all the driver interfaces
             var errors = new FixedList32Bytes<int>();
             //It is possible to listen on a specific address/port. However, for IPC drivers there is a restriction:
@@ -208,6 +217,9 @@ namespace Unity.NetCode
         /// <exception cref="InvalidOperationException">Throw an exception if the driver is not created or if multiple drivers are register</exception>
         public Entity Connect(EntityManager entityManager, NetworkEndpoint endpoint, Entity ent = default)
         {
+            if (!DriverStore.m_Driver0.IsCreated)
+                throw new InvalidOperationException($"You cannot call Connect on a NetworkStreamDriver for which the DriverStore have been not created. Please ensure the NetworkDriverStore is setup before calling the Connect method.");
+
             var netDebugQuery = entityManager.CreateEntityQuery(new EntityQueryBuilder(Allocator.Temp).WithAll<NetDebug>());
             var netDebug = netDebugQuery.GetSingleton<NetDebug>();
 
@@ -354,6 +366,55 @@ namespace Unity.NetCode
 
             DriverState = NetworkStreamReceiveSystem.DriverState.Migrating;
             return driverStoreState;
+        }
+
+        /// <summary>
+        /// Reset the current <see cref="DriverStore"/> by disposing the current instance and its associated
+        /// <see cref="ConcurrentDriverStore"/>.
+        /// This method can be used to re-create and re-configure the driver after world has been created and before either
+        /// <see cref="Listen"/> or <see cref="Connect"/> has been called.
+        /// </summary>
+        /// <example>
+        /// <code>
+        /// var driverStore = new NetworkDriverStore();
+        /// var constructor = NetworkStreamReceiveSystem.DriverConstructor;
+        /// constructor.CreateServerDriver(serverWorld, ref driverStore, netDebug);
+        /// var driver = EntityManager.CreateEntityQuery(typeof(NetworkStreamDriver)).GetSingleton&lt;NetworkStreamDriver&gt;();
+        /// driver.ResetDriverStore(driverStore);
+        /// var listenEndPoint = NetworkEndpoint.AnyIpv4.WithPort(MyPort);
+        /// driver.Listen(listenEndPoint);
+        /// </code>
+        /// </example>
+        /// <param name="world">The world the NetworkStreamDriver singleton is part of.</param>
+        /// <param name="driverStore">The new driver store to use.</param>
+        public void ResetDriverStore(WorldUnmanaged world, ref NetworkDriverStore driverStore)
+        {
+            if (UnsafeUtility.AddressOf(ref driverStore) == UnsafeUtility.AddressOf(ref DriverStore))
+            {
+                //Try to self assign the same instance. Skip. I would say this is an error. Unfortunately, we can't catch the
+                //case where the NetworkDriverStore is copied on the stack and assigned.
+                return;
+            }
+            if (world.IsClient() && DriverStore.DriversCount > 1)
+                throw new InvalidOperationException($"Cannot assign the NetworkDriverStore to the NetworkStreamDriver for world {world.Name}. Client must configure the driver store to use ONLY ONE network driver, but the {nameof(driverStore)} instance passed as argument has been configured to use {driverStore.DriversCount} network drivers.");
+
+            //If the driver is not the "default" (no registered driver and the first interface is not created) it is valid to dispose the current driver.
+            //For example: the server can dispose the driver to stop listening (it is actually the only way to stop listening).
+            //In all cases, it is not valid to dispose a driver if there are connections.
+            if (DriverStore.IsCreated)
+            {
+                using var connectionQuery = world.EntityManager.CreateEntityQuery(typeof(NetworkStreamConnection));
+                if (!connectionQuery.IsEmpty)
+                    throw new InvalidOperationException($"Cannot assign the NetworkDriverStore to the NetworkStreamDriver for world {world.Name} because there are NetworkStreamConnection entities.\nPlease ensure you are setting up the drivers after you disconnected all the connections and have them properly cleanup by the NetworkStreamReceiveSystem. This will usually require at least one world update (because NetworkStreamConnection are cleanup component).");
+            }
+
+            //reset the current driver store any any case. This is a no-op if the current instance is already destroyed.
+            DriverStore.Dispose();
+            //finalize the driver store by adding any empty drivers. Calling Begin is not required, it is just finalizing the driver creation.
+            //Modify an existing driver store is also prohibited. Like calling RegisterDriver after having the driver finalized.
+            driverStore.FinalizeDriverStore();
+            DriverStore = driverStore;
+            ConcurrentDriverStore = driverStore.ToConcurrent();
         }
     }
 }

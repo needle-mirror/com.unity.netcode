@@ -405,11 +405,11 @@ to be added to all ghost types, sent for all ghost types, and serialized using t
 
 ## Snapshot visualization tool
 
-To understand what is being put on the wire in the Netcode, you can use the snapshot visualization tool, __NetDbg__ tool.
+To understand what is being put on the wire in the Netcode, you can use the snapshot visualization tool, __Network Debugger__ tool.
 
 <img src="images/snapshot-debugger.png" width="1000" alt="net debug tool">
 
-To open the tool, go to menu: __Multiplayer &gt; Open NetDbg__, and the tool opens in a browser window. It displays a vertical bar for each received snapshot, with a breakdown of the snapshot’s ghost types, size etc.
+To open the tool, go to menu: __Window &gt; Multiplayer &gt; Network Debugger__, and the tool opens in a browser window. It displays a vertical bar for each received snapshot, with a breakdown of the snapshot’s ghost types, size etc.
 
 To see more detailed information about the snapshot, click on one of the bars.
 

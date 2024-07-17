@@ -123,6 +123,8 @@ namespace Unity.NetCode.Hybrid
     {
         VisualElement m_BuildSettingsContainer;
 
+        public override string ProviderPath => "Project/Multiplayer/Build";
+
         public override int Importance
         {
             get { return 1; }
@@ -140,6 +142,8 @@ namespace Unity.NetCode.Hybrid
 
         public override void OnActivate(DotsGlobalSettings.PlayerType type, VisualElement rootElement)
         {
+            DotsGlobalSettings.Instance.ServerProvider.ProviderPath = "Project/Multiplayer/Build";
+
             rootElement.RegisterCallback<AttachToPanelEvent>(OnAttachToPanel);
             rootElement.RegisterCallback<DetachFromPanelEvent>(OnDetachFromPanel);
 

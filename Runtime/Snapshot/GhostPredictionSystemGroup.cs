@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Threading;
 using Unity.Assertions;
 using Unity.Collections;
 using Unity.Core;
@@ -7,6 +8,8 @@ using Unity.Entities;
 using Unity.Mathematics;
 using Unity.Burst;
 using Unity.Burst.Intrinsics;
+using Unity.Collections.LowLevel.Unsafe;
+using Unity.Jobs;
 
 namespace Unity.NetCode
 {
@@ -52,7 +55,7 @@ namespace Unity.NetCode
                 Assert.IsFalse(useEnabledMask);
 
                 var predicted = chunk.GetNativeArray(ref predictedHandle);
-
+                var enabledMask = chunk.GetEnabledMask(ref simulateHandle);
                 if (chunk.Has(ref linkedEntityGroupHandle))
                 {
                     var linkedEntityGroupArray = chunk.GetBufferAccessor(ref linkedEntityGroupHandle);
@@ -60,9 +63,10 @@ namespace Unity.NetCode
                     for(int i = 0, chunkEntityCount = chunk.Count; i < chunkEntityCount; i++)
                     {
                         var shouldPredict = predicted[i].ShouldPredict(tick);
-                        if (chunk.IsComponentEnabled(ref simulateHandle, i) != shouldPredict)
+                        var isPredicting = enabledMask.GetBit(i);
+                        enabledMask[i] = shouldPredict;
+                        if (isPredicting != shouldPredict)
                         {
-                            chunk.SetComponentEnabled(ref simulateHandle, i, shouldPredict);
                             var linkedEntityGroup = linkedEntityGroupArray[i];
                             for (int child = 1; child < linkedEntityGroup.Length; ++child)
                             {
@@ -76,9 +80,7 @@ namespace Unity.NetCode
                 else
                 {
                     for(int i = 0, chunkEntityCount = chunk.Count; i < chunkEntityCount; i++)
-                    {
-                        chunk.SetComponentEnabled(ref simulateHandle, i, predicted[i].ShouldPredict(tick));
-                    }
+                        enabledMask[i] = predicted[i].ShouldPredict(tick);
                 }
             }
         }
@@ -101,6 +103,50 @@ namespace Unity.NetCode
                 tick = tick
             };
             state.Dependency = predictedJob.ScheduleParallel(m_PredictedQuery, state.Dependency);
+        }
+    }
+
+    [RequireMatchingQueriesForUpdate]
+    [WorldSystemFilter(WorldSystemFilterFlags.ClientSimulation)]
+    [UpdateInGroup(typeof(PredictedSimulationSystemGroup), OrderLast=true)]
+    [BurstCompile]
+    internal partial struct GhostPredictionEnableSimulateSystem : ISystem
+    {
+        ComponentTypeHandle<Simulate> m_SimulateHandle;
+        private EntityQuery m_GhostQuery;
+
+        [BurstCompile]
+        public void OnCreate(ref SystemState state)
+        {
+            m_SimulateHandle = state.GetComponentTypeHandle<Simulate>();
+            var builder = new EntityQueryBuilder(Allocator.Temp)
+                .WithDisabled<Simulate>()
+                .WithAny<GhostInstance, GhostChildEntity>();
+            m_GhostQuery = state.GetEntityQuery(builder);
+        }
+        [BurstCompile]
+        struct EnableAllPredictedGhostSimulate : IJobChunk
+        {
+            public ComponentTypeHandle<Simulate> simulateHandle;
+            public void Execute(in ArchetypeChunk chunk, int unfilteredChunkIndex, bool useEnabledMask, in v128 chunkEnabledMask)
+            {
+                var enabledMask = chunk.GetEnabledMask(ref simulateHandle);
+                for(int i=0;i<chunk.Count;++i)
+                    enabledMask[i] = true;
+            }
+        }
+        [BurstCompile]
+        public void OnUpdate(ref SystemState state)
+        {
+            var netTime = SystemAPI.GetSingleton<NetworkTime>();
+            if (netTime.IsFinalPredictionTick)
+            {
+                m_SimulateHandle.Update(ref state);
+                state.Dependency = new EnableAllPredictedGhostSimulate()
+                {
+                    simulateHandle = m_SimulateHandle,
+                }.ScheduleParallel(m_GhostQuery, state.Dependency);
+            }
         }
     }
 
@@ -154,7 +200,7 @@ namespace Unity.NetCode
         private EntityQuery m_UniqueInputTicksQuery;
 
         private EntityQuery m_GhostQuery;
-        private EntityQuery m_GhostChildQuery;
+        //private EntityQuery m_GhostChildQuery;
 
         private NetworkTick m_LastFullPredictionTick;
 
@@ -199,16 +245,17 @@ namespace Unity.NetCode
 
             var builder = new EntityQueryDesc
             {
-                All = new[]{ComponentType.ReadWrite<Simulate>(), ComponentType.ReadOnly<GhostInstance>()},
+                All = new[]{ComponentType.ReadWrite<Simulate>()},
+                Any = new []{ComponentType.ReadOnly<GhostInstance>(), ComponentType.ReadOnly<GhostChildEntity>()},
                 Options = EntityQueryOptions.IgnoreComponentEnabledState
             };
             m_GhostQuery = group.World.EntityManager.CreateEntityQuery(builder);
-            builder = new EntityQueryDesc
-            {
-                All = new[]{ComponentType.ReadWrite<Simulate>(), ComponentType.ReadOnly<GhostChildEntity>()},
-                Options = EntityQueryOptions.IgnoreComponentEnabledState
-            };
-            m_GhostChildQuery = group.World.EntityManager.CreateEntityQuery(builder);
+            // builder = new EntityQueryDesc
+            // {
+            //     All = new[]{ComponentType.ReadWrite<Simulate>(), ComponentType.ReadOnly<GhostChildEntity>()},
+            //     Options = EntityQueryOptions.IgnoreComponentEnabledState
+            // };
+            //m_GhostChildQuery = group.World.EntityManager.CreateEntityQuery(builder);
         }
         public bool ShouldGroupUpdate(ComponentSystemGroup group)
         {
@@ -300,7 +347,6 @@ namespace Unity.NetCode
                 networkTime.Flags &= ~(NetworkTimeFlags.IsFinalPredictionTick|NetworkTimeFlags.IsFinalFullPredictionTick|NetworkTimeFlags.IsFirstTimeFullyPredictingTick);
 
                 group.World.EntityManager.SetComponentEnabled<Simulate>(m_GhostQuery, false);
-                group.World.EntityManager.SetComponentEnabled<Simulate>(m_GhostChildQuery, false);
 
                 m_ClientTickRateQuery.TryGetSingleton<ClientTickRate>(out var clientTickRate);
                 if (clientTickRate.MaxPredictionStepBatchSizeRepeatedTick < 1)
@@ -378,8 +424,6 @@ namespace Unity.NetCode
                 networkTime.PredictedTickIndex++;
                 return true;
             }
-            group.World.EntityManager.SetComponentEnabled<Simulate>(m_GhostQuery, true);
-            group.World.EntityManager.SetComponentEnabled<Simulate>(m_GhostChildQuery, true);
 #if UNITY_EDITOR || NETCODE_DEBUG
             if (!networkTime.IsFinalPredictionTick)
                 throw new InvalidOperationException("IsFinalPredictionTick should not be set before executing the final prediction tick");

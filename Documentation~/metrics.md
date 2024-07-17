@@ -1,6 +1,6 @@
 # Metrics
 
-There are 2 ways of gathering metrics about the netcode simulation. The simplest and most straight forward way is to use the NetDbg from the Multiplayer Menu in the Editor. This will provide you with a simple web interface to view the metrics.
+There are 2 ways of gathering metrics about the netcode simulation. The simplest and most straight forward way is to use the Network Debugger from the Multiplayer Menu in the Editor. This will provide you with a simple web interface to view the metrics.
 
 The second way is to create a Singleton of type [MetricsMonitorComponent](https://docs.unity3d.com/Packages/com.unity.netcode@latest/index.html?subfolder=/api/Unity.NetCode.MetricsMonitor.html) 
 and populate it with the data points you want to monitor.
