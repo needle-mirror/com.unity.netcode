@@ -31,8 +31,8 @@ namespace Unity.NetCode
     /// The Client will assign the ghost ids to the prespawns.
     /// The Client must notify the server what scene sections has been loaded and initialized.
     /// </para>
-    /// <seealso cref="ServerPopulatePrespawnedGhostsSystem"/>
     /// </remarks>
+    /// <seealso cref="ServerPopulatePrespawnedGhostsSystem"/>
     [WorldSystemFilter(WorldSystemFilterFlags.ClientSimulation | WorldSystemFilterFlags.ThinClientSimulation)]
     [UpdateInGroup(typeof(PrespawnGhostSystemGroup))]
     [UpdateAfter(typeof(PrespawnGhostInitializationSystem))]

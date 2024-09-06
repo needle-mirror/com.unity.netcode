@@ -1,4 +1,4 @@
-# Netcode for Entities Source Generators
+# Netcode for Entities source generators
 
 The Netcode for Entities package uses Roslyn SourceGenerator to automatically generate at compile time:
 - All the serialization code for replicated Components and Buffers, ICommand, Rpc and IInputCommandData.

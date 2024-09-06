@@ -1,4 +1,4 @@
-# Client and server worlds
+# Client and server worlds networking model
 
 The Netcode for Entities package has a separation between client and server logic, and splits logic into multiple worlds (the "client world", and the "server world").
 It does this using concepts laid out in the [hierarchical update system](https://docs.unity3d.com/Packages/com.unity.entities@1.0/manual/systems-update-order.html) of Unity’s Entity Component System (ECS).

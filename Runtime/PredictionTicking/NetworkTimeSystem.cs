@@ -208,6 +208,7 @@ namespace Unity.NetCode
             MaxExtrapolationTimeSimTicks = 20,
             MaxPredictAheadTimeMS = 500,
             TargetCommandSlack = 2,
+            NumAdditionalCommandsToSend = 2,
             CommandAgeCorrectionFraction = 0.1f,
             PredictionTimeScaleMin = 0.9f,
             PredictionTimeScaleMax = 1.1f,

@@ -1,6 +1,7 @@
+using System;
+using System.Runtime.InteropServices;
 using NUnit.Framework;
 using Unity.Entities;
-using Unity.Networking.Transport;
 using Unity.NetCode.Tests;
 using UnityEngine;
 using Unity.Mathematics;
@@ -10,6 +11,11 @@ using Unity.Burst;
 using Unity.Burst.Intrinsics;
 using Unity.Collections;
 using Unity.Physics;
+using Unity.Physics.Extensions;
+using BoxCollider = Unity.Physics.BoxCollider;
+using Collider = Unity.Physics.Collider;
+using RaycastHit = Unity.Physics.RaycastHit;
+using SphereCollider = Unity.Physics.SphereCollider;
 
 namespace Unity.NetCode.Physics.Tests
 {
@@ -72,12 +78,12 @@ namespace Unity.NetCode.Physics.Tests
     {
         BeginSimulationEntityCommandBufferSystem m_BeginSimulationCommandBufferSystem;
         EntityQuery m_PlayerPrefabQuery;
-        EntityQuery m_CubePrefabQuery;
+        EntityQuery m_ColliderPrefabQuery;
         protected override void OnCreate()
         {
             m_BeginSimulationCommandBufferSystem = World.GetOrCreateSystemManaged<BeginSimulationEntityCommandBufferSystem>();
             m_PlayerPrefabQuery = GetEntityQuery(ComponentType.ReadOnly<Prefab>(), ComponentType.ReadOnly<GhostInstance>(), ComponentType.ReadOnly<LagCompensationTestPlayer>());
-            m_CubePrefabQuery = GetEntityQuery(ComponentType.ReadOnly<Prefab>(), ComponentType.ReadOnly<GhostInstance>(), ComponentType.Exclude<LagCompensationTestPlayer>());
+            m_ColliderPrefabQuery = GetEntityQuery(ComponentType.ReadOnly<Prefab>(), ComponentType.ReadOnly<GhostInstance>(), ComponentType.Exclude<LagCompensationTestPlayer>());
         }
         protected override void OnUpdate()
         {
@@ -85,20 +91,22 @@ namespace Unity.NetCode.Physics.Tests
 
             bool isServer = World.IsServer();
             var playerPrefab = m_PlayerPrefabQuery.ToEntityArray(Allocator.Temp)[0];
-            var cubePrefab = m_CubePrefabQuery.ToEntityArray(Allocator.Temp)[0];
-            Entities.WithNone<NetworkStreamInGame>().WithoutBurst().ForEach((int entityInQueryIndex, Entity ent, in NetworkId id) =>
+            var colliderPrefabs = m_ColliderPrefabQuery.ToEntityArray(Allocator.TempJob);
+            Entities.WithNone<NetworkStreamInGame>().WithoutBurst().WithReadOnly(colliderPrefabs).ForEach((int entityInQueryIndex, Entity ent, in NetworkId id) =>
             {
                 commandBuffer.AddComponent(entityInQueryIndex, ent, new NetworkStreamInGame());
                 if (isServer)
                 {
                     // Spawn the player so it gets replicated to the client
-                    // Spawn the cube when a player connects for simplicity
-                    commandBuffer.Instantiate(entityInQueryIndex, cubePrefab);
+                    // Spawn the cube and sphere when a player connects, for simplicity
+                    foreach (var colliderPrefab in colliderPrefabs)
+                        commandBuffer.Instantiate(entityInQueryIndex, colliderPrefab);
                     var player = commandBuffer.Instantiate(entityInQueryIndex, playerPrefab);
                     commandBuffer.SetComponent(entityInQueryIndex, player, new GhostOwner{NetworkId = id.Value});
                     commandBuffer.SetComponent(entityInQueryIndex, ent, new CommandTarget{targetEntity = player});
                 }
-            }).Schedule();
+            }).Run();
+            colliderPrefabs.Dispose();
             m_BeginSimulationCommandBufferSystem.AddJobHandleForProducer(Dependency);
         }
     }
@@ -165,15 +173,58 @@ namespace Unity.NetCode.Physics.Tests
     [DisableAutoCreation]
     [RequireMatchingQueriesForUpdate]
     [WorldSystemFilter(WorldSystemFilterFlags.ServerSimulation)]
-    public partial class LagCompensationTestCubeMoveSystem : SystemBase
+    public unsafe partial class LagCompensationTestCubeMoveSystem : SystemBase
     {
-        protected override void OnUpdate()
+        internal const float DebugDrawLineDuration = 30f;
+        protected  override void OnUpdate()
         {
-            Entities.WithNone<LagCompensationTestPlayer>().WithAll<GhostInstance>().ForEach((ref LocalTransform trans) => {
-                trans.Position.x += 0.1f;
-                if (trans.Position.x > 100)
-                    trans.Position.x -= 200;
-            }).ScheduleParallel();
+            var networkTime = SystemAPI.GetSingleton<NetworkTime>();
+            foreach(var (transRef, physicsCollider) in SystemAPI.Query<RefRW<LocalTransform>, PhysicsCollider>().WithNone<LagCompensationTestPlayer>())
+            {
+                var prevPos = transRef.ValueRW.Position;
+                var newPos = prevPos;
+                newPos.x = LagCompensationTestCommandSystem.GetDeterministicXPosition(networkTime);
+                transRef.ValueRW.Position = newPos;
+
+                var stepColor = Color.green;
+                if (networkTime.ServerTick.TickIndexForValidTick % 2 == 0) stepColor.a = 0.4f;
+
+                Debug.DrawLine(newPos, prevPos, stepColor, DebugDrawLineDuration);
+                Debug.DrawLine(newPos, newPos + new float3(0, 0.5f, 0), stepColor, DebugDrawLineDuration);
+                if (LagCompensationTestCommandSystem.ClientShotAction != LagCompensationTestCommandSystem.ShotType.DontShoot)
+                {
+                    if (physicsCollider.Value.Value.Type == ColliderType.Box)
+                        DrawCube(newPos, ((BoxCollider*) physicsCollider.ColliderPtr), Color.green);
+                    else if (physicsCollider.Value.Value.Type == ColliderType.Sphere)
+                        DrawSphere(newPos, ((SphereCollider*) physicsCollider.ColliderPtr), Color.magenta);
+                }
+            }
+        }
+
+        internal static void DrawSphere(float3 pos, SphereCollider* sphereColliderPtr, Color color)
+        {
+            var geo = sphereColliderPtr->Geometry;
+            pos -= geo.Center;
+            var halfSize = geo.Radius;
+            var x = new float3(halfSize, halfSize, 0);
+            Debug.DrawLine(pos + x, pos - x, color, DebugDrawLineDuration);
+            var y = new float3(0, halfSize, halfSize);
+            Debug.DrawLine(pos + y, pos - y, color, DebugDrawLineDuration);
+            var z = new float3(halfSize, 0, halfSize);
+            Debug.DrawLine(pos + z, pos - z, color, DebugDrawLineDuration);
+        }
+
+        internal static void DrawCube(float3 pos, BoxCollider* boxColliderPtr, Color color)
+        {
+            var geo = boxColliderPtr->Geometry;
+            pos -= geo.Center;
+            var halfSize = geo.Size * .5f;
+            var x = new float3(halfSize.x, 0, 0);
+            Debug.DrawLine(pos + x, pos - x, color, DebugDrawLineDuration);
+            var y = new float3(0, halfSize.y, 0);
+            Debug.DrawLine(pos + y, pos - y, color, DebugDrawLineDuration);
+            var z = new float3(0, 0, halfSize.z);
+            Debug.DrawLine(pos + z, pos - z, color, DebugDrawLineDuration);
         }
     }
 
@@ -181,46 +232,128 @@ namespace Unity.NetCode.Physics.Tests
     [RequireMatchingQueriesForUpdate]
     [UpdateInGroup(typeof(PredictedSimulationSystemGroup))]
     [WorldSystemFilter(WorldSystemFilterFlags.ClientSimulation|WorldSystemFilterFlags.ServerSimulation)]
-    public partial class LagCompensationTestHitScanSystem : SystemBase
+    public unsafe partial class LagCompensationTestHitScanSystem : SystemBase
     {
-        public static int HitStatus = 0;
+        public static RaycastHit? ServerRayCastHit;
+        public static RaycastHit? ClientRayCastHit;
+        public static bool ServerVictimEntityStillExists;
+        public static bool ClientVictimEntityStillExists;
         public static bool EnableLagCompensation = true;
+        public static bool NoHitsRegistered => ServerRayCastHit == null && ClientRayCastHit == null;
+        public static bool OnlyClientHitRegistered => ServerRayCastHit == null && ClientRayCastHit != null;
+        public static bool BothHitsRegistered => ServerRayCastHit != null && ClientRayCastHit != null;
+
         protected override void OnUpdate()
         {
             var networkTime = SystemAPI.GetSingleton<NetworkTime>();
-            // Do not perform hit-scan when rolling back, only when simulating the latest tick
-            if (!networkTime.IsFirstTimeFullyPredictingTick)
-                return;
             var collisionHistory = SystemAPI.GetSingleton<PhysicsWorldHistorySingleton>();
             var physicsWorld = SystemAPI.GetSingleton<PhysicsWorldSingleton>().PhysicsWorld;
-            var predictingTick = networkTime.ServerTick;
             var isServer = World.IsServer();
-            // Not using burst since there is a static used to update the UI
-            Dependency = Entities
+
+            Entities
                 .WithoutBurst()
                 .WithReadOnly(physicsWorld)
-                .ForEach((DynamicBuffer<LagCompensationTestCommand> commands, in CommandDataInterpolationDelay delay) =>
-            {
-                // If there is no data for the tick or a fire was not requested - do not process anything
-                if (!commands.GetDataAtTick(predictingTick, out var cmd))
-                    return;
-                if (cmd.lastFire != predictingTick)
-                    return;
-                var interpolDelay = EnableLagCompensation ? delay.Delay : 0;
-
-                // Get the collision world to use given the tick currently being predicted and the interpolation delay for the connection
-                collisionHistory.GetCollisionWorldFromTick(predictingTick, interpolDelay, ref physicsWorld, out var collWorld);
-                var rayInput = new Unity.Physics.RaycastInput();
-                rayInput.Start = cmd.origin;
-                rayInput.End = cmd.origin + cmd.direction * 100;
-                rayInput.Filter = Unity.Physics.CollisionFilter.Default;
-                bool hit = collWorld.CastRay(rayInput);
-                Debug.Log($"LagCompensationTest result on {(isServer ? "SERVER" : "CLIENT")} is {hit} ({cmd.Tick})");
-                if (hit)
+                .WithAll<LagCompensationTestPlayer>()
+                .ForEach((ref LocalTransform characterTrans, in DynamicBuffer<LagCompensationTestCommand> commands, in CommandDataInterpolationDelay delay) =>
                 {
-                    HitStatus |= isServer?1:2;
-                }
-            }).Schedule(Dependency);
+                    Assert.AreEqual(1, networkTime.SimulationStepBatchSize, "Must not be batching ticks!");
+                    Assert.IsFalse(networkTime.IsCatchUpTick, "Must not be catching up!");
+
+                    // Movement:
+                    var prevPos = characterTrans.Position;
+                    characterTrans.Position = LagCompensationTestCommandSystem.GetPlayersDeterministicPositionForFrame(networkTime);
+
+                    if (networkTime.IsFirstTimeFullyPredictingTick)
+                    {
+                        // Draw:
+                        var stepColor = networkTime.ServerTick.TickIndexForValidTick % 2 == 0
+                            ? (isServer ? Color.grey : Color.white)
+                            : (isServer ? Color.black : Color.grey);
+                        var offset = new float3(0, 0, isServer ? 0.05f : 0);
+                        Debug.DrawLine(characterTrans.Position + offset, prevPos + offset, stepColor, LagCompensationTestCubeMoveSystem.DebugDrawLineDuration);
+                        Debug.DrawLine(characterTrans.Position + offset, characterTrans.Position + offset + new float3(0, 0.5f, 0), stepColor, LagCompensationTestCubeMoveSystem.DebugDrawLineDuration);
+                    }
+
+                    // Do not perform hit-scan when rolling back, only when simulating the latest tick
+                    if (!networkTime.IsFirstTimeFullyPredictingTick)
+                        return;
+
+                    // If there is no data for the tick or a fire was not requested - do not process anything
+                    if (!commands.GetDataAtTick(networkTime.ServerTick, out var cmd))
+                        return;
+                    if (cmd.lastFire != networkTime.ServerTick)
+                        return;
+
+                    // When we fetch the CollisionWorld for ServerTick T, we need to account for the fact that the user
+                    // raised this input sometime on the previous tick (render-frame, technically).
+                    const int additionalRenderDelay = 1;
+                    var interpolDelay = EnableLagCompensation && isServer
+                        ? delay.Delay // Don't account for `additionalRenderDelay` here,
+                                      // because we're using an auto-aim "bot",
+                                      // which doesn't have any additional input delay on the server.
+                        : additionalRenderDelay;
+
+                    // Get the collision world to use given the tick currently being predicted and the interpolation delay for the connection
+                    collisionHistory.GetCollisionWorldFromTick(networkTime.ServerTick, interpolDelay, ref physicsWorld, out var collWorld, out var expectedTick, out var returnedTick);
+                    var rayInput = new Unity.Physics.RaycastInput();
+                    rayInput.Start = characterTrans.Position; // NOTE: We're NOT using the ray origin here!
+                    var positionDesyncMeters = math.distance(rayInput.Start, cmd.origin);
+                    rayInput.End = cmd.origin + cmd.direction;
+                    rayInput.Filter = Unity.Physics.CollisionFilter.Default;
+
+                    bool hit = collWorld.CastRay(rayInput, out var raycastHit);
+                    var color = isServer ? Color.blue : Color.red;
+                    Debug.DrawLine(rayInput.Start, rayInput.End, color, LagCompensationTestCubeMoveSystem.DebugDrawLineDuration);
+                    var victimIsAlive = EntityManager.Exists(raycastHit.Entity);
+                    FixedString512Bytes networkTickInfo = $"\n{networkTime.ToFixedString()}";
+                    string collisionInfo = hit ? $" - {collWorld.Bodies[raycastHit.RigidBodyIndex].Collider.Value.Type}!\n\tray(start: {rayInput.Start} vs cmd.origin: {cmd.origin}, end: {rayInput.End}, dir: {(rayInput.End - rayInput.Start)}) \traycastHit[Entity: {raycastHit.Entity} (alive: {victimIsAlive}), Position: {raycastHit.Position}, SurfaceNormal: {raycastHit.SurfaceNormal}, Fraction: {raycastHit.Fraction}, ColliderKey: {raycastHit.ColliderKey.ToString()}, RigidBodyIndex: {raycastHit.RigidBodyIndex}, Material.Friction: {raycastHit.Material.Friction}]" : "";
+                    collisionInfo = $"[TickIndex:{NetCodeTestWorld.TickIndex}][ServerTick:{networkTime.ServerTick.ToFixedString()}] LagCompensationTest result on <color=green>{(isServer ? "SERVER" : "CLIENT")}</color> is {(hit ? $"<color=green>HIT</color> (index: {raycastHit.RigidBodyIndex})" : "<color=red>MISS</color>")} on ServerTick {cmd.Tick.ToFixedString()} with interpolDelay: {interpolDelay} ticks (historyBufferEntry[expectedTick:{expectedTick}, returnedTick:{returnedTick.ToFixedString()}]), and position desync of: {positionDesyncMeters}m!, shot range: {math.length(cmd.direction):0.00} meters! {networkTickInfo} {collisionInfo}\n";
+                    if (hit)
+                    {
+                        if (isServer)
+                            ServerRayCastHit = raycastHit;
+                        else ClientRayCastHit = raycastHit;
+
+                        // NOTE: The Entity SHOULD BE RETURNED even if said Entity was 'since deleted',
+                        // because this is a historic query on a historic CollisionWorld.
+                        if (isServer)
+                            ServerVictimEntityStillExists = victimIsAlive;
+                        else ClientVictimEntityStillExists = victimIsAlive;
+
+                        var victimCollider = collWorld.Bodies[raycastHit.RigidBodyIndex].Collider;
+                        Assert.IsTrue(victimCollider.IsCreated, "Expecting physics collider in historic collision world to be valid, due to deep copy clone operation!");
+                    }
+
+                    // Draw all colliders:
+                    for (var i = 0; i < collWorld.Bodies.Length; i++)
+                    {
+                        var rigidBody = collWorld.Bodies[i];
+                        var victimPos = rigidBody.WorldFromBody.pos;
+                        var victimCollider = rigidBody.Collider;
+                        if (!victimCollider.IsCreated)
+                        {
+                            collisionInfo += $"\n\tcollWorld.Bodies[{i}] Pos:{victimPos} null";
+                            continue;
+                        }
+                        var drawOffset = new float3(0, 0, 0.001f); // See the other line!
+                        if (victimCollider.Value.Type == ColliderType.Box)
+                        {
+                            var boxCollider = ((BoxCollider*) victimCollider.GetUnsafePtr());
+                            LagCompensationTestCubeMoveSystem.DrawCube(victimPos + drawOffset, boxCollider, color);
+                            collisionInfo += $"\n\tcollWorld.Bodies[{i}] BoxCollider Pos:{victimPos} Geometry.Size:{boxCollider->Geometry.Size}";
+                        }
+                        else if (victimCollider.Value.Type == ColliderType.Sphere)
+                        {
+                            var sphereCollider = ((SphereCollider*) victimCollider.GetUnsafePtr());
+                            LagCompensationTestCubeMoveSystem.DrawSphere(victimPos + drawOffset, sphereCollider, color);
+                            collisionInfo += $"\n\tcollWorld.Bodies[{i}] SphereCollider Pos:{victimPos} Geometry.Radius:{sphereCollider->Geometry.Radius}";
+                        }
+                        else Assert.Fail("Sanity check");
+                    }
+
+                    collisionInfo += $"\n\n{collisionHistory.GetHistoryBufferData(ref physicsWorld)}";
+                    Debug.Log(collisionInfo);
+                }).Run();
         }
     }
     [WorldSystemFilter(WorldSystemFilterFlags.ClientSimulation)]
@@ -229,7 +362,15 @@ namespace Unity.NetCode.Physics.Tests
     [DisableAutoCreation]
     public partial class LagCompensationTestCommandSystem : SystemBase
     {
-        public static float3 Target;
+        public enum ShotType
+        {
+            DontShoot = default,
+            ShootToHit,
+            ShootToMiss,
+        }
+        public static ShotType ClientShotAction;
+        public static Entity ClientAimAtTarget;
+
         protected override void OnCreate()
         {
             RequireForUpdate<CommandTarget>();
@@ -240,7 +381,7 @@ namespace Unity.NetCode.Physics.Tests
             var networkTime = SystemAPI.GetSingleton<NetworkTime>();
             if (target.targetEntity == Entity.Null)
             {
-                foreach (var (ghost, entity) in SystemAPI.Query<RefRO<PredictedGhost>>().WithEntityAccess().WithAll<LagCompensationTestPlayer>())
+                foreach (var (_, entity) in SystemAPI.Query<RefRO<PredictedGhost>>().WithEntityAccess().WithAll<LagCompensationTestPlayer>())
                 {
                     target.targetEntity = entity;
                     SystemAPI.SetSingleton(target);
@@ -252,40 +393,60 @@ namespace Unity.NetCode.Physics.Tests
             var buffer = EntityManager.GetBuffer<LagCompensationTestCommand>(target.targetEntity);
             var cmd = default(LagCompensationTestCommand);
             cmd.Tick = networkTime.ServerTick;
-            if (math.any(Target != default))
+            if (ClientShotAction != ShotType.DontShoot)
             {
-                Entities.WithoutBurst().WithNone<PredictedGhost>().WithAll<GhostInstance>().ForEach((in LocalTransform trans) => {
-                    var offset = new float3(0,0,-10);
-                    cmd.origin = trans.Position + offset;
-                    cmd.direction = Target - offset;
-                    cmd.lastFire = cmd.Tick;
-                }).Run();
-
-                // If too close to an edge, wait a bit
-                if (cmd.origin.x < -90 || cmd.origin.x > 90)
+                foreach (var localTransform in SystemAPI.Query<LocalTransform>().WithAll<LagCompensationTestPlayer>())
                 {
-                    buffer.AddCommandData(new LagCompensationTestCommand{Tick = cmd.Tick});
-                    return;
-                }
-                Target = default;
+                    // We CANNOT use the players CURRENT Entity LocalTransform.Position here,
+                    // because it's out of date!?
+                    cmd.origin = GetPlayersDeterministicPositionForFrame(networkTime);
 
+                    var victimTransform = EntityManager.GetComponentData<LocalTransform>(ClientAimAtTarget);
+                    var aimPoint = victimTransform.Position;
+                    var isTryingToMiss = ClientShotAction == ShotType.ShootToMiss;
+                    if (isTryingToMiss) aimPoint.y += 2.5f; // Force shot miss by aiming ABOVE the target.
+                    cmd.direction = (aimPoint - cmd.origin) * 1.1f; // add 10% to the distance.
+                    cmd.lastFire = cmd.Tick;
+
+                    Debug.DrawLine(cmd.origin, aimPoint, Color.yellow, LagCompensationTestCubeMoveSystem.DebugDrawLineDuration);
+                    Debug.Log($"<color=yellow>[TickIndex:{NetCodeTestWorld.TickIndex}][ServerTick:{networkTime.ServerTick.ToFixedString()}] Client aiming at {ClientAimAtTarget.ToFixedString()} and pressing shoot once: From {cmd.origin} (vs deterministic: {GetPlayersDeterministicPositionForFrame(networkTime)}), to: {victimTransform.Position}, thus direction {cmd.direction}, with goal '{ClientShotAction}'!</color>");
+                    ClientShotAction = default;
+                }
             }
-            // Not firing and data for the tick already exists, skip it to make sure a fiew command is not overwritten
+            // Not firing and data for the tick already exists, skip it to make sure a few command is not overwritten
             else if (buffer.GetDataAtTick(cmd.Tick, out var dupCmd) && dupCmd.Tick == cmd.Tick)
                 return;
             buffer.AddCommandData(cmd);
+        }
+
+        internal static float3 GetPlayersDeterministicPositionForFrame(NetworkTime networkTime)
+        {
+            return new float3(GetDeterministicXPosition(networkTime), 0, -10);
+        }
+
+        internal static float GetDeterministicXPosition(NetworkTime networkTime)
+        {
+            return (networkTime.ServerTick.TickIndexForValidTick * LagCompensationTests.MovementSpeedPerTick);
         }
     }
 
     public class LagCompensationTests
     {
+        const int k_TicksToRegisterHit = 12;
+
+        // Unique values for ease of debugging.
+        internal static float BoxColliderGeometryOriginalSize = 0.222f;
+        private static float BoxColliderGeometryResizeSize = 0.333f;
+        private static float SphereColliderRadiusSize = 0.4444f;
+        internal static float MovementSpeedPerTick = 0.5f; // It's larger than the diameter of each collider,
+                                                           // which means we're validating perfect hits.
+
         [Test]
         public void LagCompensationDoesNotUpdateIfLagCompensationConfigIsNotPresent()
         {
             using (var testWorld = new NetCodeTestWorld())
             {
-                // Test lag compensation with 100ms ping
-                testWorld.DriverSimulatedDelay = 50;
+                testWorld.DriverSimulatedDelay = 50; // Each way! I.e. Testing lag compensation with a MINIMUM of 100ms ping.
                 testWorld.TestSpecificAdditionalAssemblies.Add("Unity.NetCode.Physics,");
                 testWorld.TestSpecificAdditionalAssemblies.Add("Unity.Physics,");
                 testWorld.Bootstrap(true);
@@ -293,96 +454,407 @@ namespace Unity.NetCode.Physics.Tests
                 testWorld.CreateWorlds(true, 1, false);
                 Assert.IsFalse(testWorld.TryGetSingletonEntity<LagCompensationConfig>(testWorld.ServerWorld) != Entity.Null);
                 Assert.IsFalse(testWorld.TryGetSingletonEntity<LagCompensationConfig>(testWorld.ClientWorlds[0]) != Entity.Null);
-
-                var ep = NetworkEndpoint.LoopbackIpv4;
-                ep.Port = 7979;
-                testWorld.GetSingletonRW<NetworkStreamDriver>(testWorld.ServerWorld).ValueRW.Listen(ep);
-                testWorld.GetSingletonRW<NetworkStreamDriver>(testWorld.ClientWorlds[0]).ValueRW.Connect(testWorld.ClientWorlds[0].EntityManager, ep);
-
-                for (int i = 0; i < 16; ++i)
-                    testWorld.Tick();
+                testWorld.Connect(maxSteps: 16);
 
                 var serverPhy = testWorld.GetSingleton<PhysicsWorldHistorySingleton>(testWorld.ServerWorld);
-                Assert.AreEqual(NetworkTick.Invalid, serverPhy.m_LastStoreTick);
+                Assert.AreEqual(NetworkTick.Invalid, serverPhy.LatestStoredTick);
                 var clientPhy = testWorld.GetSingleton<PhysicsWorldHistorySingleton>(testWorld.ClientWorlds[0]);
-                Assert.AreEqual(NetworkTick.Invalid, clientPhy.m_LastStoreTick);
+                Assert.AreEqual(NetworkTick.Invalid, clientPhy.LatestStoredTick);
             }
         }
 
         [Test]
         [UnityPlatform(RuntimePlatform.OSXEditor, RuntimePlatform.WindowsEditor)]
-        public void HitWithLagCompensation()
+        public void HitAndMissWithLagCompensation()
         {
             using (var testWorld = new NetCodeTestWorld())
             {
-                // Test lag compensation with 100ms ping
-                testWorld.DriverSimulatedDelay = 50;
-                testWorld.TestSpecificAdditionalAssemblies.Add("Unity.NetCode.Physics,");
-                testWorld.TestSpecificAdditionalAssemblies.Add("Unity.Physics,");
+                InitTest(testWorld, false, out var clientEm, out _, new LagCompensationConfig
+                {
+                    ServerHistorySize = PhysicsWorldHistory.RawHistoryBufferMaxCapacity,
+                    ClientHistorySize = 2,
+                    DeepCopyDynamicColliders = true,
+                    DeepCopyStaticColliders = true,
+                });
 
-                testWorld.Bootstrap(true,
-                    typeof(TestAutoInGameSystem),
-                    typeof(LagCompensationTestCubeMoveSystem),
-                    typeof(LagCompensationTestCommandCommandSendSystem),
-                    typeof(LagCompensationTestCommandCommandReceiveSystem),
-                    typeof(LagCompensationTestCommandSystem),
-                    typeof(LagCompensationTestHitScanSystem));
-
-                var playerGameObject = new GameObject();
-                playerGameObject.AddComponent<TestNetCodeAuthoring>().Converter = new LagCompensationTestPlayerConverter();
-                playerGameObject.name = "LagCompensationTestPlayer";
-                var ghostAuth = playerGameObject.AddComponent<GhostAuthoringComponent>();
-                ghostAuth.DefaultGhostMode = GhostMode.OwnerPredicted;
-                var cubeGameObject = new GameObject();
-                cubeGameObject.name = "LagCompensationTestCube";
-                var collider = cubeGameObject.AddComponent<UnityEngine.BoxCollider>();
-                collider.size = new Vector3(1,1,1);
-
-                Assert.IsTrue(testWorld.CreateGhostCollection(
-                    playerGameObject, cubeGameObject));
-
-                testWorld.CreateWorlds(true, 1);
-
-                testWorld.ServerWorld.EntityManager.CreateEntity(typeof(LagCompensationConfig));
-                testWorld.ClientWorlds[0].EntityManager.CreateEntity(typeof(LagCompensationConfig));
-                var ep = NetworkEndpoint.LoopbackIpv4;
-                ep.Port = 7979;
-                testWorld.GetSingletonRW<NetworkStreamDriver>(testWorld.ServerWorld).ValueRW.Listen(ep);
-                testWorld.GetSingletonRW<NetworkStreamDriver>(testWorld.ClientWorlds[0]).ValueRW.Connect(testWorld.ClientWorlds[0].EntityManager, ep);
-
-                LagCompensationTestHitScanSystem.HitStatus = 0;
-                LagCompensationTestHitScanSystem.EnableLagCompensation = true;
-                LagCompensationTestCommandSystem.Target = default;
                 // Give the netcode some time to spawn entities and settle on a good time synchronization
-                for (int i = 0; i < 128; ++i)
+                for (int i = 0; i < 70; ++i)
                     testWorld.Tick();
-                LagCompensationTestCommandSystem.Target = new float3(-0.35f,0,-0.5f);
-                for (int i = 0; i < 32; ++i)
+
+                GetCubeAndSphere(clientEm, out var clientVictimCubeEntity, out _, out _, out _);
+                LagCompensationTestCommandSystem.ClientAimAtTarget = clientVictimCubeEntity;
+                LagCompensationTestHitScanSystem.EnableLagCompensation = true;
+
+                // Test hit:
+                LagCompensationTestCommandSystem.ClientShotAction = LagCompensationTestCommandSystem.ShotType.ShootToHit;
+                for (int i = 0; i < k_TicksToRegisterHit; ++i)
                     testWorld.Tick();
-                Assert.AreEqual(3, LagCompensationTestHitScanSystem.HitStatus);
+                Assert.IsTrue(LagCompensationTestHitScanSystem.BothHitsRegistered);
 
                 // Test miss
-                LagCompensationTestHitScanSystem.HitStatus = 0;
-                LagCompensationTestCommandSystem.Target = new float3(-0.55f,0,-0.5f);
-                for (int i = 0; i < 32; ++i)
+                ResetHits();
+                LagCompensationTestCommandSystem.ClientShotAction = LagCompensationTestCommandSystem.ShotType.ShootToMiss;
+                for (int i = 0; i < k_TicksToRegisterHit; ++i)
                     testWorld.Tick();
-                Assert.AreEqual(0, LagCompensationTestHitScanSystem.HitStatus);
+                Assert.IsTrue(LagCompensationTestHitScanSystem.NoHitsRegistered);
 
                 // Make sure there is no hit without lag compensation
-                LagCompensationTestHitScanSystem.HitStatus = 0;
+                ResetHits();
                 LagCompensationTestHitScanSystem.EnableLagCompensation = false;
-                LagCompensationTestCommandSystem.Target = new float3(-0.35f,0,-0.5f);
-                for (int i = 0; i < 32; ++i)
+                LagCompensationTestCommandSystem.ClientShotAction = LagCompensationTestCommandSystem.ShotType.ShootToHit;
+                for (int i = 0; i < k_TicksToRegisterHit; ++i)
                     testWorld.Tick();
-                Assert.AreEqual(2, LagCompensationTestHitScanSystem.HitStatus);
+                Assert.IsTrue(LagCompensationTestHitScanSystem.OnlyClientHitRegistered);
 
                 // Test miss
-                LagCompensationTestHitScanSystem.HitStatus = 0;
-                LagCompensationTestCommandSystem.Target = new float3(-0.55f,0,-0.5f);
-                for (int i = 0; i < 32; ++i)
+                ResetHits();
+                LagCompensationTestCommandSystem.ClientShotAction = LagCompensationTestCommandSystem.ShotType.ShootToMiss;
+                for (int i = 0; i < k_TicksToRegisterHit; ++i)
                     testWorld.Tick();
-                Assert.AreEqual(0, LagCompensationTestHitScanSystem.HitStatus);
+                Assert.IsTrue(LagCompensationTestHitScanSystem.NoHitsRegistered);
             }
+        }
+
+        public enum ColliderChangeType
+        {
+            NoColliderChange,
+            ResizeCollider,
+            ChangeColliderToSphere,
+            ColliderMakeUnique,
+        }
+        public enum DestroyType
+        {
+            DestroyVictimEntity,
+            KeepVictimEntityAlive,
+        }
+
+        public enum DeepCopyStrategy
+        {
+            DeepCopyOnlyDynamic,
+            DeepCopyOnlyStatic,
+            OnlyManualWhitelist,
+            DeepCopyBoth,
+            DeepCopyNeither,
+        }
+        public enum ColliderStaticType
+        {
+            StaticVictimEntity,
+            DynamicVictimEntity,
+        }
+        public enum ColliderChangeTiming
+        {
+            ColliderChangeBeforeShot,
+            ColliderChangeAfterShot,
+        }
+
+        /// <summary>
+        /// Customer issue where Lag Compensation was throwing BlobAsset exceptions when triggering on since-destroyed Entities.
+        /// https://docs.google.com/document/d/18RZrbZfAwD37J2goBPODvqTcH9jkwCyeQN5wlmMqGVk/edit
+        /// DOTS-10392
+        /// </summary>
+        [Test]
+        [UnityPlatform(RuntimePlatform.OSXEditor, RuntimePlatform.WindowsEditor)]
+        public void HitWithLagCompensationWithColliderChangeBeforeShot([Values]ColliderStaticType victimColliderType, [Values]DestroyType destroyType, [Values]DeepCopyStrategy deepCopyStrategy, [Values] ColliderChangeType colliderChangeType)
+        {
+            RunHitWithLagCompensationWithColliderChangeTest(ColliderChangeTiming.ColliderChangeBeforeShot, victimColliderType, destroyType, deepCopyStrategy, colliderChangeType);
+        }
+
+        /// <summary>
+        /// Customer issue where Lag Compensation was throwing BlobAsset exceptions when triggering on since-destroyed Entities.
+        /// https://docs.google.com/document/d/18RZrbZfAwD37J2goBPODvqTcH9jkwCyeQN5wlmMqGVk/edit
+        /// DOTS-10392
+        /// </summary>
+        [Test]
+        [UnityPlatform(RuntimePlatform.OSXEditor, RuntimePlatform.WindowsEditor)]
+        public void HitWithLagCompensationWithColliderChangeAfterShot([Values] ColliderStaticType victimColliderType, [Values] DestroyType destroyType, [Values] DeepCopyStrategy deepCopyStrategy, [Values] ColliderChangeType colliderChangeType)
+        {
+            RunHitWithLagCompensationWithColliderChangeTest(ColliderChangeTiming.ColliderChangeAfterShot, victimColliderType, destroyType, deepCopyStrategy, colliderChangeType);
+        }
+
+        private static void RunHitWithLagCompensationWithColliderChangeTest(ColliderChangeTiming colliderChangeTiming, ColliderStaticType victimColliderType, DestroyType destroyType, DeepCopyStrategy deepCopyStrategy, ColliderChangeType colliderChangeType)
+        {
+            // TODO - Do a statistics based test (e.g. shooting 1k times).
+            // TODO - What happens if interpolation delay changes DURING the simulation?
+            // TODO - Use a variable time-step with degradation.
+            using (var testWorld = new NetCodeTestWorld())
+            {
+                var config = new LagCompensationConfig
+                {
+                    ServerHistorySize = PhysicsWorldHistory.RawHistoryBufferMaxCapacity,
+                    ClientHistorySize = 2,
+                    DeepCopyDynamicColliders = deepCopyStrategy is DeepCopyStrategy.DeepCopyOnlyDynamic or DeepCopyStrategy.DeepCopyBoth,
+                    DeepCopyStaticColliders = deepCopyStrategy is DeepCopyStrategy.DeepCopyOnlyStatic or DeepCopyStrategy.DeepCopyBoth,
+                };
+                InitTest(testWorld, victimColliderType == ColliderStaticType.StaticVictimEntity, out var clientEm, out var serverEm, config);
+
+                // Give the netcode some time to spawn entities and settle on a good time synchronization
+                for (int i = 0; i < 20; ++i)
+                    testWorld.Tick();
+
+                // Fetch the LagCompensationTestCube and LagCompensationTestSphere entities:
+                GetCubeAndSphere(serverEm, out var serverVictimCubeEntity, out var serverVictimCollider, out var serverSphereEntity, out var serverSphereCollider);
+                GetCubeAndSphere(clientEm, out var clientVictimCubeEntity, out var clientVictimCollider, out var clientSphereEntity, out var clientSphereCollider);
+
+                // Now we have the bodies spawned, add them to the copy whitelist:
+                {
+                    var serverBodies = testWorld.GetSingletonRW<PhysicsWorldSingleton>(testWorld.ServerWorld).ValueRW.Bodies;
+                    var clientBodies = testWorld.GetSingletonRW<PhysicsWorldSingleton>(testWorld.ClientWorlds[0]).ValueRW.Bodies;
+                    ref var serverWhitelist = ref testWorld.GetSingletonRW<PhysicsWorldHistorySingleton>(testWorld.ServerWorld).ValueRW.DeepCopyRigidBodyCollidersWhitelist;
+                    ref var clientWhitelist = ref testWorld.GetSingletonRW<PhysicsWorldHistorySingleton>(testWorld.ClientWorlds[0]).ValueRW.DeepCopyRigidBodyCollidersWhitelist;
+                    AddBodiesToWhitelist("Server", serverBodies, ref serverWhitelist, serverVictimCubeEntity, serverSphereEntity, deepCopyStrategy);
+                    AddBodiesToWhitelist("Client", clientBodies, ref clientWhitelist, clientVictimCubeEntity, clientSphereEntity, deepCopyStrategy);
+                    static void AddBodiesToWhitelist(string context, NativeArray<RigidBody> bodies, ref NativeList<int> whitelist, Entity victimCubeEntity, Entity sphereEntity, DeepCopyStrategy deepCopyStrategy)
+                    {
+                        // Can be more than 3 as null entries can exist in the bodies list!
+                        Assert.That(bodies.Length, Is.GreaterThanOrEqualTo(3), $"Sanity - PhysicsWorld Bodies count on {context}!");
+                        if (deepCopyStrategy is not DeepCopyStrategy.OnlyManualWhitelist) return;
+                        for (var bodyIdx = 0; bodyIdx < bodies.Length; bodyIdx++)
+                        {
+                            if (bodies[bodyIdx].Entity == victimCubeEntity || bodies[bodyIdx].Entity == sphereEntity)
+                                whitelist.Add(bodyIdx);
+                        }
+                        Assert.That(bodies.Length, Is.GreaterThanOrEqualTo(2), $"Sanity! {context} must have bodies!");
+                    }
+                }
+
+                // Ensure this collider change is "replicated" on both the client and server,
+                // REGARDLESS of respective timelines.
+                if (colliderChangeTiming == ColliderChangeTiming.ColliderChangeBeforeShot)
+                {
+                    PredictColliderChanges(colliderChangeType, serverEm, serverVictimCubeEntity, ref serverVictimCollider, serverSphereCollider);
+                    PredictColliderChanges(colliderChangeType, clientEm, clientVictimCubeEntity, ref clientVictimCollider, clientSphereCollider);
+                }
+
+                // Give the netcode some MORE time to settle on a good time synchronization.
+                // This should also apply the appropriate deep copy strategy after the above collider update.
+                for (int i = 0; i < 50; ++i)
+                    testWorld.Tick();
+
+                // Client fires shot.
+                LagCompensationTestCommandSystem.ClientAimAtTarget = clientVictimCubeEntity;
+                LagCompensationTestHitScanSystem.EnableLagCompensation = true;
+                Assert.IsTrue(LagCompensationTestHitScanSystem.NoHitsRegistered, "Sanity check: Neither client nor server should have hit anything yet.");
+                LagCompensationTestCommandSystem.ClientShotAction = LagCompensationTestCommandSystem.ShotType.ShootToHit;
+                // Note: The simulated delay will mean the clients shot input arrives on the server in a future frame.
+
+                testWorld.Tick();
+                testWorld.Tick(); // Tick where the shot confirms on client.
+                Assert.IsTrue(LagCompensationTestHitScanSystem.OnlyClientHitRegistered, "Sanity check: Expected the client shot to have landed by now.");
+
+                testWorld.Tick();
+                if (colliderChangeTiming == ColliderChangeTiming.ColliderChangeAfterShot)
+                {
+                    // Why only the client?
+                    // 1. The client is obviously ahead of the server.
+                    // 2. We're emulating here that the collider change is predicted.
+                    // 3. Thus, if the client predicts the collider change on tick T5 (two frames before the shot),
+                    // the server will also predict it on T5 (two frames before the shot).
+
+                    // NOTE: WE DON'T CARE ABOUT INPUT INDETERMINISM LEADING TO COLLIDER SIZE TO BE INCORRECTLY PREDICTED,
+                    // BECAUSE OF COURSE THAT WILL FAIL!
+                    PredictColliderChanges(colliderChangeType, clientEm, clientVictimCubeEntity, ref clientVictimCollider, clientSphereCollider);
+                }
+
+                // Delete the LagCompensationTestCube entity on the server,
+                // The simulated delay will mean the clients shot input arrives on the server in a future frame.
+                if (destroyType == DestroyType.DestroyVictimEntity)
+                {
+                    //Debug.Log($"Destroying victim entity: {serverVictimCubeEntity} to trigger Physics BlobAsset bug...");
+                    serverEm.DestroyEntity(serverVictimCubeEntity);
+
+                    // HACK: Destroying is a multi-step process, as ICleanupComponentData's exist.
+                    // See GhostDespawnParallelJob, and the fact that entity deletion is deferred until all clients have
+                    // acked a snapshot containing the deletion.
+
+                    // Unfortunately for us, this takes many more ticks, which means we have to begin this destroy
+                    // operation earlier (so that it arrives on the client almost exactly one tick after the client shot),
+                    // and the clients ack needs to arrive in the input packet BEFORE the input packet needs ot be processed.
+                    // These two facts makes this test very hard to reason about, and very fragile, so we brute force
+                    // the deletion here instead.
+
+                    // Note: It therefore still is possible for the client to send a hit for a since-deleted ghost entity,
+                    // but it's rare in practice due to this deferred deletion. But rare = common at N4E scales.
+                    var entityArchetype = serverEm.GetChunk(serverVictimCubeEntity).Archetype;
+                    //Debug.Log($"New Archetype via ICleanupComponentData: {entityArchetype.ToString()}), force-clean up remaining ICleanupComponents components...");
+                    foreach (var componentType in entityArchetype.GetComponentTypes()) // Entity, GhostCleanup, CleanupEntity.
+                        serverEm.RemoveComponent(serverVictimCubeEntity, componentType); // This can cause other bugs, but we don't care here.
+                }
+
+                // Server performs hit detection on historic CollisionWorld,
+                // thus must return the PREVIOUS (i.e. unmodified) collider (when deep copy is enabled).
+                for (int i = 0; i < k_TicksToRegisterHit; ++i)
+                {
+                    testWorld.Tick();
+                }
+
+                Assert.IsTrue(LagCompensationTestHitScanSystem.BothHitsRegistered, "Sanity: Expected the hit to have registered now on BOTH the client and server!");
+                switch (destroyType)
+                {
+                    case DestroyType.DestroyVictimEntity:
+                        Assert.IsTrue(LagCompensationTestHitScanSystem.ClientVictimEntityStillExists, "Sanity: Expected only the client to hit an ALIVE entity, and server a dead one!");
+                        Assert.IsFalse(LagCompensationTestHitScanSystem.ServerVictimEntityStillExists, "Sanity: Expected only the client to hit an ALIVE entity, and server a dead one!");
+                        break;
+                    case DestroyType.KeepVictimEntityAlive:
+                        Assert.IsTrue(LagCompensationTestHitScanSystem.ClientVictimEntityStillExists, "Sanity: Expected both entities to be alive!");
+                        Assert.IsTrue(LagCompensationTestHitScanSystem.ServerVictimEntityStillExists, "Sanity: Expected both entities to be alive!");
+                        break;
+                    default:
+                        throw new ArgumentOutOfRangeException(nameof(destroyType), destroyType, null);
+                }
+
+                if (colliderChangeTiming == ColliderChangeTiming.ColliderChangeAfterShot)
+                {
+                    // Finally, after we know the server hit occurred,
+                    // the server simulates the tick that resizes the collider.
+                    if(serverEm.Exists(serverVictimCubeEntity))
+                        PredictColliderChanges(colliderChangeType, serverEm, serverVictimCubeEntity, ref serverVictimCollider, serverSphereCollider);
+                }
+
+                // Even when we Destroy the Entity, it should still be returned by the collision hit,
+                // thus we check both of these are identical.
+                Assert.AreEqual(clientVictimCubeEntity, LagCompensationTestHitScanSystem.ClientRayCastHit.Value.Entity, "Expecting to hit the client victim entity!");
+                var serverRayCastHit = LagCompensationTestHitScanSystem.ServerRayCastHit.Value;
+                Assert.AreEqual(serverVictimCubeEntity, serverRayCastHit.Entity, "Expecting to hit the server victim entity!");
+
+                // Also ensure the hit INFO is mostly deterministic:
+                var hitDistance = math.length(serverRayCastHit.Position - LagCompensationTestHitScanSystem.ClientRayCastHit.Value.Position);
+                var hitRayFraction = math.length(serverRayCastHit.Fraction - LagCompensationTestHitScanSystem.ClientRayCastHit.Value.Fraction);
+                var hitNormalDot = math.dot(serverRayCastHit.SurfaceNormal, LagCompensationTestHitScanSystem.ClientRayCastHit.Value.SurfaceNormal);
+                Debug.Log($"ServerRayCastHit vs ClientRayCastHit: hitDistance: {hitDistance}, hitRayFraction: {hitRayFraction}, hitNormalDot: {hitNormalDot}!");
+
+                // We now compare the hits on the server vs the client, ensuring hits are "mostly deterministic".
+                // HOWEVER: We should only do so if there is an expectation that it'll actually be correct.
+                // The non-deep-copy scenario is essentially "undefined behaviour", in terms of expectations.
+                var isCopyingTheRightTypeOfCollider = victimColliderType == ColliderStaticType.StaticVictimEntity
+                    ? config.DeepCopyStaticColliders
+                    : config.DeepCopyDynamicColliders;
+                var isDeepCopyingCorrectly = deepCopyStrategy is DeepCopyStrategy.DeepCopyBoth or DeepCopyStrategy.OnlyManualWhitelist
+                                             || isCopyingTheRightTypeOfCollider;
+                if (isDeepCopyingCorrectly)
+                {
+                    AssertInRange(hitDistance, 0f, allowedTolerance: 0.1f, "RayCastHit.Position between the hit on the client, and the hit on the server!");
+                    AssertInRange(hitRayFraction, 0f, allowedTolerance: 0.02f, "RayCastHit.Fraction (i.e. ray.distance / ray.length) between the hit on the client, and the hit on the server!");
+                    AssertInRange(hitNormalDot, 1f, allowedTolerance: 0.02f, "RayCastHit.SurfaceNormal between the hit on the client, and the hit on the server!");
+                }
+
+                static void AssertInRange(float testedValue, float expectedValue, float allowedTolerance, string reasoning)
+                {
+                    var rawDelta = testedValue - expectedValue;
+                    var isInBounds = math.abs(rawDelta) <= allowedTolerance;
+                    if (!isInBounds)
+                    {
+                        reasoning = $"Expected {testedValue} to BE WITHIN {expectedValue}±{allowedTolerance}, but it wasn't! Value was {testedValue} (a delta of Δ{rawDelta})! " + reasoning;
+                        Assert.Fail(reasoning);
+                    }
+                }
+            }
+        }
+
+        internal static unsafe void PredictColliderChanges(ColliderChangeType colliderChangeType, EntityManager em, Entity victimCubeEntity, ref PhysicsCollider victimCollider, PhysicsCollider sphereCollider)
+        {
+            // Reading: https://github.com/Unity-Technologies/EntityComponentSystemSamples/tree/master/PhysicsSamples/Assets/9.%20Modify
+            // MUST be predicted.
+            // I.e. Client and server change the victim box collider in some fun ways, on the same "serverTick".
+
+            em.CompleteAllTrackedJobs(); // Fixes safety issues.
+            switch (colliderChangeType)
+            {
+                case ColliderChangeType.NoColliderChange:
+                    break;
+                case ColliderChangeType.ResizeCollider:
+                    // Resizes ALL boxColliders which share this BlobAsset Geometry!
+                    var boxCollider = ((BoxCollider*) victimCollider.ColliderPtr);
+                    var boxGeometry = boxCollider->Geometry;
+                    boxGeometry.Size = BoxColliderGeometryResizeSize;
+                    boxCollider->Geometry = boxGeometry;
+                    break;
+                case ColliderChangeType.ChangeColliderToSphere:
+                    // Change the collider type of ONLY this collider:
+                    victimCollider.Value = sphereCollider.Value;
+                    em.SetComponentData(victimCubeEntity, victimCollider);
+                    break;
+                case ColliderChangeType.ColliderMakeUnique:
+                    victimCollider.MakeUnique(victimCubeEntity, em);
+                    break;
+                default:
+                    throw new ArgumentOutOfRangeException(nameof(colliderChangeType), colliderChangeType, null);
+            }
+
+            victimCollider = em.GetComponentData<PhysicsCollider>(victimCubeEntity);
+            em.CompleteAllTrackedJobs(); // Fixes safety issues.
+        }
+
+        private static void GetCubeAndSphere(EntityManager em, out Entity victimCubeEntity, out Unity.Physics.PhysicsCollider victimCollider, out Entity sphereEntity, out Unity.Physics.PhysicsCollider sphereCollider)
+        {
+            using var colliderQuery = em.CreateEntityQuery(ComponentType.ReadWrite<Unity.Physics.PhysicsCollider>());
+            var colliderEntities = colliderQuery.ToEntityArray(Allocator.Temp);
+            var colliderColliders = colliderQuery.ToComponentDataArray<Unity.Physics.PhysicsCollider>(Allocator.Temp);
+            victimCubeEntity = colliderEntities[0];
+            sphereEntity = colliderEntities[1];
+            victimCollider = colliderColliders[0];
+            sphereCollider = colliderColliders[1];
+
+            Assert.IsTrue(victimCollider.IsValid);
+            Assert.IsTrue(sphereCollider.IsValid);
+            // Defensive! Swap them if we selected wrong due to query ToComponentDataArray order non-determinism!
+            if (victimCollider.Value.Value.Type != ColliderType.Box)
+            {
+                (victimCollider, sphereCollider) = (sphereCollider, victimCollider);
+                (victimCubeEntity, sphereEntity) = (sphereEntity, victimCubeEntity);
+            }
+            Assert.AreEqual(ColliderType.Box, victimCollider.Value.Value.Type);
+            Assert.AreEqual(ColliderType.Sphere, sphereCollider.Value.Value.Type);
+        }
+
+        private static void InitTest(NetCodeTestWorld testWorld, bool useStaticColliders, out EntityManager clientEm, out EntityManager serverEm, LagCompensationConfig config)
+        {
+            testWorld.DriverSimulatedDelay = 50; // Each way! I.e. Testing lag compensation with a MINIMUM of 100ms ping.
+            testWorld.TestSpecificAdditionalAssemblies.Add("Unity.NetCode.Physics,");
+            testWorld.TestSpecificAdditionalAssemblies.Add("Unity.Physics,");
+
+            testWorld.Bootstrap(true,
+                typeof(TestAutoInGameSystem),
+                typeof(LagCompensationTestCubeMoveSystem),
+                typeof(LagCompensationTestCommandCommandSendSystem),
+                typeof(LagCompensationTestCommandCommandReceiveSystem),
+                typeof(LagCompensationTestCommandSystem),
+                typeof(LagCompensationTestHitScanSystem));
+
+            var cubeGameObject = new GameObject("LagCompensationTestCube");
+            cubeGameObject.AddComponent<UnityEngine.BoxCollider>().size = new Vector3(BoxColliderGeometryOriginalSize, BoxColliderGeometryOriginalSize, BoxColliderGeometryOriginalSize);
+            var sphereGameObject = new GameObject("LagCompensationTestSphere");
+            sphereGameObject.transform.position = new Vector3(0, -5, 0); // Y pos moves it out of the way!
+            sphereGameObject.AddComponent<UnityEngine.SphereCollider>().radius = SphereColliderRadiusSize;
+            var playerGameObject = new GameObject("LagCompensationTestPlayer");
+            playerGameObject.transform.position = new Vector3(0, 0, 0);
+            playerGameObject.AddComponent<TestNetCodeAuthoring>().Converter = new LagCompensationTestPlayerConverter();
+            var ghostAuth = playerGameObject.AddComponent<GhostAuthoringComponent>();
+            ghostAuth.DefaultGhostMode = GhostMode.OwnerPredicted;
+
+            if (!useStaticColliders) cubeGameObject.AddComponent<Rigidbody>().useGravity = false;
+            if (!useStaticColliders) sphereGameObject.AddComponent<Rigidbody>().useGravity = false;
+            if (!useStaticColliders) playerGameObject.AddComponent<Rigidbody>().useGravity = false;
+
+            Assert.IsTrue(testWorld.CreateGhostCollection(playerGameObject, cubeGameObject, sphereGameObject));
+
+            testWorld.CreateWorlds(true, 1);
+
+            serverEm = testWorld.ServerWorld.EntityManager;
+            clientEm = testWorld.ClientWorlds[0].EntityManager;
+            serverEm.CreateSingleton(config);
+            clientEm.CreateSingleton(config);
+            testWorld.Connect(maxSteps: 32);
+
+            ResetHits();
+        }
+
+        private static void ResetHits()
+        {
+            LagCompensationTestHitScanSystem.ClientRayCastHit = default;
+            LagCompensationTestHitScanSystem.ServerRayCastHit = default;
+            LagCompensationTestHitScanSystem.ClientVictimEntityStillExists = default;
+            LagCompensationTestHitScanSystem.ServerVictimEntityStillExists = default;
+            LagCompensationTestCommandSystem.ClientShotAction = default;
         }
     }
 }

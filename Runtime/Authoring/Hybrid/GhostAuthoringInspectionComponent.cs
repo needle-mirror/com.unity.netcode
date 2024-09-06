@@ -10,8 +10,8 @@ namespace Unity.NetCode
     /// <para>MonoBehaviour you may optionally add to any/all GameObjects in a Ghost Prefab, which allows inspecting of (and saving of) "Ghost Meta Data". E.g.</para>
     /// <para> - Override/Tweak some of the component replication properties, for both child and root entities.</para>
     /// <para> - Assign to each component which <see cref="GhostComponentVariationAttribute">variant</see> to use.</para>
-    /// <seealso cref="GhostAuthoringComponent"/>
     /// </summary>
+    /// <seealso cref="GhostAuthoringComponent"/>
     [DisallowMultipleComponent]
     [HelpURL(Authoring.HelpURLs.GhostAuthoringInspetionComponent)]
     public class GhostAuthoringInspectionComponent : MonoBehaviour

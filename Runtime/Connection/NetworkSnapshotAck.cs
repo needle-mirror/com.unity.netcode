@@ -147,6 +147,9 @@ namespace Unity.NetCode
         /// <inheritdoc cref="SnapshotPacketLossStatistics"/>
         public SnapshotPacketLossStatistics SnapshotPacketLoss;
 
+        /// <inheritdoc cref="CommandArrivalStatistics"/>
+        public CommandArrivalStatistics CommandArrivalStatistics;
+
         /// <summary>
         /// Update the number of loaded prefabs nad sync the interpolation delay for the remote connection.
         /// </summary>

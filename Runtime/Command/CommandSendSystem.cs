@@ -1,9 +1,12 @@
+#if UNITY_EDITOR && !NETCODE_NDEBUG
+#define NETCODE_DEBUG
+#endif
 using Unity.Collections;
 using Unity.Entities;
 using Unity.Jobs;
 using Unity.Collections.LowLevel.Unsafe;
 using Unity.Burst;
-using Unity.Networking.Transport;
+using Unity.Burst.CompilerServices;
 
 namespace Unity.NetCode
 {
@@ -27,7 +30,7 @@ namespace Unity.NetCode
     /// It runs before the <see cref="CommandSendSystemGroup"/> to remove any latency between
     /// input gathering and command submission.
     /// All systems that translate user input (for example, using the <see cref="UnityEngine.Input"/> into
-    /// <see cref="ICommandData"/> command data must update in this group.
+    /// <see cref="ICommandData"/> command data must update in this group).
     /// </summary>
     [WorldSystemFilter(WorldSystemFilterFlags.ClientSimulation | WorldSystemFilterFlags.ThinClientSimulation | WorldSystemFilterFlags.LocalSimulation, WorldSystemFilterFlags.ClientSimulation | WorldSystemFilterFlags.LocalSimulation)]
     [UpdateInGroup(typeof(GhostSimulationSystemGroup))]
@@ -104,7 +107,33 @@ namespace Unity.NetCode
     [UpdateAfter(typeof(GhostReceiveSystem))]
     public partial class CommandSendSystemGroup : ComponentSystemGroup
     {
-        private NetworkTick m_lastServerTick;
+        /// <summary>
+        /// The maximum serialized size of an individual Command payload, including command headers.
+        /// Thus, verified after delta-compression.
+        /// </summary>
+        public const int k_MaxCommandSerializedPayloadBytes = 1024;
+
+        /// <summary>
+        /// The maximum number of commands you can send from the client to the server - for a given ghost - in a single packet.
+        /// <see cref="k_MaxInputBufferSendBits"/>. 2^5 = (0,31), but we can exclude zero, so it's (1,32).
+        /// </summary>
+        /// <remarks>The number of commands that will be sent is `<see cref="ClientTickRate.TargetCommandSlack"/> + <see cref="ClientTickRate.NumAdditionalCommandsToSend"/>`.</remarks>
+        public const int k_MaxInputBufferSendSize = 1 << k_MaxInputBufferSendBits;
+
+        /// <summary>
+        /// How many bits are allocated to sending the length of the buffer?
+        /// <see cref="k_MaxInputBufferSendBits"/>
+        /// </summary>
+        internal const int k_MaxInputBufferSendBits = 5;
+
+        /// <summary>
+        /// How many bits are used for sending the tick delta, for each previous tick in the buffer?
+        /// Note: The highest value is a sentinel value, reserved for 'use Huffman'.
+        /// </summary>
+        internal const int k_TickDeltaBits = 2;
+
+        private NetworkTick m_LastServerTick;
+
         protected override void OnCreate()
         {
             base.OnCreate();
@@ -114,9 +143,9 @@ namespace Unity.NetCode
             var clientNetTime = SystemAPI.GetSingleton<NetworkTime>();
             var targetTick = NetworkTimeHelper.LastFullServerTick(clientNetTime);
             // Make sure we only send a single ack per tick - only triggers when using dynamic timestep
-            if (targetTick == m_lastServerTick)
+            if (targetTick == m_LastServerTick)
                 return;
-            m_lastServerTick = targetTick;
+            m_LastServerTick = targetTick;
             base.OnUpdate();
         }
     }
@@ -262,18 +291,6 @@ namespace Unity.NetCode
         where TCommandDataSerializer : unmanaged, ICommandDataSerializer<TCommandData>
     {
         /// <summary>
-        /// The maximum number of inputs sent in each command packet.
-        /// Resending the last 3 commands adds some redundancy, minimizing the effect of packet loss (unless that packet loss is sustained).
-        /// </summary>
-        public const uint k_InputBufferSendSize = 4;
-
-        /// <summary>
-        /// The maximum serialized size of an individual Command payload, including command headers,
-        /// and including the above <see cref="k_InputBufferSendSize"/> delta-compressed redundancy.
-        /// </summary>
-        public const int k_MaxCommandSerializedPayloadBytes = 1024;
-
-        /// <summary>
         /// Helper struct used by code-generated command job to serialize the <see cref="ICommandData"/> into the
         /// <see cref="OutgoingCommandDataStreamBuffer"/> for the client connection.
         /// </summary>
@@ -288,6 +305,10 @@ namespace Unity.NetCode
             /// This is the output of buffer for the job
             /// </summary>
             public BufferTypeHandle<OutgoingCommandDataStreamBuffer> outgoingCommandBufferType;
+            /// <summary>
+            /// <see cref="EnablePacketLogging"/> type handle, for packet dumping.
+            /// </summary>
+            public ComponentTypeHandle<EnablePacketLogging> enablePacketLoggingType;
             /// <summary>
             /// Accessor for retrieving the input buffer from the target entity.
             /// </summary>
@@ -326,68 +347,153 @@ namespace Unity.NetCode
             /// of the input data sent.
             /// </summary>
             public ulong stableHash;
+            /// <summary>
+            /// For how many ticks should we send input?
+            /// Value corresponds to the last n ticks, starting at the current tick.
+            /// </summary>
+            public uint numCommandsToSend;
 
-            void Serialize(DynamicBuffer<OutgoingCommandDataStreamBuffer> rpcData, Entity targetEntity, bool isAutoTarget)
+            void Serialize(DynamicBuffer<OutgoingCommandDataStreamBuffer> rpcData, Entity targetEntity, bool isAutoTarget, ref EnablePacketLogging enablePacketLogging)
             {
-                var input = inputFromEntity[targetEntity];
-                TCommandData baselineInputData;
+                var inputBuffer = inputFromEntity[targetEntity];
                 // Check if the buffer has any data for the ticks we are trying to send, first chck if it has data at all
-                if (!input.GetDataAtTick(inputTargetTick, out baselineInputData))
+                if (!inputBuffer.GetDataAtTick(inputTargetTick, out var baselineInputData))
+                {
+#if NETCODE_DEBUG
+                    if (enablePacketLogging.IsPacketCacheCreated)
+                        enablePacketLogging.LogToPacket($"\n[CSS][{default(TCommandDataSerializer).ToFixedString()}:{stableHash}] No data for {targetEntity.ToFixedString()} on inputTargetTick: {inputTargetTick.ToFixedString()}, ignoring.\n");
+#endif
                     return;
+                }
                 // Next check if we have previously sent the latest input, and the latest data we have would not fit in the buffer
                 // The check for previously sent is important to handle really bad client performance
                 if (prevInputTargetTick.IsValid && !baselineInputData.Tick.IsNewerThan(prevInputTargetTick) && inputTargetTick.TicksSince(baselineInputData.Tick) >= CommandDataUtility.k_CommandDataMaxSize)
+                {
+#if NETCODE_DEBUG
+                    if (enablePacketLogging.IsPacketCacheCreated)
+                        enablePacketLogging.LogToPacket($"\n[CSS][{default(TCommandDataSerializer).ToFixedString()}:{stableHash}] Already sent input for {targetEntity.ToFixedString()} on inputTargetTick: {baselineInputData.Tick}, ignoring.\n");
+#endif
                     return;
+                }
 
                 var oldLen = rpcData.Length;
-                const int headerSize = sizeof(ulong) + //command hash
-                                       sizeof(short) + //serialised size
+                const int maxHeaderSize = sizeof(ulong) + //command hash
+                                       sizeof(ushort) + //serialised size
                                        sizeof(int) + //ghost id | 0
-                                       sizeof(int) + //spawnTick | 0
+                                       sizeof(uint) + //spawnTick | 0
+                                       sizeof(byte) + // numCommandsToSend (5 bits technically!)
                                        sizeof(int); // Current Tick
 
-                rpcData.ResizeUninitialized(oldLen + k_MaxCommandSerializedPayloadBytes + headerSize);
+                rpcData.ResizeUninitialized(oldLen + CommandSendSystemGroup.k_MaxCommandSerializedPayloadBytes + maxHeaderSize);
                 var writer = new DataStreamWriter(rpcData.Reinterpret<byte>().AsNativeArray().GetSubArray(oldLen,
-                    k_MaxCommandSerializedPayloadBytes));
+                    CommandSendSystemGroup.k_MaxCommandSerializedPayloadBytes));
 
                 writer.WriteULong(stableHash);
                 var lengthWriter = writer;
                 writer.WriteUShort(0);
                 var startLength = writer.Length;
+                GhostInstance ghostComponent;
                 if (isAutoTarget)
                 {
-                    var ghostComponent = ghostFromEntity[targetEntity];
+                    ghostComponent = ghostFromEntity[targetEntity];
                     writer.WriteInt(ghostComponent.ghostId);
                     writer.WriteUInt(ghostComponent.spawnTick.SerializedData);
                 }
                 else
                 {
+                    ghostComponent = default;
                     writer.WriteInt(0);
                     writer.WriteUInt(0);
                 }
 
+                // Num Commands To Send:
+                writer.WriteRawBits(numCommandsToSend - 1, CommandSendSystemGroup.k_MaxInputBufferSendBits);
+
+                // Write the first input:
+                var serializer = default(TCommandDataSerializer);
                 var serializerState = new RpcSerializerState
                 {
                     GhostFromEntity = ghostFromEntity,
                     CompressionModel = compressionModel,
                 };
-                var serializer = default(TCommandDataSerializer);
                 writer.WriteUInt(baselineInputData.Tick.SerializedData);
-                serializer.Serialize(ref writer, serializerState, baselineInputData);
+
+#if NETCODE_DEBUG
+                var firstSerializeLengthInBits = writer.LengthInBits;
+#endif
+                serializer.Serialize(ref writer, serializerState, baselineInputData, default, compressionModel);
+#if NETCODE_DEBUG
+                firstSerializeLengthInBits = writer.LengthInBits - firstSerializeLengthInBits;
+#endif
+
                 // Target tick is the most recent tick which is older than the one we just sampled
                 var targetTick = baselineInputData.Tick;
                 if (targetTick.IsValid)
                 {
                     targetTick.Decrement();
                 }
-                for (uint inputIndex = 1; inputIndex < k_InputBufferSendSize; ++inputIndex)
-                {
-                    TCommandData inputData = default;
-                    if (targetTick.IsValid)
-                        input.GetDataAtTick(targetTick, out inputData);
-                    writer.WritePackedUIntDelta(inputData.Tick.SerializedData, baselineInputData.Tick.SerializedData, compressionModel);
-                    serializer.Serialize(ref writer, serializerState, inputData, baselineInputData, compressionModel);
 
+                // Write the next n, delta-compressed:
+                TCommandData inputData = baselineInputData;
+
+
+#if NETCODE_DEBUG
+                var payloadBits = firstSerializeLengthInBits;
+                var payloadTickBits = 32;
+
+                if (enablePacketLogging.IsPacketCacheCreated)
+                {
+                    enablePacketLogging.LogToPacket($"[CSS][{serializer.ToFixedString()}:{stableHash}] Sent for inputTargetTick: {inputTargetTick.ToFixedString()} | {targetEntity.ToFixedString()} on {ghostComponent.ToFixedString()} | isAutoTarget:{isAutoTarget}\n\t| stableHash: {CommandDataUtility.FormatBitsBytes(64)}\n\t| commandSize: {CommandDataUtility.FormatBitsBytes(16)}\n\t| autoCommandTargetGhost: {CommandDataUtility.FormatBitsBytes(64)}\n\t| numCommandsToSend({numCommandsToSend}): {CommandDataUtility.FormatBitsBytes(CommandSendSystemGroup.k_MaxInputBufferSendBits)}");
+                    enablePacketLogging.LogToPacket($"\t[b]=[{baselineInputData.Tick.ToFixedString()}|{baselineInputData.ToFixedString()}] (tick: {CommandDataUtility.FormatBitsBytes(32)}) (data: {CommandDataUtility.FormatBitsBytes(firstSerializeLengthInBits)})");
+                }
+#endif
+                var assumedTickIndex = baselineInputData.Tick;
+                for (uint inputIndex = 1; inputIndex < numCommandsToSend; ++inputIndex)
+                {
+                    var prevInputData = inputData;
+                    var changeBit = GetDataAtTickAndCmp(targetTick, ref prevInputData, inputBuffer, ref inputData, serializer);
+#if NETCODE_DEBUG
+                    var tickBits = writer.LengthInBits;
+#endif
+                    WriteTickDeltaCompressed(ref assumedTickIndex, ref writer, inputData);
+#if NETCODE_DEBUG
+                    FixedString512Bytes debug = default;
+                    if (enablePacketLogging.IsPacketCacheCreated)
+                    {
+                        tickBits = writer.LengthInBits - tickBits;
+                        payloadTickBits += tickBits;
+                        debug.Append((FixedString512Bytes) $"\t[{inputIndex}]=[{inputData.Tick.ToFixedString()}|{inputData.ToFixedString()}] (cb: {changeBit}) (tΔ: {CommandDataUtility.FormatBitsBytes(tickBits)})");
+                    }
+#endif
+
+                    // If unchanged, skip Serializing entirely, using a 1bit change-mask flag:
+                    writer.WriteRawBits(changeBit, 1);
+
+                    if (changeBit != 0)
+                    {
+#if NETCODE_DEBUG
+                        var successiveSerializeLengthInBits = writer.LengthInBits;
+#endif
+
+                        serializer.Serialize(ref writer, serializerState, inputData, baselineInputData, compressionModel);
+#if NETCODE_DEBUG
+                        if (enablePacketLogging.IsPacketCacheCreated)
+                        {
+                            var dataBits = writer.LengthInBits - successiveSerializeLengthInBits;
+                            payloadBits += dataBits;
+                            debug.Append((FixedString512Bytes) $" (data: {CommandDataUtility.FormatBitsBytes(dataBits)})");
+                        }
+#endif
+                    }
+
+#if NETCODE_DEBUG
+                    if (enablePacketLogging.IsPacketCacheCreated)
+                    {
+                        if (writer.HasFailedWrites)
+                            debug.Append((FixedString32Bytes) "\nHasFailedWrites!");
+                        enablePacketLogging.LogToPacket(debug);
+                    }
+#endif
                     targetTick = inputData.Tick;
                     if (targetTick.IsValid)
                     {
@@ -395,18 +501,81 @@ namespace Unity.NetCode
                     }
                 }
 
+                var flush = writer.LengthInBits;
                 writer.Flush();
+                flush = writer.LengthInBits - flush;
 
                 if (writer.HasFailedWrites)
                 {
                     //TODO further improvement
                     //Ideally here we want to print the original TCommandData type. However, for IInputCommands this is pretty much impossible at this point (unless we percolate down the original component type)
                     //since the type information is lost.
-                    UnityEngine.Debug.LogError($"CommandSendSystem failed to serialize '{ComponentType.ReadOnly<TCommandData>().ToFixedString()}' as the serialized payload is too large (limit: {k_MaxCommandSerializedPayloadBytes} )! For redundancy, we pack the command for the current server tick and the last {k_InputBufferSendSize-1} values (delta compressed) inside the payload. Please try to keep ICommandData or IInputComponentData small (tens of bytes). Remember they are serialized at the `SimulationTickRate` and can consume a lot of the client outgoing and server ingress bandwidth.");
+                    UnityEngine.Debug.LogError($"CommandSendSystem failed to serialize '{ComponentType.ReadWrite<TCommandData>().ToFixedString()}' as the serialized payload is too large (limit: {CommandSendSystemGroup.k_MaxCommandSerializedPayloadBytes})! For redundancy, we pack the command for the current server tick and the last {numCommandsToSend} (configurable) values (delta-compressed) inside the payload. Please try to keep ICommandData or IInputComponentData small (tens of bytes). Remember they are serialized at the `SimulationTickRate` and can consume a lot of the client outgoing and server ingress bandwidth.\nContents:'{inputData.ToFixedString()}'.");
                 }
 
-                lengthWriter.WriteUShort((ushort)(writer.Length - startLength));
+#if NETCODE_DEBUG
+                var totalCommandBits = writer.LengthInBits; // Writer is invalidated after this.
+#endif
+                var totalCommandBytes = (ushort)(writer.Length - startLength);
+                lengthWriter.WriteUShort(totalCommandBytes);
                 rpcData.ResizeUninitialized(oldLen + writer.Length);
+
+#if NETCODE_DEBUG
+                if (enablePacketLogging.IsPacketCacheCreated)
+                    enablePacketLogging.LogToPacket($"\t| payloadTicks: {CommandDataUtility.FormatBitsBytes(payloadTickBits)}\n\t| payload: {CommandDataUtility.FormatBitsBytes(payloadBits)}\n\t| changeBits: {CommandDataUtility.FormatBitsBytes((int) (numCommandsToSend-1))}\n\t| flush: {CommandDataUtility.FormatBitsBytes(flush)}\n\t---\n\t{CommandDataUtility.FormatBitsBytes(totalCommandBits)}\n");
+#endif
+            }
+
+            /// <summary>
+            /// First we assume the previous tick is -1 from the current input's tick.
+            /// We send 2 bits in the common case (a delta of -1, -2, or -3, or 0, 1, or 2 after the -1).
+            /// We then fallback on huffman if -4 (i.e. -3) or worse.
+            /// </summary>
+            /// <param name="assumedTickIndex"></param>
+            /// <param name="writer"></param>
+            /// <param name="inputData"></param>
+            private void WriteTickDeltaCompressed(ref NetworkTick assumedTickIndex, ref DataStreamWriter writer, in TCommandData inputData)
+            {
+                const int outOfRange = 3;
+                if (Hint.Likely(assumedTickIndex.IsValid && inputData.Tick.IsValid))
+                {
+                    // The common case is a delta of either 1, 2, or 3 ticks.
+                    // Thus, we allocate 0, 1, and 2 to this delta, then only fallback to Huffman if we need to.
+                    var deltaTicks = assumedTickIndex.TicksSince(inputData.Tick);
+                    if (Hint.Likely(deltaTicks >= 1 && deltaTicks < 3))
+                    {
+                        writer.WriteRawBits((uint) deltaTicks - 1, CommandSendSystemGroup.k_TickDeltaBits);
+                    }
+                    else
+                    {
+                        deltaTicks = outOfRange;
+                        writer.WriteRawBits((uint) deltaTicks, CommandSendSystemGroup.k_TickDeltaBits);
+                        // Subtract 4 from the PREVIOUS VALUE because it can't be -1, -2, or -3.
+                        if(assumedTickIndex.IsValid) assumedTickIndex.Subtract(4);
+                        writer.WritePackedUIntDelta(inputData.Tick.SerializedData, assumedTickIndex.SerializedData, compressionModel);
+                    }
+                }
+                else
+                {
+                    writer.WriteRawBits(outOfRange, CommandSendSystemGroup.k_TickDeltaBits);
+                    writer.WritePackedUIntDelta(inputData.Tick.SerializedData, assumedTickIndex.SerializedData, compressionModel);
+                }
+
+                assumedTickIndex = inputData.Tick;
+            }
+
+            /// <summary>
+            /// Returns 1 if <see cref="prevInputData"/> is the same as the input at <see cref="targetTick"/>.
+            /// Returns 0 if no data or invalid tick.
+            /// </summary>
+            private static uint GetDataAtTickAndCmp(NetworkTick targetTick, ref TCommandData prevInputData,
+                DynamicBuffer<TCommandData> input, ref TCommandData inputData, TCommandDataSerializer serializer)
+            {
+                if (!targetTick.IsValid)
+                    return 0;
+                return input.GetDataAtTick(targetTick, out inputData)
+                    ? serializer.CalculateChangeMask(in inputData, in prevInputData)
+                    : 0u;
             }
 
             /// <summary>
@@ -423,10 +592,19 @@ namespace Unity.NetCode
             {
                 var commandTargets = chunk.GetNativeArray(ref commmandTargetType);
                 var rpcDatas = chunk.GetBufferAccessor(ref outgoingCommandBufferType);
+#if NETCODE_DEBUG
+                var enablePacketLoggings = chunk.Has(ref enablePacketLoggingType) ? chunk.GetNativeArray(ref enablePacketLoggingType) : default;
+#endif
 
                 for (int i = 0, chunkEntityCount = chunk.Count; i < chunkEntityCount; ++i)
                 {
                     var targetEntity = commandTargets[i].targetEntity;
+#if NETCODE_DEBUG
+                    var enablePacketLogging = enablePacketLoggings.IsCreated ? enablePacketLoggings[i] : default;
+#else
+                    var enablePacketLogging = default(EnablePacketLogging);
+#endif
+
                     bool sentTarget = false;
                     for (int ent = 0; ent < autoCommandTargetEntities.Length; ++ent)
                     {
@@ -434,12 +612,12 @@ namespace Unity.NetCode
                         if (autoCommandTargetFromEntity[autoTarget].Enabled &&
                             inputFromEntity.HasBuffer(autoTarget))
                         {
-                            Serialize(rpcDatas[i], autoTarget, true);
+                            Serialize(rpcDatas[i], autoTarget, true, ref enablePacketLogging);
                             sentTarget |= (autoTarget == targetEntity);
                         }
                     }
                     if (!sentTarget && inputFromEntity.HasBuffer(targetEntity))
-                        Serialize(rpcDatas[i], targetEntity, false);
+                        Serialize(rpcDatas[i], targetEntity, false, ref enablePacketLogging);
                 }
             }
         }
@@ -451,10 +629,12 @@ namespace Unity.NetCode
         private EntityQuery m_connectionQuery;
         private EntityQuery m_autoTargetQuery;
         private EntityQuery m_networkTimeQuery;
+        private EntityQuery m_clientTickRateQuery;
         private StreamCompressionModel m_CompressionModel;
         private NetworkTick m_PrevInputTargetTick;
 
         private ComponentTypeHandle<CommandTarget> m_CommandTargetComponentHandle;
+        private ComponentTypeHandle<EnablePacketLogging> m_EnablePacketLoggingTypeComponentHandle;
         private BufferTypeHandle<OutgoingCommandDataStreamBuffer> m_OutgoingCommandDataStreamBufferComponentHandle;
         private BufferLookup<TCommandData> m_TCommandDataFromEntity;
         private ComponentLookup<GhostInstance> m_GhostComponentFromEntity;
@@ -474,9 +654,13 @@ namespace Unity.NetCode
             builder.Reset();
             builder.WithAll<NetworkTime>();
             m_networkTimeQuery = state.GetEntityQuery(builder);
+            builder.Reset();
+            builder.WithAll<ClientTickRate>();
+            m_clientTickRateQuery = state.GetEntityQuery(builder);
 
             m_CompressionModel = StreamCompressionModel.Default;
             m_CommandTargetComponentHandle = state.GetComponentTypeHandle<CommandTarget>(true);
+            m_EnablePacketLoggingTypeComponentHandle = state.GetComponentTypeHandle<EnablePacketLogging>(false);
             m_OutgoingCommandDataStreamBufferComponentHandle = state.GetBufferTypeHandle<OutgoingCommandDataStreamBuffer>();
             m_TCommandDataFromEntity = state.GetBufferLookup<TCommandData>(true);
             m_GhostComponentFromEntity = state.GetComponentLookup<GhostInstance>(true);
@@ -484,7 +668,7 @@ namespace Unity.NetCode
             m_AutoCommandTargetFromEntity = state.GetComponentLookup<AutoCommandTarget>(true);
 
             state.RequireForUpdate(m_connectionQuery);
-            state.RequireForUpdate(state.GetEntityQuery(builder));
+            state.RequireForUpdate(m_networkTimeQuery);
             state.RequireForUpdate<GhostCollection>();
         }
 
@@ -496,6 +680,7 @@ namespace Unity.NetCode
         public SendJobData InitJobData(ref SystemState state)
         {
             m_CommandTargetComponentHandle.Update(ref state);
+            m_EnablePacketLoggingTypeComponentHandle.Update(ref state);
             m_OutgoingCommandDataStreamBufferComponentHandle.Update(ref state);
             m_TCommandDataFromEntity.Update(ref state);
             m_GhostComponentFromEntity.Update(ref state);
@@ -505,9 +690,23 @@ namespace Unity.NetCode
             var clientNetTime = m_networkTimeQuery.GetSingleton<NetworkTime>();
             var targetTick = NetworkTimeHelper.LastFullServerTick(clientNetTime);
             var targetEntities = m_autoTargetQuery.ToEntityListAsync(state.WorldUpdateAllocator, out var autoHandle);
+
+            // NumAdditionalCommandsToSend is really important! Why?
+            // TargetCommandSlack tries to ensure our inputs arrive on the server N ticks before they need to be consumed.
+            // This is good, as it ensures we don't commonly "drop" inputs (i.e. inputs don't commonly arrive too late
+            // to be processed by the DGS's server-authoritative simulation).
+            // However, the client timeline can fall out of sync with the servers timeline by more
+            // than 16.67ms (i.e. one tick at 60Hz).
+            // Thus, if we didn't include an additional 1 tick in each packet, *and* we fall out of sync with the
+            // server (a very common case), we are now losing entire input packets (even with no packet loss at all).
+            if (!m_clientTickRateQuery.TryGetSingleton(out ClientTickRate clientTickRate))
+                clientTickRate = NetworkTimeSystem.DefaultClientTickRate;
+            var numCommandsToSend = Mathematics.math.clamp(clientTickRate.TargetCommandSlack + clientTickRate.NumAdditionalCommandsToSend, 1u, CommandSendSystemGroup.k_MaxInputBufferSendSize);
+
             var sendJob = new SendJobData
             {
                 commmandTargetType = m_CommandTargetComponentHandle,
+                enablePacketLoggingType = m_EnablePacketLoggingTypeComponentHandle,
                 outgoingCommandBufferType = m_OutgoingCommandDataStreamBufferComponentHandle,
                 inputFromEntity = m_TCommandDataFromEntity,
                 ghostFromEntity = m_GhostComponentFromEntity,
@@ -517,7 +716,8 @@ namespace Unity.NetCode
                 inputTargetTick = targetTick,
                 prevInputTargetTick = m_PrevInputTargetTick,
                 autoCommandTargetEntities = targetEntities,
-                stableHash = TypeManager.GetTypeInfo<TCommandData>().StableTypeHash
+                stableHash = TypeManager.GetTypeInfo<TCommandData>().StableTypeHash,
+                numCommandsToSend = numCommandsToSend,
             };
             m_PrevInputTargetTick = targetTick;
             state.Dependency = JobHandle.CombineDependencies(state.Dependency, autoHandle);
@@ -537,7 +737,7 @@ namespace Unity.NetCode
             // Otherwise only run if CommandTarget exists and has this component type
             if (!m_connectionQuery.TryGetSingleton<CommandTarget>(out var commandTarget))
                 return false;
-            if (!state.EntityManager.HasComponent<TCommandData>(commandTarget.targetEntity ))
+            if (!state.EntityManager.HasComponent<TCommandData>(commandTarget.targetEntity))
                 return false;
 
             return true;

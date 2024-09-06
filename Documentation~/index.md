@@ -1,7 +1,7 @@
 
 # Unity Netcode for Entities
 
-The Netcode for Entities, part of the Unity's Data Oriented Technology Stack (DOTS), provides 
+The Netcode for Entities, part of the Unity's Data Oriented Technology Stack (DOTS), provides
 a server authoritive with client prediction framework that you can use to create multiplayer games.
 
 See our publicly available [Unity Netcode Samples](https://github.com/Unity-Technologies/EntityComponentSystemSamples/tree/master/NetcodeSamples) for introductory step by step sample, material, and some more advanced demos.
@@ -30,6 +30,5 @@ To give feedback on this package, post to
 - [Unity DOTS Discord Channel](https://discord.gg/unity/).
 
 ## Additional resources
-* [Getting started](getting-started.md)
 * [Upgrade guide](upgrade-guide.md)
 * [What's new](whats-new.md)

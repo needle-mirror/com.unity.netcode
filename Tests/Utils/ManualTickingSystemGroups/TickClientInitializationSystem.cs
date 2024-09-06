@@ -1,4 +1,3 @@
-using System.Collections.Generic;
 using Unity.Entities;
 
 namespace Unity.NetCode

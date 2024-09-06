@@ -277,7 +277,7 @@ namespace Unity
                 CSharpSyntaxTree.ParseText(File.ReadAllText(Path.Combine(Environment.CurrentDirectory,
                     "../../Command/IInputComponentData.cs"))),
                 CSharpSyntaxTree.ParseText(File.ReadAllText(Path.Combine(Environment.CurrentDirectory,
-                    "../../ClientServerWorld/NetworkTime.cs"))),
+                    "../../PredictionTicking/NetworkTime.cs"))),
             };
         }
     }

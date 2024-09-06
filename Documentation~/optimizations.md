@@ -1,4 +1,4 @@
-# Optimizations
+# Optimizing your game
 
 Netcode optimizations fall into two categories:
 
@@ -20,16 +20,38 @@ When a GhostField change Netcode will send the changes regardless of this settin
 
 ### Physics Scheduling
 
-Context: [Prediction](prediction.md) & [Physics](physics.md).
+Context: [Prediction](intro-to-prediction.md) and [Physics](physics.md).
 As the `PhysicsSimulationGroup` is run inside the `PredictedFixedStepSimulationSystemGroup`, you may encounter scheduling overhead when running at a high ping (i.e. re-simulating 20+ frames).
 You can reduce this scheduling overhead by forcing the majority of Physics work onto the main thread. Add a `PhysicsStep` singleton to your scene, and set `Multi Threaded` to `false`.
 Of course, we are always exploring ways to reduce scheduling overhead._
 
 ### Prediction Switching
 
-The cost of prediction increases with each predicted ghost. 
+The cost of prediction increases with each predicted ghost.
 Thus, as an optimization, we can opt-out of predicting a ghost given some set of criteria (e.g. distance to your clients character controller).
-See [Prediction Switching](prediction.md#prediction-switching) for details.
+See [Prediction Switching](prediction-switching.md) for details.
+
+## Executing Expensive Operations during Off Frames
+On client-hosted servers, your game can be set at a tick rate of 30Hz and a frame rate of 60Hz (if your ClientServerTickRate.TargetFrameRateMode is set to BusyWait). Your host would execute 2 frames for every tick. In other words, your game would be less busy one frame out of two. This can be used to do extra operations during those "off frames".
+To access whether a tick will execute during the frame, you can access the server world's rate manager to get that info.
+
+> [!NOTE]
+> A server world isn't idle during off frames and can time-slice its data sending to multiple connections if there's enough connections and enough off frames. For example, a server with 10 connections can send data to 5 connections one frame and the other 5 the next frame if its tick rate is low enough.
+
+
+```cs
+[WorldSystemFilter(WorldSystemFilterFlags.ServerSimulation)]
+[UpdateInGroup(typeof(InitializationSystemGroup))]
+public partial class DoExtraWorkSystem : SystemBase
+{
+    protected override void OnUpdate()
+    {
+        var serverRateManager = ClientServerBootstrap.ServerWorld.GetExistingSystemManaged&lt;SimulationSystemGroup&gt;().RateManager as NetcodeServerRateManager;
+        if (!serverRateManager.WillUpdate())
+            DoExtraWork(); // We know this frame will be less busy, we can do extra work
+    }
+}
+```
 
 ## Serialization cost
 
@@ -62,7 +84,7 @@ _Note that applying this setting will cause **all** ghosts to default to **not b
 var relevancy = SystemAPI.GetSingletonRW<GhostRelevancy>();
 relevancy.ValueRW.DefaultRelevancyQuery = GetEntityQuery(typeof(AsteroidScore));
 ```
-> [!NOTE]~~~~
+> [!NOTE]
 > If a ghost has been replicated to a client, then is set to **not be** relevant to said client, that client will be notified that this entity has been **destroyed**, and will do so. This misnomer can be confusing, as the entity being despawned does not imply the server entity was destroyed.
 > Example: Despawning an enemy monster in a MOBA because it became hidden in the Fog of War should not trigger a death animation (nor S/VFX). Thus, use some other data to notify what kind of entity-destruction state your entity has entered (e.g. enabling an `IsDead`/`IsCorpse` component).
 
@@ -108,14 +130,14 @@ The fields you can set on this is:
 Flow: The function pointer is invoked by the `GhostSendSystem` for each chunk, and returns the importance scaling for the entities contained within this chunk. The signature of the method is of the delegate type `GhostImportance.ScaleImportanceDelegate`.
 The parameters are `IntPtr`s, which point to instances of the three types of data described above.
 
-You must add a `GhostConnectionComponentType` component to each connection to determine which tile the connection should prioritize. 
+You must add a `GhostConnectionComponentType` component to each connection to determine which tile the connection should prioritize.
 As mentioned, this `GhostSendSystem` passes this per-connection information to the `ScaleImportanceFunction` function.
 
-The `GhostImportanceDataType` is global, static, singleton data, which configures how chunks are constructed. It's optional, and `IntPtr.Zero` will be passed if it is not found. 
-**Importantly: This static data _must_ be added to the same entity that holds the `GhostImportance` singleton. You'll get an exception in the editor if this type is not found here.** 
+The `GhostImportanceDataType` is global, static, singleton data, which configures how chunks are constructed. It's optional, and `IntPtr.Zero` will be passed if it is not found.
+**Importantly: This static data _must_ be added to the same entity that holds the `GhostImportance` singleton. You'll get an exception in the editor if this type is not found here.**
 `GhostSendSystem` will fetch this singleton data, and pass it to the importance scaling function.
 
-`GhostImportancePerChunkDataType` is added to each ghost, essentially forcing it into a specific chunk. The `GhostSendSystem` expects the type to be a shared component. This ensures that the elements in the same chunk will be grouped together by the entity system. 
+`GhostImportancePerChunkDataType` is added to each ghost, essentially forcing it into a specific chunk. The `GhostSendSystem` expects the type to be a shared component. This ensures that the elements in the same chunk will be grouped together by the entity system.
 A user-created system is required to update each entity's chunk to regroup them (example below). It's important to think about how entity transfer between chunks actually works (i.e. the performance implications), as regularly changing an entities chunk will not be performant.
 
 ## Distance-based importance
@@ -196,19 +218,18 @@ When the client predict ghost (either using predicted or owner-predicted mode), 
 state is rollback to the `latest received` snapshot from the server and re-simulated up to the current client predicted server tick.
 
 This behavior is due to the fact, in case of structural changes, the current prediction history backup for the entity is "invalidated", and we don't continue predicting
-since the last fully simulated tick (backup). We do that to ensure that when component are re-added the state of the component is re-predicted (even though this is a fair assumption, it still an approximation, because the other entities are not doing the same), 
+since the last fully simulated tick (backup). We do that to ensure that when component are re-added the state of the component is re-predicted (even though this is a fair assumption, it still an approximation, because the other entities are not doing the same),
 
 This operation can be extremely costly, especially with physics (because of the build reworld step).
 It is possible to disable this bahaviour on a per-prefab basis, by unackecking the `RollbackPredictionOnStructuralChanges` toggle in the GhostAuthoringComponent inspector.
 
-When the `RollbackPredictionOnStructuralChanges` is set to false, the GhostUpdateSystem will try to reuse the current backup if possible, preserving a lot of CPU cycle. This is in general a very good optimization that you would like to enable by default. 
+When the `RollbackPredictionOnStructuralChanges` is set to false, the GhostUpdateSystem will try to reuse the current backup if possible, preserving a lot of CPU cycle. This is in general a very good optimization that you would like to enable by default.
 
 However there are (at the moment) some race conditions and **differences in behaviour when a replicated component is removed from the ghost**. In that case, because the entity is not rollback, the value of this component when it is re-added to entity
 may vary and, depending on the timing, different scenario can happen.
 
-In particular, If a new update for this ghost is received, the snapshot data will contains the last value from the server. However, if the component is missing at that time, the value of the component will be not restored. 
+In particular, If a new update for this ghost is received, the snapshot data will contains the last value from the server. However, if the component is missing at that time, the value of the component will be not restored.
 When later, ther component is re-added, because the entity is not rollback and re-predicted, the current state of the re-added component is still `default` (all zeros).
 For comparison, if this optimization is off, because the entity is re-predicted, the value of the re-added component is restored correctly.
 
 If you know that none of the replicated component are removed for your ghost at runtime (removing others does not cause problem), it is strongly suggested to enable this optimzation, by disabling the default behaviour.
-

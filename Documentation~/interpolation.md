@@ -2,7 +2,7 @@
 
 Networked games are subject to [jitter](https://docs-multiplayer.unity3d.com/netcode/current/learn/lagandpacketloss/) which can in turn impact player's gameplay by making objects seem unstable and jittery. A common solution to jitter is to use buffered [interpolation](https://docs-multiplayer.unity3d.com/netcode/current/learn/clientside_interpolation/), which involves intentionally delaying ticks to allow snapshots to arrive and then interpolating between them. Netcode's interpolation is **not** from current state to target state, but between two known snapshots. If the client renders at the same rate as the simulation rate, then the client is always rendering uninterpolated (but still buffered) snapshots.
 
-This page is about ghosts in interpolated mode. Jitter affects predicted ghosts as well, but [prediction](prediction-high-level-explanation.md) solves this on its own.
+This page is about ghosts in interpolated mode. Jitter affects predicted ghosts as well, but [prediction](intro-to-prediction.md) solves this on its own.
 
 ## Terminology: Interpolation vs Extrapolation
 
@@ -18,11 +18,11 @@ In Netcode for Entities, all of the above are used for interpolated ghosts, wher
 The term `Dead Reckoning` has been used in similar context as extrapolation, but can also mean using more complex logic to guess a trajectory. Netcode does not use dead reckoning.
 
 >[!NOTE]
->In Unity's Netcode context, `Extrapolation` is distinct from [client prediction](prediction.md): extrapolation is a simple linear mathematical operation which is applied to interpolated ghosts when snapshot data hasn't arrived by the current `interpolationTime`, whereas client prediction involves complex simulation of gameplay code adjusting to the client's latency in an attempt to mirror the server's own gameplay simulation. In other words, an interpolated ghost can be extrapolated, but not a predicted ghost. Extrapolation and prediction run on different [timelines](#timelines).
+>In Unity's Netcode context, `Extrapolation` is distinct from [client prediction](intro-to-prediction.md): extrapolation is a simple linear mathematical operation which is applied to interpolated ghosts when snapshot data hasn't arrived by the current `interpolationTime`, whereas client prediction involves complex simulation of gameplay code adjusting to the client's latency in an attempt to mirror the server's own gameplay simulation. In other words, an interpolated ghost can be extrapolated, but not a predicted ghost. Extrapolation and prediction run on different [timelines](#timelines).
 
 ## Timelines
 
-Any given client has two timelines at the same time: the [predicted](prediction.md) timeline which runs in your game's 'present', and the interpolated timeline, which shows late (due to network latency) server values. See [Time Synchronization](time-synchronization.md) for more details.
+Any given client has two timelines at the same time: the [predicted](intro-to-prediction.md) timeline which runs in your game's 'present', and the interpolated timeline, which shows late (due to network latency) server values. See [Time Synchronization](time-synchronization.md) for more details.
 
 Server side, there is only one timeline: the 'present' timeline.
 
@@ -49,9 +49,9 @@ Netcode has a number of features to ensure that interpolation remains smooth and
 - [Ghost Mode](ghost-snapshots.md#authoring-ghosts): Denotes which timeline (interpolated or predicted) a given ghost type should be on, by default.
 - [Smoothing GhostFields](ghost-snapshots.md#authoring-component-serialization)
 - [GhostComponentAttribute Predicted vs Interpolated](ghost-snapshots.md#using-the-ghostcomponentattribute): Adds filtering options depending on the ghost's current mode.
-- [Prediction Switching](prediction.md#prediction-switching): Convert a ghost from the predicted timeline to the interpolated timeline (and vice versa), with additional options for smoothing during the transition period (which is a form of interpolation).
+- [Prediction Switching](prediction-switching.md): Convert a ghost from the predicted timeline to the interpolated timeline (and vice versa), with additional options for smoothing during the transition period (which is a form of interpolation).
 - [CommandDataInterpolationDelay](entities-list.md#commanddata): Optional component, added server-side, to help with server rewind (lag compensation).
 - [Spawns for Interpolated Ghosts](ghost-spawning.md#different-type-of-spawning): Ensures interpolated ghosts are spawned on the appropriate interpolation tick, rather than spawning on the tick the snapshot arrives.
 - [Physics](physics.md#interpolated-ghosts)
 - [Interpolated Timeline Details](time-synchronization.md)
-- [Prediction Smoothing](prediction.md#prediction-smoothing): While not used on interpolated ghosts, the smoothing applied to corrections on mis-predicted GhostField values is a form of interpolation.
+- [Prediction Smoothing](prediction-smoothing.md): While not used on interpolated ghosts, the smoothing applied to corrections on mis-predicted GhostField values is a form of interpolation.

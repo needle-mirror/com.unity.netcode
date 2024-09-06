@@ -1,4 +1,5 @@
 using System;
+using Unity.Collections;
 using Unity.Entities;
 
 namespace Unity.NetCode
@@ -11,7 +12,7 @@ namespace Unity.NetCode
     public enum NetworkTimeFlags : byte
     {
         /// <summary>
-        /// Indicate that the current server tick is a predicted one and the simulation is running inside the prediction group.
+        /// Indicate that the current <see cref="NetworkTime.ServerTick"/> is a predicted one and the simulation is running inside the prediction group.
         /// </summary>
         IsInPredictionLoop = 1 << 0,
         /// <summary>
@@ -95,7 +96,7 @@ namespace Unity.NetCode
         /// </summary>
         public bool IsPartialTick => ServerTickFraction < 1f;
         /// <summary>
-        /// Indicate that the current server tick is a predicted one and the simulation is running inside the prediction group.
+        /// Indicate that the current <see cref="NetworkTime.ServerTick"/> is a predicted one and the simulation is running inside the prediction group.
         /// </summary>
         public bool IsInPredictionLoop => (Flags & NetworkTimeFlags.IsInPredictionLoop) != 0;
         /// <summary>
@@ -126,6 +127,21 @@ namespace Unity.NetCode
         /// Outside the prediction loop, records the current or last frames prediction tick count (until prediction restarts).
         /// </summary>
         public int PredictedTickIndex { get; internal set; }
+
+        /// <summary>Helper to debug NetworkTime issues via logs.</summary>
+        /// <returns>Formatted string containing NetworkTime data.</returns>
+        public FixedString512Bytes ToFixedString() =>
+            $"NetworkTime[{nameof(ServerTick)}:{ServerTick.ToFixedString()} {nameof(ServerTickFraction)}:{ServerTickFraction} " +
+            $"{nameof(InterpolationTick)}:{InterpolationTick.ToFixedString()} {nameof(InterpolationTickFraction)}:{InterpolationTickFraction} " +
+            $"{nameof(SimulationStepBatchSize)}:{SimulationStepBatchSize} {nameof(Flags)}:{(int) Flags} " +
+            $"{nameof(ElapsedNetworkTime)}:{ElapsedNetworkTime} {nameof(IsPartialTick)}:{IsPartialTick} " +
+            $"{nameof(IsInPredictionLoop)}:{IsInPredictionLoop} {nameof(IsFirstPredictionTick)}: {IsFirstPredictionTick} " +
+            $"{nameof(IsFinalPredictionTick)}:{IsFinalPredictionTick} {nameof(IsFinalFullPredictionTick)}:{IsFinalFullPredictionTick} " +
+            $"{nameof(IsFirstTimeFullyPredictingTick)}:{IsFirstTimeFullyPredictingTick} {nameof(IsCatchUpTick)}:{IsCatchUpTick} " +
+            $"{nameof(PredictedTickIndex)}:{PredictedTickIndex}]";
+
+        /// <inheritdoc cref="ToFixedString"/>
+        public override string ToString() => ToFixedString().ToString();
     }
 
     /// <summary>

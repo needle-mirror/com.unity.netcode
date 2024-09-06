@@ -399,6 +399,21 @@ namespace Unity.NetCode
         [Range(0, 16)]
         public uint TargetCommandSlack;
         /// <summary>
+        /// The `CommandSendSystem` will send <see cref="TargetCommandSlack"/> + <see cref="NumAdditionalCommandsToSend"/>
+        /// commands in each input packet (default of 2 and 2, thus 4), as a packet loss recovery mechanism (hard max: 32, see <see cref="CommandSendSystemGroup.k_MaxInputBufferSendSize"/>).
+        /// This option defines how many <b>additional</b> packets to send (on top of `TargetCommandSlack`).
+        /// Min value is 1, as sending zero additional inputs can cause input loss, even on connections with zero packet loss.
+        /// Default value is 2.
+        /// Higher values incur more server ingress bandwidth consumption, but can be useful when dealing with unstable connections.
+        /// However, you may just be re-sending commands that are already too old to be used.
+        /// </summary>
+        /// <remarks>
+        /// Debug command arrival rate (and statistics) via the Packet Dump Utility and/or the <see cref="NetworkSnapshotAck.CommandArrivalStatistics"/>.
+        /// </remarks>
+        [Tooltip("The `CommandSendSystem` will send `TargetCommandSlack` + `NumAdditionalCommandsToSend` commands in each input packet (default of 2 and 2, thus 4), as a packet loss recovery mechanism.\n\nThis option defines how many additional packets to send (on top of `TargetCommandSlack`).\n\nMin value is 1, default value is 2.\n\nHigher values incur more server ingress bandwidth consumption, but can be useful when dealing with unstable connections.\n\nDebug command arrival rate (and statistics) via the Packet Dump Utility and/or the `NetworkSnapshotAck.CommandArrivalStats`.")]
+        [Range(1, 32)]
+        public uint NumAdditionalCommandsToSend;
+        /// <summary>
         /// The client can batch simulation steps in the prediction loop. This setting controls
         /// how many simulation steps the simulation can batch, for ticks which have previously
         /// been predicted.

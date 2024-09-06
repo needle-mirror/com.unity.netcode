@@ -16,90 +16,46 @@ namespace Unity.NetCode
     /// <typeparam name="TComponentType">The unmanaged buffer the helper serialise</typeparam>
     /// <typeparam name="TSnapshot">The snaphost data struct that contains the <see cref="IBufferElementData"/> data.</typeparam>
     /// <typeparam name="TSerializer">A concrete type that implement the <see cref="IGhostSerializer"/> interface.</typeparam>
-    [BurstCompile]
     public static class BufferSerializationHelper<TComponentType, TSnapshot, TSerializer>
         where TComponentType: unmanaged
         where TSnapshot: unmanaged
         where TSerializer: unmanaged, IGhostSerializer
     {
         /// <summary>
-        /// Setup all the <see cref="GhostComponentSerializer.State"/> data and function pointers.
+        /// Copy the pre-serialized dynamic buffer data to data stream <paramref name="writer"/> using the <paramref name="serializer"/> strategy.
         /// </summary>
-        /// <param name="state"></param>
-        /// <param name="systemState"></param>
-        /// <returns>if the <param name="state"></param>/> has been initialised.</returns>
-        public static bool SetupFunctionPointers(ref GhostComponentSerializer.State state,
-            ref SystemState systemState)
-        {
-            // Optimization: Creating burst functions is expensive.
-            // We don't need to do it in literally any other words as they're never called.
-            if ((systemState.WorldUnmanaged.Flags & WorldFlags.GameServer) != WorldFlags.GameServer
-                && (systemState.WorldUnmanaged.Flags & WorldFlags.GameClient) != WorldFlags.GameClient
-                && (systemState.WorldUnmanaged.Flags & WorldFlags.GameThinClient) != WorldFlags.GameThinClient)
-                return false;
-
-            if(state.SnapshotSize == 0)
-            {
-                ZeroSizeComponentSerializationHelper.SetupFunctionPointers(ref state);
-                return true;
-            }
-
-            state.PostSerializeBuffer = new PortableFunctionPointer<GhostComponentSerializer.PostSerializeBufferDelegate>(
-                PostSerializeBuffer);
-            state.SerializeBuffer = new PortableFunctionPointer<GhostComponentSerializer.SerializeBufferDelegate>(
-                SerializeBuffer);
-            state.CopyFromSnapshot = new PortableFunctionPointer<GhostComponentSerializer.CopyToFromSnapshotDelegate>(
-                CopyBufferFromSnapshot);
-            state.CopyToSnapshot = new PortableFunctionPointer<GhostComponentSerializer.CopyToFromSnapshotDelegate>(
-                CopyBufferToSnapshot);
-            state.RestoreFromBackup = new PortableFunctionPointer<GhostComponentSerializer.RestoreFromBackupDelegate>(
-                RestoreFromBackup);
-            state.Deserialize = new PortableFunctionPointer<GhostComponentSerializer.DeserializeDelegate>(
-                Deserialize);
-#if UNITY_EDITOR || NETCODE_DEBUG
-            state.ReportPredictionErrors = new PortableFunctionPointer<GhostComponentSerializer.ReportPredictionErrorsDelegate>(
-                ReportPredictionErrors);
-#endif
-            return true;
-        }
-
-        [BurstCompile(DisableDirectCall = true)]
-        [MonoPInvokeCallback(typeof(GhostComponentSerializer.RestoreFromBackupDelegate))]
-        private static void RestoreFromBackup([NoAlias]IntPtr componentData, [NoAlias]IntPtr backupData)
-        {
-            default(TSerializer).RestoreFromBackup(componentData, backupData);
-        }
-
-        [BurstCompile(DisableDirectCall = true)]
-        [MonoPInvokeCallback(typeof(GhostComponentSerializer.PredictDeltaDelegate))]
-        private static void PredictDelta([NoAlias]IntPtr snapshotData,
-            [NoAlias][ReadOnly]IntPtr baseline1Data, [NoAlias][ReadOnly]IntPtr baseline2Data, ref GhostDeltaPredictor predictor)
-        {
-            default(TSerializer).PredictDelta(snapshotData, baseline1Data, baseline2Data, ref predictor);
-        }
-
-        [BurstCompile(DisableDirectCall = true)]
-        [MonoPInvokeCallback(typeof(GhostComponentSerializer.DeserializeDelegate))]
-        private static void Deserialize([NoAlias]IntPtr snapshotData, [NoAlias]IntPtr baselineData, ref DataStreamReader reader, ref StreamCompressionModel compressionModel, [NoAlias]IntPtr changeMaskData, int startOffset)
-        {
-            default(TSerializer).Deserialize(ref reader, compressionModel, changeMaskData, startOffset, snapshotData, baselineData);
-        }
-
-#if UNITY_EDITOR || NETCODE_DEBUG
-        [BurstCompile(DisableDirectCall = true)]
-        [MonoPInvokeCallback(typeof(GhostComponentSerializer.ReportPredictionErrorsDelegate))]
-        private static void ReportPredictionErrors([NoAlias]IntPtr componentData, [NoAlias]IntPtr backupData, [NoAlias]IntPtr errorsList, int errorsCount)
-        {
-            default(TSerializer).ReportPredictionErrors(componentData, backupData, errorsList, errorsCount);
-        }
-#endif
-        [BurstCompile(DisableDirectCall = true)]
-        [MonoPInvokeCallback(typeof(GhostComponentSerializer.PostSerializeBufferDelegate))]
-        private static void PostSerializeBuffer([NoAlias]IntPtr snapshotData, int snapshotOffset, int snapshotStride,
-            int maskOffsetInBits, int changeMaskBits, int count, [NoAlias]IntPtr baselines, ref DataStreamWriter writer, ref StreamCompressionModel compressionModel,
-            [NoAlias]IntPtr entityStartBit, [NoAlias]IntPtr snapshotDynamicDataPtr, [NoAlias]IntPtr dynamicSizePerEntity, int dynamicSnapshotMaxOffset)
+        /// <param name="snapshotData">the snapshot buffer</param>
+        /// <param name="snapshotOffset">the current offset in the snapshot buffer</param>
+        /// <param name="snapshotStride">the stride to apply to each individual entity</param>
+        /// <param name="maskOffsetInBits">the offset in the changemask bit array</param>
+        /// <param name="changeMaskBits">the changemask bit array</param>
+        /// <param name="count">the number of entities</param>
+        /// <param name="baselines">the baselines for each entity</param>
+        /// <param name="writer">the output data stream</param>
+        /// <param name="compressionModel">the compression model used to compressed the stream</param>
+        /// <param name="entityStartBit">an array of start/end offset in the data stream, that denote for each individual component where their compressed data is stored in the data stream.</param>
+        /// <param name="snapshotDynamicDataPtr">storage for the buffer snapshot</param>
+        /// <param name="dynamicSizePerEntity">the total buffer size (in bytes) written into the snapshot buffer for each entity.</param>
+        /// <param name="dynamicSnapshotMaxOffset">the dynamic snapshot buffer capacity</param>
+        /// <param name="serializer">the IGhostSerialized instance used to serialize the buffer content</param>
+        public static void PostSerializeBuffers(IntPtr snapshotData, int snapshotOffset, int snapshotStride,
+            int maskOffsetInBits, int changeMaskBits, int count, IntPtr baselines, ref DataStreamWriter writer,
+            StreamCompressionModel compressionModel, IntPtr entityStartBit, IntPtr snapshotDynamicDataPtr,
+            IntPtr dynamicSizePerEntity, int dynamicSnapshotMaxOffset, TSerializer serializer)
         {
             int dynamicDataSize = UnsafeUtility.SizeOf<TSnapshot>();
+            if (serializer.SizeInSnapshot == 0)
+            {
+                for (int i = 0; i < count; ++i)
+                {
+                    const int IntSize = 4;
+                    ref var startuint = ref GhostComponentSerializer.TypeCast<int>(entityStartBit, IntSize*2*i);
+                    startuint = writer.Length/IntSize;
+                    startuint = ref GhostComponentSerializer.TypeCast<int>(entityStartBit, IntSize*2*i+IntSize);
+                    startuint = 0;
+                }
+                return;
+            }
             for (int i = 0; i < count; ++i)
             {
                 // Get the elements count and the buffer content offset inside the dynamic data history buffer from the pre-serialized snapshot
@@ -108,21 +64,41 @@ namespace Unity.NetCode
                 var maskSize = SnapshotDynamicBuffersHelper.GetDynamicDataChangeMaskSize(changeMaskBits, len);
                 CheckDynamicDataRange(dynamicSnapshotDataOffset, maskSize, len, dynamicDataSize, dynamicSnapshotMaxOffset);
                 SerializeOneBuffer(i, snapshotData, snapshotOffset, snapshotStride, maskOffsetInBits, changeMaskBits, baselines, ref writer,
-                    compressionModel, entityStartBit, snapshotDynamicDataPtr, dynamicSizePerEntity, len, ref dynamicSnapshotDataOffset, dynamicDataSize, maskSize);
+                    compressionModel, entityStartBit, snapshotDynamicDataPtr, dynamicSizePerEntity, len, ref dynamicSnapshotDataOffset, dynamicDataSize, maskSize,
+                    serializer);
             }
         }
 
-        [BurstCompile(DisableDirectCall = true)]
-        [MonoPInvokeCallback(typeof(GhostComponentSerializer.SerializeBufferDelegate))]
-        private static void SerializeBuffer([NoAlias]IntPtr stateData,
-            [NoAlias]IntPtr snapshotData, int snapshotOffset, int snapshotStride,
-            int maskOffsetInBits, int changeMaskBits,
-            [NoAlias]IntPtr componentData, [NoAlias]IntPtr componentDataLen, int count, [NoAlias]IntPtr baselines,
-            ref DataStreamWriter writer, ref StreamCompressionModel compressionModel,
-            [NoAlias]IntPtr entityStartBit, [NoAlias]IntPtr snapshotDynamicDataPtr, ref int dynamicSnapshotDataOffset,
-            [NoAlias]IntPtr dynamicSizePerEntity, int dynamicSnapshotMaxOffset)
+        /// <summary>
+        /// Serialize the dynamic buffer content to the <paramref name="writer"/> stream using the <paramref name="serializer"/> strategy.
+        /// </summary>
+        /// <param name="stateData">a pointer to the <see cref="GhostSerializerState"/> struct </param>
+        /// <param name="snapshotData">the snapshot buffer</param>
+        /// <param name="snapshotOffset">the current offset in the snapshot buffer</param>
+        /// <param name="snapshotStride">the stride to apply to each individual entity</param>
+        /// <param name="maskOffsetInBits">the offset in the changemask bit array</param>
+        /// <param name="changeMaskBits">the changemask bit array</param>
+        /// <param name="componentData">a pointer to the chunk component data </param>
+        /// <param name="componentDataLen">the len of each individual buffer</param>
+        /// <param name="count">the number of entities</param>
+        /// <param name="baselines">the baselines for each entity</param>
+        /// <param name="writer">the output data stream</param>
+        /// <param name="compressionModel">the compression model used to compressed the stream</param>
+        /// <param name="entityStartBit">an array of start/end offset in the data stream, that denote for each individual component where their compressed data is stored in the data stream.</param>
+        /// <param name="snapshotDynamicDataPtr">storage for the buffer snapshot</param>
+        /// <param name="dynamicSnapshotDataOffset">the current offset in the dynamic snapshot buffer</param>
+        /// <param name="dynamicSizePerEntity">the total buffer size (in bytes) written into the snapshot buffer for each entity.</param>
+        /// <param name="dynamicSnapshotMaxOffset">the dynamic snapshot buffer capacity</param>
+        /// <param name="serializer">the IGhostSerialized instance used to serialize the buffer content</param>
+        public static void SerializeBuffers(IntPtr stateData, IntPtr snapshotData, int snapshotOffset, int snapshotStride,
+            int maskOffsetInBits, int changeMaskBits, IntPtr componentData, IntPtr componentDataLen, int count,
+            IntPtr baselines, ref DataStreamWriter writer, StreamCompressionModel compressionModel, IntPtr entityStartBit,
+            IntPtr snapshotDynamicDataPtr, ref int dynamicSnapshotDataOffset, IntPtr dynamicSizePerEntity,
+            int dynamicSnapshotMaxOffset, TSerializer serializer)
         {
             int dynamicDataSize = UnsafeUtility.SizeOf<TSnapshot>();
+            int componentStride = UnsafeUtility.SizeOf<TComponentType>();
+            ref readonly var serializerState = ref GhostComponentSerializer.TypeCastReadonly<GhostSerializerState>(stateData);
             for (int i = 0; i < count; ++i)
             {
                 int len = GhostComponentSerializer.TypeCast<int>(componentDataLen, i*4);
@@ -137,36 +113,58 @@ namespace Unity.NetCode
                 {
                     //Copy the buffer contents
                     IntPtr curCompData = GhostComponentSerializer.TypeCast<IntPtr>(componentData, UnsafeUtility.SizeOf<IntPtr>()*i);
-                    CopyBufferToSnapshot(stateData, snapshotDynamicDataPtr + maskSize, dynamicSnapshotDataOffset, dynamicDataSize, curCompData, UnsafeUtility.SizeOf<TComponentType>(), len);
+                    IntPtr snapshotData1 = snapshotDynamicDataPtr + maskSize;
+                    ref readonly var serializerState1 = ref GhostComponentSerializer.TypeCastReadonly<GhostSerializerState>(stateData);
+                    for (int i1 = 0; i1 < len; ++i1)
+                    {
+                        serializer.CopyToSnapshot(serializerState1, snapshotData1 + dynamicSnapshotDataOffset + dynamicDataSize*i1, curCompData + componentStride*i1);
+                    }
                 }
                 SerializeOneBuffer(i,
                     snapshotData, snapshotOffset, snapshotStride,
                     maskOffsetInBits, changeMaskBits, baselines,
                     ref writer, compressionModel, entityStartBit, snapshotDynamicDataPtr,
                     dynamicSizePerEntity, len,
-                    ref dynamicSnapshotDataOffset, dynamicDataSize, maskSize);
+                    ref dynamicSnapshotDataOffset, dynamicDataSize, maskSize, serializer);
             }
         }
 
-        [BurstCompile(DisableDirectCall = true)]
-        [MonoPInvokeCallback(typeof(GhostComponentSerializer.CopyToFromSnapshotDelegate))]
-        private static void CopyBufferToSnapshot([NoAlias]IntPtr stateData, [NoAlias]IntPtr snapshotData, int snapshotOffset, int snapshotStride, [NoAlias]IntPtr componentData, int componentStride, int count)
+        /// <summary>
+        /// Copy the dynamic buffers content to the snapshot, using the <paramref name="serializer"/> strategy.
+        /// </summary>
+        /// <param name="stateData">a pointer to the <see cref="GhostSerializerState"/> struct </param>
+        /// <param name="snapshotData">the snapshot buffer</param>
+        /// <param name="snapshotOffset">the current offset in the snapshot buffer</param>
+        /// <param name="snapshotStride">the stride to apply to snapshot pointer for each individual entity</param>
+        /// <param name="componentData">a pointer to the chunk component data </param>
+        /// <param name="componentStride">the stride to apply to component pointer for each individual entity</param>
+        /// <param name="count">the number of entities</param>
+        /// <param name="serializer">the IGhostSerialized instance used to serialize the buffer content</param>
+        public static void CopyBuffersToSnapshot(IntPtr stateData, IntPtr snapshotData, int snapshotOffset,
+            int snapshotStride, IntPtr componentData, int componentStride, int count, TSerializer serializer)
         {
-            var serializer = default(TSerializer);
+            ref readonly var serializerState = ref GhostComponentSerializer.TypeCastReadonly<GhostSerializerState>(stateData);
             for (int i = 0; i < count; ++i)
             {
-                ref readonly var serializerState = ref GhostComponentSerializer.TypeCastReadonly<GhostSerializerState>(stateData);
                 serializer.CopyToSnapshot(serializerState, snapshotData + snapshotOffset + snapshotStride*i, componentData + componentStride*i);
             }
         }
 
-        [BurstCompile(DisableDirectCall = true)]
-        [MonoPInvokeCallback(typeof(GhostComponentSerializer.CopyToFromSnapshotDelegate))]
-        private static void CopyBufferFromSnapshot([NoAlias]IntPtr stateData, [NoAlias]IntPtr snapshotData, int snapshotOffset, int snapshotStride,
-            [NoAlias]IntPtr componentData, int componentStride, int count)
+        /// <summary>
+        /// Copy the dynamic buffers content from the snapshot, using the <paramref name="serializer"/> strategy.
+        /// </summary>
+        /// <param name="stateData">a pointer to the <see cref="GhostSerializerState"/> struct </param>
+        /// <param name="snapshotData">the snapshot buffer</param>
+        /// <param name="snapshotOffset">the current offset in the snapshot buffer</param>
+        /// <param name="snapshotStride">the stride to apply to snapshot pointer for each individual entity</param>
+        /// <param name="componentData">a pointer to the chunk component data </param>
+        /// <param name="componentStride">the stride to apply to component pointer for each individual entity</param>
+        /// <param name="count">the number of entities</param>
+        /// <param name="serializer">the IGhostSerialized instance used to serialize the buffer content</param>
+        public static void CopyBuffersFromSnapshot(IntPtr stateData, IntPtr snapshotData, int snapshotOffset,
+            int snapshotStride, IntPtr componentData, int componentStride, int count, TSerializer serializer)
         {
             var deserializerState = GhostComponentSerializer.TypeCast<GhostDeserializerState>(stateData);
-            var serializer = default(TSerializer);
             ref var snapshotInterpolationData = ref GhostComponentSerializer.TypeCast<SnapshotData.DataAtTick>(snapshotData);
             deserializerState.SnapshotTick = snapshotInterpolationData.Tick;
             for (int i = 0; i < count; ++i)
@@ -196,13 +194,15 @@ namespace Unity.NetCode
         const int IntSize = 4;
         const int BaselinesPerEntity = 4;
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private static void SerializeOneBuffer(int ent, [NoAlias]IntPtr snapshotData,
+        private static void SerializeOneBuffer(
+            int ent, IntPtr snapshotData,
             int snapshotOffset, int snapshotStride,
             int maskOffsetInBits, int changeMaskBits,
-            [NoAlias]IntPtr baselines,
-            ref DataStreamWriter writer, in StreamCompressionModel compressionModel, [NoAlias]IntPtr entityStartBit,
-            [NoAlias]IntPtr snapshotDynamicDataPtr, [NoAlias]IntPtr dynamicSizePerEntity,
-            int len, ref int dynamicSnapshotDataOffset, int dynamicDataSize, int maskSize)
+            IntPtr baselines,
+            ref DataStreamWriter writer, in StreamCompressionModel compressionModel, IntPtr entityStartBit,
+            IntPtr snapshotDynamicDataPtr, IntPtr dynamicSizePerEntity,
+            int len, ref int dynamicSnapshotDataOffset, int dynamicDataSize, int maskSize,
+            TSerializer serializer)
         {
             int PtrSize = UnsafeUtility.SizeOf<IntPtr>();
             var baseline0Ptr = GhostComponentSerializer.TypeCast<IntPtr>(baselines, PtrSize*ent*BaselinesPerEntity);
@@ -211,7 +211,6 @@ namespace Unity.NetCode
             ref var startuint = ref GhostComponentSerializer.TypeCast<int>(entityStartBit, IntSize*2*ent);
             startuint = writer.Length/IntSize;
 
-            var serializer = default(TSerializer);
             DefaultBufferSerialization.SerializeBufferToStream(
                 serializer,
                 baseline0Ptr, snapshotOffset,

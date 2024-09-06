@@ -228,7 +228,10 @@ namespace Unity.NetCode.Generators
         {
             return m_Fragments.ContainsKey($"__{fragment}__");
         }
-        public bool GenerateFragment(string fragment, Dictionary<string, string> replacements, GhostCodeGen target = null, string targetFragment = null, string extraIndent = null, bool allowMissingFragment = false)
+
+        public bool GenerateFragment(string fragment, Dictionary<string, string> replacements,
+            GhostCodeGen target = null, string targetFragment = null, string extraIndent = null, bool allowMissingFragment = false,
+            bool prepend = false)
         {
             if (target == null)
                 target = this;
@@ -248,7 +251,10 @@ namespace Unity.NetCode.Generators
                 content = extraIndent + content.Replace("\n    ", $"\n    {extraIndent}");
 
             Validate(content, fragment);
-            target.m_Fragments[$"__{targetFragment}__"].Content += content;
+            if (prepend)
+                target.m_Fragments[$"__{targetFragment}__"].Content = content + target.m_Fragments[$"__{targetFragment}__"].Content;
+            else
+                target.m_Fragments[$"__{targetFragment}__"].Content += content;
             return true;
         }
 

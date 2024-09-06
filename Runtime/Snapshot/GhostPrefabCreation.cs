@@ -932,7 +932,7 @@ namespace Unity.NetCode
             if (config.UUID5GhostType != default)
             {
                 ghostType = GhostType.FromHash128(config.UUID5GhostType);
-#if NETCODE_DEBUG
+#if NETCODE_DEBUG || UNITY_EDITOR
                 if (!ghostType.ValidateIsUUID5())
                     throw new InvalidOperationException($"The custom UUID5 ghost type {config.UUID5GhostType} is not a valid UUID5 compliant unique identifier. Please refer to https://datatracker.ietf.org/doc/html/rfc4122 for more details");
 #endif

@@ -17,7 +17,7 @@ namespace Unity.NetCode
     /// Based on the spawning (<see cref="GhostSpawnBuffer.Type"/>), the requests are handled quite differently.
     /// <para>When the mode is set to <see cref="GhostSpawnBuffer.Type.Interpolated"/>, the ghost creation is delayed
     /// until the <see cref="NetworkTime.InterpolationTick"/> match (or is greater) the actual spawning tick on the server.
-    /// A temporary entity, holding the spawning information, the received snapshot data from the server, and tagged with the <seealso cref="PendingSpawnPlaceholder"/>
+    /// A temporary entity, holding the spawning information, the received snapshot data from the server, and tagged with the <see cref="PendingSpawnPlaceholder"/>
     /// is created. The entity will exists until the real ghost instance is spawned (or a de-spawn request has been received),
     /// and its sole purpose of receiving new incoming snapshots (even though they are not applied to the entity, since it is not a real ghost).
     /// </para>

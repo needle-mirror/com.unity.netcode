@@ -192,7 +192,7 @@ namespace Unity.NetCode
                 if (typeData.NumBuffers != 0)
                 {
                     // figure out how much data is required for the buffer dynamic data
-                    dynamicDataCapacity = helper.GatherBufferSize(chunk, 0, typeData);
+                    dynamicDataCapacity = helper.GatherBufferSize(chunk, 0, chunk.Count, typeData);
                     dynamicDataHeaderSize = GhostChunkSerializationState.GetDynamicDataHeaderSize(chunk.Capacity);
                 }
                 int snapshotDataCapacity = typeData.SnapshotSize * chunk.Capacity;

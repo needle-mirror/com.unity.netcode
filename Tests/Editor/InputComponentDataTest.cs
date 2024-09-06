@@ -1,3 +1,4 @@
+using System;
 using NUnit.Framework;
 using Unity.Collections;
 using Unity.Entities;
@@ -5,6 +6,7 @@ using Unity.Mathematics;
 using Unity.NetCode.LowLevel.Unsafe;
 using Unity.Transforms;
 using UnityEngine;
+using Random = Unity.Mathematics.Random;
 
 namespace Unity.NetCode.Tests
 {
@@ -12,6 +14,9 @@ namespace Unity.NetCode.Tests
     {
         public int Horizontal;
         public int Vertical;
+        /// <summary>Unique value, ensuring deserialization on a per-tick basis is 100% correct.</summary>
+        public NetworkTick SentinelTick;
+        public uint Sentinel;
         public InputEvent Jump;
     }
 
@@ -138,6 +143,8 @@ namespace Unity.NetCode.Tests
         }
         protected override void OnUpdate()
         {
+            var networkTime = SystemAPI.GetSingleton<NetworkTime>();
+
             var didSetEvent = m_DidSetEvent;
             var waitTicks = m_WaitTicks;
             Entities
@@ -147,6 +154,8 @@ namespace Unity.NetCode.Tests
                     inputData = default;
                     inputData.Horizontal = 1;
                     inputData.Vertical = 1;
+                    inputData.SentinelTick = networkTime.ServerTick;
+                    inputData.Sentinel = Unity.Mathematics.Random.CreateFromIndex(networkTime.ServerTick.TickIndexForValidTick).NextUInt();
                     if (!didSetEvent)
                     {
                         if (waitTicks > 0)
@@ -199,8 +208,9 @@ namespace Unity.NetCode.Tests
         }
         protected override void OnUpdate()
         {
+            var networkTime = SystemAPI.GetSingleton<NetworkTime>();
             var eventCounter = EventCounter;
-            Entities.WithAll<Simulate>().ForEach(
+            Entities.WithoutBurst().WithAll<Simulate>().ForEach(
                 (ref InputComponentData input, ref LocalTransform trans) =>
                 {
                     var newPosition = new float3();
@@ -209,6 +219,15 @@ namespace Unity.NetCode.Tests
                     newPosition.x = input.Horizontal;
                     newPosition.z = input.Vertical;
                     trans = trans.WithPosition(newPosition);
+
+                    // Validate Sentinel (but only when inputs begin to arrive):
+                    if (input.Horizontal != 0)
+                    {
+                        var deltaTicks = networkTime.ServerTick.TicksSince(input.SentinelTick);
+                        Assert.LessOrEqual(math.abs(deltaTicks), 2, $"Input was raised on ServerTick {input.SentinelTick.ToFixedString()}, but was consumed by the server more than ±2 ticks away from the arrival tick of {networkTime.ServerTick.ToFixedString()}!");
+                        var expectedSentinelValue = Random.CreateFromIndex(input.SentinelTick.TickIndexForValidTick).NextUInt();
+                        Assert.AreEqual(expectedSentinelValue, input.Sentinel, $"Input Sentinel value was incorrect for seed value {input.SentinelTick.ToFixedString()}!");
+                    }
                 }).Run();
 
             EventCounter = eventCounter;
@@ -217,11 +236,35 @@ namespace Unity.NetCode.Tests
 
     public class InputComponentDataTest
     {
+        public enum NetworkTestCondition
+        {
+            GoodNetwork,
+            HighPacketLoss,
+            HighJitter
+        }
         [Test]
-        public void InputComponentData_IsCorrectlySynchronized()
+        public void InputComponentData_IsCorrectlySynchronized([Values] NetworkTestCondition networkCondition)
         {
             using (var testWorld = new NetCodeTestWorld())
             {
+                // Set conditions:
+                {
+                    testWorld.DriverSimulatedDelay = 50; // Milliseconds.
+                    switch (networkCondition)
+                    {
+                        case NetworkTestCondition.GoodNetwork:
+                            break;
+                        case NetworkTestCondition.HighPacketLoss:
+                            testWorld.DriverSimulatedDrop = 3; //rd tick interval, so 33%.
+                            break;
+                        case NetworkTestCondition.HighJitter:
+                            testWorld.DriverSimulatedJitter = 100; // ±Milliseconds.
+                            break;
+                        default:
+                            throw new ArgumentOutOfRangeException(nameof(networkCondition), networkCondition, null);
+                    }
+                }
+
                 testWorld.Bootstrap(true, typeof(GatherInputsSystem), typeof(ProcessInputsSystem));
 
                 var ghostGameObject = new GameObject();
@@ -231,7 +274,7 @@ namespace Unity.NetCode.Tests
                 ghostConfig.SupportAutoCommandTarget = true;
                 Assert.IsTrue(testWorld.CreateGhostCollection(ghostGameObject));
                 testWorld.CreateWorlds(true, 1);
-                testWorld.Connect();
+                testWorld.Connect(maxSteps: 32);
                 testWorld.GoInGame();
 
                 var serverConnectionEnt = testWorld.TryGetSingletonEntity<NetworkId>(testWorld.ServerWorld);
@@ -243,7 +286,7 @@ namespace Unity.NetCode.Tests
 
                 // Wait for client spawn
                 Entity clientEnt;
-                for (int i = 0; i < 16; ++i)
+                for (int i = 0; i < 32; ++i)
                 {
                     clientEnt = testWorld.TryGetSingletonEntity<InputComponentData>(testWorld.ClientWorlds[0]);
                     if (clientEnt != Entity.Null) break;
@@ -256,7 +299,7 @@ namespace Unity.NetCode.Tests
                 testWorld.ServerWorld.EntityManager.SetComponentData(serverConnectionEnt, new CommandTarget{targetEntity = serverEnt});
                 testWorld.ClientWorlds[0].EntityManager.SetComponentData(clientConnectionEnt, new CommandTarget{targetEntity = clientEnt});
 
-                for (int i = 0; i < 16; ++i)
+                for (int i = 0; i < 40; ++i)
                     testWorld.Tick();
 
                 // The IInputComponentData should have been copied to buffer, sent to server, and then transform
@@ -268,6 +311,19 @@ namespace Unity.NetCode.Tests
                 // Event should only fire once on the server (but can multiple times on client because of prediction loop)
                 var serverInputSystem = testWorld.ServerWorld.GetExistingSystemManaged<ProcessInputsSystem>();
                 Assert.AreEqual(1, serverInputSystem.EventCounter);
+
+                // Assert input logging is realistic:
+                var networkSnapshotAck = testWorld.GetSingleton<NetworkSnapshotAck>(testWorld.ServerWorld);
+                var cas = networkSnapshotAck.CommandArrivalStatistics;
+                Debug.Log(cas.ToFixedString());
+                const int expectedMinPacketsArrived = 7;
+                Assert.GreaterOrEqual(cas.NumCommandPacketsArrived, expectedMinPacketsArrived, "Expected command packets to arrive!?");
+                Assert.GreaterOrEqual(cas.NumCommandsArrived, expectedMinPacketsArrived * 4, "Expected command packets to be full of inputs!?");
+                Assert.GreaterOrEqual(cas.NumRedundantResends, expectedMinPacketsArrived * 2.2f, "Expected most resends to be redundant!?");
+                if(networkCondition != NetworkTestCondition.HighJitter)
+                    Assert.GreaterOrEqual(cas.NumArrivedTooLate, expectedMinPacketsArrived * 0.1f, "Expected to have *some* inputs arriving too late!?");
+                Assert.IsTrue(math.abs(cas.AvgCommandsPerPacket - 4) < double.Epsilon, "Expected the default of 4 commands per packet!");
+                Assert.GreaterOrEqual(cas.AvgCommandPayloadSizeInBits, 200, "Expected command bits to be ~200!");
             }
         }
 

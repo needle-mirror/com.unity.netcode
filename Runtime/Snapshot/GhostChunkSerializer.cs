@@ -1297,7 +1297,7 @@ namespace Unity.NetCode
                 groupSnapshot.AvailableBaselines = grpAvailableBaselines;
                 if (GhostTypeCollection[childGhostType].NumBuffers > 0)
                 {
-                    groupSnapshot.SnapshotDynamicDataSize = GatherDynamicBufferSize(groupChunk.Chunk, groupChunk.IndexInChunk, groupChunk.IndexInChunk + 1);
+                    groupSnapshot.SnapshotDynamicDataSize = GatherDynamicBufferSize(groupChunk.Chunk, groupChunk.IndexInChunk, groupChunk.IndexInChunk + 1, childGhostType);
                 }
 
                 int dataSize = GhostTypeCollection[chunkState.ghostType].SnapshotSize;
@@ -1361,7 +1361,7 @@ namespace Unity.NetCode
 
         //Cycle over all the components for the given entity range in the chunk and compute the capacity
         //to store all the dynamic buffer contents (if any)
-        private unsafe int GatherDynamicBufferSize(in ArchetypeChunk chunk, int startIndex, int ghostType)
+        private unsafe int GatherDynamicBufferSize(in ArchetypeChunk chunk, int startIndex, int endIndex, int ghostType)
         {
             if (chunk.Has(ref preSerializedGhostType) && SnapshotPreSerializeData.TryGetValue(chunk, out var preSerializedSnapshot))
             {
@@ -1378,7 +1378,7 @@ namespace Unity.NetCode
                 ghostChunkComponentTypesPtrLen = ghostChunkComponentTypesLength
             };
 
-            int requiredSize = helper.GatherBufferSize(chunk, startIndex, GhostTypeCollection[ghostType]);
+            int requiredSize = helper.GatherBufferSize(chunk, startIndex, endIndex, GhostTypeCollection[ghostType]);
             return requiredSize;
         }
 
@@ -1698,7 +1698,7 @@ namespace Unity.NetCode
 
                     //FIXME: this operation is costly (we traverse the whole chunk and child entities too), do that only if something changed. Backup the current size and version in the
                     //chunk state. It is a non trivial check in general, due to the entity children they might be in another chunk)
-                    currentSnapshot.SnapshotDynamicDataSize = GatherDynamicBufferSize(chunk, serialChunk.startIndex, ghostType);
+                    currentSnapshot.SnapshotDynamicDataSize = GatherDynamicBufferSize(chunk, serialChunk.startIndex, serialChunk.chunk.Count, ghostType);
                 }
 
                 SetupDataAndAvailableBaselines(ref currentSnapshot, ref chunkState, chunk, snapshotSize, writeIndex, snapshotIndex);

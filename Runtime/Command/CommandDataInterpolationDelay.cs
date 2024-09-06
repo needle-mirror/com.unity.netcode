@@ -20,11 +20,13 @@ namespace Unity.NetCode
     public struct CommandDataInterpolationDelay : IComponentData
     {
         /// <summary>
-        /// The latest reported interpolation delay reported for this entity.
-        /// The delay value is update every time the target entity receive commands.
-        /// If the client switch target for commands (ex: enter a vehicle), by either changing the
-        /// <see cref="CommandTarget"/> or by enabling another <see cref="AutoCommandTarget"/>,
-        /// the value of the delay become stale: is never reset to 0 and will remain the same as repoted by the last command.
+        /// The latest reported interpolation delay (in ticks) reported for this entity.
+        /// The delay value is updated every time the target entity receives a command from the client,
+        /// as this interpolation delay is included in the command header.
+        /// If the client switches its <see cref="CommandTarget"/> (for example: by entering a vehicle),
+        /// by either changing the <see cref="CommandTarget"/> or by enabling another <see cref="AutoCommandTarget"/>,
+        /// the value of the delay becomes stale. In other words: It is never reset to 0, and will remain the same as
+        /// reported by the last received command.
         /// </summary>
         public uint Delay;
     }

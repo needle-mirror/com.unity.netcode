@@ -1,10 +1,10 @@
-# Ghost snapshots
+# Ghost snapshots and synchronization
 
-A ghost is a networked object that the server simulates. During every frame, the server sends a snapshot of the current state of all ghosts to the client. The client presents them, but cannot directly control or affect them because the server owns them (it has "authority").
+A ghost is a networked object that the server simulates. During every frame, the server sends a snapshot of the current state of all ghosts to the client. The client presents them, but cannot directly control or affect them because the server owns them (it has authority).
 
 **Under the hood:** The ghost snapshot system synchronizes entities, which exist on the server, to all clients. To improve performance, the server processes ghosts per entity chunk, rather than per entity. However, on the receiving client side, processing is done per entity. It's not possible to process per chunk on both sides because one set of entities in one chunk on the server may not correspond with the same set of entities in one chunk on the client. There are also multiple clients, each with their own entity-in-chunk layout.
 
-## Using Ghosts vs. RPCs
+## Should you use ghosts or RPCs?
 
 You can use both ghosts and RPCs in your game. Each one has specific use cases where it excels compared to the other.
 
@@ -13,7 +13,7 @@ You can use both ghosts and RPCs in your game. Each one has specific use cases w
 Use ghosts to:
 
 * Replicate spatially local, ephemeral, and relevant per-entity data.
-* Enable [client prediction](prediction-high-level-explanation.md) of ghost entities, which is the most effective latency-hiding multiplayer technique.
+* Enable [client prediction](intro-to-prediction.md) of ghost entities, which is the most effective latency-hiding multiplayer technique.
 
 ### RPC use cases
 
@@ -24,25 +24,23 @@ Use RPCs to:
 
 ### Key differences
 
-* RPCs are "one-shot" events, and are thus not automatically persisted.
-  _Example: If you send an RPC when a treasure chest is opened, if a player disconnects and reconnects, the chest will appear closed._
-* Ghost data persists for the lifetime of its Ghost entity (and the lifetime of the ghost entity is itself replicated). Therefore, long-lived user-interactable entities should have their persistent state stored in Ghost components.
-  _Example: A chests FSM can be stored as an enum on a Component. If a player opens the chest, disconnects, then reconnects, they will re-receive the chest, as well as its open state._
-* RPCs are sent as reliable packets, while ghosts snapshots are unreliable (with "eventual consistency").
+* RPCs are one-shot events, and are therefore not automatically persisted.
+    * For example, if you send an RPC when a treasure chest is opened, if a player disconnects and reconnects, the chest will appear closed.
+* Ghost data persists for the lifetime of its ghost entity (and the lifetime of the ghost entity is itself replicated). Therefore, long-lived user-interactable entities should have their persistent state stored in ghost components.
+    * For example, a chest's finite-state machine (FSM) can be stored as an enum on a component. If a player opens the chest, disconnects, then reconnects, they will re-receive the chest, as well as its open state.
+* RPCs are sent as reliable packets, while ghosts snapshots are unreliable (with eventual consistency).
 * RPC data is sent and received as it is, while ghost data goes through optimizations like diff and delta-compression, and can go through value smoothing when received.
 * RPCs are not tied to any particular tick, or other snapshot timing data. They are simply processed on the frame that they are received.
 * Ghost snapshot data can work with interpolation and prediction (with snapshot history), and thus history, rollback, and resimulation.
 * Ghost snapshot data can be bandwidth optimized via relevancy and importance. RPCs are either broadcast, or sent to a single client.
 
----
-
 ## Authoring ghosts
 
-Ghost can be authored in the editor by creating a Prefab with a [GhostAuthoringComponent](https://docs.unity3d.com/Packages/com.unity.netcode@latest/index.html?subfolder=/api/Unity.NetCode.GhostAuthoring.html).
+Ghost can be authored in the Editor by creating a prefab with a [GhostAuthoringComponent](https://docs.unity3d.com/Packages/com.unity.netcode@latest/index.html?subfolder=/api/Unity.NetCode.GhostAuthoring.html).
 
 ![Ghost Authoring Component](images/ghost-config.png)
 
-The __GhostAuthoringComponent__ has a small editor which you can use to configure how Netcode synchronizes the Prefab. <br/>
+The __GhostAuthoringComponent__ has a small editor that you can use to configure how Netcode for Entities synchronizes the prefab. <br/>
 You must set the __Name__, __Importance__, __Supported Ghost Mode__, __Default Ghost Mode__ and __Optimization Mode__ property on each ghost. <br/>
 Netcode for Entities uses the __Importance__ property to control which entities are sent when there is not enough bandwidth to send all. A higher value makes it more likely that the ghost will be sent.
 
@@ -56,7 +54,7 @@ You can select from three different __Default Ghost Mode__ types:
 
 * __Interpolated__ - all ghosts Unity receives from the server are treated as interpolated.
 * __Predicted__ - all ghosts Unity receives from the server are treated as predicted.
-* __Owner predicted__ - the ghost is predicted for the client that owns it, and interpolated for all other clients. When you select this property, you must also add a __GhostOwner__ and set its __NetworkId__ field in your code. Unity compares this field to each clients’ network ID to find the correct owner.
+* __Owner predicted__ - the ghost is predicted for the client that owns it, and interpolated for all other clients. When you select this property, you must also add a __GhostOwner__ and set its __NetworkId__ field in your code. Unity compares this field to each clients' network ID to find the correct owner.
 
 You can select from two different __Optimization Mode__ types:
 
@@ -71,7 +69,7 @@ Netcode for Entities uses C# attributes to configure which components and fields
 |--------------------------------------------------------------------------------------------------------------------------------------------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | [GhostFieldAttribute](https://docs.unity3d.com/Packages/com.unity.netcode@latest/index.html?subfolder=/api/Unity.NetCode.GhostFieldAttribute.html)           | The `GhostFieldAttribute` should be used to mark which component (or buffer) fields should be serialized. <br/>The attribute can be added to struct fields and properties. <br/>Once a component has at least one field marked with `[GhostField]`, it becomes replicated, and will be transmitted as part of the ghost data.   |
 | [GhostEnabledBitAttribute](https://docs.unity3d.com/Packages/com.unity.netcode@latest/index.html?subfolder=/api/Unity.NetCode.GhostEnabledBitAttribute.html) | Similarly, the `GhostEnabledBitAttribute` should be used on an `IEnableableComponent` struct definition, to denote that the enabled bit for this component should be serialized. <br/>Once a component is flagged with `[GhostEnabledBit]`, its enabled-bit will be replicated, and thus transmitted as part of the ghost data. |
-| [GhostComponentAttribute](https://docs.unity3d.com/Packages/com.unity.netcode@latest/index.html?subfolder=/api/Unity.NetCode.GhostComponentAttribute.html)   | The `GhostComponentAttribute` should be used on a `ComponentType` struct definition to:<br/>- Declare for which version of the Prefab the component should be present.<br/>- Declare if the component should be serialized also for child entities.<br/>- Declare to which subset of clients a component should be replicated. <br/>IMPORTANT NOTE: Adding a GhostComponent attribute won't make your component fields replicate. You must mark each field with a GhostField attribute individually.  |
+| [GhostComponentAttribute](https://docs.unity3d.com/Packages/com.unity.netcode@latest/index.html?subfolder=/api/Unity.NetCode.GhostComponentAttribute.html)   | The `GhostComponentAttribute` should be used on a `ComponentType` struct definition to:<br/>- Declare for which version of the prefab the component should be present.<br/>- Declare if the component should be serialized also for child entities.<br/>- Declare to which subset of clients a component should be replicated. <br/>IMPORTANT NOTE: Adding a GhostComponent attribute won't make your component fields replicate. You must mark each field with a GhostField attribute individually.  |
 
 ## Authoring component serialization
 
@@ -161,7 +159,7 @@ When using `ICommandData`:
     }
 ```
 
-The command data serialization is particularly useful for implementing [RemotePlayerPrediction](prediction.md#remote-player-prediction).
+The command data serialization is particularly useful for implementing [RemotePlayerPrediction](prediction-n4e.md#remote-player-prediction).
 
 ### `GhostField` inheritance
 
@@ -207,7 +205,7 @@ public struct MyComponent : IComponentData
 
 #### `PrefabType` details
 
-To change which versions of a Ghost Prefab a component is available on, use `PrefabType` in a `GhostComponentAttribute` on the component. `PrefabType` can be on of the these types:
+To change which versions of a ghost prefab a component is available on, use `PrefabType` in a `GhostComponentAttribute` on the component. `PrefabType` can be on of the these types:
 
 * `InterpolatedClient` - the component is only available on clients, and only when the ghost is interpolated.
 * `PredictedClient` - the component is only available on clients, and only when the ghost is predicted.
@@ -218,7 +216,7 @@ To change which versions of a Ghost Prefab a component is available on, use `Pre
 
 _For example, if you add `[GhostComponent(PrefabType=GhostPrefabType.Client)]` to `RenderMesh`, the ghost won’t have a `RenderMesh` when it is instantiated on the server world, but it will have it when instantiated on the client world._
 
->[!NOTE] [Runtime Prediction Switching](prediction.md#prediction-switching) therefore has the potential to add and remove components on a ghost, live.
+>[!NOTE] [Runtime Prediction Switching](prediction-switching.md) therefore has the potential to add and remove components on a ghost, live.
 
 #### `SendTypeOptimization` details
 
@@ -299,30 +297,30 @@ It is possible to declare multiple serialization variant for a component (_examp
 
 ### Preventing a component from supporting variations
 
-There are cases where you'd like to prevent a component from having its serialization modified via Variants.
-_Example: From the NetCode package itself, we must always replicate the `GhostComponent` for netcode systems to work properly, so we don't let user-code (you) modify serialization rules for it_).
+There are cases where you'd like to prevent a component from having its serialization modified via variants.
+_Example: From the Netcode package itself, we must always replicate the `GhostComponent` for netcode systems to work properly, so we don't let user-code (you) modify serialization rules for it_).
 
 Thus, to prevent a component from supporting variation, use the [DontSupportPrefabOverridesAttribute](https://docs.unity3d.com/Packages/com.unity.netcode@latest/index.html?subfolder=/api/Unity.NetCode.DontSupportPrefabOverridesAttribute.html) attribute.
 An error will be reported at compile time, if a `GhostComponentVariation` is defined for that type.
 
-### Specify which variant to use on a Ghost Prefab
+### Specify which variant to use on a ghost prefab
 
 Using the `GhostAuthoringInspectionComponent` `MonoBehaviour` in conjunction with the `GhostAuthoringComponent` `MonoBehaviour`, it's possible to select what serialization variants to use on a per-prefab basis.
-You can choose a Variant for each individual component (including the ability to set the special-case variant: `DontSerializeVariant`).
+You can choose a variant for each individual component (including the ability to set the special-case variant: `DontSerializeVariant`).
 
 ![Ghost Authoring Variants](images/ghost-inspection.png)
 
-All variants for that specific component type present in the project will be show in a dropbox selection. <br/>
-To **_modify_** how children of Ghost prefabs are replicated, add a `GhostAuthoringInspectionComponent` to each individual child.
+All variants for that specific component type present in the project will be shown in a dropbox selection. <br/>
+To **_modify_** how children of ghost prefabs are replicated, add a `GhostAuthoringInspectionComponent` to each individual child.
 
->[!NOTE] The `GhostAuthoringInspectionComponent` is also an incredibly valuable debugging tool. Add it to a Ghost Prefab (or one of its children) to view all replicated types on said Ghost, and to diagnose why a specific type is not replicating in the way you'd expect.
+>[!NOTE] The `GhostAuthoringInspectionComponent` is also an incredibly valuable debugging tool. Add it to a ghost prefab (or one of its children) to view all replicated types on said ghost, and to diagnose why a specific type is not replicating in the way you'd expect.
 
 ### Assigning a default variant to use for a type
 
-In cases where multiple variants are present for a type, Netcode may be unable to infer which variant should be used.
+In cases where multiple variants are present for a type, Netcode for Entities may be unable to infer which variant should be used.
 If the "Default Serializer" for the Type is replicated, it'll default to it.
-If not, it is considered a conflict, and you'll get runtime exceptions when creating any Netcode world (including Baking worlds).
-We use a built-in, deterministic, fallback method to guess which variant you likely want, but, in general, __it is the users responsibility__ to indicate what Variant should be the default here.
+If not, it's considered a conflict, and you'll get runtime exceptions when creating any Netcode world (including Baking worlds).
+We use a built-in, deterministic, fallback method to guess which variant you likely want, but, in general, __it is the user's responsibility__ to indicate what variant should be the default here.
 
 To setup which variant to use as the `default` for a given type, you need to create a system that inherits from
 [DefaultVariantSystemBase](https://docs.unity3d.com/Packages/com.unity.netcode@latest/index.html?subfolder=/api/Unity.NetCode.DefaultVariantSystemBase.html) class, and implements the `RegisterDefaultVariants` method.
@@ -346,11 +344,11 @@ namespace Unity.NetCode.Samples
 
 This example code would make sure the default `LocalTransform` variant to us as default is the `TransformDefaultVariant`. For more information, please refer to the [DefaultVariantSystemBase](https://docs.unity3d.com/Packages/com.unity.netcode@latest/index.html?subfolder=/api/Unity.NetCode.DefaultVariantSystemBase.html) documentation.
 
->[!NOTE] This is the recommended approach to setup the default Variant for a Ghost "project-wide". Prefer `DefaultVariantSystemBase` over direct Variant manipulation (via the `GhostAuthoringInspectionComponent` overrides).
+>[!NOTE] This is the recommended approach to setup the default variant for a ghost "project-wide". Prefer `DefaultVariantSystemBase` over direct variant manipulation (via the `GhostAuthoringInspectionComponent` overrides).
 
 ## Special variant types
 
-| Special Built-in Variant | Details                                                                                                                                      |
+| Special built-in variant | Details                                                                                                                                      |
 |--------------------------|----------------------------------------------------------------------------------------------------------------------------------------------|
 | `ClientOnlyVariant`      | Use this to specify that a given `ComponentType` should only appear on client worlds.                                                        |
 | `ServerOnlyVariant`      | The inverse.                                                                                                                                 |
@@ -409,7 +407,7 @@ To understand what is being put on the wire in the Netcode, you can use the snap
 
 <img src="images/snapshot-debugger.png" width="1000" alt="net debug tool">
 
-To open the tool, go to menu: __Window &gt; Multiplayer &gt; Network Debugger__, and the tool opens in a browser window. It displays a vertical bar for each received snapshot, with a breakdown of the snapshot’s ghost types, size etc.
+To open the tool, go to menu: __Multiplayer__ > __Open NetDbg__, and the tool opens in a browser window. It displays a vertical bar for each received snapshot, with a breakdown of the snapshot's ghost types, size etc.
 
 To see more detailed information about the snapshot, click on one of the bars.
 

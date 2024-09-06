@@ -296,8 +296,9 @@ namespace Unity.NetCode
         public GhostSpawnBuffer.Type FallbackPredictionMode;
         /// <summary>
         /// Flag that indicates if the ghost prefab contains a <see cref="GhostGroup"/> component and can be used as root
-        /// of the group (see also <seealso cref="GhostChildEntity"/>).
+        /// of the group.
         /// </summary>
+        /// <seealso cref="GhostChildEntity"/>
         public int IsGhostGroup;
         /// <summary>
         /// The number of bits necessary to store the enabled state of all the enableable ghost components (that are flagged with <see cref="GhostEnabledBitAttribute"/>).

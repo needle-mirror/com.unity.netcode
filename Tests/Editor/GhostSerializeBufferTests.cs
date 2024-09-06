@@ -747,7 +747,7 @@ namespace Unity.NetCode.Tests
         }
 
         [Test]
-        public void GhostGroupBuffersAreSerialized()
+        public void GhostGroupBuffersAreSerialized([Values]bool registerChildFirst)
         {
             using (var testWorld = new NetCodeTestWorld())
             {
@@ -760,14 +760,17 @@ namespace Unity.NetCode.Tests
                 childGhostGameObject.name = "ChildGhost";
                 childGhostGameObject.AddComponent<TestNetCodeAuthoring>().Converter = new GhostGroupGhostConverter();
 
-                Assert.IsTrue(testWorld.CreateGhostCollection(ghostGameObject, childGhostGameObject));
+                if(registerChildFirst)
+                    Assert.IsTrue(testWorld.CreateGhostCollection(childGhostGameObject, ghostGameObject));
+                else
+                    Assert.IsTrue(testWorld.CreateGhostCollection(ghostGameObject, childGhostGameObject));
 
                 testWorld.CreateWorlds(true, 1);
                 var serverRoot = testWorld.SpawnOnServer(ghostGameObject);
                 var serverChild = testWorld.SpawnOnServer(childGhostGameObject);
                 testWorld.ServerWorld.EntityManager.GetBuffer<GhostGroup>(serverRoot).Add(new GhostGroup {Value = serverChild});
                 var buffer = testWorld.ServerWorld.EntityManager.GetBuffer<GhostGenBuffer_ByteBuffer>(serverChild);
-                BufferTestHelper.SetByteBufferValues(testWorld.ServerWorld, serverChild, 10, 10);
+                BufferTestHelper.SetByteBufferValues(testWorld.ServerWorld, serverChild, 5, 10);
 
                 testWorld.Connect();
                 testWorld.GoInGame();
@@ -775,6 +778,12 @@ namespace Unity.NetCode.Tests
                     testWorld.Tick();
 
                 var clientEntities = BufferTestHelper.GetClientEntities(testWorld, new [] {serverRoot, serverChild});
+                BufferTestHelper.CheckByteBufferValues(testWorld, serverChild, clientEntities[1]);
+
+                BufferTestHelper.SetByteBufferValues(testWorld.ServerWorld, serverChild, 30, 10);
+                for (int i = 0; i < 32; ++i)
+                    testWorld.Tick();
+
                 BufferTestHelper.CheckByteBufferValues(testWorld, serverChild, clientEntities[1]);
             }
         }

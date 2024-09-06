@@ -523,6 +523,23 @@ namespace Unity.NetCode.LowLevel.Unsafe
         {
             return (size + 15u) & (~15u);
         }
+
+        /// <summary>
+        /// For internal use only (mostly code gen), reset the recorded start and end position in the compressed bit stream
+        /// for each individual entity.
+        /// </summary>
+        /// <param name="count">the lenght of the entityStartBits array to reset</param>
+        /// <param name="writer">the output stream</param>
+        /// <param name="entityStartBit">the array of start/end offset pair to reset</param>
+        public static unsafe void ResetEntityStartBits(int count, ref DataStreamWriter writer, IntPtr entityStartBit)
+        {
+            int* startBitIntPtr = (int*)entityStartBit;
+            for (int i = 0; i < count; ++i)
+            {
+                startBitIntPtr[2 * i] = writer.Length / sizeof(int);
+                startBitIntPtr[2 * i + 1] = 0;
+            }
+        }
     }
 
     internal static class DynamicBufferExtensions

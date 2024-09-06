@@ -1,4 +1,4 @@
-## Client prediction
+# Introduction to prediction
 
 >The problems to solve: lag, security and consistency
 
@@ -21,7 +21,7 @@ This is great for responsiveness, since clients see the results of their inputs 
 
 ### Mispredictions
 
-If the server state matches the client's predicted state when a snapshot is received, there should be no visual changes and the client will continue simulating as normal. If there is a discrepancy in the two states, however, a correction occurs and the client's instant replay from the snapshot's state will show a different result. This is referred to as a misprediction, and can be mitigated using [prediction smoothing](prediction.md#prediction-smoothing).
+If the server state matches the client's predicted state when a snapshot is received, there should be no visual changes and the client will continue simulating as normal. If there is a discrepancy in the two states, however, a correction occurs and the client's instant replay from the snapshot's state will show a different result. This is referred to as a misprediction, and can be mitigated using [prediction smoothing](prediction-smoothing.md).
 
 ### CPU usage
 

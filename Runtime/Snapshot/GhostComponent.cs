@@ -101,7 +101,7 @@ namespace Unity.NetCode
         /// <returns>A human-readable GhostComponent FixedString, containing its values.</returns>
         public FixedString128Bytes ToFixedString()
         {
-            return $"GhostComponent[type:{ghostType}|id:{ghostId},st:{spawnTick.ToFixedString()}]";
+            return $"GhostInst[type:{ghostType}|id:{ghostId},st:{spawnTick.ToFixedString()}]";
         }
     }
 
@@ -260,9 +260,9 @@ namespace Unity.NetCode
 
     /// <summary>
     /// Component on client signaling that an entity is predicted (as opposed to interpolated).
+    /// </summary>
     /// <seealso cref="GhostMode"/>
     /// <seealso cref="GhostModeMask"/>
-    /// </summary>
     [DontSupportPrefabOverrides]
     public struct PredictedGhost : IComponentData
     {

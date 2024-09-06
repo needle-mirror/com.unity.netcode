@@ -7,9 +7,9 @@ namespace Unity.NetCode
     /// <summary>
     ///     Presets for the com.unity.transport simulator.
     ///     Allows developers to simulate a variety of network conditions.
-    ///     <seealso cref="AppendBaseSimulatorPresets"/>
-    ///     <seealso cref="AppendAdditionalMobileSimulatorProfiles"/>
     /// </summary>
+    /// <seealso cref="AppendBaseSimulatorPresets"/>
+    /// <seealso cref="AppendAdditionalMobileSimulatorProfiles"/>
     [Serializable]
     public struct SimulatorPreset
     {

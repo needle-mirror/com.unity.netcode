@@ -233,7 +233,7 @@ namespace Unity.NetCode
     /// is to manage all the <see cref="NetworkStreamConnection"/> life-cycles (creation, update, destruction), and receiving all the
     /// <see cref="NetworkStreamProtocol"/> message types.
     /// It is responsible also responsible for:
-    /// <para>- creating the <see cref="NetworkStreamDriver"/> singleton (see also <seealso cref="NetworkDriverStore"/> and <seealso cref="NetworkDriver"/>).</para>
+    /// <para>- creating the <see cref="NetworkStreamDriver"/> singleton (see also <see cref="NetworkDriverStore"/> and <see cref="NetworkDriver"/>).</para>
     /// <para>- handling the driver migration (see <see cref="DriverMigrationSystem"/> and <see cref="MigrationTicket"/>).</para>
     /// <para>- listening and accepting incoming connections (server).</para>
     /// <para>- exchanging the <see cref="NetworkProtocolVersion"/> during the initial handshake.</para>

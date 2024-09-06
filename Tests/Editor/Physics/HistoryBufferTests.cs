@@ -9,6 +9,7 @@ using Unity.NetCode.Tests;
 using Unity.Physics;
 using Unity.Transforms;
 using UnityEngine;
+#pragma warning disable CS0618 // Using old version of CloneCollisionWorld.
 
 namespace Unity.NetCode.Physics.Tests
 {
@@ -48,20 +49,13 @@ namespace Unity.NetCode.Physics.Tests
 
     public class HistoryBufferTests
     {
-        static void InitializeHistory(ref CollisionHistoryBuffer buffer, in CollisionWorld collisionWorld)
-        {
-            for (int i = 0; i < CollisionHistoryBuffer.Capacity; ++i)
-            {
-                buffer.CloneCollisionWorld(i, collisionWorld);
-            }
-        }
         [Test]
         public void CreatePhysicsHistoryBuffer_AllWorldsAreInitializedToDefault()
         {
             //Initialized with CollisionHistoryBuffer.Capacity to allow access the full buffer.
             using (var historyBuffer = new CollisionHistoryBuffer(CollisionHistoryBuffer.Capacity))
             {
-                for(int i=0;i<CollisionHistoryBuffer.Capacity;++i)
+                for(int i=0;i<historyBuffer.Size;++i)
                 {
                     historyBuffer.GetCollisionWorldFromTick(new NetworkTick(0), 0, out var world);
                     Assert.IsFalse(world.NumBodies > 0);
@@ -84,7 +78,7 @@ namespace Unity.NetCode.Physics.Tests
             var historyBuffer = new CollisionHistoryBuffer(1);
             using (var world = new CollisionWorld(0, 0))
             {
-                for (int i = 0; i < CollisionHistoryBuffer.Capacity; ++i)
+                for (int i = 0; i < historyBuffer.Size; ++i)
                 {
                     historyBuffer.CloneCollisionWorld(i, world);
                 }
@@ -146,7 +140,7 @@ namespace Unity.NetCode.Physics.Tests
             {
                 using (var collisionWorld = new CollisionWorld(1, 1))
                 {
-                    for (int i = 0; i < CollisionHistoryBuffer.Capacity; ++i)
+                    for (int i = 0; i < historyBuffer.Size; ++i)
                     {
                         historyBuffer.DisposeIndex(i);
                         historyBuffer.CloneCollisionWorld(i, collisionWorld);
@@ -172,7 +166,7 @@ namespace Unity.NetCode.Physics.Tests
             {
                 using (var collisionWorld = new CollisionWorld(1, 0))
                 {
-                    for (int i = 0; i < CollisionHistoryBuffer.Capacity; ++i)
+                    for (int i = 0; i < historyBuffer.Size; ++i)
                     {
                         historyBuffer.CloneCollisionWorld(i, collisionWorld);
                     }
@@ -219,7 +213,7 @@ namespace Unity.NetCode.Physics.Tests
             {
                 using (var collisionWorld = new CollisionWorld(1, 0))
                 {
-                    for (int i = 0; i < CollisionHistoryBuffer.Capacity; ++i)
+                    for (int i = 0; i < historyBuffer.Size; ++i)
                     {
                         historyBuffer.CloneCollisionWorld(i, collisionWorld);
                     }
@@ -239,7 +233,7 @@ namespace Unity.NetCode.Physics.Tests
             var historyBuffer = new CollisionHistoryBuffer(1);
             using (var collisionWorld = new CollisionWorld(1, 0))
             {
-                for (int i = 0; i < CollisionHistoryBuffer.Capacity; ++i)
+                for (int i = 0; i < historyBuffer.Size; ++i)
                 {
                     historyBuffer.CloneCollisionWorld(i, collisionWorld);
                 }
@@ -292,7 +286,7 @@ namespace Unity.NetCode.Physics.Tests
             {
                 using (var collisionWorld = new CollisionWorld(1, 0))
                 {
-                    for (int i = 0; i < CollisionHistoryBuffer.Capacity; ++i)
+                    for (int i = 0; i < historyBuffer.Size; ++i)
                     {
                         historyBuffer.CloneCollisionWorld(i, collisionWorld);
                     }

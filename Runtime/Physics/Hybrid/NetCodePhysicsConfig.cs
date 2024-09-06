@@ -22,14 +22,14 @@ namespace Unity.NetCode
         [Tooltip("Enable/Disable the LagCompensation system. Server and Client will start recording the physics world state in the PhysicsWorldHistory buffer")]
         public bool EnableLagCompensation;
         /// <summary>
-        /// The number of physics world states that are backed up on the server. This cannot be more than the maximum capacity, leaving it at zero will give you the default which is max capacity.
+        /// The number of physics world states that are backed up on the server. This cannot be more than the maximum capacity. Leaving it at zero will give you the default (max capacity).
         /// </summary>
-        [Tooltip("The number of physics world states that are backed up on the server. This cannot be more than the maximum capacity, leaving it at zero will give you the default which is max capacity")]
+        [Tooltip("The number of physics world states that are backed up on the server. This cannot be more than the maximum capacity, and must be 0 (OFF/DISABLED) or a power of two.\n\nLeaving it at zero will give the default (max capacity).")]
         public int ServerHistorySize;
         /// <summary>
-        /// The number of physics world states that are backed up on the client. This cannot be more than the maximum capacity, leaving it at zero will give oyu the default which is one.
+        /// The number of physics world states that are backed up on the client. This cannot be more than the maximum capacity. Leaving it at zero will give you the default (of one).
         /// </summary>
-        [Tooltip("The number of physics world states that are backed up on the client. This cannot be more than the maximum capacity, leaving it at zero will give oyu the default which is one.")]
+        [Tooltip("The number of physics world states that are backed up on the client. This cannot be more than the maximum capacity, and must be 0 (OFF/DISABLED) or a power of two.\n\nLeaving it at zero will disable it.")]
         public int ClientHistorySize;
 
         /// <summary>
@@ -38,6 +38,14 @@ namespace Unity.NetCode
         /// </summary>
         [Tooltip("The physics world index to use for all dynamic physics objects which are not ghosts.")]
         public uint ClientNonGhostWorldIndex = 0;
+
+        /// <inheritdoc cref="LagCompensationConfig.DeepCopyDynamicColliders"/>>
+        [Tooltip("Denotes whether or not Netcode will deep copy dynamic colliders into the Lag Compensation CollisionWorld ring buffer used for Lag Compensation.\n\nRecommendation & Default: True.\n\nEnable this if you get exceptions when querying since-destroyed entities.")]
+        public bool DeepCopyDynamicColliders = true;
+
+        /// <inheritdoc cref="LagCompensationConfig.DeepCopyStaticColliders"/>>
+        [Tooltip("Denotes whether or not Netcode will deep copy static colliders into the Lag Compensation CollisionWorld ring buffer used for Lag Compensation.\n\nEnable if you need perfectly accurate lag compensation query results with static colliders, which is typically only necessary if they occasionally change.\n\nRecommendation & Default: False.\n\nInstead: Run two queries - one against static geometry - then another against the dynamic entities in the historic buffer.")]
+        public bool DeepCopyStaticColliders;
     }
 
     class NetCodePhysicsConfigBaker : Baker<NetCodePhysicsConfig>
@@ -50,7 +58,9 @@ namespace Unity.NetCode
                 AddComponent(entity, new LagCompensationConfig
                 {
                     ServerHistorySize = authoring.ServerHistorySize,
-                    ClientHistorySize = authoring.ClientHistorySize
+                    ClientHistorySize = authoring.ClientHistorySize,
+                    DeepCopyStaticColliders = authoring.DeepCopyStaticColliders,
+                    DeepCopyDynamicColliders = authoring.DeepCopyDynamicColliders,
                 });
             }
             if (authoring.ClientNonGhostWorldIndex != 0)

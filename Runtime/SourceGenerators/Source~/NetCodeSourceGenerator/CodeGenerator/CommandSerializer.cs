@@ -107,11 +107,14 @@ namespace Unity.NetCode.Generators
 
         public void GenerateSerializer(CodeGenerator.Context context, TypeInformation typeInfo)
         {
+            var typeFullName = typeInfo.TypeFullName.Replace('+', '.');
+            var displayName = typeFullName.Replace("Unity.NetCode.InputBufferData<", "").Replace(">", ""); // Bit of a hack.
             var replacements = new Dictionary<string, string>
             {
                 {"COMMAND_NAME", context.generatorName.Replace(".", "").Replace('+', '_')},
                 {"COMMAND_NAMESPACE", context.generatedNs},
-                {"COMMAND_COMPONENT_TYPE", typeInfo.TypeFullName.Replace('+', '.')}
+                {"COMMAND_COMPONENT_TYPE", typeFullName},
+                {"COMMAND_COMPONENT_TYPE_DISPLAY_NAME", CodeGenerator.SmartTruncateDisplayNameForFs64B(displayName)},
             };
 
             if (!string.IsNullOrEmpty(typeInfo.Namespace))

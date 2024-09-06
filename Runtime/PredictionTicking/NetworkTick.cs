@@ -182,6 +182,13 @@ namespace Unity.NetCode
             }
             return "Invalid";
         }
+
+        /// <summary>
+        /// Calls <see cref="ToFixedString"/>.
+        /// </summary>
+        /// <returns>The tick index as a string, or "Invalid" for invalid ticks.</returns>
+        public override string ToString() => ToFixedString().ToString();
+
         /// <summary>
         /// Helper property to enable exception-free visibility in the Entity Inspector
         /// </summary>

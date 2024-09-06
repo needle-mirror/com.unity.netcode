@@ -1,29 +1,23 @@
-# Network connection
+# Connecting server and clients
 
-## Netcode and Unity Transport
+Netcode for Entities uses the [Unity Transport package](https://docs.unity3d.com/Packages/com.unity.transport@latest) to manage connections and stores each connection as an entity. Each connection entity has a [NetworkStreamConnection](https://docs.unity3d.com/Packages/com.unity.netcode@latest/index.html?subfolder=/api/Unity.NetCode.NetworkStreamConnection.html) component with the `Transport` handle for the connection. When the connection is closed, either because the server disconnected the user or the client requested to disconnect, the entity is destroyed.
 
-The network connection uses the [Unity Transport package](https://docs.unity3d.com/Packages/com.unity.transport@latest) and stores each connection as an entity. Each connection entity has a [NetworkStreamConnection](https://docs.unity3d.com/Packages/com.unity.netcode@latest/index.html?subfolder=/api/Unity.NetCode.NetworkStreamConnection.html) component with the `Transport` handle for the connection. When the connection is closed, either because the server disconnected the user or the client requested to disconnect, the entity is destroyed.
+To target which entity should receive the player commands, when not using the [`AutoCommandTarget` feature](command-stream#automatically handling-commands-autocommandtarget-) or for having more manual control, each connection has a [CommandTarget](https://docs.unity3d.com/Packages/com.unity.netcode@latest/index.html?subfolder=/api/Unity.NetCode.CommandTarget.html) which must point to the entity where the received commands need to be stored. Your game is responsible for keeping this entity reference up to date.
 
-To request to disconnect, add a `NetworkStreamRequestDisconnect` component to the entity. Direct disconnection through the driver is not supported. Your game can mark a connection as being in-game, with the `NetworkStreamInGame` component. Your game must do this; it is never done automatically.
+Your game can mark a connection as being in-game with the `NetworkStreamInGame` component. Your game must do this; it's never done automatically. Before the `NetworkStreamInGame` component is added to the connection, the client does not send commands, nor does the server send snapshots.
 
-> [!NOTE]
-> Before the `NetworkStreamInGame` component is added to the connection, the client does not send commands, nor does the server send snapshots.
-
-To target which entity should receive the player commands, when not using the `AutoCommandTarget` feature or for having a more manual control,
-each connection has a [CommandTarget](https://docs.unity3d.com/Packages/com.unity.netcode@latest/index.html?subfolder=/api/Unity.NetCode.CommandTarget.html)
-which must point to the entity where the received commands need to be stored. Your game is responsible for keeping this entity reference up to date.
+To request to disconnect, add a `NetworkStreamRequestDisconnect` component to the entity. Direct disconnection through the driver is not supported.
 
 ### Incoming buffers
 
-Each connection can have up to three incoming buffers, one for each type of stream: commands, RPCs, and snapshot (client only).
+Each connection can have up to three incoming buffers, one for each type of stream: commands, RPCs, and snapshots (client only).
 
 - [IncomingRpcDataStreamBuffer](https://docs.unity3d.com/Packages/com.unity.netcode@latest/index.html?subfolder=/api/Unity.NetCode.IncomingRpcDataStreamBuffer.html)
 - [IncomingCommandDataStreamBuffer](https://docs.unity3d.com/Packages/com.unity.netcode@latest/index.html?subfolder=/api/Unity.NetCode.IncomingCommandDataStreamBuffer.html)
 - [IncomingSnapshotDataStreamBuffer](https://docs.unity3d.com/Packages/com.unity.netcode@latest/index.html?subfolder=/api/Unity.NetCode.IncomingSnapshotDataStreamBuffer.html)
 
 When a client receives a snapshot from the server, the message is queued into the buffer and processed later by the [GhostReceiveSystem](https://docs.unity3d.com/Packages/com.unity.netcode@latest/index.html?subfolder=/api/Unity.NetCode.IncomingSnapshotDataStreamBuffer.html).
-Similarly, RPCs and commands follow the sample principle. The messages are gathered first by the [NetworkStreamReceiveSystem](https://docs.unity3d.com/Packages/com.unity.netcode@latest/index.html?subfolder=/api/Unity.NetCode.NetworkStreamReceiveSystem.html) and then consumed by
-the respective RPC and command receive system.
+Similarly, RPCs and commands follow the sample principle. The messages are gathered first by the [NetworkStreamReceiveSystem](https://docs.unity3d.com/Packages/com.unity.netcode@latest/index.html?subfolder=/api/Unity.NetCode.NetworkStreamReceiveSystem.html) and then consumed by the respective RPC and command receive system.
 
 > [!NOTE]
 > Server connection does not have an IncomingSnapshotDataStreamBuffer.
@@ -35,11 +29,11 @@ Each connection can have up to two outgoing buffers: one for RPCs and one for co
 - [OutgoingRpcDataStreamBuffer](https://docs.unity3d.com/Packages/com.unity.netcode@latest/index.html?subfolder=/api/Unity.NetCode.OutgoingRpcDataStreamBuffer.html)
 - [OutgoingCommandDataStreamBuffer](https://docs.unity3d.com/Packages/com.unity.netcode@latest/index.html?subfolder=/api/Unity.NetCode.OutgoingCommandDataStreamBuffer.html)
 
-When commands are produced, they're first queued into the outgoing buffer, which is flushed by the client at regular intervals (every new tick). RPC messages follow the sample principle: they're gathered initially by their respective send system that encodes them into the buffer. Then, the [RpcSystem](https://docs.unity3d.com/Packages/com.unity.netcode@latest/index.html?subfolder=/api/Unity.NetCode.OutgoingCommandDataStreamBuffer.html) flushes the RPCs in the queue (by coalescing multiple messages into one MTU) at regular intervals.
+When commands are produced, they're first queued into the outgoing buffer, which is flushed by the client at regular intervals (every new tick). RPC messages follow the sample principle: they're gathered initially by their respective send system that encodes them into the buffer. Then, the [RpcSystem](https://docs.unity3d.com/Packages/com.unity.netcode@latest/index.html?subfolder=/api/Unity.NetCode.OutgoingCommandDataStreamBuffer.html) flushes the RPCs in the queue (by coalescing multiple messages into one maximum transmission unit (MTU)) at regular intervals.
 
 ## Connection flow
 
-When your game starts, the Netcode for Entities package doesn't automatically connect the client to the server, nor makes the server start listening to a specific port. By default `ClientServerBoostrap` only creates the client and server worlds. It's up to developer to decide how and when the server and client open their communication channel.
+When your game starts, Netcode for Entities doesn't automatically connect the client to the server, nor makes the server start listening to a specific port. By default, `ClientServerBoostrap` only creates the client and server worlds. It's up to developer to decide how and when the server and client open their communication channel.
 
 There are a number of different options:
 
@@ -49,14 +43,16 @@ There are a number of different options:
 
 > [!NOTE]
 > Regardless of how you choose to connect to the server, we strongly recommend ensuring `Application.runInBackground` is `true` while connected.
-> You can do so by a) setting `Application.runInBackground = true;` directly, or b) project-wide via "Project Settings > Player > Resolution and Presentation".
-> If you don't, your multiplayer will stall (and likely disconnect) if and when the application loses focus (e.g. by the player tabbing out), as netcode will be unable to tick.
+> You can do so by setting `Application.runInBackground = true;` directly, or setting it project-wide via **Project Settings** > **Player** > **Resolution and Presentation**.
+> If you don't, your multiplayer game will stall (and likely disconnect) if and when the application loses focus (for example, by the player tabbing out), as netcode will be unable to tick.
 > The server should likely always have this enabled.
 > We provide error warnings for both via `WarnAboutApplicationRunInBackground`.
 
 ### Manually listen or connect
 
 To establish a connection, you must get the [NetworkStreamDriver](https://docs.unity3d.com/Packages/com.unity.netcode@latest/index.html?subfolder=/api/Unity.NetCode.NetworkStreamDriver.html) singleton (present on both client and server worlds) and then call either `Connect` or `Listen` on it.
+
+Refer to the [DOTS samples repository](https://github.com/Unity-Technologies/EntityComponentSystemSamples/blob/master/NetcodeSamples/Assets/Samples/HelloNetcode/1_Basics/01_BootstrapAndFrontend/Frontend/Frontend.cs#L80) for example code that covers manually listening and connecting.
 
 ### Using the `AutoConnectPort`
 
@@ -81,14 +77,10 @@ public class AutoConnectBootstrap : ClientServerBootstrap
 }
 ```
 
-The server will start listening at the wildcard address (`DefaultListenAddress`:`AutoConnectPort`). The `DefaultConnectAddress` is by default set to `NetworkEndpoint.AnyIpv4`.<br/>
-The client will start connecting to server address (`DefaultConnectAddress`:`AutoConnectPort`). The `DefaultConnectAddress` is by default set to `NetworkEndpoint.Loopback`.
+The server starts listening at the wildcard address (`DefaultListenAddress`:`AutoConnectPort`). The `DefaultConnectAddress` is by default set to `NetworkEndpoint.AnyIpv4`. The client starts connecting to server address (`DefaultConnectAddress`:`AutoConnectPort`). The `DefaultConnectAddress` is by default set to `NetworkEndpoint.Loopback`.
 
 > [!NOTE]
-> In the Editor, the Play Mode tool allows you to override both the `AutoConnectAddress` and `AutoConnectPort` fields. The values in the Play Mode tool take precedence.<br>
-
-> [!NOTE]
-> When `AutoConnectPort` is set to 0, the Play Mode tool's override functionality will not be used. The intent is then you need to manually trigger connection.
+> In the Editor, the [PlayMode tool](playmode-tool.md) allows you to override both the `AutoConnectAddress` and `AutoConnectPort` fields. However, when `AutoConnectPort` is set to 0, the PlayMode Tool's override functionality won't be used. The intent is then you need to manually trigger connection.
 
 ### Controlling the connection flow using `NetworkStreamRequest`
 
@@ -110,15 +102,22 @@ EntityManager.SetComponentData(listenRequest, new NetworkStreamRequestListen { E
 
 The request will be then consumed at runtime by the [NetworkStreamReceiveSystem](https://docs.unity3d.com/Packages/com.unity.netcode@latest/index.html?subfolder=/api/Unity.NetCode.NetworkStreamReceiveSystem.html).
 
-## Network simulator
+> [!NOTE]
+> If you encounter runtime errors, open the PlayMode Tools window and re-enter Play Mode.
+> If worlds exist, then bootstrapping (see above) is creating the worlds automatically.
+> If the server world is already listening, and/or the client world already connecting, then auto-connection (see above) is already enabled. You will therefore need to modify your bootstrap to disable auto-connection to support manual connection workflows.
 
-Unity Transport provides a [SimulatorUtility](playmode-tool.md#networksimulator), which is available (and configurable) in the Netcode package. Access it via `Multiplayer > Play Mode Tools`.
+### Network simulator
+
+Unity Transport provides a [SimulatorUtility](playmode-tool.md#networksimulator), which is available (and configurable) in the Netcode for Entities package. Access it via **Multiplayer** > **PlayMode Tools** in the Editor.
 
 We strongly recommend that you frequently test your gameplay with the simulator enabled, as it more closely resembles real-world conditions.
 
 ## Listening for client connection events
 
-We provide a `public NativeArray<NetCodeConnectionEvent>.ReadOnly ConnectionEventsForTick` collection (via the `NetworkStreamDriver` singleton), allowing you to iterate over (and thus react to) client connection events on the client and server.
+There is a `public NativeArray<NetCodeConnectionEvent>.ReadOnly ConnectionEventsForTick` collection (via the `NetworkStreamDriver` singleton), allowing you to iterate over (and thus react to) client connection events on the client and server.
+
+These events only persist for a single `SimulationSystemGroup` tick, and are reset during `NetworkStreamConnectSystem` and `NetworkStreamListenSystem` respectively. If your system runs _after_ these aforementioned system's jobs execute, you'll receive notifications on the same tick that they were raised. However, if you query this collection _before_ this system's jobs execute, you'll be iterating over the previous tick's values.
 
 ```csharp
 // Example System:
@@ -139,13 +138,8 @@ public partial struct NetCodeConnectionEventListener : ISystem
 ```
 
 > [!NOTE]
-> These events will only live for a single `SimulationSystemGroup` tick, and are reset during `NetworkStreamConnectSystem` and `NetworkStreamListenSystem` respectively.
-> Therefore, if your system runs **_after_** these aforementioned system's jobs execute, you'll receive notifications on the same tick that they were raised.
-> However, if you query this collection **_before_** this system's jobs execute, you'll be iterating over the **_previous_** tick's values.
-
-> [!NOTE]
 > Because the server runs on a fixed delta-time, the `SimulationSystemGroup` may tick any number of times (including zero times) on each render frame.
-> Because of this, `ConnectionEventsForTick` is only valid to be read inside a system running inside the `SimulationSystemGroup`.
+> Because of this, `ConnectionEventsForTick` is only valid to be read in a system running inside the `SimulationSystemGroup`.
 > For example, trying to access it outside the `SimulationSystemGroup` can lead to a) either **_only_** seeing events for the current tick (meaning you miss events for previous ticks) or b) receiving events multiple times, if the simulation doesn't tick on this render frame.
 > Therefore, do not access `ConnectionEventsForTick` inside the `InitializationSystemGroup`, nor inside the `PresentationSystemGroup`, nor inside any `MonoBehaviour` Unity method (non-exhaustive list!).
 
@@ -180,9 +174,18 @@ public partial struct NetCodeConnectionEventListener : ISystem
 > [!NOTE]
 > The server does not raise any events when it successfully `Binds`, nor when it begins to `Listen`. Use existing APIs to query these statuses.
 
-## Connection Approval
+## Connection approval
 
-It's optional to require connection approval for every client connection on the server. When this is enabled the clients can only send `IApprovalRpcCommand` RPCs to the server for processing. The RPC payload could contain any authentication token or anything required to verify the client is allowed to continue. A network ID is only assigned after connection approval and any non-approval RPC is discarded and results in a disconnection. It's possible to send multiple RPCs, as long as they are all of the IApprovalRpcCommand type. To approve a connection the server need to add a `ConnectionApproved` component to the network connection entity and the connection flow continue.
+You can optionally require connection approval for every client connection on the server. Approval should be used to validate connections attempting to connect with this server, for the purposes of player convenience (whitelists & blacklists, password protected servers etc) and validation (user must pass a secret token - received by the matchmaking response - to ensure that only matchmade players may join this server).
+
+When connection approval is enabled, the following changes apply:
+* Clients can only send `IApprovalRpcCommand` RPCs to the server for processing during the `Handshake` and `Approval` phases.
+* All clients move from the `Handshake` state to the `Approval` state, rather than directly to `Connected`.
+* The server must manually approve each connection by adding the `ConnectionApproved` component to its connection entity.
+* The `NetworkId` is only assigned after connection approval succeeds. If approval is denied, the client is disconnected.
+* The approval process has a timeout (see [ClientServerTickRate.HandshakeApprovalTimeoutMS](https://docs.unity3d.com/Packages/com.unity.netcode@latest/index.html?subfolder=/api/Unity.NetCode.ClientServerTickRate.HandshakeApprovalTimeoutMS.html)), and therefore, may do so.
+
+To reiterate: During the `Handshake` and `Approval` phases, a client may send multiple RPCs, as long as each is of the `IApprovalRpcCommand` RPC type. These RPC payloads can contain authentication tokens, player identities, or anything required to verify that the client is allowed to continue. To approve a connection, the server needs to add a `ConnectionApproved` component to the network connection entity and the connection flow will continue.
 
 The `NetworkStreamDriver` has a `RequireConnectionApproval` field which must be set to true on both client and server for proper connection flow.
 
@@ -203,7 +206,7 @@ else
 }
 ```
 
-The connection approval handling could be set up like this:
+And connection approval handling could be set up like this:
 
 ```csharp
 // The approval RPC, here it contains a hypothetical payload the server will validate

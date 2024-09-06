@@ -15,7 +15,7 @@ namespace Unity.NetCode
         ///     The Default NetcodeConfig asset, selected in ProjectSettings via the NetCode tab,
         ///     and fetched at runtime via the PreloadedAssets. Set via <see cref="RuntimeInitializeOnLoadMethodAttribute"/>.
         /// </summary>
-        public static NetCodeConfig Global { get; private set; }
+        public static NetCodeConfig Global { get; internal set; }
 
         /// <summary> <see cref="ClientServerBootstrap"/> to either be <see cref="EnableAutomaticBootstrap"/> or <see cref="DisableAutomaticBootstrap"/>.</summary>
         public enum AutomaticBootstrapSetting

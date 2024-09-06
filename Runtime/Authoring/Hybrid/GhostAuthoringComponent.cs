@@ -13,8 +13,8 @@ namespace Unity.NetCode
     /// <para>It allows setting all ghost properties,
     /// such as the replication mode <see cref="SupportedGhostModes"/>, bandwidth optimization strategy (<see cref="OptimizationMode"/>,
     /// the ghost <see cref="Importance"/> (how frequently is sent) and others).</para>
-    /// <seealso cref="GhostAuthoringInspectionComponent"/>
     /// </summary>
+    /// <seealso cref="GhostAuthoringInspectionComponent"/>
     [RequireComponent(typeof(LinkedEntityGroupAuthoring))]
     [DisallowMultipleComponent]
     [HelpURL(Authoring.HelpURLs.GhostAuthoringComponent)]

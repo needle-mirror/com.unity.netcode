@@ -31,8 +31,8 @@ namespace Unity.NetCode
     /// The Server stores the `SubSceneHash`, `BaselineHash`, `FirstGhostId`, and `PrespawnCount` inside the the `PrespawnSceneLoaded` collection.
     /// The Server creates a new ghost with a `PrespawnSceneLoaded` buffer that is serialized to the clients.
     /// </para>
-    /// <seealso cref="ClientPopulatePrespawnedGhostsSystem"/>
     /// </remarks>
+    /// <seealso cref="ClientPopulatePrespawnedGhostsSystem"/>
     [WorldSystemFilter(WorldSystemFilterFlags.ServerSimulation)]
     [UpdateInGroup(typeof(PrespawnGhostSystemGroup))]
     [UpdateAfter(typeof(PrespawnGhostInitializationSystem))]

@@ -165,7 +165,7 @@ namespace Unity.NetCode
 
         /// <summary>
         /// Implement this method by adding to the <param name="defaultVariants"></param> mapping your
-        /// default type->variant <seealso cref="Rule"/>
+        /// default type->variant <see cref="Rule"/>.
         /// </summary>
         /// <param name="defaultVariants"></param>
         protected abstract void RegisterDefaultVariants(Dictionary<ComponentType, Rule> defaultVariants);

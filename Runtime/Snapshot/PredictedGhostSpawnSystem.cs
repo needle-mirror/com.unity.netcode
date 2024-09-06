@@ -32,7 +32,7 @@ namespace Unity.NetCode
         /// </summary>
         public Entity entity;
         /// <summary>
-        /// The index of the ghost type in the <seealso cref="GhostCollectionPrefab"/> collection. Used to classify the ghost (<see cref="GhostSpawnClassificationSystem"/>).
+        /// The index of the ghost type in the <see cref="GhostCollectionPrefab"/> collection. Used to classify the ghost (<see cref="GhostSpawnClassificationSystem"/>).
         /// </summary>
         public int ghostType;
         /// <summary>
@@ -147,7 +147,7 @@ namespace Unity.NetCode
                 var bufferSizes = new NativeArray<int>(chunk.Count, Allocator.Temp);
                 var hasBuffers = GhostTypeCollection[ghostType].NumBuffers > 0;
                 if (hasBuffers)
-                    helper.GatherBufferSize(chunk, 0, typeData, ref bufferSizes);
+                    helper.GatherBufferSize(chunk, 0, chunk.Count, typeData, ref bufferSizes);
 
                 for (int i = 0; i < entityList.Length; ++i)
                 {

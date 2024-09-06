@@ -83,8 +83,8 @@ namespace Unity.NetCode
     /// approved.
     /// <br/>If the client fails authentication, either allow them to timeout, or manually disconnect them with
     /// <see cref="NetworkStreamDisconnectReason.ApprovalFailure"/>.
-    /// <seealso cref="ClientServerTickRate.HandshakeApprovalTimeoutMS"/>
     /// </remarks>
+    /// <seealso cref="ClientServerTickRate.HandshakeApprovalTimeoutMS"/>
     public struct ConnectionApproved : IComponentData
     {
     }
@@ -161,6 +161,13 @@ namespace Unity.NetCode
     /// By adding the ConnectionState state component, the connection <see cref="NetworkId"/> and <see cref="DisconnectReason"/>
     /// are retained until the game don't remove the state component.
     /// </summary>
+    /// <remarks>
+    /// We are considering deprecating or replacing this. Prefer <see cref="NetworkStreamDriver.ConnectionEventsForTick"/> as it:
+    /// <list type="bullet">
+    /// <item>Supports multiple consumers (i.e. subscribers in the pub/sub model).</item>
+    /// <item>Reduces boilerplate.</item>
+    /// </list>
+    /// </remarks>
     public struct ConnectionState : ICleanupComponentData
     {
         /// <summary>

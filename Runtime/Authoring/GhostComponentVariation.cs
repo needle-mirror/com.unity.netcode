@@ -3,7 +3,7 @@ using System;
 namespace Unity.NetCode
 {
     /// <summary>
-    /// <para>Generate a serialization variant for a component using the <seealso cref="GhostFieldAttribute"/> annotations
+    /// <para>Generate a serialization variant for a component using the <see cref="GhostFieldAttribute"/> annotations
     /// present in variant declaration.
     /// The component variant can be assigned at authoring time using the GhostAuthoringComponent editor.</para>
     /// <para>Note: This is incompatible with any type implementing <see cref="DontSupportPrefabOverridesAttribute"/>.</para>

@@ -156,7 +156,7 @@ children in the buffer.
 ## Race condition and issue when removing replicated components from predicted ghost on the client.
 Removing a **replicated component** from a predicted ghost can cause some issue on the client when the state is restored from the last full tick history backup.
 
-When a ghost is predicted, because of [partial ticks](prediction-high-level-explanation.md#partial-ticks), the state of all predicted ghost for the last "full" ticks is backup.
+When a ghost is predicted, because of [partial ticks](intro-to-prediction.md#partial-ticks), the state of all predicted ghost for the last "full" ticks is backup.
 This prediction backup contains the current value of all the components and buffers at that time, and it is used for continue the prediction.
 
 Based on when a component is removed and re-added, and when new data is receive from the server different behaviours may be seen.

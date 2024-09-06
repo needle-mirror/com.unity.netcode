@@ -139,7 +139,7 @@ namespace Unity.NetCode.Generators
                         context.diagnostic.LogError($"Setting invalid hash on variantType {ss.VariantTypeName} to {ss.Hash}!");
 
                     var displayName = ss.DisplayName ?? ss.VariantTypeName;
-                    displayName = SmartTruncateDisplayName(displayName);
+                    displayName = SmartTruncateDisplayNameForFs64B(displayName);
 
                     var isDefaultSerializer = string.IsNullOrWhiteSpace(ss.VariantTypeName) || ss.VariantTypeName == ss.ComponentTypeName;
 
@@ -201,7 +201,7 @@ namespace Unity.NetCode.Generators
 
         /// <summary>Long display names like "Some.Very.Long.Namespace.WithAMassiveStructNameAtTheEnd" will be truncated from the back.
         /// E.g. Removing "Some", then "Very" etc. It must fit into the FixedString capacity, otherwise we'll get runtime exceptions during Registration.</summary>
-        static string SmartTruncateDisplayName(string displayName)
+        internal static string SmartTruncateDisplayNameForFs64B(string displayName)
         {
             int indexOf = 0;
             const int fixedString64BytesCapacity = 61;

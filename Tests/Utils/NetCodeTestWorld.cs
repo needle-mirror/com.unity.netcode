@@ -14,8 +14,8 @@ using UnityEngine.TestTools;
 using Debug = UnityEngine.Debug;
 #if UNITY_EDITOR
 using Unity.NetCode.Editor;
-using UnityEngine;
 #endif
+using UnityEngine;
 #if USING_UNITY_LOGGING
 using Unity.Logging;
 using Unity.Logging.Sinks;
@@ -36,13 +36,13 @@ namespace Unity.NetCode.Tests
         /// True if you want to forward all netcode logs from the server, to allow <see cref="LogAssert"/> usage.
         /// <b>WARNING: DISABLE "Force Log Settings" TOOL OR THIS TEST WILL FAIL!</b>
         /// </summary>
-        /// <remarks>Defaults to true. <seealso cref="DebugPackets"/> and <seealso cref="LogLevel"/>.</remarks>
+        /// <remarks>Defaults to true. <see cref="DebugPackets"/> and <see cref="LogLevel"/>.</remarks>
         public bool EnableLogsOnServer = true;
         /// <summary>
         /// True if you want to forward all netcode logs from the client, to allow <see cref="LogAssert"/> usage.
         /// <b>WARNING: DISABLE "Force Log Settings" TOOL OR THIS TEST WILL FAIL!</b>
         /// </summary>
-        /// <remarks>Defaults to true. <seealso cref="DebugPackets"/> and <seealso cref="LogLevel"/>.</remarks>
+        /// <remarks>Defaults to true. <see cref="DebugPackets"/> and <see cref="LogLevel"/>.</remarks>
         public bool EnableLogsOnClients = true;
 
         /// <summary>Enable packet dumping in tests? Useful to ensure serialization doesn't fail.</summary>
@@ -81,6 +81,8 @@ namespace Unity.NetCode.Tests
         public int UseMultipleDrivers = 0;
         public int UseFakeSocketConnection = 1;
         private int WorldCreationIndex = 0;
+        public NetCodeConfig m_OldGlobalConfig;
+        NetCodeConfig m_GlobalConfigForTests;
 
         public int[] DriverFuzzFactor;
         public int DriverFuzzOffset = 0;
@@ -104,7 +106,7 @@ namespace Unity.NetCode.Tests
             });
         }
 
-        public NetCodeTestWorld()
+        public NetCodeTestWorld(bool useGlobalConfig=false)
         {
 #if UNITY_EDITOR
 
@@ -114,6 +116,9 @@ namespace Unity.NetCode.Tests
             // Not having a default world means RegisterUnloadOrPlayModeChangeShutdown has not been called which causes memory leaks
             DefaultWorldInitialization.DefaultLazyEditModeInitialize();
 #endif
+            m_OldGlobalConfig = NetCodeConfig.Global;
+            m_GlobalConfigForTests = useGlobalConfig ? ScriptableObject.CreateInstance<NetCodeConfig>() : null;
+            NetCodeConfig.Global = m_GlobalConfigForTests;
             m_OldBootstrapAutoConnectPort = ClientServerBootstrap.AutoConnectPort;
             ClientServerBootstrap.AutoConnectPort = 0;
             m_DefaultWorld = new World("NetCodeTest");
@@ -148,6 +153,9 @@ namespace Unity.NetCode.Tests
             if (m_GhostCollection != null)
                 m_BlobAssetStore.Dispose();
 #endif
+            if(m_GlobalConfigForTests)
+                UnityEngine.Object.DestroyImmediate(m_GlobalConfigForTests);
+            NetCodeConfig.Global = m_OldGlobalConfig;
         }
 
         public void DisposeAllClientWorlds()
@@ -690,7 +698,7 @@ namespace Unity.NetCode.Tests
         {
             var ep = NetworkEndpoint.LoopbackIpv4;
             ep.Port = 7979;
-            GetSingletonRW<NetworkStreamDriver>(ServerWorld).ValueRW.Listen(ep);
+            Debug.Assert(GetSingletonRW<NetworkStreamDriver>(ServerWorld).ValueRW.Listen(ep), $"[{ServerWorld.Name}] Listen failed during Connect!");
             var connectionEntities = new Entity[ClientWorlds.Length];
             for (int i = 0; i < ClientWorlds.Length; ++i)
                 connectionEntities[i] = GetSingletonRW<NetworkStreamDriver>(ClientWorlds[i]).ValueRW.Connect(ClientWorlds[i].EntityManager, ep);

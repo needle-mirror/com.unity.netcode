@@ -15,6 +15,8 @@ namespace Unity.NetCode
     /// </remarks>
     public interface IInputComponentData : IComponentData
     {
+        /// <inheritdoc cref="ICommandData.ToFixedString"/>
+        public FixedString512Bytes ToFixedString() => "?InputComponentData?";
     }
 
     /// <summary>
@@ -39,13 +41,20 @@ namespace Unity.NetCode
         }
 
         /// <summary>
-        /// Track if the event has been set for the current frame
+        /// Track if the event has been set for the current frame.
         /// </summary>
         /// <remarks> This could be higher than 1 when the inputs are sampled multiple times
         /// before the input is sent to the server. Also if the input is sampled again before
         /// being transmitted the set event will not be overridden to the unset state (count=0).
         /// </remarks>
         public uint Count;
+
+        /// <summary>Helper.</summary>
+        /// <returns>'InputEvent[<see cref="Count"/>]'</returns>
+        public FixedString32Bytes ToFixedString() => $"InputEvent[{Count}]";
+
+        /// <inheritdoc cref="ToFixedString"/>
+        public override string ToString() => ToFixedString().ToString();
     }
 
     /// <summary>
@@ -192,6 +201,15 @@ namespace Unity.NetCode
         /// The <see cref="IInputComponentData"/> struct that hold the input data.
         /// </summary>
         public T InternalInput;
+
+        /// <summary>Helper.</summary>
+        /// <remarks>Prefer <see cref="ToPrettyFixedString"/> as it provides much more info.</remarks>
+        /// <returns>Returns only the <see cref="ICommandData.ToFixedString"/> result from <see cref="InternalInput"/>.</returns>
+        public FixedString512Bytes ToFixedString() => InternalInput.ToFixedString();
+
+        /// <summary>Helper.</summary>
+        /// <returns>Full debug info for this struct; the type, the tick, and the <see cref="ICommandData.ToFixedString"/> result.</returns>
+        public FixedString4096Bytes ToPrettyFixedString() => $"IBD<{default(ICommandDataSerializer<InputBufferData<T>>).ToFixedString()}>[{Tick.ToFixedString()}|{InternalInput.ToFixedString()}]";
     }
 
     /// <summary>

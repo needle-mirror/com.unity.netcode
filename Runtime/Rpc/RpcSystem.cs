@@ -159,7 +159,7 @@ namespace Unity.NetCode
     /// the system tries to coalesce multiple RPCs into a single packet.
     /// </para>
     /// <para>
-    /// Because packet queue size is limited (<see cref="NetworkParameterConstants.SendQueueCapacity"/> and <seealso cref="NetworkConfigParameter"/>), the
+    /// Because packet queue size is limited (<see cref="NetworkParameterConstants.SendQueueCapacity"/> and <see cref="NetworkConfigParameter"/>), the
     /// number of available packets may not be sufficient to flush the queue entirely. In that case, the pending messages are going to attempt to be
     /// sent during the next frame (recursively) (or when a resource is available).
     /// </para>

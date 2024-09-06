@@ -4,6 +4,37 @@ uid: changelog
 
 # Changelog
 
+
+## [1.3.2] - 2024-09-06
+
+### Changed
+ * Updated entities packages dependencies
+
+### Added
+
+* Significantly reduced bandwidth consumption of command packets (i.e. input packets), by a) converting the first command payload in each packet to use delta-compression against zero, b) by making the number of commands sent (per-packet) tied to the `TargetCommandSlack`, c) by delta-compressing the NetworkTicks using the assumed previous tick (which is a correct assumption in the common case), and d) by using a single `changeBit` if the previous command is exactly the same.
+* `ClientTickRate.NumAdditionalCommandsToSend` is a new field allowing you to configure how many additional commands to send to the server in each command (i.e. input) packet.
+* Support for dumping input commands into the `NetDebugPacket` dump, helping users visualize and diagnose bandwidth consumption. Implement the optional, burst-compatible method `ToFixedString` on your input components to see field data in your packet dumps, too.
+* A `NetworkSnapshotAck.CommandArrivalStatistics` struct, documenting (on the server, for each client) how many commands arrive, and how many commands arrive too late. These statistics can be used to inform and tweak `TargetCommandSlack` and `NumAdditionalCommandsToSend`.
+* Significantly expanded our automated test coverage for Lag Compensation. We now detect off-by-one-tick errors between the client and server's lag compensation resolutions.
+* `LagCompensationConfig.DeepCopyDynamicColliders` (defaulting to true) and `LagCompensationConfig.DeepCopyStaticColliders` (defaulting to false) configuration values, enabling you to control whether or not colliders are deep copied during world cloning, preventing runtime exceptions when querying historic worlds during Lag Compensation. Also see the specialized `PhysicsWorldHistorySingleton.DeepCopyRigidBodyCollidersWhitelist` collection.
+
+### Changed
+
+* `PhysicsWorldHistory` now clones collision worlds *after* the `BuildPhysicsWorld` step for the given `ServerTick`. This fixes an issue where the `CollisionWorld` returned by `GetCollisionWorldFromTick` is off-by-one on the server. It is now easier to reason about, as the data stored for `ServerTick` T now actually corresponds to the `BuildPhysicsWorld` operation that occurred on tick T (rather than T-1, which was the previous behaviour). We strongly recommend having automated testing for lag compensation accuracy, as this may introduce a regression, and is therefore a minor breaking change.
+* `PhysicsWorldHistory` now deep copies dynamic colliders by default (see fix entry). Performance impact should be negligible.
+
+### Fixed
+
+* Corrected `seealso` usage in XML package documentation.
+* Documentation improvements and clarifications on the following pages: command stream, ghost snapshots, spawning ghosts, logging, network connection, networked cube, prediction, and RPCs.
+* Lag Compensation issue in the case where an Entity - hit by a query against a historic lag compensation `CollisionWorld` fetched via `GetCollisionWorldFromTick` - has since been deleted. The colliders of dynamic ghosts are now deep cloned by default, preventing the blob asset assertions which would have otherwise been encountered here. You can also opt-into copying static colliders via the `LagCompensationConfig` or `NetCodePhysicsConfig` authoring (although the recommendation is to instead query twice; once against static geometry exclusively, using the latest collision world, then again using the hit position of the static query, against lag compensated dynamic entities).
+* Issue where non-power-of-2 History Buffer sizes would return incorrect entries when `ServerTick` wraps around.
+* an issue with iOS and WebGL AOT, causing the player throwing exceptions while trying to initialize the Netcode generated ghost serializer function pointers. The issue is present when using Burst 1.8 and Unity 6.0+
+* an issue with GhostGroup serialization, incorrectly accessing the wrong ghost prefab type in the GhostCollectionPrefab array.
+* an issue with buffer serialization when using GhostGroup, causing memory stomping at runtime (and exception thrown in the editor), due to the fact the required size for storing the buffer in the snapshot was calculated incorrectly. The root cause was the incorrect index used to access the GhostCollectionPrefab collection.
+
+
 ## [1.3.0-pre.4] - 2024-07-17
 
 ### Added
@@ -41,6 +72,7 @@ uid: changelog
 * Exposed `NetworkStreamDriver.DriverStore` and `LastEndPoint`.
 * Copy-free accessors for `NetworkStreamDriver` instances (via `GetDriverInstanceRW` and `GetDriverInstanceRO`) and underlying drivers (via `GetDriverRW` and `GetDriverRO`), which are also now used internally. The struct copy originals have been weakly deprecated.
 * Support for serializing non-byte-aligned RPCs. I.e. You can now delta-compress RPC fields using the `IRpcCommandSerializer` by delta-compressing against hardcoded baseline values.
+* Added a way to detect if a server world will execute a tick or not through NetcodeServerRateManager.WillUpdate. This can be used to execute expensive operations when in BusyWait mode in off frames. See the Optimizations doc page https://docs.unity3d.com/Packages/com.unity.netcode@latest/index.html?subfolder=/manual/optimizations.html
 
 ### Changed
 
@@ -104,6 +136,12 @@ uid: changelog
 * Removed the hardcoded 'Protocol Version' RPC logic, simplifying RPC sending and receiving. Netcode's handshake RPCs now use the existing `IApprovalRpcCommand` flows.
 
 
+## [1.2.4] - 2024-08-14
+
+### Changed
+* Updated entities packages dependencies
+
+
 ## [1.2.3] - 2024-05-30
 
 ### Changed
@@ -139,6 +177,7 @@ uid: changelog
 
 * StreamCompressionDataModel is passed as in parameter to avoid many copy every time a WriteXXX or ReadXXX was called.
 * Updated Burst dependency to version 1.8.12
+* The `EntityCommandBuffer` used by netcode in the destruction of disconnected 'NetworkConnection' entities has been changed from the `BeginSimulationEntityCommandBufferSystem` to the `NetworkGroupCommandBufferSystem`, allowing connections to be disposed on the same frame that `Disconnect` is invoked (in the common case of `Disconnect` being called before the `NetworkGroupCommandBufferSystem` executes), rather than being delayed by one frame. However, this will therefore lead to runtime exceptions if user-code depends upon this single frame delay, and is therefore a minor breaking change.
 
 ### Fixed
 
@@ -458,7 +497,6 @@ MetricsMonitorComponent: MetricsMonitor,
 * Fix a mistake where the relay sample will create a client driver rather than a server driver
 * Fix logic for relay set up on the client. Making sure when calling DefaultDriverConstructor.RegisterClientDriver with relay settings that we skip this unless, requested playtype is client or clientandserver (if no server is found), the simulator is enabled, or on a client only build.
 * Fixed `ArgumentException: ArchetypeChunk.GetDynamicComponentDataArrayReinterpret<System.Byte> cannot be called on zero-sized IComponentData` in `GhostPredictionHistorySystem.PredictionBackupJob`. Added comprehensive test coverage for the `GhostPredictionHistorySystem` (via adding a predicted ghost version of the `GhostSerializationTestsForEnableableBits` tests).
-* Fixed serialization of components on child entities in the case where `SentForChildEntities = true`. This fix may introduce a small performance regression in baking and netcode world initialization. Contact us with all performance related issues.
 * `GhostUpdateSystem` now supports Change Filtering, so components on the client will now only be marked as changed _when they actually are changed_. We strongly recommend implementing change filtering when reading components containing `[GhostField]`s and `[GhostEnabledBit]`s on the client.
 * Fixed input component codegen issue when the type is nested in a parent class
 

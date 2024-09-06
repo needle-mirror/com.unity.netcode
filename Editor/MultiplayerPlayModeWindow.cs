@@ -98,6 +98,7 @@ namespace Unity.NetCode.Editor
         static GUIContent s_ServerDcAllClients = new GUIContent("DC All", "Trigger the server to attempt to gracefully disconnect all clients. Useful to batch-test a bunch of client disconnect scenarios (e.g. mid-game).");
         static GUIContent s_ServerReconnectAllClients = new GUIContent("Reconnect All", "Trigger the server to attempt to gracefully disconnect all clients, then have them automatically reconnect. Useful to batch-test player rejoining scenarios (e.g. people dropping out mid-match).\n\nNote that clients will also disconnect themselves from the server in the same frame as they're attempting to reconnect, so you can test same frame DCing.");
         static GUIContent s_ServerLogRelevancy = new GUIContent("Log Relevancy", "Log the current relevancy rules for this server. Useful to debug why a client is not receiving a specific ghost.");
+        static GUIContent s_ServerLogCommandStats = new GUIContent("Log Command Stats", "Logs `CommandArrivalStatistics` for all connected clients, which can be used to fine-tune server ingress bandwidth (which scales with player count).");
         static GUIContent s_ClientReconnect = new GUIContent("Client Reconnect", "Attempt to gracefully disconnect from the server, followed by an immediate reconnect attempt.");
         static GUIContent s_ClientDc = new GUIContent("Client DC", "Attempt to gracefully disconnect from the server. Triggered by the client (e.g. a player closing the application).");
         static GUIContent s_ServerDc = new GUIContent("Server DC", "Trigger the server to attempt to gracefully disconnect this client, identified by their 'NetworkId'. Server-authored (e.g. like a server kicking a client when the match has ended).");
@@ -945,6 +946,13 @@ namespace Unity.NetCode.Editor
 
                 GUI.color = Color.white;
 
+                GUILayout.EndHorizontal();
+            }
+
+            // Server button panel:
+            {
+                GUILayout.BeginHorizontal();
+
                 if (GUILayout.Button(s_ServerDcAllClients))
                 {
                     DisconnectAllClients(serverWorld);
@@ -965,6 +973,10 @@ namespace Unity.NetCode.Editor
                 if (GUILayout.Button(s_ServerLogRelevancy))
                 {
                     LogRelevancy(serverWorld);
+                }
+                if (GUILayout.Button(s_ServerLogCommandStats))
+                {
+                    LogCommandStats(serverWorld);
                 }
 
                 GUILayout.FlexibleSpace();
@@ -1158,6 +1170,20 @@ namespace Unity.NetCode.Editor
                 message += $"- archetype {entityArchetype.ToString()}\n";
             }
 
+            Debug.Log(message);
+        }
+
+        static void LogCommandStats(World serverWorld)
+        {
+            using var query = serverWorld.EntityManager.CreateEntityQuery(typeof(NetworkSnapshotAck), typeof(NetworkId));
+            var networkSnapshotAcks = query.ToComponentDataArray<NetworkSnapshotAck>(Allocator.Temp);
+            var networkIds = query.ToComponentDataArray<NetworkId>(Allocator.Temp);
+            var message = $"Stats for {networkSnapshotAcks.Length} players:";
+            for (var i = 0; i < networkSnapshotAcks.Length; i++)
+            {
+                var ack = networkSnapshotAcks[i];
+                message += $"\n- Client {networkIds[i].ToFixedString()} with ping {(int)ack.EstimatedRTT}±{(int)ack.DeviationRTT} has {ack.CommandArrivalStatistics.ToFixedString()}";
+            }
             Debug.Log(message);
         }
 

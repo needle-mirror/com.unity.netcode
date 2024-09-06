@@ -34,6 +34,12 @@ namespace Unity.NetCode
     {
 #if NETCODE_DEBUG
         internal PacketDumpLogger NetDebugPacketCache;
+
+        /// <summary>
+        /// Check to ensure the packet cache is created, before use.
+        /// </summary>
+        public bool IsPacketCacheCreated => NetDebugPacketCache.IsCreated;
+
         /// <summary>
         /// Add your own custom logs to Netcode's per-connection packet dump.
         /// </summary>

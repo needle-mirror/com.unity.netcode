@@ -37,6 +37,16 @@ namespace __COMMAND_NAMESPACE__
             #region __COMMAND_READ_PACKED__
             #endregion
         }
+
+        public uint CalculateChangeMask(in __COMMAND_COMPONENT_TYPE__ snapshot, in __COMMAND_COMPONENT_TYPE__ baseline)
+        {
+            uint changeMask = 0;
+            #region __GHOST_COMPARE_INPUTS__
+            #endregion
+            return changeMask;
+        }
+
+        public FixedString64Bytes ToFixedString() => "__COMMAND_COMPONENT_TYPE_DISPLAY_NAME__";
     }
 
     [System.Runtime.CompilerServices.CompilerGenerated]
@@ -108,15 +118,6 @@ namespace __COMMAND_NAMESPACE__
             public NativeParallelHashMap<NetworkTick,NetworkTick>.ParallelWriter map;
             [ReadOnly] public BufferTypeHandle<__COMMAND_COMPONENT_TYPE__> inputTypeHandle;
 
-            [MethodImpl(MethodImplOptions.AggressiveInlining)]
-            private static uint Compare(in __COMMAND_COMPONENT_TYPE__ snapshot, in __COMMAND_COMPONENT_TYPE__ baseline)
-            {
-                uint changeMask = 0;
-                #region __GHOST_COMPARE_INPUTS__
-                #endregion
-                return changeMask;
-            }
-
             public void Execute(in ArchetypeChunk chunk, int unfilteredChunkIndex, bool useEnabledMask, in v128 chunkEnabledMask)
             {
                 var inputBufferAccessor = chunk.GetBufferAccessor(ref inputTypeHandle);
@@ -124,6 +125,7 @@ namespace __COMMAND_NAMESPACE__
                 {
                     var inputBuffer = inputBufferAccessor[entIdx];
                     var length = inputBuffer.Length;
+                    var serializer = new __COMMAND_NAME__Serializer();
                     //The buffer can be in two state:
                     //1,2,3,4,5,6... 64 (all ordered)
                     //64+1,64+2,64+3,64+4,64+5,6,8,12,10,...64 // split state.
@@ -151,7 +153,7 @@ namespace __COMMAND_NAMESPACE__
                         //if the prevInput is the "head" of the input buffer there cannot be input with a tick less thab prevTick and
                         //we can stop the run.
                         //if the prevInput is <= prevTick we need to check if they are identical.
-                        if (!prevInput.Tick.IsValid || prevInput.Tick.IsNewerThan(prevTick) || Compare(curInput, prevInput) != 0)
+                        if (!prevInput.Tick.IsValid || prevInput.Tick.IsNewerThan(prevTick) || serializer.CalculateChangeMask(in curInput, in prevInput) != 0)
                             map.TryAdd(curTick, curTick);
                     }
                 }

@@ -1350,6 +1350,16 @@ namespace Unity.NetCode
             netStats.Stride = netStats.Size;
             netStats.Data.Resize(netStats.Size, NativeArrayOptions.ClearMemory);
 #endif
+
+#if NETCODE_DEBUG
+            FixedString128Bytes timestampAndTick = default;
+            if (SystemAPI.HasSingleton<EnablePacketLogging>())
+            {
+                NetDebugInterop.InitDebugPacketIfNotCreated(ref m_NetDebugPacket, m_LogFolder, m_WorldName, 0);
+                NetDebugInterop.GetTimestampWithTick(SystemAPI.GetSingleton<NetworkTime>().ServerTick, out timestampAndTick);
+            }
+#endif
+
             var commandBuffer = SystemAPI.GetSingleton<BeginSimulationEntityCommandBufferSystem.Singleton>().CreateCommandBuffer(state.WorldUnmanaged);
             if (m_ConnectionsQuery.IsEmptyIgnoreFilter)
             {
@@ -1388,15 +1398,6 @@ namespace Unity.NetCode
             {
                 return;
             }
-
-#if NETCODE_DEBUG
-            FixedString128Bytes timestampAndTick = default;
-            if (SystemAPI.HasSingleton<EnablePacketLogging>())
-            {
-                NetDebugInterop.InitDebugPacketIfNotCreated(ref m_NetDebugPacket, m_LogFolder, m_WorldName, 0);
-                NetDebugInterop.GetTimestampWithTick(SystemAPI.GetSingleton<NetworkTime>().ServerTick, out timestampAndTick);
-            }
-#endif
 
             var connections = m_ConnectionsQuery.ToEntityListAsync(state.WorldUpdateAllocator, out var connectionHandle);
             var prespawnSceneStateArray =

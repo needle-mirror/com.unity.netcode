@@ -398,10 +398,11 @@ namespace Unity.NetCode
         /// </para>
         /// </summary>
         public static bool WillServerAutoListen => AutoConnectPort != 0;
+
         /// <summary>
         /// The current modality.
-        /// <seealso cref="ClientServerBootstrap.RequestedPlayType"/>.
         /// </summary>
+        /// <seealso cref="ClientServerBootstrap.RequestedPlayType"/>
         public enum PlayType
         {
             /// <summary>

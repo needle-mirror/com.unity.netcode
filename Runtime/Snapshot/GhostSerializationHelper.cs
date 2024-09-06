@@ -387,14 +387,14 @@ namespace Unity.NetCode
             }
 
             [MethodImpl(MethodImplOptions.AggressiveInlining)]
-            public int GatherBufferSize(ArchetypeChunk chunk, int startIndex, GhostCollectionPrefabSerializer typeData)
+            public int GatherBufferSize(ArchetypeChunk chunk, int startIndex, int endIndex, GhostCollectionPrefabSerializer typeData)
             {
                 var emptyArray = new NativeArray<int>();
-                return GatherBufferSize(chunk, startIndex, typeData, ref emptyArray);
+                return GatherBufferSize(chunk, startIndex, endIndex, typeData, ref emptyArray);
             }
 
             [BurstCompile]
-            public int GatherBufferSize(ArchetypeChunk chunk, int startIndex, GhostCollectionPrefabSerializer typeData, ref NativeArray<int> buffersSize)
+            public int GatherBufferSize(ArchetypeChunk chunk, int startIndex, int endIndex, GhostCollectionPrefabSerializer typeData, ref NativeArray<int> buffersSize)
             {
                 int numBaseComponents = typeData.NumComponents - typeData.NumChildComponents;
                 int totalSize = 0;
@@ -406,7 +406,7 @@ namespace Unity.NetCode
                     if (!ghostSerializer.ComponentType.IsBuffer || !chunk.Has(ref ghostChunkComponentTypesPtr[compIdx]))
                         continue;
 
-                    for (int ent = startIndex, chunkEntityCount = chunk.Count; ent < chunkEntityCount; ++ent)
+                    for (int ent = startIndex; ent < endIndex; ++ent)
                     {
                         var bufferAccessor = chunk.GetUntypedBufferAccessor(ref ghostChunkComponentTypesPtr[compIdx]);
                         var bufferLen = bufferAccessor.GetBufferLength(ent);
@@ -430,7 +430,7 @@ namespace Unity.NetCode
                         if (!ghostSerializer.ComponentType.IsBuffer)
                             continue;
 
-                        for (int ent = startIndex, chunkEntityCount = chunk.Count; ent < chunkEntityCount; ++ent)
+                        for (int ent = startIndex; ent < endIndex; ++ent)
                         {
                             var linkedEntityGroup = linkedEntityGroupAccessor[ent];
                             var childEnt = linkedEntityGroup[GhostComponentIndex[typeData.FirstComponent + comp].EntityIndex].Value;

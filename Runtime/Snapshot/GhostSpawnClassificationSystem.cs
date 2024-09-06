@@ -41,13 +41,13 @@ namespace Unity.NetCode
         {
             /// <summary>
             /// The ghost has not be classified yet and it is expected that a classification system will
-            /// change this value to the proper ghost mode (see also <seealso cref="GhostSpawnClassificationSystem"/>).
+            /// change this value to the proper ghost mode (see also <see cref="GhostSpawnClassificationSystem"/>).
             /// </summary>
             Unknown,
             /// <summary>
             /// The new ghost must be spawned as interpolated. The ghost creation is delayed
             /// until the <see cref="NetworkTime.InterpolationTick"/> match (or is greater) the actual spawn tick on the server.
-            /// See <see cref="GhostSpawnSystem"/> and also <seealso cref="PendingSpawnPlaceholder"/>.
+            /// See <see cref="GhostSpawnSystem"/> and <see cref="PendingSpawnPlaceholder"/>.
             /// </summary>
             Interpolated,
             /// <summary>
@@ -63,7 +63,7 @@ namespace Unity.NetCode
         /// </summary>
         public Type SpawnType;
         /// <summary>
-        /// The index of the ghost type in the <seealso cref="GhostCollectionPrefab"/> collection. Used to classify the ghost (<see cref="GhostSpawnClassificationSystem"/>).
+        /// The index of the ghost type in the <see cref="GhostCollectionPrefab"/> collection. Used to classify the ghost (<see cref="GhostSpawnClassificationSystem"/>).
         /// </summary>
         public int GhostType;
         /// <summary>

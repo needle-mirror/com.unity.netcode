@@ -76,7 +76,7 @@ namespace Unity.NetCode
             var typeData = GhostTypeCollection[ghostType];
             //collect the buffers size for each entity (and children)
             if (GhostTypeCollection[ghostType].NumBuffers > 0)
-                helper.GatherBufferSize(chunk, 0, typeData, ref buffersSize);
+                helper.GatherBufferSize(chunk, 0, chunk.Count, typeData, ref buffersSize);
 
             var snapshotSize = typeData.SnapshotSize;
             int changeMaskUints = GhostComponentSerializer.ChangeMaskArraySizeInUInts(typeData.ChangeMaskBits);

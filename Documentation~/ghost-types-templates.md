@@ -1,4 +1,4 @@
-# Ghost Templates
+# Ghost types templates
 
 Ghost component types (i.e. all components with a GhostField attribute, or other netcode interfaces) are all handled a certain way during Baking, and by the NetCode code generator, to produce the right code when building players.
 It's possible to define the desired behavior in code, and on a per-ghost prefab basis, and on a per-component basis.

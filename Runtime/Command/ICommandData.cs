@@ -1,5 +1,8 @@
 using System;
+using System.Runtime.CompilerServices;
+using System.Text;
 using Unity.Collections;
+using Unity.Collections.LowLevel.Unsafe;
 using Unity.Entities;
 using Unity.NetCode.LowLevel.Unsafe;
 
@@ -61,6 +64,14 @@ namespace Unity.NetCode
         /// </summary>
         [DontSerializeForCommand]
         NetworkTick Tick { get; set; }
+
+        /// <summary>
+        /// Implement this to get Burst-compatible input struct packet dump logging.
+        /// Recommended format: $"field1:{field1}, field2:{field2}";
+        /// </summary>
+        /// <remarks>This function must be burst compatible too, otherwise you'll get burst compiler errors.</remarks>
+        /// <returns>Field values of your input struct.</returns>
+        public FixedString512Bytes ToFixedString() => "?ICD?";
     }
 
     /// <summary>
@@ -71,7 +82,7 @@ namespace Unity.NetCode
     /// well as the necessary send and received systems in order to have your RPC sent and received.
     /// </summary>
     /// <typeparam name="T"></typeparam>
-    public interface ICommandDataSerializer<T> where T: struct, ICommandData
+    public interface ICommandDataSerializer<T> where T: unmanaged, ICommandData
     {
         /// <summary>
         /// Serialize the command to the data stream.
@@ -111,6 +122,30 @@ namespace Unity.NetCode
         /// <param name="baseline"></param>
         /// <param name="compressionModel"></param>
         void Deserialize(ref DataStreamReader reader, in RpcDeserializerState state, ref T data, in T baseline, StreamCompressionModel compressionModel);
+
+        /// <summary>
+        /// Used to delta-compress this command when sending it via the
+        /// <see cref="CommandSendSystem{TCommandDataSerializer,TCommandData}"/>.
+        /// </summary>
+        /// <remarks>
+        /// The default interface implementation (maintained for non-breaking change backwards compatibility) always returns 1 (has changes),
+        /// so we strongly recommend overriding it in your own implementation (assuming your implementing this interface yourself).
+        /// The automatic code-generated version uses a per-field change mask automatically.
+        /// </remarks>
+        /// <param name="snapshot">The current value.</param>
+        /// <param name="baseline">The previous/baseline value.</param>
+        /// <returns>A change-mask, 0 if unchanged.</returns>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        uint CalculateChangeMask(in T snapshot, in T baseline) => 1u;
+
+        /// <summary>Helper.</summary>
+        /// <returns>A short name, for use in packet dumps.</returns>
+        public FixedString64Bytes ToFixedString()
+        {
+            var fs = new FixedString64Bytes();
+            fs.CopyFromTruncated(ComponentType.ReadWrite<T>().ToFixedString()); // Ensure now overflow...
+            return fs;
+        }
     }
 
     /// <summary>
@@ -186,22 +221,22 @@ namespace Unity.NetCode
         /// If a command with the same tick already exists in the buffer, it will be overritten
         /// </summary>
         /// <typeparam name="T">the command type</typeparam>
-        /// <param name="commandArray"></param>
-        /// <param name="commandData"></param>
-        public static void AddCommandData<T>(this DynamicBuffer<T> commandArray, T commandData)
+        /// <param name="commandBuffer">The buffer being written to.</param>
+        /// <param name="commandData">The individual input struct to add.</param>
+        /// <returns>True if we replaced an existing input at this exact tick value.</returns>
+        public static bool AddCommandData<T>(this DynamicBuffer<T> commandBuffer, T commandData)
             where T : unmanaged, ICommandData
         {
             var targetTick = commandData.Tick;
             int oldestIdx = 0;
             NetworkTick oldestTick = NetworkTick.Invalid;
-            for (int i = 0; i < commandArray.Length; ++i)
+            for (int i = 0; i < commandBuffer.Length; ++i)
             {
-                var tick = commandArray[i].Tick;
+                var tick = commandBuffer[i].Tick;
                 if (tick == targetTick)
                 {
-                    // Already exists, replace it
-                    commandArray[i] = commandData;
-                    return;
+                    commandBuffer[i] = commandData;
+                    return true;
                 }
 
                 if (!oldestTick.IsValid || oldestTick.IsNewerThan(tick))
@@ -211,10 +246,17 @@ namespace Unity.NetCode
                 }
             }
 
-            if (commandArray.Length < k_CommandDataMaxSize)
-                commandArray.Add(commandData);
+            if (commandBuffer.Length < k_CommandDataMaxSize)
+                commandBuffer.Add(commandData);
             else
-                commandArray[oldestIdx] = commandData;
+                commandBuffer[oldestIdx] = commandData;
+            return false;
+        }
+
+        internal static FixedString64Bytes FormatBitsBytes(int sizeBits)
+        {
+            var bytes = (sizeBits + 7) / 8;
+            return bytes <= 1 ? $"{sizeBits} bits" : $"{sizeBits} bits [{bytes} bytes]";
         }
     }
 }
