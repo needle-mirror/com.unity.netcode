@@ -5,7 +5,7 @@ using Unity.Entities;
 namespace Unity.NetCode
 {
     /// <summary>
-    /// An interface that should be used to declare a <see cref="NetworkStreamProtocol.Rpc"/> struct.
+    /// <para>An interface that should be used to declare a <see cref="NetworkStreamProtocol.Rpc"/> struct.</para>
     /// <para>
     /// RPCs are "one-shot" messages that can be sent and received by both the client and server, and can be used for different
     /// purposes. E.g. Implementing a lobby, loading level logic, requesting to spawn a player etc.
@@ -31,25 +31,25 @@ namespace Unity.NetCode
     /// <b>Usage: </b> To send an RPC declared using the <see cref="IRpcCommand"/> interface, you should create a new entity with your rpc message component,
     /// <i>as well as a <see cref="SendRpcCommandRequest"/> (which will notify the NetCode system that it exists, and send it)</i>.
     /// It is best to do this with an archetype to avoid runtime structural changes:
-    ///
+    /// </para>
     /// <code>
     /// m_RpcArchetype = EntityManager.CreateArchetype(..);
     ///
     /// var ent = EntityManager.CreateEntity(m_RpcArchetype);
     /// EntityManager.SetComponentData(new MyRpc { SomeData = 5 });
     /// </code>
-    /// </para>
     /// <para>
     /// RPCs declared using the <see cref="IRpcCommand"/> will have serialization and other boilerplate code for handling
     /// the <see cref="SendRpcCommandRequest"/> request automatically generated.
     /// For example:
+    /// </para>
     /// <code>
     /// public struct MyRpc : IRpcCommand
     /// {
     ///    public int SomeData;
     /// }
     /// </code>
-    /// will generate the following systems and structs:</para>
+    /// <para>will generate the following systems and structs:</para>
     /// <para>- A struct implementing the <see cref="IRpcCommandSerializer{T}"/> for your rpc type.</para>
     /// <para>- A system responsible for consuming the <see cref="SendRpcCommandRequest"/> requests, and queuing
     /// the messages into the <see cref="OutgoingRpcDataStreamBuffer"/> stream (for the outgoing connection), invoked via
@@ -124,11 +124,12 @@ namespace Unity.NetCode
     }
 
     /// <summary>
-    /// Interface that must be implemented by a burst-compatible struct to serialize/deserialize the
-    /// specified <typeparam name="T">rpc</typeparam> type.
+    /// <para>Interface that must be implemented by a burst-compatible struct to serialize/deserialize the
+    /// specified <typeparamref name="T"/> type.</para>
     /// <para>A common pattern is to make the struct declaring the rpc to also implement the serialize/deserialize interface.
     /// For example:
-    /// <para><code>
+    /// </para>
+    /// <code>
     /// struct MyRpc : IComponentData, IRpcCommandSerializer{MyRpc}
     /// {
     ///     public void Serialize(ref DataStreamWriter writer, in RpcSerializerState state, in MyRpc data)
@@ -138,11 +139,12 @@ namespace Unity.NetCode
     ///     PortableFunctionPointer{RpcExecutor.ExecuteDelegate} CompileExecute()
     ///     { ... }
     /// }
-    /// </code></para>
-    /// </para>
+    /// </code>
+    /// <para>
     /// When declaring an rpc using the <see cref="IRpcCommand"/> interface, it is not necessary to implement the
     /// `IRpcCommandSerializer` interface yourself; the code-generation will automatically create a struct implementing the interface
     /// and all necessary boilerplate code.
+    /// </para>
     /// </summary>
     /// <typeparam name="T"></typeparam>
     public interface IRpcCommandSerializer<T> where T: struct, IComponentData

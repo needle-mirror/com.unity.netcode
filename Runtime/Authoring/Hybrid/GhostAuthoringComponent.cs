@@ -103,9 +103,11 @@ namespace Unity.NetCode
         [Tooltip("CPU optimization that forces this ghost to be quantized and copied to the snapshot format <b>once for all connections</b> (instead of once <b>per connection</b>). This can save CPU time in the `GhostSendSystem` assuming all of the following:\n\n - The ghost contains many serialized components, serialized components on child entities, or serialized buffers.\n\n - The ghost is almost always sent to at least one connection.\n\n<i>Example use-cases: Players, important gameplay items like footballs and crowns, global entities like map settings and dynamic weather conditions.</i>")]
         public bool UsePreSerialization;
         /// <summary>
+        /// <para>
         /// Only for client, force <i>predicted spawn ghost</i> of this type to rollback and re-predict their state from the tick client spawned them until
         /// the authoritative server spawn has been received and classified. In order to save some CPU, the ghost state is rollback only in case a
         /// new snapshot has been received, and it contains new predicted ghost data for this or other ghosts.
+        /// </para>
         /// <para>
         /// By default this options is set to false, meaning that predicted spawned ghost by the client never rollback their original state and re-predict
         /// until the authoritative data is received. This behaviour is usually fine in many situation and it is cheaper in term of CPU.
@@ -114,8 +116,10 @@ namespace Unity.NetCode
         [Tooltip("Only for client, force <i>predicted spawn ghost</i> of this type to rollback and re-predict their state from their spawn tick until the authoritative server spawn has been received and classified. In order to save some CPU, the ghost state is rollback only in case a new snapshot has been received, and it contains new predicted ghost data for this or other ghosts.\nBy default this options is set to false, meaning that predicted spawned ghost by the client never rollback their original state and re-predict until the authoritative data is received. This behaviour is usually fine in many situation and it is cheaper in term of CPU.")]
         public bool RollbackPredictedSpawnedGhostState;
         /// <summary>
+        /// <para>
         /// Client CPU optimization, force <i>predicted ghost</i> of this type to replay and re-predict their state from the last received snapshot tick in case of a structural change
         /// or in general when an entry for the entity cannot be found in the prediction backup (see <see cref="GhostPredictionHistorySystem"/>).
+        /// </para>
         /// <para>
         /// By default this options is set to true, to preserve the original 1.0 behavior. Once the optimization is turned on, removing or adding replicated components from the predicted ghost on the client may cause issue on the restored value. Please check the documentation, in particular the Prediction edge case and known issue.
         /// </para>

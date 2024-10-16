@@ -10,6 +10,7 @@ namespace Unity.NetCode.Editor
         private SerializedProperty EnableLagCompensation;
         private SerializedProperty ServerHistorySize;
         private SerializedProperty ClientHistorySize;
+        private SerializedProperty ClientNonGhostWorldIndex;
         private SerializedProperty DeepCopyDynamicColliders;
         private SerializedProperty DeepCopyStaticColliders;
         private static readonly GUIContent s_LagCompensationTitle = new GUIContent("Lag Compensation", "Configure how the Lag Compensation ring buffers function.");
@@ -19,6 +20,7 @@ namespace Unity.NetCode.Editor
             EnableLagCompensation = serializedObject.FindProperty(nameof(NetCodePhysicsConfig.EnableLagCompensation));
             ServerHistorySize = serializedObject.FindProperty(nameof(NetCodePhysicsConfig.ServerHistorySize));
             ClientHistorySize = serializedObject.FindProperty(nameof(NetCodePhysicsConfig.ClientHistorySize));
+            ClientNonGhostWorldIndex = serializedObject.FindProperty(nameof(NetCodePhysicsConfig.ClientNonGhostWorldIndex));
             DeepCopyDynamicColliders = serializedObject.FindProperty(nameof(NetCodePhysicsConfig.DeepCopyDynamicColliders));
             DeepCopyStaticColliders = serializedObject.FindProperty(nameof(NetCodePhysicsConfig.DeepCopyStaticColliders));
         }
@@ -39,6 +41,8 @@ namespace Unity.NetCode.Editor
                 EditorGUILayout.PropertyField(DeepCopyStaticColliders);
                 EditorGUI.indentLevel -= 1;
             }
+
+            EditorGUILayout.PropertyField(ClientNonGhostWorldIndex);
 
             if (serializedObject.hasModifiedProperties)
                 serializedObject.ApplyModifiedProperties();

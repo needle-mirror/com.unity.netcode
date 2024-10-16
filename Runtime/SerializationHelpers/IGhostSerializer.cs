@@ -61,7 +61,7 @@ namespace Unity.NetCode
         void CalculateChangeMask([NoAlias][ReadOnly]IntPtr snapshot, [NoAlias][ReadOnly]IntPtr baseline, [NoAlias]IntPtr changeMaskData, int startOffset);
 
         /// <summary>
-        /// Serialise the snapshot data to the <param name="writer"></param> and calculate the current changemask.
+        /// Serialise the snapshot data to the <paramref name="writer"/> and calculate the current changemask.
         /// </summary>
         /// <param name="snapshot"></param>
         /// <param name="baseline"></param>
@@ -74,7 +74,7 @@ namespace Unity.NetCode
             ref DataStreamWriter writer, in StreamCompressionModel compressionModel);
 
         /// <summary>
-        /// Serialise the snapshot dato to the <param name="writer"></param> and calculate the current changemask.
+        /// Serialise the snapshot dato to the <paramref name="writer"/> and calculate the current changemask.
         /// </summary>
         /// <param name="snapshot"></param>
         /// <param name="baseline0"></param>
@@ -94,7 +94,7 @@ namespace Unity.NetCode
             ref DataStreamWriter writer, in StreamCompressionModel compressionModel);
 
         /// <summary>
-        /// Serialise the snapshot dato to the <param name="writer"></param> based on the calculated changemask.
+        /// Serialise the snapshot dato to the <paramref name="writer"/> based on the calculated changemask.
         /// Expecte the changemask bits be all already set.
         /// </summary>
         /// <param name="snapshot"></param>
@@ -117,7 +117,7 @@ namespace Unity.NetCode
         void PredictDelta([NoAlias] IntPtr snapshotData, [NoAlias] IntPtr baseline1Data, [NoAlias] IntPtr baseline2Data, ref GhostDeltaPredictor predictor);
 
         /// <summary>
-        /// Read the data from the <param name="reader"></param> stream into the snapshot data.
+        /// Read the data from the <paramref name="reader"/> stream into the snapshot data.
         /// </summary>
         /// <param name="reader"></param>
         /// <param name="compressionModel"></param>
@@ -201,7 +201,7 @@ namespace Unity.NetCode
             in TComponent component);
 
         /// <summary>
-        /// Serialise the snapshot dato to the <param name="writer"></param> based on the calculated changemask.
+        /// Serialise the snapshot dato to the <paramref name="writer"/> based on the calculated changemask.
         /// </summary>
         /// <param name="snapshot"></param>
         /// <param name="baseline"></param>
@@ -214,7 +214,7 @@ namespace Unity.NetCode
             in StreamCompressionModel compressionModel);
 
         /// <summary>
-        /// Serialise the snapshot dato to the <param name="writer"></param> based on the calculated changemask.
+        /// Serialise the snapshot dato to the <paramref name="writer"/> based on the calculated changemask.
         /// </summary>
         /// <param name="snapshot"></param>
         /// <param name="baseline"></param>
@@ -227,7 +227,7 @@ namespace Unity.NetCode
             ref DataStreamWriter writer, in StreamCompressionModel compressionModel);
 
         /// <summary>
-        /// Read the data from the <param name="reader"></param> stream into the snapshot data.
+        /// Read the data from the <paramref name="reader"/> stream into the snapshot data.
         /// </summary>
         /// <param name="reader"></param>
         /// <param name="compressionModel"></param>

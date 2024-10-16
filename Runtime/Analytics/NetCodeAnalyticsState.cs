@@ -1,24 +1,12 @@
 #if UNITY_EDITOR
 using System.Linq;
 using Unity.Entities;
-using UnityEditor;
 using UnityEngine.Assertions;
 
 namespace Unity.NetCode.Analytics
 {
     internal static class NetCodeAnalyticsState
     {
-        const string NetCodePlayerCount = "netcode_player_count";
-        public static void SetPlayerCount(int playerCount)
-        {
-            SessionState.SetInt(NetCodePlayerCount, playerCount);
-        }
-
-        public static int GetPlayerCount()
-        {
-            return SessionState.GetInt(NetCodePlayerCount, 0);
-        }
-
         public static uint GetUpdateLength(World world)
         {
             if (!world.EntityManager.CanBeginExclusiveEntityTransaction())

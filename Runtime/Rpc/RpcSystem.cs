@@ -82,8 +82,9 @@ namespace Unity.NetCode
         }
 
         /// <summary>
-        /// The reference to static burst-compatible method that is invoked when an rpc has been received.
+        /// <para>The reference to static burst-compatible method that is invoked when an rpc has been received.
         /// For example:
+        /// </para>
         /// <code>
         ///     [BurstCompile(DisableDirectCall = true)]
         ///     [AOT.MonoPInvokeCallback(typeof(RpcExecutor.ExecuteDelegate))]
@@ -91,18 +92,20 @@ namespace Unity.NetCode
         /// </code>
         /// </summary>
         /// <remarks>
-        /// The <code>DisableDirectCall = true</code> was necessary to workaround an issue with burst and function delegate.
+        /// The <c>DisableDirectCall = true</c> was necessary to workaround an issue with burst and function delegate.
         /// If you are implementing your custom rpc serializer, please remember to disable the direct call.
         /// </remarks>
+        /// <param name="parameters"></param>
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
         public delegate void ExecuteDelegate(ref Parameters parameters);
 
         /// <summary>
-        /// Helper method that can be used to implement the execute method for the <see cref="IRpcCommandSerializer{T}"/>
+        /// <para>Helper method that can be used to implement the execute method for the <see cref="IRpcCommandSerializer{T}"/>
         /// interface.
         /// By calling the ExecuteCreateRequestComponent, a new entity (with a <typeparamref name="TActionRequest"/> and
         /// a <see cref="ReceiveRpcCommandRequest"/> component) is created.
         /// It is the users responsibility to write a system that consumes the created rpcs entities. For example:
+        /// </para>
         /// <code>
         /// public struct MyRpcConsumeSystem : ISystem
         /// {
@@ -554,17 +557,18 @@ namespace Unity.NetCode
     }
 
     /// <summary>
-    /// A system responsible for handling all the <see cref="RpcSystem.ProtocolVersionError"/> created by the
+    /// <para>A system responsible for handling all the <see cref="RpcSystem.ProtocolVersionError"/> created by the
     /// <see cref="RpcSystem"/> while receiving rpcs.
+    /// </para>
     /// <para>
     /// The connection that generated the <see cref="RpcSystem.ProtocolVersionError"/> will be disconnected, by adding
     /// a <see cref="NetworkStreamRequestDisconnect"/> component, and a verbose error message containing the following
     /// is reported to the application:
+    /// </para>
     /// <para> - The local protocol.</para>
     /// <para> - The remote protocol.</para>
     /// <para> - The list of all registered rpc.</para>
     /// <para> - The list of all registered serializer.</para>
-    /// </para>
     /// </summary>
     [UpdateInGroup(typeof(GhostSimulationSystemGroup))]
     [BurstCompile]

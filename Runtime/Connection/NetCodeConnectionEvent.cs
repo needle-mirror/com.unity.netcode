@@ -5,15 +5,9 @@ using Unity.Networking.Transport;
 namespace Unity.NetCode
 {
     /// <summary>
-    ///     Contains a single, discrete client connect / disconnect event.
-    ///     Raised any time any connection changes <see cref="ConnectionState.State" />.
-    ///     These events are cleared automatically, by the netcode package.
-    ///     Do not consume them yourself.
+    ///     Contains a single, discrete 'NetworkConnection' connect / disconnect event.
+    ///     For more details, refer to <see cref="NetworkStreamDriver.ConnectionEventsForTick"/>.
     /// </summary>
-    /// <remarks>
-    ///     These events are raised on client worlds, too, but only when said client connects to - or disconnects from -
-    ///     the server. I.e. You will NOT receive events for other players.
-    /// </remarks>
     public struct NetCodeConnectionEvent
     {
         /// <summary>

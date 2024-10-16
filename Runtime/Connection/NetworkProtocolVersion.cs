@@ -9,20 +9,21 @@ using UnityEngine;
 namespace Unity.NetCode
 {
     /// <summary>
-    /// The NetworkProtocolVersion is a singleton entity that is automatically created by the
+    /// <para>The NetworkProtocolVersion is a singleton entity that is automatically created by the
     /// <see cref="GhostCollectionSystem"/> (once the GhostCollection is ready), and is used to verify client and
-    /// server compatibility.
+    /// server compatibility.</para>
     /// <para>
-    /// The protocol version is composed by different part:
+    /// The protocol version is composed by different part:</para>
     /// <para>- The NetCode package version.</para>
     /// <para>- A user defined <see cref="GameProtocolVersion"/> game version, that identify the version of your game</para>
     /// <para>- A unique hash of all the <see cref="IRpcCommand"/> and <see cref="ICommandData"/> that is used to verify both client and server
     /// recognize the same rpc and command and that can serialize/deserialize them in the same way</para>
     /// <para>- A unique hash of all the replicated <see cref="IComponentData"/> and <see cref="IBufferElementData"/> that is used to verify
     /// both client and server can serialize/deserialize all the replicated component present in the ghosts</para>
-    /// </para>
+    /// <para>
     /// When a client tries to connect to the server, as part of the initial handshake, they exchange their protocol version
     /// to validate they are both using same version. If the version mismatch, the connection is forcibly closed.
+    /// </para>
     /// </summary>
     public struct NetworkProtocolVersion : IComponentData
     {

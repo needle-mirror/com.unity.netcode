@@ -13,21 +13,29 @@ namespace Unity.NetCode
     /// server packet send rate and other related settings.
     /// The singleton entity is automatically created for the clients in the <see cref="Unity.NetCode.NetworkStreamReceiveSystem"/>
     /// first update if not present.
-    /// On the server, by countrary, the entity is never automatically created and it is up to the user to create the singletong instance if
+    /// On the server, by contrast, the entity is never automatically created and it is up to the user to create the singletong instance if
     /// they need to.
-    /// <remarks>
     /// This behaviour is asymmetric because the client need to have this singleton data synced with the server one. It is like
     /// this for compatibility reason and It may be changed in the future.
-    /// </remarks>
     /// In order to configure these settings you can either:
-    /// <list>
-    /// <item>- Create the entity in a custom <see cref="Unity.NetCode.ClientServerBootstrap"/> after the worlds has been created.</item>
-    /// <item>- On a system, in either the OnCreate or OnUpdate.</item>
+    /// <list type="bullet">
+    /// <item> Create the entity in a custom <see cref="Unity.NetCode.ClientServerBootstrap"/> after the worlds has been created.</item>
+    /// <item> On a system, in either the OnCreate or OnUpdate.</item>
     /// </list>
     /// It is not mandatory to set all the fields to a proper value when creating the singleton. It is sufficient to change only the relevant setting, and call the <see cref="ResolveDefaults"/> method to
     /// configure the fields that does not have a value set.
-    /// ```
+    /// The <see cref="ClientServerTickRate"/> settings are synced as part of the of the initial client connection handshake.
+    /// (<see cref="Unity.NetCode.ClientServerTickRateRefreshRequest"/> data).
+    /// The ClientServerTickRate should also be used to customise other server only timing settings, such as
+    /// <list type="bullet">
+    /// <item>the maximum number of tick per frame</item>
+    /// <item>the maximum number of tick per frame</item>
+    /// <item>tick batching (&lt;`MaxSimulationStepBatchSize`) and others.</item>
+    /// </list>
+    /// See the individual fields documentation for more information.
+    /// </summary>
     /// <example>
+    /// <code>
     /// class MyCustomClientServerBootstrap : ClientServerBootstrap
     /// {
     ///    override public void Initialize(string defaultWorld)
@@ -50,26 +58,16 @@ namespace Unity.NetCode
     ///        }
     ///    }
     /// }
+    /// </code>
     /// </example>
-    /// ```
-    /// The <see cref="ClientServerTickRate"/> settings are synced as part of the of the initial client connection handshake.
-    /// (<see cref="Unity.NetCode.ClientServerTickRateRefreshRequest"/> data).
-    /// The ClientServerTickRate should also be used to customise other server only timing settings, such as
-    /// <list type="bullet">
-    /// <item>the maximum number of tick per frame</item>
-    /// <item>the maximum number of tick per frame</item>
-    /// <item>tick batching (<see cref="MaxSimulationStepBatchSize"/> and others.</item>
-    /// </list>
-    /// See the individual fields documentation for more information.
-    /// </summary>
     /// <remarks>
-    /// <list>
+    /// <list type="bullet">
     /// <item>
     /// Once the client is connected, changes to the <see cref="ClientServerTickRate"/> are not replicated. If you change the settings are runtime, the same change must
     /// be done on both client and server.
     /// </item>
     /// <item>
-    /// The ClientServerTickRate <b>should never be added to sub-scene with a baker</b>. In case you want to setup the ClientServerTickRate
+    /// The ClientServerTickRate should never be added to sub-scene with a baker. In case you want to setup the ClientServerTickRate
     /// based on some scene settings, we suggest to implement your own component and change the ClientServerTickRate inside a system in
     /// your game.
     /// </item>
@@ -451,8 +449,8 @@ namespace Unity.NetCode
         [Range(0.01f, 0.5f)]
         public float InterpolationDelayMaxDeltaTicksFraction;
         /// <summary>
-        /// The percentage of the error in the interpolation delay that can be corrected in one frame. Used to control InterpolationTickTimeScale.
-        /// Must be in range (0, 1).
+        /// <para>The percentage of the error in the interpolation delay that can be corrected in one frame. Used to control InterpolationTickTimeScale.
+        /// Must be in range (0, 1).</para>
         /// <code>
         ///              ________ Max
         ///            /
@@ -460,8 +458,8 @@ namespace Unity.NetCode
         /// Min _____/____________
         ///                         InterpolationDelayDelta
         /// </code>
-        /// DefaultValue: 10% of the delta in between the current and next desired interpolation tick.
-        /// Good ranges: [0.075 - 0.2]
+        /// <para>DefaultValue: 10% of the delta in between the current and next desired interpolation tick.
+        /// Good ranges: [0.075 - 0.2]</para>
         /// </summary>
         [Tooltip("The percentage of the error in the interpolation delay that can be corrected in one frame. Used to control InterpolationTickTimeScale.\n\nRecommended range is [0.075 - 0.2].")]
         [Range(0f, 1f)]
@@ -479,9 +477,9 @@ namespace Unity.NetCode
         [Min(1f)]
         public float InterpolationTimeScaleMax;
         /// <summary>
-        /// The percentage of the error in the predicted server tick that can be corrected each frame. Used to control the client deltaTime scaling, used to
+        /// <para>The percentage of the error in the predicted server tick that can be corrected each frame. Used to control the client deltaTime scaling, used to
         /// slow-down/speed-up the server tick estimate.
-        /// Must be in (0, 1) range.
+        /// Must be in (0, 1) range.</para>
         /// <code>
         ///
         ///              ________ Max
@@ -490,7 +488,7 @@ namespace Unity.NetCode
         /// Min ______/__________
         ///                      CommandAge
         /// </code>
-        /// DefaultValue: 10% of the error.
+        /// <para>DefaultValue: 10% of the error.
         /// The two major causes affecting the command age are:
         ///  - Network condition (Latency and Jitter)
         ///  - Server performance (running below the target frame rate)
@@ -498,7 +496,7 @@ namespace Unity.NetCode
         /// Small time scale values allow for smooth adjustments of the prediction tick but slower reaction to changes in both network and server frame rate.
         /// By using larger values, is faster to recovery to desync situation (caused by bad network and condition or/and slow server performance) but the
         /// predicted ticks delta are larger.
-        /// Good ranges: [0.075 - 0.2]
+        /// Good ranges: [0.075 - 0.2]</para>
         /// </summary>
         [Tooltip("The percentage of the error in the predicted server tick that can be corrected each frame. Used to control the client deltaTime scaling, used to slow-down/speed-up the server tick estimate.\n\nDefaults to 10% of the error. Recommended range is [0.075 - 0.2].\n\n - Small time scale values allow for smooth adjustments of the prediction tick, but slower reaction to changes in both network and server frame rate.\n - Larger values causes recovery to be faster in desync situations, but the predicted ticks delta are larger.")]
         [Range(0f, 1f)]

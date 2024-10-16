@@ -42,7 +42,7 @@ namespace Unity.NetCode
         /// </summary>
         /// <remarks>
         /// <see cref="NetworkDriverStore"/> has specific usage patterns (see for loop use-cases below). Use with care!<br/>
-        /// Copying such a large struct is expensive, prefer <code>ref var driverStore = ref networkStreamDriver.RefRW.DriverStore;</code> syntax.
+        /// Copying such a large struct is expensive, prefer <c>ref var driverStore = ref networkStreamDriver.RefRW.DriverStore;</c> syntax.
         /// </remarks>
         public ref NetworkDriverStore DriverStore => ref UnsafeUtility.AsRef<Pointers>(m_DriverPointer).DriverStore;
 
@@ -56,9 +56,9 @@ namespace Unity.NetCode
         /// Convenience. Records the DriverStore used in the latest call to <see cref="Listen"/> or <see cref="Connect"/>.
         /// </summary>
         /// <remarks>
-        /// Note that the actual Endpoint used by each <see cref="NetworkStreamDriver"/> may be different,
-        /// due to <see cref="IPCNetworkInterface"/>.<para/>
-        /// See <see cref="SanitizeConnectAddress"/> and <see cref="SanitizeListenAddress"/>.
+        /// <para>Note that the actual Endpoint used by each <see cref="NetworkStreamDriver"/> may be different,
+        /// due to <see cref="IPCNetworkInterface"/>.</para>
+        /// <para>See <see cref="SanitizeConnectAddress"/> and <see cref="SanitizeListenAddress"/>.</para>
         /// </remarks>
         public NetworkEndpoint LastEndPoint { get; internal set; }
 
@@ -93,13 +93,52 @@ namespace Unity.NetCode
         internal byte RequireConnectionApprovalInternal;
 
         /// <summary>
-        ///     Stores all <see cref="NetCodeConnectionEvent"/>'s raised by Netcode for this <see cref="SimulationSystemGroup"/> tick.
-        ///     Allows user-code to subscribe to connection and disconnection events.
-        ///     Self-cleaning list, thus no consume API.
+        ///     <para>
+        ///         Stores all <see cref="NetCodeConnectionEvent" />s raised by Netcode for this
+        ///         <see cref="SimulationSystemGroup" /> tick,
+        ///         which allows user code to subscribe to connection and disconnection events (including
+        ///         <see cref="ConnectionState.State.Handshake" /> and <see cref="ConnectionState.State.Approval" />, if
+        ///         applicable).
+        ///         Refer to the Network connection page
+        ///         (https://docs.unity3d.com/Packages/com.unity.netcode@latest?subfolder=/manual/network-connection.html)
+        ///         for more details.
+        ///     </para>
+        ///     <para>
+        ///         It's a self-cleaning list and therefore has no consume API (in other words, there's no need to explicitly
+        ///         remove entries from this collection, which is why it's read-only). This also means that events are only
+        ///         valid for a single <see cref="SimulationSystemGroup" /> tick, and therefore must be polled inside this group.
+        ///     </para>
+        ///     <para>
+        ///         This collection is cleared and repopulated in the <see cref="NetworkGroupCommandBufferSystem" />, which
+        ///         is also the ECB playback that creates and destroys <see cref="NetworkStreamConnection" /> 'NetworkConnection'
+        ///         entities.
+        ///         Therefore, if you query this collection after the `NetworkGroupCommandBufferSystem` system (via the
+        ///         <see cref="UpdateAfterAttribute" />),
+        ///         you'll get the current tick's event data, but if you poll before it, your event data will always be one tick
+        ///         out of date.
+        ///     </para>
+        ///  <code>
+        ///      [BurstCompile]
+        ///      void ISystem.OnUpdate(ref SystemState state)
+        ///      {
+        ///          foreach (var evt in SystemAPI.GetSingleton&lt;NetworkStreamDriver&gt;().ConnectionEventsForTick)
+        ///          {
+        ///              UnityEngine.Debug.Log($"[{state.WorldUnmanaged.Name}] {evt.ToFixedString()}!");
+        ///          }
+        ///      }</code>
         /// </summary>
         /// <remarks>
-        ///     Because events are only valid for a single tick, any code that reads from (i.e. consumes) these events must
-        ///     update in the <see cref="SimulationSystemGroup"/>.
+        ///     <para>
+        ///         This collection can be safely passed into jobs, as long as the <see cref="NetworkStreamDriver" /> singleton
+        ///         is fetched as read/write.
+        ///     </para>
+        ///     <para>
+        ///         These events are raised on client worlds as well, but only for your own client world.
+        ///         I.e. Each client does not receive events regarding other clients. Refer to the PlayerList NetcodeSamples sample
+        ///         (https://github.com/Unity-Technologies/EntityComponentSystemSamples/tree/master/NetcodeSamples/Assets/Samples/PlayerList)
+        ///         for an example implementation of RPC logic that actually communicates player join and leave events (with
+        ///         display names and <see cref="NetworkStreamDisconnectReason" />s).
+        ///     </para>
         /// </remarks>
         public NativeArray<NetCodeConnectionEvent>.ReadOnly ConnectionEventsForTick { get; internal set; }
 

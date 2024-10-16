@@ -13,9 +13,9 @@ namespace Unity.NetCode
 {
 
     /// <summary>
-    /// Singleton used to register a <see cref="SmoothingAction"/> for a certain component type.
+    /// <para>Singleton used to register a <see cref="SmoothingAction"/> for a certain component type.
     /// The <see cref="SmoothingAction"/> is used to change the component value over time correct misprediction. Two different types of
-    /// smoothing action can be registered:
+    /// smoothing action can be registered:</para>
     /// <para>- A smoothing action without argument. See <see cref="RegisterSmoothingAction{T}"/></para>
     /// <para>- A smoothing action that take a component data as argument. See <see cref="RegisterSmoothingAction{T,U}"/></para>
     /// </summary>
@@ -31,6 +31,9 @@ namespace Unity.NetCode
         /// <summary>
         /// All the smoothing action must have this signature. The smoothing actions must also be burst compatible.
         /// </summary>
+        /// <param name="currentData"></param>
+        /// <param name="previousData"></param>
+        /// <param name="userData"></param>
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
         public delegate void SmoothingActionDelegate(IntPtr currentData, IntPtr previousData, IntPtr userData);
 

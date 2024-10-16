@@ -22,8 +22,8 @@ namespace Unity.NetCode.Hybrid
         /// <param name="self">an instance of the baker</param>
         /// <param name="isPrefab">state is we are converting a prefab or not</param>
         /// <typeparam name="T"></typeparam>
-        /// <remarks>In the editor, if a <see cref="NetCodeConversionSettings"/> is present in the build configuration used for conversion,
-        /// the target specified by the build component is used.
+        /// <remarks><para>In the editor, if a <see cref="NetCodeConversionSettings"/> is present in the build configuration used for conversion,
+        /// the target specified by the build component is used.</para>
         /// <para>
         /// Otherwise, the conversion target will be determined by the destination world for runtime conversion, and fallback to always be
         /// <see cref="NetcodeConversionTarget.ClientAndServer"/> is nothing apply or for prefabs.

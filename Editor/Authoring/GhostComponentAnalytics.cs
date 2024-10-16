@@ -5,6 +5,7 @@ using Unity.Entities;
 using Unity.NetCode.Analytics;
 using Unity.Networking.Transport;
 using UnityEditor;
+using UnityEditor.PackageManager;
 using UnityEngine.Analytics;
 
 namespace Unity.NetCode.Editor
@@ -40,14 +41,12 @@ namespace Unity.NetCode.Editor
         {
             var data = new GhostScaleAnalyticsData
             {
-                PlayerCount = NetCodeAnalyticsState.GetPlayerCount(),
                 Settings = new PlaymodeSettings
                 {
                     ThinClientCount = MultiplayerPlayModePreferences.RequestedNumThinClients,
                     SimulatorEnabled = MultiplayerPlayModePreferences.SimulatorEnabled,
                     Delay = MultiplayerPlayModePreferences.PacketDelayMs,
                     DropPercentage = MultiplayerPlayModePreferences.PacketDropPercentage,
-                    FuzzPercentage = MultiplayerPlayModePreferences.PacketFuzzPercentage,
                     Jitter = MultiplayerPlayModePreferences.PacketJitterMs,
                     PlayModeType = MultiplayerPlayModePreferences.RequestedPlayType.ToString(),
                     SimulatorPreset = MultiplayerPlayModePreferences.CurrentNetworkSimulatorPreset
@@ -62,39 +61,6 @@ namespace Unity.NetCode.Editor
             var numServerWorlds = 0;
             foreach (var world in World.All)
             {
-                void CollectMainClientData()
-                {
-                    TryGetSingleton(world, out data.ClientTickRate);
-                    data.MainClientData.NumOfSpawnedGhost = CountSpawnedGhosts(world.EntityManager);
-                    TryGetSingleton(world, out data.ClientServerTickRate);
-
-                    var spawnedGhostCount = CountSpawnedGhosts(world.EntityManager);
-                    TryGetSingleton<GhostRelevancy>(world, out var ghostRelevancy);
-                    using var predictedGhostQuery = world.EntityManager.CreateEntityQuery(ComponentType.ReadOnly<PredictedGhost>());
-                    var predictionCount = predictedGhostQuery.CalculateEntityCountWithoutFiltering();
-                    TryGetSingleton<PredictionSwitchingAnalyticsData>(world, out var predictionSwitchingAnalyticsData);
-                    data.MainClientData = new MainClientData
-                    {
-                        RelevancyMode = ghostRelevancy.GhostRelevancyMode,
-                        NumOfSpawnedGhost = spawnedGhostCount,
-                        NumOfPredictedGhosts = predictionCount,
-                        NumSwitchToInterpolated = predictionSwitchingAnalyticsData.NumTimesSwitchedToInterpolated,
-                        NumSwitchToPredicted = predictionSwitchingAnalyticsData.NumTimesSwitchedToPredicted,
-                    };
-                }
-
-                void CollectServerData()
-                {
-                    data.ServerSpawnedGhostCount = CountSpawnedGhosts(world.EntityManager);
-
-                    data.GhostTypes = CollectGhostTypes(world.EntityManager);
-                    data.GhostTypeCount = data.GhostTypes.Length;
-
-                    data.SnapshotTargetSize = TryGetSingleton<NetworkStreamSnapshotTargetSize>(world, out var snapshotTargetSize)
-                        ? snapshotTargetSize.Value
-                        : NetworkParameterConstants.MaxMessageSize;
-                }
-
                 var sent = NetCodeAnalyticsState.GetUpdateLength(world);
                 if (sent > 0)
                 {
@@ -118,6 +84,47 @@ namespace Unity.NetCode.Editor
                     }
                     numMainClientWorlds++;
                 }
+
+                continue;
+
+                void CollectServerData()
+                {
+                    data.ServerSpawnedGhostCount = CountSpawnedGhosts(world.EntityManager);
+
+                    data.GhostTypes = CollectGhostTypes(world.EntityManager);
+                    data.GhostTypeCount = data.GhostTypes.Length;
+
+                    data.SnapshotTargetSize = TryGetSingleton<NetworkStreamSnapshotTargetSize>(world, out var snapshotTargetSize)
+                        ? snapshotTargetSize.Value
+                        : NetworkParameterConstants.MaxMessageSize;
+                }
+
+                void CollectMainClientData()
+                {
+                    if (TryGetSingleton(world, out ClientTickRate clientTickRate))
+                    {
+                        data.ClientTickRate = new WrappedClientTickRate(clientTickRate);
+                    }
+                    data.MainClientData.NumOfSpawnedGhost = CountSpawnedGhosts(world.EntityManager);
+                    if (TryGetSingleton(world, out ClientServerTickRate clientServerTickRate))
+                    {
+                        data.ClientServerTickRate = new WrappedClientServerTickRate(clientServerTickRate);
+                    }
+
+                    var spawnedGhostCount = CountSpawnedGhosts(world.EntityManager);
+                    TryGetSingleton<GhostRelevancy>(world, out var ghostRelevancy);
+                    using var predictedGhostQuery = world.EntityManager.CreateEntityQuery(ComponentType.ReadOnly<PredictedGhost>());
+                    var predictionCount = predictedGhostQuery.CalculateEntityCountWithoutFiltering();
+                    TryGetSingleton<PredictionSwitchingAnalyticsData>(world, out var predictionSwitchingAnalyticsData);
+                    data.MainClientData = new MainClientData
+                    {
+                        RelevancyMode = (int)ghostRelevancy.GhostRelevancyMode,
+                        NumOfSpawnedGhost = spawnedGhostCount,
+                        NumOfPredictedGhosts = predictionCount,
+                        NumSwitchToInterpolated = (int)predictionSwitchingAnalyticsData.NumTimesSwitchedToInterpolated,
+                        NumSwitchToPredicted = (int)predictionSwitchingAnalyticsData.NumTimesSwitchedToPredicted,
+                    };
+                }
             }
 
             if (amount == 0)
@@ -126,7 +133,7 @@ namespace Unity.NetCode.Editor
             }
             else
             {
-                data.AverageGhostInSnapshot = serializedSent / amount;
+                data.AverageGhostInSnapshot = (int)(serializedSent / amount);
             }
             data.NumMainClientWorlds = numMainClientWorlds;
             data.NumServerWorlds = numServerWorlds;
@@ -211,6 +218,74 @@ namespace Unity.NetCode.Editor
         }
     }
 
+    /// <summary>
+    /// This struct is used to wrap the <see cref="ClientServerTickRate"/> struct to be serializable.
+    /// We ensure here that the data matches the expected format for the analytics.
+    /// If you change this struct, you must also update the analytics event in schemata.
+    /// </summary>
+    [Serializable]
+    internal struct WrappedClientServerTickRate
+    {
+        public int MaxSimulationStepBatchSize;
+        public int MaxSimulationStepsPerFrame;
+        public int NetworkTickRate;
+        public int SimulationTickRate;
+        public int TargetFrameRateMode;
+
+        public WrappedClientServerTickRate(ClientServerTickRate clientServerTickRate)
+        {
+            this.MaxSimulationStepBatchSize = clientServerTickRate.MaxSimulationStepBatchSize;
+            this.MaxSimulationStepsPerFrame = clientServerTickRate.MaxSimulationStepsPerFrame;
+            this.NetworkTickRate = clientServerTickRate.NetworkTickRate;
+            this.SimulationTickRate = clientServerTickRate.SimulationTickRate;
+            this.TargetFrameRateMode = (int)clientServerTickRate.TargetFrameRateMode;
+        }
+    }
+
+    /// <summary>
+    /// This struct is used to wrap the <see cref="ClientTickRate"/> struct to be serializable.
+    /// We ensure here that the data matches the expected format for the analytics.
+    /// If you change this struct, you must also update the analytics event in schemata.
+    /// </summary>
+    [Serializable]
+    internal struct WrappedClientTickRate
+    {
+        public int CommandAgeCorrectionFraction;
+        public int InterpolationDelayCorrectionFraction;
+        public int InterpolationDelayJitterScale;
+        public int InterpolationDelayMaxDeltaTicksFraction;
+        public int InterpolationTimeMS;
+        public int InterpolationTimeNetTicks;
+        public int InterpolationTimeScaleMax;
+        public int InterpolationTimeScaleMin;
+        public int MaxExtrapolationTimeSimTicks;
+        public int MaxPredictAheadTimeMS;
+        public int MaxPredictionStepBatchSizeFirstTimeTick;
+        public int MaxPredictionStepBatchSizeRepeatedTick;
+        public int PredictionTimeScaleMax;
+        public int PredictionTimeScaleMin;
+        public int TargetCommandSlack;
+
+        public WrappedClientTickRate(ClientTickRate clientTickRate)
+        {
+            this.CommandAgeCorrectionFraction = (int)clientTickRate.CommandAgeCorrectionFraction;
+            this.InterpolationDelayCorrectionFraction = (int)clientTickRate.InterpolationDelayCorrectionFraction;
+            this.InterpolationDelayJitterScale = (int)clientTickRate.InterpolationDelayJitterScale;
+            this.InterpolationDelayMaxDeltaTicksFraction = (int)clientTickRate.InterpolationDelayMaxDeltaTicksFraction;
+            this.InterpolationTimeMS = (int)clientTickRate.InterpolationTimeMS;
+            this.InterpolationTimeNetTicks = (int)clientTickRate.InterpolationTimeNetTicks;
+            this.InterpolationTimeScaleMax = (int)clientTickRate.InterpolationTimeScaleMax;
+            this.InterpolationTimeScaleMin = (int)clientTickRate.InterpolationTimeScaleMin;
+            this.MaxExtrapolationTimeSimTicks = (int)clientTickRate.MaxExtrapolationTimeSimTicks;
+            this.MaxPredictAheadTimeMS = (int)clientTickRate.MaxPredictAheadTimeMS;
+            this.MaxPredictionStepBatchSizeFirstTimeTick = clientTickRate.MaxPredictionStepBatchSizeFirstTimeTick;
+            this.MaxPredictionStepBatchSizeRepeatedTick = clientTickRate.MaxPredictionStepBatchSizeRepeatedTick;
+            this.PredictionTimeScaleMax = (int)clientTickRate.PredictionTimeScaleMax;
+            this.PredictionTimeScaleMin = (int)clientTickRate.PredictionTimeScaleMin;
+            this.TargetCommandSlack = (int)clientTickRate.TargetCommandSlack;
+        }
+    }
+
     [Serializable]
 #if UNITY_2023_2_OR_NEWER
     struct GhostScaleAnalyticsData : IAnalytic.IData
@@ -219,13 +294,12 @@ namespace Unity.NetCode.Editor
 #endif
     {
         public PlaymodeSettings Settings;
-        public int PlayerCount;
         public int ServerSpawnedGhostCount;
         public int GhostTypeCount;
-        public uint AverageGhostInSnapshot;
+        public int AverageGhostInSnapshot;
         public GhostTypeData[] GhostTypes;
-        public ClientServerTickRate ClientServerTickRate;
-        public ClientTickRate ClientTickRate;
+        public WrappedClientServerTickRate ClientServerTickRate;
+        public WrappedClientTickRate ClientTickRate;
         public MainClientData MainClientData;
         public int SnapshotTargetSize;
         public int NumMainClientWorlds;
@@ -235,7 +309,6 @@ namespace Unity.NetCode.Editor
         {
             var builder = new StringBuilder();
             builder.Append($"{nameof(Settings)}: {Settings}, " +
-                           $"{nameof(PlayerCount)}: {PlayerCount}, " +
                            $"{nameof(ServerSpawnedGhostCount)}: {ServerSpawnedGhostCount}, " +
                            $"{nameof(GhostTypeCount)}: {GhostTypeCount}, " +
                            $"{nameof(AverageGhostInSnapshot)}: {AverageGhostInSnapshot}, " +
@@ -259,10 +332,10 @@ namespace Unity.NetCode.Editor
     [Serializable]
     struct MainClientData
     {
-        public GhostRelevancyMode RelevancyMode;
+        public int RelevancyMode;
         public int NumOfPredictedGhosts;
-        public long NumSwitchToPredicted;
-        public long NumSwitchToInterpolated;
+        public int NumSwitchToPredicted;
+        public int NumSwitchToInterpolated;
         public int NumOfSpawnedGhost;
 
         public override string ToString()
@@ -282,7 +355,6 @@ namespace Unity.NetCode.Editor
         public bool SimulatorEnabled;
         public int Delay;
         public int DropPercentage;
-        public int FuzzPercentage;
         public int Jitter;
         public string PlayModeType;
         public string SimulatorPreset;
@@ -293,7 +365,6 @@ namespace Unity.NetCode.Editor
                    $"{nameof(SimulatorEnabled)}: {SimulatorEnabled}, " +
                    $"{nameof(Delay)}: {Delay}, " +
                    $"{nameof(DropPercentage)}: {DropPercentage}, " +
-                   $"{nameof(FuzzPercentage)}: {FuzzPercentage}, " +
                    $"{nameof(Jitter)}: {Jitter}, " +
                    $"{nameof(PlayModeType)}: {PlayModeType}, " +
                    $"{nameof(SimulatorPreset)}: {SimulatorPreset}, ";
@@ -306,7 +377,7 @@ namespace Unity.NetCode.Editor
         public const int k_MaxItems = 1000;
         public const string k_VendorKey = "unity.netcode";
         public const string k_Scale = "NetcodeGhostComponentScale";
-        public const int k_ScaleVersion = 2;
+        public const int k_ScaleVersion = 3;
         public const int k_ConfigurationVersion = 1;
         public const string k_Configuration = "NetcodeGhostComponentConfiguration";
 

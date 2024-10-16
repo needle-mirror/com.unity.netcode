@@ -39,9 +39,9 @@ namespace Unity.NetCode
         public bool Composite { get; set; } = false;
 
         /// <summary>
-        /// <inheritdoc cref="SmoothingAction"/>
         /// Default is <see cref="SmoothingAction.Clamp"/>.
         /// </summary>
+        /// <inheritdoc cref="SmoothingAction"/>
         public SmoothingAction Smoothing { get; set; } = SmoothingAction.Clamp;
 
         /// <summary>Allows you to specify a custom serializer for this GhostField using the <see cref="GhostFieldSubType"/> API.</summary>

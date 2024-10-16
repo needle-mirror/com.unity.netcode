@@ -1,13 +1,13 @@
 namespace Unity.NetCode.Generators
 {
     /// <summary>
-    /// Used to configure the serialization/deserialization code-generation for a specific type (primitive or struct) and
+    /// <para>Used to configure the serialization/deserialization code-generation for a specific type (primitive or struct) and
     /// combination of <see cref="GhostFieldAttribute"/> quantized, smooting and sub-type flags.
     /// The tuple [<see cref="Type"/>, <see cref="Quantized"/>, <see cref="Smoothing"/>, <see cref="SubType"/>] is mapped to
     /// a template file that contains the code to use to serialize/deserialize this specific type.
     /// It is possible so to register for each individual type multiple serialization rules, that can be selected using the
     /// <see cref="GhostFieldAttribute"/>.
-    /// For example, the default float type (subtype 0) has 4 different serialization rules:
+    /// For example, the default float type (subtype 0) has 4 different serialization rules:</para>
     /// <para>(float, unquantized, Clamp, 0)</para>
     /// <para>(float, unquantized, InterpolateAndExtrapolate, 0)</para>
     /// <para>(float, quantized, Clamp, 0)</para>
@@ -41,12 +41,12 @@ namespace Unity.NetCode.Generators
         /// </summary>
         public SmoothingAction Smoothing;
         /// <summary>
-        /// floating point number can be serialized in two ways:
+        /// <para>floating point number can be serialized in two ways:</para>
         /// <para>- as a full 32bit raw value</para>
         /// <para>- as a fixed-point number, with a given precision (see <see cref="GhostFieldAttribute.Quantization"/>)</para>
-        /// The use of quantization requires special handling by the code-generation and in particular the code in the template file
+        /// <para>The use of quantization requires special handling by the code-generation and in particular the code in the template file
         /// must uses certain rules.
-        /// You should set this flag to true if the type-template combination should be used for quantized types.
+        /// You should set this flag to true if the type-template combination should be used for quantized types.</para>
         /// </summary>
         public bool Quantized;
         /// <summary>

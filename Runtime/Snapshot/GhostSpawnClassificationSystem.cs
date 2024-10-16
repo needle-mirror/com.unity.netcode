@@ -127,8 +127,10 @@ namespace Unity.NetCode
     }
 
     /// <summary>
+    /// <para>
     /// Contains all the system that classify spawned ghost. Runs after the <see cref="GhostReceiveSystem"/> system.
     /// Your custom classification system should be updated into this group.
+    /// </para>
     /// <code>
     /// [UpdateInGroup(typeof(GhostSpawnClassificationSystemGroup))]
     /// public partial struct MyCustomClassificationSystemGroup

@@ -8,7 +8,7 @@ namespace Unity.NetCode
 {
     /// <summary>
     /// Assign to every <see cref="GhostInstance"/>, and denotes which Ghost prefab version this component is allowed to exist on.
-    /// <example>Use this to disable rendering components on the Server version of the Ghost.</example>
+    /// Use this to disable rendering components on the Server version of the Ghost.
     /// If you cannot change the ComponentType, use the `GhostAuthoringInspectionComponent` to manually override on a specific Ghost prefab.
     /// </summary>
     [Flags]
@@ -71,7 +71,7 @@ namespace Unity.NetCode
     /// <para><b>Meta-data of a <see cref="ICommandData"/> component, denoting whether or not the server should replicate the
     /// input commands back down to clients.
     /// Configure via <see cref="GhostComponentAttribute"/>.</b></para>
-    /// <para>Docs for ICommandData:<inheritdoc cref="ICommandData"/></para>
+    /// <para>See the documentation for ICommandData:<see cref="ICommandData"/></para>
     /// </summary>
     [Flags]
     public enum SendToOwnerType

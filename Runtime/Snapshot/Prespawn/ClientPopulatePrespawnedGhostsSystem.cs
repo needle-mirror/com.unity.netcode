@@ -17,18 +17,17 @@ namespace Unity.NetCode
     /// </summary>
     /// <remarks>
     /// <para>
-    /// Clients expect to receive the following as part ot the protocol:
+    /// Clients expect to receive the following as part ot the protocol:</para>
     /// <para>- The subscene hash and baseline hash for validation.</para>
     /// <para>- The ghost id range for each subscene.</para>
-    /// </para>
     /// <para>### The Full Prespawn Subscene Sync Protocol</para>
     /// <para>
     /// The Client will eventually receive the subscene data and will store it into the `PrespawnSceneLoaded` collection.
     /// The Client (in parallel, before or after) will serialize the prespawn baseline when a new scene is loaded.
-    /// The Client should validate that:
+    /// The Client should validate that:</para>
     /// <para>- The prespawn scenes are present on the server.</para>
     /// <para>- That the prespawn ghost count, subscene hash and baseline hash match the one on the server.</para>
-    /// The Client will assign the ghost ids to the prespawns.
+    /// <para>The Client will assign the ghost ids to the prespawns.
     /// The Client must notify the server what scene sections has been loaded and initialized.
     /// </para>
     /// </remarks>

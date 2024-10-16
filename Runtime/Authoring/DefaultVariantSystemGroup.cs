@@ -7,10 +7,10 @@ namespace Unity.NetCode
     /// The system group OnCreate method finalizes the default mapping inside its own `OnCreate` method, by collecting from all the registered
     /// <see cref="DefaultVariantSystemBase"/> systems the set of variant to use.
     /// The order in which variants are set in the map is governed by the creation order (see <see cref="CreateAfterAttribute"/>, <see cref="CreateBeforeAttribute"/>).
+    /// </summary>
     /// <remarks>
     /// The group is present in both baking and client/server worlds.
     /// </remarks>
-    /// </summary>
     [WorldSystemFilter(WorldSystemFilterFlags.ServerSimulation | WorldSystemFilterFlags.ClientSimulation |
                        WorldSystemFilterFlags.ThinClientSimulation | WorldSystemFilterFlags.BakingSystem)]
     public partial class DefaultVariantSystemGroup : ComponentSystemGroup

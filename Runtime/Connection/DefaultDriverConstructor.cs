@@ -56,9 +56,6 @@ namespace Unity.NetCode
         public static NetworkSettings GetNetworkServerSettings(int playerCount = 0)
         {
             var settings = new NetworkSettings();
-#if UNITY_EDITOR
-            NetCodeAnalyticsState.SetPlayerCount(playerCount);
-#endif
             settings.WithReliableStageParameters(windowSize: DefaultWindowSize)
                 .WithFragmentationStageParameters(payloadCapacity: DefaultPayloadCapacity);
 #if UNITY_EDITOR || NETCODE_DEBUG
@@ -75,7 +72,7 @@ namespace Unity.NetCode
 
         /// <summary>
         /// Helper method for creating NetworkDriver suitable for client.
-        /// The driver will use the the specified <paramref name="netIf">INetworkInterface</paramref> and is configured
+        /// The driver will use the the specified <paramref name="netIf"/> and is configured
         /// using the internal defaults. See: <see cref="GetNetworkSettings"/>.
         /// </summary>
         /// <typeparam name="T">the <see cref="INetworkInterface"/> type ot use</typeparam>
@@ -126,7 +123,7 @@ namespace Unity.NetCode
 
 #if !UNITY_WEBGL || UNITY_EDITOR
         /// <summary>
-        /// Helper method for creating server NetworkDriver given the specified <paramref name="netIf">INetworkInterface</paramref>
+        /// Helper method for creating server NetworkDriver given the specified <paramref name="netIf"/>.
         /// The driver is configured with the internal defaults. See: <see cref="GetNetworkServerSettings"/>.
         /// </summary>
         /// <typeparam name="T">the <see cref="INetworkInterface"/> type ot use</typeparam>
@@ -139,10 +136,10 @@ namespace Unity.NetCode
         }
 
         /// <summary>
-        /// Helper method for creating server NetworkDriver given the specified <param name="netIf">INetworkInterface</param>
-        /// The driver is configured using the <param name="settings">NetworkSettings</param>.
+        /// Helper method for creating server NetworkDriver given the specified <paramref name="netIf"/>
+        /// The driver is configured using the <paramref name="settings"/>
         /// </summary>
-        /// <typeparam name="T">the <see cref="INetworkInterface"/> type ot use</typeparam>
+        /// <typeparam name="T">The <see cref="INetworkInterface"/> type to use</typeparam>
         /// <param name="netIf"></param>
         /// <param name="settings">A list of the parameters that describe the network configuration.</param>
         /// <returns>A new <see cref="NetworkDriverStore.NetworkDriverInstance"/></returns>
@@ -200,9 +197,9 @@ namespace Unity.NetCode
         /// <summary>
         /// Register a NetworkDriver instance in the <paramref name="driverStore"/> that uses either:
         /// <list type="bullet">
-        /// <li>a single <see cref="IPCNetworkInterface"/> NetworkDriver if the both client and server worlds are present in the same process.</li>
-        /// <li>a single <see cref="UDPNetworkInterface"/> driver if you are targeting a standalone platform.</li>
-        /// <li>a single <see cref="WebSocketNetworkInterface"/> if you are targeting WebGL.</li>
+        /// <item>a single <see cref="IPCNetworkInterface"/> NetworkDriver if both the client and server worlds are present in the same process.</item>
+        /// <item>a single <see cref="UDPNetworkInterface"/> driver if you are targeting a standalone platform.</item>
+        /// <item>a single <see cref="WebSocketNetworkInterface"/> if you are targeting WebGL.</item>
         /// </list>
         /// These are configured using internal defaults. See: <see cref="GetNetworkSettings"/>.
         /// </summary>
@@ -217,11 +214,11 @@ namespace Unity.NetCode
         /// <summary>
         /// Register a NetworkDriver instance in the <paramref name="driverStore"/> that uses either:
         /// <list type="bullet">
-        /// <li>a single <see cref="IPCNetworkInterface"/> NetworkDriver if the both client and server worlds are present in the same process.</li>
-        /// <li>a single <see cref="UDPNetworkInterface"/> driver if you are targeting a standalone platform.</li>
-        /// <li>a single <see cref="WebSocketNetworkInterface"/> if you are targeting WebGL.</li>
+        /// <item>a single <see cref="IPCNetworkInterface"/> NetworkDriver if both the client and server worlds are present in the same process.</item>
+        /// <item>a single <see cref="UDPNetworkInterface"/> driver if you are targeting a standalone platform.</item>
+        /// <item>a single <see cref="WebSocketNetworkInterface"/> if you are targeting WebGL.</item>
         /// </list>
-        /// These are configured using the <param name="settings">NetworkSettings</param> passed in.
+        /// These are configured using the <paramref name="settings"/> passed in.
         /// </summary>
         /// <param name="world">Used for determining whether we are running in a client or server world.</param>
         /// <param name="driverStore">Store for NetworkDriver.</param>
@@ -246,7 +243,7 @@ namespace Unity.NetCode
 #if !UNITY_WEBGL || UNITY_EDITOR
         /// <summary>
         /// Register a <see cref="UDPNetworkInterface"/> NetworkDriver instance in <paramref name="driverStore"/>.
-        /// This are configured using the <param name="settings">NetworkSettings</param> passed in.
+        /// This are configured using the <paramref name="settings"/> passed in.
         /// </summary>
         /// <param name="world">Used for determining whether we are running in a client or server world.</param>
         /// <param name="driverStore">Store for NetworkDriver.</param>
@@ -263,7 +260,7 @@ namespace Unity.NetCode
 #endif
         /// <summary>
         /// Register a <see cref="WebSocketNetworkInterface"/> NetworkDriver instance in <paramref name="driverStore"/>.
-        /// This are configured using the <param name="settings">NetworkSettings</param> passed in. The constructed driver
+        /// This are configured using the <paramref name="settings"/> passed in. The constructed driver
         /// does not use a reliable pipeline stage (websocket are already reliable) and the <see cref="NetworkDriverStore.NetworkDriverInstance.reliablePipeline"/>
         /// instance is a <see cref="NullPipelineStage"/>.
         /// </summary>
@@ -303,7 +300,7 @@ namespace Unity.NetCode
         }
         /// <summary>
         /// Register an <see cref="IPCNetworkInterface"/> NetworkDriver instance in <paramref name="driverStore"/>.
-        /// This are configured using the <param name="settings">NetworkSettings</param> passed in.
+        /// This are configured using the <paramref name="settings"/> passed in.
         /// </summary>
         /// <param name="world">Used for determining whether we are running in a client or server world.</param>
         /// <param name="driverStore">Store for NetworkDriver.</param>
@@ -322,9 +319,9 @@ namespace Unity.NetCode
         /// <summary>
         /// Register multiple NetworkDriver instances to the <paramref name="driverStore"/> that uses different <see cref="INetworkInterface"/>:
         /// <list type="bullet">
-        /// <li>One driver that uses <see cref="IPCNetworkInterface"/> if the <see cref="ClientServerBootstrap.RequestedPlayType"/> is Client/Server.</li>
-        /// <li>One driver that uses <see cref="UDPNetworkInterface"/> if the current build target is a standalone platorm (no WebGL) or dedicated server.</li>
-        /// <li>One driver that uses <see cref="WebSocketNetworkInterface"/> if the current build target is WebGL.</li>
+        /// <item>One driver that uses <see cref="IPCNetworkInterface"/> if the `ClientServerBootstrap.RequestedPlayType` is Client/Server.</item>
+        /// <item>One driver that uses <see cref="UDPNetworkInterface"/> if the current build target is a standalone platorm (no WebGL) or dedicated server.</item>
+        /// <item>One driver that uses <see cref="WebSocketNetworkInterface"/> if the current build target is WebGL.</item>
         /// </list>
         /// These are configured using internal defaults. See: <see cref="GetNetworkSettings"/>.
         /// </summary>
@@ -340,11 +337,11 @@ namespace Unity.NetCode
         /// <summary>
         /// Register a multiple NetworkDriver instances to hte <paramref name="driverStore"/>: <br/>
         /// <list type="bullet">
-        /// <li>One driver that uses <see cref="IPCNetworkInterface"/> if the <see cref="ClientServerBootstrap.RequestedPlayType"/> is Client/Server.</li>
-        /// <li>One driver that uses <see cref="UDPNetworkInterface"/> if the current build target is a standalone platorm (no WebGL) or dedicated server.</li>
-        /// <li>One driver that uses <see cref="WebSocketNetworkInterface"/> if the current build target is WebGL.</li>
+        /// <item>One driver that uses <see cref="IPCNetworkInterface"/> if the `ClientServerBootstrap.RequestedPlayType` is Client/Server.</item>
+        /// <item>One driver that uses <see cref="UDPNetworkInterface"/> if the current build target is a standalone platorm (no WebGL) or dedicated server.</item>
+        /// <item>One driver that uses <see cref="WebSocketNetworkInterface"/> if the current build target is WebGL.</item>
         /// </list>
-        /// These drivers are configured using the <param name="settings">NetworkSettings</param> passed in.
+        /// These drivers are configured using the <paramref name="settings">NetworkSettings</paramref> passed in.
         /// </summary>
         /// <param name="world">Used for determining whether we are running in a client or server world.</param>
         /// <param name="driverStore">Store for NetworkDriver.</param>
@@ -363,7 +360,7 @@ namespace Unity.NetCode
 
         /// <summary>
         /// Register a <see cref="IPCNetworkInterface"/> NetworkDriver instance in <paramref name="driverStore"/>.
-        /// This are configured using the <param name="settings">NetworkSettings</param> passed in.
+        /// This are configured using the <paramref name="settings"/> passed in.
         ///
         /// If the requested <see cref="ClientServerBootstrap.PlayType"/> is <see cref="ClientServerBootstrap.PlayType.Server"/>
         /// this will do nothing as no local clients will ever make use of the IPC mechanism.
@@ -388,7 +385,7 @@ namespace Unity.NetCode
 
         /// <summary>
         /// Register a <see cref="UDPNetworkInterface"/> NetworkDriver instance in <paramref name="driverStore"/>.
-        /// This are configured using the <param name="settings">NetworkSettings</param> passed in.
+        /// These are configured using the <paramref name="settings"/> passed in.
         /// </summary>
         /// <param name="world">Used for determining whether we are running in a client or server world.</param>
         /// <param name="driverStore">Store for NetworkDriver.</param>
@@ -405,7 +402,7 @@ namespace Unity.NetCode
 
         /// <summary>
         /// Register a <see cref="WebSocketNetworkInterface"/> NetworkDriver instance in <paramref name="driverStore"/>.
-        /// This are configured using the <param name="settings">NetworkSettings</param> passed in. The constructed driver
+        /// This are configured using the <paramref name="settings"/> passed in. The constructed driver
         /// does not use a reliable pipeline stage (websocket are already reliable) and the <see cref="NetworkDriverStore.NetworkDriverInstance.reliablePipeline"/>
         /// instance is a <see cref="NullPipelineStage"/>.
         /// </summary>
@@ -496,9 +493,9 @@ namespace Unity.NetCode
         /// <summary>
         /// Register a multiple NetworkDriver instances to hte <paramref name="driverStore"/>: <br/>
         /// <list type="bullet">
-        /// <li>One driver that uses <see cref="IPCNetworkInterface"/>if the <see cref="ClientServerBootstrap.RequestedPlayType"/> is Client/Server.</li>
-        /// <li>For all targets apart WebGL, one driver instance using a <see cref="UDPNetworkInterface"/>. For WebGL and in the Editor, one driver instance using the
-        /// <see cref="WebSocketNetworkInterface"/></li>.
+        /// <item>One driver that uses <see cref="IPCNetworkInterface"/> if the <see cref="ClientServerBootstrap.RequestedPlayType"/> is Client/Server.</item>
+        /// <item>For all targets apart WebGL, one driver instance using a <see cref="UDPNetworkInterface"/>. For WebGL and in the Editor, one driver instance using the
+        /// <see cref="WebSocketNetworkInterface"/>.</item>
         /// </list>
         /// These are configured using the default settings. See <see cref="GetNetworkServerSettings"/>.
         /// </summary>
@@ -541,9 +538,9 @@ namespace Unity.NetCode
         /// <summary>
         /// Register multiple NetworkDriver instances to the <paramref name="driverStore"/> that uses different <see cref="INetworkInterface"/>:
         /// <list type="bullet">
-        /// <li>One driver that uses <see cref="IPCNetworkInterface"/> if the <see cref="ClientServerBootstrap.RequestedPlayType"/> is Client/Server.</li>
-        /// <li>One driver that uses <see cref="UDPNetworkInterface"/> if the current build target is a standalone platorm (no WebGL) or dedicated server.</li>
-        /// <li>One driver that uses <see cref="WebSocketNetworkInterface"/> if the current build target is WebGL.</li>
+        /// <item>One driver that uses <see cref="IPCNetworkInterface"/> if the <see cref="ClientServerBootstrap.RequestedPlayType"/> is Client/Server.</item>
+        /// <item>One driver that uses <see cref="UDPNetworkInterface"/> if the current build target is a standalone platorm (no WebGL) or dedicated server.</item>
+        /// <item>One driver that uses <see cref="WebSocketNetworkInterface"/> if the current build target is WebGL.</item>
         /// </list>
         /// These are configured using internal defaults. See: <see cref="GetNetworkSettings"/>.
         /// </summary>
@@ -573,8 +570,8 @@ namespace Unity.NetCode
     ///     - a single <see cref="IPCNetworkInterface"/> NetworkDriver if the both client and server worlds are present in the same process.<br/>
     ///     - a single <see cref="UDPNetworkInterface"/> driver in all other cases.<br/>
     /// In the Editor and Development build, if the network simulator is enabled, force on the client to use the <see cref="UDPNetworkInterface"/> network driver.
+    /// <b>To let the client use the IPC network interface when in client and server mode, you must create the server world first (in other words; call `NetworkStreamDriver.Listen` on it before attempting to connect to it).</b>
     /// </summary>
-    /// <b>To let the client use the IPC network interface In ClientServer mode it is mandatory to always create the server world first.</b><br/>
     public struct IPCAndSocketDriverConstructor : INetworkStreamDriverConstructor
     {
         /// <summary>

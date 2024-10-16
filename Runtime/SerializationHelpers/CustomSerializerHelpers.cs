@@ -21,14 +21,14 @@ namespace Unity.NetCode.LowLevel.Unsafe
         /// index <see cref="GhostPrefabCustomSerializer.Context.startIndex"/> to
         /// <see cref="GhostPrefabCustomSerializer.Context.endIndex"/>.
         /// </summary>
-        /// <param name="chunk"></param>
-        /// <param name="context"></param>
-        /// <param name="typeHandles"></param>
-        /// <param name="index"></param>
-        /// <param name="snapshotData"></param>
-        /// <param name="snapshotOffset"></param>
-        /// <param name="serializer"></param>
-        /// <typeparam name="T"></typeparam>
+        /// <param name="chunk">the chunk</param>
+        /// <param name="context">the serialization context</param>
+        /// <param name="typeHandles">the component typehandles</param>
+        /// <param name="index">the <see cref="GhostCollectionComponentIndex"/> buffer</param>
+        /// <param name="snapshotData">the snapshot buffer data store</param>
+        /// <param name="snapshotOffset">the offset in bytes where the component data should be stored</param>
+        /// <param name="serializer">the current serializer to use</param>
+        /// <typeparam name="T">the unmanaged component type</typeparam>
         public static void CopyComponentToSnapshot<T>(
             this T serializer,
             ArchetypeChunk chunk,
@@ -52,15 +52,15 @@ namespace Unity.NetCode.LowLevel.Unsafe
         /// <summary>
         /// Copy a single component data for a child component to the snapshot buffer.
         /// </summary>
-        /// <param name="serializer"></param>
-        /// <param name="chunk"></param>
-        /// <param name="indexInChunk"></param>
-        /// <param name="context"></param>
-        /// <param name="typeHandles"></param>
-        /// <param name="index"></param>
-        /// <param name="snapshotData"></param>
-        /// <param name="snapshotOffset"></param>
-        /// <typeparam name="T"></typeparam>
+        /// <param name="serializer">the serializer to use</param>
+        /// <param name="chunk">the chunk to copy</param>
+        /// <param name="indexInChunk">the index in the chunk</param>
+        /// <param name="context">the serialization context</param>
+        /// <param name="typeHandles">the component type handles</param>
+        /// <param name="index">the <see cref="GhostCollectionComponentIndex>"/> collection</param>
+        /// <param name="snapshotData">the snapshot buffer</param>
+        /// <param name="snapshotOffset">the start offset from the beginning of the snapshot buffer</param>
+        /// <typeparam name="T">the component type</typeparam>
         public static void CopyChildComponentToSnapshot<T>(
             this T serializer,
             ArchetypeChunk chunk,
@@ -81,15 +81,15 @@ namespace Unity.NetCode.LowLevel.Unsafe
         /// starting from index <see cref="GhostPrefabCustomSerializer.Context.startIndex"/> to
         /// <see cref="GhostPrefabCustomSerializer.Context.endIndex"/>.
         /// </summary>
-        /// <param name="serializer"></param>
-        /// <param name="chunk"></param>
-        /// <param name="context"></param>
-        /// <param name="typeHandles"></param>
-        /// <param name="index"></param>
-        /// <param name="snapshotData"></param>
-        /// <param name="snapshotOffset"></param>
-        /// <param name="dynamicSnapshotDataOffset"></param>
-        /// <typeparam name="T"></typeparam>
+        /// <param name="serializer">the serializer to use</param>
+        /// <param name="chunk">the chunk to copy</param>
+        /// <param name="context">the serialization context</param>
+        /// <param name="typeHandles">the component type handles</param>
+        /// <param name="index">the <see cref="GhostCollectionComponentIndex>"/> collection</param>
+        /// <param name="snapshotData">the snapshot buffer</param>
+        /// <param name="snapshotOffset">the start offset from the beginning of the snapshot buffer</param>
+        /// <param name="dynamicSnapshotDataOffset">the offset in the dynamic snapshot data buffer where the buffer data is stored</param>
+        /// <typeparam name="T">the buffer type</typeparam>
         public static void CopyBufferToSnapshot<T>(
             this T serializer,
             ArchetypeChunk chunk, ref GhostPrefabCustomSerializer.Context context,
@@ -114,16 +114,16 @@ namespace Unity.NetCode.LowLevel.Unsafe
         /// <summary>
         /// Copy a single buffer on a child entity for a given <see cref="DynamicComponentTypeHandle"/> to the snapshot buffer.
         /// </summary>
-        /// <param name="serializer"></param>
-        /// <param name="chunk"></param>
-        /// <param name="indexInChunk"></param>
-        /// <param name="context"></param>
-        /// <param name="typeHandles"></param>
-        /// <param name="index"></param>
-        /// <param name="snapshotData"></param>
-        /// <param name="snapshotOffset"></param>
-        /// <param name="dynamicSnapshotOffset"></param>
-        /// <typeparam name="T"></typeparam>
+        /// <param name="serializer">the serializer to use</param>
+        /// <param name="chunk">the chunk to copy</param>
+        /// <param name="indexInChunk">the index in the chunk</param>
+        /// <param name="context">the serialization context</param>
+        /// <param name="typeHandles">the component type handles</param>
+        /// <param name="index">the <see cref="GhostCollectionComponentIndex>"/> collection</param>
+        /// <param name="snapshotData">the snapshot buffer</param>
+        /// <param name="snapshotOffset">the start offset from the beginning of the snapshot buffer</param>
+        /// <param name="dynamicSnapshotOffset">the offset in the dynamic snapshot data buffer where the buffer data is stored</param>
+        /// <typeparam name="T">the buffer type</typeparam>
         public static void CopyChildBufferToSnapshot<T>(
             this T serializer,
             ArchetypeChunk chunk, int indexInChunk,
@@ -172,13 +172,13 @@ namespace Unity.NetCode.LowLevel.Unsafe
         /// Copy all the enable bits state for the given <see cref="DynamicComponentTypeHandle"/> to
         /// the snapshot buffer.
         /// </summary>
-        /// <param name="chunk"></param>
-        /// <param name="startIndex"></param>
-        /// <param name="endIndex"></param>
-        /// <param name="snapshotStride"></param>
-        /// <param name="componentTypeHandle"></param>
-        /// <param name="enableMasks"></param>
-        /// <param name="maskOffset"></param>
+        /// <param name="chunk">the chunk</param>
+        /// <param name="startIndex">the start entity index</param>
+        /// <param name="endIndex">the end entity index (not inclusive)</param>
+        /// <param name="snapshotStride">the stride in bytes (the size) of the snapshot data for the given archretype</param>
+        /// <param name="componentTypeHandle">the component type handle to extrac</param>
+        /// <param name="enableMasks">the snapshot enable bit mask array </param>
+        /// <param name="maskOffset">the offset in bits in the array</param>
         public static void CopyEnableBits(ArchetypeChunk chunk, int startIndex, int endIndex,
             int snapshotStride, ref DynamicComponentTypeHandle componentTypeHandle, byte* enableMasks,
             ref int maskOffset)
@@ -210,17 +210,17 @@ namespace Unity.NetCode.LowLevel.Unsafe
         /// <summary>
         /// Serialize the given component into the data stream by using a single baseline.
         /// </summary>
-        /// <param name="serializer"></param>
-        /// <param name="snapshot"></param>
-        /// <param name="baseline"></param>
-        /// <param name="changeMaskData"></param>
-        /// <param name="startOffset"></param>
-        /// <param name="snapshotOffset"></param>
-        /// <param name="writer"></param>
-        /// <param name="compressionModel"></param>
-        /// <param name="sendComponent"></param>
-        /// <typeparam name="TSerializer"></typeparam>
-        /// <returns></returns>
+        /// <param name="serializer">the serializer instance</param>
+        /// <param name="snapshot">the snapshot buffer</param>
+        /// <param name="baseline">the baseline to diff against. Can be a zere baseline</param>
+        /// <param name="changeMaskData">the change mask bits buffer</param>
+        /// <param name="startOffset">the bitmask start offset</param>
+        /// <param name="snapshotOffset">the data start offset</param>
+        /// <param name="writer">the data writer</param>
+        /// <param name="compressionModel">the compression model</param>
+        /// <param name="sendComponent">instruct if the component should be sent or not</param>
+        /// <typeparam name="TSerializer">the seralizer type</typeparam>
+        /// <returns>the number of bits written in the stream</returns>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         static public int SerializeComponentSingleBaseline<TSerializer>(
             this TSerializer serializer,
@@ -263,20 +263,20 @@ namespace Unity.NetCode.LowLevel.Unsafe
         /// The <see cref="GhostDeltaPredictor"/> will calculate new predicted baseline that
         /// will be used for delta compression.
         /// </summary>
-        /// <param name="serializer"></param>
-        /// <param name="snapshot"></param>
-        /// <param name="baseline0"></param>
-        /// <param name="baseline1"></param>
-        /// <param name="baseline2"></param>
-        /// <param name="changeMaskData"></param>
-        /// <param name="startOffset"></param>
-        /// <param name="snapshotOffset"></param>
-        /// <param name="predictor"></param>
-        /// <param name="writer"></param>
-        /// <param name="compressionModel"></param>
-        /// <param name="sendComponent"></param>
-        /// <typeparam name="TSerializer"></typeparam>
-        /// <returns></returns>
+        /// <param name="serializer">the serializer instance</param>
+        /// <param name="snapshot">the snapshot buffer</param>
+        /// <param name="baseline0">the first baseline to diff against.</param>
+        /// <param name="baseline1">the second baseline to diff against.</param>
+        /// <param name="baseline2">the third baseline to diff against.</param>
+        /// <param name="changeMaskData">the change mask bits buffer</param>
+        /// <param name="startOffset">the bitmask start offset</param>
+        /// <param name="snapshotOffset">the data start offset</param>
+        /// <param name="predictor">the delta predictor instance</param>
+        /// <param name="writer">the data writer</param>
+        /// <param name="compressionModel">the compression model</param>
+        /// <param name="sendComponent">denote if the component should be replicated or not.</param>
+        /// <typeparam name="TSerializer">the seralizer type</typeparam>
+        /// <returns>the number of bits written in the stream</returns>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         static public int SerializeComponentThreeBaseline<TSerializer>(
             this TSerializer serializer,
@@ -319,20 +319,20 @@ namespace Unity.NetCode.LowLevel.Unsafe
         /// Serialize a single buffer to the datastream using the default buffer serialisation
         /// strategy.
         /// </summary>
-        /// <param name="serializer"></param>
-        /// <param name="snapshot"></param>
-        /// <param name="baseline"></param>
-        /// <param name="snapshotDynamicData"></param>
-        /// <param name="baselineDynamicData"></param>
-        /// <param name="changeMaskData"></param>
-        /// <param name="startOffset"></param>
-        /// <param name="snapshotOffset"></param>
-        /// <param name="dynamicSize"></param>
-        /// <param name="writer"></param>
-        /// <param name="compressionModel"></param>
-        /// <param name="sendBuffer"></param>
-        /// <typeparam name="TSerializer"></typeparam>
-        /// <returns></returns>
+        /// <param name="serializer">the serializer instance</param>
+        /// <param name="snapshot">the snapshot buffer</param>
+        /// <param name="baseline">the baseline to diff against. Can be a zere baseline</param>
+        /// <param name="snapshotDynamicData">the dynamic snapshot data buffer</param>
+        /// <param name="baselineDynamicData">the dynamic snapshot data buffer baseline</param>
+        /// <param name="changeMaskData">the change mask bits buffer</param>
+        /// <param name="startOffset">the bitmask start offset</param>
+        /// <param name="snapshotOffset">the data start offset</param>
+        /// <param name="dynamicSize">the writtern data size in bytes in the dynamic snapshot buffer</param>
+        /// <param name="writer">the data writer</param>
+        /// <param name="compressionModel">the compression model</param>
+        /// <param name="sendBuffer">denote if the buffer should be sent or not</param>
+        /// <typeparam name="TSerializer">the seralizer type</typeparam>
+        /// <returns>the number of bits written in the stream</returns>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         static public int SerializeBuffer<TSerializer>(
             this TSerializer serializer,

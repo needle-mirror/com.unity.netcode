@@ -34,16 +34,16 @@ namespace Unity.NetCode
 
         /// <summary>
         /// When using predicted physics all dynamic physics objects in the main physics world on the client
-        /// mus be ghosts. Setting this will move any non-ghost in the default physics world to another world.
+        /// must be ghosts. Setting this will move any non-ghost in the default physics world to another world.
         /// </summary>
         [Tooltip("The physics world index to use for all dynamic physics objects which are not ghosts.")]
         public uint ClientNonGhostWorldIndex = 0;
 
-        /// <inheritdoc cref="LagCompensationConfig.DeepCopyDynamicColliders"/>>
+        /// <inheritdoc cref="LagCompensationConfig.DeepCopyDynamicColliders"/>
         [Tooltip("Denotes whether or not Netcode will deep copy dynamic colliders into the Lag Compensation CollisionWorld ring buffer used for Lag Compensation.\n\nRecommendation & Default: True.\n\nEnable this if you get exceptions when querying since-destroyed entities.")]
         public bool DeepCopyDynamicColliders = true;
 
-        /// <inheritdoc cref="LagCompensationConfig.DeepCopyStaticColliders"/>>
+        /// <inheritdoc cref="LagCompensationConfig.DeepCopyStaticColliders"/>
         [Tooltip("Denotes whether or not Netcode will deep copy static colliders into the Lag Compensation CollisionWorld ring buffer used for Lag Compensation.\n\nEnable if you need perfectly accurate lag compensation query results with static colliders, which is typically only necessary if they occasionally change.\n\nRecommendation & Default: False.\n\nInstead: Run two queries - one against static geometry - then another against the dynamic entities in the historic buffer.")]
         public bool DeepCopyStaticColliders;
     }

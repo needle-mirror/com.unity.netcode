@@ -31,17 +31,17 @@ namespace Unity.NetCode.LowLevel.Unsafe
         /// the buffer data inside the <see cref="SnapshotDynamicDataBuffer"/> buffer. This shadow component entry has the
         /// following format:
         /// <list type="bullet">
-        /// <li>uint Length: the length of the buffer</li>
-        /// <li>uint Offset: the position in bytes from the beginning of the dynamic data buffer (for that specific history slot)</li>
+        /// <item>uint Length: the length of the buffer</item>
+        /// <item>uint Offset: the position in bytes from the beginning of the dynamic data buffer (for that specific history slot)</item>
         /// </list>
         /// </summary>
         public const int DynamicBufferComponentSnapshotSize = sizeof(uint) + sizeof(uint);
         /// <summary>
         /// The number of change mask bits used the shadow buffer data. The change mask for the buffer is like this:
         /// <list type="bullet">
-        /// <li>00 : nothing change</li>
-        /// <li>01 : len is the same, content has changed.</li>
-        /// <li>10 : len is changed, we consider the content has changed too. (may change in the future).</li>
+        /// <item>00 : nothing change</item>
+        /// <item>01 : len is the same, content has changed.</item>
+        /// <item>10 : len is changed, we consider the content has changed too. (may change in the future).</item>
         /// </list>
         /// </summary>
         public const int DynamicBufferComponentMaskBits = 2;
@@ -73,23 +73,67 @@ namespace Unity.NetCode.LowLevel.Unsafe
         /// <summary>
         /// Delegate method to use to post-serialize the component when the ghost use pre-serialization optimization.
         /// </summary>
+        /// <param name="snapshotData"></param>
+        /// <param name="snapshotOffset"></param>
+        /// <param name="snapshotStride"></param>
+        /// <param name="maskOffsetInBits"></param>
+        /// <param name="count"></param>
+        /// <param name="baselines"></param>
+        /// <param name="writer"></param>
+        /// <param name="compressionModel"></param>
+        /// <param name="entityStartBit"></param>
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
         public delegate void PostSerializeDelegate(IntPtr snapshotData, int snapshotOffset, int snapshotStride, int maskOffsetInBits, int count, IntPtr baselines, ref DataStreamWriter writer, ref StreamCompressionModel compressionModel, IntPtr entityStartBit);
         /// <summary>
         /// Delegate method to use to post-serialize buffers when the ghost use pre-serialization optimization.
         /// </summary>
+        /// <param name="snapshotData"></param>
+        /// <param name="snapshotOffset"></param>
+        /// <param name="snapshotStride"></param>
+        /// <param name="maskOffsetInBits"></param>
+        /// <param name="changeMaskBits"></param>
+        /// <param name="count"></param>
+        /// <param name="baselines"></param>
+        /// <param name="writer"></param>
+        /// <param name="compressionModel"></param>
+        /// <param name="entityStartBit"></param>
+        /// <param name="snapshotDynamicDataPtr"></param>
+        /// <param name="dynamicSizePerEntity"></param>
+        /// <param name="dynamicSnapshotMaxOffset"></param>
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
         public delegate void PostSerializeBufferDelegate(IntPtr snapshotData, int snapshotOffset, int snapshotStride, int maskOffsetInBits, int changeMaskBits, int count, IntPtr baselines, ref DataStreamWriter writer, ref StreamCompressionModel compressionModel, IntPtr entityStartBit, IntPtr snapshotDynamicDataPtr, IntPtr dynamicSizePerEntity, int dynamicSnapshotMaxOffset);
         /// <summary>
         /// Delegate method used to serialize the component data for the root entity into the outgoing data stream.
         /// Works in batches.
         /// </summary>
+        /// <param name="stateData"></param>
+        /// <param name="snapshotData"></param>
+        /// <param name="snapshotOffset"></param>
+        /// <param name="snapshotStride"></param>
+        /// <param name="maskOffsetInBits"></param>
+        /// <param name="componentData"></param>
+        /// <param name="count"></param>
+        /// <param name="baselines"></param>
+        /// <param name="writer"></param>
+        /// <param name="compressionModel"></param>
+        /// <param name="entityStartBit"></param>
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
         public delegate void SerializeDelegate(IntPtr stateData, IntPtr snapshotData, int snapshotOffset, int snapshotStride, int maskOffsetInBits, IntPtr componentData, int count, IntPtr baselines, ref DataStreamWriter writer, ref StreamCompressionModel compressionModel, IntPtr entityStartBit);
         /// <summary>
         /// Delegate method used to serialize the component data present in the child entity into the outgoing data stream.
         /// Works on a single entity at time.
         /// </summary>
+        /// <param name="stateData"></param>
+        /// <param name="snapshotData"></param>
+        /// <param name="snapshotOffset"></param>
+        /// <param name="snapshotStride"></param>
+        /// <param name="maskOffsetInBits"></param>
+        /// <param name="componentData"></param>
+        /// <param name="count"></param>
+        /// <param name="baselines"></param>
+        /// <param name="writer"></param>
+        /// <param name="compressionModel"></param>
+        /// <param name="entityStartBit"></param>
         [Obsolete("The SerializeChildDelegate delegate has been deprecated and will be removed. Please use only use the SerializeDelegate instead", false)]
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
         public delegate void SerializeChildDelegate(IntPtr stateData, IntPtr snapshotData, int snapshotOffset, int snapshotStride, int maskOffsetInBits, IntPtr componentData, int count, IntPtr baselines, ref DataStreamWriter writer, ref StreamCompressionModel compressionModel, IntPtr entityStartBit);
@@ -97,11 +141,35 @@ namespace Unity.NetCode.LowLevel.Unsafe
         /// Delegate method used to serialize the buffer content for the whole chunk.
         /// Works in batches.
         /// </summary>
+        /// <param name="stateData"></param>
+        /// <param name="snapshotData"></param>
+        /// <param name="snapshotOffset"></param>
+        /// <param name="snapshotStride"></param>
+        /// <param name="maskOffsetInBits"></param>
+        /// <param name="changeMaskBits"></param>
+        /// <param name="componentData"></param>
+        /// <param name="componentDataLen"></param>
+        /// <param name="count"></param>
+        /// <param name="baselines"></param>
+        /// <param name="writer"></param>
+        /// <param name="compressionModel"></param>
+        /// <param name="entityStartBit"></param>
+        /// <param name="snapshotDynamicDataPtr"></param>
+        /// <param name="snapshotDynamicDataOffset"></param>
+        /// <param name="dynamicSizePerEntity"></param>
+        /// <param name="dynamicSnapshotMaxOffset"></param>
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
         public delegate void SerializeBufferDelegate(IntPtr stateData, IntPtr snapshotData, int snapshotOffset, int snapshotStride, int maskOffsetInBits, int changeMaskBits, IntPtr componentData, IntPtr componentDataLen, int count, IntPtr baselines, ref DataStreamWriter writer, ref StreamCompressionModel compressionModel, IntPtr entityStartBit, IntPtr snapshotDynamicDataPtr, ref int snapshotDynamicDataOffset, IntPtr dynamicSizePerEntity, int dynamicSnapshotMaxOffset);
         /// <summary>
         /// Delegate method used to transfer the component data to/from the snapshot buffer.
         /// </summary>
+        /// <param name="stateData"></param>
+        /// <param name="snapshotData"></param>
+        /// <param name="snapshotOffset"></param>
+        /// <param name="snapshotStride"></param>
+        /// <param name="componentData"></param>
+        /// <param name="componentStride"></param>
+        /// <param name="count"></param>
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
         public delegate void CopyToFromSnapshotDelegate(IntPtr stateData, IntPtr snapshotData, int snapshotOffset, int snapshotStride, IntPtr componentData, int componentStride, int count);
         /// <summary>
@@ -109,22 +177,38 @@ namespace Unity.NetCode.LowLevel.Unsafe
         /// buffer. Because the history buffer perform a memory copy of the whole component data, it is necessary to call this method to
         /// ensure only the replicated portion of the component is actually restored.
         /// </summary>
+        /// <param name="componentData"></param>
+        /// <param name="backupData"></param>
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
         public delegate void RestoreFromBackupDelegate(IntPtr componentData, IntPtr backupData);
         /// <summary>
         /// Calculate the prediction delta for components and buffer. Used for delta-compression.
         /// </summary>
+        /// <param name="snapshotData"></param>
+        /// <param name="baseline1Data"></param>
+        /// <param name="baseline2Data"></param>
+        /// <param name="predictor"></param>
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
         public delegate void PredictDeltaDelegate(IntPtr snapshotData, IntPtr baseline1Data, IntPtr baseline2Data, ref GhostDeltaPredictor predictor);
         /// <summary>
         /// Deserialize the component and buffer data from the received snapshot and store it inside the <see cref="SnapshotDataBuffer"/>.
         /// </summary>
+        /// <param name="snapshotData"></param>
+        /// <param name="baselineData"></param>
+        /// <param name="reader"></param>
+        /// <param name="compressionModel"></param>
+        /// <param name="changeMaskData"></param>
+        /// <param name="startOffset"></param>
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
         public delegate void DeserializeDelegate(IntPtr snapshotData, IntPtr baselineData, ref DataStreamReader reader, ref StreamCompressionModel compressionModel, IntPtr changeMaskData, int startOffset);
         /// <summary>
         /// Delegate used by the <see cref="GhostPredictionDebugSystem"/>, collect and report the prediction error
         /// for all the replicated fields.
         /// </summary>
+        /// <param name="componentData"></param>
+        /// <param name="backupData"></param>
+        /// <param name="errorsList"></param>
+        /// <param name="errorsCount"></param>
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
         public delegate void ReportPredictionErrorsDelegate(IntPtr componentData, IntPtr backupData, IntPtr errorsList, int errorsCount);
 

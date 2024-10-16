@@ -265,10 +265,10 @@ namespace Unity.NetCode
         /// Return a low precision real-time stamp that represents the number of milliseconds since the process started.
         /// In Development build and Editor, the maximum reported delta in between two calls of the TimestampMS is capped
         /// to 100 milliseconds.
+        /// </summary>
         /// <remarks>
         /// The TimestampMS is mostly used for sake of time synchronization (for calculting the RTT).
         /// </remarks>
-        /// </summary>
         public static uint TimestampMS
         {
             get
@@ -293,10 +293,10 @@ namespace Unity.NetCode
         /// Return a low precision real-time stamp that represents the number of milliseconds since the process started.
         /// In Development build and Editor, the maximum reported delta in between two calls of the TimestampMS is capped
         /// to 100 milliseconds.
+        /// </summary>
         /// <remarks>
         /// The TimestampMS is mostly used for sake of time synchronization (for calculting the RTT).
         /// </remarks>
-        /// </summary>
         public static uint TimestampMS =>
             (uint)TimerHelpers.GetCurrentTimestampMS();
 #endif

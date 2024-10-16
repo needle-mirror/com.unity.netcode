@@ -14,7 +14,7 @@ namespace Unity.NetCode
     ///     Also note: This will not work if you use your own bootstrapper, unless you call
     ///     <see cref="ClientServerBootstrap.DetermineIfBootstrappingEnabled" /> early, and return false if false.
     /// </remarks>
-    public sealed class OverrideAutomaticNetcodeBootstrap : MonoBehaviour
+    public sealed class OverrideAutomaticNetcodeBootstrap : MonoBehaviour, IComparable<OverrideAutomaticNetcodeBootstrap>
     {
         /// <inheritdoc cref="NetCodeConfig.AutomaticBootstrapSetting" />
         [Tooltip("Note: This will only replace the bootstrap for this one scene, and only if this scene is the Active scene when entering playmode, or the first scene in the build.")]
@@ -24,6 +24,20 @@ namespace Unity.NetCode
         {
             if(transform.root != transform)
                 Debug.LogError($"OverrideAutomaticNetcodeBootstrap can only be added to the root GameObject! '{this}' is invalid, and should be moved or deleted!", this);
+        }
+
+        /// <summary>
+        /// Tries to ensure deterministic-ish sort ordering, for reliable bootstrapping behaviour.
+        /// </summary>
+        /// <param name="other"></param>
+        /// <returns></returns>
+        int IComparable<OverrideAutomaticNetcodeBootstrap>.CompareTo(OverrideAutomaticNetcodeBootstrap other)
+        {
+            if (ReferenceEquals(this, other)) return 0;
+            if (ReferenceEquals(null, other)) return 1;
+            var nameSort = string.Compare(name, other.name, StringComparison.Ordinal);
+            if (nameSort != 0) return nameSort;
+            return GetInstanceID().CompareTo(other.GetInstanceID());
         }
     }
 }

@@ -579,9 +579,9 @@ namespace Unity.NetCode
             }
 
             /// <summary>
-            /// Lookup all the ghost entities for which commands need to be serialized for the current
+            /// <para>Lookup all the ghost entities for which commands need to be serialized for the current
             /// tick and enqueue them into the <see cref="OutgoingCommandDataStreamBuffer"/>.
-            /// Are considered as potential ghost targets:
+            /// Are considered as potential ghost targets:</para>
             /// <para>- the entity referenced by the <see cref="CommandTarget"/></para>
             /// <para>- All ghosts owned by the player (see <see cref="GhostOwner"/>) that present
             /// an enabled <see cref="AutoCommandTarget"/> components.</para>

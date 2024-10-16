@@ -108,6 +108,7 @@ namespace Unity.NetCode
         /// less busy one frame out of two. This can be used to do extra operations.
         /// This method can be accessible through the server's rate manager.
         /// </para>
+        /// </summary>
         /// <example>
         /// [WorldSystemFilter(WorldSystemFilterFlags.ServerSimulation)]
         /// [UpdateInGroup(typeof(InitializationSystemGroup))]
@@ -121,7 +122,6 @@ namespace Unity.NetCode
         ///     }
         /// }
         /// </example>
-        /// </summary>
         /// <returns>Whether the server's simulation system group will update this frame or not</returns>
         public bool WillUpdate()
         {

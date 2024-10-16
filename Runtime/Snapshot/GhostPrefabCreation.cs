@@ -31,10 +31,12 @@ public enum NetcodeConversionTarget
 namespace Unity.NetCode
 {
     /// <summary>
-    /// <para>Stores the `Supported Ghost Mode` by a ghost at authoring time.</para>
-    /// <para>- <b>Interpolated</b>: <inheritdoc cref="Interpolated"/></para>
-    /// <para>- <b>Predicted</b>: <inheritdoc cref="Predicted"/></para>
-    /// <para>- <b>All</b>: <inheritdoc cref="Predicted"/></para>
+    /// Stores the `Supported Ghost Mode` by a ghost at authoring time.
+    /// <list type="bullet">
+    /// <item>Interpolated: <see cref="Interpolated"/></item>
+    /// <item>Predicted: <see cref="Predicted"/></item>
+    /// <item>All: <see cref="All"/></item>
+    /// </list>
     /// </summary>
     public enum GhostModeMask
     {
@@ -67,13 +69,15 @@ namespace Unity.NetCode
 
     /// <summary>
     /// The Current Ghost Mode of a Ghost, on any given client. Denotes replication and prediction rules.
-    /// <inheritdoc cref="GhostModeMask"/>
     /// </summary>
+    /// <inheritdoc cref="GhostModeMask"/>
     public enum GhostMode
     {
-        /// <summary><inheritdoc cref="GhostModeMask.Interpolated"/></summary>
+        /// <summary></summary>
+        /// <inheritdoc cref="GhostModeMask.Interpolated"/>
         Interpolated,
-        /// <summary><inheritdoc cref="GhostModeMask.Predicted"/></summary>
+        /// <summary></summary>
+        /// <inheritdoc cref="GhostModeMask.Predicted"/>
         Predicted,
         /// <summary>
         /// The ghost will be <see cref="Predicted"/> by the Ghost Owner (set via <see cref="GhostOwner"/>)
@@ -84,9 +88,9 @@ namespace Unity.NetCode
 
     /// <summary>
     /// Specify if the ghost replication should be optimized for frequent (dynamic) or for infrequent (static) data changes.
-    ///  <para><inheritdoc cref="Dynamic"/></para>
-    ///  <para><inheritdoc cref="Static"/></para>
     /// </summary>
+    /// <inheritdoc cref="Dynamic"/>
+    /// <inheritdoc cref="Static"/>
     public enum GhostOptimizationMode
     {
         /// <summary>
@@ -149,19 +153,16 @@ namespace Unity.NetCode
             /// <summary>
             /// Enable predicted spawned ghost to rollback their initial spawn state and re-predict until the authoritative spawn has been received from the server.
             /// </summary>
-            /// <returns></returns>
             public bool PredictedSpawnedGhostRollbackToSpawnTick;
             /// <summary>
             /// Client CPU optimization. Force predicted ghost to always try to continue from the last prediction in case of structural changes. True by default (because may introduce some issue when replicated component are removed).
             /// </summary>
-            /// <returns></returns>
             public bool RollbackPredictionOnStructuralChanges;
             /// <summary>
             /// Optional, custom deterministic function that retrieve all no-backing and serializable component types for this ghost. By serializable,
             /// we means components that either have ghost fields (fields with a <see cref="GhostFieldAttribute"/> attribute)
             /// or a <see cref="GhostComponentAttribute"/>.
             /// </summary>
-            /// <returns></returns>
             public PortableFunctionPointer<GhostPrefabCustomSerializer.CollectComponentDelegate> CollectComponentFunc;
         }
         /// <summary>

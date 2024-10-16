@@ -10,17 +10,17 @@ using Unity.Networking.Transport.Error;
 namespace Unity.NetCode
 {
     ///<summary>
-    /// A connection is represented by an entity having a NetworkStreamConnection.
+    /// <para>A connection is represented by an entity having a NetworkStreamConnection.
     /// The component hold a reference to the underlying transport <see cref="NetworkConnection"/> and the <see cref="NetworkDriver"/>
     /// that created it.
-    /// All connections share a common set of components:
+    /// All connections share a common set of components:</para>
     /// <para>- <see cref="NetworkId"/></para>
     /// <para>- <see cref="IncomingRpcDataStreamBuffer"/></para>
     /// <para>- <see cref="OutgoingCommandDataStreamBuffer"/></para>
     /// <para>- <see cref="OutgoingRpcDataStreamBuffer"/></para>
     /// <para>- <see cref="PrespawnSectionAck"/></para>
     /// <para>- <see cref="CommandTarget"/></para>
-    /// Client connections also have a <see cref="IncomingSnapshotDataStreamBuffer"/> to handle server ghost snapshots.
+    /// <para>Client connections also have a <see cref="IncomingSnapshotDataStreamBuffer"/> to handle server ghost snapshots.</para>
     ///</summary>
     /// <remarks>Never destroy this entity yourself. You'll receive an error if you attempt to do so.</remarks>
     public struct NetworkStreamConnection : ICleanupComponentData
@@ -217,7 +217,7 @@ namespace Unity.NetCode
         public NetworkStreamDisconnectReason DisconnectReason;
 
         /// <summary>
-        /// Check if two connection state are equals. They are if:
+        /// <para>Check if two connection state are equals. They are if:</para>
         /// <para>- The <see cref="State"/> is the same.</para>
         /// <para>- The <see cref="NetworkId"/> is the same.</para>
         /// <para>- The <see cref="DisconnectReason"/> is the same.</para>

@@ -12,12 +12,15 @@ namespace Unity.NetCode
     {}
 
     /// <summary>
+    /// <para>
     /// The GhostOwnerComponent is an optional component that can be added to a ghost to create a bond/relationship in
     /// between an entity and a specific client (for example, the client who spawned that entity, a bullet, the player entity).
     /// It is usually added to predicted ghost (see <see cref="PredictedGhost"/>) but can also be present on the interpolated
     /// ones.
+    /// </para>
     /// <para>
     /// It is mandatory to add a <see cref="GhostOwner"/> in the following cases:
+    /// </para>
     /// <para>- When a ghost is configured to be owner-predicted <see cref="GhostMode"/>, because it is necessary to distinguish in between who
     /// is predicting (the owner) and who is interpolating the ghost.
     /// </para>
@@ -25,7 +28,6 @@ namespace Unity.NetCode
     /// based on ownership the <see cref="SendToOwnerType.SendToOwner"/>.
     /// </para>
     /// <para>- If you want to use the <see cref="AutoCommandTarget"/> feature.</para>
-    /// </para>
     /// </summary>
     [DontSupportPrefabOverrides]
     [GhostComponent(SendDataForChildEntity = true)]

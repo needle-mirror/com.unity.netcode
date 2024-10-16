@@ -10,10 +10,10 @@ namespace Unity.NetCode.LowLevel
     /// Helper struct that can be used to inspect the presence of components from a <see cref="SnapshotData"/> buffer
     /// and retrieve their data.
     /// The lookup can be passed ot jobs
-    /// <remarks>
-    /// The helper allow to only read component data. Buffers are not supported.
-    /// </remarks>
     /// </summary>
+    /// <remarks>
+    /// The helper only allows you to read component data. Buffers are not supported.
+    /// </remarks>
     public struct SnapshotDataBufferComponentLookup
     {
         [ReadOnly]DynamicBuffer<GhostCollectionPrefabSerializer> m_ghostPrefabType;
@@ -116,13 +116,10 @@ namespace Unity.NetCode.LowLevel
         }
 
         /// <summary>
-        /// Try to retrieve the data for a component type <typeparam name="T"></typeparam> from the the snapshot history buffer.
+        /// Try to retrieve the data for a component type <typeparamref name="T"/> from the the snapshot history buffer.
         /// </summary>
         /// <remarks>
-        /// Buffers aren't supported.
-        /// <para>
-        /// Only component present on the root entity can be retrieved. Trying to get data for component in a child entity is not supported.
-        /// </para>
+        /// Buffers aren't supported. Only components present on the root entity can be retrieved. Trying to get data for components in a child entity is not supported.
         /// </remarks>
         /// <param name="ghostTypeIndex">The index in the <see cref="GhostCollectionPrefabSerializer"/> collection.</param>
         /// <param name="snapshotBuffer">The entity snapshot history buffer.</param>
@@ -149,13 +146,10 @@ namespace Unity.NetCode.LowLevel
         }
 
         /// <summary>
-        /// Try to retrieve the data for a component type <typeparam name="T"></typeparam> from the spawning buffer.
+        /// Try to retrieve the data for a component type <typeparamref name="T"/> from the spawning buffer.
         /// </summary>
         /// <remarks>
-        /// Buffers aren't supported.
-        /// <para>
-        /// Only component present on the root entity can be retrieved. Trying to get data for component in a child entity is not supported.
-        /// </para>
+        /// Buffers aren't supported. Only components present on the root entity can be retrieved. Trying to get data for components in a child entity is not supported.
         /// </remarks>
         /// <param name="ghost"></param>
         /// <param name="snapshotData"></param>
@@ -328,4 +322,3 @@ namespace Unity.NetCode.LowLevel
         internal NativeHashMap<SnapshotLookupCacheKey, SerializerIndexAndOffset> ComponentDataOffsets;
     }
 }
-

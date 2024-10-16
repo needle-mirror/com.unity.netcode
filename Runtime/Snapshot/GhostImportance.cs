@@ -61,6 +61,7 @@ namespace Unity.NetCode
         /// <param name="importanceData">Optional configuration data. Ex. Each tile's configuration. Handle IntPtr.Zero!</param>
         /// <param name="chunkTile">Per chunk information. Ex. each entity's tile index.</param>
         /// <param name="basePriority">Priority computed by <see cref="GhostSendSystem"/> after computing tick when last updated and irrelevance.</param>
+        /// <returns></returns>
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
         public delegate int ScaleImportanceDelegate(IntPtr connectionData, IntPtr importanceData, IntPtr chunkTile, int basePriority);
 
@@ -79,18 +80,23 @@ namespace Unity.NetCode
         /// <param name="connectionData">Per connection data. Ex. position in the world that should be prioritized.</param>
         /// <param name="importanceData">Optional configuration data. Ex. Each tile's configuration. Handle IntPtr.Zero!</param>
         /// <param name="sharedComponentTypeHandlePtr"><see cref="DynamicSharedComponentTypeHandle"/> to retrieve the per-chunk tile information. Ex. each chunk's tile index.</param>
+        /// <param name="chunkData"></param>
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
         public delegate void BatchScaleImportanceDelegate(IntPtr connectionData, IntPtr importanceData, IntPtr sharedComponentTypeHandlePtr,
             ref UnsafeList<PrioChunk> chunkData);
         /// <summary>
+        /// <para>
         /// This function pointer will be invoked with collected data as described in <see cref="BatchScaleImportanceDelegate"/>.
+        /// </para>
         /// <para>It is mandatory to set either this or <see cref="BatchScaleImportanceFunction"/> function pointer.
         /// It is also valid to set both, in which case the BatchScaleImportanceFunction is preferred.
         /// </para>
         /// </summary>
         public PortableFunctionPointer<ScaleImportanceDelegate> ScaleImportanceFunction;
         /// <summary>
+        /// <para>
         /// This function pointer will be invoked with collected data as described in <see cref="BatchScaleImportanceDelegate"/>.
+        /// </para>
         /// <para>It is mandatory to set either this or <see cref="ScaleImportanceFunction"/> function pointer.
         /// It is also valid to set both, in which case the BatchScaleImportanceFunction is preferred.
         /// </para>

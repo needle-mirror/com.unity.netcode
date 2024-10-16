@@ -70,9 +70,9 @@ namespace Unity.NetCode
     /// <summary>
     /// Singleton component, used to track when an ghost with mode set to <see cref="GhostMode.OwnerPredicted"/> has changed
     /// owner and require changing how it is simulated on the client. In particular:
-    /// <list type="buller">
-    /// <li>If the owner is the same as client <see cref="NetworkId"/> the ghost will become predicted</li>
-    /// <li>If the owner is not the same as client <see cref="NetworkId"/> the ghost will become interpolated</li>
+    /// <list type="bullet">
+    /// <item>If the owner is the same as client <see cref="NetworkId"/> the ghost will become predicted</item>
+    /// <item>If the owner is not the same as client <see cref="NetworkId"/> the ghost will become interpolated</item>
     /// </list>
     /// </summary>
     internal struct GhostOwnerPredictedSwitchingQueue : IComponentData

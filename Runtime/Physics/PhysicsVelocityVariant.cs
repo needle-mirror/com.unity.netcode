@@ -37,13 +37,13 @@ namespace Unity.NetCode
     /// <summary>
     /// Optionally register the default variant to use for the <see cref="Unity.Physics.PhysicsVelocity"/> and the
     /// <see cref="Unity.Physics.GraphicsIntegration.PhysicsGraphicalSmoothing"/>.
+    /// </summary>
     /// <remarks>
-    /// It will never override the default assignment for the `PhysicsVelocity` nor the `PhysicsGraphicalSmoothing` components
-    /// if they are already present in the <see cref="GhostComponentSerializerCollectionData.DefaultVariants"/> map.
+    /// <para>It will never override the default assignment for the `PhysicsVelocity` nor the `PhysicsGraphicalSmoothing` components
+    /// if they are already present in the <see cref="GhostComponentSerializerCollectionData.DefaultVariants"/> map.</para>
     /// <para>Any system deriving from <see cref="DefaultVariantSystemBase"/> will take precendence, even if they are created
     /// after this system.</para>
     /// </remarks>
-    /// </summary>
     [WorldSystemFilter(WorldSystemFilterFlags.ServerSimulation | WorldSystemFilterFlags.ClientSimulation |
                        WorldSystemFilterFlags.ThinClientSimulation | WorldSystemFilterFlags.BakingSystem)]
     [CreateAfter(typeof(GhostComponentSerializerCollectionSystemGroup))]

@@ -109,8 +109,8 @@ namespace Unity.NetCode
         where TActionSerializer : unmanaged, IRpcCommandSerializer<TActionRequest>
     {
         /// <summary>
-        /// A struct that can be embedded into your system job, and should be used to delegate the rpc handling.
-        /// Example of use:
+        /// <para>A struct that can be embedded into your system job, and should be used to delegate the rpc handling.
+        /// Example of use:</para>
         /// <code>
         /// [BurstCompile]
         /// struct SendRpc : IJobChunk
@@ -122,8 +122,8 @@ namespace Unity.NetCode
         ///     }
         /// }
         /// </code>
-        /// Always use the <see cref="RpcCommandRequest{TActionSerializer,TActionRequest}.InitJobData"/> method to construct
-        /// a valid instance.
+        /// <para>Always use the <see cref="RpcCommandRequest{TActionSerializer,TActionRequest}.InitJobData"/> method to construct
+        /// a valid instance.</para>
         /// </summary>
         public struct SendRpcData
         {

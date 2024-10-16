@@ -7,7 +7,9 @@ using Unity.Collections.LowLevel.Unsafe;
 namespace Unity.NetCode
 {
     /// <summary>
+    /// <para>
     /// System responsible for spawning all the ghost entities for the client world.
+    /// </para>
     /// <para>
     /// When a ghost snapshot is received from the server, the <see cref="GhostReceiveSystem"/> add a spawning request to the <see cref="GhostSpawnBuffer"/>.
     /// After the spawning requests has been classified (see <see cref="GhostSpawnClassificationSystem"/>),
@@ -15,6 +17,7 @@ namespace Unity.NetCode
     /// </para>
     /// <para>
     /// Based on the spawning (<see cref="GhostSpawnBuffer.Type"/>), the requests are handled quite differently.
+    /// </para>
     /// <para>When the mode is set to <see cref="GhostSpawnBuffer.Type.Interpolated"/>, the ghost creation is delayed
     /// until the <see cref="NetworkTime.InterpolationTick"/> match (or is greater) the actual spawning tick on the server.
     /// A temporary entity, holding the spawning information, the received snapshot data from the server, and tagged with the <see cref="PendingSpawnPlaceholder"/>
@@ -24,14 +27,11 @@ namespace Unity.NetCode
     /// <para>
     /// When the mode is set to <see cref="GhostSpawnBuffer.Type.Predicted"/>, a new ghost instance in spawned immediately if the
     /// current simulated <see cref="NetworkTime.ServerTick"/> is greater or equals the spawning tick reported by the server.
-    /// <remarks>
     /// This condition is usually the norm, since the client timeline (the current simulated tick) should be ahead of the server.
-    /// </remarks>
+    /// </para>
     /// <para>
     /// Otherwise, the ghost creation is delayed until the the <see cref="NetworkTime.ServerTick"/> is greater or equals the required spawning tick.
     /// Like to interpolated ghost, a temporary placeholder entity is created to hold spawning information and for holding new received snapshots.
-    /// </para>
-    /// </para>
     /// </para>
     /// </summary>
     [BurstCompile]

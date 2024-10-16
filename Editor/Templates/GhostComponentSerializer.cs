@@ -337,7 +337,7 @@ namespace __GHOST_NAMESPACE__
                 var innerMarker = new Unity.Profiling.ProfilerMarker("__GHOST_NAME__");
                 innerMarker.Begin();
 #endif
-                SetupFunctionPointers(ref s_State, ref state);
+                s_StateInitialized = SetupFunctionPointers(ref s_State, ref state);
                 //TODO: DOTS-7926 we should understand why we have in some cases a StackOverflowException.
                 //UNCOMMENT THIS LINE TO DEBUG IF A BIG COMPONENT MAY BE CAUSING A STACK OVERFLOW
                 // const int maxSizeToAvoidStackOverflow = 4_500;
@@ -356,6 +356,7 @@ namespace __GHOST_NAMESPACE__
             }
             return s_State;
         }
+
         private static bool s_StateInitialized;
         private static GhostComponentSerializer.State s_State;
 

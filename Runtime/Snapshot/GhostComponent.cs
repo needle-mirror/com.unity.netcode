@@ -274,11 +274,10 @@ namespace Unity.NetCode
         /// <para>The server tick from which the entity should start predicting.</para>
         /// <para>When a new ghost snapshot is received, the entity is synced to the server state,
         /// and the PredictionStartTick is set to the snapshot server tick.</para>
-        /// <para>Otherwise, the PredictionStartTick should correspond to:
+        /// <para>Otherwise, the PredictionStartTick should correspond to:</para>
         /// <para>- The last simulated full tick by the client (see <see cref="ClientServerTickRate"/>)
         /// if a prediction backup (see <see cref="GhostPredictionHistoryState"/>) exists </para>
         /// <para>- The last received snapshot tick if a continuation backup is not found.</para>
-        /// </para>
         /// </summary>
         public NetworkTick PredictionStartTick;
 
@@ -294,20 +293,23 @@ namespace Unity.NetCode
     }
 
     /// <summary>
+    /// <para>
     /// Optional component, used to request predictive spawn of a ghosts by the client.
-    /// The component is automatically added to the authored ghost prefabs when:
-    /// <span>
+    /// The component is automatically added to the authored ghost prefabs when:</para>
+    /// <para>
     /// - The baking target is <see cref="NetcodeConversionTarget.Client"/> or <see cref="NetcodeConversionTarget.ClientAndServer"/>.
     /// - When using the hybrid authoring workflow, if the <see cref="GhostAuthoringComponent.SuypportedGhostModes"/>
     /// is <see cref="GhostModeMask.Predicted"/> or <see cref="GhostModeMask.All"/>.
     /// - When using the <see cref="GhostPrefabCreation.ConvertToGhostPrefab"/>, if the
     /// <see cref="GhostPrefabCreation.Config.SupportedGhostModes"/> is set to <see cref="GhostModeMask.Predicted"/> or <see cref="GhostModeMask.All"/>.
-    /// </span>
+    /// </para>
+    /// <para>
     /// The predicted spawn request is consumed by <see cref="PredictedGhostSpawnSystem"/>, which will remove the component from the
     /// instantiated entity after an initial setup. <br/>
     /// The package provides a default handling for predictive spawning (<see cref="DefaultGhostSpawnClassificationSystem"/>).
     /// In case you need a custom or more accurate way to match the predicted spawned entities with the authoritive server spawned ones,
     /// you can implement a custom spawn classification system. See <see cref="GhostSpawnClassificationSystem"/> for further details.
+    /// </para>
     /// </summary>
     public struct PredictedGhostSpawnRequest : IComponentData
     {

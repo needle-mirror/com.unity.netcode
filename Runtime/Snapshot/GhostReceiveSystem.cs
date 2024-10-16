@@ -104,11 +104,15 @@ namespace Unity.NetCode
     }
 
     /// <summary>
+    /// <para>
     /// System present only in clients worlds, receive and decode the ghost snapshosts sent by the server.
+    /// </para>
     /// <para>
     /// When a new snapshost is received, the system will start decoding the packet protocol by extracting:
+    /// </para>
     /// <para>-the list of ghost that need to despawned</para>
     /// <para>-for each serialized ghost, it delta-compressed or uncompressed state</para>
+    /// <para>
     /// The system will schedule spawning and despawning ghosts requests, by using
     /// the <see cref="GhostSpawnBuffer"/>, and <see cref="GhostDespawnQueues"/> respectively.
     /// </para>

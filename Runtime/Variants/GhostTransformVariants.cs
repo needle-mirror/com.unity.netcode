@@ -139,13 +139,13 @@ namespace Unity.NetCode
     /// - <see cref="Unity.Transforms.LocalTransform"/>
     /// - <see cref="Unity.Transforms.Translation"/>
     /// - <see cref="Unity.Transforms.Rotation"/>
+    /// </summary>
     /// <remarks>
-    /// It will never override the default assignment for the transform components if they are already present in the
-    /// <see cref="GhostComponentSerializerCollectionData.DefaultVariants"/> map.
+    /// <para>It will never override the default assignment for the transform components if they are already present in the
+    /// <see cref="GhostComponentSerializerCollectionData.DefaultVariants"/> map.</para>
     /// <para>Any system deriving from <see cref="DefaultVariantSystemBase"/> will take precedence, even if they are created
     /// after this system.</para>
     /// </remarks>
-    /// </summary>
     [WorldSystemFilter(WorldSystemFilterFlags.ServerSimulation | WorldSystemFilterFlags.ClientSimulation |
                        WorldSystemFilterFlags.ThinClientSimulation | WorldSystemFilterFlags.BakingSystem)]
     [CreateAfter(typeof(GhostComponentSerializerCollectionSystemGroup))]

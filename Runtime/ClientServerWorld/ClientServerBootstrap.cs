@@ -86,12 +86,10 @@ namespace Unity.NetCode
 
         /// <summary>
         /// Utility method for creating a local world without any netcode systems.
-        /// <param name="defaultWorldName">Name of the world instantiated.</param>
-        /// <returns>World with default systems added, set to run as the main local world.
-        /// See <see cref="WorldFlags"/>.<see cref="WorldFlags.Game"/></returns>
         /// </summary>
         /// <param name="defaultWorldName">The name to use for the default world.</param>
-        /// <returns>A new world instance.</returns>
+        /// <returns>World with default systems added, set to run as the main local world.
+        /// See <see cref="WorldFlags"/>.</returns>
         public static World CreateLocalWorld(string defaultWorldName)
         {
             // The default world must be created before generating the system list in order to have a valid TypeManager instance.
@@ -112,7 +110,7 @@ namespace Unity.NetCode
         /// In the Editor, it also creates thin client worlds, if <see cref="RequestedNumThinClients"/> is not 0.
         /// </summary>
         /// <param name="defaultWorldName">The name to use for the default world. Unused, can be null or empty.</param>
-        /// <returns><inheritdoc cref="ICustomBootstrap.Initialize"/></returns>
+        /// <inheritdoc cref="ICustomBootstrap.Initialize"/>
         public virtual bool Initialize(string defaultWorldName)
         {
             // If the user added an OverrideDefaultNetcodeBootstrap MonoBehaviour to their active scene,
@@ -132,29 +130,31 @@ namespace Unity.NetCode
         /// <returns>The first override in the active scene.</returns>
         public static OverrideAutomaticNetcodeBootstrap DiscoverAutomaticNetcodeBootstrap(bool logNonErrors = false)
         {
+            // Note that GetActiveScene will return invalid when domain reloads are ENABLED.
             var activeScene = SceneManager.GetActiveScene();
-            // We must includeInactive here, otherwise we'll get zero results.
-            var sceneConfigurations = UnityEngine.Object.FindObjectsByType<OverrideAutomaticNetcodeBootstrap>(FindObjectsInactive.Include, FindObjectsSortMode.InstanceID);
-            if (sceneConfigurations.Length <= 0) return null;
+            // We must use `FindObjectsInactive.Include` here, otherwise we'll get zero results.
+            var sceneConfigurations = UnityEngine.Object.FindObjectsByType<OverrideAutomaticNetcodeBootstrap>(FindObjectsInactive.Include, FindObjectsSortMode.None);
+            if (sceneConfigurations.Length <= 0)
+            {
+                if(logNonErrors)
+                    UnityEngine.Debug.Log($"[DiscoverAutomaticNetcodeBootstrap] Did not find any instances of `OverrideAutomaticNetcodeBootstrap`.");
+                return null;
+            }
+            Array.Sort(sceneConfigurations); // Attempt to make the results somewhat deterministic and reliable via sorting by `name`, then `InstanceId`.
             OverrideAutomaticNetcodeBootstrap selectedConfig = null;
             for (int i = 0; i < sceneConfigurations.Length; i++)
             {
                 var config = sceneConfigurations[i];
-                // Root-level only:
-                if (config.transform.root != config.transform)
-                {
-                    Debug.LogError($"[DiscoverAutomaticNetcodeBootstrap] Ignoring OverrideAutomaticNetcodeBootstrap on GameObject '{config.name}' with value `{config.ForceAutomaticBootstrapInScene}` (in scene '{config.gameObject.scene.path}') as it's not at the root of the Hierarchy!", config);
-                    continue;
-                }
-
                 // A scene comparison here DOES NOT WORK in builds, as - in a build - the GameObject has not yet been attached to its scene.
-                // Thus, Active Scene Validation is only performed in editor.
-                // Note: Double click on a scene to set it as the Active scene.
-                var isConfigInActiveScene = !UnityEngine.Application.isEditor || config.gameObject.scene == activeScene;
+                // Update 08/24: Also true when domain reloads are enabled!
+                // Thus, Active Scene Validation is only performed when available (Editor && UnityEditor.EditorSettings.enterPlayModeOptions == None).
+                // Note: Double-click on a scene to set it as the Active scene.
+                var activeSceneIsValid = activeScene.IsValid() || SceneManager.loadedSceneCount == 1;
+                var isConfigInActiveScene = !activeSceneIsValid || !config.gameObject.scene.IsValid() || config.gameObject.scene == activeScene;
                 if (selectedConfig != null)
                 {
-                    var msg = $"[DiscoverAutomaticNetcodeBootstrap] Cannot select OverrideAutomaticNetcodeBootstrap on GameObject '{config.name}' with value `{config.ForceAutomaticBootstrapInScene}` (in scene '{config.gameObject.scene.path}') as we've already selected another ('{selectedConfig.name}' with value `{selectedConfig.ForceAutomaticBootstrapInScene}` in scene '{selectedConfig.gameObject.scene.path}')!";
-                    if (isConfigInActiveScene)
+                    var msg = $"[DiscoverAutomaticNetcodeBootstrap] Cannot select `OverrideAutomaticNetcodeBootstrap` on GameObject '{config.name}' with value `{config.ForceAutomaticBootstrapInScene}` (in scene '{LogScene(config.gameObject.scene, activeScene)}') as we've already selected another ('{selectedConfig.name}' with value `{selectedConfig.ForceAutomaticBootstrapInScene}` in scene '{LogScene(selectedConfig.gameObject.scene, activeScene)}')!";
+                    if (config.gameObject.scene == selectedConfig.gameObject.scene || isConfigInActiveScene)
                     {
                         msg += " It's erroneous to have multiple in the same scene!";
                         UnityEngine.Debug.LogError(msg, config);
@@ -173,14 +173,22 @@ namespace Unity.NetCode
                 if (isConfigInActiveScene)
                 {
                     selectedConfig = config;
-                    if(logNonErrors)
-                        UnityEngine.Debug.Log($"[DiscoverAutomaticNetcodeBootstrap] Using discovered OverrideAutomaticNetcodeBootstrap on GameObject '{selectedConfig.name}' with value `{selectedConfig.ForceAutomaticBootstrapInScene}` (in Active scene '{selectedConfig.gameObject.scene.path}')!");
+                    if (logNonErrors)
+                        UnityEngine.Debug.Log($"[DiscoverAutomaticNetcodeBootstrap] Using discovered `OverrideAutomaticNetcodeBootstrap` on GameObject '{selectedConfig.name}' with value `{selectedConfig.ForceAutomaticBootstrapInScene}` (in scene '{LogScene(selectedConfig.gameObject.scene, activeScene)}') as it's in the active scene ({LogScene(activeScene, activeScene)})!");
                     continue;
                 }
-                if(logNonErrors)
-                    UnityEngine.Debug.Log($"[DiscoverAutomaticNetcodeBootstrap] Ignoring OverrideAutomaticNetcodeBootstrap on GameObject '{config.name}' with value `{config.ForceAutomaticBootstrapInScene}` (in scene '{config.gameObject.scene.path}') as this scene is not the Active scene!");
+
+                if (logNonErrors)
+                    UnityEngine.Debug.Log($"[DiscoverAutomaticNetcodeBootstrap] Ignoring `OverrideAutomaticNetcodeBootstrap` on GameObject '{config.name}' with value `{config.ForceAutomaticBootstrapInScene}` (in scene '{LogScene(config.gameObject.scene, activeScene)}') as this scene is not the Active scene!");
             }
             return selectedConfig;
+
+            static string LogScene(Scene scene, Scene active)
+            {
+                var isValid = scene.IsValid();
+                var extraWhenValid = isValid ? $",name:'{scene.name}',path:'{scene.path}'" : null;
+                return $"Scene[buildIdx:{scene.buildIndex},handle:{scene.handle},valid:{isValid},loaded:{scene.isLoaded},isSubScene:{scene.isSubScene},isActive:{(active == scene)},rootCount:{scene.rootCount}{extraWhenValid}]";
+            }
         }
 
         /// <summary>
@@ -391,7 +399,7 @@ namespace Unity.NetCode
         /// </summary>
         public static NetworkEndpoint DefaultListenAddress = NetworkEndpoint.AnyIpv4;
         /// <summary>
-        /// Denotes if the server should start listening for incoming connection automatically after the world has been created.
+        /// <para>Denotes if the server should start listening for incoming connection automatically after the world has been created.</para>
         /// <para>
         /// If the <see cref="AutoConnectPort"/> is set, the server should start listening for connection using the <see cref="DefaultConnectAddress"/>
         /// and <see cref="AutoConnectPort"/>.
@@ -406,8 +414,8 @@ namespace Unity.NetCode
         public enum PlayType
         {
             /// <summary>
-            /// The application can run as client, server, or both. By default, both client and server worlds are created
-            /// and the application can host and play as client at the same time.
+            /// <para>The application can run as client, server, or both. By default, both client and server worlds are created
+            /// and the application can host and play as client at the same time.</para>
             /// <para>
             /// This is the default modality when playing in the Editor, unless changed by using the PlayMode tool.
             /// </para>
@@ -466,13 +474,13 @@ namespace Unity.NetCode
         internal static readonly SharedStatic<ServerClientCount> WorldCounts = SharedStatic<ServerClientCount>.GetOrCreate<ClientServerBootstrap>();
         /// <summary>
         /// Check if a world with a <see cref="WorldFlags.GameServer"/> is present.
-        /// <returns>If at least one world with <see cref="WorldFlags.GameServer"/> flags has been created.</returns>
         /// </summary>
+        /// <value>If at least one world with <see cref="WorldFlags.GameServer"/> flags has been created.</value>
         public static bool HasServerWorld => WorldCounts.Data.serverWorlds > 0;
         /// <summary>
         /// Check if a world with a <see cref="WorldFlags.GameClient"/> is present.
-        /// <returns>If at least one world with <see cref="WorldFlags.GameClient"/> flags has been created.</returns>
         /// </summary>
+        /// <value>If at least one world with <see cref="WorldFlags.GameClient"/> flags has been created.</value>
         public static bool HasClientWorlds => WorldCounts.Data.clientWorlds > 0;
 
         static class ClientServerTracker

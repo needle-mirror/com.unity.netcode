@@ -229,10 +229,10 @@ namespace Unity.NetCode
     }
 
     /// <summary>
-    /// The NetworkStreamReceiveSystem is one of the most important system of the NetCode package and its fundamental job
+    /// <para>The NetworkStreamReceiveSystem is one of the most important system of the NetCode package and its fundamental job
     /// is to manage all the <see cref="NetworkStreamConnection"/> life-cycles (creation, update, destruction), and receiving all the
     /// <see cref="NetworkStreamProtocol"/> message types.
-    /// It is responsible also responsible for:
+    /// It is responsible also responsible for:</para>
     /// <para>- creating the <see cref="NetworkStreamDriver"/> singleton (see also <see cref="NetworkDriverStore"/> and <see cref="NetworkDriver"/>).</para>
     /// <para>- handling the driver migration (see <see cref="DriverMigrationSystem"/> and <see cref="MigrationTicket"/>).</para>
     /// <para>- listening and accepting incoming connections (server).</para>

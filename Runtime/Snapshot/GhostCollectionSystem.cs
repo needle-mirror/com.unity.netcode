@@ -27,14 +27,15 @@ namespace Unity.NetCode
     }
 
     /// <summary>
-    /// System responsible to construct and manage the <see cref="GhostCollection"/> singleton data.
     /// <para>
-    /// The system processes all the ghost prefabs present in the world by:
+    /// System responsible to construct and manage the <see cref="GhostCollection"/> singleton data.
+    /// </para>
+    /// <para>
+    /// The system processes all the ghost prefabs present in the world by:</para>
     /// <para>- stripping and removing components from the entity prefab based on <see cref="GhostPrefabType"/></para>
     /// <para>- populating the <see cref="GhostCollectionPrefab"/></para>
     /// <para>- preparing and constructing all the necessary data structure (<see cref="GhostCollectionPrefabSerializer"/>, <see cref="GhostCollectionComponentIndex"/> and
     /// <see cref="GhostCollectionComponentType"/>) for serializing ghosts</para>
-    /// </para>
     /// </summary>
     [BurstCompile]
     [UpdateInGroup(typeof(GhostSimulationSystemGroup))]

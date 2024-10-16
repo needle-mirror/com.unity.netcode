@@ -311,9 +311,10 @@ namespace Unity.NetCode
         /// <summary>
         /// Returns the <see cref="NetworkDriverData"/> instance, by ref.
         /// </summary>
-        /// <param name="driverId"><inheritdoc cref="GetDriverDataRO"/></param>
+        /// <param name="driverId"></param>
         /// <returns>The <see cref="NetworkDriverData"/> instance, by ref.</returns>
-        /// <exception cref="InvalidOperationException"><inheritdoc cref="GetDriverDataRO"/></exception>
+        /// <exception cref="InvalidOperationException"></exception>
+        /// <inheritdoc cref="GetDriverDataRO"/>
         internal unsafe ref NetworkDriverData GetDriverDataRW(int driverId)
         {
             fixed (NetworkDriverStore* store = &this)
@@ -339,57 +340,64 @@ namespace Unity.NetCode
         /// that update internal driver data (that aren't suited to be copied around) may not work as expected.
         /// </remarks>
         /// <returns></returns>
-        /// <exception cref="InvalidOperationException"><inheritdoc cref="GetDriverDataRO"/></exception>
+        /// <exception cref="InvalidOperationException"></exception>
+        /// <inheritdoc cref="GetDriverDataRO"/>
         [Obsolete("Prefer GetDriverInstanceRW or GetDriverInstanceRO to avoid copying.", false)]
         public readonly ref NetworkDriverInstance GetDriverInstance(int driverId) => ref GetDriverDataRO(driverId).instance;
 
         /// <summary>
         /// Return the <see cref="NetworkDriver"/> with the given <see cref="driverId"/>.
         /// </summary>
-        /// <param name="driverId"><inheritdoc cref="GetDriverDataRO"/></param>
+        /// <param name="driverId"></param>
         /// <returns></returns>
-        /// <exception cref="InvalidOperationException"><inheritdoc cref="GetDriverDataRO"/></exception>
+        /// <exception cref="InvalidOperationException"></exception>
+        /// <inheritdoc cref="GetDriverDataRO"/>
         [Obsolete("Prefer GetDriverRW or GetDriverRO to avoid copying.", false)]
         public readonly NetworkDriver GetNetworkDriver(int driverId) => GetDriverDataRO(driverId).instance.driver;
 
         /// <summary>
         ///  Return a reference to the <see cref="NetworkDriverStore.NetworkDriverInstance"/> instance with the given <see cref="driverId"/>.
         ///  </summary>
-        /// <param name="driverId"><inheritdoc cref="GetDriverDataRO"/></param>
+        /// <param name="driverId"></param>
         ///  <returns></returns>
-        /// <exception cref="InvalidOperationException"><inheritdoc cref="GetDriverDataRO"/></exception>
+        /// <exception cref="InvalidOperationException"></exception>
+        /// <inheritdoc cref="GetDriverDataRO"/>
         public ref NetworkDriverStore.NetworkDriverInstance GetDriverInstanceRW(int driverId) => ref GetDriverDataRW(driverId).instance;
 
         /// <summary>
         ///  Return a reference to the <see cref="NetworkDriverStore.NetworkDriverInstance"/> instance with the given <see cref="driverId"/>.
         ///  </summary>
-        /// <param name="driverId"><inheritdoc cref="GetDriverDataRO"/></param>
+        /// <param name="driverId"></param>
         ///  <returns></returns>
-        /// <exception cref="InvalidOperationException"><inheritdoc cref="GetDriverDataRO"/></exception>
+        /// <exception cref="InvalidOperationException"></exception>
+        /// <inheritdoc cref="GetDriverDataRO"/>
         public ref readonly NetworkDriverStore.NetworkDriverInstance GetDriverInstanceRO(int driverId) => ref GetDriverDataRO(driverId).instance;
 
         /// <summary>
         /// Retrieve a ReadWrite reference to the <see cref="NetworkDriver"/> for the given <see cref="driverId"/>.
         /// </summary>
-        /// <param name="driverId"><inheritdoc cref="GetDriverDataRO"/></param>
+        /// <param name="driverId"></param>
         /// <returns></returns>
-        /// <exception cref="InvalidOperationException"><inheritdoc cref="GetDriverDataRO"/></exception>
+        /// <exception cref="InvalidOperationException"></exception>
+        /// <inheritdoc cref="GetDriverDataRO"/>
         public ref NetworkDriver GetDriverRW(int driverId) => ref GetDriverInstanceRW(driverId).driver;
 
         /// <summary>
         /// Retrieve a Read-Only reference to the <see cref="NetworkDriver"/> for the given <see cref="driverId"/>.
         /// </summary>
-        /// <param name="driverId"><inheritdoc cref="GetDriverDataRO"/></param>
+        /// <param name="driverId"></param>
         /// <returns></returns>
-        /// <exception cref="InvalidOperationException"><inheritdoc cref="GetDriverDataRO"/></exception>
+        /// <exception cref="InvalidOperationException"></exception>
+        /// <inheritdoc cref="GetDriverDataRO"/>
         public ref readonly NetworkDriver GetDriverRO(int driverId) => ref GetDriverInstanceRO(driverId).driver;
 
         /// <summary>
         /// Return the transport type used by the registered driver.
         /// </summary>
-        /// <param name="driverId"><inheritdoc cref="GetDriverDataRO"/></param>
+        /// <param name="driverId"></param>
         /// <returns></returns>
-        /// <exception cref="InvalidOperationException"><inheritdoc cref="GetDriverDataRO"/></exception>
+        /// <exception cref="InvalidOperationException"></exception>
+        /// <inheritdoc cref="GetDriverDataRO"/>
         public TransportType GetDriverType(int driverId) => GetDriverDataRO(driverId).transportType;
 
         /// <summary>
@@ -402,9 +410,9 @@ namespace Unity.NetCode
 
         /// <summary>
         /// Signature for all functions that can be used to visit the registered drivers in the store using the <see cref="ForEachDriver"/> method.
+        /// </summary>
         /// <param name="driver">a reference to a <see cref="NetworkDriverInstance"/></param>
         /// <param name="driverId">the id of the driver</param>
-        /// </summary>
         public delegate void DriverVisitor(ref NetworkDriverInstance driver, int driverId);
 
         /// <summary>

@@ -6,8 +6,10 @@ using Unity.Jobs;
 namespace Unity.NetCode
 {
     /// <summary>
+    /// <para>
     /// Present only in client worlds. Responsible for destroying spawned ghosts when a despawn
     /// request/command is received from the server.
+    /// </para>
     /// <para>Clients are not responsible for destroying ghost entities (and thus should never). The server is
     /// responsible for notifying the client about which ghosts should be destroyed (as part of the snapshot protocol).
     /// </para>

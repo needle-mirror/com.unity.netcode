@@ -45,11 +45,9 @@ namespace Unity.NetCode
             /// <summary>
             /// The required values of the <see cref="GhostComponentAttribute.OwnerSendType"/> property in order for a component to be sent.
             /// The mask depends on the presence and value of the <see cref="GhostOwner"/> component:
-            /// <list type="bullet">
-            /// <li><see cref="SendToOwnerType.All"/>if the <see cref="GhostOwner"/> is not present on the entity</li>
-            /// <li><see cref="SendToOwnerType.SendToOwner"/>if the value of the <see cref="GhostOwner"/> is equals to the <see cref="NetworkId"/> of the client.</li>
-            /// <li><see cref="SendToOwnerType.SendToNonOwner"/>if the value of the <see cref="GhostOwner"/> is different than the <see cref="NetworkId"/> of the client.</li>
-            /// </list>
+            /// <see cref="SendToOwnerType.All"/> if the <see cref="GhostOwner"/> is not present on the entity
+            /// <see cref="SendToOwnerType.SendToOwner"/> if the value of the <see cref="GhostOwner"/> is equals to the <see cref="NetworkId"/> of the client.
+            /// <see cref="SendToOwnerType.SendToNonOwner"/> if the value of the <see cref="GhostOwner"/> is different than the <see cref="NetworkId"/> of the client.
             /// </summary>
             public SendToOwnerType RequiredOwnerSendMask;
             /// <summary>

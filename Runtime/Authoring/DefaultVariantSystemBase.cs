@@ -164,7 +164,7 @@ namespace Unity.NetCode
         }
 
         /// <summary>
-        /// Implement this method by adding to the <param name="defaultVariants"></param> mapping your
+        /// Implement this method by adding to the <paramref name="defaultVariants"/> mapping your
         /// default type->variant <see cref="Rule"/>.
         /// </summary>
         /// <param name="defaultVariants"></param>

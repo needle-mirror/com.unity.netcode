@@ -2,8 +2,18 @@
 uid: changelog
 ---
 
-# Changelog
+## [1.3.6] - 2024-10-16
 
+### Changed
+
+* Improved XML document for `NetworkStreamDriver.ConnectionEventsForTick`.
+* Updated entities packages dependencies
+
+### Fixed
+
+* an issue with netcode source generated files, causing multiple Burst.CompileAsync invocation, ending up in stalling the editor and the player for long time, and / or causing crashes.
+* Issue where `OverrideAutomaticNetcodeBootstrap` instances in scenes would be ignored in the Editor if 'Fast Enter Play-Mode Options' is disabled (i.e. when domain reloads triggered after clicking to enter play-mode).
+* Longstanding API documentation errors across Netcode for Entities API documentation.
 
 ## [1.3.2] - 2024-09-06
 

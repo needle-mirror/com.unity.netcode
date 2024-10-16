@@ -79,8 +79,9 @@ namespace Unity.NetCode
         /// </summary>
         /// <remarks>Types like `Translation` don't have a default serializer as the type itself doesn't define any GhostFields, but they do have serialized variants.</remarks>
         public byte IsDefaultSerializer;
-        /// <summary><inheritdoc cref="GhostComponentVariationAttribute.IsTestVariant"/></summary>
+        /// <summary></summary>
         /// <remarks>True if this is an editor test variant. Forces this variant to be considered a "default" which makes writing tests easier.</remarks>
+        /// <inheritdoc cref="GhostComponentVariationAttribute.IsTestVariant"/>
         public byte IsTestVariant;
         /// <summary>True if the <see cref="GhostComponentAttribute.SendDataForChildEntity"/> flag is true on this variant (if it has one), or this type (if not).</summary>
         public byte SendForChildEntities;

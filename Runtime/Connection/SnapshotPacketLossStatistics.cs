@@ -35,6 +35,12 @@ namespace Unity.NetCode
         /// <summary>Count of packets lost in some form.</summary>
         public ulong CombinedPacketLossCount => NumPacketsDroppedNeverArrived + NumPacketsCulledOutOfOrder + NumPacketsCulledAsArrivedOnSameFrame;
 
+        /// <summary>
+        /// Adds two SnapshotPacketLossStatistics
+        /// </summary>
+        /// <param name="a">First SnapshotPacketLossStatistics</param>
+        /// <param name="b">Second SnapshotPacketLossStatistics</param>
+        /// <returns>The resulting sum of the two SnapshotPacketLossStatistics.</returns>
         public static SnapshotPacketLossStatistics operator +(SnapshotPacketLossStatistics a, SnapshotPacketLossStatistics b)
         {
             a.NumPacketsReceived += b.NumPacketsReceived;
@@ -44,6 +50,12 @@ namespace Unity.NetCode
             return a;
         }
 
+        /// <summary>
+        /// Subtracts two SnapshotPacketLossStatistics
+        /// </summary>
+        /// <param name="a">First SnapshotPacketLossStatistics</param>
+        /// <param name="b">Second SnapshotPacketLossStatistics</param>
+        /// <returns>The resulting difference of the two SnapshotPacketLossStatistics.</returns>
         public static SnapshotPacketLossStatistics operator -(SnapshotPacketLossStatistics a, SnapshotPacketLossStatistics b)
         {
             // Guard subtraction as it can get negative when we're polling 3s intervals.

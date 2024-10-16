@@ -11,14 +11,15 @@ namespace Unity.NetCode
     {}
 
     /// <summary>
-    /// Component added to all <see cref="NetworkStreamConnection"/>, stores a reference to the entity
+    /// <para>Component added to all <see cref="NetworkStreamConnection"/>, stores a reference to the entity
     /// where commands should be read from (client) or written to (server).
     /// It is mandatory to set a valid reference to the <see cref="targetEntity"/> in order to receive client
-    /// commands if:
-    /// <para>- you are not using the <see cref="AutoCommandTarget"/>.</para>
-    /// <para>- you want to support thin-clients (because <see cref="AutoCommandTarget"/> does not work in that case)
+    /// commands if:</para>
+    /// <para><list type="bullet">
+    /// <item>You are not using the <see cref="AutoCommandTarget"/>.</item>
+    /// <item>You want to support thin-clients (because <see cref="AutoCommandTarget"/> does not work in that case)
     /// The use of <see cref="AutoCommandTarget"/> and CommandTarget is complementary. I.e. They can both be used
-    /// at the same time.</para>
+    /// at the same time.</item></list></para>
     /// </summary>
     /// <remarks>
     /// The target entity must have at least one `ICommandData` component on it.

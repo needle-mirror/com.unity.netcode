@@ -18,18 +18,13 @@ namespace Unity.NetCode
     /// <typeparamref name="TActionRequest"/>, <typeparamref name="TActionSerializer"/> pair from the <see cref="RpcCollection"/>
     /// by calling the <see cref="RpcCollection.GetRpcQueue{TActionRequest,TActionSerializer}"/> method.
     /// </para>
-    /// <para>
-    /// <typeparam name="TActionSerializer">The typename of the struct implementing the <see cref="IRpcCommandSerializer{T}"/> interface
-    /// for the <typeparamref name="TActionRequest"/> </typeparam>
-    /// <typeparam name="TActionRequest">The typename of a struct implementing the <see cref="IComponentData"/> interface</typeparam>
-    /// </para>
     /// </summary>
     /// <remarks>
     /// If you intend to cache the retrieved queue (e.g. inside an OnCreate function in your system),
     /// you must ensure that your system is created after the <see cref="RpcSystem"/> by using the <see cref="CreateAfterAttribute"/>.
     /// </remarks>
-    /// <typeparam name="TActionSerializer">the struct type that implements the IRpcCommandSerializer interface.</typeparam>
-    /// <typeparam name="TActionRequest">the rpc type</typeparam>
+    /// <typeparam name="TActionSerializer">The typename of the struct implementing the <see cref="IRpcCommandSerializer{T}"/> interface for the <typeparamref name="TActionRequest"/>.</typeparam>
+    /// <typeparam name="TActionRequest">The typename of a struct implementing the <see cref="IComponentData"/> interface.</typeparam>
     public struct RpcQueue<TActionSerializer, TActionRequest>
         where TActionRequest : struct, IComponentData
         where TActionSerializer : struct, IRpcCommandSerializer<TActionRequest>

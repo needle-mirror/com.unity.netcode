@@ -20,7 +20,7 @@ namespace Unity.NetCode
     }
 
     /// <summary>
-    /// System present only in client worlds, and responsible for:
+    /// <para>System present only in client worlds, and responsible for:</para>
     /// <para>- updating the state of interpolated ghosts, by copying and intepolating data from the received snapshosts.</para>
     /// <para>- restore the predicted ghost state from the <see cref="GhostPredictionHistoryState"/> before running the next prediction loop (until new snapshot aren't received).</para>
     /// <para>- updating the <see cref="PredictedGhost"/> properties for all predicted ghost, by reflecting the latest received snapshot (see <see cref="PredictedGhost.AppliedTick"/>)

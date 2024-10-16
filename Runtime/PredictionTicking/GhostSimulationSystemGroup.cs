@@ -4,9 +4,9 @@ using Unity.Entities;
 namespace Unity.NetCode
 {
     /// <summary>
-    /// Present for both client and server worlds (and Local, for singleplayer input support).
+    /// <para>Present for both client and server worlds (and Local, for singleplayer input support).
     /// This is the core group, and contains the majority of the netcode systems.
-    /// Its responsibilities are varied, and can be roughly sub-divided in the following categories:
+    /// Its responsibilities are varied, and can be roughly sub-divided in the following categories:</para>
     /// <para>-input gathering: <see cref="GhostInputSystemGroup"/></para>
     /// <para>-command handling: <see cref="CommandSendSystemGroup"/></para>
     /// <para>-ghost prediction/simulation: <see cref="PredictedSimulationSystemGroup"/></para>

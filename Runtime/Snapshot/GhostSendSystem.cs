@@ -323,8 +323,10 @@ namespace Unity.NetCode
     }
 
     /// <summary>
+    /// <para>
     /// System present only for servers worlds, and responsible to replicate ghost entities to the clients.
     /// The <see cref="GhostSendSystem"/> is one of the most complex system of the whole package and heavily rely on multi-thread jobs to dispatch ghosts to all connection as much as possible in parallel.
+    /// </para>
     /// <para>
     /// Ghosts entities are replicated by sending a 'snapshot' of their state to the clients, at <see cref="ClientServerTickRate.NetworkTickRate"/> frequency.
     /// Snaphosts are streamed to the client when their connection is tagged with a <see cref="NetworkStreamInGame"/> component (we usually refere a connection with that tag as "in-game"),
@@ -332,18 +334,22 @@ namespace Unity.NetCode
     /// By default, up to 3 baseline are used to delta-compress the data, by using a predictive compression scheme (see <see cref="GhostDeltaPredictor"/>). It is possible
     /// to reduce the number of baseline used (and CPU cycles) using the <see cref="GhostSendSystemData"/> settings.
     /// </para>
+    /// <para>
     /// The GhostSendSystem is designed to send to each connection <b>one single packet per network update</b>. By default, the system will try to
     /// replicate to the clients all the existing ghost present in the world. When all ghosts cannot be serialized into the same packet,
     /// the enties are prioritized by their importance.
+    /// </para>
     /// <para>
     /// The base ghost importance can be set at authoring time on the prefab (<see cref="Unity.NetCode.GhostAuthoringComponent"/>);
     /// At runtime the ghost importance is scaled based on:
+    /// </para>
     /// <para>- age (the last time the entities has been sent)</para>
     /// <para>- scaled by distance, (see <see cref="GhostConnectionPosition"/>, <see cref="GhostDistanceImportance"/></para>
     /// <para>- scaled by custom scaling (see <see cref="GhostImportance"/></para>
-    /// </para>
+    /// <para>
     /// Ghost entities are replicated on "per-chunk" basis; all ghosts for the same chunk, are replicated
     /// together. The importance, as well as the importance scaling, apply to whole chunk.
+    /// </para>
     /// <para>
     /// The send system can also be configured to send multiple ghost packets per frame and to to use snaphost larger than the MaxMessageSize.
     /// In that case, the snapshot packet is sent using another unreliable channel, setup with a <see cref="FragmentationPipelineStage"/>.

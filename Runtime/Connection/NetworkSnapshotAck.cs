@@ -112,7 +112,7 @@ namespace Unity.NetCode
         }
 
         /// <summary>
-        /// The last snapshot (tick) received from the remote peer.
+        /// <para>The last snapshot (tick) received from the remote peer.</para>
         /// <para>For the client, it represents the last received snapshot received from the server.</para>
         /// <para>For the server, it is the last acknowledge packet that has been received by client.</para>
         /// </summary>
@@ -122,7 +122,7 @@ namespace Unity.NetCode
         private ulong ReceivedSnapshotByRemoteMask2;
         private ulong ReceivedSnapshotByRemoteMask3;
         /// <summary>
-        /// The field has a different meaning on the client vs on the server:
+        /// <para>The field has a different meaning on the client vs on the server:</para>
         /// <para>Client: it is the last received ghost snapshot from the server.</para>
         /// <para>Server: record the last command tick that has been received. Used to discard either out of order or late commands.</para>
         /// </summary>

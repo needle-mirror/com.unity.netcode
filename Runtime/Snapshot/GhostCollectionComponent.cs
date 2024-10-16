@@ -113,8 +113,10 @@ namespace Unity.NetCode
     public struct GhostCollection : IComponentData
     {
         /// <summary>
+        /// <para>
         /// The number of prefabs that have been loaded into the <see cref="GhostCollectionPrefab"/> collection.
         /// Use to determine which ghosts types the server can stream to the clients.
+        /// </para>
         /// <para>
         /// The server reports (to the client) the list of loaded prefabs (with their see <see cref="GhostTypeComponent"/> guid)
         /// as part of the snapshot protocol.
@@ -124,11 +126,11 @@ namespace Unity.NetCode
         /// Clients report (to the server) the number of loaded prefabs, as part of the command protocol.
         /// When the client receives a ghost snapshot, the ghost prefab list is processed, and the <see cref="GhostCollectionPrefab"/> collection
         /// is updated with any new ghost types not already present in the collection.
+        /// </para>
         /// <para>
         /// The client does not need to have loaded ALL prefab types in the <see cref="GhostCollectionPrefab"/> to initialize the world. I.e. They can
         /// be loaded/added dynamically into the world (i.e when streaming a sub-scene), and the <see cref="GhostCollectionPrefab.Loading"/> state
         /// should be used in that case (to inform the <see cref="GhostCollection"/> that the specified prefabs are currently being loaded into the world).
-        /// </para>
         /// </para>
         /// </summary>
         public int NumLoadedPrefabs;
@@ -141,11 +143,11 @@ namespace Unity.NetCode
         /// <summary>
         /// The index in the <see cref="GhostCollectionPrefab"/> list where the prefab with the given <see cref="GhostType"/>.
         /// It is populated by the <see cref="GhostReceiveSystem"/> when new prefabs hash are received from the server and it used to track what prefabs need to be mapped/loaded.
+        /// </summary>
         /// <remarks>
         /// Should be used only by the client. For server the map is always empty. It also contains a special key for the default(GhostType) that indicate if the list has been changed since the
         /// last time has been processed.
         /// </remarks>
-        /// </summary>
         public NativeHashMap<GhostType, int> PendingGhostPrefabAssignment;
         /// <summary>
         /// The index in the <see cref="GhostCollectionPrefab"/> list for given <see cref="GhostType"/>.
@@ -246,9 +248,10 @@ namespace Unity.NetCode
         /// </summary>
         public int ChangeMaskBits;
         /// <summary>
-        /// Only set if the <see cref="GhostOwner"/> is present on the entity prefab,
+        /// <para>Only set if the <see cref="GhostOwner"/> is present on the entity prefab,
         /// is the offset in bytes, from the beginning of the snapshot data, in which the network id of the of client
         /// owning the entity can be retrieved.
+        /// </para>
         /// <code>
         /// var ghostOwner = *(uint*)(snapshotDataPtr + PredictionOwnerOffset)
         /// </code>
@@ -282,7 +285,6 @@ namespace Unity.NetCode
         /// <summary>
         /// Client CPU optimization. Force predicted ghost to always try to continue from the last prediction in case of structural changes. True by default (because may introduce some issue when replicated component are removed).
         /// </summary>
-        /// <returns></returns>
         public byte RollbackPredictionOnStructuralChanges;
         /// <summary>
         /// Reflect the importance value set in the <see cref="GhostAuthoringComponent"/>. Is used as the base value for the
@@ -527,11 +529,20 @@ namespace Unity.NetCode
         ///<summary>
         /// Delegate to specify a custom order for the serialised components.
         /// </summary>
+        /// <param name="componentTypes"></param>
+        /// <param name="componentCount"></param>
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
         public delegate void CollectComponentDelegate(IntPtr componentTypes, IntPtr componentCount);
         ///<summary>
         /// Delegate for the custom chunk serializer.
         /// </summary>
+        /// <param name="chunk"></param>
+        /// <param name="typeData"></param>
+        /// <param name="componentIndices"></param>
+        /// <param name="context"></param>
+        /// <param name="tempWriter"></param>
+        /// <param name="compressionModel"></param>
+        /// <param name="lastSerializedEntity"></param>
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
         public delegate void ChunkSerializerDelegate(
             ref ArchetypeChunk chunk,
@@ -544,6 +555,10 @@ namespace Unity.NetCode
         ///<summary>
         /// Delegate for the custom chunk pre-serialization function.
         /// </summary>
+        /// <param name="chunk"></param>
+        /// <param name="typeData"></param>
+        /// <param name="componentIndices"></param>
+        /// <param name="context"></param>
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
         public delegate void ChunkPreserializeDelegate(
             in ArchetypeChunk chunk,
