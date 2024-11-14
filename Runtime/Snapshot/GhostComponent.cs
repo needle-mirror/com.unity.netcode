@@ -88,8 +88,8 @@ namespace Unity.NetCode
         /// <summary>
         /// Implicitly convert a GhostComponent to a <see cref="SpawnedGhost"/> instance.
         /// </summary>
-        /// <param name="comp"></param>
-        /// <returns></returns>
+        /// <param name="comp">Ghost component to convert</param>
+        /// <returns>Converted ghost component to <see cref="SpawnedGhost"/>.</returns>
         public static implicit operator SpawnedGhost(in GhostInstance comp)
         {
             return new SpawnedGhost(comp.ghostId, comp.spawnTick);
@@ -162,8 +162,8 @@ namespace Unity.NetCode
         /// <summary>
         /// Create a new <see cref="GhostType"/> from the give <see cref="Hash128"/> guid.
         /// </summary>
-        /// <param name="guid"></param>
-        /// <returns></returns>
+        /// <param name="guid">Guid</param>
+        /// <returns>Converted ghost type from the give <see cref="Hash128"/> guid.</returns>
         internal static GhostType FromHash128(Hash128 guid)
         {
             return new GhostType
@@ -179,8 +179,8 @@ namespace Unity.NetCode
         /// Convert a <see cref="GhostType"/> to a <see cref="Hash128"/> instance. The hash will always match the prefab guid
         /// from which the ghost has been created.
         /// </summary>
-        /// <param name="ghostType"></param>
-        /// <returns></returns>
+        /// <param name="ghostType">Ghost type to convert</param>
+        /// <returns>Converted ghost type as <see cref="Hash128"/>.</returns>
         public static explicit operator Hash128(GhostType ghostType)
         {
             return new Hash128(ghostType.guid0, ghostType.guid1, ghostType.guid2, ghostType.guid3);
@@ -190,9 +190,9 @@ namespace Unity.NetCode
         /// <summary>
         /// Returns whether or not two GhostType are identical.
         /// </summary>
-        /// <param name="lhs"></param>
-        /// <param name="rhs"></param>
-        /// <returns>True if the the types guids are the same.</returns>
+        /// <param name="lhs">Ghost type</param>
+        /// <param name="rhs">Ghost type</param>
+        /// <returns>Whether the types guids are the same.</returns>
         public static bool operator ==(GhostType lhs, GhostType rhs)
         {
             return lhs.guid0 == rhs.guid0 && lhs.guid1 == rhs.guid1 && lhs.guid2 == rhs.guid2 && lhs.guid3 == rhs.guid3;
@@ -200,9 +200,9 @@ namespace Unity.NetCode
         /// <summary>
         /// Returns whether or not two GhostType are distinct.
         /// </summary>
-        /// <param name="lhs"></param>
-        /// <param name="rhs"></param>
-        /// <returns>True if the the types guids are the different.</returns>
+        /// <param name="lhs">Ghost type</param>
+        /// <param name="rhs">Ghost type</param>
+        /// <returns>Whether the types guids are the same.</returns>
         public static bool operator !=(GhostType lhs, GhostType rhs)
         {
             return lhs.guid0 != rhs.guid0 || lhs.guid1 != rhs.guid1 || lhs.guid2 != rhs.guid2 || lhs.guid3 != rhs.guid3;
@@ -210,8 +210,8 @@ namespace Unity.NetCode
         /// <summary>
         /// Returns whether or not the <see cref="other"/> reference is identical to the current instance.
         /// </summary>
-        /// <param name="other"></param>
-        /// <returns></returns>
+        /// <param name="other">Ghost type reference</param>
+        /// <returns>whether the <see cref="other"/> reference is identical to the current instance.</returns>
         public bool Equals(GhostType other)
         {
             return this == other;
@@ -220,7 +220,7 @@ namespace Unity.NetCode
         /// Returns whether or not the <see cref="obj"/> reference is of type `GhostType`, and
         /// whether or not it's identical to the current instance.
         /// </summary>
-        /// <param name="obj"></param>
+        /// <param name="obj">Ghost type reference</param>
         /// <returns>True if equal to the passed in `GhostType`.</returns>
         public override bool Equals(object obj)
         {
@@ -284,7 +284,7 @@ namespace Unity.NetCode
         /// <summary>
         /// Query if the entity should be simulated (predicted) for the given tick.
         /// </summary>
-        /// <param name="tick"></param>
+        /// <param name="tick">Network tick to simulate for</param>
         /// <returns>True if the entity should be simulated.</returns>
         public bool ShouldPredict(NetworkTick tick)
         {
@@ -319,6 +319,10 @@ namespace Unity.NetCode
     /// Component on the client signaling that an entity is a placeholder for a "not yet spawned" ghost.
     /// I.e. Not yet a "real" ghost.
     /// </summary>
+    /// <remarks>
+    /// Note: If you query for <see cref="GhostInstance"/>'s without excluding this component, your query will return placeholder
+    /// ghosts (unless manually excluded).
+    /// </remarks>
     public struct PendingSpawnPlaceholder : IComponentData
     {
     }
@@ -332,7 +336,7 @@ namespace Unity.NetCode
         /// Find the first valid ghost type id in an array of ghost components.
         /// Pre-spawned ghosts have type id -1.
         /// </summary>
-        /// <param name="self"></param>
+        /// <param name="self">NativeArray containing ghost type ids</param>
         /// <returns>The ghost type index if a ghost with a valid type is found, -1 otherwise</returns>
         public static int GetFirstGhostTypeId(this NativeArray<GhostInstance> self)
         {
@@ -344,7 +348,7 @@ namespace Unity.NetCode
         /// Pre-spawned ghosts have type id -1.
         /// This method returns -1 if no ghost type id is found.
         /// </summary>
-        /// <param name="self"></param>
+        /// <param name="self">NativeArray containing ghost type ids</param>
         /// <param name="firstGhost">The first valid ghost type index found will be stored in this variable.</param>
         /// <returns>A valid ghost type id, or -1 if no ghost type id was found.</returns>
         public static int GetFirstGhostTypeId(this NativeArray<GhostInstance> self, out int firstGhost)
@@ -361,7 +365,7 @@ namespace Unity.NetCode
         /// <summary>
         /// Retrieve the component name as <see cref="NativeText"/>. The method is burst compatible.
         /// </summary>
-        /// <param name="self"></param>
+        /// <param name="self">Component type to get the name from</param>
         /// <returns>The component name.</returns>
         public static NativeText.ReadOnly GetDebugTypeName(this ComponentType self)
         {

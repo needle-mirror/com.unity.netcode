@@ -105,7 +105,7 @@ namespace Unity.NetCode
         /// <summary>
         /// Returns the Fixed String enum value name.
         /// </summary>
-        /// <param name="reason"></param>
+        /// <param name="reason">The source enum.</param>
         /// <returns>Returns the Fixed String enum value name.</returns>
         public static FixedString32Bytes ToFixedString(this NetworkStreamDisconnectReason reason)
         {
@@ -128,11 +128,11 @@ namespace Unity.NetCode
         /// <summary>
         /// Converts from the Transport state to ours.
         /// </summary>
-        /// <param name="transportState"></param>
-        /// <param name="hasHandshaked"></param>
+        /// <param name="transportState">The source enum.</param>
+        /// <param name="hasHandshaked">True if the handshake process has been completed.</param>
         /// <param name="hasApproval">True if (we have been approved AND the approval flow is enabled) OR if we don't need approval.</param>
-        /// <returns></returns>
-        /// <exception cref="ArgumentOutOfRangeException"></exception>
+        /// <returns>Netcode connection state</returns>
+        /// <exception cref="ArgumentOutOfRangeException">If transport state is unknown.</exception>
         public static ConnectionState.State ToNetcodeState(this NetworkConnection.State transportState, bool hasHandshaked, bool hasApproval = true)
         {
             switch (transportState)
@@ -153,7 +153,7 @@ namespace Unity.NetCode
         /// <summary>
         /// Returns the Fixed String enum value name.
         /// </summary>
-        /// <param name="state"></param>
+        /// <param name="state">The source enum.</param>
         /// <returns>Returns the Fixed String enum value name.</returns>
         public static FixedString32Bytes ToFixedString(this ConnectionState.State state)
         {
@@ -166,6 +166,23 @@ namespace Unity.NetCode
                 case ConnectionState.State.Approval: return nameof(ConnectionState.State.Approval);
                 case ConnectionState.State.Connected: return nameof(ConnectionState.State.Connected);
                 default: return $"ConnectionState_{(int) state}";
+            }
+        }
+
+        /// <summary>
+        /// Returns the Fixed String enum value name.
+        /// </summary>
+        /// <param name="state">The source enum.</param>
+        /// <returns>Returns the Fixed String enum value name.</returns>
+        public static FixedString32Bytes ToFixedString(this NetworkConnection.State state)
+        {
+            switch (state)
+            {
+                case NetworkConnection.State.Disconnected: return nameof(NetworkConnection.State.Disconnected);
+                case NetworkConnection.State.Disconnecting: return nameof(NetworkConnection.State.Disconnecting);
+                case NetworkConnection.State.Connecting: return nameof(NetworkConnection.State.Connecting);
+                case NetworkConnection.State.Connected: return nameof(NetworkConnection.State.Connected);
+                default: return $"NetworkConnection.State_{(int) state}";
             }
         }
     }
@@ -263,6 +280,10 @@ namespace Unity.NetCode
             LogLevel = DefaultLogLevel;
             // Suppressing by default because it leads to many test false positives.
             SuppressApprovalRpcSentWhenApprovalFlowDisabledWarning = true;
+
+            WarnBatchedTicks = true;
+            WarnBatchedTicksRollingWindowSize = 4;
+            WarnAboveAverageBatchedTicksPerFrame = 1.2f;
         }
 
         /// <summary>
@@ -312,6 +333,31 @@ namespace Unity.NetCode
         ///     Set to 0 to opt out.
         /// </summary>
         public ushort MaxRpcAgeFrames { get; set; }
+
+        // Frame time has exceeded the ability for fixed updates to 'catch up' to the simulation time, ticks will now be batched so instead of n ticks of fixedTimer per frame, we will have m ticks of  (n/m)*fixedTime per frame
+        // While this will allow the simulation to catch-up it will degrade interpolation performacne and can introduce predition errors since the server will simulate fewer frames than a client will predict and they may need to be adjusted.  This can be common in the editor and situations of poor performance.  With good interpolation and infrequent ocurrances this should have minimal visual impact.
+        // If its happening every frame you will observe severly degraded performance
+
+        /// <summary>
+        ///     Display a warning if ticks have been bacthed
+        /// </summary>
+        /// <remarks>
+        ///    Warning will be displayed when frame time has exceeded the ability for fixed updates to 'catch up' to the simulation time, ticks will be batched so instead of n ticks of fixedTimer per frame, we will have m ticks of  (n/m)*fixedTime per frame
+        ///    While this allows the simulation to catch-up it degrades interpolation performance and can introduce predition errors since the server will simulate fewer frames than a client will predict and they may need to be adjusted.  This can be common in the editor and situations of poor performance.  With good interpolation and infrequent ocurrances this should have minimal visual impact.
+        ///    If its happening every frame you will observe severly degraded performance
+        /// </remarks>
+        [field: MarshalAs(UnmanagedType.U1)]
+        public bool WarnBatchedTicks;
+
+        /// <summary>
+        ///     Size of the rolling window used to calculate the avergage for the number of frames which contained tick batching.
+        /// </summary>
+        public int WarnBatchedTicksRollingWindowSize;
+
+        /// <summary>
+        ///     Display a warning if the average number if ticks per frame is above this number
+        /// </summary>
+        public float WarnAboveAverageBatchedTicksPerFrame;
 
         /// <summary>
         /// The current debug logging level. Default value is <see cref="LogLevelType.Notify"/>.
@@ -471,7 +517,7 @@ namespace Unity.NetCode
         /// Print an unsigned integer in hexadecimal format
         /// </summary>
         /// <param name="value">The unsigned value to convert</param>
-        /// <returns></returns>
+        /// <returns>An unsigned integer in hexadecimal format</returns>
         public static FixedString32Bytes PrintHex(uint value)
         {
             return PrintHex(value, 32);
@@ -480,7 +526,7 @@ namespace Unity.NetCode
         /// Print a unsigned long integer in hexadecimal format
         /// </summary>
         /// <param name="value">The unsigned value to convert</param>
-        /// <returns></returns>
+        /// <returns>a unsigned long integer in hexadecimal format</returns>
         public static FixedString32Bytes PrintHex(ulong value)
         {
             return PrintHex(value, 64);

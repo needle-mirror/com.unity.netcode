@@ -42,7 +42,18 @@ Ghost can be authored in the Editor by creating a prefab with a [GhostAuthoringC
 
 The __GhostAuthoringComponent__ has a small editor that you can use to configure how Netcode for Entities synchronizes the prefab. <br/>
 You must set the __Name__, __Importance__, __Supported Ghost Mode__, __Default Ghost Mode__ and __Optimization Mode__ property on each ghost. <br/>
-Netcode for Entities uses the __Importance__ property to control which entities are sent when there is not enough bandwidth to send all. A higher value makes it more likely that the ghost will be sent.
+Netcode for Entities uses the __Importance__ property to control which entities are sent when there is not enough bandwidth to send all instantiated ghosts. A higher value makes it more likely that the ghost will be sent.
+
+The (optional) __MaxSendRate__ property denotes the absolute maximum send frequency (in Hz) for ghost chunks of this ghost prefab type (excluding a few nuanced exceptions).
+__Important Note:__ `MaxSendRate` only denotes the maximum *possible* replication frequency, and cannot be enforced in all cases.
+I.e. Other factors (like `ClientServerTickRate.NetworkTickRate`, ghost instance count, __Importance__, 
+Importance-Scaling, `GhostSendSystemData.DefaultSnapshotPacketSize`, and structural changes etc.) will determine the final send rate.
+
+Examples:
+* A ghost with a `MaxSendRate` of 100Hz will still be rate limited by the `NetworkTickRate` itself, which is 60Hz by default.
+* Similarly, a ghost with a `MaxSendRate` of 60Hz instantiated in a project with a `NetworkTickRate` of 30Hz will be sent at a maximum of 30Hz.
+* As this calculation can only be performed on integer/whole `ticksSinceLastSent` ticks, a ghost with a `MaxSendRate` in-between multiples of the `NetworkTickRate` will be rounded down to the next multiple.
+E.g. `NetworkTickRate:30Hz`, `MaxSendRate:45` means 30Hz is the actual maximum send rate.
 
 You can select from three different __Supported Ghost Mode__ types:
 

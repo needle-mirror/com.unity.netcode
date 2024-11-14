@@ -401,13 +401,11 @@ namespace Unity.NetCode
             }
 
             var estimatedRTT = math.min(ack.EstimatedRTT, clientTickRate.MaxPredictAheadTimeMS);
-            var netTickRate = tickRate.CalculateNetworkSendRateInterval();
+            var netTickRateInterval = tickRate.CalculateNetworkSendRateInterval();
             // The desired number of interpolation frames depend on the ratio in between the simulation and the network tick rate
             // ex: if the server run the sim at 60hz but send at 20hz we need to stay back at least 3 ticks, or
             // any integer multiple of that
-            var interpolationTimeTicks = (int)clientTickRate.InterpolationTimeNetTicks;
-            if (clientTickRate.InterpolationTimeMS != 0)
-                interpolationTimeTicks = (int)((clientTickRate.InterpolationTimeMS * tickRate.NetworkTickRate + 999) / 1000);
+            var interpolationTimeTicks = clientTickRate.CalculateInterpolationBufferTimeInTicks(tickRate);
             // Reset the latestSnapshotEstimate if not in game
             ref var netTimeData = ref SystemAPI.GetSingletonRW<NetworkTimeSystemData>().ValueRW;
 #if UNITY_EDITOR || NETCODE_DEBUG
@@ -423,7 +421,7 @@ namespace Unity.NetCode
                     return;
                 }
                 netTimeData.InitWithFirstSnapshot(ack.LastReceivedSnapshotByLocal, TimestampMS, clientTickRate.TargetCommandSlack,
-                    ack.EstimatedRTT, ack.DeviationRTT, interpolationTimeTicks, tickRate.SimulationTickRate, netTickRate);
+                    ack.EstimatedRTT, ack.DeviationRTT, interpolationTimeTicks, tickRate.SimulationTickRate, netTickRateInterval);
 
                 commandAgeAdjustment.Length = CommandAgeAdjustmentLength;
                 for (int i = 0; i < CommandAgeAdjustmentLength; ++i)
@@ -520,12 +518,12 @@ namespace Unity.NetCode
             //The perceived snapshot inter-arrival in simulation ticks.
             var avgNetRate = (netTimeData.avgPacketInterArrival*tickRate.SimulationTickRate + 999)/1000;
             //The number of interpolation frames is expressed as number of simulation ticks. This is why it is necessary to use the netTickRate/
-            float desiredInterpolationDelayTicks = interpolationTimeTicks*netTickRate;
+            float desiredInterpolationDelayTicks = interpolationTimeTicks*netTickRateInterval;
             //Select the largest in between the average snapshot rate (in ticks) and the average snapshot tick delta.
             var clampedDelayTick = math.max(avgNetRate, deltaInBetweenSnapshotTicks);
             //still clamp this as 6 times the desired netTickRate. It is reasonable assumption the server will try to go
             //back to normal
-            clampedDelayTick = math.min(clampedDelayTick, 6*netTickRate);
+            clampedDelayTick = math.min(clampedDelayTick, 6*netTickRateInterval);
             //If you then have a desiredInterpolationDelayTicks larger that that, we will use your anyway.
             var interpolationFrames = math.max(desiredInterpolationDelayTicks, clampedDelayTick);
 

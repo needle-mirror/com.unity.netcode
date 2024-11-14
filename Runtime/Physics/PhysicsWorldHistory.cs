@@ -71,8 +71,8 @@ namespace Unity.NetCode
         /// <summary>
         /// Helper to retrieve debug data from the history buffer.
         /// </summary>
-        /// <param name="physicsWorld"></param>
-        /// <returns></returns>
+        /// <param name="physicsWorld">Physics world containing history buffer</param>
+        /// <returns>History buffer</returns>
         public unsafe string GetHistoryBufferData(ref PhysicsWorld physicsWorld)
         {
             string info = $"[PhysicsWorldHistorySingleton] Size:{m_History.m_Size} History.LastStoredTick:{LatestStoredTick.ToFixedString()}";
@@ -499,7 +499,7 @@ namespace Unity.NetCode
             {
                 int historySize;
                 if (state.WorldUnmanaged.IsServer())
-                    historySize = config.ServerHistorySize!=0 ? config.ServerHistorySize : RawHistoryBuffer.Capacity;
+                    historySize = config.ServerHistorySize != 0 ? config.ServerHistorySize : RawHistoryBuffer.Capacity;
                 else
                     historySize = config.ClientHistorySize;
                 if (historySize == 0)

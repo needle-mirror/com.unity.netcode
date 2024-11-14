@@ -378,8 +378,8 @@ namespace Unity.NetCode.Editor
         public const string k_VendorKey = "unity.netcode";
         public const string k_Scale = "NetcodeGhostComponentScale";
         public const int k_ScaleVersion = 3;
-        public const int k_ConfigurationVersion = 1;
         public const string k_Configuration = "NetcodeGhostComponentConfiguration";
+        public const int k_ConfigurationVersion = 2;
 
         /// <summary>
         /// This will add or update the buffer containing the configuration data from a <see cref="GhostAuthoringComponent"/>.
@@ -395,6 +395,7 @@ namespace Unity.NetCode.Editor
                 optimizationMode = ghostComponent.OptimizationMode.ToString(),
                 ghostMode = ghostComponent.DefaultGhostMode.ToString(),
                 importance = ghostComponent.Importance,
+                maxSendRateHz = ghostComponent.MaxSendRate,
                 variance = numVariants,
             };
             NetCodeAnalytics.StoreGhostComponent(analyticsData);

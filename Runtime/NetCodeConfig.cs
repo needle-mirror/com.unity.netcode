@@ -1,5 +1,8 @@
 using System;
 using System.Text;
+using Unity.Networking.Transport;
+using Unity.Networking.Transport.Relay;
+using Unity.Networking.Transport.Utilities;
 using UnityEngine;
 
 namespace Unity.NetCode
@@ -40,7 +43,6 @@ namespace Unity.NetCode
         [Tooltip("Denotes if the ClientServerBootstrap (or any derived version of it) should be triggered on game boot. Project-wide setting (when this config is applied in the Netcode tab), overridable via the OverrideAutomaticNetCodeBootstrap MonoBehaviour.")] [SerializeField]
         public AutomaticBootstrapSetting EnableClientServerBootstrap = AutomaticBootstrapSetting.EnableAutomaticBootstrap;
 
-        // TODO - Range + Tooltips attributes for these structs.
         // TODO - Add a helper link to open the NetDbg when viewing the NetConfig asset.
         /// <inheritdoc cref="Unity.NetCode.ClientServerTickRate" path="/summary"/>
         public ClientServerTickRate ClientServerTickRate;
@@ -53,12 +55,99 @@ namespace Unity.NetCode
         // TODO - Importance.
         // TODO - Relevancy.
 
-        //[Header("Unity Transport Package (UTP)")]
-        // TODO - Make these structs public and [Serializable] so that we can actually modify them.
-        // public NetworkConfigParameter NetworkConfigParameter;
-        // public FragmentationUtility.Parameters FragmentationUtilityParameters;
-        // public ReliableUtility.Parameters ReliableUtilityParameters;
-        // public RelayNetworkParameter RelayNetworkParameter;
+        // Transport:
+        /// <inheritdoc cref="NetworkConfigParameter.connectTimeoutMS"/>
+        [Tooltip("Time between connection attempts, in milliseconds.")]
+        [Min(1)]
+        public int ConnectTimeoutMS;
+
+        /// <inheritdoc cref="NetworkConfigParameter.maxConnectAttempts"/>
+        [Tooltip("Maximum number of connection attempts to try. If no answer is received from the server after this number of attempts, a <b>Disconnect</b> event is generated for the connection.")]
+        [Min(1)]
+        public int MaxConnectAttempts;
+
+        /// <inheritdoc cref="NetworkConfigParameter.disconnectTimeoutMS"/>
+        [Tooltip("Inactivity timeout for a connection, in milliseconds. If nothing is received on a connection for this amount of time, it is disconnected (a <b>Disconnect</b> event will be generated).\n\nTo prevent this from happening when the game session is simply quiet, set <b>heartbeatTimeoutMS</b> to a positive non-zero value.")]
+        [Min(1)]
+        public int DisconnectTimeoutMS;
+
+        /// <inheritdoc cref="NetworkConfigParameter.heartbeatTimeoutMS"/>
+        [Tooltip("Time after which if nothing from a peer is received, a heartbeat message will be sent to keep the connection alive. Prevents the <b>disconnectTimeoutMS</b> mechanism from kicking when nothing happens on a connection. A value of 0 will disable heartbeats.")]
+        [Min(1)]
+        public int HeartbeatTimeoutMS;
+
+        /// <inheritdoc cref="NetworkConfigParameter.reconnectionTimeoutMS"/>
+        [Tooltip("Time after which to attempt to re-establish a connection if nothing is received from the peer. This is used to re-establish connections for example when a peer's IP address changes (e. g. mobile roaming scenarios).\n\nTo be effective, should be less than <b>disconnectTimeoutMS</b> but greater than <b>heartbeatTimeoutMS</b>.\n\nA value of 0 will disable this functionality.")]
+        [Min(1)]
+        public int ReconnectionTimeoutMS;
+
+        /// <summary>
+        ///     Capacity of the send queue (per pipeline-stage) on the client.
+        ///     This should be the maximum number of packets expected to be sent by the client in a single update (i.e. each render frame).
+        ///     Broad recommendation: 8 If not memory constrained, else use minimum, as it can affect Reliable and Fragmentation pipeline throughput.
+        /// </summary>
+        /// <seealso cref="NetworkConfigParameter.sendQueueCapacity"/>
+        [Tooltip(@"Capacity of the send queue (per pipeline-stage) on the client.
+This should be the maximum number of packets expected to be sent by the client, per pipeline-stage, in a single update (i.e. each render frame).
+
+Recommended value: 8 if not memory constrained, else minimum, as it can affect Reliable and Fragmentation pipeline throughput.
+Default value: 512 i.e. <b>NetworkParameterConstants.SendQueueCapacity</b>")]
+        [Min(4)]
+        public int ClientSendQueueCapacity;
+
+        /// <summary>
+        ///     Capacity of the receive queue (per pipeline-stage) on the client.
+        ///     This should be the maximum number of in-flight packets expected to be received by the client - from the
+        ///     server - during a worst-case frame (like if the client executable stalls).
+        ///     Broad recommendation: 64.
+        /// </summary>
+        /// <seealso cref="NetworkConfigParameter.receiveQueueCapacity"/>
+        [Tooltip(@"Capacity of the receive queue (per pipeline-stage) on the client.
+This should be the maximum number of in-flight packets expected to be received by the client - from the
+server - during a worst-case frame (like if the client executable stalls).
+
+Broad recommendation: 64.
+Default value: 512 i.e. <b>NetworkParameterConstants.ReceiveQueueCapacity</b>")]
+        [Min(8)]
+        public int ClientReceiveQueueCapacity;
+
+        /// <summary>
+        ///     Capacity of the send queue (per pipeline-stage) on the server.
+        ///     This should be a multiple (likely 1) of the maximum number of packets expected to be sent by the server, across all
+        ///     connections, on a per pipeline-stage basis, in a single update (i.e. each render frame).
+        ///     Broad recommendations: For 2 players, ~64. For 100 players, ~100. For 1k players, ~1k.
+        /// </summary>
+        /// <example><c>1 packet per pipeline-stage, per connection, for a game supporting, at most, 512 players per server.</c></example>
+        /// <seealso cref="NetworkConfigParameter.sendQueueCapacity"/>
+        [Tooltip(@"Capacity of the send queue (per pipeline-stage) on the server.
+This should be a multiple of the maximum number of packets expected to be sent by the server, across all connections, on a per pipeline-stage basis, in a single update (i.e. each render frame).
+
+For 2 players, ~128. For 100 players, ~512. For 1k players, ~1k.
+<i>If memory constrained, use minimum, but note it can affect Reliable and Fragmentation pipeline throughput.
+Default value: 512 i.e. <b>NetworkParameterConstants.SendQueueCapacity</b>")]
+        [Min(16)]
+        public int ServerSendQueueCapacity;
+
+        /// <summary>
+        ///     Capacity of the receive queue (per pipeline-stage) on the server.
+        ///     This should be the maximum number of in-flight packets - expected to be sent across by the maximum supported
+        ///     number of connected clients - to the server - arriving within a worst-case server game loop update.
+        ///     Broad recommendations: For 2 players, ~64. For 100 players, ~512. For 1k players, ~1.2k.
+        /// </summary>
+        /// <seealso cref="NetworkConfigParameter.receiveQueueCapacity"/>
+        [Tooltip(@"Capacity of the receive queue (per pipeline-stage) on the server.
+This should be the maximum number of in-flight packets - expected to be sent across by the maximum supported
+number of connected clients - to the server - arriving within a worst-case server game loop update.
+
+Broad recommendations: For 2 players, ~64. For 100 players, ~512. For 1k players, ~1.2k.
+Default value: 512 i.e. <b>NetworkParameterConstants.ReceiveQueueCapacity</b>")]
+        [Min(64)]
+        public int ServerReceiveQueueCapacity;
+
+        /// <inheritdoc cref="NetworkConfigParameter.maxMessageSize"/>
+        [Tooltip("Maximum size of a packet that can be sent by the transport.\n\nNote that this size includes any headers that could be added by the transport (e. g. headers for DTLS or pipelines), which means the actual maximum message size that can be sent by a user is slightly less than this value.\n\nTo find out what the size of these headers is, use MaxHeaderSize(NetworkPipeline).\n\nIt is possible to send messages larger than that by sending them through a pipeline with a FragmentationPipelineStage. These headers do not include those added by the OS network stack (like UDP or IP).")]
+        [Range(64, NetworkParameterConstants.AbsoluteMaxMessageSize)]
+        public int MaxMessageSize;
 
         internal NetCodeConfig()
         {
@@ -76,6 +165,24 @@ namespace Unity.NetCode
             ClientTickRate = NetworkTimeSystem.DefaultClientTickRate;
             GhostSendSystemData = default;
             GhostSendSystemData.Initialize();
+
+            ResetIfDefault(ref ConnectTimeoutMS, NetworkParameterConstants.ConnectTimeoutMS);
+            ResetIfDefault(ref MaxConnectAttempts, NetworkParameterConstants.MaxConnectAttempts);
+            ResetIfDefault(ref DisconnectTimeoutMS, NetworkParameterConstants.DisconnectTimeoutMS);
+            ResetIfDefault(ref HeartbeatTimeoutMS, NetworkParameterConstants.HeartbeatTimeoutMS);
+            ResetIfDefault(ref ReconnectionTimeoutMS, NetworkParameterConstants.ReconnectionTimeoutMS);
+            ResetIfDefault(ref ClientReceiveQueueCapacity, 64);
+            ResetIfDefault(ref ClientSendQueueCapacity, 64);
+            ResetIfDefault(ref ServerReceiveQueueCapacity, NetworkParameterConstants.ReceiveQueueCapacity);
+            ResetIfDefault(ref ServerSendQueueCapacity, NetworkParameterConstants.SendQueueCapacity);
+            ResetIfDefault(ref MaxMessageSize, NetworkParameterConstants.MaxMessageSize);
+
+            static void ResetIfDefault<T>(ref T value, T defaultValue)
+                where T : IEquatable<T>
+            {
+                if (value.Equals(default))
+                    value = defaultValue;
+            }
         }
 
         /// <summary>
@@ -129,8 +236,8 @@ namespace Unity.NetCode
         /// <summary>
         ///     Makes Find deterministic.
         /// </summary>
-        /// <param name="other"></param>
-        /// <returns></returns>
+        /// <param name="other">Instance of <see cref="NetCodeConfig"/></param>
+        /// <returns>Whether the config and names match.</returns>
         public int CompareTo(NetCodeConfig other)
         {
             if (IsGlobalConfig != other.IsGlobalConfig)

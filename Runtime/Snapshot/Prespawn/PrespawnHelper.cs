@@ -50,11 +50,12 @@ namespace Unity.NetCode
             var config = new GhostPrefabCreation.Config
             {
                 Name = "PrespawnSceneList",
-                Importance = 1,
+                Importance = 1000,
+                MaxSendRate = 0,
                 SupportedGhostModes = GhostModeMask.Predicted,
                 DefaultGhostMode = GhostMode.Predicted,
                 OptimizationMode = GhostOptimizationMode.Static,
-                UsePreSerialization = false
+                UsePreSerialization = false,
             };
 
             //I need an unique identifier and should not clash with any loaded prefab.

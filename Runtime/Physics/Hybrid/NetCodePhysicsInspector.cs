@@ -13,7 +13,9 @@ namespace Unity.NetCode.Editor
         private SerializedProperty ClientNonGhostWorldIndex;
         private SerializedProperty DeepCopyDynamicColliders;
         private SerializedProperty DeepCopyStaticColliders;
+        private SerializedProperty PhysicGroupRunMode;
         private static readonly GUIContent s_LagCompensationTitle = new GUIContent("Lag Compensation", "Configure how the Lag Compensation ring buffers function.");
+        private static readonly GUIContent s_PhysicsRunMode = new GUIContent("PhysicsGroup Run Mode");
 
         private void OnEnable()
         {
@@ -23,6 +25,7 @@ namespace Unity.NetCode.Editor
             ClientNonGhostWorldIndex = serializedObject.FindProperty(nameof(NetCodePhysicsConfig.ClientNonGhostWorldIndex));
             DeepCopyDynamicColliders = serializedObject.FindProperty(nameof(NetCodePhysicsConfig.DeepCopyDynamicColliders));
             DeepCopyStaticColliders = serializedObject.FindProperty(nameof(NetCodePhysicsConfig.DeepCopyStaticColliders));
+            PhysicGroupRunMode = serializedObject.FindProperty(nameof(NetCodePhysicsConfig.PhysicGroupRunMode));
         }
 
         public override void OnInspectorGUI()
@@ -31,7 +34,7 @@ namespace Unity.NetCode.Editor
             using (new EditorGUI.DisabledScope(true))
                 EditorGUILayout.PropertyField(serializedObject.FindProperty("m_Script"), true);
             EditorGUILayout.PropertyField(EnableLagCompensation, s_LagCompensationTitle);
-
+            EditorGUILayout.PropertyField(PhysicGroupRunMode, s_PhysicsRunMode);
             if (EnableLagCompensation.boolValue)
             {
                 EditorGUI.indentLevel += 1;

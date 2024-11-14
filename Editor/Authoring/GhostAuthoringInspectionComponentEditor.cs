@@ -78,7 +78,7 @@ namespace Unity.NetCode.Editor
                 }
             }
 
-            if (GhostAuthoringInspectionComponent.forceBake)
+            if (GhostAuthoringInspectionComponent.forceBake && !EditorGUIUtility.editingTextField)
                 BakeNetCodePrefab();
 
             if (GhostAuthoringInspectionComponent.forceSave)
@@ -114,7 +114,7 @@ namespace Unity.NetCode.Editor
                 return true;
             }
 
-            if (GhostAuthoringInspectionComponent.forceBake)
+            if (GhostAuthoringInspectionComponent.forceBake && !EditorGUIUtility.editingTextField)
             {
                 BakeNetCodePrefab();
                 if (cachedBakedResults.TryGetValue(inspection, out result))
@@ -164,6 +164,7 @@ namespace Unity.NetCode.Editor
             m_Root.style.flexShrink = 1;
 
             var ss = AssetDatabase.LoadAssetAtPath<StyleSheet>(Path.Combine(k_PackageId, "Editor/Authoring/GhostAuthoringEditor.uss"));
+            if (!ss) return m_Root;
             m_Root.styleSheets.Add(ss);
 
             m_BakeButton = new Button(HandleBakeButtonClicked);

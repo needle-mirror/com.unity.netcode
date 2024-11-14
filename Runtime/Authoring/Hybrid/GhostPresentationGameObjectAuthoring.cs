@@ -39,7 +39,7 @@ namespace Unity.NetCode.Hybrid
         /// Implementation of <see cref="IRegisterPlayableData"/>. Should not be called directly. It is invoked as part
         /// of the GhostAnimationController initialization.
         /// </summary>
-        /// <typeparam name="T"></typeparam>
+        /// <typeparam name="T">PlayableComponent type</typeparam>
         public void RegisterPlayableData<T>() where T: unmanaged, IComponentData
         {
             regEntityManager.AddComponentData(regEntity, default(T));

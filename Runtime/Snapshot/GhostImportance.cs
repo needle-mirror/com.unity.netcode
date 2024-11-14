@@ -38,8 +38,8 @@ namespace Unity.NetCode
         /// <summary>
         /// Used for sorting the based on the priority in descending order.
         /// </summary>
-        /// <param name="other"></param>
-        /// <returns></returns>
+        /// <param name="other">Prio chunk</param>
+        /// <returns>Descending order.</returns>
         public int CompareTo(PrioChunk other)
         {
             // Reverse priority for sorting
@@ -61,7 +61,7 @@ namespace Unity.NetCode
         /// <param name="importanceData">Optional configuration data. Ex. Each tile's configuration. Handle IntPtr.Zero!</param>
         /// <param name="chunkTile">Per chunk information. Ex. each entity's tile index.</param>
         /// <param name="basePriority">Priority computed by <see cref="GhostSendSystem"/> after computing tick when last updated and irrelevance.</param>
-        /// <returns></returns>
+        /// <returns>Scale importance value.</returns>
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
         public delegate int ScaleImportanceDelegate(IntPtr connectionData, IntPtr importanceData, IntPtr chunkTile, int basePriority);
 
@@ -80,7 +80,7 @@ namespace Unity.NetCode
         /// <param name="connectionData">Per connection data. Ex. position in the world that should be prioritized.</param>
         /// <param name="importanceData">Optional configuration data. Ex. Each tile's configuration. Handle IntPtr.Zero!</param>
         /// <param name="sharedComponentTypeHandlePtr"><see cref="DynamicSharedComponentTypeHandle"/> to retrieve the per-chunk tile information. Ex. each chunk's tile index.</param>
-        /// <param name="chunkData"></param>
+        /// <param name="chunkData">Chunk data.</param>
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
         public delegate void BatchScaleImportanceDelegate(IntPtr connectionData, IntPtr importanceData, IntPtr sharedComponentTypeHandlePtr,
             ref UnsafeList<PrioChunk> chunkData);

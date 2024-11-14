@@ -2,6 +2,63 @@
 uid: changelog
 ---
 
+## [1.4.0] - 2024-11-14
+
+### Added
+
+* A togglable warning to display when the server is batching ticks.
+* PhysicGroupRunMode property to the NetcodePhysicsConfigAuthoring to let the user configure when the predicted physics loop should run.
+* PredictionLoopUpdateMode property to the ClientTickRate to let the user configure when the PredictionSimulationSystemGroup should update. In particular, it is allow now to have the prediction loop running all the time, regardless of the presence of predicted ghost.
+* `GhostSendSystemData.MaxIterateChunks`, which denotes the maximum number of chunks the `GhostSendSystem` will iterate over in a single tick, for a given connection, within a single `NetworkTickRate` snapshot send interval. It's an optimization in use-cases where you have many thousands of static ghosts (and thus hundreds of static chunks which are iterated over unnecessarily to find ones containing possible changes), but can lead to empty snapshots if set too low. Pairs well with `MaxSendChunks`, and defaults to 0 (OFF) to avoid a behaviour change.
+* Many Unity Transport Package `NetworkConfigParameters` have been added to the `NetCodeConfig`. They are ignored if using a custom driver, unless said driver calls the new static method `DefaultDriverBuilder.AddNetcodePackageNetworkConfigParameters`.
+* `ClientServerTickRate.SnapshotAckMaskCapacity` configures the length of the ack mask history (in `ServerTicks`). It is used by the snapshot system to determine whether or not a ghost has an acked baseline snapshot, and only queried when said chunk is attempting to be resent. Its new default (of 4096, up from 256) supports ~1.1 minutes (up from ~4.26 seconds) under default settings (i.e. assuming a `SimulationTickRate` of 60Hz). Increasing this value further can protect against the aforementioned snapshot acking errors when sending tens of thousands of ghosts to an individual client connection.
+* `GhostAuthoringComponent.MaxSendRate`, which denotes the maximum possible send frequency (in Hz) for ghost chunks of this ghost prefab type. Note, however, that other factors (like `NetworkTickRate`, ghost instance count, the use of <b>Static-Optimization</b> vs <b>Dynamic</b>, `Importance`, <b>Importance-Scaling</b>, `DefaultSnapshotPacketSize` etc.) will determine the final send rate. Use `MaxSendRate` to brute-force reduce the bandwidth consumption of your most impactful ghost types.
+* `GhostCountInstantiatedOnClient` and `GhostCountReceivedOnClient` to the `GhostCount` struct to differentiate ghosts which we have only received the data for, from fully instantiated ghosts (i.e. ghosts with entities). See deprecation entry and `PendingSpawnPlaceholder`.
+* The `AutomaticThinClientWorldsUtility` class, which facilitates runtime creation (and management) of thin clients. It is available to user-code, and when in `PlayType.Server`.
+
+### Changed
+
+* The error for `NetworkProtocolVersion` mismatches will now better indicate what exactly went wrong, and what steps can be taken to resolve the error.
+* Incremental UI improvement to the `MultiplayerPlayModeWindow` netcode worlds display. The server now lists ghost counts (details in tooltip), the client `GhostCount` singleton is now available via hovering over the ping tooltip (as it's often something you want to know), and the `DriverStore` drivers are now displayed consistently.
+* Re-enabled disabled LoadScenes_AllScenesShouldConnect and LoadScenes_NoScenesShouldLog tests randomly failing that were failing because of the CommandSendSystemGroup issue.
+* **Behaviour Breaking Change:** `GhostSendSystemData.MaxSendChunks` no longer limits the max number of chunks to iterate over (i.e. query) - unless `GhostSendSystemData.MaxIterateChunks` is zero - as it no longer counts cancelled chunk snapshot writes towards its total. Therefore, use `GhostSendSystemData.MaxIterateChunks` instead to denote that limit. This should lead to fewer emptier packets, particularly when used in conjunction with many static and irrelevant ghosts.
+* **API & Behaviour Breaking Change:** The netcode package `DefaultDriverConstructor` will now default to the transports `NetworkParameterConstants.SendQueueCapacity` and `ReceiveQueueCapacity` respectively (each `512`), rather than our own package implementation of `max(playerCount * 4, 64)` where `playerCount` is an optional parameter defaulting to 0. This optional parameter has since been removed from `CreateServerNetworkDriver` and `GetNetworkServerSettings`, but you can instead override them via the `NetCodeConfig` additions (see entry). This prevents the common fatal error case when playtesting with higher player counts, and removes the most common need for a per-project `INetworkStreamDriverConstructor`, but is a small regression in memory consumption (~1.8MB) on both the client and the server, when using any built-in `INetworkStreamDriverConstructor`. We recommend configuring them back to 64 if that previously did not cause any issues.
+* The verbose "Delta time was negative. To avoid undefined behaviour the frame is skipped." log has been moved behind `NetDebug.DebugLog` and re-worded.
+* Merged the two internal batched and unbatched `GatherGhostChunks` methods. Performance characteristics of both should be practically identical.
+* Placeholder ghosts are now given the name `GHOST-PLACEHOLDER-{ghostType}` to aid in debugging.
+* Copy editing and improvements to the Setting up client and server worlds section of the documentation.
+* **Behaviour Breaking Change:** The client will now ignore the `HandshakeApprovalTimeoutMS` until it has completed the `Handshake` phase, as it should respect this servers value, rather than assuming its own. Relatedly: Be aware that client worlds will not fetch the `ClientServerTickRate` values from a `NetCodeConfig.Global` config, they will only accept values sent to it by the server during handshake.
+* **Behaviour Breaking Change:** The `AddCommandData` method will now reject inputs with `Invalid` Tick values, preventing runtime exceptions in rare cases.
+* **Behaviour Breaking Change:** The `DefaultDriverConstructor` no longer removes the IPC driver when `RequestedPlayType == Server`, as thin clients can now be instantiated on DGS builds (assuming supported by user-code).
+
+### Deprecated
+
+* `NetworkDriverInstance.simulatorEnabled` setter, as writing to it did not effectively enable and disable the simulator.
+* **Behaviour Breaking Change:** `GhostSendSystemData.MaxSendEntities` no longer functions, as it was somewhat misleading, and less precise than `MaxSendChunks` and `MaxIterateChunks`.
+* Renamed `GetNetworkSettings` to `GetNetworkClientSettings`.
+* `GhostCount.GhostCountOnClient` has been deprecated as it is ambiguous: Its value is the same as the new `GhostCountReceivedOnClient`, but its tooltip incorrectly implied that it was the `GhostCountInstantiatedOnClient`.
+
+### Fixed
+
+* `MultiplayerPlayModeWindow` issue where the width of the server world buttons were erroneously causing a Horizontal Scrollbar. Also removed slightly excessive repainting.
+* Limitation preventing the `MultiplayerPlayModeWindow` from being resized when undocked.
+* CommandSendSystemGroup running systems when the current server tick is invalid, CommandSendPacketSystem (and other system potentially) throwing exceptions.
+* an issue when using physics interpolation, causing graphical jitter on the replicated ghost when the physics system run on partial ticks.
+* It is possible now to allow physics to run in the prediction loop even in case no predicted ghosts are present. This can be achieved by combining the PredictionLoopUpdateMode and PhysicGroupRunMode options.
+* an issue with netcode source generated files, causing multiple Burst.CompileAsync invocation, ending up in stalling the editor and the player for long time, and / or causing crashes.
+* Critical `GhostSendSystem` and `GhostChunkSerializer` issue preventing ghosts from successfully acking their own previous snapshots, in cases where the next attempted resend of a ghost chunk exceeded 256 ticks (easily encountered when attempting to replicate thousands of ghosts to a single connection). Whenever a ghost chunk is unable to ack, larger deltas must be resent, and static optimization early-outing logic cannot be applied, causing unnecessary bandwidth and CPU consumption. While this issue did tend to stabilize over time, our initial fix is to increase this ack window considerably (see `ClientServerTickRate.SnapshotAckMaskCapacity` entry).
+* Prevented the `GhostAuthoringInspectionComponent` from erroneously re-baking the ghost while the user is editing a property on said ghost prefab (applicable only when in 'Auto-Refresh' mode).
+* `MinSendImportance` no longer artificially delays the initial send of ghosts with low importance values (although this was mitigatable via `FirstSendImportanceMultiplier`).
+* Issue with ElapsedTime in server worlds where it could fall behind compared to InitializationSystemGroup's  if the frame's deltaTime was going over MaxSimulationStepsPerFrame * MaxSimulationStepBatchSize settings. This changes the catch up behaviour server side. Previously, the server would skip ticks if batching wasn't enough while now it'll do its best to catchup on those missing ticks on the subsequent frames if time allows.
+* Issue where Netcode's ElapsedTime could be ahead of the InitializationSystemGroup elapsed time in server worlds. It should now either always be equal to or slightly behind if not enough time has accumulated for a tick to execute.
+* Issue where disconnecting while in the process of spawning prefabs raised the following error: "Found a ghost in the ghost map which does not have an entity connected to it. This can happen if you delete ghost entities on the client."
+* Overzealous RPC validation error when broadcasting an RPC on the same frame as a disconnection.
+* The `AutomaticThinClientWorldsUtility` now allows you to disable automatic in-editor thin client creation by setting `BootstrapInitialization` and `RuntimeInitialization` to null during bootstrapping.
+* Removed the limitation preventing thin clients from being created when in mode `Server`, including DGS builds. Ensure thin client systems are in assemblies that will be loaded on the server.
+* Bug causing user-created thin client worlds to be automatically cleaned up by the netcode package due to `RequestedNumThinClients`. Now, only worlds which are created via the `AutomaticThinClientWorldsUtility` (or manually added by user-code to its tracking list) will be automatically disposed.
+
+
+
 ## [1.3.6] - 2024-10-16
 
 ### Changed
@@ -14,6 +71,7 @@ uid: changelog
 * an issue with netcode source generated files, causing multiple Burst.CompileAsync invocation, ending up in stalling the editor and the player for long time, and / or causing crashes.
 * Issue where `OverrideAutomaticNetcodeBootstrap` instances in scenes would be ignored in the Editor if 'Fast Enter Play-Mode Options' is disabled (i.e. when domain reloads triggered after clicking to enter play-mode).
 * Longstanding API documentation errors across Netcode for Entities API documentation.
+
 
 ## [1.3.2] - 2024-09-06
 

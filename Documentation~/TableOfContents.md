@@ -23,6 +23,7 @@
 * [Testing and debugging your game](debugging.md)
   * [Logging](logging.md)
   * [Using the PlayMode Tool](playmode-tool.md)
+  * [Testing with thin clients](thin-clients.md)
   * [Gathering metrics with MetricsMonitorComponent](metrics.md)
   * [Using source generators](source-generators.md)
 * [Optimizing performance](optimizing.md)

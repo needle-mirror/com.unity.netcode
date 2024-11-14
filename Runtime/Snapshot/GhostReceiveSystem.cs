@@ -31,7 +31,7 @@ namespace Unity.NetCode
         /// <summary>
         /// Produce the hash code for the SpawnedGhost.
         /// </summary>
-        /// <returns></returns>
+        /// <returns>Ghost id</returns>
         public override int GetHashCode()
         {
             return ghostId;
@@ -39,17 +39,17 @@ namespace Unity.NetCode
         /// <summary>
         /// Construct a SpawnedEntity from a <see cref="GhostInstance"/>
         /// </summary>
-        /// <param name="ghostInstance">The ghost from witch t</param>
+        /// <param name="ghostInstance">The ghost from which to construct a SpawnedEntity</param>
         public SpawnedGhost(in GhostInstance ghostInstance)
         {
             ghostId = ghostInstance.ghostId;
             spawnTick = ghostInstance.spawnTick;
         }
         /// <summary>
-        /// Construct a SpawnedEntity using the ghost identifier and the spawn tick>
+        /// Construct a SpawnedEntity using the ghost identifier and the spawn tick
         /// </summary>
-        /// <param name="ghostId"></param>
-        /// <param name="spawnTick"></param>
+        /// <param name="ghostId">Ghost id</param>
+        /// <param name="spawnTick">Spawn tick</param>
         public SpawnedGhost(int ghostId, NetworkTick spawnTick)
         {
             this.ghostId = ghostId;
@@ -58,8 +58,8 @@ namespace Unity.NetCode
         /// <summary>
         /// The SpawnedGhost are identical if both id and tick match.
         /// </summary>
-        /// <param name="ghost"></param>
-        /// <returns></returns>
+        /// <param name="ghost">Ghost to compare with</param>
+        /// <returns>Whether ghost id and spawn tick are identical</returns>
         public bool Equals(SpawnedGhost ghost)
         {
             return ghost.ghostId == ghostId && ghost.spawnTick == spawnTick;
@@ -182,7 +182,7 @@ namespace Unity.NetCode
 #endif
             m_GhostEntityMap = new NativeParallelHashMap<int, Entity>(2048, Allocator.Persistent);
             m_SpawnedGhostEntityMap = new NativeParallelHashMap<SpawnedGhost, Entity>(2048, Allocator.Persistent);
-            m_GhostCompletionCount = new NativeArray<int>(2, Allocator.Persistent);
+            m_GhostCompletionCount = new NativeArray<int>(3, Allocator.Persistent);
 
             var componentTypes = new NativeArray<ComponentType>(1, Allocator.Temp);
             componentTypes[0] = ComponentType.ReadWrite<SpawnedGhostEntityMap>();
@@ -298,6 +298,17 @@ namespace Unity.NetCode
                         SpawnedGhostMap.Remove(keys[i]);
                     }
                 }
+
+                // Bug fix: Some ghosts have not spawned yet, but they still need to be removed from this map, to prevent the error:
+                // "Found a ghost in the ghost map which does not have an entity connected to it. This can happen if you delete ghost entities on the client.".
+                var ghostMapKeys = GhostMap.GetKeyArray(Allocator.Temp);
+                for (int i = 0; i < ghostMapKeys.Length; ++i)
+                {
+                    if (PrespawnHelper.IsRuntimeSpawnedGhost(ghostMapKeys[i]))
+                    {
+                        GhostMap.Remove(ghostMapKeys[i]);
+                    }
+                }
             }
         }
 
@@ -381,15 +392,16 @@ namespace Unity.NetCode
                 // Read the ghost stream
                 // find entities to spawn or destroy
                 var serverTick = new NetworkTick{SerializedData = dataStream.ReadUInt()};
+                ref var ack = ref SnapshotAckFromEntity.GetRefRW(Connections[0]).ValueRW;
 
 #if NETCODE_DEBUG
                 FixedString512Bytes debugLog = TimestampAndTick;
                 m_EnablePacketLogging = EnablePacketLogging.InitAndFetch(Connections[0], EnableLoggingFromEntity, in NetDebugPacket);
+                // TODO - Map CurrentSnapshotSequenceId exactly to the snapshot data itself, rather than fetching it "second hand" here.
                 if (m_EnablePacketLogging == 1)
-                    debugLog.Append(FixedString.Format(" ServerTick:{0}\n", serverTick.ToFixedString()));
+                    debugLog.Append(FixedString.Format(" ServerTick:{0} [SSId:{1}]\n", serverTick.ToFixedString(), ack.CurrentSnapshotSequenceId));
 #endif
 
-                ref var ack = ref SnapshotAckFromEntity.GetRefRW(Connections[0]).ValueRW;
                 // Load all new prefabs
                 uint numPrefabs = dataStream.ReadPackedUInt(CompressionModel);
 #if NETCODE_DEBUG
@@ -971,7 +983,7 @@ namespace Unity.NetCode
                         }
                         if(!isPrespawn || data.BaselineTick.IsValid)
                             // If the server specifies a baseline for a ghost we do not have that is an error
-                            NetDebug.LogError($"Received baseline for a ghost we do not have ghostId={ghostId} baselineTick={data.BaselineTick.ToFixedString()} serverTick={serverTick.ToFixedString()}");
+                            NetDebug.LogError($"Received baseline for a ghost we do not have ghostId={ghostId} baselineTick={data.BaselineTick.ToFixedString()} serverTick={serverTick.ToFixedString()} existingGhost={existingGhost}");
 #if NETCODE_DEBUG
                         if (m_EnablePacketLogging == 1)
                         {
@@ -1367,7 +1379,7 @@ namespace Unity.NetCode
             var commandBuffer = SystemAPI.GetSingleton<BeginSimulationEntityCommandBufferSystem.Singleton>().CreateCommandBuffer(state.WorldUnmanaged);
             if (m_ConnectionsQuery.IsEmptyIgnoreFilter)
             {
-                m_GhostCompletionCount[0] = m_GhostCompletionCount[1] = 0;
+                m_GhostCompletionCount[0] = m_GhostCompletionCount[1] = m_GhostCompletionCount[2] = 0;
                 state.CompleteDependency(); // Make sure we can access the spawned ghost map
                 // If there were no ghosts spawned at runtime we don't need to cleanup
                 if (m_GhostCleanupQuery.IsEmptyIgnoreFilter &&

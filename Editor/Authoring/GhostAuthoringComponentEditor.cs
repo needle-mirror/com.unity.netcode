@@ -1,6 +1,10 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
+using Unity.Collections;
 using Unity.Entities.Conversion;
+using Unity.Mathematics;
+using Unity.NetCode.Hybrid;
 using UnityEditor;
 using UnityEditor.SceneManagement;
 using UnityEngine;
@@ -8,6 +12,7 @@ using UnityEngine;
 namespace Unity.NetCode.Editor
 {
     [CustomEditor(typeof(GhostAuthoringComponent))]
+    [CanEditMultipleObjects]
     internal class GhostAuthoringComponentEditor : UnityEditor.Editor
     {
         SerializedProperty DefaultGhostMode;
@@ -19,12 +24,14 @@ namespace Unity.NetCode.Editor
         SerializedProperty GhostGroup;
         SerializedProperty UsePreSerialization;
         SerializedProperty Importance;
+        SerializedProperty MaxSendRate;
         SerializedProperty PredictedSpawnedGhostRollbackToSpawnTick;
         SerializedProperty RollbackPredictionOnStructuralChanges;
 
         internal static Color brokenColor = new Color(1f, 0.56f, 0.54f);
         internal static Color brokenColorUIToolkit = new Color(0.35f, 0.19f, 0.19f);
         internal static Color brokenColorUIToolkitText = new Color(0.9f, 0.64f, 0.61f);
+        private static readonly GUILayoutOption s_HelperWidth = GUILayout.Width(180);
 
         /// <summary>Aligned with NetCode for GameObjects.</summary>
         public static Color netcodeColor => new Color(0.91f, 0.55f, 0.86f, 1f);
@@ -40,6 +47,7 @@ namespace Unity.NetCode.Editor
             GhostGroup = serializedObject.FindProperty(nameof(GhostAuthoringComponent.GhostGroup));
             UsePreSerialization = serializedObject.FindProperty(nameof(GhostAuthoringComponent.UsePreSerialization));
             Importance = serializedObject.FindProperty(nameof(GhostAuthoringComponent.Importance));
+            MaxSendRate = serializedObject.FindProperty(nameof(GhostAuthoringComponent.MaxSendRate));
             PredictedSpawnedGhostRollbackToSpawnTick = serializedObject.FindProperty(nameof(GhostAuthoringComponent.RollbackPredictedSpawnedGhostState));
             RollbackPredictionOnStructuralChanges = serializedObject.FindProperty(nameof(GhostAuthoringComponent.RollbackPredictionOnStructuralChanges));
         }
@@ -67,11 +75,54 @@ namespace Unity.NetCode.Editor
                 }
             }
 
-
             var originalColor = GUI.color;
-
             GUI.color = originalColor;
-            EditorGUILayout.PropertyField(Importance);
+            // Importance:
+            {
+                EditorGUILayout.BeginHorizontal();
+                var importanceContent = new GUIContent(nameof(Importance), GetImportanceFieldTooltip());
+                EditorGUILayout.PropertyField(Importance, importanceContent);
+                var editorImportanceSuggestion = ImportanceInlineTooltip(authoringComponent.Importance);
+                importanceContent.text = editorImportanceSuggestion.Name;
+                GUILayout.Box(importanceContent, s_HelperWidth);
+                EditorGUILayout.EndHorizontal();
+            }
+            // MaxSendRate:
+            {
+                var hasMaxSendRate = authoringComponent.MaxSendRate != 0;
+                EditorGUILayout.BeginHorizontal();
+                EditorGUILayout.PropertyField(MaxSendRate);
+                var globalConfig = NetCodeClientAndServerSettings.instance?.GlobalNetCodeConfig;
+                var tickRate = globalConfig != null ? globalConfig.ClientServerTickRate : new ClientServerTickRate();
+                tickRate.ResolveDefaults();
+                var clientTickRate = globalConfig != null ? NetCodeClientAndServerSettings.instance.GlobalNetCodeConfig.ClientTickRate : NetworkTimeSystem.DefaultClientTickRate;
+                var sendInterval = tickRate.CalculateNetworkSendIntervalOfGhostInTicks(authoringComponent.MaxSendRate);
+                var label = new GUIContent(SendRateInlineTooltip(), MaxSendRate.tooltip);
+                GUILayout.Box(label, s_HelperWidth);
+
+                string SendRateInlineTooltip() =>
+                    (sendInterval, hasMaxSendRate) switch
+                    {
+                        (_, false) => "OFF | Every Snapshot",
+                        (1, true) => "Every Snapshot",
+                        (2, true) => "Every Other Snapshot",
+                        (_, true) => $"Every {WithOrdinalSuffix(sendInterval)} Snapshot",
+                    } + $" @ {tickRate.NetworkTickRate}Hz";
+
+                EditorGUILayout.EndHorizontal();
+
+                // MaxSendRate warning:
+                if (authoringComponent.SupportedGhostModes != GhostModeMask.Predicted)
+                {
+                    var interpolationBufferWindowInTicks = clientTickRate.CalculateInterpolationBufferTimeInTicks(in tickRate);
+                    var delta = sendInterval - interpolationBufferWindowInTicks;
+                    if (delta > 0)
+                    {
+                        EditorGUILayout.HelpBox($"This ghost prefab is using a MaxSendRate value of {authoringComponent.MaxSendRate}, which leads to a maximum send interval of '{label.text}' i.e. every {sendInterval}ms, which is {delta} ticks longer than your maximum interpolation buffer window of {interpolationBufferWindowInTicks} ticks. You are therefore not replicating this ghost often enough to allow it to smoothly interpolate. To fix; either increase MaxSendRate, or increase the size of the interpolation buffer window globally.", MessageType.Warning);
+                    }
+                }
+            }
+
             EditorGUILayout.PropertyField(SupportedGhostModes);
 
             var self = (GhostAuthoringComponent) target;
@@ -138,6 +189,47 @@ namespace Unity.NetCode.Editor
             if (PrefabUtility.IsPartOfPrefabAsset(go))
                 return true;
             return !PrefabUtility.IsPartOfPrefabInstance(go);
+        }
+
+        internal string GetImportanceFieldTooltip()
+        {
+            var suggestions = NetCodeClientAndServerSettings.instance.CurrentImportanceSuggestions;
+            var s = Importance.tooltip;
+            foreach (var eis in suggestions)
+            {
+                var value = eis.MaxValue == uint.MaxValue || eis.MaxValue == eis.MinValue || eis.MaxValue == 0
+                    ? $"~{eis.MinValue}" :  $"{eis.MinValue} ~ {eis.MaxValue}";
+                s += $"\n\n <b>{value}</b> for <b>{eis.Name}</b>\n<i>{eis.Tooltip}</i>";
+            }
+            return s;
+        }
+
+        internal static EditorImportanceSuggestion ImportanceInlineTooltip(long importance)
+        {
+            var suggestions = NetCodeClientAndServerSettings.instance.CurrentImportanceSuggestions;
+            foreach (var eis in suggestions)
+            {
+                if (importance <= eis.MaxValue)
+                {
+                    return eis;
+                }
+            }
+            return suggestions.LastOrDefault();
+        }
+
+        /// <summary>Adds the ordinal indicator/suffix to an integer.</summary>
+        internal static string WithOrdinalSuffix(long number)
+        {
+            // Numbers in the teens always end with "th".
+            if((number % 100 > 10 && number % 100 < 20))
+                return number + "th";
+            return (number % 10) switch
+            {
+                1 => number + "st",
+                2 => number + "nd",
+                3 => number + "rd",
+                _ => number + "th",
+            };
         }
     }
 }

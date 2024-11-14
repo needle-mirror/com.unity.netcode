@@ -1,6 +1,7 @@
 #if UNITY_EDITOR && !NETCODE_NDEBUG
 #define NETCODE_DEBUG
 #endif
+using System;
 using Unity.Collections;
 using Unity.Entities;
 using Unity.Jobs;
@@ -143,10 +144,10 @@ namespace Unity.NetCode
             var clientNetTime = SystemAPI.GetSingleton<NetworkTime>();
             var targetTick = NetworkTimeHelper.LastFullServerTick(clientNetTime);
             // Make sure we only send a single ack per tick - only triggers when using dynamic timestep
-            if (targetTick == m_LastServerTick)
-                return;
+            if (targetTick.IsValid && targetTick != m_LastServerTick)
+                base.OnUpdate();
             m_LastServerTick = targetTick;
-            base.OnUpdate();
+
         }
     }
 
@@ -247,6 +248,7 @@ namespace Unity.NetCode
                     netDebug.LogError($"CommandSendPacket EndSend failed with errorCode: {result} on {connection.Value.ToFixedString()}!");
             }
         }
+
         [BurstCompile]
         public void OnUpdate(ref SystemState state)
         {

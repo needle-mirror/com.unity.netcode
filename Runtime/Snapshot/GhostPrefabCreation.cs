@@ -32,10 +32,10 @@ namespace Unity.NetCode
 {
     /// <summary>
     /// Stores the `Supported Ghost Mode` by a ghost at authoring time.
-    /// <list type="bullet">
-    /// <item>Interpolated: <see cref="Interpolated"/></item>
-    /// <item>Predicted: <see cref="Predicted"/></item>
-    /// <item>All: <see cref="All"/></item>
+    /// <list>
+    /// <item>Interpolated</item>
+    /// <item>Predicted</item>
+    /// <item>All</item>
     /// </list>
     /// </summary>
     public enum GhostModeMask
@@ -73,17 +73,15 @@ namespace Unity.NetCode
     /// <inheritdoc cref="GhostModeMask"/>
     public enum GhostMode
     {
-        /// <summary></summary>
         /// <inheritdoc cref="GhostModeMask.Interpolated"/>
         Interpolated,
-        /// <summary></summary>
         /// <inheritdoc cref="GhostModeMask.Predicted"/>
         Predicted,
         /// <summary>
         /// The ghost will be <see cref="Predicted"/> by the Ghost Owner (set via <see cref="GhostOwner"/>)
         /// and <see cref="Interpolated"/> by every other client.
         /// </summary>
-        OwnerPredicted
+        OwnerPredicted,
     }
 
     /// <summary>
@@ -132,8 +130,13 @@ namespace Unity.NetCode
             public Hash128 UUID5GhostType;
             /// <summary>
             /// Higher importance means the ghost will be sent more frequently if there is not enough bandwidth to send everything.
+            /// Minimum value: 1.
             /// </summary>
             public int Importance;
+            /// <summary>
+            /// Denotes the max send frequency of a ghost, similar to <see cref="GhostSendSystemData.MinSendImportance"/>.
+            /// </summary>
+            public byte MaxSendRate;
             /// <summary>
             /// The ghost modes this prefab can be instantiated as. If for example set the Interpolated it is not possible to use this prefab for prediction.
             /// </summary>
@@ -181,8 +184,8 @@ namespace Unity.NetCode
             /// <summary>
             /// Compare two Component. Component are equals if the type and entity index are the same.
             /// </summary>
-            /// <param name="other"></param>
-            /// <returns></returns>
+            /// <param name="other">Component to compare</param>
+            /// <returns>Whether the type and entity index are the same</returns>
             public bool Equals(Component other)
             {
                 return ComponentType == other.ComponentType && ChildIndex == other.ChildIndex;
@@ -190,7 +193,7 @@ namespace Unity.NetCode
             /// <summary>
             /// Calculate a unique hash for the component based on type and index.
             /// </summary>
-            /// <returns></returns>
+            /// <returns>A unique hash based on the component type and index.</returns>
             public override int GetHashCode()
             {
                 return (ComponentType.GetHashCode() * 397) ^ ChildIndex.GetHashCode();
@@ -443,6 +446,7 @@ namespace Unity.NetCode
 
             // Store importance, supported modes, default mode and name in the meta data blob asset
             root.Importance = ghostConfig.Importance;
+            root.MaxSendRate = ghostConfig.MaxSendRate;
             root.SupportedModes = GhostPrefabBlobMetaData.GhostMode.Both;
             root.DefaultMode = GhostPrefabBlobMetaData.GhostMode.Interpolated;
             if (ghostConfig.SupportedGhostModes == GhostModeMask.Interpolated)

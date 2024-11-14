@@ -2,6 +2,7 @@ using System.Runtime.CompilerServices;
 using Unity.Collections;
 using Unity.Core;
 using Unity.Entities;
+using Unity.Mathematics;
 using Unity.Profiling;
 using static Unity.NetCode.ClientServerTickRate.FrameRateMode;
 
@@ -26,6 +27,8 @@ namespace Unity.NetCode
 
         internal int RemainingTicksToRun;
         private float m_AccumulatedTime;
+        private bool m_IsFirstTimeExecuting = true;
+        private double m_ElapsedTime;
         private Count m_UpdateCount;
         private ProfilerMarker m_fixedUpdateMarker;
         private readonly PredictedFixedStepSimulationSystemGroup m_PredictedFixedStepSimulationSystemGroup;
@@ -61,22 +64,30 @@ namespace Unity.NetCode
         {
             accumulatedTime += deltaTime;
             int updateCount = (int)(accumulatedTime / fixedTimeStep);
-            accumulatedTime = accumulatedTime % fixedTimeStep;
+            // ex:
+            // accumulatedTime = 0.16666666
+            // fixedTimeStep = 0.0.016666666
+            // updateCount = 10, maxTimeSteps = 4, maxTimeStepLength = 4
             int shortSteps = 0;
             int length = 1;
-            if (updateCount > maxTimeSteps)
+            if (updateCount > maxTimeSteps) // 10 > 4
             {
                 // Required length
-                length = (updateCount + maxTimeSteps - 1) / maxTimeSteps;
-                if (length > maxTimeStepLength)
+                // +maxTimeSteps-1 to get the implicit int cast to "round up"
+                length = (updateCount + maxTimeSteps - 1) / maxTimeSteps; // (10 + 4 - 1) / 4 = 13/4 = (int)3.25 = 3
+                if (length > maxTimeStepLength) // 3 ! > 4
                     length = maxTimeStepLength;
                 else
                 {
                     // Check how many will need to be long vs short
-                    shortSteps = length * maxTimeSteps - updateCount;
+                    shortSteps = length * maxTimeSteps - updateCount; // 3 * 4 - 10 = 2
                 }
-                updateCount = maxTimeSteps;
+                updateCount = maxTimeSteps; // 4
             }
+
+            var longStepCount = updateCount - shortSteps; // 4 - 2 = 2
+            var timeConsumedThisFrame = length * fixedTimeStep * longStepCount + (length - 1) * fixedTimeStep * shortSteps; // 3 * 0.016666666 * 2 + (3 - 1) * 0.016666666 * 2 = 0.1666666666 == accumulatedTime
+            accumulatedTime -= timeConsumedThisFrame;
             return new Count
             {
                 TotalSteps = updateCount,
@@ -125,6 +136,13 @@ namespace Unity.NetCode
 
         internal void UpdateNetworkTime(ComponentSystemGroup group, ClientServerTickRate tickRate, ref NetworkTime networkTime)
         {
+            if (m_IsFirstTimeExecuting)
+            {
+                m_IsFirstTimeExecuting = false;
+                // we want to keep the same behaviour as UpdateWorldTimeSystem which starts at 0 for the first frame
+                // here this will be negative and then clamped to 0 later
+                m_ElapsedTime = group.World.Time.ElapsedTime - group.World.Time.DeltaTime;
+            }
             if (RemainingTicksToRun == (m_UpdateCount.ShortStepCount))
                 --m_UpdateCount.LengthLongSteps;
             var dt = GetDeltaTimeForCurrentTick(tickRate);
@@ -140,7 +158,9 @@ namespace Unity.NetCode
                 networkTime.Flags &= ~NetworkTimeFlags.IsCatchUpTick;
             else
                 networkTime.Flags |= NetworkTimeFlags.IsCatchUpTick;
-            networkTime.ElapsedNetworkTime += dt;
+            m_ElapsedTime += dt;
+            // At the beginning of the world, we'll be a few prediction ticks with a negative elapsedTime value if the first frame has a high deltaTime. This is needed so that during that first frame, if we execute multiple batched ticks that we're still following the world's elapsed time.
+            networkTime.ElapsedNetworkTime = math.max(m_ElapsedTime, 0);
         }
 
         private void AdjustTargetFrameRate(int tickRate, float fixedTimeStep)

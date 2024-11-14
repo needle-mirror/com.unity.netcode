@@ -23,10 +23,10 @@ namespace Unity.NetCode
         /// <summary>
         /// Convenience method to initialize the debug mesh bounds for GameObjects.
         /// </summary>
-        /// <param name="gameObject"></param>
-        /// <param name="entity"></param>
-        /// <param name="world"></param>
-        /// <returns></returns>
+        /// <param name="gameObject">GameObject with debug mesh</param>
+        /// <param name="entity">Entity represenation of gameobject</param>
+        /// <param name="world">World containing entity</param>
+        /// <returns>Returns a mesh's bounds for debug drawing.</returns>
         public GhostDebugMeshBounds Initialize(GameObject gameObject, Entity entity, World world)
         {
             gameObject.GetComponentsInChildren<Renderer>(includeInactive: true, results: s_AllRenderers);

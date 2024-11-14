@@ -19,7 +19,7 @@ namespace Unity.NetCode
     /// this for compatibility reason and It may be changed in the future.
     /// In order to configure these settings you can either:
     /// <list type="bullet">
-    /// <item> Create the entity in a custom <see cref="Unity.NetCode.ClientServerBootstrap"/> after the worlds has been created.</item>
+    /// <item> Create the entity in a custom Unity.NetCode.ClientServerBootstrap after the worlds has been created.</item>
     /// <item> On a system, in either the OnCreate or OnUpdate.</item>
     /// </list>
     /// It is not mandatory to set all the fields to a proper value when creating the singleton. It is sufficient to change only the relevant setting, and call the <see cref="ResolveDefaults"/> method to
@@ -63,7 +63,7 @@ namespace Unity.NetCode
     /// <remarks>
     /// <list type="bullet">
     /// <item>
-    /// Once the client is connected, changes to the <see cref="ClientServerTickRate"/> are not replicated. If you change the settings are runtime, the same change must
+    /// Once the client is connected, changes to the ClientServerTickRate are not replicated. If you change the settings are runtime, the same change must
     /// be done on both client and server.
     /// </item>
     /// <item>
@@ -194,6 +194,68 @@ namespace Unity.NetCode
         private bool m_SendSnapshotsForCatchUpTicks;
 
         /// <summary>
+        ///     Netcode needs to store a history of snapshot acknowledgements ("acks") on the server - one per connection.
+        ///     This denotes the size of said history buffer, in bits, and is exposed only to allow further patching of an esoteric
+        ///     issue (see remarks). Default value is 4096 bits (0.5KB), which should prevent this issue in the common case.
+        ///     Previous hardcoded default was 256 bits.
+        /// </summary>
+        /// <remarks>
+        ///     <para>
+        ///         Due to <see cref="GhostSendSystem" /> priority queue mechanics, increasing this value may fix errors where:
+        ///         <list type="bullet">
+        ///             <item>Static ghosts never stop resending.</item>
+        ///             <item>
+        ///                 Static and dynamic ghosts do not correctly find their 'baselines' (i.e. previously send and acked
+        ///                 values), when attempting delta-compression.
+        ///             </item>
+        ///         </list>
+        ///     </para>
+        ///     <para>
+        ///         Per connection, per chunk, netcode stores up to 32 previous snapshots (and thus baselines, and their
+        ///         acks) in a circular/ring buffer (<see cref="LowLevel.Unsafe.GhostChunkSerializationState" /> and
+        ///         <see cref="GhostSystemConstants.SnapshotHistorySize" />). This ring-buffer appends an entry
+        ///         every time the chunk is successfully serialized into a snapshot writer.
+        ///     </para>
+        ///     <para>
+        ///         The problem is: When you have tens of thousands of relevant ghosts for a single connection
+        ///         (a case we strongly advise against), the priority queue will only "bubble up" a chunk to be resent
+        ///         after many tens of seconds. You can very loosely approximate the lower bound of this via
+        ///         <c>(((numGhosts/avgNumGhostsPerChunk)*averageSizeOfChunkInBytes)/transportMTU)/NetworkTickRate</c>
+        ///         E.g. 100k well optimized ghosts, sent at 30Hz (Simulation 60Hz), is <c>(((100000/40)*1200)/1400)/30 = ~72s</c>
+        ///         to replicate them all once. I.e. ~4285 simulation ticks will have occurred since the client
+        ///         was sent the previously sent snapshot.
+        ///     </para>
+        ///     <para>
+        ///         Thus, when we check the ack buffer ~72 seconds later, the ack has long since been bit-shifted off
+        ///         the end of the 256 tick history buffer. The simplest solution (implemented here) is to store
+        ///         an ack buffer that is considerably larger. It is now 4096 entries by default (i.e. ~1.1 minutes at 60Hz),
+        ///         and 1024 entries at a minimum (~17s at 60Hz), whereas the previous default was 256 (i.e. ~4.26s at 60Hz).
+        ///         <b>This field configures said capacity.</b>
+        ///     </para>
+        ///     <para>
+        ///         Because we are now able to find acks for snapshots sent over 4.26s ago, this fixed a
+        ///         regression in delta-compression performance (as, previously, the baseline was found,
+        ///         but treated as un-acked, thus unable to be used).
+        ///     </para>
+        ///     <para>
+        ///         We also previously failed to mark this chunk as having 'no changes' (via <c>isZeroChange</c>),
+        ///         as a ghost having 'no change' relies on its current value being compared to any of its acked
+        ///         baseline values. This means we previously could not early out via <c>CanUseStaticOptimization</c>
+        ///         (which looks for zero change). As a result, we frequently saw resending of previously acked
+        ///         static ghosts in these circumstances (at least until the server so happens to try to resend
+        ///         the same chunk within <see cref="SnapshotAckMaskCapacity" /> ticks of a previous ack).
+        ///     </para>
+        ///     <para>
+        ///         Similarly, if you implemented configuration options like <see cref="GhostSendSystemData.MinSendImportance" />,
+        ///         we would delay processing of a chunk artificially. If this delay happened to exceed capacity,
+        ///         the chunk (and its ghosts) can never possibly ack. Thankfully, <c>SnapshotAckMaskCapacity</c>
+        ///         is now far higher than we'd ever recommend setting <c>MinSendImportance</c>.
+        ///     </para>
+        /// </remarks>
+        [Tooltip("Denotes how many entries the snapshot ack history BitArray stores. Default value: 4096 bits. Min: 1024 bits.\n\nSolves an emergent problem when replicating tens of thousands of relevant static ghosts to a single connection - a case we strongly advise against. See XML doc.")]
+        public uint SnapshotAckMaskCapacity;
+
+        /// <summary>
         /// On the client, Netcode attempts to align its own fixed step with the render refresh rate, with the goal of
         /// reducing Partial ticks, and increasing stability. This setting denotes the window (in %) to snap and align.
         /// Defaults to 5 (5%), which is applied each way: I.e. If you're within 5% of the last full tick, or if you're
@@ -231,6 +293,7 @@ namespace Unity.NetCode
         internal const int DefaultMaxSimulationStepsPerFrame = 1;
         internal const int DefaultMaxSimulationStepBatchSize = 4;
         internal const int DefaultPredictedFixedStepSimulationTickRatio = 1;
+        internal const int DefaultHandshakeApprovalTimeoutMS = 5_000;
 
         /// <summary>
         /// Set all the properties that haven't been changed by the user (or that have invalid ranges) to a proper default value.
@@ -250,10 +313,12 @@ namespace Unity.NetCode
                 MaxSimulationStepsPerFrame = DefaultMaxSimulationStepsPerFrame;
             if (MaxSimulationStepBatchSize <= 0)
                 MaxSimulationStepBatchSize = DefaultMaxSimulationStepBatchSize;
+            if (SnapshotAckMaskCapacity == 0)
+                SnapshotAckMaskCapacity = 4096;
             if (ClampPartialTicksThreshold == 0)
                 ClampPartialTicksThreshold = 5;
             if (HandshakeApprovalTimeoutMS == 0)
-                HandshakeApprovalTimeoutMS = 5_000;
+                HandshakeApprovalTimeoutMS = DefaultHandshakeApprovalTimeoutMS;
         }
 
         [Conditional("ENABLE_UNITY_COLLECTIONS_CHECKS")]
@@ -283,10 +348,12 @@ namespace Unity.NetCode
                 errors.Add($"{nameof(MaxSimulationStepsPerFrame)} must always be > 0");
             if (MaxSimulationStepBatchSize <= 0)
                 errors.Add($"{nameof(MaxSimulationStepBatchSize)} must always be > 0");
+            if (SnapshotAckMaskCapacity < 1024)
+                errors.Add($"{nameof(SnapshotAckMaskCapacity)} has a minimum size of 1024");
             if (ClampPartialTicksThreshold > 50)
                 errors.Add($"{nameof(ClampPartialTicksThreshold)} must always within be [-1, 50]");
             if(HandshakeApprovalTimeoutMS < 1000)
-                errors.Add($"{nameof(HandshakeApprovalTimeoutMS)} must be >= 1000ms.");
+                errors.Add($"{nameof(HandshakeApprovalTimeoutMS)} must be >= 1000ms");
             // ReSharper restore ConditionIsAlwaysTrueOrFalse
         }
 
@@ -297,6 +364,22 @@ namespace Unity.NetCode
         /// </summary>
         /// <returns>The snapshot send interval.</returns>
         public int CalculateNetworkSendRateInterval() => (SimulationTickRate + NetworkTickRate - 1) / NetworkTickRate;
+
+        /// <summary>
+        /// Returns the <see cref="MaxSendRate"/> as a <see cref="SimulationTickRate"/> interval UNTIL you can resend this chunk.
+        /// </summary>
+        /// <param name="MaxSendRate">From the GhostAuthoring.</param>
+        /// <returns>The interval i.e. every nth <see cref="SimulationTickRate"/> tick.</returns>
+        public byte CalculateNetworkSendIntervalOfGhostInTicks(ushort MaxSendRate)
+        {
+            if (MaxSendRate == 0)
+                return 1; // Every SimulationTickRate tick.
+            var maxSendRateMs = 1000f / MaxSendRate; // E.g. 9hz 111ms
+            var networkTickRateDelayMS = 1000f / NetworkTickRate; // 60hz 16ms
+            return (byte)math.ceil((maxSendRateMs - 0.001f) / (networkTickRateDelayMS)); // = 111/16 = 6.9375 = 7
+                                                                                          // = You send on every 7th tick
+                                                                                          // i.e. you wait 6 ticks.
+        }
     }
 
     /// <summary>
@@ -315,6 +398,8 @@ namespace Unity.NetCode
         public int MaxSimulationStepsPerFrame;
         /// <inheritdoc cref="ClientServerTickRate.MaxSimulationStepBatchSize"/>
         public int MaxSimulationStepBatchSize;
+        /// <inheritdoc cref="ClientServerTickRate.HandshakeApprovalTimeoutMS"/>
+        public uint HandshakeApprovalTimeoutMS;
 
         internal readonly void Serialize(ref DataStreamWriter writer, in StreamCompressionModel compressionModel)
         {
@@ -323,6 +408,7 @@ namespace Unity.NetCode
             writer.WritePackedUIntDelta((uint) MaxSimulationStepBatchSize, ClientServerTickRate.DefaultMaxSimulationStepBatchSize, compressionModel);
             writer.WritePackedUIntDelta((uint) MaxSimulationStepsPerFrame, ClientServerTickRate.DefaultMaxSimulationStepsPerFrame, compressionModel);
             writer.WritePackedUIntDelta((uint) PredictedFixedStepSimulationTickRatio, ClientServerTickRate.DefaultPredictedFixedStepSimulationTickRatio, compressionModel);
+            writer.WritePackedUIntDelta((uint) HandshakeApprovalTimeoutMS, ClientServerTickRate.DefaultHandshakeApprovalTimeoutMS, compressionModel);
         }
 
         internal void Deserialize(ref DataStreamReader reader, in StreamCompressionModel compressionModel)
@@ -332,6 +418,7 @@ namespace Unity.NetCode
             MaxSimulationStepBatchSize = (int) reader.ReadPackedUIntDelta(ClientServerTickRate.DefaultMaxSimulationStepBatchSize, compressionModel);
             MaxSimulationStepsPerFrame = (int) reader.ReadPackedUIntDelta(ClientServerTickRate.DefaultMaxSimulationStepsPerFrame, compressionModel);
             PredictedFixedStepSimulationTickRatio = (int) reader.ReadPackedUIntDelta(ClientServerTickRate.DefaultPredictedFixedStepSimulationTickRatio, compressionModel);
+            HandshakeApprovalTimeoutMS = reader.ReadPackedUIntDelta(ClientServerTickRate.DefaultHandshakeApprovalTimeoutMS, compressionModel);
         }
 
         public void ApplyTo(ref ClientServerTickRate tickRate)
@@ -341,6 +428,7 @@ namespace Unity.NetCode
             tickRate.SimulationTickRate = SimulationTickRate;
             tickRate.MaxSimulationStepBatchSize = MaxSimulationStepBatchSize;
             tickRate.PredictedFixedStepSimulationTickRatio = PredictedFixedStepSimulationTickRatio;
+            tickRate.HandshakeApprovalTimeoutMS = HandshakeApprovalTimeoutMS;
         }
 
         public void ReadFrom(in ClientServerTickRate tickRate)
@@ -350,7 +438,23 @@ namespace Unity.NetCode
             MaxSimulationStepBatchSize = tickRate.MaxSimulationStepBatchSize;
             SimulationTickRate = tickRate.SimulationTickRate;
             PredictedFixedStepSimulationTickRatio = tickRate.PredictedFixedStepSimulationTickRatio;
+            HandshakeApprovalTimeoutMS = tickRate.HandshakeApprovalTimeoutMS;
         }
+    }
+
+    /// <summary>
+    /// Configure when the prediction loop should run on the client.
+    /// </summary>
+    public enum PredictionLoopUpdateMode
+    {
+        /// <summary>
+        /// The prediction loop will run the prediction systems only if there is at least one predicted ghost spawned on the client.
+        /// </summary>
+        RequirePredictedGhost,
+        /// <summary>
+        /// The prediction loop will always run, regardless of whether or not any predicted ghosts are spawned on the client.
+        /// </summary>
+        AlwaysRun
     }
 
     /// <summary>
@@ -431,6 +535,19 @@ namespace Unity.NetCode
         [Tooltip("The client can batch simulation steps in the prediction loop. This setting controls how many simulation steps the simulation can batch, <b>for ticks which are being predicted for the first time</b>.\n\nWhen 0, defaults to 1 at runtime.\n\nSetting this to a value larger than 1 will save performance at the cost of simulation accuracy. Gameplay systems needs to be adapted.")]
         [Range(0, 16)]
         public int MaxPredictionStepBatchSizeFirstTimeTick;
+        /// <summary>
+        /// Configure how the client should run the prediction loop systems. By default, the client runs the systems inside the <see cref="PredictedSimulationSystemGroup"/> (and consequently also the ones in <see cref="PredictedFixedStepSimulationSystemGroup"/>)
+        /// only if there are predicted ghosts in the world. This is a good behaviour in general, as it saves some CPU cycles. However, it can be unintuitive, as there are situations where you would like to have these systems always run. For example:
+        /// <list type="bullet">>
+        /// <item>You would like to ray cast against the physics world, even in cases where there are only interpolated ghosts and/or static geometry present. I.e. In order to spawn a predicted ghost in first place, you need to raycast against the static geometry.</item>
+        /// <item>You want some systems to act on both interpolated and predicted ghosts (and run in the same group, with certain caveats, of course). An example could be a "dead-reckoned" static, interpolated ghost that rarely updates (i.e. it has very low importance).</item>
+        /// </list>
+        /// It is important to understand the implications of selecting the alternative mode, <see cref="PredictionLoopUpdateMode.AlwaysRun"/>, especially from a CPU cost perspective. In that case, because the systems will run all the time,
+        /// it is fundamental to prevent doing work when said work is un-necessary. Example: Scheduling jobs with empty queries. While it is, in general, already the case that most of the idiomatic foreach and jobs etc are going to be a no-op,
+        /// you may still incur some extra CPU overhead, just because of the systems update. Best practice is to use RequireForUpdate (or similar) checks, as preconditions for the system to run.
+        /// </summary>
+        [Tooltip("Denotes if the client should run the prediction loop systems, even if no predicted ghosts are present in the client world. By default, the client doesn't run the systems inside the PredictedSimulationSystemGroup (and consequently, nor the ones in PredictedFixedStepSimulationSystemGroup) if there are no predicted ghosts.\n\nThis is a good behaviour in general, that saves some CPU cycles. However, it may be unintuitive, as there are situations where you would like to have these systems always run. For example:\n\n - You would like to ray cast against the physics world, even in cases where there are only interpolated ghosts and/or static geometry present. I.e. In order to spawn a predicted ghost in first place, you need to raycast against the static geometry.\n\n - You want some systems to act on both interpolated and predicted ghosts (and run in the same group, with certain caveats, of course). An example could be a \"dead-reckoned\" static, interpolated ghost that rarely updates (i.e. it has very low importance).")]
+        public PredictionLoopUpdateMode PredictionLoopUpdateMode;
         /// <summary>
         /// Multiplier used to compensate received snapshot rate jitter when calculating the Interpolation Delay.
         /// Default Value: 1.25.
@@ -517,5 +634,19 @@ namespace Unity.NetCode
         [Tooltip("PredictionTick time scale max value.\n\nDefaults to 1.1. Recommended range is (1.05 - 1.2).\n\nNote: It is not mandatory to have the min and max values symmetric.")]
         [Range(1f, 2f)]
         public float PredictionTimeScaleMax;
+
+        /// <summary>The size of the interpolation window.</summary>
+        /// <param name="tickRate">The current struct value.</param>
+        /// <returns>Value in <see cref="ClientServerTickRate.SimulationTickRate"/> Ticks.</returns>
+        public int CalculateInterpolationBufferTimeInTicks(in ClientServerTickRate tickRate)
+        {
+            if (InterpolationTimeMS != 0)
+                return (int)((InterpolationTimeMS * tickRate.NetworkTickRate + 999) / 1000);
+            return (int) InterpolationTimeNetTicks;
+        }
+        /// <summary>The size of the interpolation window.</summary>
+        /// <param name="tickRate">The current struct value.</param>
+        /// <returns>Value in milliseconds.</returns>
+        public float CalculateInterpolationBufferTimeInMs(in ClientServerTickRate tickRate) => CalculateInterpolationBufferTimeInTicks(in tickRate) * tickRate.SimulationFixedTimeStep * 1000;
     }
 }

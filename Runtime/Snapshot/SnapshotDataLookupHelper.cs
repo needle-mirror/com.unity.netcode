@@ -25,7 +25,7 @@ namespace Unity.NetCode.LowLevel
         /// Default constructor, collect and initialize all the internal <see cref="BufferFromEntity{T}"/> handles
         /// and collect the necessary data structures.
         /// </summary>
-        /// <param name="state"></param>
+        /// <param name="state">See: <see cref="SystemState"/>.</param>
         /// <param name="ghostCollectionEntity">The entity that hold the GhostCollection component</param>
         /// <param name="spawnMapEntity">The entity that hold the SpawnedGhostEntityMap component</param>
         public SnapshotDataLookupHelper(ref SystemState state,
@@ -47,7 +47,7 @@ namespace Unity.NetCode.LowLevel
         /// <summary>
         /// Call this method in your system OnUpdate to refresh all the internal <see cref="BufferFromEntity{T}"/> handles.
         /// </summary>
-        /// <param name="state"></param>
+        /// <param name="state">See: <see cref="SystemState"/>.</param>
         public void Update(ref SystemState state)
         {
             m_GhostCollectionPrefabSerializerLookup.Update(ref state);

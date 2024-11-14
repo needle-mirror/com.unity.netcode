@@ -707,7 +707,7 @@ namespace Unity.NetCode.Tests
                 client.EntityManager.AddComponent<SendRpcCommandRequest>(rpcEntity);
 
                 if(!suppressWarning)
-                    LogAssert.Expect(LogType.Warning, new Regex(@"\[ClientTest0(.*)\] Sending approval RPC '(.*)' to Entity\(\d*\:\d*\) \('NetworkConnection(.*)\) but connection approval is disabled\."));
+                    LogAssert.Expect(LogType.Warning, new Regex(@"\[ClientTest0(.*)\] Sending approval RPC '(.*)' to the server but connection approval is disabled"));
                 testWorld.Tick();
                 LogAssert.NoUnexpectedReceived();
             }
@@ -743,8 +743,7 @@ namespace Unity.NetCode.Tests
                 client.EntityManager.AddComponent<SendRpcCommandRequest>(rpcEntity);
 
                 testWorld.Tick();
-                LogAssert.Expect(LogType.Warning, new Regex(@"\[ClientTest0(.*)\] Cannot send RPC '(.*)' with no remote connection"));
-
+                LogAssert.Expect(LogType.Warning, new Regex(@"\[ClientTest0(.*)\] Cannot send RPC '(.*)' to the server as not connected"));
                 // Start connection setup for next phase of tests
                 var ep = NetworkEndpoint.LoopbackIpv4.WithPort(7979);
                 testWorld.GetSingletonRW<NetworkStreamDriver>(testWorld.ServerWorld).ValueRW.Listen(ep);
@@ -765,7 +764,7 @@ namespace Unity.NetCode.Tests
                     client.EntityManager.AddComponentData(rpcEntity, rpcData);
                     client.EntityManager.AddComponent<SendRpcCommandRequest>(rpcEntity);
 
-                    LogAssert.Expect(LogType.Error, new Regex(@"\[ClientTest0(.*)\] Cannot send non-approval RPC '(.*)' to Entity\(\d*\:\d*\) as NetworkConnection(.*) is in state `Handshake`"));
+                    LogAssert.Expect(LogType.Error, new Regex(@"\[ClientTest0(.*)\] Cannot send RPC '(.*)' to the server as it is not an Approval RPC, and its NetworkConnection(.*) - on Entity(.*) - is in state `Handshake`"));
                     testWorld.Tick();
 
                     // Now with a target connection instead of broadcast
@@ -775,7 +774,7 @@ namespace Unity.NetCode.Tests
                     client.EntityManager.AddComponentData(rpcEntity, rpcData);
                     client.EntityManager.AddComponentData(rpcEntity, new SendRpcCommandRequest(){TargetConnection = clientConnectionToServer});
 
-                    LogAssert.Expect(LogType.Error, new Regex(@"\[ClientTest0(.*)\] Cannot send non-approval RPC '(.*)' to Entity\(\d*\:\d*\) as NetworkConnection(.*) is in state `Handshake`"));
+                    LogAssert.Expect(LogType.Error, new Regex(@"\[ClientTest0(.*)\] Cannot send RPC '(.*)' to the server as it is not an Approval RPC, and its NetworkConnection(.*) - on Entity(.*) - is in state `Handshake`"));
                     testWorld.Tick();
 
                     // Disconnect to invalidate the connection entity
@@ -794,8 +793,7 @@ namespace Unity.NetCode.Tests
                         testWorld.Tick();
 
                     // Connection attempt is ongoing but NetworkId not received yet
-                    LogAssert.Expect(LogType.Error, new Regex(@"\[ClientTest0(.*)\] Cannot send RPC '(.*)' to Entity\(\d*\:\d*\) as NetworkConnection(.*) is in state `Connecting`"));
-
+                    LogAssert.Expect(LogType.Error, new Regex(@"\[ClientTest0(.*)\] Cannot send RPC '(.*)' to the server as its NetworkConnection(.*) - on Entity(.*) - is in state `Connecting`"));
                     // Verify the connection did finish
                     Assert.AreNotEqual(Entity.Null, testWorld.TryGetSingletonEntity<NetworkId>(client));
 
@@ -814,7 +812,7 @@ namespace Unity.NetCode.Tests
                     for (int i = 0; i < 5; ++i)
                         testWorld.Tick();
 
-                    LogAssert.Expect(LogType.Error, new Regex(@"\[ClientTest0(.*)\] Cannot send RPC '(.*)' to Entity\(\d*\:\d*\) as NetworkConnection(.*) is in state `Connecting`"));
+                    LogAssert.Expect(LogType.Error, new Regex(@"\[ClientTest0(.*)\] Cannot send RPC '(.*)' to the server as its NetworkConnection(.*) - on Entity(.*) - is in state `Connecting`"));
                     Assert.AreNotEqual(Entity.Null, testWorld.TryGetSingletonEntity<NetworkId>(client));
                 }
 
@@ -823,7 +821,7 @@ namespace Unity.NetCode.Tests
                 client.EntityManager.AddComponentData(rpcEntity, rpcData);
                 client.EntityManager.AddComponentData(rpcEntity, new SendRpcCommandRequest(){TargetConnection = connectionEntity});
 
-                LogAssert.Expect(LogType.Warning, new Regex(@"\[ClientTest0(.*)\] Cannot send RPC '(.*)' to Entity\(\d*\:\d*\) as it does not have a `NetworkStreamConnection` entity"));
+                LogAssert.Expect(LogType.Warning, new Regex(@"\[ClientTest0(.*)\] Cannot send RPC '(.*)' to the server as its connection entity \(Entity(.*)\) does not have a `NetworkStreamConnection` or `OutgoingRpcDataStreamBuffer` component"));
                 testWorld.Tick();
             }
         }

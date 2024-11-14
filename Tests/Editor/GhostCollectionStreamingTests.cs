@@ -74,15 +74,17 @@ namespace Unity.NetCode.Tests
                 var ghostCount = testWorld.GetSingleton<GhostCount>(testWorld.ClientWorlds[0]);
                 // Validate that the ghost was deleted on the client
                 Assert.AreEqual(8, ghostCount.GhostCountOnServer);
-                Assert.AreEqual(0, ghostCount.GhostCountOnClient);
+                Assert.AreEqual(0, ghostCount.GhostCountInstantiatedOnClient);
+                Assert.AreEqual(0, ghostCount.GhostCountReceivedOnClient);
 
                 testWorld.BakeGhostCollection(testWorld.ClientWorlds[0]);
                 onDemandSystem.IsLoading = false;
-                for (int i = 0; i < 4; ++i)
+                for (int i = 0; i < 5; ++i)
                     testWorld.Tick();
                 // Validate that the ghost was deleted on the client
                 Assert.AreEqual(8, ghostCount.GhostCountOnServer);
-                Assert.AreEqual(8, ghostCount.GhostCountOnClient);
+                Assert.AreEqual(8, ghostCount.GhostCountReceivedOnClient);
+                Assert.AreEqual(8, ghostCount.GhostCountInstantiatedOnClient);
             }
         }
         [Test]
@@ -120,7 +122,8 @@ namespace Unity.NetCode.Tests
                 var ghostCount = testWorld.GetSingleton<GhostCount>(testWorld.ClientWorlds[0]);
                 // Validate that the ghost was deleted on the client
                 Assert.AreEqual(8, ghostCount.GhostCountOnServer);
-                Assert.AreEqual(0, ghostCount.GhostCountOnClient);
+                Assert.AreEqual(0, ghostCount.GhostCountInstantiatedOnClient);
+                Assert.AreEqual(0, ghostCount.GhostCountReceivedOnClient);
 
                 //testWorld.ConvertGhostCollection(testWorld.ClientWorlds[0]);
                 onDemandSystem.IsLoading = false;

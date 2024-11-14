@@ -22,9 +22,9 @@ namespace Unity.NetCode
         /// the relative weight that is applied to the baseline values.
         /// </summary>
         /// <param name="tick">the current server tick</param>
-        /// <param name="baseline0_tick"></param>
-        /// <param name="baseline1_tick"></param>
-        /// <param name="baseline2_tick"></param>
+        /// <param name="baseline0_tick">Network tick baseline</param>
+        /// <param name="baseline1_tick">Network tick baseline</param>
+        /// <param name="baseline2_tick">Network tick baseline</param>
         public GhostDeltaPredictor(NetworkTick tick, NetworkTick baseline0_tick, NetworkTick baseline1_tick, NetworkTick baseline2_tick)
         {
             predictFrac = 16 * baseline0_tick.TicksSince(baseline1_tick) / baseline1_tick.TicksSince(baseline2_tick);
@@ -34,10 +34,10 @@ namespace Unity.NetCode
         /// <summary>
         /// Calculate the predicted value for the given integer, using the previous three baselines.
         /// </summary>
-        /// <param name="baseline0"></param>
-        /// <param name="baseline1"></param>
-        /// <param name="baseline2"></param>
-        /// <returns></returns>
+        /// <param name="baseline0">Tick baseline</param>
+        /// <param name="baseline1">Tick baseline</param>
+        /// <param name="baseline2">Tick baseline</param>
+        /// <returns>Predicted value for given integer</returns>
         public int PredictInt(int baseline0, int baseline1, int baseline2)
         {
             int delta = baseline1 - baseline2;
@@ -51,10 +51,10 @@ namespace Unity.NetCode
         /// <summary>
         /// Calculate the predicted value for the given long, using the previous three baselines.
         /// </summary>
-        /// <param name="baseline0"></param>
-        /// <param name="baseline1"></param>
-        /// <param name="baseline2"></param>
-        /// <returns></returns>
+        /// <param name="baseline0">Tick baseline</param>
+        /// <param name="baseline1">Tick baseline</param>
+        /// <param name="baseline2">Tick baseline</param>
+        /// <returns>Predicted value for given long</returns>
         public long PredictLong(long baseline0, long baseline1, long baseline2)
         {
             long delta = baseline1 - baseline2;

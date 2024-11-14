@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Diagnostics;
+using Unity.Burst.CompilerServices;
 using Unity.Collections;
 using Unity.Properties;
 
@@ -15,7 +16,7 @@ namespace Unity.NetCode
         [Conditional("ENABLE_UNITY_COLLECTIONS_CHECKS")]
         private void CheckValid()
         {
-            if(!IsValid)
+            if(Hint.Unlikely(!IsValid))
                 throw new InvalidOperationException("Cannot perform calculations with invalid ticks");
         }
         /// <summary>
@@ -25,9 +26,9 @@ namespace Unity.NetCode
         /// <summary>
         /// Compare two ticks, also works for invalid ticks.
         /// </summary>
-        /// <param name="a"></param>
-        /// <param name="b"></param>
-        /// <returns></returns>
+        /// <param name="a">Tick a</param>
+        /// <param name="b">Tick b</param>
+        /// <returns>Whether the tick values are equal.</returns>
         public static bool operator ==(in NetworkTick a, in NetworkTick b)
         {
             return a.m_Value == b.m_Value;
@@ -35,9 +36,9 @@ namespace Unity.NetCode
         /// <summary>
         /// Compare two ticks, also works for invalid ticks.
         /// </summary>
-        /// <param name="a"></param>
-        /// <param name="b"></param>
-        /// <returns></returns>
+        /// <param name="a">Tick a</param>
+        /// <param name="b">Tick b</param>
+        /// <returns>Whether the tick values are different.</returns>
         public static bool operator !=(in NetworkTick a, in NetworkTick b)
         {
             return a.m_Value != b.m_Value;
@@ -45,14 +46,13 @@ namespace Unity.NetCode
         /// <summary>
         /// Compare two ticks, also works for invalid ticks.
         /// </summary>
-        /// <param name="obj"></param>
-        /// <returns></returns>
+        /// <inheritdoc cref="object.Equals(object)"/>
         public override bool Equals(object obj) => obj is NetworkTick && Equals((NetworkTick) obj);
         /// <summary>
         /// Compare two ticks, also works for invalid ticks.
         /// </summary>
-        /// <param name="compare"></param>
-        /// <returns></returns>
+        /// <param name="compare">Network tick to compare with</param>
+        /// <returns>Whether <paramref name="compare"/> has the same tick</returns>
         public bool Equals(NetworkTick compare)
         {
             return m_Value == compare.m_Value;
@@ -60,7 +60,7 @@ namespace Unity.NetCode
         /// <summary>
         /// Get a hash for the tick.
         /// </summary>
-        /// <returns></returns>
+        /// <returns>Internal tick value</returns>
         public override int GetHashCode()
         {
             return (int)m_Value;
@@ -143,7 +143,7 @@ namespace Unity.NetCode
         /// If the passed in tick is newer this will return a negative value.
         /// </summary>
         /// <param name="older">The tick to compute passed ticks from</param>
-        /// <returns></returns>
+        /// <returns>The number of ticks which passed since <paramref name="older"/></returns>
         public int TicksSince(NetworkTick older)
         {
             CheckValid();
@@ -160,7 +160,7 @@ namespace Unity.NetCode
         /// the result might not be correct.
         /// </remarks>
         /// <param name="old">The tick to compare with</param>
-        /// <returns></returns>
+        /// <returns>Whether this tick is newer than another tick.</returns>
         public bool IsNewerThan(NetworkTick old)
         {
             CheckValid();

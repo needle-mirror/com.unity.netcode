@@ -232,7 +232,7 @@ namespace Unity.NetCode
                 }
             }
 #endif
-            rateManager.SetTimeStep(tickRate.PredictedFixedStepSimulationTimeStep);
+            rateManager.SetTimeStep(tickRate.PredictedFixedStepSimulationTimeStep, tickRate.PredictedFixedStepSimulationTickRatio);
         }
 
         /// <summary>
@@ -242,7 +242,7 @@ namespace Unity.NetCode
         public PredictedFixedStepSimulationSystemGroup()
         {
             //we are passing 0 as time step so the group does not run until a proper setting is setup.
-            SetRateManagerCreateAllocator(new NetcodePredictionFixedRateManager(0f));
+            SetRateManagerCreateAllocator(new NetcodePredictionFixedRateManager(0f, 0));
         }
         protected override void OnCreate()
         {

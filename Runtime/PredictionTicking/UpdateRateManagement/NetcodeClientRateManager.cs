@@ -12,7 +12,7 @@ namespace Unity.NetCode
         public NetworkTick Value;
         public float Fraction;
     }
-    
+
     class NetcodeClientRateManager : IRateManager
     {
         private EntityQuery m_NetworkTimeQuery;
@@ -21,6 +21,7 @@ namespace Unity.NetCode
         private EntityQuery m_ClientSeverTickRateQuery;
         private EntityQuery m_NetworkStreamInGameQuery;
         private EntityQuery m_NetworkTimeSystemDataQuery;
+        private EntityQuery m_NetDebugQuery;
         private readonly PredictedFixedStepSimulationSystemGroup m_PredictedFixedStepSimulationSystemGroup;
 
         private bool m_DidPushTime;
@@ -33,6 +34,7 @@ namespace Unity.NetCode
             m_ClientSeverTickRateQuery = group.World.EntityManager.CreateEntityQuery(ComponentType.ReadWrite<ClientServerTickRate>());
             m_NetworkStreamInGameQuery = group.World.EntityManager.CreateEntityQuery(ComponentType.ReadWrite<NetworkStreamInGame>());
             m_NetworkTimeSystemDataQuery = group.World.EntityManager.CreateEntityQuery(ComponentType.ReadOnly<NetworkTimeSystemData>());
+            m_NetDebugQuery = group.World.EntityManager.CreateEntityQuery(ComponentType.ReadOnly<NetDebug>());
             m_PredictedFixedStepSimulationSystemGroup = group.World.GetExistingSystemManaged<PredictedFixedStepSimulationSystemGroup>();
 
             var netTimeEntity = group.World.EntityManager.CreateEntity(
@@ -106,7 +108,7 @@ namespace Unity.NetCode
 
             if (networkDeltaTime <= 0)
             {
-                Debug.Log("Delta time was negative. To avoid undefined behaviour the frame is skipped.");
+                m_NetDebugQuery.GetSingleton<NetDebug>().DebugLog($"[{group.World.Name}] Netcode's network delta time is negative: {networkDeltaTime}. To avoid undefined behaviour, the frame will be skipped.");
                 return false;
             }
 

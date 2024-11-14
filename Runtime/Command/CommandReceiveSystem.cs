@@ -303,8 +303,8 @@ namespace Unity.NetCode
             /// enqueued by either using the <see cref="CommandTarget"/> target entity or via
             /// <see cref="AutoCommandTarget"/> if enabled.
             /// </summary>
-            /// <param name="chunk"></param>
-            /// <param name="orderIndex"></param>
+            /// <param name="chunk">Chunk containing commands to decode</param>
+            /// <param name="orderIndex">Order index</param>
             public unsafe void Execute(ArchetypeChunk chunk, int orderIndex)
             {
                 var snapshotAcks = chunk.GetNativeArray(ref snapshotAckType);

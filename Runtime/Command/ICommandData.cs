@@ -1,10 +1,12 @@
 using System;
 using System.Runtime.CompilerServices;
 using System.Text;
+using Unity.Burst.CompilerServices;
 using Unity.Collections;
 using Unity.Collections.LowLevel.Unsafe;
 using Unity.Entities;
 using Unity.NetCode.LowLevel.Unsafe;
+using UnityEngine;
 
 namespace Unity.NetCode
 {
@@ -81,7 +83,7 @@ namespace Unity.NetCode
     /// If you enable manual serializaton, you must create a public struct that implement the ICommandDataSerializer for your type, as
     /// well as the necessary send and received systems in order to have your RPC sent and received.
     /// </summary>
-    /// <typeparam name="T"></typeparam>
+    /// <typeparam name="T">Your data type.</typeparam>
     public interface ICommandDataSerializer<T> where T: unmanaged, ICommandData
     {
         /// <summary>
@@ -90,7 +92,7 @@ namespace Unity.NetCode
         /// <param name="writer">An instance of a <see cref="DataStreamWriter"/></param>
         /// <param name="state">An instance of <see cref="RpcSerializerState"/> used to carry some additional data and accessor
         /// for serializing the command field type. In particular, used to serialize entity</param>
-        /// <param name="data"></param>
+        /// <param name="data">Command</param>
         void Serialize(ref DataStreamWriter writer, in RpcSerializerState state, in T data);
         /// <summary>
         /// Deserialize a single command from the data stream.
@@ -98,7 +100,7 @@ namespace Unity.NetCode
         /// <param name="reader">An instance of a <see cref="DataStreamWriter"/></param>
         /// <param name="state">An instance of <see cref="RpcSerializerState"/> used to carry some additional data and accessor
         /// for serializing the command field type. In particular, used to serialize entity</param>
-        /// <param name="data"></param>
+        /// <param name="data">Command</param>
         void Deserialize(ref DataStreamReader reader, in RpcDeserializerState state, ref T data);
 
         /// <summary>
@@ -107,9 +109,9 @@ namespace Unity.NetCode
         /// <param name="writer">An instance of a <see cref="DataStreamWriter"/></param>
         /// <param name="state">An instance of <see cref="RpcSerializerState"/> used to carry some additional data and accessor
         /// for serializing the command field type. In particular, used to serialize entity</param>
-        /// <param name="data"></param>
-        /// <param name="baseline"></param>
-        /// <param name="compressionModel"></param>
+        /// <param name="data">Command</param>
+        /// <param name="baseline">Baseline command</param>
+        /// <param name="compressionModel">Delta compression model</param>
         void Serialize(ref DataStreamWriter writer, in RpcSerializerState state, in T data, in T baseline, StreamCompressionModel compressionModel);
 
         /// <summary>
@@ -118,9 +120,9 @@ namespace Unity.NetCode
         /// <param name="reader">An instance of a <see cref="DataStreamWriter"/></param>
         /// <param name="state">An instance of <see cref="RpcSerializerState"/> used to carry some additional data and accessor
         /// for serializing the command field type. In particular, used to serialize entity</param>
-        /// <param name="data"></param>
-        /// <param name="baseline"></param>
-        /// <param name="compressionModel"></param>
+        /// <param name="data">Command</param>
+        /// <param name="baseline">Baseline command</param>
+        /// <param name="compressionModel">Delta compression model</param>
         void Deserialize(ref DataStreamReader reader, in RpcDeserializerState state, ref T data, in T baseline, StreamCompressionModel compressionModel);
 
         /// <summary>
@@ -205,9 +207,9 @@ namespace Unity.NetCode
         /// the buffer is not going to be modified. That would invalidate the reference in that case and we can't guaratee
         /// the data you are reading is going to be valid anymore.
         /// </summary>
-        /// <param name="buffer"></param>
-        /// <param name="index"></param>
-        /// <typeparam name="T"></typeparam>
+        /// <param name="buffer">Buffer to index</param>
+        /// <param name="index">index to get input</param>
+        /// <typeparam name="T">the command type</typeparam>
         /// <returns>A readonly reference to the element</returns>
         public static ref readonly T GetInputAtIndex<T>(this DynamicBuffer<T> buffer, int index) where T: unmanaged, ICommandData
         {
@@ -227,6 +229,9 @@ namespace Unity.NetCode
         public static bool AddCommandData<T>(this DynamicBuffer<T> commandBuffer, T commandData)
             where T : unmanaged, ICommandData
         {
+            if (Hint.Unlikely(!commandData.Tick.IsValid))
+                return false;
+
             var targetTick = commandData.Tick;
             int oldestIdx = 0;
             NetworkTick oldestTick = NetworkTick.Invalid;

@@ -48,28 +48,28 @@ namespace Unity.NetCode
             /// <summary>This rule will only add the variant to parent entities with this component type.
             /// Children with this component will remain <see cref="DontSerializeVariant"/> (which is the default for children).
             /// <b>This is the recommended approach.</b></summary>
-            /// <param name="variantForParentOnly"></param>
-            /// <returns></returns>
+            /// <param name="variantForParentOnly">Parent entities with this component type will receive the variant</param>
+            /// <returns>Updated rule</returns>
             public static Rule OnlyParents(Type variantForParentOnly) => new Rule(variantForParentOnly, default);
 
             /// <summary>This rule will add the same variant to all entities with this component type (i.e. both parent and children a.k.a. regardless of hierarchy).
             /// <b>Note: It is not recommended to serialize child entities as it is relatively slow to serialize them!</b></summary>
-            /// <param name="variantForBoth"></param>
-            /// <returns></returns>
+            /// <param name="variantForBoth">All entities with this component type will receive the variant</param>
+            /// <returns>Updated rule</returns>
             public static Rule ForAll(Type variantForBoth) => new Rule(variantForBoth, variantForBoth);
 
             /// <summary>This rule will add one variant for parents, and another variant for children, by default.
             /// <b>Note: It is not recommended to serialize child entities as it is relatively slow to serialize them!</b></summary>
-            /// <param name="variantForParents"></param>
-            /// <param name="variantForChildren"></param>
-            /// <returns></returns>
+            /// <param name="variantForParents">Parent entities with this component type will receive the variant</param>
+            /// <param name="variantForChildren">Child entities with this component type will receive the variant</param>
+            /// <returns>Updated rule</returns>
             public static Rule Unique(Type variantForParents, Type variantForChildren) => new Rule(variantForParents, variantForChildren);
 
             /// <summary>This rule will only add this variant to child entities with this component.
             /// The parent entities with this component will use the default serializer.
             /// <b>Note: It is not recommended to serialize child entities as it is relatively slow to serialize them!</b></summary>
-            /// <param name="variantForChildrenOnly"></param>
-            /// <returns></returns>
+            /// <param name="variantForChildrenOnly">Child entities with this component type will receive the variant</param>
+            /// <returns>Updated rule</returns>
             public static Rule OnlyChildren(Type variantForChildrenOnly) => new Rule(default, variantForChildrenOnly);
 
             /// <summary>Use the static builder methods instead!</summary>
@@ -90,12 +90,12 @@ namespace Unity.NetCode
             /// <summary>
             /// Compare two rules ana check if their parent and child types are identical.
             /// </summary>
-            /// <param name="other"></param>
-            /// <returns></returns>
+            /// <param name="other">Rule to test equality against</param>
+            /// <returns>Whether they variant type for parents and children match.</returns>
             public bool Equals(Rule other) => VariantForParents == other.VariantForParents && VariantForChildren == other.VariantForChildren;
 
             /// <summary>Unique HashCode if Variant fields are set.</summary>
-            /// <returns></returns>
+            /// <returns>A unique hashcode if variant fields are set. Otherwise 0.</returns>
             public override int GetHashCode()
             {
                 unchecked
@@ -167,7 +167,7 @@ namespace Unity.NetCode
         /// Implement this method by adding to the <paramref name="defaultVariants"/> mapping your
         /// default type->variant <see cref="Rule"/>.
         /// </summary>
-        /// <param name="defaultVariants"></param>
+        /// <param name="defaultVariants">Mapping default types to a variant.</param>
         protected abstract void RegisterDefaultVariants(Dictionary<ComponentType, Rule> defaultVariants);
     }
 

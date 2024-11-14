@@ -24,8 +24,8 @@ namespace Unity.NetCode.Hybrid
         /// <summary>
         /// Convenience method to initialize the debug mesh bounds.
         /// </summary>
-        /// <param name="entity"></param>
-        /// <param name="world"></param>
+        /// <param name="entity">The entity owning this GameObject.</param>
+        /// <param name="world">The world in which the entity owning this GameObject exists.</param>
         public void Initialize(Entity entity, World world)
         {
             Entity = entity;

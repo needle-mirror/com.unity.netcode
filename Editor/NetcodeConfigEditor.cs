@@ -20,7 +20,7 @@ namespace Unity.NetCode.Editor
     internal class NetcodeConfigEditor : UnityEditor.Editor, IPreprocessBuildWithReport, IPostprocessBuildWithReport
     {
         private const string k_LiveEditingWarning = " Therefore, be aware that the Global config is applied project-wide automatically:\n - In the Editor; this config is set every frame, enabling live editing. Note that this invalidates (by replacing) any C# code of yours that modifies these NetCode configuration singleton components manually.\n - In a build; this config is applied once (during Server & Client World system creation).";
-        private static readonly GUILayoutOption s_ButtonWidth = GUILayout.Width(70);
+        private static readonly GUILayoutOption s_ButtonWidth = GUILayout.Width(90);
 
         bool m_RemoveFromPreloadedAssets;
         public int callbackOrder => 0;
@@ -42,6 +42,7 @@ namespace Unity.NetCode.Editor
         {
             var assetPath = AssetDatabase.GenerateUniqueAssetPath("Assets/NetcodeConfig.asset");
             var netCodeConfig = CreateInstance<NetCodeConfig>();
+            netCodeConfig.IsGlobalConfig = true; // Prevent warning when first creating it.
             AssetDatabase.CreateAsset(netCodeConfig, assetPath);
             Selection.activeObject = SavedConfig = AssetDatabase.LoadAssetAtPath<NetCodeConfig>(assetPath);
         }
@@ -92,10 +93,11 @@ namespace Unity.NetCode.Editor
                     Links();
 
                     GUILayout.BeginHorizontal();
+                    var inst = NetCodeClientAndServerSettings.instance;
                     {
                         EditorGUI.BeginChangeCheck();
                         GUI.enabled = !Application.isPlaying;
-                        NetCodeClientAndServerSettings.instance.GlobalNetCodeConfig = EditorGUILayout.ObjectField(new GUIContent(string.Empty, "Select the asset that NetCode will use, by default."), NetCodeClientAndServerSettings.instance.GlobalNetCodeConfig, typeof(NetCodeConfig), allowSceneObjects: false) as NetCodeConfig;
+                        inst.GlobalNetCodeConfig = EditorGUILayout.ObjectField(new GUIContent(string.Empty, "Select the asset that NetCode will use, by default."), inst.GlobalNetCodeConfig, typeof(NetCodeConfig), allowSceneObjects: false) as NetCodeConfig;
 
                         if (GUILayout.Button("Find & Set", s_ButtonWidth))
                         {
@@ -111,7 +113,7 @@ namespace Unity.NetCode.Editor
                             }
                         }
 
-                        if (GUILayout.Button("Create", s_ButtonWidth))
+                        if (GUILayout.Button("Create & Set", s_ButtonWidth))
                         {
                             CreateNetcodeSettingsAsset();
                         }
@@ -131,6 +133,21 @@ namespace Unity.NetCode.Editor
                     {
                         EditorGUILayout.HelpBox("You have now set a Global NetCodeConfig asset." + k_LiveEditingWarning, MessageType.Warning);
                     }
+
+                    EditorGUILayout.Separator();
+
+                    // CurrentImportanceSuggestions:
+                    var prevFlags = inst.hideFlags;
+                    inst.hideFlags = HideFlags.None; // Allow editing of it.
+                    var clientAndServerSettingsSO = new SerializedObject(inst, inst);
+                    clientAndServerSettingsSO.Update();
+                    var CurrentImportanceSuggestionsProperty = clientAndServerSettingsSO.FindProperty(nameof(inst.CurrentImportanceSuggestions));
+                    EditorGUILayout.PropertyField(CurrentImportanceSuggestionsProperty);
+                    if (clientAndServerSettingsSO.ApplyModifiedProperties())
+                    {
+                        inst.Save();
+                    }
+                    inst.hideFlags = prevFlags;
                 },
 
                 // Populate the search keywords to enable smart search filtering and label highlighting:
@@ -226,6 +243,8 @@ namespace Unity.NetCode.Editor
         private static readonly GUIContent s_ClientServerTickRate = new GUIContent("ClientServerTickRate", "General multiplayer settings.\n\nServer Authoritative - Thus, when a client connects, the server will send an RPC clobbering any existing client values.");
         private static readonly GUIContent s_ClientTickRate = new GUIContent("ClientTickRate", "General multiplayer settings for the client.\n\nCan be configured on a per-client basis (via use of multiple configs, or direct C# component manipulation).");
         private static readonly GUIContent s_GhostSendSystemData = new GUIContent("GhostSendSystemData", "Specific optimization (and debug) settings for the GhostSendSystem to reduce bandwidth and CPU consumption.");
+        private static readonly GUIContent s_TransportSettings = new GUIContent("NetworkConfigParameter (Unity Transport)", "Configures various UTP <b>NetworkConfigParameter</b> configuration values, but only when user-code uses one of the built-in <b>INetworkStreamDriverConstructor</b>'s.\n\nTo read this config in your own driver constructors, call <b>DefaultDriverBuilder.AddNetcodePackageDefaultNetworkConfigParameters</b>.");
+        private static bool s_TransportSettingsFoldedOut = true;
 
         public override void OnInspectorGUI()
         {
@@ -253,6 +272,28 @@ namespace Unity.NetCode.Editor
             //.
             EditorGUILayout.PropertyField(serializedObject.FindProperty(nameof(NetCodeConfig.GhostSendSystemData)), s_GhostSendSystemData);
             ValidateGhostSendSystemData(config.GhostSendSystemData);
+            GUILayout.Space(15);
+
+            //.
+            GUI.enabled = !Application.isPlaying;
+            s_TransportSettingsFoldedOut = EditorGUILayout.Foldout(s_TransportSettingsFoldedOut, s_TransportSettings, toggleOnLabelClick: true);
+            if (s_TransportSettingsFoldedOut)
+            {
+                EditorGUI.indentLevel += 2;
+                EditorGUILayout.PropertyField(serializedObject.FindProperty(nameof(NetCodeConfig.ConnectTimeoutMS)));
+                EditorGUILayout.PropertyField(serializedObject.FindProperty(nameof(NetCodeConfig.MaxConnectAttempts)));
+                EditorGUILayout.PropertyField(serializedObject.FindProperty(nameof(NetCodeConfig.DisconnectTimeoutMS)));
+                EditorGUILayout.PropertyField(serializedObject.FindProperty(nameof(NetCodeConfig.HeartbeatTimeoutMS)));
+                EditorGUILayout.PropertyField(serializedObject.FindProperty(nameof(NetCodeConfig.ReconnectionTimeoutMS)));
+                EditorGUILayout.PropertyField(serializedObject.FindProperty(nameof(NetCodeConfig.ClientSendQueueCapacity)));
+                EditorGUILayout.PropertyField(serializedObject.FindProperty(nameof(NetCodeConfig.ClientReceiveQueueCapacity)));
+                EditorGUILayout.PropertyField(serializedObject.FindProperty(nameof(NetCodeConfig.ServerSendQueueCapacity)));
+                EditorGUILayout.PropertyField(serializedObject.FindProperty(nameof(NetCodeConfig.ServerReceiveQueueCapacity)));
+                EditorGUILayout.PropertyField(serializedObject.FindProperty(nameof(NetCodeConfig.MaxMessageSize)));
+                GUI.enabled = true;
+                EditorGUI.indentLevel -= 2;
+            }
+
             GUILayout.Space(15);
 
             //.

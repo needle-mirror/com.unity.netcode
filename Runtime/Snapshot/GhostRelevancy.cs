@@ -38,7 +38,7 @@ namespace Unity.NetCode
         /// Construct a new instance with the given connection id and ghost
         /// </summary>
         /// <param name="connection">The connection id</param>
-        /// <param name="ghost"></param>
+        /// <param name="ghost">Ghost id</param>
         public RelevantGhostForConnection(int connection, int ghost)
         {
             Connection = connection;
@@ -47,8 +47,8 @@ namespace Unity.NetCode
         /// <summary>
         /// return whenever the <paramref name="other"/> RelevantGhostForConnection is equals the current instance.
         /// </summary>
-        /// <param name="other"></param>
-        /// <returns></returns>
+        /// <param name="other">Instance to compare with</param>
+        /// <returns>Whether connection and ghost id are identical</returns>
         public bool Equals(RelevantGhostForConnection other)
         {
             return Connection == other.Connection && Ghost == other.Ghost;
@@ -56,8 +56,8 @@ namespace Unity.NetCode
         /// <summary>
         /// Comparison operator, used for sorting.
         /// </summary>
-        /// <param name="other"></param>
-        /// <returns></returns>
+        /// <param name="other">Instance to compare with</param>
+        /// <returns>Sorting order using ghost id and connection</returns>
         public int CompareTo(RelevantGhostForConnection other)
         {
             if (Connection == other.Connection)
@@ -68,7 +68,7 @@ namespace Unity.NetCode
         /// A hash code suitable to insert the RelevantGhostForConnection into an hashmap or
         /// other key-value pair containers. Is guarantee to be unique for the connection, ghost pairs.
         /// </summary>
-        /// <returns></returns>
+        /// <returns>Hash code basd on connection and ghost id</returns>
         public override int GetHashCode()
         {
             return (Connection << 24) | Ghost;

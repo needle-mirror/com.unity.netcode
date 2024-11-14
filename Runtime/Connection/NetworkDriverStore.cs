@@ -7,6 +7,7 @@ using Unity.Collections.LowLevel.Unsafe;
 using Unity.Entities;
 using Unity.Jobs;
 using Unity.Networking.Transport;
+using Unity.Networking.Transport.Utilities;
 
 namespace Unity.NetCode
 {
@@ -16,16 +17,16 @@ namespace Unity.NetCode
     public enum TransportType : int
     {
         /// <summary>
-        /// Not configured, or unsupported tramsport interface. The transport type for a registered driver instance
-        /// is always valid, unless the driver creation fail.
+        /// Not configured, or unsupported transport interface. The transport type for a registered driver instance
+        /// is always valid (not this value, in other words), unless the driver creation failed.
         /// </summary>
         Invalid = 0,
         /// <summary>
-        /// An inter-process like communication channel with 0 latency and guaratee delivery.
+        /// An inter-process like communication channel with zero latency, and guaranteed delivery.
         /// </summary>
         IPC,
         /// <summary>
-        /// A socket based communication channel. WebSocket, UDP, TCP or any similar communication channel fit that category.
+        /// A socket based communication channel. WebSocket, UDP, TCP or any similar communication channels fit that category.
         /// </summary>
         Socket,
     }
@@ -64,11 +65,11 @@ namespace Unity.NetCode
             /// </summary>
             public bool simulatorEnabled
             {
-                get { return m_SimulatorEnabled == 1; }
-                set { m_SimulatorEnabled = value ? (byte)1 : (byte)0; }
+                get => driver.IsCreated && driver.CurrentSettings.TryGet<SimulatorUtility.Parameters>(out _) || driver.CurrentSettings.TryGet<NetworkSimulatorParameter>(out _);
+                [Obsolete("This set has no effect on whether or not the simulator is actually enabled, and therefore should not be used.", false)]
+                // ReSharper disable once ValueParameterNotUsed
+                set { }
             }
-
-            private byte m_SimulatorEnabled;
 
             internal void StopListening()
             {
@@ -201,9 +202,9 @@ namespace Unity.NetCode
         /// Add a new driver to the store. Throw exception if all drivers slot are already occupied or the driver is not created/valid
         /// </summary>
         /// <returns>The assigned driver id </returns>
-        /// <param name="driverType"></param>
-        /// <param name="driverInstance"></param>
-        /// <exception cref="InvalidOperationException"></exception>
+        /// <param name="driverType">Driver type</param>
+        /// <param name="driverInstance">Instance of driver</param>
+        /// <exception cref="InvalidOperationException">Thrown if cannot register or the NetworkDriverStore is finalized.</exception>
         public int RegisterDriver(TransportType driverType, in NetworkDriverInstance driverInstance)
         {
             if (driverInstance.driver.IsCreated == false)
@@ -311,9 +312,6 @@ namespace Unity.NetCode
         /// <summary>
         /// Returns the <see cref="NetworkDriverData"/> instance, by ref.
         /// </summary>
-        /// <param name="driverId"></param>
-        /// <returns>The <see cref="NetworkDriverData"/> instance, by ref.</returns>
-        /// <exception cref="InvalidOperationException"></exception>
         /// <inheritdoc cref="GetDriverDataRO"/>
         internal unsafe ref NetworkDriverData GetDriverDataRW(int driverId)
         {
@@ -330,17 +328,14 @@ namespace Unity.NetCode
             }
         }
 
-        ///<summary>
+        /// <summary>
         /// Return the <see cref="NetworkDriverInstance"/> instance with the given <see cref="driverId"/>.
         /// </summary>
-        /// <param name="driverId">the id of the driver. Should be always greater or equals than <see cref="FirstDriverId"/></param>
         /// <remarks>
         /// The method return a copy of the driver instance not a reference. While this is suitable for almost all the use cases,
         /// since the driver is trivially copyable, be aware that calling some of the Driver class methods, like ScheduleUpdate,
         /// that update internal driver data (that aren't suited to be copied around) may not work as expected.
         /// </remarks>
-        /// <returns></returns>
-        /// <exception cref="InvalidOperationException"></exception>
         /// <inheritdoc cref="GetDriverDataRO"/>
         [Obsolete("Prefer GetDriverInstanceRW or GetDriverInstanceRO to avoid copying.", false)]
         public readonly ref NetworkDriverInstance GetDriverInstance(int driverId) => ref GetDriverDataRO(driverId).instance;
@@ -348,9 +343,6 @@ namespace Unity.NetCode
         /// <summary>
         /// Return the <see cref="NetworkDriver"/> with the given <see cref="driverId"/>.
         /// </summary>
-        /// <param name="driverId"></param>
-        /// <returns></returns>
-        /// <exception cref="InvalidOperationException"></exception>
         /// <inheritdoc cref="GetDriverDataRO"/>
         [Obsolete("Prefer GetDriverRW or GetDriverRO to avoid copying.", false)]
         public readonly NetworkDriver GetNetworkDriver(int driverId) => GetDriverDataRO(driverId).instance.driver;
@@ -358,45 +350,30 @@ namespace Unity.NetCode
         /// <summary>
         ///  Return a reference to the <see cref="NetworkDriverStore.NetworkDriverInstance"/> instance with the given <see cref="driverId"/>.
         ///  </summary>
-        /// <param name="driverId"></param>
-        ///  <returns></returns>
-        /// <exception cref="InvalidOperationException"></exception>
         /// <inheritdoc cref="GetDriverDataRO"/>
         public ref NetworkDriverStore.NetworkDriverInstance GetDriverInstanceRW(int driverId) => ref GetDriverDataRW(driverId).instance;
 
         /// <summary>
         ///  Return a reference to the <see cref="NetworkDriverStore.NetworkDriverInstance"/> instance with the given <see cref="driverId"/>.
         ///  </summary>
-        /// <param name="driverId"></param>
-        ///  <returns></returns>
-        /// <exception cref="InvalidOperationException"></exception>
         /// <inheritdoc cref="GetDriverDataRO"/>
         public ref readonly NetworkDriverStore.NetworkDriverInstance GetDriverInstanceRO(int driverId) => ref GetDriverDataRO(driverId).instance;
 
         /// <summary>
         /// Retrieve a ReadWrite reference to the <see cref="NetworkDriver"/> for the given <see cref="driverId"/>.
         /// </summary>
-        /// <param name="driverId"></param>
-        /// <returns></returns>
-        /// <exception cref="InvalidOperationException"></exception>
         /// <inheritdoc cref="GetDriverDataRO"/>
         public ref NetworkDriver GetDriverRW(int driverId) => ref GetDriverInstanceRW(driverId).driver;
 
         /// <summary>
         /// Retrieve a Read-Only reference to the <see cref="NetworkDriver"/> for the given <see cref="driverId"/>.
         /// </summary>
-        /// <param name="driverId"></param>
-        /// <returns></returns>
-        /// <exception cref="InvalidOperationException"></exception>
         /// <inheritdoc cref="GetDriverDataRO"/>
         public ref readonly NetworkDriver GetDriverRO(int driverId) => ref GetDriverInstanceRO(driverId).driver;
 
         /// <summary>
         /// Return the transport type used by the registered driver.
         /// </summary>
-        /// <param name="driverId"></param>
-        /// <returns></returns>
-        /// <exception cref="InvalidOperationException"></exception>
         /// <inheritdoc cref="GetDriverDataRO"/>
         public TransportType GetDriverType(int driverId) => GetDriverDataRO(driverId).transportType;
 
@@ -404,7 +381,7 @@ namespace Unity.NetCode
         /// Return the state of the <see cref="NetworkStreamConnection"/> connection.
         /// </summary>
         /// <param name="connection">A client or server connection</param>
-        /// <returns></returns>
+        /// <returns>The state of the <see cref="NetworkStreamConnection"/> connection</returns>
         /// <exception cref="InvalidOperationException">Throw an exception if the driver associated to the connection is not found</exception>
         public NetworkConnection.State GetConnectionState(NetworkStreamConnection connection) => GetDriverRW(connection.DriverId).GetConnectionState(connection.Value);
 
@@ -412,13 +389,13 @@ namespace Unity.NetCode
         /// Signature for all functions that can be used to visit the registered drivers in the store using the <see cref="ForEachDriver"/> method.
         /// </summary>
         /// <param name="driver">a reference to a <see cref="NetworkDriverInstance"/></param>
-        /// <param name="driverId">the id of the driver</param>
+        /// <param name="driverId">the id of the driver. Must always greater or equals <see cref="NetworkDriverStore.FirstDriverId"/></param>
         public delegate void DriverVisitor(ref NetworkDriverInstance driver, int driverId);
 
         /// <summary>
         /// Invoke the delegate on all registered drivers.
         /// </summary>
-        /// <param name="visitor"></param>
+        /// <param name="visitor">Visitor to invoke with the driver instance and ID</param>
         [Obsolete("The ForEachDriver has been deprecated. Please always iterate over the driver using a for loop, using the FirstDriver and LastDriver ids instead.")]
         public void ForEachDriver(DriverVisitor visitor)
         {
@@ -434,8 +411,7 @@ namespace Unity.NetCode
         /// <summary>
         /// Utility method to disconnect the <see cref="NetworkStreamConnection" /> connection.
         /// </summary>
-        /// <param name="connection"></param>
-        /// <exception cref="InvalidOperationException"></exception>
+        /// <inheritdoc cref="GetDriverRW"/>
         public void Disconnect(NetworkStreamConnection connection) => GetDriverRW(connection.DriverId).Disconnect(connection.Value);
 
         internal JobHandle ScheduleUpdateAllDrivers(JobHandle dependency)

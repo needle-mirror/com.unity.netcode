@@ -85,8 +85,8 @@ namespace Unity.NetCode
      /// For internal use only, helper struct that should be used to implement systems that copy the content of an
      /// <see cref="IInputComponentData"/> into the code-generated <see cref="ICommandData"/> buffer.
      /// </summary>
-     /// <typeparam name="TInputBufferData"></typeparam>
-     /// <typeparam name="TInputComponentData"></typeparam>
+     /// <typeparam name="TInputBufferData">input buffer data</typeparam>
+     /// <typeparam name="TInputComponentData">Input component data</typeparam>
      [Obsolete("CopyInputToCommandBuffer has been deprecated. There is no replacement, being the method meant to be used only by code-generated systems.", false)]
      public partial struct CopyInputToCommandBuffer<TInputBufferData, TInputComponentData>
          where TInputBufferData : unmanaged, IInputBufferData
@@ -102,8 +102,8 @@ namespace Unity.NetCode
              /// Implements the component copy and input event management.
              /// Should be called your job <see cref="Unity.Jobs.IJob.Execute"/> method.
              /// </summary>
-             /// <param name="chunk"></param>
-             /// <param name="orderIndex"></param>
+             /// <param name="chunk">chunk</param>
+             /// <param name="orderIndex">order index</param>
              public void Execute(ArchetypeChunk chunk, int orderIndex)
              {
              }
@@ -113,7 +113,7 @@ namespace Unity.NetCode
          /// Initialize the CopyInputToCommandBuffer by updating all the component type handles and create a
          /// a new <see cref="CopyInputToBufferJob"/> instance.
          /// </summary>
-         /// <param name="state"></param>
+         /// <param name="state"><see cref="SystemState"/></param>
          /// <returns>a new <see cref="CopyInputToBufferJob"/> instance.</returns>
          public CopyInputToBufferJob InitJobData(ref SystemState state)
          {
@@ -124,12 +124,12 @@ namespace Unity.NetCode
          /// Creates the internal component type handles, register to system state the component queries.
          /// Very important, add an implicity constraint for running the parent system only when the client
          /// is connected to the server, by requiring at least one connection with a <see cref="NetworkId"/> components.
+         /// </summary>
          /// <remarks>
          /// Should be called inside your the system OnCreate method.
          /// </remarks>
-         /// </summary>
-         /// <param name="state"></param>
-         /// <returns></returns>
+         /// <param name="state"><see cref="SystemState"/></param>
+         /// <returns>Query for component type handles</returns>
          public EntityQuery Create(ref SystemState state)
          {
              return default;
@@ -141,8 +141,8 @@ namespace Unity.NetCode
      /// commands from the <see cref="ICommandData"/> buffer to the <see cref="IInputComponentData"/> component
      /// present on the entity.
      /// </summary>
-     /// <typeparam name="TInputBufferData"></typeparam>
-     /// <typeparam name="TInputComponentData"></typeparam>
+     /// <typeparam name="TInputBufferData">Input buffer data</typeparam>
+     /// <typeparam name="TInputComponentData">Input component data</typeparam>
      [Obsolete("ApplyCurrentInputBufferElementToInputData has been deprecated. There is no replacement, being the method meant to be used only by code-generated systems.", false)]
      public partial struct ApplyCurrentInputBufferElementToInputData<TInputBufferData, TInputComponentData>
          where TInputBufferData : unmanaged, IInputBufferData
@@ -159,8 +159,8 @@ namespace Unity.NetCode
              /// Copy the command for current server tick to the input component.
              /// Should be called your job <see cref="Unity.Jobs.IJob.Execute"/> method.
              /// </summary>
-             /// <param name="chunk"></param>
-             /// <param name="orderIndex"></param>
+             /// <param name="chunk">Chunk</param>
+             /// <param name="orderIndex">Order index</param>
              public void Execute(ArchetypeChunk chunk, int orderIndex)
              {
              }
@@ -170,7 +170,7 @@ namespace Unity.NetCode
          /// Update the component type handles and create a new <see cref="ApplyInputDataFromBufferJob"/>
          /// that can be passed to your job.
          /// </summary>
-         /// <param name="state"></param>
+         /// <param name="state"><see cref="SystemState"/></param>
          /// <returns>a new <see cref="ApplyInputDataFromBufferJob"/> instance.</returns>
          public ApplyInputDataFromBufferJob InitJobData(ref SystemState state)
          {
@@ -216,7 +216,7 @@ namespace Unity.NetCode
     /// Internal use only, interface implemented by code-generated helpers to increment and decrement
     /// <see cref="IInputComponentData"/> events when copy to/from the underlying <see cref="InputBufferData{T}"/>
     /// </summary>
-    /// <typeparam name="T"></typeparam>
+    /// <typeparam name="T">Input component type</typeparam>
     public interface IInputEventHelper<T> where T: unmanaged, IInputComponentData
     {
         /// <summary>

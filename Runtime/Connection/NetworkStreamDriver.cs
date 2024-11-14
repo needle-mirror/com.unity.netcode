@@ -208,7 +208,7 @@ namespace Unity.NetCode
         /// Tell all the registered <see cref="NetworkDriverStore"/> drivers to start listening for incoming connections.
         /// </summary>
         /// <param name="endpoint">The local address to use. This is the address that will be used to bind the underlying socket.</param>
-        /// <returns></returns>
+        /// <returns>Whether the drivers starts listening</returns>
         public bool Listen(NetworkEndpoint endpoint)
         {
             //Check that at least the first driver have been created. This is a sufficient condition.
@@ -321,7 +321,7 @@ namespace Unity.NetCode
         /// <summary>
         /// The remote connection address. This is the seen public ip address of the connection.
         /// </summary>
-        /// <param name="connection"></param>
+        /// <param name="connection">Connection</param>
         /// <returns>
         /// When relay is used, the current relay host address. Otherwise the remote endpoint address.
         /// </returns>
@@ -344,7 +344,7 @@ namespace Unity.NetCode
         /// <summary>
         /// Check if the given connection is using relay to connect to the remote endpoint
         /// </summary>
-        /// <param name="connection"></param>
+        /// <param name="connection">Connection</param>
         /// <returns>
         /// Either if the connection is using the relay or not.
         /// </returns>
@@ -383,8 +383,8 @@ namespace Unity.NetCode
         /// <summary>
         /// The current state of the internal transport connection.
         /// </summary>
-        /// <param name="connection"></param>
-        /// <returns></returns>
+        /// <param name="connection">Connection</param>
+        /// <returns>The current state of the internal transport connection</returns>
         /// <remarks>
         /// Is different from the <see cref="ConnectionState.State"/> and it is less granular.
         /// </remarks>

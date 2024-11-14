@@ -42,7 +42,7 @@ namespace Unity.NetCode.LowLevel
         /// <summary>
         /// Check if the spawning ghost mode is owner predicted.
         /// </summary>
-        /// <param name="ghost"></param>
+        /// <param name="ghost">The spawning ghost</param>
         /// <returns>True if the spawning ghost is owner predicted</returns>
         public bool IsOwnerPredicted(in GhostSpawnBuffer ghost)
         {
@@ -52,7 +52,7 @@ namespace Unity.NetCode.LowLevel
         /// <summary>
         /// Check if the spawning ghost has a <see cref="GhostOwner"/>.
         /// </summary>
-        /// <param name="ghost"></param>
+        /// <param name="ghost">The spawning ghost</param>
         /// <returns>True if the spawning ghost is owner predicted</returns>
         public bool HasGhostOwner(in GhostSpawnBuffer ghost)
         {
@@ -63,8 +63,8 @@ namespace Unity.NetCode.LowLevel
         /// Retrieve the network id of the player owning the ghost if the ghost archetype has a
         /// <see cref="GhostOwner"/>.
         /// </summary>
-        /// <param name="ghost"></param>
-        /// <param name="data"></param>
+        /// <param name="ghost">The spawning ghost</param>
+        /// <param name="data">Snapshot data buffers</param>
         /// <returns>the id of the player owning the ghost, if the <see cref="GhostOwner"/> is present, 0 otherwise.</returns>
         public int GetGhostOwner(in GhostSpawnBuffer ghost, in DynamicBuffer<SnapshotDataBuffer> data)
         {
@@ -84,7 +84,7 @@ namespace Unity.NetCode.LowLevel
         /// Retrieve the prediction mode used as fallback if the spawning ghost has not been
         /// classified.
         /// </summary>
-        /// <param name="ghost"></param>
+        /// <param name="ghost">The spawning ghost</param>
         /// <returns>The fallback mode to use</returns>
         public GhostSpawnBuffer.Type GetFallbackPredictionMode(in GhostSpawnBuffer ghost)
         {
@@ -92,24 +92,28 @@ namespace Unity.NetCode.LowLevel
         }
 
         /// <summary>
-        /// Check if the a component of type <typeparamref name="T"/> is present this spawning ghost.
+        /// Check if the component of type <typeparamref name="T"/> is present in this spawning ghost.
         /// </summary>
         /// <param name="ghostTypeIndex">The index in the <see cref="GhostCollectionPrefabSerializer"/> collection</param>
-        /// <typeparam name="T"></typeparam>
-        /// <returns></returns>
-        //This work for both IComponentData and IBufferElementData
+        /// <typeparam name="T">Component type in spawning ghost.</typeparam>
+        /// <returns>Whether the component is present in this spawning ghost.</returns>
+        /// <remarks>
+        /// This work for both IComponentData and IBufferElementData
+        /// </remarks>
         public bool HasComponent<T>(int ghostTypeIndex) where T: unmanaged, IComponentData
         {
             return GetComponentDataOffset(TypeManager.GetTypeIndex<T>(), ghostTypeIndex, out _) >= 0;
         }
 
         /// <summary>
-        /// Check if the a component of type <typeparamref name="T"/> is present this spawning ghost.
+        /// Check if the a component of type <typeparamref name="T"/> is present in this spawning ghost.
         /// </summary>
         /// <param name="ghostTypeIndex">The index in the <see cref="GhostCollectionPrefabSerializer"/> collection</param>
-        /// <typeparam name="T"></typeparam>
-        /// <returns></returns>
-        //This work for both IComponentData and IBufferElementData
+        /// <typeparam name="T">Component type</typeparam>
+        /// <returns>Whether the type is present in this spawning ghost</returns>
+        /// <remarks>
+        /// This work for both IComponentData and IBufferElementData
+        /// </remarks>
         public bool HasBuffer<T>(int ghostTypeIndex) where T: unmanaged, IBufferElementData
         {
             return GetComponentDataOffset(TypeManager.GetTypeIndex<T>(), ghostTypeIndex, out _) >= 0;
@@ -125,7 +129,7 @@ namespace Unity.NetCode.LowLevel
         /// <param name="snapshotBuffer">The entity snapshot history buffer.</param>
         /// <param name="componentData">The deserialized component data.</param>
         /// <param name="slotIndex">The slot in the history buffer to use.</param>
-        /// <typeparam name="T"></typeparam>
+        /// <typeparam name="T">Component type</typeparam>
         /// <returns>True if the component is present and the component data is initialized. False otherwise</returns>
         public bool TryGetComponentDataFromSnapshotHistory<T>(int ghostTypeIndex, in DynamicBuffer<SnapshotDataBuffer> snapshotBuffer,
             out T componentData, int slotIndex=0) where T : unmanaged, IComponentData
@@ -151,10 +155,10 @@ namespace Unity.NetCode.LowLevel
         /// <remarks>
         /// Buffers aren't supported. Only components present on the root entity can be retrieved. Trying to get data for components in a child entity is not supported.
         /// </remarks>
-        /// <param name="ghost"></param>
-        /// <param name="snapshotData"></param>
-        /// <param name="componentData"></param>
-        /// <typeparam name="T"></typeparam>
+        /// <param name="ghost">Spawning buffer</param>
+        /// <param name="snapshotData">Snapshot data</param>
+        /// <param name="componentData">Component data</param>
+        /// <typeparam name="T">Component type</typeparam>
         /// <returns>True if the component is present and the component data is initialized. False otherwise</returns>
         public bool TryGetComponentDataFromSpawnBuffer<T>(in GhostSpawnBuffer ghost,
             in DynamicBuffer<SnapshotDataBuffer> snapshotData, out T componentData) where T: unmanaged, IComponentData

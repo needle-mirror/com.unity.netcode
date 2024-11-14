@@ -16,9 +16,9 @@ namespace Unity.NetCode
     /// It is mandatory to set a valid reference to the <see cref="targetEntity"/> in order to receive client
     /// commands if:</para>
     /// <para><list type="bullet">
-    /// <item>You are not using the <see cref="AutoCommandTarget"/>.</item>
-    /// <item>You want to support thin-clients (because <see cref="AutoCommandTarget"/> does not work in that case)
-    /// The use of <see cref="AutoCommandTarget"/> and CommandTarget is complementary. I.e. They can both be used
+    /// <item>You are not using the AutoCommandTarget.</item>
+    /// <item>You want to support thin-clients (because AutoCommandTarget does not work in that case)
+    /// The use of AutoCommandTarget and CommandTarget is complementary. I.e. They can both be used
     /// at the same time.</item></list></para>
     /// </summary>
     /// <remarks>

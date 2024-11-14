@@ -191,12 +191,12 @@ namespace Unity.NetCode
         /// <summary>
         /// Construct a new preset.
         /// </summary>
-        /// <param name="name"></param>
-        /// <param name="packetDelayMs"></param>
-        /// <param name="packetJitterMs"></param>
-        /// <param name="packetLossPercent"></param>
-        /// <param name="packetFuzzPercent"></param>
-        /// <param name="tooltip"></param>
+        /// <param name="name">Simulator name</param>
+        /// <param name="packetDelayMs">Packet delay in miliseconds</param>
+        /// <param name="packetJitterMs">Packet jitter in miliseconds</param>
+        /// <param name="packetLossPercent">Packet loss in percentage</param>
+        /// <param name="packetFuzzPercent">Packet fuzz in percentage</param>
+        /// <param name="tooltip">Tooltip string</param>
         public SimulatorPreset(string name, int packetDelayMs, int packetJitterMs, int packetLossPercent, int packetFuzzPercent, string tooltip)
         {
             Name = name;
@@ -210,12 +210,12 @@ namespace Unity.NetCode
         /// <summary>
         /// Construct a new preset.
         /// </summary>
-        /// <param name="name"></param>
-        /// <param name="packetDelayMs"></param>
-        /// <param name="packetJitterMs"></param>
-        /// <param name="packetLossPercent"></param>
-        /// <param name="tooltip"></param>
-        [Obsolete("Use other constructor. (RemovedAfter Entities 1.1)")]
+        /// <param name="name">Simulator name</param>
+        /// <param name="packetDelayMs">Packet delay in miliseconds</param>
+        /// <param name="packetJitterMs">Packet jitter in miliseconds</param>
+        /// <param name="packetLossPercent">Packet loss in percentage</param>
+        /// <param name="tooltip">Tooltip string</param>
+        [Obsolete("Use other constructor. (RemovedAfter 2.0)")]
         public SimulatorPreset(string name, int packetDelayMs, int packetJitterMs, int packetLossPercent, string tooltip)
             : this(name, packetDelayMs, packetJitterMs, packetLossPercent, 0, tooltip)
         {

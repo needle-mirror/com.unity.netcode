@@ -17,6 +17,7 @@ namespace Unity.NetCode.Analytics
         public bool autoCommandTarget;
         public int variance;
         public int importance;
+        public int maxSendRateHz;
 
         public override string ToString()
         {
@@ -26,6 +27,7 @@ namespace Unity.NetCode.Analytics
                    $"{nameof(prespawnedCount)}: {prespawnedCount}, " +
                    $"{nameof(autoCommandTarget)}: {autoCommandTarget}, " +
                    $"{nameof(importance)}: {importance}, " +
+                   $"{nameof(maxSendRateHz)}: {maxSendRateHz}, " +
                    $"{nameof(variance)}: {variance}";
         }
     }

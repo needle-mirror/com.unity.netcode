@@ -51,6 +51,29 @@ namespace Tests.Editor
 
     public class RateManagerTests
     {
+
+        [Test]
+        public void TestElapsedTimeNonNegativeAtStart()
+        {
+            const float tickDt = 1f / 60f;
+            using var testWorld = new NetCodeTestWorld(useGlobalConfig: true, initialElapsedTime: 0);
+            NetCodeConfig.Global.ClientServerTickRate.TargetFrameRateMode = ClientServerTickRate.FrameRateMode.BusyWait;
+            NetCodeConfig.Global.ClientServerTickRate.MaxSimulationStepBatchSize = 4;
+            NetCodeConfig.Global.ClientServerTickRate.MaxSimulationStepsPerFrame = 4;
+
+            testWorld.Bootstrap(includeNetCodeSystems: true);
+            testWorld.CreateWorlds(server: true, numClients: 1, tickWorldAfterCreation: false);
+
+            bool didRun = false;
+            testWorld.ServerWorld.GetExistingSystemManaged<UpdateInPredictionSystem>().OnUpdateCallback += world =>
+            {
+                didRun = true;
+                Assert.That(world.Time.ElapsedTime, Is.GreaterThanOrEqualTo(0), "time should always be positive");
+            };
+            testWorld.Tick(tickDt * 4f); // large dt where multiple ticks run, to see if each one has a non-negative elapsedTime
+            Assert.IsTrue(didRun, "didRun");
+        }
+
         [Test]
         public void RateManagerTest([Values(BusyWait, Sleep)] ClientServerTickRate.FrameRateMode frameRateMode, [Values(1, 4)] int maxBatchSize, [Values(1, 4)] int maxStepsPerFrame)
         {
@@ -71,6 +94,7 @@ namespace Tests.Editor
             int beforeCount = 0;
             int duringCount = 0;
             int afterCount = 0;
+            int initializationCount = 0;
 
             // test setup with execute methods
             TimeData beforeTime = default;
@@ -94,6 +118,13 @@ namespace Tests.Editor
                 afterTime = world.Time;
                 Assert.That(testWorld.GetNetworkTime(world).IsInPredictionLoop, Is.Not.True, "network time flag fail, after prediction");
             };
+            TimeData initializationTime = default;
+            testWorld.ServerWorld.GetExistingSystemManaged<BeforeSimulationSystemGroup>().OnUpdateCallback += world =>
+            {
+                initializationCount++;
+                initializationTime = world.Time;
+                Assert.That(testWorld.GetNetworkTime(world).IsInPredictionLoop, Is.Not.True, "network time flag fail, in initialization group");
+            };
 
             // frame is 1/4 of a tick. Expect 4 frame to 1 tick ratio. So 3 frames, then 1 frame with a tick, then 3 frames, then 1 frame with a tick
             var tickDt = 1f / 60f;
@@ -114,6 +145,7 @@ namespace Tests.Editor
                 beforeTime = default;
                 afterTime = default;
                 duringTime = default;
+                initializationTime = default;
             }
 
             {
@@ -125,6 +157,8 @@ namespace Tests.Editor
                     Assert.That(beforeTime.DeltaTime, Is.EqualTo(0), $"beforeTime nothing, server, validating nothing ran");
                     Assert.That(afterTime.DeltaTime, Is.EqualTo(0), $"afterTime nothing, server, validating nothing ran");
                     Assert.That(duringTime.DeltaTime, Is.EqualTo(0), $"duringTime nothing, server, validating nothing ran");
+                    Assert.That(initializationTime.DeltaTime, Is.EqualTo(frameDt), $"initialization group dt, validating everything is normal");
+                    Assert.That(duringTime.ElapsedTime, Is.LessThanOrEqualTo(initializationTime.ElapsedTime), "elapsed time, prediction should always follow, but be behind elapsed time outside the simulation group");
                     ResetTime();
                 }
 
@@ -145,6 +179,9 @@ namespace Tests.Editor
                 Assert.That(beforeTime.DeltaTime, Is.EqualTo(tickDt), $"beforeTime, server");
                 Assert.That(afterTime.DeltaTime, Is.EqualTo(tickDt), $"afterTime, server");
                 Assert.That(duringTime.DeltaTime, Is.EqualTo(tickDt), $"duringTime, server");
+                Assert.That(initializationTime.DeltaTime, Is.EqualTo(frameDt), $"initialization group dt, validating everything is normal");
+                Assert.That(duringTime.ElapsedTime, Is.LessThanOrEqualTo(initializationTime.ElapsedTime), "elapsed time, prediction should always follow, but be behind elapsed time outside the simulation group");
+                Assert.That(duringTime.ElapsedTime, Is.GreaterThan(0));
                 ResetTime();
                 for (int i = 0; i < frameCountPerTick; i++)
                 {
@@ -176,6 +213,74 @@ namespace Tests.Editor
             Assert.That(beforeTime.DeltaTime, Is.EqualTo(expectedDt), "batched dt, before");
             Assert.That(duringTime.DeltaTime, Is.EqualTo(expectedDt), "batched dt, during");
             Assert.That(afterTime.DeltaTime, Is.EqualTo(expectedDt), "batched dt, after");
+            ResetTime();
+
+            // stabilize
+            for (int i = 0; i < 100; i++)
+            {
+                testWorld.Tick(tickDt);
+            }
+
+            var epsillon = 0.0001f;
+
+            if (maxBatchSize == 1 && maxStepsPerFrame == 1)
+            {
+                for (int i = 0; i < 100; i++)
+                {
+                    testWorld.Tick(tickDt);
+                    Assert.That(duringTime.ElapsedTime, Is.InRange(initializationTime.ElapsedTime - tickDt - epsillon, initializationTime.ElapsedTime), $"elapsed time, prediction should always follow, but be behind elapsed time outside the simulation group, iteration {i}");
+                    ResetTime();
+                }
+
+                // harder to catch up with both max to 1, validating we still catch up when back on small frame dt
+                var bigDt = 2 * tickDt;
+                var smallDt = 0.5f * tickDt;
+                // let it fall behind
+                for (int i = 0; i < 100; i++)
+                {
+                    testWorld.Tick(bigDt);
+                }
+                // let it catchup
+                for (int i = 0; i < 200; i++)
+                {
+                    testWorld.Tick(smallDt);
+                }
+                Assert.That(duringTime.ElapsedTime, Is.InRange(initializationTime.ElapsedTime - tickDt - epsillon, initializationTime.ElapsedTime), $"elapsed time, prediction should always follow, but be behind elapsed time outside the simulation group");
+            }
+            else
+            {
+                // validate there's no divergence over multiple ticks
+                var batchDt = 3f * tickDt; // smaller than the maxCount = 4 setting, so we should not fall behind
+                for (int i = 0; i < 100; i++)
+                {
+                    testWorld.Tick(tickDt);
+                    Assert.That(duringTime.ElapsedTime, Is.InRange(initializationTime.ElapsedTime - tickDt - epsillon, initializationTime.ElapsedTime), $"elapsed time, prediction should always follow, but be behind elapsed time outside the simulation group, iteration {i}");
+                    ResetTime();
+                }
+
+                for (int i = 0; i < 100; i++)
+                {
+                    testWorld.Tick(batchDt);
+                    Assert.That(duringTime.ElapsedTime, Is.InRange(initializationTime.ElapsedTime - batchDt - epsillon, initializationTime.ElapsedTime), $"elapsed time, prediction should always follow, but be behind elapsed time outside the simulation group, iteration {i}");
+                    ResetTime();
+                }
+
+                // let it fall behind
+                batchDt = 6 * tickDt; // larger than the maxCount = 4 setting, so we fall behind
+                for (int i = 0; i < 100; i++)
+                {
+                    testWorld.Tick(batchDt);
+                    Assert.That(duringTime.ElapsedTime, Is.LessThan(initializationTime.ElapsedTime));
+                }
+
+                // make sure we can catch up
+                for (int i = 0; i < 100; i++)
+                {
+                    testWorld.Tick(tickDt);
+                }
+
+                Assert.That(duringTime.ElapsedTime, Is.InRange(initializationTime.ElapsedTime - tickDt - epsillon, initializationTime.ElapsedTime), $"elapsed time, prediction should always follow, but be behind elapsed time outside the simulation group");
+            }
         }
 
         [Test]

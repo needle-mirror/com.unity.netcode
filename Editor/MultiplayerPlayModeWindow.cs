@@ -27,40 +27,62 @@ namespace Unity.NetCode.Editor
     {
         const string k_Title = "PlayMode Tools";
         const int k_MaxWorldsToDisplay = 8;
-        const int k_InitialThinClientWorldCreationInterval = 1;
-        const int k_ThinClientWorldCreationFailureRetryInterval = 5;
         const string k_ToggleLagSpikeSimulatorBindingKey = "Main Menu/Multiplayer/Toggle Lag Spike Simulation";
         const string k_SimulatorPresetCaveat = "\n\n<i>Note: The simulator can only <b>add</b> additional latency to a given connection, and it does so naively. Therefore, poor editor performance will exacerbate the delay (and is not compensated for).</i>";
         const string k_ProjectSettingsConfigPath = "<i>ProjectSettings > Entities > Build</i>";
 
-        static Color ActiveColor => new Color(0.5f, 0.84f, 0.99f); // TODO: netCode color into this view. GhostAuthoringComponentEditor.netcodeColor;
+        static Color s_Blue => new Color(0.5f, 0.84f, 0.99f); // TODO: netCode color into this view. GhostAuthoringComponentEditor.netcodeColor;
+        static Color s_Green => new Color(0.51f, 0.85f, 0.49f);
+        static Color s_Red => new Color(1f, 0.25f, 0.22f);
+        static Color s_Orange => new Color(1f, 0.68f, 0f);
+        static Color s_Pink => new Color(1f, .49f, 0.95f);
+
         static GUILayoutOption s_PingWidth = GUILayout.Width(100);
         static GUILayoutOption s_NetworkIdWidth = GUILayout.Width(30);
         static GUILayoutOption s_SimulatorViewWidth = GUILayout.Width(120);
-        static GUILayoutOption s_WorldNameWidth = GUILayout.Width(130);
+        static GUILayoutOption s_WorldNameWidth = GUILayout.Width(120);
 
         static GUIContent s_TitleContent = new GUIContent(k_Title, "Netcode for Entities editor playmode tools. View and control world creation, connection status and flows etc.\n\n<i>It has no impact on builds.</i>");
         static GUIContent s_PlayModeType = new GUIContent("PlayMode Type", "During multiplayer development, it's useful to modify and run the client and server at the same time, in the same process (i.e. \"in-proc\"). DOTS Multiplayer supports this out of the box via the DOTS Entities \"Worlds\" feature.\n\nUse this toggle to determine which mode of operation is used for this Editor playmode session. <i>Has no impact on builds.</i>\n\n\"Client & Server\" is recommended for most workflows.");
         static GUIContent s_ServerEmulation = new GUIContent("Server Emulation", $"Denotes how the ServerWorld should load data when in PlayMode in the Editor. This setting does not affect builds (see {k_ProjectSettingsConfigPath} for build configuration).");
         static GUIContent[] s_ServerEmulationContents;
-        static GUIContent s_NumThinClients = new GUIContent("Num Thin Clients", "Thin clients are clients that receive snapshots, but do not attempt to process game logic. They can send arbitrary inputs though, and are useful to simulate opponents (to test connection & game logic).\n\nThin clients are instantiated on boot and at runtime. I.e. This value can be tweaked during playmode.");
-        static GUIContent s_InstantiationFrequency = new GUIContent("Instantiation Frequency", "How many thin client worlds to instantiate per second. Runtime thin client instantiation can be disabled by setting `RuntimeThinClientWorldInitialization` to null. Does not affect thin clients created during boot.");
-        static GUIContent s_RuntimeInstantiationDisabled = new GUIContent("Runtime Instantiation Disabled", "Enable it by setting `MultiplayerPlayModeWindow.RuntimeThinClientWorldInitialization`.");
+        static GUIContent s_NumThinClients = new GUIContent("Num Thin Clients", "Thin clients are clients that receive snapshots, but do not attempt to process game logic. They can send arbitrary inputs though, and are useful to simulate opponents (to test connection & game logic).\n\nThin clients are instantiated on boot and at runtime via the <b>AutomaticThinClientWorldsUtility</b>. I.e. This value can be tweaked during Play Mode.");
+        static GUIContent s_InstantiationFrequency = new GUIContent("Instantiation Frequency", "How many thin client worlds to instantiate per second (via the <b>AutomaticThinClientWorldsUtility</b>). Runtime thin client instantiation can be disabled by setting <b>AutomaticThinClientWorldsUtility.RuntimeThinClientWorldInitialization</b> to null.");
+        static GUIContent s_RuntimeInstantiationDisabled = new GUIContent("AutomaticThinClientWorldsUtility Disabled", "Enable it by setting the <b>AutomaticThinClientWorldsUtility.RuntimeThinClientWorldInitialization</b> delegate.");
+        static GUIContent s_Auto = new GUIContent("[Auto]", "Denotes that this world is managed by the <b>AutomaticThinClientWorldsUtility</b>.");
 
         static GUIContent s_AutoConnectionAddress = new GUIContent("Auto Connect Address", "The ClientServerBootstrapper will attempt to automatically connect the created client world to this address on boot.");
         static GUIContent s_AutoConnectionPort = new GUIContent("Auto Connect Port", "The ClientServerBootstrapper will attempt to automatically connect the created client world to this port on boot.");
 
-        static GUIContent s_SimulatorTitle = new GUIContent("Client Network Emulation", "Enabling this allows you to emulate various realistic network conditions.\n\nIn practice, this toggle denotes whether or not all Client Worlds will pass Unity Transport's SimulatorPipelineStage into the NetworkDriver, during construction.\n\nFor this reason, toggling Network Emulation requires a PlayMode restart.");
-        static GUIContent s_SimulatorPreset = new GUIContent("?? Presets", "Simulate a variety of connection types & server locations.\n\nThese presets have been created by Multiplayer devs.\n\n<b>We strongly recommend that you test every new multiplayer feature with this simulator enabled.</b>\n\nBy default, switching platform will change which presets are available to you. To toggle showing all presets, use the context menu. Alternatively, you can inject your own presets by modifying the `InUseSimulatorPresets` delegate.");
+        static GUIContent s_SimulatorTitle = new GUIContent("Client Network Emulation", "Enabling this allows you to emulate various realistic network conditions.\n\nIn practice, this toggle denotes whether or not all Client Worlds will pass Unity Transport's <b>SimulatorUtility.Parameter</b> into the <b>NetworkSettings</b> during driver construction.\n\nFor this reason, toggling Network Emulation requires a PlayMode restart.");
+        static GUIContent s_SimulatorPreset = new GUIContent("?? Presets", "Simulate a variety of connection types & server locations.\n\nThese presets have been created by Multiplayer devs.\n\n<b>We strongly recommend that you test every new multiplayer feature with this simulator enabled.</b>\n\nBy default, switching platform will change which presets are available to you. To toggle showing all presets, use the context menu. Alternatively, you can inject your own presets by modifying the <b>InUseSimulatorPresets</b> delegate.");
         static GUIContent s_ShowAllSimulatorPresets = new GUIContent("Show All Simulator Presets", "Toggle to view all simulator presets, or only your platform specific ones?");
 
-        static GUIContent s_WebSocket = new GUIContent("[WebSocket]", "<b>WebSocket</b>\nThis World is using Unity's WebSocket NetworkInterface to communicate with the server.");
-        static GUIContent s_UdpSocket = new GUIContent("[UDP]", "<b>UDP | User Datagram Protocol</b>\nThis World is using Unity's UDP socket NetworkInterface (formerly 'baselib') to communicate with the server.");
-        static GUIContent s_Ipc = new GUIContent("[IPC]", "<b>IPC | Intra-Process Communication</b>\nThis World is using an IPC NetworkInterface to communicate with the server. IPC is an in-memory, socket-like wrapper, emulating the Transport API but without any OS overhead and unreliability.\n\nTherefore, IPC operations will be instantaneous, but can only be used to communicate with other NetworkDriver instances inside the same process (which is why IPC really means intra-process and not inter-process here). Useful for testing, or to implement a single player mode in a multiplayer game.");
+        static GUIContent s_DriverDisplayInfo = new GUIContent("", @"Denotes <b>DriverStore</b> driver instance information for this world, as well as the target <b>NetworkEndpoint</b> address (if applicable).
+
+<b>IPC | Intra-Process Communication</b>
+Unity's UTP (Unity Transport Package) <b>IPCNetworkInterface</b> implementation. IPC is an in-proc, in-memory, socket-like wrapper, emulating the Transport API, but without any OS overhead and unreliability. IPC operations are instantaneous, but can only be used to communicate with other <b>NetworkDriver</b> instances inside the same process (which is why IPC really means 'intra-process' and not 'inter-process' here).
+
+<b>UDP | User Datagram Protocol</b>
+Unity's UTP <b>UDPNetworkInterface</b> implementation (formerly 'baselib'). Unreliable by default (see UTP Pipelining).
+
+<b>WebSocket</b>
+Unity's UTP <b>WebSocketNetworkInterface</b> implementation.
+
+<b>Custom</b>
+Denotes a user-specified, custom <b>INetworkInterface</b> is being used.
+
+<b>BoundOnly</b> (Server-Only)
+Denotes that the driver bound successfully, but <b>Listen</b> either did not succeed, or was never invoked. <i>Note: Client drivers do also call <b>Bind</b> when they call <b>Connect</b>, but this isn't currently displayed.</i>
+
+<b>Closed</b> (Server-Only)
+Denotes that the server driver is closed i.e. not currently listening.
+");
         static GUIContent s_PendingDc = new GUIContent("[Pending DC]", "You triggered a disconnect on this client. Waiting for said disconnect request to trigger transport driver change.");
-        static GUIContent s_Awaiting = new GUIContent(string.Empty, "We must wait for the previous `NetworkStreamConnection` to be disposed, before we can connect this client to this address.");
-        static GUIContent s_NetworkEmulation = new GUIContent(string.Empty, "Denotes whether or not this world uses Network Emulation with the above settings.");
-        static GUIContent s_Unknown = new GUIContent("[No Connection Entity]", "No entity exists containing a `NetworkStreamConnection` component. Call `Connect` to create one.");
+        static GUIContent s_Awaiting = new GUIContent(string.Empty, "We must wait for the previous <b>NetworkStreamConnection</b> to be disposed, before we can connect this client to this address.");
+        static GUIContent s_LagSpikeOccuring = new GUIContent("[Lag Spike]", "Denotes that a lag spike is currently occuring. No packets are getting through.");
+        static GUIContent s_NetworkEmulation = new GUIContent(string.Empty, "Denotes whether or not this client uses <b>Client Network Emulation</b> with the above settings.");
+        static GUIContent s_NoNetworkConnectionEntity = new GUIContent("[No Connection Entity]", "No entity exists containing a <b>NetworkStreamConnection</b> component. Call <b>Connect</b> to create one.");
 
         static GUIContent s_SimulatorView = new GUIContent(string.Empty, string.Empty);
         const string s_SimulatorExplanation = "The simulator works by adding a delay before processing all packets sent from - and received by - the ClientWorld's Socket Driver.\n\nIn this view, you can observe and modify ";
@@ -90,11 +112,11 @@ namespace Unity.NetCode.Editor
             new GUIContent("Client", "Only instantiate a client (with a configurable number of thin clients) that'll automatically attempt to connect to the listed address and port." + k_PlayModeTooltip),
             new GUIContent("Server", "Only instantiate a server. Expects that clients will be instantiated in another process." + k_PlayModeTooltip),
         };
-        static GUILayoutOption s_DontExpandWidth = GUILayout.ExpandWidth(false);
-        static GUIContent s_ServerName = new GUIContent("", "Name of server world.");
-        static GUIContent s_ServerPort = new GUIContent("", "Listening Port");
-        static GUIContent s_ServerPlayers = new GUIContent("", "Count of connected players. | Count of players who have registered as 'in-game' via the `NetworkStreamInGame` component, on the Server.");
+        static GUIContent s_WorldName = new GUIContent("", "The <b>World.Name</b>.");
+        static GUIContent s_NetworkId = new GUIContent("", "The <b>NetworkId</b> associated with this client. The server uses the reserved value 0.");
+        internal static GUIContent s_ServerStats = new GUIContent("", "<b>Client Connections</b> | <b>Connections In-Game</b> (via <b>NetworkStreamInGame</b>)");
         static GUIContent s_ClientConnect = new GUIContent("", "Trigger all clients to disconnect from the server they're connected to and [re]connect to the specified address and port.");
+        static GUIContent s_ClientConnectionState = new GUIContent("", "Denotes the <b>ConnectionState.State</b> enum value for this <b>NetworkStreamConnection</b>.");
         static GUIContent s_ServerDcAllClients = new GUIContent("DC All", "Trigger the server to attempt to gracefully disconnect all clients. Useful to batch-test a bunch of client disconnect scenarios (e.g. mid-game).");
         static GUIContent s_ServerReconnectAllClients = new GUIContent("Reconnect All", "Trigger the server to attempt to gracefully disconnect all clients, then have them automatically reconnect. Useful to batch-test player rejoining scenarios (e.g. people dropping out mid-match).\n\nNote that clients will also disconnect themselves from the server in the same frame as they're attempting to reconnect, so you can test same frame DCing.");
         static GUIContent s_ServerLogRelevancy = new GUIContent("Log Relevancy", "Log the current relevancy rules for this server. Useful to debug why a client is not receiving a specific ghost.");
@@ -105,42 +127,33 @@ namespace Unity.NetCode.Editor
         static GUIContent s_Timeout = new GUIContent("Force Timeout", "Simulate a timeout (i.e. the client and server stop communicating instantly, and critically, <b>without</b> either being able to send graceful disconnect control messages). A.k.a. An \"ungraceful\" disconnection or \"Server unreachable\".\n\n- Clients should notify the player of the internet issue, and provide automatic (or triggerable) reconnect or quit flows.\n\n - Servers should ensure they handle clients timing out as a valid form of disconnection, and (if supported) ensure that 'same client reconnections' are properly handled.\n\n - Transport settings will inform how quickly all parties detect a lost connection.");
 
         static GUIContent s_LogFileLocation = new GUIContent("Open Log Folder", string.Empty);
-        static GUIContent s_ForceLogLevel = new GUIContent("Force Log Settings", "Force all `NetDebug` loggers to a specified setting, clobbering any `NetCodeDebugConfig` singleton.");
-        const string k_NetcodeNDebugTooltip = "\n\nDisable this functionality (and related CPU overhead) by defining `NETCODE_NDEBUG` in your project.";
-        static GUIContent s_LogLevel = new GUIContent("Log Level", "Every `NetDebug` log is raised with a specific severity. Use this to discard logs below this severity level." + k_NetcodeNDebugTooltip);
-        static GUIContent s_DumpPacketLogs = new GUIContent("Dump Packet Logs", "Denotes whether Netcode will dump packet logs to `NetDebug.LogFolderForPlatform`.\n\nIf 'Force Log Settings' is disabled, the editor will use whatever logging configuration values are already set." + k_NetcodeNDebugTooltip);
+        static GUIContent s_ForceLogLevel = new GUIContent("Force Log Settings", "Force all <b>NetDebug</b> loggers to a specified setting, clobbering any <b>NetCodeDebugConfig</b> singleton.");
+        const string k_NetcodeNDebugTooltip = "\n\nDisable this functionality (and related CPU overhead) by defining <b>NETCODE_NDEBUG</b> in your project.";
+        static GUIContent s_LogLevel = new GUIContent("Log Level", "Every <b>NetDebug</b> log is raised with a specific severity. Use this to discard logs below this severity level." + k_NetcodeNDebugTooltip);
+        static GUIContent s_DumpPacketLogs = new GUIContent("Dump Packet Logs", "Denotes whether Netcode will dump packet logs to <b>NetDebug.LogFolderForPlatform</b>.\n\nIf 'Force Log Settings' is disabled, the editor will use whatever logging configuration values are already set." + k_NetcodeNDebugTooltip);
         static GUIContent s_LagSpike = new GUIContent("", "In playmode, press the shortcut key to toggle 'total packet loss' for the specified duration.\n\nUseful when testing short periods of lost connection (e.g. while in a tunnel) and to see how well your client and server handle an \"ungraceful\" disconnect (e.g. internet going down).\n\n- This window must be open for this tool to work.\n- Will only be applied to the \"full\" (i.e.: rendering) clients.\n- Depending on timeouts specified, this may cause the actual driver to timeout. Ensure you handle reconnections.");
+
+        static GUIContent s_WarnBatchedTicks = new GUIContent("Warn When Ticks Batched", "Display a warning in the console when network ticks are batched.\nThis can be useful for tracking down if 'stuttering' issues are linked to tick batching.\n\nBatching occurs when the server is unable to process enough 'network ticks' to keep up with the simulation rate. If a network tick represent say 33ms of time but takes 66ms to process the server will fall behind. It now needs to make up a frame so next update it will simulate 2 ticks, one for the current time slice and one to make up for the lost time, if these two frames can't be processed in time then a spiral will occur where each 'tick' requires more and more 'network ticks' to keep up. This is mitigated via batching, instead of calculating multiple ticks, ticks are batched by increasing the length of a 'network tick' to simulate enough time to keep pace with the desired update rate (66ms in this case to capture two 33ms updates). While effective as curbing runaway performance issues this can cause many interpolation issues - expect client input loss, and a reduction in gameplay, physics, prediction and interpolation quality.");
+        static GUIContent s_WarnBatchedTicksRollingWindow = new GUIContent("Rolling Avg Window Size", "Specifies the number of frames the average is calculated over.");
+        static GUIContent s_WarnAboveAverageBatchedTicksPerFrame = new GUIContent("Above Ticks Per Frame", "Sets the minimum number of batched ticks per frame for displaying the warning. A value of 1 will display a warning for every batched tick.");
 
         static readonly string[] k_LagSpikeDurationStrings = { "10ms", "100ms", "200ms", "500ms", "1s", "2s", "5s", "10s", "30s", "1m", "2m"};
         internal static readonly int[] k_LagSpikeDurationsSeconds = { 10, 100, 200, 500, 1_000, 2_000, 5_000, 10_000, 30_000, 60_000, 120_000 };
 
-        static ulong s_LastNextSequenceNumber;
-        static float s_SecondsTillCanCreateThinClient;
-        static bool s_UserIsInteractingWithMenu;
-        static TimeSpan s_RepaintDelayTimeSpan = TimeSpan.FromSeconds(1);
-
         static GUIStyle s_BoxStyleHack;
+        static GUILayoutOption s_RightButtonWidth = GUILayout.Width(120);
+        static DateTime s_LastWrittenUtc;
         static DateTime s_LastRepaintedUtc;
-        static bool s_ForceRepaint;
+        static bool s_ShouldUpdateStatusTexts;
+        public static bool s_ForceRepaint;
         Vector2 m_WorldScrollPosition;
-        bool m_DidRepaint;
+        int m_PreviousFrameCount;
 
-        /// <inheritdoc cref="ClientServerBootstrap.RuntimeThinClientWorldInitialization"/>
-        public delegate bool RuntimeThinClientWorldInitializationDelegate(World world);
         public delegate void SimulatorPresetsSelectionDelegate(out string presetGroupName, List<SimulatorPreset> appendPresets);
-
-        /// <summary>
-        ///     If your thin clients need custom initialization due to scene management settings, modify this delegate.
-        ///     Set to null to disable the runtime ThinClient feature.
-        /// </summary>
-        public static RuntimeThinClientWorldInitializationDelegate RuntimeThinClientWorldInitialization = DefaultRuntimeThinClientWorldInitialization;
 
         /// <summary>If your team would prefer to use other Simulator Presets, override this.
         /// Defaults to: <see cref="SimulatorPreset.DefaultInUseSimulatorPresets"/></summary>
         public static SimulatorPresetsSelectionDelegate InUseSimulatorPresets = SimulatorPreset.DefaultInUseSimulatorPresets;
-
-        static GUILayoutOption s_RightButtonWidth = GUILayout.Width(120);
-        private int m_PreviousFrameCount;
 
         [MenuItem("Window/Multiplayer/PlayMode Tools", priority = 3007)]
         private static void ShowWindow()
@@ -199,31 +212,33 @@ namespace Unity.NetCode.Editor
             if (playModeStateChange == PlayModeStateChange.EnteredPlayMode)
                 EditorApplication.update += PlayModeUpdate;
 
-            s_SecondsTillCanCreateThinClient = k_InitialThinClientWorldCreationInterval;
-
             PlayModeUpdate();
             Repaint();
         }
 
         void PlayModeUpdate()
         {
-            UpdateNumThinClientWorlds();
+            var didCreateOrDestroyWorlds = AutomaticThinClientWorldsUtility.UpdateAutomaticThinClientWorlds();
+            s_ForceRepaint |= didCreateOrDestroyWorlds;
 
             var utcNow = DateTime.UtcNow;
             // Don't repaint if not playing, except when we tick.
-            var frameCountChanged = false;
+            var frameCountChangedWhilePaused = false;
+            var hitRepaintTimerWhileResumed = false;
             if (EditorApplication.isPaused)
             {
                 var frameCount = Time.frameCount;
-                frameCountChanged = frameCount != m_PreviousFrameCount;
+                frameCountChangedWhilePaused = frameCount != m_PreviousFrameCount;
                 m_PreviousFrameCount = frameCount;
             }
-            m_DidRepaint = utcNow - s_LastRepaintedUtc >= s_RepaintDelayTimeSpan && (!EditorApplication.isPaused || frameCountChanged || s_ForceRepaint);
-            if (m_DidRepaint)
+            else
+            {
+                hitRepaintTimerWhileResumed = utcNow - s_LastRepaintedUtc >= TimeSpan.FromSeconds(1);
+            }
+
+            if (hitRepaintTimerWhileResumed || frameCountChangedWhilePaused || s_ForceRepaint)
             {
                 s_ForceRepaint = false;
-                s_LastRepaintedUtc = utcNow;
-                s_UserIsInteractingWithMenu = false;
                 Repaint();
             }
         }
@@ -235,83 +250,8 @@ namespace Unity.NetCode.Editor
             {
                 var system = ClientServerBootstrap.ClientWorld.GetExistingSystemManaged<MultiplayerClientPlayModeConnectionSystem>();
                 system.ToggleLagSpikeSimulator();
-                ForceRepaint();
+                s_ForceRepaint = true;
             }
-        }
-
-        /// <summary>By default, thin clients will attempt to copy the scenes loaded on the server, or the presenting client.</summary>
-        static bool DefaultRuntimeThinClientWorldInitialization(World newThinClientWorld)
-        {
-            var worldToCopyFrom = ClientServerBootstrap.ClientWorld ?? ClientServerBootstrap.ServerWorld;
-            if (worldToCopyFrom?.IsCreated != true)
-            {
-                Debug.LogError("Cannot properly initialize ThinClientWorld as no Client or Server world found, so no idea which scenes to load.");
-                return false;
-            }
-
-            using var serverWorldScenesQuery = worldToCopyFrom.EntityManager.CreateEntityQuery(ComponentType.ReadOnly<RequestSceneLoaded>(), ComponentType.ReadOnly<SceneReference>());
-            var serverWorldScenes = serverWorldScenesQuery.ToComponentDataArray<SceneReference>(Allocator.Temp);
-            for (int i = 0; i < serverWorldScenes.Length; i++)
-            {
-                var desiredGoSceneReferenceGuid = serverWorldScenes[i];
-                SceneSystem.LoadSceneAsync(newThinClientWorld.Unmanaged,
-                    desiredGoSceneReferenceGuid.SceneGUID,
-                    new SceneSystem.LoadParameters
-                    {
-                        Flags = SceneLoadFlags.BlockOnImport | SceneLoadFlags.BlockOnStreamIn,
-                        AutoLoad = true,
-                    });
-            }
-
-            return true;
-        }
-
-
-        /// <summary>Will Create or Dispose thin client worlds until the final count is equal to <see cref="Prefs.NumThinClients"/>.</summary>
-        void UpdateNumThinClientWorlds()
-        {
-            if (Prefs.RequestedPlayType == ClientServerBootstrap.PlayType.Server || !EditorApplication.isPlaying || EditorApplication.isCompiling || EditorApplication.isPaused) return;
-
-            s_SecondsTillCanCreateThinClient -= Time.deltaTime;
-
-            var requestedNumThinClients = MultiplayerPlayModePreferences.RequestedNumThinClients;
-
-            // Dispose if too many:
-            while(ClientServerBootstrap.ThinClientWorlds.Count > requestedNumThinClients)
-            {
-                var index = ClientServerBootstrap.ThinClientWorlds.Count - 1;
-                var world = ClientServerBootstrap.ThinClientWorlds[index];
-                if (world.IsCreated)
-                    world.Dispose();
-                ForceRepaint();
-            }
-
-            // Create new:
-            var hasServerOrClient = ClientServerBootstrap.ServerWorld != null || ClientServerBootstrap.ClientWorld != null;
-            if (hasServerOrClient && !s_UserIsInteractingWithMenu)
-            {
-                for(var i = ClientServerBootstrap.ThinClientWorlds.Count; i < requestedNumThinClients && s_SecondsTillCanCreateThinClient <= 0; i++)
-                {
-                    var thinClientWorld = ClientServerBootstrap.CreateThinClientWorld();
-                    ForceRepaint();
-
-                    var success = RuntimeThinClientWorldInitialization(thinClientWorld);
-
-                    if (MultiplayerPlayModePreferences.ThinClientCreationFrequency > 0)
-                        s_SecondsTillCanCreateThinClient = 1f / MultiplayerPlayModePreferences.ThinClientCreationFrequency;
-
-                    if (!success)
-                    {
-                        s_SecondsTillCanCreateThinClient = math.max(s_SecondsTillCanCreateThinClient, k_ThinClientWorldCreationFailureRetryInterval);
-                        return;
-                    }
-                }
-            }
-        }
-
-        internal static void ForceRepaint()
-        {
-            s_ForceRepaint = true;
         }
 
         // This interface implementation is automatically called by Unity.
@@ -324,12 +264,17 @@ namespace Unity.NetCode.Editor
                 InUseSimulatorPresets = SimulatorPreset.DefaultInUseSimulatorPresets;
                 Prefs.ShowAllSimulatorPresets ^= true;
                 RefreshSimulatorPresets();
-                ForceRepaint();
+                s_ForceRepaint = true;
             }
         }
 
         void OnGUI()
         {
+            var utcNow = DateTime.UtcNow;
+            s_LastRepaintedUtc = utcNow;
+            s_ShouldUpdateStatusTexts = (utcNow - s_LastWrittenUtc) >= TimeSpan.FromSeconds(.98f) || s_ForceRepaint;
+            if (s_ShouldUpdateStatusTexts) s_LastWrittenUtc = utcNow;
+
             HackFixBoxStyle();
 
             HandleWindowProperties();
@@ -443,11 +388,7 @@ namespace Unity.NetCode.Editor
         {
             // Window:
             minSize = new Vector2(600, 210);
-            maxSize = new Vector2(600, maxSize.y);
-
-            // Avoid creating new thin clients while the user is interacting with the menu.
-            var e = Event.current;
-            s_UserIsInteractingWithMenu |= e.type == EventType.MouseDrag || e.type == EventType.MouseDown;
+            maxSize = new Vector2(1200, maxSize.y);
         }
 
         static void DrawClientAutoConnect()
@@ -492,7 +433,11 @@ namespace Unity.NetCode.Editor
             // Notifying of code vs editor overrides:
             if (EditorApplication.isPlaying)
             {
-                if (!ClientServerBootstrap.WillServerAutoListen)
+                if (!ClientServerBootstrap.DetermineIfBootstrappingEnabled())
+                {
+                    EditorGUILayout.HelpBox("Bootstrapping is disabled for this project or scene. I.e. Waiting for you to create netcode worlds yourself, which will then appear here.", MessageType.Warning);
+                }
+                else if (!ClientServerBootstrap.WillServerAutoListen)
                 {
                     var anyConnected = ClientServerBootstrap.ServerWorlds.Any(x => x.IsCreated && x.GetExistingSystemManaged<MultiplayerServerPlayModeConnectionSystem>().IsListening)
                         || ClientServerBootstrap.ClientWorlds.Concat(ClientServerBootstrap.ThinClientWorlds).Any(x => x.IsCreated && x.GetExistingSystemManaged<MultiplayerClientPlayModeConnectionSystem>().ClientConnectionState != ConnectionState.State.Disconnected);
@@ -519,32 +464,24 @@ namespace Unity.NetCode.Editor
 
         static void DrawThinClientSelector()
         {
-            if (Prefs.RequestedPlayType == ClientServerBootstrap.PlayType.Server)
-                return;
-
             GUI.color = Color.white;
             GUILayout.BeginHorizontal();
             {
-                GUI.enabled = !EditorApplication.isPlaying || RuntimeThinClientWorldInitialization != null;
+                // Thin clients are only enabled if the delegates are hooked up.
+                // As there are two types (bootstap vs runtime), if we're not in Play Mode,
+                // we can check if either are present.
+                GUI.enabled = EditorApplication.isPlaying
+                    ? AutomaticThinClientWorldsUtility.IsRuntimeInitializationEnabled
+                    : AutomaticThinClientWorldsUtility.IsBootstrapInitializationEnabled || AutomaticThinClientWorldsUtility.IsRuntimeInitializationEnabled;
                 Prefs.RequestedNumThinClients = EditorGUILayout.IntField(s_NumThinClients, Prefs.RequestedNumThinClients);
-
+                Prefs.ThinClientCreationFrequency = EditorGUILayout.FloatField(s_InstantiationFrequency, Prefs.ThinClientCreationFrequency);
                 GUI.enabled = true;
-
-                if(RuntimeThinClientWorldInitialization != null)
-                    Prefs.ThinClientCreationFrequency = EditorGUILayout.FloatField(s_InstantiationFrequency, Prefs.ThinClientCreationFrequency);
-                else
-                {
-                    GUI.enabled = false;
-                    GUILayout.Box(s_RuntimeInstantiationDisabled, s_BoxStyleHack);
-                    GUI.enabled = true;
-                }
             }
             GUILayout.EndHorizontal();
-
             var isRunningWithoutOptimizations = Prefs.RequestedNumThinClients > 4 && !BurstCompiler.IsEnabled;
             var isRunningHighCount = Prefs.RequestedNumThinClients > 16;
             if(isRunningWithoutOptimizations || isRunningHighCount)
-                EditorGUILayout.HelpBox("Enabling many in-process thin clients will slowdown enter-play-mode durations (as well as throttle the editor itself). It is therefore recommended to have Burst enabled, your Editor set to Release, and to use this feature sparingly.", MessageType.Warning);
+                EditorGUILayout.HelpBox("Enabling many in-process thin clients will slow down enter-play-mode durations (as well as throttle the editor itself). It is therefore recommended to have Burst enabled, your Editor set to Release, and to use this feature sparingly.", MessageType.Warning);
         }
 
         static void DrawPlayType()
@@ -595,7 +532,7 @@ namespace Unity.NetCode.Editor
             // Simulator Toggle:
             {
                 EditorGUI.BeginChangeCheck();
-                GUI.color = Prefs.SimulatorEnabled ? ActiveColor : Color.white;
+                GUI.color = Prefs.SimulatorEnabled ? s_Blue : Color.white;
                 var wasSimulatorEnabled = Prefs.SimulatorEnabled;
                 Prefs.SimulatorEnabled = EditorGUILayout.Toggle(s_SimulatorTitle, wasSimulatorEnabled);
                 if (EditorGUI.EndChangeCheck())
@@ -752,15 +689,16 @@ namespace Unity.NetCode.Editor
                         DrawSeparator();
 
                         var firstClient = ClientServerBootstrap.ClientWorld ?? ClientServerBootstrap.ThinClientWorlds?.FirstOrDefault();
-                        var connSystem = firstClient?.GetExistingSystemManaged<MultiplayerClientPlayModeConnectionSystem>();
+                        var connSystem = firstClient != null && firstClient.IsCreated ? firstClient.GetExistingSystemManaged<MultiplayerClientPlayModeConnectionSystem>() : null;
 
                         GUILayout.BeginHorizontal();
                         {
-                            var keyBinding = UnityEditor.ShortcutManagement.ShortcutManager.instance.GetShortcutBinding(k_ToggleLagSpikeSimulatorBindingKey);
-
-                            s_LagSpike.text = $"Lag Spike Simulator [{keyBinding.ToString()}]";
+                            var keyBinding = UnityEditor.ShortcutManagement.ShortcutManager.instance.GetShortcutBinding(k_ToggleLagSpikeSimulatorBindingKey).ToString();
+                            if (string.IsNullOrWhiteSpace(keyBinding))
+                                keyBinding = "no shortcut";
+                            s_LagSpike.text = $"Lag Spike Simulator [{keyBinding}]";
                             var isSimulatingLagSpike = connSystem != null && connSystem.IsSimulatingLagSpike;
-                            GUI.color = isSimulatingLagSpike ? GhostAuthoringComponentEditor.brokenColor : ActiveColor;
+                            GUI.color = isSimulatingLagSpike ? GhostAuthoringComponentEditor.brokenColor : s_Blue;
                             GUILayout.Label(s_LagSpike);
                             GUILayout.FlexibleSpace();
 
@@ -786,6 +724,7 @@ namespace Unity.NetCode.Editor
             if (world == default || !world.IsCreated) return;
 
             var conSystem = world.GetExistingSystemManaged<MultiplayerClientPlayModeConnectionSystem>();
+            if (s_ShouldUpdateStatusTexts) conSystem.UpdateStatusText();
 
             var isConnected = conSystem.ClientConnectionState == ConnectionState.State.Connected;
             var isHandshakeOrApproval = conSystem.NetworkStreamConnection.IsHandshakeOrApproval;
@@ -793,49 +732,36 @@ namespace Unity.NetCode.Editor
             GUILayout.BeginHorizontal();
             {
                 GUI.color = connectionColor;
-                GUILayout.Box(isConnected && !isHandshakeOrApproval ? conSystem.NetworkId.Value.ToString() : "-", s_BoxStyleHack, s_NetworkIdWidth);
+                s_NetworkId.text = isConnected && !isHandshakeOrApproval ? conSystem.NetworkId.Value.ToString() : "-";
+                GUILayout.Box(s_NetworkId, s_BoxStyleHack, s_NetworkIdWidth);
 
-                GUILayout.Label(world.Name, s_WorldNameWidth);
+                s_WorldName.text = world.Name;
+                GUILayout.Label(s_WorldName, s_WorldNameWidth);
                 GUI.color = Color.white;
-                if(conSystem.IsUsingIpc)
-                    GUILayout.Label(s_Ipc);
-                if (conSystem.IsUsingSocket)
-                {
-                    GUILayout.Label(conSystem.IsUsingWebSocket ? s_WebSocket : s_UdpSocket);
-                }
-
-                switch (conSystem.SocketFamily)
-                {
-                    case NetworkFamily.Invalid:
-                        break;
-                    case NetworkFamily.Ipv4:
-                        GUILayout.Label("[IPv4]");
-                        break;
-                    case NetworkFamily.Ipv6:
-                        GUILayout.Label("[IPv6]");
-                        break;
-                    case NetworkFamily.Custom:
-                        GUILayout.Label("[Custom]");
-                        break;
-                    default:
-                        throw new ArgumentOutOfRangeException();
-                }
+                DrawDriverDisplayInfo(ref conSystem.DriverInfos, conSystem.NetworkStreamConnection);
 
                 if (conSystem.IsSimulatingLagSpike)
                 {
                     GUI.color = GhostAuthoringComponentEditor.brokenColor;
-                    GUILayout.Label("[Lag Spike]");
+                    GUILayout.Label(s_LagSpikeOccuring);
                 }
 
-                s_NetworkEmulation.text = conSystem.IsAnyUsingSimulator ? "[Using Network Emulation]" : "[No Emulation]";
-                GUILayout.Label(s_NetworkEmulation);
-
                 GUI.color = connectionColor;
-                if(conSystem.LastEndpoint != default)
-                    GUILayout.Label($"[{conSystem.LastEndpoint}]");
-                if(conSystem.ClientConnectionState == ConnectionState.State.Unknown)
-                    GUILayout.Label(s_Unknown);
-                else GUILayout.Label($"[{conSystem.ClientConnectionState.ToString()}]");
+                if (conSystem.ClientConnectionState == ConnectionState.State.Unknown)
+                {
+                    GUILayout.Label(s_NoNetworkConnectionEntity);
+                }
+                else
+                {
+                    s_ClientConnectionState.text = $"[{conSystem.ClientConnectionState.ToString()}]";
+                    GUILayout.Label(s_ClientConnectionState);
+                }
+
+                if (world.IsThinClient() && AutomaticThinClientWorldsUtility.AutomaticallyManagedWorlds.Contains(world))
+                {
+                    GUI.color = s_Blue;
+                    GUILayout.Label(s_Auto);
+                }
 
                 if (conSystem.DisconnectPending)
                 {
@@ -888,8 +814,6 @@ namespace Unity.NetCode.Editor
                 conSystem.ToggleTimeoutSimulation();
 
             GUI.color = connectionColor;
-            if (m_DidRepaint)
-                conSystem.UpdatePingText();
             GUILayout.Box(conSystem.PingText, s_BoxStyleHack, s_PingWidth);
             EditorGUILayout.EndHorizontal();
 
@@ -905,47 +829,45 @@ namespace Unity.NetCode.Editor
                 case ConnectionState.State.Unknown:
                     return GhostAuthoringComponentEditor.brokenColor;
                 case ConnectionState.State.Disconnected:
-                    return new Color(1f, 0.25f, 0.22f);
+                    return s_Red;
                 case ConnectionState.State.Connecting:
                     return Color.yellow;
                 case ConnectionState.State.Handshake:
-                    return new Color(1f, 0.68f, 0f);
+                    return s_Orange;
                 case ConnectionState.State.Approval:
-                    return new Color(1f, .49f, 0.95f);
+                    return s_Pink;
                 case ConnectionState.State.Connected:
-                    return ActiveColor;
+                    return s_Blue;
                 default: throw new NotImplementedException(state.ToString());
             }
         }
 
-        static void DrawServerWorld(World serverWorld)
+        void DrawServerWorld(World serverWorld)
         {
             if (serverWorld == default || !serverWorld.IsCreated) return;
             var conSystem = serverWorld.GetExistingSystemManaged<MultiplayerServerPlayModeConnectionSystem>();
+            if (s_ShouldUpdateStatusTexts) conSystem.UpdateStatusText();
+            var connectingColor = conSystem.IsListening ? s_Green : GhostAuthoringComponentEditor.brokenColor;
 
             GUILayout.BeginHorizontal();
             {
-                GUI.color = Color.white;
-                s_ServerName.text = serverWorld.Name;
-                EditorGUILayout.LabelField(s_ServerName, s_WorldNameWidth);
+                GUILayout.BeginVertical();
+                GUILayout.BeginHorizontal();
+                GUI.color = connectingColor;
+                s_NetworkId.text = "-";
+                GUILayout.Box(s_NetworkId, s_BoxStyleHack, s_NetworkIdWidth);
 
-                if (conSystem.IsListening)
-                {
-                    s_ServerPort.text = $"[{conSystem.LastEndpoint.Address}]";
-                    GUILayout.Label(s_ServerPort, s_DontExpandWidth);
+                s_WorldName.text = serverWorld.Name;
+                EditorGUILayout.LabelField(s_WorldName, s_WorldNameWidth);
 
-                    GUILayout.Label("[Listening]");
-                }
-                else GUILayout.Label("[Not Listening]");
+                DrawDriverDisplayInfo(ref conSystem.DriverInfos, null);
 
-                var numConnections = conSystem.NumActiveConnections;
-                var numInGame = conSystem.NumActiveConnectionsInGame;
-                GUI.color = numConnections > 0 ? ActiveColor : Color.white;
-                s_ServerPlayers.text = $"[{numConnections} Connected | {numInGame} In Game]";
-                GUILayout.Label(s_ServerPlayers, s_DontExpandWidth);
+                GUILayout.FlexibleSpace();
+
+                GUILayout.EndHorizontal();
+                GUILayout.BeginHorizontal();
 
                 GUI.color = Color.white;
-
                 GUILayout.EndHorizontal();
             }
 
@@ -964,6 +886,7 @@ namespace Unity.NetCode.Editor
 
                     foreach (var clientWorld in ClientServerBootstrap.ClientWorlds.Concat(ClientServerBootstrap.ThinClientWorlds))
                     {
+                        if (!clientWorld.IsCreated) continue;
                         var connSystem = clientWorld.GetExistingSystemManaged<MultiplayerClientPlayModeConnectionSystem>();
                         Prefs.IsEditorInputtedAddressValidForConnect(out var ep);
                         connSystem.ChangeStateImmediate(connSystem.LastEndpoint ?? ep);
@@ -979,7 +902,11 @@ namespace Unity.NetCode.Editor
                     LogCommandStats(serverWorld);
                 }
 
-                GUILayout.FlexibleSpace();
+                GUILayout.EndVertical();
+                GUILayout.EndHorizontal();
+
+                GUI.color = connectingColor;
+                GUILayout.Box(s_ServerStats, s_BoxStyleHack, s_PingWidth);
             }
             GUILayout.EndHorizontal();
 
@@ -990,7 +917,8 @@ namespace Unity.NetCode.Editor
         {
             if (connectionEvents.Count == 0)
                 return;
-            GUI.color = new Color(0.51f, 0.85f, 0.49f);
+
+            GUI.color = s_Green;
             FixedString4096Bytes s = "";
             for (int i = 0; i < connectionEvents.Count; i++)
             {
@@ -1015,6 +943,60 @@ namespace Unity.NetCode.Editor
                 }
             }
             GUILayout.Label(s.ToString(), EditorStyles.wordWrappedLabel);
+        }
+
+        private static void DrawDriverDisplayInfo(ref FixedList512Bytes<DriverDisplayInfo> displayInfos, NetworkStreamConnection? clientConnection)
+        {
+            for (int i = 0; i < displayInfos.Length; i++)
+            {
+                ref var ddi = ref displayInfos.ElementAt(i);
+                const char separator = ':';
+                FixedString32Bytes text = default;
+
+                // Family & TransportType:
+                var type = ddi.TransportType switch
+                {
+                    TransportType.IPC => "IPC",
+                    TransportType.Socket => "UDP",  // We assume UDP!
+                    TransportType.Invalid => "Invalid",
+                    _ => throw new NotImplementedException(ddi.TransportType.ToString()),
+                };
+                var family = ddi.NetworkFamily switch
+                {
+                    // TODO - Transport does not reset the Bound field when disconnecting a client,
+                    // so don't display that here as it's misleading.
+                    NetworkFamily.Invalid => clientConnection.HasValue ? type : $"{type}{separator}{(ddi.Bound ? "BoundOnly" : "Closed")}",
+                    NetworkFamily.Ipv4 => type,
+                    NetworkFamily.Ipv6 => type,
+                    NetworkFamily.Custom => ddi.IsWebSocket ? "WebSocket" : "Custom",
+                    _ => throw new NotImplementedException(ddi.NetworkFamily.ToString()),
+                };
+                text += family;
+
+                // Address:
+                string address = null;
+                if (ddi.Endpoint.IsValid) address += $"{separator}{ddi.Endpoint.Address}";
+
+                GUI.color = (type: ddi.TransportType, family: ddi.NetworkFamily, isWebSocket: ddi.IsWebSocket) switch
+                {
+                    (TransportType.IPC, _, _) => s_Green,
+                    (_, _, true) => Color.yellow,
+                    (_, NetworkFamily.Custom, false) => s_Orange,
+                    (_, NetworkFamily.Ipv4, _) => s_Blue,
+                    (_, NetworkFamily.Ipv6, _) => s_Pink,
+                    _ => GhostAuthoringComponentEditor.brokenColor,
+                };
+                s_DriverDisplayInfo.text = $"[{text}{address}]";
+                GUILayout.Label(s_DriverDisplayInfo);
+
+                // Emulation:
+                if (clientConnection.HasValue)
+                {
+                    GUI.color = Color.white;
+                    s_NetworkEmulation.text = ddi.SimulatorEnabled ? "[Emulation Enabled]" : "[No Emulation]";
+                    GUILayout.Label(s_NetworkEmulation);
+                }
+            }
         }
 
         static string EditorPopup(GUIContent content, GUIContent[] list, string value)
@@ -1065,7 +1047,7 @@ namespace Unity.NetCode.Editor
         void DrawLoggingGroup()
         {
             GUILayout.BeginHorizontal();
-            GUI.color = Prefs.ApplyLoggerSettings ? ActiveColor : Color.white;
+            GUI.color = Prefs.ApplyLoggerSettings ? s_Blue : Color.white;
             Prefs.ApplyLoggerSettings = EditorGUILayout.Toggle(s_ForceLogLevel, Prefs.ApplyLoggerSettings);
             if (!Prefs.ApplyLoggerSettings)
                 DrawLogFileLocationButton();
@@ -1090,6 +1072,20 @@ namespace Unity.NetCode.Editor
 #if NETCODE_NDEBUG
             EditorGUILayout.HelpBox("`NETCODE_NDEBUG` is currently defined, so netcode packet dump functionality (and related CPU overhead) is removed.", MessageType.Info);
 #endif
+
+            DrawSeparator();
+
+            GUILayout.BeginHorizontal();
+            Prefs.WarnBatchedTicks = EditorGUILayout.Toggle(s_WarnBatchedTicks, Prefs.WarnBatchedTicks);
+            GUILayout.EndHorizontal();
+
+            if (Prefs.WarnBatchedTicks)
+            {
+                GUILayout.BeginHorizontal();
+                Prefs.WarnBatchedTicksRollingWindow = EditorGUILayout.IntField(s_WarnBatchedTicksRollingWindow, Prefs.WarnBatchedTicksRollingWindow);
+                Prefs.WarnAboveAverageBatchedTicksPerFrame = EditorGUILayout.FloatField(s_WarnAboveAverageBatchedTicksPerFrame, Prefs.WarnAboveAverageBatchedTicksPerFrame);
+                GUILayout.EndHorizontal();
+            }
 
             static void DrawLogFileLocationButton()
             {
@@ -1117,7 +1113,7 @@ namespace Unity.NetCode.Editor
                     visitor.DetailsVisible = EditorGUILayout.BeginFoldoutHeaderGroup(visitor.DetailsVisible, visitor.Name);
 
                     GUI.enabled = true;
-                    GUI.color = visitor.Enabled ? ActiveColor : Color.grey;
+                    GUI.color = visitor.Enabled ? s_Blue : Color.grey;
                     if (GUILayout.Button(visitor.Enabled ? "Drawing" : "Disabled", s_RightButtonWidth))
                         visitor.Enabled ^= true;
                 }
@@ -1182,7 +1178,7 @@ namespace Unity.NetCode.Editor
             for (var i = 0; i < networkSnapshotAcks.Length; i++)
             {
                 var ack = networkSnapshotAcks[i];
-                message += $"\n- Client {networkIds[i].ToFixedString()} with ping {(int)ack.EstimatedRTT}±{(int)ack.DeviationRTT} has {ack.CommandArrivalStatistics.ToFixedString()}";
+                message += $"\n- Client {networkIds[i].ToFixedString()} with ping {(int)ack.EstimatedRTT}±{(int)ack.DeviationRTT} has {ack.CommandArrivalStatistics.ToFixedString()} and {ack.SnapshotPacketLoss.ToFixedString()}";
             }
             Debug.Log(message);
         }
@@ -1215,7 +1211,7 @@ namespace Unity.NetCode.Editor
             foreach (var serverWorld in ClientServerBootstrap.ServerWorlds)
             {
                 serverWorld.GetExistingSystemManaged<MultiplayerServerPlayModeConnectionSystem>().TryDisconnectImmediate(connSystem.NetworkId);
-                GetNetDbgForWorld(serverWorld).DebugLog($"{serverWorld.Name} triggered '{nameof(ServerDisconnectNetworkId)}' on NetworkId '{connSystem.NetworkId.Value}' via {nameof(MultiplayerPlayModeWindow)}!");
+                GetNetDbgForWorld(serverWorld).DebugLog($"{serverWorld.Name} triggered `{nameof(ServerDisconnectNetworkId)}` on NetworkId `{connSystem.NetworkId.Value}` via `{nameof(MultiplayerPlayModeWindow)}`!");
                 connSystem.DisconnectPending = true;
             }
         }
@@ -1226,23 +1222,23 @@ namespace Unity.NetCode.Editor
     internal partial class MultiplayerClientPlayModeConnectionSystem : SystemBase
     {
         internal GUIContent PingText = new GUIContent();
-        internal NetworkStreamConnection NetworkStreamConnection;
+        internal NetworkStreamConnection NetworkStreamConnection { get; private set; }
         internal ConnectionState.State ClientConnectionState => NetworkStreamConnection.CurrentState;
+        internal GhostCount GhostCount { get; private set; }
 
         internal NetworkSnapshotAck ClientNetworkSnapshotAck;
         internal NetworkId NetworkId;
 
         public bool UpdateSimulator;
         public bool DisconnectPending;
+        public FixedList512Bytes<DriverDisplayInfo> DriverInfos;
 
         public bool IsAnyUsingSimulator {get; private set;}
         public List<NetCodeConnectionEvent> ConnectionEventsForTick { get; } = new(4);
         public NetworkEndpoint? LastEndpoint {get; private set;}
         public NetworkEndpoint? TargetEp {get; private set;}
 
-        internal bool IsUsingIpc { get; private set; }
-        internal bool IsUsingWebSocket { get; private set; }
-        internal bool IsUsingSocket { get; private set; }
+        internal TransportType SocketType { get; private set; }
         internal NetworkFamily SocketFamily { get; private set; }
 
         internal int LagSpikeMillisecondsLeft { get; private set; } = -1;
@@ -1251,9 +1247,12 @@ namespace Unity.NetCode.Editor
         internal bool IsSimulatingTimeout => TimeoutSimulationDurationSeconds >= 0;
         internal bool IsSimulatingLagSpike => LagSpikeMillisecondsLeft >= 0;
 
+        EntityQuery m_PredictedGhostsQuery;
+
         protected override void OnCreate()
         {
-            UpdatePingText();
+            m_PredictedGhostsQuery = GetEntityQuery(ComponentType.ReadOnly<PredictedGhost>());
+            UpdateStatusText();
         }
 
         protected override void OnUpdate()
@@ -1276,14 +1275,21 @@ namespace Unity.NetCode.Editor
                     LagSpikeMillisecondsLeft = -1;
                     UpdateSimulator = true;
                     netDebug.DebugLog("Lag Spike Simulator: Finished dropping packets!");
-                    MultiplayerPlayModeWindow.ForceRepaint();
+                    MultiplayerPlayModeWindow.s_ForceRepaint = true;
                 }
             }
 
+            var lastState = ClientConnectionState;
+            NetworkStreamConnection = SystemAPI.TryGetSingleton(out NetworkStreamConnection conn) ? conn : default;
+            GhostCount = SystemAPI.TryGetSingleton(out GhostCount ghostCount) ? ghostCount : default;
+
+            DriverInfos.Length = 0;
             var hasNetworkStreamDriver = SystemAPI.TryGetSingletonRW<NetworkStreamDriver>(out var netStream);
             if (hasNetworkStreamDriver)
             {
-                ref var driverStore = ref netStream.ValueRO.DriverStore;
+				ref var driverStore = ref netStream.ValueRO.DriverStore;
+                DriverDisplayInfo.Read(ref driverStore, ref DriverInfos, NetworkStreamConnection.Value);
+
                 LastEndpoint = netStream.ValueRO.LastEndPoint;
                 IsAnyUsingSimulator = driverStore.IsAnyUsingSimulator;
                 ConnectionEventsForTick.Clear();
@@ -1292,39 +1298,13 @@ namespace Unity.NetCode.Editor
                     if (netStream.ValueRO.ConnectionEventsForTick.Length > 0)
                     {
                         ConnectionEventsForTick.AddRange(netStream.ValueRO.ConnectionEventsForTick);
-                        MultiplayerPlayModeWindow.ForceRepaint();
-                    }
-                }
-                for (int i = driverStore.FirstDriver; i < driverStore.LastDriver; i++)
-                {
-                    switch (driverStore.GetDriverType(i))
-                    {
-                        case TransportType.IPC:
-                            IsUsingIpc = true;
-                            break;
-                        case TransportType.Socket:
-                            IsUsingSocket = true;
-                            // TODO - Fetch as readonly when inner methods are marked as readonly (to prevent copy).
-                            SocketFamily = driverStore.GetDriverRW(i).GetLocalEndpoint().Family;
-
-                            // todo: Fetch the NetworkInterface from the driver directly, by Type name, to future proof this.
-#if UNITY_WEBGL
-                            IsUsingWebSocket = true;
-#else
-                            IsUsingWebSocket = false;
-#endif
-                            break;
-                        default:
-                            netDebug.LogError($"{World.Name} has unknown or invalid driver type passed into DriverStore!");
-                            break;
+                        MultiplayerPlayModeWindow.s_ForceRepaint = true;
                     }
                 }
             }
 
-            var lastState = ClientConnectionState;
-            NetworkStreamConnection = SystemAPI.TryGetSingleton(out NetworkStreamConnection conn) ? conn : default;
             if (ClientConnectionState != lastState)
-                MultiplayerPlayModeWindow.ForceRepaint();
+                MultiplayerPlayModeWindow.s_ForceRepaint = true;
 
             if (ClientConnectionState != ConnectionState.State.Disconnected && SystemAPI.TryGetSingletonEntity<NetworkStreamConnection>(out var singletonEntity) && EntityManager.HasComponent<NetworkId>(singletonEntity))
             {
@@ -1354,14 +1334,29 @@ namespace Unity.NetCode.Editor
                 ChangeStateImmediate(TargetEp);
         }
 
-        internal void UpdatePingText()
+        internal void UpdateStatusText()
         {
             if (ClientConnectionState == ConnectionState.State.Connected)
             {
                 var estimatedRTT = (int) ClientNetworkSnapshotAck.EstimatedRTT;
                 var deviationRTT = (int) ClientNetworkSnapshotAck.DeviationRTT;
                 PingText.text = estimatedRTT < 1000 ? $"{estimatedRTT}±{deviationRTT}ms" : $"~{estimatedRTT + deviationRTT}ms";
-                PingText.tooltip = ClientNetworkSnapshotAck.SnapshotPacketLoss.ToFixedString().ToString();
+
+            var snapshotPacketLoss = ClientNetworkSnapshotAck.SnapshotPacketLoss.ToFixedString().ToString();
+            var predictedGhostCount = m_PredictedGhostsQuery.CalculateEntityCount();
+            var interpolatedGhostCount = GhostCount.IsCreated ? GhostCount.GhostCountInstantiatedOnClient - predictedGhostCount : 0;
+
+            var ghostCount = World.IsThinClient() ? "n/a" : $"{GhostCount}\n{predictedGhostCount} Predicted, {interpolatedGhostCount} Interpolated";
+            PingText.tooltip =
+$@"<b>GhostCount</b> Singleton
+{ghostCount}
+ • <i>Note1: Received % can be greater than 100%, as the server can despawn many ghosts at once.</i>
+ • <i>Note2: Thin clients do not fully process received snapshots (to remain lightweight), and therefore don't spawn any ghosts.</i>
+
+<b>SnapshotPacketLossStatistics</b> Singleton
+{snapshotPacketLoss}
+ • <i>Note3: Packet clobbering can be mitigated. See Manual.</i>
+";
             }
             else
             {
@@ -1374,7 +1369,7 @@ namespace Unity.NetCode.Editor
         {
             if (!IsAnyUsingSimulator)
             {
-                SystemAPI.GetSingletonRW<NetDebug>().ValueRW.LogError($"Cannot enable LagSpike simulator as Simulator disabled!");
+                SystemAPI.GetSingletonRW<NetDebug>().ValueRW.LogError($"Cannot enable LagSpike simulator as Client Network Emulation is disabled!");
                 return;
             }
 
@@ -1384,14 +1379,14 @@ namespace Unity.NetCode.Editor
             LagSpikeMillisecondsLeft = IsSimulatingLagSpike ? -1 : MultiplayerPlayModeWindow.k_LagSpikeDurationsSeconds[Prefs.LagSpikeSelectionIndex];
             UpdateSimulator = true;
             SystemAPI.GetSingletonRW<NetDebug>().ValueRW.DebugLog($"Lag Spike Simulator: Toggled! Dropping packets for {Mathf.CeilToInt(LagSpikeMillisecondsLeft)}ms!");
-            MultiplayerPlayModeWindow.ForceRepaint();
+            MultiplayerPlayModeWindow.s_ForceRepaint = true;
         }
 
         public void ToggleTimeoutSimulation()
         {
             if (!IsAnyUsingSimulator)
             {
-                SystemAPI.GetSingletonRW<NetDebug>().ValueRW.LogError($"Cannot enable Timeout Simulation as Simulator disabled!");
+                SystemAPI.GetSingletonRW<NetDebug>().ValueRW.LogError($"Cannot enable Timeout Simulation as Client Network Emulation is disabled!");
                 return;
             }
 
@@ -1406,7 +1401,7 @@ namespace Unity.NetCode.Editor
                 TimeoutSimulationDurationSeconds = -1;
             else TimeoutSimulationDurationSeconds = 0;
 
-            MultiplayerPlayModeWindow.ForceRepaint();
+            MultiplayerPlayModeWindow.s_ForceRepaint = true;
         }
 
         public void ChangeStateImmediate(NetworkEndpoint? targetEp)
@@ -1431,10 +1426,10 @@ namespace Unity.NetCode.Editor
                     if (ClientConnectionState != ConnectionState.State.Disconnected)
                     {
                         UnityEngine.Debug.Log($"[{World.Name}] You triggered a disconnection of {existingConn.Value.ToFixedString()} (on {connectedEntity.ToFixedString()}) via {nameof(MultiplayerPlayModeWindow)}!");
-                        MultiplayerPlayModeWindow.ForceRepaint();
+                        MultiplayerPlayModeWindow.s_ForceRepaint = true;
                         netStream.ValueRW.DriverStore.Disconnect(existingConn);
                         DisconnectPending = true;
-                        UpdatePingText();
+                        UpdateStatusText();
                     }
                 }
                 // Wait 1 frame before reconnecting:
@@ -1450,13 +1445,13 @@ namespace Unity.NetCode.Editor
                     LagSpikeMillisecondsLeft = -1;
                     UpdateSimulator = true;
                     UnityEngine.Debug.Log($"[{World.Name}] You triggered a reconnection to {targetEp.Value.Address} via {nameof(MultiplayerPlayModeWindow)}!");
-                    MultiplayerPlayModeWindow.ForceRepaint();
+                    MultiplayerPlayModeWindow.s_ForceRepaint = true;
                     var connEntity = netStream.ValueRW.Connect(EntityManager, targetEp.Value);
                     NetworkStreamConnection = EntityManager.GetComponentData<NetworkStreamConnection>(connEntity);
                 }
                 else
                 {
-                    UnityEngine.Debug.LogError($"[{World.Name}] You triggered a reconnection, but {targetEp.Value.Address} is not valid!");
+                    UnityEngine.Debug.LogError($"[{World.Name}] You triggered a reconnection, but targetEp:{targetEp.Value.Address} is not valid!");
                 }
             }
             TargetEp = null;
@@ -1468,29 +1463,31 @@ namespace Unity.NetCode.Editor
     internal partial class MultiplayerServerPlayModeConnectionSystem : SystemBase
     {
         public bool IsListening { get; private set; }
-        public NetworkEndpoint LastEndpoint { get; private set; }
 
-        public int NumActiveConnections => m_activeConnectionsQuery.CalculateEntityCount();
-
-        public int NumActiveConnectionsInGame => NumActiveConnections - m_notInGameQuery.CalculateEntityCount();
+        public FixedList512Bytes<DriverDisplayInfo> DriverInfos;
 
         public List<NetCodeConnectionEvent> ConnectionEventsForTick { get; } = new(4);
 
-        private EntityQuery m_activeConnectionsQuery;
-        private EntityQuery m_notInGameQuery;
+        private EntityQuery m_ActiveConnectionsQuery;
+        private EntityQuery m_NotInGameQuery;
+        private EntityQuery m_GhostsQuery;
+        private EntityQuery m_GhostPrefabsQuery;
 
         protected override void OnCreate()
         {
-            m_activeConnectionsQuery = GetEntityQuery(ComponentType.ReadOnly<NetworkId>(), ComponentType.Exclude<NetworkStreamRequestDisconnect>());
-            m_notInGameQuery = GetEntityQuery(ComponentType.ReadOnly<NetworkId>(), ComponentType.Exclude<NetworkStreamRequestDisconnect>(), ComponentType.Exclude<NetworkStreamInGame>());
+            m_ActiveConnectionsQuery = GetEntityQuery(ComponentType.ReadOnly<NetworkId>(), ComponentType.Exclude<NetworkStreamRequestDisconnect>());
+            m_NotInGameQuery = GetEntityQuery(ComponentType.ReadOnly<NetworkId>(), ComponentType.Exclude<NetworkStreamRequestDisconnect>(), ComponentType.Exclude<NetworkStreamInGame>());
+            m_GhostsQuery = GetEntityQuery(ComponentType.ReadOnly<GhostInstance>());
+            m_GhostPrefabsQuery = GetEntityQuery(ComponentType.ReadOnly<GhostInstance>(), ComponentType.ReadOnly<Prefab>());
+            UpdateStatusText();
         }
 
         internal void TryDisconnectImmediate(params NetworkId[] networkIdsToDisconnect)
         {
             Dependency.Complete();
-            m_activeConnectionsQuery.CompleteDependency();
-            var networkIdEntities = m_activeConnectionsQuery.ToEntityArray(WorldUpdateAllocator);
-            var networkIdValues = m_activeConnectionsQuery.ToComponentDataArray<NetworkId>(WorldUpdateAllocator);
+            m_ActiveConnectionsQuery.CompleteDependency();
+            var networkIdEntities = m_ActiveConnectionsQuery.ToEntityArray(WorldUpdateAllocator);
+            var networkIdValues = m_ActiveConnectionsQuery.ToComponentDataArray<NetworkId>(WorldUpdateAllocator);
             ref readonly var netStream = ref SystemAPI.GetSingletonRW<NetworkStreamDriver>().ValueRW;
             var connectionLookup = SystemAPI.GetComponentLookup<NetworkStreamConnection>(true);
 
@@ -1520,11 +1517,31 @@ namespace Unity.NetCode.Editor
         protected override void OnUpdate()
         {
             ref readonly var netStream = ref SystemAPI.GetSingletonRW<NetworkStreamDriver>().ValueRW;
+            ref var driverStore = ref netStream.DriverStore;
             IsListening = netStream.DriverStore.GetDriverInstanceRO(netStream.DriverStore.FirstDriver).driver.Listening;
-            LastEndpoint = netStream.LastEndPoint;
             ConnectionEventsForTick.Clear();
-            if(EditorApplication.isPaused) // Can't see one frame events when unpaused anyway.
+            if (EditorApplication.isPaused) // Can't see one frame events when unpaused anyway.
                 ConnectionEventsForTick.AddRange(netStream.ConnectionEventsForTick);
+            Editor.DriverDisplayInfo.Read(ref driverStore, ref DriverInfos, null);
+        }
+
+        public void UpdateStatusText()
+        {
+            var ghostChunkCount = m_GhostsQuery.CalculateChunkCount();
+            var ghostCount = m_GhostsQuery.CalculateEntityCount();
+            var ghostPrefabCount = m_GhostPrefabsQuery.CalculateEntityCount();
+            var numConnections = m_ActiveConnectionsQuery.CalculateEntityCount();
+            var numInGame = numConnections - m_NotInGameQuery.CalculateEntityCount();
+            MultiplayerPlayModeWindow.s_ServerStats.text = $"{numConnections} Clients\n{ghostCount} Ghosts";
+            var ghostsPerChunk = ghostChunkCount > 0 ? $"\n~{(int)(ghostCount / (float)ghostChunkCount)} Ghosts Per Chunk" : "";
+            MultiplayerPlayModeWindow.s_ServerStats.tooltip = $@"<b>Client Connections</b>
+{numConnections} Connected
+{numInGame} In-Game
+
+<b>Ghosts</b>
+{ghostCount} Ghost Instances
+Across {ghostChunkCount} Chunks{ghostsPerChunk}
+{ghostPrefabCount} Ghost Types";
         }
 
         [WorldSystemFilter(WorldSystemFilterFlags.ClientSimulation | WorldSystemFilterFlags.ThinClientSimulation | WorldSystemFilterFlags.Editor)]
@@ -1563,6 +1580,40 @@ namespace Unity.NetCode.Editor
                     sceneSystemGuid.BuildConfigurationGUID = DotsGlobalSettings.Instance.GetClientGUID();
 
                 state.Enabled = false;
+            }
+        }
+    }
+
+    internal struct DriverDisplayInfo
+    {
+        public TransportType TransportType;
+        public NetworkFamily NetworkFamily;
+        public byte DriverIndex;
+        public bool IsWebSocket;
+        public bool Listening;
+        public bool Bound;
+        public bool SimulatorEnabled;
+        public NetworkEndpoint Endpoint;
+
+        public static void Read(ref NetworkDriverStore driverStore, ref FixedList512Bytes<DriverDisplayInfo> list, NetworkConnection? clientConnection)
+        {
+            UnityEngine.Assertions.Assert.IsTrue(list.Capacity >= NetworkDriverStore.Capacity);
+            list.Length = math.min(driverStore.DriversCount, list.Capacity);
+            for (int entryIdx = 0; entryIdx < list.Length; entryIdx++)
+            {
+                ref var entry = ref list.ElementAt(entryIdx);
+                var driverIdx = entryIdx + driverStore.FirstDriver;
+                entry.DriverIndex = (byte)driverIdx;
+                entry.TransportType = driverStore.GetDriverType(driverIdx);
+                ref var driver = ref driverStore.GetDriverRW(driverIdx); // RW as calling non-readonly method!
+                entry.NetworkFamily = driver.GetLocalEndpoint().Family;
+                entry.IsWebSocket = driver.CurrentSettings.TryGet<WebSocketParameter>(out _);
+                entry.SimulatorEnabled = driverStore.GetDriverInstanceRO(driverIdx).simulatorEnabled;
+                entry.Listening = driver.Listening;
+                entry.Bound = driver.Bound;
+                entry.Endpoint = clientConnection.HasValue
+                    ? driver.GetRemoteEndpoint(clientConnection.Value)
+                    : driver.GetLocalEndpoint();
             }
         }
     }

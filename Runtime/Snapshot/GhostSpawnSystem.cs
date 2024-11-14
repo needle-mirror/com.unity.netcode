@@ -3,6 +3,7 @@ using Unity.Burst;
 using Unity.Collections;
 using Unity.Entities;
 using Unity.Collections.LowLevel.Unsafe;
+using UnityEngine;
 
 namespace Unity.NetCode
 {
@@ -53,6 +54,7 @@ namespace Unity.NetCode
 
         EntityQuery m_InGameGroup;
         EntityQuery m_NetworkIdQuery;
+        EntityQuery m_InstanceCount;
 
         public void OnCreate(ref SystemState state)
         {
@@ -60,6 +62,7 @@ namespace Unity.NetCode
             m_DelayedPredictedGhostSpawnQueue = new NativeQueue<DelayedSpawnGhost>(Allocator.Persistent);
             m_InGameGroup = state.GetEntityQuery(ComponentType.ReadOnly<NetworkStreamInGame>());
             m_NetworkIdQuery = state.GetEntityQuery(ComponentType.ReadOnly<NetworkId>(), ComponentType.Exclude<NetworkStreamRequestDisconnect>());
+            m_InstanceCount = state.GetEntityQuery(ComponentType.ReadOnly<GhostInstance>(), ComponentType.ReadWrite<Simulate>(), ComponentType.Exclude<PendingSpawnPlaceholder>());
 
             var ent = state.EntityManager.CreateEntity();
             state.EntityManager.SetName(ent, "GhostSpawnQueue");
@@ -93,6 +96,7 @@ namespace Unity.NetCode
             var prefabsEntity = SystemAPI.GetSingletonEntity<GhostCollection>();
             var prefabs = stateEntityManager.GetBuffer<GhostCollectionPrefab>(prefabsEntity).ToNativeArray(Allocator.Temp);
 
+            ref var ghostCount = ref SystemAPI.GetSingletonRW<GhostCount>().ValueRW;
             var ghostSpawnEntity = SystemAPI.GetSingletonEntity<GhostSpawnQueue>();
             var ghostSpawnBufferComponent = stateEntityManager.GetBuffer<GhostSpawnBuffer>(ghostSpawnEntity);
             var snapshotDataBufferComponent = stateEntityManager.GetBuffer<SnapshotDataBuffer>(ghostSpawnEntity);
@@ -221,6 +225,8 @@ namespace Unity.NetCode
                 }
             }
             ghostEntityMap.UpdateClientSpawnedGhosts(spawnedGhosts.AsArray(), netDebug);
+
+            ghostCount.m_GhostCompletionCount[2] = m_InstanceCount.CalculateEntityCountWithoutFiltering();
         }
 
         void ConfigurePrespawnGhost(ref EntityManager entityManager, Entity entity, in GhostSpawnBuffer ghost)
@@ -253,6 +259,9 @@ namespace Unity.NetCode
             bool hasBuffers = ghostTypeCollection[ghost.GhostType].NumBuffers > 0;
 
             var entity = entityManager.CreateEntity();
+#if !DOTS_DISABLE_DEBUG_NAMES
+            entityManager.SetName(entity, $"GHOST-PLACEHOLDER-{ghost.GhostType}");
+#endif
             entityManager.AddComponentData(entity, new GhostInstance { ghostId = ghost.GhostID, ghostType = ghost.GhostType, spawnTick = ghost.ServerSpawnTick });
             entityManager.AddComponent<PendingSpawnPlaceholder>(entity);
             if (PrespawnHelper.IsPrespawnGhostId(ghost.GhostID))

@@ -21,7 +21,7 @@ namespace Unity.NetCode.Hybrid
         /// </summary>
         /// <param name="self">an instance of the baker</param>
         /// <param name="isPrefab">state is we are converting a prefab or not</param>
-        /// <typeparam name="T"></typeparam>
+        /// <typeparam name="T">Baker type</typeparam>
         /// <remarks><para>In the editor, if a <see cref="NetCodeConversionSettings"/> is present in the build configuration used for conversion,
         /// the target specified by the build component is used.</para>
         /// <para>
@@ -29,7 +29,7 @@ namespace Unity.NetCode.Hybrid
         /// <see cref="NetcodeConversionTarget.ClientAndServer"/> is nothing apply or for prefabs.
         /// </para>
         /// </remarks>
-        /// <returns></returns>
+        /// <returns>Conversion target to use for the baking.</returns>
         public static NetcodeConversionTarget GetNetcodeTarget<T>(this Baker<T> self, bool isPrefab) where T : Component
         {
             // Detect target using build settings (This is used from sub scenes)

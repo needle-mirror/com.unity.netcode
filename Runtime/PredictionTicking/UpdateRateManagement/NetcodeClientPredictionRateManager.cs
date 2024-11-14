@@ -74,6 +74,7 @@ namespace Unity.NetCode
             {
                 networkTime.PredictedTickIndex = 0;
                 m_CurrentTime = networkTime;
+                m_ClientTickRateQuery.TryGetSingleton<ClientTickRate>(out var clientTickRate);
 
                 m_AppliedPredictedTicksQuery.CompleteDependency();
                 m_UniqueInputTicksQuery.CompleteDependency();
@@ -81,12 +82,20 @@ namespace Unity.NetCode
                 var appliedPredictedTicks = m_AppliedPredictedTicksQuery.GetSingletonRW<GhostPredictionGroupTickState>().ValueRW.AppliedPredictedTicks;
                 var uniqueInputTicks = m_UniqueInputTicksQuery.GetSingletonRW<UniqueInputTickMap>().ValueRW.TickMap;
 
-                // Nothing to predict
-                if (!m_CurrentTime.ServerTick.IsValid || appliedPredictedTicks.IsEmpty)
+
+                // Nothing to predict yet, because the connection is not in game yet and no snapshot has
+                // being received so far (still waiting for the first snapshot)
+                if (!m_CurrentTime.ServerTick.IsValid)
+                    return false;
+
+                // If there is not predicted ghost (so no continuation or rollback to do)
+                if(appliedPredictedTicks.IsEmpty)
                 {
                     uniqueInputTicks.Clear();
                     appliedPredictedTicks.Clear();
-                    return false;
+                    //early exit if the prediction mode require ghosts are present, thus the appliedPredictedTicks should be non empty.
+                    if(clientTickRate.PredictionLoopUpdateMode == PredictionLoopUpdateMode.RequirePredictedGhost)
+                        return false;
                 }
 
                 m_TargetTick = m_CurrentTime.ServerTick;
@@ -104,6 +113,10 @@ namespace Unity.NetCode
                 // We must simulate at the tick we used as last full tick last time since smoothing and error reporting is happening there
                 if (m_LastFullPredictionTick.IsValid && m_TargetTick.IsNewerThan(m_LastFullPredictionTick))
                     appliedPredictedTicks.TryAdd(m_LastFullPredictionTick, m_LastFullPredictionTick);
+                else if (!m_LastFullPredictionTick.IsValid)
+                    m_LastFullPredictionTick = m_TargetTick;
+
+
 
                 m_AppliedPredictedTickArray = appliedPredictedTicks.GetKeyArray(Allocator.Temp);
 
@@ -114,6 +127,8 @@ namespace Unity.NetCode
                     if (!oldestTick.IsValid || oldestTick.IsNewerThan(appliedTick))
                         oldestTick = appliedTick;
                 }
+                //If this condition trigger (that is, removed pretty much where we should start predicting from)
+                //it is ok and correct to exit.
                 if (!oldestTick.IsValid)
                 {
                     uniqueInputTicks.Clear();
@@ -157,7 +172,6 @@ namespace Unity.NetCode
 
                 group.World.EntityManager.SetComponentEnabled<Simulate>(m_GhostQuery, false);
 
-                m_ClientTickRateQuery.TryGetSingleton<ClientTickRate>(out var clientTickRate);
                 if (clientTickRate.MaxPredictionStepBatchSizeRepeatedTick < 1)
                     clientTickRate.MaxPredictionStepBatchSizeRepeatedTick = 1;
                 if (clientTickRate.MaxPredictionStepBatchSizeFirstTimeTick < 1)

@@ -45,7 +45,7 @@ namespace Unity.NetCode.Tests
                 var ghostCount = testWorld.GetSingleton<GhostCount>(testWorld.ClientWorlds[0]);
                 // Validate that the ghost was deleted on the cliet
                 Assert.AreEqual(8, ghostCount.GhostCountOnServer);
-                Assert.AreEqual(8, ghostCount.GhostCountOnClient);
+                Assert.AreEqual(8, ghostCount.GhostCountReceivedOnClient);
 
                 // Spawn a few more and verify taht the count is updated
                 for (int i = 0; i < 8; ++i)
@@ -53,7 +53,7 @@ namespace Unity.NetCode.Tests
                 for (int i = 0; i < 4; ++i)
                     testWorld.Tick();
                 Assert.AreEqual(16, ghostCount.GhostCountOnServer);
-                Assert.AreEqual(16, ghostCount.GhostCountOnClient);
+                Assert.AreEqual(16, ghostCount.GhostCountReceivedOnClient);
             }
         }
         [Test]
@@ -99,7 +99,7 @@ namespace Unity.NetCode.Tests
                 var ghostCount = testWorld.GetSingleton<GhostCount>(testWorld.ClientWorlds[0]);
                 // Validate that the ghost was deleted on the cliet
                 Assert.AreEqual(6, ghostCount.GhostCountOnServer);
-                Assert.AreEqual(6, ghostCount.GhostCountOnClient);
+                Assert.AreEqual(6, ghostCount.GhostCountReceivedOnClient);
 
                 // Spawn a few more and verify taht the count is updated
                 for (int i = 0; i < 8; ++i)
@@ -107,7 +107,7 @@ namespace Unity.NetCode.Tests
                 for (int i = 0; i < 4; ++i)
                     testWorld.Tick();
                 Assert.AreEqual(6, ghostCount.GhostCountOnServer);
-                Assert.AreEqual(6, ghostCount.GhostCountOnClient);
+                Assert.AreEqual(6, ghostCount.GhostCountReceivedOnClient);
             }
         }
         [Test]
@@ -153,7 +153,7 @@ namespace Unity.NetCode.Tests
                 var ghostCount = testWorld.GetSingleton<GhostCount>(testWorld.ClientWorlds[0]);
                 // Validate that the ghost was deleted on the cliet
                 Assert.AreEqual(2, ghostCount.GhostCountOnServer);
-                Assert.AreEqual(2, ghostCount.GhostCountOnClient);
+                Assert.AreEqual(2, ghostCount.GhostCountReceivedOnClient);
 
                 // Spawn a few more and verify taht the count is updated
                 for (int i = 0; i < 8; ++i)
@@ -161,7 +161,7 @@ namespace Unity.NetCode.Tests
                 for (int i = 0; i < 4; ++i)
                     testWorld.Tick();
                 Assert.AreEqual(10, ghostCount.GhostCountOnServer);
-                Assert.AreEqual(10, ghostCount.GhostCountOnClient);
+                Assert.AreEqual(10, ghostCount.GhostCountReceivedOnClient);
             }
         }
     }

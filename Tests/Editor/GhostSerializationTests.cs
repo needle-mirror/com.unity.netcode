@@ -90,11 +90,13 @@ namespace Unity.NetCode.Tests
         [GhostField] public FixedString128Bytes StringValue128;
         [GhostField] public FixedString512Bytes StringValue512;
         [GhostField] public FixedString4096Bytes StringValue4096;
+        [GhostField] public NetworkTick InvalidTickValue;
+        [GhostField] public NetworkTick TickValue;
         [GhostField] public Entity EntityValue;
     }
     public class GhostSerializationTests
     {
-        void VerifyGhostValues(NetCodeTestWorld testWorld)
+        static void VerifyGhostValues(NetCodeTestWorld testWorld)
         {
             var serverEntity = testWorld.TryGetSingletonEntity<GhostValueSerializer>(testWorld.ServerWorld);
             var clientEntity = testWorld.TryGetSingletonEntity<GhostValueSerializer>(testWorld.ClientWorlds[0]);
@@ -104,6 +106,13 @@ namespace Unity.NetCode.Tests
 
             var serverValues = testWorld.ServerWorld.EntityManager.GetComponentData<GhostValueSerializer>(serverEntity);
             var clientValues = testWorld.ClientWorlds[0].EntityManager.GetComponentData<GhostValueSerializer>(clientEntity);
+            Assert.AreEqual(serverEntity, serverValues.EntityValue);
+            Assert.AreEqual(clientEntity, clientValues.EntityValue);
+            VerifyGhostValues(serverValues, clientValues);
+        }
+
+        static void VerifyGhostValues(GhostValueSerializer serverValues, GhostValueSerializer clientValues)
+        {
             Assert.AreEqual(serverValues.BoolValue, clientValues.BoolValue);
             Assert.AreEqual(serverValues.IntValue, clientValues.IntValue);
             Assert.AreEqual(serverValues.UIntValue, clientValues.UIntValue);
@@ -138,15 +147,20 @@ namespace Unity.NetCode.Tests
             Assert.AreEqual(serverValues.StringValue128, clientValues.StringValue128);
             Assert.AreEqual(serverValues.StringValue512, clientValues.StringValue512);
             Assert.AreEqual(serverValues.StringValue4096, clientValues.StringValue4096);
-
-            Assert.AreEqual(serverEntity, serverValues.EntityValue);
-            Assert.AreEqual(clientEntity, clientValues.EntityValue);
+            Assert.AreEqual(serverValues.InvalidTickValue, clientValues.InvalidTickValue);
+            Assert.AreEqual(serverValues.TickValue, clientValues.TickValue);
         }
-        void SetGhostValues(NetCodeTestWorld testWorld, int baseValue)
+
+        void SetGhostValuesOnServer(NetCodeTestWorld testWorld, int baseValue)
         {
             var serverEntity = testWorld.TryGetSingletonEntity<GhostValueSerializer>(testWorld.ServerWorld);
             Assert.AreNotEqual(Entity.Null, serverEntity);
-            testWorld.ServerWorld.EntityManager.SetComponentData(serverEntity, new GhostValueSerializer
+            testWorld.ServerWorld.EntityManager.SetComponentData(serverEntity, CreateGhostValues(baseValue, serverEntity));
+        }
+
+        private static GhostValueSerializer CreateGhostValues(int baseValue, Entity serverEntity)
+        {
+            return new GhostValueSerializer
             {
                 BoolValue = (baseValue&1) != 0,
                 IntValue = baseValue,
@@ -182,9 +196,10 @@ namespace Unity.NetCode.Tests
                 StringValue128 = new FixedString128Bytes($"baseValue = {baseValue*3}"),
                 StringValue512 = new FixedString512Bytes($"baseValue = {baseValue*4}"),
                 StringValue4096 = new FixedString4096Bytes($"baseValue = {baseValue*5}"),
-
+                InvalidTickValue = NetworkTick.Invalid,
+                TickValue = new NetworkTick((uint) baseValue),
                 EntityValue = serverEntity
-            });
+            };
         }
 
         void SetLargeGhostValues(NetCodeTestWorld testWorld, string baseValue, int size)
@@ -260,35 +275,96 @@ namespace Unity.NetCode.Tests
             using (var testWorld = new NetCodeTestWorld())
             {
                 testWorld.Bootstrap(true);
-
                 var ghostGameObject = new GameObject();
                 ghostGameObject.AddComponent<TestNetCodeAuthoring>().Converter = new GhostValueSerializerConverter();
-
                 Assert.IsTrue(testWorld.CreateGhostCollection(ghostGameObject));
-
                 testWorld.CreateWorlds(true, 1);
-
                 testWorld.SpawnOnServer(ghostGameObject);
-                SetGhostValues(testWorld, 42);
-
-                // Connect and make sure the connection could be established
+                SetGhostValuesOnServer(testWorld, 42);
                 testWorld.Connect();
-
-                // Go in-game
                 testWorld.GoInGame();
-
-                // Let the game run for a bit so the ghosts are spawned on the client
-                for (int i = 0; i < 64; ++i)
-                    testWorld.Tick();
+                testWorld.TickUntilClientsHaveAllGhosts();
 
                 VerifyGhostValues(testWorld);
-                SetGhostValues(testWorld, 43);
+                SetGhostValuesOnServer(testWorld, 43);
 
-                for (int i = 0; i < 64; ++i)
+                for (int i = 0; i < 8; ++i)
                     testWorld.Tick();
 
                 // Assert that replicated version is correct
                 VerifyGhostValues(testWorld);
+            }
+        }
+        [Test]
+        public void GhostValuesAreSerialized_RespectsMaxSendRate([Values(1, 20, 100)]byte sendRate)
+        {
+            using var testWorld = new NetCodeTestWorld();
+            testWorld.Bootstrap(true);
+            var ghostGameObject = new GameObject($"Ghost_MaxSendRate_{sendRate}");
+            var config = ghostGameObject.AddComponent<GhostAuthoringComponent>();
+            config.MaxSendRate = sendRate;
+            // Use predicted to always get latest values:
+            config.SupportedGhostModes = GhostModeMask.Predicted;
+            config.DefaultGhostMode = GhostMode.Predicted;
+            ghostGameObject.AddComponent<TestNetCodeAuthoring>().Converter = new GhostValueSerializerConverter();
+            Assert.IsTrue(testWorld.CreateGhostCollection(ghostGameObject));
+            testWorld.CreateWorlds(true, 1);
+            testWorld.SpawnOnServer(ghostGameObject);
+            SetGhostValuesOnServer(testWorld, 0);
+            testWorld.Connect();
+            testWorld.GoInGame();
+            testWorld.TickUntilClientsHaveAllGhosts();
+            var firstSpawn = NetCodeTestWorld.TickIndex;
+
+            // Replicate changes over N frames.
+            var serverValues = new NativeList<(int tick, GhostValueSerializer val)>(64, Allocator.Temp);
+            var clientValues = new NativeList<(int tick, GhostValueSerializer val)>(64, Allocator.Temp);
+            Assert.IsTrue(AddIfChanged(serverValues, 0, testWorld.ServerWorld));
+            Assert.IsTrue(AddIfChanged(clientValues, 0, testWorld.ClientWorlds[0]));
+            const int numTicks = 25;
+            for (int i = 1; i < numTicks; ++i)
+            {
+                SetGhostValuesOnServer(testWorld, i);
+                testWorld.Tick();
+                AddIfChanged(serverValues, i, testWorld.ServerWorld);
+                AddIfChanged(clientValues, i, testWorld.ClientWorlds[0]);
+            }
+            Debug.Log($"firstSpawn:{firstSpawn} ticks, serverValues.Length:{serverValues.Length} vs clientValues.Length:{clientValues.Length}");
+            Assert.That(serverValues.Length, Is.EqualTo(numTicks), "Sanity!");
+            var numClientValues = clientValues.Length;
+            switch (sendRate)
+            {
+                case 1:
+                    Assert.That(numClientValues, Is.EqualTo(1));
+                    break;
+                case 20:
+                    Assert.That(numClientValues, Is.EqualTo(9));
+                    break;
+                case 100:
+                    Assert.That(numClientValues, Is.EqualTo(numTicks));
+                    break;
+                default: throw new ArgumentOutOfRangeException(nameof(sendRate), sendRate, null);
+            }
+
+            // Verify each entry:
+            for (int i = 0; i < clientValues.Length; i++)
+            {
+                var (tick, val) = clientValues[i];
+                VerifyGhostValues(serverValues[tick].val, val);
+            }
+
+            unsafe bool AddIfChanged(NativeList<(int tick, GhostValueSerializer val)> list, int tick, World world)
+            {
+                var previous = list.IsEmpty ? default : list[list.Length - 1];
+                var current = testWorld.GetSingleton<GhostValueSerializer>(world);
+                var memCmp = UnsafeUtility.MemCmp(&current, &previous.val, UnsafeUtility.SizeOf<GhostValueSerializer>());
+                //UnityEngine.Debug.Log($"  - TestWorld[{NetCodeTestWorld.TickIndex}]  iteration:{tick} = previous:{previous.val.IntValue}, current:{current.IntValue} = memCmp:{memCmp} ");
+                if (list.IsEmpty || memCmp != 0)
+                {
+                    list.Add((tick, current));
+                    return true;
+                }
+                return false;
             }
         }
         [Test]
@@ -298,31 +374,19 @@ namespace Unity.NetCode.Tests
             {
                 testWorld.DebugPackets = true;
                 testWorld.Bootstrap(true);
-
                 var ghostGameObject = new GameObject();
                 ghostGameObject.AddComponent<TestNetCodeAuthoring>().Converter = new GhostValueSerializerConverter();
-
                 Assert.IsTrue(testWorld.CreateGhostCollection(ghostGameObject));
-
                 testWorld.CreateWorlds(true, 1);
-
                 testWorld.SpawnOnServer(ghostGameObject);
-                SetGhostValues(testWorld, 42);
-
-                // Connect and make sure the connection could be established
+                SetGhostValuesOnServer(testWorld, 42);
                 testWorld.Connect();
-
-                // Go in-game
                 testWorld.GoInGame();
-
-                // Let the game run for a bit so the ghosts are spawned on the client
-                for (int i = 0; i < 64; ++i)
-                    testWorld.Tick();
-
+                testWorld.TickUntilClientsHaveAllGhosts();
                 VerifyGhostValues(testWorld);
-                SetGhostValues(testWorld, 43);
+                SetGhostValuesOnServer(testWorld, 43);
 
-                for (int i = 0; i < 64; ++i)
+                for (int i = 0; i < 8; ++i)
                     testWorld.Tick();
 
                 // Assert that replicated version is correct
@@ -501,7 +565,8 @@ namespace Unity.NetCode.Tests
 
 
                     var ghostCount = testWorld.GetSingleton<GhostCount>(testWorld.ClientWorlds[0]);
-                    Assert.AreEqual(10000, ghostCount.GhostCountOnClient);
+                    Assert.AreEqual(10000, ghostCount.GhostCountInstantiatedOnClient);
+                    Assert.AreEqual(10000, ghostCount.GhostCountReceivedOnClient);
 
                     testWorld.ServerWorld.EntityManager.DestroyEntity(entities);
 
@@ -509,7 +574,8 @@ namespace Unity.NetCode.Tests
                         testWorld.Tick();
 
                     // Assert that replicated version is correct
-                    Assert.AreEqual(0, ghostCount.GhostCountOnClient);
+                    Assert.AreEqual(0, ghostCount.GhostCountInstantiatedOnClient);
+                    Assert.AreEqual(0, ghostCount.GhostCountReceivedOnClient);
                 }
             }
         }
@@ -552,7 +618,7 @@ namespace Unity.NetCode.Tests
                             {
                                 currentServerTick.Decrement();
                                 Assert.AreEqual(currentServerTick.TickIndexForValidTick, serverAck.LastReceivedSnapshotByRemote.TickIndexForValidTick);
-                                serverAck.IsReceivedByRemote(currentServerTick);
+                                serverAck.IsReceivedByRemote(currentServerTick); // TODO - This is missing an assert?
                             }
                         }
                         lastReceivedFromClient = serverAck.LastReceivedSnapshotByLocal;

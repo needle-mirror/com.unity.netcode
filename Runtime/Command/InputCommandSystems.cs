@@ -12,8 +12,8 @@ namespace Unity.NetCode
     /// buffer. The job is also responsible to increment the <see cref="InputEvent"/> counters, in case the input
     /// component contains input events.
     /// </summary>
-    /// <typeparam name="TInputComponentData"></typeparam>
-    /// <typeparam name="TInputHelper"></typeparam>
+    /// <typeparam name="TInputComponentData">Input component data</typeparam>
+    /// <typeparam name="TInputHelper">Input helper</typeparam>
     [BurstCompile]
     public struct CopyInputToBufferJob<TInputComponentData, TInputHelper> : IJobChunk
         where TInputComponentData : unmanaged, IInputComponentData
@@ -28,10 +28,10 @@ namespace Unity.NetCode
         /// <summary>
         /// Copy the input component for current server tick to the command buffer.
         /// </summary>
-        /// <param name="chunk"></param>
-        /// <param name="unfilteredChunkIndex"></param>
-        /// <param name="useEnabledMask"></param>
-        /// <param name="chunkEnabledMask"></param>
+        /// <param name="chunk">Chunk</param>
+        /// <param name="unfilteredChunkIndex">Chunk index</param>
+        /// <param name="useEnabledMask">Should use enabled</param>
+        /// <param name="chunkEnabledMask">Chunk enabled mask</param>
         [BurstCompile]
         public void Execute(in ArchetypeChunk chunk, int unfilteredChunkIndex, bool useEnabledMask, in v128 chunkEnabledMask)
         {
@@ -70,8 +70,8 @@ namespace Unity.NetCode
     /// For internal use only, system that that copy the content of an <see cref="IInputComponentData"/> into
     /// <see cref="InputBufferData{T}"/> buffer present on the entity.
     /// </summary>
-    /// <typeparam name="TInputComponentData"></typeparam>
-    /// <typeparam name="TInputHelper"></typeparam>
+    /// <typeparam name="TInputComponentData">Input component data</typeparam>
+    /// <typeparam name="TInputHelper">Input helper</typeparam>
     [BurstCompile]
     [UpdateInGroup(typeof(CopyInputToCommandBufferSystemGroup))]
     [WorldSystemFilter(WorldSystemFilterFlags.ClientSimulation | WorldSystemFilterFlags.ThinClientSimulation)]
@@ -124,8 +124,8 @@ namespace Unity.NetCode
     /// For internal use only, system that copies commands from the <see cref="InputBufferData{T}"/> buffer
     /// to the <see cref="IInputComponentData"/> component present on the entity.
     /// </summary>
-    /// <typeparam name="TInputComponentData"></typeparam>
-    /// <typeparam name="TInputHelper"></typeparam>
+    /// <typeparam name="TInputComponentData">Input component data</typeparam>
+    /// <typeparam name="TInputHelper">Input helper</typeparam>
     // This needs to run early to ensure the input data has been applied from buffer to input data
     // struct before the input processing system runs
     [BurstCompile]
@@ -182,8 +182,8 @@ namespace Unity.NetCode
     /// since last tick (or batch, see also <see cref="NetworkTime.SimulationStepBatchSize"/>) are correctly reported as
     /// set (see <see cref="InputEvent.IsSet"/>
     /// </summary>
-    /// <typeparam name="TInputComponentData"></typeparam>
-    /// <typeparam name="TInputHelper"></typeparam>
+    /// <typeparam name="TInputComponentData">Input component data</typeparam>
+    /// <typeparam name="TInputHelper">Input helper</typeparam>
     [BurstCompile]
     public struct ApplyInputDataFromBufferJob<TInputComponentData, TInputHelper> : IJobChunk
         where TInputComponentData : unmanaged, IInputComponentData
@@ -197,10 +197,10 @@ namespace Unity.NetCode
         /// <summary>
         /// Copy the command for current server tick to the input component.
         /// </summary>
-        /// <param name="chunk"></param>
-        /// <param name="unfilteredChunkIndex"></param>
-        /// <param name="useEnabledMask"></param>
-        /// <param name="chunkEnabledMask"></param>
+        /// <param name="chunk">Chunk</param>
+        /// <param name="unfilteredChunkIndex">Chunk index</param>
+        /// <param name="useEnabledMask">Should use enabled</param>
+        /// <param name="chunkEnabledMask">Chunk enabled mask</param>
         [BurstCompile]
         public void Execute(in ArchetypeChunk chunk, int unfilteredChunkIndex, bool useEnabledMask, in v128 chunkEnabledMask)
         {

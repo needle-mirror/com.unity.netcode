@@ -277,16 +277,6 @@ namespace Unity.NetCode
             public GhostType ghostType;
             public FixedString64Bytes ghostName;
             public NetDebug netDebug;
-
-            public void Update(ref SystemState state, Entity collectionSingleton)
-            {
-                ghostPrefabCollection = state.EntityManager.GetBuffer<GhostCollectionPrefab>(collectionSingleton);
-                ghostSerializerCollection = state.EntityManager.GetBuffer<GhostComponentSerializer.State>(collectionSingleton);
-                ghostPrefabSerializerCollection = state.EntityManager.GetBuffer<GhostCollectionPrefabSerializer>(collectionSingleton);
-                ghostComponentCollection = state.EntityManager.GetBuffer<GhostCollectionComponentType>(collectionSingleton);
-                ghostComponentIndex = state.EntityManager.GetBuffer<GhostCollectionComponentIndex>(collectionSingleton);
-                customSerializers = state.EntityManager.GetComponentData<GhostCollectionCustomSerializers>(collectionSingleton);
-            }
         }
 
         [BurstCompile]
@@ -513,6 +503,8 @@ namespace Unity.NetCode
                 }
             }
 
+            SystemAPI.TryGetSingleton(out ClientServerTickRate tickRate);
+            tickRate.ResolveDefaults();
             var ctx = new AddComponentCtx
             {
                 ghostPrefabCollection = state.EntityManager.GetBuffer<GhostCollectionPrefab>(collectionSingleton),
@@ -521,7 +513,7 @@ namespace Unity.NetCode
                 ghostComponentCollection = state.EntityManager.GetBuffer<GhostCollectionComponentType>(collectionSingleton),
                 ghostComponentIndex = state.EntityManager.GetBuffer<GhostCollectionComponentIndex>(collectionSingleton),
                 customSerializers = state.EntityManager.GetComponentData<GhostCollectionCustomSerializers>(collectionSingleton),
-                netDebug = netDebug
+                netDebug = netDebug,
             };
             var data = SystemAPI.GetSingletonRW<GhostComponentSerializerCollectionData>().ValueRW;
             var ghostPrefabSerializerErrors = 0;
@@ -546,7 +538,7 @@ namespace Unity.NetCode
                 if (ghost.GhostPrefab != Entity.Null)
                 {
                     // This can be setup - do so
-                    ProcessGhostPrefab(ref state, ref data, ref ctx, ghost.GhostPrefab);
+                    ProcessGhostPrefab(ref state, ref data, ref ctx, ref tickRate, ghost.GhostPrefab);
                     // Ensure it was added (can fail due to collection checks):
                     if (ctx.ghostPrefabSerializerCollection.Length > i)
                         hash = HashGhostType(ctx.ghostPrefabSerializerCollection[i], in netDebug, in ctx.ghostName, in entityPrefabName, in ghost.GhostPrefab);
@@ -714,7 +706,7 @@ namespace Unity.NetCode
 #endif
         }
 
-        private void ProcessGhostPrefab(ref SystemState state, ref GhostComponentSerializerCollectionData data, ref AddComponentCtx ctx, Entity prefabEntity)
+        private void ProcessGhostPrefab(ref SystemState state, ref GhostComponentSerializerCollectionData data, ref AddComponentCtx ctx, ref ClientServerTickRate tickRate, Entity prefabEntity)
         {
             var ghostPrefabMetadata = state.EntityManager.GetComponentData<GhostPrefabMetaData>(prefabEntity);
             ref var ghostMetaData = ref ghostPrefabMetadata.Value.Value;
@@ -764,6 +756,7 @@ namespace Unity.NetCode
                 OwnerPredicted = (ghostMetaData.DefaultMode == GhostPrefabBlobMetaData.GhostMode.Both) ? 1 : 0,
                 PartialComponents = 0,
                 BaseImportance = ghostMetaData.Importance,
+                MaxSendRateAsSimTickInterval = tickRate.CalculateNetworkSendIntervalOfGhostInTicks(ghostMetaData.MaxSendRate),
                 FallbackPredictionMode = fallbackPredictionMode,
                 IsGhostGroup = state.EntityManager.HasComponent<GhostGroup>(prefabEntity) ? 1 : 0,
                 StaticOptimization = (byte)(ghostMetaData.StaticOptimization ? 1 :0),

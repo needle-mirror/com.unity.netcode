@@ -22,8 +22,8 @@ namespace Unity.NetCode
         /// <summary>
         /// Construct the attribute and assign the component and variant hash.
         /// </summary>
-        /// <param name="componentType"></param>
-        /// <param name="variantHash"></param>
+        /// <param name="componentType">The component type this serializer is for.</param>
+        /// <param name="variantHash">The calculated variant hash for this serializer.</param>
         public GhostSerializerAttribute(Type componentType, ulong variantHash)
         {
             ComponentType = componentType;

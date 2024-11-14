@@ -146,7 +146,7 @@ namespace Unity.NetCode
     /// and all necessary boilerplate code.
     /// </para>
     /// </summary>
-    /// <typeparam name="T"></typeparam>
+    /// <typeparam name="T">Component type to serialize</typeparam>
     public interface IRpcCommandSerializer<T> where T: struct, IComponentData
     {
         /// <summary>
@@ -156,9 +156,9 @@ namespace Unity.NetCode
         /// <see cref="IRpcCommand"/> interface.
         /// You must implement this method yourself when you opt-in for manual serialization.
         /// </summary>
-        /// <param name="writer"></param>
-        /// <param name="state"></param>
-        /// <param name="data"></param>
+        /// <param name="writer">Data writer</param>
+        /// <param name="state">Serializer state</param>
+        /// <param name="data">data to serialize</param>
         void Serialize(ref DataStreamWriter writer, in RpcSerializerState state, in T data);
         /// <summary>
         /// Method called by the <see cref="RpcSystem"/> when an rpc is dequeued from the
@@ -168,19 +168,18 @@ namespace Unity.NetCode
         /// <see cref="IRpcCommand"/> interface.
         /// You must implement this method yourself when you opt-in for manual serialization.
         /// </summary>
-        /// <param name="reader"></param>
-        /// <param name="state"></param>
-        /// <param name="data"></param>
+        /// <param name="reader">Data reader</param>
+        /// <param name="state">Serializer state</param>
+        /// <param name="data">data to read into</param>
         void Deserialize(ref DataStreamReader reader, in RpcDeserializerState state, ref T data);
         /// <summary>
         /// Invoked when the rpc is registered to the <see cref="RpcSystem"/> at runtime.
-        /// Should return a valid burst-compatible function pointer of a static method
-        /// that will be called after the rpc has been deserialized to actually "execute" the command.
         /// By declaring rpcs using <see cref="IRpcCommand"/>, this method is automatically generated.
         /// See <see cref="RpcExecutor"/> for further information on how to use it to implement your
         /// custom execute method.
         /// </summary>
-        /// <returns></returns>
+        /// <returns>A valid burst-compatible function pointer of a static method that will be called
+        /// after the rpc has been deserialized to actually "execute" the command.</returns>
         PortableFunctionPointer<RpcExecutor.ExecuteDelegate> CompileExecute();
     }
 }

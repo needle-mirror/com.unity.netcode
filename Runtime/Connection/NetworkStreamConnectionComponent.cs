@@ -223,7 +223,7 @@ namespace Unity.NetCode
         /// <para>- The <see cref="DisconnectReason"/> is the same.</para>
         /// </summary>
         /// <param name="other">The component to compare</param>
-        /// <returns></returns>
+        /// <returns>Whether the two connection state are equal.</returns>
         public bool Equals(ConnectionState other) => CurrentState == other.CurrentState && NetworkId == other.NetworkId && DisconnectReason == other.DisconnectReason;
     }
 

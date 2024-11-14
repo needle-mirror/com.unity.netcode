@@ -95,7 +95,7 @@ namespace Unity.NetCode
         /// The <c>DisableDirectCall = true</c> was necessary to workaround an issue with burst and function delegate.
         /// If you are implementing your custom rpc serializer, please remember to disable the direct call.
         /// </remarks>
-        /// <param name="parameters"></param>
+        /// <param name="parameters">Parameters for custom rpc serializer</param>
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
         public delegate void ExecuteDelegate(ref Parameters parameters);
 
@@ -612,7 +612,29 @@ namespace Unity.NetCode
                 errorHeader.Append(localProtocol.ToFixedString());
                 errorHeader.Append((FixedString32Bytes)"\nRemote protocol: ");
                 errorHeader.Append(rpcError.remoteProtocol.ToFixedString());
+                errorHeader.Append((FixedString512Bytes)"\nSee the following errors for more information.");
                 netDebug.LogError(errorHeader);
+
+                if (localProtocol.NetCodeVersion != rpcError.remoteProtocol.NetCodeVersion)
+                {
+                    netDebug.LogError((FixedString512Bytes)"The NetCode version mismatched between remote and local. Ensure that you are using the same version of Netcode for Entities on both client and server.");
+                }
+
+                if (localProtocol.GameVersion != rpcError.remoteProtocol.GameVersion)
+                {
+                    netDebug.LogError((FixedString512Bytes)"The Game version mismatched between remote and local. Ensure that you are using the same version of the game on both client and server.");
+                }
+
+                if (localProtocol.RpcCollectionVersion != rpcError.remoteProtocol.RpcCollectionVersion)
+                {
+                    netDebug.LogError((FixedString512Bytes)"The RPC Collection mismatched between remote and local. Compare the following list of RPCs against the set produced by the remote, to find which RPCs are misaligned. You can also enable `RpcCollection.DynamicAssemblyList` to relax this requirement (which is recommended during development, see documentation for more details).");
+                }
+
+                if (localProtocol.ComponentCollectionVersion != rpcError.remoteProtocol.ComponentCollectionVersion)
+                {
+                    netDebug.LogError((FixedString512Bytes)"The Component Collection mismatched between remote and local. Compare the following list of Components against the set produced by the remote, to find which components are misaligned. You can also enable `RpcCollection.DynamicAssemblyList` to relax this requirement (which is recommended during development, see documentation for more details).");
+                }
+
 
                 var s = (FixedString512Bytes)"RPC List (for above 'bad protocol version' error): ";
                 s.Append(rpcs.Length);

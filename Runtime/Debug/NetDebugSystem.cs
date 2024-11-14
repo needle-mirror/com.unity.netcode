@@ -31,6 +31,10 @@ namespace Unity.NetCode
 #if UNITY_EDITOR
             if (MultiplayerPlayModePreferences.ApplyLoggerSettings)
                 netDebug.LogLevel = MultiplayerPlayModePreferences.TargetLogLevel;
+
+            netDebug.WarnBatchedTicks = MultiplayerPlayModePreferences.WarnBatchedTicks;
+            netDebug.WarnBatchedTicksRollingWindowSize = MultiplayerPlayModePreferences.WarnBatchedTicksRollingWindow;
+            netDebug.WarnAboveAverageBatchedTicksPerFrame = MultiplayerPlayModePreferences.WarnAboveAverageBatchedTicksPerFrame;
 #endif
 #if NETCODE_DEBUG
             m_ComponentTypeNameLookupData = new NativeHashMap<int, FixedString128Bytes>(1024, Allocator.Persistent);

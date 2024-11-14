@@ -70,7 +70,7 @@ namespace Unity.NetCode
         public GhostPrefabType PrefabType;
         ///<summary>Override which client type it will be sent to, if we're able to determine.</summary>
         public GhostSendType SendTypeOptimization;
-        /// <summary><see cref="DefaultType"/></summary>
+        /// <summary>See: <see cref="DefaultType"/>.</summary>
         public DefaultType DefaultRule;
         // TODO - Create a flag byte enum for all of these.
         /// <summary>
@@ -79,7 +79,6 @@ namespace Unity.NetCode
         /// </summary>
         /// <remarks>Types like `Translation` don't have a default serializer as the type itself doesn't define any GhostFields, but they do have serialized variants.</remarks>
         public byte IsDefaultSerializer;
-        /// <summary></summary>
         /// <remarks>True if this is an editor test variant. Forces this variant to be considered a "default" which makes writing tests easier.</remarks>
         /// <inheritdoc cref="GhostComponentVariationAttribute.IsTestVariant"/>
         public byte IsTestVariant;
@@ -92,7 +91,7 @@ namespace Unity.NetCode
         /// <summary>Does this component explicitly opt-out of overrides (regardless of variant count)?</summary>
         public byte HasDontSupportPrefabOverridesAttribute;
 
-        /// <summary><see cref="IsInputComponent"/> and <see cref="IsInputBuffer"/>.</summary>
+        /// <summary>See: <see cref="IsInputComponent"/> and <see cref="IsInputBuffer"/>.</summary>
         internal byte IsInput => (byte) (IsInputComponent | IsInputBuffer);
         /// <summary>The type name, unless it has a Variant (in which case it'll use the Variant Display name... assuming that is not null).</summary>
         public FixedString64Bytes DisplayName;
@@ -107,8 +106,8 @@ namespace Unity.NetCode
         /// <summary>
         /// Check if two VariantType are identical.
         /// </summary>
-        /// <param name="other"></param>
-        /// <returns></returns>
+        /// <param name="other">Variant type</param>
+        /// <returns>Whether <paramref name="other"/>is identical.</returns>
         public int CompareTo(ComponentTypeSerializationStrategy other)
         {
             if (IsSerialized != other.IsSerialized)
@@ -123,7 +122,7 @@ namespace Unity.NetCode
         /// <summary>
         /// Convert the instance to its string representation.
         /// </summary>
-        /// <returns></returns>
+        /// <returns>String representation of instance</returns>
         public override string ToString() => ToFixedString().ToString();
 
         /// <summary>Logs a burst compatible debug string (if in burst), otherwise logs even more info.</summary>
@@ -211,7 +210,7 @@ namespace Unity.NetCode
         }
     }
 
-    /// <summary><see cref="GhostComponentSerializerCollectionSystemGroup"/>. Blittable. For internal use only.</summary>
+    /// <summary>Blittable. <see cref="GhostComponentSerializerCollectionSystemGroup"/>. For internal use only.</summary>
     [StructLayout(LayoutKind.Sequential)]
     [BurstCompile]
     public struct GhostComponentSerializerCollectionData : IComponentData
@@ -268,7 +267,7 @@ namespace Unity.NetCode
         /// Used by code-generated systems to register SerializationStrategies.
         /// Internal use only.
         /// </summary>
-        /// <param name="serializationStrategy"></param>
+        /// <param name="serializationStrategy">Strategy to register.</param>
         public void AddSerializationStrategy(ref ComponentTypeSerializationStrategy serializationStrategy)
         {
             ThrowIfNotInRegistrationPhase("register a SerializationStrategy");
@@ -312,7 +311,7 @@ namespace Unity.NetCode
         /// Used by code-generated systems and meant for internal use only.
         /// Adds the generated ghost serializer to <see cref="GhostComponentSerializer.State"/> collection.
         /// </summary>
-        /// <param name="state"></param>
+        /// <param name="state">Serializer state.</param>
         public void AddSerializer(GhostComponentSerializer.State state)
         {
             ThrowIfNotInRegistrationPhase("register a Serializer");
@@ -365,8 +364,8 @@ namespace Unity.NetCode
         /// <summary>
         /// Lookup a component type to use as a buffer for a given IInputComponentData.
         /// </summary>
-        /// <param name="inputType"></param>
-        /// <param name="bufferType"></param>
+        /// <param name="inputType">Component type</param>
+        /// <param name="bufferType">Buffer type</param>
         /// <returns>True if the component has an assosiated buffer to use, false if it does not.</returns>
         [Obsolete("TryGetBufferForInputComponent has been deprecated. In order to find the buffer associated with an IInputComponentData please just use" +
                   "IInputBuffer<T> where T is the IInputComponentData type you are looking for.", false)]
@@ -380,8 +379,8 @@ namespace Unity.NetCode
         /// Used by code-generated systems and meant for internal use only.
         /// Adds a mapping from an IInputComponentData to the buffer it should use.
         /// </summary>
-        /// <param name="inputType"></param>
-        /// <param name="bufferType"></param>
+        /// <param name="inputType">Input type</param>
+        /// <param name="bufferType">Buffer type</param>
         public void AddInputComponent(ComponentType inputType, ComponentType bufferType)
         {
             InputComponentBufferMap.TryAdd(inputType, bufferType);
@@ -786,8 +785,8 @@ namespace Unity.NetCode
 
         /// <summary>Validation that the SourceGenerators return valid hashes for "default serializers".</summary>
         /// <param name="hash">Hash to check.</param>
-        /// <param name="context"></param>
-        /// <exception cref="InvalidOperationException"></exception>
+        /// <param name="context">String context</param>
+        /// <exception cref="InvalidOperationException">If cannot add variant for <paramref name="context"/>.</exception>
         [System.Diagnostics.Conditional("ENABLE_UNITY_COLLECTIONS_CHECKS")]
         public static void ThrowIfNoHash(ulong hash, FixedString512Bytes context)
         {

@@ -288,8 +288,8 @@ namespace Unity.NetCode
         /// Get the size of the header at the beginning of the dynamic snapshot buffer. The size
         /// of the header is constant.
         /// </summary>
-        /// <returns></returns>
-        static public uint GetHeaderSize()
+        /// <returns>Size of the header at the beginning of the dynamic snapshot buffer</returns>
+        public static uint GetHeaderSize()
         {
             return (uint)GhostComponentSerializer.SnapshotSizeAligned(sizeof(uint) * GhostSystemConstants.SnapshotHistorySize);
         }
@@ -297,12 +297,12 @@ namespace Unity.NetCode
         /// <summary>
         /// Retrieve the dynamic buffer history slot pointer
         /// </summary>
-        /// <param name="dynamicDataBuffer"></param>
-        /// <param name="historyPosition"></param>
-        /// <param name="bufferLength"></param>
-        /// <returns></returns>
-        /// <exception cref="System.IndexOutOfRangeException"></exception>
-        /// <exception cref="System.InvalidOperationException"></exception>
+        /// <param name="dynamicDataBuffer">Dynamic data buffer</param>
+        /// <param name="historyPosition">history position in buffer</param>
+        /// <param name="bufferLength">Length of buffer</param>
+        /// <returns>pointer to dynamic buffer</returns>
+        /// <exception cref="System.IndexOutOfRangeException">Thrown if the position is invalid</exception>
+        /// <exception cref="System.InvalidOperationException">Thrown if bufferlength is less than headersize</exception>
         static public byte* GetDynamicDataPtr(byte* dynamicDataBuffer, int historyPosition, int bufferLength)
         {
             var headerSize = GetHeaderSize();
@@ -319,9 +319,9 @@ namespace Unity.NetCode
         /// <summary>
         /// Return the currently available space (masks + buffer data) available in each slot.
         /// </summary>
-        /// <param name="headerSize"></param>
-        /// <param name="length"></param>
-        /// <returns></returns>
+        /// <param name="headerSize">Header size</param>
+        /// <param name="length">Length</param>
+        /// <returns>The currently available space (masks + buffer data) available in each slot</returns>
         static public uint GetDynamicDataCapacity(uint headerSize, int length)
         {
             if (length < headerSize)
@@ -333,9 +333,9 @@ namespace Unity.NetCode
         /// Return the history buffer capacity and the resulting size of each history buffer slot necessary to store
         /// the given dynamic data size.
         /// </summary>
-        /// <param name="dynamicDataSize"></param>
-        /// <param name="slotSize"></param>
-        /// <returns></returns>
+        /// <param name="dynamicDataSize">Dynamic data size</param>
+        /// <param name="slotSize">Slot size</param>
+        /// <returns>History buffer capacity</returns>
         static public uint CalculateBufferCapacity(uint dynamicDataSize, out uint slotSize)
         {
             var headerSize = GetHeaderSize();
@@ -347,9 +347,9 @@ namespace Unity.NetCode
         /// <summary>
         /// Compute the size of the bitmask for the given number of elements and mask bits. The size is aligned to 16 bytes.
         /// </summary>
-        /// <param name="changeMaskBits"></param>
-        /// <param name="numElements"></param>
-        /// <returns></returns>
+        /// <param name="changeMaskBits">Change mask bits</param>
+        /// <param name="numElements">Number of elements</param>
+        /// <returns>Size of bitmask</returns>
         public static int GetDynamicDataChangeMaskSize(int changeMaskBits, int numElements)
         {
             return GhostComponentSerializer.SnapshotSizeAligned(GhostComponentSerializer.ChangeMaskArraySizeInUInts(numElements * changeMaskBits)*4);

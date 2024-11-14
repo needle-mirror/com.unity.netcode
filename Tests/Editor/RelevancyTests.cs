@@ -595,7 +595,8 @@ namespace Unity.NetCode.Tests
                         testWorld.Tick();
 
                     var ghostCount = testWorld.GetSingleton<GhostCount>(testWorld.ClientWorlds[0]);
-                    Assert.AreEqual(10000, ghostCount.GhostCountOnClient);
+                    Assert.AreEqual(10000, ghostCount.GhostCountInstantiatedOnClient);
+                    Assert.AreEqual(10000, ghostCount.GhostCountReceivedOnClient);
 
                     // Make all 10 000 ghosts irrelevant
                     ref var ghostRelevancy = ref testWorld.GetSingletonRW<GhostRelevancy>(testWorld.ServerWorld).ValueRW;
@@ -605,7 +606,8 @@ namespace Unity.NetCode.Tests
                         testWorld.Tick();
 
                     // Assert that replicated version is correct
-                    Assert.AreEqual(0, ghostCount.GhostCountOnClient);
+                    Assert.AreEqual(0, ghostCount.GhostCountInstantiatedOnClient);
+                    Assert.AreEqual(0, ghostCount.GhostCountReceivedOnClient);
 
                     testWorld.ServerWorld.EntityManager.DestroyEntity(entities);
 
@@ -613,7 +615,8 @@ namespace Unity.NetCode.Tests
                         testWorld.Tick();
 
                     // Assert that replicated version is correct
-                    Assert.AreEqual(0, ghostCount.GhostCountOnClient);
+                    Assert.AreEqual(0, ghostCount.GhostCountInstantiatedOnClient);
+                    Assert.AreEqual(0, ghostCount.GhostCountReceivedOnClient);
                 }
             }
         }

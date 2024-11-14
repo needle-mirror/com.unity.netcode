@@ -152,18 +152,26 @@ namespace Unity.NetCode.Tests
     [UpdateInGroup(typeof(PredictedFixedStepSimulationSystemGroup))]
     partial struct CheckElapsedTime : ISystem
     {
-        private double ElapsedTime;
+        private double SinceFirstUpdate;
+        private double LastElapsedTime;
         public void OnUpdate(ref SystemState state)
         {
             var timestep = state.World.GetExistingSystemManaged<PredictedFixedStepSimulationSystemGroup>().Timestep;
             var time = SystemAPI.Time;
-            if (ElapsedTime == 0.0)
+            if (SinceFirstUpdate == 0.0)
             {
-                ElapsedTime = time.ElapsedTime;
+                SinceFirstUpdate = time.ElapsedTime;
             }
-            var totalElapsed = math.fmod(time.ElapsedTime - ElapsedTime,  timestep);
+            Assert.GreaterOrEqual(time.ElapsedTime, LastElapsedTime);
             //the elapsed time must be always an integral multiple of the time step
-            Assert.LessOrEqual(totalElapsed, 1e-6);
+            Assert.LessOrEqual(math.fmod(time.ElapsedTime, timestep), 1e-6);
+            //the relative elapsed time since last update should also be equal to the timestep. If the timestep is changed
+            //before the last update, this may be not true
+            var totalElapsedSinceFirstUpdate = math.fmod(time.ElapsedTime - SinceFirstUpdate,  timestep);
+            var elapsedTimeSinceLastUpdate = math.fmod(time.ElapsedTime - LastElapsedTime,  timestep);
+            Assert.LessOrEqual(elapsedTimeSinceLastUpdate, 1e-6);
+            Assert.LessOrEqual(totalElapsedSinceFirstUpdate, 1e-6);
+            LastElapsedTime = time.ElapsedTime;
         }
     }
 
@@ -451,8 +459,8 @@ namespace Unity.NetCode.Tests
                 Assert.AreEqual(1, clientRate.PredictedFixedStepSimulationTickRatio);
                 var serverTimeStep = testWorld.ServerWorld.GetOrCreateSystemManaged<PredictedFixedStepSimulationSystemGroup>().Timestep;
                 var clientTimestep = testWorld.ClientWorlds[0].GetOrCreateSystemManaged<PredictedFixedStepSimulationSystemGroup>().Timestep;
-                Assert.That(serverTimeStep, Is.EqualTo(1f / clientRate.SimulationTickRate));
-                Assert.That(clientTimestep, Is.EqualTo(1f / clientRate.SimulationTickRate));
+                Assert.That(serverTimeStep, Is.EqualTo(clientRate.SimulationFixedTimeStep));
+                Assert.That(clientTimestep, Is.EqualTo(clientRate.SimulationFixedTimeStep));
 
                 //Also check that if the value is overriden, it is still correctly set to the right value
                 for (int i = 0; i < 8; ++i)
@@ -468,8 +476,8 @@ namespace Unity.NetCode.Tests
                     LogAssert.Expect(LogType.Warning, $"The PredictedFixedStepSimulationSystemGroup.TimeStep is {1f/fixedStepRate}ms ({fixedStepRate}FPS) but should be equals to ClientServerTickRate.PredictedFixedStepSimulationTimeStep: {1f/60f}ms ({60f}FPS).\n" +
                                                       "The current timestep will be changed to match the ClientServerTickRate settings. You should never set the rate of this system directly with neither the PredictedFixedStepSimulationSystemGroup.TimeStep nor the RateManager.TimeStep method.\n " +
                                                       "Instead, you must always configure the desired rate by changing the ClientServerTickRate.PredictedFixedStepSimulationTickRatio property.");
-                    Assert.That(clientTimestep, Is.EqualTo(1f / clientRate.SimulationTickRate));
-                    Assert.That(serverTimeStep, Is.EqualTo(1f / clientRate.SimulationTickRate));
+                    Assert.That(clientTimestep, Is.EqualTo(clientRate.SimulationFixedTimeStep));
+                    Assert.That(serverTimeStep, Is.EqualTo(clientRate.SimulationFixedTimeStep));
                 }
             }
         }
@@ -483,6 +491,11 @@ namespace Unity.NetCode.Tests
             {
                 testWorld.Bootstrap(true, typeof(CheckElapsedTime));
                 testWorld.CreateWorlds(true, 1);
+
+                //tick the world before connecting or finalizing the setup to mimic the fact the values has been changed by users
+                //after the world creation later on.
+                for(int i=0;i<10;++i)
+                    testWorld.Tick();
                 var tickRate = testWorld.ServerWorld.EntityManager.CreateEntity(typeof(ClientServerTickRate));
                 testWorld.ServerWorld.EntityManager.SetComponentData(tickRate, new ClientServerTickRate
                 {

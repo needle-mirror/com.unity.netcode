@@ -16,16 +16,62 @@ using Unity.Burst;
 
 namespace Unity.NetCode
 {
+    /// <summary>
+    /// Rate manager that control when the physics simulation will run.
+    /// The use cases we have:
+    /// <para>
+    /// On the server
+    /// <list>
+    /// <li>Does require physics objects exist? No, physics should run all the time to rebuild the world (empty) if all the physics stuff are gone.</li>
+    /// <li>Static physics: yes, may need to raycast</li>
+    /// <li>Dynamic physics: yes, even if not replicated.</li>
+    /// <li>Triggers (static or dynamic): yes</li>
+    /// <li>Kinematics, non ghost with physics: yes</li>
+    /// <li>Predicted ghost with physics: yes</li>
+    /// <li>Interpolated ghost with physics: yes (kinematics)</li>
+    /// <li>Lag Compensation On: yes, we require the collision history to be rebuilt.</li>
+    /// </list>
+    /// </para>
+    /// <para>
+    /// On the client:
+    /// <list type="">
+    /// <li>Does require physics objects exist? Ideally yse, in practice no: physics should run all the time to rebuild the world (empty) if all the physics stuff are gone.</li>
+    /// <li>Static physics: yes, may need to raycast. Ideally, this should use client-only physics if there are no ghost. It is up to the users</li>
+    /// <li>Dynamic physics: yes, even if not replicated. Not ideal keep them in world 0 in that case, but necessary. It is up to the users</li>
+    /// <li>Kinematics, non ghost with physics: yes. Not ideal keep them in world 0 in that case, but necessary. It is up to the users</li>
+    /// <li>Predicted ghost with physics: yes</li>
+    /// <li>Interpolated ghost with physics: yes (kinematics). In this case prediction should run only once. Should be up to the user though (not an hidden, opinionated default)</li>
+    /// <li>Lag Compensation On: yes</li>
+    ///</list>
+    /// Overall, the group should always run all the time by default. However, because this would be a breaking change, we allow to opt-in for this behaviour via
+    /// <see cref="PhysicGroupRunMode"/> enum.
+    /// </summary>
     class NetcodePhysicsRateManager : IRateManager
     {
         private bool m_DidUpdate;
-        private EntityQuery m_PredictedGhostPhysicsQuery;
         private EntityQuery m_LagCompensationQuery;
+        private EntityQuery m_predictedPhysicsQuery;
+        private EntityQuery m_relaxedPhysicsQuery;
+        private EntityQuery m_PhysicsGroupConfigQuery;
         private EntityQuery m_NetworkTimeQuery;
         public NetcodePhysicsRateManager(ComponentSystemGroup group)
         {
-            m_PredictedGhostPhysicsQuery = group.World.EntityManager.CreateEntityQuery(ComponentType.ReadOnly<PredictedGhost>(), ComponentType.ReadOnly<PhysicsVelocity>());
+            var queryBuilder = new EntityQueryBuilder(Allocator.Temp);
+            //The default current behaviour: allow physics to run as long as entities with physics velocity exists, either kinematic or dynamic.
+            //This is by far a very restrictive scenario, on client especially. For the server, this can be also
+            //be not what you want. You may need to raycast against some geometry for example.
+            queryBuilder.WithAll<PredictedGhost>().WithAny<PhysicsVelocity>();
+            m_predictedPhysicsQuery = queryBuilder.Build(group.EntityManager);
+            //this is a more relaxed condition, that allow physics to run as long there are some ghost physics entities. This is more
+            //correct in my opinion, but break some "assumptions" and behavior in respect to the original default, so I left that
+            //only as an options.
+            //It is again not working correctly in case all physics entities get destroyed. The physics collision world is stale in that case.
+            //However, if lag compensation is turned on, everything work fine.
+            queryBuilder.Reset();
+            queryBuilder.WithAny<PhysicsVelocity, PhysicsCollider>();
+            m_relaxedPhysicsQuery = queryBuilder.Build(group.EntityManager);
             m_LagCompensationQuery = group.World.EntityManager.CreateEntityQuery(ComponentType.ReadOnly<LagCompensationConfig>());
+            m_PhysicsGroupConfigQuery = group.World.EntityManager.CreateEntityQuery(typeof(PhysicsGroupConfig));
             m_NetworkTimeQuery = group.World.EntityManager.CreateEntityQuery(ComponentType.ReadOnly<NetworkTime>());
         }
         public bool ShouldGroupUpdate(ComponentSystemGroup group)
@@ -35,14 +81,30 @@ namespace Unity.NetCode
                 m_DidUpdate = false;
                 return false;
             }
-            // Check if physics needs to update, this is only really needed on the client where predicted physics is expensive
-            if (m_PredictedGhostPhysicsQuery.IsEmptyIgnoreFilter)
+            m_PhysicsGroupConfigQuery.TryGetSingleton(out PhysicsGroupConfig groupConfig);
+            if (groupConfig.PhysicsRunMode != PhysicGroupRunMode.AlwaysRun)
             {
-                if (m_LagCompensationQuery.IsEmptyIgnoreFilter)
-                    return false;
-                var netTime = m_NetworkTimeQuery.GetSingleton<NetworkTime>();
-                if (!netTime.IsFirstTimeFullyPredictingTick)
-                    return false;
+                bool noEntitiesMatchingQuery;
+                if (groupConfig.PhysicsRunMode == PhysicGroupRunMode.LagCompensationEnabledOrKinematicGhosts)
+                    noEntitiesMatchingQuery = m_predictedPhysicsQuery.IsEmptyIgnoreFilter;
+                else
+                    noEntitiesMatchingQuery = m_relaxedPhysicsQuery.IsEmptyIgnoreFilter;
+
+                //if query is emtpy and no lag compesation, there is nothing to run
+                if (noEntitiesMatchingQuery)
+                {
+                    //On the client, if users set this to 0 is the same as disabling the hystory backup.
+                    if (m_LagCompensationQuery.IsEmptyIgnoreFilter ||
+                        (group.World.IsClient() &&
+                         m_LagCompensationQuery.GetSingleton<LagCompensationConfig>().ClientHistorySize == 0))
+                    {
+                        return false;
+                    }
+                    //if lag compensation is enabled, run only for new full ticks,
+                    var netTime = m_NetworkTimeQuery.GetSingleton<NetworkTime>();
+                    if (!netTime.IsFirstTimeFullyPredictingTick)
+                        return false;
+                }
             }
             m_DidUpdate = true;
             return true;

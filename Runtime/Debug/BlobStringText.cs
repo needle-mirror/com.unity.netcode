@@ -20,7 +20,7 @@ namespace Unity.NetCode.LowLevel
         /// is cached internally by this wrapper and if the original blob is detroyed, the memory content
         /// may point to something that it is not a string.
         /// </summary>
-        /// <param name="blob"></param>
+        /// <param name="blob"><see cref="BlobString"/> reference.</param>
         public BlobStringText(ref BlobString blob)
         {
             unsafe
@@ -29,7 +29,7 @@ namespace Unity.NetCode.LowLevel
             }
             m_Length = blob.Length;
         }
-        
+
         /// <inheritdoc cref="IUTF8Bytes.IsEmpty"/>
         public bool IsEmpty => m_Length == 0;
 
@@ -41,7 +41,7 @@ namespace Unity.NetCode.LowLevel
 
         /// <inheritdoc cref="IUTF8Bytes.TryResize"/>
         /// <remarks>Always throw NotImplementedException</remarks>
-        /// <exception cref="NotImplementedException"></exception>
+        /// <exception cref="NotImplementedException">Always throw NotImplementedException</exception>
         public bool TryResize(int newLength, NativeArrayOptions clearOptions = NativeArrayOptions.ClearMemory)
         {
             throw new NotImplementedException();
@@ -49,7 +49,7 @@ namespace Unity.NetCode.LowLevel
 
         /// <inheritdoc cref="INativeList{T}.Length"/>
         /// <remarks>Always throw NotImplementedException</remarks>
-        /// <exception cref="NotImplementedException"></exception>
+        /// <exception cref="NotImplementedException">Always throw NotImplementedException</exception>
         public int Length
         {
             get => m_Length;
@@ -57,20 +57,21 @@ namespace Unity.NetCode.LowLevel
         }
         /// <inheritdoc cref="INativeList{T}.ElementAt"/>
         /// <remarks>Always throw NotImplementedException</remarks>
+        /// <exception cref="NotImplementedException">Always throw NotImplementedException</exception>
         public ref byte ElementAt(int index)
         {
             throw new NotImplementedException();
         }
         /// <inheritdoc cref="INativeList{T}.Capacity"/>
         /// <remarks>Always throw NotImplementedException</remarks>
-        /// <exception cref="NotImplementedException"></exception>
+        /// <exception cref="NotImplementedException">Always throw NotImplementedException</exception>
         public int Capacity {
             get => m_Length;
             set => throw new NotImplementedException();
         }
         /// <inheritdoc cref="INativeList{T}.this[int]"/>
         /// <remarks>Always throw NotImplementedException</remarks>
-        /// <exception cref="NotImplementedException"></exception>
+        /// <exception cref="NotImplementedException">Always throw NotImplementedException</exception>
         public byte this[int index]
         {
             get
@@ -81,7 +82,7 @@ namespace Unity.NetCode.LowLevel
         }
         /// <inheritdoc cref="INativeList{T}.Clear"/>
         /// <remarks>Always throw NotImplementedException</remarks>
-        /// <exception cref="NotImplementedException"></exception>
+        /// <exception cref="NotImplementedException">Always throw NotImplementedException</exception>
         public void Clear()
         {
             throw new NotImplementedException();

@@ -47,6 +47,7 @@ namespace Unity.NetCode
         }
 
         public int Importance;
+        public byte MaxSendRate;
         public GhostMode SupportedModes;
         public GhostMode DefaultMode;
         public bool StaticOptimization;
@@ -286,11 +287,12 @@ namespace Unity.NetCode
         /// Client CPU optimization. Force predicted ghost to always try to continue from the last prediction in case of structural changes. True by default (because may introduce some issue when replicated component are removed).
         /// </summary>
         public byte RollbackPredictionOnStructuralChanges;
-        /// <summary>
-        /// Reflect the importance value set in the <see cref="GhostAuthoringComponent"/>. Is used as the base value for the
-        /// scaled importance calculated at runtime.
-        /// </summary>
+        /// <inheritdoc cref="GhostPrefabCreation.Config.Importance"/>
         public int BaseImportance;
+        /// <summary><see cref="GhostPrefabCreation.Config.MaxSendRate"/> expressed as a <see cref="ClientServerTickRate.SimulationTickRate"/> interval
+        /// (i.e. the number of ticks until we can send again).</summary>
+        /// <seealso cref="GhostPrefabCreation.Config.MaxSendRate"/>
+        public byte MaxSendRateAsSimTickInterval;
         /// <summary>
         /// Used by the <see cref="GhostSpawnClassificationSystem"/> to assign the type of <see cref="GhostSpawnBuffer.Type"/> to use for this ghost,
         /// if no other user-defined system has classified how the new ghost should be spawned.
@@ -529,20 +531,20 @@ namespace Unity.NetCode
         ///<summary>
         /// Delegate to specify a custom order for the serialised components.
         /// </summary>
-        /// <param name="componentTypes"></param>
-        /// <param name="componentCount"></param>
+        /// <param name="componentTypes">Serialized component types</param>
+        /// <param name="componentCount">Number of components</param>
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
         public delegate void CollectComponentDelegate(IntPtr componentTypes, IntPtr componentCount);
         ///<summary>
         /// Delegate for the custom chunk serializer.
         /// </summary>
-        /// <param name="chunk"></param>
-        /// <param name="typeData"></param>
-        /// <param name="componentIndices"></param>
-        /// <param name="context"></param>
-        /// <param name="tempWriter"></param>
-        /// <param name="compressionModel"></param>
-        /// <param name="lastSerializedEntity"></param>
+        /// <param name="chunk">Chunk</param>
+        /// <param name="typeData">Type data</param>
+        /// <param name="componentIndices">Component indices</param>
+        /// <param name="context">Context</param>
+        /// <param name="tempWriter">Datastream writer</param>
+        /// <param name="compressionModel">Compression model</param>
+        /// <param name="lastSerializedEntity">Last serialized entity</param>
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
         public delegate void ChunkSerializerDelegate(
             ref ArchetypeChunk chunk,
@@ -555,10 +557,10 @@ namespace Unity.NetCode
         ///<summary>
         /// Delegate for the custom chunk pre-serialization function.
         /// </summary>
-        /// <param name="chunk"></param>
-        /// <param name="typeData"></param>
-        /// <param name="componentIndices"></param>
-        /// <param name="context"></param>
+        /// <param name="chunk">Chunk</param>
+        /// <param name="typeData">Type data</param>
+        /// <param name="componentIndices">Component indices</param>
+        /// <param name="context">Context</param>
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
         public delegate void ChunkPreserializeDelegate(
             in ArchetypeChunk chunk,

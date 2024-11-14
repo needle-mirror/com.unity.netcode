@@ -1,9 +1,12 @@
 using System;
+using Unity.Burst.CompilerServices;
+using Unity.Collections;
 using Unity.Collections.LowLevel.Unsafe;
 using Unity.Entities;
 using Unity.Mathematics;
 using Unity.Networking.Transport;
 using Unity.Networking.Transport.Utilities;
+using UnityEngine;
 
 namespace Unity.NetCode
 {
@@ -19,96 +22,53 @@ namespace Unity.NetCode
     {
         internal void UpdateReceivedByRemote(NetworkTick tick, uint mask)
         {
-            if (!tick.IsValid)
+            if (Hint.Unlikely(!tick.IsValid))
             {
-                ReceivedSnapshotByRemoteMask3 = 0;
-                ReceivedSnapshotByRemoteMask2 = 0;
-                ReceivedSnapshotByRemoteMask1 = 0;
-                ReceivedSnapshotByRemoteMask0 = 0;
+                ReceivedSnapshotByRemoteMask.Clear();
                 LastReceivedSnapshotByRemote = NetworkTick.Invalid;
+                return;
             }
-            else if (!LastReceivedSnapshotByRemote.IsValid)
+            // For any ticks SINCE our last stored tick (or if we get the same tick again), we should shift the
+            // entire mask UP by that delta (shamt), then apply the new mask on top of the existing one,
+            // as the client may have more up-to-date ack info.
+            var shamt = Hint.Likely(LastReceivedSnapshotByRemote.IsValid) ? tick.TicksSince(LastReceivedSnapshotByRemote) : 0;
+            if (shamt >= 0)
             {
-                ReceivedSnapshotByRemoteMask3 = 0;
-                ReceivedSnapshotByRemoteMask2 = 0;
-                ReceivedSnapshotByRemoteMask1 = 0;
-                ReceivedSnapshotByRemoteMask0 = mask;
-                LastReceivedSnapshotByRemote = tick;
-            }
-            else if (tick.IsNewerThan(LastReceivedSnapshotByRemote))
-            {
-                int shamt = tick.TicksSince(LastReceivedSnapshotByRemote);
-                if (shamt >= 256)
-                {
-                    ReceivedSnapshotByRemoteMask3 = 0;
-                    ReceivedSnapshotByRemoteMask2 = 0;
-                    ReceivedSnapshotByRemoteMask1 = 0;
-                    ReceivedSnapshotByRemoteMask0 = mask;
-                }
-                else
-                {
-                    while (shamt >= 64)
-                    {
-                        ReceivedSnapshotByRemoteMask3 = ReceivedSnapshotByRemoteMask2;
-                        ReceivedSnapshotByRemoteMask2 = ReceivedSnapshotByRemoteMask1;
-                        ReceivedSnapshotByRemoteMask1 = ReceivedSnapshotByRemoteMask0;
-                        ReceivedSnapshotByRemoteMask0 = 0;
-                        shamt -= 64;
-                    }
+                ReceivedSnapshotByRemoteMask.ShiftLeftExt(shamt);
 
-                    if (shamt == 0)
-                        ReceivedSnapshotByRemoteMask0 |= mask;
-                    else
-                    {
-                        ReceivedSnapshotByRemoteMask3 = (ReceivedSnapshotByRemoteMask3 << shamt) |
-                                                        (ReceivedSnapshotByRemoteMask2 >> (64 - shamt));
-                        ReceivedSnapshotByRemoteMask2 = (ReceivedSnapshotByRemoteMask2 << shamt) |
-                                                        (ReceivedSnapshotByRemoteMask1 >> (64 - shamt));
-                        ReceivedSnapshotByRemoteMask1 = (ReceivedSnapshotByRemoteMask1 << shamt) |
-                                                        (ReceivedSnapshotByRemoteMask0 >> (64 - shamt));
-                        ReceivedSnapshotByRemoteMask0 = (ReceivedSnapshotByRemoteMask0 << shamt) |
-                                                        mask;
-                    }
-                }
-
+                // Note: Clobbering the mask is valid, because the client should never send us a false value
+                // after sending us a true value for a given tick. But perform the OR operation anyway,
+                // to safeguard against malicious or erring clients.
+                const int writeOffset = 0;
+                const int numBitsToWrite = 32;
+                var previousMask = ReceivedSnapshotByRemoteMask.GetBits(writeOffset, numBitsToWrite);
+                mask |= (uint) previousMask;
+                ReceivedSnapshotByRemoteMask.SetBits(writeOffset, mask, numBitsToWrite);
                 LastReceivedSnapshotByRemote = tick;
+                SnapshotPacketLoss.NumPacketsAcked += (ulong) (math.countbits(mask) - math.countbits(previousMask));
             }
+            // Else, for older ticks (because YES - the client can send negative ticks relative to the last acked),
+            // we don't do anything, as they cannot correctly contain new ack information (due to the sequential
+            // requirement implicit to snapshots).
         }
 
         /// <summary>
         /// Return true if the snapshot for tick <paramref name="tick"/> has been received (from a client perspective)
-        /// or acknowledged (from the servers POV)
+        /// or acknowledged (from the servers POV).
         /// </summary>
-        /// <param name="tick"></param>
-        /// <returns></returns>
+        /// <param name="tick">Tick to query.</param>
+        /// <returns>Whether the snapshot for tick <paramref name="tick"/> has been received (from a client perspective)</returns>
         public bool IsReceivedByRemote(NetworkTick tick)
         {
             if (!tick.IsValid || !LastReceivedSnapshotByRemote.IsValid)
                 return false;
-            if (tick.IsNewerThan(LastReceivedSnapshotByRemote))
-                return false;
             int bit = LastReceivedSnapshotByRemote.TicksSince(tick);
-            if (bit >= 256)
+            if (bit < 0)
                 return false;
-            if (bit >= 192)
-            {
-                bit -= 192;
-                return (ReceivedSnapshotByRemoteMask3 & (1ul << bit)) != 0;
-            }
-
-            if (bit >= 128)
-            {
-                bit -= 128;
-                return (ReceivedSnapshotByRemoteMask2 & (1ul << bit)) != 0;
-            }
-
-            if (bit >= 64)
-            {
-                bit -= 64;
-                return (ReceivedSnapshotByRemoteMask1 & (1ul << bit)) != 0;
-            }
-
-            return (ReceivedSnapshotByRemoteMask0 & (1ul << bit)) != 0;
+            if (bit >= ReceivedSnapshotByRemoteMask.Length)
+                return false;
+            var set = ReceivedSnapshotByRemoteMask.GetBits(bit) != 0;
+            return set;
         }
 
         /// <summary>
@@ -117,10 +77,8 @@ namespace Unity.NetCode
         /// <para>For the server, it is the last acknowledge packet that has been received by client.</para>
         /// </summary>
         public NetworkTick LastReceivedSnapshotByRemote;
-        private ulong ReceivedSnapshotByRemoteMask0;
-        private ulong ReceivedSnapshotByRemoteMask1;
-        private ulong ReceivedSnapshotByRemoteMask2;
-        private ulong ReceivedSnapshotByRemoteMask3;
+        internal UnsafeBitArray ReceivedSnapshotByRemoteMask;
+
         /// <summary>
         /// <para>The field has a different meaning on the client vs on the server:</para>
         /// <para>Client: it is the last received ghost snapshot from the server.</para>

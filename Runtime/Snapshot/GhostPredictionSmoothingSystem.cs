@@ -31,9 +31,9 @@ namespace Unity.NetCode
         /// <summary>
         /// All the smoothing action must have this signature. The smoothing actions must also be burst compatible.
         /// </summary>
-        /// <param name="currentData"></param>
-        /// <param name="previousData"></param>
-        /// <param name="userData"></param>
+        /// <param name="currentData">Current data</param>
+        /// <param name="previousData">Previous data</param>
+        /// <param name="userData">User data</param>
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
         public delegate void SmoothingActionDelegate(IntPtr currentData, IntPtr previousData, IntPtr userData);
 

@@ -41,11 +41,23 @@ namespace Unity.NetCode
             }
         }
         /// <summary>
-        /// Treat the set of assemblies loaded on the client / server as dynamic or different. This is only required if
-        /// assemblies containing ghost component serializers or RPC serializers are removed when building standalone.
-        /// This property is read in OnUpdate, so it must be set before then. Defaults to false, which saves 6 bytes per header,
-        /// and allows RPC version errors to trigger immediately upon connecting to the server (rather than needing to wait for
-        /// an invalid RPC to be received).
+        /// <para>
+        /// Allows the set assemblies loaded on the client and server to differ. This is useful during development when
+        /// assemblies containing ghost component serializers or RPCs are removed when building standalone.
+        /// This usually happens during development when you are connecting a standalone player to the Editor.
+        /// For example, tests are usually not included in a standalone build, but they are still compiled and
+        /// registered in the Editor, which causes a mismatch in the set of assemblies.
+        /// </para>
+        /// <para>
+        /// If set to false (default), the RPC system triggers an RPC version error when connecting to a server with
+        /// a different set of assemblies. This is more strict and acts as a validation step during handshake.
+        /// </para>
+        /// <para>
+        /// If set to true, six bytes is added to the header of each RPC.
+        /// The RPC system doesn't trigger an RPC version error when connecting to
+        /// a server with a different set of assemblies. Instead, an error will be triggered if an invalid RPC or serialized component is
+        /// received.
+        /// </para>
         /// </summary>
         public bool DynamicAssemblyList
         {

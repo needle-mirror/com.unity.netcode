@@ -1,12 +1,26 @@
 using UnityEngine;
 using Unity.Entities;
 
+/// <summary>
+/// TestNetCodeAuthoring
+/// </summary>
 public class TestNetCodeAuthoring : MonoBehaviour
 {
+    /// <summary>
+    /// Interface for TestNetCodeAuthoring.IConverter
+    /// </summary>
     public interface IConverter
     {
+        /// <summary>
+        /// Bake function
+        /// </summary>
+        /// <param name="gameObject">gameobject</param>
+        /// <param name="baker">baker</param>
         void Bake(GameObject gameObject, IBaker baker);
     }
+    /// <summary>
+    /// IConverter
+    /// </summary>
     public IConverter Converter;
 }
 

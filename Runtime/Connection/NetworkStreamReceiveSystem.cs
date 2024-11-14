@@ -9,6 +9,7 @@ using Unity.Collections;
 using Unity.Collections.LowLevel.Unsafe;
 using Unity.Entities;
 using Unity.Jobs;
+using Unity.Mathematics;
 using Unity.NetCode.LowLevel.Unsafe;
 using Unity.Networking.Transport;
 using Unity.Profiling;
@@ -19,8 +20,7 @@ namespace Unity.NetCode
     /// <summary>
     /// Parent group of all systems that; receive data from the server, deal with connections, and
     /// that need to perform operations before the ghost simulation group.
-    /// In particular, <see cref="CommandSendSystemGroup"/>,
-    /// <see cref="HeartbeatSendSystem"/>, <see cref="HeartbeatReceiveSystem"/> and the <see cref="NetworkStreamReceiveSystem"/>
+    /// In particular, <see cref="CommandSendSystemGroup"/>, and the <see cref="NetworkStreamReceiveSystem"/>
     /// update in this group.
     /// </summary>
     [WorldSystemFilter(WorldSystemFilterFlags.ClientSimulation | WorldSystemFilterFlags.ServerSimulation | WorldSystemFilterFlags.ThinClientSimulation,
@@ -40,16 +40,16 @@ namespace Unity.NetCode
         /// <summary>
         /// Register to the driver store a new instance of <see cref="NetworkDriver"/> suitable to be used by clients.
         /// </summary>
-        /// <param name="world"></param>
-        /// <param name="driver"></param>
-        /// <param name="netDebug"></param>
+        /// <param name="world">Client world</param>
+        /// <param name="driver">Driver store</param>
+        /// <param name="netDebug">The <see cref="netDebug"/> singleton, for logging errors and debug information</param>
         void CreateClientDriver(World world, ref NetworkDriverStore driver, NetDebug netDebug);
         /// <summary>
         /// Register to the driver store a new instance of <see cref="NetworkDriver"/> suitable to be used by servers.
         /// </summary>
-        /// <param name="world"></param>
-        /// <param name="driver"></param>
-        /// <param name="netDebug"></param>
+        /// <param name="world">Server world</param>
+        /// <param name="driver">Driver store</param>
+        /// <param name="netDebug">The <see cref="netDebug"/> singleton, for logging errors and debug information</param>
         void CreateServerDriver(World world, ref NetworkDriverStore driver, NetDebug netDebug);
     }
 
@@ -374,6 +374,13 @@ namespace Unity.NetCode
                 DriverStore.Dispose();
             }
             UnsafeUtility.Free((void*)m_DriverPointers, Allocator.Persistent);
+
+            // Force clean-up of ReceivedSnapshotByRemoteMask:
+            foreach (var snapshotAck in SystemAPI.Query<RefRW<NetworkSnapshotAck>>())
+            {
+                if (snapshotAck.ValueRO.ReceivedSnapshotByRemoteMask.IsCreated)
+                    snapshotAck.ValueRW.ReceivedSnapshotByRemoteMask.Dispose();
+            }
         }
 
         [BurstCompile]
@@ -584,7 +591,10 @@ namespace Unity.NetCode
                         };
                         var ent = commandBuffer.CreateEntity();
                         commandBuffer.AddComponent(ent, connection);
-                        commandBuffer.AddComponent(ent, new NetworkSnapshotAck());
+                        commandBuffer.AddComponent(ent, new NetworkSnapshotAck
+                        {
+                            ReceivedSnapshotByRemoteMask = new UnsafeBitArray((int)math.max(1024, tickRate.SnapshotAckMaskCapacity), Allocator.Persistent),
+                        });
                         commandBuffer.AddBuffer<PrespawnSectionAck>(ent);
                         commandBuffer.AddComponent(ent, new CommandTarget());
                         commandBuffer.AddBuffer<IncomingRpcDataStreamBuffer>(ent);
@@ -667,12 +677,14 @@ namespace Unity.NetCode
                 }
                 else if (!inGameFromEntity.HasComponent(entity))
                 {
+                    // Reset almost all NetworkSnapshotAck fields:
                     snapshotAck = new NetworkSnapshotAck
                     {
                         LastReceivedRemoteTime = snapshotAck.LastReceivedRemoteTime,
                         LastReceiveTimestamp = snapshotAck.LastReceiveTimestamp,
                         EstimatedRTT = snapshotAck.EstimatedRTT,
                         DeviationRTT = snapshotAck.DeviationRTT,
+                        ReceivedSnapshotByRemoteMask = snapshotAck.ReceivedSnapshotByRemoteMask,
                     };
                 }
 
@@ -698,7 +710,10 @@ namespace Unity.NetCode
                         case NetworkEvent.Type.Connect:
                         {
                             // This event is only invoked on the client. The server bypasses, as part of the Accept() call.
+#if ENABLE_UNITY_COLLECTIONS_CHECKS
                             Debug.Assert(!isServer);
+                            Debug.Assert(!snapshotAck.ReceivedSnapshotByRemoteMask.IsCreated);
+#endif
                             netDebug.DebugLog($"{debugPrefix} Client connected to driver, sending {protocolVersion.ToFixedString()} to server to begin handshake...");
                             snapshotAck.SnapshotPacketLoss = default;
                             var buf = outgoingRpcBuffer[entity];
@@ -862,7 +877,7 @@ namespace Unity.NetCode
                 // CurrentStateDirty is a bit of a hack: It only exists for:
                 // - The `Connecting` state on the client.
                 // - The `Approval` state on the client.
-                // We intentionally this in most places (see various event evocations scattered around).
+                // Note that we intentionally bypass this in most places (see various event evocations scattered around).
                 if(Hint.Unlikely(connection.CurrentStateDirty))
                 {
                     connection.CurrentStateDirty = false;
@@ -902,6 +917,8 @@ namespace Unity.NetCode
                         ConnectionEntity = entity,
                     });
 
+                    if (snapshotAck.ReceivedSnapshotByRemoteMask.IsCreated)
+                        snapshotAck.ReceivedSnapshotByRemoteMask.Dispose();
                     connection.Value = default;
                     connection.CurrentState = ConnectionState.State.Disconnected;
                     connection.CurrentStateDirty = false;
@@ -985,9 +1002,12 @@ namespace Unity.NetCode
                     }
                 }
 
-                // Handle timeout: Note: Client can time itself out, too.
+                // Handle timeout: Note that the client can time itself out, too, but only if not in handshake,
+                // as it doesn't know the configured timeout duration.
                 if (Hint.Unlikely(connection.ConnectionApprovalTimeoutStart != 0))
                 {
+                    var isClientHandshaking = !isServer && connection.CurrentState == ConnectionState.State.Handshake;
+                    if (isClientHandshaking) return;
                     var elapsedSinceApprovalStartMS = localTime - connection.ConnectionApprovalTimeoutStart;
                     if (Hint.Unlikely(elapsedSinceApprovalStartMS >= tickRate.HandshakeApprovalTimeoutMS))
                     {

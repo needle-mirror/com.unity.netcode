@@ -12,7 +12,7 @@ namespace Unity.NetCode
         /// <summary>
         /// Convert the delegate to a burst-compatible function pointer.
         /// </summary>
-        /// <param name="executeDelegate"></param>
+        /// <param name="executeDelegate">the function delegate</param>
         public PortableFunctionPointer(T executeDelegate)
         {
             Ptr = BurstCompiler.CompileFunctionPointer(executeDelegate);

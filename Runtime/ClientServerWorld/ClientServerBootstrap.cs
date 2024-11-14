@@ -66,23 +66,24 @@ namespace Unity.NetCode
         /// </summary>
         public static List<World> ThinClientWorlds => ClientServerTracker.ThinClientWorlds;
 
-#if UNITY_EDITOR || !UNITY_SERVER
-        private static int NextThinClientId;
+        private static int s_NextThinClientId;
+
+        private static OverrideAutomaticNetcodeBootstrap s_OverrideCache;
+        private static bool s_OverrideCacheHasResult;
+
         /// <summary>
         /// Initialize the bootstrap class and reset the static data everytime a new instance is created.
         /// </summary>
 
         public ClientServerBootstrap()
         {
-            NextThinClientId = 1;
-        }
-#endif
+            s_NextThinClientId = 1;
+            s_OverrideCache = default;
+            s_OverrideCacheHasResult = default;
 #if UNITY_SERVER && UNITY_CLIENT
-        public ClientServerBootstrap()
-        {
             UnityEngine.Debug.LogError("Both UNITY_SERVER and UNITY_CLIENT defines are present. This is not allowed and will lead to undefined behaviour, they are for dedicated server or client only logic so can't work together.");
-        }
 #endif
+        }
 
         /// <summary>
         /// Utility method for creating a local world without any netcode systems.
@@ -130,6 +131,10 @@ namespace Unity.NetCode
         /// <returns>The first override in the active scene.</returns>
         public static OverrideAutomaticNetcodeBootstrap DiscoverAutomaticNetcodeBootstrap(bool logNonErrors = false)
         {
+            if (s_OverrideCacheHasResult)
+                return s_OverrideCache;
+            s_OverrideCacheHasResult = true;
+
             // Note that GetActiveScene will return invalid when domain reloads are ENABLED.
             var activeScene = SceneManager.GetActiveScene();
             // We must use `FindObjectsInactive.Include` here, otherwise we'll get zero results.
@@ -138,10 +143,9 @@ namespace Unity.NetCode
             {
                 if(logNonErrors)
                     UnityEngine.Debug.Log($"[DiscoverAutomaticNetcodeBootstrap] Did not find any instances of `OverrideAutomaticNetcodeBootstrap`.");
-                return null;
+                return s_OverrideCache;
             }
             Array.Sort(sceneConfigurations); // Attempt to make the results somewhat deterministic and reliable via sorting by `name`, then `InstanceId`.
-            OverrideAutomaticNetcodeBootstrap selectedConfig = null;
             for (int i = 0; i < sceneConfigurations.Length; i++)
             {
                 var config = sceneConfigurations[i];
@@ -151,10 +155,10 @@ namespace Unity.NetCode
                 // Note: Double-click on a scene to set it as the Active scene.
                 var activeSceneIsValid = activeScene.IsValid() || SceneManager.loadedSceneCount == 1;
                 var isConfigInActiveScene = !activeSceneIsValid || !config.gameObject.scene.IsValid() || config.gameObject.scene == activeScene;
-                if (selectedConfig != null)
+                if (s_OverrideCache)
                 {
-                    var msg = $"[DiscoverAutomaticNetcodeBootstrap] Cannot select `OverrideAutomaticNetcodeBootstrap` on GameObject '{config.name}' with value `{config.ForceAutomaticBootstrapInScene}` (in scene '{LogScene(config.gameObject.scene, activeScene)}') as we've already selected another ('{selectedConfig.name}' with value `{selectedConfig.ForceAutomaticBootstrapInScene}` in scene '{LogScene(selectedConfig.gameObject.scene, activeScene)}')!";
-                    if (config.gameObject.scene == selectedConfig.gameObject.scene || isConfigInActiveScene)
+                    var msg = $"[DiscoverAutomaticNetcodeBootstrap] Cannot select `OverrideAutomaticNetcodeBootstrap` on GameObject '{config.name}' with value `{config.ForceAutomaticBootstrapInScene}` (in scene '{LogScene(config.gameObject.scene, activeScene)}') as we've already selected another ('{s_OverrideCache.name}' with value `{s_OverrideCache.ForceAutomaticBootstrapInScene}` in scene '{LogScene(s_OverrideCache.gameObject.scene, activeScene)}')!";
+                    if (config.gameObject.scene == s_OverrideCache.gameObject.scene || isConfigInActiveScene)
                     {
                         msg += " It's erroneous to have multiple in the same scene!";
                         UnityEngine.Debug.LogError(msg, config);
@@ -172,16 +176,16 @@ namespace Unity.NetCode
 
                 if (isConfigInActiveScene)
                 {
-                    selectedConfig = config;
+                    s_OverrideCache = config;
                     if (logNonErrors)
-                        UnityEngine.Debug.Log($"[DiscoverAutomaticNetcodeBootstrap] Using discovered `OverrideAutomaticNetcodeBootstrap` on GameObject '{selectedConfig.name}' with value `{selectedConfig.ForceAutomaticBootstrapInScene}` (in scene '{LogScene(selectedConfig.gameObject.scene, activeScene)}') as it's in the active scene ({LogScene(activeScene, activeScene)})!");
+                        UnityEngine.Debug.Log($"[DiscoverAutomaticNetcodeBootstrap] Using discovered `OverrideAutomaticNetcodeBootstrap` on GameObject '{s_OverrideCache.name}' with value `{s_OverrideCache.ForceAutomaticBootstrapInScene}` (in scene '{LogScene(s_OverrideCache.gameObject.scene, activeScene)}') as it's in the active scene ({LogScene(activeScene, activeScene)})!");
                     continue;
                 }
 
                 if (logNonErrors)
                     UnityEngine.Debug.Log($"[DiscoverAutomaticNetcodeBootstrap] Ignoring `OverrideAutomaticNetcodeBootstrap` on GameObject '{config.name}' with value `{config.ForceAutomaticBootstrapInScene}` (in scene '{LogScene(config.gameObject.scene, activeScene)}') as this scene is not the Active scene!");
             }
-            return selectedConfig;
+            return s_OverrideCache;
 
             static string LogScene(Scene scene, Scene active)
             {
@@ -196,7 +200,7 @@ namespace Unity.NetCode
         /// in the active scene, and if there is, uses its value to clobber the default.
         /// </summary>
         /// <param name="logNonErrors">If true, more details are logged, enabling debugging of flows.</param>
-        /// <returns></returns>
+        /// <returns>Whether there is an <see cref="OverrideAutomaticNetcodeBootstrap"/>. Otherwise false.</returns>
         public static bool DetermineIfBootstrappingEnabled(bool logNonErrors = false)
         {
             var automaticNetcodeBootstrap = DiscoverAutomaticNetcodeBootstrap(logNonErrors);
@@ -224,11 +228,7 @@ namespace Unity.NetCode
                 CreateClientWorld("ClientWorld");
 
 #if UNITY_EDITOR
-                var requestedNumThinClients = RequestedNumThinClients;
-                for (var i = 0; i < requestedNumThinClients; i++)
-                {
-                    CreateThinClientWorld();
-                }
+                AutomaticThinClientWorldsUtility.BootstrapThinClientWorlds();
 #endif
             }
         }
@@ -238,13 +238,13 @@ namespace Unity.NetCode
         /// Can be used in custom implementations of `Initialize` as well as at runtime
         /// to add new clients dynamically.
         /// </summary>
-        /// <returns></returns>
+        /// <returns>Thin client world instance.</returns>
         public static World CreateThinClientWorld()
         {
 #if UNITY_SERVER && !UNITY_EDITOR
-            throw new PlatformNotSupportedException("This executable was built using a 'server-only' build target (likely DGS). Thus, cannot create thin client worlds.");
-#else
-            var world = new World("ThinClientWorld" + NextThinClientId++, WorldFlags.GameThinClient);
+            Debug.LogWarning("This executable was built using a 'server-only' build target (likely DGS). Thus, may not be able to successfully initialize thin client world.");
+#endif
+            var world = new World("ThinClientWorld" + s_NextThinClientId++, WorldFlags.GameThinClient);
 
             var systems = DefaultWorldInitialization.GetAllSystems(WorldSystemFilterFlags.ThinClientSimulation);
             DefaultWorldInitialization.AddSystemsToRootLevelSystemGroups(world, systems);
@@ -253,7 +253,7 @@ namespace Unity.NetCode
             ThinClientWorlds.Add(world);
 
             return world;
-#endif
+
         }
 
         /// <summary>
@@ -261,7 +261,7 @@ namespace Unity.NetCode
         /// Can be used in custom implementations of `Initialize` as well as at runtime to add new clients dynamically.
         /// </summary>
         /// <param name="name">The client world name</param>
-        /// <returns></returns>
+        /// <returns>Client world instance.</returns>
         public static World CreateClientWorld(string name)
         {
 #if UNITY_SERVER && !UNITY_EDITOR
@@ -294,6 +294,7 @@ namespace Unity.NetCode
 
             switch (RequestedPlayType)
             {
+                case PlayType.Server:
                 case PlayType.ClientAndServer:
                 {
                     // Allow loopback + AutoConnectPort:
@@ -301,7 +302,7 @@ namespace Unity.NetCode
                     {
                         if (!DefaultConnectAddress.IsLoopback)
                         {
-                            UnityEngine.Debug.LogWarning($"DefaultConnectAddress is set to `{DefaultConnectAddress.Address}`, but we expected it to be loopback as we're in mode '{RequestedPlayType}`. Using loopback instead!");
+                            UnityEngine.Debug.LogWarning($"DefaultConnectAddress is set to `{DefaultConnectAddress.Address}`, but we expected it to be loopback as we're in mode `{RequestedPlayType}`. Using loopback instead!");
                             autoConnectEp = NetworkEndpoint.LoopbackIpv4;
                         }
 
@@ -326,8 +327,6 @@ namespace Unity.NetCode
                     // Otherwise do nothing.
                     return false;
                 }
-                case PlayType.Server:
-                    return false;
                 default:
                     throw new ArgumentOutOfRangeException(nameof(RequestedPlayType), RequestedPlayType, nameof(TryFindAutoConnectEndPoint));
             }
@@ -356,7 +355,7 @@ namespace Unity.NetCode
         /// when you need to create the server programmatically (for example, a frontend that allows selecting the role or other logic).
         /// </summary>
         /// <param name="name">The server world name.</param>
-        /// <returns></returns>
+        /// <returns>Server world instance.</returns>
         public static World CreateServerWorld(string name)
         {
 #if UNITY_CLIENT && !UNITY_SERVER && !UNITY_EDITOR
@@ -472,6 +471,7 @@ namespace Unity.NetCode
             public int clientWorlds;
         }
         internal static readonly SharedStatic<ServerClientCount> WorldCounts = SharedStatic<ServerClientCount>.GetOrCreate<ClientServerBootstrap>();
+
         /// <summary>
         /// Check if a world with a <see cref="WorldFlags.GameServer"/> is present.
         /// </summary>
@@ -506,7 +506,7 @@ namespace Unity.NetCode
         /// Check if a world is a thin client.
         /// </summary>
         /// <param name="world">A <see cref="World"/> instance</param>
-        /// <returns></returns>
+        /// <returns>Whether <paramref name="world"/> is a thin client world.</returns>
         public static bool IsThinClient(this World world)
         {
             return (world.Flags&WorldFlags.GameThinClient) == WorldFlags.GameThinClient;
@@ -515,7 +515,7 @@ namespace Unity.NetCode
         /// Check if an unmanaged world is a thin client.
         /// </summary>
         /// <param name="world">A <see cref="WorldUnmanaged"/> instance</param>
-        /// <returns></returns>
+        /// <returns>Whether <paramref name="world"/> is a thin client world.</returns>
         public static bool IsThinClient(this WorldUnmanaged world)
         {
             return (world.Flags&WorldFlags.GameThinClient) == WorldFlags.GameThinClient;
@@ -524,7 +524,7 @@ namespace Unity.NetCode
         /// Check if a world is a client, will also return true for thin clients.
         /// </summary>
         /// <param name="world">A <see cref="World"/> instance</param>
-        /// <returns></returns>
+        /// <returns>Whether <paramref name="world"/> is a client or a thin client world.</returns>
         public static bool IsClient(this World world)
         {
             return ((world.Flags&WorldFlags.GameClient) == WorldFlags.GameClient) || world.IsThinClient();
@@ -533,7 +533,7 @@ namespace Unity.NetCode
         /// Check if an unmanaged world is a client, will also return true for thin clients.
         /// </summary>
         /// <param name="world">A <see cref="WorldUnmanaged"/> instance</param>
-        /// <returns></returns>
+        /// <returns>Whether <paramref name="world"/> is a client or a thin client world.</returns>
         public static bool IsClient(this WorldUnmanaged world)
         {
             return ((world.Flags&WorldFlags.GameClient) == WorldFlags.GameClient) || world.IsThinClient();
@@ -542,7 +542,7 @@ namespace Unity.NetCode
         /// Check if a world is a server.
         /// </summary>
         /// <param name="world">A <see cref="World"/> instance</param>
-        /// <returns></returns>
+        /// <returns>Whether <paramref name="world"/> is a server world.</returns>
         public static bool IsServer(this World world)
         {
             return (world.Flags&WorldFlags.GameServer) == WorldFlags.GameServer;
@@ -551,7 +551,7 @@ namespace Unity.NetCode
         /// Check if an unmanaged world is a server.
         /// </summary>
         /// <param name="world">A <see cref="WorldUnmanaged"/> instance</param>
-        /// <returns></returns>
+        /// <returns>Whether <paramref name="world"/> is a server world.</returns>
         public static bool IsServer(this WorldUnmanaged world)
         {
             return (world.Flags&WorldFlags.GameServer) == WorldFlags.GameServer;
@@ -691,6 +691,7 @@ namespace Unity.NetCode
         {
             --ClientServerBootstrap.WorldCounts.Data.clientWorlds;
             ClientServerBootstrap.ThinClientWorlds.Remove(state.World);
+            AutomaticThinClientWorldsUtility.AutomaticallyManagedWorlds.Remove(state.World);
         }
     }
 }

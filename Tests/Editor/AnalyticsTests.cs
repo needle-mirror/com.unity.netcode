@@ -88,7 +88,7 @@ namespace Unity.NetCode.Tests
             public void VerifyGhostConfigurationAnalyticsData()
             {
                 var ghostConfigurationAnalyticsDataFields = typeof(GhostConfigurationAnalyticsData).GetFields();
-                Assert.That(ghostConfigurationAnalyticsDataFields.Length, Is.EqualTo(7));
+                Assert.That(ghostConfigurationAnalyticsDataFields.Length, Is.EqualTo(8));
                 Assert.That(ghostConfigurationAnalyticsDataFields[0].Name, Is.EqualTo("id"));
                 Assert.That(ghostConfigurationAnalyticsDataFields[0].FieldType, Is.EqualTo(typeof(string)));
                 Assert.That(ghostConfigurationAnalyticsDataFields[1].Name, Is.EqualTo("ghostMode"));
@@ -103,6 +103,8 @@ namespace Unity.NetCode.Tests
                 Assert.That(ghostConfigurationAnalyticsDataFields[5].FieldType, Is.EqualTo(typeof(int)));
                 Assert.That(ghostConfigurationAnalyticsDataFields[6].Name, Is.EqualTo("importance"));
                 Assert.That(ghostConfigurationAnalyticsDataFields[6].FieldType, Is.EqualTo(typeof(int)));
+                Assert.That(ghostConfigurationAnalyticsDataFields[7].Name, Is.EqualTo("maxSendRateHz"));
+                Assert.That(ghostConfigurationAnalyticsDataFields[7].FieldType, Is.EqualTo(typeof(int)));
             }
 
             /// <summary>

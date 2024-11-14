@@ -4,14 +4,19 @@ using Unity.Mathematics;
 namespace Unity.NetCode
 {
     /// <summary>
-    /// Stores packet loss causes and statistics for all received snapshots. Thus, client-only.
+    /// Stores packet loss causes and statistics for all received snapshots. Thus, client-only (with one exception).
     /// Access via <see cref="NetworkSnapshotAck"/>.
     /// </summary>
     /// <remarks>Very similar approach to <see cref="Unity.Networking.Transport.UnreliableSequencedPipelineStage"/> Statistics.</remarks>
     public struct SnapshotPacketLossStatistics
     {
-        /// <summary>Count of snapshot packets received - on the client - from the server.</summary>
+        /// <summary>
+        ///     On the client, it counts the number of snapshot packets received by said client from the server.
+        ///     On the server, it stores the number of snapshots sent.
+        /// </summary>
         public ulong NumPacketsReceived;
+        /// <summary>Server-only. Stores the number of snapshots the client has successfully replied that they have acked.</summary>
+        public ulong NumPacketsAcked;
         /// <summary>Counts the number of snapshot packets dropped (i.e. "culled") due to invalid SequenceId. I.e. Implies the packet arrived, but out of order.</summary>
         public ulong NumPacketsCulledOutOfOrder;
         /// <summary>
@@ -24,6 +29,8 @@ namespace Unity.NetCode
         /// <summary>Detects gaps in <see cref="NetworkSnapshotAck.CurrentSnapshotSequenceId"/> to determine real packet loss.</summary>
         public ulong NumPacketsDroppedNeverArrived;
 
+        /// <summary>Server-only. Percentage of all snapshot packets sent that the client has acked.</summary>
+        public double AckPercent => NumPacketsReceived != 0 ? NumPacketsAcked / (double) (NumPacketsReceived) : 0;
         /// <summary>Percentage of all snapshot packets - that we assume must have been sent to us (based on SequenceId) - which are lost due to network-caused packet loss.</summary>
         public double NetworkPacketLossPercent => NumPacketsReceived != 0 ? NumPacketsDroppedNeverArrived / (double) (NumPacketsReceived + NumPacketsDroppedNeverArrived) : 0;
         /// <summary>Percentage of all snapshot packets - that we assume must have been sent to us (based on SequenceId) - which are lost due to arriving out of order (and thus being culled).</summary>
@@ -44,6 +51,7 @@ namespace Unity.NetCode
         public static SnapshotPacketLossStatistics operator +(SnapshotPacketLossStatistics a, SnapshotPacketLossStatistics b)
         {
             a.NumPacketsReceived += b.NumPacketsReceived;
+            a.NumPacketsAcked += b.NumPacketsAcked;
             a.NumPacketsCulledOutOfOrder += b.NumPacketsCulledOutOfOrder;
             a.NumPacketsCulledAsArrivedOnSameFrame += b.NumPacketsCulledAsArrivedOnSameFrame;
             a.NumPacketsDroppedNeverArrived += b.NumPacketsDroppedNeverArrived;
@@ -60,6 +68,7 @@ namespace Unity.NetCode
         {
             // Guard subtraction as it can get negative when we're polling 3s intervals.
             a.NumPacketsReceived -= math.min(a.NumPacketsReceived, b.NumPacketsReceived);
+            a.NumPacketsAcked -= math.min(a.NumPacketsAcked, b.NumPacketsAcked);
             a.NumPacketsCulledOutOfOrder -= math.min(a.NumPacketsCulledOutOfOrder, b.NumPacketsCulledOutOfOrder);
             a.NumPacketsCulledAsArrivedOnSameFrame -= math.min(a.NumPacketsCulledAsArrivedOnSameFrame, b.NumPacketsCulledAsArrivedOnSameFrame);
             a.NumPacketsDroppedNeverArrived -= math.min(a.NumPacketsDroppedNeverArrived, b.NumPacketsDroppedNeverArrived);
@@ -67,10 +76,15 @@ namespace Unity.NetCode
         }
 
         /// <summary>
-        /// Dumps all the statistic info.
+        /// Formatted dump of statistics for this world-type.
         /// </summary>
-        /// <returns>Dumps all the statistic info.</returns>
-        public FixedString512Bytes ToFixedString() => $"SPLS[received:{NumPacketsReceived}, combinedPL:{CombinedPacketLossCount} {(int) (CombinedPacketLossPercent*100)}%, networkPL:{NumPacketsDroppedNeverArrived} {(int) (NetworkPacketLossPercent*100)}%, outOfOrderPL:{NumPacketsCulledOutOfOrder} {(int) (OutOfOrderPacketLossPercent*100)}%, clobberedPL:{NumPacketsCulledAsArrivedOnSameFrame} {(int) (ArrivedOnTheSameFrameClobberedPacketLossPercent*100)}%]";
+        /// <returns>Formatted dump of statistics for this world-type.</returns>
+        public FixedString512Bytes ToFixedString()
+        {
+            if (NumPacketsReceived == 0) return "SPLS[default]";
+            if (NumPacketsAcked > 0) return $"SPLS[sent:{NumPacketsReceived}, receivedAck:{NumPacketsAcked} {(int) (AckPercent * 100)}%]";
+            return $"SPLS[received:{NumPacketsReceived}, combinedPL:{CombinedPacketLossCount} {(int) (CombinedPacketLossPercent * 100)}%, networkPL:{NumPacketsDroppedNeverArrived} {(int) (NetworkPacketLossPercent * 100)}%, outOfOrderPL:{NumPacketsCulledOutOfOrder} {(int) (OutOfOrderPacketLossPercent * 100)}%, clobberedPL:{NumPacketsCulledAsArrivedOnSameFrame} {(int) (ArrivedOnTheSameFrameClobberedPacketLossPercent * 100)}%]";
+        }
 
         /// <inheritdoc cref="ToFixedString"/>
         public override string ToString() => ToFixedString().ToString();

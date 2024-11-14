@@ -3,6 +3,7 @@ using Unity.Collections;
 using Unity.Entities;
 using UnityEngine;
 using Unity.Entities.Hybrid.Baking;
+using Unity.NetCode.Hybrid;
 using UnityEngine.Serialization;
 
 namespace Unity.NetCode
@@ -63,8 +64,31 @@ namespace Unity.NetCode
         /// <summary>
         /// If not all ghosts can fit in a snapshot only the most important ghosts will be sent. Higher importance means the ghost is more likely to be sent.
         /// </summary>
-        [Tooltip("Importance determines which ghosts are selected to be added to the snapshot, in the case where there is not enough space to include all ghosts in the snapshot. Many caveats apply, but generally, higher values are sent more frequently.\n\n<i>Example: A 'Player' ghost with an Importance of 100 is roughly 100x more likely to be sent in any given snapshot than a 'Barrel' ghost with an Importance of 1. In other words, expect the 'Player' ghost to have been replicated 100 times for every one time the 'Barrel' is replicated.</i>\n\nApplied at the chunk level.")]
+        [Tooltip(@"<b>Importance</b> determines how ghost chunks are prioritized against each other when working out what to send in the upcoming snapshot. Higher values are sent more frequently. Applied at the chunk level.
+<i>Simplified example: When comparing a gameplay-critical <b>Player</b> ghost with an <b>Importance</b> of 100 to a cosmetic <b>Cone</b> ghost with an <b>Importance</b> of 1, the <b>Player</b> ghost will likely be sent 100 times for every 1 time the <b>Cone</b> will be.</i>")]
+        [Min(1)]
         public int Importance = 1;
+
+        /// <summary>
+        ///     The theoretical maximum send frequency (in Hz) for ghost chunks of this ghost prefab type (excluding a few nuanced exceptions).
+        ///     Important Note: The MaxSendRate only denotes the maximum possible replication frequency, and cannot be enforced in all cases.
+        ///     Other factors (like <see cref="ClientServerTickRate.NetworkTickRate"/>, ghost instance count, <see cref="Importance"/>,
+        ///     Importance-Scaling, <see cref="GhostSendSystemData.DefaultSnapshotPacketSize"/>, and structural changes etc.)
+        ///     will determine the final/live send rate.
+        /// </summary>
+        /// <remarks>
+        /// Use this to brute-force reduce the bandwidth consumption of your most impactful ghost types.
+        /// Note: Predicted ghosts are particularly impacted by this, as a lower value here reduces rollback and re-simulation frequency
+        /// (as we only rollback and re-simulate a predicted ghost after it is received), which can save client CPU cycles in aggregate.
+        /// However, it may cause larger client misprediction errors, which leads to larger corrections.
+        /// </remarks>
+        [Tooltip(@"The <b>theoretical</b> maximum send frequency (in <b>Hertz</b>) for ghost chunks of this ghost prefab type.
+
+<b>Important Note:</b> The <b>MaxSendRate</b> only denotes the maximum possible replication frequency. Other factors (like <b>NetworkTickRate</b>, ghost instance count, <b>Importance</b>, <b>Importance-Scaling</b>, <b>DefaultSnapshotPacketSize</b> etc.) will determine the live send rate.
+
+<i>Use this to brute-force reduce the bandwidth consumption of your most impactful ghost types.</i>")]
+        public byte MaxSendRate;
+
         /// <summary>
         /// For internal use only, the prefab GUID used to distinguish between different variant of the same prefab.
         /// </summary>
@@ -145,5 +169,24 @@ namespace Unity.NetCode
         }
         /// <summary>True if we can apply the <see cref="GhostSendType"/> optimization on this Ghost.</summary>
         public bool SupportsSendTypeOptimization => SupportedGhostModes != GhostModeMask.All || DefaultGhostMode == GhostMode.OwnerPredicted;
+
+        /// <summary>Helper.</summary>
+        /// <param name="ghostName"></param>
+        /// <returns></returns>
+        internal GhostPrefabCreation.Config AsConfig(FixedString64Bytes ghostName)
+        {
+            return new GhostPrefabCreation.Config
+            {
+                Name = ghostName,
+                Importance = Importance,
+                MaxSendRate = MaxSendRate,
+                SupportedGhostModes = SupportedGhostModes,
+                DefaultGhostMode = DefaultGhostMode,
+                OptimizationMode = OptimizationMode,
+                UsePreSerialization = UsePreSerialization,
+                PredictedSpawnedGhostRollbackToSpawnTick = RollbackPredictedSpawnedGhostState,
+                RollbackPredictionOnStructuralChanges = RollbackPredictionOnStructuralChanges,
+            };
+        }
     }
 }

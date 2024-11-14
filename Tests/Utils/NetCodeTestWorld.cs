@@ -88,6 +88,8 @@ namespace Unity.NetCode.Tests
         public int DriverFuzzOffset = 0;
         public uint DriverRandomSeed = 0;
 
+        private bool m_IsFirstTimeTicking = true;
+
 #if UNITY_EDITOR
         private List<GameObject> m_GhostCollection;
         private BlobAssetStore m_BlobAssetStore;
@@ -106,7 +108,7 @@ namespace Unity.NetCode.Tests
             });
         }
 
-        public NetCodeTestWorld(bool useGlobalConfig=false)
+        public NetCodeTestWorld(bool useGlobalConfig=false, double initialElapsedTime = 42)
         {
 #if UNITY_EDITOR
 
@@ -122,7 +124,7 @@ namespace Unity.NetCode.Tests
             m_OldBootstrapAutoConnectPort = ClientServerBootstrap.AutoConnectPort;
             ClientServerBootstrap.AutoConnectPort = 0;
             m_DefaultWorld = new World("NetCodeTest");
-            m_ElapsedTime = 42;
+            m_ElapsedTime = initialElapsedTime;
             TickIndex = -1;
             NetworkTimeSystem.ResetFixedTime();
         }
@@ -459,6 +461,12 @@ namespace Unity.NetCode.Tests
         {
             ++TickIndex;
             //Debug.Log($"[{TickIndex}]: TICK");
+            if (m_IsFirstTimeTicking)
+            {
+                // to emulate time system's logic
+                m_IsFirstTimeTicking = false;
+                m_ElapsedTime = -dt;
+            }
 
             // Use fixed timestep in network time system to prevent time dependencies in tests
             NetworkTimeSystem.s_FixedTimestampMS += (uint) (dt * 1000.0f);
@@ -609,6 +617,8 @@ namespace Unity.NetCode.Tests
                 .WithNetworkConfigParameters
             (
                 maxFrameTimeMS: 100,
+                sendQueueCapacity: 16,
+                receiveQueueCapacity: 64,
                 fixedFrameTimeMS: DriverFixedTime,
                 maxMessageSize: DriverMaxMessageSize
             );
@@ -657,15 +667,6 @@ namespace Unity.NetCode.Tests
             return int.Parse(match.Groups[2].Value);
         }
 
-        static int QueueSizeFromPlayerCount(int playerCount)
-        {
-            if (playerCount <= 16)
-            {
-                playerCount = 16;
-            }
-            return playerCount * 4;
-        }
-
         public void CreateServerDriver(World world, ref NetworkDriverStore driverStore, NetDebug netDebug)
         {
             var networkSettings = new NetworkSettings();
@@ -674,8 +675,8 @@ namespace Unity.NetCode.Tests
                 .WithNetworkConfigParameters(
                 maxFrameTimeMS: 100,
                 fixedFrameTimeMS: DriverFixedTime,
-                receiveQueueCapacity: QueueSizeFromPlayerCount(m_NumClients),
-                sendQueueCapacity: QueueSizeFromPlayerCount(m_NumClients),
+                sendQueueCapacity: 16,
+                receiveQueueCapacity: 64,
                 maxMessageSize: DriverMaxMessageSize
             );
             var driverInstance = new NetworkDriverStore.NetworkDriverInstance();
@@ -973,6 +974,39 @@ namespace Unity.NetCode.Tests
             GetSingletonRW<RpcCollection>(ServerWorld).ValueRW.DynamicAssemblyList = useDynamicAssemblyList;
             foreach (var clientWorld in ClientWorlds)
                 GetSingletonRW<RpcCollection>(clientWorld).ValueRW.DynamicAssemblyList = useDynamicAssemblyList;
+        }
+
+        public void TickUntilClientsHaveAllGhosts(int maxTicks = 64)
+        {
+            World clientWorld = default;
+            GhostCount ghostCount = default;
+            Assert.IsTrue(ClientWorlds.Length > 0, "Sanity");
+            for (int tickIdx = 0; tickIdx < maxTicks; ++tickIdx)
+            {
+                Tick();
+                for (var worldIdx = 0; worldIdx < ClientWorlds.Length; worldIdx++)
+                {
+                    clientWorld = ClientWorlds[worldIdx];
+                    ghostCount = GetSingleton<GhostCount>(clientWorld);
+                    var clientHasAll = ghostCount.GhostCountOnServer != 0 && ghostCount.GhostCountInstantiatedOnClient == ghostCount.GhostCountOnServer;
+                    ValidateGhostCount(clientWorld, ghostCount);
+                    if (!clientHasAll)
+                        goto continueContinue;
+                }
+                return;
+                continueContinue:;
+            }
+            Assert.Fail($"TickUntilClientsHaveAllGhosts failed after {maxTicks} ticks! {clientWorld.Name} has {ghostCount.ToFixedString()}!");
+        }
+
+        public static void ValidateGhostCount(World clientWorld, GhostCount ghostCount)
+        {
+            using var receivedGhostCount = clientWorld.EntityManager.CreateEntityQuery(ComponentType.ReadOnly<GhostInstance>());
+            Assert.AreEqual(receivedGhostCount.CalculateEntityCount(), ghostCount.GhostCountReceivedOnClient, $"GhostCount.GhostCountReceivedOnClient struct does not match ghost received count on {clientWorld.Name}!");
+            using var instantiatedGhostCount = clientWorld.EntityManager.CreateEntityQuery(ComponentType.ReadOnly<GhostInstance>(), ComponentType.Exclude<PendingSpawnPlaceholder>());
+            var instancedCount = instantiatedGhostCount.CalculateEntityCount();
+            //if(instancedCount > 0) UnityEngine.Debug.Log($"{instancedCount} vs {ghostCount} = {clientWorld.EntityManager.GetChunk(instantiatedGhostCount.ToEntityArray(Allocator.Temp)[0]).Archetype}");
+            Assert.AreEqual(instancedCount, ghostCount.GhostCountInstantiatedOnClient, $"GhostCount.GhostCountInstantiatedOnClient struct does not match ghost instance count on {clientWorld.Name}!");
         }
     }
 }

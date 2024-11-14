@@ -15,7 +15,9 @@ namespace Unity.NetCode.LowLevel.Unsafe
     {
         public ulong sequenceNumber;
         public int ghostType;
-        public int baseImportance;
+        // Cached here for perf.
+        public ushort baseImportance;
+        public ushort maxSendRateAsSimTickInterval;
 
         // the entity and data arrays are 2d arrays (chunk capacity * max snapshots)
         // Find baseline by finding the largest tick not at writeIndex which has been acked by the other end

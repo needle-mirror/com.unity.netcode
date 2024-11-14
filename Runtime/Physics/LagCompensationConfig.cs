@@ -24,9 +24,8 @@ namespace Unity.NetCode
         /// </remarks>
         public int ServerHistorySize;
         /// <summary>
-        /// The number of physics world states that are backed up on the client.
-        /// This cannot be more than the maximum capacity, leaving it at zero will
-        /// give you the default which is one.
+        /// The number of physics world states that are backed up on the client. This cannot be more than the maximum capacity. Settingthe value to 0 will disable recording the physics hystory on the client.
+        /// By default, the history size on client is 1.
         /// </summary>
         /// <remarks>
         /// Must be 0 (OFF/DISABLED), or a power of 2, for the ring-buffer to return correct values when

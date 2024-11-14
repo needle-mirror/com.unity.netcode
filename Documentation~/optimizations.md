@@ -31,6 +31,11 @@ The cost of prediction increases with each predicted ghost.
 Thus, as an optimization, we can opt-out of predicting a ghost given some set of criteria (e.g. distance to your clients character controller).
 See [Prediction Switching](prediction-switching.md) for details.
 
+### Using `MaxSendRate` to reduce Client Prediction Costs
+Predicted ghosts are particularly impacted by the `GhostAuthoringComponent.MaxSendRate` setting, because we only rollback and re-simulate a predicted ghost after it is received in a snapshot.
+Therefore, reducing the frequency by which a ghost chunk is added to the snapshot indirectly reduces predicted ghost re-simulation rate, saving client CPU cycles in aggregate.
+However, it may cause larger client misprediction errors, which leads to larger corrections, which can be observed by players. As always, it is a trade-off.
+
 ## Executing Expensive Operations during Off Frames
 On client-hosted servers, your game can be set at a tick rate of 30Hz and a frame rate of 60Hz (if your ClientServerTickRate.TargetFrameRateMode is set to BusyWait). Your host would execute 2 frames for every tick. In other words, your game would be less busy one frame out of two. This can be used to do extra operations during those "off frames".
 To access whether a tick will execute during the frame, you can access the server world's rate manager to get that info.
@@ -90,18 +95,29 @@ relevancy.ValueRW.DefaultRelevancyQuery = GetEntityQuery(typeof(AsteroidScore));
 
 ## Limiting Snapshot Size
 
-* The per-connection component `NetworkStreamSnapshotTargetSize` will stop serializing entities into a snapshot if/when the snapshot goes above the specified byte size (`Value`). This is a way to try to enforce a (soft) limit on per-connection bandwidth consumption.
+* Use `GhostAuthoringComponent.MaxSendRate` to broadly reduce/clamp the resend rate of each of your ghost prefab types.
+It is an effective tool to reduce total bandwidth consumption, particularly in cases where your snapshot is always filling up with large ghosts with high priorities.
+_For example: A "LootItem" ghost prefab type can be told to only replicate - at most - on every tenth snapshot, by setting `MaxSendRate` to 10._
+
+* The per-connection component `NetworkStreamSnapshotTargetSize` will stop serializing entities into a snapshot if/when the snapshot goes above the specified byte size (`Value`).
+This is a way to try to enforce a (soft) limit on per-connection bandwidth consumption.
+To apply this limit globally, set a non-zero value in `GhostSendSystemData.DefaultSnapshotPacketSize`. 
+
+> [!NOTE]
+> Note that `MaxSendRate` is distinct from `Importance`: The former enforces a cap on the resend interval, whereas the latter informs the `GhostSendSystem` of which ghost chunks should be prioritized in the next snapshot.
+> Therefore, `MaxSendRate` can be thought of as a gating mechanism (much like its predecessor; `MinSendImportance`).
 
 > [!NOTE]
 > Snapshots do have a minimum send size. This is because - per snapshot - we ensure that _some_ new and destroyed entities are replicated, and we ensure that at least one ghost has been replicated.
 
-* `GhostSendSystemData.MaxSendEntities` can be used to limit the max number of entities added to any given snapshot.
+* `GhostSendSystemData.MaxSendChunks` can be used to limit the max number of chunks added to any given snapshot.
 
-* Similarly, `GhostSendSystemData.MaxSendChunks` can be used to limit the max number of chunks added to any given snapshot.
+* `GhostSendSystemData.MaxIterateChunks` can be used to limit the total number of chunks the `GhostSendSystem` will iterate over & serialize when looking for ghosts to replicate. 
+Very useful when dealing with thousands of static ghosts. 
 
-* `GhostSendSystemData.MinSendImportance` can be used to prevent a chunks entities from being sent too frequently.
-  _For example: A "DroppedItems" ghostType can be told to only replicate on every tenth snapshot, by setting `MinSendImportance` to 10, and dropped item `Importance` to 1._
-  `GhostSendSystemData.FirstSendImportanceMultiplier` can be used to bump the priority of chunks containing new entities, to ensure they're replicated quickly, regardless of the above setting.
+* `GhostSendSystemData.MinSendImportance` can be used to prevent a chunks entities from being sent too frequently. 
+__As of 1.4, prefer `GhostAuthoringComponent.MaxSendRate` over this global.__
+`GhostSendSystemData.FirstSendImportanceMultiplier` can be used to bump the priority of chunks containing new entities, to ensure they're replicated quickly, regardless of the above setting.
 
 > [!NOTE]
 > The above optimizations are applied on the per-chunk level, and they kick in **_after_** a chunks contents have been added to the snapshot. Thus, in practice, real send values will be higher.

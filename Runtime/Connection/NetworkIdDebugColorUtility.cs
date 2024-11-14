@@ -13,7 +13,7 @@ namespace Unity.NetCode
         /// <summary>
         /// Get the constant color assigned to the given network id.
         /// </summary>
-        /// <param name="networkId"></param>
+        /// <param name="networkId">Network id</param>
         /// <returns>A constant debug color for NetworkId's to aid in debugging</returns>
         public static float4 Get(int networkId)
         {
