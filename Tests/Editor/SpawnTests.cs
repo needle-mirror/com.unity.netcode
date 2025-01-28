@@ -115,8 +115,7 @@ namespace Unity.NetCode.Tests
                                 {
                                     ghost.PredictedSpawnEntity = spawnList[0].entity;
                                     ghost.HasClassifiedPredictedSpawn = true;
-                                    spawnList[0] = spawnList[spawnList.Length-1];
-                                    spawnList.RemoveAt(spawnList.Length - 1);
+                                    spawnList.RemoveAtSwapBack(0);
                                     predictedEntities.Add(ghost.PredictedSpawnEntity);
                                     ghosts[i] = ghost;
                                     break;
@@ -407,8 +406,78 @@ namespace Unity.NetCode.Tests
             }
         }
 
+        public enum PredictedSpawnDespawnDelay
+        {
+            DespawnAfterInterpolationTick,
+            Despawn15AdditionalTicksLater,
+        }
         [Test]
-        public void PredictedSpawGhostAreInitializedCorrectly([Values]bool enableComponents)
+        public void IncorrectlyPredictedSpawnGhostsAreDestroyedCorrectly([Values]PredictedSpawnDespawnDelay predictedSpawnDespawnDelay)
+        {
+            var additionalDespawnDelayTicks = predictedSpawnDespawnDelay switch
+            {
+                PredictedSpawnDespawnDelay.DespawnAfterInterpolationTick => 0u,
+                PredictedSpawnDespawnDelay.Despawn15AdditionalTicksLater => 15u,
+                _ => throw new System.ArgumentOutOfRangeException(nameof(predictedSpawnDespawnDelay), predictedSpawnDespawnDelay, nameof(IncorrectlyPredictedSpawnGhostsAreDestroyedCorrectly)),
+            };
+            using var testWorld = new NetCodeTestWorld();
+            testWorld.Bootstrap(true, typeof(VerifyInitialization));
+
+            // Predicted ghost:
+            var predictedGhostGO = new GameObject("BadPredictedGO");
+            predictedGhostGO.AddComponent<TestNetCodeAuthoring>().Converter = new PredictedGhostDataConverter();
+            var ghostConfig = predictedGhostGO.AddComponent<GhostAuthoringComponent>();
+            ghostConfig.DefaultGhostMode = GhostMode.Predicted;
+            ghostConfig.SupportedGhostModes = GhostModeMask.Predicted;
+            Assert.IsTrue(testWorld.CreateGhostCollection(predictedGhostGO));
+
+            // Begin:
+            testWorld.CreateWorlds(true, 1);
+            var clientTickRate = NetworkTimeSystem.DefaultClientTickRate;
+            clientTickRate.NumAdditionalClientPredictedGhostLifetimeTicks = (ushort) additionalDespawnDelayTicks;
+            var clientServerTickRate = new ClientServerTickRate();
+            clientServerTickRate.ResolveDefaults();
+            var interpolationBufferTimeInTicks = clientTickRate.CalculateInterpolationBufferTimeInTicks(in clientServerTickRate);
+            testWorld.ClientWorlds[0].EntityManager.CreateSingleton(clientTickRate);
+            testWorld.Connect();
+            testWorld.GoInGame();
+            for (int i = 0; i < 16; ++i)
+                testWorld.Tick();
+
+            // Predictively spawn ghost on client:
+            var expectedDespawnTick = testWorld.GetSingleton<NetworkTime>(testWorld.ClientWorlds[0]).ServerTick;
+            expectedDespawnTick.Add(additionalDespawnDelayTicks);
+            var prefabsListQuery = testWorld.ClientWorlds[0].EntityManager.CreateEntityQuery(typeof(NetCodeTestPrefabCollection));
+            var prefabList = prefabsListQuery.ToEntityArray(Allocator.Temp)[0];
+            var prefabs = testWorld.ClientWorlds[0].EntityManager.GetBuffer<NetCodeTestPrefab>(prefabList);
+            var predictedPrefab = prefabs[0].Value;
+            var clientEntity = testWorld.ClientWorlds[0].EntityManager.Instantiate(predictedPrefab);
+
+
+            // Wait for the interpolation tick to catch up to the spawn tick.
+            var existedForTicks = 0;
+            var entityExists = false;
+            var previouslyExisted = true;
+            NetworkTick currentInterpolationTick = testWorld.GetSingleton<NetworkTime>(testWorld.ClientWorlds[0]).InterpolationTick;
+            int numTicksToWait = expectedDespawnTick.TicksSince(currentInterpolationTick) + 6; // Margin of error.
+            for (int i = 0; i < numTicksToWait; i++)
+            {
+                // Verify we have the predicted spawn version of the prefab:
+                entityExists = testWorld.ClientWorlds[0].EntityManager.Exists(clientEntity);
+                if(i == 0) Assert.IsTrue(entityExists, $"Sanity: Client predicted spawn should be created from the outset!");
+                if (entityExists) existedForTicks++;
+                Assert.IsFalse(!previouslyExisted && entityExists, $"Client predicted spawn should be created from the outset, then destroyed, then NEVER created again!? entityExists:{entityExists}, previouslyExisted:{previouslyExisted} ");
+                previouslyExisted = entityExists;
+                testWorld.Tick();
+            }
+
+            // Verify the despawn and alive duration:
+            Assert.IsFalse(entityExists, $"After {numTicksToWait} ticks, the client predicted spawn should have despawned, as despawn tick (of {expectedDespawnTick.ToFixedString()}) is != currentInterpolationTick:{currentInterpolationTick.ToFixedString()})!");
+            Assert.IsTrue(existedForTicks >= interpolationBufferTimeInTicks + additionalDespawnDelayTicks, $"The client predicted spawn should have existed for at least interpolationBufferTimeInTicks:{interpolationBufferTimeInTicks} + NumAdditionalClientPredictedGhostLifetimeTicks:{additionalDespawnDelayTicks} ticks, but it only existed for {existedForTicks} ticks!");
+        }
+
+        [Test]
+        public void PredictedSpawnGhostAreInitializedCorrectly([Values]bool enableComponents)
         {
             using (var testWorld = new NetCodeTestWorld())
             {

@@ -12,6 +12,7 @@ using UnityEditor.SceneManagement;
 using UnityEngine;
 using UnityEngine.SceneManagement;
 using Unity.Mathematics;
+using Unity.Networking.Transport;
 
 namespace Unity.NetCode.PrespawnTests
 {
@@ -399,7 +400,6 @@ namespace Unity.NetCode.PrespawnTests
         }
 
         [Test]
-        [Ignore("DOTS-6619 Test instability, causes crash when loading subscenes")]
         public void ManyPrespawnedObjects()
         {
             const int SubSceneCount = 10;
@@ -816,6 +816,107 @@ namespace Unity.NetCode.PrespawnTests
             }
         }
 
+        [Test]
+        public void DisconnectReconnectWithPrespawns()
+        {
+            // Load prespawn scene client and server side
+            var ghost = SubSceneHelper.CreateSimplePrefab(ScenePath, "ghost", typeof(GhostAuthoringComponent), typeof(NetCodePrespawnAuthoring));
+            var scene = SubSceneHelper.CreateEmptyScene(ScenePath, "Parent");
+            SubSceneHelper.CreateSubSceneWithPrefabs(scene, ScenePath, "subscene", new[] { ghost }, 5);
+            SceneManager.SetActiveScene(scene);
+            using var testWorld = new NetCodeTestWorld();
+            testWorld.Bootstrap(true);
+            testWorld.CreateWorlds(true, 1);
+            SubSceneHelper.LoadSubSceneInWorlds(testWorld);
+
+            testWorld.Connect();
+            testWorld.GoInGame();
+
+            for (int i = 0; i < 8; i++)
+                testWorld.Tick();
+
+            // PrespawnAckSection must be added to client connection on the server, which means it's received the client request to start streaming the prespawn ghosts
+            var serverPrespawnAckQuery = testWorld.ServerWorld.EntityManager.CreateEntityQuery(ComponentType.ReadOnly<PrespawnSectionAck>());
+            Assert.AreEqual(1, serverPrespawnAckQuery.GetSingletonBuffer<PrespawnSectionAck>().Length);
+
+            for (int i = 0; i < 4; i++)
+                testWorld.Tick();
+
+            // Disconnect the client
+            using var driverQuery = testWorld.ClientWorlds[0].EntityManager.CreateEntityQuery(ComponentType.ReadOnly<NetworkStreamDriver>());
+            using var clientConnectionToServer = testWorld.ClientWorlds[0].EntityManager.CreateEntityQuery(ComponentType.ReadOnly<NetworkStreamConnection>());
+            var clientNetworkDriver = driverQuery.GetSingleton<NetworkStreamDriver>();
+            testWorld.ClientWorlds[0].EntityManager.CompleteAllTrackedJobs();
+            clientNetworkDriver.DriverStore.Disconnect(clientConnectionToServer.GetSingleton<NetworkStreamConnection>());
+
+            for (int i = 0; i < 4; i++)
+                testWorld.Tick();
+
+            // The streaming request flag has been disabled on the client
+            using var clientGhostCleanupComponentQuery = testWorld.ClientWorlds[0].EntityManager.CreateEntityQuery(ComponentType.ReadOnly<SubSceneWithGhostCleanup>());
+            var cleanupData = clientGhostCleanupComponentQuery.GetSingleton<SubSceneWithGhostCleanup>();
+            Assert.AreEqual(0, cleanupData.Streaming);
+
+            // Change the prespawn data while client is disconnected
+            var serverGhostQuery = testWorld.ServerWorld.EntityManager.CreateEntityQuery(ComponentType.ReadOnly<TestComponent2>());
+            var serverGhostEntities = serverGhostQuery.ToEntityArray(Allocator.Temp);
+            foreach (var testGhost in serverGhostEntities)
+            {
+                testWorld.ServerWorld.EntityManager.SetComponentData(testGhost, new TestComponent2(){ Test2 = 10000 });
+                testWorld.ServerWorld.EntityManager.SetComponentEnabled<TestBuffer3>(testGhost, true);
+                var buf = testWorld.ServerWorld.EntityManager.GetBuffer<TestBuffer3>(testGhost);
+                buf.Add(new TestBuffer3() { Test2 = 10 });
+                buf.Add(new TestBuffer3() { Test2 = 20 });
+            }
+
+            // Reconnect the client
+            clientNetworkDriver.Connect(testWorld.ClientWorlds[0].EntityManager, NetworkEndpoint.LoopbackIpv4.WithPort(7979));
+            for (int i = 0; i < 5; i++)
+                testWorld.Tick();
+            testWorld.GoInGame();
+
+            // Stream request flag has been enabled again
+            cleanupData = clientGhostCleanupComponentQuery.GetSingleton<SubSceneWithGhostCleanup>();
+            Assert.AreEqual(1, cleanupData.Streaming);
+
+            for (int i = 0; i < 6; i++)
+                testWorld.Tick();
+
+            // Verify client has latest prespawn ghost data
+            using var clientGhostTest2Query = testWorld.ClientWorlds[0].EntityManager.CreateEntityQuery(ComponentType.ReadOnly<TestComponent2>());
+            using var clientGhostEntitiesQuery = testWorld.ClientWorlds[0].EntityManager.CreateEntityQuery(ComponentType.ReadOnly<TestComponent2>(), ComponentType.ReadOnly<TestBuffer3>());
+            var clientGhostTest2Data = clientGhostTest2Query.ToComponentDataArray<TestComponent2>(Allocator.Temp);
+            var clientGhostEntities = clientGhostEntitiesQuery.ToEntityArray(Allocator.Temp);
+
+            for (int i = 0; i < clientGhostTest2Data.Length; ++i)
+            {
+                Assert.AreEqual(10000, clientGhostTest2Data[i].Test2);
+                var buf = testWorld.ClientWorlds[0].EntityManager.GetBuffer<TestBuffer3>(clientGhostEntities[i]);
+                Assert.AreEqual(7, buf.Length);
+                Assert.AreEqual(10, buf[^2].Test2);
+                Assert.AreEqual(20, buf[^1].Test2);
+            }
+
+            // Move prespawns again and verify the changes are transferred to the client
+            foreach (var testGhost in serverGhostEntities)
+            {
+                testWorld.ServerWorld.EntityManager.SetComponentData(testGhost, new TestComponent2(){ Test2 = 20000 });
+                var buf = testWorld.ServerWorld.EntityManager.GetBuffer<TestBuffer3>(testGhost);
+                buf.Add(new TestBuffer3() { Test2 = 30 });
+                buf.Add(new TestBuffer3() { Test2 = 40 });
+            }
+            for (int i = 0; i < 6; i++)
+                testWorld.Tick();
+            clientGhostTest2Data = clientGhostTest2Query.ToComponentDataArray<TestComponent2>(Allocator.Temp);
+            for (int i = 0; i < clientGhostTest2Data.Length; ++i)
+            {
+                Assert.AreEqual(20000, clientGhostTest2Data[i].Test2);
+                var buf = testWorld.ClientWorlds[0].EntityManager.GetBuffer<TestBuffer3>(clientGhostEntities[i]);
+                Assert.AreEqual(9, buf.Length);
+                Assert.AreEqual(30, buf[^2].Test2);
+                Assert.AreEqual(40, buf[^1].Test2);
+            }
+        }
 
         [Test]
         public void TestPrespawnRelevancy()

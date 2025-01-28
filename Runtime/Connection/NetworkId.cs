@@ -56,6 +56,7 @@ namespace Unity.NetCode
     {
         private const uint NetworkIdBaseline = 2;
         public int NetworkId;
+        public uint UniqueId;
         public ClientServerTickRateRefreshRequest RefreshRequest;
 
         public void Serialize(ref DataStreamWriter writer, in RpcSerializerState state, in ServerApprovedConnection data)
@@ -63,12 +64,14 @@ namespace Unity.NetCode
             UnityEngine.Debug.Assert(data.NetworkId != 0);
 
             writer.WritePackedUIntDelta((uint)data.NetworkId, NetworkIdBaseline, state.CompressionModel);
+            writer.WriteUInt(data.UniqueId);
             data.RefreshRequest.Serialize(ref writer, in state.CompressionModel);
         }
 
         public void Deserialize(ref DataStreamReader reader, in RpcDeserializerState state, ref ServerApprovedConnection data)
         {
             data.NetworkId = (int) reader.ReadPackedUIntDelta(NetworkIdBaseline, state.CompressionModel);
+            data.UniqueId = reader.ReadUInt();
             data.RefreshRequest.Deserialize(ref reader, in state.CompressionModel);
         }
 
@@ -91,12 +94,18 @@ namespace Unity.NetCode
                 return;
             }
 
+            // Create a temporary unique ID component with the server assigned value
+            // The singleton ConnectionUniqueId component might already exist so we'll apply it delayed
+            // TODO: Could pass a component reference via the RPC parameters, then this intermediary component isn't needed
+            var uniqueIdEntity = parameters.CommandBuffer.CreateEntity(parameters.JobIndex);
+            parameters.CommandBuffer.AddComponent(parameters.JobIndex, uniqueIdEntity, new NewConnectionUniqueId() {Value = rpcData.UniqueId});
+
             parameters.CommandBuffer.AddComponent<ConnectionApproved>(parameters.JobIndex, parameters.Connection);
             parameters.CommandBuffer.AddComponent(parameters.JobIndex, parameters.Connection, new NetworkId {Value = rpcData.NetworkId});
             var ent = parameters.CommandBuffer.CreateEntity(parameters.JobIndex);
             parameters.CommandBuffer.AddComponent(parameters.JobIndex, ent, rpcData.RefreshRequest);
             parameters.CommandBuffer.SetName(parameters.JobIndex, parameters.Connection, new FixedString64Bytes(FixedString.Format("NetworkConnection ({0})", rpcData.NetworkId)));
-            parameters.NetDebug.DebugLog($"[{parameters.WorldName}][Connection] Client {parameters.Connection.ToFixedString()} received approval from server, we were assigned NetworkId:{rpcData.NetworkId}.");
+            parameters.NetDebug.DebugLog($"[{parameters.WorldName}][Connection] Client {parameters.Connection.ToFixedString()} received approval from server, we were assigned NetworkId:{rpcData.NetworkId} UniqueId:{rpcData.UniqueId}.");
             parameters.ConnectionStateRef.CurrentState = ConnectionState.State.Connected;
             parameters.ConnectionStateRef.ProtocolVersionReceived = 1;
             parameters.ConnectionStateRef.ConnectionApprovalTimeoutStart = 0;

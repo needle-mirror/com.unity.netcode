@@ -2,6 +2,33 @@
 uid: changelog
 ---
 
+## [1.5.0-exp.1] - 2025-01-28
+
+### Added
+
+* The `AutomaticThinClientWorldsUtility` class, which facilitates runtime creation (and management) of thin clients. It is available to user-code, and when in `PlayType.Server`.
+* `ClientTickRate.NumAdditionalClientPredictedGhostLifetimeTicks`, which can be used to tune down a common issue where (correctly predicted) client predicted spawns are despawned by the netcode package before they can be classified against their server-side counterparts (i.e. which may arrive shortly after).
+* Exposed the implicit `k_TickPeriod` range constant (defaulting to `±5 ticks`) in the default classification system as `ClientTickRate.DefaultClassificationAllowableTickPeriod`. This may help fix esoteric default classification related errors, particularly when the server is frequently batching ticks (leading to large tick deltas). Prefer writing your own classification system, though, which can take advantage of project-specific GhostField data.
+* Host migration feature for simple projects. APIs are provided to save the current server world state, mostly related to current ghosts (`HostMigration.GetHostMigrationData`) and then to deploy a given server state data blob to a new server world (`HostMigration.MigrateDataToNewServerWorld`). This can be used with the Unity Lobby service to better facilitate host migrations with session persistence. See Host Migration section in the manual for more information.
+
+### Changed
+
+* **Behaviour Breaking Change:** The client will now ignore the `HandshakeApprovalTimeoutMS` until it has completed the `Handshake` phase, as it should respect this servers value, rather than assuming its own. Relatedly: Be aware that client worlds will not fetch the `ClientServerTickRate` values from a `NetCodeConfig.Global` config, they will only accept values sent to it by the server during handshake.
+* **Behaviour Breaking Change:** The `AddCommandData` method will now reject inputs with `Invalid` Tick values, preventing runtime exceptions in rare cases.
+* **Behaviour Breaking Change:** The `DefaultDriverConstructor` no longer removes the IPC driver when `RequestedPlayType == Server`, as thin clients can now be instantiated on DGS builds (assuming supported by user-code).
+* **Value Breaking Change:** Increased the Lag Compensation Physics `CollisionWorld` history buffer capacity from 16 ticks to 32 ticks, as the previous buffer was too small for some use-cases. However, the default value (when using `LagCompensationConfig.ServerHistorySize:0`) remains at 16. Increasing this will allocate more collision worlds, increasing the memory consumption on the `ServerWorld`, particularly with very large physics scenes, and therefore should only be done if you intend to support high-ping players (i.e. you're often seeing `PhysicsWorldHistorySingleton.GetCollisionWorldFromTick` clamp a clients history to the last/oldest stored value). Also note the change to the public const `PhysicsWorldHistory.RawHistoryBufferMaxCapacity` (from 16 to 32).
+
+### Fixed
+
+* Issue where disconnecting while in the process of spawning prefabs raised the following error: "Found a ghost in the ghost map which does not have an entity connected to it. This can happen if you delete ghost entities on the client."
+* Overzealous RPC validation error when broadcasting an RPC on the same frame as a disconnection.
+* The `AutomaticThinClientWorldsUtility` now allows you to disable automatic in-editor thin client creation by setting `BootstrapInitialization` and `RuntimeInitialization` to null during bootstrapping.
+* Removed the limitation preventing thin clients from being created when in mode `Server`, including DGS builds. Ensure thin client systems are in assemblies that will be loaded on the server.
+* Bug causing user-created thin client worlds to be automatically cleaned up by the netcode package due to `RequestedNumThinClients`. Now, only worlds which are created via the `AutomaticThinClientWorldsUtility` (or manually added by user-code to its tracking list) will be automatically disposed.
+* Inconsistencies in documentation around RollbackPredictionOnStructuralChanges have been fixed and sorted out a couple of typos.
+* Issue with prespawned ghosts not updating anymore after the client disconnects and reconnects to a server.
+
+
 ## [1.4.0] - 2024-11-14
 
 ### Added

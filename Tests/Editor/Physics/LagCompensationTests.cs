@@ -469,9 +469,9 @@ namespace Unity.NetCode.Physics.Tests
         {
             using (var testWorld = new NetCodeTestWorld())
             {
-                InitTest(testWorld, false, out var clientEm, out _, new LagCompensationConfig
+                InitTest(testWorld, false, IncrementalBroadphase.FullBVHRebuild, out var clientEm, out _, new LagCompensationConfig
                 {
-                    ServerHistorySize = PhysicsWorldHistory.RawHistoryBufferMaxCapacity,
+                    ServerHistorySize = PhysicsWorldHistory.RawHistoryBufferMaxCapacity / 2,
                     ClientHistorySize = 2,
                     DeepCopyDynamicColliders = true,
                     DeepCopyStaticColliders = true,
@@ -527,7 +527,6 @@ namespace Unity.NetCode.Physics.Tests
             DestroyVictimEntity,
             KeepVictimEntityAlive,
         }
-
         public enum DeepCopyStrategy
         {
             DeepCopyOnlyDynamic,
@@ -546,17 +545,10 @@ namespace Unity.NetCode.Physics.Tests
             ColliderChangeBeforeShot,
             ColliderChangeAfterShot,
         }
-
-        /// <summary>
-        /// Customer issue where Lag Compensation was throwing BlobAsset exceptions when triggering on since-destroyed Entities.
-        /// https://docs.google.com/document/d/18RZrbZfAwD37J2goBPODvqTcH9jkwCyeQN5wlmMqGVk/edit
-        /// DOTS-10392
-        /// </summary>
-        [Test]
-        [UnityPlatform(RuntimePlatform.OSXEditor, RuntimePlatform.WindowsEditor)]
-        public void HitWithLagCompensationWithColliderChangeBeforeShot([Values]ColliderStaticType victimColliderType, [Values]DestroyType destroyType, [Values]DeepCopyStrategy deepCopyStrategy, [Values] ColliderChangeType colliderChangeType)
+        public enum IncrementalBroadphase
         {
-            RunHitWithLagCompensationWithColliderChangeTest(ColliderChangeTiming.ColliderChangeBeforeShot, victimColliderType, destroyType, deepCopyStrategy, colliderChangeType);
+            FullBVHRebuild,
+            IncrementalBVH,
         }
 
         /// <summary>
@@ -566,12 +558,24 @@ namespace Unity.NetCode.Physics.Tests
         /// </summary>
         [Test]
         [UnityPlatform(RuntimePlatform.OSXEditor, RuntimePlatform.WindowsEditor)]
-        public void HitWithLagCompensationWithColliderChangeAfterShot([Values] ColliderStaticType victimColliderType, [Values] DestroyType destroyType, [Values] DeepCopyStrategy deepCopyStrategy, [Values] ColliderChangeType colliderChangeType)
+        public void HitWithLagCompensationWithColliderChangeBeforeShot([Values]IncrementalBroadphase incrementalBroadphase, [Values]ColliderStaticType victimColliderType, [Values]DestroyType destroyType, [Values]DeepCopyStrategy deepCopyStrategy, [Values] ColliderChangeType colliderChangeType)
         {
-            RunHitWithLagCompensationWithColliderChangeTest(ColliderChangeTiming.ColliderChangeAfterShot, victimColliderType, destroyType, deepCopyStrategy, colliderChangeType);
+            RunHitWithLagCompensationWithColliderChangeTest(incrementalBroadphase, ColliderChangeTiming.ColliderChangeBeforeShot, victimColliderType, destroyType, deepCopyStrategy, colliderChangeType);
         }
 
-        private static void RunHitWithLagCompensationWithColliderChangeTest(ColliderChangeTiming colliderChangeTiming, ColliderStaticType victimColliderType, DestroyType destroyType, DeepCopyStrategy deepCopyStrategy, ColliderChangeType colliderChangeType)
+        /// <summary>
+        /// Customer issue where Lag Compensation was throwing BlobAsset exceptions when triggering on since-destroyed Entities.
+        /// https://docs.google.com/document/d/18RZrbZfAwD37J2goBPODvqTcH9jkwCyeQN5wlmMqGVk/edit
+        /// DOTS-10392
+        /// </summary>
+        [Test]
+        [UnityPlatform(RuntimePlatform.OSXEditor, RuntimePlatform.WindowsEditor)]
+        public void HitWithLagCompensationWithColliderChangeAfterShot([Values]IncrementalBroadphase incrementalBroadphase, [Values] ColliderStaticType victimColliderType, [Values] DestroyType destroyType, [Values] DeepCopyStrategy deepCopyStrategy, [Values] ColliderChangeType colliderChangeType)
+        {
+            RunHitWithLagCompensationWithColliderChangeTest(incrementalBroadphase, ColliderChangeTiming.ColliderChangeAfterShot, victimColliderType, destroyType, deepCopyStrategy, colliderChangeType);
+        }
+
+        private static void RunHitWithLagCompensationWithColliderChangeTest(IncrementalBroadphase incrementalBroadphase, ColliderChangeTiming colliderChangeTiming, ColliderStaticType victimColliderType, DestroyType destroyType, DeepCopyStrategy deepCopyStrategy, ColliderChangeType colliderChangeType)
         {
             // TODO - Do a statistics based test (e.g. shooting 1k times).
             // TODO - What happens if interpolation delay changes DURING the simulation?
@@ -585,7 +589,7 @@ namespace Unity.NetCode.Physics.Tests
                     DeepCopyDynamicColliders = deepCopyStrategy is DeepCopyStrategy.DeepCopyOnlyDynamic or DeepCopyStrategy.DeepCopyBoth,
                     DeepCopyStaticColliders = deepCopyStrategy is DeepCopyStrategy.DeepCopyOnlyStatic or DeepCopyStrategy.DeepCopyBoth,
                 };
-                InitTest(testWorld, victimColliderType == ColliderStaticType.StaticVictimEntity, out var clientEm, out var serverEm, config);
+                InitTest(testWorld, victimColliderType == ColliderStaticType.StaticVictimEntity, incrementalBroadphase, out var clientEm, out var serverEm, config);
 
                 // Give the netcode some time to spawn entities and settle on a good time synchronization
                 for (int i = 0; i < 20; ++i)
@@ -806,7 +810,7 @@ namespace Unity.NetCode.Physics.Tests
             Assert.AreEqual(ColliderType.Sphere, sphereCollider.Value.Value.Type);
         }
 
-        private static void InitTest(NetCodeTestWorld testWorld, bool useStaticColliders, out EntityManager clientEm, out EntityManager serverEm, LagCompensationConfig config)
+        private static void InitTest(NetCodeTestWorld testWorld, bool useStaticColliders, IncrementalBroadphase broadphaseMode, out EntityManager clientEm, out EntityManager serverEm, LagCompensationConfig config)
         {
             testWorld.DriverSimulatedDelay = 50; // Each way! I.e. Testing lag compensation with a MINIMUM of 100ms ping.
             testWorld.TestSpecificAdditionalAssemblies.Add("Unity.NetCode.Physics,");
@@ -843,6 +847,14 @@ namespace Unity.NetCode.Physics.Tests
             clientEm = testWorld.ClientWorlds[0].EntityManager;
             serverEm.CreateSingleton(config);
             clientEm.CreateSingleton(config);
+            var step = PhysicsStep.Default;
+            step.IncrementalStaticBroadphase = broadphaseMode == IncrementalBroadphase.IncrementalBVH;
+            step.IncrementalDynamicBroadphase = broadphaseMode == IncrementalBroadphase.IncrementalBVH;
+            step.MultiThreaded = 0;
+            step.SimulationType = SimulationType.UnityPhysics;
+            step.SolverIterationCount = 1;
+            serverEm.CreateSingleton(step);
+            clientEm.CreateSingleton(step);
             testWorld.Connect(maxSteps: 32);
 
             ResetHits();

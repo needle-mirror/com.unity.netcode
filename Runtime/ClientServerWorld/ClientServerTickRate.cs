@@ -493,6 +493,61 @@ namespace Unity.NetCode
         [Range(0, 500)]
         public uint MaxPredictAheadTimeMS;
         /// <summary>
+        ///     The netcode package will automatically destroy client predicted spawns if they are not classified by the
+        ///     time the <see cref="NetworkTime.InterpolationTick" /> passes the <c>spawnTick</c> of the client predicted spawn
+        ///     (see <see cref="PredictedGhostSpawnSystem.CleanupPredictedSpawns" />).
+        ///     <br />
+        ///     However, this default behaviour can be too aggressive, as:
+        ///     <list type="bullet">
+        ///         <item>High snapshot congestion can lead to new ghost spawn replication delays.</item>
+        ///         <item>
+        ///             If your InterpolationTimeMS buffer window is configured to be very short (the default),
+        ///             netcode is likely to destroy the vast majority of client predicted spawns before they are even able
+        ///             to be received for the first time.
+        ///         </item>
+        ///         <item>Connections experiencing frequent packet loss may fail to receive new ghost snapshots on time.</item>
+        ///     </list>
+        ///     <br />
+        ///     This value denotes the additional number of <see cref="ClientServerTickRate.SimulationTickRate" /> ticks to
+        ///     keep all client predicted ghosts alive for, increasing the likelihood of them being successfully classified.
+        /// </summary>
+        /// <remarks>
+        ///     Increasing this value will also cause <b>mis-predicted</b> client predicted spawns to live for much longer,
+        ///     which may (or may not) be desirable.
+        ///     <br />
+        ///     Also note: If you frequently encounter client predicted ghosts which fail to classify within the Interpolation
+        ///     Window, this may indicate that the window is too short. Consider increasing it.
+        /// </remarks>
+        [Tooltip("Denotes how many additional <b>SimulationTickRate</b> ticks that all client predicted spawns will live for, increasing the likelihood of them being successfully classified against the real ghost sent by the authoritative server.\n\nDefaults to 0 (OFF).")]
+        public ushort NumAdditionalClientPredictedGhostLifetimeTicks;
+        /// <summary>
+        /// Denotes the plus and minus range (in <see cref="ClientServerTickRate.SimulationTickRate"/> ServerTick's) discrepancy
+        /// that we allow client predicted ghosts to be automatically classified within. Defaults to ±5 ticks.
+        /// <br />
+        /// In other words: If no user-code classification system is written for a predicted ghost type, and a new predicted ghost spawn
+        /// is detected on the client, we will check to see whether or not the new server ghost spawned within this many ticks (e.g. ±5) of
+        /// the client predicted spawn (inclusive). If it has, we will assume they are the same ghost, and therefore classification will succeed.
+        /// </summary>
+        /// <remarks>
+        /// Increase this value if you observe frequent classification failures due to large spawnTick discrepancies
+        /// (common when encountering Server Tick Batching, for example).
+        /// <br />
+        /// Decrease this value if you observe frequent mis-classification of predicted spawned ghosts
+        /// (particularly when many are spawned within a few ticks of each other).
+        /// <br />
+        /// Prefer to write your own classificiation systems, where possible, which allow you to use project-specific per-instance
+        /// <see cref="GhostFieldAttribute"/> data to more accurately classify new spawns.
+        /// </remarks>
+        [Tooltip(@"Denotes the plus and minus range (in ServerTick's) discrepancy that we allow client predicted ghosts to be automatically classified within. Defaults to ±5 ticks.
+
+In other words: If no user-code classification system is written for a predicted ghost type, and a new predicted ghost spawn is detected on the client, we will check to see whether or not the new server ghost spawned within this many ticks of the client spawn. If it has, we will assume they are the same ghost, and therefore classification will succeed.
+
+ - Increase this value if you observe frequent classification failures due to large spawnTick discrepancies (common when encountering Server Tick Batching, for example).
+
+ - Decrease this value if you observe frequent mis-classification of predicted spawned ghosts.")]
+        [Min(1)]
+        public ushort DefaultClassificationAllowableTickPeriod;
+        /// <summary>
         /// Specifies the number of simulation ticks that the client tries to stay ahead of the server, to try to make sure the commands are received by the server
         /// before they are actually consumed.
         /// </summary>

@@ -71,7 +71,7 @@ namespace Unity.NetCode
             return settings;
         }
 
-        /// <summary>
+              /// <summary>
         /// Helper: Adds all netcode-package specific <see cref="NetCodeConfig.Global"/> settings
         /// for the <see cref="NetworkConfigParameter"/> struct.
         /// </summary>

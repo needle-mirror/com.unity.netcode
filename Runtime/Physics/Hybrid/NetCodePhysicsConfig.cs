@@ -29,19 +29,15 @@ namespace Unity.NetCode
         public PhysicGroupRunMode PhysicGroupRunMode;
         /// <summary>
         /// Set to true to enable the use of the LagCompensation system. Server and Client will start recording the physics world state in the PhysicsWorldHistory buffer,
-        /// which size can be further configured for by changing the ServerHistorySize and ClientHistorySize properites;
+        /// which size can be further configured for by changing the ServerHistorySize and ClientHistorySize properties.
         /// </summary>
         [Tooltip("Enable/Disable the LagCompensation system. Server and Client will start recording the physics world state in the PhysicsWorldHistory buffer")]
         public bool EnableLagCompensation;
-        /// <summary>
-        /// The number of physics world states that are backed up on the server. This cannot be more than the maximum capacity. Leaving it at zero will give you the default (max capacity).
-        /// </summary>
-        [Tooltip("The number of physics world states that are backed up on the server. This cannot be more than the maximum capacity, and must be 0 (OFF/DISABLED) or a power of two.\n\nLeaving it at zero will give the default (max capacity).")]
+        /// <inheritdoc cref="LagCompensationConfig.ServerHistorySize"/>
+        [Tooltip("The number of physics world states that are backed up on the server. This cannot be more than the maximum capacity (32), and must be a power of two.\n\nLeaving it at zero will give you the default value (16).")]
         public int ServerHistorySize;
-        /// <summary>
-        /// The number of physics world states that are backed up on the client. This cannot be more than the maximum capacity. Leaving it at zero will give you the default (of one).
-        /// </summary>
-        [Tooltip("The number of physics world states that are backed up on the client. This cannot be more than the maximum capacity, leaving it at zero will give oyu the default which is one.")]
+        /// <inheritdoc cref="LagCompensationConfig.ClientHistorySize"/>
+        [Tooltip("The number of physics world states that are backed up on the client. This cannot be more than the maximum capacity (32), and must be a power of two.\n\nThe default value is 1, but setting it to 0 will disable recording the physics history on the client, reducing CPU and memory consumption.")]
         public int ClientHistorySize = 1;
 
         /// <summary>

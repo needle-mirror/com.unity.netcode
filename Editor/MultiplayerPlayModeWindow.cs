@@ -145,7 +145,7 @@ Denotes that the server driver is closed i.e. not currently listening.
         static DateTime s_LastWrittenUtc;
         static DateTime s_LastRepaintedUtc;
         static bool s_ShouldUpdateStatusTexts;
-        public static bool s_ForceRepaint;
+        internal static bool s_ForceRepaint;
         Vector2 m_WorldScrollPosition;
         int m_PreviousFrameCount;
 

@@ -1081,8 +1081,7 @@ namespace Unity.NetCode.Tests
                                     math.abs(ghost.ServerSpawnTick.TicksSince(spawnList[j].spawnTick)) < 5)
                                 {
                                     ghost.PredictedSpawnEntity = spawnList[j].entity;
-                                    spawnList[j] = spawnList[spawnList.Length-1];
-                                    spawnList.RemoveAt(spawnList.Length - 1);
+                                    spawnList.RemoveAtSwapBack(j);
                                     predictedEntities.Add(ghost.PredictedSpawnEntity);
                                     break;
                                 }

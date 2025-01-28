@@ -5,6 +5,7 @@ using Unity.Collections.LowLevel.Unsafe;
 using Unity.NetCode.LowLevel.Unsafe;
 using System;
 using Unity.Assertions;
+using Unity.Burst.CompilerServices;
 using Unity.Burst.Intrinsics;
 using Unity.Jobs;
 
@@ -39,6 +40,12 @@ namespace Unity.NetCode
         /// The server tick the entity has been spawned.
         /// </summary>
         public NetworkTick spawnTick;
+
+        /// <summary>Helper.</summary>
+        /// <returns>Formatted informational string.</returns>
+        public FixedString128Bytes ToFixedString() => $"PredictedGhostSpawn[ghostType:{ghostType},st:{spawnTick.ToFixedString()},ent:{entity.ToFixedString()}]";
+        /// <inheritdoc cref="ToFixedString"/>
+        public override string ToString() => ToFixedString().ToString();
     }
 
     /// <summary>
@@ -200,13 +207,17 @@ namespace Unity.NetCode
                 bufferSizes.Dispose();
             }
         }
+        /// <summary>
+        ///     Destroy client predicted spawns which are too old.
+        ///     I.e. The ones which did NOT get classified, and therefore were not already removed from this list.
+        /// </summary>
         [BurstCompile]
-        struct CleanupPredictedSpawn : IJob
+        struct CleanupPredictedSpawns : IJob
         {
             public Entity spawnListEntity;
             public BufferLookup<PredictedGhostSpawn> spawnListFromEntity;
             public NativeReference<int> listHasData;
-            public NetworkTick interpolatedTick;
+            public NetworkTick destroyTick;
             public EntityCommandBuffer commandBuffer;
             public void Execute()
             {
@@ -214,12 +225,11 @@ namespace Unity.NetCode
                 for (int i = 0; i < spawnList.Length; ++i)
                 {
                     var ghost = spawnList[i];
-                    if (interpolatedTick.IsValid && interpolatedTick.IsNewerThan(ghost.spawnTick))
+                    if (Hint.Unlikely(destroyTick.IsNewerThan(ghost.spawnTick)))
                     {
                         // Destroy entity and remove from list
                         commandBuffer.DestroyEntity(ghost.entity);
-                        spawnList[i] = spawnList[spawnList.Length - 1];
-                        spawnList.RemoveAt(spawnList.Length - 1);
+                        spawnList.RemoveAtSwapBack(i);
                         --i;
                     }
                 }
@@ -328,16 +338,21 @@ namespace Unity.NetCode
                 state.Dependency = initJob.ScheduleByRef(m_GhostInitQuery, state.Dependency);
             }
 
-            if (hasExisting)
+            if (hasExisting && networkTime.InterpolationTick.IsValid)
             {
-                // Validate all ghosts in the list of predictive spawn ghosts and destroy the ones which are too old
-                var cleanupJob = new CleanupPredictedSpawn
+                if(!SystemAPI.TryGetSingleton(out ClientTickRate clientTickRate))
+                    clientTickRate = NetworkTimeSystem.DefaultClientTickRate;
+
+                var destroyTick = networkTime.InterpolationTick;
+                destroyTick.Subtract(clientTickRate.NumAdditionalClientPredictedGhostLifetimeTicks);
+
+                var cleanupJob = new CleanupPredictedSpawns
                 {
                     spawnListEntity = spawnListEntity,
                     spawnListFromEntity = m_PredictedGhostSpawnFromEntity,
                     listHasData = m_ListHasData,
-                    interpolatedTick = networkTime.InterpolationTick,
-                    commandBuffer = commandBuffer
+                    destroyTick = destroyTick,
+                    commandBuffer = commandBuffer,
                 };
                 state.Dependency = cleanupJob.Schedule(state.Dependency);
             }

@@ -1,4 +1,5 @@
 using System;
+using System.Diagnostics;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using Unity.Burst;
@@ -108,8 +109,9 @@ namespace Unity.NetCode
     [StructLayout(LayoutKind.Sequential)]
     internal struct RawHistoryBuffer
     {
-        public const int Capacity = 16;
+        public const int Capacity = 32;
 
+        public CollisionWorld world00;
         public CollisionWorld world01;
         public CollisionWorld world02;
         public CollisionWorld world03;
@@ -126,7 +128,23 @@ namespace Unity.NetCode
         public CollisionWorld world14;
         public CollisionWorld world15;
         public CollisionWorld world16;
+        public CollisionWorld world17;
+        public CollisionWorld world18;
+        public CollisionWorld world19;
+        public CollisionWorld world20;
+        public CollisionWorld world21;
+        public CollisionWorld world22;
+        public CollisionWorld world23;
+        public CollisionWorld world24;
+        public CollisionWorld world25;
+        public CollisionWorld world26;
+        public CollisionWorld world27;
+        public CollisionWorld world28;
+        public CollisionWorld world29;
+        public CollisionWorld world30;
+        public CollisionWorld world31;
 
+        public NetworkTick world00Tick;
         public NetworkTick world01Tick;
         public NetworkTick world02Tick;
         public NetworkTick world03Tick;
@@ -143,82 +161,88 @@ namespace Unity.NetCode
         public NetworkTick world14Tick;
         public NetworkTick world15Tick;
         public NetworkTick world16Tick;
+        public NetworkTick world17Tick;
+        public NetworkTick world18Tick;
+        public NetworkTick world19Tick;
+        public NetworkTick world20Tick;
+        public NetworkTick world21Tick;
+        public NetworkTick world22Tick;
+        public NetworkTick world23Tick;
+        public NetworkTick world24Tick;
+        public NetworkTick world25Tick;
+        public NetworkTick world26Tick;
+        public NetworkTick world27Tick;
+        public NetworkTick world28Tick;
+        public NetworkTick world29Tick;
+        public NetworkTick world30Tick;
+        public NetworkTick world31Tick;
     }
+
     internal static class RawHistoryBufferExtension
     {
         public static ref CollisionWorld GetWorldAt(ref this RawHistoryBuffer buffer, int index, int size, out NetworkTick tick)
         {
-            UnityEngine.Debug.Assert(index < size);
-            switch (index)
-            {
-                case 0: tick = buffer.world01Tick; break;
-                case 1: tick = buffer.world02Tick; break;
-                case 2: tick = buffer.world03Tick; break;
-                case 3: tick = buffer.world04Tick; break;
-                case 4: tick = buffer.world05Tick; break;
-                case 5: tick = buffer.world06Tick; break;
-                case 6: tick = buffer.world07Tick; break;
-                case 7: tick = buffer.world08Tick; break;
-                case 8: tick = buffer.world09Tick; break;
-                case 9: tick = buffer.world10Tick; break;
-                case 10: tick = buffer.world11Tick; break;
-                case 11: tick = buffer.world12Tick; break;
-                case 12: tick = buffer.world13Tick; break;
-                case 13: tick = buffer.world14Tick; break;
-                case 14: tick = buffer.world15Tick; break;
-                case 15: tick = buffer.world16Tick; break;
-                default:
-                    throw new IndexOutOfRangeException();
-            }
-            if(tick.IsValid) UnityEngine.Debug.Assert(tick.TickIndexForValidTick % size == index, $"{tick.ToFixedString()} % {size} == {index}");
-            switch (index)
-            {
-                case 0: return ref buffer.world01;
-                case 1: return ref buffer.world02;
-                case 2: return ref buffer.world03;
-                case 3: return ref buffer.world04;
-                case 4: return ref buffer.world05;
-                case 5: return ref buffer.world06;
-                case 6: return ref buffer.world07;
-                case 7: return ref buffer.world08;
-                case 8: return ref buffer.world09;
-                case 9: return ref buffer.world10;
-                case 10: return ref buffer.world11;
-                case 11: return ref buffer.world12;
-                case 12: return ref buffer.world13;
-                case 13: return ref buffer.world14;
-                case 14: return ref buffer.world15;
-                case 15: return ref buffer.world16;
-                default:
-                    throw new IndexOutOfRangeException();
-            }
+            tick = NetworkTick.Invalid;
+            return ref GetRefsSafe(ref buffer, index, size, ref tick, false);
         }
 
         public static void SetWorldAt(this ref RawHistoryBuffer buffer, int index, NetworkTick tick, int size, in CollisionWorld world)
         {
-            UnityEngine.Debug.Assert(index < size);
-            if(tick.IsValid) UnityEngine.Debug.Assert(tick.TickIndexForValidTick % size == index);
+            ref var collWorldRW = ref GetRefsSafe(ref buffer, index, size, ref tick, true);
+            collWorldRW = world;
+        }
+
+        private static ref CollisionWorld GetRefsSafe(ref RawHistoryBuffer buffer, int index, int size, ref NetworkTick tick, bool write)
+        {
+#if ENABLE_UNITY_COLLECTIONS_CHECKS
+            UnityEngine.Debug.Assert(index >= 0 && index < size);
+#endif
             switch (index)
             {
-                case 0: buffer.world01 = world; buffer.world01Tick = tick; break;
-                case 1: buffer.world02 = world; buffer.world02Tick = tick; break;
-                case 2: buffer.world03 = world; buffer.world03Tick = tick; break;
-                case 3: buffer.world04 = world; buffer.world04Tick = tick; break;
-                case 4: buffer.world05 = world; buffer.world05Tick = tick; break;
-                case 5: buffer.world06 = world; buffer.world06Tick = tick; break;
-                case 6: buffer.world07 = world; buffer.world07Tick = tick; break;
-                case 7: buffer.world08 = world; buffer.world08Tick = tick; break;
-                case 8: buffer.world09 = world; buffer.world09Tick = tick; break;
-                case 9: buffer.world10 = world; buffer.world10Tick = tick; break;
-                case 10:buffer.world11 = world; buffer.world11Tick = tick; break;
-                case 11:buffer.world12 = world; buffer.world12Tick = tick; break;
-                case 12:buffer.world13 = world; buffer.world13Tick = tick; break;
-                case 13:buffer.world14 = world; buffer.world14Tick = tick; break;
-                case 14:buffer.world15 = world; buffer.world15Tick = tick; break;
-                case 15:buffer.world16 = world; buffer.world16Tick = tick; break;
-                default:
-                    throw new IndexOutOfRangeException();
+                case 00: ApplyTick(index, size, ref buffer.world00Tick, ref tick, write); return ref buffer.world00;
+                case 01: ApplyTick(index, size, ref buffer.world01Tick, ref tick, write); return ref buffer.world01;
+                case 02: ApplyTick(index, size, ref buffer.world02Tick, ref tick, write); return ref buffer.world02;
+                case 03: ApplyTick(index, size, ref buffer.world03Tick, ref tick, write); return ref buffer.world03;
+                case 04: ApplyTick(index, size, ref buffer.world04Tick, ref tick, write); return ref buffer.world04;
+                case 05: ApplyTick(index, size, ref buffer.world05Tick, ref tick, write); return ref buffer.world05;
+                case 06: ApplyTick(index, size, ref buffer.world06Tick, ref tick, write); return ref buffer.world06;
+                case 07: ApplyTick(index, size, ref buffer.world07Tick, ref tick, write); return ref buffer.world07;
+                case 08: ApplyTick(index, size, ref buffer.world08Tick, ref tick, write); return ref buffer.world08;
+                case 09: ApplyTick(index, size, ref buffer.world09Tick, ref tick, write); return ref buffer.world09;
+                case 10: ApplyTick(index, size, ref buffer.world10Tick, ref tick, write); return ref buffer.world10;
+                case 11: ApplyTick(index, size, ref buffer.world11Tick, ref tick, write); return ref buffer.world11;
+                case 12: ApplyTick(index, size, ref buffer.world12Tick, ref tick, write); return ref buffer.world12;
+                case 13: ApplyTick(index, size, ref buffer.world13Tick, ref tick, write); return ref buffer.world13;
+                case 14: ApplyTick(index, size, ref buffer.world14Tick, ref tick, write); return ref buffer.world14;
+                case 15: ApplyTick(index, size, ref buffer.world15Tick, ref tick, write); return ref buffer.world15;
+                case 16: ApplyTick(index, size, ref buffer.world16Tick, ref tick, write); return ref buffer.world16;
+                case 17: ApplyTick(index, size, ref buffer.world17Tick, ref tick, write); return ref buffer.world17;
+                case 18: ApplyTick(index, size, ref buffer.world18Tick, ref tick, write); return ref buffer.world18;
+                case 19: ApplyTick(index, size, ref buffer.world19Tick, ref tick, write); return ref buffer.world19;
+                case 20: ApplyTick(index, size, ref buffer.world20Tick, ref tick, write); return ref buffer.world20;
+                case 21: ApplyTick(index, size, ref buffer.world21Tick, ref tick, write); return ref buffer.world21;
+                case 22: ApplyTick(index, size, ref buffer.world22Tick, ref tick, write); return ref buffer.world22;
+                case 23: ApplyTick(index, size, ref buffer.world23Tick, ref tick, write); return ref buffer.world23;
+                case 24: ApplyTick(index, size, ref buffer.world24Tick, ref tick, write); return ref buffer.world24;
+                case 25: ApplyTick(index, size, ref buffer.world25Tick, ref tick, write); return ref buffer.world25;
+                case 26: ApplyTick(index, size, ref buffer.world26Tick, ref tick, write); return ref buffer.world26;
+                case 27: ApplyTick(index, size, ref buffer.world27Tick, ref tick, write); return ref buffer.world27;
+                case 28: ApplyTick(index, size, ref buffer.world28Tick, ref tick, write); return ref buffer.world28;
+                case 29: ApplyTick(index, size, ref buffer.world29Tick, ref tick, write); return ref buffer.world29;
+                case 30: ApplyTick(index, size, ref buffer.world30Tick, ref tick, write); return ref buffer.world30;
+                case 31: ApplyTick(index, size, ref buffer.world31Tick, ref tick, write); return ref buffer.world31;
+                default: throw new IndexOutOfRangeException();
             }
+        }
+
+        static void ApplyTick(int index, int size, ref NetworkTick tickRW, ref NetworkTick tickValue, bool write)
+        {
+            if (write) tickRW = tickValue;
+            else tickValue = tickRW;
+#if ENABLE_UNITY_COLLECTIONS_CHECKS
+            if(tickValue.IsValid)
+                UnityEngine.Debug.Assert(tickValue.TickIndexForValidTick % size == index, $"{tickValue.ToFixedString()} % {size} == {index}");
+#endif
         }
     }
 
@@ -461,6 +485,7 @@ namespace Unity.NetCode
         /// </summary>
         /// <remarks>
         /// Lag compensation queries that attempt to reach further back than the capacity will be clamped to the oldest.
+        /// The previous value was 16.
         /// </remarks>
         public const int RawHistoryBufferMaxCapacity = RawHistoryBuffer.Capacity;
 

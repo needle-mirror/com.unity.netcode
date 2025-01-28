@@ -1,6 +1,7 @@
 using System;
 using Unity.Entities;
 using Unity.Burst;
+using Unity.Collections;
 using Unity.Mathematics;
 using Unity.NetCode.LowLevel;
 using UnityEngine;
@@ -124,6 +125,20 @@ namespace Unity.NetCode
         /// the pre-spawned ghost instances are also destroyed.
         /// </summary>
         internal  int SectionIndex;
+        /// <summary>Helper.</summary>
+        /// <returns>Formatted informational string.</returns>
+        public FixedString512Bytes ToFixedString()
+        {
+            FixedString32Bytes spawnType = SpawnType switch
+            {
+                Type.Interpolated => "Interpolated",
+                Type.Predicted => "Predicted",
+                _ => "Unknown",
+            };
+            return $"GhostSpawnBuffer[{spawnType}-{GhostType},GID:{GhostID},CST:{ClientSpawnTick.ToFixedString()},SST:{ServerSpawnTick.ToFixedString()}|predSpawn:{PredictedSpawnEntity.ToFixedString()},hasClassified:{m_HasClassifiedPredictedSpawn}|prespawnIdx:{PrespawnIndex}|sectionIdx:{SectionIndex}]";
+        }
+        /// <inheritdoc cref="ToFixedString"/>
+        public override string ToString() => ToFixedString().ToString();
     }
 
     /// <summary>
@@ -194,7 +209,7 @@ namespace Unity.NetCode
                 var spawnBufferLookup = SpawnBufferLookupHelper.CreateSnapshotBufferLookup();
                 for (int i = 0; i < ghosts.Length; ++i)
                 {
-                    var ghost = ghosts[i];
+                    ref var ghost = ref ghosts.ElementAt(i);
                     if (ghost.SpawnType == GhostSpawnBuffer.Type.Unknown)
                     {
                         ghost.SpawnType = spawnBufferLookup.GetFallbackPredictionMode(ghost);
@@ -205,7 +220,6 @@ namespace Unity.NetCode
                             if(ghostOwner == networkId)
                                 ghost.SpawnType = GhostSpawnBuffer.Type.Predicted;
                         }
-                        ghosts[i] = ghost;
                     }
                 }
             }
@@ -222,11 +236,6 @@ namespace Unity.NetCode
     [BurstCompile]
     internal partial struct DefaultGhostSpawnClassificationSystem : ISystem
     {
-        /// <summary>
-        /// The amount of ticks where the ghost type of the new spawned ghost will be matched within.
-        /// </summary>
-        const uint k_TickPeriod = 5;
-
         BufferLookup<PredictedGhostSpawn> m_PredictedGhostSpawnLookup;
 
         [BurstCompile]
@@ -241,10 +250,13 @@ namespace Unity.NetCode
         public void OnUpdate(ref SystemState state)
         {
             m_PredictedGhostSpawnLookup.Update(ref state);
+            if (!SystemAPI.TryGetSingleton(out ClientTickRate clientTickRate))
+                clientTickRate = NetworkTimeSystem.DefaultClientTickRate;
             var classificationJob = new DefaultGhostSpawnClassificationJob
             {
                 spawnListEntity = SystemAPI.GetSingletonEntity<PredictedGhostSpawnList>(),
-                spawnListLookup = m_PredictedGhostSpawnLookup
+                spawnListLookup = m_PredictedGhostSpawnLookup,
+                acceptedTickPeriod = clientTickRate.DefaultClassificationAllowableTickPeriod,
             };
             state.Dependency = classificationJob.Schedule(state.Dependency);
         }
@@ -255,24 +267,26 @@ namespace Unity.NetCode
         {
             public Entity spawnListEntity;
             public BufferLookup<PredictedGhostSpawn> spawnListLookup;
+            public uint acceptedTickPeriod;
 
             public void Execute(DynamicBuffer<GhostSpawnBuffer> ghosts)
             {
                 var spawnList = spawnListLookup[spawnListEntity];
                 for (int i = 0; i < ghosts.Length; ++i)
                 {
-                    var ghost = ghosts[i];
+                    ref var ghost = ref ghosts.ElementAt(i);
                     if (ghost.SpawnType != GhostSpawnBuffer.Type.Predicted || ghost.HasClassifiedPredictedSpawn || ghost.PredictedSpawnEntity != Entity.Null)
                         continue;
                     for (int j = 0; j < spawnList.Length; ++j)
                     {
-                        if (ghost.GhostType == spawnList[j].ghostType &&
-                            math.abs(ghost.ServerSpawnTick.TicksSince(spawnList[j].spawnTick)) < k_TickPeriod)
+                        ref readonly var predictedGhostSpawn = ref spawnList.ElementAt(j);
+                        if (ghost.GhostType == predictedGhostSpawn.ghostType &&
+                            math.abs(ghost.ServerSpawnTick.TicksSince(predictedGhostSpawn.spawnTick)) < acceptedTickPeriod)
                         {
-                            ghost.PredictedSpawnEntity = spawnList[j].entity;
+                            ghost.PredictedSpawnEntity = predictedGhostSpawn.entity;
                             ghost.HasClassifiedPredictedSpawn = true;
-                            spawnList[j] = spawnList[spawnList.Length - 1];
-                            spawnList.RemoveAt(spawnList.Length - 1);
+                            //UnityEngine.Debug.Log($"Classification success! GID:{ghost.GhostID} sT:{predictedGhostSpawn.spawnTick.ToFixedString()} vs g.SST:{ghost.ServerSpawnTick.ToFixedString()} vs g.CST:{ghost.ClientSpawnTick.ToFixedString()} {predictedGhostSpawn.entity.ToFixedString()}!\n\n{ghost.ToFixedString()}\n{predictedGhostSpawn.ToFixedString()}");
+                            spawnList.RemoveAtSwapBack(j);
                             break;
                         }
                     }

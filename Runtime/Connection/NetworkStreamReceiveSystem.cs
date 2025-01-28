@@ -264,6 +264,7 @@ namespace Unity.NetCode
         }
 
         ref NetworkDriverStore DriverStore => ref UnsafeUtility.AsRef<NetworkStreamDriver.Pointers>((void*)m_DriverPointers).DriverStore;
+        NativeReference<Mathematics.Random> m_Random;
         NativeReference<int> m_NumNetworkIds;
         NativeQueue<int> m_FreeNetworkIds;
         RpcQueue<ServerApprovedConnection, ServerApprovedConnection> m_ServerApprovedConnectionRpcQueue;
@@ -276,6 +277,7 @@ namespace Unity.NetCode
         ComponentLookup<ConnectionState> m_ConnectionStateFromEntity;
         ComponentLookup<GhostInstance> m_GhostComponentFromEntity;
         ComponentLookup<NetworkId> m_NetworkIdFromEntity;
+        ComponentLookup<ConnectionUniqueId> m_ConnectionUniqueIdFromEntity;
         ComponentLookup<ConnectionApproved> m_ApprovedFromEntity;
         ComponentLookup<NetworkStreamRequestDisconnect> m_RequestDisconnectFromEntity;
         ComponentLookup<NetworkStreamInGame> m_InGameFromEntity;
@@ -296,6 +298,8 @@ namespace Unity.NetCode
                     break;
             }
 
+            m_Random = new NativeReference<Mathematics.Random>(Allocator.Persistent);
+            m_Random.Value = new Mathematics.Random((uint)System.Diagnostics.Stopwatch.GetTimestamp());
             m_NumNetworkIds = new NativeReference<int>(Allocator.Persistent);
             m_FreeNetworkIds = new NativeQueue<int>(Allocator.Persistent);
             m_ConnectionEvents = new NativeList<NetCodeConnectionEvent>(32, Allocator.Persistent);
@@ -307,6 +311,7 @@ namespace Unity.NetCode
             m_ConnectionStateFromEntity = state.GetComponentLookup<ConnectionState>(false);
             m_GhostComponentFromEntity = state.GetComponentLookup<GhostInstance>(true);
             m_NetworkIdFromEntity = state.GetComponentLookup<NetworkId>(true);
+            m_ConnectionUniqueIdFromEntity = state.GetComponentLookup<ConnectionUniqueId>(true);
             m_ApprovedFromEntity = state.GetComponentLookup<ConnectionApproved>(true);
             m_RequestDisconnectFromEntity = state.GetComponentLookup<NetworkStreamRequestDisconnect>();
             m_InGameFromEntity = state.GetComponentLookup<NetworkStreamInGame>();
@@ -358,6 +363,7 @@ namespace Unity.NetCode
 
         public void OnDestroy(ref SystemState state)
         {
+            m_Random.Dispose();
             m_NumNetworkIds.Dispose();
             m_FreeNetworkIds.Dispose();
             m_ConnectionEvents.Dispose();
@@ -486,6 +492,12 @@ namespace Unity.NetCode
                 m_FreeNetworkIds.Clear();
             }
 
+            // This singleton will only exist on clients as it's used to keep track of this value between connection destroy/recreate
+            uint clientConnectionUniqueId = 0;
+            if (!state.WorldUnmanaged.IsServer() && SystemAPI.TryGetSingletonRW<ConnectionUniqueId>(out var uniqueId))
+                clientConnectionUniqueId = uniqueId.ValueRO.Value;
+
+            m_ConnectionUniqueIdFromEntity.Update(ref state);
             m_ApprovedFromEntity.Update(ref state);
             m_ConnectionStateFromEntity.Update(ref state);
             m_NetworkIdFromEntity.Update(ref state);
@@ -506,6 +518,7 @@ namespace Unity.NetCode
                 debugPrefix = debugPrefix,
                 driverStore = DriverStore,
                 networkIdFromEntity = m_NetworkIdFromEntity,
+                connectionUniqueIdFromEntity = m_ConnectionUniqueIdFromEntity,
                 ghostInstanceFromEntity = m_GhostComponentFromEntity,
                 connectionStateFromEntity = m_ConnectionStateFromEntity,
                 requestDisconnectFromEntity = m_RequestDisconnectFromEntity,
@@ -526,6 +539,8 @@ namespace Unity.NetCode
                 localTime = timestampMS,
                 lastServerTick = networkTime.ServerTick,
                 tickRate = clientServerTickRate,
+                random = m_Random,
+                clientConnectionUniqueId = clientConnectionUniqueId,
                 numNetworkId = m_NumNetworkIds,
                 connectionApprovedLookup = m_ApprovedFromEntity,
                 serverApprovedConnectionRpcQueue = m_ServerApprovedConnectionRpcQueue,
@@ -632,6 +647,7 @@ namespace Unity.NetCode
             public FixedString128Bytes debugPrefix;
             public NetworkDriverStore driverStore;
             [ReadOnly] public ComponentLookup<NetworkId> networkIdFromEntity;
+            [ReadOnly] public ComponentLookup<ConnectionUniqueId> connectionUniqueIdFromEntity;
             [ReadOnly] public ComponentLookup<GhostInstance> ghostInstanceFromEntity;
             public ComponentLookup<ConnectionState> connectionStateFromEntity;
             public RpcQueue<RequestProtocolVersionHandshake, RequestProtocolVersionHandshake> requestProtocolVersionHandshakeQueue;
@@ -655,6 +671,8 @@ namespace Unity.NetCode
             public NetworkTick lastServerTick;
 
             // Stuff for Approval:
+            public uint clientConnectionUniqueId;
+            public NativeReference<Mathematics.Random> random;
             public NativeReference<int> numNetworkId;
             public RpcQueue<ServerApprovedConnection, ServerApprovedConnection> serverApprovedConnectionRpcQueue;
             public RpcQueue<ServerRequestApprovalAfterHandshake, ServerRequestApprovalAfterHandshake> serverRequestApprovalRpcQueue;
@@ -714,12 +732,13 @@ namespace Unity.NetCode
                             Debug.Assert(!isServer);
                             Debug.Assert(!snapshotAck.ReceivedSnapshotByRemoteMask.IsCreated);
 #endif
-                            netDebug.DebugLog($"{debugPrefix} Client connected to driver, sending {protocolVersion.ToFixedString()} to server to begin handshake...");
+                            netDebug.DebugLog($"{debugPrefix} Client connected to driver, sending {protocolVersion.ToFixedString()} Connection[UniqueId:{clientConnectionUniqueId}] to server to begin handshake...");
                             snapshotAck.SnapshotPacketLoss = default;
                             var buf = outgoingRpcBuffer[entity];
                             requestProtocolVersionHandshakeQueue.Schedule(buf, ghostInstanceFromEntity, new RequestProtocolVersionHandshake
                             {
                                 Data = protocolVersion,
+                                ConnectionUniqueId = clientConnectionUniqueId
                             });
                             connectionEvents.Add(new NetCodeConnectionEvent
                             {
@@ -1031,11 +1050,28 @@ namespace Unity.NetCode
                     numNetworkId.Value = nid;
                 }
 
+                // Re-assign previous unique Id in case this is a returning client
+                uint connectionUniqueId = 0;
+                bool isReconnecting = false;
+                if (connectionUniqueIdFromEntity.HasComponent(ent))
+                {
+                    connectionUniqueId = connectionUniqueIdFromEntity[ent].Value;
+                    isReconnecting = true;
+                }
+                else
+                {
+                    var r = random.Value;
+                    connectionUniqueId = r.NextUInt();
+                    random.Value = r;
+                    commandBuffer.AddComponent(ent, new ConnectionUniqueId(){ Value = connectionUniqueId });
+                }
+
                 networkId = new NetworkId {Value = nid};
                 commandBuffer.AddComponent(ent, networkId);
                 commandBuffer.SetName(ent, new FixedString64Bytes(FixedString.Format("NetworkConnection ({0})", nid)));
                 var serverApprovedConnection = new ServerApprovedConnection();
                 serverApprovedConnection.NetworkId = nid;
+                serverApprovedConnection.UniqueId = connectionUniqueId;
                 serverApprovedConnection.RefreshRequest.ReadFrom(in tickRate);
                 serverApprovedConnectionRpcQueue.Schedule(outgoingBuffer, ghostFromEntity, serverApprovedConnection);
                 connection.CurrentState = ConnectionState.State.Connected;
@@ -1049,7 +1085,7 @@ namespace Unity.NetCode
                     DisconnectReason = default,
                     ConnectionEntity = ent,
                 });
-                netDebug.DebugLog($"{debugPrefix} Server approved connection {connection.Value.ToFixedString()}, assigning NetworkId={nid} State={connection.CurrentState}.");
+                netDebug.DebugLog($"{debugPrefix} Server approved connection {connection.Value.ToFixedString()}, assigning NetworkId={nid} UniqueId={connectionUniqueId} Reconnecting={isReconnecting} State={connection.CurrentState}.");
             }
 
             /// <summary>

@@ -19,6 +19,7 @@ namespace Unity.NetCode
         private EntityQuery m_ConnectionQuery;
         private EntityQuery m_IncorrectlyDisposedConnectionsQuery;
         private EntityQuery m_RpcRequests;
+        private EntityQuery m_PrespawnSubcenes;
 
         /// <summary>
         ///     Call <see cref="SystemAPI.GetSingleton{T}" /> to get this component for this system, and then call
@@ -92,6 +93,7 @@ namespace Unity.NetCode
             m_IncorrectlyDisposedConnectionsQuery = GetEntityQuery(ComponentType.ReadOnly<NetworkStreamConnection>(), ComponentType.Exclude<IncomingRpcDataStreamBuffer>());
             m_ConnectionQuery = GetEntityQuery(ComponentType.ReadOnly<NetworkStreamConnection>());
             m_RpcRequests = GetEntityQuery(ComponentType.ReadOnly<ReceiveRpcCommandRequest>());
+            m_PrespawnSubcenes = GetEntityQuery(ComponentType.ReadOnly<SubSceneWithGhostCleanup>());
         }
 
         protected override void OnUpdate()
@@ -152,6 +154,7 @@ namespace Unity.NetCode
                 }
             }
             CleanupStaleReceivedRpcs(ref state, disconnected, netDebug);
+            StopStreamingPrespawnSubscenes(ref state, disconnected);
 
             // Apply these events!
             // Re-fetching NetworkStreamDriver after structural change!
@@ -169,6 +172,27 @@ namespace Unity.NetCode
                     networkStreamDriver.DriverStore.Disconnect(incorrectlyDisposedConnections[i]);
                 }
                 state.EntityManager.RemoveComponent<NetworkStreamConnection>(m_IncorrectlyDisposedConnectionsQuery);
+            }
+        }
+
+        /// <summary>
+        /// Clients will request that the server starts streaming prespawned ghosts in specific subscenes when
+        /// the subscene is loaded and ready. This it then toggled on and tracked in SubSceneWithGhostCleanup
+        /// attached to the subscene. When the client connection is disconnected, the toggle needs to be flipped
+        /// off, so that if it reconnects another request for prespawn streaming will be sent to the server.
+        /// </summary>
+        void StopStreamingPrespawnSubscenes(ref SystemState state, NativeList<NetCodeConnectionEvent> disconnected)
+        {
+            if (World.IsClient() && disconnected.Length > 0 && !m_PrespawnSubcenes.IsEmpty)
+            {
+                var prespawnSubscenes = m_PrespawnSubcenes.ToComponentDataArray<SubSceneWithGhostCleanup>(Allocator.Temp);
+                var prespawnSubscenesEntities = m_PrespawnSubcenes.ToEntityArray(Allocator.Temp);
+                for (int i = 0; i < prespawnSubscenes.Length; ++i)
+                {
+                    var subSceneWithGhostCleanup = prespawnSubscenes[i];
+                    subSceneWithGhostCleanup.Streaming = 0;
+                    state.EntityManager.SetComponentData(prespawnSubscenesEntities[i], subSceneWithGhostCleanup);
+                }
             }
         }
 

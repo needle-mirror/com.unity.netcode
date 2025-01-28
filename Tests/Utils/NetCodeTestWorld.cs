@@ -58,7 +58,11 @@ namespace Unity.NetCode.Tests
         static readonly ProfilerMarker k_TickClientPresentationSystem = new ProfilerMarker("TickClientPresentationSystem");
 
         public World DefaultWorld => m_DefaultWorld;
-        public World ServerWorld => m_ServerWorld;
+        public World ServerWorld
+        {
+            get { return m_ServerWorld; }
+            set { m_ServerWorld = value; }
+        }
         public World[] ClientWorlds => m_ClientWorlds;
         /// <summary>
         /// Logs how many times we've called <see cref="Tick"/>, zero-indexed
@@ -413,7 +417,7 @@ namespace Unity.NetCode.Tests
             return success;
         }
 
-        private World CreateServerWorld(string name, World world = null)
+        public World CreateServerWorld(string name, World world = null)
         {
             if (world == null)
                 world = new World(name, WorldFlags.GameServer);
@@ -617,8 +621,6 @@ namespace Unity.NetCode.Tests
                 .WithNetworkConfigParameters
             (
                 maxFrameTimeMS: 100,
-                sendQueueCapacity: 16,
-                receiveQueueCapacity: 64,
                 fixedFrameTimeMS: DriverFixedTime,
                 maxMessageSize: DriverMaxMessageSize
             );
@@ -675,8 +677,6 @@ namespace Unity.NetCode.Tests
                 .WithNetworkConfigParameters(
                 maxFrameTimeMS: 100,
                 fixedFrameTimeMS: DriverFixedTime,
-                sendQueueCapacity: 16,
-                receiveQueueCapacity: 64,
                 maxMessageSize: DriverMaxMessageSize
             );
             var driverInstance = new NetworkDriverStore.NetworkDriverInstance();

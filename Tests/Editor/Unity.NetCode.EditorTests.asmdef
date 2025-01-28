@@ -19,7 +19,8 @@
         "UnityEngine.TestRunner",
         "UnityEditor.TestRunner",
         "Unity.Logging",
-        "Unity.Entities.Build"
+        "Unity.Entities.Build",
+        "Unity.Serialization"
     ],
     "includePlatforms": [
         "Editor"
@@ -35,11 +36,16 @@
         "UNITY_INCLUDE_TESTS"
     ],
     "versionDefines": [
-      {
-        "name": "com.unity.logging",
-        "expression": "0.0",
-        "define": "USING_UNITY_LOGGING"
-      }
+        {
+            "name": "com.unity.logging",
+            "expression": "0.0",
+            "define": "USING_UNITY_LOGGING"
+        },
+        {
+            "name": "com.unity.serialization",
+            "expression": "3.0",
+            "define": "USING_UNITY_SERIALIZATION"
+        }
     ],
     "noEngineReferences": false
 }

@@ -504,18 +504,18 @@ namespace Unity.NetCode
 
                     GhostEntityMap.Remove(ghostId);
 
-                    if (!GhostFromEntity.HasComponent(ent))
+                    if (!GhostFromEntity.TryGetComponent(ent, out var ghostInstance))
                     {
-                        NetDebug.LogError($"Trying to despawn a ghost ({ent}) which is in the ghost map but does not have a ghost component. This can happen if you manually delete a ghost on the client.");
+                        NetDebug.LogError($"Trying to despawn a ghost (GID:{ghostId}, {ent.ToFixedString()}) which is in the ghost map but does not have a ghost component. This can happen if you manually delete a ghost on the client.");
                         continue;
                     }
 
                     if (PredictedFromEntity.HasComponent(ent))
                         PredictedDespawnQueue.Enqueue(new GhostDespawnSystem.DelayedDespawnGhost
-                            {ghost = new SpawnedGhost{ghostId = ghostId, spawnTick = GhostFromEntity[ent].spawnTick}, tick = serverTick});
+                            {ghost = new SpawnedGhost{ghostId = ghostId, spawnTick = ghostInstance.spawnTick}, tick = serverTick});
                     else
                         InterpolatedDespawnQueue.Enqueue(new GhostDespawnSystem.DelayedDespawnGhost
-                            {ghost = new SpawnedGhost{ghostId = ghostId, spawnTick = GhostFromEntity[ent].spawnTick}, tick = serverTick});
+                            {ghost = new SpawnedGhost{ghostId = ghostId, spawnTick = ghostInstance.spawnTick}, tick = serverTick});
                 }
 #if NETCODE_DEBUG
                 if (m_EnablePacketLogging == 1)

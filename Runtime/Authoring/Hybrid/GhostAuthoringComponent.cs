@@ -133,11 +133,11 @@ namespace Unity.NetCode
         /// new snapshot has been received, and it contains new predicted ghost data for this or other ghosts.
         /// </para>
         /// <para>
-        /// By default this options is set to false, meaning that predicted spawned ghost by the client never rollback their original state and re-predict
+        /// By default this option is set to false, meaning that predicted spawned ghost by the client never rollback their original state and re-predict
         /// until the authoritative data is received. This behaviour is usually fine in many situation and it is cheaper in term of CPU.
         /// </para>
         /// </summary>
-        [Tooltip("Only for client, force <i>predicted spawn ghost</i> of this type to rollback and re-predict their state from their spawn tick until the authoritative server spawn has been received and classified. In order to save some CPU, the ghost state is rollback only in case a new snapshot has been received, and it contains new predicted ghost data for this or other ghosts.\nBy default this options is set to false, meaning that predicted spawned ghost by the client never rollback their original state and re-predict until the authoritative data is received. This behaviour is usually fine in many situation and it is cheaper in term of CPU.")]
+        [Tooltip("Only for client, force <i>predicted spawn ghost</i> of this type to rollback and re-predict their state from their spawn tick until the authoritative server spawn has been received and classified. In order to save some CPU, the ghost state is rollback only in case a new snapshot has been received, and it contains new predicted ghost data for this or other ghosts.\nBy default this option is set to false, meaning that predicted spawned ghost by the client never rollback their original state and re-predict until the authoritative data is received. This behaviour is usually fine in many situation and it is cheaper in term of CPU.")]
         public bool RollbackPredictedSpawnedGhostState;
         /// <summary>
         /// <para>
@@ -145,10 +145,10 @@ namespace Unity.NetCode
         /// or in general when an entry for the entity cannot be found in the prediction backup (see <see cref="GhostPredictionHistorySystem"/>).
         /// </para>
         /// <para>
-        /// By default this options is set to true, to preserve the original 1.0 behavior. Once the optimization is turned on, removing or adding replicated components from the predicted ghost on the client may cause issue on the restored value. Please check the documentation, in particular the Prediction edge case and known issue.
+        /// By default this option is set to true, to preserve the original 1.0 behavior. Once the optimization is turned on, removing or adding replicated components from the predicted ghost on the client may cause issue on the restored value. Please check the documentation, in particular the Prediction edge case and known issue.
         /// </para>
         /// </summary>
-        [Tooltip("Client CPU optimization, force <i>predicted ghost</i> of this type to replay and re-predict their state from the last received snapshot tick in case of a structural change or in general when an entry for the entity cannot be found in the prediction backup.\nBy default this options is set to false, to preserve the original 1.0 behavior. Once the optimization is turned on, removing or adding replicated components from the predicted ghost on the client may cause some issue in regard the restored value when the component is re-added. Please check the documentation for more details, in particular the <i>Prediction edge case and known issue</i> section.")]
+        [Tooltip("Client CPU optimization, force <i>predicted ghost</i> of this type to replay and re-predict their state from the last received snapshot tick in case of a structural change or in general when an entry for the entity cannot be found in the prediction backup.\nBy default this option is set to true, to preserve the original 1.0 behavior. Once the optimization is turned on, removing or adding replicated components from the predicted ghost on the client may cause some issue in regard the restored value when the component is re-added. Please check the documentation for more details, in particular the <i>Prediction edge case and known issue</i> section.")]
         public bool RollbackPredictionOnStructuralChanges = true;
 
 
