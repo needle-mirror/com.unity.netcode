@@ -2,6 +2,20 @@
 uid: changelog
 ---
 
+## [1.5.0-exp.2] - 2025-02-10
+
+### Changed
+
+* Added more sections to the documentation with information about what to look out for during a host migration.
+* Renamed `HostMigration.MigrateServerData` to `HostMigration.SetHostMigrationData` and made it public. It's the counterpart to `GetHostMigrationData`. `MigrateDataToNewServerWorld` is now optional to use.
+* Added a world parameter to the public APIs `GetHostMigrationData`/`TryGetHostMigrationData`.
+
+### Fixed
+
+* Issue where the relay connection setup would fail after host migrations. Stopped using fixed listening ports on the server.
+* Issue with incorrect host migration size being uploaded. When the host migration data blob was small it would cause errors during deployment.
+* Issue when the host configuration part of the migration data was over 1KB in size.
+
 ## [1.5.0-exp.1] - 2025-01-28
 
 ### Added

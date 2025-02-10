@@ -1,14 +1,11 @@
 using System;
 using System.Collections.Generic;
-using System.Text;
 using NUnit.Framework;
 using Unity.Burst;
 using Unity.Serialization.Json;
 using Unity.Collections;
 using Unity.Entities;
 using Unity.Mathematics;
-using Unity.NetCode;
-using Unity.NetCode.Tests;
 using Unity.Networking.Transport;
 using Unity.Transforms;
 using UnityEngine;
@@ -228,7 +225,7 @@ namespace Unity.NetCode.Tests
                 HostMigration.SerializeGhostData(ref ghostStorage, ghostDataBlob);
 
                 var compressedGhostData = new NativeList<byte>(ghostDataBlob.Length, Allocator.Temp);
-                HostMigration.CompressGhostData(ghostDataBlob, compressedGhostData);
+                HostMigration.CompressGhostData(testWorld.ServerWorld, ghostDataBlob, compressedGhostData);
 
                 var ghostDataSlice = compressedGhostData.AsArray().Slice();
                 var decodedGhosts = HostMigration.DecompressGhostData(ghostDataSlice);
@@ -366,10 +363,7 @@ namespace Unity.NetCode.Tests
                 // Skip using the test world ghost collection/baking as it requires custom spawning, but the
                 // host migration needs to be able to spawn ghosts normally
                 for (int i = 0; i < clientCount; ++i)
-                {
-                    testWorld.ClientWorlds[i].EntityManager.CreateEntity(ComponentType.ReadOnly<EnableHostMigration>());
                     CreateHostDataPrefab(testWorld.ClientWorlds[i].EntityManager);
-                }
                 testWorld.ServerWorld.EntityManager.CreateEntity(ComponentType.ReadOnly<EnableHostMigration>());
                 CreateHostDataPrefab(testWorld.ServerWorld.EntityManager);
 
@@ -411,13 +405,11 @@ namespace Unity.NetCode.Tests
                     Assert.AreEqual(serverComponentCount - 2, testWorld.ClientWorlds[i].EntityManager.GetComponentTypes(clientGhostQuery.GetSingletonEntity()).Length);
                 }
 
-                HostDataStorage hostData = default;
-                GhostStorage ghostData = default;
-                SaveHostMigrationData(testWorld, ref hostData, ref ghostData);
+                GetHostMigrationData(testWorld, out var migrationData);
 
                 // Destroy current server and create a new one
                 //var oldServer = testWorld.ServerWorld;
-                DisconnectServerAndCreateNewServerWorld(testWorld, ref hostData, ref ghostData);
+                DisconnectServerAndCreateNewServerWorld(testWorld, ref migrationData);
 
                 // Wait until client disconnects
                 for (int i = 0; i < 2; ++i)
@@ -431,14 +423,6 @@ namespace Unity.NetCode.Tests
                 // Need to restore the prefab/ghost collection but normally it would happen via subscene loading during migration
                 CreateHostDataPrefab(testWorld.ServerWorld.EntityManager);
 
-                // Trigger the host migration
-                testWorld.ServerWorld.EntityManager.CreateEntity(ComponentType.ReadOnly<HostMigrationInProgress>());
-                var requestEntity = testWorld.ServerWorld.EntityManager.CreateEntity(ComponentType.ReadOnly<HostMigrationRequest>());
-                testWorld.ServerWorld.EntityManager.SetComponentData(requestEntity, new HostMigrationRequest(){ServerSubScenes = new NativeArray<Entity>(0, Allocator.Temp), ExpectedPrefabCount = 1});
-                // Allow host migration system to run, all the ghost need to spawn before we can handle reconnecting clients
-                for (int i = 0; i < 2; ++i)
-                    testWorld.Tick();
-
                 // One of the clients will be the one local to the host, so we won't reconnect that one (always skip processing client 1 from now on)
                 var ep = NetworkEndpoint.LoopbackIpv4;
                 ep.Port = 7979;
@@ -447,9 +431,6 @@ namespace Unity.NetCode.Tests
                     testWorld.GetSingletonRW<NetworkStreamDriver>(testWorld.ClientWorlds[i]).ValueRW.Connect(testWorld.ClientWorlds[i].EntityManager, ep);
                 for (int i = 0; i < 8; ++i)
                     testWorld.Tick();
-
-                // Copy host migration connection data, will put connection InGame and initialize the ghost collection
-                HandleReconnection(testWorld);
 
                 // TODO: We don't handle connection restore on clients atm, so need to manually place in game
                 for (int i = 1; i < clientCount; ++i)
@@ -496,16 +477,17 @@ namespace Unity.NetCode.Tests
         /// </summary>
         [Test]
 #if USING_UNITY_SERIALIZATION
-        [TestCase(DataStorageMethod.Json)]
-        [TestCase(DataStorageMethod.JsonMinified)]
-        [TestCase(DataStorageMethod.Binary)]
+        [TestCase(DataStorageMethod.Json, 3, 1)]
+        [TestCase(DataStorageMethod.JsonMinified, 3, 1)]
+        [TestCase(DataStorageMethod.Binary, 3, 1)]
 #endif
-        [TestCase(DataStorageMethod.StreamCompressed)]
-        public void SimpleHostMigrationScenario(DataStorageMethod storageMethod)
+        [TestCase(DataStorageMethod.StreamCompressed, 5, 500)]
+        [TestCase(DataStorageMethod.StreamCompressed, 3, 1)]
+        [TestCase(DataStorageMethod.StreamCompressed, 2, 0)]
+        public void SimpleHostMigrationScenario(DataStorageMethod storageMethod, int clientCount, int serverGhostCount)
         {
             if (BurstCompiler.IsEnabled && storageMethod != DataStorageMethod.StreamCompressed)
                 return;
-            int clientCount = 3;
             using (var testWorld = new NetCodeTestWorld())
             {
                 testWorld.Bootstrap(true, typeof(ServerHostMigrationSystem));
@@ -515,7 +497,6 @@ namespace Unity.NetCode.Tests
                 // host migration needs to be able to spawn ghosts normally
                 for (int i = 0; i < clientCount; ++i)
                 {
-                    testWorld.ClientWorlds[i].EntityManager.CreateEntity(ComponentType.ReadOnly<EnableHostMigration>());
                     CreatePrefab(testWorld.ClientWorlds[i].EntityManager);
                     CreatePrefabWithOnlyComponents(testWorld.ClientWorlds[i].EntityManager);
                 }
@@ -540,10 +521,13 @@ namespace Unity.NetCode.Tests
                 var serverPrefabs = testWorld.GetSingletonBuffer<GhostCollectionPrefab>(testWorld.ServerWorld);
                 Assert.AreEqual(prefabCount, serverPrefabs.Length);
 
-                // Add one server owned ghost
-                var serverGhostEntity = testWorld.ServerWorld.EntityManager.Instantiate(serverPrefabs[1].GhostPrefab);
-                testWorld.ServerWorld.EntityManager.SetComponentData(serverGhostEntity, new SomeData() { IntValue = 100, FloatValue = 100f, QuaternionValue = Quaternion.Euler(1,2,3), StringValue = $"HelloWorldHelloWorldHelloWorld" });
-                testWorld.ServerWorld.EntityManager.SetComponentData(serverGhostEntity, new MoreData() { IntValue = 1000, FloatValue = 1000f });
+                // Add server owned ghosts
+                for (int i = 0; i < serverGhostCount; ++i)
+                {
+                    var serverGhostEntity = testWorld.ServerWorld.EntityManager.Instantiate(serverPrefabs[1].GhostPrefab);
+                    testWorld.ServerWorld.EntityManager.SetComponentData(serverGhostEntity, new SomeData() { IntValue = 100 + i, FloatValue = 100f + i, QuaternionValue = Quaternion.Euler(1,2,3), StringValue = $"HelloWorldHelloWorldHelloWorld" });
+                    testWorld.ServerWorld.EntityManager.SetComponentData(serverGhostEntity, new MoreData() { IntValue = 1000 + i, FloatValue = 1000f + i});
+                }
 
                 // Add ghosts for each client on the server and set the owner to client connection
                 for (int i = 0; i < clientCount; ++i)
@@ -562,16 +546,16 @@ namespace Unity.NetCode.Tests
                     anotherBuffer.Add(new AnotherBuffer() { ValueOne = i+3000, ValueTwo = i+4000 });
                 }
 
-                for (int i = 0; i < 4; ++i)
+                for (int i = 0; i < 200; ++i)
                     testWorld.Tick();
 
                 // There should be one spawned ghost for each client + the server owned ghost
                 using var allGhostQuery = testWorld.ServerWorld.EntityManager.CreateEntityQuery(ComponentType.ReadOnly<GhostInstance>());
-                Assert.AreEqual(clientCount + 1, allGhostQuery.CalculateEntityCount());
+                Assert.AreEqual(clientCount + serverGhostCount, allGhostQuery.CalculateEntityCount());
                 for (int i = 0; i < clientCount; ++i)
                 {
                     using var clientGhostQuery = testWorld.ClientWorlds[i].EntityManager.CreateEntityQuery(ComponentType.ReadOnly<GhostInstance>());
-                    Assert.AreEqual(clientCount + 1, clientGhostQuery.CalculateEntityCount());
+                    Assert.AreEqual(clientCount + serverGhostCount, clientGhostQuery.CalculateEntityCount());
                 }
 
                 // Save GhostType of spawned ghost for later
@@ -587,17 +571,23 @@ namespace Unity.NetCode.Tests
                     testWorld.ServerWorld.EntityManager.AddComponentData(serverConnectionEntities[i], new UserConnectionComponent(){ Value1 = i+1, Value2 = 255});
                 }
 
-                HostDataStorage hostData = default;
-                GhostStorage ghostData = default;
-                SaveHostMigrationData(testWorld, ref hostData, ref ghostData);
-
-                // Validate amount of connection components saved matches actual
-                for (int i = 0; i < clientCount; ++i)
-                    Assert.AreEqual(2, hostData.Connections[i].Components.Length);
+                GetHostMigrationData(testWorld, out var migrationData);
 
                 // Destroy current server and create a new one
                 //var oldServer = testWorld.ServerWorld;
-                DisconnectServerAndCreateNewServerWorld(testWorld, ref hostData, ref ghostData);
+                DisconnectServerAndCreateNewServerWorld(testWorld, ref migrationData);
+
+                using var hostMigrationDataQuery = testWorld.ServerWorld.EntityManager.CreateEntityQuery(ComponentType.ReadOnly<HostMigrationData>());
+                var hostMigrationData = hostMigrationDataQuery.ToComponentDataArray<HostMigrationData>(Allocator.Temp);
+                Assert.AreEqual(1, hostMigrationData.Length);
+
+                // Validate amount of connection components saved matches actual
+                for (int i = 0; i < clientCount; ++i)
+                    Assert.AreEqual(2, hostMigrationData[0].HostData.Connections[i].Components.Length);
+
+                // Need to restore the prefab/ghost collection but normally it would happen via subscene loading during migration
+                CreatePrefab(testWorld.ServerWorld.EntityManager);
+                CreatePrefabWithOnlyComponents(testWorld.ServerWorld.EntityManager);
 
                 // Wait until client disconnects
                 for (int i = 0; i < 2; ++i)
@@ -608,18 +598,6 @@ namespace Unity.NetCode.Tests
                     Assert.AreEqual(0, networkIdQuery.CalculateEntityCount());
                 }
 
-                // Need to restore the prefab/ghost collection but normally it would happen via subscene loading during migration
-                CreatePrefab(testWorld.ServerWorld.EntityManager);
-                CreatePrefabWithOnlyComponents(testWorld.ServerWorld.EntityManager);
-
-                // Trigger the host migration
-                testWorld.ServerWorld.EntityManager.CreateEntity(ComponentType.ReadOnly<HostMigrationInProgress>());
-                var requestEntity = testWorld.ServerWorld.EntityManager.CreateEntity(ComponentType.ReadOnly<HostMigrationRequest>());
-                testWorld.ServerWorld.EntityManager.SetComponentData(requestEntity, new HostMigrationRequest(){ServerSubScenes = new NativeArray<Entity>(0, Allocator.Temp), ExpectedPrefabCount = prefabCount});
-                // Allow host migration system to run, all the ghost need to spawn before we can handle reconnecting clients
-                for (int i = 0; i < 2; ++i)
-                    testWorld.Tick();
-
                 // One of the clients will be the one local to the host, so we won't reconnect that one (always skip processing client 1 from now on)
                 var ep = NetworkEndpoint.LoopbackIpv4;
                 ep.Port = 7979;
@@ -628,9 +606,6 @@ namespace Unity.NetCode.Tests
                     testWorld.GetSingletonRW<NetworkStreamDriver>(testWorld.ClientWorlds[i]).ValueRW.Connect(testWorld.ClientWorlds[i].EntityManager, ep);
                 for (int i = 0; i < 8; ++i)
                     testWorld.Tick();
-
-                // Copy host migration connection data, will put connection InGame and initialize the ghost collection
-                HandleReconnection(testWorld);
 
                 // TODO: We don't handle connection restore on clients atm, so need to manually place in game
                 for (int i = 1; i < clientCount; ++i)
@@ -694,17 +669,20 @@ namespace Unity.NetCode.Tests
                     Assert.AreEqual(4000+(i+1), anotherBuffer[1].ValueTwo);
                 }
                 using var serverGhostQuery = testWorld.ServerWorld.EntityManager.CreateEntityQuery(ComponentType.ReadOnly<SomeData>(), ComponentType.ReadOnly<MoreData>());
-                Assert.AreEqual(1, serverGhostQuery.CalculateEntityCount());
+                Assert.AreEqual(serverGhostCount, serverGhostQuery.CalculateEntityCount());
                 var someData = serverGhostQuery.ToComponentDataArray<SomeData>(Allocator.Temp);
                 var moreData = serverGhostQuery.ToComponentDataArray<MoreData>(Allocator.Temp);
-                Assert.AreEqual(new SomeData(){FloatValue = 100f, IntValue = 100, QuaternionValue = Quaternion.Euler(1,2,3), StringValue = "HelloWorldHelloWorldHelloWorld"}, someData[0]);
-                Assert.AreEqual(new MoreData() { IntValue = 1000, FloatValue = 1000f }, moreData[0]);
+                for (int i = 0; i < serverGhostCount - 1; ++i)
+                {
+                    Assert.AreEqual(new SomeData(){ FloatValue = 100f + i, IntValue = 100 + i, QuaternionValue = Quaternion.Euler(1,2,3), StringValue = "HelloWorldHelloWorldHelloWorld"}, someData[i]);
+                    Assert.AreEqual(new MoreData(){ IntValue = 1000 + i, FloatValue = 1000f + i }, moreData[i]);
+                }
                 // TODO: Disposing the original server leads to some EntityQuery disposal shenanigans
                 //oldServer.Dispose();
             }
         }
 
-        static void DisconnectServerAndCreateNewServerWorld(NetCodeTestWorld testWorld, ref HostDataStorage hostData, ref GhostStorage ghostData)
+        static void DisconnectServerAndCreateNewServerWorld(NetCodeTestWorld testWorld, ref NativeArray<byte> migrationData)
         {
             using var serverConnectionQuery = testWorld.ServerWorld.EntityManager.CreateEntityQuery(ComponentType.ReadOnly<NetworkStreamConnection>());
             var connections = serverConnectionQuery.ToComponentDataArray<NetworkStreamConnection>(Allocator.Temp);
@@ -720,11 +698,9 @@ namespace Unity.NetCode.Tests
             serverDriver.ResetDriverStore(testWorld.ServerWorld.Unmanaged, ref driverStore);
             testWorld.ServerWorld = testWorld.CreateServerWorld("HostMigrationServerWorld");
             testWorld.TrySuppressNetDebug(true, true);
-            testWorld.ServerWorld.EntityManager.CreateEntity(ComponentType.ReadOnly<EnableHostMigration>());
             testWorld.Tick();
-            var hostMigrationData = testWorld.GetSingletonRW<HostMigrationData>(testWorld.ServerWorld);
-            hostMigrationData.ValueRW.HostData = hostData;
-            hostMigrationData.ValueRW.Ghosts = ghostData;
+
+            HostMigration.SetHostMigrationData(testWorld.ServerWorld, ref migrationData);
         }
 
         /// <summary>
@@ -744,13 +720,9 @@ namespace Unity.NetCode.Tests
                 // Skip using the test world ghost collection/baking as it requires custom spawning, but the
                 // host migration needs to be able to spawn ghosts normally
                 for (int i = 0; i < clientCount; ++i)
-                {
-                    testWorld.ClientWorlds[i].EntityManager.CreateEntity(ComponentType.ReadOnly<EnableHostMigration>());
                     CreatePrefabWithEnableable(testWorld.ClientWorlds[i].EntityManager);
-                }
                 testWorld.ServerWorld.EntityManager.CreateEntity(ComponentType.ReadOnly<EnableHostMigration>());
                 CreatePrefabWithEnableable(testWorld.ServerWorld.EntityManager);
-                int prefabCount = 1;
 
                 using var driverQuery = testWorld.ServerWorld.EntityManager.CreateEntityQuery(ComponentType.ReadWrite<NetworkStreamDriver>());
 
@@ -794,13 +766,11 @@ namespace Unity.NetCode.Tests
                         Assert.AreEqual(setAsEnabled, testWorld.ClientWorlds[i].EntityManager.IsComponentEnabled<SomeEnableable>(clientGhostEntities[i]));
                 }
 
-                HostDataStorage hostData = default;
-                GhostStorage ghostData = default;
-                SaveHostMigrationData(testWorld, ref hostData, ref ghostData);
+                GetHostMigrationData(testWorld, out var migrationData);
 
                 // Destroy current server and create a new one
                 //var oldServer = testWorld.ServerWorld;
-                DisconnectServerAndCreateNewServerWorld(testWorld, ref hostData, ref ghostData);
+                DisconnectServerAndCreateNewServerWorld(testWorld, ref migrationData);
 
                 // Wait until client disconnects
                 for (int i = 0; i < 2; ++i)
@@ -814,14 +784,6 @@ namespace Unity.NetCode.Tests
                 // Need to restore the prefab/ghost collection but normally it would happen via subscene loading during migration
                 CreatePrefabWithEnableable(testWorld.ServerWorld.EntityManager);
 
-                // Trigger the host migration
-                testWorld.ServerWorld.EntityManager.CreateEntity(ComponentType.ReadOnly<HostMigrationInProgress>());
-                var requestEntity = testWorld.ServerWorld.EntityManager.CreateEntity(ComponentType.ReadOnly<HostMigrationRequest>());
-                testWorld.ServerWorld.EntityManager.SetComponentData(requestEntity, new HostMigrationRequest(){ServerSubScenes = new NativeArray<Entity>(0, Allocator.Temp), ExpectedPrefabCount = prefabCount});
-                // Allow host migration system to run, all the ghost need to spawn before we can handle reconnecting clients
-                for (int i = 0; i < 2; ++i)
-                    testWorld.Tick();
-
                 // One of the clients will be the one local to the host, so we won't reconnect that one (always skip processing client 1 from now on)
                 var ep = NetworkEndpoint.LoopbackIpv4;
                 ep.Port = 7979;
@@ -830,9 +792,6 @@ namespace Unity.NetCode.Tests
                     testWorld.GetSingletonRW<NetworkStreamDriver>(testWorld.ClientWorlds[i]).ValueRW.Connect(testWorld.ClientWorlds[i].EntityManager, ep);
                 for (int i = 0; i < 8; ++i)
                     testWorld.Tick();
-
-                // Copy host migration connection data, will put connection InGame and initialize the ghost collection
-                HandleReconnection(testWorld);
 
                 // TODO: We don't handle connection restore on clients atm, so need to manually place in game
                 for (int i = 1; i < clientCount; ++i)
@@ -877,10 +836,7 @@ namespace Unity.NetCode.Tests
                 testWorld.CreateWorlds(true, clientCount);
 
                 for (int i = 0; i < clientCount; ++i)
-                {
-                    testWorld.ClientWorlds[i].EntityManager.CreateEntity(ComponentType.ReadOnly<EnableHostMigration>());
                     CreatePrefabWithInputs(testWorld.ClientWorlds[i].EntityManager);
-                }
                 testWorld.ServerWorld.EntityManager.CreateEntity(ComponentType.ReadOnly<EnableHostMigration>());
                 CreatePrefabWithInputs(testWorld.ServerWorld.EntityManager);
 
@@ -929,11 +885,11 @@ namespace Unity.NetCode.Tests
                     testWorld.Tick();
                 }
 
-                HostDataStorage hostData = default;
-                GhostStorage ghostData = default;
-                SaveHostMigrationData(testWorld, ref hostData, ref ghostData);
+                GetHostMigrationData(testWorld, out var migrationData);
 
-                DisconnectServerAndCreateNewServerWorld(testWorld, ref hostData, ref ghostData);
+                // Destroy current server and create a new one
+                //var oldServer = testWorld.ServerWorld;
+                DisconnectServerAndCreateNewServerWorld(testWorld, ref migrationData);
 
                 // We can't see exactly what components were added to the ghost data part of the host migration data, but we can
                 // verify the expected size
@@ -941,22 +897,15 @@ namespace Unity.NetCode.Tests
                 //   Unity.Transforms.LocalTransform - 32 bytes
                 //   Unity.NetCode.Tests.HostMigrationTests+SomeData - 152 bytes
                 //   Unity.NetCode.AutoCommandTarget - 1 bytes
-                foreach (var ghost in ghostData.Ghosts)
+                using var hostMigrationDataQuery = testWorld.ServerWorld.EntityManager.CreateEntityQuery(ComponentType.ReadOnly<HostMigrationData>());
+                var hostMigrationData = hostMigrationDataQuery.ToComponentDataArray<HostMigrationData>(Allocator.Temp);
+                Assert.AreEqual(1, hostMigrationData.Length);
+                foreach (var ghost in hostMigrationData[0].Ghosts.Ghosts)
                     Assert.AreEqual(189, ghost.Data.Length);
 
-                testWorld.ServerWorld.EntityManager.CreateEntity(ComponentType.ReadOnly<HostMigrationInProgress>());
-                var requestEntity = testWorld.ServerWorld.EntityManager.CreateEntity(ComponentType.ReadOnly<HostMigrationRequest>());
-                testWorld.ServerWorld.EntityManager.SetComponentData(requestEntity, new HostMigrationRequest(){ServerSubScenes = new NativeArray<Entity>(0, Allocator.Temp), ExpectedPrefabCount = 1});
-                // Allow host migration system to run, all the ghost need to spawn before we can handle reconnecting clients
-                for (int i = 0; i < 2; ++i)
-                    testWorld.Tick();
-
                 CreatePrefabWithInputs(testWorld.ServerWorld.EntityManager);
-                using var newdriverQuery = testWorld.ServerWorld.EntityManager.CreateEntityQuery(ComponentType.ReadWrite<NetworkStreamDriver>());
 
                 testWorld.Connect(maxSteps:10);
-
-                HandleReconnection(testWorld);
 
                 // TODO: We don't handle connection restore on clients atm, so need to manually place in game
                 for (int i = 1; i < clientCount; ++i)
@@ -995,15 +944,12 @@ namespace Unity.NetCode.Tests
                 // Create two different types of prefabs, to ensure the chunks are iterated properly when copying data as these will be two different chunks
                 for (int i = 0; i < clientCount; i++)
                 {
-                    testWorld.ClientWorlds[i].EntityManager.CreateEntity(ComponentType.ReadOnly<EnableHostMigration>());
                     CreatePrefab(testWorld.ClientWorlds[i].EntityManager);
                     CreatePrefabTypeTwo(testWorld.ClientWorlds[i].EntityManager);
                 }
                 testWorld.ServerWorld.EntityManager.CreateEntity(ComponentType.ReadOnly<EnableHostMigration>());
                 CreatePrefab(testWorld.ServerWorld.EntityManager);
                 CreatePrefabTypeTwo(testWorld.ServerWorld.EntityManager);
-
-                using var driverQuery = testWorld.ServerWorld.EntityManager.CreateEntityQuery(ComponentType.ReadWrite<NetworkStreamDriver>());
 
                 testWorld.Connect(maxSteps:10);
                 testWorld.GoInGame();
@@ -1042,25 +988,16 @@ namespace Unity.NetCode.Tests
                     Assert.AreEqual(clientCount+miscEntityCount, clientGhostQuery.CalculateEntityCount());
                 }
 
-                HostDataStorage hostData = default;
-                GhostStorage ghostData = default;
-                SaveHostMigrationData(testWorld, ref hostData, ref ghostData);
+                GetHostMigrationData(testWorld, out var migrationData);
 
                 // Destroy current server and create a new one
-                DisconnectServerAndCreateNewServerWorld(testWorld, ref hostData, ref ghostData);
+                //var oldServer = testWorld.ServerWorld;
+                DisconnectServerAndCreateNewServerWorld(testWorld, ref migrationData);
 
                 // Need to restore the prefab/ghost collection but normally it would happen via subscene loading during migration
                 // Create the prefabs in reverse order to the ghost type index would not match between old/new servers
                 CreatePrefabTypeTwo(testWorld.ServerWorld.EntityManager);
                 CreatePrefab(testWorld.ServerWorld.EntityManager);
-
-                // Trigger the host migration
-                testWorld.ServerWorld.EntityManager.CreateEntity(ComponentType.ReadOnly<HostMigrationInProgress>());
-                var requestEntity = testWorld.ServerWorld.EntityManager.CreateEntity(ComponentType.ReadOnly<HostMigrationRequest>());
-                testWorld.ServerWorld.EntityManager.SetComponentData(requestEntity, new HostMigrationRequest(){ServerSubScenes = new NativeArray<Entity>(0, Allocator.Temp), ExpectedPrefabCount = 2});
-                // Allow host migration system to run, all the ghost need to spawn before we can handle reconnecting clients
-                for (int i = 0; i < 2; ++i)
-                    testWorld.Tick();
 
                 // One of the clients will be the one local to the host, so we won't reconnect that one (always skip processing client 1 from now on)
                 var ep = NetworkEndpoint.LoopbackIpv4;
@@ -1070,8 +1007,6 @@ namespace Unity.NetCode.Tests
                     testWorld.GetSingletonRW<NetworkStreamDriver>(testWorld.ClientWorlds[i]).ValueRW.Connect(testWorld.ClientWorlds[i].EntityManager, ep);
                 for (int i = 0; i < 8; ++i)
                     testWorld.Tick();
-
-                HandleReconnection(testWorld);
 
                 // TODO: We don't handle connection restore on clients atm, so need to manually place in game
                 for (int i = 1; i < clientCount; ++i)
@@ -1096,7 +1031,7 @@ namespace Unity.NetCode.Tests
             }
         }
 
-        static void SaveHostMigrationData(NetCodeTestWorld testWorld, ref HostDataStorage hostData, ref GhostStorage ghostData)
+        static void GetHostMigrationData(NetCodeTestWorld testWorld, out NativeArray<byte> migrationData)
         {
             var currentTime = testWorld.ServerWorld.Time.ElapsedTime;
             var migrationStats = testWorld.GetSingleton<HostMigrationStats>(testWorld.ServerWorld);
@@ -1108,37 +1043,10 @@ namespace Unity.NetCode.Tests
                 if (testWorld.ServerWorld.Time.ElapsedTime > timeout)
                     Assert.Fail("Timeout while waiting for host migration data update");
             }
-
-            var hostMigrationData = testWorld.GetSingleton<HostMigrationData>(testWorld.ServerWorld);
-            hostData = HostMigration.DecodeHostData(hostMigrationData.HostDataBlob.AsArray().Slice());
-
-            var hostMigrationConfig = testWorld.GetSingleton<HostMigrationConfig>(testWorld.ServerWorld);
-            if (hostMigrationConfig.StorageMethod == DataStorageMethod.StreamCompressed)
-            {
-                var ghostDataRaw = new NativeList<byte>(hostMigrationData.GhostDataBlob.AsArray().Length, Allocator.Temp);
-                ghostDataRaw.CopyFrom(hostMigrationData.GhostDataBlob.AsArray());
-                var compressedGhostData = new NativeList<byte>(hostMigrationData.GhostDataBlob.AsArray().Length, Allocator.Temp);
-                HostMigration.CompressGhostData(ghostDataRaw, compressedGhostData);
-                ghostData = HostMigration.DecodeGhostData(testWorld.ServerWorld.EntityManager, compressedGhostData.AsArray().Slice());
-            }
-            else
-            {
-                ghostData = HostMigration.DecodeGhostData(testWorld.ServerWorld.EntityManager, hostMigrationData.GhostDataBlob.AsArray().Slice());
-            }
-        }
-
-        static void HandleReconnection(NetCodeTestWorld testWorld)
-        {
-            using var newServerConnectionQuery = testWorld.ServerWorld.EntityManager.CreateEntityQuery(ComponentType.ReadOnly<ConnectionUniqueId>());
-            var serverConnectionEntities = newServerConnectionQuery.ToEntityArray(Allocator.Temp);
-            var serverConnections = newServerConnectionQuery.ToComponentDataArray<ConnectionUniqueId>(Allocator.Temp);
-            var hostMigrationData = testWorld.GetSingleton<HostMigrationData>(testWorld.ServerWorld);
-            var commandBuffer = new EntityCommandBuffer(Allocator.Temp);
-            for (int i = 0; i < serverConnectionEntities.Length; ++i)
-                HostMigration.HandleReconnection(hostMigrationData.HostData.Connections, commandBuffer, serverConnectionEntities[i], serverConnections[i]);
-            commandBuffer.Playback(testWorld.ServerWorld.EntityManager);
-            for (int i = 0; i < serverConnectionEntities.Length; ++i)
-                Assert.IsTrue(HostMigration.RestoreConnectionComponentData(hostMigrationData.HostData.Connections, testWorld.ServerWorld.EntityManager, serverConnectionEntities[i], serverConnections[i]));
+            migrationData = new NativeArray<byte>(0, Allocator.Temp);
+            HostMigration.TryGetHostMigrationData(testWorld.ServerWorld, ref migrationData, out var size);
+            migrationData = new NativeArray<byte>(size, Allocator.Temp);
+            HostMigration.TryGetHostMigrationData(testWorld.ServerWorld, ref migrationData, out size);
         }
 
         static Entity CreateHostDataPrefab(EntityManager entityManager)

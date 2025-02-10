@@ -789,7 +789,7 @@ namespace Unity.NetCode
             WriteHostData(ref writer);
             while (writer.HasFailedWrites)
             {
-                hostDataBlob.ResizeUninitialized(hostDataBlob.Capacity*2);
+                writer = new DataStreamWriter(2*writer.Capacity, Allocator.Temp);
                 WriteHostData(ref writer);
                 if (writer.Length > 100_000)
                 {

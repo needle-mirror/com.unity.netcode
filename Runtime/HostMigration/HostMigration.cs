@@ -27,8 +27,6 @@ namespace Unity.NetCode
     /// </summary>
     public static class HostMigration
     {
-        static readonly ushort k_LocalPort = 38000;
-
         internal struct Data
         {
             // Flag for if a ghost type has had the server-only components scanned and added to the below hashmap
@@ -43,96 +41,107 @@ namespace Unity.NetCode
         /// Get the host migration data which has been collected by the host migration system. There
         /// is no limit enforced on the total size of the migration data.
         /// </summary>
+        /// <param name="world">The world where the migration data is stored</param>
         /// <param name="data">Destination list to copy the data, this will be resized if it is too small to store all the data</param>
-        public static void GetHostMigrationData(ref NativeList<byte> data)
+        public static void GetHostMigrationData(World world, ref NativeList<byte> data)
         {
-            var serverWorld = ClientServerBootstrap.ServerWorld;
-            var hostMigrationDataQuery = serverWorld.EntityManager.CreateEntityQuery(ComponentType.ReadWrite<HostMigrationData>());
+            var hostMigrationDataQuery = world.EntityManager.CreateEntityQuery(ComponentType.ReadWrite<HostMigrationData>());
             var hostMigrationData = hostMigrationDataQuery.GetSingletonRW<HostMigrationData>();
             var hostData = hostMigrationData.ValueRO.HostDataBlob;
             var ghostData = hostMigrationData.ValueRO.GhostDataBlob;
 
+            var compressedGhostData = new NativeList<byte>(ghostData.Length, Allocator.Temp);
+            CompressGhostData(world, ghostData, compressedGhostData);
+
             // This is the required size for host/ghost data + headers for each
-            var size = hostData.Length + ghostData.Length + sizeof(int) + sizeof(int);
+            var size = hostData.Length + compressedGhostData.Length + sizeof(int) + sizeof(int);
             if (data.Length < size)
                 data.Resize(size*2, NativeArrayOptions.ClearMemory);
 
             var dataArray = data.AsArray();
-            CopyMigrationData(ref dataArray, hostData, ghostData);
+            CopyMigrationData(ref dataArray, hostData, compressedGhostData);
         }
 
         /// <summary>
         /// Get the host migration data which has been collected by the host migration system. There
         /// is no limit enforced on the total size of the migration data.
         /// </summary>
+        /// <param name="world">The world where the migration data is stored</param>
         /// <param name="data">Destination buffer to copy the data into</param>
         /// <param name="size">The required size of the host data, this can be used to resize the destination buffer if it is too small</param>
         /// <returns>True if the data was successfully copied</returns>
-        public static bool TryGetHostMigrationData(ref NativeArray<byte> data, out int size)
+        public static bool TryGetHostMigrationData(World world, ref NativeArray<byte> data, out int size)
         {
             // TODO: Cache this query, could pass in a SystemState and use GetEntityQuery, or use singleton pattern
-            var serverWorld = ClientServerBootstrap.ServerWorld;
-            using var hostMigrationDataQuery = serverWorld.EntityManager.CreateEntityQuery(ComponentType.ReadWrite<HostMigrationData>());
+            using var hostMigrationDataQuery = world.EntityManager.CreateEntityQuery(ComponentType.ReadWrite<HostMigrationData>());
             var hostMigrationData = hostMigrationDataQuery.GetSingletonRW<HostMigrationData>();
             var hostData = hostMigrationData.ValueRO.HostDataBlob;
             var ghostData = hostMigrationData.ValueRO.GhostDataBlob;
 
+            using var configQuery = world.EntityManager.CreateEntityQuery(ComponentType.ReadWrite<HostMigrationConfig>());
+            var config = configQuery.GetSingleton<HostMigrationConfig>();
+            var ghostDataSize = ghostData.Length;
+            var compressedGhostData = new NativeList<byte>(ghostData.Length, Allocator.Temp);
+            ref var targetGhostData = ref ghostData;
+            if (config.StorageMethod == DataStorageMethod.StreamCompressed)
+            {
+                CompressGhostData(world, ghostData, compressedGhostData);
+                ghostDataSize = compressedGhostData.Length;
+                targetGhostData = ref compressedGhostData;
+            }
+
             // This is the required size for host/ghost data + headers for each
-            size = hostData.Length + ghostData.Length + sizeof(int) + sizeof(int);
+            size = hostData.Length + ghostDataSize + sizeof(int) + sizeof(int);
             if (data.Length < size)
                 return false;
 
-            CopyMigrationData(ref data, hostData, ghostData);
+            CopyMigrationData(ref data, hostData, targetGhostData);
             return true;
         }
 
-        static unsafe void CopyMigrationData(ref NativeArray<byte> data, NativeList<byte> hostData, NativeList<byte> ghostData)
+        static unsafe void CopyMigrationData(ref NativeArray<byte> destinationBuffer, NativeList<byte> hostData, NativeList<byte> ghostData)
         {
-            // Copy host data size + buffer into destination buffer
-            var dataPtr = (IntPtr)data.GetUnsafePtr();
+            // Copy host data size + host data into destination buffer
+            var dataPtr = (IntPtr)destinationBuffer.GetUnsafePtr();
             var offset = 0;
             int* header = (int*)dataPtr;
-            int hostDataSize = hostData.Length;
-            *header = hostDataSize;
+            *header = hostData.Length;
             offset += sizeof(int);
-            UnsafeUtility.MemCpy((void*)(dataPtr + offset), hostData.GetUnsafePtr(), hostDataSize);
-            offset += hostDataSize;
+            UnsafeUtility.MemCpy((void*)(dataPtr + offset), hostData.GetUnsafeReadOnlyPtr(), hostData.Length);
 
-            var serverWorld = ClientServerBootstrap.ServerWorld;
-            using var configQuery = serverWorld.EntityManager.CreateEntityQuery(ComponentType.ReadWrite<HostMigrationConfig>());
-            var config = configQuery.GetSingleton<HostMigrationConfig>();
-
-            int ghostDataSize = ghostData.Length;
-            void* ghostDataPtr = ghostData.GetUnsafePtr();
-            // Compress and encode ghost data before copying when using StreamCompressed method
-            if (config.StorageMethod == DataStorageMethod.StreamCompressed)
-            {
-                var compressedGhostData = new NativeList<byte>(ghostData.Length, Allocator.Temp);
-                CompressGhostData(ghostData, compressedGhostData);
-                ghostDataSize = compressedGhostData.Length;
-                ghostDataPtr = compressedGhostData.GetUnsafePtr();
-            }
-
-            // Copy ghost data size + buffer into destination buffer behind the host data
+            // Copy ghost data size + ghost data into destination buffer behind the host data
+            offset += hostData.Length;
             header = (int*)(dataPtr + offset);
-            *header = ghostDataSize;
+            *header = ghostData.Length;
             offset += sizeof(int);
-            UnsafeUtility.MemCpy((void*)(dataPtr + offset), ghostDataPtr, ghostDataSize);
+            UnsafeUtility.MemCpy((void*)(dataPtr + offset), ghostData.GetUnsafeReadOnlyPtr(), ghostData.Length);
         }
 
-        internal static unsafe void CompressGhostData(NativeList<byte> ghostDataRaw, NativeList<byte> ghostDataBlob)
+        /// <summary>
+        /// Compress the ghost data if compression is enabled in the host migration configuration.
+        /// The compressed data is copied back into the given list.
+        /// </summary>
+        internal static unsafe void CompressGhostData(World world, NativeList<byte> ghostData, NativeList<byte> compressedGhostData)
         {
-            using var outputStream = new MemoryStream();
-            using var compressor = new BrotliStream(outputStream, System.IO.Compression.CompressionLevel.Fastest);
-            compressor.Write(ghostDataRaw.AsArray().AsReadOnlySpan());
-            compressor.Flush();
-            var compressed = Convert.ToBase64String(outputStream.ToArray());
-            var stringBytes = Encoding.UTF8.GetBytes(compressed);
-            fixed (byte* stringPtr = stringBytes)
+            using var configQuery = world.EntityManager.CreateEntityQuery(ComponentType.ReadWrite<HostMigrationConfig>());
+            var config = configQuery.GetSingleton<HostMigrationConfig>();
+
+            if (config.StorageMethod == DataStorageMethod.StreamCompressed)
             {
-                ghostDataBlob.AddRange(stringPtr, stringBytes.Length);
+                using var outputStream = new MemoryStream();
+                using var compressor = new BrotliStream(outputStream, System.IO.Compression.CompressionLevel.Fastest);
+                compressor.Write(ghostData.AsArray().AsReadOnlySpan());
+                compressor.Flush();
+                var compressed = Convert.ToBase64String(outputStream.ToArray());
+                var stringBytes = Encoding.UTF8.GetBytes(compressed);
+
+                // Copy compressed data back into the host migration data ghost list
+                fixed (byte* stringPtr = stringBytes)
+                {
+                    compressedGhostData.AddRange(stringPtr, stringBytes.Length);
+                }
+                compressedGhostData.Add(0);
             }
-            ghostDataBlob.Add(0);
         }
 
         /// <summary>
@@ -195,10 +204,15 @@ namespace Unity.NetCode
         }
 
         /// <summary>
-        /// Take the given host and ghost data blobs and start the host migration process. This also starts loading
-        /// the entity scenes the host previously had loaded. The NetworkDriverStore and NetworkDriver in the
-        /// new server world needs to be created appropriately, the driver constructor will need to be capable of
-        /// setting up the relay connection. The client will switch from relay to local IPC connection to the server world.
+        /// Optional helper method to assist with the operations needed during a host migration process. <see cref="SetHostMigrationData"/>
+        /// can also be called directly with a server world which has been manually set up to resume hosting
+        /// with a given host migration data.
+        ///
+        /// Takes the given host migration data and starts the host migration process. This starts loading
+        /// the entity scenes the host previously had loaded (if any). The <see cref="NetworkDriverStore"/> and <see cref="NetworkDriver"/> in the
+        /// new server world will be created appropriately, the driver constructor will need to be capable of
+        /// setting up the relay connection with the given constructor. The local client world will switch from relay to
+        /// local IPC connection to the server world.
         /// </summary>
         /// <param name="driverConstructor">The network driver constructor registered in the new server world and also in the client world.</param>
         /// <param name="migrationData">The data blob containing host migration data, deployed to the new server world.</param>
@@ -208,24 +222,24 @@ namespace Unity.NetCode
             var oldConstructor = NetworkStreamReceiveSystem.DriverConstructor;
             NetworkStreamReceiveSystem.DriverConstructor = driverConstructor;
             var serverWorld = ClientServerBootstrap.CreateServerWorld("ServerWorld");
-            serverWorld.EntityManager.CreateEntity(ComponentType.ReadOnly<EnableHostMigration>());
             NetworkStreamReceiveSystem.DriverConstructor = oldConstructor;
 
             if (migrationData.Length == 0)
                 Debug.LogWarning($"No host migration data given during host migration, no data will be deployed.");
             else
-                MigrateServerData(serverWorld, ref migrationData);
+                SetHostMigrationData(serverWorld, ref migrationData);
 
             using var serverDriverQuery = serverWorld.EntityManager.CreateEntityQuery(ComponentType.ReadWrite<NetworkStreamDriver>());
-            if (!serverDriverQuery.GetSingletonRW<NetworkStreamDriver>().ValueRW
-                    .Listen(NetworkEndpoint.AnyIpv4.WithPort(k_LocalPort)))
+            var serverDriver = serverDriverQuery.GetSingletonRW<NetworkStreamDriver>();
+            if (!serverDriver.ValueRW.Listen(NetworkEndpoint.AnyIpv4))
             {
                 Debug.LogError($"NetworkStreamDriver.Listen() failed");
                 return false;
             }
+            var ipcPort = serverDriver.ValueRW.GetLocalEndPoint(serverDriver.ValueRW.DriverStore.FirstDriver).Port;
 
             // The client driver needs to be recreated, and then directly connected to new server world via IPC
-            return ConfigureClientAndConnect(ClientServerBootstrap.ClientWorld, driverConstructor, NetworkEndpoint.LoopbackIpv4.WithPort(k_LocalPort));
+            return ConfigureClientAndConnect(ClientServerBootstrap.ClientWorld, driverConstructor, NetworkEndpoint.LoopbackIpv4.WithPort(ipcPort));
         }
 
         /// <summary>
@@ -263,50 +277,70 @@ namespace Unity.NetCode
             return true;
         }
 
-        static unsafe void MigrateServerData(World server, ref NativeArray<byte> migrationData)
+        /// <summary>
+        /// Deploy the given host migration data in the given world. The data needs to be collected
+        /// by <see cref="GetHostMigrationData"/> and contains all the ghost data and specific host configuration data
+        /// needed to set up the netcode state.
+        /// </summary>
+        /// <param name="world">Destination world to deploy the migration data</param>
+        /// <param name="migrationData">Host migration data collected by the host migration system</param>
+        public static unsafe void SetHostMigrationData(World world, ref NativeArray<byte> migrationData)
         {
             // Extract host data part
             int hostDataSize = 0;
             UnsafeUtility.MemCpy(UnsafeUtility.AddressOf(ref hostDataSize), (void*)migrationData.GetUnsafePtr(), sizeof(int));
+            if (hostDataSize + sizeof(int) > migrationData.Length)
+            {
+                Debug.LogError($"Invalid host migration data: Trying to read {hostDataSize} host data bytes, but buffer only has {migrationData.Length - sizeof(int)} bytes left");
+                return;
+            }
             var hostData = new NativeSlice<byte>(migrationData, sizeof(int), hostDataSize);
 
             // Extract ghost data part
             var ghostDataPtr = (IntPtr)migrationData.GetUnsafePtr() + sizeof(int) + hostDataSize;
             int ghostDataSize = 0;
+            int ghostDataStart = 2 * sizeof(int) + hostDataSize;    // where the ghost data portion will begin in the migration buffer
             UnsafeUtility.MemCpy(UnsafeUtility.AddressOf(ref ghostDataSize), (void*)ghostDataPtr, sizeof(int));
+            if (ghostDataSize + ghostDataStart > migrationData.Length)
+            {
+                Debug.LogError($"Invalid host migration data: Trying to read {ghostDataSize} ghost data bytes, but buffer only has {migrationData.Length - ghostDataStart} bytes left");
+                return;
+            }
             var ghostData = new NativeSlice<byte>(migrationData, 2*sizeof(int) + hostDataSize, ghostDataSize);
 
             Debug.Log($"Migrating server data, host data size = {hostDataSize}, ghost data size = {ghostDataSize}");
-            var hostMigrationDataQuery = server.EntityManager.CreateEntityQuery(ComponentType.ReadWrite<HostMigrationData>());
+            var hostMigrationDataQuery = world.EntityManager.CreateEntityQuery(ComponentType.ReadWrite<HostMigrationData>());
             var hostMigrationData = hostMigrationDataQuery.GetSingletonRW<HostMigrationData>();
             hostMigrationData.ValueRW.HostData = DecodeHostData(hostData);
 
             var config = hostMigrationData.ValueRW.HostData.Config;
-            using var configQuery = server.EntityManager.CreateEntityQuery(ComponentType.ReadOnly<HostMigrationConfig>());
-            server.EntityManager.SetComponentData(configQuery.GetSingletonEntity(), config);
+            using var configQuery = world.EntityManager.CreateEntityQuery(ComponentType.ReadOnly<HostMigrationConfig>());
+            world.EntityManager.SetComponentData(configQuery.GetSingletonEntity(), config);
             Debug.Log($"Setting host migration configuration StoreOwnGhosts={config.StoreOwnGhosts} StorageMethod={config.StorageMethod} MigrationTimeout={config.MigrationTimeout} ServerUpdateInterval={config.ServerUpdateInterval}");
 
-            hostMigrationData.ValueRW.Ghosts = DecodeGhostData(server.EntityManager, ghostData);
+            hostMigrationData.ValueRW.Ghosts = DecodeGhostData(world.EntityManager, ghostData);
 
             // TODO: It appears this does not work
-            server.SetTime(new TimeData(hostMigrationData.ValueRO.HostData.ElapsedTime, 0));
+            world.SetTime(new TimeData(hostMigrationData.ValueRO.HostData.ElapsedTime, 0));
 
-            using var networkTimeQuery = server.EntityManager.CreateEntityQuery(ComponentType.ReadWrite<NetworkTime>());
+            using var networkTimeQuery = world.EntityManager.CreateEntityQuery(ComponentType.ReadWrite<NetworkTime>());
             var networkTime = networkTimeQuery.GetSingletonRW<NetworkTime>();
             networkTime.ValueRW.ServerTick.SerializedData = hostMigrationData.ValueRO.HostData.ServerTick;
             networkTime.ValueRW.ElapsedNetworkTime = hostMigrationData.ValueRO.HostData.ElapsedNetworkTime;
             Debug.Log($"Setting server state: ElapsedTime={hostMigrationData.ValueRO.HostData.ElapsedTime} ServerTick={networkTime.ValueRW.ServerTick.TickValue} ElapsedNetworkTime={hostMigrationData.ValueRO.HostData.ElapsedNetworkTime}");
 
+            world.EntityManager.CreateEntity(ComponentType.ReadOnly<EnableHostMigration>());
+
             // Trigger server host migration system
-            var requestEntity = server.EntityManager.CreateEntity(ComponentType.ReadOnly<HostMigrationRequest>());
+            var requestEntity = world.EntityManager.CreateEntity(ComponentType.ReadOnly<HostMigrationRequest>());
             var sceneEntities = new NativeArray<Entity>(hostMigrationData.ValueRO.HostData.SubScenes.Length, Allocator.Persistent);
             for (int i = 0; i < hostMigrationData.ValueRO.HostData.SubScenes.Length; ++i)
             {
                 Debug.Log($"[HostMigration] Server world loading {hostMigrationData.ValueRO.HostData.SubScenes[i].SubSceneGuid.ToString()}");
-                sceneEntities[i] = SceneSystem.LoadSceneAsync(server.Unmanaged, hostMigrationData.ValueRO.HostData.SubScenes[i].SubSceneGuid);
+                sceneEntities[i] = SceneSystem.LoadSceneAsync(world.Unmanaged, hostMigrationData.ValueRO.HostData.SubScenes[i].SubSceneGuid);
             }
-            server.EntityManager.SetComponentData(requestEntity, new HostMigrationRequest(){ServerSubScenes = sceneEntities, ExpectedPrefabCount = hostMigrationData.ValueRW.Ghosts.GhostPrefabs.Length});
-            server.EntityManager.CreateEntity(ComponentType.ReadOnly<HostMigrationInProgress>());
+            world.EntityManager.SetComponentData(requestEntity, new HostMigrationRequest(){ServerSubScenes = sceneEntities, ExpectedPrefabCount = hostMigrationData.ValueRW.Ghosts.GhostPrefabs.Length});
+            world.EntityManager.CreateEntity(ComponentType.ReadOnly<HostMigrationInProgress>());
         }
 
         internal static void SerializeGhostData(ref GhostStorage ghosts, NativeList<byte> ghostDataBlob)
@@ -384,8 +418,7 @@ namespace Unity.NetCode
                 {
                     if (ghostComponent.PrefabType == GhostPrefabType.Server)
                     {
-                        var typeInfo = TypeManager.GetTypeInfo(ghostComponent.ComponentType.TypeIndex);
-                        if (ghostComponent.ComponentType.IsComponent && typeInfo.SizeInChunk == 0)
+                        if (ghostComponent.ComponentType.IsZeroSized)
                             continue;
                         allServerOnlyComponents.Add(ghostComponent.ComponentType);
                     }
@@ -398,8 +431,7 @@ namespace Unity.NetCode
                 {
                     if (allServerOnlyComponents.Contains(componentType))
                     {
-                        var typeInfo = TypeManager.GetTypeInfo(componentType.TypeIndex);
-                        if (componentType.IsComponent && typeInfo.SizeInChunk == 0)
+                        if (componentType.IsZeroSized)
                             continue;
                         serverOnlyComponents.Add(componentType);
                     }
@@ -689,6 +721,12 @@ namespace Unity.NetCode
 //             var dataPtr = (sbyte*)data.GetUnsafePtr();
 //             return JsonSerialization.FromJson<HostDataStorage>(new string(dataPtr), parameters);
 // #else
+            if (data.Length == 0)
+            {
+                Debug.LogError("Empty buffer given when decoding host data.");
+                return default;
+            }
+
             // TODO: Avoid this copy, data reader could just support slices
             var toArray = new NativeArray<byte>(data.Length, Allocator.Temp);
             UnsafeUtility.MemCpy(toArray.GetUnsafePtr(), data.GetUnsafeReadOnlyPtr(), data.Length);
