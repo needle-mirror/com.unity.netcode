@@ -105,6 +105,24 @@ namespace Unity.NetCode
             return new NetworkTick{SerializedData = *(uint*)snapshotData};
         }
         /// <summary>
+        /// Returns the snapshot index 'reverseOffset' back from the 'LatestIndex'. So 0 will return the snapshot index at LatestIndex
+        /// 12 will return the snapshot index at LatestIndex-12 correcly wrapping if the index goes negative
+        /// </summary>
+        /// <param name="reverseOffset"></param>
+        /// <returns>The snapshot index 'reverseOffset' back from the LatestIndex, returns null on an error </returns>
+        internal unsafe int GetPreviousSnapshotIndexAtOffset(int reverseOffset)
+        {
+            if (reverseOffset > GhostSystemConstants.SnapshotHistorySize)
+                return LatestIndex;
+
+            var previousIndex = (LatestIndex - reverseOffset);
+            if (previousIndex < 0)
+            {
+                previousIndex += GhostSystemConstants.SnapshotHistorySize;
+            }
+            return previousIndex;
+        }
+        /// <summary>
         /// Determine it the latest snapshot received by the server has not changes (all changemasks were 0).
         /// </summary>
         /// <param name="buffer"></param>

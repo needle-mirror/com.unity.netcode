@@ -15,14 +15,14 @@ For more general information about host migration in Netcode for Entities, refer
 ## Sample steps
 
 1. Create a new Unity project and link it to a project ID as described in the [requirements](#requirements).
-	* Optionally, navigate to **Lobby** > **Config** in the Unity Cloud Dashboard and change the **Disconnect Removal Timeout** to 10s and **Disconnect Host Migration Time** to 5s.
+    * Optionally, navigate to **Lobby** > **Config** in the Unity Cloud Dashboard and change the **Active Lifespan** to 120s, **Disconnect Removal Timeout** to 60s and **Disconnect Host Migration Time** to 5s.
 2. Open the Multiplayer Play Mode window by navigating to **Window** > **Multiplayer Play Mode** and start two virtual player instances. Set both to **Client and Server** roles.
 3. Enter Play mode in the _Frontend_ scene (inside _Assets/Samples/HelloNetcode/1_Basics/01_BootstrapAndFrontend_) and select the _Asteroids_ sample in the drop-down list. Select the **Enable Host Migration** toggle.
     * If you change the lobby name, make sure it's also changed on all other instances.
     * To spawn the player ship press the **spacebar** key
 4. Pick the Editor or one of the virtual players to run as the initial host and select **Start Client & Server**.
 5. Wait for the host migration statistics to appear in the lower right corner. When they appear, the lobby connection is ready to handle host migrations.
-   	* The lower right corner also displays whether the connected instance is a server or client.
+    * The lower right corner also displays whether the connected instance is a server or client.
 6. In the other instances, select **Join Existing Game**.
 7. Select the **Return To Main Menu** button in the corner on the host to exit the game and lobby and trigger a host migration.
     * To trigger a host migration with a timeout it's better to use a standalone build and terminate the player

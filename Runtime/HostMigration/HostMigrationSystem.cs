@@ -190,8 +190,10 @@ namespace Unity.NetCode
         public NativeArray<HostSubSceneData> SubScenes;
         public HostMigrationConfig Config;
         public double ElapsedTime;
-        public uint ServerTick;
+        public NetworkTick ServerTick;
         public double ElapsedNetworkTime;
+        public int NextNewGhostId;
+        public int NextNewPrespawnGhostId;
     }
 
     struct GhostStorage
@@ -216,9 +218,19 @@ namespace Unity.NetCode
         /// </summary>
         public int GhostId;
         /// <summary>
+        /// The spawn tick of this ghost
+        /// </summary>
+        public NetworkTick SpawnTick;
+        /// <summary>
         /// The component data for each ghost component
         /// </summary>
         public NativeArray<byte> Data;
+    }
+
+    internal struct OverrideGhostData : IComponentData
+    {
+        public int GhostId;
+        public NetworkTick SpawnTick;
     }
 
     struct HostSubSceneData
@@ -296,9 +308,8 @@ namespace Unity.NetCode
             m_HostMigrationCache = new HostMigration.Data();
             m_HostMigrationCache.ServerOnlyComponentsFlag = new NativeList<int>(64, Allocator.Persistent);
             m_HostMigrationCache.ServerOnlyComponentsPerGhostType = new NativeHashMap<int, NativeList<ComponentType>>(64, Allocator.Persistent);
-            m_HostMigrationCache.InputBuffers = new NativeHashMap<ComponentType, bool>(64, Allocator.Persistent);
 
-            m_DefaultComponents = new NativeArray<ComponentType>(14, Allocator.Persistent);
+            m_DefaultComponents = new NativeArray<ComponentType>(15, Allocator.Persistent);
             m_DefaultComponents[0] = ComponentType.ReadOnly<NetworkStreamConnection>();
             m_DefaultComponents[1] = ComponentType.ReadOnly<CommandTarget>();
             m_DefaultComponents[2] = ComponentType.ReadOnly<NetworkId>();
@@ -313,6 +324,7 @@ namespace Unity.NetCode
             m_DefaultComponents[11] = ComponentType.ReadOnly<ConnectionApproved>();
             m_DefaultComponents[12] = ComponentType.ReadOnly<ConnectionUniqueId>();
             m_DefaultComponents[13] = ComponentType.ReadOnly<IsReconnected>();
+            m_DefaultComponents[14] = ComponentType.ReadOnly<EnablePacketLogging>();
 
             m_LastServerUpdate = 0.0;
             m_MigrationTime = 0.0;
@@ -371,7 +383,6 @@ namespace Unity.NetCode
             foreach (var componentList in m_HostMigrationCache.ServerOnlyComponentsPerGhostType.GetValueArray(Allocator.Temp))
                 componentList.Dispose();
             m_HostMigrationCache.ServerOnlyComponentsPerGhostType.Dispose();
-            m_HostMigrationCache.InputBuffers.Dispose();
             m_NetworkIdMap.Dispose();
             m_GhostOwnerMap.Dispose();
         }
@@ -515,11 +526,16 @@ namespace Unity.NetCode
             // Create ghost type mapping in case the ghost type indexes are not the same (subscene load ordering changed for example)
             var ghostTypeMap = CreateGhostTypeMap(ghostPrefabs);
 
+            // save the ghostIds we have used so we can mark unused ids as free once we have added all the override components
+            var hostMigrationData = SystemAPI.GetSingleton<HostMigrationData>();
+            NativeBitArray migratedGhostIds = new NativeBitArray(hostMigrationData.HostData.NextNewGhostId, Allocator.Temp);
+
             for (int i = 0; i < ghosts.Length; ++i)
             {
                 var entity = Entity.Null;
                 var ghost = ghosts[i];
                 int ghostType = -1;
+
                 if (ghost.GhostType >= 0)
                 {
                     if (ghostTypeMap.Count <= ghost.GhostType)
@@ -531,6 +547,8 @@ namespace Unity.NetCode
                     var collectionEntity = SystemAPI.GetSingletonEntity<GhostCollection>();
                     var buffer = state.EntityManager.GetBuffer<GhostCollectionPrefab>(collectionEntity);
                     entity = state.EntityManager.Instantiate(buffer[ghostType].GhostPrefab);
+                    state.EntityManager.AddComponentData(entity, new OverrideGhostData() { GhostId = ghost.GhostId, SpawnTick = ghost.SpawnTick });
+                    migratedGhostIds.Set( ghost.GhostId, true );
                     ghostEntities.Add(entity);
                 }
                 else
@@ -539,13 +557,34 @@ namespace Unity.NetCode
                     foreach (var (ghostId, prespawnEntity) in SystemAPI.Query<RefRO<GhostInstance>>().WithAll<PreSpawnedGhostIndex>().WithEntityAccess())
                     {
                         if (ghostId.ValueRO.ghostId == prespawnId)
+                        {
                             entity = prespawnEntity;
+                            break;
+                        }
+                    }
+
+                    if ( entity == Entity.Null)
+                    {
+                        Debug.LogError($"Trying to migrate prespawn entity with id {prespawnId} but it's scene isn't/hasn't been loaded. This is usually caused by unloading/reordering of subscenes before a migration. Currently this is unsupported.");
                     }
                 }
 
                 SetGhostComponentData(ref state, entity, ghostType, ghost.Data);
                 state.EntityManager.AddComponent<IsReconnected>(entity);
             }
+
+            // after instancing all the migrated ghosts we have added the override components so we move any unused ids back to the free list
+            // this will keep the ids from wandering after multiple migrations
+            var spawnedGhostEntityMapData = SystemAPI.GetSingletonRW<SpawnedGhostEntityMap>();
+
+            for (int i = 1; i < hostMigrationData.HostData.NextNewGhostId; ++i) // start on 1 since GhostId 0 is not a valid id
+            {
+                if (!migratedGhostIds.IsSet(i))
+                {
+                    spawnedGhostEntityMapData.ValueRW.m_ServerFreeGhostIds.Enqueue(i);
+                }
+            }
+
             return ghostEntities;
         }
 
@@ -582,6 +621,8 @@ namespace Unity.NetCode
             var ghostComponentCollection = SystemAPI.GetSingletonBuffer<GhostComponentSerializer.State>();
             var entityStorageInfo = state.GetEntityStorageInfoLookup();
             var indexInChunk = entityStorageInfo[ghostEntity].IndexInChunk;
+            var collectionDataQuery = state.GetEntityQuery(new EntityQueryBuilder(Allocator.Temp).WithAll<GhostComponentSerializerCollectionData>());
+            var collectionData = collectionDataQuery.GetSingleton<GhostComponentSerializerCollectionData>();
 
             if (ghostType == -1)
             {
@@ -600,6 +641,7 @@ namespace Unity.NetCode
                 ref readonly var ghostSerializer = ref ptr[serializerIdx];
                 var componentType = ghostSerializer.ComponentType;
                 var componentSize = ghostSerializer.ComponentSize;
+                var serializationStrategy = collectionData.GetCurrentSerializationStrategyForComponent(componentType, ghostSerializer.VariantHash, false);
                 var typeHandle = state.EntityManager.GetDynamicComponentTypeHandle(componentType);
 
                 if (componentType.IsEnableable)
@@ -623,10 +665,8 @@ namespace Unity.NetCode
                 else
                 {
                     // Input buffers must also be skipped when restoring data as we're parsing ghost collection metadata
-                    // if (Hint.Unlikely(!m_HostMigrationCache.InputBuffers.ContainsKey(componentType)))
-                    //     HostMigration.IsInputBuffer(m_HostMigrationCache.InputBuffers, componentType);
-                    // if (m_HostMigrationCache.InputBuffers[componentType])
-                    //     continue;
+                    if (serializationStrategy.IsInputBuffer == 1)
+                        continue;
                     // Deserialize buffer, the new ghosts will have 0 elements to start with
                     var bufferData = chunk.GetUntypedBufferAccessor(ref typeHandle);
                     var length = ((int*) ghostDataPtr)[0];
@@ -702,7 +742,7 @@ namespace Unity.NetCode
             migrationData.Connections = new NativeArray<HostConnectionData>(conEntities.Length, Allocator.Persistent);
             migrationData.ElapsedTime = state.WorldUnmanaged.Time.ElapsedTime;
             migrationData.Config = config;
-            migrationData.ServerTick = networkTime.ServerTick.SerializedData;
+            migrationData.ServerTick = networkTime.ServerTick;
             migrationData.ElapsedNetworkTime = networkTime.ElapsedNetworkTime;
             for (int i = 0; i < conEntities.Length; ++i)
             {
@@ -773,6 +813,11 @@ namespace Unity.NetCode
                 };
             }
 
+            // Get the highest allocated ghost id, we use this to start the migrated server at the same value
+            // so no new ghosts are created with clashing GhostIds when we migrate them
+            migrationData.NextNewGhostId = SystemAPI.GetSingleton<SpawnedGhostEntityMap>().m_ServerAllocatedGhostIds[0];
+            migrationData.NextNewPrespawnGhostId = SystemAPI.GetSingleton<SpawnedGhostEntityMap>().m_ServerAllocatedGhostIds[1];
+
             hostDataBlob.Clear();
 
             // TODO: The host data must really always be the same method, as it contains the storage method
@@ -831,8 +876,11 @@ namespace Unity.NetCode
                 dataStreamWriter.WriteFloat(migrationData.Config.MigrationTimeout);
                 dataStreamWriter.WriteFloat(migrationData.Config.ServerUpdateInterval);
                 dataStreamWriter.WriteDouble(migrationData.ElapsedTime);
-                dataStreamWriter.WriteUInt(migrationData.ServerTick);
+                dataStreamWriter.WriteUInt(migrationData.ServerTick.SerializedData);
                 dataStreamWriter.WriteDouble(migrationData.ElapsedNetworkTime);
+
+                dataStreamWriter.WriteInt(migrationData.NextNewGhostId);
+                dataStreamWriter.WriteInt(migrationData.NextNewPrespawnGhostId);
             }
         }
 
@@ -932,6 +980,7 @@ namespace Unity.NetCode
                 ghostList.Add(new GhostData()
                 {
                     GhostId = ghostInstances[i].ghostId,
+                    SpawnTick = ghostInstances[i].spawnTick,
                     GhostType = ghostInstances[i].ghostType,
                     Data = ghostData
                 });
@@ -966,7 +1015,8 @@ namespace Unity.NetCode
                 {
                     new NativeArrayBinaryAdapter<byte>(),
                     new NativeArrayBinaryAdapter<GhostPrefabData>(),
-                    new NativeArrayBinaryAdapter<GhostData>()
+                    new NativeArrayBinaryAdapter<GhostData>(),
+                    new NetworkTickBinaryAdapter()
                 }
             };
 
@@ -994,7 +1044,8 @@ namespace Unity.NetCode
                 {
                     new NativeArrayAdapter<GhostData>(),
                     new NativeArrayAdapter<GhostPrefabData>(),
-                    new NativeArrayAdapter<byte>()
+                    new NativeArrayAdapter<byte>(),
+                    new NetworkTickAdapter()
                 },
                 Minified = minified
             };

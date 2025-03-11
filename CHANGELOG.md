@@ -2,6 +2,21 @@
 uid: changelog
 ---
 
+## [1.5.0-exp.100] - 2025-03-11
+
+### Changed
+
+* Big documentation overhaul for host migration feature.
+* Don't add input component buffers to host migration data. These can cause issues after host migration when they have inputs event counters set to some value where the migrated clients will be start counts starting from 0. The increment/decrement mechanism breaks.
+* Ghost IDs and spawn ticks in the `GhostInstance` component will now be preserved for non-prespawn ghosts between host migrations.
+
+### Fixed
+
+* UpdateSize in the `HostMigrationStats` component is now correct when using compression
+* Issue with the native list size being incorrectly re-sized in `HostMigration.GetHostMigrationData`
+* Test failures when packet dumps are enabled
+* Issue where old prespawn snapshot data would still exist for clients after a host migration causing deserialization errors.
+
 ## [1.5.0-exp.2] - 2025-02-10
 
 ### Changed

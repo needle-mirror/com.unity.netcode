@@ -33,8 +33,6 @@ namespace Unity.NetCode
             public NativeList<int> ServerOnlyComponentsFlag;
             // Cache for the server-only components which are present in each ghost type
             public NativeHashMap<int, NativeList<ComponentType>> ServerOnlyComponentsPerGhostType;
-            // Cache for marking which buffers are input buffers (these are skipped)
-            public NativeHashMap<ComponentType, bool> InputBuffers;
         }
 
         /// <summary>
@@ -50,14 +48,13 @@ namespace Unity.NetCode
             var hostData = hostMigrationData.ValueRO.HostDataBlob;
             var ghostData = hostMigrationData.ValueRO.GhostDataBlob;
 
-            var compressedGhostData = new NativeList<byte>(ghostData.Length, Allocator.Temp);
-            CompressGhostData(world, ghostData, compressedGhostData);
+            var compressedGhostData = CompressGhostDataIfEnabled(world, ghostData, hostData, out var size);
 
-            // This is the required size for host/ghost data + headers for each
-            var size = hostData.Length + compressedGhostData.Length + sizeof(int) + sizeof(int);
-            if (data.Length < size)
+            if (data.Capacity < size)
                 data.Resize(size*2, NativeArrayOptions.ClearMemory);
 
+            // Set the size to exactly what will be copied
+            data.Length = size;
             var dataArray = data.AsArray();
             CopyMigrationData(ref dataArray, hostData, compressedGhostData);
         }
@@ -78,24 +75,12 @@ namespace Unity.NetCode
             var hostData = hostMigrationData.ValueRO.HostDataBlob;
             var ghostData = hostMigrationData.ValueRO.GhostDataBlob;
 
-            using var configQuery = world.EntityManager.CreateEntityQuery(ComponentType.ReadWrite<HostMigrationConfig>());
-            var config = configQuery.GetSingleton<HostMigrationConfig>();
-            var ghostDataSize = ghostData.Length;
-            var compressedGhostData = new NativeList<byte>(ghostData.Length, Allocator.Temp);
-            ref var targetGhostData = ref ghostData;
-            if (config.StorageMethod == DataStorageMethod.StreamCompressed)
-            {
-                CompressGhostData(world, ghostData, compressedGhostData);
-                ghostDataSize = compressedGhostData.Length;
-                targetGhostData = ref compressedGhostData;
-            }
+            var compressedGhostData = CompressGhostDataIfEnabled(world, ghostData, hostData, out size);
 
-            // This is the required size for host/ghost data + headers for each
-            size = hostData.Length + ghostDataSize + sizeof(int) + sizeof(int);
             if (data.Length < size)
                 return false;
 
-            CopyMigrationData(ref data, hostData, targetGhostData);
+            CopyMigrationData(ref data, hostData, compressedGhostData);
             return true;
         }
 
@@ -117,31 +102,60 @@ namespace Unity.NetCode
             UnsafeUtility.MemCpy((void*)(dataPtr + offset), ghostData.GetUnsafeReadOnlyPtr(), ghostData.Length);
         }
 
+        static void UpdateStatistics(World world, int updateSize)
+        {
+            using var statsQuery = world.EntityManager.CreateEntityQuery(ComponentType.ReadWrite<HostMigrationStats>());
+            var stats = statsQuery.GetSingleton<HostMigrationStats>();
+            stats.TotalUpdateSize -= stats.UpdateSize;
+            stats.UpdateSize = updateSize;
+            stats.TotalUpdateSize += stats.UpdateSize;
+            world.EntityManager.SetComponentData(statsQuery.GetSingletonEntity(), stats);
+        }
+
         /// <summary>
         /// Compress the ghost data if compression is enabled in the host migration configuration.
-        /// The compressed data is copied back into the given list.
+        /// Update the migration data statistics data size as they've been recorded earlier uncompressed
         /// </summary>
-        internal static unsafe void CompressGhostData(World world, NativeList<byte> ghostData, NativeList<byte> compressedGhostData)
+        static NativeList<byte> CompressGhostDataIfEnabled(World world, NativeList<byte> ghostData, NativeList<byte> hostData, out int size)
         {
             using var configQuery = world.EntityManager.CreateEntityQuery(ComponentType.ReadWrite<HostMigrationConfig>());
             var config = configQuery.GetSingleton<HostMigrationConfig>();
 
+            // This is the required size for host/ghost data + headers for each
+            size = hostData.Length + ghostData.Length + sizeof(int) + sizeof(int);
+
             if (config.StorageMethod == DataStorageMethod.StreamCompressed)
             {
-                using var outputStream = new MemoryStream();
-                using var compressor = new BrotliStream(outputStream, System.IO.Compression.CompressionLevel.Fastest);
-                compressor.Write(ghostData.AsArray().AsReadOnlySpan());
-                compressor.Flush();
-                var compressed = Convert.ToBase64String(outputStream.ToArray());
-                var stringBytes = Encoding.UTF8.GetBytes(compressed);
+                // NOTE: Compression needs to be done here as it's not burst compatible and can't be done in the host migration system
+                var compressedGhostData = new NativeList<byte>(ghostData.Length, Allocator.Temp);
+                CompressGhostData(ghostData, compressedGhostData);
+                size = hostData.Length + compressedGhostData.Length + sizeof(int) + sizeof(int);
 
-                // Copy compressed data back into the host migration data ghost list
-                fixed (byte* stringPtr = stringBytes)
-                {
-                    compressedGhostData.AddRange(stringPtr, stringBytes.Length);
-                }
-                compressedGhostData.Add(0);
+                // Statistics need to be updated as the recorded value earlier was uncompressed
+                UpdateStatistics(world, size);
+                return compressedGhostData;
             }
+
+            return ghostData;
+        }
+
+        /// <summary>
+        /// Compress ghost data using Brotli compression and Base64 encode the result
+        /// </summary>
+        internal static unsafe void CompressGhostData(NativeList<byte> ghostData, NativeList<byte> compressedGhostData)
+        {
+            using var outputStream = new MemoryStream();
+            using var compressor = new BrotliStream(outputStream, System.IO.Compression.CompressionLevel.Fastest);
+            compressor.Write(ghostData.AsArray().AsReadOnlySpan());
+            compressor.Flush();
+            var compressed = Convert.ToBase64String(outputStream.ToArray());
+            var stringBytes = Encoding.UTF8.GetBytes(compressed);
+
+            fixed (byte* stringPtr = stringBytes)
+            {
+                compressedGhostData.AddRange(stringPtr, stringBytes.Length);
+            }
+            compressedGhostData.Add(0);
         }
 
         /// <summary>
@@ -325,9 +339,21 @@ namespace Unity.NetCode
 
             using var networkTimeQuery = world.EntityManager.CreateEntityQuery(ComponentType.ReadWrite<NetworkTime>());
             var networkTime = networkTimeQuery.GetSingletonRW<NetworkTime>();
-            networkTime.ValueRW.ServerTick.SerializedData = hostMigrationData.ValueRO.HostData.ServerTick;
+            networkTime.ValueRW.ServerTick = hostMigrationData.ValueRO.HostData.ServerTick;
             networkTime.ValueRW.ElapsedNetworkTime = hostMigrationData.ValueRO.HostData.ElapsedNetworkTime;
             Debug.Log($"Setting server state: ElapsedTime={hostMigrationData.ValueRO.HostData.ElapsedTime} ServerTick={networkTime.ValueRW.ServerTick.TickValue} ElapsedNetworkTime={hostMigrationData.ValueRO.HostData.ElapsedNetworkTime}");
+
+
+            // Set the allocation id to be at the same place it was on the original server
+            // this will ensure any new ghosts instantiated during a migration won't be given
+            // the same id as a migrating ghost
+            var spawnedGhostEntityMapQuery = world.EntityManager.CreateEntityQuery(ComponentType.ReadWrite<SpawnedGhostEntityMap>());
+            var spawnedGhostEntityMapData = spawnedGhostEntityMapQuery.GetSingletonRW<SpawnedGhostEntityMap>();
+            if (spawnedGhostEntityMapData.ValueRW.m_ServerAllocatedGhostIds[0] != 1 || spawnedGhostEntityMapData.ValueRW.m_ServerAllocatedGhostIds[1] != 1)
+                Debug.LogError($"GhostIds have been assigned before host migration data has been applied, there could be GhostId collisions. No ghosts should be instantiated before host migration data has been set.");
+
+            spawnedGhostEntityMapData.ValueRW.m_ServerAllocatedGhostIds[0] = hostMigrationData.ValueRO.HostData.NextNewGhostId;
+            spawnedGhostEntityMapData.ValueRW.m_ServerAllocatedGhostIds[1] = hostMigrationData.ValueRO.HostData.NextNewPrespawnGhostId;
 
             world.EntityManager.CreateEntity(ComponentType.ReadOnly<EnableHostMigration>());
 
@@ -342,6 +368,7 @@ namespace Unity.NetCode
             world.EntityManager.SetComponentData(requestEntity, new HostMigrationRequest(){ServerSubScenes = sceneEntities, ExpectedPrefabCount = hostMigrationData.ValueRW.Ghosts.GhostPrefabs.Length});
             world.EntityManager.CreateEntity(ComponentType.ReadOnly<HostMigrationInProgress>());
         }
+
 
         internal static void SerializeGhostData(ref GhostStorage ghosts, NativeList<byte> ghostDataBlob)
         {
@@ -371,6 +398,7 @@ namespace Unity.NetCode
                 foreach (var ghost in ghosts.Ghosts)
                 {
                     writer.WriteShort((short)ghost.GhostId);
+                    writer.WriteUInt(ghost.SpawnTick.SerializedData);
                     writer.WriteShort((short)ghost.GhostType);
                     writer.WriteShort((short)ghost.Data.Length);
                     writer.WriteBytes(ghost.Data);
@@ -407,6 +435,8 @@ namespace Unity.NetCode
             var ghostComponentCollection = ghostComponentCollectionQuery.GetSingletonBuffer<GhostComponentSerializer.State>();
             var entityStorageInfo = state.GetEntityStorageInfoLookup();
             var indexInChunk = entityStorageInfo[ghostEntity].IndexInChunk;
+            var collectionDataQuery = state.GetEntityQuery(new EntityQueryBuilder(Allocator.Temp).WithAll<GhostComponentSerializerCollectionData>());
+            var collectionData = collectionDataQuery.GetSingleton<GhostComponentSerializerCollectionData>();
 
             // TODO: Initialize server-only component list, store with other ghost metadata during codegen instead
             // Only done once per ghost type, more ghost types can be streamed in via subscenes
@@ -449,6 +479,7 @@ namespace Unity.NetCode
                 var ptr = (GhostComponentSerializer.State*)ghostComponentCollection.GetUnsafeReadOnlyPtr();
                 ref readonly var ghostSerializer = ref ptr[serializerIdx];
                 var componentType = ghostSerializer.ComponentType;
+                var serializationStrategy = collectionData.GetCurrentSerializationStrategyForComponent(componentType, ghostSerializer.VariantHash, false);
                 var typeHandle = entityManager.GetDynamicComponentTypeHandle(componentType);
                 if (!chunk.Has(ref typeHandle))
                     continue;
@@ -460,10 +491,8 @@ namespace Unity.NetCode
                 // Make room for a buffer header for each buffer instance we have
                 if (componentType.IsBuffer)
                 {
-                    // if (Hint.Unlikely(!data.InputBuffers.ContainsKey(componentType)))
-                    //     IsInputBuffer(data.InputBuffers, componentType);
-                    // if (data.InputBuffers[componentType])
-                    //     continue;
+                    if (serializationStrategy.IsInputBuffer == 1)
+                        continue;
                     var bufferData = chunk.GetUntypedBufferAccessor(ref typeHandle);
                     var bufferLength = bufferData.GetBufferLength(indexInChunk);
                     ghostDataSize += bufferHeaderSize + bufferLength * bufferData.ElementSize;
@@ -506,6 +535,7 @@ namespace Unity.NetCode
                 var ptr = (GhostComponentSerializer.State*)ghostComponentCollection.GetUnsafeReadOnlyPtr();
                 ref readonly var ghostSerializer = ref ptr[serializerIdx];
                 var componentType = ghostSerializer.ComponentType;
+                var serializationStrategy = collectionData.GetCurrentSerializationStrategyForComponent(componentType, ghostSerializer.VariantHash, false);
                 var typeHandle = entityManager.GetDynamicComponentTypeHandle(componentType);
                 if (!chunk.Has(ref typeHandle))
                     continue;
@@ -536,10 +566,8 @@ namespace Unity.NetCode
                 }
                 else
                 {
-                    // if (Hint.Unlikely(!data.InputBuffers.ContainsKey(componentType)))
-                    //     IsInputBuffer(data.InputBuffers, componentType);
-                    // if (data.InputBuffers[componentType])
-                    //     continue;
+                    if (serializationStrategy.IsInputBuffer == 1)
+                        continue;
                     var bufferElementSize = ghostSerializer.ComponentSize;
                     var bufferData = chunk.GetUntypedBufferAccessor(ref typeHandle);
 
@@ -620,7 +648,8 @@ namespace Unity.NetCode
                     {
                         new NativeArrayAdapter<GhostData>(),
                         new NativeArrayAdapter<GhostPrefabData>(),
-                        new NativeArrayAdapter<byte>()
+                        new NativeArrayAdapter<byte>(),
+                        new NetworkTickAdapter(),
                     },
                     Minified = minified
                 };
@@ -636,7 +665,8 @@ namespace Unity.NetCode
                     {
                         new NativeArrayBinaryAdapter<byte>(),
                         new NativeArrayBinaryAdapter<GhostPrefabData>(),
-                        new NativeArrayBinaryAdapter<GhostData>()
+                        new NativeArrayBinaryAdapter<GhostData>(),
+                        new NetworkTickBinaryAdapter()
                     }
                 };
 
@@ -689,16 +719,20 @@ namespace Unity.NetCode
             for (int i = 0; i < ghostCount; ++i)
             {
                 var ghostId = reader.ReadShort();
+                var spawnTick = reader.ReadUInt();
                 var ghostType = reader.ReadShort();
                 var dataLength = reader.ReadShort();
                 var data = new NativeArray<byte>(dataLength, Allocator.Persistent);
                 reader.ReadBytes(data);
-                ghostData.Ghosts[i] = new GhostData()
+                var newGhostData = new GhostData()
                 {
                     GhostId = ghostId,
                     GhostType = ghostType,
                     Data = data
                 };
+                newGhostData.SpawnTick.SerializedData = spawnTick;
+                ghostData.Ghosts[i] = newGhostData;
+                
             }
             return ghostData;
         }
@@ -776,23 +810,13 @@ namespace Unity.NetCode
             hostData.Config.MigrationTimeout = reader.ReadFloat();
             hostData.Config.ServerUpdateInterval = reader.ReadFloat();
             hostData.ElapsedTime = reader.ReadDouble();
-            hostData.ServerTick = reader.ReadUInt();
+            hostData.ServerTick.SerializedData = reader.ReadUInt();
             hostData.ElapsedNetworkTime = reader.ReadDouble();
+            hostData.NextNewGhostId = reader.ReadInt();
+            hostData.NextNewPrespawnGhostId = reader.ReadInt();
             return hostData;
 // #endif
         }
-
-        // TODO: Skip this for now to make the code path burst compatible
-        // TODO: Put IsInputBuffer info somewhere during codegen
-        // internal static void IsInputBuffer(NativeHashMap<ComponentType, bool> inputBuffers, ComponentType componentType)
-        // {
-        //     if (typeof(ICommandData).IsAssignableFrom(componentType.GetManagedType()))
-        //     {
-        //         inputBuffers.Add(componentType, true);
-        //         return;
-        //     }
-        //     inputBuffers.Add(componentType, false);
-        // }
     }
 
 #if USING_UNITY_SERIALIZATION
@@ -838,6 +862,38 @@ namespace Unity.NetCode
             list.ResizeUninitialized(length);
             UnsafeUtility.MemCpy(list.GetUnsafePtr(), srcPtr, length*sizeof(T));
             return list.AsArray();
+        }
+    }
+
+    class NetworkTickAdapter : IJsonAdapter<NetworkTick>
+    {
+        public void Serialize(in JsonSerializationContext<NetworkTick> context, NetworkTick value)
+        {
+            context.Writer.WriteValue(value.SerializedData);
+        }
+
+        public NetworkTick Deserialize(in JsonDeserializationContext<NetworkTick> context)
+        {
+            var networkTick = new NetworkTick();
+            networkTick.SerializedData = (uint)context.SerializedValue.AsUInt64();
+            return networkTick;
+        }
+    }
+
+    class NetworkTickBinaryAdapter : IBinaryAdapter<NetworkTick>
+    {
+        public unsafe void Serialize(in BinarySerializationContext<NetworkTick> context, NetworkTick value)
+        {
+            context.Writer->Add(value.SerializedData);
+        }
+
+        public unsafe NetworkTick Deserialize(in BinaryDeserializationContext<NetworkTick> context)
+        {
+            var networkTick = new NetworkTick();
+            uint nt = 0;
+            context.Reader->ReadNext<uint>(out nt);
+            networkTick.SerializedData = nt;
+            return networkTick;
         }
     }
 #endif

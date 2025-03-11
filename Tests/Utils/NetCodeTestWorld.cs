@@ -461,7 +461,16 @@ namespace Unity.NetCode.Tests
             return world;
         }
 
-        public void Tick(float dt = 1f / 60f)
+        const float k_defaultDT = 1f / 60f;
+        public void TickMultiple( int numTicks, float dt = k_defaultDT)
+        {
+            for ( int t=0; t<numTicks; ++t )
+            {
+                Tick(dt);
+            }
+        }  
+
+        public void Tick(float dt = k_defaultDT)
         {
             ++TickIndex;
             //Debug.Log($"[{TickIndex}]: TICK");

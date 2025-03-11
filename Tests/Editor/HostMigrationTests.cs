@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using NUnit.Framework;
 using Unity.Burst;
 using Unity.Serialization.Json;
@@ -8,13 +9,39 @@ using Unity.Entities;
 using Unity.Mathematics;
 using Unity.Networking.Transport;
 using Unity.Transforms;
+using Unity.Scenes;
 using UnityEngine;
+using Unity.NetCode.PrespawnTests;
 using Unity.Collections.LowLevel.Unsafe;
 using Unity.Serialization.Binary;
+using UnityEngine.SceneManagement;
 using Hash128 = Unity.Entities.Hash128;
+using System.Linq;
+using Unity.NetCode.LowLevel.Unsafe;
 
 namespace Unity.NetCode.Tests
 {
+    [DisableAutoCreation]
+    [WorldSystemFilter(WorldSystemFilterFlags.ServerSimulation)]
+    public partial class IncrementSomeDataSystem : SystemBase
+    {
+        private EntityQuery _someDataQuery;
+
+        protected override void OnCreate()
+        {
+            _someDataQuery = GetEntityQuery(typeof(GhostInstance), typeof(SomeData));
+        }
+
+        protected override void OnUpdate()
+        {
+            var someDataEntites = _someDataQuery.ToEntityArray(Allocator.Temp);
+            for (int i = 0; i < someDataEntites.Length; ++i)
+            {
+                EntityManager.SetComponentData(someDataEntites[i], new SomeData { Value = EntityManager.GetComponentData<SomeData>(someDataEntites[i]).Value + 1 });
+            }
+        }
+    }
+
     [GhostComponent(PrefabType=GhostPrefabType.AllPredicted, OwnerSendType = SendToOwnerType.SendToNonOwner)]
     public struct HMRemoteInput : IInputComponentData
     {
@@ -23,7 +50,7 @@ namespace Unity.NetCode.Tests
         [GhostField] public InputEvent Jump;
     }
 
-    public class HostMigrationTests
+    public partial class HostMigrationTests : TestWithSceneAsset
     {
         public struct UserConnectionComponent : IComponentData
         {
@@ -44,7 +71,7 @@ namespace Unity.NetCode.Tests
             [GhostField] public int ValueTwo;
         }
 
-        public struct SomeData : IComponentData
+        public struct SimpleData : IComponentData
         {
             [GhostField] public int IntValue;
             [GhostField] public Quaternion QuaternionValue;
@@ -78,6 +105,59 @@ namespace Unity.NetCode.Tests
         public struct HostOnlyBuffer : IBufferElementData
         {
             [GhostField] public int Value;
+        }
+
+        [DisableAutoCreation]
+        [UpdateInGroup(typeof(GhostInputSystemGroup))]
+        public partial class SetInputSystem : SystemBase
+        {
+            public static int TargetEventCount;
+            public int SendCounter {get; set;}
+
+            public void OnCreate(ref SystemState state)
+            {
+                SendCounter = 0;
+            }
+
+            protected override void OnUpdate()
+            {
+                foreach (var input in SystemAPI.Query<RefRW<HMRemoteInput>>().WithAll<GhostOwnerIsLocal>())
+                {
+                    if (SendCounter == TargetEventCount)
+                    {
+                        input.ValueRW.Horizontal = 0;
+                        input.ValueRW.Vertical = 0;
+                        input.ValueRW.Jump = default;
+                        return;
+                    }
+                    SendCounter++;
+                    input.ValueRW.Vertical = 1;
+                    input.ValueRW.Horizontal = 1;
+                    input.ValueRW.Jump.Set();
+                }
+
+            }
+        }
+
+        [DisableAutoCreation]
+        [UpdateInGroup(typeof(PredictedSimulationSystemGroup))]
+        public partial class GetInputSystem : SystemBase
+        {
+            public int ReceiveCounter { get; set; }
+            public long EventCountValue { get; set; }
+
+            protected override void OnUpdate()
+            {
+                var networkTime = SystemAPI.GetSingleton<NetworkTime>();
+                foreach (var (input, entity) in SystemAPI.Query<RefRW<HMRemoteInput>>().WithAll<Simulate>().WithEntityAccess())
+                {
+                    if (input.ValueRW.Jump.IsSet && networkTime.IsFirstTimeFullyPredictingTick)
+                    {
+                        ReceiveCounter++;
+                        EventCountValue += input.ValueRW.Jump.Count;
+                    }
+                }
+            }
         }
 
 #if USING_UNITY_SERIALIZATION
@@ -131,6 +211,7 @@ namespace Unity.NetCode.Tests
                     new NativeArrayAdapter<HostConnectionData>(),
                     new NativeArrayAdapter<HostSubSceneData>(),
                     new NativeArrayAdapter<ConnectionComponent>(),
+                    new NetworkTickAdapter()
                 }
             };
             var json = JsonSerialization.ToJson(migrationData, parameters);
@@ -203,7 +284,6 @@ namespace Unity.NetCode.Tests
                 var hostMigrationCache = new HostMigration.Data();
                 hostMigrationCache.ServerOnlyComponentsFlag = new NativeList<int>(64, Allocator.Temp);
                 hostMigrationCache.ServerOnlyComponentsPerGhostType = new NativeHashMap<int, NativeList<ComponentType>>(64, Allocator.Temp);
-                hostMigrationCache.InputBuffers = new NativeHashMap<ComponentType, bool>(64, Allocator.Temp);
 
                 var dataList = new NativeList<NativeArray<byte>>(Allocator.Temp);
                 for (int i = 0; i < ghostList.Length; ++i)
@@ -225,7 +305,7 @@ namespace Unity.NetCode.Tests
                 HostMigration.SerializeGhostData(ref ghostStorage, ghostDataBlob);
 
                 var compressedGhostData = new NativeList<byte>(ghostDataBlob.Length, Allocator.Temp);
-                HostMigration.CompressGhostData(testWorld.ServerWorld, ghostDataBlob, compressedGhostData);
+                HostMigration.CompressGhostData(ghostDataBlob, compressedGhostData);
 
                 var ghostDataSlice = compressedGhostData.AsArray().Slice();
                 var decodedGhosts = HostMigration.DecompressGhostData(ghostDataSlice);
@@ -294,7 +374,6 @@ namespace Unity.NetCode.Tests
                 var hostMigrationCache = new HostMigration.Data();
                 hostMigrationCache.ServerOnlyComponentsFlag = new NativeList<int>(64, Allocator.Temp);
                 hostMigrationCache.ServerOnlyComponentsPerGhostType = new NativeHashMap<int, NativeList<ComponentType>>(64, Allocator.Temp);
-                hostMigrationCache.InputBuffers = new NativeHashMap<ComponentType, bool>(64, Allocator.Temp);
 
                 for (int i = 0; i < ghostCount; ++i)
                 {
@@ -315,7 +394,8 @@ namespace Unity.NetCode.Tests
                     {
                         new NativeArrayBinaryAdapter<byte>(),
                         new NativeArrayBinaryAdapter<GhostData>(),
-                        new NativeArrayBinaryAdapter<GhostPrefabData>()
+                        new NativeArrayBinaryAdapter<GhostPrefabData>(),
+                        new NetworkTickBinaryAdapter()
                     }
                 };
 
@@ -350,6 +430,83 @@ namespace Unity.NetCode.Tests
             }
         }
 #endif
+
+        [Test]
+        public void HostDataSizeIsCorrect()
+        {
+            int clientCount = 2;
+            using (var testWorld = new NetCodeTestWorld())
+            {
+                testWorld.Bootstrap(true, typeof(ServerHostMigrationSystem));
+                testWorld.CreateWorlds(true, clientCount);
+
+                // Skip using the test world ghost collection/baking as it requires custom spawning, but the
+                // host migration needs to be able to spawn ghosts normally
+                for (int i = 0; i < clientCount; ++i)
+                    CreatePrefabWithOnlyComponents(testWorld.ClientWorlds[i].EntityManager);
+                testWorld.ServerWorld.EntityManager.CreateEntity(ComponentType.ReadOnly<EnableHostMigration>());
+                CreatePrefabWithOnlyComponents(testWorld.ServerWorld.EntityManager);
+
+                testWorld.Connect(maxSteps:10);
+                testWorld.GoInGame();
+
+                for (int i = 0; i < 4; ++i)
+                    testWorld.Tick();
+
+                var serverPrefabs = testWorld.GetSingletonBuffer<GhostCollectionPrefab>(testWorld.ServerWorld);
+                Assert.AreEqual(1, serverPrefabs.Length);
+
+                // Add server owned ghosts
+                for (int i = 0; i < 5; ++i)
+                {
+                    var serverGhostEntity = testWorld.ServerWorld.EntityManager.Instantiate(serverPrefabs[0].GhostPrefab);
+                    testWorld.ServerWorld.EntityManager.SetComponentData(serverGhostEntity, new SimpleData() { IntValue = 100 + i, FloatValue = 100f + i, QuaternionValue = Quaternion.Euler(1,2,3), StringValue = $"HelloWorldHelloWorldHelloWorld" });
+                    testWorld.ServerWorld.EntityManager.SetComponentData(serverGhostEntity, new MoreData() { IntValue = 1000 + i, FloatValue = 1000f + i});
+                }
+
+                // Add ghosts for each client on the server
+                for (int i = 0; i < clientCount; ++i)
+                {
+                    var playerEntity = testWorld.ServerWorld.EntityManager.Instantiate(serverPrefabs[0].GhostPrefab);
+                    testWorld.ServerWorld.EntityManager.SetComponentData(playerEntity, new SimpleData() { IntValue = 100 + i, FloatValue = 100f + i, QuaternionValue = Quaternion.Euler(1,2,3), StringValue = $"HelloWorldHelloWorldHelloWorld" });
+                    testWorld.ServerWorld.EntityManager.SetComponentData(playerEntity, new MoreData() { IntValue = 1000 + i, FloatValue = 1000f + i});
+                }
+
+                for (int i = 0; i < 5; ++i)
+                    testWorld.Tick();
+
+                // Wait until host migration data is gathered
+                var migrationData = new NativeList<byte>(Allocator.Temp);
+                var currentTime = testWorld.ServerWorld.Time.ElapsedTime;
+                var migrationStats = testWorld.GetSingleton<HostMigrationStats>(testWorld.ServerWorld);
+                var timeout = currentTime + 10;
+                while (migrationStats.LastDataUpdateTime < currentTime)
+                {
+                    testWorld.Tick();
+                    migrationStats = testWorld.GetSingleton<HostMigrationStats>(testWorld.ServerWorld);
+                    if (testWorld.ServerWorld.Time.ElapsedTime > timeout)
+                        Assert.Fail("Timeout while waiting for host migration data update");
+                }
+
+                var hostMigrationData = testWorld.GetSingletonRW<HostMigrationData>(testWorld.ServerWorld);
+                var hostData = hostMigrationData.ValueRO.HostDataBlob;
+                var ghostData = hostMigrationData.ValueRO.GhostDataBlob;
+
+                var compressedGhostData = new NativeList<byte>(migrationData.Length, Allocator.Temp);
+                HostMigration.CompressGhostData(ghostData, compressedGhostData);
+                Assert.IsTrue(ghostData.Length > compressedGhostData.Length);
+
+                var expectedSize = hostData.Length + compressedGhostData.Length + 2*sizeof(int);
+
+                HostMigration.GetHostMigrationData(testWorld.ServerWorld, ref migrationData);
+                Assert.AreEqual(expectedSize, migrationData.Length);
+                Assert.AreEqual(0, migrationData[^1]);  // Last byte will always be 0
+
+                migrationStats = testWorld.GetSingleton<HostMigrationStats>(testWorld.ServerWorld);
+                Assert.AreEqual(expectedSize, migrationStats.UpdateSize);
+                Assert.AreEqual(expectedSize, migrationStats.TotalUpdateSize);
+            }
+        }
 
         [Test]
         public void HostOnlyStateIsMigrated()
@@ -525,7 +682,7 @@ namespace Unity.NetCode.Tests
                 for (int i = 0; i < serverGhostCount; ++i)
                 {
                     var serverGhostEntity = testWorld.ServerWorld.EntityManager.Instantiate(serverPrefabs[1].GhostPrefab);
-                    testWorld.ServerWorld.EntityManager.SetComponentData(serverGhostEntity, new SomeData() { IntValue = 100 + i, FloatValue = 100f + i, QuaternionValue = Quaternion.Euler(1,2,3), StringValue = $"HelloWorldHelloWorldHelloWorld" });
+                    testWorld.ServerWorld.EntityManager.SetComponentData(serverGhostEntity, new SimpleData() { IntValue = 100 + i, FloatValue = 100f + i, QuaternionValue = Quaternion.Euler(1,2,3), StringValue = $"HelloWorldHelloWorldHelloWorld" });
                     testWorld.ServerWorld.EntityManager.SetComponentData(serverGhostEntity, new MoreData() { IntValue = 1000 + i, FloatValue = 1000f + i});
                 }
 
@@ -641,7 +798,6 @@ namespace Unity.NetCode.Tests
 
                 // Validate the ghost spawn looks correct
                 // Now the connections which were nr 2 and 3 are now 1 and 2, since the first client local to the host is gone
-                // Ghost Ids will also skip ghosts owned by previous client 1, so the ghost which was ID 2 is now 1 (first spawn in this test)
                 using var ghostQuery = testWorld.ServerWorld.EntityManager.CreateEntityQuery(ComponentType.ReadOnly<GhostInstance>(), ComponentType.ReadOnly<GhostOwner>(), ComponentType.ReadOnly<GhostType>(), ComponentType.ReadOnly<LocalTransform>());
                 Assert.AreEqual(clientCount-1, ghostQuery.CalculateEntityCount());
                 var ghostInstances = ghostQuery.ToComponentDataArray<GhostInstance>(Allocator.Temp);
@@ -651,7 +807,6 @@ namespace Unity.NetCode.Tests
                 var ghostEntities = ghostQuery.ToEntityArray(Allocator.Temp);
                 for (int i = 0; i < clientCount-1; ++i)
                 {
-                    Assert.AreEqual(i+1, ghostInstances[i].ghostId);    // Ghost IDs will be 1 and 2 (previously 2 and 3)
                     Assert.AreEqual(i+1, ghostOwners[i].NetworkId);     // Network ID owners on the ghost will as well be 1 and 2
                     Assert.AreEqual(beforeGhostType, ghostTypes[i]);
                     Assert.AreEqual(new float3(i+2, i+3, i+4), ghostPositions[i].Position); // The previous 1st connection will have been (1,2,3) so we'll start here from (2,3,4)
@@ -668,13 +823,13 @@ namespace Unity.NetCode.Tests
                     Assert.AreEqual(3000+(i+1), anotherBuffer[1].ValueOne);
                     Assert.AreEqual(4000+(i+1), anotherBuffer[1].ValueTwo);
                 }
-                using var serverGhostQuery = testWorld.ServerWorld.EntityManager.CreateEntityQuery(ComponentType.ReadOnly<SomeData>(), ComponentType.ReadOnly<MoreData>());
+                using var serverGhostQuery = testWorld.ServerWorld.EntityManager.CreateEntityQuery(ComponentType.ReadOnly<SimpleData>(), ComponentType.ReadOnly<MoreData>());
                 Assert.AreEqual(serverGhostCount, serverGhostQuery.CalculateEntityCount());
-                var someData = serverGhostQuery.ToComponentDataArray<SomeData>(Allocator.Temp);
+                var someData = serverGhostQuery.ToComponentDataArray<SimpleData>(Allocator.Temp);
                 var moreData = serverGhostQuery.ToComponentDataArray<MoreData>(Allocator.Temp);
                 for (int i = 0; i < serverGhostCount - 1; ++i)
                 {
-                    Assert.AreEqual(new SomeData(){ FloatValue = 100f + i, IntValue = 100 + i, QuaternionValue = Quaternion.Euler(1,2,3), StringValue = "HelloWorldHelloWorldHelloWorld"}, someData[i]);
+                    Assert.AreEqual(new SimpleData(){ FloatValue = 100f + i, IntValue = 100 + i, QuaternionValue = Quaternion.Euler(1,2,3), StringValue = "HelloWorldHelloWorldHelloWorld"}, someData[i]);
                     Assert.AreEqual(new MoreData(){ IntValue = 1000 + i, FloatValue = 1000f + i }, moreData[i]);
                 }
                 // TODO: Disposing the original server leads to some EntityQuery disposal shenanigans
@@ -822,17 +977,13 @@ namespace Unity.NetCode.Tests
             }
         }
 
-        [Ignore("Skipping input buffers has been disabled to make burst work, test can be enabled again if this becomes burst-compatible later")]
         [Test]
         public void InputBufferIsSkipped()
         {
             int clientCount = 2;
             using (var testWorld = new NetCodeTestWorld())
             {
-                testWorld.Bootstrap(true, typeof(ServerHostMigrationSystem),
-                    typeof(Unity_NetCode_EditorTests_Generated_Unity_NetCode_Tests.Unity_NetCode_EditorTests_Generated_Unity_NetCode_Tests_HMRemoteInputHMRemoteInputInputBufferDataSendCommandSystem),
-                    typeof(Unity_NetCode_EditorTests_Generated_Unity_NetCode_Tests.Unity_NetCode_EditorTests_Generated_Unity_NetCode_Tests_HMRemoteInputHMRemoteInputInputBufferDataReceiveCommandSystem),
-                    typeof(Unity_NetCode_EditorTests_Generated_Unity_NetCode_Tests.Unity_NetCode_EditorTests_Generated_Unity_NetCode_Tests_HMRemoteInputHMRemoteInputInputBufferDataCompareCommandSystem));
+                testWorld.Bootstrap(true, typeof(ServerHostMigrationSystem));
                 testWorld.CreateWorlds(true, clientCount);
 
                 for (int i = 0; i < clientCount; ++i)
@@ -857,7 +1008,7 @@ namespace Unity.NetCode.Tests
                     var playerEntity = testWorld.ServerWorld.EntityManager.Instantiate(serverPrefabs[0].GhostPrefab);
                     testWorld.ServerWorld.EntityManager.SetComponentData(playerEntity, new GhostOwner() { NetworkId = i+1 });
                     testWorld.ServerWorld.EntityManager.SetComponentData(playerEntity, new LocalTransform() { Position = new float3(i+1, i+2, i+3) });
-                    testWorld.ServerWorld.EntityManager.SetComponentData(playerEntity, new SomeData() {FloatValue = i+1, IntValue = i+1, QuaternionValue = new Quaternion(i+1, i+2, i+3, i+4), StringValue = $"HelloWorldHelloWorldHelloWorld"});
+                    testWorld.ServerWorld.EntityManager.SetComponentData(playerEntity, new SimpleData() {FloatValue = i+1, IntValue = i+1, QuaternionValue = new Quaternion(i+1, i+2, i+3, i+4), StringValue = $"HelloWorldHelloWorldHelloWorld"});
                 }
 
                 for (int i = 0; i < 4; ++i)
@@ -919,15 +1070,15 @@ namespace Unity.NetCode.Tests
                     testWorld.Tick();
 
                 // Verify migrated ghost data looks intact
-                using var ghostQuery = testWorld.ServerWorld.EntityManager.CreateEntityQuery(ComponentType.ReadOnly<GhostInstance>(), ComponentType.ReadOnly<GhostOwner>(), ComponentType.ReadOnly<GhostType>(), ComponentType.ReadOnly<LocalTransform>(), ComponentType.ReadOnly<SomeData>());
+                using var ghostQuery = testWorld.ServerWorld.EntityManager.CreateEntityQuery(ComponentType.ReadOnly<GhostInstance>(), ComponentType.ReadOnly<GhostOwner>(), ComponentType.ReadOnly<GhostType>(), ComponentType.ReadOnly<LocalTransform>(), ComponentType.ReadOnly<SimpleData>());
                 var ghostOwners = ghostQuery.ToComponentDataArray<GhostOwner>(Allocator.Temp);
                 var ghostPositions = ghostQuery.ToComponentDataArray<LocalTransform>(Allocator.Temp);
-                var someDatas = ghostQuery.ToComponentDataArray<SomeData>(Allocator.Temp);
+                var someDatas = ghostQuery.ToComponentDataArray<SimpleData>(Allocator.Temp);
                 for (int i = 0; i < clientCount-1; ++i)
                 {
                     Assert.AreEqual(i+2, ghostOwners[i].NetworkId);     // First client actually also reconnect and will get 1 but not any player spawns (removed during host data save)
                     Assert.AreEqual(new float3(i+2, i+3, i+4), ghostPositions[i].Position); // The previous 1st connection will have been (1,2,3) so we'll start here from (2,3,4)
-                    Assert.AreEqual(new SomeData(){FloatValue = i+2, IntValue = i+2, QuaternionValue = new Quaternion(i+2,i+3,i+4,i+5), StringValue = "HelloWorldHelloWorldHelloWorld"}, someDatas[i]);
+                    Assert.AreEqual(new SimpleData(){FloatValue = i+2, IntValue = i+2, QuaternionValue = new Quaternion(i+2,i+3,i+4,i+5), StringValue = "HelloWorldHelloWorldHelloWorld"}, someDatas[i]);
                 }
             }
         }
@@ -972,7 +1123,7 @@ namespace Unity.NetCode.Tests
                 for (int i = 0; i < miscEntityCount; ++i)
                 {
                     var miscEntity = testWorld.ServerWorld.EntityManager.Instantiate(serverPrefabs[1].GhostPrefab);
-                    testWorld.ServerWorld.EntityManager.SetComponentData(miscEntity, new SomeData() {FloatValue = i+1, IntValue = i+1, QuaternionValue = new Quaternion(i+1,i+2,i+3,i+4), StringValue = "HelloWorldHelloWorldHelloWorld"});
+                    testWorld.ServerWorld.EntityManager.SetComponentData(miscEntity, new SimpleData() {FloatValue = i+1, IntValue = i+1, QuaternionValue = new Quaternion(i+1,i+2,i+3,i+4), StringValue = "HelloWorldHelloWorldHelloWorld"});
                     testWorld.ServerWorld.EntityManager.SetComponentData(miscEntity, new LocalTransform(){Position = new float3(i+1, i+2, i+3)});
                 }
 
@@ -1020,13 +1171,739 @@ namespace Unity.NetCode.Tests
                     testWorld.Tick();
 
                 // Validate that the data from the second prefab type has not been mangled, all 5 ghosts should still be there as these are not connected to clients/players
-                using var ghostServerQuery = testWorld.ServerWorld.EntityManager.CreateEntityQuery(ComponentType.ReadOnly<GhostInstance>(), ComponentType.ReadOnly<SomeData>(), ComponentType.ReadOnly<LocalTransform>());
+                using var ghostServerQuery = testWorld.ServerWorld.EntityManager.CreateEntityQuery(ComponentType.ReadOnly<GhostInstance>(), ComponentType.ReadOnly<SimpleData>(), ComponentType.ReadOnly<LocalTransform>());
                 var ghostServerPositions = ghostServerQuery.ToComponentDataArray<LocalTransform>(Allocator.Temp);
-                var serverSomeDatas = ghostServerQuery.ToComponentDataArray<SomeData>(Allocator.Temp);
+                var serverSomeDatas = ghostServerQuery.ToComponentDataArray<SimpleData>(Allocator.Temp);
                 for (int i = 0; i < ghostServerPositions.Length; ++i)
                 {
                     Assert.AreEqual(new float3(i+1, i+2, i+3), ghostServerPositions[i].Position);
-                    Assert.AreEqual(new SomeData(){FloatValue = i+1, IntValue = i+1, QuaternionValue = new Quaternion(i+1,i+2,i+3,i+4), StringValue = "HelloWorldHelloWorldHelloWorld"}, serverSomeDatas[i]);
+                    Assert.AreEqual(new SimpleData(){FloatValue = i+1, IntValue = i+1, QuaternionValue = new Quaternion(i+1,i+2,i+3,i+4), StringValue = "HelloWorldHelloWorldHelloWorld"}, serverSomeDatas[i]);
+                }
+            }
+        }
+
+        [Test]
+        public void MigrationWithPrespawnGhosts()
+        {
+            var clientCount = 10;
+            VerifyGhostIds.GhostsPerScene = 25;
+
+            var ghost = SubSceneHelper.CreateSimplePrefab(ScenePath, "ghost", typeof(GhostAuthoringComponent), typeof(SomeDataAuthoring));
+            var scene = SubSceneHelper.CreateEmptyScene(ScenePath, "Parent");
+            SubSceneHelper.CreateSubScene(scene,Path.GetDirectoryName(scene.path), "Sub0", 5, 5, ghost, Vector3.zero);
+            SceneManager.SetActiveScene(scene);
+            using (var testWorld = new NetCodeTestWorld())
+            {
+                testWorld.Bootstrap(true, typeof(VerifyGhostIds));
+                testWorld.CreateWorlds(true, clientCount);
+
+                SubSceneHelper.LoadSubSceneInWorlds(testWorld);
+                testWorld.ServerWorld.EntityManager.CreateEntity(typeof(EnableVerifyGhostIds));
+                testWorld.ServerWorld.EntityManager.CreateEntity(typeof(EnableHostMigration));
+                foreach (var client in testWorld.ClientWorlds)
+                {
+                    client.EntityManager.CreateEntity(typeof(EnableVerifyGhostIds));
+                    client.EntityManager.CreateEntity(typeof(EnableHostMigration));
+                }
+
+                testWorld.Connect();
+                testWorld.GoInGame();
+
+                // Ensure the prespawn ghosts are actually there (GhostsPerScene matches actual count in scenes)
+                for(int i=0;i<64;++i)
+                {
+                    testWorld.Tick();
+                    var clientMatched = true;
+                    foreach (var client in testWorld.ClientWorlds)
+                        clientMatched &= client.GetExistingSystemManaged<VerifyGhostIds>().Matches == VerifyGhostIds.GhostsPerScene;
+                    if (testWorld.ServerWorld.GetExistingSystemManaged<VerifyGhostIds>().Matches == VerifyGhostIds.GhostsPerScene &&
+                        clientMatched)
+                        break;
+                }
+
+                // Move all the prespawns a bit
+                using var prespawnGhostPositionsQuery = testWorld.ServerWorld.EntityManager.CreateEntityQuery(typeof(LocalTransform), typeof(GhostInstance));
+                var prespawnGhostPositions = prespawnGhostPositionsQuery.ToEntityArray(Allocator.Temp);
+                Assert.AreEqual(VerifyGhostIds.GhostsPerScene, prespawnGhostPositions.Length);
+                for (int i = 0; i < prespawnGhostPositions.Length; ++i)
+                {
+                    testWorld.ServerWorld.EntityManager.SetComponentData(prespawnGhostPositions[i], new LocalTransform(){Position = new float3(i+1, i+2, i+3)});
+                    testWorld.ServerWorld.EntityManager.SetComponentData(prespawnGhostPositions[i], new SomeData(){Value = i});
+                }
+                for(int i=0;i<64;++i)
+                    testWorld.Tick();
+                // Verify the movement is reflected on the clients
+                foreach (var client in testWorld.ClientWorlds)
+                {
+                    using var clientPrespawnQuery = client.EntityManager.CreateEntityQuery(typeof(LocalTransform), typeof(GhostInstance));
+                    var clientPositions = clientPrespawnQuery.ToComponentDataArray<LocalTransform>(Allocator.Temp);
+                    Assert.AreEqual(VerifyGhostIds.GhostsPerScene, clientPositions.Length);
+                    for (int i = 0; i < clientPositions.Length; ++i)
+                    {
+                        var expectedPosition = new float3(i+1, i+2, i+3);
+                        Assert.AreEqual(expectedPosition.x, clientPositions[i].Position.x, 0.001);
+                        Assert.AreEqual(expectedPosition.y, clientPositions[i].Position.y, 0.001);
+                        Assert.AreEqual(expectedPosition.z, clientPositions[i].Position.z, 0.001);
+                    }
+                }
+
+                testWorld.ServerWorld.EntityManager.CompleteAllTrackedJobs();
+                GetHostMigrationData(testWorld, out var migrationData);
+
+                // Destroy current server and create a new one
+                //var oldServer = testWorld.ServerWorld;
+                DisconnectServerAndCreateNewServerWorld(testWorld, ref migrationData);
+
+                // One of the clients will be the one local to the host, so we won't reconnect that one (always skip processing client 1 from now on)
+                var ep = NetworkEndpoint.LoopbackIpv4;
+                ep.Port = 7979;
+                testWorld.GetSingletonRW<NetworkStreamDriver>(testWorld.ServerWorld).ValueRW.Listen(ep);
+                for (int i = 1; i < clientCount; ++i)
+                    testWorld.GetSingletonRW<NetworkStreamDriver>(testWorld.ClientWorlds[i]).ValueRW.Connect(testWorld.ClientWorlds[i].EntityManager, ep);
+                for (int i = 0; i < 8; ++i)
+                    testWorld.Tick();
+
+                // Place the connected client in game on both client and server side
+                using var newServerConnectionsQuery = testWorld.ServerWorld.EntityManager.CreateEntityQuery(typeof(NetworkId));
+                var newServerConnections = newServerConnectionsQuery.ToEntityArray(Allocator.Temp);
+                for (int i = 0; i < newServerConnections.Length; ++i)
+                    testWorld.ServerWorld.EntityManager.AddComponent<NetCode.NetworkStreamInGame>(newServerConnections[i]);
+                for (int i = 1; i < clientCount; ++i)
+                {
+                    using var clientConnectionQuery = testWorld.ClientWorlds[i].EntityManager.CreateEntityQuery(ComponentType.ReadOnly<NetworkStreamConnection>());
+                    testWorld.ClientWorlds[i].EntityManager.AddComponent<NetworkStreamInGame>(clientConnectionQuery.GetSingletonEntity());
+                }
+
+                // Allow ghost collection system to run
+                for (int i = 0; i < 6; ++i)
+                    testWorld.Tick();
+
+                // Verify the new server restored the prespawns to correct positions
+                using var ghostServerQuery = testWorld.ServerWorld.EntityManager.CreateEntityQuery(typeof(LocalTransform), typeof(GhostInstance));
+                var ghostServerPositions = ghostServerQuery.ToComponentDataArray<LocalTransform>(Allocator.Temp);
+                Assert.AreEqual(VerifyGhostIds.GhostsPerScene, ghostServerPositions.Length);
+                for (int i = 0; i < ghostServerPositions.Length; ++i)
+                {
+                    Assert.AreEqual(new float3(i+1, i+2, i+3), ghostServerPositions[i].Position);
+                }
+
+                // Verify the clients also keep correct positions
+                foreach (var client in testWorld.ClientWorlds)
+                {
+                    using var clientPrespawnQuery = client.EntityManager.CreateEntityQuery(typeof(LocalTransform), typeof(GhostInstance), typeof(SomeData));
+                    var clientPositions = clientPrespawnQuery.ToComponentDataArray<LocalTransform>(Allocator.Temp);
+                    var clientSomeData = clientPrespawnQuery.ToComponentDataArray<SomeData>(Allocator.Temp);
+                    Assert.AreEqual(VerifyGhostIds.GhostsPerScene, clientPositions.Length);
+                    for (int i = 0; i < clientPositions.Length; ++i)
+                    {
+                        var expectedPosition = new float3(i+1, i+2, i+3);
+                        Assert.AreEqual(expectedPosition.x, clientPositions[i].Position.x, 0.001);
+                        Assert.AreEqual(expectedPosition.y, clientPositions[i].Position.y, 0.001);
+                        Assert.AreEqual(expectedPosition.z, clientPositions[i].Position.z, 0.001);
+                        Assert.AreEqual(i, clientSomeData[i].Value);
+                    }
+                }
+            }
+        }
+
+        /// <summary>
+        /// This will send inputs events with an input component before and after host migrations.
+        /// Checks if the input event counters in the input components look correct before and after.
+        /// If the input buffers are migrated the counters can cause issues when clients reconnect
+        /// and start sending new events (the decrement event functionality will try to subtract a count
+        /// seen before the migration against 0 which the new client will start from).
+        /// If input buffers are not migrated the counts will always start from 0 on both the new host and clients.
+        /// </summary>
+        [Test]
+        public void InputEventCountsWorkAfterMigration()
+        {
+            int clientCount = 4;
+            using (var testWorld = new NetCodeTestWorld())
+            {
+                SetInputSystem.TargetEventCount = 5;
+                testWorld.Bootstrap(true, typeof(ServerHostMigrationSystem), typeof(SetInputSystem), typeof(GetInputSystem));
+                testWorld.CreateWorlds(true, clientCount);
+
+                for (int i = 0; i < clientCount; ++i)
+                {
+                    testWorld.ClientWorlds[i].EntityManager.CreateEntity(ComponentType.ReadOnly<EnableHostMigration>());
+                    CreatePrefabWithInputs(testWorld.ClientWorlds[i].EntityManager);
+                }
+                testWorld.ServerWorld.EntityManager.CreateEntity(ComponentType.ReadOnly<EnableHostMigration>());
+                CreatePrefabWithInputs(testWorld.ServerWorld.EntityManager);
+
+                using var driverQuery = testWorld.ServerWorld.EntityManager.CreateEntityQuery(ComponentType.ReadWrite<NetworkStreamDriver>());
+
+                testWorld.Connect(maxSteps: 10);
+                testWorld.GoInGame();
+
+                // Give ghost collection a chance to initialize
+                for (int i = 0; i < 4; ++i)
+                    testWorld.Tick();
+
+                // Instantiate the player on the server and set the owner to client connection
+                var serverPrefabs = testWorld.GetSingletonBuffer<GhostCollectionPrefab>(testWorld.ServerWorld);
+                using var connectionsOnServerQuery = testWorld.ServerWorld.EntityManager.CreateEntityQuery(ComponentType.ReadOnly<NetworkId>());
+                var networkIdsOnServer = connectionsOnServerQuery.ToComponentDataArray<NetworkId>(Allocator.Temp);
+                var connectionsOnServer = connectionsOnServerQuery.ToEntityArray(Allocator.Temp);
+                Assert.AreEqual(1, serverPrefabs.Length);
+                for (int i = 0; i < clientCount; ++i)
+                {
+                    // Add some data to make sure it's not being stomped during host save/restore
+                    var networkId = networkIdsOnServer[i].Value;
+                    var playerEntity = testWorld.ServerWorld.EntityManager.Instantiate(serverPrefabs[0].GhostPrefab);
+                    testWorld.ServerWorld.EntityManager.SetComponentData(playerEntity, new GhostOwner() { NetworkId = networkId });
+                    testWorld.ServerWorld.EntityManager.SetComponentData(playerEntity, new LocalTransform() { Position = new float3(i+1, i+2, i+3) });
+                    testWorld.ServerWorld.EntityManager.SetComponentData(connectionsOnServer[i], new CommandTarget(){ targetEntity = playerEntity});
+                }
+
+                for (int i = 0; i < 4; ++i)
+                    testWorld.Tick();
+
+                // Set owner on client side as well
+                foreach (var world in testWorld.ClientWorlds)
+                {
+                    var connectionOnClient = testWorld.TryGetSingletonEntity<NetworkId>(world);
+                    var playerOnClient = testWorld.TryGetSingletonEntity<HMRemoteInput>(world);
+                    world.EntityManager.SetComponentData(connectionOnClient, new CommandTarget{targetEntity = playerOnClient});
+                    world.EntityManager.AddComponent<GhostOwnerIsLocal>(playerOnClient);
+                }
+
+                // Give input systems a chance to send all the required input events
+                for (int i = 0; i < SetInputSystem.TargetEventCount * 2; ++i)
+                    testWorld.Tick();
+
+                for (int i = 0; i < clientCount; ++i)
+                {
+                    var setInputSystem = testWorld.ClientWorlds[i].GetExistingSystemManaged<SetInputSystem>();
+                    var getInputSystem = testWorld.ClientWorlds[i].GetExistingSystemManaged<GetInputSystem>();
+                    Assert.AreEqual(SetInputSystem.TargetEventCount, setInputSystem.SendCounter);
+                    Assert.AreEqual(SetInputSystem.TargetEventCount, getInputSystem.ReceiveCounter);
+                    // TODO: event count value should be the same as the receive counter
+                    Assert.Greater(10000, getInputSystem.EventCountValue);
+                }
+                var serverInputSystem = testWorld.ServerWorld.GetExistingSystemManaged<GetInputSystem>();
+                Assert.AreEqual(clientCount * SetInputSystem.TargetEventCount, serverInputSystem.ReceiveCounter);
+                Assert.Greater(10000, serverInputSystem.EventCountValue);
+
+                // This actually saves the migration data and restores it on a new server on the same tick where it left off (no delay like when uploading to a service at intervals)
+                testWorld.ServerWorld.EntityManager.CompleteAllTrackedJobs();
+                GetHostMigrationData(testWorld, out var migrationData);
+
+                // Destroy current server and create a new one
+                //var oldServer = testWorld.ServerWorld;
+                DisconnectServerAndCreateNewServerWorld(testWorld, ref migrationData);
+
+                // Reset input system counters
+                for (int i = 0; i < clientCount; ++i)
+                {
+                    var setInputSystem = testWorld.ClientWorlds[i].GetExistingSystemManaged<SetInputSystem>();
+                    setInputSystem.SendCounter = 0;
+                    var getInputSystem = testWorld.ClientWorlds[i].GetExistingSystemManaged<GetInputSystem>();
+                    getInputSystem.ReceiveCounter = 0;
+                    getInputSystem.EventCountValue = 0;
+                }
+
+                // Allow host migration system to run, all the ghost need to spawn before we can handle reconnecting clients
+                for (int i = 0; i < 2; ++i)
+                    testWorld.Tick();
+
+                CreatePrefabWithInputs(testWorld.ServerWorld.EntityManager);
+
+                testWorld.Connect(maxSteps:10);
+
+                // Set command targets on new server
+                using var playerEntitiesQuery = testWorld.ServerWorld.EntityManager.CreateEntityQuery(ComponentType.ReadOnly<GhostOwner>());
+                var playerEntities = playerEntitiesQuery.ToEntityArray(Allocator.Temp);
+                var playerGhostOwner = playerEntitiesQuery.ToComponentDataArray<GhostOwner>(Allocator.Temp);
+                using var connectionsOnNewServerQuery = testWorld.ServerWorld.EntityManager.CreateEntityQuery(ComponentType.ReadOnly<NetworkId>());
+                networkIdsOnServer = connectionsOnNewServerQuery.ToComponentDataArray<NetworkId>(Allocator.Temp);
+                connectionsOnServer = connectionsOnNewServerQuery.ToEntityArray(Allocator.Temp);
+                for (int i = 0; i < playerGhostOwner.Length; ++i)
+                {
+                    testWorld.ServerWorld.EntityManager.SetComponentData(connectionsOnServer[i+1], new CommandTarget(){ targetEntity = playerEntities[i]});
+                    Assert.AreEqual(playerGhostOwner[i].NetworkId, networkIdsOnServer[i+1].Value);
+                }
+
+                // TODO: We don't handle connection restore on clients atm, so need to manually place in game
+                for (int i = 1; i < clientCount; ++i)
+                {
+                    using var clientConnectionQuery = testWorld.ClientWorlds[i].EntityManager.CreateEntityQuery(ComponentType.ReadOnly<NetworkStreamConnection>());
+                    testWorld.ClientWorlds[i].EntityManager.AddComponent<NetworkStreamInGame>(clientConnectionQuery.GetSingletonEntity());
+                }
+
+                // Need to wait until player ghost is spawned on clients via server snapshot
+                for (int i = 0; i < 4; ++i)
+                    testWorld.Tick();
+
+                // Set owner on client side as well
+                for (int i = 1; i < clientCount; ++i)
+                {
+                    var world = testWorld.ClientWorlds[i];
+                    var connectionOnClient = testWorld.TryGetSingletonEntity<NetworkId>(world);
+                    var playerOnClient = testWorld.TryGetSingletonEntity<HMRemoteInput>(world);
+                    Assert.AreNotEqual(playerOnClient, Entity.Null);
+                    world.EntityManager.SetComponentData(connectionOnClient, new CommandTarget{targetEntity = playerOnClient});
+                    world.EntityManager.AddComponent<GhostOwnerIsLocal>(playerOnClient);
+                }
+
+                // Allow ghost collection system to run
+                for (int i = 0; i < 20; ++i)
+                    testWorld.Tick();
+
+                for (int i = 1; i < clientCount; ++i)
+                {
+                    var setInputSystem = testWorld.ClientWorlds[i].GetExistingSystemManaged<SetInputSystem>();
+                    var getInputSystem = testWorld.ClientWorlds[i].GetExistingSystemManaged<GetInputSystem>();
+                    Assert.AreEqual(SetInputSystem.TargetEventCount, setInputSystem.SendCounter);
+                    Assert.AreEqual(SetInputSystem.TargetEventCount, getInputSystem.ReceiveCounter);
+                    // TODO: EventCountValue should be equal to ReceiveCounter
+                    Assert.Greater(10000, getInputSystem.EventCountValue);
+                }
+
+                serverInputSystem = testWorld.ServerWorld.GetExistingSystemManaged<GetInputSystem>();
+                Assert.AreEqual((clientCount-1) * SetInputSystem.TargetEventCount, serverInputSystem.ReceiveCounter);
+                Assert.Greater(10000, serverInputSystem.EventCountValue);
+
+                // Verify migrated ghost data looks intact
+                using var ghostQuery = testWorld.ServerWorld.EntityManager.CreateEntityQuery(ComponentType.ReadOnly<GhostInstance>(), ComponentType.ReadOnly<GhostOwner>(), ComponentType.ReadOnly<GhostType>(), ComponentType.ReadOnly<LocalTransform>(), ComponentType.ReadOnly<SimpleData>());
+                var ghostOwners = ghostQuery.ToComponentDataArray<GhostOwner>(Allocator.Temp);
+                var ghostPositions = ghostQuery.ToComponentDataArray<LocalTransform>(Allocator.Temp);
+                for (int i = 0; i < clientCount-1; ++i)
+                {
+                    Assert.AreEqual(i+2, ghostOwners[i].NetworkId);     // First client actually also reconnect and will get 1 but not any player spawns (removed during host data save)
+                    Assert.AreEqual(new float3(i+2, i+3, i+4), ghostPositions[i].Position); // The previous 1st connection will have been (1,2,3) so we'll start here from (2,3,4)
+                }
+            }
+        }
+
+
+        /// <summary>
+        /// Tests that the prespawns snapshots buffer correcly handles having ther server tick rewound and snapshots with the same tick arriving at the client twice.
+        /// The bug that inspired this test was happening after a migration. Prespawns would sometimes try to deserialise more data than expected, this
+        /// was due to the prespawns snapshot buffer containing two snapshots for the same tick. One from before the migration and one after.
+        /// If the snaphot from after the migration was placed after the snapshot from before the migration, it would incorrectly be used at the baseline.
+        /// This could result in issues if the baseline changemask ended up being different causing unexpected behaviour.
+        /// This test recreates the scenario by directly manipulating the snapshot buffer for a prespawn to be in an invalid state between a host migration
+        /// </summary>
+
+        [Test]
+        public unsafe void MigrationWithPrespawnWithForcedBadSnapshotHistory()
+        {
+            // Create a prespawn with our update component
+            var ghost = SubSceneHelper.CreateSimplePrefab(ScenePath, "ghost", typeof(GhostAuthoringComponent), typeof(SomeDataAuthoring));
+            var scene = SubSceneHelper.CreateEmptyScene(ScenePath, "Parent");
+            SubSceneHelper.CreateSubSceneWithPrefabs(scene, ScenePath, "subscene", new[] { ghost }, 1);
+            SceneManager.SetActiveScene(scene);
+
+            using (var testWorld = new NetCodeTestWorld())
+            {
+                testWorld.Bootstrap(true, typeof(ServerHostMigrationSystem), typeof(IncrementSomeDataSystem));
+                testWorld.CreateWorlds(true, 1);
+                SubSceneHelper.LoadSubSceneInWorlds(testWorld);
+
+                testWorld.ServerWorld.EntityManager.CreateEntity(ComponentType.ReadOnly<EnableHostMigration>());
+
+                using var driverQuery = testWorld.ServerWorld.EntityManager.CreateEntityQuery(ComponentType.ReadWrite<NetworkStreamDriver>());
+
+                testWorld.Connect();
+                testWorld.GoInGame();
+
+                // Tick the world a bunch to get the data flowing
+                testWorld.TickMultiple(64);
+
+                var prespawns = testWorld.ClientWorlds[0].EntityManager.CreateEntityQuery(typeof(Unity.NetCode.Tests.SomeData), typeof(GhostInstance)).ToComponentDataArray<GhostInstance>(Allocator.Temp);
+
+                // check out client has the correct compoenents in it and its a prespawn
+                Assert.AreEqual(1, prespawns.Length, "Number of expected prespawns doesn't match.");
+                Assert.IsTrue(PrespawnHelper.IsPrespawnGhostId(prespawns[0].ghostId));
+
+                unsafe
+                {
+                    GetHostMigrationData(testWorld, out var migrationData);
+
+                    // Tick a bunch to move on simulation so we have snapshots ahead
+                    testWorld.TickMultiple(21); // we use 21 as that fills out the snapshot buffer
+
+                    // Grab the snapshot buffer for the perespawn entity
+                    using var ghostCollectionQuery = testWorld.ClientWorlds[0].EntityManager.CreateEntityQuery(ComponentType.ReadOnly<GhostCollection>());
+                    var ghostCollection = ghostCollectionQuery.GetSingletonEntity();
+                    var ghostCollectionPrefabSerializers = testWorld.ClientWorlds[0].EntityManager.GetBuffer<GhostCollectionPrefabSerializer>(ghostCollection);
+
+                    var prespawnGhostData = ghostCollectionPrefabSerializers[prespawns[0].ghostType];
+
+                    // Modify the snapshot buffer data on the client
+                    var prespawnEntities = testWorld.ClientWorlds[0].EntityManager.CreateEntityQuery(typeof(Unity.NetCode.Tests.SomeData), typeof(GhostInstance)).ToEntityArray(Allocator.Temp);
+
+                    SnapshotData entitySnapshotData = testWorld.ClientWorlds[0].EntityManager.GetComponentData<SnapshotData>(prespawnEntities[0]);
+
+                    var clientSnapshotBuffer = testWorld.ClientWorlds[0].EntityManager.GetBuffer<SnapshotDataBuffer>(prespawnEntities[0]);
+                    byte* snapshotData = (byte*)clientSnapshotBuffer.GetUnsafePtr();
+
+
+                    void* tempData = UnsafeUtility.Malloc(prespawnGhostData.SnapshotSize, UnsafeUtility.AlignOf<byte>(), Allocator.Temp);
+                    int changeMaskUints = GhostComponentSerializer.ChangeMaskArraySizeInUInts(prespawnGhostData.ChangeMaskBits);
+
+                    // Going to flip the snapshot data so its in reverse order and place the LatestIndex in the middle
+                    // so new snapshots after the migration will always be placed after old data
+                    int bufferSize = clientSnapshotBuffer.Length / prespawnGhostData.SnapshotSize;
+                    for (int i = 0; i < bufferSize / 2; ++i)
+                    {
+                        int dest = i * prespawnGhostData.SnapshotSize; // start of the buffer
+                        int src = (bufferSize - 1 - i) * prespawnGhostData.SnapshotSize; // end of the buffer
+                        uint* changeMask = (uint*)(snapshotData + src + sizeof(uint));
+
+                        // really mess up the changemasks to force bad deserialisation
+                        for (int cm = 0; cm < changeMaskUints; ++cm)
+                        {
+                            changeMask[cm] ^= 0xFFFFFFFF;
+                        }
+
+                        UnsafeUtility.MemCpy(tempData, snapshotData + dest, prespawnGhostData.SnapshotSize); // save the start
+                        UnsafeUtility.MemCpy(snapshotData + dest, snapshotData + src, prespawnGhostData.SnapshotSize); // copy the end to the start
+                        UnsafeUtility.MemCpy(snapshotData + src, tempData, prespawnGhostData.SnapshotSize); // restore the start at the end
+                    }
+
+                    UnsafeUtility.Free(tempData, Allocator.Temp);
+                    
+                    // Set the index in the middle
+                    entitySnapshotData.LatestIndex = bufferSize / 2;
+                    testWorld.ClientWorlds[0].EntityManager.SetComponentData<SnapshotData>(prespawnEntities[0], entitySnapshotData);
+
+                    // Do the most migration
+                    DisconnectServerAndCreateNewServerWorld(testWorld, ref migrationData);
+
+                    // Allow host migration system to run, all the ghost need to spawn before we can handle reconnecting clients
+                    testWorld.TickMultiple(2);
+
+                    // reconnect the clients
+                    var ep = NetworkEndpoint.LoopbackIpv4;
+                    ep.Port = 7979;
+                    testWorld.GetSingletonRW<NetworkStreamDriver>(testWorld.ServerWorld).ValueRW.Listen(ep);
+                    for (int i = 0; i < testWorld.ClientWorlds.Length; ++i)
+                    {
+                        testWorld.GetSingletonRW<NetworkStreamDriver>(testWorld.ClientWorlds[i]).ValueRW.Connect(testWorld.ClientWorlds[i].EntityManager, ep);
+                    }
+
+                    testWorld.TickMultiple(16);
+
+                    // Place the clients in game
+                    for (int i = 0; i < testWorld.ClientWorlds.Length; ++i)
+                    {
+                        using var clientConnectionQuery = testWorld.ClientWorlds[i].EntityManager.CreateEntityQuery(ComponentType.ReadOnly<NetworkStreamConnection>());
+                        testWorld.ClientWorlds[i].EntityManager.AddComponent<NetworkStreamInGame>(clientConnectionQuery.GetSingletonEntity());
+                    }
+
+                    // Allow ghost collection system to run
+                    testWorld.TickMultiple(6);
+
+                    // Check for a successful migration
+                    Assert.AreEqual(0, testWorld.ServerWorld.EntityManager.CreateEntityQuery(ComponentType.ReadOnly<HostMigrationInProgress>()).ToEntityArray(Allocator.Temp).Length, "'HostMigrationInProgress' component still exists. Migration failed/timed out.");
+                    Assert.AreEqual(0, testWorld.ServerWorld.EntityManager.CreateEntityQuery(ComponentType.ReadOnly<HostMigrationRequest>()).ToEntityArray(Allocator.Temp).Length, "'HostMigrationRequest' component still exists. Migration failed/timed out.");
+
+                    // Allow the worlds to tick to send snapshots, we should encounter the error in this time, if not we will fill out the snapshot buffer
+                    // with new data and everything will be OK
+                    testWorld.TickMultiple(64);
+
+                }
+            }
+        }
+
+
+
+        [Test]
+        public unsafe void MigrationKeepsDynamicGhostIds()
+        {
+            // Check that tracked ghosts ids match, those ids are in our expected ids list (even ids)
+            Action<World, string, string> CheckTrackerGhosts = (World world, string worldName, string errorPrefix) =>
+            {
+                var ghostTrackers = world.EntityManager.CreateEntityQuery(ComponentType.ReadOnly<GhostInstance>(), ComponentType.ReadWrite<GhostIdAndTickChecker>());
+                int[] expectedTrackerGhostIds = { 2, 4, 6, 8 };
+
+                Assert.AreEqual(4, ghostTrackers.CalculateEntityCount(), $"{errorPrefix}: {worldName} World expecting 4 ghosts with tracking data found: {ghostTrackers.CalculateEntityCount()}");
+
+                foreach (var e in ghostTrackers.ToEntityArray(Allocator.Temp))
+                {
+                    var ghostInstance = world.EntityManager.GetComponentData<GhostInstance>(e);
+                    var ghostTracker = world.EntityManager.GetComponentData<GhostIdAndTickChecker>(e);
+
+                    Assert.AreEqual(ghostInstance.ghostId, ghostTracker.originalGhostId, $"{errorPrefix}: {worldName} Ghost {e} has mis-tracked ghostId {ghostInstance.ghostId}:{ghostTracker.originalGhostId}");
+                    Assert.AreEqual(ghostInstance.spawnTick, ghostTracker.originalSpawnTick, $"{errorPrefix}: {worldName} Ghost {e} has mis-tracked spawnTick {ghostInstance.spawnTick}:{ghostTracker.originalSpawnTick}");
+                    Assert.IsTrue(expectedTrackerGhostIds.Contains(ghostInstance.ghostId), $"{errorPrefix}: {worldName} Ghost has id: {ghostInstance.ghostId} this should be one of 2,4,6,8");
+                }
+            };
+
+            // Check that post migration ghost count is correct and they have been allocated the correct ids from the list (odd ids), this shows that id's are correcty returned to the free list both pre and post
+            // migration
+            Action<World, string, string> CheckPostMigrationActionGhosts = (World world, string worldName, string errorPrefix) =>
+            {
+                var postMighrationActionGhosts = world.EntityManager.CreateEntityQuery(ComponentType.ReadOnly<GhostInstance>(), ComponentType.ReadWrite<CreatedPostHostMigrationAction>());
+                int[] expectedPostMigrationmActionGhostIds = { 1, 3, 5, 7 };
+
+                Assert.AreEqual(4, postMighrationActionGhosts.CalculateEntityCount(), $"{errorPrefix}: {worldName} World expecting 4 ghosts post migration action found: {postMighrationActionGhosts.CalculateEntityCount()}");
+
+                foreach (var e in postMighrationActionGhosts.ToEntityArray(Allocator.Temp))
+                {
+                    var ghostInstance = world.EntityManager.GetComponentData<GhostInstance>(e);
+
+                    Assert.IsTrue(expectedPostMigrationmActionGhostIds.Contains(ghostInstance.ghostId), $"{errorPrefix}: {worldName} Ghost has id: {ghostInstance.ghostId} this should be one of 1,3,5,7");
+                }
+            };
+
+
+            const int clientCount = 2;
+            using (var testWorld = new NetCodeTestWorld())
+            {
+                testWorld.Bootstrap(true, typeof(ServerHostMigrationSystem));
+                testWorld.CreateWorlds(true, clientCount);
+
+                // Make our prefabs here
+                var trackerPrefabTypes = new ComponentType[1];
+                trackerPrefabTypes[0] = ComponentType.ReadOnly<GhostIdAndTickChecker>();
+                var postHostMigratioActionPrefabTypes = new ComponentType[1];
+                postHostMigratioActionPrefabTypes[0] = ComponentType.ReadOnly<CreatedPostHostMigrationAction>();
+
+                for (int i = 0; i < testWorld.ClientWorlds.Length; i++)
+                {
+                    CreatePrefab(testWorld.ClientWorlds[i].EntityManager, "GhostIdTracker", trackerPrefabTypes);
+                    CreatePrefab(testWorld.ClientWorlds[i].EntityManager, "PostHostMigrationAction", postHostMigratioActionPrefabTypes);
+                }
+                var serverEntityManager = testWorld.ServerWorld.EntityManager;
+                serverEntityManager.CreateEntity(ComponentType.ReadOnly<EnableHostMigration>());
+                var trackerPrefab = CreatePrefab(serverEntityManager, "GhostIdTracker", trackerPrefabTypes);
+                var postHostMigrationActionPrefab = CreatePrefab(serverEntityManager, "PostHostMigrationAction", postHostMigratioActionPrefabTypes);
+
+                testWorld.Connect(maxSteps: 10);
+                testWorld.GoInGame();
+
+                testWorld.TickMultiple(4);
+
+                var serverPrefabs = testWorld.GetSingletonBuffer<GhostCollectionPrefab>(testWorld.ServerWorld);
+                Assert.AreEqual(2, serverPrefabs.Length);
+
+                // check there are no ghosts yet
+                var ghostEntitiesQuery = serverEntityManager.CreateEntityQuery(ComponentType.ReadOnly<GhostInstance>());
+                Assert.AreEqual(0, ghostEntitiesQuery.ToEntityArray(Allocator.Temp).Length, "The test makes assumtions that there are no othter ghosts created so the test has complete control over the ghostIds.");
+
+                // Spawn 8 ghosts
+                for (int i = 0; i < 8; ++i)
+                    serverEntityManager.Instantiate(trackerPrefab);
+
+                testWorld.TickMultiple(4);
+
+                // copy over the ghost ids and spawn ticks to the tracker and then delete any with odd ghost ids
+                var serverGhostTrackers = serverEntityManager.CreateEntityQuery(ComponentType.ReadOnly<GhostInstance>(), ComponentType.ReadWrite<GhostIdAndTickChecker>());
+                var ecb = new EntityCommandBuffer(Allocator.Temp);
+                foreach (var e in serverGhostTrackers.ToEntityArray(Allocator.Temp))
+                {
+                    var ghostInstance = serverEntityManager.GetComponentData<GhostInstance>(e);
+
+                    if (ghostInstance.ghostId % 2 == 0) // even ghost id
+                    {
+                        // keep and track
+                        serverEntityManager.SetComponentData(e, new GhostIdAndTickChecker() { originalGhostId = ghostInstance.ghostId, originalSpawnTick = ghostInstance.spawnTick });
+                    }
+                    else // destroy odd components
+                    {
+                        ecb.DestroyEntity(e);
+                    }
+                }
+
+                ecb.Playback(serverEntityManager);
+
+                // allow the clients to catch up with the changes
+                testWorld.TickMultiple(6);
+
+                // Do the host migration
+                GetHostMigrationData(testWorld, out var migrationData);
+
+                // now create 4 more ghosts they should have Ids 1,3,5,7 since we reuse those Ids
+                for (int i = 0; i < 4; ++i)
+                    serverEntityManager.Instantiate(postHostMigrationActionPrefab);
+
+                // allow the clients to catch up with the changes
+                testWorld.TickMultiple(6);
+
+                CheckAllWorlds(testWorld, "Pre Migration", new List<Action<World, string, string>> { CheckTrackerGhosts, CheckPostMigrationActionGhosts });
+
+                // Destroy current server and create a new one
+                DisconnectServerAndCreateNewServerWorld(testWorld, ref migrationData);
+
+                serverEntityManager = testWorld.ServerWorld.EntityManager;
+
+                // Need to restore the prefab/ghost collection but normally it would happen via subscene loading during migration
+                // Create the prefabs in reverse order to the ghost type index would not match between old/new servers
+                CreatePrefab(serverEntityManager, "GhostIdTracker", trackerPrefabTypes);
+                postHostMigrationActionPrefab = CreatePrefab(serverEntityManager, "PostHostMigrationAction", postHostMigratioActionPrefabTypes);
+
+                var ep = NetworkEndpoint.LoopbackIpv4;
+                ep.Port = 7979;
+                testWorld.GetSingletonRW<NetworkStreamDriver>(testWorld.ServerWorld).ValueRW.Listen(ep);
+                for (int i = 0; i < testWorld.ClientWorlds.Length; ++i)
+                    testWorld.GetSingletonRW<NetworkStreamDriver>(testWorld.ClientWorlds[i]).ValueRW.Connect(testWorld.ClientWorlds[i].EntityManager, ep);
+                testWorld.TickMultiple(8);
+
+                // TODO: We don't handle connection restore on clients atm, so need to manually place in game
+                for (int i = 0; i < clientCount; ++i)
+                {
+                    using var clientConnectionQuery = testWorld.ClientWorlds[i].EntityManager.CreateEntityQuery(ComponentType.ReadOnly<NetworkStreamConnection>());
+                    testWorld.ClientWorlds[i].EntityManager.AddComponent<NetworkStreamInGame>(clientConnectionQuery.GetSingletonEntity());
+                }
+
+                // Allow ghost collection system to run
+                testWorld.TickMultiple(6);
+
+                // now create 4 more ghosts post migration they should have Ids 1,3,5,7 since we should reuse those Ids
+                for (int i = 0; i < 4; ++i)
+                    serverEntityManager.Instantiate(postHostMigrationActionPrefab);
+
+                // allow the send system to run and allocate the ghost ids.
+                testWorld.TickMultiple(6);
+
+                // Check the migrated IDs are kept
+                CheckAllWorlds(testWorld, "Post Migration", new List<Action<World, string, string>> { CheckTrackerGhosts, CheckPostMigrationActionGhosts });
+            }
+        }
+
+
+        [Ignore("Currently disabled as we need to implement a system to support maintaining prespawn GhostIds between migrations. Currently unloading a scene (apart from the last one) will cause prespawn ghost id's to be allocated in a different order.")]
+        [Test]
+        public unsafe void MigrationKeepsPrespawnGhostIds()
+        {
+            int expectedGhosts = 0;
+            Action<World, string, string> CheckPreSpawnGhostsAreCorrect = (World world, string worldName, string errorPrefix) =>
+            {
+                var ghostTrackers = world.EntityManager.CreateEntityQuery(ComponentType.ReadOnly<GhostInstance>(), ComponentType.ReadWrite<GhostIdAndTickChecker>());
+
+                Assert.AreEqual(expectedGhosts, ghostTrackers.CalculateEntityCount(), $"{errorPrefix}: {worldName} World expecting {expectedGhosts} ghosts with tracking data found: {ghostTrackers.CalculateEntityCount()}");
+                
+                foreach (var e in ghostTrackers.ToEntityArray(Allocator.Temp))
+                {
+                    var ghostInstance = world.EntityManager.GetComponentData<GhostInstance>(e);
+                    var ghostTracker = world.EntityManager.GetComponentData<GhostIdAndTickChecker>(e);
+
+                    Assert.AreEqual(ghostInstance.ghostId, ghostTracker.originalGhostId, $"{errorPrefix}: {worldName} Ghost {e} has mis-tracked ghostId {ghostInstance.ghostId}:{ghostTracker.originalGhostId}");
+                    Assert.AreEqual(ghostInstance.spawnTick, ghostTracker.originalSpawnTick, $"{errorPrefix}: {worldName} Ghost {e} has mis-tracked spawnTick {ghostInstance.spawnTick}:{ghostTracker.originalSpawnTick}");
+                    Debug.Log($"{errorPrefix}: {worldName} Ghost with ID {ghostInstance.ghostId}:{ghostTracker.originalGhostId} its a {(PrespawnHelper.IsPrespawnGhostId(ghostInstance.ghostId) ? "Prespawn" : "not a prespawn")}");
+                }
+            };
+
+
+            // so we need to make a server with 3 prespawn scenes with a tracked ghost in each
+            var ghost = SubSceneHelper.CreateSimplePrefab(ScenePath, "Ghost", typeof(GhostAuthoringComponent), typeof(GhostIdAndTickCheckerAuthoring));
+            var scene = SubSceneHelper.CreateEmptyScene(ScenePath, "ParentScene");
+            var subscene1 = SubSceneHelper.CreateSubSceneWithPrefabs(scene, ScenePath, "SubScene_1", new[] { ghost }, 1);
+            var subscene2 = SubSceneHelper.CreateSubSceneWithPrefabs(scene, ScenePath, "SubScene_2", new[] { ghost }, 1);
+            var subscene3 = SubSceneHelper.CreateSubSceneWithPrefabs(scene, ScenePath, "SubScene_3", new[] { ghost }, 1);
+            SceneManager.SetActiveScene(scene);
+
+            const int clientCount = 2;
+            using (var testWorld = new NetCodeTestWorld())
+            {
+                testWorld.Bootstrap(true, typeof(ServerHostMigrationSystem));
+                testWorld.CreateWorlds(true, clientCount);
+                SubSceneHelper.LoadSubSceneInWorlds(testWorld);
+
+                testWorld.ServerWorld.EntityManager.CreateEntity(ComponentType.ReadOnly<EnableHostMigration>());
+
+                testWorld.Connect(maxSteps: 10);
+                testWorld.GoInGame();
+
+                testWorld.TickMultiple(8);
+
+                var serverEntityManager = testWorld.ServerWorld.EntityManager;
+                var serverGhostTrackers = serverEntityManager.CreateEntityQuery(ComponentType.ReadOnly<GhostInstance>(), ComponentType.ReadWrite<GhostIdAndTickChecker>());
+                foreach (var e in serverGhostTrackers.ToEntityArray(Allocator.Temp))
+                {
+                    var ghostInstance = serverEntityManager.GetComponentData<GhostInstance>(e);
+                    serverEntityManager.SetComponentData(e, new GhostIdAndTickChecker() { originalGhostId = ghostInstance.ghostId, originalSpawnTick = ghostInstance.spawnTick });
+                }
+
+                testWorld.TickMultiple(8);
+
+                // We should have 3 subscenes
+                Assert.AreEqual(3, serverEntityManager.CreateEntityQuery(ComponentType.ReadOnly<SceneReference>()).ToEntityArray(Allocator.Temp).Length);
+
+                // so the world should be setup and we should have 3 trackers which match
+                expectedGhosts = 3;
+                CheckAllWorlds(testWorld, "Pre Migration 3 scenes", new List<Action<World, string, string>> { CheckPreSpawnGhostsAreCorrect });
+
+                // Remove scene 2
+                SceneSystem.UnloadScene(testWorld.ServerWorld.Unmanaged, subscene2.SceneGUID, SceneSystem.UnloadParameters.DestroyMetaEntities);
+
+                testWorld.TickMultiple(8);
+
+                Assert.AreEqual(2, serverEntityManager.CreateEntityQuery(ComponentType.ReadOnly<SceneReference>()).ToEntityArray(Allocator.Temp).Length);
+                
+                // so there should only be 2 ghosts now
+                expectedGhosts = 2;
+                CheckAllWorlds(testWorld, "Pre Migration 2 scenes", new List<Action<World, string, string>> { CheckPreSpawnGhostsAreCorrect });
+
+                // do a host migration
+                GetHostMigrationData(testWorld, out var migrationData);
+                DisconnectServerAndCreateNewServerWorld(testWorld, ref migrationData);
+
+                serverEntityManager = testWorld.ServerWorld.EntityManager;
+
+                testWorld.TickMultiple(2);
+
+                // re-connect the clients
+                var ep = NetworkEndpoint.LoopbackIpv4;
+                ep.Port = 7979;
+                testWorld.GetSingletonRW<NetworkStreamDriver>(testWorld.ServerWorld).ValueRW.Listen(ep);
+                for (int i = 0; i < testWorld.ClientWorlds.Length; ++i)
+                    testWorld.GetSingletonRW<NetworkStreamDriver>(testWorld.ClientWorlds[i]).ValueRW.Connect(testWorld.ClientWorlds[i].EntityManager, ep);
+
+                testWorld.TickMultiple(8);
+
+                // TODO: We don't handle connection restore on clients atm, so need to manually place in game
+                for (int i = 0; i < clientCount; ++i)
+                {
+                    using var clientConnectionQuery = testWorld.ClientWorlds[i].EntityManager.CreateEntityQuery(ComponentType.ReadOnly<NetworkStreamConnection>());
+                    testWorld.ClientWorlds[i].EntityManager.AddComponent<NetworkStreamInGame>(clientConnectionQuery.GetSingletonEntity());
+                }
+
+                testWorld.TickMultiple(32);
+
+                // we should only have 2 scenes post migration
+                Assert.AreEqual(2, serverEntityManager.CreateEntityQuery(ComponentType.ReadOnly<SceneReference>()).ToEntityArray(Allocator.Temp).Length);
+
+                // so there should only be 2 ghosts now and their ids shgould match
+                expectedGhosts = 2;
+                CheckAllWorlds(testWorld, "Post Migration 2 scenes", new List<Action<World, string, string>> { CheckPreSpawnGhostsAreCorrect });
+            }
+        }
+
+        static void CheckGhostAndTrackersMatch(World world, string worldName, string errorPrefix, int expectedGhosts)
+        {
+            var ghostTrackers = world.EntityManager.CreateEntityQuery(ComponentType.ReadOnly<GhostInstance>(), ComponentType.ReadWrite<GhostIdAndTickChecker>());
+
+            Assert.AreEqual(expectedGhosts, ghostTrackers.CalculateEntityCount(), $"{errorPrefix}: {worldName} World expecting {expectedGhosts} ghosts with tracking data found: {ghostTrackers.CalculateEntityCount()}");
+
+            foreach (var e in ghostTrackers.ToEntityArray(Allocator.Temp))
+            {
+                var ghostInstance = world.EntityManager.GetComponentData<GhostInstance>(e);
+                var ghostTracker = world.EntityManager.GetComponentData<GhostIdAndTickChecker>(e);
+
+                Assert.AreEqual(ghostInstance.ghostId, ghostTracker.originalGhostId, $"{errorPrefix}: {worldName} Ghost {e} has mis-tracked ghostId {ghostInstance.ghostId}:{ghostTracker.originalGhostId}");
+                Assert.AreEqual(ghostInstance.spawnTick, ghostTracker.originalSpawnTick, $"{errorPrefix}: {worldName} Ghost {e} has mis-tracked spawnTick {ghostInstance.spawnTick}:{ghostTracker.originalSpawnTick}");
+            }
+        }
+
+        
+
+        static void CheckAllWorlds(NetCodeTestWorld testWorld, string checkPrefix, List<Action<World, string, string>> checks )
+        {
+            foreach (var check in checks)
+            {
+                check(testWorld.ServerWorld, "Server", checkPrefix);
+            }
+
+            for (int i = 0; i < testWorld.ClientWorlds.Length; ++i)
+            {
+                foreach (var check in checks)
+                {
+                    check(testWorld.ClientWorlds[i], "Client", checkPrefix);
                 }
             }
         }
@@ -1068,6 +1945,30 @@ namespace Unity.NetCode.Tests
             return prefab;
         }
 
+        static Entity CreatePrefab( EntityManager entityManager, FixedString64Bytes name, ComponentType[] components, bool addTransform = false )
+        {
+            var prefab = entityManager.CreateEntity();
+            if ( addTransform )
+                entityManager.AddComponentData(prefab, LocalTransform.Identity);
+
+            foreach ( var c in components )
+            {
+                entityManager.AddComponent(prefab, c);
+            }
+
+            GhostPrefabCreation.ConvertToGhostPrefab(entityManager, prefab, new GhostPrefabCreation.Config
+            {
+                Name = name,
+                Importance = 0,
+                SupportedGhostModes = GhostModeMask.Interpolated,
+                DefaultGhostMode = GhostMode.Interpolated,
+                OptimizationMode = GhostOptimizationMode.Dynamic,
+                UsePreSerialization = false
+            });
+
+            return prefab;
+        }
+
         static Entity CreatePrefab(EntityManager entityManager)
         {
             var prefab = entityManager.CreateEntity();
@@ -1092,7 +1993,7 @@ namespace Unity.NetCode.Tests
         static Entity CreatePrefabWithOnlyComponents(EntityManager entityManager)
         {
             var prefab = entityManager.CreateEntity();
-            entityManager.AddComponent<SomeData>(prefab);
+            entityManager.AddComponent<SimpleData>(prefab);
             entityManager.AddComponent<MoreData>(prefab);
 
             GhostPrefabCreation.ConvertToGhostPrefab(entityManager, prefab, new GhostPrefabCreation.Config
@@ -1113,7 +2014,7 @@ namespace Unity.NetCode.Tests
         {
             var prefab = entityManager.CreateEntity();
             entityManager.AddComponentData(prefab, LocalTransform.Identity);
-            entityManager.AddComponent<SomeData>(prefab);
+            entityManager.AddComponent<SimpleData>(prefab);
             entityManager.AddBuffer<SomeBuffer>(prefab); // Empty buffer
 
             GhostPrefabCreation.ConvertToGhostPrefab(entityManager, prefab, new GhostPrefabCreation.Config
@@ -1134,7 +2035,7 @@ namespace Unity.NetCode.Tests
             var prefab = entityManager.CreateEntity();
             entityManager.AddComponentData(prefab, LocalTransform.Identity);
             entityManager.AddComponent<SomeEnableable>(prefab);
-            entityManager.AddComponent<SomeData>(prefab);
+            entityManager.AddComponent<SimpleData>(prefab);
             entityManager.AddBuffer<SomeBuffer>(prefab);
 
             GhostPrefabCreation.ConvertToGhostPrefab(entityManager, prefab, new GhostPrefabCreation.Config
@@ -1159,7 +2060,7 @@ namespace Unity.NetCode.Tests
             entityManager.AddComponent<InputBufferData<HMRemoteInput>>(prefab);
             entityManager.AddComponent<AutoCommandTarget>(prefab);
             entityManager.SetComponentData(prefab, new AutoCommandTarget(){ Enabled = true });
-            entityManager.AddComponent<SomeData>(prefab);
+            entityManager.AddComponent<SimpleData>(prefab);
 
             GhostPrefabCreation.ConvertToGhostPrefab(entityManager, prefab, new GhostPrefabCreation.Config
             {
