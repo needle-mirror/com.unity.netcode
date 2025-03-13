@@ -39,7 +39,7 @@
   * [Data compression](compression.md)
 * [Samples](samples.md)
   * [Networked cube](networked-cube.md)
-  * [Host migration in Asteroids](host-migration-sample.md)
+  * [Host migration in Asteroids](host-migration/host-migration-sample.md)
 * [Reference](reference.md)
   * [Netcode-specific components and types](entities-list.md)
   * [Netcode Project Settings reference](project-settings.md)

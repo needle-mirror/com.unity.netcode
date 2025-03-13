@@ -15,7 +15,7 @@ Before you can use host migration in a project, you need the following:
 
 ## Unity project setup
 
-You can start a new Unity project, or use the [Asteroids sample](../host-migration-sample.md) to quickly get started testing host migration in Netcode for Entities. When you create a new project, connect the project to Unity Cloud by selecting the **Connect to Unity Cloud** checkbox.
+You can start a new Unity project, or use the [Asteroids sample](host-migration-sample.md) to quickly get started testing host migration in Netcode for Entities. When you create a new project, connect the project to Unity Cloud by selecting the **Connect to Unity Cloud** checkbox.
 
 ## Packages
 

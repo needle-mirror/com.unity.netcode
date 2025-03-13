@@ -2,6 +2,13 @@
 uid: changelog
 ---
 
+## [1.5.0-exp.101] - 2025-03-13
+
+### Fixed
+
+* Fix broken link in the documentation.
+
+
 ## [1.5.0-exp.100] - 2025-03-11
 
 ### Changed
