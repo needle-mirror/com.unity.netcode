@@ -128,7 +128,7 @@ namespace Unity.NetCode.Tests
                 Assert.AreEqual(43, entityManager.GetComponentData<InterpolatedOnlyTestComponent>(clientEnt).Value);
             }
         }
-        
+
         // To get as much precision as possible with no interpolation noise
         [GhostComponentVariation(typeof(Transforms.LocalTransform), nameof(ClampedTransformVariant))]
         [GhostComponent(PrefabType=GhostPrefabType.All, SendTypeOptimization=GhostSendType.AllClients)]
@@ -136,14 +136,14 @@ namespace Unity.NetCode.Tests
         {
             [GhostField(Quantization=0, Smoothing=SmoothingAction.Clamp)]
             public float3 Position;
-        
+
             [GhostField(Quantization=0, Smoothing=SmoothingAction.Clamp)]
             public float Scale;
-        
+
             [GhostField(Quantization=0, Smoothing=SmoothingAction.Clamp)]
             public quaternion Rotation;
         }
-        
+
         [DisableAutoCreation]
         [CreateBefore(typeof(Unity.NetCode.TransformDefaultVariantSystem))]
         sealed partial class ClampedTransformVariantRegisterSystem : DefaultVariantSystemBase
@@ -226,7 +226,7 @@ namespace Unity.NetCode.Tests
                 PredictionSwitchMoveTestSystem.TickFreeze = timeQuery.GetSingleton<NetworkTime>().ServerTick; // have the entity interpolate to a now frozen predicted position (to make testing value changes easier)
 
                 Assert.That(entityManager.HasComponent<PredictedGhost>(clientEnt), "Sanity check failed, the entity should be marked as predicted now");
-                var expectedTickDiffBetweenInterpolatedPredicted = 7f; // Expected tick count between predicted tick and interpolated tick. 2 InterpolationTimeNetTicks + 2 TargetCommandSlack + 3 syncing
+                var expectedTickDiffBetweenInterpolatedPredicted = 6f; // Expected tick count between predicted tick and interpolated tick. 2 InterpolationTimeNetTicks + 2 TargetCommandSlack + 2 syncing
                 expectedTickDiffBetweenInterpolatedPredicted += 1; // since we're doing one more tick after copying originalLocalToWorld
                 var expectedIncrementPerTick = (expectedTickDiffBetweenInterpolatedPredicted * PredictionSwitchMoveTestSystem.k_valueIncrease) / 60f; // we expect to move by this much to catch up to the predicted value
                 // with 1 second interpolation duration and 60 hz, it should take 60 frames to reach the target predicted position
@@ -297,9 +297,9 @@ namespace Unity.NetCode.Tests
                     PredictionSwitchMoveTestSystem.TickFreeze = NetworkTick.Invalid;
 
                     testWorld.Tick(); // converting and predicting
-                    
+
                     var oldLocalToWorld = entityManager.GetComponentData<LocalToWorld>(clientEnt);
-                    
+
                     // Test
 
                     for (int i = 0; i < 60; ++i)
@@ -333,7 +333,7 @@ namespace Unity.NetCode.Tests
             testWorld.Bootstrap(true, typeof(PredictionSwitchMoveTestSystem));
 
             ref var ghostPredictionSwitchingQueues = ref InitTest(testWorld, UseOwnerPredicted, out var originalPosParent, out var firstClientWorld, out var entityManager, out var timeQuery, out var clientEnt, out var originalRotation);
-            
+
             var oldLocalToWorld = entityManager.GetComponentData<LocalToWorld>(clientEnt);
             // Set it to predicted for following test step
             ghostPredictionSwitchingQueues = ref testWorld.GetSingletonRW<GhostPredictionSwitchingQueues>(firstClientWorld).ValueRW;

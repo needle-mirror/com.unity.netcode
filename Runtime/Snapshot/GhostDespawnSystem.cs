@@ -46,6 +46,7 @@ namespace Unity.NetCode
             public NetworkTick tick;
         }
 
+        /// <inheritdoc/>
         public void OnCreate(ref SystemState state)
         {
             var singleton = state.EntityManager.CreateEntity(ComponentType.ReadWrite<GhostDespawnQueues>());
@@ -59,6 +60,7 @@ namespace Unity.NetCode
             });
         }
 
+        /// <inheritdoc/>
         [BurstCompile]
         public void OnDestroy(ref SystemState state)
         {
@@ -67,6 +69,7 @@ namespace Unity.NetCode
             m_PredictedDespawnQueue.Dispose();
         }
 
+        /// <inheritdoc/>
         [BurstCompile]
         public void OnUpdate(ref SystemState state)
         {

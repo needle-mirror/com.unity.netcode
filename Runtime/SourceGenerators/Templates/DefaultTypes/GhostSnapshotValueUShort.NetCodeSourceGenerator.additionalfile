@@ -1,0 +1,26 @@
+#templateid:NetCode.GhostSnapshotValueUShort.cs
+namespace Generated
+{
+    public struct GhostSnapshotData
+    {
+        public void SerializeCommand(ref DataStreamWriter writer, in IComponentData data, in IComponentData baseline, StreamCompressionModel compressionModel)
+        {
+            #region __COMMAND_WRITE__
+            writer.WriteUShort((ushort)data.__COMMAND_FIELD_NAME__);
+            #endregion
+            #region __COMMAND_WRITE_PACKED__
+            writer.WritePackedUInt((ushort)data.__COMMAND_FIELD_NAME__, compressionModel);
+            #endregion
+        }
+
+        public void DeserializeCommand(ref DataStreamReader reader, ref IComponentData data, in IComponentData baseline, StreamCompressionModel compressionModel)
+        {
+            #region __COMMAND_READ__
+            data.__COMMAND_FIELD_NAME__ = (__COMMAND_FIELD_TYPE_NAME__)reader.ReadUShort();
+            #endregion
+            #region __COMMAND_READ_PACKED__
+            data.__COMMAND_FIELD_NAME__ = (__COMMAND_FIELD_TYPE_NAME__)reader.ReadPackedUInt(compressionModel);
+            #endregion
+        }
+    }
+}

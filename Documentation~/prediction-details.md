@@ -121,7 +121,7 @@ A a limit case, inserting another child entity in the `LinkedEntityGroup` buffer
 
 This is a valid configuration
 ```
-root 
+root
   child 1   <-- Replicated
   child 2   <-- Replicated
   =-----=  Append after here
@@ -133,7 +133,7 @@ root
 There are an invalid configurations
 ```
 root
-  user entity 1 
+  user entity 1
   child 1  <-- Replicated
   child 2  <-- Replicated
   child 3
@@ -141,7 +141,7 @@ root
 ```
 root
   child 1  <-- Replicated
-  user entity 1 
+  user entity 1
   child 2  <-- Replicated
   child 3
 ```
@@ -165,7 +165,7 @@ Let's make an example: let's say we have a ghost with a `component A` that has a
 ```
 tick 100 -> A: 100
 tick 101.7 -> A: 101 // data is retrieved from the history backup and incremented by 1
-tick 101: A:101 <-- Full tick, backup B:101 
+tick 101: A:101 <-- Full tick, backup B:101
 tick 102.1 -> A is removed removed
 tick 102.2
 
@@ -181,7 +181,7 @@ Tick 102.8 -> A re-added
 Tick 102.9 -> A: 0 incremented to 1  <------ Incorrect or at least not what expected.
 
 //A snapshot for tick 100 is received from the server for another predicted entity (A: 100)
-Tick 101 -> A: 101 
+Tick 101 -> A: 101
 Tick 102 -> A: 102 <-- this is now in sync with the server
 Tick 103.2 -> A: 103
 
@@ -189,7 +189,7 @@ Tick 103.2 -> A: 103
 Tick 104.4 -> A removed (A was 104)
 //A snapshot for tick 101 received (A: 101)
 Tick 102: No value copied/update for A because not present
-Tick 103: No value copied/update for A because not present 
+Tick 103: No value copied/update for A because not present
 Tick 104.6: A re-added
 Tick 104.8: A: 1
 ```

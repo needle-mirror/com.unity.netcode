@@ -11,6 +11,8 @@ namespace Unity.NetCode.Generators
         Primitive,
         Enum,
         Struct,
+        FixedList,
+        FixedSizeArray
     }
 
     public enum ComponentType
@@ -55,10 +57,14 @@ namespace Unity.NetCode.Generators
         public string UnderlyingTypeName;
         //Only valid for field. Empty or null in all other cases
         public string FieldName;
+        //Optional and only valid for field. Empty or null in all other cases. Used to store an alternative path or name
+        //to access a field in the snapshot data, in case the access pattern does not match the automated rules
+        //parent.field.name -> parent_field_name
+        public string SnapshotFieldName;
         //Only valid for field. Empty or null in all other cases
         public string FieldTypeName;
         //Only valid for field. Empty or null in all other cases
-        public string DeclaringTypeFullName;
+        public string ContainingTypeFullName;
         public GenTypeKind Kind;
         //This is valid for the root type and always NotApplicable for the members
         public ComponentType ComponentType;
@@ -67,24 +73,40 @@ namespace Unity.NetCode.Generators
         public TypeAttribute Attribute;
         //Only applicable to root
         public GhostComponentAttribute GhostAttribute;
-        public string Parent;
-        public bool CanBatchPredict;
+        //The path to field starting from the root
+        public string FieldPath;
         public ITypeSymbol Symbol;
 #pragma warning restore 649
         //The syntax tree and text span location of the type
         public Location Location;
-
+        //Only valid for generic types.
+        public string GenericTypeName;
+        public TypeInformation PointeeType;
         public List<TypeInformation> GhostFields = new List<TypeInformation>();
         public bool ShouldSerializeEnabledBit;
         public bool HasDontSupportPrefabOverridesAttribute;
         public bool IsTestVariant;
-
-        public TypeDescription Description => new TypeDescription
+        public bool CanBatchPredict;
+        //for fixed buffers and fixed list, the number of elements
+        public int ElementCount;
+        public TypeDescription Description
         {
-            TypeFullName = TypeFullName,
-            Key = Kind == GenTypeKind.Enum ? UnderlyingTypeName : TypeFullName,
-            Attribute = Attribute
-        };
+            get
+            {
+                var description = new TypeDescription
+                {
+                    TypeFullName = TypeFullName,
+                    Attribute = Attribute
+                };
+                if (Kind == GenTypeKind.Enum)
+                    description.Key = UnderlyingTypeName;
+                else if (Kind == GenTypeKind.FixedList)
+                    description.Key = GenericTypeName;
+                else
+                    description.Key = TypeFullName;
+                return description;
+            }
+        }
 
         public bool IsValid => Kind != GenTypeKind.Invalid;
 

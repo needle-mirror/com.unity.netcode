@@ -1,4 +1,6 @@
+#pragma warning disable CS0618 // Disable Entities.ForEach obsolete warnings
 using System.Collections.Generic;
+using System.Text.RegularExpressions;
 using NUnit.Framework;
 using Unity.Burst.Intrinsics;
 using Unity.Collections;
@@ -6,6 +8,8 @@ using Unity.Entities;
 using Unity.Mathematics;
 using Unity.Scenes;
 using Unity.Transforms;
+using UnityEngine;
+using UnityEngine.TestTools;
 
 namespace Unity.NetCode.Tests
 {
@@ -635,6 +639,9 @@ namespace Unity.NetCode.Tests
                 Assert.IsFalse(clientSpawnMap.ContainsKey(despawnedGhosts[1]));
                 Assert.IsFalse(clientSpawnMap.ContainsKey(despawnedGhosts[2]));
                 Assert.IsFalse(clientSpawnMap.ContainsKey(despawnedGhosts[3]));
+
+                LogAssert.Expect(LogType.Warning, new Regex(@"Ack desync at(.*)sent baseline\(s\) we do not have!"));
+                LogAssert.Expect(LogType.Warning, new Regex(@"NetworkConnection(.*) reported recoverable snapshot read errors"));
             }
         }
     }

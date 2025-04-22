@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Linq;
 using System.Text.RegularExpressions;
 using Unity.Burst;
 using Unity.Collections;
@@ -12,7 +11,10 @@ using UnityEditor;
 using UnityEngine;
 using Unity.Entities.Build;
 using Unity.Jobs;
+using Unity.NetCode.Analytics;
+using Unity.NetCode.Editor.Analytics;
 using Unity.NetCode.Hybrid;
+using UnityEngine.Analytics;
 using Prefs = Unity.NetCode.MultiplayerPlayModePreferences;
 
 namespace Unity.NetCode.Editor
@@ -145,9 +147,11 @@ Denotes that the server driver is closed i.e. not currently listening.
         static DateTime s_LastWrittenUtc;
         static DateTime s_LastRepaintedUtc;
         static bool s_ShouldUpdateStatusTexts;
-        internal static bool s_ForceRepaint;
+        public static bool s_ForceRepaint;
         Vector2 m_WorldScrollPosition;
         int m_PreviousFrameCount;
+
+        MultiplayerPlaymodePreferencesUpdatedData m_PreferencesData;
 
         public delegate void SimulatorPresetsSelectionDelegate(out string presetGroupName, List<SimulatorPreset> appendPresets);
 
@@ -198,7 +202,12 @@ Denotes that the server driver is closed i.e. not currently listening.
             s_InUseSimulatorPresetsCache.Clear();
             InUseSimulatorPresets(out var presetGroupName, s_InUseSimulatorPresetsCache);
             s_SimulatorPreset.text = presetGroupName;
-            s_InUseSimulatorPresetContents = s_InUseSimulatorPresetsCache.Select(x => new GUIContent(x.Name, x.Tooltip + k_SimulatorPresetCaveat)).ToArray();
+            s_InUseSimulatorPresetContents = new GUIContent[s_InUseSimulatorPresetsCache.Count];
+            for (var i = 0; i < s_InUseSimulatorPresetsCache.Count; i++)
+            {
+                var preset = s_InUseSimulatorPresetsCache[i];
+                s_InUseSimulatorPresetContents[i] = new GUIContent(preset.Name, preset.Tooltip + k_SimulatorPresetCaveat);
+            }
         }
 
         void OnDisable()
@@ -208,6 +217,12 @@ Denotes that the server driver is closed i.e. not currently listening.
 
         void PlayModeStateChanged(PlayModeStateChange playModeStateChange)
         {
+            var newPrefsData = new MultiplayerPlaymodePreferencesUpdatedData();
+            if (!newPrefsData.Equals(m_PreferencesData))
+            {
+                m_PreferencesData = newPrefsData;
+                NetCodeAnalytics.SendAnalytic(new MultiplayerPlayModePreferencesUpdatedAnalytic(m_PreferencesData));
+            }
             EditorApplication.update -= PlayModeUpdate;
             if (playModeStateChange == PlayModeStateChange.EnteredPlayMode)
                 EditorApplication.update += PlayModeUpdate;
@@ -418,7 +433,7 @@ Denotes that the server driver is closed i.e. not currently listening.
                     s_ClientConnect.text = $"Connect to {autoConnectionAddress}:{autoConnectionPort}";
                     if (GUILayout.Button(s_ClientConnect))
                     {
-                        foreach (var clientWorld in ClientServerBootstrap.ClientWorlds.Concat(ClientServerBootstrap.ThinClientWorlds))
+                        foreach (var clientWorld in ClientServerBootstrap.AllClientWorldsEnumerator())
                         {
                             var connSystem = clientWorld.GetExistingSystemManaged<MultiplayerClientPlayModeConnectionSystem>();
                             connSystem.ChangeStateImmediate(targetEp);
@@ -439,9 +454,22 @@ Denotes that the server driver is closed i.e. not currently listening.
                 }
                 else if (!ClientServerBootstrap.WillServerAutoListen)
                 {
-                    var anyConnected = ClientServerBootstrap.ServerWorlds.Any(x => x.IsCreated && x.GetExistingSystemManaged<MultiplayerServerPlayModeConnectionSystem>().IsListening)
-                        || ClientServerBootstrap.ClientWorlds.Concat(ClientServerBootstrap.ThinClientWorlds).Any(x => x.IsCreated && x.GetExistingSystemManaged<MultiplayerClientPlayModeConnectionSystem>().ClientConnectionState != ConnectionState.State.Disconnected);
-                    if (!anyConnected)
+                    static bool AnyServerListening()
+                    {
+                        foreach (var x in ClientServerBootstrap.ServerWorlds)
+                            if (x.IsCreated && x.GetExistingSystemManaged<MultiplayerServerPlayModeConnectionSystem>().IsListening)
+                                return true;
+                        return false;
+                    }
+                    static bool AnyClientConnecting()
+                    {
+                        foreach (var x in ClientServerBootstrap.AllClientWorldsEnumerator())
+                            if (x.IsCreated && x.GetExistingSystemManaged<MultiplayerClientPlayModeConnectionSystem>().ClientConnectionState != ConnectionState.State.Disconnected)
+                                return true;
+                        return false;
+                    }
+                    var anyNetcodeActivity = AnyServerListening() || AnyClientConnecting();
+                    if (!anyNetcodeActivity)
                     {
                         switch (Prefs.RequestedPlayType)
                         {
@@ -688,7 +716,7 @@ Denotes that the server driver is closed i.e. not currently listening.
                     {
                         DrawSeparator();
 
-                        var firstClient = ClientServerBootstrap.ClientWorld ?? ClientServerBootstrap.ThinClientWorlds?.FirstOrDefault();
+                        var firstClient = ClientServerBootstrap.ClientWorld ?? (ClientServerBootstrap.ThinClientWorlds.Count != 0 ? ClientServerBootstrap.ThinClientWorlds[0] : null);
                         var connSystem = firstClient != null && firstClient.IsCreated ? firstClient.GetExistingSystemManaged<MultiplayerClientPlayModeConnectionSystem>() : null;
 
                         GUILayout.BeginHorizontal();
@@ -786,21 +814,29 @@ Denotes that the server driver is closed i.e. not currently listening.
                 GUI.enabled = conSystem.ClientConnectionState != ConnectionState.State.Disconnected;
                 if (GUILayout.Button(s_ClientReconnect))
                 {
+                    NetCodeAnalytics.SendAnalytic(new PlayModeConnectionChangedAnalytic(Operation.ClientReconnect, conSystem.World));
                     Prefs.IsEditorInputtedAddressValidForConnect(out var ep);
                     conSystem.ChangeStateImmediate(conSystem.LastEndpoint ?? ep);
                 }
 
                 GUI.enabled = true;
                 if (GUILayout.Button(s_ClientDc))
+                {
+                    NetCodeAnalytics.SendAnalytic(new PlayModeConnectionChangedAnalytic(Operation.ClientDisconnect, conSystem.World));
                     conSystem.ChangeStateImmediate(null);
+                }
 
                 if (GUILayout.Button(s_ServerDc))
+                {
+                    NetCodeAnalytics.SendAnalytic(new PlayModeConnectionChangedAnalytic(Operation.ServerDisconnect, conSystem.World));
                     ServerDisconnectNetworkId(conSystem);
+                }
             }
             else
             {
                 if (GUILayout.Button("Connect"))
                 {
+                    NetCodeAnalytics.SendAnalytic(new PlayModeConnectionChangedAnalytic(Operation.Connect, conSystem.World));
                     Prefs.IsEditorInputtedAddressValidForConnect(out var ep);
                     conSystem.ChangeStateImmediate(conSystem.LastEndpoint ?? ep);
                 }
@@ -811,7 +847,10 @@ Denotes that the server driver is closed i.e. not currently listening.
             s_Timeout.text = isTimingOut ? $"Simulating Timeout\n[{Mathf.CeilToInt(conSystem.TimeoutSimulationDurationSeconds)}s]" : $"Timeout";
             GUI.color = isTimingOut ? GhostAuthoringComponentEditor.brokenColor :  Color.white;
             if (GUILayout.Button(s_Timeout))
+            {
+                NetCodeAnalytics.SendAnalytic(new PlayModeConnectionChangedAnalytic(Operation.Timeout, conSystem.World));
                 conSystem.ToggleTimeoutSimulation();
+            }
 
             GUI.color = connectionColor;
             GUILayout.Box(conSystem.PingText, s_BoxStyleHack, s_PingWidth);
@@ -877,14 +916,16 @@ Denotes that the server driver is closed i.e. not currently listening.
 
                 if (GUILayout.Button(s_ServerDcAllClients))
                 {
+                    NetCodeAnalytics.SendAnalytic(new PlayModeConnectionChangedAnalytic(Operation.ServerDisconnect, TargetWorld.AllClients));
                     DisconnectAllClients(serverWorld);
                 }
 
                 if (GUILayout.Button(s_ServerReconnectAllClients))
                 {
+                    NetCodeAnalytics.SendAnalytic(new PlayModeConnectionChangedAnalytic(Operation.ServerReconnect, TargetWorld.AllClients));
                     DisconnectAllClients(serverWorld);
 
-                    foreach (var clientWorld in ClientServerBootstrap.ClientWorlds.Concat(ClientServerBootstrap.ThinClientWorlds))
+                    foreach (var clientWorld in ClientServerBootstrap.AllClientWorldsEnumerator())
                     {
                         if (!clientWorld.IsCreated) continue;
                         var connSystem = clientWorld.GetExistingSystemManaged<MultiplayerClientPlayModeConnectionSystem>();
@@ -895,10 +936,12 @@ Denotes that the server driver is closed i.e. not currently listening.
 
                 if (GUILayout.Button(s_ServerLogRelevancy))
                 {
+                    NetCodeAnalytics.SendAnalytic(new PlayModeLogRelevancyAnalytic());
                     LogRelevancy(serverWorld);
                 }
                 if (GUILayout.Button(s_ServerLogCommandStats))
                 {
+                    NetCodeAnalytics.SendAnalytic(new PlayModeLogCommandStatsAnalytic());
                     LogCommandStats(serverWorld);
                 }
 
@@ -1199,7 +1242,7 @@ Denotes that the server driver is closed i.e. not currently listening.
 
         static void RefreshSimulationPipelineParametersLiveForAllWorlds()
         {
-            foreach (var clientWorld in ClientServerBootstrap.ClientWorlds.Concat(ClientServerBootstrap.ThinClientWorlds))
+            foreach (var clientWorld in ClientServerBootstrap.AllClientWorldsEnumerator())
             {
                 clientWorld.GetExistingSystemManaged<MultiplayerClientPlayModeConnectionSystem>().UpdateSimulator = true;
             }
@@ -1287,7 +1330,7 @@ Denotes that the server driver is closed i.e. not currently listening.
             var hasNetworkStreamDriver = SystemAPI.TryGetSingletonRW<NetworkStreamDriver>(out var netStream);
             if (hasNetworkStreamDriver)
             {
-				ref var driverStore = ref netStream.ValueRO.DriverStore;
+                ref var driverStore = ref netStream.ValueRO.DriverStore;
                 DriverDisplayInfo.Read(ref driverStore, ref DriverInfos, NetworkStreamConnection.Value);
 
                 LastEndpoint = netStream.ValueRO.LastEndPoint;
@@ -1380,6 +1423,7 @@ $@"<b>GhostCount</b> Singleton
             UpdateSimulator = true;
             SystemAPI.GetSingletonRW<NetDebug>().ValueRW.DebugLog($"Lag Spike Simulator: Toggled! Dropping packets for {Mathf.CeilToInt(LagSpikeMillisecondsLeft)}ms!");
             MultiplayerPlayModeWindow.s_ForceRepaint = true;
+            NetCodeAnalytics.SendAnalytic(new PlayModeLagSpikeTriggeredAnalytic(LagSpikeMillisecondsLeft));
         }
 
         public void ToggleTimeoutSimulation()

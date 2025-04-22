@@ -188,9 +188,10 @@ namespace Unity.NetCode
     [UpdateInGroup(typeof(PredictedSimulationSystemGroup), OrderFirst = true)]
     public partial class PredictedFixedStepSimulationSystemGroup : ComponentSystemGroup
     {
-        private BeginFixedStepSimulationEntityCommandBufferSystem m_BeginFixedStepSimulationEntityCommandBufferSystem;
-        private EndFixedStepSimulationEntityCommandBufferSystem m_EndFixedStepSimulationEntityCommandBufferSystem;
-
+        /// <summary>
+        /// Return the NetcodePredictionFixedRateManager instance that govern the update logic of the group.
+        /// </summary>
+        internal NetcodePredictionFixedRateManager InternalRateManager => m_InternalRateManager;
         /// <summary>
         /// Set the timestep used by this group, in seconds. The default value is 1/60 seconds.
         /// </summary>
@@ -198,14 +199,14 @@ namespace Unity.NetCode
         {
             get
             {
-                return RateManager?.Timestep ?? 0f;
+                return m_InternalRateManager.Timestep;
             }
             [Obsolete("The PredictedFixedStepSimulationSystemGroup.TimeStep setter has been deprecated and will be removed (RemovedAfter Entities 1.0)." +
                 "Please use the ClientServerTickRate.PredictedFixedStepSimulationTickRatio to set the desired rate for this group. " +
                 "Any TimeStep value set using the RateManager directly will be overwritten with the setting provided in the ClientServerTickRate", false)]
             set
             {
-                if (RateManager != null) RateManager.Timestep = value;
+                m_InternalRateManager.Timestep = value;
             }
         }
         /// <summary>
@@ -215,15 +216,14 @@ namespace Unity.NetCode
         /// <param name="tickRate">The ClientServerTickRate used for the simulation.</param>
         internal void ConfigureTimeStep(in ClientServerTickRate tickRate)
         {
-            if(RateManager == null)
+            if(m_InternalRateManager == null)
                 return;
             tickRate.Validate();
             var fixedTimeStep = tickRate.PredictedFixedStepSimulationTimeStep;
-            var rateManager = ((NetcodePredictionFixedRateManager)RateManager);
 #if UNITY_EDITOR || NETCODE_DEBUG
-            if (rateManager.DeprecatedTimeStep != 0f)
+            if (m_InternalRateManager.DeprecatedTimeStep != 0f)
             {
-                var timestep = RateManager.Timestep;
+                var timestep = m_InternalRateManager.Timestep;
                 if (math.distance(timestep, fixedTimeStep) > 1e-4f)
                 {
                     UnityEngine.Debug.LogWarning($"The PredictedFixedStepSimulationSystemGroup.TimeStep is {timestep}ms ({math.ceil(1f/timestep)}FPS) but should be equals to ClientServerTickRate.PredictedFixedStepSimulationTimeStep: {fixedTimeStep}ms ({math.ceil(1f/fixedTimeStep)}FPS).\n" +
@@ -232,30 +232,30 @@ namespace Unity.NetCode
                 }
             }
 #endif
-            rateManager.SetTimeStep(tickRate.PredictedFixedStepSimulationTimeStep, tickRate.PredictedFixedStepSimulationTickRatio);
+            m_InternalRateManager.SetTimeStep(tickRate.PredictedFixedStepSimulationTimeStep, tickRate.PredictedFixedStepSimulationTickRatio);
         }
 
-        /// <summary>
-        /// Default constructor which sets up a fixed rate manager.
-        /// </summary>
-        [UnityEngine.Scripting.Preserve]
-        public PredictedFixedStepSimulationSystemGroup()
-        {
-            //we are passing 0 as time step so the group does not run until a proper setting is setup.
-            SetRateManagerCreateAllocator(new NetcodePredictionFixedRateManager(0f, 0));
-        }
+        NetcodePredictionFixedRateManager m_InternalRateManager;
+        private ComponentSystemBase m_BeginFixedStepSimulationEntityCommandBufferSystem;
+        private ComponentSystemBase m_EndFixedStepSimulationEntityCommandBufferSystem;
+
         protected override void OnCreate()
         {
             base.OnCreate();
-            ((NetcodePredictionFixedRateManager)RateManager).OnCreate(this);
+            SetRateManagerCreateAllocator(null);
+            m_InternalRateManager = new NetcodePredictionFixedRateManager(this);
             m_BeginFixedStepSimulationEntityCommandBufferSystem = World.GetExistingSystemManaged<BeginFixedStepSimulationEntityCommandBufferSystem>();
             m_EndFixedStepSimulationEntityCommandBufferSystem = World.GetExistingSystemManaged<EndFixedStepSimulationEntityCommandBufferSystem>();
         }
+
         protected override void OnUpdate()
         {
-            m_BeginFixedStepSimulationEntityCommandBufferSystem.Update();
-            base.OnUpdate();
-            m_EndFixedStepSimulationEntityCommandBufferSystem.Update();
+            while (m_InternalRateManager.ShouldGroupUpdate(this))
+            {
+                m_BeginFixedStepSimulationEntityCommandBufferSystem.Update();
+                base.OnUpdate();
+                m_EndFixedStepSimulationEntityCommandBufferSystem.Update();
+            }
         }
     }
 }

@@ -76,7 +76,9 @@ namespace Unity.NetCode
                 // +maxTimeSteps-1 to get the implicit int cast to "round up"
                 length = (updateCount + maxTimeSteps - 1) / maxTimeSteps; // (10 + 4 - 1) / 4 = 13/4 = (int)3.25 = 3
                 if (length > maxTimeStepLength) // 3 ! > 4
+                {
                     length = maxTimeStepLength;
+                }
                 else
                 {
                     // Check how many will need to be long vs short

@@ -8,7 +8,6 @@ using Unity.Burst.CompilerServices;
 using Unity.Entities;
 using Unity.Collections;
 using Unity.Collections.LowLevel.Unsafe;
-using Unity.Entities.LowLevel.Unsafe;
 using Unity.NetCode.LowLevel.Unsafe;
 using Unity.Mathematics;
 
@@ -18,7 +17,9 @@ namespace Unity.NetCode
     {
         Unknown = 0,
         Ok,
+        /// <summary>Likely due to the fact that we filled the packet!</summary>
         Failed,
+        /// <summary>Fatal exception occurred.</summary>
         Abort,
     }
     internal unsafe struct GhostChunkSerializer
@@ -51,13 +52,12 @@ namespace Unity.NetCode
         public UnsafeParallelHashMap<int, NetworkTick> clearHistoryData;
         public ConnectionStateData.GhostStateList ghostStateData;
         public uint CurrentSystemVersion;
-
         public NetDebug netDebug;
 #if NETCODE_DEBUG
         public PacketDumpLogger netDebugPacket;
-        public byte enablePacketLogging;
+        public FixedString512Bytes netDebugPacketDebug;
+        public FixedString128Bytes netDebugPacketResult;
         public FixedString64Bytes ghostTypeName;
-        FixedString512Bytes debugLog;
 #endif
 
         [ReadOnly] public NativeParallelHashMap<ArchetypeChunk, SnapshotPreSerializeData> SnapshotPreSerializeData;
@@ -103,27 +103,28 @@ namespace Unity.NetCode
             public byte *dynamicData;
         }
 
-        public void AllocateTempData(int maxCount, int dataStreamCapacity)
+        public void AllocateTempData(int maxGhostsPerChunk, int dataStreamCapacity)
         {
             tempAvailableBaselines =
                 new NativeList<GhostChunkSerializer.SnapshotBaseline>(GhostSystemConstants.SnapshotHistorySize, Allocator.Temp);
-            tempRelevancyPerEntity = new NativeArray<byte>(maxCount, Allocator.Temp);
+            tempRelevancyPerEntity = new NativeArray<byte>(maxGhostsPerChunk, Allocator.Temp);
 
             int maxComponentCount = 0;
             int maxSnapshotSize = 0;
             for (int i = 0; i < GhostTypeCollection.Length; ++i)
             {
-                maxComponentCount = math.max(maxComponentCount, GhostTypeCollection[i].NumComponents);
-                maxSnapshotSize = math.max(maxSnapshotSize, GhostComponentSerializer.SnapshotSizeAligned(GhostTypeCollection[i].SnapshotSize));
+                ref readonly var ghostCollectionPrefabSerializer = ref GhostTypeCollection.ElementAtRO(i);
+                maxComponentCount = math.max(maxComponentCount, ghostCollectionPrefabSerializer.NumComponents);
+                maxSnapshotSize = math.max(maxSnapshotSize, GhostComponentSerializer.SnapshotSizeAligned(ghostCollectionPrefabSerializer.SnapshotSize));
             }
 
-            tempBaselinesPerEntity = (byte**)UnsafeUtility.Malloc(maxCount*4*UnsafeUtility.SizeOf<IntPtr>(), 16, Allocator.Temp);
-            tempComponentDataPerEntity = (byte**)UnsafeUtility.Malloc(maxCount*UnsafeUtility.SizeOf<IntPtr>(), 16, Allocator.Temp);
-            tempComponentDataLenPerEntity = (int*)UnsafeUtility.Malloc(maxCount*4, 16, Allocator.Temp);
-            tempDynamicDataLenPerEntity = (int*)UnsafeUtility.Malloc(maxCount*4, 16, Allocator.Temp);
-            tempSameBaselinePerEntity = (int*)UnsafeUtility.Malloc(maxCount*4, 16, Allocator.Temp);
+            tempBaselinesPerEntity = (byte**)UnsafeUtility.Malloc(maxGhostsPerChunk*4*UnsafeUtility.SizeOf<IntPtr>(), 16, Allocator.Temp);
+            tempComponentDataPerEntity = (byte**)UnsafeUtility.Malloc(maxGhostsPerChunk*UnsafeUtility.SizeOf<IntPtr>(), 16, Allocator.Temp);
+            tempComponentDataLenPerEntity = (int*)UnsafeUtility.Malloc(maxGhostsPerChunk*4, 16, Allocator.Temp);
+            tempDynamicDataLenPerEntity = (int*)UnsafeUtility.Malloc(maxGhostsPerChunk*4, 16, Allocator.Temp);
+            tempSameBaselinePerEntity = (int*)UnsafeUtility.Malloc(maxGhostsPerChunk*4, 16, Allocator.Temp);
             tempWriter = new DataStreamWriter(math.max(dataStreamCapacity, 1024), Allocator.Temp);
-            tempEntityStartBit = (int*)UnsafeUtility.Malloc(8*maxCount+8*maxCount*maxComponentCount, 16, Allocator.Temp);
+            tempEntityStartBit = (int*)UnsafeUtility.Malloc(8*maxGhostsPerChunk+8*maxGhostsPerChunk*maxComponentCount, 16, Allocator.Temp);
             tempZeroBaseline = (byte*)UnsafeUtility.Malloc(maxSnapshotSize, 16, Allocator.Temp);
             UnsafeUtility.MemSet(tempZeroBaseline, 0, maxSnapshotSize);
         }
@@ -146,34 +147,74 @@ namespace Unity.NetCode
                     throw new InvalidOperationException("failed to create history snapshot storage for dynamic data buffer");
             }
 
+#if NETCODE_DEBUG
+            NetworkTick ackedExceededMbr = default;
+            byte numExceededMbr = 0;
+#endif
             int baseline = (GhostSystemConstants.SnapshotHistorySize + writeIndex - 1) %
                             GhostSystemConstants.SnapshotHistorySize;
             while (baseline != writeIndex)
             {
-                var baselineTick = new NetworkTick{SerializedData = snapshotIndex[baseline]};
-                if (baselineTick.IsValid && currentTick.TicksSince(baselineTick) >= GhostSystemConstants.MaxBaselineAge)
+                var baselineTick = new NetworkTick {SerializedData = snapshotIndex[baseline]};
+                if (baselineTick.IsValid)
                 {
-                    chunkState.ClearAckFlag(baseline);
-                    PacketDumpExceededMaxBaselineAge(currentTick, baselineTick);
-                }
-                else
-                {
-                    if (snapshotAck.IsReceivedByRemote(baselineTick))
-                        chunkState.SetAckFlag(baseline);
-                    if (chunkState.HasAckFlag(baseline))
+                    if (Hint.Unlikely(currentTick.TicksSince(baselineTick) >= GhostSystemConstants.MaxBaselineAge))
                     {
-                        currentSnapshot.AvailableBaselines.Add(new SnapshotBaseline
+                        // No need to clear the ack mask here, as it's good enough to simply not
+                        // add it to the list of available baselines. I.e. `CanUseStaticOptimization` can still pass.
+#if NETCODE_DEBUG
+                        if (chunkState.HasAckFlag(baseline))
+                            ackedExceededMbr = baselineTick;
+                        numExceededMbr++;
+#endif
+                    }
+                    else
+                    {
+                        TryAck(ref chunkState, baseline, baselineTick);
+                        if (chunkState.HasAckFlag(baseline))
                         {
-                            tick = snapshotIndex[baseline],
-                            snapshot = chunkState.GetData(snapshotSize, chunk.Capacity, baseline),
-                            entity = chunkState.GetEntity(snapshotSize, chunk.Capacity, baseline),
-                            dynamicData = chunkState.GetDynamicDataPtr(baseline, chunk.Capacity, out var _),
-                        });
+                            currentSnapshot.AvailableBaselines.Add(new SnapshotBaseline
+                            {
+                                tick = snapshotIndex[baseline],
+                                snapshot = chunkState.GetData(snapshotSize, chunk.Capacity, baseline),
+                                entity = chunkState.GetEntity(snapshotSize, chunk.Capacity, baseline),
+                                dynamicData = chunkState.GetDynamicDataPtr(baseline, chunk.Capacity, out var _),
+                            });
+                        }
                     }
                 }
 
                 baseline = (GhostSystemConstants.SnapshotHistorySize + baseline - 1) %
                            GhostSystemConstants.SnapshotHistorySize;
+            }
+
+#if NETCODE_DEBUG
+            if (Hint.Unlikely(numExceededMbr > 0))
+                PacketDumpExceededMaxBaselineAge(in chunk, ackedExceededMbr, numExceededMbr, currentSnapshot.AvailableBaselines.Length);
+#endif
+        }
+
+        /// <summary>Attempts to ack this chunk, assuming it hasn't yet been.</summary>
+        /// <remarks>
+        ///     Note: We also have to UNDO ACKS for chunks when the client reports an error
+        ///     (by clearing their <see cref="NetworkSnapshotAck.IsReceivedByRemote" /> ack history).
+        /// </remarks>
+        private void TryAck(ref GhostChunkSerializationState chunkState, int baseline, in NetworkTick baselineTick)
+        {
+            var wasAcked = chunkState.HasAckFlag(baseline);
+            var isNowAcked = snapshotAck.IsReceivedByRemote(baselineTick, backupValue: wasAcked);
+            if (wasAcked != isNowAcked)
+            {
+                if (Hint.Likely(isNowAcked))
+                {
+                    chunkState.SetAckFlag(baseline);
+                    PacketDumpAckedChunk(baselineTick);
+                }
+                else
+                {
+                    chunkState.ClearAckFlag(baseline);
+                    PacketDumpClearedAckChunk(baselineTick);
+                }
             }
         }
 
@@ -200,163 +241,325 @@ namespace Unity.NetCode
         }
 
         [Conditional("NETCODE_DEBUG")]
-        private void PacketDumpStructuralChange(int ghostType)
+        private void PacketDumpStructuralChange(in PrioChunk ghostType)
         {
 #if NETCODE_DEBUG
-            if (enablePacketLogging == 1)
-                netDebugPacket.Log(FixedString.Format("Structural change in chunk with ghost type {0}\n", ghostType));
+            if (netDebugPacket.IsCreated)
+                netDebugPacketDebug.Append((FixedString512Bytes)$", structural change detected (new count:{ghostType.chunk.Count})");
 #endif
         }
         [Conditional("NETCODE_DEBUG")]
-        private void PacketDumpExceededMaxBaselineAge(NetworkTick current, NetworkTick baselineTick)
+        private void PacketDumpExceededMaxBaselineAge(in ArchetypeChunk chunk, NetworkTick ackedExceededMbr, byte numExceededMbr, int availableBaselinesLength)
         {
 #if NETCODE_DEBUG
-            if (enablePacketLogging == 1)
-                netDebugPacket.Log($"\tcurrentTick:{current.ToFixedString()} vs baseline:{baselineTick.ToFixedString()} exceeded MaxBaselineAge!\n");
+            // Only WARN if it actually invalidates our last acked baseline.
+            if (Hint.Likely(!ackedExceededMbr.IsValid || availableBaselinesLength != 0)) return;
+            netDebug.LogWarning((FixedString512Bytes)$"[GCS] Ghost chunk {chunk.SequenceNumber} - sending to NID[{NetworkId}] - lost it's acked baseline:{ackedExceededMbr.ToFixedString()} as was older than MaxBaselineAge ticks from currentTick:{currentTick.ToFixedString()}!");
+            if (Hint.Unlikely(netDebugPacket.IsCreated))
+                netDebugPacketDebug.Append((FixedString64Bytes) $"\tWARN: B:{numExceededMbr}>MaxBaselineAge:{ackedExceededMbr.ToFixedString()}! ");
 #endif
         }
         [Conditional("NETCODE_DEBUG")]
         private void PacketDumpGhostCount(int ghostType, int relevantGhostCount)
         {
 #if NETCODE_DEBUG
-            if (enablePacketLogging == 1)
-                netDebugPacket.Log(FixedString.Format("\tGhostType:{0}({1}) RelevantGhostCount:{2}\n", ghostTypeName, ghostType, relevantGhostCount));
+            if (netDebugPacket.IsCreated)
+                netDebugPacketDebug.Append(FixedString.Format(", RelevantGhostCount:{2}", ghostTypeName, ghostType, relevantGhostCount));
 #endif
         }
         [Conditional("NETCODE_DEBUG")]
-        private void PacketDumpBegin()
+        private void PacketDumpBegin(ref ArchetypeChunk chunk, int start, int end)
         {
 #if NETCODE_DEBUG
-            if (enablePacketLogging == 1)
-                debugLog = "\t\t[Chunk]";
+            if (netDebugPacket.IsCreated)
+            {
+                netDebugPacketDebug.Append((FixedString64Bytes)$"\n\t\t[SerializeEntities:{chunk.SequenceNumber}|{start}->{end}]");
+            }
 #endif
         }
         [Conditional("NETCODE_DEBUG")]
-        private void PacketDumpBaseline(NetworkTick base0, NetworkTick base1, NetworkTick base2, int sameBaselineCount)
+        private void PacketDumpBaseline(int entOffset, NetworkTick base0, NetworkTick base1, NetworkTick base2, int sameBaselineCount, bool useSingleBaseline, int numAvailableBaselines, int numPrespawnBaselines)
         {
 #if NETCODE_DEBUG
-            if (enablePacketLogging == 1)
-                debugLog.Append(FixedString.Format(" B0:{0} B1:{1} B2:{2} Count:{3}\n", base0.ToFixedString(), base1.ToFixedString(), base2.ToFixedString(), sameBaselineCount));
+            if (netDebugPacket.IsCreated)
+            {
+                if (entOffset != 0) netDebugPacketDebug.Append((FixedString32Bytes)"\n\t\t");
+                netDebugPacketDebug.Append((FixedString512Bytes)$" B0:{base0.ToFixedString()} B1:{base1.ToFixedString()} B2:{base2.ToFixedString()} SameBL:{sameBaselineCount}, UseSingleBL:{useSingleBaseline}, AvailBLs:{numAvailableBaselines}, PrespawnBLs:{numPrespawnBaselines}");
+            }
+#endif
+        }
+        [Conditional("NETCODE_DEBUG")]
+        private void PacketDumpForceSend(bool forceResendExisting)
+        {
+#if NETCODE_DEBUG
+            if (netDebugPacket.IsCreated)
+                netDebugPacketDebug.Append(forceResendExisting ? (FixedString32Bytes)" ForceResend" : (FixedString32Bytes)" ForceSendNew");
+#endif
+        }
+        [Conditional("NETCODE_DEBUG")]
+        private void PacketDumpMovedAckHistory(NetworkTick networkTick, bool didHaveAck, bool hasAck)
+        {
+#if NETCODE_DEBUG
+            if (netDebugPacket.IsCreated)
+            {
+                var didHaveAckC = (didHaveAck ? '1' : '0');
+                var hasAckIntC = (hasAck ? '1' : '0');
+                netDebugPacketDebug.Append((FixedString32Bytes)$", MOVE:{networkTick.ToFixedString()}:{didHaveAckC}-{hasAckIntC}");
+            }
 #endif
         }
         [Conditional("NETCODE_DEBUG")]
         private void PacketDumpGhostID(int ghostId)
         {
 #if NETCODE_DEBUG
-            if (enablePacketLogging == 1)
-                debugLog.Append(FixedString.Format("\t\t\tGID:{0}", ghostId));
+            if (netDebugPacket.IsCreated)
+                netDebugPacketDebug.Append((FixedString64Bytes) $"\n\t\t\tGID:{ghostId}");
 #endif
         }
+
         [Conditional("NETCODE_DEBUG")]
         private void PacketDumpSpawnTick(NetworkTick spawnTick)
         {
 #if NETCODE_DEBUG
-            if (enablePacketLogging == 1)
-                debugLog.Append(FixedString.Format(" SpawnTick:{0}", spawnTick.ToFixedString()));
+            if (netDebugPacket.IsCreated)
+                netDebugPacketDebug.Append(FixedString.Format(" SpawnTick:{0}", spawnTick.ToFixedString()));
 #endif
         }
         [Conditional("NETCODE_DEBUG")]
         private void PacketDumpChangeMasks(uint* changeMaskUints, int numChangeMaskUints)
         {
 #if NETCODE_DEBUG
-            if (enablePacketLogging == 0)
+            if (!netDebugPacket.IsCreated)
                 return;
             for (int i = 0; i < numChangeMaskUints; ++i)
-                debugLog.Append(FixedString.Format(" ChangeMask:{0}", NetDebug.PrintMask(changeMaskUints[i])));
+                netDebugPacketDebug.Append(FixedString.Format(" ChangeMask:{0}", NetDebug.PrintMask(changeMaskUints[i])));
 #endif
         }
         [Conditional("NETCODE_DEBUG")]
-        private unsafe void PacketDumpComponentSize(in GhostCollectionPrefabSerializer typeData, int* entityStartBit, int bitCountsPerComponent, int entOffset)
+        private void PacketDumpHasRelevancySpawns()
         {
 #if NETCODE_DEBUG
-            if (enablePacketLogging == 0)
+            netDebugPacketDebug.Append((FixedString32Bytes)", HasRelevancySpawns");
+#endif
+        }
+        [Conditional("NETCODE_DEBUG")]
+        private void PacketDumpComponentSize(in GhostCollectionPrefabSerializer typeData, int* entityStartBit, int bitCountsPerComponent, int entOffset)
+        {
+#if NETCODE_DEBUG
+            if (!netDebugPacket.IsCreated)
                 return;
 
             int total = 0;
             for (int comp = 0; comp < typeData.NumComponents; ++comp)
             {
-                if (debugLog.Length > (debugLog.Capacity >> 1))
+                if (netDebugPacketDebug.Length > (netDebugPacketDebug.Capacity >> 1))
                 {
-                    FixedString32Bytes cont = " CONT";
-                    debugLog.Append(cont);
-                    netDebugPacket.Log(debugLog);
-                    debugLog = "";
+                    netDebugPacketDebug.Append((FixedString32Bytes)" CONT");
+                    PacketDumpFlush();
                 }
                 int numBits = entityStartBit[(bitCountsPerComponent*comp + entOffset)*2+1];
                 total += numBits;
-                FixedString128Bytes typeName = default;
-
                 int serializerIdx = GhostComponentIndex[typeData.FirstComponent + comp].SerializerIndex;
-                typeName = netDebug.ComponentTypeNameLookup[GhostComponentCollection[serializerIdx].ComponentType.TypeIndex];
-                debugLog.Append(FixedString.Format(" {0}:{1} ({2}B)", typeName, GhostComponentCollection[serializerIdx].PredictionErrorNames, numBits));
+                var ghostComponent = GhostComponentCollection[serializerIdx];
+
+                var typeName = netDebug.ComponentTypeNameLookup[ghostComponent.ComponentType.TypeIndex];
+                netDebugPacketDebug.Append(FixedString.Format(" {0}:{1} ({2}B)", typeName, ghostComponent.PredictionErrorNames, numBits));
             }
-            debugLog.Append(FixedString.Format(" Total ({0}B)", total));
+            netDebugPacketDebug.Append(FixedString.Format(" Total ({0}B)", total));
 #endif
         }
         [Conditional("NETCODE_DEBUG")]
-        private void PacketDumpSkipGroup(int ghostId)
+        private void PacketDumpSkipInvalidGroup(int ghostId)
         {
 #if NETCODE_DEBUG
-            if (enablePacketLogging == 1)
-                debugLog.Append(FixedString.Format("Skip invalid group GID:{0}\n", ghostId));
+            if (netDebugPacket.IsCreated)
+                netDebugPacketDebug.Append(FixedString.Format("Skip invalid GhostGroup GID:{0}\n", ghostId));
 #endif
         }
         [Conditional("NETCODE_DEBUG")]
         private void PacketDumpBeginGroup(int grpLen)
         {
 #if NETCODE_DEBUG
-            if (enablePacketLogging == 1)
-                debugLog.Append(FixedString.Format("\t\t\tGrpLen:{0} [\n", grpLen));
+            if (netDebugPacket.IsCreated)
+                netDebugPacketDebug.Append(FixedString.Format("\n\t\t\tGhostGroup.Len:{0}\n\t\t\t[", grpLen));
 #endif
         }
         [Conditional("NETCODE_DEBUG")]
-        private void PacketDumpEndGroup()
+        private void PacketDumpEndGroup(bool success)
         {
 #if NETCODE_DEBUG
-            if (enablePacketLogging == 1)
+            if (netDebugPacket.IsCreated)
             {
-                FixedString32Bytes endDelimiter = "\t\t\t]\n";
-                debugLog.Append(endDelimiter);
+                if(success)
+                    netDebugPacketDebug.Append((FixedString32Bytes) "\t\t\t] Ok!");
+                else netDebugPacketDebug.Append((FixedString32Bytes) "\t\t\t] Failed!");
             }
 #endif
         }
         [Conditional("NETCODE_DEBUG")]
-        private void PacketDumpGroupItem(int ghostType)
+        private void PacketDumpGroupItem(int ghostChildIdx, int grpLen, int ghostType)
         {
 #if NETCODE_DEBUG
-            if (enablePacketLogging == 1)
-                debugLog.Append(FixedString.Format(" Type:{0} ?:1", ghostType));
+            if (netDebugPacket.IsCreated)
+                netDebugPacketDebug.Append(FixedString.Format("\n\t\t\t\t[{0}/{1}] GhostType:{2}", ghostChildIdx, grpLen, ghostType));
 #endif
         }
         [Conditional("NETCODE_DEBUG")]
-        private void PacketDumpNewLine()
+        internal void PacketDumpFlush()
         {
 #if NETCODE_DEBUG
-            if (enablePacketLogging == 0)
+            if (!netDebugPacket.IsCreated || netDebugPacketDebug.IsEmpty)
                 return;
-            FixedString32Bytes endLine = "\n";
-            debugLog.Append(endLine);
+            netDebugPacket.Log(netDebugPacketDebug);
+            netDebugPacketDebug.Clear();
 #endif
         }
         [Conditional("NETCODE_DEBUG")]
-        private void PacketDumpFlush()
+        private void PacketDumpResult_ZeroChangeOptimizedChunk(ref DataStreamWriter dataStream, ref DataStreamWriter oldStream, ref GhostChunkSerializationState chunkState)
         {
 #if NETCODE_DEBUG
-            if (enablePacketLogging == 0)
-                return;
-            netDebugPacket.Log(debugLog);
-            debugLog = "";
+            if (netDebugPacket.IsCreated)
+                netDebugPacketResult = $"Undid write of static as allowed to, saving {(dataStream.LengthInBits-oldStream.LengthInBits)}B! Set {chunkState.ZeroChangeFixedString()} LU:{chunkState.GetLastUpdate()}";
 #endif
         }
         [Conditional("NETCODE_DEBUG")]
-        private void PacketDumpStaticOptimizeChunk()
+        private void PacketDumpResult_WriterFullBeforeSerialize()
         {
 #if NETCODE_DEBUG
-            if (enablePacketLogging == 1)
-                netDebugPacket.Log("Skip last chunk, static optimization");
+            if (netDebugPacket.IsCreated)
+                netDebugPacketResult = "DidFillPacket before serialize!";
 #endif
         }
-
+        [Conditional("NETCODE_DEBUG")]
+        private void PacketDumpSerializeChunk(in ArchetypeChunk chunk, int ghostType)
+        {
+#if NETCODE_DEBUG
+            if(netDebugPacket.IsCreated)
+                netDebugPacketDebug.Append((FixedString512Bytes)$"\n\t[SerializeChunk:{chunk.SequenceNumber}] {ghostTypeName}({ghostType}), Count:{chunk.Count}");
+#endif
+        }
+        [Conditional("NETCODE_DEBUG")]
+        private void PacketDumpCUSONotStatic(in GhostCollectionPrefabSerializer typeData)
+        {
+#if NETCODE_DEBUG
+            if (netDebugPacket.IsCreated)
+            {
+                if (typeData.StaticOptimization == 0)
+                    netDebugPacketDebug.Append((FixedString32Bytes) ", CUSO=false as dynamic");
+                else if (typeData.IsGhostGroup != 0)
+                    netDebugPacketDebug.Append((FixedString32Bytes) ", CUSO=false as GhostGroup");
+                else
+                {
+#if ENABLE_UNITY_COLLECTIONS_CHECKS
+                    UnityEngine.Debug.Assert(typeData.NumChildComponents > 0);
+#endif
+                    netDebugPacketDebug.Append((FixedString64Bytes) $", CUSO=false as has {typeData.NumChildComponents} replicated child comps");
+                }
+            }
+#endif
+        }
+        [Conditional("NETCODE_DEBUG")]
+        private void PacketDumpResult_CUSOSuccess(ref GhostChunkSerializationState chunkState)
+        {
+#if NETCODE_DEBUG
+            if (netDebugPacket.IsCreated)
+            {
+                netDebugPacketDebug.Append((FixedString128Bytes)$", CUSO=true as acked {chunkState.ZeroChangeFixedString()}]");
+                netDebugPacketResult = "CUSO early out!";
+            }
+#endif
+        }
+        [Conditional("NETCODE_DEBUG")]
+        private void PacketDumpCUSOAnyGhostComponentChanged(int compIdx)
+        {
+#if NETCODE_DEBUG
+            if(netDebugPacket.IsCreated)
+            {
+                netDebugPacketDebug.Append((FixedString512Bytes)$", CUSO=false as chunk.DidChange on ");
+                netDebugPacketDebug.Append(ghostChunkComponentTypesPtr[compIdx].ToFixedString());
+            }
+#endif
+        }
+        [Conditional("NETCODE_DEBUG")]
+        private void PacketDumpCUSONoZC()
+        {
+#if NETCODE_DEBUG
+            if(netDebugPacket.IsCreated)
+                netDebugPacketDebug.Append((FixedString128Bytes)", CUSO=false as no ZC");
+#endif
+        }
+        [Conditional("NETCODE_DEBUG")]
+        private void PacketDumpCUSONotYetAckedZC()
+        {
+#if NETCODE_DEBUG
+            if (netDebugPacket.IsCreated)
+                netDebugPacketDebug.Append((FixedString128Bytes)$", CUSO=false as not yet acked any ZC!");
+#endif
+        }
+        [Conditional("NETCODE_DEBUG")]
+        private void PacketDumpCUSOHasAckedZC(ref GhostChunkSerializationState chunkState)
+        {
+#if NETCODE_DEBUG
+            if (netDebugPacket.IsCreated)
+                netDebugPacketDebug.Append((FixedString128Bytes)$", acked{chunkState.ZeroChangeFixedString()}! ");
+#endif
+        }
+        [Conditional("NETCODE_DEBUG")]
+        private void PacketDumpCUSOImplicitAck(ref GhostChunkSerializationState chunkState)
+        {
+#if NETCODE_DEBUG
+            if (netDebugPacket.IsCreated)
+                netDebugPacketDebug.Append((FixedString128Bytes)$", implctAcked{chunkState.ZeroChangeFixedString()}! ");
+#endif
+        }
+        [Conditional("NETCODE_DEBUG")]
+        private void PacketDumpCUSOHasRelevancyChanges()
+        {
+#if NETCODE_DEBUG
+            if(netDebugPacket.IsCreated)
+                netDebugPacketDebug.Append((FixedString64Bytes)", CUSO=false as relevancy changes");
+#endif
+        }
+        [Conditional("NETCODE_DEBUG")]
+        private void PacketDumpCUSOOrderChanged()
+        {
+#if NETCODE_DEBUG
+            if(netDebugPacket.IsCreated)
+                netDebugPacketDebug.Append((FixedString64Bytes)", CUSO=false as chunk.DidOrderChange");
+#endif
+        }
+        [Conditional("NETCODE_DEBUG")]
+        private void PacketDumpResult_DynamicFullSend()
+        {
+#if NETCODE_DEBUG
+            if(netDebugPacket.IsCreated)
+                netDebugPacketResult = "Full & dynamic send, so reset ZC!";
+#endif
+        }
+        [Conditional("NETCODE_DEBUG")]
+        private void PacketDumpResult_StaticFullSend(ref GhostChunkSerializationState chunkState)
+        {
+#if NETCODE_DEBUG
+            if(netDebugPacket.IsCreated)
+                netDebugPacketResult = $"Full & static send as has changes since last acked baseline, so set {chunkState.ZeroChangeFixedString()}!";
+#endif
+        }
+        [Conditional("NETCODE_DEBUG")]
+        private void PacketDumpResult_PartialSend()
+        {
+#if NETCODE_DEBUG
+            if(netDebugPacket.IsCreated)
+                netDebugPacketResult = "Partial send, so reset ZC!";
+#endif
+        }
+        [Conditional("NETCODE_DEBUG")]
+        private void PacketDumpResult_NoRelevantGhostsInChunk()
+        {
+#if NETCODE_DEBUG
+            if (netDebugPacket.IsCreated)
+                netDebugPacketResult = "Skipped chunk as AllIrrelevant!";
+#endif
+        }
         [Conditional("ENABLE_UNITY_COLLECTIONS_CHECKS")]
         private void ValidateGhostComponentIndex(int compIdx)
         {
@@ -395,6 +598,38 @@ namespace Unity.NetCode
                 GhostComponentCollection[serializerIdx].ProfilerMarker.End();
             #endif
         }
+        [Conditional("NETCODE_DEBUG")]
+        private void PacketDumpAckedChunk(NetworkTick baselineTick)
+        {
+#if NETCODE_DEBUG
+            if(netDebugPacket.IsCreated)
+                netDebugPacketDebug.Append((FixedString32Bytes)$", ACKED:{baselineTick.ToFixedString()}");
+#endif
+        }
+        [Conditional("NETCODE_DEBUG")]
+        private void PacketDumpClearedAckChunk(NetworkTick baselineTick)
+        {
+#if NETCODE_DEBUG
+            if(netDebugPacket.IsCreated)
+                netDebugPacketDebug.Append((FixedString32Bytes)$", CLEAR-ACKED:{baselineTick.ToFixedString()}");
+#endif
+        }
+        [Conditional("NETCODE_DEBUG")]
+        private void PacketDumpHasFailedWritesDuringSerializeEntities(int ent)
+        {
+#if NETCODE_DEBUG
+            if (netDebugPacket.IsCreated)
+                netDebugPacketDebug.Append((FixedString128Bytes)$"\n\t\t\tFilled packet writer, undoing write of ent:{ent}!\n");
+#endif
+        }
+        [Conditional("NETCODE_DEBUG")]
+        private void PacketDumpIrrelevant(int ghostId)
+        {
+#if NETCODE_DEBUG
+            if (netDebugPacket.IsCreated)
+                netDebugPacketDebug.Append((FixedString128Bytes)$"\n\t\t\tGID:{ghostId} -- Irrelevant!\n");
+#endif
+        }
         [Conditional("ENABLE_UNITY_COLLECTIONS_CHECKS")]
         private static void ValidatePrespawnBaseline(Entity ghost, int ghostId, int ent, int baselinesCount)
         {
@@ -419,6 +654,7 @@ namespace Unity.NetCode
         /// <param name="dataStream">Transport write stream to write "prediction-compressed" snapshots into.</param>
         /// <param name="skippedEntityCount"></param>
         /// <param name="anyChangeMask"></param>
+        /// <param name="ghostType"></param>
         /// <param name="chunk">Chunk containing these ghosts (and thus their components).</param>
         /// <param name="startIndex">Index of the first entity to process.</param>
         /// <param name="endIndex">Index of the NEXT entity (PASSED the LAST entity) to process.</param>
@@ -428,13 +664,13 @@ namespace Unity.NetCode
         /// <param name="sameBaselinePerEntity"></param>
         /// <param name="dynamicDataLenPerEntity"></param>
         /// <param name="entityStartBit">Stores 2 ints per component, per entity. [1st] Writer bit offset to the start of this components writes. [2nd] Num bits written for this component.</param>
-        /// <returns></returns>
+        /// <returns>The entity we ended on.</returns>
         /// <exception cref="InvalidOperationException"></exception>
         private int SerializeEntities(ref DataStreamWriter dataStream, out int skippedEntityCount, out uint anyChangeMask,
             int ghostType, ArchetypeChunk chunk, int startIndex, int endIndex, bool useSingleBaseline, in CurrentSnapshotState currentSnapshot,
             byte** baselinesPerEntity = null, int* sameBaselinePerEntity = null, int* dynamicDataLenPerEntity = null, int* entityStartBit = null)
         {
-            PacketDumpBegin();
+            PacketDumpBegin(ref chunk, startIndex, endIndex);
 
             skippedEntityCount = 0;
             anyChangeMask = 0;
@@ -495,6 +731,8 @@ namespace Unity.NetCode
             int sameBaselineIndex = 0;
             int lastRelevantEntity = startIndex+1;
             uint baseGhostId = chunk.Has(ref PrespawnIndexType) ? PrespawnHelper.PrespawnGhostIdBase : 0;
+            var isPrespawn = chunk.Has(ref prespawnBaselineTypeHandle);
+            int numPrespawnBaselines = 0;
             for (int ent = startIndex; ent < endIndex; ++ent)
             {
                 var baselineIndex = ent - startIndex;
@@ -547,13 +785,14 @@ namespace Unity.NetCode
                     baselinesPerEntity[offset+2] = (currentSnapshot.AvailableBaselines[baseline2].snapshot) + ent*snapshotSize;
                 }
 
-                if (baseline0 == numAvailableBaselines && chunk.Has(ref prespawnBaselineTypeHandle) && chunk.Has(ref PrespawnIndexType) &&
+                if (baseline0 == numAvailableBaselines && isPrespawn && chunk.Has(ref PrespawnIndexType) &&
                     (ghostStateData.GetGhostState(ghostSystemState[ent]).Flags & ConnectionStateData.GhostStateFlags.CantUsePrespawnBaseline) == 0)
                 {
                     var prespawnBaselines = chunk.GetBufferAccessor(ref prespawnBaselineTypeHandle);
                     ValidatePrespawnBaseline(ghostEntities[ent], ghosts[ent].ghostId,ent,prespawnBaselines.Length);
                     if (prespawnBaselines[ent].Length > 0)
                     {
+                        numPrespawnBaselines++;
                         var baselinePtr = (byte*)prespawnBaselines[ent].GetUnsafeReadOnlyPtr();
                         baselinesPerEntity[offset] = baselinePtr;
                         if (typeData.NumBuffers > 0)
@@ -591,6 +830,16 @@ namespace Unity.NetCode
             var hasCustomSerializer = systemData.UseCustomSerializer != 0 && typeData.CustomSerializer.Ptr.IsCreated;
             var lastSerializedEntity = endIndex;
 
+            if (hasPreserializeData)
+            {
+                UnsafeUtility.MemCpy(snapshot, (byte*)preSerializedSnapshot.Data+snapshotSize*startIndex, snapshotSize*(endIndex-startIndex));
+                // If this chunk has been processed for this tick before we cannot copy the dynamic snapshot data since doing so would
+                // overwrite already computed change masks and break delta compression.
+                // Sending the same chunk multiple times only happens for non-root members of a ghost group
+                if (preSerializedSnapshot.DynamicSize > 0 && currentSnapshot.AlreadyUsedChunk == 0)
+                    UnsafeUtility.MemCpy(snapshotDynamicDataPtr + dynamicDataHeaderSize, (byte*)preSerializedSnapshot.Data+preSerializedSnapshot.Capacity, preSerializedSnapshot.DynamicSize);
+            }
+
             if (hasCustomSerializer)
             {
                 var context = new GhostPrefabCustomSerializer.Context
@@ -613,9 +862,9 @@ namespace Unity.NetCode
                     ghostInstances = (IntPtr)ghosts.GetUnsafeReadOnlyPtr(),
                     snapshotOffset = snapshotOffset,
                     snapshotStride = snapshotSize,
-                    hasPreserializedData = hasPreserializeData
+                    hasPreserializedData = (byte)(hasPreserializeData
                         ? 1
-                        : 0,
+                        : 0),
                     dynamicDataOffset = dynamicDataHeaderSize,
                     dynamicDataCapacity = dynamicSnapshotDataCapacity + dynamicDataHeaderSize
                 };
@@ -636,12 +885,6 @@ namespace Unity.NetCode
             {
                 if (hasPreserializeData)
                 {
-                    UnsafeUtility.MemCpy(snapshot, (byte*)preSerializedSnapshot.Data+snapshotSize*startIndex, snapshotSize*(endIndex-startIndex));
-                    // If this chunk has been processed for this tick before we cannot copy the dynamic snapshot data since doing so would
-                    // overwrite already computed change masks and break delta compression.
-                    // Sending the same chunk multiple times only happens for non-root members of a ghost group
-                    if (preSerializedSnapshot.DynamicSize > 0 && currentSnapshot.AlreadyUsedChunk == 0)
-                        UnsafeUtility.MemCpy(snapshotDynamicDataPtr + dynamicDataHeaderSize, (byte*)preSerializedSnapshot.Data+preSerializedSnapshot.Capacity, preSerializedSnapshot.DynamicSize);
                     int numComponents = typeData.NumComponents;
                     for (int comp = 0; comp < numComponents; ++comp)
                     {
@@ -887,6 +1130,7 @@ namespace Unity.NetCode
                         // This is an irrelevant ghost, do not send anything
                         snapshot += snapshotSize;
                         ++skippedEntityCount;
+                        PacketDumpIrrelevant(ghosts[ent].ghostId);
                         continue;
                     }
                     var baselineTick0 = (baseline != null) ? new NetworkTick{SerializedData = *(uint*)baseline} : currentTick;
@@ -903,7 +1147,7 @@ namespace Unity.NetCode
                     dataStream.WritePackedUInt(baseDiff2, compressionModel);
                     dataStream.WritePackedUInt((uint) sameBaselineCount, compressionModel);
 
-                    PacketDumpBaseline(baselineTick0, baselineTick1, baselineTick2, sameBaselineCount);
+                    PacketDumpBaseline(entOffset, baselineTick0, baselineTick1, baselineTick2, sameBaselineCount, useSingleBaseline, numAvailableBaselines, numPrespawnBaselines);
                 }
 
                 var ghost = ghosts[ent];
@@ -911,6 +1155,7 @@ namespace Unity.NetCode
 
                 // write the ghost + change mask from the snapshot
                 dataStream.WritePackedUInt((uint)ghost.ghostId - baseGhostId, compressionModel);
+                PacketDumpFlush();
                 PacketDumpGhostID(ghost.ghostId);
 
                 uint* changeMaskBaseline = (uint*)(baseline+sizeof(uint));
@@ -919,7 +1164,8 @@ namespace Unity.NetCode
                 int changeMaskBaselineMask = ~0;
                 int enableableMaskBaselineMask = ~0;
 
-                if (baseline == null)
+                var isNewGhostForClient = baseline == null;
+                if (isNewGhostForClient)
                 {
                     changeMaskBaseline = &zeroChangeMask;
                     enableableMaskBaseline = &zeroChangeMask;
@@ -1052,7 +1298,7 @@ namespace Unity.NetCode
 
                 uint anyChangeMaskThisEntity = 0;
                 uint anyEnableableMaskChangedThisEntity = 0;
-                if (GhostSystemConstants.SnaphostHasCompressedGhostSize)
+                if (GhostSystemConstants.SnapshotHasCompressedGhostSize)
                 {
                     var headerLen = 0;
                     //Calculate the compressed size of the header part and add that to the final ghost size
@@ -1149,38 +1395,61 @@ namespace Unity.NetCode
                 if (dataStream.HasFailedWrites)
                 {
                     // Rollback to the last good state, and apply additional constraints on the quantity of entities we can serialize.
+                    PacketDumpHasFailedWritesDuringSerializeEntities(ent);
                     dataStream = oldStream;
                     return ent;
                 }
-                PacketDumpNewLine();
                 PacketDumpFlush();
                 if (typeData.IsGhostGroup != 0)
                 {
-                    GhostSendSystem.k_GhostGroupMarker.Begin();
+                    GhostSendSystem.s_GhostGroupMarker.Begin();
                     var ghostGroup = chunk.GetBufferAccessor(ref ghostGroupType)[ent];
                     // Serialize all other ghosts in the group, this also needs to be handled correctly in the receive system
                     dataStream.WritePackedUInt((uint)ghostGroup.Length, compressionModel);
+                    if (dataStream.HasFailedWrites)
+                    {
+                        PacketDumpFailedSerializeGhostGroup(ent);
+                        dataStream = oldStream;
+                        return ent;
+                    }
                     PacketDumpBeginGroup(ghostGroup.Length);
                     PacketDumpFlush();
 
-                    bool success = SerializeGroup(ref dataStream, ghostGroup, useSingleBaseline);
+                    bool success = SerializeGroup(ref dataStream, ref compressionModel, ghostGroup, useSingleBaseline);
 
-                    GhostSendSystem.k_GhostGroupMarker.End();
+                    GhostSendSystem.s_GhostGroupMarker.End();
+
+                    PacketDumpEndGroup(success);
+                    PacketDumpFlush();
                     if (!success)
                     {
                         // Abort before setting the entity since the snapshot is not going to be sent
                         dataStream = oldStream;
                         return ent;
                     }
-
-                    PacketDumpEndGroup();
-                    PacketDumpFlush();
                 }
                 if (currentSnapshot.SnapshotData != null)
                 {
                     currentSnapshot.SnapshotEntity[ent] = ghostEntities[ent];
+
+                    // Mark this entity as spawned.
                     ref var ghostState = ref ghostStateData.GetGhostState(ghostSystemState[ent]);
-                    // Mark this entity as spawned
+
+                    // Our static-optimization system needs to be able to distinguish between:
+                    // A) A COMPLETELY new ghost (i.e. one not yet seen by this connection).
+                    // B) An existing ghost that has MOVED into this chunk, but otherwise has no GhostField changes.
+                    // C) An existing ghost that has MOVED into this chunk, AND has GhostField changes.
+                    // All three cases are simple without prespawns, but prespawns delta-compress as zero against their prespawn baselines,
+                    // so we MUST detect them and resend them (as we CANNOT know if they've ACTUALLY changed).
+                    var wasSentWithChangesBefore = (ghostState.Flags & ConnectionStateData.GhostStateFlags.SentWithChanges) != 0;
+                    var hasValidAckedBaseline = baseline0 < numAvailableBaselines;
+                    var forceResendExisting = isPrespawn && anyChangeMaskThisEntity == 0 && wasSentWithChangesBefore && !hasValidAckedBaseline;
+                    if (forceResendExisting)
+                    {
+                        PacketDumpForceSend(forceResendExisting);
+                        anyChangeMaskThisEntity |= 1u;
+                        anyChangeMask |= 1u;
+                    }
                     ghostState.Flags |= ConnectionStateData.GhostStateFlags.IsRelevant;
                     if(anyChangeMaskThisEntity != 0)
                         ghostState.Flags |= ConnectionStateData.GhostStateFlags.SentWithChanges;
@@ -1192,6 +1461,15 @@ namespace Unity.NetCode
             // If all entities were processes, remember to include the ones we skipped in the end of the chunk
             skippedEntityCount += realEndIndex - endIndex;
             return realEndIndex;
+        }
+
+        [Conditional("NETCODE_DEBUG")]
+        private void PacketDumpFailedSerializeGhostGroup(int ent)
+        {
+#if NETCODE_DEBUG
+            if (netDebugPacket.IsCreated)
+                netDebugPacketDebug.Append((FixedString128Bytes)$"\n\t\t\tFailed to serialize entity group. undoing write of ent:{ent}!\n");
+#endif
         }
 
         [Conditional("ENABLE_UNITY_COLLECTIONS_CHECKS")]
@@ -1265,40 +1543,48 @@ namespace Unity.NetCode
             }
             return true;
         }
-        private bool SerializeGroup(ref DataStreamWriter dataStream, in DynamicBuffer<GhostGroup> ghostGroup, bool useSingleBaseline)
+
+        [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private bool SerializeGroup(ref DataStreamWriter dataStream, ref StreamCompressionModel compressionModel,
+            in DynamicBuffer<GhostGroup> ghostGroup, bool useSingleBaseline)
         {
             var grpAvailableBaselines = new NativeList<SnapshotBaseline>(GhostSystemConstants.SnapshotHistorySize, Allocator.Temp);
+            var baselinesPerEntity = stackalloc byte*[4];
+            //this will fit any possible number of replicated component.
+            var entityStartBit = stackalloc int[ghostChunkComponentTypesLength*2 + 2];
+            //we also need to track the current write index for rollback
+            var currentWriteIndex = stackalloc int[ghostGroup.Length];
             for (int i = 0; i < ghostGroup.Length; ++i)
             {
-                if (!childEntityLookup.TryGetValue(ghostGroup[i].Value, out var groupChunk))
+                if (!childEntityLookup.TryGetValue(ghostGroup[i].Value, out var childChunk))
                     throw new InvalidOperationException("Ghost group contains an member which is not a valid entity.");
-                if (!chunkSerializationData.TryGetValue(groupChunk.Chunk, out var chunkState))
+                if (!chunkSerializationData.TryGetValue(childChunk.Chunk, out var childChunkState))
                     throw new InvalidOperationException("Ghost group member does not have state.");
-                var childGhostType = chunkState.ghostType;
+                var childGhostType = childChunkState.ghostType;
                 #if ENABLE_UNITY_COLLECTIONS_CHECKS
-                var ghostComp = groupChunk.Chunk.GetNativeArray(ref ghostComponentType);
-                if (ghostComp[groupChunk.IndexInChunk].ghostType >= 0 && ghostComp[groupChunk.IndexInChunk].ghostType != childGhostType)
+                var ghostComp = childChunk.Chunk.GetNativeArray(ref ghostComponentType);
+                if (ghostComp[childChunk.IndexInChunk].ghostType >= 0 && ghostComp[childChunk.IndexInChunk].ghostType != childGhostType)
                     throw new InvalidOperationException("Ghost group member has invalid ghost type.");
                 #endif
-                ValidateNoNestedGhostGroups(GhostTypeCollection[childGhostType].IsGhostGroup);
+                ref readonly var childGhostPrefabSerializer = ref GhostTypeCollection.ElementAtRO(childGhostType);
+                ValidateNoNestedGhostGroups(childGhostPrefabSerializer.IsGhostGroup);
                 dataStream.WritePackedUInt((uint)childGhostType, compressionModel);
                 dataStream.WritePackedUInt(1, compressionModel);
-                dataStream.WriteRawBits(groupChunk.Chunk.Has(ref prespawnBaselineTypeHandle) ? 1u : 0, 1);
-                PacketDumpGroupItem(childGhostType);
+                dataStream.WriteRawBits(childChunk.Chunk.Has(ref prespawnBaselineTypeHandle) ? 1u : 0, 1);
+                PacketDumpGroupItem(i, ghostGroup.Length, childGhostType);
 
                 var groupSnapshot = default(CurrentSnapshotState);
 
                 grpAvailableBaselines.Clear();
                 groupSnapshot.AvailableBaselines = grpAvailableBaselines;
-                if (GhostTypeCollection[childGhostType].NumBuffers > 0)
+                if (childGhostPrefabSerializer.NumBuffers > 0)
                 {
-                    groupSnapshot.SnapshotDynamicDataSize = GatherDynamicBufferSize(groupChunk.Chunk, groupChunk.IndexInChunk, groupChunk.IndexInChunk + 1, childGhostType);
+                    groupSnapshot.SnapshotDynamicDataSize = GatherDynamicBufferSize(childChunk.Chunk, childChunk.IndexInChunk, childChunk.IndexInChunk + 1, childGhostType);
                 }
 
-                int dataSize = GhostTypeCollection[chunkState.ghostType].SnapshotSize;
-                uint* snapshotIndex = chunkState.GetSnapshotIndex();
+                uint* snapshotIndex = childChunkState.GetSnapshotIndex();
 
-                var writeIndex = chunkState.GetSnapshotWriteIndex();
+                var writeIndex = childChunkState.GetSnapshotWriteIndex();
                 var baselineIndex = (GhostSystemConstants.SnapshotHistorySize + writeIndex - 1) %
                             GhostSystemConstants.SnapshotHistorySize;
                 bool clearEntityArray = true;
@@ -1306,10 +1592,10 @@ namespace Unity.NetCode
                 {
                     // The chunk history only needs to be updated once per frame, this is the first time we are using this chunk this frame
                     // TODO: Updating the chunk history is only required if there has been a structural change - should skip it as an optimization
-                    UpdateChunkHistory(childGhostType, groupChunk.Chunk, chunkState, dataSize);
+                    UpdateChunkHistory(childGhostType, childChunk.Chunk, childChunkState, childGhostPrefabSerializer.SnapshotSize);
                     snapshotIndex[writeIndex] = currentTick.SerializedData;
                     var nextWriteIndex = (writeIndex + 1) % GhostSystemConstants.SnapshotHistorySize;
-                    chunkState.SetSnapshotWriteIndex(nextWriteIndex);
+                    childChunkState.SetSnapshotWriteIndex(nextWriteIndex);
                 }
                 else
                 {
@@ -1320,33 +1606,34 @@ namespace Unity.NetCode
                     clearEntityArray = false;
                     groupSnapshot.AlreadyUsedChunk = 1;
                 }
+                currentWriteIndex[i] = writeIndex;
 
-                SetupDataAndAvailableBaselines(ref groupSnapshot, ref chunkState, groupChunk.Chunk, dataSize, writeIndex, snapshotIndex);
+                SetupDataAndAvailableBaselines(ref groupSnapshot, ref childChunkState, childChunk.Chunk, childGhostPrefabSerializer.SnapshotSize, writeIndex, snapshotIndex);
                 if (clearEntityArray)
-                    UnsafeUtility.MemClear(groupSnapshot.SnapshotEntity, UnsafeUtility.SizeOf<Entity>()*groupChunk.Chunk.Capacity);
+                    UnsafeUtility.MemClear(groupSnapshot.SnapshotEntity, UnsafeUtility.SizeOf<Entity>()*childChunk.Chunk.Capacity);
 
                 // ComponentDataPerEntity, ComponentDataLengthPerEntity, and tempWriter can all be re-used in this recursive call
                 // tempBaselinesPerEntity, tempDynamicDataLenPerEntity, tempSameBaselinePerEntity and tempEntityStartBit must be changed
-                var baselinesPerEntity = stackalloc byte*[4];
+
                 int sameBaselinePerEntity;
                 int dynamicDataLenPerEntity;
-                var entityStartBit = stackalloc int[GhostTypeCollection[chunkState.ghostType].NumComponents*2 + 2];
-                if (SerializeEntities(ref dataStream, out _, out _, childGhostType, groupChunk.Chunk, groupChunk.IndexInChunk, groupChunk.IndexInChunk+1, useSingleBaseline, groupSnapshot,
-                    baselinesPerEntity, &sameBaselinePerEntity, &dynamicDataLenPerEntity, entityStartBit) != groupChunk.IndexInChunk+1)
+
+                if (SerializeEntities(ref dataStream, out _, out _, childGhostType, childChunk.Chunk, childChunk.IndexInChunk, childChunk.IndexInChunk+1, useSingleBaseline, groupSnapshot,
+                    baselinesPerEntity, &sameBaselinePerEntity, &dynamicDataLenPerEntity, entityStartBit) != childChunk.IndexInChunk+1)
                 {
                     // FIXME: this does not work if a group member is itself the root of a group since it can fail to roll back state to compress against in that case. This is the reason nested ghost groups are not supported
                     // Roll back all written entities for group members
-                    while (i-- > 0)
+                    while(i-- > 0)
                     {
-                        if (!childEntityLookup.TryGetValue(ghostGroup[i].Value, out groupChunk))
+                        if (!childEntityLookup.TryGetValue(ghostGroup[i].Value, out var revertChunk))
                             throw new InvalidOperationException("Ghost group contains an member which is not a valid entity.");
-                        if (chunkSerializationData.TryGetValue(groupChunk.Chunk, out chunkState))
+                        if (chunkSerializationData.TryGetValue(revertChunk.Chunk, out var revertChunkState))
                         {
-                            var groupSnapshotEntity =
-                                chunkState.GetEntity(dataSize, groupChunk.Chunk.Capacity, writeIndex);
-                            groupSnapshotEntity[groupChunk.IndexInChunk] = Entity.Null;
+                            var childWriteIndex = currentWriteIndex[i];
+                            var childCompDataSize = GhostTypeCollection.ElementAtRO(revertChunkState.ghostType).SnapshotSize;
+                            var groupSnapshotEntity = revertChunkState.GetEntity(childCompDataSize, revertChunk.Chunk.Capacity, childWriteIndex);
+                            groupSnapshotEntity[revertChunk.IndexInChunk] = Entity.Null;
                         }
-
                     }
                     return false;
                 }
@@ -1356,7 +1643,7 @@ namespace Unity.NetCode
 
         //Cycle over all the components for the given entity range in the chunk and compute the capacity
         //to store all the dynamic buffer contents (if any)
-        private unsafe int GatherDynamicBufferSize(in ArchetypeChunk chunk, int startIndex, int endIndex, int ghostType)
+        private int GatherDynamicBufferSize(in ArchetypeChunk chunk, int startIndex, int endIndex, int ghostType)
         {
             if (chunk.Has(ref preSerializedGhostType) && SnapshotPreSerializeData.TryGetValue(chunk, out var preSerializedSnapshot))
             {
@@ -1377,9 +1664,9 @@ namespace Unity.NetCode
             return requiredSize;
         }
 
-        int UpdateGhostRelevancy(ArchetypeChunk chunk, int startIndex, byte* relevancyData, in GhostChunkSerializationState chunkState, int snapshotSize, out bool hasSpawns)
+        int UpdateGhostRelevancy(ArchetypeChunk chunk, int startIndex, byte* relevancyData, in GhostChunkSerializationState chunkState, int snapshotSize, out bool hasRelevancySpawns)
         {
-            hasSpawns = false;
+            hasRelevancySpawns = false;
             var ghost = chunk.GetNativeArray(ref ghostComponentType);
             //var ghostEntities = chunk.GetNativeArray(entityType);
             var ghostSystemState = chunk.GetNativeArray(ref ghostSystemStateType);
@@ -1428,7 +1715,7 @@ namespace Unity.NetCode
                         irrelevantCount = irrelevantCount + 1;
                 }
                 else if (!wasRelevant)
-                    hasSpawns = true;
+                    hasRelevancySpawns = true;
             }
             return irrelevantCount;
         }
@@ -1443,7 +1730,7 @@ namespace Unity.NetCode
                 relevancyData[ent] = keepState ? relevancyData[ent] : (byte)1;
                 if (relevancyData[ent] != 0 && !CanSerializeGroup(ghostGroupAccessor[ent]))
                 {
-                    PacketDumpSkipGroup(ghost[ent].ghostId);
+                    PacketDumpSkipInvalidGroup(ghost[ent].ghostId);
                     PacketDumpFlush();
                     relevancyData[ent] = 0;
                     if (ent >= startIndex)
@@ -1452,70 +1739,95 @@ namespace Unity.NetCode
             }
             return irrelevantCount;
         }
-        bool CanUseStaticOptimization(ArchetypeChunk chunk, int ghostType, int writeIndex, uint* snapshotIndex, ref GhostChunkSerializationState chunkState,
-            bool hasRelevancyChanges, ref bool canSkipZeroChange)
+        bool CanUseStaticOptimization(in ArchetypeChunk chunk, int ghostType, int writeIndex, uint* snapshotIndex,
+            ref GhostChunkSerializationState chunkState, bool hasRelevancySpawns, bool didOrderChange)
         {
-            using var _ = GhostSendSystem.k_CanUseStaticOptimization.Auto();
+            using var _ = GhostSendSystem.s_CanUseStaticOptimizationMarker.Auto();
 
-            // If nothing in the chunk changed we don't even have to try sending it
-            int baseOffset = GhostTypeCollection[ghostType].FirstComponent;
-            int numChildComponents = GhostTypeCollection[ghostType].NumChildComponents;
-            int numBaseComponents = GhostTypeCollection[ghostType].NumComponents - numChildComponents;
-
-            // Ghost consisting of multiple entities are always treated as modified since they consist of multiple chunks
-            if (numChildComponents > 0 || hasRelevancyChanges)
+            // If this chunk has relevancy changes, cannot static optimize.
+            if (hasRelevancySpawns)
+            {
+                PacketDumpCUSOHasRelevancyChanges();
                 return false;
+            }
 
-            canSkipZeroChange = false;
-            var ackTick = snapshotAck.LastReceivedSnapshotByRemote;
+            // New entities added or removed - so cannot rely on component change versioning.
+            if (didOrderChange)
+            {
+                PacketDumpCUSOOrderChanged();
+                return false;
+            }
+
+            // NOTE: We MUST ALWAYS run the `TryAck` logic below, due to the nuances of how we 'confirm' the client's ack-mask.
+            // Ideally, we would early-out significantly earlier.
+
+            // Let's look for ANY zero-change snapshots we may have sent
+            // and since acked (i.e. any snapshot >= our zero-change snapshot tick).
+            // We only need one, but we may have sent 2+ while we wait for an ack.
             var zeroChangeTick = chunkState.GetFirstZeroChangeTick();
             var zeroChangeVersion = chunkState.GetFirstZeroChangeVersion();
-            var hasPrespawn = chunk.Has(ref prespawnBaselineTypeHandle);
-
-            //Zero change version is 0 if:
-            // - structural changes are present and the chunk is not a pre-spawn chunk
-            // - chunk has actually changed in the previous frame
-            // Prespawn set the zeroChangeVersion to the fallbackBaseline version in case of structural changes.
-            // This still allow to don't send data in case we just moved around entities but nothing was actually changed
-            if (!ackTick.IsValid)
-                return false;
-
-            if (zeroChangeTick.IsValid)
+            // Prespawn chunks are special - if their ZC.Version is != 0 AND they're ZC.Tick is Invalid,
+            // they haven't changed since the pre-spawn scene was loaded (except for order changes).
+            // Thus, we can infer that they have been "implicitly acked" (as the client is known to have the prespawn values
+            // by virtue of loading the sub-scene), and thus we CAN still use static optimization.
+            var hasImplicitlyAckedZeroChange = zeroChangeVersion != 0 && !zeroChangeTick.IsValid;
+            if (hasImplicitlyAckedZeroChange)
+                PacketDumpCUSOImplicitAck(ref chunkState);
+            bool hasAckedAnyZeroChangeSnapshot = hasImplicitlyAckedZeroChange;
+            for (int i = 0; i < GhostSystemConstants.SnapshotHistorySize; ++i)
             {
-                if (!zeroChangeTick.IsNewerThan(ackTick))
-                {
-                    // check if the remote received one of the zero change versions we sent
-                    for (int i = 0; i < GhostSystemConstants.SnapshotHistorySize; ++i)
-                    {
-                        var snapshotTick = new NetworkTick{SerializedData = snapshotIndex[i]};
-                        if (i != writeIndex && snapshotAck.IsReceivedByRemote(snapshotTick))
-                            chunkState.SetAckFlag(i);
-                        if (snapshotTick.IsValid && !zeroChangeTick.IsNewerThan(snapshotTick) && chunkState.HasAckFlag(i))
-                            canSkipZeroChange = true;
-                    }
-                }
+                var snapshotTick = new NetworkTick {SerializedData = snapshotIndex[i]};
+                if (!snapshotTick.IsValid || i == writeIndex) continue;
+
+                // Note: We intentionally ignore `GhostSystemConstants.MaxBaselineAge` here, because we can
+                // still mark the ghost as static, even if we no longer know the baseline.
+                // We'll just send it as uncompressed if/when we do resend it.
+                TryAck(ref chunkState, i, snapshotTick);
+
+                hasAckedAnyZeroChangeSnapshot |= (chunkState.HasAckFlag(i) && zeroChangeTick.IsValid && snapshotTick.TicksSince(zeroChangeTick) >= 0);
+                // NOTE: Don't early out here, as we MUST continue to loop through and call `TryAck`!
             }
 
-            //For prespawn check if we never sent any of entities. If that is the case we can still use static opt
-            if (!canSkipZeroChange && hasPrespawn)
+            if (!hasAckedAnyZeroChangeSnapshot)
             {
-                var systemStates = chunk.GetNativeArray(ref ghostSystemStateType);
-                canSkipZeroChange = true;
-                for (int i = 0, chunkEntityCount = chunk.Count; i < chunkEntityCount && canSkipZeroChange; ++i)
-                    canSkipZeroChange = (ghostStateData.GetGhostState(systemStates[i]).Flags & ConnectionStateData.GhostStateFlags.SentWithChanges) == 0;
+                PacketDumpCUSONotYetAckedZC();
+                return false;
+            }
+            PacketDumpCUSOHasAckedZC(ref chunkState);
+
+            // If our ZC version is zero, this denotes that no zero-change snapshot exists (either implicitly or explicitly)
+            // for us to try to early out from. I.e. We must have sent some un-acked changes recently.
+            if (zeroChangeVersion == 0)
+            {
+                PacketDumpCUSONoZC();
+                return false;
             }
 
-            if (!canSkipZeroChange || zeroChangeVersion == 0)
-                return false;
-
-            //If prespawn buffers are present, we can still skip the chunk if everything is indentical to the baseline change version.
+            // So, we have a confirmed zero-change version.
+            // Now, let's ensure ALL GhostField components have NOT changed.
+            // If ANY have, we CANNOT skip this chunk:
+            ref readonly var typeData = ref GhostTypeCollection.ElementAtRO(ghostType);
+            int baseOffset = typeData.FirstComponent;
+            int numChildComponents = typeData.NumChildComponents;
+            int numBaseComponents = typeData.NumComponents - numChildComponents;
             for (int i = 0; i < numBaseComponents; ++i)
             {
                 int compIdx = GhostComponentIndex[baseOffset + i].ComponentIndex;
                 ValidateGhostComponentIndex(compIdx);
                 if (chunk.DidChange(ref ghostChunkComponentTypesPtr[compIdx], zeroChangeVersion))
+                {
+                    PacketDumpCUSOAnyGhostComponentChanged(compIdx);
+                    // TODO - As we know when change versioning led to a packet being serialized,
+                    // AND we ALSO know if the ghost ended up ACTUALLY having changes,
+                    // can't we just log a warning/error to the user if we encountered a false positive?
+                    // Note, though; it's valid for users to write to non-GhostField's on said component,
+                    // so any validation would have to be opt-in/out on a per-component (or per-ghost-type) basis?
                     return false;
+                }
             }
+
+            // Success!
+            PacketDumpResult_CUSOSuccess(ref chunkState);
             return true;
         }
         private void UpdateChunkHistory(int ghostType, ArchetypeChunk currentChunk, GhostChunkSerializationState curChunkState, int snapshotSize)
@@ -1541,6 +1853,7 @@ namespace Unity.NetCode
                     {
                         uint* snapshotIndex = prevChunkState.GetSnapshotIndex();
                         int writeIndex = prevChunkState.GetSnapshotWriteIndex();
+
                         // Build a map from tick -> snapshot data pointer for all valid history items we find in the old chunk
                         if (prevSnapshots.IsCreated)
                             prevSnapshots.Clear();
@@ -1577,6 +1890,7 @@ namespace Unity.NetCode
                                 dst += snapshotSize*currentIndexInChunk;
                                 UnsafeUtility.MemCpy(dst, (void*)src, snapshotSize);
                                 historyEntity[currentIndexInChunk] = entity;
+                                PacketDumpMovedAckHistory(new NetworkTick{SerializedData = snapshotIndex[history],}, prevChunkState.HasAckFlag(history), curChunkState.HasAckFlag(history));
                             }
                             else
                                 historyEntity[currentIndexInChunk] = Entity.Null;
@@ -1597,15 +1911,15 @@ namespace Unity.NetCode
             }
         }
         public SerializeEnitiesResult SerializeChunk(in PrioChunk serialChunk, ref DataStreamWriter dataStream,
-            out uint currentChunkUpdateLen, ref uint totalSentEntities, ref uint totalSentChunks, ref bool didFillPacket)
+            out uint thisChunkSentEntities, ref bool didFillPacket)
         {
-            currentChunkUpdateLen = 0;
+            thisChunkSentEntities = 0;
             int entitySize = UnsafeUtility.SizeOf<Entity>();
             bool relevancyEnabled = (relevancyMode != GhostRelevancyMode.Disabled);
             bool hasRelevancySpawns = false;
+            didFillPacket = false;
 
             var currentSnapshot = default(CurrentSnapshotState);
-            GhostChunkSerializationState chunkState;
             currentSnapshot.AvailableBaselines = tempAvailableBaselines;
             currentSnapshot.AvailableBaselines.Clear();
 
@@ -1614,102 +1928,105 @@ namespace Unity.NetCode
             var endIndex = chunk.Count;
             var ghostType = serialChunk.ghostType;
 
-            var useStaticOptimization = GhostTypeCollection[ghostType].StaticOptimization != 0;
+            var typeData = GhostTypeCollection[ghostType];
+            var isStatic = typeData.CanBeStaticOptimized();
 
-            int snapshotSize = GhostTypeCollection[ghostType].SnapshotSize;
+            int snapshotSize = typeData.SnapshotSize;
+            var useSingleBaseline = typeData.UseSingleBaseline != 0;
+            useSingleBaseline |= isStatic || systemData.ForceSingleBaseline;
 
             int relevantGhostCount = chunk.Count - serialChunk.startIndex;
-            bool canSkipZeroChange = false;
-            if (chunkSerializationData.TryGetValue(chunk, out chunkState))
+            var chunkState = chunkSerializationData[chunk];
+
+            uint* snapshotIndex = chunkState.GetSnapshotIndex();
+            int writeIndex = chunkState.GetSnapshotWriteIndex();
+            PacketDumpSerializeChunk(chunk, ghostType);
+            var didOrderChange = chunk.DidOrderChange(chunkState.GetOrderChangeVersion());
+            if (didOrderChange)
             {
-                uint* snapshotIndex = chunkState.GetSnapshotIndex();
-                int writeIndex = chunkState.GetSnapshotWriteIndex();
+                // There has been a structural change to this chunk, which means:
+                // - Possibly some new ghosts.
+                // - Possibly some deleted ghosts.
+                // - Possibly some moved ghosts (from other ghost chunks).
+                chunkState.SetOrderChangeVersion(chunk.GetOrderVersion());
+                // For prespawns; the first zero-change tick is 0, and the version is going to be equal to the
+                // change version of of the PrespawnBaseline buffer.
+                // Note: Structural changes within the chunk do not invalidate baselines,
+                // so there is still a chance we can skip sending this chunk.
+                if (chunk.Has(ref prespawnBaselineTypeHandle))
+                    chunkState.SetFirstZeroChange(NetworkTick.Invalid, chunk.GetChangeVersion(ref prespawnBaselineTypeHandle));
+                else
+                    chunkState.SetFirstZeroChange(NetworkTick.Invalid, 0);
+                PacketDumpStructuralChange(in serialChunk);
+                // Validate that no items in the history buffer reference a ghost that was sent as part of a different chunk
+                // Not doing this could mean that we delta compress against snapshots which are no longer available on the client
+                UpdateChunkHistory(ghostType, chunk, chunkState, snapshotSize);
+            }
 
-                if (chunk.DidOrderChange(chunkState.GetOrderChangeVersion()))
+            // Calculate which entities are relevant and trigger despawn for irrelevant entities
+            if (relevancyEnabled)
+            {
+                currentSnapshot.relevancyData = (byte*)tempRelevancyPerEntity.GetUnsafePtr();
+                int irrelevantCount = UpdateGhostRelevancy(chunk, startIndex, currentSnapshot.relevancyData, chunkState, snapshotSize, out hasRelevancySpawns);
+                relevantGhostCount -= irrelevantCount;
+                if (hasRelevancySpawns)
                 {
-                    // There has been a structural change to this chunk, clear all the already irrelevant flags since we can no longer trust them
-                    chunkState.SetOrderChangeVersion(chunk.GetOrderVersion());
-                    //For prespawn the first zero-change tick is 0 and the version is going to be equals to the change version of of the PrespawnBaseline buffer.
-                    //Structural changes in the chunck does not invalidate the baselines for the prespawn (since the buffer is store per entity).
-                    if (chunk.Has(ref prespawnBaselineTypeHandle))
-                        chunkState.SetFirstZeroChange(NetworkTick.Invalid, chunk.GetChangeVersion(ref prespawnBaselineTypeHandle));
-                    else
-                        chunkState.SetFirstZeroChange(NetworkTick.Invalid, 0);
-                    PacketDumpStructuralChange(serialChunk.ghostType);
-                    // Validate that no items in the history buffer reference a ghost that was sent as part of a different chunk
-                    // Not doing this could mean that we delta compress against snapshots which are no longer available on the client
-                    UpdateChunkHistory(ghostType, chunk, chunkState, snapshotSize);
+                    // We treat this as a structural change, don't try to skip any zero change packets
+                    chunkState.SetFirstZeroChange(NetworkTick.Invalid, 0);
+                    PacketDumpHasRelevancySpawns();
                 }
+            }
+            chunkState.SetAllIrrelevant(relevantGhostCount <= 0 && startIndex == 0);
+            // go through and set ghost groups with missing children as irrelevant
+            if (typeData.IsGhostGroup!=0)
+            {
+                currentSnapshot.relevancyData = (byte*)tempRelevancyPerEntity.GetUnsafePtr();
+                int irrelevantCount = UpdateValidGhostGroupRelevancy(chunk, startIndex, currentSnapshot.relevancyData, relevancyEnabled);
+                relevantGhostCount -= irrelevantCount;
+            }
+            if (relevantGhostCount <= 0)
+            {
+                // There is nothing to send, so not need to spend time serializing
+                // We do want to mark the chunk as sent this frame though - to make sure it is not processed
+                // again next frame if there are more important chunks
+                // This happens when using relevancy and on structural changes while there is a partially sent chunk
+                // We update the timestamp as if the chunk was sent but do not actually send anything
+                chunkState.SetLastFullUpdate(currentTick);
+                PacketDumpResult_NoRelevantGhostsInChunk();
+                return SerializeEnitiesResult.Ok;
+            }
 
-                // Calculate which entities are relevant and trigger despawn for irrelevant entities
-                if (relevancyEnabled)
+            // Only apply the zero change optimization for ghosts tagged as optimize for static
+            // Ghosts optimized for dynamic get zero change snapshots when they have constant changes thanks to the delta prediction
+            // Ghost groups are special, since they contain other ghosts which we do not know if they have been
+            // acked as zero change or not we can never skip zero change packets for ghost groups.
+            if (isStatic)
+            {
+                // If a chunk was modified it will be cleared after we serialize the content
+                // If the snapshot is still zero change we only want to update the version, not the tick, since we still did not send anything
+                if (CanUseStaticOptimization(chunk, ghostType, writeIndex, snapshotIndex, ref chunkState, hasRelevancySpawns, didOrderChange))
                 {
-                    currentSnapshot.relevancyData = (byte*)tempRelevancyPerEntity.GetUnsafePtr();
-                    int irrelevantCount = UpdateGhostRelevancy(chunk, startIndex, currentSnapshot.relevancyData, chunkState, snapshotSize, out hasRelevancySpawns);
-                    relevantGhostCount -= irrelevantCount;
-                    if (hasRelevancySpawns)
-                    {
-                        // We treat this as a structural change, don't try to skip any zero change packets
-                        chunkState.SetFirstZeroChange(NetworkTick.Invalid, 0);
-                    }
-                }
-                chunkState.SetAllIrrelevant(relevantGhostCount <= 0 && startIndex == 0);
-                // go through and set ghost groups with missing children as irrelevant
-                if (GhostTypeCollection[ghostType].IsGhostGroup!=0)
-                {
-                    currentSnapshot.relevancyData = (byte*)tempRelevancyPerEntity.GetUnsafePtr();
-                    int irrelevantCount = UpdateValidGhostGroupRelevancy(chunk, startIndex, currentSnapshot.relevancyData, relevancyEnabled);
-                    relevantGhostCount -= irrelevantCount;
-                }
-                if (relevantGhostCount <= 0)
-                {
-                    // There is nothing to send, so not need to spend time serializing
-                    // We do want to mark the chunk as sent this frame though - to make sure it is not processed
-                    // again next frame if there are more important chunks
-                    // This happens when using relevancy and on structural changes while there is a partially sent chunk
-                    // We update the timestamp as if the chunk was sent but do not actually send anything
-                    chunkState.SetLastUpdate(currentTick);
+                    // There were not changes we required to send, treat is as if we did send the chunk to make sure we do not collect all static chunks as the top priority ones
+                    chunkState.SetLastFullUpdate(currentTick);
                     return SerializeEnitiesResult.Ok;
                 }
-
-                // Only apply the zero change optimization for ghosts tagged as optimize for static
-                // Ghosts optimized for dynamic get zero change snapshots when they have constant changes thanks to the delta prediction
-                // Ghost groups are special, since they contain other ghosts which we do not know if they have been
-                // acked as zero change or not we can never skip zero change packets for ghost groups
-                if (useStaticOptimization && GhostTypeCollection[ghostType].IsGhostGroup==0)
-                {
-                    // If a chunk was modified it will be cleared after we serialize the content
-                    // If the snapshot is still zero change we only want to update the version, not the tick, since we still did not send anything
-                    if (CanUseStaticOptimization(chunk, ghostType, writeIndex, snapshotIndex, ref chunkState, hasRelevancySpawns, ref canSkipZeroChange))
-                    {
-                        // There were not changes we required to send, treat is as if we did send the chunk to make sure we do not collect all static chunks as the top priority ones
-                        chunkState.SetLastUpdate(currentTick);
-                        return SerializeEnitiesResult.Ok;
-                    }
-                }
-
-                if (GhostTypeCollection[ghostType].NumBuffers > 0)
-                {
-                    //Dynamic buffer contents are always stored from the beginning of the dynamic storage buffer (for the specific history slot).
-                    //That because each snapshot is only relative to the entities ranges startIndex-endIndex, the outer ranges are invalidate (0-StartIndex and count-Capacity).
-                    //This is why we gather the buffer size starting from startIndex position instead of 0 here.
-
-                    //FIXME: this operation is costly (we traverse the whole chunk and child entities too), do that only if something changed. Backup the current size and version in the
-                    //chunk state. It is a non trivial check in general, due to the entity children they might be in another chunk)
-                    currentSnapshot.SnapshotDynamicDataSize = GatherDynamicBufferSize(chunk, serialChunk.startIndex, serialChunk.chunk.Count, ghostType);
-                }
-
-                SetupDataAndAvailableBaselines(ref currentSnapshot, ref chunkState, chunk, snapshotSize, writeIndex, snapshotIndex);
-                snapshotIndex[writeIndex] = currentTick.SerializedData;
             }
-            else if (relevancyEnabled || GhostTypeCollection[ghostType].NumBuffers > 0 || GhostTypeCollection[ghostType].IsGhostGroup != 0)
-                // Do not send ghosts which were just created since they have not had a chance to be added to the relevancy set yet
-                // Do not send ghosts which were just created and have buffers, mostly to simplify the dynamic buffer size calculations
-                return SerializeEnitiesResult.Ok;
+            else PacketDumpCUSONotStatic(in typeData);
 
-            int ent;
-            uint anyChangeMask = 0;
-            int skippedEntityCount = 0;
+            if (typeData.NumBuffers > 0)
+            {
+                //Dynamic buffer contents are always stored from the beginning of the dynamic storage buffer (for the specific history slot).
+                //That because each snapshot is only relative to the entities ranges startIndex-endIndex, the outer ranges are invalidate (0-StartIndex and count-Capacity).
+                //This is why we gather the buffer size starting from startIndex position instead of 0 here.
+
+                //FIXME: this operation is costly (we traverse the whole chunk and child entities too), do that only if something changed. Backup the current size and version in the
+                //chunk state. It is a non trivial check in general, due to the entity children they might be in another chunk)
+                currentSnapshot.SnapshotDynamicDataSize = GatherDynamicBufferSize(chunk, serialChunk.startIndex, serialChunk.chunk.Count, ghostType);
+            }
+
+            SetupDataAndAvailableBaselines(ref currentSnapshot, ref chunkState, chunk, snapshotSize, writeIndex, snapshotIndex);
+            snapshotIndex[writeIndex] = currentTick.SerializedData;
+
             var oldStream = dataStream;
 
             dataStream.WritePackedUInt((uint) ghostType, compressionModel);
@@ -1720,46 +2037,40 @@ namespace Unity.NetCode
             PacketDumpGhostCount(ghostType, relevantGhostCount);
             if (dataStream.HasFailedWrites)
             {
+                PacketDumpResult_WriterFullBeforeSerialize();
                 dataStream = oldStream;
                 didFillPacket = true;
                 return SerializeEnitiesResult.Failed;
             }
 
-            GhostTypeCollection[ghostType].profilerMarker.Begin();
+            typeData.profilerMarker.Begin();
             // Write the chunk for current ghostType to the data stream
             tempWriter.Clear(); // Clearing the temp writer here instead of inside the method to make it easier to deal with ghost groups which recursively adds more data to the temp writer
-            ent = SerializeEntities(ref dataStream, out skippedEntityCount, out anyChangeMask, ghostType, chunk, startIndex, endIndex, useStaticOptimization || systemData.ForceSingleBaseline, currentSnapshot);
-            GhostTypeCollection[ghostType].profilerMarker.End();
-            if (useStaticOptimization && anyChangeMask == 0 && startIndex == 0 && ent < endIndex && totalSentEntities > 0)
+            var ent = SerializeEntities(ref dataStream, out var skippedEntityCount, out var anyChangeMask, ghostType, chunk, startIndex, endIndex, useSingleBaseline, currentSnapshot);
+            typeData.profilerMarker.End();
+
+            // Only append chunks which ACTUALLY contain changes since their last acked baseline, and only update
+            // the write index if we actually sent it:
+            var isPartialChunkSend = startIndex != 0 || ent < endIndex;
+            var isZeroChange = anyChangeMask == 0 && !hasRelevancySpawns; // Note: isZeroChange will be FALSE if SerializeEntities
+                                                                          // detected an order change resulting in a required send.
+            var triggeredZeroChangeOptimization = !isPartialChunkSend && isZeroChange && isStatic;
+            if (triggeredZeroChangeOptimization)
             {
-                PacketDumpStaticOptimizeChunk();
-                // Do not send partial chunks for zero changes unless we have to since the zero change optimizations only kick in if the full chunk was sent
+                chunkState.SetLastFullUpdate(currentTick);
+
+                var zeroChangeTick = chunkState.GetFirstZeroChangeTick();
+                if (!zeroChangeTick.IsValid) zeroChangeTick = currentTick;
+                chunkState.SetFirstZeroChange(zeroChangeTick, CurrentSystemVersion);
+                PacketDumpResult_ZeroChangeOptimizedChunk(ref dataStream, ref oldStream, ref chunkState);
+
                 dataStream = oldStream;
-                didFillPacket = true;
-                return SerializeEnitiesResult.Failed;
+                return SerializeEnitiesResult.Ok;
             }
 
-            bool isZeroChange = ent >= chunk.Count && serialChunk.startIndex == 0 && anyChangeMask == 0;
-            if (isZeroChange && canSkipZeroChange)
-            {
-                PacketDumpStaticOptimizeChunk();
-                // We do not actually need to send this chunk, but we treat it as if it was sent so the age etc gets updated
-                dataStream = oldStream;
-            }
-            else
-            {
-                currentChunkUpdateLen = (uint) (ent - serialChunk.startIndex - skippedEntityCount);
-                totalSentEntities += currentChunkUpdateLen;
-                // TODO - Simplify to didWriteToSnapshot, which can be inferred in the calling code.
-                totalSentChunks++;
-            }
-
-#if ENABLE_UNITY_COLLECTIONS_CHECKS
-            Assert.IsTrue(chunk.Has(ref ghostSystemStateType), "Spawn chunks should already be filtered out! (RemovedAfter 1.x)");
-#endif
-
-            // Only append chunks which contain data, and only update the write index if we actually sent it
-            if (currentChunkUpdateLen > 0)
+            thisChunkSentEntities = (uint) (ent - serialChunk.startIndex - skippedEntityCount);
+            var sentAtLeastOneEntity = thisChunkSentEntities > 0;
+            if (sentAtLeastOneEntity)
             {
                 if (serialChunk.startIndex > 0)
                     UnsafeUtility.MemClear(currentSnapshot.SnapshotEntity, entitySize * serialChunk.startIndex);
@@ -1770,34 +2081,51 @@ namespace Unity.NetCode
                 chunkState.SetSnapshotWriteIndex(nextWriteIndex);
             }
 
-            if (ent >= chunk.Count)
-            {
-                chunkState.SetLastUpdate(currentTick);
-            }
-            else
+            if (isPartialChunkSend)
             {
                 // TODO: should this always be run or should partial chunks only be allowed for the highest priority chunk?
                 //if (pc == 0)
-                chunkState.SetStartIndex(ent);
+
+                // Note: We take advantage of the fact that static ghosts have zero changeBits for MOST ghosts,
+                // by constantly resending from the 0th Entity. E.g.
+                // Send0: Send 0 - 4.
+                // Send1: Send 0 - 8 (where 0 - 4 are tiny as zero change).
+                // Send2: Send 0 - 10 (where 0 - 8 are tine as zero change).
+                if (isStatic)
+                    chunkState.SetStartIndex(0);
+
+                // Partial chunk sends cannot be treated as static!
+                // The good news is; as we ack more and more of this chunks entities, each write gets smaller
+                // (because all previous ghosts are acked, thus zero change delta-compression is working).
+                // This means we're VERY LIKELY to send a non-partial version of this chunk shortly,
+                // which then can be 'zero change' optimized.
+                // However, this is concerning as it theoretically COULD fail indefinitely.
+                // But pragmatically - this works.
+                didFillPacket = true; // Could not send all ghosts, so packet MUST BE full.
+                chunkState.SetFirstZeroChange(NetworkTick.Invalid, 0);
+
+                if (sentAtLeastOneEntity)
+                {
+                    PacketDumpResult_PartialSend();
+                    return SerializeEnitiesResult.Ok;
+                }
+                return SerializeEnitiesResult.Failed;
             }
 
-            if (isZeroChange)
+            chunkState.SetLastFullUpdate(currentTick);
+
+            // This static ghost chunk was sent fully. Thus, we can say; ONCE the user acks THIS snapshot, they don't need
+            // to be sent this chunk again (until it next changes). So we flag it as "zero-change (ZC) from here".
+            if (isStatic)
             {
-                var zeroChangeTick = chunkState.GetFirstZeroChangeTick();
-                if (!zeroChangeTick.IsValid)
-                    zeroChangeTick = currentTick;
-                chunkState.SetFirstZeroChange(zeroChangeTick, CurrentSystemVersion);
+                chunkState.SetFirstZeroChange(currentTick, CurrentSystemVersion);
+                PacketDumpResult_StaticFullSend(ref chunkState);
             }
             else
             {
+                // Dynamic ghosts can never have a zero-change, as we always send them.
                 chunkState.SetFirstZeroChange(NetworkTick.Invalid, 0);
-            }
-
-            // Could not send all ghosts, so packet must be full
-            if (ent < chunk.Count)
-            {
-                didFillPacket = true;
-                return SerializeEnitiesResult.Failed; // TODO - Remove this confusing concept of a result. It didn't "Fail", it succeeded but simply filled the packet.
+                PacketDumpResult_DynamicFullSend();
             }
             return SerializeEnitiesResult.Ok;
         }

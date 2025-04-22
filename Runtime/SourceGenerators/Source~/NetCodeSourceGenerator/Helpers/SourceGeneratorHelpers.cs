@@ -42,18 +42,6 @@ namespace Unity.NetCode.Generators
             private set => s_OutputFolder.Value = value;
         }
 
-        static public bool IsUnity2021_OrNewer
-        {
-            get => s_IsUnity2021_OrNewer.Value;
-            private set => s_IsUnity2021_OrNewer.Value = value;
-        }
-
-        static public bool SupportTemplateFromAdditionalFiles
-        {
-            get => s_SupportTemplatesFromAdditionalFiles.Value;
-            private set => s_SupportTemplatesFromAdditionalFiles.Value = value;
-        }
-
         static public bool WriteLogToDisk
         {
             get => s_WriteLogToDisk.Value;
@@ -86,24 +74,11 @@ namespace Unity.NetCode.Generators
             //globalconfig
             CanWriteFiles = true;
             WriteLogToDisk = true;
-            IsUnity2021_OrNewer = executionContext.ParseOptions.PreprocessorSymbolNames.Any(d => d == "UNITY_2022_1_OR_NEWER" || d == "UNITY_2021_3_OR_NEWER");
-            //Setup the current project folder directory by inspecting the context for global options or additional files, depending on the current Unity version
-            if (!IsUnity2021_OrNewer)
-            {
-                SupportTemplateFromAdditionalFiles = false;
-                if (executionContext.AdditionalFiles.Any() && !string.IsNullOrEmpty(executionContext.AdditionalFiles[0].Path))
-                    ProjectPath = Helpers.FindProjectFolderFromAdditionalFile(executionContext.AdditionalFiles[0].Path);
-            }
-            else
-            {
-                SupportTemplateFromAdditionalFiles = true;
-                if (executionContext.AdditionalFiles.Any() && !string.IsNullOrEmpty(executionContext.AdditionalFiles[0].Path))
-                    ProjectPath = executionContext.AdditionalFiles[0].GetText()?.ToString();
-            }
+            if (executionContext.AdditionalFiles.Any() && !string.IsNullOrEmpty(executionContext.AdditionalFiles[0].Path))
+                ProjectPath = executionContext.AdditionalFiles[0].GetText()?.ToString();
             //Parse global options and overrides default behaviour. They are used by both tests, and Editor (2021_OR_NEWER)
             ProjectPath = executionContext.GetOptionsString(GlobalOptions.ProjectPath, ProjectPath);
             OutputFolder = executionContext.GetOptionsString(GlobalOptions.OutputPath, OutputFolder);
-            SupportTemplateFromAdditionalFiles = GlobalOptions.GetOptionsFlag(executionContext, GlobalOptions.TemplateFromAdditionalFiles, SupportTemplateFromAdditionalFiles);
 
             //If the project path is not valid, for any reason, we can't write files and/or log to disk
             if (string.IsNullOrEmpty(ProjectPath))

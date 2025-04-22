@@ -6,7 +6,7 @@ namespace Unity.NetCode
     /// This attribute can be used to tag components to control which ghost prefab variants they are included in and where they are sent for owner predicted ghosts.
     /// </summary>
     /// <remarks>
-    /// GhostComponent is not enough to make your component replicated. Make sure to use <see cref="GhostFieldAttribute"/> on each replicated field. 
+    /// GhostComponent is not enough to make your component replicated. Make sure to use <see cref="GhostFieldAttribute"/> on each replicated field.
     /// </remarks>
     [AttributeUsage(AttributeTargets.Class|AttributeTargets.Struct)]
     public class GhostComponentAttribute : Attribute

@@ -1,0 +1,121 @@
+#templateid:NetCode.GhostFixedListSnapshotHelpers.cs
+using System;
+using Unity.Collections;
+using Unity.NetCode.LowLevel.Unsafe;
+using Unity.Collections.LowLevel.Unsafe;
+using Unity.Mathematics;
+
+#region __GHOST_FIXEDLIST_ELEMENT__
+#endregion
+
+namespace __GHOST_NAMESPACE__
+{
+    /// <summary>
+    /// Auto-Generated struct-specific element serializer, used to serialize fixed list elements when used in ECS components and buffers.
+    /// </summary>
+    internal struct __GHOST_FIXEDLIST_ELEMENT_SERIALIZER__
+    {
+        public static void CopyToSnapshot(ref __GHOST_FIELD_TYPE__ snapshot, in __GHOST_COMPONENT_TYPE__ component)
+        {
+            #region __GHOST_COPY_TO_SNAPSHOT__
+            #endregion
+        }
+
+        public static void CopyFromSnapshot(in __GHOST_FIELD_TYPE__ snapshotBefore, ref __GHOST_COMPONENT_TYPE__ component)
+        {
+            #region __GHOST_COPY_FROM_SNAPSHOT__
+            #endregion
+        }
+
+        public static void CalculateChangeMask(ref uint changeMask, in __GHOST_FIELD_TYPE__ snapshot, in __GHOST_FIELD_TYPE__ baseline)
+        {
+            #region __GHOST_CALCULATE_CHANGE_MASK__
+            #endregion
+        }
+
+        public static void Deserialize(uint changeMask, ref __GHOST_FIELD_TYPE__ snapshot, in __GHOST_FIELD_TYPE__ baseline,
+            ref DataStreamReader reader, in StreamCompressionModel compressionModel)
+        {
+            #region __GHOST_READ__
+            #endregion
+        }
+        public static void Serialize(uint changeMask, in __GHOST_FIELD_TYPE__ snapshot, in __GHOST_FIELD_TYPE__ baseline,
+            ref DataStreamWriter writer, in StreamCompressionModel compressionModel)
+        {
+            #region __GHOST_WRITE__
+            #endregion
+        }
+    }
+
+    /// <summary>
+    /// generic fixed-size list serializer helper, that works on `System.Span`. Does not enforce any capacity limitation here (64 element max)
+    /// because expecting all the necessary rules are enforced by the callee (see GhostSnapshotFixedList.cs template)
+    /// </summary>
+    internal struct __GHOST_FIXEDLIST_SERIALIZER__
+    {
+        static public void CopyToSnapshot(Span<__GHOST_FIELD_TYPE__> snapshot, ReadOnlySpan<__GHOST_COMPONENT_TYPE__> component)
+        {
+            for (int i = 0; i < component.Length; ++i)
+                __GHOST_FIXEDLIST_ELEMENT_SERIALIZER__.CopyToSnapshot(ref snapshot[i], component[i]);
+            for (int i = component.Length; i < snapshot.Length; ++i)
+                snapshot[i] = default;
+        }
+
+        static public void CopyFromSnapshot(ReadOnlySpan<__GHOST_FIELD_TYPE__> snapshotBefore, Span<__GHOST_COMPONENT_TYPE__> component)
+        {
+            for (int i = 0; i < component.Length; ++i)
+                __GHOST_FIXEDLIST_ELEMENT_SERIALIZER__.CopyFromSnapshot(snapshotBefore[i], ref component[i]);
+        }
+        static public void CalculateChangeMask(ReadOnlySpan<__GHOST_FIELD_TYPE__> snapshot, ReadOnlySpan<__GHOST_FIELD_TYPE__> baseline,
+            int length, out ulong longMask)
+        {
+            //Assumption: the baseline elements are either initialized or default (assured by the copy to snapshot and deserialize)
+            longMask = 0ul;
+            uint tempMask = 0;
+
+            for (int i=0; i < length; ++i)
+            {
+                __GHOST_FIXEDLIST_ELEMENT_SERIALIZER__.CalculateChangeMask(ref tempMask, snapshot[i], baseline[i]);
+                longMask |= ((ulong)tempMask)<< i;
+            }
+        }
+
+        static public void Deserialize(Span<__GHOST_FIELD_TYPE__> snapshot, ReadOnlySpan<__GHOST_FIELD_TYPE__> baseline,
+            int length, out ulong longMask, ref DataStreamReader reader, in StreamCompressionModel compressionModel)
+        {
+            if (length > 32)
+            {
+                longMask = reader.ReadRawBits(32);
+                longMask |= ((ulong)reader.ReadRawBits(length-32)) << 32;
+            }
+            else
+            {
+                longMask = reader.ReadRawBits(length);
+            }
+            for (int i = 0; i < length; ++i, longMask >>= 1)
+            {
+                __GHOST_FIXEDLIST_ELEMENT_SERIALIZER__.Deserialize((uint)longMask, ref snapshot[i], baseline[i], ref reader, compressionModel);
+            }
+            for (int i = length; i < snapshot.Length; ++i)
+                snapshot[i] = default;
+        }
+
+        static public void Serialize(ReadOnlySpan<__GHOST_FIELD_TYPE__> snapshot, ReadOnlySpan<__GHOST_FIELD_TYPE__> baseline,
+            int length, ulong longMask, ref DataStreamWriter writer, in StreamCompressionModel compressionModel)
+        {
+            if (length > 32)
+            {
+                writer.WriteRawBits((uint)longMask, 32);
+                writer.WriteRawBits((uint)(longMask >> 32), length-32);
+            }
+            else
+            {
+                writer.WriteRawBits((uint)longMask, length);
+            }
+            for (int i = 0; i < length; ++i, longMask >>= 1)
+            {
+                __GHOST_FIXEDLIST_ELEMENT_SERIALIZER__.Serialize((uint)longMask, snapshot[i], baseline[i], ref writer, compressionModel);
+            }
+        }
+    }
+ }

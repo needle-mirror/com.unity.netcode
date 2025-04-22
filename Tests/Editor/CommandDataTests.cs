@@ -1,3 +1,4 @@
+#pragma warning disable CS0618 // Disable Entities.ForEach obsolete warnings
 using NUnit.Framework;
 using Unity.Collections;
 using Unity.Entities;
@@ -14,6 +15,11 @@ namespace Unity.NetCode.Tests
     {
         public NetworkTick Tick { get; set; }
         public int Value;
+    }
+    public struct CommandDataTestsTickInputDouble : ICommandData
+    {
+        public NetworkTick Tick { get; set; }
+        public double Value;
     }
     public struct CommandDataTestsTickInputLarge : ICommandData
     {
@@ -80,7 +86,7 @@ namespace Unity.NetCode.Tests
         protected override void OnUpdate()
         {
             FixedString128Bytes longString = "";
-    
+
             for (int i = 0; i < FixedString128Bytes.UTF8MaxLengthInBytes; ++i)
             {
                 if ( i == FixedString128Bytes.UTF8MaxLengthInBytes - 1)
@@ -103,6 +109,33 @@ namespace Unity.NetCode.Tests
             }).Run();
         }
     }
+
+    [UpdateInGroup(typeof(GhostInputSystemGroup))]
+    [DisableAutoCreation]
+    [WorldSystemFilter(WorldSystemFilterFlags.ClientSimulation)]
+    public partial class CommandDataTestsTickInputIncreaseSystem : SystemBase
+    {
+        public double m_Value = 0;
+        protected override void OnCreate()
+        {
+            RequireForUpdate<NetworkStreamInGame>();
+            RequireForUpdate(GetEntityQuery(ComponentType.ReadWrite<CommandDataTestsTickInputDouble>()));
+        }
+        protected override void OnUpdate()
+        {
+            var tick = SystemAPI.GetSingleton<NetworkTime>().ServerTick;
+            foreach (var inputBuffer in SystemAPI.Query<DynamicBuffer<CommandDataTestsTickInputDouble>>())
+            {
+                m_Value += 3.14159;
+                inputBuffer.AddCommandData(new CommandDataTestsTickInputDouble
+                {
+                    Tick = tick,
+                    Value = m_Value
+                });
+            }
+        }
+    }
+
     public class CommandDataTests
     {
         [Test]
@@ -110,7 +143,7 @@ namespace Unity.NetCode.Tests
         {
             using (var testWorld = new NetCodeTestWorld())
             {
-                testWorld.DriverMaxMessageSize = 120; 
+                testWorld.DriverMaxMessageSize = 120;
                 testWorld.Bootstrap(true, typeof(CommandDataTestsTickInputSystem), typeof(CommandDataTestsTickInput2System));
 
                 var ghostGameObject = new GameObject();
@@ -611,6 +644,78 @@ namespace Unity.NetCode.Tests
                 var serverBuffer = testWorld.ServerWorld.EntityManager.GetBuffer<CommandDataTestsTickInputLarge>(serverEnt);
                 Assert.AreNotEqual(0, serverBuffer.Length);
                 Assert.AreNotEqual(0, clientBuffer.Length);
+            }
+        }
+
+        [Test(Description = "Ensures that when a client sends a partial command, the server will update the command data with the new value")]
+        public void ServerOverridesUpdatedCommandData()
+        {
+            using (var testWorld = new NetCodeTestWorld())
+            {
+                testWorld.Bootstrap(true, typeof(CommandDataTestsTickInputIncreaseSystem));
+
+                var ghostGameObject = new GameObject();
+                var ghostConfig = ghostGameObject.AddComponent<GhostAuthoringComponent>();
+                ghostConfig.HasOwner = true;
+                Assert.IsTrue(testWorld.CreateGhostCollection(ghostGameObject));
+                testWorld.CreateWorlds(true, 1);
+                testWorld.Connect();
+                testWorld.GoInGame();
+
+                var clientConnectionEnt = testWorld.TryGetSingletonEntity<NetworkId>(testWorld.ClientWorlds[0]);
+                var netId = testWorld.ClientWorlds[0].EntityManager.GetComponentData<NetworkId>(clientConnectionEnt).Value;
+
+                var serverEnt = testWorld.SpawnOnServer(ghostGameObject);
+                testWorld.ServerWorld.EntityManager.SetComponentData(serverEnt, new GhostOwner {NetworkId = netId});
+
+                for (int i = 0; i < 16; ++i)
+                    testWorld.Tick();
+
+                var clientEnt = testWorld.TryGetSingletonEntity<GhostOwner>(testWorld.ClientWorlds[0]);
+                Assert.AreNotEqual(Entity.Null, clientEnt);
+
+                testWorld.ServerWorld.EntityManager.AddComponent<CommandDataTestsTickInputDouble>(serverEnt);
+                testWorld.ClientWorlds[0].EntityManager.AddComponent<CommandDataTestsTickInputDouble>(clientEnt);
+
+                for (int i = 0; i < 4; ++i)
+                    testWorld.Tick();
+
+                // Ensure we have control over time, this is needed otherwise the NetworkTimeSystem will slow down the client
+                var clientTickRate = NetworkTimeSystem.DefaultClientTickRate;
+                clientTickRate.PredictionTimeScaleMin = 0.999f;
+                clientTickRate.PredictionTimeScaleMax = 1.001f;
+                testWorld.ClientWorlds[0].EntityManager.CreateSingleton(clientTickRate);
+
+                // Tick so we're on a full tick on the client
+                var clientTime = testWorld.GetNetworkTime(testWorld.ClientWorlds[0]);
+                testWorld.TickClientOnly((1 - clientTime.ServerTickFraction) / 60f);
+                clientTime = testWorld.GetNetworkTime(testWorld.ClientWorlds[0]);
+                Assert.IsFalse(clientTime.IsPartialTick);
+
+                // Tick half a tick
+                // This will send the command to the server
+                testWorld.TickClientOnly(1/120f);
+                clientTime = testWorld.GetNetworkTime(testWorld.ClientWorlds[0]);
+                testWorld.GetSingletonBuffer<CommandDataTestsTickInputDouble>(testWorld.ClientWorlds[0]).GetDataAtTick(clientTime.ServerTick, out var clientFirstSendCommand);
+
+                // Tick half a tick
+                // This will not send a command, but will update the value for the tick
+                testWorld.TickClientOnly(1/120f);
+                // Will be same ServerTick
+                testWorld.GetSingletonBuffer<CommandDataTestsTickInputDouble>(testWorld.ClientWorlds[0]).GetDataAtTick(clientTime.ServerTick, out var clientUpdatedCommand);
+                Assert.AreNotEqual(clientFirstSendCommand, clientUpdatedCommand);
+
+                // Tick so the server receives the command, and the client sends the next command with the updated value
+                testWorld.Tick();
+                testWorld.GetSingletonBuffer<CommandDataTestsTickInputDouble>(testWorld.ServerWorld).GetDataAtTick(clientTime.ServerTick, out var serverFirstCommand); // Use client ServerTick since it's the same tick we want
+                Assert.AreEqual(clientFirstSendCommand.Tick, serverFirstCommand.Tick); // Ensure the tick is correct since GetDataAtTick will return the closest tick
+                Assert.AreEqual(clientFirstSendCommand.Value, serverFirstCommand.Value);
+
+                // Tick so the server receives the updated command
+                testWorld.Tick();
+                testWorld.GetSingletonBuffer<CommandDataTestsTickInputDouble>(testWorld.ServerWorld).GetDataAtTick(clientTime.ServerTick, out var serverUpdatedCommand); // Use client ServerTick since it's the same tick we want
+                Assert.AreEqual(clientUpdatedCommand.Tick, serverUpdatedCommand.Tick); // Ensure the tick is correct since GetDataAtTick will return the closest tick
+                Assert.AreEqual(clientUpdatedCommand.Value, serverUpdatedCommand.Value);
             }
         }
     }

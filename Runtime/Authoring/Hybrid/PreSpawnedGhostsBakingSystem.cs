@@ -39,16 +39,25 @@ namespace Unity.NetCode
         {
             var hashToEntity = new NativeParallelHashMap<ulong, Entity>(128, Allocator.TempJob);
 
+            var ghostAuthoringComponentQuery =
+                SystemAPI.QueryBuilder().WithAllRW<GhostAuthoringComponentBakingData>().Build();
+            var ghostAuthoringComponentEntities = ghostAuthoringComponentQuery.ToEntityArray(Allocator.Temp);
+            var ghostAuthoringComponentBakingDatas =
+                ghostAuthoringComponentQuery.ToComponentDataArray<GhostAuthoringComponentBakingData>(Allocator.Temp);
+
             // TODO: Check that the GhostAuthoringComponent is interpolated, as we don't support predicted atm
-            Entities.ForEach((Entity entity, in GhostAuthoringComponentBakingData ghostAuthoringBakingData) =>
+            for (var i = 0; i < ghostAuthoringComponentEntities.Length; i++)
             {
+                var entity = ghostAuthoringComponentEntities[i];
+                var ghostAuthoringBakingData = ghostAuthoringComponentBakingDatas[i];
+
                 var isInSubscene = EntityManager.HasComponent<SceneSection>(entity);
                 bool isPrefab = ghostAuthoringBakingData.IsPrefab;
                 var activeInScene = ghostAuthoringBakingData.IsActive;
                 if (!isPrefab && isInSubscene && activeInScene)
                 {
                     var hashData = new NativeList<ulong>(Allocator.Temp);
-					//We are using the ghost type to identify the ghost archetype. It is the only reliable value
+                    //We are using the ghost type to identify the ghost archetype. It is the only reliable value
                     //in between server and client. Baking can add/remove component on the entity based on the conversion
                     //target. So using archetype.StableHash does not work in our case.
                     hashData.Add(ghostAuthoringBakingData.GhostType.guid0);
@@ -56,7 +65,7 @@ namespace Unity.NetCode
                     hashData.Add(ghostAuthoringBakingData.GhostType.guid2);
                     hashData.Add(ghostAuthoringBakingData.GhostType.guid3);
 
-					//What happen if the entity has been authored such that the position and rotation are not present?
+                    //What happen if the entity has been authored such that the position and rotation are not present?
                     //We are relying on the TransformAuthoring instead, to have stable data that depend only on the gameobject
                     //authoring
                     var transformAuthoring = EntityManager.GetComponentData<TransformAuthoring>(entity);
@@ -92,7 +101,7 @@ namespace Unity.NetCode
                     else
                         Debug.LogError($"Two ghosts can't be in the same exact position and rotation {EntityManager.GetName(entity)}");
                 }
-            }).WithoutBurst().Run();
+            }
 
             if (hashToEntity.Count() > 0)
             {

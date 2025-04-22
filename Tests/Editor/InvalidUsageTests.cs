@@ -60,7 +60,7 @@ namespace Unity.NetCode.Tests
                 // Go in-game
                 testWorld.GoInGame();
 
-                LogAssert.Expect(LogType.Error, new Regex("Found a ghost \\(ID \\d+ Entity\\(\\d+:\\d+\\)\\) in the ghost map which does not have an entity connected to it or an invalid entity. This can happen if you delete ghost entities on the client."));
+                LogAssert.Expect(LogType.Error, new Regex(@"Found a ghost (.*) in the ghost map which does not have an entity connected to it(.*)This can happen if you delete ghost entities"));
                 LogAssert.Expect(LogType.Error, new Regex("Ghost ID \\d+ has already been added to the spawned ghost map"));
                 // Let the game run for a bit so the ghosts are spawned on the client
                 // There will be a bunch of "Received baseline for a ghost we do not have ghostId=0 baselineTick=1 serverTick=2" messages, ignore them

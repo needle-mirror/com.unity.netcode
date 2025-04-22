@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
@@ -33,6 +35,25 @@ namespace Unity.NetCode.Generators
         /// But for variant declaration this is not necessary, since the variant is never used (is only a proxy type)
         /// </summary>
         private bool m_RequiresPublicFields;
+
+        /// <summary>
+        /// We are capping the allowed number of elements for a fixed list.
+        /// The reasons behing the limitation are primirily two:
+        ///  - Simpler serialization/deserialization code (we also have the generic version but it is slightly more complex for nothing)
+        ///  - Less impact on the snapshot data bitmask (too many bits to send).
+        /// The common use case for fixed list use is to store small lists inside components (given how much data they take in the chunk anyway).
+        /// As such, the limit does not impact users too much.
+        ///
+        /// When a large fixed list that can store more than 64 elements is used for the given argument, we report a warning and cap the number of elements.
+        /// This is by far ideal, but there are situations where to reach the number of element required you need to use a slighly larger fixed list size.
+        /// Therefore, blocking with an error the compilatoion is not an option.
+        ///
+        /// RPC and snapshots has different capacity constraints, to still give some extra flexibility to RPC.
+        /// Current limits are:
+        /// RPC: 1024
+        /// Everything Else: 64
+        /// </summary>
+        private int m_FixedListSizeCap = 0;
 
         public TypeInformationBuilder(IDiagnosticReporter reporter, GeneratorExecutionContext context, SerializationMode mode)
         {
@@ -84,6 +105,12 @@ namespace Unity.NetCode.Generators
             //Mask out inherited attributes that does not apply. SubType is also never inherited, buffer fields are never interpolated
             if (typeInfo.ComponentType != ComponentType.Component)
                 typeInfo.AttributeMask &= ~TypeAttribute.AttributeFlags.InterpolatedAndExtrapolated;
+
+            //we clamp both commands and component-like data. Only RPCs are un-capped.
+            if (typeInfo.ComponentType == ComponentType.Rpc)
+                m_FixedListSizeCap = 1024;
+            else
+                m_FixedListSizeCap = 64;
 
             //This can be a little expensive sometime (up to tents of ms)
             var members = symbol.GetMembers();
@@ -204,6 +231,10 @@ namespace Unity.NetCode.Generators
                 //However, we should still do the check here for robustness.
                 foreach (var member in variantSymbol.GetMembers().OfType<IFieldSymbol>())
                 {
+                    if(member.DeclaredAccessibility != Accessibility.Public && member.IsImplicitlyDeclared ||
+                       member.Name.EndsWith("k__BackingField"))
+                        continue;
+
                     var originalMember = adapteeType.GetMembers(member.Name).FirstOrDefault();
                     if(originalMember == null ||
                        (originalMember as IFieldSymbol)?.Type.GetFullTypeName() != member.Type.GetFullTypeName())
@@ -327,7 +358,7 @@ namespace Unity.NetCode.Generators
                 }
 
                 //Skip fields who don't have any [GhostField] attribute or the SendData is set to false
-                if ((ghostField == null && string.IsNullOrEmpty(fieldPath)))
+                if ((ghostField == null && level == 1))
                 {
                     //Buffer need some further validation, and we collect here any missing field
                     if ((parent.ComponentType == ComponentType.Buffer || parent.ComponentType == ComponentType.CommandData))
@@ -342,48 +373,53 @@ namespace Unity.NetCode.Generators
             else if (member.IsStatic || member.DeclaredAccessibility != Accessibility.Public)
                 return null;
 
-            //Add some validation and skip irrelevant fields too
-            var typeKind = Roslyn.Extensions.GetTypeKind(memberType);
-            if (typeKind == GenTypeKind.Invalid)
+            if(member.Name.StartsWith("__COMMAND", StringComparison.Ordinal) ||
+               member.Name.StartsWith("__GHOST", StringComparison.Ordinal))
             {
-                m_Reporter.LogError($"GhostField annotation present on non serializable field '{parent.TypeFullName}.{member.Name}'.");
+                m_Reporter.LogError($"Invalid field name '{parent.TypeFullName}.{member.Name}'. __GHOST and __COMMAND are reserved prefixes and cannot be used in namespace, type and field names!",
+                    member.Locations[0]);
                 return null;
             }
 
-            if ((typeKind != GenTypeKind.Struct) && (ghostField != null && ghostField.Composite.HasValue && ghostField.Composite.Value))
-                m_Reporter.LogError($"GhostField for field '{parent.TypeFullName}.{member.Name}' set Composite=True, but this is invalid on primitive types.");
+            GenTypeKind typeKind;
+            if (member is IFieldSymbol && ((IFieldSymbol)member).IsFixedSizeBuffer)
+            {
+                typeKind = GenTypeKind.FixedSizeArray;
+            }
+            else
+            {
+                typeKind = Roslyn.Extensions.GetTypeKind(memberType);
+                if (typeKind == GenTypeKind.Struct && Roslyn.Extensions.IsFixedList(memberType))
+                {
+                    typeKind = GenTypeKind.FixedList;
+                }
+                if (typeKind == GenTypeKind.Invalid)
+                {
+                    m_Reporter.LogError($"GhostField annotation present on non serializable field '{parent.TypeFullName}.{member.Name}'.");
+                    return null;
+                }
 
+                if (typeKind != GenTypeKind.Struct && (ghostField != null && ghostField.Composite.HasValue && ghostField.Composite.Value))
+                    m_Reporter.LogError($"GhostField for field '{parent.TypeFullName}.{member.Name}' set Composite=True, but this is invalid on primitive types.");
+            }
+
+            //Add some validation and skip irrelevant fields too
             var typeInfo = new TypeInformation
             {
                 Kind = typeKind,
                 TypeFullName = Roslyn.Extensions.GetFullTypeName(memberType),
                 Namespace = Roslyn.Extensions.GetFullyQualifiedNamespace(memberType),
-                FieldName = member.Name,
+                FieldName = parent.Kind != GenTypeKind.FixedList ? member.Name : string.Empty,
                 UnderlyingTypeName = Roslyn.Extensions.GetUnderlyingTypeName(memberType),
-                DeclaringTypeFullName = Roslyn.Extensions.GetFullTypeName(member.ContainingType),
+                ContainingTypeFullName = Roslyn.Extensions.GetFullTypeName(member.ContainingType),
                 FieldTypeName = Roslyn.Extensions.GetFieldTypeName(memberType),
                 Attribute = parent.Attribute,
                 AttributeMask = parent.AttributeMask,
-                Parent = fieldPath,
+                FieldPath = fieldPath,
                 Location = member.Locations[0],
                 CanBatchPredict = CanBatchPredict(member),
                 Symbol = member as ITypeSymbol
             };
-
-            if(typeInfo.FieldName.StartsWith("__COMMAND", StringComparison.Ordinal) ||
-               typeInfo.FieldName.StartsWith("__GHOST", StringComparison.Ordinal))
-            {
-                m_Reporter.LogError($"Invalid field name '{parent.TypeFullName}.{typeInfo.FieldName}'. __GHOST and __COMMAND are reserved prefixes and cannot be used in namespace, type and field names!",
-                    member.Locations[0]);
-                return null;
-            }
-            if(typeInfo.FieldTypeName.StartsWith("__COMMAND", StringComparison.Ordinal) ||
-               typeInfo.FieldTypeName.StartsWith("__GHOST", StringComparison.Ordinal))
-            {
-                m_Reporter.LogError($"Invalid typename '{typeInfo.FieldTypeName}' for '{parent.TypeFullName}.{typeInfo.FieldName}'. __GHOST and __COMMAND are reserved prefixes and cannot be used in namespace, type and field names!",
-                    member.Locations[0]);
-                return null;
-            }
 
             //Always reset the subtype (is not inherited)
             typeInfo.Attribute.subtype = 0;
@@ -411,6 +447,11 @@ namespace Unity.NetCode.Generators
 
                 if (ghostField.MaxSmoothingDistance > 0) typeInfo.Attribute.maxSmoothingDist = ghostField.MaxSmoothingDistance;
             }
+
+            //Integer types don't support any quantization or interpolation flags.
+            if (typeKind == GenTypeKind.Primitive && Roslyn.Extensions.IsIntegerType(memberType))
+                typeInfo.AttributeMask &= ~(TypeAttribute.AttributeFlags.InterpolatedAndExtrapolated|TypeAttribute.AttributeFlags.Interpolated|TypeAttribute.AttributeFlags.Quantized);
+
             //And then reset based on the mask
             typeInfo.Attribute.smoothing &= (uint)(typeInfo.AttributeMask & TypeAttribute.AttributeFlags.InterpolatedAndExtrapolated);
             typeInfo.Attribute.aggregateChangeMask &= (typeInfo.AttributeMask & TypeAttribute.AttributeFlags.Composite) != 0;
@@ -418,15 +459,77 @@ namespace Unity.NetCode.Generators
             if((typeInfo.AttributeMask & TypeAttribute.AttributeFlags.Quantized) == 0)
                 typeInfo.Attribute.quantization = -1;
 
+            if (typeKind == GenTypeKind.FixedSizeArray)
+            {
+                var elementPointedType = ((IPointerTypeSymbol)memberType).PointedAtType;
+                typeInfo.ElementCount = ((IFieldSymbol)member).FixedSize;
+                var elementType = new TypeInformation
+                {
+                    Kind = Extensions.GetTypeKind(elementPointedType),
+                    TypeFullName = Roslyn.Extensions.GetFullTypeName(elementPointedType),
+                    Namespace = Roslyn.Extensions.GetFullyQualifiedNamespace(elementPointedType),
+                    FieldName = null,
+                    UnderlyingTypeName = Roslyn.Extensions.GetUnderlyingTypeName(elementPointedType),
+                    ContainingTypeFullName = Roslyn.Extensions.GetFullTypeName(elementPointedType.ContainingType),
+                    FieldTypeName = Roslyn.Extensions.GetFieldTypeName(elementPointedType),
+                    Attribute = parent.Attribute,
+                    AttributeMask = parent.AttributeMask,
+                    FieldPath = fieldPath,
+                    Location = member.Locations[0],
+                    CanBatchPredict = CanBatchPredict(member),
+                    Symbol = member as ITypeSymbol
+                };
+                typeInfo.PointeeType = elementType;
+                return typeInfo;
+            };
+
+            if (typeKind == GenTypeKind.FixedList)
+            {
+                var fixedListArgumentType = ((INamedTypeSymbol)memberType).TypeArguments[0];
+                //Force aggregateChangeMask to be false. Fixed list never "aggregate" with other fields in the same struct
+                //and always uses 2 bits of change masks.
+                typeInfo.Attribute.aggregateChangeMask = false;
+                var argumentTypeInfo = ParseFieldType(fixedListArgumentType, fixedListArgumentType, typeInfo, null, level+1);
+                typeInfo.ElementCount = FixedListUtils.CalculateNumElements(memberType);
+                var customCapacityCap = 0;
+                customCapacityCap = TryGetGhostFixedListCapacity(member);
+                if (customCapacityCap > m_FixedListSizeCap)
+                {
+                    m_Reporter.LogError($"Invalid GhostFixedListCapacity attribute present on {member.ToDisplayString()} of type {memberType.ToDisplayString()}. The maximum allowed capacity for a fixed list must bet less or equal than {m_FixedListSizeCap} elements.");
+                    customCapacityCap = 0;
+                }
+                //if this is set is because the attribute is present and valid, therefore we can set the limit as is
+                if(customCapacityCap > 0)
+                    typeInfo.ElementCount = customCapacityCap;
+                //otherwise we report error if the ElementCount exceed the maximum allowed default capacity for the replicated component type.
+                //As a remainder here:
+                // - RPC: 1024
+                // - Everything else: 64
+                if (typeInfo.ElementCount > m_FixedListSizeCap)
+                {
+                    m_Reporter.LogError($"{member.ToDisplayString()} of type {memberType.ToDisplayString()} has a capacity greater than {m_FixedListSizeCap} elements. Replicated fixed lists can contain at most {m_FixedListSizeCap} elements. If the capacity exceed, please use the GhostFixedListCapacity attribute to constrain the maximum allowed length of the list.");
+                    typeInfo.ElementCount = m_FixedListSizeCap;
+                }
+                typeInfo.GenericTypeName = Roslyn.Extensions.GetGenericTypeName(memberType);
+                typeInfo.PointeeType = argumentTypeInfo;
+                return typeInfo;
+            }
+
+            if (parent.Kind == GenTypeKind.FixedList)
+            {
+                fieldPath = string.Empty;
+                typeInfo.FieldPath = string.Empty;
+            }
             if (typeKind != GenTypeKind.Struct)
                 return typeInfo;
 
             var members = memberType.GetMembers();
+
             foreach (var f in members.OfType<IFieldSymbol>())
             {
                 var path = string.IsNullOrEmpty(fieldPath)
-                    ? member.Name
-                    : string.Concat(fieldPath, ".", member.Name);
+                    ? typeInfo.FieldName
+                    : string.Concat(fieldPath, ".", typeInfo.FieldName);
 
                 var field = ParseFieldType(f, f.Type, typeInfo, path,level + 1);
                 if (field != null)
@@ -440,10 +543,11 @@ namespace Unity.NetCode.Generators
             //Also properties like this[] are not supported either
             foreach (var prop in members.OfType<IPropertySymbol>())
             {
-                if (!CheckIsSerializableProperty(prop))
+                if (SymbolEqualityComparer.Default.Equals(memberType,prop.Type) || !CheckIsSerializableProperty(prop))
                     continue;
+
                 var path = string.IsNullOrEmpty(fieldPath)
-                    ? member.Name
+                    ? typeInfo.FieldName
                     : string.Concat(fieldPath, ".", member.Name);
 
                 var field = ParseFieldType(prop, prop.Type, typeInfo, path, level + 1);
@@ -459,26 +563,39 @@ namespace Unity.NetCode.Generators
             {
                 //This prevent any indexer like accessor
                 if (f.IsIndexer)
-                    return "Indexer.";
+                    return "it is an indexer like property.";
                 if (f.GetMethod == null)
-                    return "No getter.";
+                    return "it does not have any getter. Both setter and getters are required.";
                 if (f.GetMethod.DeclaredAccessibility != Accessibility.Public || f.GetMethod.IsStatic)
-                    return "Getter is not public.";
+                    return "the setter is not public.";
                 if (f.SetMethod == null)
-                    return "No setter.";
-                if (f.SetMethod.DeclaredAccessibility != Accessibility.Public || f.GetMethod.IsStatic)
-                    return "Setter is not public.";
+                    return "does not have setter. Both setter and getters are required.";
+                if (f.SetMethod.DeclaredAccessibility != Accessibility.Public || f.SetMethod.IsStatic)
+                    return "the setter is not public.";
                 //I only support things that return primitive type and that are not compiler generated
                 var typeKind = Roslyn.Extensions.GetTypeKind(f.GetMethod.ReturnType);
                 if (typeKind == GenTypeKind.Invalid)
-                    return "Invalid type kind.";
+                    return $"it return an unknown or non serializable type {f.GetMethod.ReturnType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat)}";
                 if (typeKind != GenTypeKind.Struct)
                     return null;
-                // Exception for NetworkTick, which is the only supported struct property.
-                if (Roslyn.Extensions.GetFullTypeName(f.GetMethod.ReturnType) == "Unity.NetCode.NetworkTick")
-                    return null;
-                return "Property structs are not supported.";
+                // Exception for supported properties return types, which is the only supported struct property.
+                var returnTypeFullTypename = Roslyn.Extensions.GetFullTypeName(f.GetMethod.ReturnType);
+                switch (returnTypeFullTypename)
+                {
+                    case "Unity.NetCode.NetworkTick": return null;
+                    case "Unity.Mathematics.float3": return null;
+                    case "Unity.Mathematics.float2": return null;
+                    case "Unity.Mathematics.float4": return null;
+                    case "Unity.Mathematics.quaternion": return null;
+                    default:
+                        return $"it returns a non primitive type {returnTypeFullTypename}. " +
+                               $"Properties can be serialized if they return one of the following types: Unity.NetCode.NetworkTick, Unity.Mathematics.float3, Unity.Mathematics.float2, Unity.Mathematics.float4, Unity.Mathematics.quaternion";
+                }
             }
+
+            //We don't accept any swizzle properties for float3, float4
+            if(f.ContainingType.Name == "float3" || f.ContainingType.Name == "float4")
+                return false;
 
             var errorReason = GetErrorReason();
             var isValid = string.IsNullOrEmpty(errorReason);
@@ -487,7 +604,7 @@ namespace Unity.NetCode.Generators
                 var ghostField = TryGetGhostField(f);
                 if (ghostField != null && ghostField.SendData)
                 {
-                    m_Reporter.LogError($"GhostField present on an invalid property {f}: {errorReason}");
+                    m_Reporter.LogError($"It is not possible to serialize property {f.ToDisplayString(SymbolDisplayFormat.CSharpErrorMessageFormat)} because {errorReason}");
                 }
             }
             return isValid;
@@ -538,6 +655,23 @@ namespace Unity.NetCode.Generators
             }
 
             return default;
+        }
+        /// <summary>
+        /// Check for the presence of GhostFieldAttribute on the given field <paramref name="fieldSymbol"/>.
+        /// </summary>
+        /// <returns>
+        /// A valid instance of a GhostFieldAttribute if the annotation is present or an override exist. Null otherwise.
+        /// </returns>
+        private int TryGetGhostFixedListCapacity(ISymbol fieldSymbol)
+        {
+            var ghostFixedList = Roslyn.Extensions.GetAttribute(fieldSymbol, "Unity.NetCode", "GhostFixedListCapacityAttribute");
+            if (ghostFixedList == null)
+                ghostFixedList = Roslyn.Extensions.GetAttribute(fieldSymbol, "", "GhostFixedListCapacity");
+            if (ghostFixedList != null && ghostFixedList.NamedArguments.Length > 0)
+            {
+                return System.Convert.ToInt32(ghostFixedList.NamedArguments[0].Value.Value);
+            }
+            return 0;
         }
         private bool CanBatchPredict(ISymbol fieldSymbol)
         {

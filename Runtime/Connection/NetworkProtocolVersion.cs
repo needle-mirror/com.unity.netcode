@@ -116,8 +116,6 @@ namespace Unity.NetCode
     internal struct RequestProtocolVersionHandshake : IApprovalRpcCommand, IRpcCommandSerializer<RequestProtocolVersionHandshake>
     {
         public NetworkProtocolVersion Data;
-        public uint ConnectionUniqueId;
-
         /// <summary>
         /// Do not change (except in the very rare case that the RPC serialization fundamentally changes),
         /// otherwise we create junk protocol version errors!
@@ -133,7 +131,6 @@ namespace Unity.NetCode
             writer.WritePackedIntDelta(data.Data.GameVersion, GameVersionBaseline, compressionModel);
             writer.WriteULong(data.Data.RpcCollectionVersion);
             writer.WriteULong(data.Data.ComponentCollectionVersion);
-            writer.WriteUInt(data.ConnectionUniqueId);
         }
 
         public void Deserialize(ref DataStreamReader reader, in RpcDeserializerState state, ref RequestProtocolVersionHandshake data)
@@ -143,7 +140,6 @@ namespace Unity.NetCode
             data.Data.GameVersion = reader.ReadPackedIntDelta(GameVersionBaseline, compressionModel);
             data.Data.RpcCollectionVersion = reader.ReadULong();
             data.Data.ComponentCollectionVersion = reader.ReadULong();
-            data.ConnectionUniqueId = reader.ReadUInt();
         }
 
         [BurstCompile(DisableDirectCall = true)]
@@ -156,20 +152,11 @@ namespace Unity.NetCode
             rpcData.Deserialize(ref parameters.Reader, parameters.DeserializerState, ref rpcData);
 
             var protocolVersionIsCorrect = rpcData.Data.IsCorrect(parameters.ProtocolVersion, parameters.UseDynamicAssemblyList);
-            parameters.NetDebug.DebugLog($"[{parameters.WorldName}][Connection] Received protocol version {parameters.ConnectionStateRef.Value.ToFixedString()} UDAL:{parameters.UseDynamicAssemblyList} Connection[UniqueId:{rpcData.ConnectionUniqueId}] IsCorrect:{protocolVersionIsCorrect}\n - Ours:{parameters.ProtocolVersion.ToFixedString()}\n - Them:{rpcData.Data.ToFixedString()}");
+            parameters.NetDebug.DebugLog($"[{parameters.WorldName}][Connection] Received protocol version {parameters.ConnectionStateRef.Value.ToFixedString()} UDAL:{parameters.UseDynamicAssemblyList} IsCorrect:{protocolVersionIsCorrect}\n - Ours:{parameters.ProtocolVersion.ToFixedString()}\n - Them:{rpcData.Data.ToFixedString()}");
             if (protocolVersionIsCorrect)
             {
                 // Signal that we can `Handshake` this connection!
                 parameters.ConnectionStateRef.ProtocolVersionReceived = 1;
-                // If the client is reporting a unique connection ID it means it is reconnecting, this is assigned to the
-                // connection entity of the client on the server. When assigning new unique IDs later the server will see
-                // the client already has one and skips it.
-                if (parameters.IsServer && rpcData.ConnectionUniqueId != 0)
-                {
-                    parameters.CommandBuffer.AddComponent(parameters.JobIndex, parameters.Connection, new ConnectionUniqueId() { Value = rpcData.ConnectionUniqueId });
-                    parameters.CommandBuffer.AddComponent<IsReconnected>(parameters.JobIndex, parameters.Connection);
-                    parameters.CommandBuffer.AddComponent<MigrateComponents>(parameters.JobIndex, parameters.Connection);
-                }
                 return;
             }
 

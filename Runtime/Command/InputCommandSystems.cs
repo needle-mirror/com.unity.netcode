@@ -86,6 +86,7 @@ namespace Unity.NetCode
         private ComponentTypeHandle<TInputComponentData> m_InputDataType;
         private BufferTypeHandle<InputBufferData<TInputComponentData>> m_InputBufferTypeHandle;
 
+        /// <inheritdoc/>
         [BurstCompile]
         public void OnCreate(ref SystemState state)
         {
@@ -101,6 +102,7 @@ namespace Unity.NetCode
             state.RequireForUpdate(m_EntityQuery);
         }
 
+        /// <inheritdoc/>
         [BurstCompile]
         public void OnUpdate(ref SystemState state)
         {
@@ -141,6 +143,7 @@ namespace Unity.NetCode
         private ComponentTypeHandle<TInputComponentData> m_InputDataType;
         private BufferTypeHandle<InputBufferData<TInputComponentData>> m_InputBufferTypeHandle;
 
+        /// <inheritdoc/>
         [BurstCompile]
         public void OnCreate(ref SystemState state)
         {
@@ -155,6 +158,7 @@ namespace Unity.NetCode
             state.RequireForUpdate(m_EntityQuery);
         }
 
+        /// <inheritdoc/>
         [BurstCompile]
         public void OnUpdate(ref SystemState state)
         {

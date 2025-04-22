@@ -127,6 +127,16 @@ namespace Unity.NetCode
         [Tooltip("CPU optimization that forces this ghost to be quantized and copied to the snapshot format <b>once for all connections</b> (instead of once <b>per connection</b>). This can save CPU time in the `GhostSendSystem` assuming all of the following:\n\n - The ghost contains many serialized components, serialized components on child entities, or serialized buffers.\n\n - The ghost is almost always sent to at least one connection.\n\n<i>Example use-cases: Players, important gameplay items like footballs and crowns, global entities like map settings and dynamic weather conditions.</i>")]
         public bool UsePreSerialization;
         /// <summary>
+        /// CPU optimization that forces using a single baseline for delta compression for this specific prefab type.
+        /// Enabling this option positively affect CPU on both client and server, especially when the archetype has a large number of components, many of which rarely change.
+        /// As downside, it negatively affect the bandwidth, especially when the component/buffer data changes are highly predictable and linear (i.e moving at linear speed or incrementing a counter).
+        /// But as counter-balancing factor, it allow for some bandwidth saving (and CPU saving on server) when the replicated entity has no changes for a certain amount of time, avoiding re-sending "redundant" information and ghost ids.
+        /// This becomes handy and useful in scenarios when the ghost is more suited for dynamic updates than for static optimization (i.e many no-changes moments gut sparse) and/or holistically the majority of the component data changes does not follow linear patterns,
+        /// as such, the three baselines cost does not justify the saving in bandwidth.
+        /// </summary>
+        [Tooltip("CPU optimization that forces using a single baseline for delta compression for this specific prefab type.\\nEnabling this option positively affect CPU on both client and server, especially when the archetype has a large number of components, many of which rarely change. As downside, it negatively affect the bandwidth, especially when the component/buffer data changes are highly predictable and linear (i.e moving at linear speed or incrementing a counter).\\nAs counter-balancing factor, it allow for some bandwidth saving (and CPU saving on server) when the replicated entity has no changes for a certain amount of time, avoiding re-sending \"redundant\" information and ghost ids. This becomes handy and useful in scenarios when the ghost is more suited for dynamic updates than for static optimization (i.e many no-changes moments gut sparse) and/or holistically the majority of the component data changes does not follow linear patterns, as such, the three baselines cost does not justify the saving in bandwidth.")]
+        public bool UseSingleBaseline;
+        /// <summary>
         /// <para>
         /// Only for client, force <i>predicted spawn ghost</i> of this type to rollback and re-predict their state from the tick client spawned them until
         /// the authoritative server spawn has been received and classified. In order to save some CPU, the ghost state is rollback only in case a
@@ -182,7 +192,9 @@ namespace Unity.NetCode
                 MaxSendRate = MaxSendRate,
                 SupportedGhostModes = SupportedGhostModes,
                 DefaultGhostMode = DefaultGhostMode,
-                OptimizationMode = OptimizationMode,
+                // Prevent `OptimizationMode.Static` when using `GhostGroup`.
+                // This logic mirrors the logic in GhostAuthoringComponentEditor.
+                OptimizationMode = GhostGroup ? GhostOptimizationMode.Dynamic : OptimizationMode,
                 UsePreSerialization = UsePreSerialization,
                 PredictedSpawnedGhostRollbackToSpawnTick = RollbackPredictedSpawnedGhostState,
                 RollbackPredictionOnStructuralChanges = RollbackPredictionOnStructuralChanges,

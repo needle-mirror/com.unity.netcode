@@ -1,4 +1,5 @@
 using System;
+using System.Diagnostics;
 using Unity.Burst;
 using Unity.Collections;
 using Unity.Entities;
@@ -56,6 +57,7 @@ namespace Unity.NetCode
         EntityQuery m_NetworkIdQuery;
         EntityQuery m_InstanceCount;
 
+        /// <inheritdoc/>
         public void OnCreate(ref SystemState state)
         {
             m_DelayedInterpolatedGhostSpawnQueue = new NativeQueue<DelayedSpawnGhost>(Allocator.Persistent);
@@ -73,6 +75,7 @@ namespace Unity.NetCode
             state.RequireForUpdate<GhostSpawnQueue>();
         }
 
+        /// <inheritdoc/>
         [BurstCompile]
         public void OnDestroy(ref SystemState state)
         {
@@ -81,6 +84,7 @@ namespace Unity.NetCode
             m_DelayedInterpolatedGhostSpawnQueue.Dispose();
         }
 
+        /// <inheritdoc/>
         [BurstCompile]
         public unsafe void OnUpdate(ref SystemState state)
         {
@@ -161,7 +165,7 @@ namespace Unity.NetCode
                                 stateEntityManager.RemoveComponent(linkedEntityGroup[toRemove[rm].EntityIndex].Value, compType);
                             }
                         }
-                    	stateEntityManager.SetComponentData(entity, new GhostInstance {ghostId = ghost.GhostID, ghostType = ghost.GhostType, spawnTick = ghost.ServerSpawnTick});
+                        stateEntityManager.SetComponentData(entity, new GhostInstance {ghostId = ghost.GhostID, ghostType = ghost.GhostType, spawnTick = ghost.ServerSpawnTick});
                         if (PrespawnHelper.IsPrespawnGhostId(ghost.GhostID))
                             ConfigurePrespawnGhost(ref stateEntityManager, entity, ghost);
                         var newBuffer = stateEntityManager.GetBuffer<SnapshotDataBuffer>(entity);

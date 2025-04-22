@@ -60,7 +60,7 @@ For example:
 Entities
     .WithAll<PredictedGhost, Simulate>()
     .ForEach(ref Translation trannslation)
-{                 
+{
       ///Your update logic here
 }
 ```
@@ -75,7 +75,7 @@ var serverTick = GetSingleton<NetworkTime>().ServerTick;
 Entities
     .WithAll<PredictedGhost, Simulate>()
     .ForEach(ref Translation trannslation)
-{                 
+{
       if!(PredictedGhost.ShouldPredict(serverTick))
            return;
 
@@ -110,10 +110,10 @@ Your input data for the current simulated tick will be updated automatically by 
         Entities
             .WithAll<PredictedGhost, Simulate>()
             .ForEach((Entity entity, ref Translation translation, in MyInput input) =>
-        {                 
+        {
               ///Your update logic here
         }).Run();
-    }   
+    }
 ```
 
 ### (Legacy) commands

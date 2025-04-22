@@ -1,6 +1,6 @@
 # Netcode Project Settings reference
 
-Netcode derives classes Entities __DOTS Settings__ to define Netcode-specific settings. 
+Netcode derives classes Entities __DOTS Settings__ to define Netcode-specific settings.
 To open these Project Settings, go to **Edit** &gt; **Project Settings** &gt; **Entities**.
 
 ## Netcode Client Target (a.k.a. Client Hosted Servers)
@@ -16,7 +16,7 @@ This setting is only valid for non-DGS build targets. We support "client hosted 
 | Build Type            | Netcode Client Target | Defines                                                                                                |
 |-----------------------|-----------------------|-------------------------------------------------------------------------------------------------------|
 | Standalone Client     | ClientAndServer      | Neither the `UNITY_CLIENT`, nor the `UNITY_SERVER` are set (i.e. not in built players, nor in-editor). |
-| Standalone Client     | ClientOnly           | The `UNITY_CLIENT` define will be set in the build (**but not in-editor**).                            | 
+| Standalone Client     | ClientOnly           | The `UNITY_CLIENT` define will be set in the build (**but not in-editor**).                            |
 | Dedicated Game Server | n/a                   | The `UNITY_SERVER` define will be set in the build (**but not in-editor**).                           |
 
 For either build type, specific baking filters can be specified in the `DOTS` `ProjectSettings`:

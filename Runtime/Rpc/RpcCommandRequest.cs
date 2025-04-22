@@ -324,6 +324,7 @@ namespace Unity.NetCode
         /// <summary>
         /// Initialize the helper struct, should be called from OnCreate in an ISystem.
         /// </summary>
+        /// <param name="state"><see cref="SystemState"/></param>
         public void OnCreate(ref SystemState state)
         {
             var builder = new EntityQueryBuilder(Allocator.Temp).WithAll<RpcCollection>();

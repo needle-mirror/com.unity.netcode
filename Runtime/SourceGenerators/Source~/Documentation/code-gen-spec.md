@@ -141,6 +141,7 @@ There are no specific restriction on name length, but shorter names should be pr
 - `ulong`
 - `float`
 - `enums` with any integral numeric type specifier.
+- `unsafe fixed buffer`
 
 #### Notes about unsupported basic types:
 - `char` is not supported (for various reasons).
@@ -192,6 +193,14 @@ Unity.Engine.Vector3,Unity.Engine.Vector4,Unity.Engine.Quaternion, etc... are no
 - FixedString128Bytes
 - FixedString512Bytes
 - FixedString1024Bytes
+### Fixed List
+- FixedList32Bytes<T>
+- FixedList64Bytes<T>
+- FixedList128Bytes<T>
+- FixedList512Bytes<T>
+- FixedList1024Bytes<T>
+- Unsafe primtive fixed buffers
+
 ### Other special fields types
 - **Replicated Entities references**.
 
@@ -855,7 +864,7 @@ Are considered `EMPTY VARIANTS`:
 - The variant type: the class/struct type that declare the variant: avoid reflection at runtime
 - The component type for which the variant is declared for: avoid reflection at runtime
 - The variant hash.: associate the variant in the inspector and other usages.
-- The `GhostComponent.PrefabType` property: strip component from prefab at both runtime and/or conversion
+- The `GhostPrefabType` property: strip component from prefab at both runtime and/or conversion
 
 ### CREATE EMPTY VARIANT USING a `GhostComponent` attribute
 By adding a [GhostComponent](#ghost-component-attribute) attribute to a [serialized type](#serialized-types)) or [hybrid component](#hybrid-components) without marking any field as serialized.

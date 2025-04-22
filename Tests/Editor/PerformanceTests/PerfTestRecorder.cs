@@ -46,8 +46,7 @@ namespace Unity.NetCode.Tests.Performance
             params string[] customMarkers)
         {
             var ll = new List<SampleRecorder>();
-            var ghostCollectionSystem = world.GetExistingSystem<GhostCollectionSystem>();
-            var profilerMarker = EntityManager.EntityManagerDebug.GetSystemProfilerMarkerName(world, ghostCollectionSystem);
+            var profilerMarker = EntityManager.EntityManagerDebug.GetSystemProfilerMarkerName(world, handle);
             //little hack to track the correct burst marker name and category
             var category = ProfilerCategory.Scripts;
             if (BurstCompiler.IsEnabled) { unsafe { *((short*)&category) = 3; } }

@@ -19,20 +19,13 @@ namespace Unity.NetCode.Generators
         private readonly TypeTemplate m_Template;
         //The Regex is immutable and threadsafe. The match collection can be used by a single thread only
         private static Regex m_usingRegex = new Regex("(\\w+)(?=;)");
-
-        public bool IsContainerType => m_Template == null && m_ActiveGenerator == null;
-        public bool Composite => m_Template?.Composite ?? false;
         public TypeInformation TypeInformation => m_TypeInformation;
-        public string TemplateOverridePath => m_Template?.TemplateOverridePath;
-        public string TemplatePath => m_Template?.TemplatePath;
-
-        public bool Quantized => m_Template?.SupportsQuantization ?? false;
 
         private string[,] k_OverridableFragments =
         {
             // fragment + alernative fragment in case of interpolation
             {"GHOST_FIELD", "GHOST_FIELD"},
-			{"GHOST_AGGREGATE_WRITE", "GHOST_AGGREGATE_WRITE"},
+            {"GHOST_AGGREGATE_WRITE", "GHOST_AGGREGATE_WRITE"},
             {"GHOST_COPY_TO_SNAPSHOT", "GHOST_COPY_TO_SNAPSHOT"},
             {"GHOST_COPY_FROM_SNAPSHOT", "GHOST_COPY_FROM_SNAPSHOT_INTERPOLATE"},
             {"GHOST_RESTORE_FROM_BACKUP", "GHOST_RESTORE_FROM_BACKUP"},
@@ -43,7 +36,32 @@ namespace Unity.NetCode.Generators
 
         private string m_OverridableFragmentsList = "";
 
-        public void GenerateFields(CodeGenerator.Context context, string parent = null, Dictionary<string, GhostCodeGen.FragmentData> overrides = null)
+        static void SnapshotAndFieldReferencesName(string rootPath, TypeInformation typeInformation, GhostCodeGen generator)
+        {
+            string reference;
+            string snapshotName;
+            if (string.IsNullOrEmpty(typeInformation.FieldPath))
+                reference = $"{typeInformation.FieldName}";
+            else
+                reference = $"{typeInformation.FieldPath}.{typeInformation.FieldName}";
+            reference = reference.Trim();
+
+            if (string.IsNullOrEmpty(typeInformation.SnapshotFieldName))
+                snapshotName = reference.Replace('.', '_');
+            else
+                snapshotName = typeInformation.SnapshotFieldName;
+
+            var fieldAccessor = string.IsNullOrEmpty(reference) ? "" : ".";
+            generator.Replacements.Add("GHOST_FIELD_NAME", snapshotName);
+            generator.Replacements.Add("GHOST_FIELD_PATH", $"{rootPath}{fieldAccessor}{snapshotName}");
+            generator.Replacements.Add("GHOST_FIELD_REFERENCE", $"{rootPath}{fieldAccessor}{reference}");
+            generator.Replacements.Add("GHOST_FIELD_TYPE_NAME", typeInformation.FieldTypeName);
+        }
+
+        public void GenerateFields(CodeGenerator.Context context,
+            string fieldPath = null,
+            Dictionary<string, GhostCodeGen.FragmentData> overrides = null,
+            Dictionary<string, string> replacements = null)
         {
             if (m_Template == null)
                 return;
@@ -52,17 +70,7 @@ namespace Unity.NetCode.Generators
             var interpolate = m_TypeInformation.Attribute.smoothing > 0;
             var generator = context.codeGenCache.GetTemplateWithOverride(m_Template.TemplatePath, m_Template.TemplateOverridePath);
             generator = generator.Clone();
-
-            // Prefix and Variable Replacements
-            var reference = string.IsNullOrEmpty(parent)
-                ? m_TypeInformation.FieldName
-                : $"{parent}.{m_TypeInformation.FieldName}";
-            var name = reference.Replace('.', '_');
-
-            generator.Replacements.Add("GHOST_FIELD_NAME", $"{name}");
-            generator.Replacements.Add("GHOST_FIELD_REFERENCE", $"{reference}");
-            generator.Replacements.Add("GHOST_FIELD_TYPE_NAME", m_TypeInformation.FieldTypeName);
-
+            SnapshotAndFieldReferencesName(fieldPath, m_TypeInformation, generator);
             if (quantization > 0)
             {
                 generator.Replacements.Add("GHOST_QUANTIZE_SCALE", quantization.ToString());
@@ -72,7 +80,13 @@ namespace Unity.NetCode.Generators
             float maxSmoothingDistSq = m_TypeInformation.Attribute.maxSmoothingDist * m_TypeInformation.Attribute.maxSmoothingDist;
             bool enableExtrapolation = m_TypeInformation.Attribute.smoothing == (uint)TypeAttribute.AttributeFlags.InterpolatedAndExtrapolated;
             generator.Replacements.Add("GHOST_MAX_INTERPOLATION_DISTSQ", maxSmoothingDistSq.ToString(CultureInfo.InvariantCulture));
-
+            // add any custom replacement but can't override internals. As such we use Add here to control that none of the current
+            // replacement can be overridden
+            if (replacements != null)
+            {
+                foreach (var replacement in replacements)
+                    generator.Replacements.Add(replacement.Key, replacement.Value);
+            }
             // Skip fragments which have been overridden already
             for (int i = 0; i < k_OverridableFragments.GetLength(0); i++)
             {
@@ -101,6 +115,7 @@ namespace Unity.NetCode.Generators
                         else
                             fragment = "GHOST_COPY_FROM_SNAPSHOT";
                     }
+
                     generator.GenerateFragment(fragment, generator.Replacements, m_TargetGenerator,
                         targetFragment);
                 }
@@ -131,7 +146,8 @@ namespace Unity.NetCode.Generators
             m_ActiveGenerator = generator;
         }
 
-        internal Dictionary<string, GhostCodeGen.FragmentData> GenerateCompositeOverrides(CodeGenerator.Context context, string parent = null)
+        internal Dictionary<string, GhostCodeGen.FragmentData> GenerateCompositeOverrides(CodeGenerator.Context context,
+            string rootPath = null)
         {
             var fragments = new Dictionary<string, GhostCodeGen.FragmentData>();
             if (m_Template == null || string.IsNullOrEmpty(m_Template.TemplateOverridePath))
@@ -143,15 +159,7 @@ namespace Unity.NetCode.Generators
             generator = generator.Clone();
 
             // Prefix and Variable Replacements
-            var reference = string.IsNullOrEmpty(parent)
-                ? m_TypeInformation.FieldName
-                : $"{parent}.{m_TypeInformation.FieldName}";
-            var name = reference.Replace('.', '_');
-
-            generator.Replacements.Add("GHOST_FIELD_NAME", $"{name}");
-            generator.Replacements.Add("GHOST_FIELD_REFERENCE", $"{reference}");
-            generator.Replacements.Add("GHOST_FIELD_TYPE_NAME", m_TypeInformation.FieldTypeName);
-
+            SnapshotAndFieldReferencesName(rootPath, m_TypeInformation, generator);
             if (quantization > 0)
             {
                 generator.Replacements.Add("GHOST_QUANTIZE_SCALE", quantization.ToString());
@@ -235,20 +243,23 @@ namespace Unity.NetCode.Generators
             }
         }
 
-        public void GenerateMasks(CodeGenerator.Context context, bool aggregateMask = false, int fieldIndex = 0)
+        public int GenerateMasks(CodeGenerator.Context context, int fieldChangeMaskBits, bool aggregateMask = false, int fieldIndex = 0)
         {
             if (m_ActiveGenerator == null)
-                return;
+                return 0;
 
             var changeMaskFrag = "GHOST_CALCULATE_CHANGE_MASK";
             var changeMaskFragZero = "GHOST_CALCULATE_CHANGE_MASK_ZERO";
             var ghostWriteFrag = "GHOST_WRITE";
             var ghostReadFrag = "GHOST_READ";
+            var curChangeMaskBit = context.curChangeMaskBits;
             var generator = m_ActiveGenerator;
             var target = m_TargetGenerator;
-            var curChangeMaskBit = context.curChangeMaskBits;
 
-            if (curChangeMaskBit == 32)
+            if (fieldChangeMaskBits > 1 && aggregateMask)
+                fieldChangeMaskBits = 1;
+
+            if (curChangeMaskBit == 32 || (fieldChangeMaskBits > 1 && curChangeMaskBit + fieldChangeMaskBits > 32))
             {
                 generator.Replacements.Add("GHOST_CURRENT_MASK_BITS", (context.changeMaskBitCount - curChangeMaskBit).ToString());
                 generator.Replacements.Add("GHOST_CHANGE_MASK_BITS", context.changeMaskBitCount.ToString());
@@ -259,25 +270,31 @@ namespace Unity.NetCode.Generators
                 curChangeMaskBit = 0;
             }
             context.curChangeMaskBits = curChangeMaskBit;
-            generator.Replacements.Add("GHOST_MASK_INDEX", curChangeMaskBit.ToString());
+            generator.Replacements["GHOST_MASK_INDEX"] = curChangeMaskBit.ToString();
+            generator.Replacements["GHOST_CHANGE_MASK_BITS"] = context.changeMaskBitCount.ToString();
+            generator.Replacements["GHOST_CURRENT_MASK_BITS"] = (context.changeMaskBitCount - curChangeMaskBit).ToString();
             if (curChangeMaskBit == 0 && (!aggregateMask || fieldIndex == 0))
             {
                 generator.GenerateFragment(changeMaskFragZero, generator.Replacements, target, "GHOST_CALCULATE_CHANGE_MASK");
-                generator.GenerateFragment(changeMaskFragZero, generator.Replacements, target, "GHOST_WRITE_COMBINED");
+                if (!generator.HasFragment("GHOST_WRITE_COMBINED"))
+                    generator.GenerateFragment(changeMaskFragZero, generator.Replacements, target, "GHOST_WRITE_COMBINED");
             }
             else
             {
                 generator.GenerateFragment(changeMaskFrag, generator.Replacements, target, "GHOST_CALCULATE_CHANGE_MASK");
-                generator.GenerateFragment(changeMaskFrag, generator.Replacements, target, "GHOST_WRITE_COMBINED");
+                if (!generator.HasFragment("GHOST_WRITE_COMBINED"))
+                    generator.GenerateFragment(changeMaskFrag, generator.Replacements, target, "GHOST_WRITE_COMBINED");
             }
             // Serialize
             generator.GenerateFragment(ghostWriteFrag, generator.Replacements, target, "GHOST_WRITE");
-            if(!aggregateMask)
-                generator.GenerateFragment(ghostWriteFrag, generator.Replacements, target, "GHOST_WRITE_COMBINED");
+            var targetFrag = aggregateMask ? "GHOST_AGGREGATE_WRITE" : "GHOST_WRITE_COMBINED";
+            if (generator.HasFragment("GHOST_WRITE_COMBINED"))
+                generator.GenerateFragment("GHOST_WRITE_COMBINED", generator.Replacements, target, targetFrag);
             else
-                generator.GenerateFragment(ghostWriteFrag, generator.Replacements, target, "GHOST_AGGREGATE_WRITE");
+                generator.GenerateFragment(ghostWriteFrag, generator.Replacements, target, targetFrag);
             // Deserialize
             generator.GenerateFragment(ghostReadFrag, generator.Replacements, target, "GHOST_READ");
+            return fieldChangeMaskBits;
         }
 
         public ComponentSerializer(CodeGenerator.Context context)
@@ -419,9 +436,9 @@ namespace Unity.NetCode.Generators
                 m_TargetGenerator.GenerateFragment("GHOST_PREDICTION_ERROR_HEADER", replacements, m_TargetGenerator);
 
             var serializerName = context.generatedFilePrefix + "Serializer.cs";
-            m_TargetGenerator.GenerateFile(serializerName, type.Namespace, replacements, context.batch);
+            m_TargetGenerator.GenerateFile(serializerName, replacements, context.batch);
 
-            context.generatedTypes.Add($"global::{context.generatedNs}.{replacements["GHOST_NAME"]}");
+            context.generatedGhosts.Add($"global::{context.generatedNs}.{replacements["GHOST_NAME"]}");
         }
 
         public override string ToString()

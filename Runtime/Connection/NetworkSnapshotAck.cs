@@ -20,19 +20,27 @@ namespace Unity.NetCode
     /// <summary>Client and Server Component. One per NetworkId entity, stores SnapshotAck and Ping info for a client.</summary>
     public struct NetworkSnapshotAck : IComponentData
     {
-        internal void UpdateReceivedByRemote(NetworkTick tick, uint mask)
+        internal void UpdateReceivedByRemote(NetworkTick tick, uint mask, out int numSnapshotErrorsRequiringReset)
         {
+            numSnapshotErrorsRequiringReset = 0;
             if (Hint.Unlikely(!tick.IsValid))
             {
-                ReceivedSnapshotByRemoteMask.Clear();
-                LastReceivedSnapshotByRemote = NetworkTick.Invalid;
+                if (Hint.Unlikely(LastReceivedSnapshotByRemote.IsValid))
+                {
+                    numSnapshotErrorsRequiringReset = ReceivedSnapshotByRemoteMask.Length;
+                    SnapshotPacketLoss.NumClientAckErrorsEncountered++;
+                    ReceivedSnapshotByRemoteMask.Clear();
+                    LastReceivedSnapshotByRemote = NetworkTick.Invalid;
+                    FirstReceivedSnapshotByRemote = NetworkTick.Invalid;
+                }
                 return;
             }
+
             // For any ticks SINCE our last stored tick (or if we get the same tick again), we should shift the
-            // entire mask UP by that delta (shamt), then apply the new mask on top of the existing one,
+            // entire mask LEFT by that delta (shamt), then apply the new mask on top of the existing one,
             // as the client may have more up-to-date ack info.
             var shamt = Hint.Likely(LastReceivedSnapshotByRemote.IsValid) ? tick.TicksSince(LastReceivedSnapshotByRemote) : 0;
-            if (shamt >= 0)
+            if (Hint.Likely(shamt >= 0))
             {
                 ReceivedSnapshotByRemoteMask.ShiftLeftExt(shamt);
 
@@ -45,6 +53,7 @@ namespace Unity.NetCode
                 mask |= (uint) previousMask;
                 ReceivedSnapshotByRemoteMask.SetBits(writeOffset, mask, numBitsToWrite);
                 LastReceivedSnapshotByRemote = tick;
+                if (Hint.Unlikely(!FirstReceivedSnapshotByRemote.IsValid)) FirstReceivedSnapshotByRemote = tick;
                 SnapshotPacketLoss.NumPacketsAcked += (ulong) (math.countbits(mask) - math.countbits(previousMask));
             }
             // Else, for older ticks (because YES - the client can send negative ticks relative to the last acked),
@@ -57,16 +66,44 @@ namespace Unity.NetCode
         /// or acknowledged (from the servers POV).
         /// </summary>
         /// <param name="tick">Tick to query.</param>
-        /// <returns>Whether the snapshot for tick <paramref name="tick"/> has been received (from a client perspective)</returns>
-        public bool IsReceivedByRemote(NetworkTick tick)
+        /// <returns>Whether the snapshot for tick <paramref name="tick"/> has been received (from a client perspective)
+        /// or acknowledged (from the servers POV).</returns>
+        public bool IsReceivedByRemote(NetworkTick tick) => IsReceivedByRemote(tick, false);
+
+        /// <summary>
+        /// Return true if the snapshot for tick <paramref name="tick"/> has been received (from a client perspective)
+        /// or acknowledged (from the servers POV).
+        /// </summary>
+        /// <param name="tick">Tick to query.</param>
+        /// <param name="backupValue">Denotes the historic value to use if the real answer is now unknowable.
+        /// Pragmatically, this can only occur for extremely rarely sent static-optimized ghosts.</param>
+        /// <returns>Whether the snapshot for tick <paramref name="tick"/> has been received (from a client perspective)
+        /// or acknowledged (from the servers POV).</returns>
+        public bool IsReceivedByRemote(NetworkTick tick, bool backupValue)
         {
-            if (!tick.IsValid || !LastReceivedSnapshotByRemote.IsValid)
+            if (!tick.IsValid || !LastReceivedSnapshotByRemote.IsValid || !FirstReceivedSnapshotByRemote.IsValid)
                 return false;
             int bit = LastReceivedSnapshotByRemote.TicksSince(tick);
             if (bit < 0)
                 return false;
             if (bit >= ReceivedSnapshotByRemoteMask.Length)
-                return false;
+            {
+                // The following is an optimization: Any acks that are older than our buffer are very likely to be static-optimized ghosts
+                // being re-checked for changes. Returning false would mean they fail their `CanUseStaticOptimization` check.
+                // However, we no longer know if this snapshot tick is acked, as we've lost that info.
+                // Additionally; the client can signal "reset all ack-masks" above, which should invalidate all previous acks.
+
+                // Thus, lets use some additional data to infer whether or not we've acked this tick!
+                // We can do so in EITHER of the following cases:
+                // A) The client has NEVER sent us a 'reset all acks' event.
+                // In this case, we can ack INFINITELY old ticks.
+                // B) If the client HAS signalled at least one 'reset all acks' event, we can check to see if their most recent
+                // good snapshot (i.e. the first snapshot since the reset) is <= this tick we're checking. This allows us to ack
+                // ticks up to half the precision of the tick value itself (which - pragmatically - means "infinitely").
+                var isAllowedToInferInfinitelyFarBack = backupValue && SnapshotPacketLoss.NumClientAckErrorsEncountered == 0;
+                var isVerifiablyGoodAck = backupValue && tick.TicksSince(FirstReceivedSnapshotByRemote) >= 0;
+                return isAllowedToInferInfinitelyFarBack || isVerifiablyGoodAck;
+            }
             var set = ReceivedSnapshotByRemoteMask.GetBits(bit) != 0;
             return set;
         }
@@ -77,6 +114,11 @@ namespace Unity.NetCode
         /// <para>For the server, it is the last acknowledge packet that has been received by client.</para>
         /// </summary>
         public NetworkTick LastReceivedSnapshotByRemote;
+        /// <summary>
+        /// Denotes the first valid snapshot received by the remote connection.
+        /// Only used to safeguard snapshot acking against the client's 'reset all ack-masks' logic.
+        /// </summary>
+        public NetworkTick FirstReceivedSnapshotByRemote;
         internal UnsafeBitArray ReceivedSnapshotByRemoteMask;
 
         /// <summary>

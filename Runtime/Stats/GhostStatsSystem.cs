@@ -1,7 +1,6 @@
 #if UNITY_EDITOR || NETCODE_DEBUG
 using System;
 using System.Collections.Generic;
-using Unity.Collections;
 using Unity.Collections.LowLevel.Unsafe;
 using Unity.Entities;
 #if UNITY_EDITOR
@@ -64,7 +63,7 @@ namespace Unity.NetCode
             if (m_Socket.AcceptNewConnection())
             {
                 m_StatsCollections = new List<GhostStatsToSend>();
-                foreach (var world in World.All)
+                foreach (var world in ClientServerBootstrap.AllNetCodeWorldsEnumerator())
                 {
                     if(world.IsThinClient())
                         continue;
@@ -75,11 +74,8 @@ namespace Unity.NetCode
                         ComponentType.ReadWrite<GhostStatsCollectionSnapshot>(),
                         ComponentType.ReadWrite<GhostStatsCollectionPredictionError>(),
                         ComponentType.ReadWrite<GhostStatsCollectionMinMaxTick>());
-
                     if (!collectionDataQry.HasSingleton<GhostStatsCollectionData>())
-                    {
                         continue;
-                    }
                     SetStatIndex(collectionDataQry, m_StatsCollections.Count);
                     m_StatsCollections.Add(new GhostStatsToSend(world, collectionDataQry));
                 }

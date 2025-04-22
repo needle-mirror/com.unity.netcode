@@ -1,0 +1,13 @@
+#templateid:NetCode.GhostFixedListElement.cs
+namespace __GHOST_NAMESPACE__
+{
+    /// <summary>
+    /// Auto-Generated struct used to represent composite (struct) fixed array argument.
+    /// </summary>
+    [System.Runtime.CompilerServices.CompilerGenerated]
+    internal struct __GHOST_FIELD_TYPE__
+    {
+        #region __GHOST_FIELD__
+        #endregion
+    }
+}

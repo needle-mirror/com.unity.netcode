@@ -344,6 +344,7 @@ namespace Unity.NetCode
     /// A command packet contains commands for CommandSendSystem.k_InputBufferSendSize (default 4) ticks where 3 of them are delta compressed.
     /// It also contains some timestamps etc for ping calculations.
     /// </summary>
+    [InternalBufferCapacity(0)]
     public struct IncomingCommandDataStreamBuffer : IBufferElementData
     {
         /// <summary>
@@ -356,6 +357,7 @@ namespace Unity.NetCode
     /// A command packet contains commands for CommandSendSystem.k_InputBufferSendSize (default 4) ticks where 3 of them are delta compressed.
     /// It also contains some timestamps etc for ping calculations.
     /// </summary>
+    [InternalBufferCapacity(0)]
     public struct OutgoingCommandDataStreamBuffer : IBufferElementData
     {
         /// <summary>

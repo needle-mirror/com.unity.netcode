@@ -1,6 +1,7 @@
 #if UNITY_EDITOR && !NETCODE_NDEBUG
 #define NETCODE_DEBUG
 #endif
+using System.Diagnostics;
 using Unity.Collections;
 using Unity.Entities;
 using Unity.Burst;
@@ -43,6 +44,7 @@ namespace Unity.NetCode
             state.EntityManager.CreateSingleton(netDebug);
         }
 
+        /// <inheritdoc/>
         public void OnCreate(ref SystemState state)
         {
             CreateNetDebugSingleton(ref state);
@@ -58,7 +60,7 @@ namespace Unity.NetCode
 #endif
         }
 
-
+        /// <inheritdoc/>
         public void OnDestroy(ref SystemState state)
         {
             SystemAPI.GetSingletonRW<NetDebug>().ValueRW.Dispose();
@@ -68,6 +70,7 @@ namespace Unity.NetCode
         }
 
 #if NETCODE_DEBUG
+        /// <inheritdoc/>
         [BurstCompile]
         public void OnUpdate(ref SystemState state)
         {
@@ -81,10 +84,19 @@ namespace Unity.NetCode
             foreach (var entity in prefabsWithoutDebugName)
             {
                 var prefabMetaData = m_GhostPrefabMetadata[entity];
-                m_PrefabDebugNameData[entity] = new PrefabDebugName
+                var debugName = new PrefabDebugName
                 {
                     PrefabName = new LowLevel.BlobStringText(ref prefabMetaData.Value.Value.Name)
                 };
+                m_PrefabDebugNameData[entity] = debugName;
+#if !DOTS_DISABLE_DEBUG_NAMES
+                state.EntityManager.GetName(entity, out var tempName);
+                if (tempName.Length == 0)
+                {
+                    tempName.CopyFromTruncated(debugName.PrefabName);
+                    state.EntityManager.SetName(entity, tempName);
+                }
+#endif
             }
 
             state.CompleteDependency();
@@ -96,6 +108,7 @@ namespace Unity.NetCode
                 m_ComponentTypeNameLookupData.TryAdd(typeIndex, typeName);
             }
         }
+
 #endif
     }
 }

@@ -20,12 +20,28 @@ namespace Unity.NetCode
     }
 
     /// <summary>
-    /// Computes index for each entity. The translation is used to compute the right tile index to assign to the <see cref="GhostDistancePartitionShared"/>.
-    /// A tiles border width is used to allow for a buffer in which it will not swap over.
-    /// Meaning that when an entity has crossed the border width over the end of the tile,
-    /// the entity will be assign the neighboring tile index.
-    /// To cross back the same border width distance must be traveled back to be reassigned to the original tile index.
+    ///     Automatically adds the <see cref="GhostDistancePartitionShared" /> shared component to each ghost instance on the
+    ///     server (a structural change), and then updates said component - for each ghost instance - if its <see cref="LocalTransform.Position" />
+    ///     changes to a new tile (which is also a structural change, as it needs to update a shared component value).
+    ///     It does this every tick.
     /// </summary>
+    /// <remarks>
+    ///     <para>
+    ///         This system only operates if it detects the existence of the <see cref="GhostDistanceData" /> configuration
+    ///         singleton component within a ServerWorld.
+    ///     </para>
+    ///     <para>
+    ///         Note that adding the <see cref="GhostDistancePartitionShared" /> shared component to each ghost instance will
+    ///         almost certainly exacerbate <see cref="ArchetypeChunk"/> entity fragmentation, as we're using the <see cref="ArchetypeChunk" />
+    ///         system to spatially partition ghost instances. I.e. If there are (for example) just two ghosts of the same
+    ///         archetype within a specific tile, the maximum utilization of their chunk will by 2.
+    ///     </para>
+    ///     <para>
+    ///         Note that, due to; a) the number of changed positions this system needs to check; b) the frequency of
+    ///         structural changes created by this system; and c) the fragmentation caused by the shared component itself,
+    ///         the impact of enabling importance scaling should be measured, and benchmarked against other possible solutions.
+    ///     </para>
+    /// </remarks>
     [WorldSystemFilter(WorldSystemFilterFlags.ServerSimulation)]
     // Update before almost everything to make sure there is no DestroyEntity pending in the command buffer
     [UpdateInGroup(typeof(GhostSimulationSystemGroup), OrderFirst = true)]
@@ -38,6 +54,8 @@ namespace Unity.NetCode
         SharedComponentTypeHandle<GhostDistancePartitionShared> m_SharedPartition;
 
         [BurstCompile]
+        [WithChangeFilter(typeof(LocalTransform), typeof(GhostDistancePartitionShared))]
+        // WithChangeFilter optimization; there is no need to re-calculate the tile index of each entity within this chunk if none of them have moved.
         struct UpdateTileIndexJob : IJobChunk
         {
             [ReadOnly] public SharedComponentTypeHandle<GhostDistancePartitionShared> TileTypeHandle;
@@ -90,6 +108,7 @@ namespace Unity.NetCode
             }
         }
 
+        /// <inheritdoc/>
         [BurstCompile]
         public void OnUpdate(ref SystemState state)
         {
@@ -114,7 +133,9 @@ namespace Unity.NetCode
             {
                 ConcurrentCommandBuffer = barrier.CreateCommandBuffer(state.WorldUnmanaged).AsParallelWriter(),
                 Config = config,
-            }.Schedule(state.Dependency);
+            }.Schedule(state.Dependency); // Using ScheduleParallel here reduces wall time - on ticks where hundreds of new ghosts spawn - by more than half.
+                                          // However, it increases the mean time by ~7% due to scheduling overhead, seen also through worsening UpdateTileIndexJob timings.
+                                          // Therefore, it is likely not worth it.
 
             m_EntityTypeHandle.Update(ref state);
             m_Transform.Update(ref state);
@@ -130,6 +151,7 @@ namespace Unity.NetCode
             }.ScheduleParallel(m_DistancePartitionedEntitiesQuery, sharedPartitionHandle);
         }
 
+        /// <inheritdoc/>
         [BurstCompile]
         public void OnCreate(ref SystemState state)
         {
@@ -143,6 +165,7 @@ namespace Unity.NetCode
             m_DistancePartitionedEntitiesQuery = state.GetEntityQuery(builder);
         }
 
+        /// <inheritdoc/>
         [BurstCompile]
         public void OnStartRunning(ref SystemState state)
         {
@@ -152,7 +175,7 @@ namespace Unity.NetCode
         /// Clean up any/all GhostDistancePartitionShared components that we've added.
         /// Note: This will not de-frag fragmented chunks automatically.
         /// </summary>
-        /// <param name="state"></param>
+        /// <inheritdoc/>
         [BurstCompile]
         public void OnStopRunning(ref SystemState state)
         {

@@ -59,6 +59,7 @@ namespace Unity.NetCode
         ComponentTypeHandle<SwitchPredictionSmoothing> m_SwitchPredictionSmoothingHandle;
         ComponentTypeHandle<LocalToWorld> m_LocalToWorldHandle;
 
+        /// <inheritdoc/>
         [BurstCompile]
         public void OnCreate(ref SystemState state)
         {
@@ -74,6 +75,8 @@ namespace Unity.NetCode
             m_SwitchPredictionSmoothingHandle = state.GetComponentTypeHandle<SwitchPredictionSmoothing>();
             m_LocalToWorldHandle = state.GetComponentTypeHandle<LocalToWorld>();
         }
+
+        /// <inheritdoc/>
         [BurstCompile]
         public void OnUpdate(ref SystemState state)
         {

@@ -101,6 +101,11 @@ namespace Unity.NetCode
         /// Interpolate the GhostField value between snapshot values, and if no data is available for the next tick, the next value is linearly extrapolated using the previous two snapshot values.
         /// Extrapolation is limited (i.e. clamped) via <see cref="ClientTickRate.MaxExtrapolationTimeSimTicks"/>.
         /// </summary>
-        InterpolateAndExtrapolate = 3
+        /// <remarks>
+        /// Note that static-optimized, interpolated ghosts will <b>never</b> extrapolate. This is because they do not send 'zero-change' snapshot updates
+        /// (i.e. snapshot updates containing all zeros for their GhostField delta-compression), so they cannot differentiate between
+        /// 'this continuously changing value has since stopped changing' and 'we have not yet received the next continuous value'.
+        /// </remarks>
+        InterpolateAndExtrapolate = 3,
     }
 }

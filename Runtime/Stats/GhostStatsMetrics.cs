@@ -109,6 +109,7 @@ namespace Unity.NetCode
     /// In order to know what value each index refers to, we need to also grab the Indices from <see cref="PredictionErrorNames"/>.
     /// </remarks>
     /// </summary>
+    [InternalBufferCapacity(0)]
     public struct PredictionErrorMetrics : IBufferElementData
     {
         /// <summary>
@@ -121,6 +122,7 @@ namespace Unity.NetCode
     /// A list of all currently available Prediction Error names.
     /// This list maps 1-1 with <see cref="PredictionErrorMetrics"/>
     /// </summary>
+    [InternalBufferCapacity(0)]
     public struct PredictionErrorNames : IBufferElementData
     {
         /// <summary>
@@ -132,6 +134,7 @@ namespace Unity.NetCode
     /// A list of all currently available Ghosts.
     /// This list maps 1-1 with <see cref="GhostSerializationMetrics"/> and <see cref="GhostMetrics"/>
     /// </summary>
+    [InternalBufferCapacity(0)]
     public struct GhostNames : IBufferElementData
     {
         /// <summary>
@@ -144,6 +147,7 @@ namespace Unity.NetCode
     /// A list of serialized ghosts metrics.
     /// <remarks>To find the corresponding ghost name for each metric, each index in this buffer is a 1 to 1 mapping of <see cref="GhostNames"/></remarks>
     /// </summary>
+    [InternalBufferCapacity(0)]
     public struct GhostMetrics : IBufferElementData
     {
         /// <summary>

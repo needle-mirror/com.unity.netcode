@@ -126,7 +126,7 @@ namespace Unity.NetCode.GeneratorTests
             var receiver = GeneratorTestHelpers.CreateSyntaxReceiver();
             var walker = new TestSyntaxWalker { Receiver = receiver };
             var tree = CSharpSyntaxTree.ParseText(testData);
-            
+
             tree.GetCompilationUnitRoot().Accept(walker);
             Assert.AreEqual(3, walker.Receiver.Candidates.Count);
 
@@ -253,13 +253,14 @@ namespace Unity.NetCode.GeneratorTests
                 Assert.AreEqual(prefixes[i] + "Float4Value_y", members[k + 6].Declaration.Variables[0].Identifier.Text);
                 Assert.AreEqual(prefixes[i] + "Float4Value_z", members[k + 7].Declaration.Variables[0].Identifier.Text);
                 Assert.AreEqual(prefixes[i] + "Float4Value_w", members[k + 8].Declaration.Variables[0].Identifier.Text);
-                Assert.AreEqual(prefixes[i] + "QuaternionValueX",
+                Assert.AreEqual(prefixes[i] + "QuaternionValue_x",
                     members[k + 9].Declaration.Variables[0].Identifier.Text);
-                Assert.AreEqual(prefixes[i] + "QuaternionValueY",
+                Assert.AreEqual(prefixes[i] + "QuaternionValue_y",
                     members[k + 10].Declaration.Variables[0].Identifier.Text);
-                Assert.AreEqual(prefixes[i] + "QuaternionValueZ",
+                Assert.AreEqual(prefixes[i] + "QuaternionValue_z",
                     members[k + 11].Declaration.Variables[0].Identifier.Text);
-                Assert.AreEqual(prefixes[i] + "QuaternionValueW",
+
+                Assert.AreEqual(prefixes[i] + "QuaternionValue_w",
                     members[k + 12].Declaration.Variables[0].Identifier.Text);
             }
         }
@@ -373,6 +374,32 @@ namespace Unity.NetCode.GeneratorTests
             Assert.IsNotNull(maskBits.Declaration.Variables[0].Initializer);
             Assert.AreEqual("4", maskBits.Declaration.Variables[0].Initializer?.Value.ToString());
         }
+
+        [Test]
+        public void SourceGenerator_Quantization()
+        {
+            var testData = @"
+            using Unity.Entities;
+            using Unity.NetCode;
+            using Unity.Mathematics;
+
+            //Normally it would have 2 bits mask.
+            //If used with aggregation will have one bit mask
+            public struct MixedType
+            {
+                public int x;
+                public float y;
+            }
+            public struct ComponentA : IComponentData
+            {
+                [GhostField(Quantization=1000)] public MixedType field;
+            }";
+
+            var tree = CSharpSyntaxTree.ParseText(testData);
+            var resuls = GeneratorTestHelpers.RunGenerators(tree);
+            Assert.AreEqual(0, resuls.Diagnostics.Count(d=>d.Severity == DiagnosticSeverity.Error));
+        }
+
 
         [Test]
         public void SourceGenerator_CompositeFlags()
@@ -525,25 +552,18 @@ namespace Unity.NetCode.GeneratorTests
             using Unity.Transforms;
             namespace Unity.NetCode
             {
-                [GhostComponentVariation(typeof(Transforms.Translation))]
+                [GhostComponentVariation(typeof(Transforms.LocalTransform))]
                 [GhostComponent(PrefabType=GhostPrefabType.All, SendTypeOptimization=GhostSendType.All)]
                 public struct TranslationVariant
                 {
-                    [GhostField(Composite=true,Smoothing=SmoothingAction.Interpolate)] public float3 Value;
-                }
+                    [GhostField(Quantization=1000, Smoothing=SmoothingAction.InterpolateAndExtrapolate)]
+                    public float3 Position;
 
-                //This in invalid and should report an error
-                [GhostComponentVariation(typeof(Transforms.Rotation))]
-                public struct InvalidRotation
-                {
-                    [GhostField] public float3 Value;
-                }
+                    [GhostField(Quantization=1000, Smoothing=SmoothingAction.InterpolateAndExtrapolate)]
+                    public float Scale;
 
-                [GhostComponentVariation(typeof(Transforms.Rotation))]
-                [GhostComponent(PrefabType=GhostPrefabType.All, SendTypeOptimization=GhostSendType.All)]
-                public struct RotationVariant
-                {
-                    [GhostField(Composite=true,Quantization=100, Smoothing=SmoothingAction.Interpolate)] public quaternion Value;
+                    [GhostField(Quantization=1000, Smoothing=SmoothingAction.InterpolateAndExtrapolate)]
+                    public quaternion Rotation;
                 }
             }";
 
@@ -552,57 +572,31 @@ namespace Unity.NetCode.GeneratorTests
             var tree = CSharpSyntaxTree.ParseText(testData);
             tree.GetCompilationUnitRoot().Accept(walker);
             //All the variants are detected as candidates
-            Assert.AreEqual(3, walker.Receiver.Variants.Count);
+            Assert.AreEqual(1, walker.Receiver.Variants.Count);
 
             var resuls = GeneratorTestHelpers.RunGenerators(tree);
             var diagnostics = resuls.Diagnostics;
-            //Expect to see one error
-            Assert.AreEqual(1, diagnostics.Count(d => d.Severity == DiagnosticSeverity.Error), "errorCount");
-            var expectedErrorMessage = "InvalidRotation: Cannot find member Value type: float3 in Rotation";
-            ErrorLogExclusion = new Regex(Regex.Escape(expectedErrorMessage));
-            Assert.AreEqual(expectedErrorMessage,
-                diagnostics.First(d => d.Severity == DiagnosticSeverity.Error).GetMessage());
-            Assert.AreEqual(3, resuls.GeneratedSources.Length, "Num generated files does not match");
+            Assert.AreEqual(2, resuls.GeneratedSources.Length, "Num generated files does not match");
 
             var outputTree = resuls.GeneratedSources[0].SyntaxTree;
             var snapshotDataSyntax = outputTree.GetRoot().DescendantNodes().OfType<StructDeclarationSyntax>()
                 .First(node => node.Identifier.ValueText == "Snapshot");
-            //Quantizatio not used
             var expected = new[]
             {
-                ("float", "Value_x"),
-                ("float", "Value_y"),
-                ("float", "Value_z"),
+                ("int", "Position_x"),
+                ("int", "Position_y"),
+                ("int", "Position_z"),
+                ("int", "Scale"),
+                ("int", "Rotation_x"),
+                ("int", "Rotation_y"),
+                ("int", "Rotation_z"),
+                ("int", "Rotation_w"),
             };
             var maskBits = outputTree.GetRoot().DescendantNodes().OfType<FieldDeclarationSyntax>()
                 .First(t => t.Declaration.Variables[0].Identifier.ValueText == "ChangeMaskBits");
             Assert.IsNotNull(maskBits.Declaration.Variables[0].Initializer);
-            Assert.AreEqual("1", maskBits.Declaration.Variables[0].Initializer!.Value.ToString());
+            Assert.AreEqual("3", maskBits.Declaration.Variables[0].Initializer!.Value.ToString());
             var members = snapshotDataSyntax.DescendantNodes().OfType<FieldDeclarationSyntax>().ToArray();
-            Assert.AreEqual(expected.Length, members.Length);
-            for (int i = 0; i < expected.Length; ++i)
-            {
-                Assert.AreEqual(expected[i].Item1, (members[i].Declaration.Type as PredefinedTypeSyntax)?.Keyword.Text,
-                    $"{i}");
-                Assert.AreEqual(expected[i].Item2, members[i].Declaration.Variables[0].Identifier.Text);
-            }
-
-            expected = new[]
-            {
-                ("int", "ValueX"),
-                ("int", "ValueY"),
-                ("int", "ValueZ"),
-                ("int", "ValueW"),
-            };
-            outputTree = resuls.GeneratedSources[1].SyntaxTree;
-            snapshotDataSyntax = outputTree.GetRoot().DescendantNodes().OfType<StructDeclarationSyntax>()
-                .First(node => node.Identifier.ValueText == "Snapshot");
-
-            maskBits = outputTree.GetRoot().DescendantNodes().OfType<FieldDeclarationSyntax>()
-                .First(t => t.Declaration.Variables[0].Identifier.ValueText == "ChangeMaskBits");
-            Assert.IsNotNull(maskBits.Declaration.Variables[0].Initializer);
-            Assert.AreEqual("1", maskBits.Declaration.Variables[0].Initializer!.Value.ToString());
-            members = snapshotDataSyntax.DescendantNodes().OfType<FieldDeclarationSyntax>().ToArray();
             Assert.AreEqual(expected.Length, members.Length);
             for (int i = 0; i < expected.Length; ++i)
             {
@@ -622,18 +616,11 @@ namespace Unity.NetCode.GeneratorTests
             using Unity.Transforms;
             namespace Unity.NetCode
             {
-                [GhostComponentVariationAttribute(typeof(Transforms.Translation))]
+                [GhostComponentVariationAttribute(typeof(Transforms.LocalTransform))]
                 [GhostComponent(PrefabType=GhostPrefabType.All, SendTypeOptimization=GhostSendType.All)]
                 public struct VariantTest
                 {
-                    [GhostField(Smoothing=SmoothingAction.Interpolate)] public float3 Value;
-                }
-
-                //This in invalid and should report an error (type not present in the base class)
-                [GhostComponentVariation(typeof(Transforms.Rotation))]
-                public struct InvalidVariant
-                {
-                    [GhostField] public float3 Value;
+                    [GhostField(Smoothing=SmoothingAction.Interpolate)] public float3 Position;
                 }
             }";
 
@@ -642,15 +629,12 @@ namespace Unity.NetCode.GeneratorTests
             var tree = CSharpSyntaxTree.ParseText(testData);
             tree.GetCompilationUnitRoot().Accept(walker);
             //All the variants are detected as candidates
-            Assert.AreEqual(2, walker.Receiver.Variants.Count);
+            Assert.AreEqual(1, walker.Receiver.Variants.Count);
             var results = GeneratorTestHelpers.RunGenerators(tree);
             Assert.AreEqual(2, results.GeneratedSources.Length, "Num generated files does not match");
             var diagnostics = results.Diagnostics;
-            //Expect to see one error
-            Assert.AreEqual(1, diagnostics.Count(d => d.Severity == DiagnosticSeverity.Error));
-            var expectedErrorMessage = "InvalidVariant: Cannot find member Value type: float3 in Rotation";
-            Assert.AreEqual(expectedErrorMessage, diagnostics.First(d => d.Severity == DiagnosticSeverity.Error).GetMessage());
-            ErrorLogExclusion = new Regex(Regex.Escape(expectedErrorMessage));
+            //Expect to see no error
+            Assert.AreEqual(0, diagnostics.Count(d => d.Severity == DiagnosticSeverity.Error));
             //Parse the output and check for the class name match what we expect
             var outputTree = results.GeneratedSources[0].SyntaxTree;
             var initBlockWalker = new InializationBlockWalker();
@@ -658,7 +642,7 @@ namespace Unity.NetCode.GeneratorTests
             Assert.IsNotNull(initBlockWalker.Intializer);
             var componentTypeAssignment = initBlockWalker.Intializer!.Expressions
                 .First(e => ((AssignmentExpressionSyntax)e).Left.ToString() == "ComponentType");
-            Assert.IsTrue(componentTypeAssignment.ToString().Contains("Unity.Transforms.Translation"),
+            Assert.IsTrue(componentTypeAssignment.ToString().Contains("Unity.Transforms.LocalTransform"),
                 componentTypeAssignment.ToString());
             var variantHashField = initBlockWalker.Intializer.Expressions
                 .First(e => ((AssignmentExpressionSyntax)e).Left.ToString() == "VariantHash");
@@ -763,7 +747,7 @@ namespace Unity.NetCode.GeneratorTests
             }
             ";
 
-            this.ErrorLogExclusion = new Regex("GhostField present on an invalid property CommandData\\.CValue4: No setter");
+            this.ErrorLogExclusion = new Regex("It is not possible to serialize property CommandData\\.CValue4 because does not have setter. Both setter and getters are required.");
 
             var receiver = GeneratorTestHelpers.CreateSyntaxReceiver();
             var walker = new TestSyntaxWalker { Receiver = receiver };
@@ -777,22 +761,22 @@ namespace Unity.NetCode.GeneratorTests
             var diagnostics = results.Diagnostics.Where(m => m.Severity == DiagnosticSeverity.Error).ToArray();
             int i = 0;
             Assert.True(diagnostics[i++].GetMessage()
-                .StartsWith("GhostField present on an invalid property Buffer.BValue6: Setter is not public.",
+                .StartsWith("It is not possible to serialize property Buffer.BValue6 because the setter is not public.",
                     StringComparison.Ordinal));
             Assert.True(diagnostics[i++].GetMessage()
                 .StartsWith("GhostField missing on field Buffer.BValue2.", StringComparison.Ordinal));
             Assert.True(diagnostics[i++].GetMessage()
-                .StartsWith("GhostField present on an invalid property CommandData.CValue4: No setter.",
+                .StartsWith("It is not possible to serialize property CommandData.CValue4 because does not have setter. Both setter and getters are required.",
                     StringComparison.Ordinal));
             Assert.True(diagnostics[i++].GetMessage().StartsWith("GhostField missing on field CommandData.CValue1.",
                 StringComparison.Ordinal));
             Assert.True(diagnostics[i++].GetMessage()
                 .StartsWith("GhostField missing on field CommandData.Tick.", StringComparison.Ordinal));
             Assert.True(diagnostics[i++].GetMessage()
-                .StartsWith("GhostField present on an invalid property ComponentData.this[int]: Indexer.",
+                .StartsWith("It is not possible to serialize property ComponentData.this[int] because it is an indexer like property.",
                     StringComparison.Ordinal));
             Assert.True(diagnostics[i++].GetMessage()
-                .StartsWith("GhostField present on an invalid property CommandData.CValue4: No setter.",
+                .StartsWith("It is not possible to serialize property CommandData.CValue4 because does not have setter. Both setter and getters are required.",
                     StringComparison.Ordinal));
             Assert.AreEqual(7, diagnostics.Length);
         }
@@ -879,7 +863,7 @@ namespace Unity.NetCode.GeneratorTests
                         {
                             new TypeRegistryEntry
                             {
-                                Type = ""System.Int32"",
+                                Type = ""System.Single"",
                                 Quantized = true,
                                 Smoothing = SmoothingAction.InterpolateAndExtrapolate,
                                 SupportCommand = false,
@@ -897,17 +881,17 @@ namespace Unity.NetCode.GeneratorTests
 
             public struct MyType : IComponentData
             {
-                [GhostField(SubType=1, Smoothing = SmoothingAction.InterpolateAndExtrapolate, Quantization=1000)] public int AngleType;
+                [GhostField(SubType=1, Smoothing = SmoothingAction.InterpolateAndExtrapolate, Quantization=1000)] public float AngleType;
             }
             ";
-            
+
             var additionalTexts = ImmutableArray.Create(new AdditionalText[]
             {
                 new GeneratorTestHelpers.InMemoryAdditionalFile(
                     $"/Path/To/MyTemplate{NetCodeSourceGenerator.NETCODE_ADDITIONAL_FILE}",
                     $"#templateid:/Path/To/MyTemplate\n{TestDataSource.CustomTemplate}")
             });
-            
+
             var receiver = GeneratorTestHelpers.CreateSyntaxReceiver();
             var walker = new TestSyntaxWalker { Receiver = receiver };
             var tree = CSharpSyntaxTree.ParseText(testData);
@@ -916,11 +900,11 @@ namespace Unity.NetCode.GeneratorTests
             Assert.AreEqual(1, walker.Receiver.Candidates.Count);
             //Check generated files match
             var templateTree = CSharpSyntaxTree.ParseText(customTemplates);
-            
+
             var compilation = GeneratorTestHelpers.CreateCompilation(tree, templateTree);
             var driver = GeneratorTestHelpers.CreateGeneratorDriver().AddAdditionalTexts(additionalTexts);
             var results = driver.RunGenerators(compilation).GetRunResult().Results[0];
-            
+
             Assert.AreEqual(2, results.GeneratedSources.Length, "Num generated files does not match");
 
             var outputTree = results.GeneratedSources[0].SyntaxTree;
@@ -928,8 +912,8 @@ namespace Unity.NetCode.GeneratorTests
                 .First(node => node.Identifier.ValueText == "Snapshot");
             var expected = new[]
             {
-                ("int", "AngleTypeX"),
-                ("int", "AngleTypeY"),
+                ("int", "AngleType_x"),
+                ("int", "AngleType_y"),
             };
             var members = snapshotDataSyntax.DescendantNodes().OfType<FieldDeclarationSyntax>().ToArray();
             Assert.AreEqual(expected.Length, members.Length);
@@ -1057,9 +1041,9 @@ namespace Unity.NetCode.GeneratorTests
             var templateTree = CSharpSyntaxTree.ParseText(customTemplates);
             var results = GeneratorTestHelpers.RunGenerators(tree, templateTree);
             var diagnostics = results.Diagnostics.Where(m => m.Severity == DiagnosticSeverity.Error).ToArray();
-            Assert.AreEqual(2, diagnostics.Length);
+            Assert.AreEqual(1, diagnostics.Length);
 
-            var validErrorString = "Unable to find the Template associated with 'TypeRegistryEntry:[Type: System.Single, Template: NetCode.GhostSnapshotValueFloat.cs, TemplateOverride: , SubType: 1, Smoothing: Clamp, Quantized: True, SupportCommand: False, Composite: False]'.";
+            var validErrorString = "we could not find the exact template for field 'AngleType' with configuration 'Type:System.Single Key:System.Single (quantized=-1 composite=False smoothing=0 subtype=1)'";
             this.ErrorLogExclusion = new Regex(Regex.Escape(validErrorString));
             Assert.IsTrue(diagnostics[0].GetMessage().Contains(validErrorString));
 
@@ -1117,12 +1101,12 @@ namespace Unity.NetCode.GeneratorTests
             using Unity.NetCode;
             using Unity.Transforms;
 
-            [GhostComponentVariation(typeof(Translation), ""Translation - 2D"")]
+            [GhostComponentVariation(typeof(LocalTransform), ""Translation - 2D"")]
             [GhostComponent(PrefabType = GhostPrefabType.All, SendTypeOptimization = GhostSendType.All)]
             public struct Translation2d
             {
-                [GhostField(Quantization=1000, Smoothing=SmoothingAction.InterpolateAndExtrapolate, SubType=1)]
-                public float3 Value;
+                [GhostField(Quantization=1000, Composite=true, Smoothing=SmoothingAction.InterpolateAndExtrapolate, SubType=1)]
+                public float3 Position;
             }
             ";
             //this is an hacky way to make this supported by both 2020.x and 2021+
@@ -1143,7 +1127,7 @@ namespace Unity.NetCode.GeneratorTests
                 var diagnostics = results.Diagnostics.Where(m => m.Severity == DiagnosticSeverity.Error).ToArray();
                 Assert.That(diagnostics[0].GetMessage().Contains("Subtyped types cannot also be defined as composite"));
             }
-            ErrorLogExclusion = new Regex("Inside type '.*Translation2d', we could not find the exact template for field 'Value' with configuration 'Type\\:Unity\\.Mathematics\\.float3 Key:Unity\\.Mathematics\\.float3 \\(quantized=1000 composite=False smoothing=3 subtype=1\\)'\\, which means that netcode cannot serialize this type");
+            ErrorLogExclusion = new Regex("Inside type '.*Translation2d', we could not find the exact template for field 'Position' with configuration 'Type\\:Unity\\.Mathematics\\.float3 Key:Unity\\.Mathematics\\.float3 \\(quantized=1000 composite=True smoothing=3 subtype=1\\)'\\, which means that netcode cannot serialize this type");
 
             customTemplates =
                 customTemplates.Replace("Composite = true", "Composite = false", StringComparison.Ordinal);
@@ -1159,8 +1143,8 @@ namespace Unity.NetCode.GeneratorTests
                     .First(node => node.Identifier.ValueText == "Snapshot");
                 var expected = new[]
                 {
-                    ("int", "ValueX"),
-                    ("int", "ValueY"),
+                    ("int", "Position_x"),
+                    ("int", "Position_y"),
                 };
                 var members = snapshotDataSyntax.DescendantNodes().OfType<FieldDeclarationSyntax>().ToArray();
                 Assert.AreEqual(expected.Length, members.Length);
@@ -2051,6 +2035,641 @@ namespace Unity.NetCode.GeneratorTests
             Assert.AreEqual(1, results.GeneratedSources.Length);
             var generatedRpcContents = results.GeneratedSources[0].SourceText.ToString();
             Assert.IsTrue(generatedRpcContents.Contains("Unity_NetCode_Test_Generated_SomeOtherStructSerializer"));
+        }
+
+        [Test]
+        public void SourceGenerator_SizeOfStruct_IsCorrect()
+        {
+            var testData = @"
+            using System;
+            using Unity.Entities;
+            using Unity.NetCode;
+
+            public enum TT : byte
+            {
+                Value
+            }
+            public struct Data_1
+            {
+                public byte Value;
+            }
+            public struct Data_1_1
+            {
+                public bool Value;
+            }
+            public struct Data_1_2
+            {
+                public TT Value;
+            }
+            public struct Data_2
+            {
+                public short Value;
+            }
+            public struct Data_3
+            {
+                public byte Value1;
+                public byte Value2;
+                public byte Value2;
+            }
+            public struct Data_4
+            {
+                public int Value;
+            }
+            public struct Data_4_1
+            {
+                public float Value;
+            }
+            public struct Data_8
+            {
+                public long Value;
+            }
+            public struct Data_8_1
+            {
+                public double Value;
+            }
+            public struct Data_8_2
+            {
+                public IntPtr Value;
+            }
+
+            public struct Data_16
+            {
+                public byte Value1;
+                public int Value2;
+                public long Value2;
+            }
+            public struct Data_16_1
+            {
+                public byte Value1;
+                public Data_3 Value2;
+                public Data_8 Value3;
+            }
+            public struct Data_24
+            {
+                public int Value1;
+                public long Value2;
+                public byte Value3;
+            }
+            public struct Data_48
+            {
+                public Data_16 Value1;
+                public Data_4 Value2;
+                public Data_24 Value3;
+            }
+            ";
+            var tree = CSharpSyntaxTree.ParseText(testData);
+            var compilation = GeneratorTestHelpers.CreateCompilation(tree);
+            var data_types = new[]
+            {
+                ("Data_1", 1,1),
+                ("Data_1_1", 1,1),
+                ("Data_1_2", 1,1),
+                ("Data_2", 2,2),
+                ("Data_3", 3,1),
+                ("Data_4", 4,4),
+                ("Data_4_1", 4,4),
+                ("Data_8", 8,8),
+                ("Data_8_1",8,8),
+                ("Data_8_2",8,8),
+                ("Data_24", 24, 8),
+                ("Data_16", 16, 8),
+                ("Data_16_1", 16, 8),
+                ("Data_48", 48, 8)
+            };
+            foreach (var e in data_types)
+            {
+                var symbol = compilation.GetSymbolsWithName(e.Item1).First() as ITypeSymbol;
+                var (size, aligment) = FixedListUtils.CalculateStructSizeOf(symbol);
+                Assert.AreEqual(e.Item2, size);
+                Assert.AreEqual(e.Item3, aligment);
+            }
+        }
+
+        [Test]
+        public void SourceGenerator_SizeOfStruct_DontCrash()
+        {
+            var testData = @"
+            using System;
+            using Unity.Entities;
+            using Unity.NetCode;
+            using Unity.Mathematics;
+            using Unity.Collections;
+
+            struct RpcFixedListData
+            {
+                public int Value1;
+                public float Value2;
+                public float3 Value3;
+            }
+            ";
+            var tree = CSharpSyntaxTree.ParseText(testData);
+            var compilation = GeneratorTestHelpers.CreateCompilation(tree);
+            var symbol = compilation.GetSymbolsWithName("RpcFixedListData").First() as ITypeSymbol;
+            var (size, aligment) = FixedListUtils.CalculateStructSizeOf(symbol);
+            Assert.AreEqual(20, size);
+            Assert.AreEqual(4, aligment);
+        }
+
+        [Test]
+        public void SourceGenerator_FixedList_SequentialRequirement()
+        {
+            var testData = @"
+            using System;
+            using System.Runtime.InteropServices;
+            using Unity.Entities;
+            using Unity.NetCode;
+            using Unity.Collections;
+
+            [StructLayout(LayoutKind.Explicit)]
+            public struct Data
+            {
+                public int Value1;
+                public int Value2;
+            }
+            public struct Component : IComponentData
+            {
+                [GhostField]public FixedList32Bytes<Data> Value;
+            }
+            ";
+            var tree = CSharpSyntaxTree.ParseText(testData);
+            var compilation = GeneratorTestHelpers.CreateCompilation(tree);
+            var symbol = (ITypeSymbol)compilation.GetSymbolsWithName("Component").First();
+            Assert.IsNotNull(symbol);
+            var valueSymbol = symbol.GetMembers().OfType<IFieldSymbol>().First()!;
+            Assert.IsNotNull(valueSymbol);
+            Assert.IsTrue((valueSymbol.Type as INamedTypeSymbol)!.IsGenericType);
+            Assert.IsTrue((valueSymbol.Type as INamedTypeSymbol)!.TypeArguments.Length == 1);
+            Assert.IsTrue((valueSymbol.Type as INamedTypeSymbol)!.TypeArguments[0].IsUnmanagedType);
+            var diagnostic = FixedListUtils.VerifyFixedListStructRequirement((valueSymbol.Type as INamedTypeSymbol)?.TypeArguments[0]);
+            Assert.IsNotNull(diagnostic);
+            Assert.AreEqual(DiagnosticSeverity.Error, diagnostic.Severity);
+        }
+        [Test]
+        public void SourceGenerator_FixedList_CapacityAttribute()
+        {
+            var testData = @"
+            using System;
+            using System.Runtime.InteropServices;
+            using Unity.Entities;
+            using Unity.NetCode;
+            using Unity.Collections;
+
+            public struct Component : IComponentData
+            {
+                [GhostFixedListCapacity(Capacity=32)]
+                [GhostField]public FixedList512Bytes<float> Value;
+            }
+            public struct Command : ICommandData
+            {
+                [GhostFixedListCapacity(Capacity=32)]
+                [GhostField]public FixedList512Bytes<float> Value;
+            }
+            public struct Rpc : IRpcCommand
+            {
+                [GhostFixedListCapacity(Capacity=32)]
+                public FixedList4096Bytes<byte> Value;
+            }
+            public struct Input : IInputComponentData
+            {
+                [GhostFixedListCapacity(Capacity=32)]
+                [GhostField]public FixedList512Bytes<float> Value;
+            }
+            public struct Buffer : IBufferElementData
+            {
+                [GhostFixedListCapacity(Capacity=32)]
+                [GhostField]public FixedList512Bytes<float> Value;
+            }
+            public struct Invalid : IComponentData
+            {
+                [GhostFixedListCapacity(Capacity=128)]
+                [GhostField]public FixedList512Bytes<float> Value;
+            }
+            ";
+            var tree = CSharpSyntaxTree.ParseText(testData);
+            GeneratorRunResult results = default;
+            Assert.DoesNotThrow(() =>
+            {
+                results = GeneratorTestHelpers.RunGenerators(tree);
+            });
+            var warnings =  results.Diagnostics.Where(d => d.Severity >= DiagnosticSeverity.Error).ToArray();
+            Assert.AreEqual(2, warnings.Length);
+            Assert.IsTrue(warnings[0].GetMessage().StartsWith("Invalid GhostFixedListCapacity attribute present on Invalid.Value of type Unity.Collections.FixedList512Bytes<float>. The maximum allowed capacity for a fixed list must bet less or equal than 64 elements."));
+            Assert.IsTrue(warnings[1].GetMessage().StartsWith("Invalid.Value of type Unity.Collections.FixedList512Bytes<float> has a capacity greater than 64 elements. Replicated fixed lists can contain at most 64 elements. If the capacity exceed, please use the GhostFixedListCapacity attribute to constrain the maximum allowed length of the list."));
+            Generators.Debug.LastErrorLog = string.Empty;
+        }
+
+        //qpproximated test
+        [Test]
+        public void SourceGenerator_Log2NumBits_Correct()
+        {
+            Assert.AreEqual(32, CodeGenerator.lzcnt(0));
+            Assert.AreEqual(31, CodeGenerator.lzcnt(1));
+            for (int i = 1; i < 32; ++i)
+                Assert.AreEqual(31-i, CodeGenerator.lzcnt(1u<<i));
+            //try some random values
+            Assert.AreEqual(8, CodeGenerator.lzcnt((uint)((1<<23)+ 0x048482)));
+        }
+        [Test]
+        public void SourceGenerator_FixedList_Capped()
+        {
+            var testData = @"
+            using System;
+            using System.Runtime.InteropServices;
+            using Unity.Entities;
+            using Unity.NetCode;
+            using Unity.Collections;
+
+            public struct Component : IComponentData
+            {
+                [GhostField]public FixedList512Bytes<float> Value;
+            }
+            public struct Command : ICommandData
+            {
+                [GhostField]public FixedList512Bytes<float> Value;
+            }
+            public struct Rpc : IRpcCommand
+            {
+                public FixedList4096Bytes<byte> Value;
+            }
+            public struct Input : IInputComponentData
+            {
+                [GhostField]public FixedList512Bytes<float> Value;
+            }
+            public struct Buffer : IBufferElementData
+            {
+                [GhostField]public FixedList512Bytes<float> Value;
+            }
+            ";
+            var tree = CSharpSyntaxTree.ParseText(testData);
+            GeneratorRunResult results = default;
+            Assert.DoesNotThrow(() =>
+            {
+                results = GeneratorTestHelpers.RunGenerators(tree);
+            });
+            var warnings =  results.Diagnostics.Where(d => d.Severity >= DiagnosticSeverity.Error).ToArray();
+            Assert.AreEqual(8, warnings.Length);
+            Assert.IsTrue(warnings[0].GetMessage().StartsWith("Input.Value of type Unity.Collections.FixedList512Bytes<float> has a capacity greater than 64 elements"));
+            Assert.IsTrue(warnings[1].GetMessage().StartsWith("Input.Value of type Unity.Collections.FixedList512Bytes<float> has a capacity greater than 64 elements"));
+            Assert.IsTrue(warnings[2].GetMessage().StartsWith("Input.Value of type Unity.Collections.FixedList512Bytes<float> has a capacity greater than 64 elements"));
+            Assert.IsTrue(warnings[3].GetMessage().StartsWith("Component.Value of type Unity.Collections.FixedList512Bytes<float> has a capacity greater than 64 elements"));
+            Assert.IsTrue(warnings[4].GetMessage().StartsWith("Command.Value of type Unity.Collections.FixedList512Bytes<float> has a capacity greater than 64 elements"));
+            Assert.IsTrue(warnings[5].GetMessage().StartsWith("Buffer.Value of type Unity.Collections.FixedList512Bytes<float> has a capacity greater than 64 elements"));
+            Assert.IsTrue(warnings[6].GetMessage().StartsWith("Command.Value of type Unity.Collections.FixedList512Bytes<float> has a capacity greater than 64 elements"));
+            Assert.IsTrue(warnings[7].GetMessage().StartsWith("Rpc.Value of type Unity.Collections.FixedList4096Bytes<byte> has a capacity greater than 1024 elements"));
+            Generators.Debug.LastErrorLog = string.Empty;
+        }
+
+        [Test]
+        public void SourceGenerator_FixedList_InSnapshot()
+        {
+            var testData = @"
+            using Unity.Collections;
+            using Unity.Entities;
+            using Unity.NetCode;
+            using Unity.Mathematics;
+
+            public struct Data
+            {
+                public int Value1;
+                public int Value2;
+                [GhostField(SendData = false)]public int Value3;
+                [GhostField(Quantization=100)]public float Value4;
+            }
+            public struct Nested
+            {
+                public int Value1;
+                public int Value2;
+                public FixedList32Bytes<Data> FixedList;
+                public int Value4;
+                public int Value5;
+            }
+            public struct Primitive : IComponentData
+            {
+                [GhostField]public ulong Value1;
+                [GhostField]public byte Value2;
+                [GhostField]public double Value3;
+                [GhostField(Quantization = 1000)]public FixedList32Bytes<float> Value4;
+            }
+            public struct WithStruct : IComponentData
+            {
+                [GhostField]public int Value1;
+                [GhostField]public int Value2;
+                [GhostField]public int Value3;
+                [GhostField(Quantization = 1000)]public FixedList32Bytes<Data> Value4;
+            }
+            public struct WithNested : IComponentData
+            {
+                [GhostField]public int Value1;
+                [GhostField]public int Value2;
+                [GhostField]public int Value3;
+                [GhostField(Quantization = 1000)]public Nested Value4;
+            }
+            ";
+
+            var tree = CSharpSyntaxTree.ParseText(testData);
+            GeneratorRunResult results = default;
+            Assert.DoesNotThrow(() =>
+            {
+                results = GeneratorTestHelpers.RunGenerators(tree);
+            });
+            Assert.AreEqual(0, results.Diagnostics.Count(d=>d.Severity >= DiagnosticSeverity.Error));
+            //3 serializer, 3 helpers, 2 structs, 1 registration system
+            Assert.AreEqual(9, results.GeneratedSources.Length);
+            //check that the serializer actually contains the fixed list structs we expect
+            //primitive should not have any additional helper structs
+            //and the accessors are all via [i]
+
+            Assert.IsTrue(results.GeneratedSources[0].SyntaxTree.FilePath.EndsWith("Single_GhostElement.cs"));
+            Assert.IsTrue(results.GeneratedSources[1].SyntaxTree.FilePath.EndsWith("Primitive_Value4_GhostData.cs"));
+            Assert.IsTrue(results.GeneratedSources[2].SyntaxTree.FilePath.EndsWith("PrimitiveSerializer.cs"));
+            Assert.IsTrue(results.GeneratedSources[3].SyntaxTree.FilePath.EndsWith("Data_GhostElement.cs"));
+            Assert.IsTrue(results.GeneratedSources[4].SyntaxTree.FilePath.EndsWith("WithStruct_Value4_GhostData.cs"));
+            Assert.IsTrue(results.GeneratedSources[5].SyntaxTree.FilePath.EndsWith("WithStructSerializer.cs"));
+            Assert.IsTrue(results.GeneratedSources[6].SyntaxTree.FilePath.EndsWith("Nested_FixedList_GhostData.cs"));
+            Assert.IsTrue(results.GeneratedSources[7].SyntaxTree.FilePath.EndsWith("WithNestedSerializer.cs"));
+
+            var structs = results.GeneratedSources[1].SyntaxTree.GetRoot().DescendantNodes().OfType<StructDeclarationSyntax>().ToArray();
+            Assert.AreEqual(1, structs.Length);
+            var ghostFieldHash = structs[0].Identifier.ValueText.Substring(0, structs[0].Identifier.ValueText.IndexOf("Primitive"));
+            Assert.IsTrue(structs[0].Identifier.ValueText.EndsWith("_Primitive_Value4"));
+            Assert.AreEqual("Capacity", structs[0].Members.OfType<FieldDeclarationSyntax>().First().Declaration.Variables[0].Identifier.Value?.ToString());
+            Assert.AreEqual("7", structs[0].Members.OfType<FieldDeclarationSyntax>().First().Declaration.Variables[0].Initializer?.Value.ToString());
+            structs = results.GeneratedSources[2].SyntaxTree.GetRoot().DescendantNodes().OfType<StructDeclarationSyntax>().ToArray();
+            Assert.IsNotNull(structs[0].Modifiers.FirstOrDefault(m=>m.ValueText == "partial"));
+            Assert.AreEqual("Snapshot", structs[1].Identifier.ValueText);
+            Assert.Contains($"{ghostFieldHash}Primitive_Value4", structs[1].Members.OfType<FieldDeclarationSyntax>().Select(m=>m.Declaration.Type.ToString()).ToArray());
+
+            //structured data must have the additional helper struct
+            //with proper this[] indexers
+            structs = results.GeneratedSources[3].SyntaxTree.GetRoot().DescendantNodes().OfType<StructDeclarationSyntax>()
+                .ToArray();
+            Assert.AreEqual(3, structs.Length);
+            CollectionAssert.AreEquivalent(structs[0].Members.OfType<FieldDeclarationSyntax>().Select(f=>f.Declaration.Variables[0].Identifier.ValueText).ToArray(),
+                new string[]{"Value1", "Value2", "Value4"});
+            Assert.IsTrue(structs[0].Identifier.ValueText.EndsWith("_Data"));
+            ghostFieldHash = structs[0].Identifier.ValueText.Substring(0, structs[0].Identifier.ValueText.IndexOf("_Data"));
+            Assert.AreEqual($"{ghostFieldHash}_Data", structs[0].Identifier.ValueText);
+            structs = results.GeneratedSources[4].SyntaxTree.GetRoot().DescendantNodes().OfType<StructDeclarationSyntax>()
+                .ToArray();
+            Assert.AreEqual($"{ghostFieldHash}_WithStruct_Value4", structs[0].Identifier.ValueText);
+            Assert.AreEqual("Capacity", structs[0].Members.OfType<FieldDeclarationSyntax>().First()!.Declaration.Variables[0].Identifier.Value?.ToString());
+            Assert.AreEqual("1", structs[0].Members.OfType<FieldDeclarationSyntax>().First()!.Declaration.Variables[0].Initializer?.Value.ToString());
+            structs = results.GeneratedSources[5].SyntaxTree.GetRoot().DescendantNodes().OfType<StructDeclarationSyntax>().ToArray();
+            Assert.IsNotNull(structs[0].Modifiers.FirstOrDefault(m=>m.ValueText == "partial"));
+            Assert.AreEqual("Snapshot", structs[1].Identifier.ValueText);
+            Assert.Contains($"{ghostFieldHash}_WithStruct_Value4", structs[1].Members.OfType<FieldDeclarationSyntax>().Select(m=>m.Declaration.Type.ToString()).ToArray());
+
+            //nested should also have additional helper struct and the the right indexer
+            structs = results.GeneratedSources[6].SyntaxTree.GetRoot().DescendantNodes().OfType<StructDeclarationSyntax>()
+                .ToArray();
+            Assert.AreEqual($"{ghostFieldHash}_Nested_FixedList", structs[0].Identifier.ValueText);
+            Assert.AreEqual("Capacity", structs[0].Members.OfType<FieldDeclarationSyntax>().First().Declaration.Variables[0].Identifier.Value?.ToString());
+            Assert.AreEqual("1", structs[0].Members.OfType<FieldDeclarationSyntax>().First().Declaration.Variables[0].Initializer?.Value.ToString());
+            Assert.IsNotNull(structs[0].Modifiers.FirstOrDefault(m=>m.ValueText == "partial"));
+            structs = results.GeneratedSources[7].SyntaxTree.GetRoot().DescendantNodes().OfType<StructDeclarationSyntax>()
+                .ToArray();
+            Assert.AreEqual("Snapshot", structs[1].Identifier.ValueText);
+            Assert.Contains($"{ghostFieldHash}_Nested_FixedList", structs[1].Members.OfType<FieldDeclarationSyntax>().Select(m=>m.Declaration.Type.ToString()).ToArray());
+        }
+
+        [Test]
+        public void SourceGenerator_FixedList_Aggregation([Values]bool useAggregation)
+        {
+            var testData = $@"
+            using Unity.Collections;
+            using Unity.Entities;
+            using Unity.NetCode;
+            using Unity.Mathematics;
+
+            public struct Field
+            {{
+                public int Value1;
+                public int Value2;
+                public int Value3;
+                public FixedList32Bytes<float> List;
+            }}
+            public struct Aggregated : IComponentData
+            {{
+                [GhostField(Quantization=1000, Composite={useAggregation.ToString().ToLower()})]public Field Value;
+            }}";
+
+            var tree = CSharpSyntaxTree.ParseText(testData);
+            GeneratorRunResult results = default;
+            Assert.DoesNotThrow(() =>
+            {
+                results = GeneratorTestHelpers.RunGenerators(tree);
+            });
+            Assert.AreEqual(0, results.Diagnostics.Count(d=>d.Severity >= DiagnosticSeverity.Error));
+            //1 serializer, 2 helpers, 1 registration system
+            Assert.AreEqual(4, results.GeneratedSources.Length);
+            //check that the serializer actually contains the fixed list structs we expect
+            //primitive should not have any additional helper structs
+            //and the accessors are all via [i]
+
+            Assert.IsTrue(results.GeneratedSources[0].SyntaxTree.FilePath.EndsWith("Single_GhostElement.cs"));
+            Assert.IsTrue(results.GeneratedSources[1].SyntaxTree.FilePath.EndsWith("Field_List_GhostData.cs"));
+            Assert.IsTrue(results.GeneratedSources[2].SyntaxTree.FilePath.EndsWith("AggregatedSerializer.cs"));
+
+            var structs = results.GeneratedSources[1].SyntaxTree.GetRoot().DescendantNodes().OfType<StructDeclarationSyntax>().ToArray();
+            Assert.AreEqual("Capacity", structs[0].Members.OfType<FieldDeclarationSyntax>().First().Declaration.Variables[0].Identifier.Value?.ToString());
+            Assert.AreEqual("7", structs[0].Members.OfType<FieldDeclarationSyntax>().First().Declaration.Variables[0].Initializer?.Value.ToString());
+
+            structs = results.GeneratedSources[2].SyntaxTree.GetRoot().DescendantNodes().OfType<StructDeclarationSyntax>().ToArray();
+            var maskBits = results.GeneratedSources[2].SyntaxTree.GetRoot().DescendantNodes().OfType<FieldDeclarationSyntax>()
+                .First(t => t.Declaration.Variables[0].Identifier.ValueText == "ChangeMaskBits");
+            var equalsValueClauseSyntax = maskBits.Declaration.Variables[0].Initializer;
+            Assert.IsNotNull(equalsValueClauseSyntax);
+            var expectedBits = useAggregation ? 3 : 6;
+            Assert.AreEqual($"{expectedBits}", equalsValueClauseSyntax!.Value.ToString());
+        }
+
+        [Test]
+        public void SourceGenerator_FixedList_Commands()
+        {
+            var testData = @"
+            using Unity.Collections;
+            using Unity.Entities;
+            using Unity.NetCode;
+            using Unity.Mathematics;
+
+            public struct Data
+            {
+                public int Value1;
+                public float Value2;
+            }
+            public struct Nested
+            {
+                public int Value1;
+                public FixedList32Bytes<Data> Value2;
+            }
+
+            public struct PrimitiveRpc : IRpcCommand
+            {
+                public float Value1;
+                public FixedList32Bytes<float> Value;
+            }
+            public struct StructRpc : IRpcCommand
+            {
+                public float Value1;
+                public FixedList32Bytes<Data> Value;
+            }
+            public struct NestedRpc : IRpcCommand
+            {
+                public float Value1;
+                public Nested Value2;
+            }
+
+            public struct PrimitiveCmd : ICommandData
+            {
+                public float Value1;
+                public FixedList32Bytes<float> Value2;
+            }
+            public struct StructCmd : ICommandData
+            {
+                public float Value1;
+                public FixedList32Bytes<Data> Value2;
+            }
+            public struct NestedCmd : ICommandData
+            {
+                public float Value1;
+                public Nested Value2;
+            }";
+
+            var tree = CSharpSyntaxTree.ParseText(testData);
+            GeneratorRunResult results = default;
+            Assert.DoesNotThrow(() =>
+            {
+                results = GeneratorTestHelpers.RunGenerators(tree);
+            });
+            Assert.AreEqual(0, results.Diagnostics.Count(d=>d.Severity >= DiagnosticSeverity.Error));
+            //2 helpers, 6 rpc serializer
+            Assert.AreEqual(8, results.GeneratedSources.Length);
+            //We expect to have 1 helper for Data and one helper for float (silly I know, we can generate directly)
+            results.GeneratedSources[0].SyntaxTree.FilePath.Contains("Nested_CmdSerializer");
+            results.GeneratedSources[1].SyntaxTree.FilePath.Contains("Single_CmdSerializer");
+        }
+
+        [Test]
+        public void SourceGenerator_FixedBuffers()
+        {
+            var testData = @"
+            using Unity.Collections;
+            using Unity.Entities;
+            using Unity.NetCode;
+            using Unity.Mathematics;
+
+            public unsafe struct Rpc : IRpcCommand
+            {
+                public fixed float Value[5];
+            }
+            public unsafe struct Command : ICommandData
+            {
+                public fixed float Value[5];
+            }
+            public unsafe struct Component : IComponentData
+            {
+                [GhostField(Quantization=1000)]public fixed float Value[5];
+            }";
+
+            var tree = CSharpSyntaxTree.ParseText(testData);
+            GeneratorRunResult results = default;
+            Assert.DoesNotThrow(() =>
+            {
+                results = GeneratorTestHelpers.RunGenerators(tree);
+            });
+            Assert.AreEqual(0, results.Diagnostics.Count(d=>d.Severity >= DiagnosticSeverity.Error));
+            Assert.AreEqual(4, results.GeneratedSources.Length);
+
+            //check that the serializer actually contains the fixed list structs we expect
+            //primitive should not have any additional helper structs
+            //and the accessors are all via [i]
+            var methods = results.GeneratedSources[2].SyntaxTree.GetRoot().DescendantNodes().OfType<MethodDeclarationSyntax>()
+                .ToArray();
+            for (int i = 0; i < 5; ++i)
+            {
+                Assert.IsTrue(methods[1].Body!.Statements[i].ToString().Contains($"data.Value[{i}] ="));
+                Assert.IsTrue(methods[2].Body!.Statements[i].ToString().Contains($"data.Value[{i}]"));
+                Assert.IsTrue(methods[2].Body!.Statements[i].ToString().Contains($"baseline.Value[{i}]"));
+            }
+            methods = results.GeneratedSources[3].SyntaxTree.GetRoot().DescendantNodes().OfType<MethodDeclarationSyntax>()
+                .ToArray();
+            for (int i = 0; i < 5; ++i)
+            {
+                Assert.IsTrue(methods[0].Body!.Statements[i].ToString().Contains($"data.Value[{i}]"));
+                Assert.IsTrue(methods[1].Body!.Statements[i].ToString().Contains($"data.Value[{i}] ="));
+            }
+
+            var snapshotDataSyntax = results.GeneratedSources[0].SyntaxTree.GetRoot().DescendantNodes().OfType<StructDeclarationSyntax>()
+                .First(node => node.Identifier.ValueText == "Snapshot");
+            var members = snapshotDataSyntax.Members.OfType<FieldDeclarationSyntax>().ToArray();
+            Assert.AreEqual(5, members.Length);
+            for (int i = 0; i < 5; ++i)
+            {
+                Assert.AreEqual("float", members[i].Declaration.Type.ToString());
+                Assert.AreEqual($"Value_{i}", members[i].Declaration.Variables[0].Identifier.Text);
+            }
+            methods = results.GeneratedSources[0].SyntaxTree.GetRoot().DescendantNodes().OfType<MethodDeclarationSyntax>()
+                .ToArray();
+            Assert.IsNotNull(methods);
+            for (int i = 0; i < 5; ++i)
+            {
+                //copyto
+                Assert.IsTrue(methods[1].Body!.Statements[i].ToString().Contains($"component.Value[{i}]"));
+                Assert.IsTrue(methods[0].Body!.Statements[i].ToString().Contains($"snapshot.Value_{i} ="));
+                //copyfrom
+                Assert.IsTrue(methods[1].Body!.Statements[i].ToString().Contains($"component.Value[{i}]"));
+                Assert.IsTrue(methods[1].Body!.Statements[i].ToString().Contains($"snapshotBefore.Value_{i}"));
+                //restore
+                Assert.IsTrue(methods[2].Body!.Statements[i].ToString().Contains($"component.Value[{i}]"));
+                Assert.IsTrue(methods[2].Body!.Statements[i].ToString().Contains($"backup.Value[{i}]"));
+                //changemask
+                Assert.IsTrue(methods[4].Body!.Statements[1+i].ToString().Contains($"snapshot.Value_{i}"));
+                Assert.IsTrue(methods[4].Body!.Statements[1+i].ToString().Contains($"baseline.Value_{i}"));
+                //serialize
+                Assert.IsTrue(methods[5].Body!.Statements[1+i].ToString().Contains($"snapshot.Value_{i}"));
+                Assert.IsTrue(methods[5].Body!.Statements[1+i].ToString().Contains($"baseline.Value_{i}"));
+                //serialize combined
+                Assert.IsTrue(methods[6].Body!.Statements[1+2*i].ToString().Contains($"snapshot.Value_{i}"));
+                Assert.IsTrue(methods[6].Body!.Statements[1+2*i].ToString().Contains($"baseline.Value_{i}"));
+                //deserialize
+                Assert.IsTrue(methods[7].Body!.Statements[1+i].ToString().Contains($"snapshot.Value_{i}"));
+                Assert.IsTrue(methods[7].Body!.Statements[1+i].ToString().Contains($"baseline.Value_{i}"));
+            }
+        }
+
+        [Test]
+        public void SourceGenerator_ReplicatedPropertyNotCauseStackException()
+        {
+            var testData = @"
+            using Unity.Collections;
+            using Unity.Entities;
+            using Unity.NetCode;
+            using Unity.Mathematics;
+
+            public struct NestedProperty
+            {
+                private int _value;
+                public int Value1 {get =>_value; set => _value = value;}
+            }
+            public struct NonReplicatedComponent : IComponentData
+            {
+                [GhostField]public NestedProperty Value;
+                public int Value1 {get;set;}
+                public float3 Value2 {get;set;}
+            }
+            [GhostComponentVariation(typeof(NonReplicatedComponent))]
+            public struct Variant
+            {
+                [GhostField]public int Value1 {get;set;}
+                [GhostField]public float3 Value2 {get;set;}
+            }
+            ";
+
+            var tree = CSharpSyntaxTree.ParseText(testData);
+            Assert.DoesNotThrow(() =>
+            {
+                GeneratorTestHelpers.RunGenerators(tree);
+            });
         }
     }
 }

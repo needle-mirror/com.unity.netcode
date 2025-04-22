@@ -1,3 +1,4 @@
+#pragma warning disable CS0618 // Disable Entities.ForEach obsolete warnings
 using NUnit.Framework;
 using Unity.Collections;
 using Unity.Entities;
@@ -263,6 +264,7 @@ namespace Unity.NetCode.Tests
     }
     [DisableAutoCreation]
     [UpdateInGroup(typeof(PredictedSimulationSystemGroup))]
+    [UpdateAfter(typeof(PredictSpawnGhost))]
     [WorldSystemFilter(WorldSystemFilterFlags.ClientSimulation)]
     public partial class PredictSpawnGhostUpdate : SystemBase
     {
@@ -439,8 +441,8 @@ namespace Unity.NetCode.Tests
             {
                 testWorld.Bootstrap(true);
                 testWorld.CreateWorlds(true, 1);
-                testWorld.ServerWorld.GetOrCreateSystemManaged<PredictedFixedStepSimulationSystemGroup>().RateManager.Timestep = 1f/fixedStepRate;
-                testWorld.ClientWorlds[0].GetOrCreateSystemManaged<PredictedFixedStepSimulationSystemGroup>().RateManager.Timestep = 1f/fixedStepRate;
+                testWorld.ServerWorld.GetOrCreateSystemManaged<PredictedFixedStepSimulationSystemGroup>().InternalRateManager.Timestep = 1f/fixedStepRate;
+                testWorld.ClientWorlds[0].GetOrCreateSystemManaged<PredictedFixedStepSimulationSystemGroup>().InternalRateManager.Timestep = 1f/fixedStepRate;
 
                 // Connect and make sure the connection could be established
                 testWorld.Connect();
@@ -465,8 +467,8 @@ namespace Unity.NetCode.Tests
                 //Also check that if the value is overriden, it is still correctly set to the right value
                 for (int i = 0; i < 8; ++i)
                 {
-                    testWorld.ServerWorld.GetOrCreateSystemManaged<PredictedFixedStepSimulationSystemGroup>().RateManager.Timestep = 1f/fixedStepRate;
-                    testWorld.ClientWorlds[0].GetOrCreateSystemManaged<PredictedFixedStepSimulationSystemGroup>().RateManager.Timestep = 1f/fixedStepRate;
+                    testWorld.ServerWorld.GetOrCreateSystemManaged<PredictedFixedStepSimulationSystemGroup>().InternalRateManager.Timestep = 1f/fixedStepRate;
+                    testWorld.ClientWorlds[0].GetOrCreateSystemManaged<PredictedFixedStepSimulationSystemGroup>().InternalRateManager.Timestep = 1f/fixedStepRate;
                     testWorld.Tick();
                     serverTimeStep = testWorld.ServerWorld.GetOrCreateSystemManaged<PredictedFixedStepSimulationSystemGroup>().Timestep;
                     clientTimestep = testWorld.ClientWorlds[0].GetOrCreateSystemManaged<PredictedFixedStepSimulationSystemGroup>().Timestep;
@@ -586,10 +588,18 @@ namespace Unity.NetCode.Tests
                 for (int i = 0; i < 8; ++i)
                     testWorld.Tick();
 
+                // Ensure client actually ticks fully in the next ticks so the prediction loop will run multiple times
+                var clientTime = testWorld.GetNetworkTime(testWorld.ClientWorlds[0]);
+                if (clientTime.ServerTickFraction < 0.45f || clientTime.ServerTickFraction > 0.95f)
+                    testWorld.TickClientOnly(1/120f);
+
                 // client predict spawning two predicted ghost: one with update, one without.
                 var prefabs = testWorld.GetSingletonBuffer<NetCodeTestPrefab>(testWorld.ClientWorlds[0]);
                 var ghostWithRollback = testWorld.ClientWorlds[0].EntityManager.Instantiate(prefabs[0].Value);
-                var tickOnClient = testWorld.GetNetworkTime(testWorld.ClientWorlds[0]).ServerTick;
+                clientTime = testWorld.GetNetworkTime(testWorld.ClientWorlds[0]);
+                Assert.IsTrue(clientTime.ServerTickFraction is > 0.45f and < 0.95f);
+                var tickOnClient = NetworkTimeHelper.LastFullServerTick(clientTime); // Use the same spawnTick as the predicted spawn system does
+
                 for (int i = 0; i < 16; ++i)
                 {
                     testWorld.Tick();
@@ -598,6 +608,21 @@ namespace Unity.NetCode.Tests
                         testWorld.SpawnOnServer(0);
                     }
                 }
+
+                // Ensure that classification is correct
+                Assert.AreNotEqual(ghostWithRollback, Entity.Null);
+                var ghostEntitiesFromQuery = testWorld.ClientWorlds[0].EntityManager
+                    .CreateEntityQuery(typeof(CountRollback), typeof(GhostInstance)).ToEntityArray(Allocator.Temp);
+                foreach (var entity in ghostEntitiesFromQuery)
+                {
+                    var name = testWorld.ClientWorlds[0].EntityManager.GetName(entity);
+                    if (name == "PredictedGO1")
+                    {
+                        // Ensures that classification is correct
+                        Assert.AreEqual(entity, ghostWithRollback);
+                    }
+                }
+
                 var rollbackData = testWorld.ClientWorlds[0].EntityManager.GetComponentData<CountRollback>(ghostWithRollback);
                 if(rollback == PredictedSpawnRollbackOptions.RollbackToSpawnTick)
                     Assert.Greater(rollbackData.Value, 2);
@@ -660,7 +685,12 @@ namespace Unity.NetCode.Tests
                 for (int i = 0; i < 16; ++i)
                     testWorld.Tick();
 
+                // Ensure we're in a known state on the client
                 var time = testWorld.GetNetworkTime(testWorld.ClientWorlds[0]);
+                testWorld.TickClientOnly((1 - time.ServerTickFraction)/60f);
+
+                time = testWorld.GetNetworkTime(testWorld.ClientWorlds[0]);
+                Assert.IsFalse(time.IsPartialTick);
                 var spawnTick = time.ServerTick;
                 if(time.IsPartialTick)
                     spawnTick.Decrement();
@@ -669,10 +699,11 @@ namespace Unity.NetCode.Tests
                 testWorld.ClientWorlds[0].GetExistingSystemManaged<PredictSpawnGhost>().Enabled = true;
 
                 var predictedSpawnRequests = testWorld.ClientWorlds[0].EntityManager.CreateEntityQuery(typeof(PredictedGhostSpawnRequest));
-                testWorld.Tick(0.75f*1f/60f);
+                testWorld.TickClientOnly(0.75f*1f/60f);
                 //Client will spawn the entity now. We will do a full tick + 1 partial tick. There will be a new backup
                 //for the spawnTick, that is when the entity is spawned. The predicted spawned ghost is not initialized yet.
-                testWorld.Tick(0.75f*1f/60f);
+                testWorld.TickServerOnly();
+                testWorld.TickClientOnly(0.75f*1f/60f);
                 Assert.IsFalse(predictedSpawnRequests.IsEmpty);
                 var predictedSpawnEntity = predictedSpawnRequests.GetSingletonEntity();
                 Assert.AreEqual(102, testWorld.ClientWorlds[0].EntityManager.GetComponentData<Data>(predictedSpawnEntity).Value);
@@ -692,7 +723,7 @@ namespace Unity.NetCode.Tests
                     Assert.AreEqual(104, testWorld.ClientWorlds[0].EntityManager.GetComponentData<Data>(predictedSpawnEntity).Value);
                 else
                     Assert.AreEqual(103, testWorld.ClientWorlds[0].EntityManager.GetComponentData<Data>(predictedSpawnEntity).Value);
-                testWorld.Tick(0.25f/60f);
+                testWorld.TickClientOnly(0.25f/60f);
                 lastBackupTick = testWorld.GetSingleton<GhostSnapshotLastBackupTick>(testWorld.ClientWorlds[0]).Value;
                 Assert.AreEqual(spawnTick.TickIndexForValidTick + 1, lastBackupTick.TickIndexForValidTick);
                 Assert.IsTrue(predictedSpawnRequests.IsEmpty);
@@ -792,14 +823,14 @@ namespace Unity.NetCode.Tests
             {
                 for (int i = 0; i < entities.Length; i++)
                 {
-                   testWorld.ClientWorlds[0].EntityManager.SetComponentData(entities[i], new EnableableComponent_0(){value = 0});
-                   testWorld.ClientWorlds[0].EntityManager.SetComponentData(entities[i], new EnableableComponent_1(){value = 0});
-                   testWorld.ClientWorlds[0].EntityManager.SetComponentData(entities[i], new EnableableComponent_3(){value = 0});
-                   if (testWorld.ClientWorlds[0].EntityManager.HasComponent<Data>(entities[i]))
-                   {
+                    testWorld.ClientWorlds[0].EntityManager.SetComponentData(entities[i], new EnableableComponent_0(){value = 0});
+                    testWorld.ClientWorlds[0].EntityManager.SetComponentData(entities[i], new EnableableComponent_1(){value = 0});
+                    testWorld.ClientWorlds[0].EntityManager.SetComponentData(entities[i], new EnableableComponent_3(){value = 0});
+                    if (testWorld.ClientWorlds[0].EntityManager.HasComponent<Data>(entities[i]))
+                    {
                        testWorld.ClientWorlds[0].EntityManager.SetComponentData(entities[i], new Data(){Value = 0});
-                   }
-                   {
+                    }
+                    {
                         var b = testWorld.ClientWorlds[0].EntityManager.GetBuffer<EnableableBuffer_0>(entities[i]);
                         b.ElementAt(0).value = 0;
                         b.ElementAt(1).value = 0;
@@ -856,7 +887,7 @@ namespace Unity.NetCode.Tests
 
                 //Run one last time with a delta time such that we end up exactly on a full tick
                 var time = testWorld.GetNetworkTime(testWorld.ClientWorlds[0]);
-                testWorld.Tick(time.ServerTickFraction/60f);
+                testWorld.TickClientOnly((1 - time.ServerTickFraction)/60f);
 
                 time = testWorld.GetNetworkTime(testWorld.ClientWorlds[0]);
                 Assert.IsFalse(time.IsPartialTick);
@@ -865,7 +896,7 @@ namespace Unity.NetCode.Tests
                 var entities = ghosts.ToEntityArray(Allocator.Temp);
                 var dataValues = new NativeArray<int>(entities.Length, Allocator.Temp);
                 for (int i = 0; i < dataValues.Length; ++i)
-                    dataValues[i] = testWorld.ClientWorlds[0].EntityManager.GetComponentData<Data>(entities[0]).Value;
+                    dataValues[i] = testWorld.ClientWorlds[0].EntityManager.GetComponentData<Data>(entities[i]).Value;
                 Assert.AreEqual(ghostCount, entities.Length);
                 CheckValues(entities, testWorld, dataValues);
 
@@ -876,12 +907,12 @@ namespace Unity.NetCode.Tests
                 //there is no partial tick restore in this tick because the last tick was a full tick. The continuation goes without actually
                 //restoring from the backup.
                 //TODO: would be nice to distinguish
-                testWorld.Tick(1f/240f);
+                testWorld.TickClientOnly(1f/240f);
                 var currentPartialTick = testWorld.GetNetworkTime(testWorld.ClientWorlds[0]).ServerTick;
                 CheckPredicitionStepsAndStartTick(entities, testWorld, currentPartialTick, lastBackupTick);
                 //Now I can invalidate and check restore work properly
                 InvalidateValues(entities, testWorld);
-                testWorld.Tick(1f/240f);
+                testWorld.TickClientOnly(1f/240f);
                 //run partial ticks and verify max 1 prediction step is done`
                 Assert.AreEqual(testWorld.GetSingleton<GhostSnapshotLastBackupTick>(testWorld.ClientWorlds[0]).Value, lastBackupTick);
                 CheckPredicitionStepsAndStartTick(entities, testWorld, currentPartialTick, lastBackupTick);
@@ -893,7 +924,8 @@ namespace Unity.NetCode.Tests
                 //What happen in this tick ? The client will receive a new snapshot from the server and rollback-prediction will occur,
                 //causing a new backup being made for the same tick on the client. What the Data backup contains? because the component has been
                 //removed, the value should be 0 on certain entities
-                testWorld.Tick(1f/240f);
+                testWorld.TickServerOnly();
+                testWorld.TickClientOnly(1f/240f);
                 //run partial ticks and verify max 1 prediction step is done`
                 Assert.AreEqual(testWorld.GetSingleton<GhostSnapshotLastBackupTick>(testWorld.ClientWorlds[0]).Value, lastBackupTick);
                 CheckPredicitionStepsAndStartTick(entities, testWorld, currentPartialTick, lastBackupTick);
@@ -913,12 +945,53 @@ namespace Unity.NetCode.Tests
                 //But because now the recovery is able to find the backup, until we don't receive new data from the server, that value is stale.
                 //This does not occur if the structural change does not affect replicated components. That is probably the most common scenario.
                 //How do we solve this?
-                testWorld.Tick(1f/240f);
+                testWorld.TickClientOnly(1f/240f);
                 Assert.AreEqual(currentPartialTick.TickIndexForValidTick, testWorld.GetNetworkTime(testWorld.ClientWorlds[0]).ServerTick.TickIndexForValidTick);
                 //A new backup has been made
                 Assert.AreNotEqual(lastBackupTick, testWorld.GetSingleton<GhostSnapshotLastBackupTick>(testWorld.ClientWorlds[0]).Value);
                 CheckPredicitionStepsAndStartTick(entities, testWorld, currentPartialTick, lastBackupTick);
                 CheckValues(entities, testWorld, dataValues);
+            }
+        }
+
+        public struct TestCommand : IInputComponentData
+        {
+            public int Value;
+        }
+
+        [Test(Description = "Tests that we have 0 margin for commands when using IPC")]
+        public void MarginIsZeroWithIPC()
+        {
+            using (var testWorld = new NetCodeTestWorld())
+            {
+                testWorld.UseFakeSocketConnection = 0;
+                testWorld.Bootstrap(true);
+                var ghostGameObject = new GameObject();
+                ghostGameObject.AddComponent<TestNetCodeAuthoring>().Converter = new StructuralChangesConverter();
+                var authoring = ghostGameObject.AddComponent<GhostAuthoringComponent>();
+                authoring.DefaultGhostMode = GhostMode.Predicted;
+                authoring.HasOwner = true;
+                testWorld.CreateGhostCollection(ghostGameObject);
+                testWorld.CreateWorlds(true, 1);
+                var entity = testWorld.SpawnOnServer(ghostGameObject);
+                testWorld.ServerWorld.EntityManager.SetComponentData(entity, new GhostOwner()
+                {
+                    NetworkId = 1
+                });
+                testWorld.Connect();
+                testWorld.ClientWorlds[0].EntityManager.CompleteAllTrackedJobs();
+                testWorld.GoInGame();
+
+                for (int i = 0; i < 2048; ++i)
+                {
+                    testWorld.Tick();
+
+                    // Check that the margin is zero
+                    var serverTime = testWorld.GetNetworkTime(testWorld.ServerWorld);
+                    var serverAck = testWorld.GetSingleton<NetworkSnapshotAck>(testWorld.ServerWorld);
+                    if (serverAck.LastReceivedSnapshotByRemote.IsValid)
+                        Assert.AreEqual(serverTime.ServerTick, serverAck.LastReceivedSnapshotByLocal);
+                }
             }
         }
     }

@@ -186,50 +186,50 @@ public struct FlatType : IComponentData
 #endregion
 
 #region __GHOST_FIELD__
-public int __GHOST_FIELD_NAME__X;
-public int __GHOST_FIELD_NAME__Y;
+public int __GHOST_FIELD_NAME___x;
+public int __GHOST_FIELD_NAME___y;
 #endregion
 
 #region __GHOST_PREDICT__
-snapshot.__GHOST_FIELD_NAME__X = predictor.PredictInt(snapshot.__GHOST_FIELD_NAME__X, baseline1.__GHOST_FIELD_NAME__X, baseline2.__GHOST_FIELD_NAME__X);
-snapshot.__GHOST_FIELD_NAME__Y = predictor.PredictInt(snapshot.__GHOST_FIELD_NAME__Y, baseline1.__GHOST_FIELD_NAME__Y, baseline2.__GHOST_FIELD_NAME__Y);
+snapshot.__GHOST_FIELD_NAME___x = predictor.PredictInt(snapshot.__GHOST_FIELD_NAME___x, baseline1.__GHOST_FIELD_NAME___x, baseline2.__GHOST_FIELD_NAME___x);
+snapshot.__GHOST_FIELD_NAME___y = predictor.PredictInt(snapshot.__GHOST_FIELD_NAME___y, baseline1.__GHOST_FIELD_NAME___y, baseline2.__GHOST_FIELD_NAME___y);
 #endregion
 
 #region __GHOST_WRITE__
 if ((changeMask & (1 << __GHOST_MASK_INDEX__)) != 0)
 {
-    writer.WritePackedIntDelta(snapshot.__GHOST_FIELD_NAME__X, baseline.__GHOST_FIELD_NAME__X, compressionModel);
-    writer.WritePackedIntDelta(snapshot.__GHOST_FIELD_NAME__Y, baseline.__GHOST_FIELD_NAME__Y, compressionModel);
+    writer.WritePackedIntDelta(snapshot.__GHOST_FIELD_NAME___x, baseline.__GHOST_FIELD_NAME___x, compressionModel);
+    writer.WritePackedIntDelta(snapshot.__GHOST_FIELD_NAME___y, baseline.__GHOST_FIELD_NAME___y, compressionModel);
 }
 #endregion
 
 #region __GHOST_READ__
 if ((changeMask & (1 << __GHOST_MASK_INDEX__)) != 0)
 {
-    snapshot.__GHOST_FIELD_NAME__X = reader.ReadPackedIntDelta(baseline.__GHOST_FIELD_NAME__X, compressionModel);
-    snapshot.__GHOST_FIELD_NAME__Y = reader.ReadPackedIntDelta(baseline.__GHOST_FIELD_NAME__Y, compressionModel);
+    snapshot.__GHOST_FIELD_NAME___x = reader.ReadPackedIntDelta(baseline.__GHOST_FIELD_NAME___x, compressionModel);
+    snapshot.__GHOST_FIELD_NAME___y = reader.ReadPackedIntDelta(baseline.__GHOST_FIELD_NAME___y, compressionModel);
 }
 else
 {
-    snapshot.__GHOST_FIELD_NAME__X = baseline.__GHOST_FIELD_NAME__X;
-    snapshot.__GHOST_FIELD_NAME__Y = baseline.__GHOST_FIELD_NAME__Y;
+    snapshot.__GHOST_FIELD_NAME___x = baseline.__GHOST_FIELD_NAME___x;
+    snapshot.__GHOST_FIELD_NAME___y = baseline.__GHOST_FIELD_NAME___y;
 }
 #endregion
 
 #region __GHOST_COPY_TO_SNAPSHOT__
-snapshot.__GHOST_FIELD_NAME__X = (int)(component.__GHOST_FIELD_REFERENCE__.x * __GHOST_QUANTIZE_SCALE__);
-snapshot.__GHOST_FIELD_NAME__Y = (int)(component.__GHOST_FIELD_REFERENCE__.y * __GHOST_QUANTIZE_SCALE__);
+snapshot.__GHOST_FIELD_NAME___x = (int)(component.__GHOST_FIELD_REFERENCE__.x * __GHOST_QUANTIZE_SCALE__);
+snapshot.__GHOST_FIELD_NAME___y = (int)(component.__GHOST_FIELD_REFERENCE__.y * __GHOST_QUANTIZE_SCALE__);
 #endregion
 
 
 #region __GHOST_COPY_FROM_SNAPSHOT__
-component.Value = new float3(snapshotBefore.__GHOST_FIELD_NAME__X * __GHOST_DEQUANTIZE_SCALE__, snapshotBefore.__GHOST_FIELD_NAME__Y * __GHOST_DEQUANTIZE_SCALE__, 0.0f);
+component.Value = new float3(snapshotBefore.__GHOST_FIELD_NAME___x * __GHOST_DEQUANTIZE_SCALE__, snapshotBefore.__GHOST_FIELD_NAME___y * __GHOST_DEQUANTIZE_SCALE__, 0.0f);
 #endregion
 
 #region __GHOST_COPY_FROM_SNAPSHOT_INTERPOLATE__
 component.__GHOST_FIELD_REFERENCE__ = math.lerp(
-    new float3(snapshotBefore.__GHOST_FIELD_NAME__X * __GHOST_DEQUANTIZE_SCALE__, snapshotBefore.__GHOST_FIELD_NAME__Y * __GHOST_DEQUANTIZE_SCALE__, 0.0f),
-    new float3(snapshotAfter.__GHOST_FIELD_NAME__X * __GHOST_DEQUANTIZE_SCALE__, snapshotAfter.__GHOST_FIELD_NAME__Y * __GHOST_DEQUANTIZE_SCALE__, 0.0f),
+    new float3(snapshotBefore.__GHOST_FIELD_NAME___x * __GHOST_DEQUANTIZE_SCALE__, snapshotBefore.__GHOST_FIELD_NAME___y * __GHOST_DEQUANTIZE_SCALE__, 0.0f),
+    new float3(snapshotAfter.__GHOST_FIELD_NAME___x * __GHOST_DEQUANTIZE_SCALE__, snapshotAfter.__GHOST_FIELD_NAME___y * __GHOST_DEQUANTIZE_SCALE__, 0.0f),
     snapshotInterpolationFactor);
 #endregion
 
@@ -238,13 +238,13 @@ component.__GHOST_FIELD_REFERENCE__ = backup.__GHOST_FIELD_REFERENCE__;
 #endregion
 
 #region __GHOST_CALCULATE_CHANGE_MASK_ZERO__
-changeMask = (snapshot.__GHOST_FIELD_NAME__X != baseline.__GHOST_FIELD_NAME__X ||
-            snapshot.__GHOST_FIELD_NAME__Y != baseline.__GHOST_FIELD_NAME__Y)
+changeMask = (snapshot.__GHOST_FIELD_NAME___x != baseline.__GHOST_FIELD_NAME___x ||
+            snapshot.__GHOST_FIELD_NAME___y != baseline.__GHOST_FIELD_NAME___y)
             ? 1u : 0;
 #endregion
 #region __GHOST_CALCULATE_CHANGE_MASK__
-changeMask |= (snapshot.__GHOST_FIELD_NAME__X != baseline.__GHOST_FIELD_NAME__X ||
-            snapshot.__GHOST_FIELD_NAME__Y != baseline.__GHOST_FIELD_NAME__Y)
+changeMask |= (snapshot.__GHOST_FIELD_NAME___x != baseline.__GHOST_FIELD_NAME___x ||
+            snapshot.__GHOST_FIELD_NAME___y != baseline.__GHOST_FIELD_NAME___y)
             ? (1u<<__GHOST_MASK_INDEX__) : 0;
 #endregion
 

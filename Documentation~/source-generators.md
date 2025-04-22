@@ -21,7 +21,7 @@ Unity.NetCode
   ------- Generators
   ------- Helpers
   ------ Tests
-  ------ SourceGenerators.sln  
+  ------ SourceGenerators.sln
 ```
 
 The NetCodeSourceGenerator.dll is generated from the Source~ folder and used by the Editor compilation pipeline to inject the generate code in each assemply definitions (and also Assembly-CSharp and similar).
@@ -42,7 +42,7 @@ The generator also write all the info/debug logs inside the `Temp/NetcodeGenerat
 
 ## Configuring the files and logging generator behaviour
 It is possible to configure the generator using the Roslyn Analyzer Config file. Unity 2022+ detect the presence of GlobalAnalyzerConfig assets, either global (root of the Assets folder)
-or on per assembly definition level, similarly to the .buildrule files.  
+or on per assembly definition level, similarly to the .buildrule files.
 
 In order to configure the options to pass to our generator, it is necessary to create a `Default.globalconfig` text file should be added to the `Assets` folder in your project.</br>
 The file must contains a list of key/value pairs and must have the following format:

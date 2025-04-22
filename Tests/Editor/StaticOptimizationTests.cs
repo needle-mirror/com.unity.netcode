@@ -1,8 +1,11 @@
+#pragma warning disable CS0618 // Disable Entities.ForEach obsolete warnings
+using System;
 using NUnit.Framework;
 using Unity.Entities;
 using UnityEngine;
 using Unity.Transforms;
 using Unity.Collections;
+using Unity.Mathematics;
 
 namespace Unity.NetCode.Tests
 {
@@ -34,7 +37,7 @@ namespace Unity.NetCode.Tests
 
     public class StaticOptimizationTests
     {
-        void SetupBasicTest(NetCodeTestWorld testWorld, int entitiesToSpawn = 1)
+        void SetupBasicTest(NetCodeTestWorld testWorld, NetCodeTestLatencyProfile latencyProfile, int entitiesToSpawn = 1)
         {
             var ghostGameObject = new GameObject();
             ghostGameObject.AddComponent<TestNetCodeAuthoring>().Converter = new StaticOptimizationTestConverter();
@@ -42,7 +45,7 @@ namespace Unity.NetCode.Tests
             ghostConfig.OptimizationMode = GhostOptimizationMode.Static;
 
             Assert.IsTrue(testWorld.CreateGhostCollection(ghostGameObject));
-
+            testWorld.SetTestLatencyProfile(latencyProfile);
             testWorld.CreateWorlds(true, 1);
 
             for (int i = 0; i < entitiesToSpawn; ++i)
@@ -52,7 +55,7 @@ namespace Unity.NetCode.Tests
             }
 
             // Connect and make sure the connection could be established
-            testWorld.Connect();
+            testWorld.Connect(maxSteps:16);
 
             // Go in-game
             testWorld.GoInGame();
@@ -62,13 +65,13 @@ namespace Unity.NetCode.Tests
                 testWorld.Tick();
         }
         [Test]
-        public void StaticGhostsAreNotSent()
+        public void StaticGhostsAreNotSent([Values]NetCodeTestLatencyProfile latencyProfile)
         {
             using (var testWorld = new NetCodeTestWorld())
             {
                 testWorld.Bootstrap(true);
 
-                SetupBasicTest(testWorld, 16);
+                SetupBasicTest(testWorld, latencyProfile, 16);
 
                 var clientEntityManager = testWorld.ClientWorlds[0].EntityManager;
                 using var clientQuery = clientEntityManager.CreateEntityQuery(ComponentType.ReadOnly<GhostOwner>());
@@ -100,7 +103,7 @@ namespace Unity.NetCode.Tests
             }
         }
         [Test]
-        public void GhostsCanBeStaticWhenChunksAreDirty()
+        public void GhostsCanBeStaticWhenChunksAreDirty([Values]NetCodeTestLatencyProfile latencyProfile)
         {
             using (var testWorld = new NetCodeTestWorld())
             {
@@ -108,7 +111,7 @@ namespace Unity.NetCode.Tests
                 testWorld.Bootstrap(true, typeof(StaticOptimizationTestSystem));
                 StaticOptimizationTestSystem.s_ModifyNetworkId = 1;
 
-                SetupBasicTest(testWorld, 16);
+                SetupBasicTest(testWorld, latencyProfile, 16);
 
                 var clientEntityManager = testWorld.ClientWorlds[0].EntityManager;
                 using var clientQuery = clientEntityManager.CreateEntityQuery(ComponentType.ReadOnly<GhostOwner>());
@@ -140,38 +143,66 @@ namespace Unity.NetCode.Tests
             }
         }
         [Test]
-        public void StaticGhostsAreNotApplied()
+        public void StaticGhostsAreNotApplied([Values]NetCodeTestLatencyProfile latencyProfile)
         {
             using (var testWorld = new NetCodeTestWorld())
             {
-                testWorld.Bootstrap(true);
+                const int entitiesToSpawn = 7;
+                const int constantlyChangingIndex = 3;
+                testWorld.Bootstrap(true, typeof(StaticOptimizationTestSystem));
+                StaticOptimizationTestSystem.s_ModifyNetworkId = constantlyChangingIndex;
 
-                SetupBasicTest(testWorld);
+                SetupBasicTest(testWorld, latencyProfile, entitiesToSpawn);
 
-                var clientEnt = testWorld.TryGetSingletonEntity<GhostOwner>(testWorld.ClientWorlds[0]);
-                Assert.AreNotEqual(Entity.Null, clientEnt);
+                // Set one to be constantly modified.
+                var clientEm = testWorld.ClientWorlds[0].EntityManager;
+                var clientEntities = clientEm.CreateEntityQuery(ComponentType.ReadWrite<GhostOwner>()).ToEntityArray(Allocator.Temp);
+                Assert.AreEqual(entitiesToSpawn, clientEntities.Length);
+                clientEm.SetComponentData(clientEntities[constantlyChangingIndex], new GhostOwner{NetworkId = constantlyChangingIndex});
 
-                var clientEntityManager = testWorld.ClientWorlds[0].EntityManager;
+                // Write some CLIENT data directly into the ghost fields, so we can verify that it was not touched by
+                // the ghost apply of the constantly changing entity.
+                var expectedPos = new float3(3, 4, 5);
+                var expectedRot = Mathematics.quaternion.Euler(5, 6, 7);
+                const int expectedScale = 8;
+                for (var i = 0; i < clientEntities.Length; i++)
+                {
+                    clientEm.SetComponentData(clientEntities[i], new LocalTransform
+                    {
+                        Position = expectedPos,
+                        Rotation = expectedRot,
+                        Scale = expectedScale,
+                    });
+                }
 
-                // Write some data to a ghost field and verify that it was not touched by the ghost apply
-                clientEntityManager.SetComponentData(clientEnt, new GhostOwner{NetworkId = 42});
-
-                // Run a bit longer
-                for (int i = 0; i < 16; ++i)
+                // Tick for a bit:
+                for(int i = 0; i < 16; i++)
                     testWorld.Tick();
 
-                Assert.AreEqual(42, clientEntityManager.GetComponentData<GhostOwner>(clientEnt).NetworkId);
+                // Run test:
+                for (var i = 0; i < clientEntities.Length; i++)
+                {
+                    var clientTrans = clientEm.GetComponentData<LocalTransform>(clientEntities[i]);
+                    var serverTick = testWorld.GetSingleton<NetworkTime>(testWorld.ClientWorlds[0]).ServerTick;
+                    // Note: GhostField's are "applied" on a per-field basis, so other GhostFields on this struct shouldn't change,
+                    // even when the LocalTransform.Position does!
+                    if (i == constantlyChangingIndex)
+                        Assert.AreNotEqual(expectedPos, clientTrans.Position, $"Unexpectedly NOT changed on idx:{i} i.e. ServerTick:{serverTick.ToFixedString()}");
+                    else Assert.AreEqual(expectedPos, clientTrans.Position, $"Unexpected change on idx:{i} i.e. ServerTick:{serverTick.ToFixedString()}");
+                    Assert.AreEqual(expectedRot, clientTrans.Rotation, $"Unexpected change on idx:{i} i.e. ServerTick:{serverTick.ToFixedString()}");
+                    Assert.AreEqual(expectedScale, clientTrans.Scale, $"Unexpected change on idx:{i} i.e. ServerTick:{serverTick.ToFixedString()}");
+                }
             }
         }
         [Test]
-        public void StaticGhostsAreSentWhenModified()
+        public void StaticGhostsAreSentWhenModified([Values]NetCodeTestLatencyProfile latencyProfile)
         {
             using (var testWorld = new NetCodeTestWorld())
             {
                 testWorld.Bootstrap(true, typeof(StaticOptimizationTestSystem));
-                StaticOptimizationTestSystem.s_ModifyNetworkId = 1;
+                StaticOptimizationTestSystem.s_ModifyNetworkId = -1;
 
-                SetupBasicTest(testWorld);
+                SetupBasicTest(testWorld, latencyProfile);
 
                 var clientEnt = testWorld.TryGetSingletonEntity<GhostOwner>(testWorld.ClientWorlds[0]);
                 Assert.AreNotEqual(Entity.Null, clientEnt);
@@ -191,11 +222,10 @@ namespace Unity.NetCode.Tests
                 clientSnapshot = clientEntityManager.GetComponentData<SnapshotData>(clientEnt);
                 Assert.AreEqual(lastSnapshot, clientSnapshot.GetLatestTick(clientSnapshotBuffer));
 
-                // Run one tick with modification
+                // Run N ticks with modifications
                 StaticOptimizationTestSystem.s_ModifyNetworkId = 0;
                 testWorld.Tick();
-                StaticOptimizationTestSystem.s_ModifyNetworkId = 1;
-
+                StaticOptimizationTestSystem.s_ModifyNetworkId = -1;
                 for (int i = 0; i < 16; ++i)
                     testWorld.Tick();
 
@@ -215,63 +245,14 @@ namespace Unity.NetCode.Tests
             }
         }
         [Test]
-        public void DynamicGhostsInSameChunkAsStaticAreSent()
-        {
-            using (var testWorld = new NetCodeTestWorld())
-            {
-                testWorld.Bootstrap(true, typeof(StaticOptimizationTestSystem));
-                StaticOptimizationTestSystem.s_ModifyNetworkId = 1;
-
-                // Spawn 16 ghosts
-                SetupBasicTest(testWorld, 16);
-                // Set the ghost id for one of them to 1 so it is modified
-                using var serverQuery = testWorld.ServerWorld.EntityManager.CreateEntityQuery(ComponentType.ReadOnly<GhostOwner>());
-                var serverEntities = serverQuery.ToEntityArray(Allocator.Temp);
-                Assert.AreEqual(16, serverEntities.Length);
-                testWorld.ServerWorld.EntityManager.SetComponentData(serverEntities[0], new GhostOwner{NetworkId = 1});
-
-                // Get the changes across to the client
-                for (int i = 0; i < 16; ++i)
-                    testWorld.Tick();
-
-                var clientEntityManager = testWorld.ClientWorlds[0].EntityManager;
-                using var clientQuery = clientEntityManager.CreateEntityQuery(ComponentType.ReadOnly<GhostOwner>());
-                Entity clientEnt = Entity.Null;
-                var clientEntities = clientQuery.ToEntityArray(Allocator.Temp);
-                Assert.AreEqual(16, clientEntities.Length);
-                for (int i = 0; i < clientEntities.Length; ++i)
-                {
-                    if (clientEntityManager.GetComponentData<GhostOwner>(clientEntities[i] ).NetworkId == 1)
-                    {
-                        Assert.AreEqual(Entity.Null, clientEnt);
-                        clientEnt = clientEntities[i];
-                    }
-                }
-                Assert.AreNotEqual(Entity.Null, clientEnt);
-
-                // Store the last tick we got for this
-                var clientSnapshotBuffer = clientEntityManager.GetBuffer<SnapshotDataBuffer>(clientEnt);
-                var clientSnapshot = clientEntityManager.GetComponentData<SnapshotData>(clientEnt);
-                var lastSnapshot = clientSnapshot.GetLatestTick(clientSnapshotBuffer);
-
-                // Run a bit longer
-                for (int i = 0; i < 16; ++i)
-                    testWorld.Tick();
-                // Verify that we are getting updates for the ghost
-                clientSnapshotBuffer = clientEntityManager.GetBuffer<SnapshotDataBuffer>(clientEnt);
-                clientSnapshot = clientEntityManager.GetComponentData<SnapshotData>(clientEnt);
-                Assert.AreNotEqual(lastSnapshot, clientSnapshot.GetLatestTick(clientSnapshotBuffer));
-            }
-        }
-        [Test]
-        public void RelevancyChangesSendsStaticGhosts()
+        public void RelevancyChangesSendsStaticGhosts([Values]NetCodeTestLatencyProfile latencyProfile)
         {
             using (var testWorld = new NetCodeTestWorld())
             {
                 testWorld.Bootstrap(true);
 
                 // Spawn 16 ghosts
-                SetupBasicTest(testWorld, 16);
+                SetupBasicTest(testWorld, latencyProfile, 16);
                 // Set the ghost id for one of them to 1 so it is modified
                 using var serverQuery = testWorld.ServerWorld.EntityManager.CreateEntityQuery(ComponentType.ReadOnly<GhostOwner>());
                 int ghostId;

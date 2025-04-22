@@ -171,6 +171,7 @@ namespace Unity.NetCode
         BufferLookup<GhostCollectionPrefabSerializer> m_GhostCollectionPrefabSerializerFromEntity;
         BufferLookup<GhostCollectionComponentIndex> m_GhostCollectionComponentIndexFromEntity;
 
+        /// <inheritdoc/>
         [BurstCompile]
         public void OnCreate(ref SystemState state)
         {
@@ -202,12 +203,16 @@ namespace Unity.NetCode
             state.EntityManager.SetName(smoothingSingleton, singletonName);
             SystemAPI.SetSingleton(new GhostPredictionSmoothing(m_SmoothingActions, m_UserSpecifiedComponentData, enableQuery));
         }
+
+        /// <inheritdoc/>
         [BurstCompile]
         public void OnDestroy(ref SystemState state)
         {
             m_UserSpecifiedComponentData.Dispose();
             m_SmoothingActions.Dispose();
         }
+
+        /// <inheritdoc/>
         [BurstCompile]
         public void OnUpdate(ref SystemState state)
         {

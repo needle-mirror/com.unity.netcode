@@ -1,9 +1,6 @@
 using System;
-using System.Diagnostics.Contracts;
-using System.Runtime.CompilerServices;
 using Unity.Burst;
 using Unity.Collections;
-using Unity.NetCode.LowLevel.Unsafe;
 using UnityEngine.Scripting;
 
 namespace Unity.NetCode
@@ -94,15 +91,15 @@ namespace Unity.NetCode
             ref DataStreamWriter writer, in StreamCompressionModel compressionModel);
 
         /// <summary>
-        /// Serialise the snapshot dato to the <paramref name="writer"/> based on the calculated changemask.
-        /// Expecte the changemask bits be all already set.
+        /// Serialise the snapshot data to the <paramref name="writer"/> based on the calculated changemask.
+        /// Expect the changemask bits be all already set.
         /// </summary>
         /// <param name="snapshot">Snapshot pointer</param>
         /// <param name="baseline">Snapshot baseline</param>
         /// <param name="changeMaskData">Change mask data</param>
         /// <param name="startOffset">start offset</param>
         /// <param name="writer">data stream writer</param>
-        /// <param name="compressionModel">comrpession model</param>
+        /// <param name="compressionModel">Compression model</param>
         void Serialize([ReadOnly][NoAlias] IntPtr snapshot, [ReadOnly][NoAlias] IntPtr baseline,
             [NoAlias][ReadOnly]IntPtr changeMaskData, int startOffset,
             ref DataStreamWriter writer, in StreamCompressionModel compressionModel);

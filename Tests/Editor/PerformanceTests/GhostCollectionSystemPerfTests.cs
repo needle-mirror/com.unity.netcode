@@ -10,7 +10,7 @@ using Unity.Transforms;
 
 namespace Unity.NetCode.Tests.Performance
 {
-    public class GhostCollectionSystemPerfTest
+    public class PerformanceTests
     {
         private const int numPrefabs = 1000;
 
@@ -48,15 +48,70 @@ namespace Unity.NetCode.Tests.Performance
             ComponentType.ReadWrite<EnableableComponent_10>()
         };
 
+        private int oldJobWorker;
+        private bool oldJobDebuggerEnabled;
+
+        [SetUp]
+        public void Startup()
+        {
+            oldJobWorker = JobsUtility.JobWorkerCount;
+            oldJobDebuggerEnabled = JobsUtility.JobDebuggerEnabled;
+            JobsUtility.JobWorkerCount = 0;
+            JobsUtility.JobDebuggerEnabled = false;
+        }
+        [TearDown]
+        public void ResetJobUtilty()
+        {
+            JobsUtility.JobWorkerCount = oldJobWorker;
+            JobsUtility.JobDebuggerEnabled = oldJobDebuggerEnabled;
+        }
+
+        [Test, Performance]
+        public void UseSingleBaseline([Values]bool useSingleBaseline)
+        {
+            using var testWorld = new NetCodeTestWorld();
+            testWorld.Bootstrap(true);
+            testWorld.CreateWorlds(true, 1);
+            //Check perf on main thread only for now.
+
+            var serverEntity = CreatePrefab($"Prefab", testWorld.ServerWorld.EntityManager, 5, RootTypes, ChildTypes,
+                useSingleBaseline);
+            CreatePrefab($"Prefab", testWorld.ClientWorlds[0].EntityManager, 5, RootTypes, ChildTypes,
+                useSingleBaseline);
+
+            testWorld.Connect();
+            testWorld.GoInGame();
+            for (int i = 0; i < 32; ++i)
+            {
+                testWorld.Tick();
+            }
+            for(int i=0;i<30;++i)
+                testWorld.ServerWorld.EntityManager.Instantiate(serverEntity);
+            var serverRecorders = PerfTestRecorder.CreateRecorders(testWorld.ServerWorld,
+                testWorld.ServerWorld.GetExistingSystem<GhostSendSystem>());
+            var clientRecorders = PerfTestRecorder.CreateRecorders(testWorld.ClientWorlds[0],
+                testWorld.ClientWorlds[0].GetExistingSystem<GhostReceiveSystem>());
+            //Get all markers for the ghost collections
+            PerfTestRecorder.StartRecording(serverRecorders);
+            PerfTestRecorder.StartRecording(clientRecorders);
+
+            for (int i = 0; i < 256; ++i)
+            {
+                testWorld.Tick();
+            }
+            PerfTestRecorder.StopRecording(serverRecorders);
+            PerfTestRecorder.StopRecording(clientRecorders);
+            //2 sample per frame per marker because the same marker is present on client and server
+            PerfTestRecorder.Report(serverRecorders, "server");
+            PerfTestRecorder.Report(clientRecorders, "client");
+        }
+
         [Test, Performance]
         public void ImportLargeNumberOfPrefabs()
         {
             using var testWorld = new NetCodeTestWorld();
             testWorld.Bootstrap(true);
             testWorld.CreateWorlds(true, 1);
-            //Check perf on main thread only for now.
-            JobsUtility.JobWorkerCount = 0;
-            JobsUtility.JobDebuggerEnabled = false;
             testWorld.Connect();
             testWorld.GoInGame();
             for (int i = 0; i < 32; ++i)
@@ -98,7 +153,7 @@ namespace Unity.NetCode.Tests.Performance
         }
 
         private Entity CreatePrefab(string name, EntityManager entityManager, int numChild,
-            ComponentType[] rootTypes,  ComponentType[] childTypes)
+            ComponentType[] rootTypes,  ComponentType[] childTypes, bool useSingleBaseline = false)
         {
             var compSet = new ComponentTypeSet(rootTypes);
             var archetype = entityManager.CreateArchetype(rootTypes);
@@ -150,6 +205,7 @@ namespace Unity.NetCode.Tests.Performance
                 DefaultGhostMode = GhostMode.Predicted,
                 OptimizationMode = GhostOptimizationMode.Dynamic,
                 UsePreSerialization = false,
+                UseSingleBaseline = useSingleBaseline,
                 CollectComponentFunc = default
             },overrides);
             return entity;

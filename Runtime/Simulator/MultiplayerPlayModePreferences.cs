@@ -252,7 +252,7 @@ namespace Unity.NetCode
             }
         }
 
-        /// <summary>Specifies the number of frames the rolling average is calcualted over.</summary>
+        /// <summary>Specifies the number of frames the rolling average is calculated over.</summary>
         public static int WarnBatchedTicksRollingWindow
         {
             get => EditorPrefs.GetInt(s_WarnBatchedTicksRollingWindow, 4);

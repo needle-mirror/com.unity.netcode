@@ -1,7 +1,9 @@
 #if UNITY_EDITOR
 using System;
+using System.Diagnostics;
 using UnityEngine;
 using UnityEditor;
+using UnityEngine.Analytics;
 
 namespace Unity.NetCode.Analytics
 {
@@ -73,6 +75,24 @@ namespace Unity.NetCode.Analytics
         {
             SessionState.EraseString(NetCodeGhostConfiguration);
         }
+
+#if UNITY_2023_2_OR_NEWER
+        internal static void SendAnalytic(IAnalytic data)
+        {
+            try
+            {
+                EditorAnalytics.SendAnalytic(data);
+            }
+            catch (Exception e)
+            {
+                UnityEngine.Debug.LogException(e);
+            }
+        }
+#else
+        internal static void SendAnalytic(object data)
+        {
+        }
+#endif
     }
 }
 #endif

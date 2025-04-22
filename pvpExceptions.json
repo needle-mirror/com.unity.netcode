@@ -1,0 +1,31 @@
+{
+  "per_package": {
+    "com.unity.netcode@1": {
+      "exempts": {
+        "PVP-41-1": {
+          "errors": [
+            "CHANGELOG.md: line 5: Unreleased section is not allowed for public release"
+          ]
+        },
+        "PVP-130-2": {
+          "errors": [
+            "Editor/Drawers/Unity.NetCode.Drawers.Editor.asmdef: assembly name does not match filename: Unity.NetCode.Editor.Drawers",
+            "Editor/Templates/Unity.NetCode.CodeGenTemplates.Editor.asmdef: assembly name does not match filename: Unity.NetCode.Editor.CodeGenTemplates",
+            "Tests/Editor/Physics/Unity.NetCode.Physics.Editor.Tests.asmdef: assembly name does not match filename: Unity.NetCode.Physics.EditorTests",
+            "Tests/Editor/Unity.NetCode.Editor.Tests.asmdef: assembly name does not match filename: Unity.NetCode.EditorTests",
+            "Tests/Runtime/Utils/Unity.NetCode.TestsUtils.Runtime.Tests.asmdef: assembly name does not match filename: Unity.NetCode.TestsUtils"
+          ]
+        },
+        "PVP-132-2": {
+          "errors": [
+            "Editor/Drawers/Unity.NetCode.Drawers.Editor.asmdef: name of editor assembly should end with '.Editor'",
+            "Editor/Templates/Unity.NetCode.CodeGenTemplates.Editor.asmdef: name of editor assembly should end with '.Editor'",
+            "Tests/Editor/Physics/Unity.NetCode.Physics.Editor.Tests.asmdef: name of editor test assembly should end with '.Editor.Tests', not '.EditorTests'",
+            "Tests/Editor/Unity.NetCode.Editor.Tests.asmdef: name of editor test assembly should end with '.Editor.Tests', not '.EditorTests'",
+            "Tests/Runtime/Utils/Unity.NetCode.TestsUtils.Runtime.Tests.asmdef: name of runtime test assembly should end with '.Runtime.Tests' or '.Tests'"
+          ]
+        }
+      }
+    }
+  }
+}

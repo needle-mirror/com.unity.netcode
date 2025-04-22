@@ -2,6 +2,7 @@ using System;
 using System.Diagnostics;
 using Unity.Burst;
 using Unity.Collections;
+using Unity.Collections.LowLevel.Unsafe;
 
 namespace Unity.NetCode.LowLevel.Unsafe
 {
@@ -114,12 +115,14 @@ namespace Unity.NetCode.LowLevel.Unsafe
             }
             else
             {
-                var defaulteElementBaseline = stackalloc byte[serializer.SizeInSnapshot];
+                var defaultElementBaseline = stackalloc byte[serializer.SizeInSnapshot];
+                UnsafeUtility.MemClear(defaultElementBaseline, serializer.SizeInSnapshot);
+
                 for (int j = 0; j < len; ++j)
                 {
                     serializer.Serialize(
                         snapshotDynamicDataPtr + maskSize + offset,
-                        (IntPtr)defaulteElementBaseline, dynamicMaskBitsPtr, dynamicMaskOffset, ref writer, compressionModel);
+                        (IntPtr)defaultElementBaseline, dynamicMaskBitsPtr, dynamicMaskOffset, ref writer, compressionModel);
                     offset += dynamicDataSize;
                     bOffset += dynamicDataSize;
                     dynamicMaskOffset += changeMaskBits;

@@ -27,6 +27,7 @@ namespace Unity.NetCode.Editor
         SerializedProperty MaxSendRate;
         SerializedProperty PredictedSpawnedGhostRollbackToSpawnTick;
         SerializedProperty RollbackPredictionOnStructuralChanges;
+        SerializedProperty UseSingleBaseline;
 
         internal static Color brokenColor = new Color(1f, 0.56f, 0.54f);
         internal static Color brokenColorUIToolkit = new Color(0.35f, 0.19f, 0.19f);
@@ -50,6 +51,7 @@ namespace Unity.NetCode.Editor
             MaxSendRate = serializedObject.FindProperty(nameof(GhostAuthoringComponent.MaxSendRate));
             PredictedSpawnedGhostRollbackToSpawnTick = serializedObject.FindProperty(nameof(GhostAuthoringComponent.RollbackPredictedSpawnedGhostState));
             RollbackPredictionOnStructuralChanges = serializedObject.FindProperty(nameof(GhostAuthoringComponent.RollbackPredictionOnStructuralChanges));
+            UseSingleBaseline = serializedObject.FindProperty(nameof(GhostAuthoringComponent.UseSingleBaseline));
         }
 
         public override void OnInspectorGUI()
@@ -144,7 +146,31 @@ namespace Unity.NetCode.Editor
                 }
             }
 
-            EditorGUILayout.PropertyField(OptimizationMode);
+            var canBeStaticOptimized = !self.GhostGroup; // TODO - Disable if any child ghost components exist.
+            if (canBeStaticOptimized)
+            {
+                EditorGUILayout.PropertyField(OptimizationMode);
+            }
+            else
+            {
+                EditorGUILayout.HelpBox("This ghost prefab has enabled GhostGroup usage, therefore it cannot be static-optimized. Forcing `OptimizationMode.Dynamic` - the user-specified value will be ignored.", MessageType.Info);
+                GUI.enabled = false;
+                EditorGUILayout.PropertyField(OptimizationMode);
+                GUI.enabled = true;
+            }
+
+            if (self.OptimizationMode == GhostOptimizationMode.Static)
+            {
+                EditorGUILayout.HelpBox("The ghost prefab is using `Static` optimization mode, therefore forcibly serialized by server using a single baseline. Forcing `UseSingleBaseline:true` - the user-specified value will be ignored.", MessageType.Info);
+                GUI.enabled = false;
+                EditorGUILayout.Toggle(new GUIContent("Use Single Baseline", UseSingleBaseline.tooltip), true);
+                GUI.enabled = true;
+            }
+            else
+            {
+                UseSingleBaseline.boolValue = EditorGUILayout.Toggle(new GUIContent("Use Single Baseline", UseSingleBaseline.tooltip), UseSingleBaseline.boolValue);
+            }
+
             EditorGUILayout.PropertyField(HasOwner);
 
             if (self.HasOwner)
@@ -153,7 +179,6 @@ namespace Unity.NetCode.Editor
                 EditorGUILayout.PropertyField(TrackInterpolationDelay);
             }
             EditorGUILayout.PropertyField(GhostGroup);
-            EditorGUILayout.PropertyField(UsePreSerialization);
 
             if(self.SupportedGhostModes != GhostModeMask.Interpolated)
             {

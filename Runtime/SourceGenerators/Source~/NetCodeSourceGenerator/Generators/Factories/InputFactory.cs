@@ -9,7 +9,6 @@ namespace Unity.NetCode.Generators
         public static void Generate(IReadOnlyList<SyntaxNode> inputCandidates, CodeGenerator.Context codeGenContext, GeneratorExecutionContext executionContext)
         {
             var typeBuilder = new TypeInformationBuilder(codeGenContext.diagnostic, codeGenContext.executionContext, TypeInformationBuilder.SerializationMode.Commands);
-            var rootNamespace = codeGenContext.generatedNs;
             foreach (var syntaxNode in inputCandidates)
             {
                 codeGenContext.executionContext.CancellationToken.ThrowIfCancellationRequested();
@@ -19,28 +18,25 @@ namespace Unity.NetCode.Generators
                 var candidateSymbol = model.GetDeclaredSymbol(syntaxNode) as INamedTypeSymbol;
                 if (candidateSymbol == null)
                     continue;
-                // If the serializer type already exist we can just skip generation
-                if (codeGenContext.executionContext.Compilation.GetSymbolsWithName(GetSyncInputName(candidateSymbol)).FirstOrDefault() != null)
-                {
-                    codeGenContext.diagnostic.LogDebug($"Skipping code-gen for {candidateSymbol.Name} because a command data wrapper for it exists already");
-                    continue;
-                }
-
                 codeGenContext.ResetState();
                 var typeInfo = typeBuilder.BuildTypeInformation(candidateSymbol, null);
-                NameUtils.UpdateNameAndNamespace(ref typeInfo, rootNamespace, ref codeGenContext, ref candidateSymbol);
                 if (typeInfo == null)
                     continue;
+                NameUtils.UpdateNameAndNamespace(typeInfo,  ref codeGenContext, candidateSymbol);
+                // If the serializer type already exist we can just skip generation
+                if (codeGenContext.executionContext.Compilation.GetSymbolsWithName(GetSyncInputName(codeGenContext)).FirstOrDefault() != null)
+                {
+                    codeGenContext.diagnostic.LogDebug($"Skipping code-gen for {codeGenContext.generatorName} because a command data wrapper for it exists already");
+                    continue;
+                }
                 codeGenContext.types.Add(typeInfo);
                 codeGenContext.diagnostic.LogInfo($"Generating command data wrapper for ${typeInfo.TypeFullName}");
                 CodeGenerator.GenerateCommand(codeGenContext, typeInfo, CommandSerializer.Type.Input);
             }
-
-            codeGenContext.generatedNs = rootNamespace;
         }
-        static private string GetSyncInputName(INamedTypeSymbol symbol)
+        static private string GetSyncInputName(CodeGenerator.Context context)
         {
-            return $"{symbol.Name}InputBufferData";
+            return $"{context.generatorName.Replace(".", "").Replace('+', '_')}InputBufferData";
         }
     }
 }

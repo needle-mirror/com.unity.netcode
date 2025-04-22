@@ -492,31 +492,45 @@ namespace Unity.NetCode
         [Tooltip("This is the maximum accepted ping. RTT will be clamped to this value when calculating the server tick on the client, which means if ping is higher than this, the server will get old commands.\n\nIncreasing this makes the client able to deal with higher ping, but higher-ping clients will then need to run more prediction steps, which incurs more CPU time.")]
         [Range(0, 500)]
         public uint MaxPredictAheadTimeMS;
+
         /// <summary>
-        ///     The netcode package will automatically destroy client predicted spawns if they are not classified by the
-        ///     time the <see cref="NetworkTime.InterpolationTick" /> passes the <c>spawnTick</c> of the client predicted spawn
-        ///     (see <see cref="PredictedGhostSpawnSystem.CleanupPredictedSpawns" />).
-        ///     <br />
-        ///     However, this default behaviour can be too aggressive, as:
-        ///     <list type="bullet">
-        ///         <item>High snapshot congestion can lead to new ghost spawn replication delays.</item>
-        ///         <item>
-        ///             If your InterpolationTimeMS buffer window is configured to be very short (the default),
-        ///             netcode is likely to destroy the vast majority of client predicted spawns before they are even able
-        ///             to be received for the first time.
-        ///         </item>
-        ///         <item>Connections experiencing frequent packet loss may fail to receive new ghost snapshots on time.</item>
-        ///     </list>
-        ///     <br />
-        ///     This value denotes the additional number of <see cref="ClientServerTickRate.SimulationTickRate" /> ticks to
-        ///     keep all client predicted ghosts alive for, increasing the likelihood of them being successfully classified.
+        ///     <para>
+        ///         The netcode package will automatically destroy client predicted spawns if they are not classified by the
+        ///         time the <see cref="NetworkTime.InterpolationTick" /> passes the <b>spawnTick</b> of the client predicted spawn
+        ///         (see <see cref="PredictedGhostSpawnSystem.CleanupPredictedSpawns" />).
+        ///     </para>
+        ///     <para>
+        ///         However, this default behaviour can be too aggressive in its destruction of predicted ghosts, as:
+        ///         <list type="bullet">
+        ///             <item>
+        ///                 Having a large number of relevant ghosts (for a given connection) can cause new ghost spawn replication delays,
+        ///                 even without the presence of packet loss, due to the fact that snapshot capacity and send rate are constrained
+        ///                 (via GhostSendSystemData.DefaultSnapshotPacketSize and ClientServerTickRate.NetworkTickRate respectively).
+        ///             </item>
+        ///             <item>
+        ///                 All forms of packet loss can add delays to the replication and acknowledgement of new ghost spawns, as the snapshots
+        ///                 can themselves be dropped, as can the ack mask sent by the client via the CommandSendSystem. Note: High jitter
+        ///                 also leads to packet loss.
+        ///             </item>
+        ///             <item>
+        ///                 If your InterpolationTimeMS (or InterpolationTimeNetTicks) buffer window is configured
+        ///                 to be very short (the default), the netcode package has fewer opportunities to replicate this new
+        ///                 spawn.
+        ///                 If this is a frequent occurance, you may want to consider increasing this interpolation buffer window,
+        ///                 before tweaking this.
+        ///             </item>
+        ///         </list>
+        ///     </para>
+        ///     <para>
+        ///         This value denotes the additional number of client prediction ticks to keep all client predicted ghosts alive for,
+        ///         increasing the likelihood of them being successfully classified against their late-arriving, server-authoritative counterparts.
+        ///     </para>
         /// </summary>
         /// <remarks>
-        ///     Increasing this value will also cause <b>mis-predicted</b> client predicted spawns to live for much longer,
-        ///     which may (or may not) be desirable.
+        ///     Note that increasing this value will also cause <b>mis-predicted</b> client predicted spawns to live longer.
         ///     <br />
-        ///     Also note: If you frequently encounter client predicted ghosts which fail to classify within the Interpolation
-        ///     Window, this may indicate that the window is too short. Consider increasing it.
+        ///     Also note: If you frequently encounter client predicted ghosts which fail to classify within the <b>Interpolation
+        ///     Window</b>, this may indicate that said window is too short. Consider increasing it.
         /// </remarks>
         [Tooltip("Denotes how many additional <b>SimulationTickRate</b> ticks that all client predicted spawns will live for, increasing the likelihood of them being successfully classified against the real ghost sent by the authoritative server.\n\nDefaults to 0 (OFF).")]
         public ushort NumAdditionalClientPredictedGhostLifetimeTicks;

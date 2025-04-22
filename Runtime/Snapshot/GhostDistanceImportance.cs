@@ -44,15 +44,18 @@ namespace Unity.NetCode
         /// </summary>
         public int3 TileCenter;
         /// <summary>
-        /// Width of the tile border. When deciding whether an entity is on one or the other,
-        /// the border where it can enter is determined by this parameter.
+        /// An optimization. Denotes the width of each tiles border.
+        /// When deciding whether an entity has moved to another tile, this border value is added as an additional distance
+        /// threshold requirement, reducing the frequency of expensive structural changes for ghosts that commonly move
+        /// around a lot within a small area.
         /// </summary>
         public float3 TileBorderWidth;
     }
 
     /// <summary>
-    /// Computes distance based importance scaling.
+    /// This is the default implementation of the <see cref="GhostImportance"/> API. It computes a distance-based importance scaling factor.
     /// I.e. Entities far away from a clients importance focal point (via <see cref="GhostConnectionPosition"/>) will be sent less often.
+    /// Further reading: https://docs.unity3d.com/Packages/com.unity.netcode@latest/index.html?subfolder=/manual/optimizations.html#importance-scaling
     /// </summary>
     [BurstCompile]
     public struct GhostDistanceImportance

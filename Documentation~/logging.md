@@ -49,7 +49,7 @@ It can be forced off by adding `NETCODE_NDEBUG` define to the project settings, 
 >[!NOTE]
 > Nuances: We also use this define to guard additional debug functionality. For example: `PrefabDebugName`, `WarnAboutStaleRpcSystem` etc.
 > Netcode's external browser tool - Net Debugger (Unity NetDbg) - can be enabled via `NETCODE_DEBUG`, but cannot be disabled via `NETCODE_NDEBUG`.
-> Setting `LogLevel` for `NetDebug` (via `NetCodeDebugConfig`) doesn't affect netcode's `UnityEngine.Debug` logging at all, either. 
+> Setting `LogLevel` for `NetDebug` (via `NetCodeDebugConfig`) doesn't affect netcode's `UnityEngine.Debug` logging at all, either.
 
 ### Netcode debug, info, warning, and error logs
 
@@ -74,33 +74,33 @@ You can easily customize the logging level and enable packet dumping by either:
 To debug specific connections, user-code needs to be written, adding the `EnablePacketLogging` component to said connection entities.
 
 ## Input (i.e. Command) Packet Dumps
-Packet dumps include information about the current input commands being sent. 
+Packet dumps include information about the current input commands being sent.
 An example output on a client world dump:
 ```text
 [CSS][ShipCommandData:15257441568649283849] Sent for inputTargetTick: 262 | Entity(1205:3) on GhostInst[type:0|id:191,st:56] | isAutoTarget:True
-	| stableHash: 64 bits [8 bytes]
-	| commandSize: 16 bits [2 bytes]
-	| autoCommandTargetGhost: 64 bits [8 bytes]
-	| numCommandsToSend(4): 5 bits
-	[b]=[355|→-1 ↑-1] (tick: 32 bits [4 bytes]) (data: 8 bits)
-	[1]=[354|→-1 ↑-1] (cb: 0) (tΔ: 2 bits)
-	[2]=[353|→-1 ↑-1] (cb: 0) (tΔ: 2 bits)
-	[3]=[352|→1 ↑-1] (cb: 1) (tΔ: 2 bits) (data: 6 bits)
-	| payloadTicks: 38 bits [5 bytes]
-	| payload: 10 bits [2 bytes]
-	| changeBits: 3 bits
-	| flush: 5 bits
-	---
-	208 bits [26 bytes]
+    | stableHash: 64 bits [8 bytes]
+    | commandSize: 16 bits [2 bytes]
+    | autoCommandTargetGhost: 64 bits [8 bytes]
+    | numCommandsToSend(4): 5 bits
+    [b]=[355|→-1 ↑-1] (tick: 32 bits [4 bytes]) (data: 8 bits)
+    [1]=[354|→-1 ↑-1] (cb: 0) (tΔ: 2 bits)
+    [2]=[353|→-1 ↑-1] (cb: 0) (tΔ: 2 bits)
+    [3]=[352|→1 ↑-1] (cb: 1) (tΔ: 2 bits) (data: 6 bits)
+    | payloadTicks: 38 bits [5 bytes]
+    | payload: 10 bits [2 bytes]
+    | changeBits: 3 bits
+    | flush: 5 bits
+    ---
+    208 bits [26 bytes]
 ```
 * `[CSS]` is the CommandSendSystem.
 * `[ShipCommandData:15257441568649283849]` is the type name and hash of the input type.
 * `Sent for inputTargetTick: 262 | Entity(1205:3) on GhostInst[type:0|id:191,st:56] | isAutoTarget:True` denotes details of the entity that this input was raised on.
 * `stableHash` is the bits required to send the hash of the input type.
 * `commandSize` is the size of the command payload.
-* `autoCommandTargetGhost` is the size of sending the ghost. 
-* `numCommandsToSend(4)` is the size of the field used to send the count of commands included in this payload. In this case, 4 commands. 
-* `[b]` here refers to the **baseline** input. I.e. The most recent (a.k.a. newest) input raised on the client. 
+* `autoCommandTargetGhost` is the size of sending the ghost.
+* `numCommandsToSend(4)` is the size of the field used to send the count of commands included in this payload. In this case, 4 commands.
+* `[b]` here refers to the **baseline** input. I.e. The most recent (a.k.a. newest) input raised on the client.
 * `[1]` (and so on) denotes the index of the previous input sent in this packet. `[1]` denotes the previous input before the baseline, `[2]` denotes the input raised before that, and so on.
 * `[355|→-1 ↑-1]` refers to `InputBufferData<YourInputTypeHere>`, with a tick value of `355`, and a user defined `ToFixedString` override returning `→-1 ↑-1`. In this case: NetCube's `CubeInput`.
 * `[Invalid|...]` denotes that we don't have an input entry for the previous tick, which is only expected on game start. Arguably we could simply not send these `Invalid` inputs, but the `numCommandsToSend` has an expected value, so culling them may be misleading.
@@ -119,14 +119,14 @@ An example output on a client world dump:
 Example output on the server world dump:
 ```text
 [CRS][3480158943696179440] Received command packet from Entity(623:9) on GhostInst[type:??|id:191,st:56] targeting tick 355:
-	| arrivalTick:353
-	| margin:2
-	[b]=[355|→-1 ↑-1]
-	[1]=[354|→-1 ↑-1] (cb:0)
-	[2]=[353|→-1 ↑-1] (cb:0)
-	[3]=[352|→1 ↑-1] (cb:1) Late!
-	---
-	26 bytes
+    | arrivalTick:353
+    | margin:2
+    [b]=[355|→-1 ↑-1]
+    [1]=[354|→-1 ↑-1] (cb:0)
+    [2]=[353|→-1 ↑-1] (cb:0)
+    [3]=[352|→1 ↑-1] (cb:1) Late!
+    ---
+    26 bytes
 ```
 * _See above for additional info. You can see how this Server dump mirrors the Client's dump, but with different meta-data._
 * `[CRS]` is the CommandReceiveSystem.

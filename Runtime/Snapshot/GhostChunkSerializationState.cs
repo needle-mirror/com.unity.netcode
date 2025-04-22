@@ -116,7 +116,9 @@ namespace Unity.NetCode.LowLevel.Unsafe
         {
             return ((MetaData*)snapshotData)->startIndex;
         }
-        public void SetLastUpdate(NetworkTick tick)
+        /// <summary>Denotes a full (i.e. non-partial) send occurred.</summary>
+        /// <param name="tick">The tick the send occurred on.</param>
+        public void SetLastFullUpdate(NetworkTick tick)
         {
             ((MetaData*)snapshotData)->lastUpdate = tick;
             ((MetaData*)snapshotData)->startIndex = 0;
@@ -286,6 +288,11 @@ namespace Unity.NetCode.LowLevel.Unsafe
                 snapshotDynamicData = temp;
             }
         }
+
+        public FixedString64Bytes ZeroChangeFixedString()
+        {
+            return $"ZC[{GetFirstZeroChangeTick().ToFixedString()},{GetFirstZeroChangeVersion()}]";
+        }
     }
 
     static class ConnectionGhostStateExtensions
@@ -301,13 +308,16 @@ namespace Unity.NetCode.LowLevel.Unsafe
             //The initial state for pre-spawned ghosts must be set to relevant, otherwise clients may not received despawn messages
             //for prespawn that has been destroyed or marked as irrelevant. It is also mandatory for static optimization since
             //we never actually send information to the client until the prespawns changed state.
-            if (state.SpawnTick != cleanup.spawnTick)
+            if (state.SpawnTick != cleanup.spawnTick || (state.Flags & ConnectionStateData.GhostStateFlags.Initialized) == 0)
+            {
                 state = new ConnectionStateData.GhostState
                 {
                     SpawnTick = cleanup.spawnTick,
-                    Flags = isPrespawnGhost ? ConnectionStateData.GhostStateFlags.IsRelevant : 0
+                    Flags = isPrespawnGhost
+                        ? ConnectionStateData.GhostStateFlags.Initialized | ConnectionStateData.GhostStateFlags.IsRelevant
+                        : ConnectionStateData.GhostStateFlags.Initialized,
                 };
-
+            }
             return ref state;
         }
     }
@@ -318,7 +328,8 @@ namespace Unity.NetCode.LowLevel.Unsafe
         {
             IsRelevant = 1,
             SentWithChanges = 2,
-            CantUsePrespawnBaseline = 4
+            CantUsePrespawnBaseline = 4,
+            Initialized = 8,
         }
         [StructLayout(LayoutKind.Sequential)]
         public struct GhostState

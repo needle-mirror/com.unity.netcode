@@ -102,7 +102,7 @@ namespace Unity.NetCode
     /// optimization.
     /// InternalBufferCapacity allocated to almost max out chunk memory.
     /// </summary>
-    [InternalBufferCapacity(600)]
+    [InternalBufferCapacity(0)]
     [GhostComponent(PrefabType = GhostPrefabType.All)]
     internal struct PrespawnSceneLoaded : IBufferElementData
     {
@@ -130,7 +130,7 @@ namespace Unity.NetCode
     /// to a scene that contains prespawned ghosts.
     /// InternalBufferCapacity is set to (approximately) max out the chunk.
     /// </summary>
-    [InternalBufferCapacity(950)]
+    [InternalBufferCapacity(0)]
     internal struct PrespawnGhostIdRange : IBufferElementData
     {
         //the scene for witch the range apply to

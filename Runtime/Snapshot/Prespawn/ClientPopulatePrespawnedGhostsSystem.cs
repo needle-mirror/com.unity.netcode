@@ -53,6 +53,7 @@ namespace Unity.NetCode
             MetadataNotMatch
         }
 
+        /// <inheritdoc/>
         [BurstCompile]
         public void OnCreate(ref SystemState state)
         {
@@ -75,6 +76,8 @@ namespace Unity.NetCode
             state.RequireForUpdate<GhostCollection>();
             state.RequireForUpdate<PrespawnSceneLoaded>();
         }
+
+        /// <inheritdoc/>
         [BurstCompile]
         public void OnUpdate(ref SystemState state)
         {

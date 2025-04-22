@@ -162,6 +162,10 @@ namespace Unity.NetCode
             /// </summary>
             public bool RollbackPredictionOnStructuralChanges;
             /// <summary>
+            /// Instruct the <see cref="GhostSendSystem"/> to always use a single baseline for this ghost archetype.
+            /// </summary>
+            public bool UseSingleBaseline;
+            /// <summary>
             /// Optional, custom deterministic function that retrieve all no-backing and serializable component types for this ghost. By serializable,
             /// we means components that either have ghost fields (fields with a <see cref="GhostFieldAttribute"/> attribute)
             /// or a <see cref="GhostComponentAttribute"/>.
@@ -471,6 +475,7 @@ namespace Unity.NetCode
             {
                 root.PredictedSpawnedGhostRollbackToSpawnTick = ghostConfig.PredictedSpawnedGhostRollbackToSpawnTick;
                 root.RollbackPredictionOnStructuralChanges = ghostConfig.RollbackPredictionOnStructuralChanges;
+                root.UseSingleBaseline = ghostConfig.UseSingleBaseline;
             }
             else
             {

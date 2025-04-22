@@ -142,7 +142,7 @@ namespace Unity.NetCode
         protected override void OnUpdate()
         {
             var clientNetTime = SystemAPI.GetSingleton<NetworkTime>();
-            var targetTick = NetworkTimeHelper.LastFullServerTick(clientNetTime);
+            var targetTick = clientNetTime.ServerTick;
             // Make sure we only send a single ack per tick - only triggers when using dynamic timestep
             if (targetTick.IsValid && targetTick != m_LastServerTick)
                 base.OnUpdate();
@@ -253,7 +253,7 @@ namespace Unity.NetCode
         public void OnUpdate(ref SystemState state)
         {
             var clientNetTime = SystemAPI.GetSingleton<NetworkTime>();
-            var targetTick = NetworkTimeHelper.LastFullServerTick(clientNetTime);
+            var targetTick = clientNetTime.ServerTick;
             // The time left util interpolation is at the given tick, the delta should be increased by this
             var subTickDeltaAdjust = 1 - clientNetTime.InterpolationTickFraction;
             // The time left util we are actually at the server tick, the delta should be reduced by this
@@ -645,6 +645,7 @@ namespace Unity.NetCode
         /// <summary>
         /// Initialize the helper struct, should be called from OnCreate in an ISystem.
         /// </summary>
+        /// <param name="state"><see cref="SystemState"/></param>
         public void OnCreate(ref SystemState state)
         {
             var builder = new EntityQueryBuilder(Allocator.Temp)
@@ -690,7 +691,7 @@ namespace Unity.NetCode
             m_AutoCommandTargetFromEntity.Update(ref state);
 
             var clientNetTime = m_networkTimeQuery.GetSingleton<NetworkTime>();
-            var targetTick = NetworkTimeHelper.LastFullServerTick(clientNetTime);
+            var targetTick = clientNetTime.ServerTick;
             var targetEntities = m_autoTargetQuery.ToEntityListAsync(state.WorldUpdateAllocator, out var autoHandle);
 
             // NumAdditionalCommandsToSend is really important! Why?

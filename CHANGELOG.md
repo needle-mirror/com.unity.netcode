@@ -2,50 +2,26 @@
 uid: changelog
 ---
 
-## [1.5.0-exp.101] - 2025-03-13
-
-### Fixed
-
-* Fix broken link in the documentation.
-
-
-## [1.5.0-exp.100] - 2025-03-11
-
-### Changed
-
-* Big documentation overhaul for host migration feature.
-* Don't add input component buffers to host migration data. These can cause issues after host migration when they have inputs event counters set to some value where the migrated clients will be start counts starting from 0. The increment/decrement mechanism breaks.
-* Ghost IDs and spawn ticks in the `GhostInstance` component will now be preserved for non-prespawn ghosts between host migrations.
-
-### Fixed
-
-* UpdateSize in the `HostMigrationStats` component is now correct when using compression
-* Issue with the native list size being incorrectly re-sized in `HostMigration.GetHostMigrationData`
-* Test failures when packet dumps are enabled
-* Issue where old prespawn snapshot data would still exist for clients after a host migration causing deserialization errors.
-
-## [1.5.0-exp.2] - 2025-02-10
-
-### Changed
-
-* Added more sections to the documentation with information about what to look out for during a host migration.
-* Renamed `HostMigration.MigrateServerData` to `HostMigration.SetHostMigrationData` and made it public. It's the counterpart to `GetHostMigrationData`. `MigrateDataToNewServerWorld` is now optional to use.
-* Added a world parameter to the public APIs `GetHostMigrationData`/`TryGetHostMigrationData`.
-
-### Fixed
-
-* Issue where the relay connection setup would fail after host migrations. Stopped using fixed listening ports on the server.
-* Issue with incorrect host migration size being uploaded. When the host migration data blob was small it would cause errors during deployment.
-* Issue when the host configuration part of the migration data was over 1KB in size.
-
-## [1.5.0-exp.1] - 2025-01-28
+## [1.5.0] - 2025-04-22
 
 ### Added
 
 * The `AutomaticThinClientWorldsUtility` class, which facilitates runtime creation (and management) of thin clients. It is available to user-code, and when in `PlayType.Server`.
-* `ClientTickRate.NumAdditionalClientPredictedGhostLifetimeTicks`, which can be used to tune down a common issue where (correctly predicted) client predicted spawns are despawned by the netcode package before they can be classified against their server-side counterparts (i.e. which may arrive shortly after).
-* Exposed the implicit `k_TickPeriod` range constant (defaulting to `±5 ticks`) in the default classification system as `ClientTickRate.DefaultClassificationAllowableTickPeriod`. This may help fix esoteric default classification related errors, particularly when the server is frequently batching ticks (leading to large tick deltas). Prefer writing your own classification system, though, which can take advantage of project-specific GhostField data.
-* Host migration feature for simple projects. APIs are provided to save the current server world state, mostly related to current ghosts (`HostMigration.GetHostMigrationData`) and then to deploy a given server state data blob to a new server world (`HostMigration.MigrateDataToNewServerWorld`). This can be used with the Unity Lobby service to better facilitate host migrations with session persistence. See Host Migration section in the manual for more information.
+* `ClientTickRate.NumAdditionalClientPredictedGhostLifetimeTicks`, which can be used to fine-tune/alleviate a common issue where **correctly predicted** client predicted spawns are de-spawned by the netcode package **before** they have an opportunity to be classified against their server-side counterparts, which is a common occurrence when said spawns replicate later than expected (which can happen for a variety of reasons). The default behaviour is to have them despawn if they have not been classified by the `NetworkTime.InterpolationTick`. This value extends this threshold by this many additional ticks. However, if ghosts are frequently unable to replicate by the `NetworkTime.InterpolationTick`, then your interpolation buffer may be too small. I.e. Consider tweaking `ClientTickRate.InterpolationTimeMS` (or the `InterpolationTimeNetTicks` equivalent) first. For further reading, refer to the [interpolation docs here](Documentation~/interpolation.md).
+* Exposed the `k_TickPeriod` range constant (defaulting to `±5 ticks`) in the default classification system as `ClientTickRate.DefaultClassificationAllowableTickPeriod`. This may help fix esoteric default classification related errors, particularly when the server is frequently batching ticks (leading to large tick deltas). That said; prefer writing your own classification system, which can take advantage of project-specific `GhostField` data to more accurately classify predicted spawns.
+* `ClientServerBootstrap.AllNetCodeWorldsEnumerator` and `ClientServerBootstrap.AllClientWorldsEnumerator` helpers.
+* Doc on gotcha with custom template serialization and byte alignment.
+* Tests (and a packet dump entry & warning log) covering the case where clients are impacted by the unfathomably rare `MaxBaselineAge` edge-case.
+* FixedList replication support for RPC, Command, and components (IComponentData, IBufferElementData, IInputComponentData). Some limitation apply, see the doc for further info.
+* unsafe fixed buffer replication support for RPC, Command, and components (IComponentData, IBufferElementData, IInputComponentData). Some limitation apply, see the doc for further info.
+* GhostAuthoringComponent.UseSingleBaseline`, denoting that this prefab type should force 'single baseline' delta-compression during serialization, which can lead to significant CPU savings at the cost of marginally increased bandwidth consumption, particularly for ghosts with many components, and/or with many GhostField's which rarely change.
+* new templates for serializing bytes and short using 8 and 16 bits instead of a full 32 bit data, when they are sent uncompressed.
+* Static-optimized ghosts now report their `CanUseStaticOptimization` (CUSO) status to the packet dump (including the `ComponentType` of the first detected changed version), which should aid debugging efforts.
+* Broad packet dump data improvements, at the cost of worsened server performance when enabled.
+* missing documentation in regards what are the fields types for which prediction errors are reported.
+* Documentation and test coverage regarding the `GhostGroup` feature.
+* Test and doc coverage of `[GhostField]` C# unions (via `[StructLayout(LayoutKind.Explicit)]`), which are supported (with many caveats).
+* Test coverage of `NetworkStreamSnapshotTargetSize`, UTP's `MaxMessageSize`, and `GhostSystemConstants.MaxSnapshotSendAttempts`.
 
 ### Changed
 
@@ -53,6 +29,22 @@ uid: changelog
 * **Behaviour Breaking Change:** The `AddCommandData` method will now reject inputs with `Invalid` Tick values, preventing runtime exceptions in rare cases.
 * **Behaviour Breaking Change:** The `DefaultDriverConstructor` no longer removes the IPC driver when `RequestedPlayType == Server`, as thin clients can now be instantiated on DGS builds (assuming supported by user-code).
 * **Value Breaking Change:** Increased the Lag Compensation Physics `CollisionWorld` history buffer capacity from 16 ticks to 32 ticks, as the previous buffer was too small for some use-cases. However, the default value (when using `LagCompensationConfig.ServerHistorySize:0`) remains at 16. Increasing this will allocate more collision worlds, increasing the memory consumption on the `ServerWorld`, particularly with very large physics scenes, and therefore should only be done if you intend to support high-ping players (i.e. you're often seeing `PhysicsWorldHistorySingleton.GetCollisionWorldFromTick` clamp a clients history to the last/oldest stored value). Also note the change to the public const `PhysicsWorldHistory.RawHistoryBufferMaxCapacity` (from 16 to 32).
+* Replaced usage of the deprecated com.unity.services.relay package dependency with version 1.1.0 of the unified com.unity.services.multiplayer package
+* Incremental improvement to the Network Debugger (Browser) tool.
+* Fixed some issues when GhostPresentationGameObjectSystem is used outside playmode (i.e in tests) and GameObject are disposed without using Object.DisposeImmediate.
+* Added `[InternalBufferCapacity(0)]` to all the Netcode package dynamic buffers, to avoid storing the buffer inside the chunk.
+* Improved debugging of ghost entities. by making ghost prefab maintain their name even when a sub-scene is closed. Spawned entities from these prefabs consistently keep the name as well. Pre-spawend entities does not maintain names yet.
+* `CommandSendSystem` will now send commands for the current tick instead of the last tick. This means that input will be sent 1 tick earlier, effectively meaning the server will receive input for a client earlier as well. As another consequence, clients will run one less prediction loop, due to needing less slack to ensure commands are sent in time.
+* package templates are not embedded anymore in the generator dll. Instead, they are all provided as additional files to the generators.
+* The Editor/Template folder has been removed and all templates moved to Runtime/SourceGenerator/Templates folder.
+* It is not required to compile the SourceGenerator dlls when one off the Netcode package templates (because they are not embedded) is modified.
+* **Behaviour Breaking Change:** When even a single ghost is too large to fit into a snapshot packet, the number of send re-attempts is now capped at `GhostSystemConstants.MaxSnapshotSendAttempts` i.e. 8 (which means we've made the snapshot packet 128x larger, most likely heavily fragmenting it). Also, you will now receive a performance warning on each failed send attempt iteration when `NetDebug.LogLevel` is `LogLevelType.Debug`. Also, the `GhostSendSystem.SerializeJob.GatherGhostChunksBatch` step will no longer be repeated, reducing the overhead of the operation significantly.
+* Added analytics to editor tools
+* The minimum supported editor version is now 2022.3.20f1
+
+### Removed
+
+* the internal GhostPredictionSwitchingSystemForThinClient system has been removed (complexity reduction)
 
 ### Fixed
 
@@ -63,6 +55,29 @@ uid: changelog
 * Bug causing user-created thin client worlds to be automatically cleaned up by the netcode package due to `RequestedNumThinClients`. Now, only worlds which are created via the `AutomaticThinClientWorldsUtility` (or manually added by user-code to its tracking list) will be automatically disposed.
 * Inconsistencies in documentation around RollbackPredictionOnStructuralChanges have been fixed and sorted out a couple of typos.
 * Issue with prespawned ghosts not updating anymore after the client disconnects and reconnects to a server.
+* Issue where Ghost Importance Scaling would throw if the `GhostDistancePartitionShared` (or user-code equivalent `GhostImportancePerChunkDataType`) was only added to a subset of ghost instances.
+* The `GhostDistancePartitioningSystem` is now significantly faster in cases where the `GhostDistancePartitionShared` is able to successfully exclude unchanged `LocalTransform` chunks (via change filtering). `AddSharedDistancePartitionJob` is now `.ScheduleParallel` (from `.Schedule`), as there is no reason not to queue ECB operations in parallel.
+* an issue in MultiPhysics sample, causing particle emitter not spawning particles in the client-only physics world.
+* an issues with GhostPresentationGameObjectSystem throwing ObjectDisposedExceptions when entity are destroyed.
+* an issues with GhostPresentationGameObjectSystem throwing exceptions trying accessing ComponentLookup after structural changes.
+* **Behaviour Breaking Change:** Issue where static-optimized, interpolated ghosts where not correctly **disabling** extrapolation for `GhostField`s. Extrapolation is not supported for static-optimized, interpolated ghosts, even ones marked up as `SmoothingAction.InterpolateAndExtrapolate`.
+* an issue with the source generated files, not opening correctly in the IDE when an error (i.e compilation error) is reported in the Editor.
+* an issue that was preventing debugging any code-generated ghost serializer because symbols weren't loaded by the debugger.
+* an issue causing compilation error because of duplicate symbols when trying to add to the project one of the generated serialize (i.e RPC or Component).
+* an issue with BeginFixedStepCommandBufferSystem and EndFixedStepCommandBufferSystem, not updating the same number of times as the PhysicsGroup when they run inside the PredictedSimulationSystemGroup. That was causing unexpected behaviours and some exceptions in certain cases. Now the BeginFixedStepCommandBufferSystem and EndFixedStepCommandBufferSystem update once per physics step. IMPORTANT: while this a correct fix, it is a sort for breaking-change behaviour. If your project is using multiple physics step per predicted tick, and you were relying on this behaviour, you may now get all the queue command buffer changes executed either at the being or the end of every physics step.
+* Fixed deprecated warning when serializing NetworkEndpoint. Added serialization for NetworkEndpoint for RPCs, Commands and GhostFields.
+* **Behaviour Breaking Change:** All rare recoverable and unrecoverable client-side snapshot deserialization errors are now reported via warning logging (with corresponding packet dump entries). Fixed the related cases where the client would never fully recover from these supposedly recoverable snapshot errors, due to ghost chunk acks not being correctly cleared in all cases. However, we have noted this as a potential breaking change because this fix also ensures that static optimized ghosts will now always lose their `CanUseStaticOptimization` ack optimization (upon encountering said recoverable error), thus leading to the connection needing to be resent all ghost chunks (as if they had just reconnected to the server). Also note the added statistics entry `SnapshotPacketLoss.NumClientAckErrorsEncountered`.
+* Static ghosts will now remember a client ack beyond the `SnapshotAckMaskCapacity` tick window - assuming it was acked by the ack mask during a previous `GhostSendSystem` ghost chunk iteration - and assuming the client has not triggered a snapshot deserialization error event leading to the entire ack mask buffer being cleared.
+* Previously, static optimized ghosts would send a 'zero-change' snapshot to the client (i.e. a snapshot containing a chunk full of ghosts with 0s for their change-mask bits) before concluding that this ghost chunk can be skipped in subsequent send attempts. This resulted in far more snapshot packets being sent than were strictly necessary (particularly; at scale, and when first synchronizing state upon successful connection to the server). This 'zero change' snapshot data is now correctly culled from the packet, leading to significant bandwidth and CPU savings.
+* Significantly improved `SpawnGhostJob` performance in editor & development builds, particularly when spawning thousands of ghosts on a single tick.
+* an issue when using custom chunk serializer and pre-serialized ghosts. The pre-serializer ghost data was not copied into the per-chunk internal snapshot buffer, causing potential crashes (in case buffers were present) and serializing un-initialized values.
+* an issue with GhostStatsSystems throwing an index-out-of-bound exceptions when accessing the PredictionError buffers. The buffer was not resized correctly when the number of prediction errors is large enough to cause a clamping on the number of predicted fields names.
+* an issue when using custom templates for type that handle different smoothing options. This was failing validation and causing compilation error, even when it was not the case.
+* Case where `GhostUpdateSystem.RestorePredictionBackup` would cause change version changes on unchanged child components (as `PredictionBackupJob` was not updating the `childChangeVersions` pointer when `HasGhostFields == 0 && SerializesEnabledBit != 0`).
+* "Size limitation on snapshot did not prevent all errors" and improper serialization of a ghost group root when the group is empty and the available space in the data stream is not enough to encode the length of the group (0, that takes 2 bits).
+* missing reset of the entity sent state when a group fail to serialize. The serialized children entity were incorrectly reported to be sent, potentially causing improper baseline used by the server to delta compress the data.
+* incorrect warning message when run in background is disable.
+* Esoteric `IBufferElementData` serialization issue caused by an incorrect assumption that `stackalloc` would default init its elements.
 
 
 ## [1.4.0] - 2024-11-14

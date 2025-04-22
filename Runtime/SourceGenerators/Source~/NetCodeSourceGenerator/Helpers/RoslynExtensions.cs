@@ -15,7 +15,45 @@ namespace Unity.NetCode.Roslyn
     /// </summary>
     internal static class Extensions
     {
-        private static bool IsPrimitive(ITypeSymbol symbol)
+        public static int PrimitiveTypeAlignment(ITypeSymbol typeSymbol)
+        {
+            switch (typeSymbol.SpecialType)
+            {
+                case SpecialType.System_Boolean:
+                    return 1;
+                case SpecialType.System_Char:
+                    return 2;
+                case SpecialType.System_SByte:
+                    return 1;
+                case SpecialType.System_Byte:
+                    return 1;
+                case SpecialType.System_Int16:
+                    return 2;
+                case SpecialType.System_UInt16:
+                    return 2;
+                case SpecialType.System_Int32:
+                    return 4;
+                case SpecialType.System_UInt32:
+                    return 4;
+                case SpecialType.System_Int64:
+                    return 8;
+                case SpecialType.System_UInt64:
+                    return 8;
+                case SpecialType.System_Single:
+                    return 4;
+                case SpecialType.System_Double:
+                    return 8;
+                case SpecialType.System_IntPtr:
+                    return 8;
+                case SpecialType.System_UIntPtr:
+                    return 8;
+                default:
+                    throw new InvalidOperationException(
+                        $"cannot get data alignment for unsupported type {typeSymbol.ToDisplayString()}.");
+            }
+        }
+
+        public static bool IsPrimitive(ITypeSymbol symbol)
         {
             switch (symbol.SpecialType)
             {
@@ -50,6 +88,13 @@ namespace Unity.NetCode.Roslyn
                 default:
                     return false;
             }
+        }
+
+        public static bool IsIntegerType(ITypeSymbol symbol)
+        {
+            return
+                symbol.SpecialType != SpecialType.System_Single &&
+                symbol.SpecialType != SpecialType.System_Double;
         }
 
         public static string GetFieldTypeName(this ITypeSymbol type)
@@ -94,12 +139,21 @@ namespace Unity.NetCode.Roslyn
                    symbol.SpecialType == SpecialType.System_Enum;
         }
 
-        public static string GetUnderlyingTypeName(ITypeSymbol enumType)
+        public static string GetUnderlyingTypeName(ITypeSymbol symbol)
         {
-            if (!IsEnum(enumType))
-                return string.Empty;
-            var underlyingType = ((INamedTypeSymbol) enumType).EnumUnderlyingType;
-            return underlyingType?.ToDisplayString(QualifiedTypeFormatNoSpecial);
+            if (IsEnum(symbol))
+            {
+                var underlyingType = ((INamedTypeSymbol) symbol).EnumUnderlyingType;
+                return underlyingType?.ToDisplayString(QualifiedTypeFormatNoSpecial);
+            }
+            return string.Empty;
+        }
+
+        public static string GetGenericTypeName(ITypeSymbol symbol)
+        {
+            if(((INamedTypeSymbol)symbol).IsGenericType)
+                return symbol.ToDisplayString(GenericTypeFormat);
+            return string.Empty;
         }
 
         public static bool IsStruct(ITypeSymbol symbol)
@@ -108,6 +162,12 @@ namespace Unity.NetCode.Roslyn
                 symbol.TypeKind == TypeKind.Class;
         }
 
+        public static bool IsFixedList(ITypeSymbol symbol)
+        {
+            return symbol.IsValueType && ((INamedTypeSymbol)symbol).IsGenericType &&
+                symbol.ToDisplayString(QualifiedTypeFormat)
+                       .StartsWith("Unity.Collections.FixedList");
+        }
         public static bool IsBuffer(ITypeSymbol symbol)
         {
             return symbol.TypeKind == TypeKind.Struct &&
@@ -249,6 +309,10 @@ namespace Unity.NetCode.Roslyn
             typeQualificationStyle: SymbolDisplayTypeQualificationStyle.NameOnly,
             genericsOptions: SymbolDisplayGenericsOptions.IncludeTypeParameters,
             miscellaneousOptions: SymbolDisplayMiscellaneousOptions.EscapeKeywordIdentifiers);
+        private static SymbolDisplayFormat GenericTypeFormat = new SymbolDisplayFormat(
+            typeQualificationStyle: SymbolDisplayTypeQualificationStyle.NameAndContainingTypesAndNamespaces,
+            genericsOptions: SymbolDisplayGenericsOptions.None,
+            miscellaneousOptions: SymbolDisplayMiscellaneousOptions.EscapeKeywordIdentifiers);
         public static bool ImplementsInterface(this ITypeSymbol typeSymbol, string interfaceName)
         {
             using (new Profiler.Auto("ImplementsInterface"))
@@ -312,6 +376,10 @@ namespace Unity.NetCode.Roslyn
 
         public static string GetFullTypeName(this ISymbol symbol)
         {
+            if (symbol == null)
+                return string.Empty;
+            if (symbol is IPointerTypeSymbol)
+                return symbol.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
             var fullName = GetTypeNameWithDeclaringTypename(symbol);
             var ns = GetFullyQualifiedNamespace(symbol);
             if (string.IsNullOrEmpty(ns))

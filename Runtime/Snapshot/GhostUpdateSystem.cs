@@ -179,7 +179,6 @@ namespace Unity.NetCode
                 var entityRange = new NativeList<int2>(ghostComponents.Length, Allocator.Temp);
                 int2 nextRange = default;
                 var PredictedGhostArray = chunk.GetNativeArray(ref PredictedGhostType);
-                var canBeStatic = typeData.StaticOptimization;
                 bool isPrespawn = chunk.Has(ref prespawnGhostIndexType);
                 var restoreFromBackupRange = new NativeList<BackupRange>(ghostComponents.Length, Allocator.Temp);
                 var chunkEntities = chunk.GetNativeArray(entityType);
@@ -223,7 +222,7 @@ namespace Unity.NetCode
                     var snapshotDataBuffer = ghostSnapshotDataBufferArray[ent];
                     var ghostSnapshotData = ghostSnapshotDataArray[ent];
                     var latestTick = ghostSnapshotData.GetLatestTick(snapshotDataBuffer);
-                    bool isStatic = canBeStatic != 0 && ghostSnapshotData.WasLatestTickZeroChange(snapshotDataBuffer, changeMaskUints);
+                    bool isStatic = typeData.CanBeStaticOptimized();
 #if UNITY_EDITOR || NETCODE_DEBUG
                     if (latestTick.IsValid && !isStatic)
                     {
@@ -332,7 +331,8 @@ namespace Unity.NetCode
                         }
                         else
                         {
-                            // If this snapshot is static, and the data for the latest tick was applied during last interpolation update, we can just skip copying data
+                            // If this snapshot is static, and the data for the latest tick was applied during last interpolation update, we can just skip copying data.
+                            // Note: This also disables extrapolation on static-optimized, interpolated ghosts.
                             if (isStatic && latestTick.IsValid && lastInterpolatedTick.IsValid && !latestTick.IsNewerThan(lastInterpolatedTick))
                             {
                                 if (nextRange.y != 0)
@@ -866,8 +866,8 @@ namespace Unity.NetCode
                 int baseOffset = typeData.FirstComponent;
                 const GhostSendType requiredSendMask = GhostSendType.OnlyPredictedClients;
                 int numBaseComponents = typeData.NumComponents - typeData.NumChildComponents;
-                var allStates = stackalloc RestoreState[toRestore.Length];
-                var toUpdateIdx = stackalloc int[toRestore.Length];
+                Span<RestoreState> allStates = stackalloc RestoreState[toRestore.Length];
+                Span<int> toUpdateIdx = stackalloc int[toRestore.Length];
                 for (int i = 0; i < toRestore.Length; ++i)
                 {
                     allStates[i].dataPtr = PredictionBackupState.GetData(toRestore[i].backupState);
@@ -875,6 +875,7 @@ namespace Unity.NetCode
                     allStates[i].bufferBackupDataPtr = PredictionBackupState.GetBufferDataPtr(toRestore[i].backupState);
                     allStates[i].chunkVersionPtr = PredictionBackupState.GetChunkVersion(toRestore[i].backupState);
                     allStates[i].childChunkVersionPtr = allStates[i].chunkVersionPtr + numBaseComponents;
+                    toUpdateIdx[i] = -1; // For safety.
                 }
 
                 for (int comp = 0; comp < numBaseComponents; ++comp)
@@ -1129,6 +1130,9 @@ namespace Unity.NetCode
                             {
                                 allStates[entIndex].dataPtr = PredictionBackupState.GetNextData(allStates[entIndex].dataPtr, compSize,
                                     PredictionBackupState.GetEntityCapacity(toRestore[entIndex].backupState));
+                            }
+                            if (ghostSerializer.HasGhostFields || ghostSerializer.SerializesEnabledBit != 0)
+                            {
                                 allStates[entIndex].childChunkVersionPtr = PredictionBackupState.GetNextChildChunkVersion(allStates[entIndex].childChunkVersionPtr,
                                     PredictionBackupState.GetEntityCapacity(toRestore[entIndex].backupState));
                             }
@@ -1246,6 +1250,7 @@ namespace Unity.NetCode
         ComponentTypeHandle<GhostOwner> m_GhostOwnerType;
         ComponentTypeHandle<GhostOwnerIsLocal> m_GhostOwnerIsLocalType;
 
+        /// <inheritdoc/>
         public void OnCreate(ref SystemState systemState)
         {
 #if UNITY_2022_2_14F1_OR_NEWER
@@ -1295,6 +1300,8 @@ namespace Unity.NetCode
             m_GhostOwnerType = systemState.GetComponentTypeHandle<GhostOwner>(true);
             m_GhostOwnerIsLocalType = systemState.GetComponentTypeHandle<GhostOwnerIsLocal>();
         }
+
+        /// <inheritdoc/>
         public void OnDestroy(ref SystemState systemState)
         {
             m_LastInterpolatedTick.Dispose();
@@ -1302,6 +1309,7 @@ namespace Unity.NetCode
             m_NumPredictedGhostWithNewData.Dispose();
         }
 
+        /// <inheritdoc/>
         [BurstCompile]
         public void OnUpdate(ref SystemState systemState)
         {

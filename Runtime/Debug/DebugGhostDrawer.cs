@@ -3,6 +3,10 @@ using System;
 using System.Collections.Generic;
 using JetBrains.Annotations;
 using Unity.Entities;
+#if UNITY_EDITOR
+using Unity.NetCode.Analytics;
+using UnityEditor;
+#endif
 
 namespace Unity.NetCode
 {
@@ -16,7 +20,7 @@ namespace Unity.NetCode
         static DebugGhostDrawer s_Instance;
 
         public static List<CustomDrawer> CustomDrawers = new List<CustomDrawer>(2);
-        
+
         [Obsolete("Use ClientServerBootstrap.ServerWorld instead. RemoveAfter Entities 1.x")]
         public static World FirstServerWorld => ClientServerBootstrap.ServerWorld;
 
@@ -36,7 +40,7 @@ namespace Unity.NetCode
             CustomDrawers.Add(newDrawAction);
             CustomDrawers.Sort();
         }
-        
+
         [Obsolete("This functionality is obsolete, worlds are no longer cached here. RemoveAfter Entities 1.x")]
         public static void RefreshWorldCaches() {}
 
@@ -76,10 +80,18 @@ namespace Unity.NetCode
             string EnabledKey => Key + "_Enabled";
             string DetailsVisibleKey => Key + "_DetailsVisible";
 
+            private DebugGhostDrawerPreferencesUpdatedData m_PreferencesData;
+
             void EditorLoad()
             {
                 Enabled = UnityEditor.EditorPrefs.GetInt(EnabledKey, 0) != 0;
                 DetailsVisible = UnityEditor.EditorPrefs.GetInt(DetailsVisibleKey, 0) != 0;
+                m_PreferencesData = new DebugGhostDrawerPreferencesUpdatedData()
+                {
+                    name = Name,
+                    enabled = Enabled,
+                    detailVisible = DetailsVisible
+                };
             }
 
             public void EditorSave()
@@ -90,6 +102,17 @@ namespace Unity.NetCode
                 UnityEditor.EditorPrefs.SetInt(EnabledKey, Enabled ? 1 : 0);
                 UnityEditor.EditorPrefs.SetInt(DetailsVisibleKey, DetailsVisible ? 1 : 0);
                 m_EditorSaveAction?.Invoke();
+                var newPrefsData = new DebugGhostDrawerPreferencesUpdatedData()
+                {
+                    name = Name,
+                    enabled = Enabled,
+                    detailVisible = DetailsVisible
+                };
+                if (!newPrefsData.Equals(m_PreferencesData))
+                {
+                    m_PreferencesData = newPrefsData;
+                    NetCodeAnalytics.SendAnalytic(new DebugGhostDrawerPreferencesUpdatedAnalytic(m_PreferencesData));
+                }
             }
 #endif
 

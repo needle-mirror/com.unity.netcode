@@ -154,25 +154,8 @@ namespace Unity.NetCode.Generators
                 return;
 
             //Initialize template registry and register custom user type definitions
-            var typeRegistry = new TypeRegistry(DefaultTypes.Registry);
-            List<TypeRegistryEntry> customUserTypes;
-            using (new Profiler.Auto("LoadRegistryAndOverrides"))
-            {
-                customUserTypes = UserDefinedTemplateRegistryParser.ParseTemplates(executionContext, diagnostic);
-                typeRegistry.AddRange(customUserTypes);
-            }
-            var templateFileProvider = new TemplateFileProvider(diagnostic);
-            //Additional files always provides the extra templates in 2021.2 and newer. The templates files must end with .netcode.additionalfile extensions.
-            templateFileProvider.AddAdditionalTemplates(executionContext.AdditionalFiles, customUserTypes);
-            templateFileProvider.PerformAdditionalTypeRegistryValidation(customUserTypes);
-            if (!Helpers.SupportTemplateFromAdditionalFiles)
-            {
-                //template path are resolved dynamically using the current project path.
-                var pathResolver = new PathResolver(Helpers.ProjectPath);
-                pathResolver.LoadManifestMapping();
-                templateFileProvider.pathResolver = pathResolver;
-            }
-            var codeGenerationContext = new CodeGenerator.Context(typeRegistry, templateFileProvider, diagnostic, executionContext, executionContext.Compilation.AssemblyName);
+            ImportTemplates(executionContext, diagnostic, out var templateFileProvider);
+            var codeGenerationContext = new CodeGenerator.Context(templateFileProvider, diagnostic, executionContext, executionContext.Compilation.AssemblyName);
             // The ghost,commands and rpcs generation start here. Just loop through all the semantic models, check
             // the necessary conditions and pass the extract TypeInformation to our custom code generation system
             // that will build the necessary source code.
@@ -208,6 +191,32 @@ namespace Unity.NetCode.Generators
                 }
             }
             AddGeneratedSources(executionContext, codeGenerationContext);
+        }
+
+        private static void ImportTemplates(GeneratorExecutionContext executionContext, IDiagnosticReporter diagnostic,
+            out TemplateRegistry templateRegistry)
+        {
+            HashSet<string> generatorTemplates = new()
+            {
+                CodeGenerator.RpcSerializer,
+                CodeGenerator.CommandSerializer,
+                CodeGenerator.ComponentSerializer,
+                CodeGenerator.RegistrationSystem,
+                CodeGenerator.InputSynchronization,
+                CodeGenerator.GhostFixedListElement,
+                CodeGenerator.GhostFixedListContainer,
+                CodeGenerator.GhostFixedListCommandHelper,
+                CodeGenerator.GhostFixedListSnapshotHelpers,
+            };
+            List<TypeRegistryEntry> allFieldTemplates = new List<TypeRegistryEntry>(DefaultTypes.Registry);
+            using (new Profiler.Auto("LoadRegistryAndOverrides"))
+            {
+                allFieldTemplates.AddRange(UserDefinedTemplateRegistryParser.ParseTemplates(executionContext, diagnostic));
+            }
+            //Additional files always provides the extra templates in 2021.2 and newer. The templates files must end with .netcode.additionalfile extensions.
+            templateRegistry = new TemplateRegistry(diagnostic);
+            templateRegistry.AddTypeTemplates(allFieldTemplates);
+            templateRegistry.AddAdditionalTemplates(executionContext.AdditionalFiles, allFieldTemplates, generatorTemplates);
         }
 
         /// <summary>
@@ -304,26 +313,29 @@ namespace Unity.NetCode.Generators
                 {
                     executionContext.CancellationToken.ThrowIfCancellationRequested();
                     var sourceText = SourceText.From(nameAndSource.Code, System.Text.Encoding.UTF8);
-                    //Normalize filename for hint purpose. Special characters are not supported anymore
-                    //var hintName = uniqueName.Replace('/', '_').Replace('+', '-');
-                    //TODO: compute a normalized hash of that name using a common stable hash algorithm
-                    var sourcePath = Path.Combine($"{executionContext.Compilation.AssemblyName}", nameAndSource.GeneratedFileName);
-                    var hintName = Utilities.TypeHash.FNV1A64(sourcePath).ToString();
+                    var sourcePath = Path.Combine($"{executionContext.Compilation.AssemblyName}",
+                        nameAndSource.GeneratedFileName);
+                    //var hintName = Utilities.TypeHash.FNV1A64(sourcePath).ToString();
                     //With the new version of roslyn, is necessary to add to the generate file
                     //a first line with #line1 "sourcecodefullpath" so that when debugging the right
                     //file is used. IMPORTANT: the #line directive should be not in the file you save on
                     //disk to correct match the debugging line
-                    executionContext.AddSource(hintName, sourceText.WithInitialLineDirective(sourcePath));
+                    sourcePath = Path.Combine(Helpers.GetOutputPath(), sourcePath);
+                    var source = sourceText.WithInitialLineDirective(sourcePath);
+                    Debug.LogInfo($"output {nameAndSource.GeneratedFileName} to {sourcePath}");
                     try
                     {
                         if (Helpers.CanWriteFiles)
-                            File.WriteAllText(Path.Combine(Helpers.GetOutputPath(), sourcePath), sourceText.ToString());
+                            File.WriteAllText(sourcePath, source.ToString());
                     }
                     catch (System.Exception e)
                     {
                         //In the rare event/occasion when this happen, at the very least don't bother the user and move forward
                         Debug.LogWarning($"cannot write file {Path.Combine(Helpers.GetOutputPath(), sourcePath)}. An exception has been thrown:{e}");
                     }
+                    //var hintName = Utilities.TypeHash.FNV1A64(sourcePath).ToString();
+                    executionContext.AddSource(nameAndSource.GeneratedFileName, source);
+
                 }
             }
         }

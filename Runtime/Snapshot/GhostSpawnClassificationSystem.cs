@@ -32,7 +32,7 @@ namespace Unity.NetCode
     /// A classification system should only modify the SpawnType and PredictedSpawnEntity fields of this struct.
     /// InternalBufferCapacity allocated to almost max out chunk memory.
     /// </summary>
-    [InternalBufferCapacity(240)]
+    [InternalBufferCapacity(0)]
     public struct GhostSpawnBuffer : IBufferElementData
     {
         /// <summary>
@@ -177,6 +177,8 @@ namespace Unity.NetCode
     public partial struct GhostSpawnClassificationSystem : ISystem
     {
         private SnapshotDataLookupHelper m_spawnBufferHelper;
+
+        /// <inheritdoc/>
         [BurstCompile]
         public void OnCreate(ref SystemState state)
         {
@@ -187,6 +189,8 @@ namespace Unity.NetCode
             state.RequireForUpdate<GhostCollection>();
             state.RequireForUpdate<GhostSpawnQueue>();
         }
+
+        /// <inheritdoc/>
         [BurstCompile]
         public void OnUpdate(ref SystemState state)
         {

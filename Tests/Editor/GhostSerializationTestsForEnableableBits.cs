@@ -39,25 +39,18 @@ namespace Unity.NetCode.Tests
 
         private int GetNumTicksToReplicateGhostTypes(GhostTypeConverter.GhostTypes ghostTypes)
         {
-            switch (ghostTypes)
+            int numTicksForLatency = 12; // RTT16ms_PL5
+            return numTicksForLatency + ghostTypes switch
             {
-                case GhostTypeConverter.GhostTypes.EnableableComponent:
-                    return 6;
-                case GhostTypeConverter.GhostTypes.MultipleEnableableComponent:
-                    return 11;
-                case GhostTypeConverter.GhostTypes.EnableableBuffer:
-                    return 11;
-                case GhostTypeConverter.GhostTypes.MultipleEnableableBuffer:
-                    return 11;
-                case GhostTypeConverter.GhostTypes.ChildComponent:
-                    return 6;
-                case GhostTypeConverter.GhostTypes.ChildBufferComponent:
-                    return 6;
-                case GhostTypeConverter.GhostTypes.GhostGroup:
-                    return 6;
-                default:
-                    throw new ArgumentOutOfRangeException(nameof(ghostTypes), ghostTypes, null);
-            }
+                GhostTypeConverter.GhostTypes.EnableableComponent => 6,
+                GhostTypeConverter.GhostTypes.MultipleEnableableComponent => 11,
+                GhostTypeConverter.GhostTypes.EnableableBuffer => 11,
+                GhostTypeConverter.GhostTypes.MultipleEnableableBuffer => 11,
+                GhostTypeConverter.GhostTypes.ChildComponent => 6,
+                GhostTypeConverter.GhostTypes.ChildBufferComponent => 6,
+                GhostTypeConverter.GhostTypes.GhostGroup => 6,
+                _ => throw new ArgumentOutOfRangeException(nameof(ghostTypes), ghostTypes, null),
+            };
         }
 
         void SetLinkedBufferValues<T>(int value, bool enabled)
@@ -634,11 +627,11 @@ namespace Unity.NetCode.Tests
                 var isReplicatingAnything = IsExpectedToReplicateValue<T>(isRoot) || IsExpectedToReplicateEnabledBit<T>(isRoot);
 
                 if (m_ExpectChangeFilterToChange && isReplicatingAnything)
-                    Assert.IsTrue(didChangeSinceLastVerifyCall, $"[{componentType}] [Chunk:{chunkIdx}] Expected this component's change version to be updated, but it was not! {componentChangeVersionInChunk} vs {m_LastGlobalSystemVersion}. Implies a bug in GhostUpdateSystem Change Filtering.");
+                    Assert.IsTrue(didChangeSinceLastVerifyCall, $"[{componentType}] [Chunk:{chunkIdx}, {chunk.SequenceNumber}, isRoot:{isRoot}] Expected this component's change version to be updated, but it was not! {componentChangeVersionInChunk} vs {m_LastGlobalSystemVersion}.");
                 else if (m_ExpectChangeFilterToChange)
-                    Assert.IsFalse(didChangeSinceLastVerifyCall, $"[{componentType}] [Chunk:{chunkIdx}] We'd expected this component's change version to be updated, but it's not replicated, so it SHOULDN'T be changed! {componentChangeVersionInChunk} vs {m_LastGlobalSystemVersion}. Implies a bug in GhostUpdateSystem Change Filtering.");
+                    Assert.IsFalse(didChangeSinceLastVerifyCall, $"[{componentType}] [Chunk:{chunkIdx}, {chunk.SequenceNumber}, isRoot:{isRoot}] We'd expected this component's change version to be updated, but it's not replicated, so it SHOULDN'T be changed! {componentChangeVersionInChunk} vs {m_LastGlobalSystemVersion}.");
                 else
-                    Assert.IsFalse(didChangeSinceLastVerifyCall, $"[{componentType}] [Chunk:{chunkIdx}] We did not modify this component (nor it's enabled flag), so it SHOULDN'T be changed! {componentChangeVersionInChunk} vs {m_LastGlobalSystemVersion}. Implies a bug in GhostUpdateSystem Change Filtering.");
+                    Assert.IsFalse(didChangeSinceLastVerifyCall, $"[{componentType}] [Chunk:{chunkIdx}, {chunk.SequenceNumber}, isRoot:{isRoot}] We did not modify this component (nor it's enabled flag), so it SHOULDN'T be changed! {componentChangeVersionInChunk} vs {m_LastGlobalSystemVersion}.");
             }
         }
 
@@ -1182,6 +1175,8 @@ namespace Unity.NetCode.Tests
             }
 
             Assert.IsTrue(m_TestWorld.CreateGhostCollection(objects));
+
+            m_TestWorld.SetTestLatencyProfile(NetCodeTestLatencyProfile.RTT16ms_PL5);
             m_TestWorld.CreateWorlds(true, numClients);
 
             entityCount *= prefabCount;
@@ -1212,7 +1207,7 @@ namespace Unity.NetCode.Tests
                 }
             }
 
-            m_TestWorld.Connect();
+            m_TestWorld.Connect(maxSteps:16);
             m_TestWorld.GoInGame();
 
             // Perform test:
@@ -1238,7 +1233,7 @@ namespace Unity.NetCode.Tests
             // Testing Change Filtering: Expecting no change beyond this point!
             m_ExpectChangeFilterToChange = false;
             m_LastGlobalSystemVersion = m_TestWorld.ClientWorlds[0].EntityManager.GlobalSystemVersion;
-            TickMultipleFrames(15);
+            TickMultipleFrames(GetNumTicksToReplicateGhostTypes(type));
             VerifyGhostValues(999, true);
         }
 

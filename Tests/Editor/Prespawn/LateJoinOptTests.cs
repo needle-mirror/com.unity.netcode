@@ -1,10 +1,14 @@
+using System;
 using NUnit.Framework;
 using Unity.Collections;
 using Unity.Entities;
+using Unity.Mathematics;
 using Unity.NetCode.LowLevel.Unsafe;
 using UnityEditor;
 using UnityEngine;
 using Unity.NetCode.Tests;
+using Unity.Networking.Transport;
+using Unity.Transforms;
 
 namespace Unity.NetCode.PrespawnTests
 {
@@ -192,12 +196,17 @@ namespace Unity.NetCode.PrespawnTests
                 //To Disable the prespawn optimization, just remove the baselines
                 if (!enableFallbackBaseline)
                 {
-                    using var query = testWorld.ServerWorld.EntityManager.CreateEntityQuery(typeof(PrespawnGhostBaseline));
-                    testWorld.ServerWorld.EntityManager.RemoveComponent<PrespawnGhostBaseline>(query);
+                    var builder = new EntityQueryBuilder(Allocator.Temp).WithPresent<PrespawnGhostBaseline>().WithOptions(EntityQueryOptions.IncludeDisabledEntities);
+                    using var serverQuery = testWorld.ServerWorld.EntityManager.CreateEntityQuery(builder);
+                    Assert.AreEqual(numObjects, serverQuery.CalculateEntityCount(), "Sanity! Ensure it'll be removed!");
+                    testWorld.ServerWorld.EntityManager.RemoveComponent<PrespawnGhostBaseline>(serverQuery);
+                    Assert.AreEqual(0, serverQuery.CalculateEntityCount(), "Sanity! Ensure it has been removed!");
                     for (int i = 0; i < testWorld.ClientWorlds.Length; ++i)
                     {
-                        using var clientQuery = testWorld.ClientWorlds[i].EntityManager.CreateEntityQuery(typeof(PrespawnGhostBaseline));
+                        using var clientQuery = testWorld.ClientWorlds[i].EntityManager.CreateEntityQuery(builder);
+                        Assert.AreEqual(numObjects, clientQuery.CalculateEntityCount(), "Sanity! Ensure it'll be removed!");
                         testWorld.ClientWorlds[i].EntityManager.RemoveComponent<PrespawnGhostBaseline>(clientQuery);
+                        Assert.AreEqual(0, clientQuery.CalculateEntityCount(), "Sanity! Ensure it has been removed!");
                     }
                 }
 
@@ -370,8 +379,13 @@ namespace Unity.NetCode.PrespawnTests
             }
         }
 
-        [Test]
-        public void UsingStaticOptimzationServerDoesNotSendData()
+        /// <param name="keepSnapshotHistoryOnStructuralChange">
+        /// Ensures all <see cref="GhostChunkSerializer.UpdateChunkHistory"/> nuances are accounted for.
+        /// Also note: Adding a DynamicBuffer to this ghost ALSO forces <see cref="keepSnapshotHistoryOnStructuralChange"/> to false.
+        /// </param>
+        /// <param name="latencyProfile">Static-optimization should be tested under various conditions.</param>
+        [Test(Description = "Tests only the common set of static-optimized, prespawn ghost replication cases.")]
+        public void UsingStaticOptimizationServerDoesNotSendData([Values]bool keepSnapshotHistoryOnStructuralChange, [Values] NetCodeTestLatencyProfile latencyProfile)
         {
             const int numObjects = 10;
             //Set the scene with multiple prefab types
@@ -390,20 +404,21 @@ namespace Unity.NetCode.PrespawnTests
             {
                 //Create a scene with a subscene and a bunch of objects in it
                 testWorld.Bootstrap(true);
+                testWorld.SetTestLatencyProfile(latencyProfile);
                 testWorld.CreateWorlds(true, 1);
+                testWorld.GetSingletonRW<GhostSendSystemData>(testWorld.ServerWorld).ValueRW.KeepSnapshotHistoryOnStructuralChange = keepSnapshotHistoryOnStructuralChange;
 
                 //Stream the sub scene in
                 SubSceneHelper.LoadSubSceneInWorlds(testWorld);
-                testWorld.Connect();
+                testWorld.Connect(maxSteps:16);
                 CheckPrespawnArePresent(numObjects, testWorld);
                 testWorld.GoInGame();
 
                 uint uncompressed = 0;
                 uint totalDataReceived = 0;
                 uint numReceived = 0;
-                var collection = testWorld.TryGetSingletonEntity<GhostCollection>(testWorld.ClientWorlds[0]);
                 var recvGhostMapSingleton = testWorld.TryGetSingletonEntity<SpawnedGhostEntityMap>(testWorld.ClientWorlds[0]);
-                for(int tick=0;tick<16;++tick)
+                for (int tick = 0; tick < 16; ++tick)
                 {
                     testWorld.Tick();
                     var netStats = testWorld.ClientWorlds[0].EntityManager.GetComponentData<GhostStatsCollectionSnapshot>(testWorld.TryGetSingletonEntity<GhostStatsCollectionSnapshot>(testWorld.ClientWorlds[0])).Data;
@@ -415,18 +430,52 @@ namespace Unity.NetCode.PrespawnTests
                         uncompressed += netStats[9];
                     }
                 }
+
+                // TEST-CASE: Expect NO snapshot updates, as prespawns "waking up" (i.e. becoming enabled) doesn't require us to
+                // send individual ghosts (as they wake up as a result of their sub-scene being acked, and their prespawns
+                // being mapped, which happens via RPC IIRC).
                 Assert.AreEqual(0, numReceived);
                 Assert.AreEqual(0, uncompressed);
+                Assert.AreEqual(0, totalDataReceived);
+                numReceived = 0;
+                totalDataReceived = 0;
+                uncompressed = 0;
 
                 var serverQuery = testWorld.ServerWorld.EntityManager.CreateEntityQuery(ComponentType.ReadOnly<GhostInstance>(), ComponentType.ReadOnly<PreSpawnedGhostIndex>());
                 var serverGhosts = serverQuery.ToComponentDataArray<GhostInstance>(Allocator.Temp);
                 var serverEntities = serverQuery.ToEntityArray(Allocator.Temp);
                 var ghostCollectionEntity = testWorld.ClientWorlds[0].EntityManager.CreateEntityQuery(typeof(GhostCollection)).GetSingletonEntity();
+                Span<SomeData?> baselineSomeDataValues = stackalloc SomeData?[numObjects];
+                for (int i = 0; i < numObjects; ++i)
+                    baselineSomeDataValues[i] = testWorld.ServerWorld.EntityManager.GetComponentData<SomeData>(serverEntities[i]);
+                VerifyReplicatedValues(numObjects, testWorld, serverEntities, recvGhostMapSingleton, "After prespawns enable themselves.");
 
-                //Make a structural change and verify that entities are not sent (no changes in respect to the 0 baselines)
+                // TEST-CASE: Create a FALSE POSITIVE write, to test out the zero change optimization for prespawn baselines:
+                {
+                    var data = testWorld.ServerWorld.EntityManager.GetComponentData<SomeData>(serverEntities[5]);
+                    testWorld.ServerWorld.EntityManager.SetComponentData(serverEntities[5], data);
+                }
+                for (int i = 0; i < 16; ++i)
+                {
+                    testWorld.Tick();
+                    var netStats = testWorld.ClientWorlds[0].EntityManager.GetComponentData<GhostStatsCollectionSnapshot>(testWorld.TryGetSingletonEntity<GhostStatsCollectionSnapshot>(testWorld.ClientWorlds[0])).Data;
+                    if (netStats.Length > 6)
+                    {
+                        numReceived += netStats[7];
+                        totalDataReceived += netStats[8];
+                        uncompressed += netStats[9];
+                    }
+                }
+
+                Assert.AreEqual(0, numReceived);
+                Assert.AreEqual(0, uncompressed);
+                Assert.AreEqual(0, totalDataReceived);
+                VerifyReplicatedValues(numObjects, testWorld, serverEntities, recvGhostMapSingleton, "After FALSE-POSITIVE write.");
+
+                // TEST-CASE: Make a structural change and verify that entities are STILL not sent (no changes in respect to the 0 baselines)
                 for (int i = 8; i < 10; ++i)
                 {
-                    //I will add a tag. This should cause changes on the server side but on the client, that still see the entities
+                    //I will add a tag. This should cause changes on the server side but NOT on the client, that still see the entities
                     //as unchanged
                     testWorld.ServerWorld.EntityManager.AddComponent<ServerOnlyTag>(serverEntities[i]);
                 }
@@ -450,46 +499,50 @@ namespace Unity.NetCode.PrespawnTests
                         uncompressed += netStats[9];
                     }
                 }
+
+                VerifyReplicatedValues(numObjects, testWorld, serverEntities, recvGhostMapSingleton, "After 8,9 changed chunk");
                 Assert.AreEqual(0, numReceived);
                 Assert.AreEqual(0, uncompressed);
-                Assert.GreaterOrEqual(totalDataReceived, 0);
+                Assert.AreEqual(0, totalDataReceived);
 
-                //Change some components for entities 0,1,2
-                for (int i = 0; i < 3; ++i)
+                // TEST-CASE: ACTUALLY change some components for entities 0,1,2
+                for (int i = 0; i < numObjects; ++i)
                 {
                     var data = testWorld.ServerWorld.EntityManager.GetComponentData<SomeData>(serverEntities[i]);
-                    data.Value += 100;
-                    testWorld.ServerWorld.EntityManager.SetComponentData(serverEntities[i], data);
+                    if (i < 3)
+                    {
+                        data.Value += 100;
+                        testWorld.ServerWorld.EntityManager.SetComponentData(serverEntities[i], data);
+                    }
                 }
 
-                //Since ghost are interpolated I need at least 2 tick to see the reflected values on the components
-                for (int i = 0; i < 2; ++i)
+                // The change is sent on this tick:
+                for (int i = 0; i < 32; ++i)
                 {
                     testWorld.Tick();
                     var netStats = testWorld.ClientWorlds[0].EntityManager.GetComponentData<GhostStatsCollectionSnapshot>(testWorld.TryGetSingletonEntity<GhostStatsCollectionSnapshot>(testWorld.ClientWorlds[0])).Data;
                     if (netStats.Length > 7)
                     {
-                        //Even if I change 3 entities, I still receive the full chunk (8 now) delta compressed, but only once.
-                        Assert.AreEqual(8, netStats[7]);
-                        Assert.GreaterOrEqual(netStats[8], 0);
-                        Assert.AreEqual(0, netStats[9]);
+                        numReceived += netStats[7];
+                        totalDataReceived += netStats[8];
+                        uncompressed += netStats[9];
                     }
                 }
-                for (int i = 0; i < 3; ++i)
-                {
-                    var ghost = new SpawnedGhost{ghostId = serverGhosts[i].ghostId, spawnTick = serverGhosts[i].spawnTick};
-                    var ent = testWorld.ClientWorlds[0].EntityManager.GetComponentData<SpawnedGhostEntityMap>(recvGhostMapSingleton).Value[ghost];
-                    var serverData = testWorld.ServerWorld.EntityManager.GetComponentData<SomeData>(serverEntities[i]);
-                    var clientdata = testWorld.ClientWorlds[0].EntityManager.GetComponentData<SomeData>(ent);
-                    Assert.AreEqual(serverData.Value, clientdata.Value);
-                }
+
+                //Even if I change 3 entities, I still receive the full chunk (8 now) delta compressed, but only once.
+                if(latencyProfile == NetCodeTestLatencyProfile.NoLatency)
+                    Assert.AreEqual(8, numReceived);
+                else Assert.IsTrue(numReceived >= 8 && numReceived % 8 == 0, $"numReceived:{numReceived}");
+                Assert.AreNotEqual(0, totalDataReceived);
+                Assert.AreEqual(0, uncompressed);
+                VerifyReplicatedValues(numObjects, testWorld, serverEntities, recvGhostMapSingleton, "After SomeData change on 0,1,2");
 
                 {
                     var ghostCollection = testWorld.ClientWorlds[0].EntityManager.GetBuffer<GhostCollectionPrefabSerializer>(ghostCollectionEntity);
                     //Check that the change masks for the other entities are still 0
                     for (int i = 3; i < 8; ++i)
                     {
-                        var ghost = new SpawnedGhost{ghostId = serverGhosts[i].ghostId, spawnTick = serverGhosts[i].spawnTick};
+                        var ghost = new SpawnedGhost {ghostId = serverGhosts[i].ghostId, spawnTick = serverGhosts[i].spawnTick};
                         var ent = testWorld.ClientWorlds[0].EntityManager.GetComponentData<SpawnedGhostEntityMap>(recvGhostMapSingleton).Value[ghost];
                         var snapshotData = testWorld.ClientWorlds[0].EntityManager.GetComponentData<SnapshotData>(ent);
                         var snapshotBuffer = testWorld.ClientWorlds[0].EntityManager.GetBuffer<SnapshotDataBuffer>(ent);
@@ -498,11 +551,11 @@ namespace Unity.NetCode.PrespawnTests
                         int snapshotSize = typeData.SnapshotSize;
                         unsafe
                         {
-                            byte* snapshotPtr = (byte*)snapshotBuffer.GetUnsafeReadOnlyPtr();
+                            byte* snapshotPtr = (byte*) snapshotBuffer.GetUnsafeReadOnlyPtr();
                             snapshotPtr += snapshotSize * snapshotData.LatestIndex;
                             int changeMaskUints = GhostComponentSerializer.ChangeMaskArraySizeInUInts(typeData.ChangeMaskBits);
-                            uint* changeMask = (uint*)(snapshotPtr+4);
-                            //Check that all the masks are zero
+                            uint* changeMask = (uint*) (snapshotPtr + 4);
+
                             for (int cm = 0; cm < changeMaskUints; ++cm)
                                 Assert.AreEqual(0, changeMask[cm]);
                         }
@@ -511,12 +564,13 @@ namespace Unity.NetCode.PrespawnTests
                 //Entities 8,9 are still not received
                 for (int i = 8; i < 10; ++i)
                 {
-                    var ghost = new SpawnedGhost{ghostId = serverGhosts[i].ghostId, spawnTick = serverGhosts[i].spawnTick};
+                    var ghost = new SpawnedGhost {ghostId = serverGhosts[i].ghostId, spawnTick = serverGhosts[i].spawnTick};
                     var ent = testWorld.ClientWorlds[0].EntityManager.GetComponentData<SpawnedGhostEntityMap>(recvGhostMapSingleton).Value[ghost];
                     var ghostType = testWorld.ClientWorlds[0].EntityManager.GetComponentData<GhostInstance>(ent).ghostType;
                     Assert.AreEqual(-1, ghostType);
                 }
-                //From here on I should receive 0 again (since the zerochange frame has been acked)
+
+                // TEST-CASE: From here on I should NOT receive any ghosts again (since they're zero-change, as the zero-change has been acked)
                 numReceived = 0;
                 totalDataReceived = 0;
                 for (int i = 0; i < 16; ++i)
@@ -529,15 +583,20 @@ namespace Unity.NetCode.PrespawnTests
                         totalDataReceived += netStats[8];
                         uncompressed += netStats[9];
                     }
+
                     Assert.AreEqual(0, numReceived);
                     Assert.AreEqual(0, uncompressed);
-                    Assert.GreaterOrEqual(totalDataReceived, 0);
+                    Assert.AreEqual(0, totalDataReceived);
                 }
-                //Now make a structural change and verify that entities are sent again (since we made changes in respect to the baseline)
+
+                // TEST-CASE: Now make a structural change WITHOUT any GhostField changes,
+                // and verify that entities are NOT sent again (as we're still ZeroChange in respect to GhostField
+                // data vs its baseline) UNLESS we don't correctly copy over said data (via `keepSnapshotHistoryOnStructuralChange:false`).
                 for (int i = 3; i < 6; ++i)
                 {
                     testWorld.ServerWorld.EntityManager.AddComponent<ServerOnlyTag>(serverEntities[i]);
                 }
+
                 //We have now two chunks with like this
                 // Chunk 1    Entitites
                 //              0 1 2 6 7
@@ -547,10 +606,11 @@ namespace Unity.NetCode.PrespawnTests
                 // changed:     n n n n n
                 //
                 // Will will not receive the 2nd chunk, even though the 3,4,5 version has been changed since they were in the first chunk.
-                // Since we detect that all change are actually zero and we are using all fallback baseline and nothing has changed
+                // Since we detect that all change are actually zero, and we are using all fallback baseline and nothing has changed
                 numReceived = 0;
                 totalDataReceived = 0;
-                for (int i = 0; i < 4; ++i)
+                uncompressed = 0;
+                for (int i = 0; i < 8; ++i)
                 {
                     testWorld.Tick();
                     var netStats = testWorld.ClientWorlds[0].EntityManager.GetComponentData<GhostStatsCollectionSnapshot>(testWorld.TryGetSingletonEntity<GhostStatsCollectionSnapshot>(testWorld.ClientWorlds[0])).Data;
@@ -561,43 +621,38 @@ namespace Unity.NetCode.PrespawnTests
                         uncompressed += netStats[9];
                     }
                 }
-                Assert.AreEqual(5, numReceived);
-                Assert.AreEqual(0, uncompressed);
-                Assert.GreaterOrEqual(totalDataReceived, 0);
+
+                if (keepSnapshotHistoryOnStructuralChange)
+                {
+                    Assert.AreEqual(0, numReceived);
+                    Assert.AreEqual(0, uncompressed);
+                    Assert.AreEqual(0, totalDataReceived);
+                }
+                else if (latencyProfile == NetCodeTestLatencyProfile.NoLatency)
+                {
+                    Assert.AreEqual(5, numReceived);
+                    Assert.AreEqual(0, uncompressed);
+                    Assert.AreNotEqual(0, totalDataReceived);
+                }
+                else
+                {
+                    Assert.IsTrue(numReceived >= 5 && numReceived % 5 == 0, $"numReceived:{numReceived}");
+                    Assert.AreEqual(0, uncompressed);
+                    Assert.AreNotEqual(0, totalDataReceived);
+                }
+
                 //Still entities 8,9 are not received yet
                 for (int i = 8; i < 10; ++i)
                 {
-                    var ghost = new SpawnedGhost{ghostId = serverGhosts[i].ghostId, spawnTick = serverGhosts[i].spawnTick};
+                    var ghost = new SpawnedGhost {ghostId = serverGhosts[i].ghostId, spawnTick = serverGhosts[i].spawnTick};
                     var ent = testWorld.ClientWorlds[0].EntityManager.GetComponentData<SpawnedGhostEntityMap>(recvGhostMapSingleton).Value[ghost];
                     var ghostType = testWorld.ClientWorlds[0].EntityManager.GetComponentData<GhostInstance>(ent).ghostType;
                     Assert.AreEqual(-1, ghostType);
                 }
 
-                {
-                    //And all change masks for the received entities are 0
-                    var ghostCollection = testWorld.ClientWorlds[0].EntityManager.GetBuffer<GhostCollectionPrefabSerializer>(ghostCollectionEntity);
-                    for (int i = 0; i < 8; ++i)
-                    {
-                        var ghost = new SpawnedGhost { ghostId = serverGhosts[i].ghostId, spawnTick = serverGhosts[i].spawnTick };
-                        var ent = testWorld.ClientWorlds[0].EntityManager.GetComponentData<SpawnedGhostEntityMap>(recvGhostMapSingleton).Value[ghost];
-                        var snapshotData = testWorld.ClientWorlds[0].EntityManager.GetComponentData<SnapshotData>(ent);
-                        var snapshotBuffer = testWorld.ClientWorlds[0].EntityManager.GetBuffer<SnapshotDataBuffer>(ent);
-                        var ghostType = testWorld.ClientWorlds[0].EntityManager.GetComponentData<GhostInstance>(ent)                            .ghostType;
-                        var typeData = ghostCollection[ghostType];
-                        int snapshotSize = typeData.SnapshotSize;
-                        unsafe
-                        {
-                            byte* snapshotPtr = (byte*)snapshotBuffer.GetUnsafeReadOnlyPtr();
-                            snapshotPtr += snapshotSize * snapshotData.LatestIndex;
-                            int changeMaskUints = GhostComponentSerializer.ChangeMaskArraySizeInUInts(typeData.ChangeMaskBits);
-                            uint* changeMask = (uint*)(snapshotPtr + 4);
-                            //Check that all the masks are zero
-                            for (int cm = 0; cm < changeMaskUints; ++cm)
-                                Assert.AreEqual(0, changeMask[cm]);
-                        }
-                    }
-                }
-                //Finally change two entities in the second chunk
+                VerifyReplicatedValues(numObjects, testWorld, serverEntities, recvGhostMapSingleton, "After 3,4,5 changed chunk.");
+
+                // TEST-CASE: Change 3,4 in the second chunk:
                 for (int i = 3; i < 5; ++i)
                 {
                     var data = testWorld.ServerWorld.EntityManager.GetComponentData<SomeData>(serverEntities[i]);
@@ -606,7 +661,9 @@ namespace Unity.NetCode.PrespawnTests
                 }
                 numReceived = 0;
                 totalDataReceived = 0;
-                for (int i = 0; i < 4; ++i)
+                uncompressed = 0;
+                // Again, this change will be sent on the next tick, so expect it:
+                for(int i = 0; i < 8; i++)
                 {
                     testWorld.Tick();
                     var netStats = testWorld.ClientWorlds[0].EntityManager.GetComponentData<GhostStatsCollectionSnapshot>(testWorld.TryGetSingletonEntity<GhostStatsCollectionSnapshot>(testWorld.ClientWorlds[0])).Data;
@@ -617,42 +674,147 @@ namespace Unity.NetCode.PrespawnTests
                         uncompressed += netStats[9];
                     }
                 }
-                //2x5
-                Assert.AreEqual(10, numReceived);
+                // Chunk 1 contains 5 entities:
+                if(latencyProfile == NetCodeTestLatencyProfile.NoLatency)
+                    Assert.AreEqual(5, numReceived);
+                else Assert.IsTrue(numReceived >= 5 && numReceived % 5 == 0, $"numReceived:{numReceived}");
+                Assert.AreNotEqual(0, totalDataReceived);
+                Assert.AreEqual(0, uncompressed);
+                VerifyReplicatedValues(numObjects, testWorld, serverEntities, recvGhostMapSingleton, "After 3,4 updated GhostField data.");
+
+                numReceived = 0;
+                totalDataReceived = 0;
+                uncompressed = 0;
+
+                // TEST-CASE: Expect no changes now.
+                for (int tick = 0; tick < 8; tick++)
                 {
-                    //Entities 8,9 received but with no changes
-                    var ghostCollection = testWorld.ClientWorlds[0].EntityManager.GetBuffer<GhostCollectionPrefabSerializer>(ghostCollectionEntity);
-                    for (int i = 8; i < 10; ++i)
+                    testWorld.Tick();
+                    var netStats = testWorld.ClientWorlds[0].EntityManager.GetComponentData<GhostStatsCollectionSnapshot>(testWorld.TryGetSingletonEntity<GhostStatsCollectionSnapshot>(testWorld.ClientWorlds[0])).Data;
+                    if (netStats.Length > 6)
                     {
-                        var ghost = new SpawnedGhost { ghostId = serverGhosts[i].ghostId, spawnTick = serverGhosts[i].spawnTick };
-                        var ent = testWorld.ClientWorlds[0].EntityManager.GetComponentData<SpawnedGhostEntityMap>(recvGhostMapSingleton).Value[ghost];
-                        var ghostType = testWorld.ClientWorlds[0].EntityManager.GetComponentData<GhostInstance>(ent).ghostType;
-                        Assert.AreNotEqual(-1, ghostType);
-                        var snapshotData = testWorld.ClientWorlds[0].EntityManager.GetComponentData<SnapshotData>(ent);
-                        var snapshotBuffer = testWorld.ClientWorlds[0].EntityManager.GetBuffer<SnapshotDataBuffer>(ent);
-                        var typeData = ghostCollection[ghostType];
-                        int snapshotSize = typeData.SnapshotSize;
-                        unsafe
-                        {
-                            byte* snapshotPtr = (byte*)snapshotBuffer.GetUnsafeReadOnlyPtr();
-                            snapshotPtr += snapshotSize * snapshotData.LatestIndex;
-                            int changeMaskUints = GhostComponentSerializer.ChangeMaskArraySizeInUInts(typeData.ChangeMaskBits);
-                            uint* changeMask = (uint*)(snapshotPtr + 4);
-                            //Check that all the masks are zero
-                            for (int cm = 0; cm < changeMaskUints; ++cm)
-                                Assert.AreEqual(0, changeMask[cm]);
-                        }
+                        numReceived += netStats[7];
+                        totalDataReceived += netStats[8];
+                        uncompressed += netStats[9];
                     }
                 }
-                for (int i = 3; i < 5; ++i)
+
+                Assert.AreEqual(0, numReceived);
+                Assert.AreEqual(0, totalDataReceived);
+                Assert.AreEqual(0, uncompressed);
+                VerifyReplicatedValues(numObjects, testWorld, serverEntities, recvGhostMapSingleton, "After 3,4 update arrives - expect no more updates.");
+
+                // TEST-CASE: EXTREMELY esoteric: Prespawn 3 is currently NOT matching their prespawn baseline, and NOT in their prespawn chunk.
+                // If we move them BACK to their prespawn chunk, AND revert their GhostField changes, will the GhostChunkSerializer
+                // understand that it needs to send a change for them?
+                testWorld.ServerWorld.EntityManager.RemoveComponent<ServerOnlyTag>(serverEntities[3]);
+                testWorld.ServerWorld.EntityManager.SetComponentData(serverEntities[3], baselineSomeDataValues[3].Value);
+
+                numReceived = 0;
+                totalDataReceived = 0;
+                uncompressed = 0;
+                for (int tick = 0; tick < 8; tick++)
                 {
-                    var ghost = new SpawnedGhost{ghostId = serverGhosts[i].ghostId, spawnTick = serverGhosts[i].spawnTick};
-                    var ent = testWorld.ClientWorlds[0].EntityManager.GetComponentData<SpawnedGhostEntityMap>(recvGhostMapSingleton).Value[ghost];
-                    var serverData = testWorld.ServerWorld.EntityManager.GetComponentData<SomeData>(serverEntities[i]);
-                    var clientdata = testWorld.ClientWorlds[0].EntityManager.GetComponentData<SomeData>(ent);
-                    Assert.AreEqual(serverData.Value, clientdata.Value);
+                    testWorld.Tick();
+                    var netStats = testWorld.ClientWorlds[0].EntityManager.GetComponentData<GhostStatsCollectionSnapshot>(testWorld.TryGetSingletonEntity<GhostStatsCollectionSnapshot>(testWorld.ClientWorlds[0])).Data;
+                    if (netStats.Length > 6)
+                    {
+                        numReceived += netStats[7];
+                        totalDataReceived += netStats[8];
+                        uncompressed += netStats[9];
+                    }
                 }
+
+                VerifyReplicatedValues(numObjects, testWorld, serverEntities, recvGhostMapSingleton, "After returning changed ghosts to their original chunk, and matching their GhostField data back to the prespawn values.");
+                if(latencyProfile == NetCodeTestLatencyProfile.NoLatency)
+                    Assert.AreEqual(6, numReceived);
+                else Assert.IsTrue(numReceived >= 6 && numReceived % 6 == 0, $"numReceived:{numReceived}");
+                Assert.AreEqual(0, uncompressed);
+                Assert.AreNotEqual(0, totalDataReceived);
+
+                // TEST-CASE: Again expect no changes.
+                numReceived = 0;
+                uncompressed = 0;
+                totalDataReceived = 0;
+                for (int tick = 0; tick < 8; tick++)
+                    testWorld.Tick();
+                Assert.AreEqual(0, numReceived);
+                Assert.AreEqual(0, uncompressed);
+                Assert.AreEqual(0, totalDataReceived);
+                VerifyReplicatedValues(numObjects, testWorld, serverEntities, recvGhostMapSingleton, "Expect no more changes.");
+
+                // TEST-CASE: Revert all other SomeData back to their pre-spawn values, ensure it works:
+                for (int i = 0; i < numObjects; i++)
+                {
+                    testWorld.ServerWorld.EntityManager.RemoveComponent<ServerOnlyTag>(serverEntities[i]);
+                    testWorld.ServerWorld.EntityManager.SetComponentData(serverEntities[i], baselineSomeDataValues[i].Value);
+                }
+                for (int tick = 0; tick < 8; tick++)
+                {
+                    testWorld.Tick();
+                    var netStats = testWorld.ClientWorlds[0].EntityManager.GetComponentData<GhostStatsCollectionSnapshot>(testWorld.TryGetSingletonEntity<GhostStatsCollectionSnapshot>(testWorld.ClientWorlds[0])).Data;
+                    if (netStats.Length > 6)
+                    {
+                        numReceived += netStats[7];
+                        totalDataReceived += netStats[8];
+                        uncompressed += netStats[9];
+                    }
+                }
+                if(latencyProfile == NetCodeTestLatencyProfile.NoLatency)
+                    Assert.AreEqual(10, numReceived);
+                else Assert.IsTrue(numReceived >= 10 && numReceived % 10 == 0, $"numReceived:{numReceived}");
+                Assert.AreEqual(0, uncompressed);
+                Assert.AreNotEqual(0, totalDataReceived);
+                VerifyReplicatedValues(numObjects, testWorld, serverEntities, recvGhostMapSingleton, "After returning changed ghosts to their original is completed - expect no more changes.");
+
+                // TEST-CASE: Again, expect no more changes:
+                numReceived = 0;
+                uncompressed = 0;
+                totalDataReceived = 0;
+                for (int tick = 0; tick < 8; tick++)
+                {
+                    testWorld.Tick();
+                    var netStats = testWorld.ClientWorlds[0].EntityManager.GetComponentData<GhostStatsCollectionSnapshot>(testWorld.TryGetSingletonEntity<GhostStatsCollectionSnapshot>(testWorld.ClientWorlds[0])).Data;
+                    if (netStats.Length > 6)
+                    {
+                        numReceived += netStats[7];
+                        totalDataReceived += netStats[8];
+                        uncompressed += netStats[9];
+                    }
+                }
+                Assert.AreEqual(0, numReceived);
+                Assert.AreEqual(0, uncompressed);
+                Assert.AreEqual(0, totalDataReceived);
+                VerifyReplicatedValues(numObjects, testWorld, serverEntities, recvGhostMapSingleton, "Final expect no changes.");
             }
+        }
+
+        private void VerifyReplicatedValues(int numObjects, NetCodeTestWorld testWorld, NativeArray<Entity> serverEntities, Entity recvGhostMapSingleton, string context)
+        {
+            string s = context;
+            for (int i = 0; i < numObjects; ++i)
+            {
+                var serverEntity = serverEntities[i];
+                var serverTrans = testWorld.ServerWorld.EntityManager.GetComponentData<LocalTransform>(serverEntity);
+                var serverSomeData = testWorld.ServerWorld.EntityManager.GetComponentData<SomeData>(serverEntity);
+                var serverGhost = testWorld.ServerWorld.EntityManager.GetComponentData<GhostInstance>(serverEntity);
+                var clientEntity = testWorld.ClientWorlds[0].EntityManager.GetComponentData<SpawnedGhostEntityMap>(recvGhostMapSingleton).Value[serverGhost];
+                var clientTrans = testWorld.ClientWorlds[0].EntityManager.GetComponentData<LocalTransform>(clientEntity);
+                var clientSomeData = testWorld.ClientWorlds[0].EntityManager.GetComponentData<SomeData>(clientEntity);
+                s += $"\n\t[{i}] GID:{serverGhost.ghostId}\n\tServer[{serverEntity.ToString()} in chunk:{testWorld.ServerWorld.EntityManager.GetChunk(serverEntity).SequenceNumber}, LocalTransform({serverTrans.ToString()}), SomeData:{serverSomeData.Value}]\n\tClient[{clientEntity.ToString()} in chunk:{testWorld.ClientWorlds[0].EntityManager.GetChunk(clientEntity).SequenceNumber}, LocalTransform({clientTrans.ToString()}), SomeData:{clientSomeData.Value}]";
+                ApproximatelyEqual(serverTrans.Position, clientTrans.Position, $"[{i}]LocalTransform.Position {context} GID:{serverGhost.ghostId}", 0.0001f);
+                ApproximatelyEqual(math.Euler(serverTrans.Rotation), math.Euler(clientTrans.Rotation), $"math.Euler([{i}]LocalTransform.Rotation) {context} GID:{serverGhost.ghostId}", 0.04f);
+                ApproximatelyEqual(serverTrans.Scale, clientTrans.Scale, $"[{i}]LocalTransform.Scale {context} GID:{serverGhost.ghostId}", 0.0001f);
+                Assert.AreEqual(serverSomeData.Value, clientSomeData.Value, $"[{i}].SomeData.Value {context} GID:{serverGhost.ghostId}");
+            }
+            Debug.Log(s);
+        }
+
+        private void ApproximatelyEqual(float3 server, float3 client, string context, float tolerance)
+        {
+            var delta = server - client;
+            var deltaUnits = math.length(delta);
+            Assert.IsTrue(deltaUnits <= tolerance, $"{context}\nserver:{server} - client:{client} = {delta}\n{deltaUnits} <= {tolerance}");
         }
     }
 }

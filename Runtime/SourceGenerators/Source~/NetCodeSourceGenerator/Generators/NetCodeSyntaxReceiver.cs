@@ -49,7 +49,7 @@ namespace Unity.NetCode.Generators
                 }
 
                 var structNode = (TypeDeclarationSyntax) syntaxNode;
-                
+
                 if(structNode.TypeParameterList != null)
                     return;
 

@@ -29,7 +29,6 @@ namespace Unity.NetCode.Generators
         private static void GenerateComponents(IEnumerable<SyntaxNode> components, CodeGenerator.Context codeGenContext)
         {
             var typeBuilder = new TypeInformationBuilder(codeGenContext.diagnostic, codeGenContext.executionContext, TypeInformationBuilder.SerializationMode.Component);
-            var rootNamespace = codeGenContext.generatedNs;
             foreach (var componentCandidate in components)
             {
                 codeGenContext.executionContext.CancellationToken.ThrowIfCancellationRequested();
@@ -40,7 +39,7 @@ namespace Unity.NetCode.Generators
 
                 // Warning! These only work if the attribute is not inherited (thus they cannot be inherited from).
                 if (!HasGhostComponentAttribute(syntaxNode) && !hasGhostFields && !hasGhostEnabledBitAttribute)
-                	continue;
+                    continue;
 
                 Profiler.Begin("GetSemanticModel");
                 var model = codeGenContext.executionContext.Compilation.GetSemanticModel(componentCandidate.SyntaxTree);
@@ -101,28 +100,26 @@ namespace Unity.NetCode.Generators
                 if (!isSerialized)
                     continue;
 
+                codeGenContext.ResetState();
+                NameUtils.UpdateNameAndNamespace(typeInfo, ref codeGenContext, candidateSymbol);
+
                 // If the serializer type already exist we can just skip generation
-                if (codeGenContext.executionContext.Compilation.GetSymbolsWithName(GetGhostSerializerName(candidateSymbol)).FirstOrDefault() != null)
+                if (codeGenContext.executionContext.Compilation.GetSymbolsWithName(GetGhostSerializerName(codeGenContext)).FirstOrDefault() != null)
                 {
                     codeGenContext.diagnostic.LogDebug($"Skipping code-gen for {candidateSymbol.Name} because a component serializer for it already exists");
                     continue;
                 }
 
                 codeGenContext.diagnostic.LogInfo($"Generating ghost for {typeInfo.TypeFullName}");
-                codeGenContext.ResetState();
-                NameUtils.UpdateNameAndNamespace(ref typeInfo, rootNamespace, ref codeGenContext, ref candidateSymbol);
                 codeGenContext.types.Add(typeInfo);
                 CodeGenerator.GenerateGhost(codeGenContext, typeInfo);
             }
-            
-            codeGenContext.generatedNs = rootNamespace;
         }
 
         private static void GenerateVariants(IEnumerable<SyntaxNode> variants, CodeGenerator.Context codeGenContext)
         {
             var typeBuilder = new TypeInformationBuilder(codeGenContext.diagnostic, codeGenContext.executionContext,
                 TypeInformationBuilder.SerializationMode.Component);
-            var rootNamespace = codeGenContext.generatedNs;
 
             foreach (var componentCandidate in variants)
             {
@@ -162,13 +159,6 @@ namespace Unity.NetCode.Generators
                 if (!isSerialized)
                     continue;
 
-                // If the serializer type already exist we can just skip generation
-                if (codeGenContext.executionContext.Compilation.GetSymbolsWithName(GetGhostSerializerName(variantSymbol)).FirstOrDefault() != null)
-                {
-                    codeGenContext.diagnostic.LogDebug($"Skipping code-gen for {variantSymbol.Name} because a variant component serializer for it already exists");
-                    continue;
-                }
-
                 //This is an error for buffers and commands that require serialization. Is handled later, outside, that way
                 //we report first all the errors and then skip the type.
                 if (variantTypeInfo.ComponentType == ComponentType.Buffer)
@@ -183,18 +173,21 @@ namespace Unity.NetCode.Generators
                     }
                 }
 
+                codeGenContext.ResetState();
+                NameUtils.UpdateNameAndNamespace(variantTypeInfo, ref codeGenContext, variantSymbol);
+                // If the serializer type already exist we can just skip generation
+                if (codeGenContext.executionContext.Compilation.GetSymbolsWithName(GetGhostSerializerName(codeGenContext)).FirstOrDefault() != null)
+                {
+                    codeGenContext.diagnostic.LogDebug($"Skipping code-gen for {codeGenContext.generatorName} because a variant component serializer for it already exists");
+                    continue;
+                }
+
                 codeGenContext.types.Add(variantTypeInfo);
                 codeGenContext.diagnostic.LogDebug($"Generating serializer for variant {variantSymbol.ToDisplayString()} for type {variantTypeInfo.TypeFullName}.");
-                codeGenContext.ResetState();
-
-                NameUtils.UpdateNameAndNamespace(ref variantTypeInfo, rootNamespace, ref codeGenContext, ref variantSymbol);
-
                 codeGenContext.variantTypeFullName = Roslyn.Extensions.GetFullTypeName(variantSymbol);
                 codeGenContext.variantHash = variantHash;
                 CodeGenerator.GenerateGhost(codeGenContext, variantTypeInfo);
             }
-
-            codeGenContext.generatedNs = rootNamespace;
         }
 
         /// <summary>
@@ -282,9 +275,9 @@ namespace Unity.NetCode.Generators
             }
         }
 
-        static private string GetGhostSerializerName(INamedTypeSymbol symbol)
+        static private string GetGhostSerializerName(CodeGenerator.Context context)
         {
-            return $"{symbol.Name}GhostComponentSerializer";
+            return $"{context.generatorName.Replace(".", "").Replace('+', '_')}GhostComponentSerializer";
         }
     }
 }

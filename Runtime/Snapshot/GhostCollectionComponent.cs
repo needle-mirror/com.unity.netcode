@@ -1,6 +1,7 @@
 using System;
 using System.Runtime.InteropServices;
 using Unity.Burst;
+using Unity.Burst.CompilerServices;
 using Unity.Collections;
 using Unity.Collections.LowLevel.Unsafe;
 using Unity.Entities;
@@ -53,6 +54,7 @@ namespace Unity.NetCode
         public bool StaticOptimization;
         public bool PredictedSpawnedGhostRollbackToSpawnTick;
         public bool RollbackPredictionOnStructuralChanges;
+        public bool UseSingleBaseline;
         public BlobString Name;
         ///<summary>Array of components for each child in the hierarchy.</summary>
         public BlobArray<ComponentInfo> ServerComponentList;
@@ -287,6 +289,10 @@ namespace Unity.NetCode
         /// Client CPU optimization. Force predicted ghost to always try to continue from the last prediction in case of structural changes. True by default (because may introduce some issue when replicated component are removed).
         /// </summary>
         public byte RollbackPredictionOnStructuralChanges;
+        /// <summary>
+        /// Instruct the <see cref="GhostSendSystem"/> to always use a single baseline for this ghost archetype.
+        /// </summary>
+        public byte UseSingleBaseline;
         /// <inheritdoc cref="GhostPrefabCreation.Config.Importance"/>
         public int BaseImportance;
         /// <summary><see cref="GhostPrefabCreation.Config.MaxSendRate"/> expressed as a <see cref="ClientServerTickRate.SimulationTickRate"/> interval
@@ -329,6 +335,13 @@ namespace Unity.NetCode
         /// The function pointer to invoke for pre-serializing the chunk (only for server).
         /// </summary>
         public PortableFunctionPointer<GhostPrefabCustomSerializer.ChunkPreserializeDelegate> CustomPreSerializer;
+        /// <summary>
+        /// Static-optimization does not support iterating over multiple chunks, which excludes:
+        /// - GhostGroups.
+        /// - Ghosts with replicated children.
+        /// </summary>
+        /// <returns>`true` if the entity satisfies the conditions for static optimization.</returns>
+        public readonly bool CanBeStaticOptimized() => StaticOptimization != 0 && IsGhostGroup == 0 && NumChildComponents == 0;
     }
 
     /// <summary>
@@ -483,6 +496,10 @@ namespace Unity.NetCode
             /// pre-serialized
             /// </summary>
             public int hasPreserializedData;
+            /// <summary>
+            /// instruct the custom serializer to use always a single baseline for this ghost archetype.
+            /// </summary>
+            public int useSingleBaseline;
             /// <summary>
             /// [Output] the buffer where to store the ghost data compressed size and start bit inside the
             /// temporary data stream.

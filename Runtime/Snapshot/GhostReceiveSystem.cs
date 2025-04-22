@@ -5,13 +5,16 @@ using System;
 using System.Diagnostics;
 using Unity.Assertions;
 using Unity.Burst;
+using Unity.Burst.CompilerServices;
 using Unity.Burst.Intrinsics;
 using Unity.Collections;
 using Unity.Collections.LowLevel.Unsafe;
 using Unity.Entities;
 using Unity.Jobs;
 using Unity.Mathematics;
+using Unity.NetCode.LowLevel;
 using Unity.NetCode.LowLevel.Unsafe;
+using UnityEngine;
 
 namespace Unity.NetCode
 {
@@ -153,7 +156,6 @@ namespace Unity.NetCode
         ComponentLookup<GhostOwner> m_GhostOwnerFromEntity;
         ComponentLookup<NetworkId> m_NetworkIdFromEntity;
 #if NETCODE_DEBUG
-        FixedString128Bytes m_WorldName;
         ComponentLookup<PrefabDebugName> m_PrefabNamesFromEntity;
         FixedString512Bytes m_LogFolder;
 #endif
@@ -173,12 +175,12 @@ namespace Unity.NetCode
 #endif
 
         // This cannot be burst compiled due to NetDebugInterop.Initialize
+        /// <inheritdoc/>
         public void OnCreate(ref SystemState state)
         {
 #if NETCODE_DEBUG
             m_LogFolder = NetDebug.LogFolderForPlatform();
             NetDebugInterop.Initialize();
-            m_WorldName = state.WorldUnmanaged.Name;
 #endif
             m_GhostEntityMap = new NativeParallelHashMap<int, Entity>(2048, Allocator.Persistent);
             m_SpawnedGhostEntityMap = new NativeParallelHashMap<SpawnedGhost, Entity>(2048, Allocator.Persistent);
@@ -239,6 +241,7 @@ namespace Unity.NetCode
             m_PrespawnBaselineBufferFromEntity = state.GetBufferLookup<PrespawnGhostBaseline>(true);
         }
 
+        /// <inheritdoc/>
         [BurstCompile]
         public void OnDestroy(ref SystemState state)
         {
@@ -347,7 +350,6 @@ namespace Unity.NetCode
             [ReadOnly] public ComponentLookup<PredictedGhost> PredictedFromEntity;
             public ComponentLookup<GhostInstance> GhostFromEntity;
             public byte IsThinClient;
-            public byte SnaphostHasCompressedGhostSize;
 
             public EntityCommandBuffer CommandBuffer;
             public Entity GhostSpawnEntity;
@@ -356,12 +358,12 @@ namespace Unity.NetCode
             public NativeList<SubSceneWithGhostCleanup> PrespawnSceneStateArray;
 
             public NetDebug NetDebug;
+            public FixedString128Bytes WorldName;
 #if NETCODE_DEBUG
             public PacketDumpLogger NetDebugPacket;
             [ReadOnly] public ComponentLookup<PrefabDebugName> PrefabNamesFromEntity;
             [NativeDisableContainerSafetyRestriction] public ComponentLookup<EnablePacketLogging> EnableLoggingFromEntity;
-            public FixedString128Bytes TimestampAndTick;
-            byte m_EnablePacketLogging;
+            public FixedString512Bytes DebugLog;
 #endif
 
             public void Execute()
@@ -394,19 +396,12 @@ namespace Unity.NetCode
                 var serverTick = new NetworkTick{SerializedData = dataStream.ReadUInt()};
                 ref var ack = ref SnapshotAckFromEntity.GetRefRW(Connections[0]).ValueRW;
 
-#if NETCODE_DEBUG
-                FixedString512Bytes debugLog = TimestampAndTick;
-                m_EnablePacketLogging = EnablePacketLogging.InitAndFetch(Connections[0], EnableLoggingFromEntity, in NetDebugPacket);
-                // TODO - Map CurrentSnapshotSequenceId exactly to the snapshot data itself, rather than fetching it "second hand" here.
-                if (m_EnablePacketLogging == 1)
-                    debugLog.Append(FixedString.Format(" ServerTick:{0} [SSId:{1}]\n", serverTick.ToFixedString(), ack.CurrentSnapshotSequenceId));
-#endif
-
                 // Load all new prefabs
                 uint numPrefabs = dataStream.ReadPackedUInt(CompressionModel);
 #if NETCODE_DEBUG
-                if (m_EnablePacketLogging == 1)
-                    debugLog.Append(FixedString.Format("NewPrefabs: {0}", numPrefabs));
+                // TODO - Map CurrentSnapshotSequenceId exactly to the snapshot data itself, rather than fetching it "second hand" here.
+                if(NetDebugPacket.IsCreated)
+                    DebugLog.Append((FixedString128Bytes)$"SnapshotTick:{serverTick.ToFixedString()} SSId:{ack.CurrentSnapshotSequenceId} NewPrefabs: {numPrefabs}\n");
 #endif
                 if (numPrefabs > 0)
                 {
@@ -415,10 +410,8 @@ namespace Unity.NetCode
                     // which prefab was the first included in the list sent by the server
                     int firstPrefab = (int)dataStream.ReadUInt();
 #if NETCODE_DEBUG
-                    if (m_EnablePacketLogging == 1)
-                    {
-                        debugLog.Append(FixedString.Format(" FirstPrefab: {0}\n", firstPrefab));
-                    }
+                    if(NetDebugPacket.IsCreated)
+                        DebugLog.Append(FixedString.Format(" FirstPrefab: {0}\n", firstPrefab));
 #endif
                     for (int i = 0; i < numPrefabs; ++i)
                     {
@@ -430,11 +423,8 @@ namespace Unity.NetCode
                         type.guid3 = dataStream.ReadUInt();
                         hash = dataStream.ReadULong();
 #if NETCODE_DEBUG
-                        if (m_EnablePacketLogging == 1)
-                        {
-                            debugLog.Append(FixedString.Format("\t {0}-{1}-{2}-{3}", type.guid0, type.guid1, type.guid2, type.guid3));
-                            debugLog.Append(FixedString.Format(" Hash:{0}\n", hash));
-                        }
+                        if (NetDebugPacket.IsCreated)
+                            DebugLog.Append((FixedString512Bytes)$"\t {type.guid0}-{type.guid1}-{type.guid2}-{type.guid3} Hash:{hash}");
 #endif
                         if (firstPrefab+i == ghostCollection.Length)
                         {
@@ -449,14 +439,7 @@ namespace Unity.NetCode
                         }
                         else if (type != ghostCollection[firstPrefab+i].GhostType || hash != ghostCollection[firstPrefab+i].Hash)
                         {
-#if NETCODE_DEBUG
-                            if (m_EnablePacketLogging == 1)
-                            {
-                                NetDebugPacket.Log(debugLog);
-                                NetDebugPacket.Log(FixedString.Format("ERROR: ghost list item {0} was modified (Hash {1} -> {2})", firstPrefab + i, ghostCollection[firstPrefab + i].Hash, hash));
-                            }
-#endif
-                            NetDebug.LogError(FixedString.Format("GhostReceiveSystem ghost list item {0} was modified (Hash {1} -> {2})", firstPrefab + i, ghostCollection[firstPrefab + i].Hash, hash));
+                            LogDeserializeFailure(LogType.Error, $"Ghost list item {firstPrefab + i} was modified (Hash {ghostCollection[firstPrefab + i].Hash} -> {hash})!");
                             CommandBuffer.AddComponent(Connections[0], new NetworkStreamRequestDisconnect{Reason = NetworkStreamDisconnectReason.BadProtocolVersion});
                             return;
                         }
@@ -472,11 +455,12 @@ namespace Unity.NetCode
                 uint totalGhostCount = dataStream.ReadPackedUInt(CompressionModel);
                 GhostCompletionCount[0] = (int)totalGhostCount;
 
-                uint despawnLen = dataStream.ReadUInt();
-                uint updateLen = dataStream.ReadUInt();
+                uint despawnLen = dataStream.ReadByte();
+                uint numEntitiesUpdated = dataStream.ReadUShort();
+
 #if NETCODE_DEBUG
-                if (m_EnablePacketLogging == 1)
-                    debugLog.Append(FixedString.Format(" Total: {0} Despawn: {1} Update:{2}\n", totalGhostCount, despawnLen, updateLen));
+                if(NetDebugPacket.IsCreated)
+                    DebugLog.Append(FixedString.Format("\t TotalGhostCount:{0} Despawns:{1} Updates:{2}\n", totalGhostCount, despawnLen, numEntitiesUpdated));
 #endif
 
                 var data = default(DeserializeData);
@@ -484,22 +468,18 @@ namespace Unity.NetCode
                 data.StartPos = dataStream.GetBitsRead();
 #endif
 #if NETCODE_DEBUG
-                if ((m_EnablePacketLogging == 1) && despawnLen > 0)
-                {
-                    FixedString32Bytes msg = "\t[Despawn IDs]";
-                    debugLog.Append(msg);
-                }
+                if (NetDebugPacket.IsCreated && despawnLen > 0)
+                    DebugLog.Append((FixedString32Bytes)"\t[Despawn GIDs]");
 #endif
                 for (var i = 0; i < despawnLen; ++i)
                 {
                     uint encodedGhostId = dataStream.ReadPackedUInt(CompressionModel);
                     var ghostId = (int)((encodedGhostId >> 1) | (encodedGhostId << 31));
 #if NETCODE_DEBUG
-                    if (m_EnablePacketLogging == 1)
-                        debugLog.Append(FixedString.Format(" {0}", ghostId));
+                    if(NetDebugPacket.IsCreated)
+                        DebugLog.Append(FixedString.Format(" {0}", ghostId));
 #endif
-                    Entity ent;
-                    if (!GhostEntityMap.TryGetValue(ghostId, out ent))
+                    if (!GhostEntityMap.TryGetValue(ghostId, out var ent))
                         continue;
 
                     GhostEntityMap.Remove(ghostId);
@@ -517,12 +497,9 @@ namespace Unity.NetCode
                         InterpolatedDespawnQueue.Enqueue(new GhostDespawnSystem.DelayedDespawnGhost
                             {ghost = new SpawnedGhost{ghostId = ghostId, spawnTick = ghostInstance.spawnTick}, tick = serverTick});
                 }
-#if NETCODE_DEBUG
-                if (m_EnablePacketLogging == 1)
-                    NetDebugPacket.Log(debugLog);
-#endif
 
 #if UNITY_EDITOR || NETCODE_DEBUG
+                PacketDumpFlush();
                 data.CurPos = dataStream.GetBitsRead();
                 NetStats[0] = serverTick.SerializedData;
                 NetStats[1] = despawnLen;
@@ -532,9 +509,9 @@ namespace Unity.NetCode
 #endif
 
                 bool dataValid = true;
-                for (var i = 0; i < updateLen && dataValid; ++i)
+                for (var i = 0; i < numEntitiesUpdated && dataValid; ++i)
                 {
-                    dataValid = DeserializeEntity(serverTick, ref dataStream, ref data);
+                    dataValid &= DeserializeEntity(serverTick, ref dataStream, ref data, i);
                 }
 #if UNITY_EDITOR || NETCODE_DEBUG
                 if (data.StatCount > 0)
@@ -555,9 +532,17 @@ namespace Unity.NetCode
 
                 if (!dataValid)
                 {
-                    // Desync - reset received snapshots
+                    // Denote that ALL previous acks are invalid, as we failed to deserialize this snapshot, so something must be wrong.
                     ack.ReceivedSnapshotByLocalMask = 0;
                     ack.LastReceivedSnapshotByLocal = NetworkTick.Invalid;
+
+                    // TODO - Investigation: Rather than unacking all previously acked snapshots (which causes all relevant
+                    // ghostChunks to have to be resent to this client), we can ATTEMPT to smartly unack ONLY the invalid
+                    // snapshots (e.g. the invalid baseline ticks we read - when we get baseline errors), and only resort
+                    // to unacking everything in the worst-case scenarios.
+                    // Note: One advantage to this brute-force approach is that the server can send good data immediately afterwards.
+                    // Without the brute-force approach, we need to squash each invalid baseline ack separately, which can take a while
+                    // (and cause error spam).
                 }
             }
             struct DeserializeData
@@ -578,11 +563,8 @@ namespace Unity.NetCode
 #endif
             }
 
-            bool DeserializeEntity(NetworkTick serverTick, ref DataStreamReader dataStream, ref DeserializeData data)
+            bool DeserializeEntity(NetworkTick serverTick, ref DataStreamReader dataStream, ref DeserializeData data, int ent)
             {
-#if NETCODE_DEBUG
-                FixedString512Bytes debugLog = default;
-#endif
                 if (data.TargetArchLen == 0)
                 {
 #if UNITY_EDITOR || NETCODE_DEBUG
@@ -605,24 +587,12 @@ namespace Unity.NetCode
 
                     if (data.TargetArch >= m_GhostTypeCollection.Length)
                     {
-#if NETCODE_DEBUG
-                        if (m_EnablePacketLogging == 1)
-                        {
-                            NetDebugPacket.Log(debugLog);
-                            NetDebugPacket.Log(FixedString.Format("ERROR: InvalidGhostType:{0}/{1} RelevantGhostCount:{2}\n", data.TargetArch, m_GhostTypeCollection.Length, data.TargetArchLen));
-                        }
-#endif
-                        NetDebug.LogError("Received invalid ghost type from server");
+                        LogDeserializeFailure(LogType.Error, FixedString.Format("Received invalid GhostType from the server:{0}/{1} RelevantGhostCount:{2}!", data.TargetArch, m_GhostTypeCollection.Length, data.TargetArchLen));
                         return false;
                     }
 #if NETCODE_DEBUG
-                    if (m_EnablePacketLogging == 1)
-                    {
-                        var ghostCollection = GhostCollectionFromEntity[GhostCollectionSingleton];
-                        debugLog.Append(FixedString.Format("\t GhostType:{0}({1}) RelevantGhostCount:{2}\n",
-                            PrefabNamesFromEntity[ghostCollection[(int)data.TargetArch].GhostPrefab].PrefabName,
-                            data.TargetArch, data.TargetArchLen));
-                    }
+                    if(NetDebugPacket.IsCreated)
+                        DebugLog.Append(FixedString.Format("\t GhostType:{0} RelevantGhostCount:{1}\n", GetGhostTypePrefabName(data), data.TargetArchLen));
 #endif
                 }
 
@@ -656,33 +626,18 @@ namespace Unity.NetCode
                     }
                     data.BaselineLen = dataStream.ReadPackedUInt(CompressionModel);
 #if NETCODE_DEBUG
-                    if (m_EnablePacketLogging == 1)
-                        debugLog.Append(FixedString.Format("\t\tB0:{0} B1:{1} B2:{2} Count:{3}\n", data.BaselineTick.ToFixedString(), data.BaselineTick2.ToFixedString(), data.BaselineTick3.ToFixedString(), data.BaselineLen));
+                    if (NetDebugPacket.IsCreated)
+                        DebugLog.Append(FixedString.Format("\t\tB0:{0} B1:{1} B2:{2} Count:{3}\n", data.BaselineTick.ToFixedString(), data.BaselineTick2.ToFixedString(), data.BaselineTick3.ToFixedString(), data.BaselineLen));
 #endif
                     //baselineTick NetworkTick.Invalid is only valid and possible for prespawn since tick=0 is special
-                    if(!data.BaselineTick.IsValid && (data.BaseGhostId & PrespawnHelper.PrespawnGhostIdBase) == 0)
+                    if(Hint.Unlikely(!data.BaselineTick.IsValid && (data.BaseGhostId & PrespawnHelper.PrespawnGhostIdBase) == 0))
                     {
-#if NETCODE_DEBUG
-                        if (m_EnablePacketLogging == 1)
-                        {
-                            NetDebugPacket.Log(debugLog);
-                            NetDebugPacket.Log("ERROR: Invalid baseline");
-                        }
-#endif
-                        NetDebug.LogError("Received snapshot baseline for prespawn ghosts from server but the entity is not a prespawn");
+                        LogDeserializeFailure(LogType.Error, (FixedString512Bytes) $"Received snapshot baseline for prespawn ghost from the server, but the ghost entity GID:{data.BaseGhostId} (GhostType:{GetGhostTypePrefabName(data)}) is not a prespawn!");
                         return false;
                     }
-                    if (data.BaselineTick3 != serverTick &&
-                        (data.BaselineTick3 == data.BaselineTick2 || data.BaselineTick2 == data.BaselineTick))
+                    if (Hint.Unlikely(data.BaselineTick3 != serverTick && (data.BaselineTick3 == data.BaselineTick2 || data.BaselineTick2 == data.BaselineTick)))
                     {
-#if NETCODE_DEBUG
-                        if (m_EnablePacketLogging == 1)
-                        {
-                            NetDebugPacket.Log(debugLog);
-                            NetDebugPacket.Log("ERROR: Invalid baseline");
-                        }
-#endif
-                        NetDebug.LogError("Received invalid snapshot baseline from server");
+                        LogDeserializeFailure(LogType.Error, (FixedString512Bytes) $"Received invalid snapshot baseline (B1:{data.BaselineTick.ToFixedString()}, B2:{data.BaselineTick2.ToFixedString()}, B3:{data.BaselineTick3.ToFixedString()} from server for GID:{data.BaseGhostId} (GhostType:{GetGhostTypePrefabName(data)})!");
                         return false;
                     }
                 }
@@ -690,19 +645,22 @@ namespace Unity.NetCode
                 --data.BaselineLen;
                 int ghostId = (int)(dataStream.ReadPackedUInt(CompressionModel) + data.BaseGhostId);
 #if NETCODE_DEBUG
-                if (m_EnablePacketLogging == 1)
-                    debugLog.Append(FixedString.Format("\t\t\tGID:{0}", ghostId));
+                if (NetDebugPacket.IsCreated)
+                    DebugLog.Append((FixedString128Bytes)$"\t\t\tGID:{ghostId}");
 #endif
+
+                // Retrieve the spawn tick only for new, non-prespawn ghosts:
+                var isNewGhostForClient = data.BaselineTick == serverTick;
                 NetworkTick serverSpawnTick = NetworkTick.Invalid;
-                if (data.BaselineTick == serverTick)
+                if (isNewGhostForClient && !PrespawnHelper.IsPrespawnGhostId(ghostId))
                 {
                     //restrieve spawn tick only for non-prespawn ghosts
                     if (!PrespawnHelper.IsPrespawnGhostId(ghostId))
                     {
                         serverSpawnTick = new NetworkTick{SerializedData = dataStream.ReadPackedUInt(CompressionModel)};
 #if NETCODE_DEBUG
-                        if (m_EnablePacketLogging == 1)
-                            debugLog.Append(FixedString.Format(" SpawnTick:{0}", serverSpawnTick.ToFixedString()));
+                        if (NetDebugPacket.IsCreated)
+                            DebugLog.Append(FixedString.Format(" SpawnTick:{0}", serverSpawnTick.ToFixedString()));
 #endif
                     }
                 }
@@ -710,7 +668,7 @@ namespace Unity.NetCode
                 //Get the data size
                 uint ghostDataSizeInBits = 0;
                 int ghostDataStreamStartBitsRead = 0;
-                if(SnaphostHasCompressedGhostSize == 1)
+                if(GhostSystemConstants.SnapshotHasCompressedGhostSize)
                 {
                     ghostDataSizeInBits = dataStream.ReadPackedUIntDelta(0, CompressionModel);
                     ghostDataStreamStartBitsRead = dataStream.GetBitsRead();
@@ -775,28 +733,16 @@ namespace Unity.NetCode
                         }
                         else
                         {
-#if NETCODE_DEBUG
-                            if (m_EnablePacketLogging == 1)
-                            {
-                                NetDebugPacket.Log(debugLog);
-                                NetDebugPacket.Log("ERROR: Missing prespawn baseline");
-                            }
-#endif
-                            //This is a non recoverable error. The client MUST have the prespawn baseline
-                            NetDebug.LogError(FixedString.Format("No prespawn baseline found for entity {0}:{1} ghostId={2}", gent.Index, gent.Version, GhostFromEntity[gent].ghostId));
+                            //This is an unskippable error. The client MUST have the prespawn baseline.
+                            LogDeserializeFailure(LogType.Error, FixedString.Format("No prespawn baseline found for {0} GID:{1} (GhostType:{2}) -- cannot deserialize snapshot.", gent.ToFixedString(), GhostFromEntity[gent].ghostId, GetGhostTypePrefabName(data)));
                             return false;
                         }
                     }
                     else if (data.BaselineTick != serverTick)
                     {
-                        // we need to search the buffer backwards from the insert index to always look at latest snapshots first
-                        int numSnapshotsInBuffer = snapshotDataBuffer.Length / snapshotSize;
-                        
-                        for (int snapshotCount = 0; snapshotCount < numSnapshotsInBuffer; ++snapshotCount)
+                        for (int bi = 0; bi < snapshotDataBuffer.Length; bi += snapshotSize)
                         {
-                            int bi = snapshotDataComponent.GetPreviousSnapshotIndexAtOffset(snapshotCount) * snapshotSize;
-
-                            if (*(uint*)(snapshotData+ bi) == data.BaselineTick.SerializedData)
+                            if (*(uint*)(snapshotData+bi) == data.BaselineTick.SerializedData)
                             {
                                 UnsafeUtility.MemCpy(baselineData, snapshotData+bi, snapshotSize);
                                 //retrive also the baseline dynamic snapshot buffer if the ghost has some buffers
@@ -810,15 +756,9 @@ namespace Unity.NetCode
                             }
                         }
 
-                        if (*(uint*)baselineData == 0)
+                        if (Hint.Unlikely(*(uint*)baselineData == 0))
                         {
-#if NETCODE_DEBUG
-                            if (m_EnablePacketLogging == 1)
-                            {
-                                NetDebugPacket.Log(debugLog);
-                                NetDebugPacket.Log("ERROR: ack desync");
-                            }
-#endif
+                            LogDeserializeFailure(LogType.Warning, (FixedString512Bytes) $"Ack desync at data.BaselineTick:{data.BaselineTick.ToFixedString()} and ServerTick:{serverTick.ToFixedString()} for GID:{ghostId} (GhostType:{GetGhostTypePrefabName(data)}) - server sent baseline(s) we do not have!");
                             return false; // Ack desync detected
                         }
                     }
@@ -827,13 +767,8 @@ namespace Unity.NetCode
                     {
                         byte* baselineData2 = null;
                         byte* baselineData3 = null;
-
-                        // we need to search the buffer backwards from the insert index to always look at latest snapshots first
-                        int numSnapshotsInBuffer = snapshotDataBuffer.Length / snapshotSize;
-                        for (int snapshotCount = 0; snapshotCount < numSnapshotsInBuffer; ++snapshotCount)
+                        for (int bi = 0; bi < snapshotDataBuffer.Length; bi += snapshotSize)
                         {
-                            int bi = snapshotDataComponent.GetPreviousSnapshotIndexAtOffset(snapshotCount) * snapshotSize;
-
                             if (*(uint*)(snapshotData+bi) == data.BaselineTick2.SerializedData)
                             {
                                 baselineData2 = snapshotData+bi;
@@ -845,15 +780,9 @@ namespace Unity.NetCode
                             }
                         }
 
-                        if (baselineData2 == null || baselineData3 == null)
+                        if (Hint.Unlikely(baselineData2 == null || baselineData3 == null))
                         {
-#if NETCODE_DEBUG
-                            if (m_EnablePacketLogging == 1)
-                            {
-                                NetDebugPacket.Log(debugLog);
-                                NetDebugPacket.Log("ERROR: ack desync");
-                            }
-#endif
+                            LogDeserializeFailure(LogType.Warning, (FixedString512Bytes) $"Ack desync for baseline B2:{baselineData2 != null} and/or B3:{baselineData3 != null} at data.BaselineTick3:{data.BaselineTick3.ToFixedString()} and serverTick:{serverTick.ToFixedString()} for GID:{ghostId} (GhostType:{GetGhostTypePrefabName(data)}) - server sent baseline(s) we do not have!");
                             return false; // Ack desync detected
                         }
                         snapshotOffset = GhostComponentSerializer.SnapshotSizeAligned(sizeof(uint) + changeMaskUints*sizeof(uint) + enableableMaskUints*sizeof(uint));
@@ -898,8 +827,8 @@ namespace Unity.NetCode
                         }
                         uint dynamicDataSize = dataStream.ReadPackedUIntDelta(baselineDynamicDataSize, CompressionModel);
 
-                        if (!SnapshotDynamicDataFromEntity.HasBuffer(gent))
-                            throw new InvalidOperationException($"SnapshotDynamictDataBuffer buffer not found for ghost with id {ghostId}");
+                        if (Hint.Unlikely(!SnapshotDynamicDataFromEntity.HasBuffer(gent)))
+                            throw new InvalidOperationException($"SnapshotDynamicDataBuffer buffer not found for GID:{ghostId} (GhostType:{GetGhostTypePrefabName(data)})!");
 
                         //Fit the snapshot buffer to accomodate the new size. Add some room for growth (20%)
                         var slotCapacity = SnapshotDynamicBuffersHelper.GetDynamicDataCapacity(SnapshotDynamicBuffersHelper.GetHeaderSize(), buf.Length);
@@ -941,11 +870,11 @@ namespace Unity.NetCode
                         // The ghost entity map is out of date, clean it up
                         GhostEntityMap.Remove(ghostId);
                         if (GhostFromEntity.HasComponent(gent) && GhostFromEntity[gent].ghostType != data.TargetArch)
-                            NetDebug.LogError($"Received a ghost (ID {ghostId} {gent.ToFixedString()}) with an invalid ghost type {data.TargetArch} (expected {GhostFromEntity[gent].ghostType})");
+                             LogDeserializeFailure(LogType.Error, ($"Received a ghost (GID:{ghostId}, {gent.ToFixedString()}) with an invalid ghost type ({GetGhostTypePrefabName(data)}, expected {GhostFromEntity[gent].ghostType})."));
                         else if (isPrespawn)
-                            NetDebug.LogError($"Found a prespawn ghost (ID {ghostId} {gent.ToFixedString()}) that has no entity connected to it. This can happend if you unload a scene or destroy the ghost entity on the client");
+                            LogDeserializeFailure(LogType.Error, ($"Found a prespawn ghost (GID:{ghostId}, {gent.ToFixedString()}, GhostType:{GetGhostTypePrefabName(data)}) that has no entity connected to it. This can happen if you unload a scene or destroy the ghost entity on the client."));
                         else
-                            NetDebug.LogError($"Found a ghost (ID {ghostId} {gent.ToFixedString()}) in the ghost map which does not have an entity connected to it or an invalid entity. This can happen if you delete ghost entities on the client.");
+                            LogDeserializeFailure(LogType.Error, $"Found a ghost (GID:{ghostId}, {gent.ToFixedString()}, GhostType:{GetGhostTypePrefabName(data)}) in the ghost map which does not have an entity connected to it (or an invalid entity). This can happen if you delete ghost entities on the client.");
                     }
                     int prespawnSceneIndex = -1;
                     if (isPrespawn)
@@ -973,13 +902,13 @@ namespace Unity.NetCode
                         //spurious/temporary inconsistency. The server will be notified soon that the client does not have that scenes anymore
                         //and will stop streaming the subscene ghosts to him.
                         //Try to recover by skipping the data. If the stream does not have a the ghost-size bits, fallback to the standard error.
-                        if(isPrespawn && prespawnSceneIndex == -1 && (SnaphostHasCompressedGhostSize == 1))
+                        if(isPrespawn && prespawnSceneIndex == -1 && (GhostSystemConstants.SnapshotHasCompressedGhostSize))
                         {
 #if NETCODE_DEBUG
-                            if (m_EnablePacketLogging == 1)
+                            if (NetDebugPacket.IsCreated)
                             {
-                                debugLog.Append(FixedString.Format("SKIP ({0}B)", ghostDataSizeInBits));
-                                NetDebugPacket.Log(debugLog);
+                                DebugLog.Append(FixedString.Format("SKIP ({0}B)", ghostDataSizeInBits));
+                                PacketDumpFlush();
                             }
 #endif
                             while (ghostDataSizeInBits > 32)
@@ -992,17 +921,14 @@ namespace Unity.NetCode
                             return true;
                         }
                         if(!isPrespawn || data.BaselineTick.IsValid)
-                            // If the server specifies a baseline for a ghost we do not have that is an error
-                            NetDebug.LogError($"Received baseline for a ghost we do not have ghostId={ghostId} baselineTick={data.BaselineTick.ToFixedString()} serverTick={serverTick.ToFixedString()} existingGhost={existingGhost}");
-#if NETCODE_DEBUG
-                        if (m_EnablePacketLogging == 1)
                         {
-                            NetDebugPacket.Log(debugLog);
-                            NetDebugPacket.Log("ERROR: Received baseline for spawn");
+                            LogDeserializeFailure(LogType.Error, (FixedString512Bytes) $"Received baseline for a ghost we do not have; GID:{ghostId} (GhostType:{GetGhostTypePrefabName(data)}), BaselineTick:{data.BaselineTick.ToFixedString()}, existingGhost:{existingGhost}, serverTick:{serverTick.ToFixedString()}!");
+                            return false;
                         }
-#endif
+                        LogDeserializeFailure(LogType.Warning, (FixedString512Bytes) $"Unknown baseline mismatch error for GID:{ghostId} (GhostType:{GetGhostTypePrefabName(data)}), BaselineTick:{data.BaselineTick.ToFixedString()}, existingGhost:{existingGhost}, serverTick:{serverTick.ToFixedString()}!");
                         return false;
                     }
+
                     ++data.NewGhosts;
                     var ghostSpawnBuffer = GhostSpawnBufferFromEntity[GhostSpawnEntity];
                     snapshotDataBuffer = SnapshotDataBufferFromEntity[GhostSpawnEntity];
@@ -1029,16 +955,13 @@ namespace Unity.NetCode
                         //Without the PreSpawnedGhostIndex some queries does not report the ghost correctly and
                         //the without the SceneSection the ghost will not be destroyed in case the scene is belonging to
                         //is unloaded.
-                        if (prespawnSceneIndex != -1)
+                        if (Hint.Likely(prespawnSceneIndex != -1))
                         {
-                            spawnedGhost.PrespawnIndex = (int)(ghostId & ~PrespawnHelper.PrespawnGhostIdBase) - PrespawnSceneStateArray[prespawnSceneIndex].FirstGhostId;
+                            spawnedGhost.PrespawnIndex = (int) (ghostId & ~PrespawnHelper.PrespawnGhostIdBase) - PrespawnSceneStateArray[prespawnSceneIndex].FirstGhostId;
                             spawnedGhost.SceneGUID = PrespawnSceneStateArray[prespawnSceneIndex].SceneGUID;
                             spawnedGhost.SectionIndex = PrespawnSceneStateArray[prespawnSceneIndex].SectionIndex;
                         }
-                        else
-                        {
-                            NetDebug.LogError("Received a new instance of a pre-spawned ghost (relevancy changes) but no section with a enclosing id-range has been found");
-                        }
+                        else LogDeserializeFailure(LogType.Error, $"Received a new instance of a pre-spawned ghost GID:{ghostId} (GhostType:{GetGhostTypePrefabName(data)}) on ServerTick:{serverTick.ToFixedString()} due to relevancy changes, but no section with a enclosing id-range has been found!");
                     }
                     ghostSpawnBuffer.Add(spawnedGhost);
                     snapshotDataBuffer.ResizeUninitialized(snapshotDataBufferOffset + snapshotSize + (int)dynamicDataSize);
@@ -1069,8 +992,8 @@ namespace Unity.NetCode
                     changeMask[cm] = changeMaskUint;
                     anyChangeMaskThisEntity |= changeMaskUint;
 #if NETCODE_DEBUG
-                    if (m_EnablePacketLogging == 1)
-                        debugLog.Append(FixedString.Format(" Changemask:{0}", NetDebug.PrintMask(changeMask[cm])));
+                    if(NetDebugPacket.IsCreated)
+                        DebugLog.Append(FixedString.Format(" ChangeMask:{0}", NetDebug.PrintMask(changeMask[cm])));
 #endif
                 }
 
@@ -1093,7 +1016,7 @@ namespace Unity.NetCode
 #if NETCODE_DEBUG
                     FixedString128Bytes componentName = default;
                     int numBits = 0;
-                    if (m_EnablePacketLogging == 1)
+                    if (NetDebugPacket.IsCreated)
                     {
                         var componentTypeIndex = ghostSerializer.ComponentType.TypeIndex;
                         componentName = NetDebug.ComponentTypeNameLookup[componentTypeIndex];
@@ -1175,21 +1098,15 @@ namespace Unity.NetCode
                         dynamicBufferOffset = GhostComponentSerializer.SnapshotSizeAligned(dynamicBufferOffset);
                     }
 #if NETCODE_DEBUG
-                    if ((m_EnablePacketLogging == 1) && anyChangeMaskThisEntity != 0)
+                    if (NetDebugPacket.IsCreated && anyChangeMaskThisEntity != 0)
                     {
-                        if (debugLog.Length > (debugLog.Capacity >> 1))
+                        if (DebugLog.Length > (DebugLog.Capacity >> 1))
                         {
-                            FixedString32Bytes cont = " CONT";
-                            debugLog.Append(cont);
-                            NetDebugPacket.Log(debugLog);
-                            debugLog = "";
+                            DebugLog.Append((FixedString32Bytes) " CONT");
+                            PacketDumpFlush();
                         }
                         numBits = dataStream.GetBitsRead() - numBits;
-                        #if UNITY_EDITOR || NETCODE_DEBUG
-                        debugLog.Append(FixedString.Format(" {0}:{1} ({2}B)", componentName, ghostSerializer.PredictionErrorNames, numBits));
-                        #else
-                        debugLog.Append(FixedString.Format(" {0}:{1} ({2}B)", componentName, serializerIdx, numBits));
-                        #endif
+                        DebugLog.Append(FixedString.Format(" {0}:{1} ({2}B)", componentName, ghostSerializer.PredictionErrorNames, numBits));
                     }
 #endif
                 }
@@ -1252,13 +1169,12 @@ namespace Unity.NetCode
                     }
                 }
 #if NETCODE_DEBUG
-                if (m_EnablePacketLogging == 1)
+                if (NetDebugPacket.IsCreated)
                 {
                     if (anyChangeMaskThisEntity != 0)
-                        debugLog.Append(FixedString.Format(" Total ({0}B)", dataStream.GetBitsRead()-entityStartBit));
-                    FixedString32Bytes endLine = "\n";
-                    debugLog.Append(endLine);
-                    NetDebugPacket.Log(debugLog);
+                        DebugLog.Append(FixedString.Format(" Total ({0}B)", dataStream.GetBitsRead()-entityStartBit));
+                    DebugLog.Append('\n');
+                    PacketDumpFlush();
                 }
 #endif
 
@@ -1268,19 +1184,10 @@ namespace Unity.NetCode
                     ++data.UncompressedCount;
 #endif
 
-                if ((SnaphostHasCompressedGhostSize == 1) && dataStream.GetBitsRead() != ghostDataStreamStartBitsRead + ghostDataSizeInBits)
+                var bitsReadForGhost = dataStream.GetBitsRead()-ghostDataStreamStartBitsRead;
+                if (GhostSystemConstants.SnapshotHasCompressedGhostSize && Hint.Unlikely(bitsReadForGhost != ghostDataSizeInBits))
                 {
-                    var bitsRead = dataStream.GetBitsRead()-ghostDataStreamStartBitsRead;
-#if NETCODE_DEBUG
-                    var ghostCollection = GhostCollectionFromEntity[GhostCollectionSingleton];
-                    var prefabName = FixedString.Format("{0}({1})", PrefabNamesFromEntity[ghostCollection[(int)data.TargetArch].GhostPrefab].PrefabName, data.TargetArch);
-                    NetDebug.LogError(FixedString.Format("Failed to decode ghost {0} of type {1}, got {2} bits, expected {3} bits", ghostId, prefabName, bitsRead, ghostDataSizeInBits));
-
-                    if (m_EnablePacketLogging == 1)
-                        NetDebugPacket.Log(FixedString.Format("ERROR: Failed to decode ghost {0} of type {1}, got {2} bits, expected {3} bits", ghostId, prefabName, bitsRead, ghostDataSizeInBits));
-#else
-                    NetDebug.LogError(FixedString.Format("Failed to decode ghost {0} of type {1}, got {2} bits, expected {3} bits", ghostId, data.TargetArch, bitsRead, ghostDataSizeInBits));
-#endif
+                    LogDeserializeFailure(LogType.Error, (FixedString512Bytes) $"Failed to decode ghost GID {ghostId} (GhostType:{GetGhostTypePrefabName(data)}), got {bitsReadForGhost} bits for ghost, expected {ghostDataSizeInBits} bits!");
                     return false;
                 }
 
@@ -1288,23 +1195,74 @@ namespace Unity.NetCode
                 {
                     var groupLen = dataStream.ReadPackedUInt(CompressionModel);
 #if NETCODE_DEBUG
-                    if (m_EnablePacketLogging == 1)
-                        NetDebugPacket.Log(FixedString.Format("\t\t\tGrpLen:{0} [\n", groupLen));
+                    if(NetDebugPacket.IsCreated)
+                        NetDebugPacket.Log(FixedString.Format("\t\t\tGhostGroup.Len:{0}\n\t\t\t[", groupLen));
 #endif
                     for (var i = 0; i < groupLen; ++i)
                     {
                         var childData = default(DeserializeData);
-                        if (!DeserializeEntity(serverTick, ref dataStream, ref childData))
+#if NETCODE_DEBUG
+                        if(NetDebugPacket.IsCreated)
+                            NetDebugPacket.Log(FixedString.Format("\t\t\t\t[{0}/{1}] ", i, groupLen));
+#endif
+                        if (!DeserializeEntity(serverTick, ref dataStream, ref childData, i))
+                        {
+                            LogDeserializeFailure(LogType.Warning, (FixedString512Bytes)$"Error occurred during the GhostGroup deserialization of GID:{ghostId} (GhostType:{GetGhostTypePrefabName(data)}) at child index {i} of {groupLen}!");
                             return false;
+                        }
                     }
 #if NETCODE_DEBUG
-                    if (m_EnablePacketLogging == 1)
+                    if (NetDebugPacket.IsCreated)
                         NetDebugPacket.Log("\t\t\t]\n");
 #endif
                 }
                 return true;
             }
 
+            private FixedString128Bytes GetGhostTypePrefabName(in DeserializeData data)
+            {
+                var ghostCollection = GhostCollectionFromEntity[GhostCollectionSingleton];
+                if (data.TargetArch < ghostCollection.Length)
+                {
+                    var prefab = ghostCollection[(int) data.TargetArch];
+#if NETCODE_DEBUG
+                    if(PrefabNamesFromEntity.TryGetComponent(prefab.GhostPrefab, out var pdn))
+                        // Burst bug: Use FixedString.Format otherwise it prints BlobStringText.
+                        return FixedString.Format("{0}({1}/{2})", pdn.PrefabName, data.TargetArch, ghostCollection.Length);
+#endif
+                    return (FixedString128Bytes)$"{prefab.GhostType.guid0}-{prefab.GhostType.guid1}-{prefab.GhostType.guid2}-{prefab.GhostType.guid3} Hash:{prefab.Hash}({data.TargetArch}/{ghostCollection.Length})";
+                }
+                return (FixedString128Bytes)$"???({data.TargetArch}/{ghostCollection.Length})";
+            }
+
+            /// <summary>Packet dump AND log the Warning/Error log.</summary>
+            private void LogDeserializeFailure(UnityEngine.LogType type, FixedString512Bytes msg)
+            {
+#if NETCODE_DEBUG
+                if (NetDebugPacket.IsCreated)
+                {
+                    PacketDumpFlush();
+                    NetDebugPacket.Log(msg);
+                }
+#endif
+                switch (type)
+                {
+                    case LogType.Error: NetDebug.LogError($"[{WorldName}][GhostReceiveSystem] {msg}"); break;
+                    case LogType.Warning: NetDebug.LogWarning($"[{WorldName}][GhostReceiveSystem] {msg}"); break;
+                    default: throw new ArgumentOutOfRangeException(nameof(type), type, null);
+                }
+            }
+            [Conditional("NETCODE_DEBUG")]
+            private void PacketDumpFlush()
+            {
+#if NETCODE_DEBUG
+                if (NetDebugPacket.IsCreated && !DebugLog.IsEmpty)
+                {
+                    NetDebugPacket.Log(DebugLog);
+                    DebugLog.Clear();
+                }
+#endif
+            }
             [Conditional("ENABLE_UNITY_COLLECTIONS_CHECKS")]
             void CheckPrespawnBaselineIsPresent(Entity gent, int ghostId)
             {
@@ -1366,6 +1324,7 @@ namespace Unity.NetCode
             }
         }
 
+        /// <inheritdoc/>
         [BurstCompile]
         public void OnUpdate(ref SystemState state)
         {
@@ -1375,15 +1334,6 @@ namespace Unity.NetCode
             netStats.Size = numLoadedPrefabs * 3 + 3 + 1;
             netStats.Stride = netStats.Size;
             netStats.Data.Resize(netStats.Size, NativeArrayOptions.ClearMemory);
-#endif
-
-#if NETCODE_DEBUG
-            FixedString128Bytes timestampAndTick = default;
-            if (SystemAPI.HasSingleton<EnablePacketLogging>())
-            {
-                NetDebugInterop.InitDebugPacketIfNotCreated(ref m_NetDebugPacket, m_LogFolder, m_WorldName, 0);
-                NetDebugInterop.GetTimestampWithTick(SystemAPI.GetSingleton<NetworkTime>().ServerTick, out timestampAndTick);
-            }
 #endif
 
             var commandBuffer = SystemAPI.GetSingleton<BeginSimulationEntityCommandBufferSystem.Singleton>().CreateCommandBuffer(state.WorldUnmanaged);
@@ -1425,12 +1375,26 @@ namespace Unity.NetCode
                 return;
             }
 
+#if NETCODE_DEBUG
+            FixedString128Bytes timestampAndTick = default;
+            if (SystemAPI.HasSingleton<EnablePacketLogging>())
+            {
+                NetDebugInterop.InitDebugPacketIfNotCreated(ref m_NetDebugPacket, m_LogFolder, state.WorldUnmanaged.Name, 0);
+                NetDebugInterop.GetTimestampWithTick(SystemAPI.GetSingleton<NetworkTime>().ServerTick, out timestampAndTick);
+                timestampAndTick = $"█ {timestampAndTick}[GRS-RSJ] ";
+            }
+#endif
+
             var connections = m_ConnectionsQuery.ToEntityListAsync(state.WorldUpdateAllocator, out var connectionHandle);
             var prespawnSceneStateArray =
                 m_SubSceneQuery.ToComponentDataListAsync<SubSceneWithGhostCleanup>(state.WorldUpdateAllocator,
                     out var prespawnHandle);
             ref readonly var ghostDespawnQueues = ref SystemAPI.GetSingletonRW<GhostDespawnQueues>().ValueRO;
-            ref readonly var ownerPredictedQueues = ref SystemAPI.GetSingletonRW<GhostOwnerPredictedSwitchingQueue>().ValueRW;
+            NativeQueue<OwnerSwithchingEntry> ownerPredictedQueues;
+            if (SystemAPI.TryGetSingleton<GhostOwnerPredictedSwitchingQueue>(out var ownerPredictedSwitchingQueue))
+                ownerPredictedQueues = ownerPredictedSwitchingQueue.SwitchOwnerQueue;
+            else
+                ownerPredictedQueues = new NativeQueue<OwnerSwithchingEntry>(state.WorldUpdateAllocator);
             UpdateLookupsForReadStreamJob(ref state);
             var ghostCollectionSingleton = SystemAPI.GetSingletonEntity<GhostCollection>();
             var pendingAssignment = SystemAPI.GetSingletonRW<GhostCollection>().ValueRW.PendingGhostPrefabAssignment;
@@ -1459,7 +1423,7 @@ namespace Unity.NetCode
 #endif
                 InterpolatedDespawnQueue = ghostDespawnQueues.InterpolatedDespawnQueue,
                 PredictedDespawnQueue = ghostDespawnQueues.PredictedDespawnQueue,
-                OwnerPredictedSwitchQueue = ownerPredictedQueues.SwitchOwnerQueue,
+                OwnerPredictedSwitchQueue = ownerPredictedQueues,
                 PredictedFromEntity = m_PredictedFromEntity,
                 GhostFromEntity = m_GhostFromEntity,
                 IsThinClient = state.WorldUnmanaged.IsThinClient() ? (byte)1u : (byte)0u,
@@ -1468,14 +1432,14 @@ namespace Unity.NetCode
                 GhostCompletionCount = m_GhostCompletionCount,
                 TempDynamicData = m_TempDynamicData,
                 PrespawnSceneStateArray = prespawnSceneStateArray,
+                NetDebug = SystemAPI.GetSingleton<NetDebug>(),
+                WorldName = state.WorldUnmanaged.Name,
 #if NETCODE_DEBUG
                 NetDebugPacket = m_NetDebugPacket,
                 PrefabNamesFromEntity = m_PrefabNamesFromEntity,
                 EnableLoggingFromEntity = m_EnableLoggingFromEntity,
-                TimestampAndTick = timestampAndTick,
+                DebugLog = timestampAndTick,
 #endif
-                NetDebug = SystemAPI.GetSingleton<NetDebug>(),
-                SnaphostHasCompressedGhostSize = GhostSystemConstants.SnaphostHasCompressedGhostSize ? (byte)1u : (byte)0u
             };
             var tempDeps = new NativeArray<JobHandle>(3, Allocator.Temp);
             tempDeps[0] = state.Dependency;

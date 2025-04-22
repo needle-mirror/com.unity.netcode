@@ -19,6 +19,7 @@ namespace Unity.NetCode
         private EntityQuery m_UnloadedSubscenes;
         private EntityQuery m_Prespawns;
 
+        /// <inheritdoc/>
         [BurstCompile]
         public void OnCreate(ref SystemState state)
         {
@@ -34,6 +35,7 @@ namespace Unity.NetCode
             state.RequireForUpdate(m_UnloadedSubscenes);
         }
 
+        /// <inheritdoc/>
         [BurstCompile]
         public void OnUpdate(ref SystemState state)
         {

@@ -217,6 +217,7 @@ namespace Unity.NetCode
         BufferLookup<GhostCollectionComponentIndex> m_GhostCollectionComponentIndexFromEntity;
         BufferLookup<GhostCollectionPrefab> m_GhostCollectionPrefabFromEntity;
 
+        /// <inheritdoc/>
         [BurstCompile]
         public void OnCreate(ref SystemState state)
         {
@@ -254,6 +255,7 @@ namespace Unity.NetCode
             predictionHistoryState.EntityData = m_EntityData.AsReadOnly();
         }
 
+        /// <inheritdoc/>
         [BurstCompile]
         public void OnDestroy(ref SystemState state)
         {
@@ -269,6 +271,7 @@ namespace Unity.NetCode
             m_EntityData.Dispose();
         }
 
+        /// <inheritdoc/>
         [BurstCompile]
         public void OnUpdate(ref SystemState state)
         {
@@ -725,7 +728,11 @@ namespace Unity.NetCode
                         var compSize = isBuffer ? GhostComponentSerializer.DynamicBufferComponentSnapshotSize : ghostSerializer.ComponentSize;
 
                         if (!ghostSerializer.HasGhostFields)
+                        {
+                            if(ghostSerializer.SerializesEnabledBit != 0)
+                                childChangeVersions = PredictionBackupState.GetNextChildChunkVersion(childChangeVersions, chunk.Capacity);
                             continue;
+                        }
 
                         if (!ghostSerializer.ComponentType.IsBuffer)
                         {

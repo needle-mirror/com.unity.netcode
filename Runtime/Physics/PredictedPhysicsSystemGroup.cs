@@ -222,6 +222,8 @@ namespace Unity.NetCode
         private bool m_DidPrintError;
         #endif
         private EntityQuery m_Query;
+
+        /// <inheritdoc/>
         public void OnCreate(ref SystemState state)
         {
             // If not debug, require the singleton for update
@@ -234,6 +236,8 @@ namespace Unity.NetCode
             m_Query = state.GetEntityQuery(builder);
             m_Query.SetSharedComponentFilter(new PhysicsWorldIndex(0));
         }
+
+        /// <inheritdoc/>
         [BurstCompile]
         public void OnUpdate(ref SystemState state)
         {

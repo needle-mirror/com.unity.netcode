@@ -3,6 +3,7 @@ using System;
 using Unity.Burst;
 using Unity.Collections;
 using Unity.Entities;
+using Unity.Jobs;
 using Unity.Mathematics;
 using Unity.Profiling;
 #if USING_ENTITIES_GRAPHICS
@@ -55,7 +56,6 @@ namespace Unity.NetCode.Samples.Common
         MeshRenderer m_ServerMeshRenderer;
         EntityQuery m_InterpolatedGhostQuery;
         EntityQuery m_PredictedGhostQuery;
-        EntityQuery m_MissingDebugMeshBoundsQuery;
 
         [RuntimeInitializeOnLoadMethod]
         [InitializeOnLoadMethod]
@@ -87,7 +87,7 @@ namespace Unity.NetCode.Samples.Common
         static void UpdateEntityMeshDrawer(EntityManager clientEntityManager, bool enabled, Entity renderEntity, Material material, Color color)
         {
             if (!clientEntityManager.Exists(renderEntity)) return;
-            
+
             material.color = color;
 
             var shouldBeVisible = enabled && color.a > 0f;
@@ -104,7 +104,7 @@ namespace Unity.NetCode.Samples.Common
         static void UpdateGameObjectMeshDrawer(bool enabled, MeshRenderer renderer, Material material, Color color)
         {
             if (renderer == null) return;
-            
+
             renderer.enabled = enabled && color.a > 0f;
             material.color = color;
         }
@@ -180,6 +180,50 @@ namespace Unity.NetCode.Samples.Common
             UpdateGameObjectMeshDrawer(false, m_ClientInterpolatedMeshRenderer, m_InterpolatedClientMat, InterpolatedClientColor);
         }
 
+        protected override void OnCreate()
+        {
+            base.OnCreate();
+
+            m_PredictedGhostQuery = SystemAPI.QueryBuilder()
+                .WithAllRW<PredictedGhost>()
+                .WithAllRW<GhostDebugMeshBounds>()
+                .WithAllRW<GhostInstance>()
+                .WithAllRW<LocalToWorld>().Build();
+            m_InterpolatedGhostQuery = SystemAPI.QueryBuilder()
+                .WithNone<PredictedGhost>()
+                .WithAllRW<GhostDebugMeshBounds>()
+                .WithAllRW<GhostInstance>()
+                .WithAllRW<LocalToWorld>().Build();
+        }
+
+        [BurstCompile]
+        struct CreateGeometryJob : IJob
+        {
+            [ReadOnly]
+            public NativeArray<LocalToWorld> ServerL2Ws;
+
+            public NativeList<int> ServerIndices;
+            public NativeList<float3> ServerVertices;
+            public float Scale;
+
+            public void Execute()
+            {
+                var x = new float3(Scale, 0, 0);
+                var y = new float3(0, Scale, 0);
+                var z = new float3(0, 0, Scale);
+                ServerVertices.Capacity = math.max(ServerVertices.Capacity, ServerVertices.Length + ServerL2Ws.Length * 6);
+                ServerIndices.Capacity = math.max(ServerIndices.Capacity, ServerIndices.Length + ServerL2Ws.Length * 6);
+
+                for (var i = 0; i < ServerL2Ws.Length; i++)
+                {
+                    var pos = ServerL2Ws[i].Position;
+                    DebugDrawLine(pos - x, pos + x, ref ServerVertices, ref ServerIndices);
+                    DebugDrawLine(pos - y, pos + y, ref ServerVertices, ref ServerIndices);
+                    DebugDrawLine(pos - z, pos + z, ref ServerVertices, ref ServerIndices);
+                }
+            }
+        }
+
         protected override void OnUpdate()
         {
             var enabled = Enabled && s_CustomDrawer.Enabled && DebugGhostDrawer.HasRequiredWorlds;
@@ -215,31 +259,33 @@ namespace Unity.NetCode.Samples.Common
             var serverLocalToWorldMap = serverSystem.LocalToWorldsMapR0;
             serverLocalToWorldMap.Update(serverSystem);
 
-            var serverVertices = new NativeList<float3>(numEntitiesToIterate * 10, Allocator.Temp);
-            var serverIndices = new NativeList<int>(numEntitiesToIterate * 26, Allocator.Temp);
+            var serverVertices = new NativeList<float3>(numEntitiesToIterate * 10, Allocator.TempJob);
+            var serverIndices = new NativeList<int>(numEntitiesToIterate * 26, Allocator.TempJob);
 
             s_GatherDataMarker.End();
-            
+
 #if USING_ENTITIES_GRAPHICS
+            var missingDebugMeshBoundsQuery = SystemAPI.QueryBuilder()
+                .WithNone<GhostDebugMeshBounds>()
+                .WithAll<GhostInstance, LocalToWorld, RenderBounds>().Build();
+
             // GameObject side, this needs to be done at the GO's Initialization. You can use GhostDebugMeshBounds's Initialize
-            if (m_MissingDebugMeshBoundsQuery.CalculateEntityCount() > 0)
+            if (missingDebugMeshBoundsQuery.CalculateEntityCount() > 0)
             {
                 // Add a GhostDebugMeshBounds component to all predicted ghosts that don't have one.
                 // This way, we don't have our size changing as the bounds are moving around. We rely on rotation to tell us the real rotation
-                var ecb = new EntityCommandBuffer(Allocator.Temp);
-                Entities
-                    .WithNone<GhostDebugMeshBounds>()
-                    .WithAll<GhostInstance, LocalToWorld>()
-                    .WithStoreEntityQueryInField(ref m_MissingDebugMeshBoundsQuery)
-                    .ForEach((in Entity en, in RenderBounds bounds) =>
+                var entities = missingDebugMeshBoundsQuery.ToEntityArray(Allocator.Temp);
+                var renderBounds = missingDebugMeshBoundsQuery.ToComponentDataArray<RenderBounds>(Allocator.Temp);
+                for (var i = 0; i < entities.Length; i++)
+                {
+                    var en = entities[i];
+                    var bounds = renderBounds[i];
+                    if (math.lengthsq(bounds.Value.Extents) > 0.001f)
                     {
-                        if (math.lengthsq(bounds.Value.Extents) > 0.001f)
-                        {
-                            Bounds b = new Bounds(bounds.Value.Center, bounds.Value.Extents * 2);
-                            ecb.AddComponent(en, new GhostDebugMeshBounds { GlobalBounds = b });
-                        }
-                    }).Run();
-                ecb.Playback(base.EntityManager);
+                        Bounds b = new Bounds(bounds.Value.Center, bounds.Value.Extents * 2);
+                        EntityManager.AddComponentData(en, new GhostDebugMeshBounds { GlobalBounds = b });
+                    }
+                }
             }
 #endif
 
@@ -250,17 +296,16 @@ namespace Unity.NetCode.Samples.Common
 
                 using (s_CreateGeometryJobMarker.Auto())
                 {
-                    Entities
-                        .WithName("CreateGeometryWithPredictedGhosts")
-                        .WithStoreEntityQueryInField(ref m_PredictedGhostQuery)
-                        .WithReadOnly(serverLocalToWorldMap)
-                        .WithReadOnly(serverSpawnedGhostEntityMap)
-                        .WithAll<PredictedGhost>()
-                        .ForEach((in GhostDebugMeshBounds debugHelper, in GhostInstance ghostComponent, in LocalToWorld transform) =>
-                        {
-                            AABB aabb = new AABB() { Center = debugHelper.GlobalBounds.center, Extents = debugHelper.GlobalBounds.extents };
-                            CreateLineGeometryWithGhosts(in aabb, in transform, in ghostComponent, in serverSpawnedGhostEntityMap, in serverLocalToWorldMap, ref predictedClientVertices, ref predictedClientIndices, ref serverVertices, ref serverIndices);
-                        }).Run();
+                    foreach (var (debugHelper, ghostComponent, transform) in SystemAPI.Query<
+                                     RefRO<GhostDebugMeshBounds>, RefRO<GhostInstance>, RefRO<LocalToWorld>>()
+                                 .WithAll<PredictedGhost>())
+                    {
+                        AABB aabb = new AABB
+                            { Center = debugHelper.ValueRO.GlobalBounds.center, Extents = debugHelper.ValueRO.GlobalBounds.extents };
+                        CreateLineGeometryWithGhosts(in aabb, in transform.ValueRO, in ghostComponent.ValueRO,
+                            in serverSpawnedGhostEntityMap, in serverLocalToWorldMap, ref predictedClientVertices,
+                            ref predictedClientIndices, ref serverVertices, ref serverIndices);
+                    }
                 }
 
                 UpdateIndividualMeshOptimized(m_PredictedClientMesh, ref predictedClientVertices, ref predictedClientIndices);
@@ -277,17 +322,20 @@ namespace Unity.NetCode.Samples.Common
 
                 using (s_CreateGeometryJobMarker.Auto())
                 {
-                    Entities
-                        .WithName("CreateGeometryWithInterpolatedGhosts")
-                        .WithStoreEntityQueryInField(ref m_InterpolatedGhostQuery)
-                        .WithReadOnly(serverLocalToWorldMap)
-                        .WithReadOnly(serverSpawnedGhostEntityMap)
-                        .WithNone<PredictedGhost>()
-                        .ForEach((in GhostDebugMeshBounds debugHelper, in GhostInstance ghostComponent, in LocalToWorld transform) =>
+                    foreach (var (debugHelper, ghostComponent, transform) in
+                             SystemAPI.Query<RefRO<GhostDebugMeshBounds>, RefRO<GhostInstance>, RefRO<LocalToWorld>>()
+                                 .WithNone<PredictedGhost>())
+                    {
+                        var aabb = new AABB
                         {
-                            AABB aabb = new AABB() { Center = debugHelper.GlobalBounds.center, Extents = debugHelper.GlobalBounds.extents };
-                            CreateLineGeometryWithGhosts(in aabb, in transform, in ghostComponent, in serverSpawnedGhostEntityMap, in serverLocalToWorldMap, ref interpolatedClientVertices, ref interpolatedClientIndices, ref serverVertices, ref serverIndices);
-                        }).Run();
+                            Center = debugHelper.ValueRO.GlobalBounds.center,
+                            Extents = debugHelper.ValueRO.GlobalBounds.extents
+                        };
+                        CreateLineGeometryWithGhosts(in aabb, in transform.ValueRO, in ghostComponent.ValueRO,
+                            in serverSpawnedGhostEntityMap, in serverLocalToWorldMap,
+                            ref interpolatedClientVertices, ref interpolatedClientIndices,
+                            ref serverVertices, ref serverIndices);
+                    }
                 }
 
                 UpdateIndividualMeshOptimized(m_InterpolatedClientMesh, ref interpolatedClientVertices, ref interpolatedClientIndices);
@@ -302,27 +350,17 @@ namespace Unity.NetCode.Samples.Common
             {
                 using (s_CreateGeometryJobMarker.Auto())
                 {
-                    var serverL2Ws = serverSystem.GhostL2WQuery.ToComponentDataArray<LocalToWorld>(Allocator.Temp);
+                    var serverL2Ws = serverSystem.GhostL2WQuery.ToComponentDataArray<LocalToWorld>(Allocator.TempJob);
                     var scale = GhostServerMarkerScale * .5f;
-                    Job
-                        .WithReadOnly(serverL2Ws)
-                        .WithDisposeOnCompletion(serverL2Ws)
-                        .WithCode(() =>
-                        {
-                            var x = new float3(scale, 0, 0);
-                            var y = new float3(0, scale, 0);
-                            var z = new float3(0, 0, scale);
-                            serverVertices.Capacity = math.max(serverVertices.Capacity, serverVertices.Length + serverL2Ws.Length * 6);
-                            serverIndices.Capacity = math.max(serverIndices.Capacity, serverIndices.Length + serverL2Ws.Length * 6);
 
-                            for (var i = 0; i < serverL2Ws.Length; i++)
-                            {
-                                var pos = serverL2Ws[i].Position;
-                                DebugDrawLine(pos - x, pos + x, ref serverVertices, ref serverIndices);
-                                DebugDrawLine(pos - y, pos + y, ref serverVertices, ref serverIndices);
-                                DebugDrawLine(pos - z, pos + z, ref serverVertices, ref serverIndices);
-                            }
-                        }).Run();
+                    new CreateGeometryJob()
+                    {
+                        Scale = scale,
+                        ServerVertices = serverVertices,
+                        ServerIndices = serverIndices,
+                        ServerL2Ws = serverL2Ws
+                    }.Run();
+                    serverL2Ws.Dispose();
                 }
             }
 
@@ -413,9 +451,9 @@ namespace Unity.NetCode.Samples.Common
         void CreateRenderGameObjectIfNull()
         {
             if (m_ClientInterpolatedMeshRenderer != null) return;
-            
+
             SetupMeshAndMaterials();
-            
+
             GameObject serverGo = new GameObject(m_ServerMesh.name);
             var serverMeshFilter = serverGo.AddComponent<MeshFilter>();
             m_ServerMeshRenderer = serverGo.AddComponent<MeshRenderer>();
@@ -425,17 +463,17 @@ namespace Unity.NetCode.Samples.Common
 
             GameObject clientInterpolatedGO = GameObject.Instantiate(serverGo);
             GameObject clientPredictedGO = GameObject.Instantiate(serverGo);
-            
+
             serverMeshFilter.mesh = m_ServerMesh;
             m_ServerMeshRenderer.material = m_ServerMat;
-            
+
             clientInterpolatedGO.GetComponent<MeshFilter>().mesh = m_InterpolatedClientMesh;
             m_ClientInterpolatedMeshRenderer = clientInterpolatedGO.GetComponent<MeshRenderer>();
             m_ClientInterpolatedMeshRenderer.material = m_InterpolatedClientMat;
             clientPredictedGO.GetComponent<MeshFilter>().mesh = m_PredictedClientMesh;
             m_ClientPredictedMeshRenderer = clientPredictedGO.GetComponent<MeshRenderer>();
             m_ClientPredictedMeshRenderer.material = m_PredictedClientMat;
-            
+
             serverGo.name = m_ServerMesh.name;
             clientInterpolatedGO.name = m_InterpolatedClientMesh.name;
             clientPredictedGO.name = m_PredictedClientMesh.name;
@@ -447,7 +485,7 @@ namespace Unity.NetCode.Samples.Common
             if (EntityManager.Exists(m_ClientInterpolatedMeshRendererEntity)) return;
 
             SetupMeshAndMaterials();
-            
+
             m_ServerMeshRendererEntity = EntityManager.CreateEntity(ComponentType.ReadOnly<LocalToWorld>());
             EntityManager.SetComponentData(m_ServerMeshRendererEntity, new LocalToWorld
             {
@@ -498,7 +536,7 @@ namespace Unity.NetCode.Samples.Common
             var i = vertices.Length;
             var min = aabb.Min;
             var max = aabb.Max;
-            
+
             // We take a local bounds and transform it to world space using the ghost's position, rotation and scale.
             float3 transformLocalToWorld(float3 p, LocalToWorld GhostL2WMatrix)
             {

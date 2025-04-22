@@ -1,0 +1,116 @@
+#templateid:NetCode.GhostSnapshotValueNetworkEndpoint.cs
+#region __GHOST_IMPORTS__
+#endregion
+
+namespace Generated
+{
+    public struct GhostSnapshotData
+    {
+        struct Snapshot
+        {
+            #region __GHOST_FIELD__
+            public Unity.Networking.Transport.NetworkEndpoint  __GHOST_FIELD_NAME__;
+
+            #endregion
+        }
+
+        public void PredictDelta(uint tick, ref GhostSnapshotData baseline1, ref GhostSnapshotData baseline2)
+        {
+            #region __GHOST_PREDICT__
+            #endregion
+        }
+
+        public unsafe void CopyToSnapshot(ref Snapshot snapshot, ref IComponentData component)
+        {
+            if (true)
+            {
+                #region __GHOST_COPY_TO_SNAPSHOT__
+                snapshot.__GHOST_FIELD_NAME__ = component.__GHOST_FIELD_REFERENCE__;
+                #endregion
+            }
+        }
+        public unsafe void CopyFromSnapshot(ref Snapshot snapshot, ref IComponentData component)
+        {
+            if (true)
+            {
+                #region __GHOST_COPY_FROM_SNAPSHOT__
+                component.__GHOST_FIELD_REFERENCE__ = snapshotBefore.__GHOST_FIELD_NAME__;
+                #endregion
+            }
+        }
+
+        public void Serialize(int networkId, ref GhostSnapshotData baseline, ref DataStreamWriter writer, StreamCompressionModel compressionModel)
+        {
+            #region __GHOST_WRITE__
+
+            if ((changeMask & (1 << __GHOST_MASK_INDEX__)) != 0)
+            {
+                Unity.Networking.Transport.NetworkEndpoint value = snapshot.__GHOST_FIELD_NAME__;
+                SerializationHelpers.PerTypeSerializationHelpers.SerializeNetworkEndpointUnpacked(value, ref writer);
+            }
+            #endregion
+        }
+
+        public void Deserialize(uint tick, ref GhostSnapshotData baseline, ref DataStreamReader reader,
+            StreamCompressionModel compressionModel)
+        {
+            #region __GHOST_READ__
+            if ((changeMask & (1 << __GHOST_MASK_INDEX__)) != 0)
+            {
+                snapshot.__GHOST_FIELD_NAME__ = SerializationHelpers.PerTypeSerializationHelpers.DeserializeNetworkEndpointPacked(ref reader);
+            }
+            else
+            {
+                snapshot.__GHOST_FIELD_NAME__ = baseline.__GHOST_FIELD_NAME__;
+            }
+            #endregion
+        }
+
+        public void SerializeCommand(ref DataStreamWriter writer, in IComponentData data, in IComponentData baseline, StreamCompressionModel compressionModel)
+        {
+            #region __COMMAND_WRITE__
+            {
+                Unity.Networking.Transport.NetworkEndpoint value = data.__COMMAND_FIELD_NAME__;
+                SerializationHelpers.PerTypeSerializationHelpers.SerializeNetworkEndpointUnpacked(value, ref writer);
+
+            }
+            #endregion
+            #region __COMMAND_WRITE_PACKED__
+            {
+                Unity.Networking.Transport.NetworkEndpoint value = data.__COMMAND_FIELD_NAME__;
+                SerializationHelpers.PerTypeSerializationHelpers.SerializeNetworkEndpointPacked(value, ref writer);
+            }
+            #endregion
+        }
+
+        public void DeserializeCommand(ref DataStreamReader reader, ref IComponentData data, in IComponentData baseline, StreamCompressionModel compressionModel)
+        {
+            #region __COMMAND_READ__
+            data.__COMMAND_FIELD_NAME__ = SerializationHelpers.PerTypeSerializationHelpers.DeserializeNetworkEndpointUnpacked(ref reader);
+            #endregion
+            #region __COMMAND_READ_PACKED__
+            data.__COMMAND_FIELD_NAME__ = SerializationHelpers.PerTypeSerializationHelpers.DeserializeNetworkEndpointPacked(ref reader);
+            #endregion
+        }
+
+        #if UNITY_EDITOR || NETCODE_DEBUG
+        private static void ReportPredictionErrors(ref IComponentData component, in IComponentData backup, ref UnsafeList<float> errors, ref int errorIndex)
+        {
+            #region __GHOST_REPORT_PREDICTION_ERROR__
+            {
+            int tickErr = 0;
+            if (component.__GHOST_FIELD_REFERENCE__.IsValid != backup.__GHOST_FIELD_REFERENCE__.IsValid)
+            {
+                // TODO: what is a good value for this?
+                tickErr = 100;
+            }
+            else if (component.__GHOST_FIELD_REFERENCE__.IsValid)
+                tickErr = component.__GHOST_FIELD_REFERENCE__ != backup.__GHOST_FIELD_REFERENCE__ ? 1 : 0;
+            errors[errorIndex] = math.max(errors[errorIndex], tickErr);
+            ++errorIndex;
+            }
+            #endregion
+        }
+        #endif
+    }
+}

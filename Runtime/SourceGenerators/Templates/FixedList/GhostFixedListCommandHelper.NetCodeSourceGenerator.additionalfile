@@ -1,0 +1,50 @@
+#templateid:NetCode.GhostFixedListCommandHelper.cs
+using System;
+using Unity.Collections;
+using Unity.NetCode;
+using Unity.NetCode.LowLevel.Unsafe;
+using Unity.Collections.LowLevel.Unsafe;
+using Unity.Mathematics;
+
+namespace __GHOST_NAMESPACE__
+{
+    /// <summary>
+    /// Auto-Generated struct fixed-size list element wrapper when used inside RPCs.
+    /// </summary>
+    [System.Runtime.CompilerServices.CompilerGenerated]
+    internal static class __GHOST_COMMAND_HELPER_NAME__
+    {
+        public static void Serialize(ref DataStreamWriter writer, in RpcSerializerState state, in __COMMAND_COMPONENT_TYPE__ data)
+        {
+            #region __COMMAND_WRITE__
+            #endregion
+        }
+
+        public static void Deserialize(ref DataStreamReader reader, in RpcDeserializerState state, ref __COMMAND_COMPONENT_TYPE__ data)
+        {
+            #region __COMMAND_READ__
+            #endregion
+        }
+
+        [System.Runtime.CompilerServices.Discardable]
+        public static void Serialize(ref DataStreamWriter writer, in RpcSerializerState state, in __COMMAND_COMPONENT_TYPE__ data, in __COMMAND_COMPONENT_TYPE__ baseline, StreamCompressionModel compressionModel)
+        {
+            #region __COMMAND_WRITE_PACKED__
+            #endregion
+        }
+
+        [System.Runtime.CompilerServices.Discardable]
+        public static void Deserialize(ref DataStreamReader reader, in RpcDeserializerState state, ref __COMMAND_COMPONENT_TYPE__ data, in __COMMAND_COMPONENT_TYPE__ baseline, StreamCompressionModel compressionModel)
+        {
+            #region __COMMAND_READ_PACKED__
+            #endregion
+        }
+
+        [System.Runtime.CompilerServices.Discardable]
+        public static void CalculateInputChangeMask(ref uint changeMask, in __COMMAND_COMPONENT_TYPE__ snapshot, in __COMMAND_COMPONENT_TYPE__ baseline)
+        {
+            #region __GHOST_COMPARE_INPUTS__
+            #endregion
+        }
+    }
+}

@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Runtime.InteropServices;
 using Unity.Burst;
 using Unity.Collections;
@@ -47,8 +47,17 @@ namespace Unity.NetCode
         }
     }
     /// <summary>
-    /// Singleton component used to control importance settings
+    /// Singleton component used to control importance scaling (also called priority scaling) settings on the server.
+    /// Used by the <see cref="GhostSendSystem"/> to help it prioritize which ghost chunks to write into each snapshot sent
+    /// to each individual connection. I.e. Importance scaling is applied on a per-connection basis.
+    /// Create this singleton in a server-only, user-code system to enable this feature.
+    /// Further reading: https://docs.unity3d.com/Packages/com.unity.netcode@latest/index.html?subfolder=/manual/optimizations.html#importance-scaling
     /// </summary>
+    /// <remarks>
+    /// The most common use-case of importance scaling is "distance importance scaling". I.e. To send updates for nearby ghosts
+    /// at a significantly higher frequency than for far away ghosts. Our default implementation (<see cref="GhostDistanceImportance"/>)
+    /// does exactly that.
+    /// </remarks>
     [BurstCompile]
     public struct GhostImportance : IComponentData
     {
@@ -119,6 +128,10 @@ namespace Unity.NetCode
         /// collected as they share some importance-related value (e.g. distance to the players character controller).
         /// <see cref="GhostSendSystem"/> will query for this component type before invoking the function assigned to <see cref="BatchScaleImportanceFunction"/>.
         /// </summary>
+        /// <remarks>
+        /// Tip: You can use the existence of this type to filter/decide which ghost chunks should even undergo importance scaling
+        /// by the <see cref="GhostSendSystem"/>. To exclude a type from importance scaling, do not add this shared component to their chunk.
+        /// </remarks>
         public ComponentType GhostImportancePerChunkDataType;
 
         [BurstCompile(DisableDirectCall = true)]

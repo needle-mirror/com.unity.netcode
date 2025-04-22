@@ -103,6 +103,7 @@ namespace Unity.NetCode.Tests
     {
         [TestCase(1)]
         [TestCase(10)]
+        [Timeout(360000)] // TODO: We should investigate why this test takes so much time. Is it expected or can we do something about it? Tracked in MTT-11337
         public void RestoreFromBackupDoesNotAffectUnchangedComponents(int entityCount)
         {
             using var testWorld = new NetCodeTestWorld();

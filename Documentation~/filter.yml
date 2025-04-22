@@ -1,41 +1,41 @@
 apiRules:
   - exclude:
-      uidRegex: OnUpdate
+      uidRegex: \.OnUpdate$
       type: Method
   - exclude:
-      uidRegex: OnCreate
+      uidRegex: \.OnCreate$
       type: Method
   - exclude:
-      uidRegex: OnDestroy
+      uidRegex: \.OnDestroy$
       type: Method
   - exclude:
-      uidRegex: OnStartRunning
+      uidRegex: \.OnStartRunning$
       type: Method
   - exclude:
-      uidRegex: OnStopRunning
+      uidRegex: \.OnStopRunning$
       type: Method
   - exclude:
-      uidRegex: OnBeforeSerialize
+      uidRegex: \.OnBeforeSerialize$
       type: Method
   - exclude:
-      uidRegex: OnAfterDeserialize
+      uidRegex: \.OnAfterDeserialize$
       type: Method
   - exclude:
-      uidRegex: OnInspectorGUI
+      uidRegex: \.OnInspectorGUI$
       type: Method
   - exclude:
       uidRegex: .*Tests.*
       type: Namespace
   - exclude:
-      uidRegex: __COMMAND_NAMESPACE__
+      uidRegex: \.__COMMAND_NAMESPACE__$
       type: Namespace
   - exclude:
-      uidRegex: __GHOST_NAMESPACE__
+      uidRegex: \.__GHOST_NAMESPACE__$
       type: Namespace
   - exclude:
       uidRegex: ^Generated.*
       type: Namespace
   - exclude:
-      uidRegex: ToString
+      uidRegex: \.ToString$
       type: Method
 

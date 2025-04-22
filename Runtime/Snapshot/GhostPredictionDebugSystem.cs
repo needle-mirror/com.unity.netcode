@@ -62,7 +62,12 @@ namespace Unity.NetCode
         {
             var networkTime = SystemAPI.GetSingleton<NetworkTime>();
             var lastBackupTime = SystemAPI.GetSingleton<GhostSnapshotLastBackupTick>();
-            if (networkTime.ServerTick != lastBackupTime.Value || !SystemAPI.GetSingleton<GhostStats>().IsConnected)
+            if (networkTime.ServerTick != lastBackupTime.Value)
+                return;
+
+            var requirePredictionError = SystemAPI.GetSingleton<GhostStats>().IsConnected;
+            requirePredictionError |= SystemAPI.HasSingleton<PredictionErrorMetrics>();
+            if(!requirePredictionError)
                 return;
 
 #if UNITY_2022_2_14F1_OR_NEWER

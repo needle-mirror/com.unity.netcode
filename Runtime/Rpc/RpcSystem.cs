@@ -204,6 +204,7 @@ namespace Unity.NetCode
         private BufferTypeHandle<OutgoingRpcDataStreamBuffer> m_OutgoingRpcDataStreamBufferComponentHandle;
         private ComponentTypeHandle<NetworkSnapshotAck> m_NetworkSnapshotAckComponentHandle;
 
+        /// <inheritdoc/>
         public void OnCreate(ref SystemState state)
         {
 #if ENABLE_UNITY_COLLECTIONS_CHECKS
@@ -243,6 +244,7 @@ namespace Unity.NetCode
             rpcCollection.RegisterRpc<ServerApprovedConnection>();
         }
 
+        /// <inheritdoc/>
         [BurstCompile]
         public void OnDestroy(ref SystemState state)
         {
@@ -519,6 +521,7 @@ namespace Unity.NetCode
             }
         }
 
+        /// <inheritdoc/>
         [BurstCompile]
         public void OnUpdate(ref SystemState state)
         {
@@ -577,6 +580,7 @@ namespace Unity.NetCode
         private EntityQuery m_ProtocolErrorQuery;
         private ComponentLookup<NetworkStreamConnection> m_NetworkStreamConnectionFromEntity;
 
+        /// <inheritdoc/>
         public void OnCreate(ref SystemState state)
         {
             m_ProtocolErrorQuery = state.GetEntityQuery(ComponentType.ReadOnly<RpcSystem.ProtocolVersionError>());
@@ -653,6 +657,8 @@ namespace Unity.NetCode
                 commandBuffer.DestroyEntity(entity);
             }
         }
+
+        /// <inheritdoc/>
         [BurstCompile]
         public void OnUpdate(ref SystemState state)
         {

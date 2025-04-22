@@ -48,7 +48,7 @@ namespace Unity.NetCode.Tests
             }
         }
 
-        [Test, Ignore("MTTB-211")]
+        [Test]
         public void CreateGhostPrefab_UseCustomGhostType([Values]bool useValidGuid)
         {
             static void CreateGhost(EntityManager entityManager, Hash128 guid)

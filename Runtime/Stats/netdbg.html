@@ -4,8 +4,13 @@
 <title>Unity Network Debugger</title>
 <script src="netdbg.js"></script>
 <style>
+    body
+    {
+        overflow-y: scroll; /* Always show the vertical scrollbar so it doesn't pop in, causing re-draw.*/
+    }
 .LegendOverlay {
 	position:absolute;
+    background-color: black;
 	max-height:200px;
 	overflow-y: auto;
 }
@@ -40,6 +45,10 @@
 	padding: 2px;
 }
 .DetailsTitle {
+	font-size: 1.2em;
+	margin-top: 5px;
+}
+.DetailsKey {
 	font-size: 1.2em;
 	margin-top: 5px;
 }

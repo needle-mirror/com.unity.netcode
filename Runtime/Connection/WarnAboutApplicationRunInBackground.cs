@@ -1,4 +1,4 @@
-﻿#if UNITY_EDITOR && !NETCODE_NDEBUG
+#if UNITY_EDITOR && !NETCODE_NDEBUG
 #define NETCODE_DEBUG
 #endif
 
@@ -36,7 +36,7 @@ namespace Unity.NetCode
             if (!UnityEngine.Application.runInBackground)
             {
                 netDebug.HasWarnedAboutApplicationRunInBackground = true;
-                UnityEngine.Debug.LogError($"[{state.WorldUnmanaged.Name}] Netcode detected that you don't have Application.runInBackground enabled during multiplayer gameplay. This will lead to your multiplayer stalling (and disconnecting) if and when the application loses focus (e.g. by the player tabbing out). It is highly recommended to enable \"Run in Background\" via `Application.runInBackground = true;` when connecting, or project-wide via 'Project Settings > Resolution & Presentation > Run in Background'.\nSuppress this advice log via `NetDebug.SuppressApplicationRunInBackgroundWarning`.");
+                UnityEngine.Debug.LogError($"[{state.WorldUnmanaged.Name}] Netcode detected that you don't have Application.runInBackground enabled during multiplayer gameplay. This will lead to your multiplayer stalling (and disconnecting) if and when the application loses focus (e.g. by the player tabbing out). It is highly recommended to enable \"Run in Background\" via `Application.runInBackground = true;` when connecting, or project-wide via 'Project Settings > Player > Resolution and Presentation > Run in Background'.\nSuppress this advice log via `NetDebug.SuppressApplicationRunInBackgroundWarning`.");
             }
         }
 

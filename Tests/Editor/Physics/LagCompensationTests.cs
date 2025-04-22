@@ -1,3 +1,4 @@
+#pragma warning disable CS0618 // Disable Entities.ForEach obsolete warnings
 using System;
 using System.Runtime.InteropServices;
 using NUnit.Framework;
@@ -674,14 +675,12 @@ namespace Unity.NetCode.Physics.Tests
                     // operation earlier (so that it arrives on the client almost exactly one tick after the client shot),
                     // and the clients ack needs to arrive in the input packet BEFORE the input packet needs ot be processed.
                     // These two facts makes this test very hard to reason about, and very fragile, so we brute force
-                    // the deletion here instead.
+                    // the deletion here instead, by removing the GhostCleanup component manually.
 
                     // Note: It therefore still is possible for the client to send a hit for a since-deleted ghost entity,
                     // but it's rare in practice due to this deferred deletion. But rare = common at N4E scales.
-                    var entityArchetype = serverEm.GetChunk(serverVictimCubeEntity).Archetype;
-                    //Debug.Log($"New Archetype via ICleanupComponentData: {entityArchetype.ToString()}), force-clean up remaining ICleanupComponents components...");
-                    foreach (var componentType in entityArchetype.GetComponentTypes()) // Entity, GhostCleanup, CleanupEntity.
-                        serverEm.RemoveComponent(serverVictimCubeEntity, componentType); // This can cause other bugs, but we don't care here.
+
+                    serverEm.RemoveComponent<GhostCleanup>(serverVictimCubeEntity);
                 }
 
                 // Server performs hit detection on historic CollisionWorld,

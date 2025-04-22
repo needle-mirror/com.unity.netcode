@@ -38,43 +38,6 @@ namespace Unity.NetCode.Generators
             public string Content;
         }
 
-        public void AddTemplateOverrides(string template, string templateData)
-        {
-            int regionStart;
-            while ((regionStart = templateData.IndexOf("#region", StringComparison.Ordinal)) >= 0)
-            {
-                while (regionStart > 0 && templateData[regionStart - 1] != '\n' &&
-                       char.IsWhiteSpace(templateData[regionStart - 1]))
-                {
-                    --regionStart;
-                }
-
-                var regionNameEnd = templateData.IndexOf("\n", regionStart, StringComparison.Ordinal);
-                var regionNameLine = templateData.Substring(regionStart, regionNameEnd - regionStart);
-                var regionNameTokens = System.Text.RegularExpressions.Regex.Split(regionNameLine.Trim(), @"\s+");
-                if (regionNameTokens.Length != 2)
-                    throw new InvalidOperationException($"Invalid region in GhostCodeGen template '{template}', while generating '{m_Context.generatedNs}.{m_Context.generatorName}'.");
-                var regionEnd = templateData.IndexOf("#endregion", regionStart, StringComparison.Ordinal);
-                if (regionEnd < 0)
-                    throw new InvalidOperationException($"Invalid region in GhostCodeGen template '{template}', while generating '{m_Context.generatedNs}.{m_Context.generatorName}'.");
-                while (regionEnd > 0 && templateData[regionEnd - 1] != '\n' &&
-                       char.IsWhiteSpace(templateData[regionEnd - 1]))
-                {
-                    if (regionEnd <= regionStart)
-                        throw new InvalidOperationException($"Invalid region in GhostCodeGen template '{template}', while generating '{m_Context.generatedNs}.{m_Context.generatorName}'.");
-                    --regionEnd;
-                }
-
-                var regionData = templateData.Substring(regionNameEnd + 1, regionEnd - regionNameEnd - 1);
-                if (m_Fragments.TryGetValue(regionNameTokens[1], out var fragmentData))
-                    fragmentData.Template = regionData;
-                else
-                    m_Context.diagnostic.LogError($"Did not find '{regionNameTokens[1]}' region to override, while generating '{m_Context.generatedNs}.{m_Context.generatorName}'.");
-
-                templateData = templateData.Substring(regionEnd + 1);
-            }
-        }
-
         public GhostCodeGen(string template, string templateData, CodeGenerator.Context context)
         {
             m_Context = context;
@@ -88,6 +51,8 @@ namespace Unity.NetCode.Generators
             m_HeaderTemplate = "";
 
             int regionStart;
+            //every template start with an header (for now it is only #templateid). so skip the first line
+            templateData = templateData.Substring(templateData.IndexOf('\n'));
             while ((regionStart = templateData.IndexOf("#region", StringComparison.Ordinal)) >= 0)
             {
                 while (regionStart > 0 && templateData[regionStart - 1] != '\n' &&
@@ -126,6 +91,18 @@ namespace Unity.NetCode.Generators
                     {
                         m_Context.diagnostic.LogError($"The template {templateName} already contains the key [{regionNameTokens[1]}], while generating '{m_Context.generatedNs}.{m_Context.generatorName}'.");
                     }
+                    //Why are we doing this?
+                    //We need a way to customize the name of the field and component in a more flexible way.
+                    //Ideally, we should just change the template and expose a __GHOST_FIELD_PATH__ and __GHOST_REFERENCE_PATH__
+                    //or just remove the snapshot. and component., data. etc part from the templates.
+                    //However, this would cause breaking changes to user projects right now, if they are using templates.
+                    //So, as an incremental solution to the problem, we are patching this internally while processing the text.
+                    //At the moment the only substitution necessary is to remove the `.` and allow code generator to specify
+                    //if the accessor need to use a . or and indexer (for example).
+                    regionData = regionData
+                        .Replace(".__GHOST_FIELD_NAME__", "__GHOST_FIELD_PATH__")
+                        .Replace(".__GHOST_FIELD_REFERENCE__", "__GHOST_FIELD_REFERENCE__");
+                    regionData = regionData.Replace(".__COMMAND_FIELD_NAME__", "__COMMAND_FIELD_NAME__");
                     m_Fragments.Add(regionNameTokens[1], new FragmentData{Template = regionData, Content = ""});
                     pre += regionNameTokens[1];
                 }
@@ -136,7 +113,8 @@ namespace Unity.NetCode.Generators
                     post = templateData.Substring(regionEnd + 1);
                 templateData = pre + post;
             }
-            m_Fragments.Add("__GHOST_AGGREGATE_WRITE__", new FragmentData{Template = "", Content = ""});
+            if(!m_Fragments.ContainsKey("__GHOST_AGGREGATE_WRITE__"))
+                m_Fragments.Add("__GHOST_AGGREGATE_WRITE__", new FragmentData{Template = "", Content = ""});
             m_FileTemplate = templateData;
         }
 
@@ -223,6 +201,12 @@ namespace Unity.NetCode.Generators
                 throw new InvalidOperationException($"Generating '{m_Context.generatedNs}.{m_Context.generatorName}', cannot get fragment template, as fragment '{fragment}' is not found.");
             return m_Fragments[$"__{fragment}__"].Template;
         }
+        public string GetFragmentContent(string fragment)
+        {
+            if (!m_Fragments.ContainsKey($"__{fragment}__"))
+                throw new InvalidOperationException($"Generating '{m_Context.generatedNs}.{m_Context.generatorName}', cannot get fragment template, as fragment '{fragment}' is not found.");
+            return m_Fragments[$"__{fragment}__"].Content;
+        }
 
         public bool HasFragment(string fragment)
         {
@@ -269,13 +253,26 @@ namespace Unity.NetCode.Generators
         /// <summary>
         /// </summary>
         /// <param name="generatorName"></param>
-        /// <param name="generatorNamespace"></param>
         /// <param name="replacements"></param>
         /// <param name="batch"></param>
         public void GenerateFile(
             string generatorName,
-            string generatorNamespace,
             Dictionary<string, string> replacements, List<CodeGenerator.GeneratedFile> batch)
+        {
+            var content = GenerateContent(replacements);
+            batch.Add(new CodeGenerator.GeneratedFile
+            {
+                GeneratedFileName = generatorName,
+                Code = content
+            });
+        }
+
+        /// <summary>
+        /// Render the template to a string by emitting all the fragments and replacing all the replacements strings
+        /// </summary>
+        /// <param name="replacements"></param>
+        /// <returns></returns>
+        public string GenerateContent(Dictionary<string, string> replacements)
         {
             var header = Replace(m_HeaderTemplate, replacements);
             var content = Replace(m_FileTemplate, replacements);
@@ -287,12 +284,7 @@ namespace Unity.NetCode.Generators
             }
             content = header + content;
             Validate(content, "Root");
-            batch.Add(new CodeGenerator.GeneratedFile
-            {
-                Namespace = generatorNamespace,
-                GeneratedFileName = generatorName,
-                Code = content
-            });
+            return content;
         }
     }
 }

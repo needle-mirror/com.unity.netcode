@@ -1,3 +1,4 @@
+#pragma warning disable CS0618 // Disable Entities.ForEach obsolete warnings
 using System;
 using System.Collections.Generic;
 using NUnit.Framework;
@@ -553,11 +554,12 @@ namespace Unity.NetCode.Tests
                 testWorld.CreateWorlds(true, 1);
                 //This should be about 3000 kb of data plus some extra for other components
                 //It should end be sent in 2/3 chunk
+                testWorld.GetSingletonRW<GhostSendSystemData>(testWorld.ServerWorld).ValueRW.DefaultSnapshotPacketSize = 300;
                 var serverEntities = new Entity[20];
                 for (int i = 0; i < 20; ++i)
                 {
                     serverEntities[i] = testWorld.SpawnOnServer(ghostGameObject);
-                    BufferTestHelper.SetByteBufferValues(testWorld.ServerWorld, serverEntities[i], 15, 10);
+                    BufferTestHelper.SetByteBufferValues(testWorld.ServerWorld, serverEntities[i], 85, 10);
                 }
 
                 // Connect and make sure the connection could be established

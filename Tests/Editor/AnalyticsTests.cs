@@ -1,6 +1,7 @@
 using NUnit.Framework;
 using Unity.NetCode.Analytics;
 using Unity.NetCode.Editor;
+using Unity.NetCode.Editor.Analytics;
 
 namespace Unity.NetCode.Tests
 {
@@ -225,6 +226,108 @@ namespace Unity.NetCode.Tests
                 Assert.That(mainClientDataFields[3].FieldType, Is.EqualTo(typeof(int)));
                 Assert.That(mainClientDataFields[4].Name, Is.EqualTo("NumOfSpawnedGhost"));
                 Assert.That(mainClientDataFields[4].FieldType, Is.EqualTo(typeof(int)));
+            }
+
+            /// <summary>
+            /// This test will fail because you have changed the layout of the analytics data in the n4eToolsMPMPrefsUpdated schema.
+            /// https://schemata.prd.cds.internal.unity3d.com/onboarding
+            /// </summary>
+            [Test]
+            public void VerifyMultiplayerPlayModePreferencesUpdatedData()
+            {
+                var mpmPrefsUpdatedData = typeof(MultiplayerPlaymodePreferencesUpdatedData).GetFields();
+                Assert.That(mpmPrefsUpdatedData.Length, Is.EqualTo(22));
+                Assert.That(mpmPrefsUpdatedData[0].Name, Is.EqualTo("simulatorEnabled"));
+                Assert.That(mpmPrefsUpdatedData[0].FieldType, Is.EqualTo(typeof(bool)));
+                Assert.That(mpmPrefsUpdatedData[1].Name, Is.EqualTo("requestedSimulatorView"));
+                Assert.That(mpmPrefsUpdatedData[1].FieldType, Is.EqualTo(typeof(string)));
+                Assert.That(mpmPrefsUpdatedData[2].Name, Is.EqualTo("requestedPlayType"));
+                Assert.That(mpmPrefsUpdatedData[2].FieldType, Is.EqualTo(typeof(string)));
+                Assert.That(mpmPrefsUpdatedData[3].Name, Is.EqualTo("simulateDedicatedServer"));
+                Assert.That(mpmPrefsUpdatedData[3].FieldType, Is.EqualTo(typeof(bool)));
+                Assert.That(mpmPrefsUpdatedData[4].Name, Is.EqualTo("packetDelayMs"));
+                Assert.That(mpmPrefsUpdatedData[4].FieldType, Is.EqualTo(typeof(int)));
+                Assert.That(mpmPrefsUpdatedData[5].Name, Is.EqualTo("packetJitterMs"));
+                Assert.That(mpmPrefsUpdatedData[5].FieldType, Is.EqualTo(typeof(int)));
+                Assert.That(mpmPrefsUpdatedData[6].Name, Is.EqualTo("packetDropPercentage"));
+                Assert.That(mpmPrefsUpdatedData[6].FieldType, Is.EqualTo(typeof(int)));
+                Assert.That(mpmPrefsUpdatedData[7].Name, Is.EqualTo("packetFuzzPercentage"));
+                Assert.That(mpmPrefsUpdatedData[7].FieldType, Is.EqualTo(typeof(int)));
+                Assert.That(mpmPrefsUpdatedData[8].Name, Is.EqualTo("requestedNumThinClients"));
+                Assert.That(mpmPrefsUpdatedData[8].FieldType, Is.EqualTo(typeof(int)));
+                Assert.That(mpmPrefsUpdatedData[9].Name, Is.EqualTo("thinClientCreationFrequency"));
+                Assert.That(mpmPrefsUpdatedData[9].FieldType, Is.EqualTo(typeof(float)));
+                Assert.That(mpmPrefsUpdatedData[10].Name, Is.EqualTo("autoConnectionAddress"));
+                Assert.That(mpmPrefsUpdatedData[10].FieldType, Is.EqualTo(typeof(string)));
+                Assert.That(mpmPrefsUpdatedData[11].Name, Is.EqualTo("autoConnectionPort"));
+                Assert.That(mpmPrefsUpdatedData[11].FieldType, Is.EqualTo(typeof(int)));
+                Assert.That(mpmPrefsUpdatedData[12].Name, Is.EqualTo("currentNetworkSimulatorPreset"));
+                Assert.That(mpmPrefsUpdatedData[12].FieldType, Is.EqualTo(typeof(string)));
+                Assert.That(mpmPrefsUpdatedData[13].Name, Is.EqualTo("isCurrentNetworkSimulatorPresetCustom"));
+                Assert.That(mpmPrefsUpdatedData[13].FieldType, Is.EqualTo(typeof(bool)));
+                Assert.That(mpmPrefsUpdatedData[14].Name, Is.EqualTo("lagSpikeDurationMs"));
+                Assert.That(mpmPrefsUpdatedData[14].FieldType, Is.EqualTo(typeof(int)));
+                Assert.That(mpmPrefsUpdatedData[15].Name, Is.EqualTo("applyLoggerSettings"));
+                Assert.That(mpmPrefsUpdatedData[15].FieldType, Is.EqualTo(typeof(bool)));
+                Assert.That(mpmPrefsUpdatedData[16].Name, Is.EqualTo("warnBatchedTicks"));
+                Assert.That(mpmPrefsUpdatedData[16].FieldType, Is.EqualTo(typeof(bool)));
+                Assert.That(mpmPrefsUpdatedData[17].Name, Is.EqualTo("warnBatchedTicksRollingWindow"));
+                Assert.That(mpmPrefsUpdatedData[17].FieldType, Is.EqualTo(typeof(int)));
+                Assert.That(mpmPrefsUpdatedData[18].Name, Is.EqualTo("warnAboveAverageBatchedTicksPerFrame"));
+                Assert.That(mpmPrefsUpdatedData[18].FieldType, Is.EqualTo(typeof(float)));
+                Assert.That(mpmPrefsUpdatedData[19].Name, Is.EqualTo("targetLogLevel"));
+                Assert.That(mpmPrefsUpdatedData[19].FieldType, Is.EqualTo(typeof(string)));
+                Assert.That(mpmPrefsUpdatedData[20].Name, Is.EqualTo("targetShouldDumpPackets"));
+                Assert.That(mpmPrefsUpdatedData[20].FieldType, Is.EqualTo(typeof(bool)));
+                Assert.That(mpmPrefsUpdatedData[21].Name, Is.EqualTo("showAllSimulatorPresets"));
+                Assert.That(mpmPrefsUpdatedData[21].FieldType, Is.EqualTo(typeof(bool)));
+            }
+
+
+            /// <summary>
+            /// This test will fail because you have changed the layout of the analytics data in the n4eToolsPlayModeConnectionChanged schema.
+            /// https://schemata.prd.cds.internal.unity3d.com/onboarding
+            /// </summary>
+            [Test]
+            public void VerifyPlayModeConnectionChangedData()
+            {
+                var playModeConnectionChangedDataFields = typeof(PlayModeConnectionChangedData).GetFields();
+                Assert.That(playModeConnectionChangedDataFields.Length, Is.EqualTo(2));
+                Assert.That(playModeConnectionChangedDataFields[0].Name, Is.EqualTo("operation"));
+                Assert.That(playModeConnectionChangedDataFields[0].FieldType, Is.EqualTo(typeof(string)));
+                Assert.That(playModeConnectionChangedDataFields[1].Name, Is.EqualTo("targetWorld"));
+                Assert.That(playModeConnectionChangedDataFields[1].FieldType, Is.EqualTo(typeof(string)));
+            }
+
+            /// <summary>
+            /// This test will fail because you have changed the layout of the analytics data in the n4eToolsPlayModeLagSpikeTriggered schema.
+            /// https://schemata.prd.cds.internal.unity3d.com/onboarding
+            /// </summary>
+            [Test]
+            public void VerifyPlayModeLagSpikeTriggeredData()
+            {
+                var playModeLagSpikeTriggeredDataFields = typeof(PlayModeLagSpikeTriggeredData).GetFields();
+                Assert.That(playModeLagSpikeTriggeredDataFields.Length, Is.EqualTo(1));
+                Assert.That(playModeLagSpikeTriggeredDataFields[0].Name, Is.EqualTo("lengthMs"));
+                Assert.That(playModeLagSpikeTriggeredDataFields[0].FieldType, Is.EqualTo(typeof(int)));
+            }
+
+
+            /// <summary>
+            /// This test will fail because you have changed the layout of the analytics data in the n4eToolsDebugGhostDrawerPrefsUpdated schema.
+            /// https://schemata.prd.cds.internal.unity3d.com/onboarding
+            /// </summary>
+            [Test]
+            public void VerifyDebugGhostDrawerPrefsUpdatedData()
+            {
+                var playModeLagSpikeTriggeredDataFields = typeof(DebugGhostDrawerPreferencesUpdatedData).GetFields();
+                Assert.That(playModeLagSpikeTriggeredDataFields.Length, Is.EqualTo(3));
+                Assert.That(playModeLagSpikeTriggeredDataFields[0].Name, Is.EqualTo("name"));
+                Assert.That(playModeLagSpikeTriggeredDataFields[0].FieldType, Is.EqualTo(typeof(string)));
+                Assert.That(playModeLagSpikeTriggeredDataFields[1].Name, Is.EqualTo("enabled"));
+                Assert.That(playModeLagSpikeTriggeredDataFields[1].FieldType, Is.EqualTo(typeof(bool)));
+                Assert.That(playModeLagSpikeTriggeredDataFields[2].Name, Is.EqualTo("detailVisible"));
+                Assert.That(playModeLagSpikeTriggeredDataFields[2].FieldType, Is.EqualTo(typeof(bool)));
             }
         }
     }

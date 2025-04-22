@@ -1,3 +1,4 @@
+#pragma warning disable CS0618 // Disable Entities.ForEach obsolete warnings
 using NUnit.Framework;
 using Unity.Collections.LowLevel.Unsafe;
 using Unity.Entities;
@@ -186,7 +187,7 @@ namespace Unity.NetCode.Tests
         }
 
         [Test]
-        [Ignore("Disabled as there is a bug with RTT calculations when sending RPCs - we do not correctly account for (i.e. subtract the cost of) reliable pipeline resends.")]
+        [Ignore("Disabled as there is a bug with RTT calculations when sending RPCs - we do not correctly account for (i.e. subtract the cost of) reliable pipeline resends. Tracked as MTT-11335")]
         public void InterpolationTickAdaptToPacketDrop()
         {
             using (var testWorld = new NetCodeTestWorld())

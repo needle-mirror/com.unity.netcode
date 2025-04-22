@@ -5,8 +5,7 @@ using Unity.Mathematics;
 
 namespace Unity.NetCode
 {
-
-    unsafe class NetcodePredictionFixedRateManager : IRateManager
+    unsafe class NetcodePredictionFixedRateManager
     {
         public float Timestep
         {
@@ -39,13 +38,9 @@ namespace Unity.NetCode
 
         public int RemainingUpdates => m_RemainingUpdates;
 
-        public NetcodePredictionFixedRateManager(float defaultTimeStep, int ratio)
+        public NetcodePredictionFixedRateManager(ComponentSystemGroup group)
         {
-            SetTimeStep(defaultTimeStep, ratio);
-        }
-
-        public void OnCreate(ComponentSystemGroup group)
-        {
+            SetTimeStep(0f, 0);
             networkTimeQuery = group.EntityManager.CreateEntityQuery(typeof(NetworkTime));
         }
 
@@ -76,7 +71,6 @@ namespace Unity.NetCode
                 //potentially 1 or more steps.
                 if (!networkTime.IsPartialTick || m_StepRatio > 1)
                 {
-                    //We still allow physics to step if we are in withing 1% of the step time.
                     m_RemainingUpdates = (int) (group.World.Time.DeltaTime / m_TimeStep);
                     m_ElapsedTime = group.World.Time.ElapsedTime;
                     //on the client we allow the physics to run for partial ticks. This is a valid situation in case the fixed loop run at higher tick rate than the

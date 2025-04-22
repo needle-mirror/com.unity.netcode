@@ -593,7 +593,9 @@ namespace Unity.NetCode
         /// <param name="nameList"></param>
         /// <param name="errorList"></param>
         /// <param name="worldName"></param>
-        public void SetGhostNames(in FixedString128Bytes worldName, NativeList<FixedString64Bytes> nameList, NativeList<PredictionErrorNames> errorList)
+        public void SetGhostNames(in FixedString128Bytes worldName,
+            NativeList<FixedString64Bytes> nameList, NativeList<PredictionErrorNames> errorList,
+            int predictedErrorCount)
         {
             // Add a pending packet with the new list of names
             m_LastNameAndErrorArray.Clear();
@@ -627,14 +629,16 @@ namespace Unity.NetCode
 
             if (m_SnapshotStats.Length != ((nameList.Length + 1) * 3))
             {
+                //we are clearing before resizing, becomg the resize will otherwise memcpy the old values
                 m_SnapshotStats.Clear();
                 m_SnapshotStats.ResizeUninitialized((nameList.Length + 1) * 3);
             }
 
-            if (m_PredictionErrors.Length != errorList.Length)
+            //we are clearing before resizing, becomg the resize will otherwise memcpy the old values
+            if (m_PredictionErrors.Length != predictedErrorCount)
             {
                 m_PredictionErrors.Clear();
-                m_PredictionErrors.ResizeUninitialized(errorList.Length);
+                m_PredictionErrors.ResizeUninitialized(predictedErrorCount);
             }
 
             if (m_StatIndex < 0)
@@ -642,7 +646,6 @@ namespace Unity.NetCode
 
             AppendNamePacket();
         }
-
         public unsafe void AppendNamePacket()
         {
             FixedString64Bytes header = "{\"index\":";
@@ -668,7 +671,6 @@ namespace Unity.NetCode
             // Make sure the packet size is big enough for the new snapshot stats
             UpdateMaxPacketSize(m_SnapshotStats.Length, m_PredictionErrors.Length);
         }
-
     }
 }
 #endif

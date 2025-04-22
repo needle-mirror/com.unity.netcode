@@ -73,7 +73,7 @@ namespace Unity.NetCode
             ref var networkTime = ref m_NetworkTimeQuery.GetSingletonRW<NetworkTime>().ValueRW;
             ref var unscaledTime = ref m_UnscaledTimeQuery.GetSingletonRW<UnscaledClientTime>().ValueRW;
             ref var previousServerTick = ref m_PreviousServerTickQuery.GetSingletonRW<PreviousServerTick>().ValueRW;
-			var currentTime = group.World.Time;
+            var currentTime = group.World.Time;
 
             // If the tick is within ±5% of a frame from matching a tick - just use the actual tick instead
             if (curServerTick.IsValid && tickRate.ClampPartialTicksThreshold > 0)

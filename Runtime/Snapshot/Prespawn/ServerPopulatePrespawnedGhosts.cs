@@ -50,6 +50,7 @@ namespace Unity.NetCode
         ComponentTypeHandle<GhostCleanup> m_GhostCleanupComponentHandle;
         BufferLookup<PrespawnGhostIdRange> m_PrespawnGhostIdRangeFromEntity;
 
+        /// <inheritdoc/>
         [BurstCompile]
         public void OnCreate(ref SystemState state)
         {
@@ -80,6 +81,8 @@ namespace Unity.NetCode
             state.RequireForUpdate<NetworkStreamInGame>();
             state.RequireForUpdate<GhostCollection>();
         }
+
+        /// <inheritdoc/>
         [BurstCompile]
         public void OnUpdate(ref SystemState state)
         {

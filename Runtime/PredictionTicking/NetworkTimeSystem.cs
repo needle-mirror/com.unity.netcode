@@ -308,7 +308,7 @@ namespace Unity.NetCode
         /// <summary>
         /// Create the <see cref="NetworkTimeSystemData"/> singleton and reset the initial system state.
         /// </summary>
-        /// <param name="state"></param>
+        /// <inheritdoc/>
         [BurstCompile]
         public void OnCreate(ref SystemState state)
         {
@@ -329,7 +329,7 @@ namespace Unity.NetCode
         /// <summary>
         /// Empty method, implement the <see cref="ISystem"/> interface.
         /// </summary>
-        /// <param name="state"></param>
+        /// <inheritdoc/>
         [BurstCompile]
         public void OnStartRunning(ref SystemState state)
         {
@@ -338,7 +338,7 @@ namespace Unity.NetCode
         /// <summary>
         /// Reset the <see cref="NetworkTimeSystemData"/> data and some internal variables.
         /// </summary>
-        /// <param name="state"></param>
+        /// <inheritdoc/>
         [BurstCompile]
         public void OnStopRunning(ref SystemState state)
         {
@@ -348,7 +348,7 @@ namespace Unity.NetCode
         /// <summary>
         /// Implements all the time synchronization logic on the main thread.
         /// </summary>
-        /// <param name="state"></param>
+        /// <inheritdoc/>
         [BurstCompile]
         public void OnUpdate(ref SystemState state)
         {

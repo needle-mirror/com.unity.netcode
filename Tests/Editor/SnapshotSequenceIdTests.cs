@@ -1,4 +1,4 @@
-﻿using NUnit.Framework;
+using NUnit.Framework;
 using Unity.NetCode;
 using Unity.NetCode.Tests;
 using UnityEngine;

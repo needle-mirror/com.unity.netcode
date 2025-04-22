@@ -1,4 +1,4 @@
-﻿using Unity.Collections;
+using Unity.Collections;
 using Unity.Mathematics;
 
 namespace Unity.NetCode
@@ -28,6 +28,8 @@ namespace Unity.NetCode
         public ulong NumPacketsCulledAsArrivedOnSameFrame;
         /// <summary>Detects gaps in <see cref="NetworkSnapshotAck.CurrentSnapshotSequenceId"/> to determine real packet loss.</summary>
         public ulong NumPacketsDroppedNeverArrived;
+        /// <summary>Denotes how many times the client has reported a snapshot ack error, leading to the ack history buffer to have to be reset.</summary>
+        public ulong NumClientAckErrorsEncountered;
 
         /// <summary>Server-only. Percentage of all snapshot packets sent that the client has acked.</summary>
         public double AckPercent => NumPacketsReceived != 0 ? NumPacketsAcked / (double) (NumPacketsReceived) : 0;

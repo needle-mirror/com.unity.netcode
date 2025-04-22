@@ -23,7 +23,6 @@ namespace Unity.NetCode
         // Server data
         internal NativeList<int> ServerDestroyedPrespawns;
         internal NativeArray<int> m_ServerAllocatedGhostIds;
-        internal NativeQueue<int> m_ServerFreeGhostIds;
 
         internal void SetServerAllocatedPrespawnGhostId(int prespawnCount)
         {

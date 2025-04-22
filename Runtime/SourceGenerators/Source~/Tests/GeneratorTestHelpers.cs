@@ -4,6 +4,8 @@ using System.Collections.Immutable;
 using System.Diagnostics.CodeAnalysis;
 using System.IO;
 using System.Linq;
+using System.Reflection;
+using System.Runtime.InteropServices;
 using System.Threading;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
@@ -136,10 +138,25 @@ namespace Unity.NetCode.GeneratorTests
                 foreach (var kv in customOptions)
                     options.AddOrSet(kv.Key, kv.Value);
             }
-            var driver = CSharpGeneratorDriver.Create(
-                new ISourceGenerator[]{new NetCodeSourceGenerator()},
+
+            var additionalTexts = new AdditionalText[]
+            {
+
+            };
+
+            var files = System.IO.Directory.GetFiles(Path.Combine(Environment.CurrentDirectory,
+                "../Templates"), "*.additionalfile", SearchOption.AllDirectories);
+            var additionalFiles = new List<AdditionalText>();
+            foreach (var f in files)
+                additionalFiles.Add(new InMemoryAdditionalFile(f, File.ReadAllText(f)));
+
+            GeneratorDriver driver = CSharpGeneratorDriver.Create(
+                new ISourceGenerator[] { new NetCodeSourceGenerator() },
+                additionalTexts: additionalTexts,
                 optionsProvider: new TestConfigOptionProvider(options));
-            return driver;
+            driver = driver.AddAdditionalTexts(additionalFiles.ToImmutableArray());
+
+        return driver;
         }
 
         public static GeneratorRunResult RunGenerators(params SyntaxTree[] syntaxTree)
@@ -201,6 +218,7 @@ namespace Unity
                 set {}
             }
             public float this[int index] { get {return 0.0f;} set {}}
+            public float3 xyz { get { return new float3(); } set {x = value.x; y = value.y; z = value.z; } }
         }
 
         public struct float4
@@ -216,6 +234,7 @@ namespace Unity
                 set {}
             }
             public float this[int index] { get {return 0.0f;} set {}}
+            public float4 xyzw { get{ return new float4(); } set{} }
         }
 
         public struct quaternion
@@ -240,16 +259,30 @@ namespace Unity
         public struct FixedString4096Bytes
         {
         }
+
+        public struct FixedList32Bytes<T> where T: unmanaged
+        {
+        }
+        public struct FixedList64Bytes<T> where T: unmanaged
+        {
+        }
+        public struct FixedList128Bytes<T> where T: unmanaged
+        {
+        }
+        public struct FixedList512Bytes<T> where T: unmanaged
+        {
+        }
+        public struct FixedList4096Bytes<T> where T: unmanaged
+        {
+        }
     }
     namespace Transforms
     {
-        public struct Translation : Entities.IComponentData
+        public struct LocalTransform : Entities.IComponentData
         {
-            public Mathematics.float3 Value;
-        }
-        public struct Rotation : Entities.IComponentData
-        {
-            public Mathematics.quaternion Value;
+            public Mathematics.float3 Position;
+            public float Scale;
+            public Mathematics.quaternion Rotation;
         }
     }
 }";
@@ -258,6 +291,8 @@ namespace Unity
                 CSharpSyntaxTree.ParseText(hackyUnityRefs),
                 CSharpSyntaxTree.ParseText(File.ReadAllText(Path.Combine(Environment.CurrentDirectory,
                     "../../Authoring/GhostFieldAttribute.cs"))),
+                CSharpSyntaxTree.ParseText(File.ReadAllText(Path.Combine(Environment.CurrentDirectory,
+                    "../../Authoring/GhostFixedListCapacityAttribute.cs"))),
                 CSharpSyntaxTree.ParseText(File.ReadAllText(Path.Combine(Environment.CurrentDirectory,
                     "../../Authoring/GhostComponentAttribute.cs"))),
                 CSharpSyntaxTree.ParseText(File.ReadAllText(Path.Combine(Environment.CurrentDirectory,

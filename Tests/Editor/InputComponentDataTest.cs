@@ -1,3 +1,4 @@
+#pragma warning disable CS0618 // Disable Entities.ForEach obsolete warnings
 using System;
 using NUnit.Framework;
 using Unity.Collections;
@@ -134,9 +135,8 @@ namespace Unity.NetCode.Tests
     [DisableAutoCreation]
     public partial class GatherInputsSystem : SystemBase
     {
-        int m_WaitTicks = 1;                // Must wait 1 tick as the copy system starts one frame delayed
-        int m_EventCounter;                 // How many times have we set an input event so far
-        public static int TargetEventCount; // How many times total should we trigger events
+        private int m_WaitTicks = 1; // Must wait 1 tick as the copy system starts one frame delayed
+        private bool m_DidSetEvent; // Only set the jump event once
         protected override void OnCreate()
         {
             RequireForUpdate<InputComponentData>();
@@ -146,9 +146,8 @@ namespace Unity.NetCode.Tests
         {
             var networkTime = SystemAPI.GetSingleton<NetworkTime>();
 
+            var didSetEvent = m_DidSetEvent;
             var waitTicks = m_WaitTicks;
-            var eventCounter = m_EventCounter;
-            var targetEventCount = TargetEventCount;
             Entities
                 .WithAll<GhostOwnerIsLocal>()
                 .ForEach((ref InputComponentData inputData) =>
@@ -158,7 +157,7 @@ namespace Unity.NetCode.Tests
                     inputData.Vertical = 1;
                     inputData.SentinelTick = networkTime.ServerTick;
                     inputData.Sentinel = Unity.Mathematics.Random.CreateFromIndex(networkTime.ServerTick.TickIndexForValidTick).NextUInt();
-                    if (eventCounter < targetEventCount)
+                    if (!didSetEvent)
                     {
                         if (waitTicks > 0)
                         {
@@ -166,13 +165,13 @@ namespace Unity.NetCode.Tests
                         }
                         else
                         {
-                            eventCounter++;
+                            didSetEvent = true;
                             inputData.Jump.Set();
                         }
                     }
                 }).Run();
+            m_DidSetEvent = didSetEvent;
             m_WaitTicks = waitTicks;
-            m_EventCounter = eventCounter;
         }
     }
 
@@ -205,7 +204,6 @@ namespace Unity.NetCode.Tests
     public partial class ProcessInputsSystem : SystemBase
     {
         public int EventCounter;
-        public long EventCountSumValue;
         protected override void OnCreate()
         {
             RequireForUpdate<InputComponentData>();
@@ -219,10 +217,7 @@ namespace Unity.NetCode.Tests
                 {
                     var newPosition = new float3();
                     if (input.Jump.IsSet)
-                    {
                         eventCounter++;
-                        EventCountSumValue += input.Jump.Count;
-                    }
                     newPosition.x = input.Horizontal;
                     newPosition.z = input.Vertical;
                     trans = trans.WithPosition(newPosition);
@@ -252,7 +247,6 @@ namespace Unity.NetCode.Tests
         [Test]
         public void InputComponentData_IsCorrectlySynchronized([Values] NetworkTestCondition networkCondition)
         {
-            GatherInputsSystem.TargetEventCount = 5;
             using (var testWorld = new NetCodeTestWorld())
             {
                 // Set conditions:
@@ -316,10 +310,9 @@ namespace Unity.NetCode.Tests
                 Assert.AreEqual(1f, transform.Position.x);
                 Assert.AreEqual(1f, transform.Position.z);
 
-                // Event should only fire equal to TargetEventCount on the server (but can multiple times on client because of prediction loop)
+                // Event should only fire once on the server (but can multiple times on client because of prediction loop)
                 var serverInputSystem = testWorld.ServerWorld.GetExistingSystemManaged<ProcessInputsSystem>();
-                Assert.AreEqual(GatherInputsSystem.TargetEventCount, serverInputSystem.EventCounter);
-                Assert.AreEqual(GatherInputsSystem.TargetEventCount, serverInputSystem.EventCountSumValue);
+                Assert.AreEqual(1, serverInputSystem.EventCounter);
 
                 // Assert input logging is realistic:
                 var networkSnapshotAck = testWorld.GetSingleton<NetworkSnapshotAck>(testWorld.ServerWorld);

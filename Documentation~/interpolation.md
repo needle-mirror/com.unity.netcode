@@ -1,30 +1,41 @@
-# Interpolation
+# Interpolation and extrapolation
 
-Networked games are subject to [jitter](https://docs-multiplayer.unity3d.com/netcode/current/learn/lagandpacketloss/) which can in turn impact player's gameplay by making objects seem unstable and jittery. A common solution to jitter is to use buffered [interpolation](https://docs-multiplayer.unity3d.com/netcode/current/learn/clientside_interpolation/), which involves intentionally delaying ticks to allow snapshots to arrive and then interpolating between them. Netcode's interpolation is **not** from current state to target state, but between two known snapshots. If the client renders at the same rate as the simulation rate, then the client is always rendering uninterpolated (but still buffered) snapshots.
+Use interpolation and extrapolation in your game to minimize the effects of adverse network conditions on gameplay.
+
+When networked games run over unstable or poor networks, they can experience latency and jitter which negatively affect gameplay for users. Interpolation and extrapolation are both processing methods that aim to minimize the effects of network disruption from the user's perspective.
 
 This page is about ghosts in interpolated mode. Jitter affects predicted ghosts as well, but [prediction](intro-to-prediction.md) solves this on its own.
 
-## Terminology: Interpolation vs Extrapolation
+## Interpolation
 
-**Linear interpolation** describes the process of smoothly traversing between two known values.
+Interpolation is the estimation of likely data points within the range of a known set of data points. In Netcode for Entities, interpolation specifically refers to the process of smoothly transitioning between two or more known values received in [snapshots](ghost-snapshots.md#snapshots) using linear interpolation, [waypoint pathing](#waypoint-pathing), and [buffered interpolation](#buffered-interpolation).
 
-**Waypoint pathing** describes a specific form of movement (playback), whereby an entity linearly interpolates between marked points **A, B, C** by traveling first from **A to B**, then from **B to C**.
+If the client renders at the same rate as the simulation rate, then the client is always rendering uninterpolated (but still buffered) snapshots.
 
-**Buffering** describes the process of adding an intentional time delay between receiving data and acting on it. Buffering creates an opportunity for delayed packets to arrive before their data is needed. Larger buffer windows produce more correct playback (under realistic network conditions), but at the cost of additional latency.
-In Netcode for Entities, all of the above are used for interpolated ghosts, where each waypoint node is a received snapshot. The more snapshots received, the more accurate the interpolated ghost playback will be. This is set using `ClientTickRate.InterpolationTimeMS`.
+### Waypoint pathing
 
-**Extrapolation** is an unclamped interpolation. If Netcode hasn't received the destination snapshot value in time, extrapolation causes your value to continue in the same direction, at the same rate. Extrapolation is a basic form of estimation, and is often wrong, but can be preferable to having no estimation at all. Note that extrapolation still has a limit and doesn't continue forever.
+Waypoint pathing is specific form of movement (playback) where an entity linearly interpolates between nodes `A`, `B`, and `C` by traveling first from `A` to `B`, then from `B` to `C`. In Netcode for Entities, each waypoint node is a received snapshot. The more snapshots received, the more accurate the interpolated ghost playback is. This is set using [`ClientTickRate.InterpolationTimeMS`](https://docs.unity3d.com/Packages/com.unity.netcode@latest?subfolder=/api/Unity.NetCode.ClientTickRate.html#Unity_NetCode_ClientTickRate_InterpolationTimeMS), which defines how large the [interpolation buffer](#buffered-interpolation) should be.
 
-The term `Dead Reckoning` has been used in similar context as extrapolation, but can also mean using more complex logic to guess a trajectory. Netcode does not use dead reckoning.
+### Buffered interpolation
+
+Buffered interpolation involves intentionally delaying ticks to allow snapshots to arrive and then interpolating between them. Buffering creates an opportunity for delayed packets to arrive before their data is needed. Larger buffer windows produce more correct playback (under realistic network conditions), but at the cost of additional latency.
+
+## Extrapolation
+
+Extrapolation is the estimation of likely data points outside the range of a known set of data points. In Netcode for Entities, extrapolation is effectively an unclamped interpolation. If the destination snapshot value isn't received in time, extrapolation causes the value to continue in the same direction, at the same rate.
+
+Extrapolation is a basic form of estimation, and is often wrong, but can be preferable to having no estimation at all. Note that extrapolation still has a limit and doesn't continue forever. By default, extrapolation is limited to 20 ticks (which, at the default simulation rate of 60 Hz, is roughly a third of a second). You can adjust this limit using the [`ClientTickRate.MaxExtrapolationTimeSimTicks`](https://docs.unity3d.com/Packages/com.unity.netcode@latest?subfolder=/api/Unity.NetCode.ClientTickRate.html#Unity_NetCode_ClientTickRate_MaxExtrapolationTimeSimTicks) property.
+
+The term dead reckoning is also used in a similar context as extrapolation, but can also mean using more complex logic to guess a trajectory. Netcode for Entities doesn't use dead reckoning.
 
 >[!NOTE]
->In Unity's Netcode context, `Extrapolation` is distinct from [client prediction](intro-to-prediction.md): extrapolation is a simple linear mathematical operation which is applied to interpolated ghosts when snapshot data hasn't arrived by the current `interpolationTime`, whereas client prediction involves complex simulation of gameplay code adjusting to the client's latency in an attempt to mirror the server's own gameplay simulation. In other words, an interpolated ghost can be extrapolated, but not a predicted ghost. Extrapolation and prediction run on different [timelines](#timelines).
+>Extrapolation is not the same as [client prediction](intro-to-prediction.md). Extrapolation is a simple linear mathematical operation that's applied to interpolated ghosts when snapshot data hasn't arrived by the current `interpolationTime`, whereas client prediction involves complex simulation of gameplay code that adjusts to the client's latency to try and mirror the server's own gameplay simulation. In other words, an interpolated ghost can be extrapolated, but not a predicted ghost. Extrapolation and prediction run on different [timelines](#timelines).
 
 ## Timelines
 
-Any given client has two timelines at the same time: the [predicted](intro-to-prediction.md) timeline which runs in your game's 'present', and the interpolated timeline, which shows late (due to network latency) server values. See [Time Synchronization](time-synchronization.md) for more details.
+Any given client has two timelines at the same time: the [predicted](intro-to-prediction.md) timeline that runs in your game's 'present', and the interpolated timeline that shows delayed (due to network latency) server values. Refer to the [time synchronization page](time-synchronization.md) for more details.
 
-Server side, there is only one timeline: the 'present' timeline.
+Server-side, there's only one timeline: the present timeline.
 
 In total, there are three timelines:
 
@@ -34,7 +45,7 @@ In total, there are three timelines:
 
 ![Timelines.jpg](images/PredictionSteps/Timelines.jpg)
 
-## Interpolation Tick Fraction
+### Interpolation tick fraction
 
 `NetworkTime.InterpolationTickFraction` contains the fraction that the client is currently interpolating to get to the target `InterpolationTick`. For example, with an `InterpolationTick` of 11 and a fraction of 0.5f, this means that the client is currently interpolating between ticks 10 and 11 and is halfway to tick 11. This is **not** tick 11.5f. In other words, `InterpolationTick` is the **target** tick and `InterpolationTickFraction` is the **progress** to get to the target tick.
 
@@ -42,16 +53,13 @@ When `InterpolationTickFraction` is 1.0f, the client is at the target tick. If t
 
 ![TickFraction.jpg](images/TickFraction.jpg)
 
-## Interpolation in Netcode
+## Additional resources
 
-Netcode has a number of features to ensure that interpolation remains smooth and consistent. Refer to the following pages for more information:
-
-- [Ghost Mode](ghost-snapshots.md#authoring-ghosts): Denotes which timeline (interpolated or predicted) a given ghost type should be on, by default.
-- [Smoothing GhostFields](ghost-snapshots.md#authoring-component-serialization)
-- [GhostComponentAttribute Predicted vs Interpolated](ghost-snapshots.md#using-the-ghostcomponentattribute): Adds filtering options depending on the ghost's current mode.
-- [Prediction Switching](prediction-switching.md): Convert a ghost from the predicted timeline to the interpolated timeline (and vice versa), with additional options for smoothing during the transition period (which is a form of interpolation).
-- [CommandDataInterpolationDelay](entities-list.md#commanddata): Optional component, added server-side, to help with server rewind (lag compensation).
-- [Spawns for Interpolated Ghosts](ghost-spawning.md#different-type-of-spawning): Ensures interpolated ghosts are spawned on the appropriate interpolation tick, rather than spawning on the tick the snapshot arrives.
-- [Physics](physics.md#interpolated-ghosts)
-- [Interpolated Timeline Details](time-synchronization.md)
-- [Prediction Smoothing](prediction-smoothing.md): While not used on interpolated ghosts, the smoothing applied to corrections on mis-predicted GhostField values is a form of interpolation.
+* [Ghosts and snapshots](ghost-snapshots.md)
+* [Serialization and synchronization with `GhostFieldAttribute`](ghostfield-synchronize.md)
+* [Customizing replication with `GhostComponentAttribute`](ghostcomponentattribute.md)
+* [Prediction switching](prediction-switching.md)
+* [Spawn and pre-spawn ghosts](ghost-spawning.md)
+* [Physics](physics.md#interpolated-ghosts)
+* [Time synchronization](time-synchronization.md)
+* [Prediction smoothing](prediction-smoothing.md)

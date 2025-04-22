@@ -491,6 +491,7 @@ namespace Unity.NetCode
 
         CollisionHistoryBuffer m_CollisionHistory;
 
+        /// <inheritdoc/>
         public void OnCreate(ref SystemState state)
         {
             state.RequireForUpdate<LagCompensationConfig>();
@@ -501,6 +502,8 @@ namespace Unity.NetCode
                 DeepCopyRigidBodyCollidersWhitelist = new NativeList<int>(0, Allocator.Persistent),
             });
         }
+
+        /// <inheritdoc/>
         [BurstCompile]
         public void OnDestroy(ref SystemState state)
         {
@@ -511,6 +514,7 @@ namespace Unity.NetCode
                 pwhs.DeepCopyRigidBodyCollidersWhitelist.Dispose();
         }
 
+        /// <inheritdoc/>
         [BurstCompile]
         public void OnUpdate(ref SystemState state)
         {

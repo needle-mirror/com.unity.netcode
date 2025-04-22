@@ -1,4 +1,4 @@
-﻿using Unity.Collections;
+using Unity.Collections;
 
 namespace Unity.NetCode
 {

@@ -24,18 +24,18 @@ Use the __Playmode Tools__ window (menu: **Window** > **Multiplayer** > **Playmo
 ### Emulate client network conditions
 
 Use the network emulator to replicate specific network conditions while your game is running in the Unity Editor.
-When you enable network emulation, you can set the packet delay and packet loss in the following ways: 
+When you enable network emulation, you can set the packet delay and packet loss in the following ways:
  - Manually set the packet delay and drop values.
- - Select a `preset`. For example, '4G' or 'Broadband'. 
+ - Select a `preset`. For example, '4G' or 'Broadband'.
 
 Frequently test your gameplay with the emulator enabled to get a more accurate picture of how real-world network latency impacts gameplay quality. Gameplay test also demonstrate the performance implications of the rollback and re-simulate logic involved in client prediction. For example, a higher ping requires the client to perform more prediction ticks which uses higher CPU resources on the client's side.
 
-To manually specify network conditions, enter custom values in the following fields: 
+To manually specify network conditions, enter custom values in the following fields:
 - **RTT Delay**
-- **RTT Jitter** 
-- **Packet Drop** 
+- **RTT Jitter**
+- **Packet Drop**
 
-If you use **Packet View**, enter custom values in the following fields: 
+If you use **Packet View**, enter custom values in the following fields:
 - **Packet Delay**
 - **Packet Jitter**
 - **Packet Drop**
@@ -58,7 +58,7 @@ Unity runs the network emulation via a Unity Transport Pipeline Stage. This stag
 
 ### Visualize bounding boxes on GameObjects
 Entities that use Entities Graphics automatically draw bounding boxes. To draw bounding boxes around objects that don't use entities graphics, add the `GhostDebugMeshBounds` component to the GameObject's supporting entity. You can call `Initialize` for convenience to set it up.
-Refer to `GhostPresentationGameObjectEntityOwner` for an example. 
+Refer to `GhostPresentationGameObjectEntityOwner` for an example.
 
 <img src="images/DebugBoundingBox.png" width="600" alt="Predicted and Server Debug Bounding Boxes"/>
 
@@ -73,12 +73,12 @@ Passing in either parameter always enables a simulator profile, even in the erro
 
 ## Use the Playmode Tool window with Multiplayer Play Mode
 
-To use the Playmode Tool window in Multiplayer Play Mode to test a [virtual player](https://docs-multiplayer.unity3d.com/mppm/current/virtual-players/) in a project that uses netcode for Entities, perform the following actions: 
+To use the Playmode Tool window in Multiplayer Play Mode to test a [virtual player](https://docs-multiplayer.unity3d.com/mppm/current/virtual-players/) in a project that uses netcode for Entities, perform the following actions:
 1. [Install the Multiplayer Play Mode package](https://docs-multiplayer.unity3d.com/mppm/current/install/).
 2. Open the Multiplayer Play Mode window (**Window** > **Multiplayer Play Mode**).
 3. [Activate a virtual player](https://docs-multiplayer.unity3d.com/mppm/current/virtual-players/virtual-players-enable/).
 4. IN a virtual player's Play Mode window, navigate to **Layout**  and select **Playmode Tool**.
-5. Set the **Play Mode Type** to make this clone act as a __Client__, a __Server__, or both a __Client & Server__. 
+5. Set the **Play Mode Type** to make this clone act as a __Client__, a __Server__, or both a __Client & Server__.
 
 >[!NOTE]
-> If the [Dedicated Server package](https://docs.unity3d.com/Packages/com.unity.dedicated-server@1.0/manual/index.html) exists in your project, the [Multiplayer Role](https://docs.unity3d.com/Packages/com.unity.dedicated-server@1.0/manual/multiplayer-roles.html) you select overrides the PlayMode Type. 
+> If the [Dedicated Server package](https://docs.unity3d.com/Packages/com.unity.dedicated-server@1.0/manual/index.html) exists in your project, the [Multiplayer Role](https://docs.unity3d.com/Packages/com.unity.dedicated-server@1.0/manual/multiplayer-roles.html) you select overrides the PlayMode Type.

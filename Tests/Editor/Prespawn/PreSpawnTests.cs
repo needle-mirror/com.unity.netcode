@@ -1,3 +1,6 @@
+#if UNITY_EDITOR && !NETCODE_NDEBUG
+#define NETCODE_DEBUG
+#endif
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -13,6 +16,7 @@ using UnityEngine;
 using UnityEngine.SceneManagement;
 using Unity.Mathematics;
 using Unity.Networking.Transport;
+using UnityEngine.TestTools;
 
 namespace Unity.NetCode.PrespawnTests
 {
@@ -572,7 +576,7 @@ namespace Unity.NetCode.PrespawnTests
             }
         }
 
-        [Test, Ignore("Inconclusive CI error: Package Test - netcode [mac, trunk DOTS Monorepo]: [TimeoutExceptionMessage]: Timeout while waiting for a log message, no editor logging has happened during the timeout window! #6210")]
+        [Test]
         public void MismatchedPrespawnClientServerScenesCantConnect()
         {
             var ghost = SubSceneHelper.CreateSimplePrefab(ScenePath, "ghost", typeof(GhostAuthoringComponent));
@@ -614,39 +618,110 @@ namespace Unity.NetCode.PrespawnTests
         }
 
         [Test]
-        public void ServerTickWrapAroundDoesnNotCauseIssue()
+        public void ServerTick_AndMaxBaselineAge_WrapAroundDoesNotCauseIssue()
         {
             var ghost = SubSceneHelper.CreateSimplePrefab(ScenePath, "ghost", typeof(GhostAuthoringComponent));
             var scene = SubSceneHelper.CreateEmptyScene(ScenePath, "Parent");
-            SubSceneHelper.CreateSubSceneWithPrefabs(scene,Path.GetDirectoryName(scene.path), "Sub0", new []{ghost}, 5);
+            const int ensureTwoChunksWorthOfEntities = TypeManager.MaximumChunkCapacity + 2;
+            SubSceneHelper.CreateSubSceneWithPrefabs(scene, Path.GetDirectoryName(scene.path), "Sub0", new[] {ghost}, ensureTwoChunksWorthOfEntities);
             SceneManager.SetActiveScene(scene);
-            VerifyGhostIds.GhostsPerScene = 5;
-            using (var testWorld = new NetCodeTestWorld())
+            VerifyGhostIds.GhostsPerScene = ensureTwoChunksWorthOfEntities;
+
+            using var testWorld = new NetCodeTestWorld();
+            testWorld.Bootstrap(true, typeof(VerifyGhostIds));
+            testWorld.CreateWorlds(true, 1);
+            SubSceneHelper.LoadSubSceneInWorlds(testWorld);
+
+            var networkTick = new NetworkTick((UInt32.MaxValue >> 1) - 32);
+            testWorld.SetServerTick(networkTick);
+            Debug.Log($"Set ServerWorld.NetworkTime.ServerTick:{networkTick.ToFixedString()} to test NetworkTick wraparound!");
+            testWorld.ServerWorld.EntityManager.CreateEntity(typeof(EnableVerifyGhostIds));
+            testWorld.ClientWorlds[0].EntityManager.CreateEntity(typeof(EnableVerifyGhostIds));
+
+            // Spawn:
+            testWorld.Connect();
+            testWorld.GoInGame();
+            for (int i = 0; i < 32; ++i)
             {
-                testWorld.Bootstrap(true, typeof(VerifyGhostIds));
-                testWorld.CreateWorlds(true, 1);
-                SubSceneHelper.LoadSubSceneInWorlds(testWorld);
-                testWorld.SetServerTick(new NetworkTick((UInt32.MaxValue>>1) - 16));
-                testWorld.ServerWorld.EntityManager.CreateEntity(typeof(EnableVerifyGhostIds));
-                testWorld.ClientWorlds[0].EntityManager.CreateEntity(typeof(EnableVerifyGhostIds));
-                testWorld.Connect();
-                testWorld.GoInGame();
-                for(int i=0;i<32;++i)
+                testWorld.Tick();
+                if (testWorld.ServerWorld.GetExistingSystemManaged<VerifyGhostIds>().Matches == VerifyGhostIds.GhostsPerScene &&
+                    testWorld.ClientWorlds[0].GetExistingSystemManaged<VerifyGhostIds>().Matches == VerifyGhostIds.GhostsPerScene)
+                    break;
+            }
+
+            var serverPrespawned = testWorld.ServerWorld.EntityManager.CreateEntityQuery(typeof(PreSpawnedGhostIndex)).CalculateEntityCount();
+            Assert.AreEqual(VerifyGhostIds.GhostsPerScene, serverPrespawned, "Didn't find expected amount of prespawned entities in the server subscene");
+            var clientPrespawned = testWorld.ClientWorlds[0].EntityManager.CreateEntityQuery(typeof(PreSpawnedGhostIndex)).CalculateEntityCount();
+            Assert.AreEqual(VerifyGhostIds.GhostsPerScene, clientPrespawned, "Didn't find expected amount of prespawned entities in the client subscene");
+            Assert.AreEqual(VerifyGhostIds.GhostsPerScene, testWorld.ServerWorld.GetExistingSystemManaged<VerifyGhostIds>().Matches, "Prespawn components added but didn't get ghost ID applied at runtime on server");
+            Assert.AreEqual(VerifyGhostIds.GhostsPerScene, testWorld.ClientWorlds[0].GetExistingSystemManaged<VerifyGhostIds>().Matches, "Prespawn components added but didn't get ghost ID applied at runtime on client");
+            Assert.AreEqual(testWorld.GetNetworkTime(testWorld.ServerWorld).ServerTick.TickValue, testWorld.GetNetworkTime(testWorld.ServerWorld).InterpolationTick.TickValue, "ServerTick is not equal to InterpolationTick on server world");
+
+            // Modify some:
+            const int numToModify = 10;
+            var serverLocalTransQuery = testWorld.ServerWorld.EntityManager.CreateEntityQuery(typeof(LocalTransform));
+            Assert.IsTrue(serverLocalTransQuery.CalculateChunkCount() > 1, $"Sanity - At least 2 chunks! Capacity:{serverLocalTransQuery.ToArchetypeChunkArray(Allocator.Temp)[0].Capacity}");
+            const float multiplierA = 1.11f;
+            ModifySomeLocalTransforms(serverLocalTransQuery, multiplierA);
+
+            // Ensure nothing goes wrong:
+            for (int i = 0; i < 32; i++)
+                testWorld.Tick();
+            VerifyLocalTransforms(serverLocalTransQuery, multiplierA, "NetworkTick-WrapAround");
+
+            // Test MaxBaselineAge is handled correctly by jumping the server by at least MaxBaselineAge WHILE modifying the prefab:
+            ref var networkTime = ref testWorld.GetSingletonRW<NetworkTime>(testWorld.ServerWorld).ValueRW;
+            var prevServerTick = networkTime.ServerTick;
+            Assert.IsTrue(prevServerTick.TickIndexForValidTick < 1000, "Sanity! Did wrap around!");
+            networkTime.ServerTick.Add(GhostSystemConstants.MaxBaselineAge + 1);
+            Debug.Log($"Jumped ServerWorld.NetworkTime.ServerTick:{prevServerTick} >> {networkTime.ServerTick} (delta:{networkTime.ServerTick.TicksSince(prevServerTick)}) for MaxBaselineAge!");
+            Assert.AreNotEqual(networkTime.ServerTick, prevServerTick, "Sanity!");
+            Assert.IsTrue(serverLocalTransQuery.CalculateChunkCount() > 1, $"Sanity - At least 2 chunks! Capacity:{serverLocalTransQuery.ToArchetypeChunkArray(Allocator.Temp)[0].Capacity}");
+            const float multiplierB = 5.3f;
+            ModifySomeLocalTransforms(serverLocalTransQuery, multiplierB);
+
+            // Ensure nothing goes wrong:
+            for (int i = 0; i < 64; i++)
+                testWorld.Tick();
+#if NETCODE_DEBUG
+            LogAssert.Expect(LogType.Warning, new Regex("MaxBaselineAge"));
+            LogAssert.Expect(LogType.Warning, new Regex("MaxBaselineAge"));
+#endif
+            VerifyLocalTransforms(serverLocalTransQuery, multiplierB, "MaxBaselineAge");
+
+            // Done! Local funcs:
+            static void ModifySomeLocalTransforms(EntityQuery serverLocalTransQuery, float mul)
+            {
+                var localTransforms = serverLocalTransQuery.ToComponentDataArray<LocalTransform>(Allocator.Temp);
+                Assert.IsTrue(localTransforms.Length > numToModify, "Sanity!");
+                Assert.AreEqual(ensureTwoChunksWorthOfEntities, localTransforms.Length, "Sanity!");
+                var rw = localTransforms.AsSpan();
+                for (var i = 0; i < numToModify; i++)
                 {
-                    if (testWorld.GetNetworkTime(testWorld.ServerWorld).ServerTick.TickIndexForValidTick >= (UInt32.MaxValue>>1) - 3)
-                        testWorld.SpawnOnServer(0);
-                    testWorld.Tick();
-                    if (testWorld.ServerWorld.GetExistingSystemManaged<VerifyGhostIds>().Matches == VerifyGhostIds.GhostsPerScene &&
-                        testWorld.ClientWorlds[0].GetExistingSystemManaged<VerifyGhostIds>().Matches == VerifyGhostIds.GhostsPerScene)
-                        break;
+                    ref var trans = ref rw[i];
+                    trans.Position = new float3(1, 2, i * mul);
+                    trans.Rotation = quaternion.Euler(3, 4, i * mul);
                 }
-                var prespawned = testWorld.ServerWorld.EntityManager.CreateEntityQuery(typeof(PreSpawnedGhostIndex)).CalculateEntityCount();
-                Assert.AreEqual(VerifyGhostIds.GhostsPerScene, prespawned, "Didn't find expected amount of prespawned entities in the server subscene");
-                prespawned = testWorld.ClientWorlds[0].EntityManager.CreateEntityQuery(typeof(PreSpawnedGhostIndex)).CalculateEntityCount();
-                Assert.AreEqual(VerifyGhostIds.GhostsPerScene, prespawned, "Didn't find expected amount of prespawned entities in the client subscene");
-                Assert.AreEqual(VerifyGhostIds.GhostsPerScene, testWorld.ServerWorld.GetExistingSystemManaged<VerifyGhostIds>().Matches, "Prespawn components added but didn't get ghost ID applied at runtime on server");
-                Assert.AreEqual(VerifyGhostIds.GhostsPerScene, testWorld.ClientWorlds[0].GetExistingSystemManaged<VerifyGhostIds>().Matches, "Prespawn components added but didn't get ghost ID applied at runtime on client");
-                Assert.AreEqual(testWorld.GetNetworkTime(testWorld.ServerWorld).ServerTick.TickValue, testWorld.GetNetworkTime(testWorld.ServerWorld).InterpolationTick.TickValue, "ServerTick is not equal to InterpolationTick on server world");
+                serverLocalTransQuery.CopyFromComponentDataArray(localTransforms);
+            }
+            static void VerifyLocalTransforms(EntityQuery serverLocalTransQuery, float mul, string context)
+            {
+                var localTransforms = serverLocalTransQuery.ToComponentDataArray<LocalTransform>(Allocator.Temp);
+                var ro = localTransforms.AsReadOnlySpan();
+                for (var i = 0; i < numToModify; i++)
+                {
+                    ref readonly var trans = ref ro[i];
+                    //Debug.Log($"[A] mul:{mul} {i} = {trans.ToString()}");
+                    Assert.AreEqual(new float3(1, 2, i * mul), trans.Position, context);
+                    Assert.AreEqual(quaternion.Euler(3, 4, i * mul), trans.Rotation, context);
+                }
+                for (var i = numToModify; i < localTransforms.Length; i++)
+                {
+                    ref readonly var trans = ref ro[i];
+                    //Debug.Log($"[B] mul:{mul} {i} = {trans.ToString()}");
+                    Assert.AreNotEqual(new float3(1, 2, i * mul), trans.Position, context);
+                    Assert.AreNotEqual(quaternion.Euler(3, 4, i * mul), trans.Rotation, context);
+                }
             }
         }
 
@@ -798,14 +873,14 @@ namespace Unity.NetCode.PrespawnTests
                     for (var i = 0; i < sEntities.Length; i++)
                     {
                         // TestComponent1 is a flag component.
-                        Assert.AreEqual(s2[i], c2[i], "TestComponent2 is not the same on client vs server!");
+                        Assert.IsTrue(s2[i].Equals(c2[i]), "TestComponent2 is not the same on client vs server!");
 
                         var sBuffer = serverWorld.EntityManager.GetBuffer<TestBuffer3>(sEntities[i]);
                         var cBuffer = clientWorld.EntityManager.GetBuffer<TestBuffer3>(cEntities[i]);
                         Assert.AreEqual(sBuffer.Length, cBuffer.Length, "TestBuffer3.Length is not the same on client vs server!");
                         for (int j = 0; j < sBuffer.Length; j++)
                         {
-                            Assert.AreEqual(sBuffer[j], cBuffer[j], $"TestBuffer3[{j}] entry is not the same on client vs server!");
+                            Assert.IsTrue(sBuffer[j].Equals(cBuffer[j]), $"TestBuffer3[{j}] entry is not the same on client vs server!");
                         }
 
                         Assert.AreEqual(serverWorld.EntityManager.IsComponentEnabled<TestComponent1>(sEntities[i]), clientWorld.EntityManager.IsComponentEnabled<TestComponent1>(cEntities[i]), "TestComponent1 Enabled bit is not the same on client vs server!");

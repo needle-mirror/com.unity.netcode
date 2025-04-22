@@ -47,8 +47,8 @@ namespace Unity.NetCode.Physics.Tests
             var time = SystemAPI.GetSingleton<NetworkTime>();
             var currentElapsedTime = SystemAPI.Time.ElapsedTime;
             var deltaTime = SystemAPI.Time.DeltaTime;
-            var rateManager = (NetcodePredictionFixedRateManager)state.World.GetExistingSystemManaged<PredictedFixedStepSimulationSystemGroup>().RateManager;
-            Assert.IsTrue(deltaTime >= rateManager.Timestep);
+            var timestep = state.World.GetExistingSystemManaged<PredictedFixedStepSimulationSystemGroup>().Timestep;
+            Assert.IsTrue(deltaTime >= timestep);
             var recordedTime = SystemAPI.GetSingletonBuffer<MostRecentFixedTime>()[0];
             Assert.GreaterOrEqual(currentElapsedTime, elapsedTime);
             Assert.GreaterOrEqual(recordedTime.ElapsedTime, lastRecordedTime);
@@ -90,24 +90,28 @@ namespace Unity.NetCode.Physics.Tests
 
             for (int i = 0; i < 128; ++i)
                 testWorld.Tick();
+            var clientTime0 = testWorld.GetNetworkTime(testWorld.ClientWorlds[0]);
+            // Ensure client is on a full tick so we know what will happen in future ticks
+            testWorld.TickClientOnly((1 - clientTime0.ServerTickFraction) / simulationTickRate);
+            clientTime0 = testWorld.GetNetworkTime(testWorld.ClientWorlds[0]);
+            Assert.IsFalse(clientTime0.IsPartialTick);
 
             testWorld.SpawnOnServer(0);
 
             var serverTime0 = testWorld.GetNetworkTime(testWorld.ServerWorld);
-            var clienTime0 = testWorld.GetNetworkTime(testWorld.ClientWorlds[0]);
             var deltaTime = 1f / 60 / 4;
             for (int i = 0; i < 128; ++i)
                 testWorld.Tick(deltaTime);
 
             var serverTime1 = testWorld.GetNetworkTime(testWorld.ServerWorld);
-            var clienTime1 = testWorld.GetNetworkTime(testWorld.ClientWorlds[0]);
+            var clientTime1 = testWorld.GetNetworkTime(testWorld.ClientWorlds[0]);
             var physicsFullTicks = serverTime1.ServerTick.TicksSince(serverTime0.ServerTick) * physicsTickRate/simulationTickRate;
             var runOnPartial = testWorld.ServerWorld.GetExistingSystemManaged<CheckPhysicsRunOnPartial>();
             Assert.AreEqual(0, runOnPartial.numPartialTickUpdates);
             Assert.AreEqual(physicsFullTicks, runOnPartial.numFullTickUpdates);
             //On the client side, the number of ticks can be slighty higher because of accumulated time for partial ticks and catchup.
             runOnPartial = testWorld.ClientWorlds[0].GetExistingSystemManaged<CheckPhysicsRunOnPartial>();
-            physicsFullTicks = clienTime1.ServerTick.TicksSince(runOnPartial.firstTick);
+            physicsFullTicks = clientTime1.ServerTick.TicksSince(runOnPartial.firstTick);
             physicsFullTicks *= physicsTickRate/simulationTickRate;
             Assert.AreEqual(physicsFullTicks, runOnPartial.numFullTickUpdates);
             if(physicsTickRate > simulationTickRate)

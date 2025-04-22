@@ -21,6 +21,7 @@ namespace Unity.NetCode
         EntityQuery m_Prespawns;
         EntityQuery m_AllPrespawnScenes;
 
+        /// <inheritdoc/>
         [BurstCompile]
         public void OnCreate(ref SystemState state)
         {
@@ -37,6 +38,7 @@ namespace Unity.NetCode
             state.RequireForUpdate<GhostCollection>();
         }
 
+        /// <inheritdoc/>
         [BurstCompile]
         public void OnUpdate(ref SystemState state)
         {

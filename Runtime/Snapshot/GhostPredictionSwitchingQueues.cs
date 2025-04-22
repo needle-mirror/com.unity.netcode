@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using Unity.Burst;
 using Unity.Collections;
 using Unity.Collections.LowLevel.Unsafe;
@@ -107,6 +107,7 @@ namespace Unity.NetCode
         NativeQueue<OwnerSwithchingEntry> m_OwnerPredictedQueue;
         ComponentLookup<PredictionSwitchingSmoothing> m_PredictionSwitchingSmoothingLookup;
 
+        /// <inheritdoc/>
         public void OnCreate(ref SystemState state)
         {
 #if UNITY_EDITOR
@@ -131,6 +132,7 @@ namespace Unity.NetCode
             });
         }
 
+        /// <inheritdoc/>
         [BurstCompile]
         public void OnDestroy(ref SystemState state)
         {
@@ -146,6 +148,7 @@ namespace Unity.NetCode
         }
 #endif
 
+        /// <inheritdoc/>
         [BurstCompile]
         public void OnUpdate(ref SystemState state)
         {
@@ -222,32 +225,6 @@ namespace Unity.NetCode
             analyticsData.NumTimesSwitchedOwner += m_OwnerPredictedQueue.Count;
         }
 #endif
-    }
-
-    /// <summary>
-    /// This system creates and empty prediction switching queue for thin clients. Such
-    /// a queue needs to exist for the ghost receive system even though it will not be used
-    /// on thin clients (as they have no ghost data).
-    /// </summary>
-    [BurstCompile]
-    [WorldSystemFilter(WorldSystemFilterFlags.ThinClientSimulation)]
-    [UpdateInGroup(typeof(GhostSimulationSystemGroup))]
-    partial struct GhostPredictionSwitchingSystemForThinClient : ISystem
-    {
-        NativeQueue<OwnerSwithchingEntry> m_OwnerPredictedQueue;
-        public void OnCreate(ref SystemState state)
-        {
-            m_OwnerPredictedQueue = new NativeQueue<OwnerSwithchingEntry>(Allocator.Persistent);
-            state.EntityManager.CreateSingleton(new GhostOwnerPredictedSwitchingQueue
-            {
-                SwitchOwnerQueue = m_OwnerPredictedQueue
-            });
-        }
-
-        public void OnDestroy(ref SystemState state)
-        {
-            m_OwnerPredictedQueue.Dispose();
-        }
     }
 
     static internal class PredictionSwitchingUtilities

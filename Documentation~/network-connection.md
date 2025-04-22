@@ -68,7 +68,7 @@ public class AutoConnectBootstrap : ClientServerBootstrap
 {
     public override bool Initialize(string defaultWorldName)
     {
-        // This will enable auto connect.       
+        // This will enable auto connect.
         AutoConnectPort = 7979;
         // Create the default client and server worlds, depending on build type in a player or the PlayMode Tools in the editor
         CreateDefaultClientServerWorlds();

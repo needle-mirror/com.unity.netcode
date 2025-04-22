@@ -35,7 +35,7 @@ namespace Unity.NetCode
         {
             ((delegate *unmanaged[Cdecl]<IntPtr,IntPtr,int,int,int,IntPtr,int,IntPtr,ref DataStreamWriter,ref StreamCompressionModel,IntPtr, void>)function.Ptr.Value)(stateData,snapshotData,snapshotOffset,snapshotStride,maskOffsetInBits,componentData,count,baselines,ref writer,ref compressionModel,entityStartBit);
         }
-        
+
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         static internal void Invoke(this PortableFunctionPointer<LowLevel.Unsafe.GhostComponentSerializer.SerializeBufferDelegate> function,
             IntPtr stateData, IntPtr snapshotData, int snapshotOffset, int snapshotStride, int maskOffsetInBits,

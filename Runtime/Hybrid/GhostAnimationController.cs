@@ -267,39 +267,29 @@ namespace Unity.NetCode.Hybrid
         }
         protected override void OnUpdate()
         {
-            var predictionTick = SystemAPI.GetSingleton<NetworkTime>().ServerTick;
-            var prevTick = predictionTick;
-            prevTick.Decrement();
-            var deltaTime = SystemAPI.Time.DeltaTime;
-            Entities
-                .WithoutBurst()
-                .WithAll<GhostPresentationGameObjectPrefabReference>()
-                .WithAll<EnableAnimationControllerPredictionUpdate>()
-                .WithAll<Simulate>()
-                .ForEach((Entity entity, in PredictedGhost predict) => {
-                    var isRollback = !predict.ShouldPredict(prevTick);
-                    var go = m_GhostPresentationGameObjectSystem.GetGameObjectForEntity(EntityManager, entity);
-                    var ctrl = go?.GetComponent<GhostAnimationController>();
-                    if (ctrl == null)
-                        return;
+            var entitiesWithoutPredictedGhostsQuery = SystemAPI.QueryBuilder()
+                .WithAll<GhostPresentationGameObjectPrefabReference>().WithNone<PredictedGhost>().Build();
+            var entitiesWithoutPredictedGhosts = entitiesWithoutPredictedGhostsQuery.ToEntityArray(Allocator.Temp);
+            foreach (var entity in entitiesWithoutPredictedGhosts)
+            {
+                var go = m_GhostPresentationGameObjectSystem.GetGameObjectForEntity(EntityManager, entity);
+                var ctrl = go?.GetComponent<GhostAnimationController>();
+                if (ctrl != null)
                     ctrl.CopyFromEntities();
-                    if (ctrl.m_PlayableBehaviours.Count > 0)
-                    {
-                        #if ENABLE_UNITY_COLLECTIONS_CHECKS
-                        ctrl.m_IsPredictionUpdate = true;
-                        #endif
-                        foreach (var behaviour in ctrl.m_PlayableBehaviours)
-                            behaviour.PreparePredictedData(predictionTick, deltaTime, isRollback);
-                        #if ENABLE_UNITY_COLLECTIONS_CHECKS
-                        ctrl.m_IsPredictionUpdate = false;
-                        #endif
-                        ctrl.CopyToEntities();
-                    }
-                    if (ctrl.EvaluateGraphInPrediction)
-                    {
-                        ctrl.EvaluateGraph(deltaTime);
-                    }
-                }).Run();
+            }
+
+            var entitiesWithPredictedGhostsQuery = SystemAPI.QueryBuilder()
+                .WithAll<GhostPresentationGameObjectPrefabReference>()
+                .WithAll<PredictedGhost>()
+                .WithNone<EnableAnimationControllerPredictionUpdate>().Build();
+            var entitiesWithPredictedGhosts = entitiesWithPredictedGhostsQuery.ToEntityArray(Allocator.Temp);
+            foreach (var entity in entitiesWithPredictedGhosts)
+            {
+                var go = m_GhostPresentationGameObjectSystem.GetGameObjectForEntity(EntityManager, entity);
+                var ctrl = go?.GetComponent<GhostAnimationController>();
+                if (ctrl != null && ctrl.m_PlayableBehaviours != null && ctrl.m_PlayableBehaviours.Count == 0)
+                    ctrl.CopyFromEntities();
+            }
         }
     }
     /// <summary>
@@ -317,29 +307,32 @@ namespace Unity.NetCode.Hybrid
             m_GhostPresentationGameObjectSystem = World.GetExistingSystemManaged<GhostPresentationGameObjectSystem>();
             RequireForUpdate<GhostPresentationGameObjectPrefabReference>();
         }
+
         protected override void OnUpdate()
         {
-            Entities
-                .WithoutBurst()
-                .WithAll<GhostPresentationGameObjectPrefabReference>()
-                .WithNone<PredictedGhost>()
-                .ForEach((Entity entity) => {
-                    var go = m_GhostPresentationGameObjectSystem.GetGameObjectForEntity(EntityManager, entity);
-                    var ctrl = go?.GetComponent<GhostAnimationController>();
-                    if (ctrl != null)
-                        ctrl.CopyFromEntities();
-                }).Run();
-            Entities
-                .WithoutBurst()
+            var entitiesWithoutPredictedGhostsQuery = SystemAPI.QueryBuilder()
+                .WithAll<GhostPresentationGameObjectPrefabReference>().WithNone<PredictedGhost>().Build();
+            var entitiesWithoutPredictedGhosts = entitiesWithoutPredictedGhostsQuery.ToEntityArray(Allocator.Temp);
+            foreach (var entity in entitiesWithoutPredictedGhosts)
+            {
+                var go = m_GhostPresentationGameObjectSystem.GetGameObjectForEntity(EntityManager, entity);
+                var ctrl = go?.GetComponent<GhostAnimationController>();
+                if (ctrl != null)
+                    ctrl.CopyFromEntities();
+            }
+
+            var entitiesWithPredictedGhostsQuery = SystemAPI.QueryBuilder()
                 .WithAll<GhostPresentationGameObjectPrefabReference>()
                 .WithAll<PredictedGhost>()
-                .WithNone<EnableAnimationControllerPredictionUpdate>()
-                .ForEach((Entity entity) => {
-                    var go = m_GhostPresentationGameObjectSystem.GetGameObjectForEntity(EntityManager, entity);
-                    var ctrl = go?.GetComponent<GhostAnimationController>();
-                    if (ctrl != null && ctrl.m_PlayableBehaviours != null && ctrl.m_PlayableBehaviours.Count == 0)
-                        ctrl.CopyFromEntities();
-                }).Run();
+                .WithNone<EnableAnimationControllerPredictionUpdate>().Build();
+            var entitiesWithPredictedGhosts = entitiesWithPredictedGhostsQuery.ToEntityArray(Allocator.Temp);
+            foreach (var entity in entitiesWithPredictedGhosts)
+            {
+                var go = m_GhostPresentationGameObjectSystem.GetGameObjectForEntity(EntityManager, entity);
+                var ctrl = go?.GetComponent<GhostAnimationController>();
+                if (ctrl != null && ctrl.m_PlayableBehaviours != null && ctrl.m_PlayableBehaviours.Count == 0)
+                    ctrl.CopyFromEntities();
+            }
         }
     }
     /// <summary>
@@ -360,17 +353,18 @@ namespace Unity.NetCode.Hybrid
         }
         protected override void OnUpdate()
         {
-            Entities
-                .WithoutBurst()
-                .WithAll<GhostPresentationGameObjectPrefabReference>()
-                .WithAll<PredictedGhost>()
-                .WithNone<EnableAnimationControllerPredictionUpdate>()
-                .ForEach((Entity entity) => {
-                    var go = m_GhostPresentationGameObjectSystem.GetGameObjectForEntity(EntityManager, entity);
-                    var ctrl = go?.GetComponent<GhostAnimationController>();
-                    if (ctrl != null && ctrl.m_PlayableBehaviours != null && ctrl.m_PlayableBehaviours.Count == 0)
-                        ctrl.CopyFromEntities();
-                }).Run();
+            var query = SystemAPI.QueryBuilder().WithAll<GhostPresentationGameObjectPrefabReference>()
+                            .WithAll<PredictedGhost>()
+                            .WithNone<EnableAnimationControllerPredictionUpdate>().Build();
+
+            var entities = query.ToEntityArray(Allocator.Temp);
+            foreach (var entity in entities)
+            {
+                var go = m_GhostPresentationGameObjectSystem.GetGameObjectForEntity(EntityManager, entity);
+                var ctrl = go?.GetComponent<GhostAnimationController>();
+                if (ctrl != null && ctrl.m_PlayableBehaviours != null && ctrl.m_PlayableBehaviours.Count == 0)
+                    ctrl.CopyFromEntities();
+            }
         }
     }
 }

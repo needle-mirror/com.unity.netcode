@@ -63,9 +63,12 @@ namespace Unity.NetCode.Hybrid
     [UpdateInGroup(typeof(NetworkReceiveSystemGroup), OrderFirst = true)]
     public partial class GhostPresentationGameObjectSystem : SystemBase
     {
-        private List<GameObject> m_GameObjects;
+        internal List<GameObject> m_GameObjects;
         internal TransformAccessArray m_Transforms;
         internal NativeList<Entity> m_Entities;
+        private EntityQuery m_NewPresentationQuery;
+        private EntityQuery m_DisposedQuery;
+        private ComponentLookup<GhostPresentationGameObjectState> m_GhostPresentationGameObjectStateLookup;
 
         /// <summary>
         /// Lookup the presentation GameObject for a specific entity. The entity
@@ -90,12 +93,25 @@ namespace Unity.NetCode.Hybrid
             // The values for capacity and desired job count have not been heavily optimized
             m_Transforms = new TransformAccessArray(16, 16);
             m_Entities = new NativeList<Entity>(16, Allocator.Persistent);
+            m_NewPresentationQuery = SystemAPI.QueryBuilder()
+                .WithAll<GhostPresentationGameObjectPrefabReference>()
+                .WithNone<GhostPresentationGameObjectState>()
+                .Build();
+            m_DisposedQuery = SystemAPI.QueryBuilder()
+                .WithNone<GhostPresentationGameObjectPrefabReference>()
+                .WithAll<GhostPresentationGameObjectState>()
+                .Build();
+            m_GhostPresentationGameObjectStateLookup = GetComponentLookup<GhostPresentationGameObjectState>();
         }
         protected override void OnDestroy()
         {
             foreach (var go in m_GameObjects)
             {
-                Object.Destroy(go);
+                if(!Application.isPlaying)
+                    Object.DestroyImmediate(go);
+                else
+                    Object.Destroy(go);
+
             }
             m_GameObjects.Clear();
             m_Transforms.Dispose();
@@ -103,12 +119,14 @@ namespace Unity.NetCode.Hybrid
         }
         protected override void OnUpdate()
         {
-            Entities
-                .WithStructuralChanges()
-                .WithoutBurst()
-                .WithNone<GhostPresentationGameObjectState>()
-                .ForEach((Entity entity, in GhostPresentationGameObjectPrefabReference presentation) =>
+            var entitiesWithoutGhostPresentationGameObjectState = m_NewPresentationQuery.ToEntityArray(Allocator.Temp);
+            var presentations = m_NewPresentationQuery.ToComponentDataArray<GhostPresentationGameObjectPrefabReference>(Allocator.Temp);
+            EntityManager.AddComponent<GhostPresentationGameObjectState>(m_NewPresentationQuery);
+            for (var i = 0; i < entitiesWithoutGhostPresentationGameObjectState.Length; ++i)
             {
+                var entity = entitiesWithoutGhostPresentationGameObjectState[i];
+                var presentation = presentations[i];
+
                 var goPrefabEntity = EntityManager.GetComponentData<GhostPresentationGameObjectPrefab>(presentation.Prefab);
                 var goPrefab = World.IsServer() ? goPrefabEntity.Server : goPrefabEntity.Client;
                 int idx = -1;
@@ -125,33 +143,31 @@ namespace Unity.NetCode.Hybrid
                     m_Entities.Add(entity);
                     m_Transforms.Add(go.transform);
                 }
-                EntityManager.AddComponentData(entity, new GhostPresentationGameObjectState{GameObjectIndex = idx});
-            }).Run();
+                EntityManager.SetComponentData(entity, new GhostPresentationGameObjectState{GameObjectIndex = idx});
+            }
 
-            var ghostPresentationGameObjectStateFromEntity = GetComponentLookup<GhostPresentationGameObjectState>();
-            Entities
-                .WithStructuralChanges()
-                .WithNone<GhostPresentationGameObjectPrefabReference>()
-                .WithAll<GhostPresentationGameObjectState>()
-                .ForEach((Entity entity) =>
+            var disposedPresentationEntities = m_DisposedQuery.ToEntityArray(Allocator.Temp);
+            m_GhostPresentationGameObjectStateLookup.Update(this);
+
+            foreach (var disposedEntity in disposedPresentationEntities)
             {
-                var state = ghostPresentationGameObjectStateFromEntity[entity];
+                var state = m_GhostPresentationGameObjectStateLookup[disposedEntity];
                 int idx = state.GameObjectIndex;
                 if (idx >= 0)
                 {
+                    var lastIndex = m_GameObjects.Count - 1;
+                    var lastEntity = m_Entities[lastIndex];
+                    m_GhostPresentationGameObjectStateLookup[lastEntity] = new GhostPresentationGameObjectState { GameObjectIndex = idx };
+                    if(!Application.isPlaying)
+                        Object.DestroyImmediate(m_GameObjects[idx]);
+                    else
+                        Object.Destroy(m_GameObjects[idx]);
                     m_Transforms.RemoveAtSwapBack(idx);
                     m_Entities.RemoveAtSwapBack(idx);
-                    var last = m_GameObjects.Count - 1;
-                    Object.Destroy(m_GameObjects[idx]);
-                    m_GameObjects[idx] = m_GameObjects[last];
-                    m_GameObjects.RemoveAt(last);
-                    if (idx != last)
-                    {
-                        ghostPresentationGameObjectStateFromEntity[m_Entities[idx]] = new GhostPresentationGameObjectState { GameObjectIndex = idx };
-                    }
+                    m_GameObjects.RemoveAtSwapBack(idx);
                 }
-                EntityManager.RemoveComponent<GhostPresentationGameObjectState>(entity);
-            }).Run();
+            }
+            EntityManager.RemoveComponent<GhostPresentationGameObjectState>(m_DisposedQuery);
         }
     }
 

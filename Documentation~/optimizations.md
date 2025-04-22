@@ -16,27 +16,38 @@ When a GhostField change Netcode will send the changes regardless of this settin
 * `Dynamic` optimization mode is the default mode and tells Netcode that the ghost will change often. It will optimize the ghost for having a small snapshot size when changing and when not changing.
 * `Static` optimization mode tells Netcode that the ghost will change rarely. It will not optimize the ghost for having a small snapshot size when changing, but it will not send it at all when not changing.
 
-## Reducing Prediction CPU Overhead
+### Limitations with static-optimized ghosts
 
-### Physics Scheduling
+* Static-optimized ghosts are forced to enable `UseSingleBaseline`.
+* Static-optimization is not supported for ghosts involved in a [ghost group](ghost-groups.md) (neither the root, nor ghost group children), nor for ghosts containing any replicated child components. In both of these cases, ghosts will be treated as `Dynamic` at runtime.
+* Ghosts that are both static-optimized and interpolated will not run `GhostField` extrapolation (i.e. `SmoothingAction.InterpolateAndExtrapolate` will be forced into `SmoothingAction.Interpolate`).
+
+## Reducing prediction CPU overhead
+
+### Physics scheduling
 
 Context: [Prediction](intro-to-prediction.md) and [Physics](physics.md).
 As the `PhysicsSimulationGroup` is run inside the `PredictedFixedStepSimulationSystemGroup`, you may encounter scheduling overhead when running at a high ping (i.e. re-simulating 20+ frames).
 You can reduce this scheduling overhead by forcing the majority of Physics work onto the main thread. Add a `PhysicsStep` singleton to your scene, and set `Multi Threaded` to `false`.
 Of course, we are always exploring ways to reduce scheduling overhead._
 
-### Prediction Switching
+### Prediction switching
 
 The cost of prediction increases with each predicted ghost.
 Thus, as an optimization, we can opt-out of predicting a ghost given some set of criteria (e.g. distance to your clients character controller).
 See [Prediction Switching](prediction-switching.md) for details.
 
-### Using `MaxSendRate` to reduce Client Prediction Costs
+### Using `MaxSendRate` to reduce client prediction costs
+
 Predicted ghosts are particularly impacted by the `GhostAuthoringComponent.MaxSendRate` setting, because we only rollback and re-simulate a predicted ghost after it is received in a snapshot.
 Therefore, reducing the frequency by which a ghost chunk is added to the snapshot indirectly reduces predicted ghost re-simulation rate, saving client CPU cycles in aggregate.
 However, it may cause larger client misprediction errors, which leads to larger corrections, which can be observed by players. As always, it is a trade-off.
 
-## Executing Expensive Operations during Off Frames
+> [!NOTE]
+> Ghost group children do not support `MaxSendRate` (nor Relevancy, Importance, Static-Optimization etc.) until they've left the group, [read more here](ghost-groups.md).
+
+## Executing expensive operations during off frames
+
 On client-hosted servers, your game can be set at a tick rate of 30Hz and a frame rate of 60Hz (if your ClientServerTickRate.TargetFrameRateMode is set to BusyWait). Your host would execute 2 frames for every tick. In other words, your game would be less busy one frame out of two. This can be used to do extra operations during those "off frames".
 To access whether a tick will execute during the frame, you can access the server world's rate manager to get that info.
 
@@ -75,10 +86,13 @@ For this reason, it is important to ensure that no jobs have write access to dat
 
 Essentially: Use Relevancy to avoid replicating entities that the player can neither see, nor interact with.
 
+> [!NOTE]
+> Ghost group children do not support Relevancy (nor Importance, MaxSendRate, Static-Optimization etc.) until they've left the group, [read more here](ghost-groups.md).
+
 The `GhostRelevancy` singleton component contains these controls:
 
 The `GhostRelevancyMode` field chooses the behaviour of the entire Relevancy subsystem:
-* **Disabled** - The default. No relevancy will applied under any circumstances.
+* **Disabled** - The default. No relevancy will be applied under any circumstances.
 * **SetIsRelevant** - Only ghosts added to relevancy set (`GhostRelevancySet`, below) are considered "relevant to that client", and thus serialized for the specified connection (where possible, obviously, as eventual consistency and importance scaling rules still apply (see paragraphs below)).
 _Note that applying this setting will cause **all** ghosts to default to **not be replicated** to **any** client. It's a useful default when it's rare or impossible for a player to be viewing the entire world._
 * **SetIsIrrelevant** - Ghosts added to relevancy set (`GhostRelevancySet`, below) are considered "not-relevant to that client", and thus will be not serialized for the specified connection. In other words: Set this mode if you want to specifically ignore specific entities for a given client.
@@ -93,7 +107,7 @@ relevancy.ValueRW.DefaultRelevancyQuery = GetEntityQuery(typeof(AsteroidScore));
 > If a ghost has been replicated to a client, then is set to **not be** relevant to said client, that client will be notified that this entity has been **destroyed**, and will do so. This misnomer can be confusing, as the entity being despawned does not imply the server entity was destroyed.
 > Example: Despawning an enemy monster in a MOBA because it became hidden in the Fog of War should not trigger a death animation (nor S/VFX). Thus, use some other data to notify what kind of entity-destruction state your entity has entered (e.g. enabling an `IsDead`/`IsCorpse` component).
 
-## Limiting Snapshot Size
+## Limiting snapshot size
 
 * Use `GhostAuthoringComponent.MaxSendRate` to broadly reduce/clamp the resend rate of each of your ghost prefab types.
 It is an effective tool to reduce total bandwidth consumption, particularly in cases where your snapshot is always filling up with large ghosts with high priorities.
@@ -101,7 +115,7 @@ _For example: A "LootItem" ghost prefab type can be told to only replicate - at 
 
 * The per-connection component `NetworkStreamSnapshotTargetSize` will stop serializing entities into a snapshot if/when the snapshot goes above the specified byte size (`Value`).
 This is a way to try to enforce a (soft) limit on per-connection bandwidth consumption.
-To apply this limit globally, set a non-zero value in `GhostSendSystemData.DefaultSnapshotPacketSize`. 
+To apply this limit globally, set a non-zero value in `GhostSendSystemData.DefaultSnapshotPacketSize`.
 
 > [!NOTE]
 > Note that `MaxSendRate` is distinct from `Importance`: The former enforces a cap on the resend interval, whereas the latter informs the `GhostSendSystem` of which ghost chunks should be prioritized in the next snapshot.
@@ -112,10 +126,10 @@ To apply this limit globally, set a non-zero value in `GhostSendSystemData.Defau
 
 * `GhostSendSystemData.MaxSendChunks` can be used to limit the max number of chunks added to any given snapshot.
 
-* `GhostSendSystemData.MaxIterateChunks` can be used to limit the total number of chunks the `GhostSendSystem` will iterate over & serialize when looking for ghosts to replicate. 
-Very useful when dealing with thousands of static ghosts. 
+* `GhostSendSystemData.MaxIterateChunks` can be used to limit the total number of chunks the `GhostSendSystem` will iterate over & serialize when looking for ghosts to replicate.
+Very useful when dealing with thousands of static ghosts.
 
-* `GhostSendSystemData.MinSendImportance` can be used to prevent a chunks entities from being sent too frequently. 
+* `GhostSendSystemData.MinSendImportance` can be used to prevent a chunks entities from being sent too frequently.
 __As of 1.4, prefer `GhostAuthoringComponent.MaxSendRate` over this global.__
 `GhostSendSystemData.FirstSendImportanceMultiplier` can be used to bump the priority of chunks containing new entities, to ensure they're replicated quickly, regardless of the above setting.
 
@@ -123,19 +137,33 @@ __As of 1.4, prefer `GhostAuthoringComponent.MaxSendRate` over this global.__
 > The above optimizations are applied on the per-chunk level, and they kick in **_after_** a chunks contents have been added to the snapshot. Thus, in practice, real send values will be higher.
 > Example: `MaxSendEntities` is set to 100, but you have two chunks, each with 99 entities. Thus, you'd actually send 198 entities.
 
-## Importance Scaling
+## Importance scaling
 
-The server operates on a fixed bandwidth and sends a single packet with snapshot data of customizable size on every network tick. It fills the packet with the entities of the highest importance. Several factors determine the importance of the entities: you can specify the base importance per ghost type, which Unity then scales by age. You can also supply your own method to scale the importance on a per-chunk basis.
+The server operates with a fixed bandwidth target, and sends a single snapshot packet of customizable size on every network tick.
+It fills this packet with the ghosts with the highest importance, determined by a priority queue of ghost chunks (rebuilt each tick).
+Therefore, importance is determined at the ghost chunk level, not on each instance individually.
 
-Once a packet is full, the server sends it and the remaining entities are missing from the snapshot. Because the age of the entity influences the importance, it is more likely that the server will include those entities in the next snapshot. Netcode calculates importance only per chunk, not per entity.
+Several factors determine the importance of each ghost chunk:
+
+* You can specify the base `GhostAuthoringComponent.Importance` per ghost type.
+* Which Netcode for Entities then multiplies by `ticksSinceLastSent` (note: not `ticksSinceLastAcked`), as well as other modifiers,
+like `GhostSendSystemData.IrrelevantImportanceDownScale` and `GhostSendSystemData.FirstSendImportanceMultiplier`.
+* You can also supply your own method to scale the **Importance** on a per-chunk, per-connection basis, via `GhostImportance.BatchScaleImportanceFunction`. For example, this allows you to [deprioritize far away ghosts, in favor of nearby ones](#distance-based-importance).
+* `GhostAuthoringComponent.MaxSendRate` does not directly impact `Importance` values. Instead, it is a pre-pass, preventing a ghost chunk from being added to the priority queue at all, for this tick.
+
+Once a packet is full, the server sends it, and all remaining ghost entities are simply not sent on this tick -
+though they are now more likely to be in the next snapshot, thanks to `ticksSinceLastSent` scaling.
+
+> [!NOTE]
+> Ghost group children do not support `Importance` (nor Relevancy, `MaxSendRate`, Static-Optimization etc.) until they've left the group, [read more here](ghost-groups.md).
 
 ### Set-up required
 
 Below is an example of how to set up the built-in distance-based importance scaling. If you want to use a custom importance implementation, you can reuse parts of the built-in solution or replace it with your own.
 
-### GhostImportance
+### `GhostImportance`
 
-[GhostImportance](https://docs.unity3d.com/Packages/com.unity.netcode@latest/index.html?subfolder=/api/Unity.NetCode.GhostImportance.html) is the configuration component for setting up importance scaling. `GhostSendSystem` invokes the `ScaleImportanceFunction` only if the `GhostConnectionComponentType` and `GhostImportanceDataType` are created.
+[`GhostImportance`](https://docs.unity3d.com/Packages/com.unity.netcode@latest/index.html?subfolder=/api/Unity.NetCode.GhostImportance.html) is the configuration component for setting up importance scaling. `GhostSendSystem` invokes the `ScaleImportanceFunction` only if the `GhostConnectionComponentType` and `GhostImportanceDataType` are created.
 
 The fields you can set on this is:
 - `ScaleImportanceFunction` allows you to write and assign a custom scaling function (to scale the importance, with chunk granularity).
@@ -227,9 +255,8 @@ You simply need to:
 2. Define your own Scaling function, and again set it via the `GhostImportance` singleton.
 3. Define your own version of a `GhostDistancePartitioningSystem` which moves your entities between chunks (via writing to the shared component).
 
-Job done!
-
 ## Avoid rollback predicted ghost on structural changes
+
 When the client predict ghost (either using predicted or owner-predicted mode), in case of structural changes (add/remove component on a ghost), the entity
 state is rollback to the `latest received` snapshot from the server and re-simulated up to the current client predicted server tick.
 
@@ -249,3 +276,46 @@ When later, ther component is re-added, because the entity is not rollback and r
 For comparison, if this optimization is off, because the entity is re-predicted, the value of the re-added component is restored correctly.
 
 If you know that none of the replicated component are removed for your ghost at runtime (removing others does not cause problem), it is strongly suggested to enable this optimzation, by disabling the default behaviour.
+
+## Reduce serialization/deserialization CPU cost (single-baseline vs three-baseline)
+
+Sending and receiving ghost data involves expensive CPU read/write operations, which scales roughly linearly with the the number of ghosts serialized in a packet (in other words; the more the server can pack,
+the larger the cost of serialization and deserialization).
+
+The server serializes ghost data in "batches", and uses a **predictive-delta-compression** strategy for compressing the data:
+the replicated fields are delta-encoded against a `predicted` value (similar to a linear extrapolation), extrapolated from the last
+3 baselines (i.e. previously acked values).
+
+The client applies the same strategy when decoding: it uses the same baselines (as communicated by the server), predicts the new value, and then decompresses against said predicted value.
+
+This idea is very effective for ghost data that is predictable: E.g. timers, linear movements, linear increments/decrements and so on. The predictor very often matches exactly (or very closely) the current
+state value, therefore the serialized delta value is either 0 or very close to it, allowing good bandwidth reductions.
+
+However, there are some downsides to three-baseline predictive-delta-compression:
+- it requires netcode to continue to send snapshots to the client about a ghost, even if said ghosts data has not changed at all.
+- The CPU encoding cost (on the server) is slightly higher.
+- The CPU decoding cost (on the client) is also slightly higher, particularly for GhostField's that infrequently change.
+
+Therefore: Three-baselines is effective only for "predictable" i.e. "linearly changing" fields. In unpredictable cases, it does not save many bits.
+
+It is possible to reduce some of this encoding cost on a per-archetype basis by toggling the `UseSingleBaseline` option in the [GhostAuhoringComponent](https://docs.unity3d.com/Packages/com.unity.netcode@latest/index.html?subfolder=/api/Unity.NetCode.GhostAuthoringComponent.html).
+When set, it instructs the server to **always** use a single baseline for delta compression for this specific prefab type.
+
+In case you would like to test the impact of using single baseline for all ghosts and without changing all the prefabs, you can use the [GhostSendSystemData.ForceSingleBaseline](https://docs.unity3d.com/Packages/com.unity.netcode@1.4/api/Unity.NetCode.GhostSendSystemData.html#Unity_NetCode_GhostSendSystemData_ForceSingleBaseline) property.
+This options can be used during the development to help you understand/verify what it is the impact of using single baseline in your game, in both bandwidth and cpu.
+
+Enabling this option positively affect CPU for both client and server, especially when the archetype has a large number of components and/or many fields which rarely change.
+The more visible savings are on the client side, where deserialization time (see the `GhostReceiveSystem` profile marker in the profile) is usually reduced by a good ~50%.
+
+Also note that using single-baseline enables a specific bandwidth optimization (and subsequent CPU saving on server): When any replicated entity has not changed for a certain period of time, single-baseline is able to stop re-sending the ghost chunk entirely,
+where previously these were sent in all cases (as they were needed for three-baseline).
+
+Therefore, the **UseSingleBaseline** option can lead to significant savings in two common scenarios;
+* When a ghost prefab is suited for **OptimizationMode.Dynamic**, but has frequent periods of inactivity.
+* When the majority of the component data changes on a ghost type do not follow linear, predictable patterns,
+thus the three baselines cost is not justified.
+
+> REMARKS: the **UseSingleBaseline** toggle works on a "per-prefab" basis, not on a "per-component" basis.
+> In its ideal form, the baselines prediction should be applied on a "per-component" basis (that is; the individual component specify which algorithm to use). At the moment, this feature it is not supported.
+
+> REMARKS: when ghosts are configure to use **Static Optimization** the prefab is always serialized using a single baseline.

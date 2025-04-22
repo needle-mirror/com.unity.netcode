@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Text.RegularExpressions;
 
 namespace Unity.NetCode.Generators
 {
@@ -19,6 +20,8 @@ namespace Unity.NetCode.Generators
         private readonly TypeTemplate m_Template;
 
         public Type CommandType { get; }
+
+        public GhostCodeGen CommandGenerator => m_CommandGenerator;
 
         public CommandSerializer(CodeGenerator.Context context, Type t)
         {
@@ -55,7 +58,44 @@ namespace Unity.NetCode.Generators
             m_CommandGenerator.Append(typeSerializer.m_CommandGenerator);
         }
 
-        public void GenerateFields(CodeGenerator.Context context, string parent = null)
+        public void GenerateFixedListField(CodeGenerator.Context context,
+            CommandSerializer fixedListArgGen,
+            TypeInformation typeInformation,
+            string rootPath=null, Dictionary<string, string> replacements=null)
+        {
+            //We need to create an helper to serialize the list. This because we can't easily change the variable names, nor append
+            //sub-fragment to another template and other things like that.
+            //By adding another level of indirection makes writing the whole thing easier
+            var argumentHelperName = $"{context.generatedNs}_{fixedListArgGen.m_TypeInformation.TypeFullName}_CmdSerializer".Replace('.', '_');
+            var fixedListHelperGenerator = context.codeGenCache.GetTemplate(CodeGenerator.GhostFixedListCommandHelper).Clone();
+            //need also to add some using here, otherwise is problematic
+            //for sure I need the using
+            fixedListHelperGenerator.Replacements["GHOST_NAME"] = context.root.TypeFullName;
+            fixedListHelperGenerator.Replacements["GHOST_COMMAND_HELPER_NAME"] = argumentHelperName;
+            fixedListHelperGenerator.Replacements["COMMAND_FIXEDLIST_CAP"] = typeInformation.ElementCount.ToString();
+            fixedListHelperGenerator.Replacements["COMMAND_FIXEDLIST_LEN_BITS"] = (32-CodeGenerator.lzcnt((uint)typeInformation.ElementCount)).ToString();
+            fixedListHelperGenerator.Replacements["GHOST_NAMESPACE"] = context.generatedNs;
+            fixedListHelperGenerator.Replacements["COMMAND_COMPONENT_TYPE"] = fixedListArgGen.m_TypeInformation.FieldTypeName;
+            if (!context.generatedTypes.Contains(argumentHelperName))
+            {
+                fixedListArgGen.CommandGenerator.AppendFragment("COMMAND_READ", fixedListHelperGenerator);
+                fixedListArgGen.CommandGenerator.AppendFragment("COMMAND_WRITE", fixedListHelperGenerator);
+                if (CommandType != Type.Rpc)
+                {
+                    fixedListArgGen.CommandGenerator.AppendFragment("COMMAND_READ_PACKED", fixedListHelperGenerator);
+                    fixedListArgGen.CommandGenerator.AppendFragment("COMMAND_WRITE_PACKED", fixedListHelperGenerator);
+                    fixedListArgGen.CommandGenerator.AppendFragment("GHOST_COMPARE_INPUTS", fixedListHelperGenerator, "GHOST_COMPARE_INPUTS");
+                }
+                fixedListHelperGenerator.GenerateFile(argumentHelperName + "_CommandHelper.cs", fixedListHelperGenerator.Replacements, context.batch);
+                context.generatedTypes.Add(argumentHelperName);
+            }
+            GenerateFields(context, rootPath, typeInformation, fixedListHelperGenerator.Replacements);
+        }
+
+        public void GenerateFields(CodeGenerator.Context context,
+            string rootPath,
+            TypeInformation typeInformation,
+            Dictionary<string, string> replacements = null)
         {
             if (m_Template == null)
                 return;
@@ -63,17 +103,13 @@ namespace Unity.NetCode.Generators
             var generator = context.codeGenCache.GetTemplateWithOverride(m_Template.TemplatePath, m_Template.TemplateOverridePath);
             generator = generator.Clone();
 
-            var fieldName = string.IsNullOrEmpty(parent)
-                ? m_TypeInformation.FieldName
-                : $"{parent}.{m_TypeInformation.FieldName}";
-
             if (CommandType == Type.Input)
             {
                 // Write the fragments for incrementing/decrementing InputEvent types inside the input struct
                 // This is done for the count (integer) type nested inside the InputEvent struct (parent)
-                if (m_TypeInformation.DeclaringTypeFullName == "Unity.NetCode.InputEvent")
+                if (m_TypeInformation.ContainingTypeFullName == "Unity.NetCode.InputEvent")
                 {
-                    m_CommandGenerator.Replacements.Add("EVENTNAME", m_TypeInformation.Parent);
+                    m_CommandGenerator.Replacements.Add("EVENTNAME", m_TypeInformation.FieldPath);
                     m_CommandGenerator.GenerateFragment("INCREMENT_INPUTEVENT", m_CommandGenerator.Replacements, m_CommandGenerator);
                     m_CommandGenerator.GenerateFragment("DECREMENT_INPUTEVENT", m_CommandGenerator.Replacements, m_CommandGenerator);
                 }
@@ -81,26 +117,35 @@ namespace Unity.NetCode.Generators
                 return;
             }
 
-            generator.Replacements.Add("COMMAND_FIELD_NAME", fieldName);
-            generator.Replacements.Add("COMMAND_FIELD_TYPE_NAME", m_TypeInformation.FieldTypeName);
+            if (replacements == null)
+                replacements = generator.Replacements;
 
-            generator.GenerateFragment("COMMAND_READ", generator.Replacements, m_CommandGenerator);
-            generator.GenerateFragment("COMMAND_WRITE", generator.Replacements, m_CommandGenerator);
+            string fieldPath = null;
+            if (string.IsNullOrEmpty(typeInformation.FieldPath))
+                fieldPath = $"{typeInformation.FieldName}";
+            else
+                fieldPath = $"{typeInformation.FieldPath}.{typeInformation.FieldName}";
+            fieldPath = fieldPath.Trim();
+            var fieldAccessor = string.IsNullOrEmpty(fieldPath) ? "" : ".";
 
+            replacements["COMMAND_FIELD_NAME"] = $"{rootPath}{fieldAccessor}{fieldPath}";
+            replacements["COMMAND_FIELD_TYPE_NAME"] = m_TypeInformation.FieldTypeName;
+            generator.GenerateFragment("COMMAND_READ", replacements, m_CommandGenerator);
+            generator.GenerateFragment("COMMAND_WRITE", replacements, m_CommandGenerator);
             if (CommandType != Type.Rpc)
             {
-                generator.GenerateFragment("COMMAND_READ_PACKED", generator.Replacements, m_CommandGenerator);
-                generator.GenerateFragment("COMMAND_WRITE_PACKED", generator.Replacements, m_CommandGenerator);
+                generator.GenerateFragment("COMMAND_READ_PACKED", replacements, m_CommandGenerator);
+                generator.GenerateFragment("COMMAND_WRITE_PACKED", replacements, m_CommandGenerator);
                 if (!m_TypeInformation.CanBatchPredict)
                 {
                     generator.Replacements.Add("GHOST_MASK_INDEX", "0");
-                    generator.Replacements.Add("GHOST_FIELD_NAME", fieldName);
+                    generator.Replacements.Add("GHOST_FIELD_NAME", fieldPath);
+                    generator.Replacements.Add("GHOST_FIELD_PATH", $"{rootPath}{fieldAccessor}{fieldPath}");
+                    generator.Replacements.Add("GHOST_FIELD_TYPE_NAME", typeInformation.FieldTypeName);
                     if(generator.HasFragment("GHOST_CALCULATE_INPUT_CHANGE_MASK"))
-                        generator.GenerateFragment("GHOST_CALCULATE_INPUT_CHANGE_MASK", generator.Replacements, m_CommandGenerator,
-                            "GHOST_COMPARE_INPUTS");
+                        generator.GenerateFragment("GHOST_CALCULATE_INPUT_CHANGE_MASK", replacements, m_CommandGenerator, "GHOST_COMPARE_INPUTS");
                     else
-                        generator.GenerateFragment("GHOST_CALCULATE_CHANGE_MASK", generator.Replacements, m_CommandGenerator,
-                            "GHOST_COMPARE_INPUTS");
+                        generator.GenerateFragment("GHOST_CALCULATE_CHANGE_MASK", replacements, m_CommandGenerator, "GHOST_COMPARE_INPUTS");
                 }
             }
         }
@@ -127,7 +172,7 @@ namespace Unity.NetCode.Generators
             }
 
             var serializerName = context.generatedFilePrefix + "CommandSerializer.cs";
-            m_CommandGenerator.GenerateFile(serializerName, typeInfo.Namespace, replacements, context.batch);
+            m_CommandGenerator.GenerateFile(serializerName, replacements, context.batch);
         }
 
         public override string ToString()

@@ -1,0 +1,230 @@
+#templateid:NetCode.GhostSnapshotFixedList.cs
+#region __GHOST_IMPORTS__
+#endregion
+
+using System;
+
+namespace Generated
+{
+    internal struct GhostSnapshotData
+    {
+        struct Snapshot
+        {
+            #region __GHOST_FIELD__
+            public int __GHOST_FIELD_NAME___Length;
+            public ulong __GHOST_FIELD_NAME___ChangeMask;
+            public __GHOST_FIXEDLIST_NAME__ __GHOST_FIELD_NAME__;
+            #endregion
+        }
+
+        //Empty fragments and not used
+        #region __GHOST_PREDICT__
+        #endregion
+        #region __GHOST_REPORT_PREDICTION_ERROR__
+        #endregion
+        #region __GHOST_GET_PREDICTION_ERROR_NAME__
+        #endregion
+
+        public void WriteCombined(ref Snapshot snapshot, ref Snapshot baseline,
+            IntPtr changeMaskData, int startOffset, ref DataStreamWriter writer,
+            in StreamCompressionModel compressionModel)
+        {
+            #region __GHOST_WRITE_COMBINED__
+            changeMask |= snapshot.__GHOST_FIELD_NAME___Length != baseline.__GHOST_FIELD_NAME___Length ? (1u<<__GHOST_MASK_INDEX__) : 0;
+            __GHOST_FIXEDLIST_SERIALIZER__.CalculateChangeMask(
+                snapshot.__GHOST_FIELD_NAME__.ToReadOnlySpan(),
+                baseline.__GHOST_FIELD_NAME__.ToReadOnlySpan(),
+                snapshot.__GHOST_FIELD_NAME___Length, out snapshot.__GHOST_FIELD_NAME___ChangeMask);
+            changeMask |= snapshot.__GHOST_FIELD_NAME___ChangeMask != 0 ? (1u<<(__GHOST_MASK_INDEX__+1)) : 0;
+            if ((changeMask & (1u<<__GHOST_MASK_INDEX__)) != 0)
+                writer.WritePackedIntDelta(snapshot.__GHOST_FIELD_NAME___Length, baseline.__GHOST_FIELD_NAME___Length, compressionModel);
+            if ((changeMask & (1u << __GHOST_MASK_INDEX__ + 1)) != 0)
+                __GHOST_FIXEDLIST_SERIALIZER__.Serialize(
+                    snapshot.__GHOST_FIELD_NAME__.ToReadOnlySpan(), baseline.__GHOST_FIELD_NAME__.ToReadOnlySpan(),
+                    snapshot.__GHOST_FIELD_NAME___Length, snapshot.__GHOST_FIELD_NAME___ChangeMask, ref writer, compressionModel);
+            #endregion
+        }
+
+        public void Deserialize(ref Snapshot snapshot, ref Snapshot baseline,
+            IntPtr changeMaskData, int startOffset, ref DataStreamWriter writer,
+            in StreamCompressionModel compressionModel)
+        {
+            #region __GHOST_READ__
+            if ((changeMask & (1u<<__GHOST_MASK_INDEX__)) != 0)
+                snapshot.__GHOST_FIELD_NAME___Length = reader.ReadPackedIntDelta(baseline.__GHOST_FIELD_NAME___Length, compressionModel);
+            else
+                snapshot.__GHOST_FIELD_NAME___Length = baseline.__GHOST_FIELD_NAME___Length;
+
+            if (snapshot.__GHOST_FIELD_NAME___Length > __GHOST_FIXEDLIST_NAME__.Capacity)
+                throw new System.InvalidOperationException($"Error decoding fixed list __GHOST_NAME__.__GHOST_FIELD_REFERENCE__ length. This Fixed-size list capacity is capped to {__GHOST_FIXEDLIST_NAME__.Capacity} elements but the deserialized length was {snapshot.__GHOST_FIELD_NAME___Length }. Because the sender is enforcing this rule at the source, this fact is suggesting the data has been read from the DataStreamReader starting at a wrong offset.");
+
+            if ((changeMask & (1u<<(__GHOST_MASK_INDEX__+1))) != 0)
+            {
+                __GHOST_FIXEDLIST_SERIALIZER__.Deserialize(snapshot.__GHOST_FIELD_NAME__.ToSpan(), baseline.__GHOST_FIELD_NAME__.ToReadOnlySpan(), snapshot.__GHOST_FIELD_NAME___Length,
+                    out snapshot.__GHOST_FIELD_NAME___ChangeMask, ref reader, compressionModel);
+            }
+            else
+            {
+                var snapshot___GHOST_FIELD_NAME___Buffer = snapshot.__GHOST_FIELD_NAME__.ToSpan();
+                var baseline___GHOST_FIELD_NAME___Buffer = baseline.__GHOST_FIELD_NAME__.ToReadOnlySpan();
+                for (int i = 0; i < baseline.__GHOST_FIELD_NAME___Length; ++i)
+                    snapshot___GHOST_FIELD_NAME___Buffer[i] = baseline___GHOST_FIELD_NAME___Buffer[i];
+            }
+            #endregion
+        }
+
+        public void Serialize(ref Snapshot snapshot, ref Snapshot baseline,
+            IntPtr changeMaskData, int startOffset, ref DataStreamWriter writer,
+            in StreamCompressionModel compressionModel)
+        {
+            #region __GHOST_WRITE__
+            if ((changeMask & (1 << __GHOST_MASK_INDEX__)) != 0)
+                writer.WritePackedIntDelta(snapshot.__GHOST_FIELD_NAME___Length, baseline.__GHOST_FIELD_NAME___Length, compressionModel);
+            if ((changeMask & (1 <<(__GHOST_MASK_INDEX__+1))) != 0)
+                __GHOST_FIXEDLIST_SERIALIZER__.Serialize(
+                    snapshot.__GHOST_FIELD_NAME__.ToReadOnlySpan(), baseline.__GHOST_FIELD_NAME__.ToReadOnlySpan(),
+                    snapshot.__GHOST_FIELD_NAME___Length, snapshot.__GHOST_FIELD_NAME___ChangeMask, ref writer, compressionModel);
+            #endregion
+        }
+
+        public unsafe void CopyToSnapshot(ref Snapshot snapshot, ref IComponentData component)
+        {
+            #region __GHOST_COPY_TO_SNAPSHOT__
+#if UNITY_EDITOR || NETCODE_DEBUG
+            if (component.__GHOST_FIELD_REFERENCE__.Length > __GHOST_FIXEDLIST_NAME__.Capacity)
+            {
+                //TODO hack: this should use netdebug. Using exceptions would be even better here. But there are some problem using them in some cases.
+                UnityEngine.Debug.LogError($"The __GHOST_NAME__.__GHOST_FIELD_REFERENCE__ length ({component.__GHOST_FIELD_REFERENCE__.Length}) exceed that fixed list serializable capacity and only the first {__GHOST_FIXEDLIST_NAME__.Capacity} elements are going to be replicated. Please ensure the list size is always less or equals this limit.");
+            }
+#endif
+            snapshot.__GHOST_FIELD_NAME___Length = math.min(component.__GHOST_FIELD_REFERENCE__.Length, __GHOST_FIXEDLIST_NAME__.Capacity);
+            snapshot.__GHOST_FIELD_NAME___ChangeMask = 0;
+            if(snapshot.__GHOST_FIELD_NAME___Length > 0)
+            {
+                __GHOST_FIXEDLIST_SERIALIZER__.CopyToSnapshot(
+                    snapshot.__GHOST_FIELD_NAME__.ToSpan(),
+                    component.__GHOST_FIELD_REFERENCE__.ToReadOnlySpan(snapshot.__GHOST_FIELD_NAME___Length));
+            }
+            #endregion
+        }
+
+        public unsafe void CopyFromSnapshot(ref GhostDeserializerState deserializerState, ref Snapshot snapshotBefore,
+            ref Snapshot snapshotAfter, float snapshotInterpolationFactor, ref IComponentData component)
+        {
+            #region __GHOST_COPY_FROM_SNAPSHOT__
+            if (snapshotBefore.__GHOST_FIELD_NAME___Length > __GHOST_FIXEDLIST_NAME__.Capacity)
+            {
+                component.__GHOST_FIELD_REFERENCE__.Length = 0;
+                throw new InvalidOperationException($"The __GHOST_NAME__.__GHOST_FIELD_REFERENCE__ fixed list snapshot data has a length of {snapshotBefore.__GHOST_FIELD_NAME___Length} that is greater than the serializable capacity of {__GHOST_FIXEDLIST_NAME__.Capacity} elements. Because we enforce the deserialized data to be correct (inside that bound), that suggest the snapshot buffer data has been corrupted.");
+            }
+            component.__GHOST_FIELD_REFERENCE__.Length = snapshotBefore.__GHOST_FIELD_NAME___Length;
+            if (snapshotBefore.__GHOST_FIELD_NAME___Length > 0)
+            {
+                __GHOST_FIXEDLIST_SERIALIZER__.CopyFromSnapshot(
+                    snapshotBefore.__GHOST_FIELD_NAME__.ToReadOnlySpan(),
+                    component.__GHOST_FIELD_REFERENCE__.ToSpan(component.__GHOST_FIELD_REFERENCE__.Length));
+            }
+            #endregion
+        }
+
+        public void CalculateChangeMask(ref Snapshot snapshot, ref Snapshot baseline, uint changeMask)
+        {
+            #region __GHOST_CALCULATE_CHANGE_MASK__
+            changeMask |= snapshot.__GHOST_FIELD_NAME___Length != baseline.__GHOST_FIELD_NAME___Length ? (1u<<__GHOST_MASK_INDEX__) : 0;
+            __GHOST_FIXEDLIST_SERIALIZER__.CalculateChangeMask(snapshot.__GHOST_FIELD_NAME__.ToReadOnlySpan(), baseline.__GHOST_FIELD_NAME__.ToReadOnlySpan(),
+                snapshot.__GHOST_FIELD_NAME___Length, out snapshot.__GHOST_FIELD_NAME___ChangeMask);
+            changeMask |= snapshot.__GHOST_FIELD_NAME___ChangeMask != 0 ? (1u<<(__GHOST_MASK_INDEX__+1)) : 0;
+            #endregion
+            #region __GHOST_CALCULATE_CHANGE_MASK_ZERO__
+            changeMask = snapshot.__GHOST_FIELD_NAME___Length != baseline.__GHOST_FIELD_NAME___Length ? (1u<<__GHOST_MASK_INDEX__) : 0;
+            __GHOST_FIXEDLIST_SERIALIZER__.CalculateChangeMask(snapshot.__GHOST_FIELD_NAME__.ToReadOnlySpan(), baseline.__GHOST_FIELD_NAME__.ToReadOnlySpan(),
+                snapshot.__GHOST_FIELD_NAME___Length, out snapshot.__GHOST_FIELD_NAME___ChangeMask);
+            changeMask |= snapshot.__GHOST_FIELD_NAME___ChangeMask != 0 ? (1u<<(__GHOST_MASK_INDEX__+1)) : 0;
+            #endregion
+            #region __GHOST_CALCULATE_INPUT_CHANGE_MASK__
+            changeMask |= snapshot.__COMMAND_FIELD_NAME__.Length != baseline.__COMMAND_FIELD_NAME__.Length ? 1u<<0 : 0;
+            for (int i = 0; i < math.min(snapshot.__COMMAND_FIELD_NAME__.Length,baseline.__COMMAND_FIELD_NAME__.Length); ++i)
+                __GHOST_COMMAND_HELPER_NAME__.CalculateInputChangeMask(ref changeMask, snapshot.__COMMAND_FIELD_NAME__[i], baseline.__COMMAND_FIELD_NAME__[i]);
+            for (int i = baseline.__COMMAND_FIELD_NAME__.Length; i < snapshot.__COMMAND_FIELD_NAME__.Length; ++i)
+                __GHOST_COMMAND_HELPER_NAME__.CalculateInputChangeMask(ref changeMask, snapshot.__COMMAND_FIELD_NAME__[i], default);
+            #endregion
+        }
+
+        public unsafe void RestoreFromBackup(ref IComponentData component, in IComponentData backup)
+        {
+            #region __GHOST_RESTORE_FROM_BACKUP__
+            component.__GHOST_FIELD_REFERENCE__ = backup.__GHOST_FIELD_REFERENCE__;
+            #endregion
+        }
+
+        public void SerializeCommand(ref DataStreamWriter writer, in RpcSerializerState state, in __COMMAND_COMPONENT_TYPE__ data)
+        {
+            #region __COMMAND_WRITE__
+            {
+#if UNITY_EDITOR || NETCODE_DEBUG
+                if(data.__COMMAND_FIELD_NAME__.Length > __COMMAND_FIXEDLIST_CAP__)
+                    UnityEngine.Debug.LogError($"Fixed list field __COMMAND_FIELD_NAME__ length ({data.__COMMAND_FIELD_NAME__.Length}) exceed the maximum serializable list length and only __COMMAND_FIXEDLIST_CAP__ elements are going to be serialized. Please ensure the length of the list is always less than this limit.");
+#endif
+                var tempLen = math.min(data.__COMMAND_FIELD_NAME__.Length, __COMMAND_FIXEDLIST_CAP__);
+                writer.WriteRawBits((uint)tempLen, __COMMAND_FIXEDLIST_LEN_BITS__);
+                for (int i = 0; i < tempLen; ++i)
+                    __GHOST_COMMAND_HELPER_NAME__.Serialize(ref writer, state, data.__COMMAND_FIELD_NAME__[i]);
+            }
+            #endregion
+            #region __COMMAND_WRITE_PACKED__
+            //TODO: LogWarning($"Fixed list field __COMMAND_FIELD_NAME__ contains ({data.__COMMAND_FIELD_NAME__.Length}) elements and only the first 64 elements are going to be serialized. As a remainder, the maximum size allowed for fixed-size list in commands/inputs is capped to 64 elements.");
+            //while it is going to cost roughly the same to send 6 bits instead of huffman (4 bits + x bits), the common case is that the
+            //delta is mostly zero all the time. So we are still sparing 2 bits.
+            {
+#if UNITY_EDITOR || NETCODE_DEBUG
+                if(data.__COMMAND_FIELD_NAME__.Length > __COMMAND_FIXEDLIST_CAP__)
+                    UnityEngine.Debug.LogError($"Fixed list field __COMMAND_FIELD_NAME__ length ({data.__COMMAND_FIELD_NAME__.Length}) exceed the maximum serializable list length and only __COMMAND_FIXEDLIST_CAP__ elements are going to be serialized. Please ensure the length of the list is always less than this limit.");
+#endif
+                var tempLen = math.min(data.__COMMAND_FIELD_NAME__.Length, __COMMAND_FIXEDLIST_CAP__);
+                var tempBaseLen = math.min(baseline.__COMMAND_FIELD_NAME__.Length, __COMMAND_FIXEDLIST_CAP__);
+                writer.WritePackedUIntDelta((uint)tempLen, (uint)tempBaseLen,compressionModel);
+                for (int i = 0; i < math.min(tempLen, tempBaseLen); ++i)
+                __GHOST_COMMAND_HELPER_NAME__.Serialize(ref writer, state, data.__COMMAND_FIELD_NAME__[i], baseline.__COMMAND_FIELD_NAME__[i], compressionModel);
+                for (int i = tempBaseLen; i < tempLen; ++i)
+                    __GHOST_COMMAND_HELPER_NAME__.Serialize(ref writer, state, data.__COMMAND_FIELD_NAME__[i], default, compressionModel);
+            }
+
+            #endregion
+        }
+
+        public void DeserializeCommand(ref DataStreamReader reader, ref IComponentData data, in IComponentData baseline,
+            StreamCompressionModel compressionModel)
+        {
+            #region __COMMAND_READ__
+            {
+                var tempLen = (int)reader.ReadRawBits(__COMMAND_FIXEDLIST_LEN_BITS__);
+                if (data.__COMMAND_FIELD_NAME__.Length > __COMMAND_FIXEDLIST_CAP__)
+                {
+                    //forcibly reset to 0 here to avoid accessing garbage data
+                    data.__COMMAND_FIELD_NAME__.Length = 0;
+                    throw new System.InvalidOperationException($"Error while deserialize fixed list field __COMMAND_FIELD_NAME__. The decoded length is ({data.__COMMAND_FIELD_NAME__.Length}) that is invalid. Fixed list capacity when used in ICommandData or IInputComponentData is capped to __COMMAND_FIXEDLIST_CAP__ elements. That suggest the data sis read from the stream at a wrong bit offset or has been corrupted.");
+                }
+                data.__COMMAND_FIELD_NAME__.Length = tempLen;
+                for (int i = 0; i < data.__COMMAND_FIELD_NAME__.Length; ++i)
+                    __GHOST_COMMAND_HELPER_NAME__.Deserialize(ref reader, state,ref data.__COMMAND_FIELD_NAME__.ElementAt(i));
+            }
+            #endregion
+            #region __COMMAND_READ_PACKED__
+            {
+                var tempLen = (int)reader.ReadPackedUIntDelta((uint)baseline.__COMMAND_FIELD_NAME__.Length,compressionModel);
+                if (data.__COMMAND_FIELD_NAME__.Length > __COMMAND_FIXEDLIST_CAP__)
+                {
+                    //forcibly reset to 0 here to avoid accessing garbage data
+                    data.__COMMAND_FIELD_NAME__.Length = 0;
+                    throw new System.InvalidOperationException($"Error while deserialize fixed list field __COMMAND_FIELD_NAME__. The decoded length is ({data.__COMMAND_FIELD_NAME__.Length}) that is invalid. Fixed list capacity when used in ICommandData or IInputComponentData is capped to __COMMAND_FIXEDLIST_CAP__ elements. That suggest the data sis read from the stream at a wrong bit offset or has been corrupted.");
+                }
+                data.__COMMAND_FIELD_NAME__.Length = tempLen;
+                for (int i = 0; i < math.min(data.__COMMAND_FIELD_NAME__.Length,baseline.__COMMAND_FIELD_NAME__.Length); ++i)
+                    __GHOST_COMMAND_HELPER_NAME__.Deserialize(ref reader, state, ref data.__COMMAND_FIELD_NAME__.ElementAt(i), baseline.__COMMAND_FIELD_NAME__[i], compressionModel);
+                for (int i = baseline.__COMMAND_FIELD_NAME__.Length; i < data.__COMMAND_FIELD_NAME__.Length; ++i)
+                    __GHOST_COMMAND_HELPER_NAME__.Deserialize(ref reader, state, ref data.__COMMAND_FIELD_NAME__.ElementAt(i), default, compressionModel);
+            }
+            #endregion
+        }
+    }
+}

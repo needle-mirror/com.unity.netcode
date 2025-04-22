@@ -19,6 +19,8 @@ namespace Unity.NetCode.Generators
     ///   - quaternion
     /// Fixed strings (32,64,128, 512,4096)
     /// Entity reference
+    /// NetworkEndPoint
+    /// FixedList (32,64,128, 512, 4096)
     /// </summary>
     class DefaultTypes
     {
@@ -71,7 +73,8 @@ namespace Unity.NetCode.Generators
                 Smoothing = SmoothingAction.Clamp,
                 SupportCommand = true,
                 Composite = false,
-                Template = "NetCode.GhostSnapshotValueInt.cs"
+                Template = "NetCode.GhostSnapshotValueInt.cs",
+                TemplateOverride = "NetCode.GhostSnapshotValueShort.cs"
             },
             new TypeRegistryEntry
             {
@@ -80,7 +83,8 @@ namespace Unity.NetCode.Generators
                 Smoothing = SmoothingAction.Clamp,
                 SupportCommand = true,
                 Composite = false,
-                Template = "NetCode.GhostSnapshotValueUInt.cs"
+                Template = "NetCode.GhostSnapshotValueUInt.cs",
+                TemplateOverride = "NetCode.GhostSnapshotValueUShort.cs"
             },
             new TypeRegistryEntry
             {
@@ -89,7 +93,8 @@ namespace Unity.NetCode.Generators
                 Smoothing = SmoothingAction.Clamp,
                 SupportCommand = true,
                 Composite = false,
-                Template = "NetCode.GhostSnapshotValueInt.cs"
+                Template = "NetCode.GhostSnapshotValueInt.cs",
+                TemplateOverride = "NetCode.GhostSnapshotValueSByte.cs"
             },
             new TypeRegistryEntry
             {
@@ -98,7 +103,8 @@ namespace Unity.NetCode.Generators
                 Smoothing = SmoothingAction.Clamp,
                 SupportCommand = true,
                 Composite = false,
-                Template = "NetCode.GhostSnapshotValueUInt.cs"
+                Template = "NetCode.GhostSnapshotValueUInt.cs",
+                TemplateOverride = "NetCode.GhostSnapshotValueByte.cs"
             },
             new TypeRegistryEntry
             {
@@ -405,6 +411,116 @@ namespace Unity.NetCode.Generators
                 Template = "NetCode.GhostSnapshotValueUInt.cs",
                 TemplateOverride = "NetCode.GhostSnapshotValueNetworkTick.cs"
             },
+            new TypeRegistryEntry
+            {
+                Type = "Unity.Networking.Transport.NetworkEndpoint",
+                Quantized = false,
+                Smoothing = SmoothingAction.Clamp,
+                SupportCommand = true,
+                Composite = false,
+                Template = "NetCode.GhostSnapshotValueUInt.cs",
+                TemplateOverride = "NetCode.GhostSnapshotValueNetworkEndpoint.cs"
+            },
+            new TypeRegistryEntry
+            {
+                Type = "Unity.Collections.FixedList32Bytes",
+                Quantized = true,
+                Smoothing = SmoothingAction.Clamp,
+                SupportCommand = true,
+                Composite = false,
+                Template = "NetCode.GhostSnapshotFixedList.cs",
+                TemplateOverride = ""
+            },
+            new TypeRegistryEntry
+            {
+                Type = "Unity.Collections.FixedList32Bytes",
+                Quantized = false,
+                Smoothing = SmoothingAction.Clamp,
+                SupportCommand = true,
+                Composite = false,
+                Template = "NetCode.GhostSnapshotFixedList.cs",
+                TemplateOverride = ""
+            },
+            new TypeRegistryEntry
+            {
+                Type = "Unity.Collections.FixedList64Bytes",
+                Quantized = true,
+                Smoothing = SmoothingAction.Clamp,
+                SupportCommand = true,
+                Composite = false,
+                Template = "NetCode.GhostSnapshotFixedList.cs",
+                TemplateOverride = ""
+            },
+            new TypeRegistryEntry
+            {
+                Type = "Unity.Collections.FixedList64Bytes",
+                Quantized = false,
+                Smoothing = SmoothingAction.Clamp,
+                SupportCommand = true,
+                Composite = false,
+                Template = "NetCode.GhostSnapshotFixedList.cs",
+                TemplateOverride = ""
+            },
+            new TypeRegistryEntry
+            {
+                Type = "Unity.Collections.FixedList128Bytes",
+                Quantized = true,
+                Smoothing = SmoothingAction.Clamp,
+                SupportCommand = true,
+                Composite = false,
+                Template = "NetCode.GhostSnapshotFixedList.cs",
+                TemplateOverride = ""
+            },
+            new TypeRegistryEntry
+            {
+                Type = "Unity.Collections.FixedList128Bytes",
+                Quantized = false,
+                Smoothing = SmoothingAction.Clamp,
+                SupportCommand = true,
+                Composite = false,
+                Template = "NetCode.GhostSnapshotFixedList.cs",
+                TemplateOverride = ""
+            },
+            new TypeRegistryEntry
+            {
+                Type = "Unity.Collections.FixedList512Bytes",
+                Quantized = true,
+                Smoothing = SmoothingAction.Clamp,
+                SupportCommand = true,
+                Composite = false,
+                Template = "NetCode.GhostSnapshotFixedList.cs",
+                TemplateOverride = ""
+            },
+            new TypeRegistryEntry
+            {
+                Type = "Unity.Collections.FixedList512Bytes",
+                Quantized = false,
+                Smoothing = SmoothingAction.Clamp,
+                SupportCommand = true,
+                Composite = false,
+                Template = "NetCode.GhostSnapshotFixedList.cs",
+                TemplateOverride = ""
+            },
+            new TypeRegistryEntry
+            {
+                Type = "Unity.Collections.FixedList4096Bytes",
+                Quantized = false,
+                Smoothing = SmoothingAction.Clamp,
+                SupportCommand = true,
+                Composite = false,
+                Template = "NetCode.GhostSnapshotFixedList.cs",
+                TemplateOverride = ""
+            },
+            new TypeRegistryEntry
+            {
+                Type = "Unity.Collections.FixedList4096Bytes",
+                Quantized = true,
+                Smoothing = SmoothingAction.Clamp,
+                SupportCommand = true,
+                Composite = false,
+                Template = "NetCode.GhostSnapshotFixedList.cs",
+                TemplateOverride = ""
+            }
         };
     }
 }

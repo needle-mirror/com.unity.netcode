@@ -648,4 +648,125 @@ namespace Unity.NetCode.LowLevel.Unsafe
             }
         }
     }
+    /// <summary>
+    /// Helper class used by codegen for accessing fixed size containers as span
+    /// </summary>
+    public static unsafe class FixedArraySerializationUtils
+    {
+        /// <summary>
+        /// Creates a new <see cref="Span"/> over a portion of a regular unmanaged type reference.
+        /// </summary>
+        /// <param name="container">The managed container element reference</param>
+        /// <param name="length">The number of elements</param>
+        /// <typeparam name="TContainer">The unmanged container type</typeparam>
+        /// <typeparam name="TElement">The unmanged element type</typeparam>
+        /// <returns>A new <see cref="Span"/> starting from the address of the container reference and given length</returns>
+        public static unsafe Span<TElement> ToSpan<TContainer, TElement>(ref TContainer container, int length)
+            where TContainer: unmanaged
+            where TElement: unmanaged
+        {
+            fixed(void *ptr = &container)
+            {
+                return new Span<TElement>(ptr, length);
+            }
+        }
+        /// <summary>
+        /// Creates a new <see cref="ReadOnlySpan"/> over a portion of a regular unmanaged type reference.
+        /// </summary>
+        /// <param name="container">The managed container element reference</param>
+        /// <param name="length">The number of elements</param>
+        /// <typeparam name="TContainer">The unmanged container type</typeparam>
+        /// <typeparam name="TElement">The unmanged element type</typeparam>
+        /// <returns>A new <see cref="ReadOnlySpan"/> starting from the address of the container reference and given length</returns>
+        public static ReadOnlySpan<TElement> ToReadOnlySpan<TContainer, TElement>(ref TContainer container, int length)
+            where TContainer: unmanaged
+            where TElement: unmanaged
+        {
+            fixed(void *ptr = &container)
+            {
+                return new ReadOnlySpan<TElement>(ptr, length);
+            }
+        }
+
+        /// <summary>
+        /// Creates a new <see cref="Span"/> over a portion of a regular unmanaged fixed list reference.
+        /// </summary>
+        /// <remarks>Use with cautions, because internally uses the
+        /// <see cref="System.Runtime.InteropServices.MemoryMarshal.CreateSpan"/>
+        /// </remarks>
+        /// <param name="container">The fixed list reference</param>
+        /// <param name="length">The number of elements</param>
+        /// <typeparam name="TElement">The unmanged argument type</typeparam>
+        /// <returns>A new <see cref="Span"/> starting from the address of the container reference and given length</returns>
+        public static Span<TElement> ToSpan<TElement>(ref this FixedList32Bytes<TElement> container, int length)
+            where TElement: unmanaged
+        {
+            return MemoryMarshal.CreateSpan(ref container.ElementAt(0), length);
+        }
+        /// <inheritdoc cref="ToReadOnlySpan{TELement}"/>
+        public static Span<TElement> ToSpan<TElement>(ref this FixedList64Bytes<TElement> container, int length)
+            where TElement: unmanaged
+        {
+            return MemoryMarshal.CreateSpan(ref container.ElementAt(0), length);
+        }
+        /// <inheritdoc cref="ToReadOnlySpan"/>
+        public static Span<TElement> ToSpan<TElement>(ref this FixedList128Bytes<TElement> container, int length)
+            where TElement: unmanaged
+        {
+            return MemoryMarshal.CreateSpan(ref container.ElementAt(0), length);
+        }
+        /// <inheritdoc cref="ToReadOnlySpan"/>
+        public static Span<TElement> ToSpan<TElement>(ref this FixedList512Bytes<TElement> container, int length)
+            where TElement: unmanaged
+        {
+            return MemoryMarshal.CreateSpan(ref container.ElementAt(0), length);
+        }
+        /// <inheritdoc cref="ToReadOnlySpan"/>
+        public static Span<TElement> ToSpan<TElement>(ref this FixedList4096Bytes<TElement> container, int length)
+            where TElement: unmanaged
+        {
+            return MemoryMarshal.CreateSpan(ref container.ElementAt(0), length);
+        }
+
+        /// <summary>
+        /// Creates a new <see cref="ReadOnlySpan"/> over a portion of a regular unmanaged fixed list reference.
+        /// </summary>
+        /// <remarks>Use with cautions, because internally uses the
+        /// <see cref="System.Runtime.InteropServices.MemoryMarshal.CreateSpan"/>
+        /// </remarks>
+        /// <param name="container">The fixed list reference</param>
+        /// <param name="length">The number of elements</param>
+        /// <typeparam name="TElement">The unmanged argument type</typeparam>
+        /// <returns>A new <see cref="ReadOnlySpan"/> starting from the address of the container reference and given length</returns>
+        public static ReadOnlySpan<TElement> ToReadOnlySpan<TElement>(ref this FixedList32Bytes<TElement> container, int length)
+            where TElement: unmanaged
+        {
+            return MemoryMarshal.CreateReadOnlySpan(ref container.ElementAt(0), length);
+        }
+        /// <inheritdoc cref="ToReadOnlySpan"/>
+        public static ReadOnlySpan<TElement> ToReadOnlySpan<TElement>(ref this FixedList64Bytes<TElement> container, int length)
+            where TElement: unmanaged
+        {
+            return MemoryMarshal.CreateReadOnlySpan(ref container.ElementAt(0), length);
+        }
+        /// <inheritdoc cref="ToReadOnlySpan"/>
+        public static ReadOnlySpan<TElement> ToReadOnlySpan<TElement>(ref this FixedList128Bytes<TElement> container, int length)
+            where TElement: unmanaged
+        {
+            return MemoryMarshal.CreateReadOnlySpan(ref container.ElementAt(0), length);
+        }
+        /// <inheritdoc cref="ToReadOnlySpan"/>
+        public static ReadOnlySpan<TElement> ToReadOnlySpan<TElement>(ref this FixedList512Bytes<TElement> container, int length)
+            where TElement: unmanaged
+        {
+            return MemoryMarshal.CreateReadOnlySpan(ref container.ElementAt(0), length);
+        }
+        /// <inheritdoc cref="ToReadOnlySpan"/>
+        public static ReadOnlySpan<TElement> ToReadOnlySpan<TElement>(ref this FixedList4096Bytes<TElement> container, int length)
+            where TElement: unmanaged
+        {
+            return MemoryMarshal.CreateReadOnlySpan(ref container.ElementAt(0), length);
+        }
+    }
 }
+

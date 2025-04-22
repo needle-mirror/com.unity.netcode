@@ -15,8 +15,7 @@
         "Unity.Logging",
         "Unity.Properties",
         "Unity.DedicatedServer.MultiplayerRoles",
-        "Unity.DedicatedServer.MultiplayerRoles.Editor",
-        "Unity.Serialization"
+        "Unity.DedicatedServer.MultiplayerRoles.Editor"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],
@@ -45,11 +44,6 @@
             "name": "com.unity.dedicated-server",
             "expression": "0.8.0",
             "define": "UNITY_USE_MULTIPLAYER_ROLES"
-        },
-        {
-            "name": "com.unity.serialization",
-            "expression": "3.0.0",
-            "define": "USING_UNITY_SERIALIZATION"
         }
     ],
     "noEngineReferences": false

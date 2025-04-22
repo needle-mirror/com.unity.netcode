@@ -20,6 +20,7 @@ namespace Unity.NetCode
     /// <summary>
     /// A list of ghost prefabs created from code.
     /// </summary>
+    [InternalBufferCapacity(0)]
     struct CodeGhostPrefab : IBufferElementData
     {
         public Entity entity;
@@ -173,6 +174,7 @@ namespace Unity.NetCode
             return ghostTypeHash;
         }
 
+        /// <inheritdoc/>
         [BurstCompile]
         public void OnCreate(ref SystemState state)
         {
@@ -238,6 +240,7 @@ namespace Unity.NetCode
                 m_CodePrefabSingleton = state.EntityManager.CreateSingletonBuffer<CodeGhostPrefab>();
         }
 
+        /// <inheritdoc/>
         [BurstCompile]
         public void OnDestroy(ref SystemState state)
         {
@@ -279,6 +282,7 @@ namespace Unity.NetCode
             public NetDebug netDebug;
         }
 
+        /// <inheritdoc/>
         [BurstCompile]
         public void OnUpdate(ref SystemState state)
         {
@@ -321,7 +325,8 @@ namespace Unity.NetCode
                     m_currentPredictionErrorCount = 0;
                     if (m_PrevPredictionErrorNamesCount > 0 || m_PrevGhostNamesCount > 0)
                     {
-                        SystemAPI.GetSingletonRW<GhostStatsCollectionData>().ValueRW.SetGhostNames(state.WorldUnmanaged.Name, m_GhostNames, m_PredictionErrorNames);
+                        SystemAPI.GetSingletonRW<GhostStatsCollectionData>().ValueRW.SetGhostNames(state.WorldUnmanaged.Name,
+                            m_GhostNames, m_PredictionErrorNames, 0);
                         if (SystemAPI.TryGetSingletonBuffer<GhostNames>(out var ghosts))
                             UpdateGhostNames(ghosts, m_GhostNames);
                         if (SystemAPI.TryGetSingletonBuffer<PredictionErrorNames>(out var predictionErrors))
@@ -595,7 +600,8 @@ namespace Unity.NetCode
             {
                 using var _ = m_UpdateNameMarker.Auto();
                 ProcessPendingNameAssignments(ctx.ghostSerializerCollection);
-                SystemAPI.GetSingletonRW<GhostStatsCollectionData>().ValueRW.SetGhostNames(state.WorldUnmanaged.Name, m_GhostNames, m_PredictionErrorNames);
+                SystemAPI.GetSingletonRW<GhostStatsCollectionData>().ValueRW.SetGhostNames(state.WorldUnmanaged.Name,
+                    m_GhostNames, m_PredictionErrorNames, m_currentPredictionErrorCount);
                 if (SystemAPI.TryGetSingletonBuffer<GhostNames>(out var ghosts))
                     UpdateGhostNames(ghosts, m_GhostNames);
                 if (SystemAPI.TryGetSingletonBuffer<PredictionErrorNames>(out var predictionErrors))
@@ -762,6 +768,7 @@ namespace Unity.NetCode
                 StaticOptimization = (byte)(ghostMetaData.StaticOptimization ? 1 :0),
                 PredictedSpawnedGhostRollbackToSpawnTick = (byte)(ghostMetaData.PredictedSpawnedGhostRollbackToSpawnTick ? 1 : 0),
                 RollbackPredictionOnStructuralChanges = (byte)(ghostMetaData.RollbackPredictionOnStructuralChanges ? 1 : 0),
+                UseSingleBaseline = (byte)(ghostMetaData.UseSingleBaseline ? 1 : 0),
                 NumBuffers = 0,
                 MaxBufferSnapshotSize = 0,
                 profilerMarker = profilerMarker,

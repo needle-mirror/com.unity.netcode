@@ -54,7 +54,7 @@ namespace Unity.NetCode
                     m_ShowDetailedWarning = false;
                     netDebug.ValueRW.LogWarning($"Expect client input loss, and a reduction in gameplay, physics, prediction and interpolation quality. Server Tick Batching should only occur in exceptional situations, as a defensive mechanism to prevent a death spiral. i.e. If encountered frequently - with optimizations (like Burst) enabled - this indicates unacceptably poor server performance, as frequent batching makes most games effectively unplayable.");
                 }
-                
+
                 m_RollingAverage = 1.0f;
             }
         }

@@ -50,19 +50,19 @@ namespace Unity.NetCode
 
         /// <summary>
         /// A list of all server worlds created during the default creation flow. If this type of world
-        /// is created manually and not via the bootstrap APIs this list needs to be manually populated.
+        /// is created manually (i.e. not via the bootstrap APIs), then this list needs to be manually populated.
         /// </summary>
         public static List<World> ServerWorlds => ClientServerTracker.ServerWorlds;
 
         /// <summary>
-        /// A list of all client worlds created during the default creation flow. If this type of world
-        /// is created manually and not via the bootstrap APIs this list needs to be manually populated.
+        /// A list of all client worlds (excluding thin client worlds!) created during the default creation flow. If this type of world
+        /// is created manually (i.e. not via the bootstrap APIs), then this list needs to be manually populated.
         /// </summary>
         public static List<World> ClientWorlds => ClientServerTracker.ClientWorlds;
 
         /// <summary>
         /// A list of all thin client worlds created during the default creation flow. If this type of world
-        /// is created manually and not via the bootstrap APIs this list needs to be manually populated.
+        /// is created manually  (i.e. not via the bootstrap APIs), then this list needs to be manually populated.
         /// </summary>
         public static List<World> ThinClientWorlds => ClientServerTracker.ThinClientWorlds;
 
@@ -494,6 +494,32 @@ namespace Unity.NetCode
                 ClientWorlds = new List<World>();
                 ThinClientWorlds = new List<World>();
             }
+        }
+
+        /// <summary>
+        /// Helper; returns an IEnumerable iterating over all <see cref="ServerWorld"/>'s,
+        /// then all <see cref="AllClientWorldsEnumerator"/> worlds (which itself iterates over all <see cref="ClientWorlds"/>,
+        /// then all <see cref="ThinClientWorlds"/>).
+        /// </summary>
+        /// <returns>An IEnumerable.</returns>
+        public static IEnumerable<World> AllNetCodeWorldsEnumerator()
+        {
+            foreach (var server in ServerWorlds)
+                yield return server;
+            foreach (var clientOrThinClient in AllClientWorldsEnumerator())
+                yield return clientOrThinClient;
+        }
+        /// <summary>
+        /// Helper; returns an IEnumerable iterating over all <see cref="ClientWorlds"/>,
+        /// then all <see cref="ThinClientWorlds"/>.
+        /// </summary>
+        /// <returns>An IEnumerable.</returns>
+        public static IEnumerable<World> AllClientWorldsEnumerator()
+        {
+            foreach (var client in ClientWorlds)
+                yield return client;
+            foreach (var thin in ThinClientWorlds)
+                yield return thin;
         }
     }
 

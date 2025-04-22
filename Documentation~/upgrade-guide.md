@@ -40,10 +40,10 @@ The Netcode for Entities introduces many changes and the upgrade process from 0.
 
 ## PredictedTick, ServerTick and in general time information.
 All the information in regards the current simulated tick MUST be retrieved from the `NetworkTim` singleton. In particular:
-* The `GhostPredictionSystemGroup.PredictedTick` has been removed. 
+* The `GhostPredictionSystemGroup.PredictedTick` has been removed.
 You must always use the `NetworkTime.ServerTick` instead, that will always correcly reflect the current predicted tick when inspected inside the prediction loop.
 * The `GhostPredictionSystemGroup.IsFinalPredictionTick` has been removed. Use the `NetworkTime.IsFinalPredictionTick` property instead.
-* The `ClientSimulationSystemGroup ServerTick`, `ServerTickFraction`, `InterpolationTick` and `InterpolationTickFraction` has been removed. You can retrieve the same properties from the `NetworkTime` singleton. 
+* The `ClientSimulationSystemGroup ServerTick`, `ServerTickFraction`, `InterpolationTick` and `InterpolationTickFraction` has been removed. You can retrieve the same properties from the `NetworkTime` singleton.
 
 Please refer to the `NetworkTime` component documentation for further information about the different timing properties and the flags behaviours.
 
@@ -89,25 +89,25 @@ All Netcode systems (apart some exception) should be considered stateless. All t
 
 | Old                                                                 | New                                                                                                                                                           |
 |---------------------------------------------------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `[UpdateInGroup(typeof(ClientInitializationSystemGroup))]`          | `[UpdateInGroup(typeof(InitializationSystemGroup))][WorldSystemFilter(WorldSystemFilterFlags.ClientSimulation)]`                                              |  
-| `[UpdateInGroup(typeof(ClientSimulationSystemGroup))]`              | `[WorldSystemFilter(WorldSystemFilterFlags.ClientSimulation)]`                                                                                                | 
-| `[UpdateInGroup(typeof(ClientPresentationSystemGroup))]`            | `[UpdateInGroup(typeof(PresentationSystemGroup)]`                                                                                                             | 
-| `[UpdateInGroup(typeof(ServerInitializationSystemGroup))]`          | `[UpdateInGroup(typeof(InitializationSystemGroup))][WorldSystemFilter(WorldSystemFilterFlags.ServerSimulation)]`                                              | 
-| `[UpdateInGroup(typeof(ServerSimulationSystemGroup))]`              | `[WorldSystemFilter(WorldSystemFilterFlags.ServerSimulation)]`                                                                                                | 
-| `[UpdateInGroup(typeof(ClientAndServerInitializationSystemGroup))]` | `[UpdateInGroup(typeof(InitializationSystemGroup))][WorldSystemFilter(WorldSystemFilterFlags.ServerSimulation&#124;WorldSystemFilterFlags.ClientSimulation)]` |    
- | `[UpdateInGroup(typeof(ClientAndServerSimulationSystemGroup))]`     | `[WorldSystemFilter(WorldSystemFilterFlags.ServerSimulation&#124;WorldSystemFilterFlags.ClientSimulation)]`                                                   |    
-| `[UpdateInWorld(TargetWorld.Client)]`                               | `[WorldSystemFilter(WorldSystemFilterFlags.ClientSimulation)]`                                                                                                | 
+| `[UpdateInGroup(typeof(ClientInitializationSystemGroup))]`          | `[UpdateInGroup(typeof(InitializationSystemGroup))][WorldSystemFilter(WorldSystemFilterFlags.ClientSimulation)]`                                              |
+| `[UpdateInGroup(typeof(ClientSimulationSystemGroup))]`              | `[WorldSystemFilter(WorldSystemFilterFlags.ClientSimulation)]`                                                                                                |
+| `[UpdateInGroup(typeof(ClientPresentationSystemGroup))]`            | `[UpdateInGroup(typeof(PresentationSystemGroup)]`                                                                                                             |
+| `[UpdateInGroup(typeof(ServerInitializationSystemGroup))]`          | `[UpdateInGroup(typeof(InitializationSystemGroup))][WorldSystemFilter(WorldSystemFilterFlags.ServerSimulation)]`                                              |
+| `[UpdateInGroup(typeof(ServerSimulationSystemGroup))]`              | `[WorldSystemFilter(WorldSystemFilterFlags.ServerSimulation)]`                                                                                                |
+| `[UpdateInGroup(typeof(ClientAndServerInitializationSystemGroup))]` | `[UpdateInGroup(typeof(InitializationSystemGroup))][WorldSystemFilter(WorldSystemFilterFlags.ServerSimulation&#124;WorldSystemFilterFlags.ClientSimulation)]` |
+ | `[UpdateInGroup(typeof(ClientAndServerSimulationSystemGroup))]`     | `[WorldSystemFilter(WorldSystemFilterFlags.ServerSimulation&#124;WorldSystemFilterFlags.ClientSimulation)]`                                                   |
+| `[UpdateInWorld(TargetWorld.Client)]`                               | `[WorldSystemFilter(WorldSystemFilterFlags.ClientSimulation)]`                                                                                                |
 | `[UpdateInWorld(TargetWorld.Server)]`                               | `[WorldSystemFilter(WorldSystemFilterFlags.ServerSimulation)]`                                                                                                |
-| `[UpdateInWorld(TargetWorld.ClientAndServer)]`                      | `[WorldSystemFilter(WorldSystemFilterFlags.ServerSimulation&#124;WorldSystemFilterFlags.ClientSimulation)]`                                                   |    
-| `[UpdateInWorld(TargetWorld.Default)]`                              | `[WorldSystemFilter(WorldSystemFilterFlags.LocalSimulation)]`                                                                                                 |    
-| `if (World.GetExistingSystem<ServerSimulationSystemGroup>()!=null)` | `if (World.IsServer())`                                                                                                                                       |    
-| `if (World.GetExistingSystem<ClientSimulationSystemGroup>()!=null)` | `if (World.IsClient())`                                                                                                                                       | 
+| `[UpdateInWorld(TargetWorld.ClientAndServer)]`                      | `[WorldSystemFilter(WorldSystemFilterFlags.ServerSimulation&#124;WorldSystemFilterFlags.ClientSimulation)]`                                                   |
+| `[UpdateInWorld(TargetWorld.Default)]`                              | `[WorldSystemFilter(WorldSystemFilterFlags.LocalSimulation)]`                                                                                                 |
+| `if (World.GetExistingSystem<ServerSimulationSystemGroup>()!=null)` | `if (World.IsServer())`                                                                                                                                       |
+| `if (World.GetExistingSystem<ClientSimulationSystemGroup>()!=null)` | `if (World.IsClient())`                                                                                                                                       |
 
-## Major changes for ghost field serialization 
+## Major changes for ghost field serialization
 * All child entities in Ghosts now default to the `DontSerializeVariant` as serializing child ghosts is relatively expensive (due to poor 'locality of reference' of child entities in other chunks, and the random-access nature of iterating child entities). Thus, `GhostComponentAttribute.SendDataForChildEntity = false` is now the default, and you'll need to set this flag to true for all types that should be sent for children. If you'd like to replicate hierarchies, we strongly encourage you to create multiple ghost prefabs, with custom, faked transform parenting logic that keeps the hierarchy flat. Explicit child hierarchies should only be used if the snapshot updates of one hierarchy must be in sync.
 * `RegisterDefaultVariants` has changed signature to now use a `Rule`. This forces users to be explicit about whether or not they want their user-defined defaults to apply to child entities too.
 * All `GhostAuthoringComponent` `ComponentOverrides` have been clobbered during the upgrade (apologies!). Please re-apply all `ComponentOverrides` via the new (optional) `GhostAuthoringInspectionComponent`.
-* Inside your `RegisterDefaultVariants` method, replace all `defaultVariants.Add(new ComponentType(typeof(SomeType)), typeof(SomeTypeDefaultVariant));` with `defaultVariants.Add(new ComponentType(typeof(SomeType)), Rule.OnlyParent(typeof(SomeTypeDefaultVariant)));`, unless you _also_ want this variant to be applied to children (in which case, use `Rule.ParentAndChildren(typeof(SomeTypeDefaultVariant))`). 
+* Inside your `RegisterDefaultVariants` method, replace all `defaultVariants.Add(new ComponentType(typeof(SomeType)), typeof(SomeTypeDefaultVariant));` with `defaultVariants.Add(new ComponentType(typeof(SomeType)), Rule.OnlyParent(typeof(SomeTypeDefaultVariant)));`, unless you _also_ want this variant to be applied to children (in which case, use `Rule.ParentAndChildren(typeof(SomeTypeDefaultVariant))`).
 Caveat: Prefer to use attributes wherever possible, as this "manual" form of overriding should only be used for one-off differences that you're unable to express via attributes.
 
 

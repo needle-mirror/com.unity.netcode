@@ -71,8 +71,8 @@ namespace Unity.NetCode
     {
         /// <summary>
         /// The id assigned to the ghost by the server. When a ghost is destroyed, its id is recycled and can assigned to
-        /// new ghosts. For that reason the ghost id cannot be used as a unique identifier.
-        /// The <see cref="ghostId"/>, <see cref="spawnTick"/> pair is instead guaratee to be unique, since at any given
+        /// new ghosts. For that reason the ghost id cannot be used an unique identifier.
+        /// The <see cref="ghostId"/>, <see cref="spawnTick"/> pairs is instead guaratee to be unique, since at any given
         /// point in time, there can be one and only one ghost that have a given id that has been spawned at that specific tick.
         /// </summary>
         public int ghostId;

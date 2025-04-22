@@ -52,6 +52,7 @@ namespace Unity.NetCode
             }
         }
 
+        /// <inheritdoc/>
         [BurstCompile]
         public void OnUpdate(ref SystemState state)
         {
@@ -430,8 +431,9 @@ namespace Unity.NetCode
         private ComponentTypeHandle<CommandTarget> m_CommandTargetComponentHandle;
 
         /// <summary>
-        /// Initialize the helper struct, should be called from OnCreate in an ISystem.
+        /// Invoked by code-gen from job system
         /// </summary>
+        /// <param name="state"><see cref="SystemState"/></param>
         public void OnCreate(ref SystemState state)
         {
             m_CompressionModel = StreamCompressionModel.Default;

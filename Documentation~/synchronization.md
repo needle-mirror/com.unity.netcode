@@ -1,7 +1,9 @@
 # Synchronizing states and inputs
 
+Use ghosts, commands, and RPCs to synchronize states and inputs between server and clients in your multiplayer game.
+
 | **Topic**                                       | **Description**                               |
 |:------------------------------------------------|:----------------------------------------------|
-| **[Ghost snapshots and synchronization](ghost-snapshots.md)** | A ghost is a networked object that the server simulates. During every frame, the server sends a snapshot of the current state of all ghosts to the client. |
-| **[Ghost spawning](ghost-spawning.md)** | A ghost is spawned by instantiating it on the server, as all ghosts on the server are replicated to all clients automatically. |
-| **[Commands](command-stream.md)** | The client sends a continuous command stream to the server when the `NetworkStreamConnection` is tagged to be "in-game". This stream includes all inputs and acknowledgements of the last received snapshot. |
+| **[Synchronization with ghosts](ghosts.md)** | Use ghosts to synchronize and replicate states between server and clients in a consistent and customizable way.|
+| **[Communication with RPCs](rpcs.md)** | Use remote procedure calls (RPCs) to communicate high-level game flow events and send one-off, non-predicted commands from the client to the server. |
+| **[Handling inputs with the command stream](command-stream.md)** | Clients send a continuous command stream to the server when [`NetworkStreamConnection`](https://docs.unity3d.com/Packages/com.unity.netcode@latest?subfolder=/api/Unity.NetCode.NetworkStreamConnection.html) is tagged as in-game. This stream includes all inputs and acknowledgements of the last received snapshot. |

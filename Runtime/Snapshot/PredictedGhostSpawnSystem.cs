@@ -25,7 +25,7 @@ namespace Unity.NetCode
     /// In practice, this capacity just needs to hold the maximum number of client-authored
     /// ghost entities per frame, which is typically in the range 0 - 1.
     /// </summary>
-    [InternalBufferCapacity(950)]
+    [InternalBufferCapacity(0)]
     public struct PredictedGhostSpawn : IBufferElementData
     {
         /// <summary>
@@ -236,6 +236,8 @@ namespace Unity.NetCode
                 listHasData.Value = spawnList.Length;
             }
         }
+
+        /// <inheritdoc/>
         [BurstCompile]
         public void OnCreate(ref SystemState state)
         {
@@ -268,12 +270,15 @@ namespace Unity.NetCode
 
             state.RequireForUpdate<PredictedGhostSpawnList>();
         }
+
+        /// <inheritdoc/>
         [BurstCompile]
         public void OnDestroy(ref SystemState state)
         {
             m_ListHasData.Dispose();
         }
 
+        /// <inheritdoc/>
         [BurstCompile]
         public void OnUpdate(ref SystemState state)
         {

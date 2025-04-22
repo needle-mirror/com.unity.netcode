@@ -16,7 +16,6 @@ namespace Unity.NetCode.Generators
         public static void Generate(IReadOnlyList<SyntaxNode> rpcCandidates, CodeGenerator.Context codeGenContext)
         {
             var typeBuilder = new TypeInformationBuilder(codeGenContext.diagnostic, codeGenContext.executionContext, TypeInformationBuilder.SerializationMode.Commands);
-            var rootNamespace = codeGenContext.generatedNs;
             foreach (var syntaxNode in rpcCandidates)
             {
                 codeGenContext.executionContext.CancellationToken.ThrowIfCancellationRequested();
@@ -30,34 +29,31 @@ namespace Unity.NetCode.Generators
                     "Unity.NetCode", "NetCodeDisableCommandCodeGenAttribute");
                 if (disableCommandCodeGen != null)
                     continue;
-                // If the serializer type already exist we can just skip generation
-                if (codeGenContext.executionContext.Compilation.GetSymbolsWithName(GetRpcSerializerName(candidateSymbol)).FirstOrDefault() != null)
-                {
-                    codeGenContext.diagnostic.LogInfo($"Skipping code-gen for {candidateSymbol.Name} because an rpc serializer for it already exists");
-                    continue;
-                }
                 if (candidateSymbol.ImplementsGenericInterface("Unity.NetCode.IRpcCommandSerializer"))
                 {
                     codeGenContext.diagnostic.LogInfo($"Skipping code-gen for {candidateSymbol.Name} because an IRpcCommandSerializer for it already exists");
                     continue;
                 }
-
-                codeGenContext.ResetState();
                 var typeInfo = typeBuilder.BuildTypeInformation(candidateSymbol, null);
-
-                NameUtils.UpdateNameAndNamespace(ref typeInfo, rootNamespace, ref codeGenContext, ref candidateSymbol);
                 if (typeInfo == null)
                     continue;
+                codeGenContext.ResetState();
+                NameUtils.UpdateNameAndNamespace(typeInfo, ref codeGenContext, candidateSymbol);
+                // If the serializer type already exist we can just skip generation
+                if (codeGenContext.executionContext.Compilation.GetSymbolsWithName(GetRpcSerializerName(codeGenContext)).FirstOrDefault() != null)
+                {
+                    codeGenContext.diagnostic.LogInfo($"Skipping code-gen for {codeGenContext.generatorName} because an rpc serializer for it already exists");
+                    continue;
+                }
 
                 codeGenContext.types.Add(typeInfo);
                 codeGenContext.diagnostic.LogInfo($"Generating rpc for ${typeInfo.TypeFullName}");
                 CodeGenerator.GenerateCommand(codeGenContext, typeInfo, CommandSerializer.Type.Rpc);
             }
-            codeGenContext.generatedNs = rootNamespace;
         }
-        static private string GetRpcSerializerName(INamedTypeSymbol symbol)
+        static private string GetRpcSerializerName(CodeGenerator.Context context)
         {
-            return $"{symbol.Name}Serializer";
+            return $"{context.generatorName.Replace(".", "").Replace('+', '_')}Serializer";
         }
     }
 }

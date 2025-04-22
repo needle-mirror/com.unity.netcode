@@ -26,6 +26,7 @@ namespace Unity.NetCode.Editor
         private SharedComponentTypeHandle<SubSceneGhostComponentHash> prespawnHashTypeHandle;
         private SharedComponentTypeHandle<SceneSection> sceneSectionTypeHandle;
 
+        /// <inheritdoc/>
         [BurstCompile]
         public void OnCreate(ref SystemState state)
         {
@@ -47,6 +48,7 @@ namespace Unity.NetCode.Editor
             state.RequireForUpdate(sectionsToProcess);
         }
 
+        /// <inheritdoc/>
         [BurstCompile]
         public void OnUpdate(ref SystemState state)
         {

@@ -18,14 +18,106 @@ namespace Unity.NetCode.Physics.Tests
         }
     }
 
+    //Increment a predicted ghost field inside fixed step prediction group by using the end command buffer.
+    //It uses the latest value on SomaData compoent and increment it by one each time the PredictedFixedStepSimulationSystemGroup run.
+    [DisableAutoCreation]
+    [UpdateInGroup(typeof(PhysicsSimulationGroup))]
+    partial class TestCmdBufferUpdate : SystemBase
+    {
+        protected override void OnUpdate()
+        {
+            var singleton = SystemAPI.GetSingleton<BeginFixedStepSimulationEntityCommandBufferSystem.Singleton>();
+            var cmd = singleton.CreateCommandBuffer(World.Unmanaged);
+            foreach (var (data, ent) in SystemAPI.Query<RefRO<SomeData>>().WithEntityAccess())
+            {
+                var newValue = data.ValueRO;
+                newValue.Value += 1;
+                cmd.SetComponent(ent, newValue);
+            }
+        }
+    }
+
+    //Increment a predicted ghost field in prediction loop.
+    [DisableAutoCreation]
+    [UpdateInGroup(typeof(PredictedSimulationSystemGroup))]
+    partial class TestPredictionLoopSystem : SystemBase
+    {
+        protected override void OnUpdate()
+        {
+            foreach (var data in SystemAPI.Query<RefRW<AllPredictedComponentData>>())
+            {
+                data.ValueRW.Value += 1;
+            }
+        }
+    }
+
     public class PhysicsLoopConfigurationTests
     {
+        class GhostConverter : TestNetCodeAuthoring.IConverter
+        {
+            public void Bake(GameObject gameObject, IBaker baker)
+            {
+                var entity = baker.GetEntity(TransformUsageFlags.Dynamic);
+                baker.AddComponent(entity, new AllPredictedComponentData());
+                baker.AddComponent(entity, new SomeData());
+            }
+        }
+
         public enum PhysicsRunMode
         {
             RequirePredictedGhost = 0,
             EnableLagCompensation = 1,
             RequirePhysicsEntities = 2,
             AlwaysRun = 3,
+        }
+
+        [Test]
+        public void CommandBufferSystems_AreUpdateMultipleTimes()
+        {
+            using (var testWorld = new NetCodeTestWorld())
+            {
+                testWorld.TestSpecificAdditionalAssemblies.Add("Unity.NetCode.Physics,");
+                testWorld.TestSpecificAdditionalAssemblies.Add("Unity.Physics,");
+
+                testWorld.Bootstrap(true, typeof(TestCmdBufferUpdate), typeof(TestPredictionLoopSystem));
+                var cubeGameObject = GameObject.CreatePrimitive(PrimitiveType.Cube);
+                var rb = cubeGameObject.AddComponent<Rigidbody>();
+                rb.useGravity = false;
+                rb.isKinematic = true;
+                var authoringComponent = cubeGameObject.AddComponent<GhostAuthoringComponent>();
+                cubeGameObject.AddComponent<TestNetCodeAuthoring>().Converter = new GhostConverter();
+                authoringComponent.SupportedGhostModes = GhostModeMask.Predicted;
+                testWorld.CreateGhostCollection(cubeGameObject);
+                testWorld.CreateWorlds(true, 1);
+                var ctr = new ClientServerTickRate();
+                ctr.PredictedFixedStepSimulationTickRatio = 2;
+                var ctrEntity = testWorld.ServerWorld.EntityManager.CreateEntity(typeof(ClientServerTickRate));
+                testWorld.ServerWorld.EntityManager.AddComponentData(ctrEntity, ctr);
+                ctrEntity = testWorld.ClientWorlds[0].EntityManager.CreateEntity(typeof(ClientServerTickRate));
+                testWorld.ClientWorlds[0].EntityManager.AddComponentData(ctrEntity, ctr);
+                testWorld.Connect();
+                testWorld.GoInGame();
+                for (int i = 0; i < 32; ++i)
+                    testWorld.Tick();
+                var serverEntity = testWorld.SpawnOnServer(0);
+                testWorld.ServerWorld.EntityManager.SetComponentData(serverEntity, new SomeData());
+                testWorld.ServerWorld.EntityManager.SetComponentData(serverEntity, new AllPredictedComponentData());
+                var prevServerTick = testWorld.GetNetworkTime(testWorld.ServerWorld).ServerTick;
+                var prevClientTick = testWorld.GetNetworkTime(testWorld.ClientWorlds[0]).ServerTick;
+                for (int i = 0; i < 32; ++i)
+                     testWorld.Tick();
+                var clientTick = testWorld.GetNetworkTime(testWorld.ClientWorlds[0]).ServerTick;
+                var serverTick = testWorld.GetNetworkTime(testWorld.ServerWorld).ServerTick;
+                var fullServerTicks = serverTick.TicksSince(prevServerTick);
+                var clientTicks = clientTick.TicksSince(prevClientTick) + clientTick.TicksSince(serverTick);
+                var clientFullTicks = clientTicks - 1; //because the last tick is partial
+                var clientEntity = testWorld.TryGetSingletonEntity<GhostInstance>(testWorld.ClientWorlds[0]);
+                Assert.AreNotEqual(Entity.Null, clientEntity);
+                Assert.AreEqual(2*fullServerTicks, testWorld.ServerWorld.EntityManager.GetComponentData<SomeData>(serverEntity).Value);
+                Assert.AreEqual(2*clientFullTicks, testWorld.ClientWorlds[0].EntityManager.GetComponentData<SomeData>(clientEntity).Value);
+                Assert.AreEqual(fullServerTicks, testWorld.ServerWorld.EntityManager.GetComponentData<AllPredictedComponentData>(serverEntity).Value);
+                Assert.AreEqual(clientTicks , testWorld.ClientWorlds[0].EntityManager.GetComponentData<AllPredictedComponentData>(clientEntity).Value);
+            }
         }
 
         [Test]
