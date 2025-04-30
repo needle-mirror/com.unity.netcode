@@ -1160,10 +1160,16 @@ namespace Unity.NetCode
                     var ghostGroup = chunk.GetBufferAccessor(ref ghostGroupType)[ent];
                     // Serialize all other ghosts in the group, this also needs to be handled correctly in the receive system
                     dataStream.WritePackedUInt((uint)ghostGroup.Length, compressionModel);
+                    if (dataStream.HasFailedWrites)
+                    {
+                        PacketDumpFailedSerializeGhostGroup(ent);
+                        dataStream = oldStream;
+                        return ent;
+                    }
                     PacketDumpBeginGroup(ghostGroup.Length);
                     PacketDumpFlush();
 
-                    bool success = SerializeGroup(ref dataStream, ghostGroup, useSingleBaseline);
+                    bool success = SerializeGroup(ref dataStream, ref compressionModel, ghostGroup, useSingleBaseline);
 
                     GhostSendSystem.k_GhostGroupMarker.End();
                     if (!success)
@@ -1192,6 +1198,15 @@ namespace Unity.NetCode
             // If all entities were processes, remember to include the ones we skipped in the end of the chunk
             skippedEntityCount += realEndIndex - endIndex;
             return realEndIndex;
+        }
+
+        [Conditional("NETCODE_DEBUG")]
+        private void PacketDumpFailedSerializeGhostGroup(int ent)
+        {
+#if NETCODE_DEBUG
+            if (netDebugPacket.IsCreated)
+                netDebugPacket.Log((FixedString128Bytes)$"\n\t\t\tFailed to serialize entity group. undoing write of ent:{ent}!\n");
+#endif
         }
 
         [Conditional("ENABLE_UNITY_COLLECTIONS_CHECKS")]
@@ -1265,25 +1280,33 @@ namespace Unity.NetCode
             }
             return true;
         }
-        private bool SerializeGroup(ref DataStreamWriter dataStream, in DynamicBuffer<GhostGroup> ghostGroup, bool useSingleBaseline)
+
+        [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private bool SerializeGroup(ref DataStreamWriter dataStream, ref StreamCompressionModel compressionModel,
+            in DynamicBuffer<GhostGroup> ghostGroup, bool useSingleBaseline)
         {
             var grpAvailableBaselines = new NativeList<SnapshotBaseline>(GhostSystemConstants.SnapshotHistorySize, Allocator.Temp);
+            var baselinesPerEntity = stackalloc byte*[4];
+            //this will fit any possible number of replicated component.
+            var entityStartBit = stackalloc int[ghostChunkComponentTypesLength*2 + 2];
+            //we also need to track the current write index for rollback
+            var currentWriteIndex = stackalloc int[ghostGroup.Length];
             for (int i = 0; i < ghostGroup.Length; ++i)
             {
-                if (!childEntityLookup.TryGetValue(ghostGroup[i].Value, out var groupChunk))
+                if (!childEntityLookup.TryGetValue(ghostGroup[i].Value, out var childChunk))
                     throw new InvalidOperationException("Ghost group contains an member which is not a valid entity.");
-                if (!chunkSerializationData.TryGetValue(groupChunk.Chunk, out var chunkState))
+                if (!chunkSerializationData.TryGetValue(childChunk.Chunk, out var chunkState))
                     throw new InvalidOperationException("Ghost group member does not have state.");
                 var childGhostType = chunkState.ghostType;
                 #if ENABLE_UNITY_COLLECTIONS_CHECKS
-                var ghostComp = groupChunk.Chunk.GetNativeArray(ref ghostComponentType);
-                if (ghostComp[groupChunk.IndexInChunk].ghostType >= 0 && ghostComp[groupChunk.IndexInChunk].ghostType != childGhostType)
+                var ghostComp = childChunk.Chunk.GetNativeArray(ref ghostComponentType);
+                if (ghostComp[childChunk.IndexInChunk].ghostType >= 0 && ghostComp[childChunk.IndexInChunk].ghostType != childGhostType)
                     throw new InvalidOperationException("Ghost group member has invalid ghost type.");
                 #endif
                 ValidateNoNestedGhostGroups(GhostTypeCollection[childGhostType].IsGhostGroup);
                 dataStream.WritePackedUInt((uint)childGhostType, compressionModel);
                 dataStream.WritePackedUInt(1, compressionModel);
-                dataStream.WriteRawBits(groupChunk.Chunk.Has(ref prespawnBaselineTypeHandle) ? 1u : 0, 1);
+                dataStream.WriteRawBits(childChunk.Chunk.Has(ref prespawnBaselineTypeHandle) ? 1u : 0, 1);
                 PacketDumpGroupItem(childGhostType);
 
                 var groupSnapshot = default(CurrentSnapshotState);
@@ -1292,7 +1315,7 @@ namespace Unity.NetCode
                 groupSnapshot.AvailableBaselines = grpAvailableBaselines;
                 if (GhostTypeCollection[childGhostType].NumBuffers > 0)
                 {
-                    groupSnapshot.SnapshotDynamicDataSize = GatherDynamicBufferSize(groupChunk.Chunk, groupChunk.IndexInChunk, groupChunk.IndexInChunk + 1, childGhostType);
+                    groupSnapshot.SnapshotDynamicDataSize = GatherDynamicBufferSize(childChunk.Chunk, childChunk.IndexInChunk, childChunk.IndexInChunk + 1, childGhostType);
                 }
 
                 int dataSize = GhostTypeCollection[chunkState.ghostType].SnapshotSize;
@@ -1306,7 +1329,7 @@ namespace Unity.NetCode
                 {
                     // The chunk history only needs to be updated once per frame, this is the first time we are using this chunk this frame
                     // TODO: Updating the chunk history is only required if there has been a structural change - should skip it as an optimization
-                    UpdateChunkHistory(childGhostType, groupChunk.Chunk, chunkState, dataSize);
+                    UpdateChunkHistory(childGhostType, childChunk.Chunk, chunkState, dataSize);
                     snapshotIndex[writeIndex] = currentTick.SerializedData;
                     var nextWriteIndex = (writeIndex + 1) % GhostSystemConstants.SnapshotHistorySize;
                     chunkState.SetSnapshotWriteIndex(nextWriteIndex);
@@ -1320,31 +1343,33 @@ namespace Unity.NetCode
                     clearEntityArray = false;
                     groupSnapshot.AlreadyUsedChunk = 1;
                 }
+                currentWriteIndex[i] = writeIndex;
 
-                SetupDataAndAvailableBaselines(ref groupSnapshot, ref chunkState, groupChunk.Chunk, dataSize, writeIndex, snapshotIndex);
+                SetupDataAndAvailableBaselines(ref groupSnapshot, ref chunkState, childChunk.Chunk, dataSize, writeIndex, snapshotIndex);
                 if (clearEntityArray)
-                    UnsafeUtility.MemClear(groupSnapshot.SnapshotEntity, UnsafeUtility.SizeOf<Entity>()*groupChunk.Chunk.Capacity);
+                    UnsafeUtility.MemClear(groupSnapshot.SnapshotEntity, UnsafeUtility.SizeOf<Entity>()*childChunk.Chunk.Capacity);
 
                 // ComponentDataPerEntity, ComponentDataLengthPerEntity, and tempWriter can all be re-used in this recursive call
                 // tempBaselinesPerEntity, tempDynamicDataLenPerEntity, tempSameBaselinePerEntity and tempEntityStartBit must be changed
-                var baselinesPerEntity = stackalloc byte*[4];
+
                 int sameBaselinePerEntity;
                 int dynamicDataLenPerEntity;
-                var entityStartBit = stackalloc int[GhostTypeCollection[chunkState.ghostType].NumComponents*2 + 2];
-                if (SerializeEntities(ref dataStream, out _, out _, childGhostType, groupChunk.Chunk, groupChunk.IndexInChunk, groupChunk.IndexInChunk+1, useSingleBaseline, groupSnapshot,
-                    baselinesPerEntity, &sameBaselinePerEntity, &dynamicDataLenPerEntity, entityStartBit) != groupChunk.IndexInChunk+1)
+
+                if (SerializeEntities(ref dataStream, out _, out _, childGhostType, childChunk.Chunk, childChunk.IndexInChunk, childChunk.IndexInChunk+1, useSingleBaseline, groupSnapshot,
+                    baselinesPerEntity, &sameBaselinePerEntity, &dynamicDataLenPerEntity, entityStartBit) != childChunk.IndexInChunk+1)
                 {
                     // FIXME: this does not work if a group member is itself the root of a group since it can fail to roll back state to compress against in that case. This is the reason nested ghost groups are not supported
                     // Roll back all written entities for group members
                     while (i-- > 0)
                     {
-                        if (!childEntityLookup.TryGetValue(ghostGroup[i].Value, out groupChunk))
+                        if (!childEntityLookup.TryGetValue(ghostGroup[i].Value, out var revertChunk))
                             throw new InvalidOperationException("Ghost group contains an member which is not a valid entity.");
-                        if (chunkSerializationData.TryGetValue(groupChunk.Chunk, out chunkState))
+                        if (chunkSerializationData.TryGetValue(childChunk.Chunk, out var revertChunkState))
                         {
-                            var groupSnapshotEntity =
-                                chunkState.GetEntity(dataSize, groupChunk.Chunk.Capacity, writeIndex);
-                            groupSnapshotEntity[groupChunk.IndexInChunk] = Entity.Null;
+                            var childWriteIndex = currentWriteIndex[i];
+                            var childCompDataSize = GhostTypeCollection.ElementAtRO(revertChunkState.ghostType).SnapshotSize;
+                            var groupSnapshotEntity = revertChunkState.GetEntity(childCompDataSize, revertChunk.Chunk.Capacity, childWriteIndex);
+                            groupSnapshotEntity[revertChunk.IndexInChunk] = Entity.Null;
                         }
 
                     }

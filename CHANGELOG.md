@@ -1,6 +1,12 @@
 ---
 uid: changelog
 ---
+## [1.4.1] - 2025-04-30
+
+### Fixed
+
+* "Size limitation on snapshot did not prevent all errors" and improper serialization of a ghost group root when the group is empty and the available space in the data stream is not enough to encode the length of the group (0, that takes 2 bits).
+* Missing reset of the entity sent state when a group fail to serialize. The serialized children entity were incorrectly reported to be sent, potentially causing improper baseline used by the server to delta compress the data.
 
 ## [1.4.0] - 2024-11-14
 
