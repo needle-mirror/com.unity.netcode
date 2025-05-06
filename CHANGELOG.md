@@ -1,6 +1,24 @@
 ---
 uid: changelog
 ---
+## [1.5.1] - 2025-05-06
+
+### Added
+
+* Experimental host migration feature added, enabled with the ENABLE_HOST_MIGRATION define but otherwise hidden.
+* With ENABLE_HOST_MIGRATION defined, when a client reconnects to a server after disconnecting the connection entity on both sides will receive a `NetworkStreamIsReconnected` component. An internal unique ID is added to connections to track this behaviour.
+
+### Changed
+
+* IsReconnected split into NetworkStreamIsReconnected for reconnected connections and IsMigrated for re-spawned ghosts (Host Migration).
+
+### Fixed
+
+* An issue with Mutiplayer PlayModeTool window, throwing exceptions when docked after a domain reload. The issue was due to because of an access to `EditorPrefs` and `Application.productName` while restoring the window state.
+* Issue where, during host migration, ghosts could be migrated with a 0 id and type. Causing various issues when instantiated on the new host.
+* Crash which could happen after host migrations when the server is deploying the host migration data.
+* Issue with prespawn prefab entity list initialization after a host migration, the ordering of the prespawn ghosts could be shifted by one because of the internal `PrespawnSceneList` entity prefab creation. This would result in *invalid ghost type X (expected X+1)* off by one style errors.
+
 
 ## [1.5.0] - 2025-04-22
 

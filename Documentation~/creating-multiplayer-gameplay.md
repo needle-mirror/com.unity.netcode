@@ -10,3 +10,4 @@ Create multiplayer gameplay in Netcode for Entities.
 | **[Interpolation and extrapolation](interpolation.md)**| Use interpolation and extrapolation in your game to minimize the effects of adverse network conditions on gameplay. |
 | **[Prediction](prediction.md)**| Use prediction to manage latency in your game. |
 | **[Physics](physics.md)**| The Netcode package has some integration with Unity Physics which makes it easier to use physics in a networked game. The integration handles interpolated ghosts with physics, and support for predicted ghosts with physics. |
+| **[Host migration](host-migration/host-migration.md)** | Use host migration to transfer the host role to a client in the same session when the current host leaves. |

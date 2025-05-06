@@ -424,6 +424,122 @@ namespace Unity.NetCode.Tests
 
             Assert.AreEqual(expectEntityExists, world.EntityManager.Exists(evt.ConnectionEntity), s + "\nevt.ConnectionEntity exists?");
         }
+
+        [Test]
+        public void ConnectionUniqueIdsAreCleanedUp()
+        {
+            var numClients = 5;
+            using (var testWorld = new NetCodeTestWorld())
+            {
+                testWorld.Bootstrap(true);
+                testWorld.CreateWorlds(true, numClients);
+
+                // Connect every client except the last one which we'll connect later
+                var ep = NetworkEndpoint.LoopbackIpv4;
+                ep.Port = 7979;
+                testWorld.GetSingletonRW<NetworkStreamDriver>(testWorld.ServerWorld).ValueRW.Listen(ep);
+                for (int i = 0; i < numClients-1; ++i)
+                    testWorld.GetSingletonRW<NetworkStreamDriver>(testWorld.ClientWorlds[i]).ValueRW.Connect(testWorld.ClientWorlds[i].EntityManager, ep);
+
+                for (int i = 0; i < 8; ++i)
+                    testWorld.Tick();
+
+                testWorld.GoInGame();
+
+                for (int i = 0; i < 8; ++i)
+                    testWorld.Tick();
+
+                var firstClientWorld = testWorld.ClientWorlds[0];
+                var connectionUniqueId = testWorld.GetSingleton<ConnectionUniqueId>(firstClientWorld);
+                var originalClientId = connectionUniqueId.Value;
+
+                // Disconnect and reconnect first client
+                var firstClientConnectionQuery = firstClientWorld.EntityManager.CreateEntityQuery(typeof(NetworkStreamConnection));
+                testWorld.GetSingletonRW<NetworkStreamDriver>(firstClientWorld).ValueRW.DriverStore.Disconnect(firstClientConnectionQuery.GetSingleton<NetworkStreamConnection>());
+                for (int i = 0; i < 8; ++i)
+                    testWorld.Tick();
+                testWorld.GetSingletonRW<NetworkStreamDriver>(firstClientWorld).ValueRW.Connect(firstClientWorld.EntityManager, ep);
+
+                for (int i = 0; i < 8; ++i)
+                    testWorld.Tick();
+
+                // Verify the client reported unique ID is used by the server (otherwise would generate a new one), unique ID persists across reconnections
+                connectionUniqueId = testWorld.GetSingleton<ConnectionUniqueId>(firstClientWorld);
+                Assert.AreEqual(originalClientId, connectionUniqueId.Value);
+
+                // Make the last client duplicate the ID used by first client
+                var lastClientWorld = testWorld.ClientWorlds[numClients - 1];
+                lastClientWorld.EntityManager.CreateSingleton(new ConnectionUniqueId() { Value = originalClientId });
+
+                testWorld.GetSingletonRW<NetworkStreamDriver>(lastClientWorld).ValueRW.Connect(lastClientWorld.EntityManager, ep);
+
+                for (int i = 0; i < 8; ++i)
+                    testWorld.Tick();
+
+                // Server will detect duplicate unique ID and assign a new one
+                connectionUniqueId = testWorld.GetSingleton<ConnectionUniqueId>(lastClientWorld);
+                Assert.AreNotEqual(originalClientId, connectionUniqueId.Value);
+            }
+        }
+
+#if ENABLE_HOST_MIGRATION
+        [Test]
+        public void ReconnectedConnectionsAreDetected()
+        {
+            var numClients = 5;
+            using (var testWorld = new NetCodeTestWorld())
+            {
+                testWorld.Bootstrap(true);
+                testWorld.CreateWorlds(true, numClients);
+
+                // Connect every client except the last one which we'll connect later
+                var ep = NetworkEndpoint.LoopbackIpv4;
+                ep.Port = 7979;
+                testWorld.GetSingletonRW<NetworkStreamDriver>(testWorld.ServerWorld).ValueRW.Listen(ep);
+                for (int i = 0; i < numClients-1; ++i)
+                    testWorld.GetSingletonRW<NetworkStreamDriver>(testWorld.ClientWorlds[i]).ValueRW.Connect(testWorld.ClientWorlds[i].EntityManager, ep);
+
+                for (int i = 0; i < 8; ++i)
+                    testWorld.Tick();
+
+                testWorld.GoInGame();
+
+                for (int i = 0; i < 8; ++i)
+                    testWorld.Tick();
+
+                // Disconnect and reconnect first client
+                var firstClientWorld = testWorld.ClientWorlds[0];
+                var client0ConnectionQuery = firstClientWorld.EntityManager.CreateEntityQuery(typeof(NetworkStreamConnection));
+                testWorld.GetSingletonRW<NetworkStreamDriver>(firstClientWorld).ValueRW.DriverStore.Disconnect(client0ConnectionQuery.GetSingleton<NetworkStreamConnection>());
+                for (int i = 0; i < 8; ++i)
+                    testWorld.Tick();
+                testWorld.GetSingletonRW<NetworkStreamDriver>(firstClientWorld).ValueRW.Connect(firstClientWorld.EntityManager, ep);
+                testWorld.GoInGame(firstClientWorld);
+
+                for (int i = 0; i < 8; ++i)
+                    testWorld.Tick();
+
+                // Verify connections are detected as reconnected on both client and server
+                var clientIsReconnectedOnServerQuery = testWorld.ServerWorld.EntityManager.CreateEntityQuery(typeof(NetworkId), typeof(NetworkStreamIsReconnected));
+                Assert.IsTrue(clientIsReconnectedOnServerQuery.CalculateEntityCount() == 1);
+                var clientIsReconnectedQuery = firstClientWorld.EntityManager.CreateEntityQuery(typeof(NetworkId), typeof(NetworkStreamIsReconnected));
+                Assert.IsTrue(clientIsReconnectedQuery.CalculateEntityCount() == 1);
+
+                // Make the last client duplicate the ID used by first client
+                var lastClientWorld = testWorld.ClientWorlds[numClients - 1];
+                testWorld.GetSingletonRW<NetworkStreamDriver>(lastClientWorld).ValueRW.Connect(lastClientWorld.EntityManager, ep);
+                testWorld.GoInGame(lastClientWorld);
+
+                for (int i = 0; i < 8; ++i)
+                    testWorld.Tick();
+
+                // Last client should not be detected as reconnected as the unique IDs from the server and the local one
+                // on the client did not match.
+                clientIsReconnectedQuery = lastClientWorld.EntityManager.CreateEntityQuery(typeof(NetworkId), typeof(NetworkStreamIsReconnected));
+                Assert.IsFalse(clientIsReconnectedQuery.CalculateEntityCount() == 1);
+            }
+        }
+#endif
     }
 
     // Without NETCODE_DEBUG, ALL error logs are logged to the console, thus we cannot turn on specific ones to test against.

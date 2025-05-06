@@ -104,6 +104,24 @@ namespace Unity.NetCode
             snapshotData = (byte*)buffer.GetUnsafeReadOnlyPtr() + LatestIndex * SnapshotSize;
             return new NetworkTick{SerializedData = *(uint*)snapshotData};
         }
+        /// <summary>
+        /// Returns the snapshot index 'reverseOffset' back from the 'LatestIndex'. So 0 will return the snapshot index at LatestIndex
+        /// 12 will return the snapshot index at LatestIndex-12 correcly wrapping if the index goes negative
+        /// </summary>
+        /// <param name="reverseOffset"></param>
+        /// <returns>The snapshot index 'reverseOffset' back from the LatestIndex, returns null on an error </returns>
+        internal unsafe int GetPreviousSnapshotIndexAtOffset(int reverseOffset)
+        {
+            if (reverseOffset > GhostSystemConstants.SnapshotHistorySize)
+                return LatestIndex;
+
+            var previousIndex = (LatestIndex - reverseOffset);
+            if (previousIndex < 0)
+            {
+                previousIndex += GhostSystemConstants.SnapshotHistorySize;
+            }
+            return previousIndex;
+        }
 
         /// <summary>
         /// Try to find the two closest received ghost snapshots for a given <paramref name="targetTick"/>,

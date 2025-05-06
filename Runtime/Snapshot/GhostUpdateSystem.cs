@@ -207,9 +207,9 @@ namespace Unity.NetCode
                     {
                         var invalidEntity = chunk.GetNativeArray(entityType)[ent];
                         if (isPrespawn)
-                            netDebug.LogError($"Entity {invalidEntity} is not a valid prespawned ghost (ghostId == 0).");
+                            netDebug.LogError($"Entity {invalidEntity.ToFixedString()} is not a valid prespawned ghost (ghostId == {ghostComponents[ent].ghostId}).");
                         else
-                            netDebug.LogError($"Entity {invalidEntity} is not a valid ghost (i.e. it is not a real 'replicated ghost', nor is it a 'predicted spawn' ghost). This can happen if you instantiate a ghost entity on the client manually (without marking it as a predicted spawn).");
+                            netDebug.LogError($"Entity {invalidEntity.ToFixedString()} is not a valid ghost (ghostId == {ghostComponents[ent].ghostId}) (i.e. it is not a real 'replicated ghost', nor is it a 'predicted spawn' ghost). This can happen if you instantiate a ghost entity on the client manually (without marking it as a predicted spawn).");
                         //skip the entity
                         if (nextRange.y != 0)
                             entityRange.Add(nextRange);

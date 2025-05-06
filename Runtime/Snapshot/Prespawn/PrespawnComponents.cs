@@ -36,6 +36,14 @@ namespace Unity.NetCode
     }
 
     /// <summary>
+    /// Force the creation of the PrespawnSceneList entity prefab instead of waiting for an entity
+    /// scene with prespawned ghosts inside to be loaded.
+    /// </summary>
+    internal struct ForcePrespawnListPrefabCreate : IComponentData
+    {
+    }
+
+    /// <summary>
     /// Added during conversion to all subscenes that contains pre-spawned ghosts.
     /// </summary>
     public struct SubSceneWithPrespawnGhosts : IComponentData

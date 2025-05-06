@@ -80,7 +80,7 @@ namespace Unity.NetCode
             state.RequireForUpdate<GhostCollection>();
             // Ignore scene loaded in the query for running so the singleton is created in time
             builder.Reset();
-            builder.WithAll<SubSceneWithPrespawnGhosts>()
+            builder.WithAny<SubSceneWithPrespawnGhosts, ForcePrespawnListPrefabCreate>()
                 .WithNone<SubScenePrespawnBaselineResolved>();
             state.RequireForUpdate(state.GetEntityQuery(builder));
         }

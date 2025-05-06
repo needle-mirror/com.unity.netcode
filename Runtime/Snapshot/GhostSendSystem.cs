@@ -83,6 +83,7 @@ namespace Unity.NetCode
     }
 #endif
 
+
     /// <summary>
     /// Singleton entity that contains all the tweakable settings for the <see cref="GhostSendSystem"/>.
     /// </summary>
@@ -444,6 +445,7 @@ namespace Unity.NetCode
         ComponentLookup<GhostInstance> m_GhostFromEntity;
         ComponentLookup<NetworkStreamSnapshotTargetSize> m_SnapshotTargetFromEntity;
         ComponentLookup<EnablePacketLogging> m_EnablePacketLoggingFromEntity;
+        ComponentLookup<OverrideGhostData> m_GhostOverrideFromEntity;
 
         ComponentTypeHandle<GhostCleanup> m_GhostSystemStateType;
         ComponentTypeHandle<PreSerializedGhost> m_PreSerializedGhostType;
@@ -499,6 +501,7 @@ namespace Unity.NetCode
             m_AllocatedGhostIds = new NativeArray<int>(2, Allocator.Persistent);
             m_AllocatedGhostIds[0] = 1; // To make sure 0 is invalid
             m_AllocatedGhostIds[1] = 1; // To make sure 0 is invalid
+
             m_DestroyedPrespawns = new NativeList<int>(Allocator.Persistent);
             m_DestroyedPrespawnsQueue = new NativeQueue<int>(Allocator.Persistent);
             m_DespawnAckedByAllTick = new NativeReference<NetworkTick>(Allocator.Persistent);
@@ -535,7 +538,8 @@ namespace Unity.NetCode
 
             var spawnedGhostMap = state.EntityManager.CreateEntity(ComponentType.ReadWrite<SpawnedGhostEntityMap>());
             state.EntityManager.SetName(spawnedGhostMap, "SpawnedGhostEntityMapSingleton");
-            SystemAPI.SetSingleton(new SpawnedGhostEntityMap{Value = m_GhostMap.AsReadOnly(), SpawnedGhostMapRW = m_GhostMap, ServerDestroyedPrespawns = m_DestroyedPrespawns, m_ServerAllocatedGhostIds = m_AllocatedGhostIds});
+
+            SystemAPI.SetSingleton(new SpawnedGhostEntityMap{Value = m_GhostMap.AsReadOnly(), SpawnedGhostMapRW = m_GhostMap, ServerDestroyedPrespawns = m_DestroyedPrespawns, m_ServerAllocatedGhostIds = m_AllocatedGhostIds, m_ServerFreeGhostIds = m_FreeGhostIds });
 
 #if NETCODE_DEBUG
             m_PacketLogEnableQuery = state.GetEntityQuery(ComponentType.ReadOnly<EnablePacketLogging>());
@@ -563,6 +567,7 @@ namespace Unity.NetCode
             m_GhostFromEntity = state.GetComponentLookup<GhostInstance>(true);
             m_SnapshotTargetFromEntity = state.GetComponentLookup<NetworkStreamSnapshotTargetSize>(true);
             m_EnablePacketLoggingFromEntity = state.GetComponentLookup<EnablePacketLogging>(false);
+            m_GhostOverrideFromEntity = state.GetComponentLookup<OverrideGhostData>(true);
 
             m_GhostSystemStateType = state.GetComponentTypeHandle<GhostCleanup>(true);
             m_PreSerializedGhostType = state.GetComponentTypeHandle<PreSerializedGhost>(true);
@@ -609,6 +614,7 @@ namespace Unity.NetCode
             m_GhostPreSerializer.Dispose();
             m_AllocatedGhostIds.Dispose();
             m_FreeGhostIds.Dispose();
+
             m_DestroyedPrespawns.Dispose();
             m_DestroyedPrespawnsQueue.Dispose();
             m_DespawnAckedByAllTick.Dispose();
@@ -650,6 +656,7 @@ namespace Unity.NetCode
             public NativeParallelHashMap<SpawnedGhost, Entity> ghostMap;
 
             [ReadOnly] public ComponentLookup<GhostType> ghostTypeFromEntity;
+            [ReadOnly] public ComponentLookup<OverrideGhostData> ghostOverrideFromEntity;
             public NetworkTick serverTick;
             public byte forcePreSerialize;
             public NetDebug netDebug;
@@ -685,28 +692,46 @@ namespace Unity.NetCode
                     var ghosts = spawnChunks[chunk].GetNativeArray(ref ghostComponentType);
                     for (var ent = 0; ent < entities.Length; ++ent)
                     {
-                        if (!freeGhostIds.TryDequeue(out var newId))
+                        var newEntitySpawnTick = serverTick;
+                        var newEntityGhostId = 0;
+
+                        if (ghostOverrideFromEntity.HasComponent(entities[ent]))
                         {
-                            newId = allocatedGhostIds[0];
-                            allocatedGhostIds[0] = newId + 1;
+                            var overrideComponent = ghostOverrideFromEntity[entities[ent]];
+                            newEntityGhostId = overrideComponent.GhostId;
+                            newEntitySpawnTick = overrideComponent.SpawnTick;
+                            commandBuffer.RemoveComponent<OverrideGhostData>(entities[ent]);
+                        }
+                        else
+                        {
+                            if (!freeGhostIds.TryDequeue(out newEntityGhostId))
+                            {
+                                newEntityGhostId = allocatedGhostIds[0];
+                                allocatedGhostIds[0] = newEntityGhostId + 1;
+                            }
                         }
 
-                        ghosts[ent] = new GhostInstance {ghostId = newId, ghostType = ghostType, spawnTick = serverTick};
+                        if ( newEntityGhostId == 0 )
+                        {
+                            netDebug.LogError($"Assigning a GhostId of 0 to a Ghost. This should never happen. Has GhostId override = {ghostOverrideFromEntity.HasComponent(entities[ent])}");
+                        }
+
+                        ghosts[ent] = new GhostInstance {ghostId = newEntityGhostId, ghostType = ghostType, spawnTick = newEntitySpawnTick };
 
                         var spawnedGhost = new SpawnedGhost
                         {
-                            ghostId = newId,
-                            spawnTick =  serverTick
+                            ghostId = newEntityGhostId,
+                            spawnTick = newEntitySpawnTick
                         };
                         if (!ghostMap.TryAdd(spawnedGhost, entities[ent]))
                         {
-                            netDebug.LogError(FixedString.Format("GhostID {0} already present in the ghost entity map", newId));
+                            netDebug.LogError(FixedString.Format("GhostID {0} already present in the ghost entity map", newEntityGhostId));
                             ghostMap[spawnedGhost] = entities[ent];
                         }
 
                         var ghostState = new GhostCleanup
                         {
-                            ghostId = newId, despawnTick = NetworkTick.Invalid, spawnTick = serverTick
+                            ghostId = newEntityGhostId, despawnTick = NetworkTick.Invalid, spawnTick = newEntitySpawnTick
                         };
                         commandBuffer.AddComponent(entities[ent], ghostState);
                         if (forcePreSerialize == 1)
@@ -717,7 +742,7 @@ namespace Unity.NetCode
                             FixedString64Bytes prefabNameString = default;
                             if (prefabNames.HasComponent(GhostCollection[ghostType].GhostPrefab))
                                 prefabNameString.CopyFromTruncated(prefabNames[GhostCollection[ghostType].GhostPrefab].PrefabName);
-                            netDebug.DebugLog(FixedString.Format("[Spawn] GID:{0} Prefab:{1} TypeID:{2} spawnTick:{3}", newId, prefabNameString, ghostType, serverTick.ToFixedString()));
+                            netDebug.DebugLog(FixedString.Format("[Spawn] GID:{0} Prefab:{1} TypeID:{2} spawnTick:{3}", newEntityGhostId, prefabNameString, ghostType, newEntitySpawnTick.ToFixedString()));
                         }
 #endif
                     }
@@ -1999,6 +2024,7 @@ namespace Unity.NetCode
             m_EntityType.Update(ref state);
             m_GhostTypeCollectionFromEntity.Update(ref state);
             m_GhostCollectionFromEntity.Update(ref state);
+            m_GhostOverrideFromEntity.Update(ref state);
             //The spawnjob assign the ghost id, tick and track the ghost with a cleanup component. If the
             //ghost chunk has a GhostType that has not been processed yet by the GhostCollectionSystem,
             //the chunk is skipped. However, this leave the entities in a limbo state where the data is not setup
@@ -2019,6 +2045,7 @@ namespace Unity.NetCode
                 commandBuffer = commandBuffer,
                 ghostMap = m_GhostMap,
                 ghostTypeFromEntity = m_GhostTypeFromEntity,
+                ghostOverrideFromEntity = m_GhostOverrideFromEntity,
                 serverTick = currentTick,
                 forcePreSerialize = (byte) (systemData.ForcePreSerialize ? 1 : 0),
                 netDebug = netDebug,

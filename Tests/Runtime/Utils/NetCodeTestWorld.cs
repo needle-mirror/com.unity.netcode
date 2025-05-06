@@ -58,7 +58,11 @@ namespace Unity.NetCode.Tests
         static readonly ProfilerMarker k_TickClientPresentationSystem = new ProfilerMarker("TickClientPresentationSystem");
 
         public World DefaultWorld => m_DefaultWorld;
-        public World ServerWorld => m_ServerWorld;
+        public World ServerWorld
+        {
+            get { return m_ServerWorld; }
+            set { m_ServerWorld = value; }
+        }
         public World[] ClientWorlds => m_ClientWorlds;
         /// <summary>
         /// Logs how many times we've called <see cref="Tick"/>, zero-indexed
@@ -417,7 +421,7 @@ namespace Unity.NetCode.Tests
             return success;
         }
 
-        private World CreateServerWorld(string name, World world = null)
+        public World CreateServerWorld(string name, World world = null)
         {
             if (world == null)
                 world = new World(name, WorldFlags.GameServer);
@@ -461,7 +465,16 @@ namespace Unity.NetCode.Tests
             return world;
         }
 
-        public void Tick(float dt = 1f / 60f)
+        const float k_defaultDT = 1f / 60f;
+        public void TickMultiple( int numTicks, float dt = k_defaultDT)
+        {
+            for ( int t=0; t<numTicks; ++t )
+            {
+                Tick(dt);
+            }
+        }
+
+        public void Tick(float dt = k_defaultDT)
         {
 #if !UNITY_CLIENT || UNITY_EDITOR
             TickServerOnly(dt);

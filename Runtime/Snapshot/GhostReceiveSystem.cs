@@ -740,9 +740,14 @@ namespace Unity.NetCode
                     }
                     else if (data.BaselineTick != serverTick)
                     {
-                        for (int bi = 0; bi < snapshotDataBuffer.Length; bi += snapshotSize)
+                        // we need to search the buffer backwards from the insert index to always look at latest snapshots first
+                        int numSnapshotsInBuffer = snapshotDataBuffer.Length / snapshotSize;
+
+                        for (int snapshotCount = 0; snapshotCount < numSnapshotsInBuffer; ++snapshotCount)
                         {
-                            if (*(uint*)(snapshotData+bi) == data.BaselineTick.SerializedData)
+                            int bi = snapshotDataComponent.GetPreviousSnapshotIndexAtOffset(snapshotCount) * snapshotSize;
+
+                            if (*(uint*)(snapshotData+ bi) == data.BaselineTick.SerializedData)
                             {
                                 UnsafeUtility.MemCpy(baselineData, snapshotData+bi, snapshotSize);
                                 //retrive also the baseline dynamic snapshot buffer if the ghost has some buffers
@@ -767,8 +772,13 @@ namespace Unity.NetCode
                     {
                         byte* baselineData2 = null;
                         byte* baselineData3 = null;
-                        for (int bi = 0; bi < snapshotDataBuffer.Length; bi += snapshotSize)
+
+                        // we need to search the buffer backwards from the insert index to always look at latest snapshots first
+                        int numSnapshotsInBuffer = snapshotDataBuffer.Length / snapshotSize;
+                        for (int snapshotCount = 0; snapshotCount < numSnapshotsInBuffer; ++snapshotCount)
                         {
+                            int bi = snapshotDataComponent.GetPreviousSnapshotIndexAtOffset(snapshotCount) * snapshotSize;
+
                             if (*(uint*)(snapshotData+bi) == data.BaselineTick2.SerializedData)
                             {
                                 baselineData2 = snapshotData+bi;

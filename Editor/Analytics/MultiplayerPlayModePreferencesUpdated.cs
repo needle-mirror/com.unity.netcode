@@ -66,30 +66,33 @@ namespace Unity.NetCode.Analytics
                 showAllSimulatorPresets == other.showAllSimulatorPresets;
         }
 
-        internal MultiplayerPlaymodePreferencesUpdatedData()
+        static internal MultiplayerPlaymodePreferencesUpdatedData CurrentPlayModePreferences()
         {
-            simulatorEnabled = Prefs.SimulatorEnabled;
-            requestedSimulatorView = Prefs.RequestedSimulatorView.ToString();
-            requestedPlayType = Prefs.RequestedPlayType.ToString();
-            simulateDedicatedServer = Prefs.SimulateDedicatedServer;
-            packetDelayMs = Prefs.PacketDelayMs;
-            packetJitterMs = Prefs.PacketJitterMs;
-            packetDropPercentage = Prefs.PacketDropPercentage;
-            packetFuzzPercentage = Prefs.PacketFuzzPercentage;
-            requestedNumThinClients = Prefs.RequestedNumThinClients;
-            thinClientCreationFrequency = Prefs.ThinClientCreationFrequency;
-            autoConnectionAddress = Prefs.AutoConnectionAddress;
-            autoConnectionPort = Prefs.AutoConnectionPort;
-            currentNetworkSimulatorPreset = Prefs.CurrentNetworkSimulatorPreset;
-            isCurrentNetworkSimulatorPresetCustom = Prefs.IsCurrentNetworkSimulatorPresetCustom;
-            lagSpikeDurationMs = MultiplayerPlayModeWindow.k_LagSpikeDurationsSeconds[Prefs.LagSpikeSelectionIndex];
-            applyLoggerSettings = Prefs.ApplyLoggerSettings;
-            warnBatchedTicks = Prefs.WarnBatchedTicks;
-            warnBatchedTicksRollingWindow = Prefs.WarnBatchedTicksRollingWindow;
-            warnAboveAverageBatchedTicksPerFrame = Prefs.WarnAboveAverageBatchedTicksPerFrame;
-            targetLogLevel = Prefs.TargetLogLevel.ToString();
-            targetShouldDumpPackets = Prefs.TargetShouldDumpPackets;
-            showAllSimulatorPresets = Prefs.ShowAllSimulatorPresets;
+            return new MultiplayerPlaymodePreferencesUpdatedData
+            {
+                simulatorEnabled = Prefs.SimulatorEnabled,
+                requestedSimulatorView = Prefs.RequestedSimulatorView.ToString(),
+                requestedPlayType = Prefs.RequestedPlayType.ToString(),
+                simulateDedicatedServer = Prefs.SimulateDedicatedServer,
+                packetDelayMs = Prefs.PacketDelayMs,
+                packetJitterMs = Prefs.PacketJitterMs,
+                packetDropPercentage = Prefs.PacketDropPercentage,
+                packetFuzzPercentage = Prefs.PacketFuzzPercentage,
+                requestedNumThinClients = Prefs.RequestedNumThinClients,
+                thinClientCreationFrequency = Prefs.ThinClientCreationFrequency,
+                autoConnectionAddress = Prefs.AutoConnectionAddress,
+                autoConnectionPort = Prefs.AutoConnectionPort,
+                currentNetworkSimulatorPreset = Prefs.CurrentNetworkSimulatorPreset,
+                isCurrentNetworkSimulatorPresetCustom = Prefs.IsCurrentNetworkSimulatorPresetCustom,
+                lagSpikeDurationMs = MultiplayerPlayModeWindow.k_LagSpikeDurationsSeconds[Prefs.LagSpikeSelectionIndex],
+                applyLoggerSettings = Prefs.ApplyLoggerSettings,
+                warnBatchedTicks = Prefs.WarnBatchedTicks,
+                warnBatchedTicksRollingWindow = Prefs.WarnBatchedTicksRollingWindow,
+                warnAboveAverageBatchedTicksPerFrame = Prefs.WarnAboveAverageBatchedTicksPerFrame,
+                targetLogLevel = Prefs.TargetLogLevel.ToString(),
+                targetShouldDumpPackets = Prefs.TargetShouldDumpPackets,
+                showAllSimulatorPresets = Prefs.ShowAllSimulatorPresets,
+            };
         }
     }
 

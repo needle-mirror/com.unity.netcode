@@ -34,6 +34,16 @@ namespace Unity.NetCode
             /// </summary>
             public Entity Connection;
             /// <summary>
+            /// On clients this will be the singleton entity which stores the client connection uniqueId. If Entity.Null
+            /// it means no such entity has been created yet (and it should be created).
+            /// </summary>
+            internal Entity ClientConnectionUniqueIdEntity;
+            /// <summary>
+            /// On clients this will be the current unique ID of the client connection to the server, if any has been
+            /// set already. Will be 0 otherwise.
+            /// </summary>
+            internal uint ClientCurrentConnectionUniqueId;
+            /// <summary>
             /// The cached component state of said <see cref="Connection"/>, written back automatically!
             /// </summary>
             internal NetworkStreamConnection ConnectionStateRef;
@@ -261,6 +271,8 @@ namespace Unity.NetCode
             public ComponentTypeHandle<NetworkStreamConnection> connectionType;
             public BufferTypeHandle<IncomingRpcDataStreamBuffer> inBufferType;
             public BufferTypeHandle<OutgoingRpcDataStreamBuffer> outBufferType;
+            public Entity connectionUniqueIdEntity;
+            public uint connectionUniqueId;
             [ReadOnly] public NativeList<RpcCollection.RpcData> execute;
             [ReadOnly] public NativeParallelHashMap<ulong, int> hashToIndex; // TODO - int > ushort.
             [ReadOnly] public NativeParallelHashMap<SpawnedGhost, Entity>.ReadOnly ghostMap;
@@ -334,6 +346,8 @@ namespace Unity.NetCode
                         CommandBuffer = commandBuffer,
                         State = (IntPtr)UnsafeUtility.AddressOf(ref deserializeState),
                         Connection = connectionEntity,
+                        ClientConnectionUniqueIdEntity = connectionUniqueIdEntity,
+                        ClientCurrentConnectionUniqueId = connectionUniqueId,
                         JobIndex = unfilteredChunkIndex,
                         ConnectionStateRef = conn,
                         NetDebug = netDebug,
@@ -529,6 +543,13 @@ namespace Unity.NetCode
             // Execute the RPC
             ref readonly var networkStreamDriver = ref SystemAPI.GetSingletonRW<NetworkStreamDriver>().ValueRO;
             SystemAPI.TryGetSingleton(out NetworkProtocolVersion protocolVersion);
+            var connectionUniqueIdEntity = Entity.Null;
+            ConnectionUniqueId connectionUniqueId = default;
+            if (!state.WorldUnmanaged.IsServer())
+            {
+                SystemAPI.TryGetSingletonEntity<ConnectionUniqueId>(out connectionUniqueIdEntity);
+                SystemAPI.TryGetSingleton(out connectionUniqueId);
+            }
 
             m_EntityTypeHandle.Update(ref state);
             m_NetworkStreamConnectionHandle.Update(ref state);
@@ -542,6 +563,8 @@ namespace Unity.NetCode
                 connectionType = m_NetworkStreamConnectionHandle,
                 inBufferType = m_IncomingRpcDataStreamBufferComponentHandle,
                 outBufferType = m_OutgoingRpcDataStreamBufferComponentHandle,
+                connectionUniqueIdEntity = connectionUniqueIdEntity,
+                connectionUniqueId = connectionUniqueId.Value,
                 execute = m_RpcData,
                 hashToIndex = m_RpcTypeHashToIndex,
                 ghostMap = SystemAPI.GetSingleton<SpawnedGhostEntityMap>().Value,
