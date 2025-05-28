@@ -48,6 +48,13 @@ public struct MyComponent : IComponentData
 
 To mark a component for serialization and replication, add a `[GhostField]` attribute to the values you want to send.
 
+The component declaration must:
+
+- Be a concrete type. Generic structs are not supported.
+- Be `public` or `internal`.
+- Implement either `IComponentData` or any interface inheriting from it. Generic interfaces inheriting from
+  `IComponentData` are supported.
+
 ```csharp
 public struct MySerializedComponent : IComponentData
 {
@@ -59,11 +66,18 @@ public struct MySerializedComponent : IComponentData
 }
 ```
 
-For a component to be serialized, the component itself must be declared as `public`. Only `public` members of the component can be serialized. Adding `[GhostField]` to a `private` member has no effect.
+Only `public` members of the component can be serialized. Adding `[GhostField]` to a `private` member has no effect.
 
 ## Dynamic buffer serialization
 
 To mark a buffer for serialization and replication, all `public` fields must be annotated with a `[GhostField]` attribute.
+
+The buffer declaration must:
+
+- Be a concrete type. Generic structs are not supported.
+- Be `public` or `internal`.
+- Implement either `IBufferElementData` or any interface inheriting from it. Generic interfaces inheriting from
+`IBufferElementData` are supported.
 
 ```csharp
 public struct SerialisedBuffer : IBufferElementData
@@ -78,12 +92,10 @@ public struct SerialisedBuffer : IBufferElementData
 }
 ```
 
-For a buffer to be serialized, the buffer itself must be declared as `public`. Only `public` members of the buffer can be serialized. Adding `[GhostField]` to a `private` member has no effect.
-
 You can use the [`SendData` property](https://docs.unity3d.com/Packages/com.unity.netcode@latest?subfolder=/api/Unity.NetCode.GhostFieldAttribute.html#Unity_NetCode_GhostFieldAttribute_SendData) to skip serialization and replication of a field, which means that:
 
-  - The value of the fields that aren't replicated are never altered.
-  - For new buffer elements, their content isn't set to default and the content is undefined (can be any value).
+- The value of the fields that aren't replicated are never altered.
+- For new buffer elements, their content isn't set to default and the content is undefined (can be any value).
 
 Dynamic buffer fields don't support [`SmoothingAction`](https://docs.unity3d.com/Packages/com.unity.netcode@latest?subfolder=/api/Unity.NetCode.SmoothingAction.html) so the `GhostFieldAttribute.Smoothing` and `GhostFieldAttribute.MaxSmoothingDistance` properties are ignored on buffers.
 

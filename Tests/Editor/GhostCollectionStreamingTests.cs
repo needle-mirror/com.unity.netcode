@@ -6,7 +6,7 @@ using System.Text.RegularExpressions;
 
 namespace Unity.NetCode.Tests
 {
-    public class GhostCollectionStreamingConverter : TestNetCodeAuthoring.IConverter
+    internal class GhostCollectionStreamingConverter : TestNetCodeAuthoring.IConverter
     {
         public void Bake(GameObject gameObject, IBaker baker)
         {
@@ -17,7 +17,7 @@ namespace Unity.NetCode.Tests
     [DisableAutoCreation]
     [RequireMatchingQueriesForUpdate]
     [WorldSystemFilter(WorldSystemFilterFlags.ClientSimulation)]
-    public partial class OnDemandLoadTestSystem : SystemBase
+    internal partial class OnDemandLoadTestSystem : SystemBase
     {
         public bool IsLoading = false;
         protected override void OnUpdate()
@@ -37,7 +37,7 @@ namespace Unity.NetCode.Tests
             }
         }
     }
-    public class GhostCollectionStreamingTests
+    internal class GhostCollectionStreamingTests
     {
         [Test]
         public void OnDemandLoadedPrefabsAreUsed()

@@ -5,7 +5,7 @@ using Unity.Collections;
 
 namespace Unity.NetCode.Tests
 {
-    public class LateJoinCompletionConverter : TestNetCodeAuthoring.IConverter
+    internal class LateJoinCompletionConverter : TestNetCodeAuthoring.IConverter
     {
         public void Bake(GameObject gameObject, IBaker baker)
         {
@@ -13,7 +13,7 @@ namespace Unity.NetCode.Tests
             baker.AddComponent( entity, new GhostOwner());
         }
     }
-    public class LateJoinCompletionTests
+    internal class LateJoinCompletionTests
     {
         [Test]
         public void ServerGhostCountIsVisibleOnClient()

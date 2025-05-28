@@ -104,55 +104,6 @@ Note that inputs are not quantized when sent from client to server, but will be 
 
 In general, Netcode does not guarantee determinism if you use unquantized values either. Fundamentally, Netcode is not a deterministic package.
 
-
-## Structural changes on ghost instance
-It is allowed in general to perform structural changes (adding/removing component) on a instantiated ghost prefab, but with some limitation.
-
-### Adding and removing components
-It is allowed to add or remove any user-side component to both root and child entities. The serialization and deserialization of ghost, as well as delta compression,
-will continue to work.
-
-Adding a component to a ghost, even if the component preset `[GhostField]` would not make the component replicated. To replicate a component, this must be part of the prefab
-at authoring time.
-
-### Adding child entites
-It is allowed to `append` any entitity to the `LinkedEntityGroup` buffer but entity cannot be pre-prended or inserted in between the original entries of the `LinkedEntityGroup` buffer.
-A a limit case, inserting another child entity in the `LinkedEntityGroup` buffer is allowed after that last child that has replicated components.
-
-This is a valid configuration
-```
-root
-  child 1   <-- Replicated
-  child 2   <-- Replicated
-  =-----=  Append after here
-  child 3
-  user entity 1
-  user entity 2
-```
-
-There are an invalid configurations
-```
-root
-  user entity 1
-  child 1  <-- Replicated
-  child 2  <-- Replicated
-  child 3
-```
-```
-root
-  child 1  <-- Replicated
-  user entity 1
-  child 2  <-- Replicated
-  child 3
-```
-
-### Removing child entites
-It is not allowed to remove or change index of any replicated `child entity` in the `LinkedEntityGroup` buffer. Doing so can cause
-deserialization errors.
-
-It is allowed to remove appended entity to the `LinkedEntityGroup` buffer, as long as they are not causing a re-ordering of the original
-children in the buffer.
-
 ## Race condition and issue when removing replicated components from predicted ghost on the client.
 Removing a **replicated component** from a predicted ghost can cause some issue on the client when the state is restored from the last full tick history backup.
 

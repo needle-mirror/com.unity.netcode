@@ -9,19 +9,19 @@ namespace Unity.NetCode.Tests
 {
     [GhostComponent(PrefabType = GhostPrefabType.All, SendTypeOptimization = GhostSendType.OnlyPredictedClients,
         OwnerSendType = SendToOwnerType.SendToNonOwner)]
-    public struct TestInput : ICommandData
+    internal struct TestInput : ICommandData
     {
         [GhostField] public NetworkTick Tick { get; set; }
         [GhostField] public int Value;
     }
 
-    public struct TestInput2 : ICommandData
+    internal struct TestInput2 : ICommandData
     {
         [GhostField] public NetworkTick Tick { get; set; }
         [GhostField] public int Value2;
     }
 
-    public class TestInputConverter : TestNetCodeAuthoring.IConverter
+    internal class TestInputConverter : TestNetCodeAuthoring.IConverter
     {
         public void Bake(GameObject gameObject, IBaker baker)
         {
@@ -34,7 +34,7 @@ namespace Unity.NetCode.Tests
 
     [UpdateInGroup(typeof(GhostInputSystemGroup))]
     [DisableAutoCreation]
-    public partial class PredictionSystem : SystemBase
+    internal partial class PredictionSystem : SystemBase
     {
         protected override void OnCreate()
         {
@@ -59,7 +59,7 @@ namespace Unity.NetCode.Tests
     [UpdateInGroup(typeof(GhostInputSystemGroup))]
     [DisableAutoCreation]
     [WorldSystemFilter(WorldSystemFilterFlags.ClientSimulation)]
-    public partial class InputSystem : SystemBase
+    internal partial class InputSystem : SystemBase
     {
         protected override void OnCreate()
         {
@@ -81,7 +81,7 @@ namespace Unity.NetCode.Tests
             });
         }
     }
-    public class CommandBufferTests
+    internal class CommandBufferTests
     {
         [Test]
         [TestCase(GhostModeMask.All, GhostMode.OwnerPredicted)]

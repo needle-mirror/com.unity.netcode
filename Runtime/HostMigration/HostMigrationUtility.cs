@@ -4,7 +4,6 @@ using System.IO;
 using System.IO.Compression;
 using System.Linq;
 using System.Text;
-using Unity.Burst.CompilerServices;
 using Unity.Collections;
 using Unity.Collections.LowLevel.Unsafe;
 using Unity.Core;
@@ -17,13 +16,13 @@ using Hash128 = Unity.Entities.Hash128;
 
 #if ENABLE_HOST_MIGRATION
 
-namespace Unity.NetCode
+namespace Unity.NetCode.HostMigration
 {
     /// <summary>
     /// Host migration class used to access the host migration system, like getting the host migration data blob and
     /// functions for reacting to host migration events.
     /// </summary>
-    public static class HostMigration
+    public static class HostMigrationUtility
     {
         internal struct Data
         {
@@ -353,6 +352,43 @@ namespace Unity.NetCode
 
             spawnedGhostEntityMapData.ValueRW.m_ServerAllocatedGhostIds[0] = hostMigrationData.ValueRO.HostData.NextNewGhostId;
             spawnedGhostEntityMapData.ValueRW.m_ServerAllocatedGhostIds[1] = hostMigrationData.ValueRO.HostData.NextNewPrespawnGhostId;
+
+            var prespawnGhostIdRangeBufferEntityQuery = world.EntityManager.CreateEntityQuery(ComponentType.ReadWrite<PrespawnGhostIdRange>());
+            var prespawnGhostIdRangeBufferData = prespawnGhostIdRangeBufferEntityQuery.GetSingletonBuffer<PrespawnGhostIdRange>();
+
+            // Setup the PrespawnGhostIdRanges, this will allow the subscene loading to match ghostIds to the old server
+            foreach ( var prespawnGhostIdRange in hostMigrationData.ValueRO.HostData.PrespawnGhostIdRanges )
+            {
+                prespawnGhostIdRangeBufferData.Add(new PrespawnGhostIdRange() {
+                    SubSceneHash = prespawnGhostIdRange.SubSceneHash,
+                    FirstGhostId = prespawnGhostIdRange.FirstGhostId,
+                    Count = 0,
+                    Reserved = 0
+                });
+            }
+
+            // migrate the network ids of the currently connected clients
+            using var migratedNetworkIdsQuery = world.EntityManager.CreateEntityQuery(ComponentType.ReadWrite<MigratedNetworkIdsData>());
+            if ( migratedNetworkIdsQuery.TryGetSingletonRW<MigratedNetworkIdsData>(out var migratedNetworkIds) )
+            {
+                migratedNetworkIds.ValueRW.MigratedNetworkIds.Clear(); // make sure its empty
+                foreach (var c in hostMigrationData.ValueRO.HostData.Connections)
+                {
+                    migratedNetworkIds.ValueRW.MigratedNetworkIds.Add(c.UniqueId, c.NetworkId);
+                }
+            }
+
+            // migrate the information used to assign NetworkIDs so new connections are assigned correctly without overlapping the migrated ids
+            using var networkIDAllocationDataQuery = world.EntityManager.CreateEntityQuery(ComponentType.ReadWrite<NetworkIDAllocationData>());
+            if (networkIDAllocationDataQuery.TryGetSingletonRW<NetworkIDAllocationData>(out var networkIDAllocationData))
+            {
+                networkIDAllocationData.ValueRW.NumNetworkIds.Value = hostMigrationData.ValueRO.HostData.NumNetworkIds;
+
+                foreach ( var a in hostMigrationData.ValueRO.HostData.FreeNetworkIds )
+                {
+                    networkIDAllocationData.ValueRW.FreeNetworkIds.Enqueue( a );
+                }
+            }
 
             world.EntityManager.CreateEntity(ComponentType.ReadOnly<EnableHostMigration>());
             bool hasPrespawns = false;
@@ -759,6 +795,23 @@ namespace Unity.NetCode
             hostData.ElapsedNetworkTime = reader.ReadDouble();
             hostData.NextNewGhostId = reader.ReadInt();
             hostData.NextNewPrespawnGhostId = reader.ReadInt();
+
+            var prespawnGhostIdRangesCount = reader.ReadShort();
+            var prespawnGhostIdRanges = new NativeArray<HostPrespawnGhostIdRangeData>(prespawnGhostIdRangesCount, Allocator.Persistent);
+            for (int i = 0; i < prespawnGhostIdRangesCount; ++i)
+            {
+                prespawnGhostIdRanges[i] = new HostPrespawnGhostIdRangeData() { SubSceneHash = reader.ReadULong(), FirstGhostId = reader.ReadInt() };
+            }
+            hostData.PrespawnGhostIdRanges = prespawnGhostIdRanges;
+
+            hostData.NumNetworkIds = reader.ReadInt();
+            int numFreeIds = reader.ReadInt();
+            hostData.FreeNetworkIds = new NativeArray<int>(numFreeIds,Allocator.Persistent);
+            for ( int i=0; i<numFreeIds; ++i )
+            {
+                hostData.FreeNetworkIds[i] = reader.ReadInt();
+            }
+
             return hostData;
         }
     }

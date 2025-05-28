@@ -22,7 +22,8 @@ namespace Unity.NetCode.Tests
     {
         public int value;
     }
-    public class PredictionTestConverter : TestNetCodeAuthoring.IConverter
+
+    class PredictionTestConverter : TestNetCodeAuthoring.IConverter
     {
         public void Bake(GameObject gameObject, IBaker baker)
         {
@@ -39,11 +40,26 @@ namespace Unity.NetCode.Tests
             baker.AddComponent(entity, new ReplicatedEnableableComponentWithNonReplicatedField{value = 9999});
         }
     }
+
+    struct CountSimulationFromSpawnTick : IComponentData
+    {
+        public int Value;
+    }
+
+    class GhostWithRollbackConverter : TestNetCodeAuthoring.IConverter
+    {
+        public void Bake(GameObject gameObject, IBaker baker)
+        {
+            var entity = baker.GetEntity(TransformUsageFlags.Dynamic);
+            baker.AddComponent(entity, new CountSimulationFromSpawnTick{Value = 0});
+        }
+    }
+
     [DisableAutoCreation]
     [RequireMatchingQueriesForUpdate]
     [UpdateInGroup(typeof(PredictedSimulationSystemGroup))]
     [WorldSystemFilter(WorldSystemFilterFlags.ClientSimulation | WorldSystemFilterFlags.ServerSimulation)]
-    public partial class PredictionTestPredictionSystem : SystemBase
+    internal partial class PredictionTestPredictionSystem : SystemBase
     {
         public static bool s_IsEnabled;
         protected override void OnUpdate()
@@ -64,7 +80,7 @@ namespace Unity.NetCode.Tests
     [UpdateBefore(typeof(GhostUpdateSystem))]
     [UpdateBefore(typeof(GhostReceiveSystem))]
     [WorldSystemFilter(WorldSystemFilterFlags.ClientSimulation)]
-    public partial class InvalidateAllGhostDataBeforeUpdate : SystemBase
+    internal partial class InvalidateAllGhostDataBeforeUpdate : SystemBase
     {
         protected override void OnCreate()
         {
@@ -111,7 +127,7 @@ namespace Unity.NetCode.Tests
     [UpdateAfter(typeof(GhostUpdateSystem))]
     [UpdateBefore(typeof(PredictedSimulationSystemGroup))]
     [WorldSystemFilter(WorldSystemFilterFlags.ClientSimulation)]
-    public partial class CheckRestoreFromBackupIsCorrect : SystemBase
+    internal partial class CheckRestoreFromBackupIsCorrect : SystemBase
     {
         protected override void OnCreate()
         {
@@ -179,17 +195,18 @@ namespace Unity.NetCode.Tests
     [DisableAutoCreation]
     [UpdateInGroup(typeof(PredictedSimulationSystemGroup))]
     [WorldSystemFilter(WorldSystemFilterFlags.ClientSimulation)]
-    partial struct CheckNumberOfRollbacks : ISystem
+    partial struct CountNumberOfRollbacksSystem : ISystem
     {
         public void OnUpdate(ref SystemState state)
         {
             var time = SystemAPI.GetSingleton<NetworkTime>();
-            foreach (var (data, instance) in SystemAPI.Query<RefRW<PredictionTests.CountRollback>, RefRO<GhostInstance>>().WithAll<Simulate>())
+            foreach (var (data, instance) in SystemAPI.Query<RefRW<CountSimulationFromSpawnTick>, RefRO<GhostInstance>>().WithAll<Simulate>())
             {
                 var spawnTick = instance.ValueRO.spawnTick;
-                //The first tick after the spawn is what we are predicting
-                spawnTick.Increment();
-                if (!time.IsPartialTick && time.ServerTick == spawnTick)
+                //don't check prediction spawned ghosts not initialized yet
+                if(!spawnTick.IsValid)
+                    return;
+                if (!time.IsPartialTick && time.ServerTick.TicksSince(spawnTick) == 1)
                 {
                     data.ValueRW.Value++;
                 }
@@ -205,14 +222,14 @@ namespace Unity.NetCode.Tests
         public void OnUpdate(ref SystemState state)
         {
             //don't need to map
-            foreach (var rollback in SystemAPI.Query<RefRW<PredictionTests.CountRollback>>().WithAll<GhostInstance>().WithAll<Simulate>())
+            foreach (var rollback in SystemAPI.Query<RefRW<CountSimulationFromSpawnTick>>().WithAll<GhostInstance>().WithAll<Simulate>())
             {
                 ++rollback.ValueRW.Value;
             }
         }
     }
 
-    public class StructuralChangesConverter : TestNetCodeAuthoring.IConverter
+    internal class StructuralChangesConverter : TestNetCodeAuthoring.IConverter
     {
         public void Bake(GameObject gameObject, IBaker baker)
         {
@@ -230,55 +247,11 @@ namespace Unity.NetCode.Tests
             baker.AddComponent<EnableableComponent_1>(entity, new EnableableComponent_1{value = 2000});
             baker.AddComponent<EnableableComponent_3>(entity, new EnableableComponent_3{value = 3000});
             baker.AddComponent<Data>(entity, new Data{Value = 100});
-            baker.AddComponent<PredictionTests.CountRollback>(entity);
+            baker.AddComponent<CountSimulationFromSpawnTick>(entity);
         }
     }
 
-
-    struct GhostSpawner : IComponentData
-    {
-        public Entity ghost;
-    }
-
-    [DisableAutoCreation]
-    [UpdateInGroup(typeof(PredictedSimulationSystemGroup))]
-    [WorldSystemFilter(WorldSystemFilterFlags.ClientSimulation)]
-    public partial class PredictSpawnGhost : SystemBase
-    {
-        public NetworkTick spawnTick;
-        protected override void OnCreate()
-        {
-            RequireForUpdate<GhostSpawner>();
-        }
-
-        protected override void OnUpdate()
-        {
-            var spawner = SystemAPI.GetSingleton<GhostSpawner>();
-            var serverTick = SystemAPI.GetSingleton<NetworkTime>();
-            if (serverTick.IsFirstTimeFullyPredictingTick && spawnTick == serverTick.ServerTick)
-            {
-                var predictedEntity = EntityManager.Instantiate(spawner.ghost);
-                EntityManager.SetComponentData(predictedEntity, new Data{Value = 100});
-            }
-        }
-    }
-    [DisableAutoCreation]
-    [UpdateInGroup(typeof(PredictedSimulationSystemGroup))]
-    [UpdateAfter(typeof(PredictSpawnGhost))]
-    [WorldSystemFilter(WorldSystemFilterFlags.ClientSimulation)]
-    public partial class PredictSpawnGhostUpdate : SystemBase
-    {
-        protected override void OnUpdate()
-        {
-            foreach(var data in SystemAPI.Query<RefRW<Data>>().WithAll<Simulate>())
-            {
-                ++data.ValueRW.Value;
-            }
-        }
-    }
-
-
-    public class PredictionTests
+    internal class PredictionTests
     {
         [TestCase((uint)0x229321)]
         [TestCase((uint)100)]
@@ -527,239 +500,6 @@ namespace Unity.NetCode.Tests
             }
         }
 
-        internal struct CountRollback : IComponentData
-        {
-            public int Value;
-        }
-        public class GhostWithRollbackConverter : TestNetCodeAuthoring.IConverter
-        {
-            public void Bake(GameObject gameObject, IBaker baker)
-            {
-                var entity = baker.GetEntity(TransformUsageFlags.Dynamic);
-                baker.AddComponent(entity, new CountRollback{Value = 0});
-            }
-        }
-
-        public enum PredictedSpawnRollbackOptions
-        {
-            RollbackToSpawnTick,
-            DontRollbackToSpawnTick
-        }
-        public enum KeepHistoryBufferOptions
-        {
-            UseHistoryBufferOnStructuralChanges,
-            RollbackOnStructuralChanges
-        }
-
-        [Test]
-        public void PredictSpawnGhost_OutsidePrediction_RollbackAndHistoryBackup([Values]PredictedSpawnRollbackOptions rollback,
-            [Values]KeepHistoryBufferOptions rollbackOnStructuralChanges)
-        {
-            using (var testWorld = new NetCodeTestWorld())
-            {
-                testWorld.Bootstrap(true, typeof(CheckNumberOfRollbacks));
-
-                // Predicted ghost
-                var predictedGhost = new GameObject("PredictedGO1");
-                predictedGhost.AddComponent<TestNetCodeAuthoring>().Converter = new GhostWithRollbackConverter();
-                var ghostConfig = predictedGhost.AddComponent<GhostAuthoringComponent>();
-                ghostConfig.DefaultGhostMode = GhostMode.Predicted;
-                ghostConfig.SupportedGhostModes = GhostModeMask.Predicted;
-                ghostConfig.RollbackPredictedSpawnedGhostState = rollback == PredictedSpawnRollbackOptions.RollbackToSpawnTick;
-                ghostConfig.RollbackPredictionOnStructuralChanges = rollbackOnStructuralChanges == KeepHistoryBufferOptions.RollbackOnStructuralChanges;
-
-                var predictedGhost2 = new GameObject("PredictedGO2");
-                predictedGhost2.AddComponent<TestNetCodeAuthoring>().Converter = new GhostWithRollbackConverter();
-                var ghostConfig2 = predictedGhost2.AddComponent<GhostAuthoringComponent>();
-                ghostConfig2.DefaultGhostMode = GhostMode.Predicted;
-                ghostConfig2.SupportedGhostModes = GhostModeMask.Predicted;
-
-                Assert.IsTrue(testWorld.CreateGhostCollection(predictedGhost, predictedGhost2));
-                testWorld.CreateWorlds(true, 1);
-                testWorld.Connect();
-                testWorld.GoInGame();
-
-                for (int i = 0; i < 16; ++i)
-                    testWorld.Tick();
-
-                //server spawn a predicted ghost such that every update predicted spawned ghost should rollback
-                testWorld.SpawnOnServer(1);
-
-                for (int i = 0; i < 8; ++i)
-                    testWorld.Tick();
-
-                // Ensure client actually ticks fully in the next ticks so the prediction loop will run multiple times
-                var clientTime = testWorld.GetNetworkTime(testWorld.ClientWorlds[0]);
-                if (clientTime.ServerTickFraction < 0.45f || clientTime.ServerTickFraction > 0.95f)
-                    testWorld.TickClientOnly(1/120f);
-
-                // client predict spawning two predicted ghost: one with update, one without.
-                var prefabs = testWorld.GetSingletonBuffer<NetCodeTestPrefab>(testWorld.ClientWorlds[0]);
-                var ghostWithRollback = testWorld.ClientWorlds[0].EntityManager.Instantiate(prefabs[0].Value);
-                clientTime = testWorld.GetNetworkTime(testWorld.ClientWorlds[0]);
-                Assert.IsTrue(clientTime.ServerTickFraction is > 0.45f and < 0.95f);
-                var tickOnClient = NetworkTimeHelper.LastFullServerTick(clientTime); // Use the same spawnTick as the predicted spawn system does
-
-                for (int i = 0; i < 16; ++i)
-                {
-                    testWorld.Tick();
-                    if (testWorld.GetNetworkTime(testWorld.ServerWorld).ServerTick == tickOnClient)
-                    {
-                        testWorld.SpawnOnServer(0);
-                    }
-                }
-
-                // Ensure that classification is correct
-                Assert.AreNotEqual(ghostWithRollback, Entity.Null);
-                var ghostEntitiesFromQuery = testWorld.ClientWorlds[0].EntityManager
-                    .CreateEntityQuery(typeof(CountRollback), typeof(GhostInstance)).ToEntityArray(Allocator.Temp);
-                foreach (var entity in ghostEntitiesFromQuery)
-                {
-                    var name = testWorld.ClientWorlds[0].EntityManager.GetName(entity);
-                    if (name == "PredictedGO1")
-                    {
-                        // Ensures that classification is correct
-                        Assert.AreEqual(entity, ghostWithRollback);
-                    }
-                }
-
-                var rollbackData = testWorld.ClientWorlds[0].EntityManager.GetComponentData<CountRollback>(ghostWithRollback);
-                if(rollback == PredictedSpawnRollbackOptions.RollbackToSpawnTick)
-                    Assert.Greater(rollbackData.Value, 2);
-                else if(rollbackOnStructuralChanges == KeepHistoryBufferOptions.RollbackOnStructuralChanges)
-                    Assert.AreEqual(2, rollbackData.Value);
-                else
-                    Assert.AreEqual(1, rollbackData.Value);
-            }
-        }
-
-        [Test(Description = "The test verify both the misprediction behavior and its mitigation, in case a predicted spawned ghost is " +
-                            "instantiated immediately in the prediction loop. When the prefab is configured to preserve the history buffer on structural changes, " +
-                            "the misprediction disappears")]
-        public void PredictSpawnGhost_InsidePrediction_CanMispredict([Values]KeepHistoryBufferOptions rollbackOnStructuralChange)
-        {
-            static void SetupSpawner(NetCodeTestWorld testWorld, World world)
-            {
-                var spawner = world.EntityManager.CreateEntity(typeof(GhostSpawner));
-                world.EntityManager.SetComponentData(spawner, new GhostSpawner
-                {
-                    ghost = testWorld.GetSingletonBuffer<NetCodeTestPrefab>(world)[1].Value
-                });
-            }
-            using (var testWorld = new NetCodeTestWorld())
-            {
-                testWorld.Bootstrap(true, typeof(PredictSpawnGhost), typeof(PredictSpawnGhostUpdate));
-
-                var prefabs = new GameObject[2];
-                for (int i = 0; i < 2; ++i)
-                {
-                    // Predicted ghost. We create two types of the same
-                    var predictedGhostGO = new GameObject($"PredictedGO-{i}");
-                    predictedGhostGO.AddComponent<TestNetCodeAuthoring>().Converter = new PredictedGhostDataConverter();
-                    var ghostConfig = predictedGhostGO.AddComponent<GhostAuthoringComponent>();
-                    ghostConfig.DefaultGhostMode = GhostMode.Predicted;
-                    ghostConfig.SupportedGhostModes = GhostModeMask.Predicted;
-                    ghostConfig.RollbackPredictionOnStructuralChanges = rollbackOnStructuralChange == KeepHistoryBufferOptions.RollbackOnStructuralChanges;
-
-                    // One child nested on predicted ghost
-                    var predictedGhostGOChild = new GameObject("PredictedGO-Child");
-                    predictedGhostGOChild.AddComponent<TestNetCodeAuthoring>().Converter = new ChildDataConverter();
-                    predictedGhostGOChild.transform.parent = predictedGhostGO.transform;
-                    prefabs[i] = predictedGhostGO;
-                }
-
-                Assert.IsTrue(testWorld.CreateGhostCollection(prefabs));
-
-                testWorld.CreateWorlds(true, 1);
-
-                testWorld.Connect();
-                testWorld.GoInGame();
-
-                testWorld.SpawnOnServer(0);
-
-                testWorld.ClientWorlds[0].GetExistingSystemManaged<PredictSpawnGhost>().Enabled = false;
-
-                SetupSpawner(testWorld, testWorld.ServerWorld);
-                SetupSpawner(testWorld, testWorld.ClientWorlds[0]);
-
-                for (int i = 0; i < 16; ++i)
-                    testWorld.Tick();
-
-                // Ensure we're in a known state on the client
-                var time = testWorld.GetNetworkTime(testWorld.ClientWorlds[0]);
-                testWorld.TickClientOnly((1 - time.ServerTickFraction)/60f);
-
-                time = testWorld.GetNetworkTime(testWorld.ClientWorlds[0]);
-                Assert.IsFalse(time.IsPartialTick);
-                var spawnTick = time.ServerTick;
-                if(time.IsPartialTick)
-                    spawnTick.Decrement();
-                spawnTick.Add(1);
-                testWorld.ClientWorlds[0].GetExistingSystemManaged<PredictSpawnGhost>().spawnTick = spawnTick;
-                testWorld.ClientWorlds[0].GetExistingSystemManaged<PredictSpawnGhost>().Enabled = true;
-
-                var predictedSpawnRequests = testWorld.ClientWorlds[0].EntityManager.CreateEntityQuery(typeof(PredictedGhostSpawnRequest));
-                testWorld.TickClientOnly(0.75f*1f/60f);
-                //Client will spawn the entity now. We will do a full tick + 1 partial tick. There will be a new backup
-                //for the spawnTick, that is when the entity is spawned. The predicted spawned ghost is not initialized yet.
-                testWorld.TickServerOnly();
-                testWorld.TickClientOnly(0.75f*1f/60f);
-                Assert.IsFalse(predictedSpawnRequests.IsEmpty);
-                var predictedSpawnEntity = predictedSpawnRequests.GetSingletonEntity();
-                Assert.AreEqual(102, testWorld.ClientWorlds[0].EntityManager.GetComponentData<Data>(predictedSpawnEntity).Value);
-                var lastBackupTick = testWorld.GetSingleton<GhostSnapshotLastBackupTick>(testWorld.ClientWorlds[0]).Value;
-                Assert.AreEqual(spawnTick.TickIndexForValidTick, lastBackupTick.TickIndexForValidTick);
-                //Client initialize the spawned object (remove PredictedGhostRequest). At this point the ghost will contains in the
-                //snapshot buffer a value that is not correct (it is the one for a partial tick, not the spawn one). I consider this
-                //almost a bug. For now we will preserve the current behaviour but need to be changed.
-                //However, because the backup exist, the value of data component is preserved correctly.
-                testWorld.Tick();
-                lastBackupTick = testWorld.GetSingleton<GhostSnapshotLastBackupTick>(testWorld.ClientWorlds[0]).Value;
-                //Next frame is removed (still in the command buffer)
-                Assert.IsFalse(predictedSpawnRequests.IsEmpty);
-                //We have a new backup now, it will contains 102
-                Assert.AreEqual(spawnTick.TickIndexForValidTick + 1, lastBackupTick.TickIndexForValidTick);
-                if(rollbackOnStructuralChange == KeepHistoryBufferOptions.RollbackOnStructuralChanges)
-                    Assert.AreEqual(104, testWorld.ClientWorlds[0].EntityManager.GetComponentData<Data>(predictedSpawnEntity).Value);
-                else
-                    Assert.AreEqual(103, testWorld.ClientWorlds[0].EntityManager.GetComponentData<Data>(predictedSpawnEntity).Value);
-                testWorld.TickClientOnly(0.25f/60f);
-                lastBackupTick = testWorld.GetSingleton<GhostSnapshotLastBackupTick>(testWorld.ClientWorlds[0]).Value;
-                Assert.AreEqual(spawnTick.TickIndexForValidTick + 1, lastBackupTick.TickIndexForValidTick);
-                Assert.IsTrue(predictedSpawnRequests.IsEmpty);
-                time = testWorld.GetNetworkTime(testWorld.ClientWorlds[0]);
-                Assert.IsTrue(time.IsPartialTick);
-                if (rollbackOnStructuralChange == KeepHistoryBufferOptions.RollbackOnStructuralChanges)
-                {
-                    Assert.AreEqual(2, time.PredictedTickIndex);
-                    Assert.AreNotEqual(103, testWorld.ClientWorlds[0].EntityManager.GetComponentData<Data>(predictedSpawnEntity).Value);
-                    Assert.AreEqual(104, testWorld.ClientWorlds[0].EntityManager.GetComponentData<Data>(predictedSpawnEntity).Value);
-                }
-                else
-                {
-                    Assert.AreEqual(1, time.PredictedTickIndex);
-                    Assert.AreEqual(103, testWorld.ClientWorlds[0].EntityManager.GetComponentData<Data>(predictedSpawnEntity).Value);
-                }
-                testWorld.Tick();
-                //How many prediction tick we did? We received from the server a new ghost update, so at least the delta in respect
-                //the last received and the current client tick
-                time = testWorld.GetNetworkTime(testWorld.ClientWorlds[0]);
-                var lastReceivedTick = testWorld.GetSingleton<NetworkSnapshotAck>(testWorld.ClientWorlds[0]).LastReceivedSnapshotByLocal;
-                var expectedPredictionTicks = time.ServerTick.TicksSince(lastReceivedTick);
-                Assert.AreEqual(expectedPredictionTicks, time.PredictedTickIndex);
-                if (rollbackOnStructuralChange == KeepHistoryBufferOptions.RollbackOnStructuralChanges)
-                {
-                    Assert.AreNotEqual(104, testWorld.ClientWorlds[0].EntityManager.GetComponentData<Data>(predictedSpawnEntity).Value);
-                    Assert.AreEqual(105, testWorld.ClientWorlds[0].EntityManager.GetComponentData<Data>(predictedSpawnEntity).Value);
-                }
-                else
-                {
-                    Assert.AreEqual(104, testWorld.ClientWorlds[0].EntityManager.GetComponentData<Data>(predictedSpawnEntity).Value);
-                }
-
-            }
-        }
-
         [TestCase(1)]
         [TestCase(100)]
         public void HistoryBufferIsPreservedOnStructuralChanges(int ghostCount)
@@ -769,7 +509,7 @@ namespace Unity.NetCode.Tests
             {
                 for (int i = 0; i < entities.Length; i++)
                 {
-                    var predictionCount = testWorld.ClientWorlds[0].EntityManager.GetComponentData<CountRollback>(entities[i]).Value;
+                    var predictionCount = testWorld.ClientWorlds[0].EntityManager.GetComponentData<CountSimulationFromSpawnTick>(entities[i]).Value;
                     var predictedGhost = testWorld.ClientWorlds[0].EntityManager.GetComponentData<PredictedGhost>(entities[i]);
                     if (predictedGhost.AppliedTick == predictedGhost.PredictionStartTick)
                     {
@@ -782,7 +522,7 @@ namespace Unity.NetCode.Tests
                     }
 
                     //reset here the start tick, so next partial we will track and reset counters
-                    testWorld.ClientWorlds[0].EntityManager.SetComponentData(entities[i], new CountRollback());
+                    testWorld.ClientWorlds[0].EntityManager.SetComponentData(entities[i], new CountSimulationFromSpawnTick());
                 }
             }
 
@@ -954,7 +694,7 @@ namespace Unity.NetCode.Tests
             }
         }
 
-        public struct TestCommand : IInputComponentData
+        internal struct TestCommand : IInputComponentData
         {
             public int Value;
         }

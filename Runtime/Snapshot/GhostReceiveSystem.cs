@@ -374,6 +374,10 @@ namespace Unity.NetCode
                     NetStats[i] = 0;
                 }
 #endif
+#if NETCODE_DEBUG
+                EnablePacketLogging.InitAndFetch(Connections[0], EnableLoggingFromEntity, NetDebugPacket);
+#endif
+
                 m_GhostComponentCollection = GhostComponentCollectionFromEntity[GhostCollectionSingleton];
                 m_GhostTypeCollection = GhostTypeCollectionFromEntity[GhostCollectionSingleton];
                 m_GhostComponentIndex = GhostComponentIndexFromEntity[GhostCollectionSingleton];
@@ -452,15 +456,18 @@ namespace Unity.NetCode
                     return;
                 }
 
-                uint totalGhostCount = dataStream.ReadPackedUInt(CompressionModel);
-                GhostCompletionCount[0] = (int)totalGhostCount;
-
+                uint relevantGhostCount = dataStream.ReadPackedUInt(CompressionModel);
                 uint despawnLen = dataStream.ReadByte();
                 uint numEntitiesUpdated = dataStream.ReadUShort();
 
+                // Note: The server counts new chunks as containing 0 relevant ghosts UNTIL it knows how many it actually has.
+                // Thus, ensure our relevantGhostCount is at LEAST the number of ghosts contained within this snapshot.
+                // It's not perfect - but it's the simplest way to approximate.
+                GhostCompletionCount[0] = (int)math.max(relevantGhostCount, numEntitiesUpdated);
+
 #if NETCODE_DEBUG
                 if(NetDebugPacket.IsCreated)
-                    DebugLog.Append(FixedString.Format("\t TotalGhostCount:{0} Despawns:{1} Updates:{2}\n", totalGhostCount, despawnLen, numEntitiesUpdated));
+                    DebugLog.Append(FixedString.Format("\t TotalGhostCount:{0} Despawns:{1} Updates:{2}\n", relevantGhostCount, despawnLen, numEntitiesUpdated));
 #endif
 
                 var data = default(DeserializeData);
@@ -803,6 +810,8 @@ namespace Unity.NetCode
                             int serializerIdx = m_GhostComponentIndex[typeData.FirstComponent + comp].SerializerIndex;
                             //Buffers does not use delta prediction for the size and the contents
                             ref readonly var ghostSerializer = ref m_GhostComponentCollection.ElementAtRO(serializerIdx);
+                            if (!ghostSerializer.HasGhostFields)
+                                continue;
                             if (!ghostSerializer.ComponentType.IsBuffer)
                             {
                                 CheckOffsetLessThanSnapshotBufferSize(snapshotOffset, ghostSerializer.SnapshotSize, snapshotSize);
@@ -1033,79 +1042,82 @@ namespace Unity.NetCode
                         numBits = dataStream.GetBitsRead();
                     }
 #endif
-                    if (!ghostSerializer.ComponentType.IsBuffer)
+                    if (ghostSerializer.HasGhostFields)
                     {
-                        CheckSnaphostBufferOverflow(maskOffset, ghostSerializer.ChangeMaskBits,
-                            typeData.ChangeMaskBits, snapshotOffset, ghostSerializer.SnapshotSize, snapshotSize);
-                        ghostSerializer.Deserialize.Invoke((IntPtr) (snapshotData + snapshotOffset), (IntPtr) (baselineData + snapshotOffset), ref dataStream, ref CompressionModel, (IntPtr) changeMask, maskOffset);
-                        snapshotOffset += GhostComponentSerializer.SnapshotSizeAligned(ghostSerializer.SnapshotSize);
-                        maskOffset += ghostSerializer.ChangeMaskBits;
-                    }
-                    else
-                    {
-                        CheckSnaphostBufferOverflow(maskOffset, GhostComponentSerializer.DynamicBufferComponentMaskBits,
-                            typeData.ChangeMaskBits, snapshotOffset, GhostComponentSerializer.DynamicBufferComponentSnapshotSize, snapshotSize);
-                        //Delta decompress the buffer len
-                        uint mask = GhostComponentSerializer.CopyFromChangeMask((IntPtr) changeMask, maskOffset, GhostComponentSerializer.DynamicBufferComponentMaskBits);
-                        var baseLen = *(uint*) (baselineData + snapshotOffset);
-                        var baseOffset = *(uint*) (baselineData + snapshotOffset + sizeof(uint));
-                        var bufLen = (mask & 0x2) == 0 ? baseLen : dataStream.ReadPackedUIntDelta(baseLen, CompressionModel);
-                        //Assign the buffer info to the snapshot and register the current offset from the beginning of the dynamic history slot
-                        *(uint*) (snapshotData + snapshotOffset) = bufLen;
-                        *(uint*) (snapshotData + snapshotOffset + sizeof(uint)) = dynamicBufferOffset;
-                        snapshotOffset += GhostComponentSerializer.SnapshotSizeAligned(GhostComponentSerializer.DynamicBufferComponentSnapshotSize);
-                        maskOffset += GhostComponentSerializer.DynamicBufferComponentMaskBits;
-                        //Copy the buffer contents. Use delta compression based on mask bits configuration
-                        //00 : nothing changed
-                        //01 : same len, only content changed. Add additional mask bits for each elements
-                        //11 : len changed, everthing need to be sent again . No mask bits for the elements
-                        var dynamicDataSnapshotStride = (uint)ghostSerializer.SnapshotSize;
-                        var contentMaskUInts = (uint)GhostComponentSerializer.ChangeMaskArraySizeInUInts((int)(ghostSerializer.ChangeMaskBits * bufLen));
-                        var maskSize = GhostComponentSerializer.SnapshotSizeAligned(contentMaskUInts*4);
-                        CheckDynamicSnapshotBufferOverflow(dynamicBufferOffset, maskSize, bufLen*dynamicDataSnapshotStride, snapshotDynamicDataCapacity);
-                        uint* contentMask = (uint*) (snapshotDynamicDataPtr + dynamicBufferOffset);
-                        dynamicBufferOffset += maskSize;
-                        if ((mask & 0x3) == 0) //Nothing changed, just copy the baseline content
+                        if (!ghostSerializer.ComponentType.IsBuffer)
                         {
-                            UnsafeUtility.MemSet(contentMask, 0x0, maskSize);
-                            UnsafeUtility.MemCpy(snapshotDynamicDataPtr + dynamicBufferOffset,
-                                baselineDynamicDataPtr + baseOffset + maskSize, bufLen * dynamicDataSnapshotStride);
-                            dynamicBufferOffset += bufLen * dynamicDataSnapshotStride;
+                            CheckSnaphostBufferOverflow(maskOffset, ghostSerializer.ChangeMaskBits,
+                                typeData.ChangeMaskBits, snapshotOffset, ghostSerializer.SnapshotSize, snapshotSize);
+                            ghostSerializer.Deserialize.Invoke((IntPtr) (snapshotData + snapshotOffset), (IntPtr) (baselineData + snapshotOffset), ref dataStream, ref CompressionModel, (IntPtr) changeMask, maskOffset);
+                            snapshotOffset += GhostComponentSerializer.SnapshotSizeAligned(ghostSerializer.SnapshotSize);
+                            maskOffset += ghostSerializer.ChangeMaskBits;
                         }
-                        else if ((mask & 0x2) != 0) // len changed, element masks are not present.
+                        else
                         {
-                            UnsafeUtility.MemSet(contentMask, 0xFF, maskSize);
-                            var contentMaskOffset = 0;
-                            //Performace here are not great. It would be better to call a method that serialize the content inside so only one call
-                            for (int i = 0; i < bufLen; ++i)
+                            CheckSnaphostBufferOverflow(maskOffset, GhostComponentSerializer.DynamicBufferComponentMaskBits,
+                                typeData.ChangeMaskBits, snapshotOffset, GhostComponentSerializer.DynamicBufferComponentSnapshotSize, snapshotSize);
+                            //Delta decompress the buffer len
+                            uint mask = GhostComponentSerializer.CopyFromChangeMask((IntPtr) changeMask, maskOffset, GhostComponentSerializer.DynamicBufferComponentMaskBits);
+                            var baseLen = *(uint*) (baselineData + snapshotOffset);
+                            var baseOffset = *(uint*) (baselineData + snapshotOffset + sizeof(uint));
+                            var bufLen = (mask & 0x2) == 0 ? baseLen : dataStream.ReadPackedUIntDelta(baseLen, CompressionModel);
+                            //Assign the buffer info to the snapshot and register the current offset from the beginning of the dynamic history slot
+                            *(uint*) (snapshotData + snapshotOffset) = bufLen;
+                            *(uint*) (snapshotData + snapshotOffset + sizeof(uint)) = dynamicBufferOffset;
+                            snapshotOffset += GhostComponentSerializer.SnapshotSizeAligned(GhostComponentSerializer.DynamicBufferComponentSnapshotSize);
+                            maskOffset += GhostComponentSerializer.DynamicBufferComponentMaskBits;
+                            //Copy the buffer contents. Use delta compression based on mask bits configuration
+                            //00 : nothing changed
+                            //01 : same len, only content changed. Add additional mask bits for each elements
+                            //11 : len changed, everthing need to be sent again . No mask bits for the elements
+                            var dynamicDataSnapshotStride = (uint)ghostSerializer.SnapshotSize;
+                            var contentMaskUInts = (uint)GhostComponentSerializer.ChangeMaskArraySizeInUInts((int)(ghostSerializer.ChangeMaskBits * bufLen));
+                            var maskSize = GhostComponentSerializer.SnapshotSizeAligned(contentMaskUInts*4);
+                            CheckDynamicSnapshotBufferOverflow(dynamicBufferOffset, maskSize, bufLen*dynamicDataSnapshotStride, snapshotDynamicDataCapacity);
+                            uint* contentMask = (uint*) (snapshotDynamicDataPtr + dynamicBufferOffset);
+                            dynamicBufferOffset += maskSize;
+                            if ((mask & 0x3) == 0) //Nothing changed, just copy the baseline content
                             {
-                                ghostSerializer.Deserialize.Invoke(
-                                    (IntPtr) (snapshotDynamicDataPtr + dynamicBufferOffset),
-                                    (IntPtr) TempDynamicData.GetUnsafePtr(),
-                                    ref dataStream, ref CompressionModel, (IntPtr) contentMask, contentMaskOffset);
-                                dynamicBufferOffset += dynamicDataSnapshotStride;
-                                contentMaskOffset += ghostSerializer.ChangeMaskBits;
+                                UnsafeUtility.MemSet(contentMask, 0x0, maskSize);
+                                UnsafeUtility.MemCpy(snapshotDynamicDataPtr + dynamicBufferOffset,
+                                    baselineDynamicDataPtr + baseOffset + maskSize, bufLen * dynamicDataSnapshotStride);
+                                dynamicBufferOffset += bufLen * dynamicDataSnapshotStride;
                             }
-                        }
-                        else //same len but content changed, decode the masks and copy the content
-                        {
-                            var baselineMaskPtr = (uint*) (baselineDynamicDataPtr + baseOffset);
-                            for (int cm = 0; cm < contentMaskUInts; ++cm)
-                                contentMask[cm] = dataStream.ReadPackedUIntDelta(baselineMaskPtr[cm], CompressionModel);
-                            baseOffset += maskSize;
-                            var contentMaskOffset = 0;
-                            for (int i = 0; i < bufLen; ++i)
+                            else if ((mask & 0x2) != 0) // len changed, element masks are not present.
                             {
-                                ghostSerializer.Deserialize.Invoke(
-                                    (IntPtr) (snapshotDynamicDataPtr + dynamicBufferOffset),
-                                    (IntPtr) (baselineDynamicDataPtr + baseOffset),
-                                    ref dataStream, ref CompressionModel, (IntPtr) contentMask, contentMaskOffset);
-                                dynamicBufferOffset += dynamicDataSnapshotStride;
-                                baseOffset += dynamicDataSnapshotStride;
-                                contentMaskOffset += ghostSerializer.ChangeMaskBits;
+                                UnsafeUtility.MemSet(contentMask, 0xFF, maskSize);
+                                var contentMaskOffset = 0;
+                                //Performace here are not great. It would be better to call a method that serialize the content inside so only one call
+                                for (int i = 0; i < bufLen; ++i)
+                                {
+                                    ghostSerializer.Deserialize.Invoke(
+                                        (IntPtr) (snapshotDynamicDataPtr + dynamicBufferOffset),
+                                        (IntPtr) TempDynamicData.GetUnsafePtr(),
+                                        ref dataStream, ref CompressionModel, (IntPtr) contentMask, contentMaskOffset);
+                                    dynamicBufferOffset += dynamicDataSnapshotStride;
+                                    contentMaskOffset += ghostSerializer.ChangeMaskBits;
+                                }
                             }
+                            else //same len but content changed, decode the masks and copy the content
+                            {
+                                var baselineMaskPtr = (uint*) (baselineDynamicDataPtr + baseOffset);
+                                for (int cm = 0; cm < contentMaskUInts; ++cm)
+                                    contentMask[cm] = dataStream.ReadPackedUIntDelta(baselineMaskPtr[cm], CompressionModel);
+                                baseOffset += maskSize;
+                                var contentMaskOffset = 0;
+                                for (int i = 0; i < bufLen; ++i)
+                                {
+                                    ghostSerializer.Deserialize.Invoke(
+                                        (IntPtr) (snapshotDynamicDataPtr + dynamicBufferOffset),
+                                        (IntPtr) (baselineDynamicDataPtr + baseOffset),
+                                        ref dataStream, ref CompressionModel, (IntPtr) contentMask, contentMaskOffset);
+                                    dynamicBufferOffset += dynamicDataSnapshotStride;
+                                    baseOffset += dynamicDataSnapshotStride;
+                                    contentMaskOffset += ghostSerializer.ChangeMaskBits;
+                                }
+                            }
+                            dynamicBufferOffset = GhostComponentSerializer.SnapshotSizeAligned(dynamicBufferOffset);
                         }
-                        dynamicBufferOffset = GhostComponentSerializer.SnapshotSizeAligned(dynamicBufferOffset);
                     }
 #if NETCODE_DEBUG
                     if (NetDebugPacket.IsCreated && anyChangeMaskThisEntity != 0)
@@ -1139,21 +1151,22 @@ namespace Unity.NetCode
                     for (int comp = 0; comp < typeData.NumComponents; ++comp)
                     {
                         int serializerIdx = m_GhostComponentIndex[typeData.FirstComponent + comp].SerializerIndex;
-                        if(!m_GhostComponentCollection[serializerIdx].HasGhostFields)
-                            continue;
-                        var componentSize = m_GhostComponentCollection[serializerIdx].ComponentType.IsBuffer
+                        ref readonly var ghostSerializer = ref m_GhostComponentCollection.ElementAtRO(serializerIdx);
+                        var componentStride = m_GhostComponentCollection[serializerIdx].ComponentType.IsBuffer
                             ? GhostComponentSerializer.DynamicBufferComponentSnapshotSize
-                            : m_GhostComponentCollection[serializerIdx].SnapshotSize;
-                        componentSize = GhostComponentSerializer.SnapshotSizeAligned(componentSize);
-                        if ((serializeMask & m_GhostComponentIndex[typeData.FirstComponent + comp].SendMask) == 0 ||
-                            (sendToOwner & m_GhostComponentCollection[serializerIdx].SendToOwner) == 0)
+                            : ghostSerializer.SnapshotSize;
+                        componentStride = GhostComponentSerializer.SnapshotSizeAligned(componentStride);
+                        if (ghostSerializer.HasGhostFields)
                         {
-
-                            uint* componentSnapshotData = (uint*)(snapshotData + snapshotDataOffset);
-                            for(int i=0;i<componentSize/4;++i)
-                                componentSnapshotData[i] = 0;
+                            if ((serializeMask & m_GhostComponentIndex[typeData.FirstComponent + comp].SendMask) == 0 ||
+                                (sendToOwner & m_GhostComponentIndex[typeData.FirstComponent + comp].SendToOwner) == 0)
+                            {
+                                uint* componentSnapshotData = (uint*)(snapshotData + snapshotDataOffset);
+                                for(int i=0;i<componentStride/4;++i)
+                                    componentSnapshotData[i] = 0;
+                            }
+                            snapshotDataOffset += componentStride;
                         }
-                        snapshotDataOffset += componentSize;
                     }
                 }
                 //Check if the owner has changed in respect to the last value stored in the GhostOwnerComponent.

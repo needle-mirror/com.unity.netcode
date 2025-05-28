@@ -99,7 +99,7 @@ namespace Unity.NetCode.Tests
         }
     }
 
-    public class ChangeFilterTests
+    internal class ChangeFilterTests
     {
         [TestCase(1)]
         [TestCase(10)]

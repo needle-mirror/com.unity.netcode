@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.Runtime.InteropServices;
 using System.Text;
 using Unity.Burst;
-using Unity.Burst.CompilerServices;
 using Unity.Collections;
 using Unity.Collections.LowLevel.Unsafe;
 using Unity.Entities;
@@ -14,7 +13,7 @@ using Hash128 = Unity.Entities.Hash128;
 
 #if ENABLE_HOST_MIGRATION
 
-namespace Unity.NetCode
+namespace Unity.NetCode.HostMigration
 {
     /// <summary>
     /// Enable the host migration feature. This will enable the host migration systems and
@@ -27,6 +26,7 @@ namespace Unity.NetCode
     /// </summary>
     public struct IsMigrated : IComponentData { }
 
+    /// <summary>
     /// This component will be present for the duration of a host migration. It can be used when certain
     /// systems or operations should run or not run according to host migration state.
     /// </summary>
@@ -135,7 +135,7 @@ namespace Unity.NetCode
         /// </summary>
         public int PrefabCount;
         /// <summary>
-        /// The size of the last serialized host migration data blob. This is the blob accessed via <see cref="HostMigration.GetHostMigrationData"/>.
+        /// The size of the last serialized host migration data blob. This is the blob accessed via <see cref="HostMigrationUtility.GetHostMigrationData"/>.
         /// </summary>
         public int UpdateSize;
         /// <summary>
@@ -143,7 +143,7 @@ namespace Unity.NetCode
         /// </summary>
         public int TotalUpdateSize;
         /// <summary>
-        /// The last time the host migration data blob was updated. Accessed via <see cref="HostMigration.GetHostMigrationData"/>.
+        /// The last time the host migration data blob was updated. Accessed via <see cref="HostMigrationUtility.GetHostMigrationData"/>.
         /// </summary>
         public double LastDataUpdateTime;
     }
@@ -158,6 +158,9 @@ namespace Unity.NetCode
         public double ElapsedNetworkTime;
         public int NextNewGhostId;
         public int NextNewPrespawnGhostId;
+        public NativeArray<HostPrespawnGhostIdRangeData> PrespawnGhostIdRanges;
+        public int NumNetworkIds;
+        public NativeArray<int> FreeNetworkIds;
     }
 
     struct GhostStorage
@@ -196,6 +199,14 @@ namespace Unity.NetCode
         public Hash128 SubSceneGuid;
     }
 
+    struct HostPrespawnGhostIdRangeData
+    {
+        // the scene for which the range is applied to
+        public ulong SubSceneHash;
+        // the first id in the range
+        public int FirstGhostId;
+    }
+
     struct HostConnectionData
     {
         // NOTE: - transport already exchanges a unique connection token but it is internal connection data atm
@@ -203,7 +214,7 @@ namespace Unity.NetCode
         //         (consists of ID+Version, so a reused ID 0 will be Id=0,Version=2 which together will be unique)
         //       - this could simply be an incrementing integer, only difference to NetworkId is that it's never re-used
         //         throughout session, but this seems like duplicated data (we already have this but just internal transport data)
-        public uint UniqueId;                      // Unique ID to know what ghosts you owned before
+        public uint UniqueId;               // Unique ID to know what ghosts you owned before
         public int NetworkId;               // This doesn't matter when there is a unique connection Id, maybe good for debugging
         public bool NetworkStreamInGame;    // Maybe it was off when the migration occured, should return to same status
         public int ScenesLoadedCount;       // PrespawnSectionAck buffer will follow up to the count value
@@ -219,19 +230,6 @@ namespace Unity.NetCode
     struct ConnectionMap : IComponentData
     {
         public NativeHashMap<uint, int> UniqueIdToPreviousNetworkId;
-    }
-
-    /// <summary>
-    /// In the host migration data the ghosts will have their GhostOwner components pointing to the Network ID of the
-    /// previous connection they had. After the migration the connections are likely not yet connected when the ghosts
-    /// are spawned so these connections do not exist and will be invalid Network IDs. They would likely be pointing to the
-    /// wrong connections as well as they will get IDs reassigned in the order they reconnect (will be random). These
-    /// Network IDs will be added to this owner map and replaced with -1 IDs so that later when reconnecting connections
-    /// are processed we can lookup which connection a ghost owner previously belonged to and update it if appropriate.
-    /// </summary>
-    struct GhostOwnerMap : IComponentData
-    {
-        public NativeHashMap<Entity, int> GhostEntityToPreviousNetworkId;
     }
 
     /// <summary>
@@ -257,14 +255,13 @@ namespace Unity.NetCode
         double m_MigrationTime;
         double m_LastServerUpdate;
         NativeHashMap<uint, int> m_NetworkIdMap;
-        NativeHashMap<Entity, int> m_GhostOwnerMap;
         NativeArray<ComponentType> m_DefaultComponents;
-        HostMigration.Data m_HostMigrationCache;
+        HostMigrationUtility.Data m_HostMigrationCache;
 
         public void OnCreate(ref SystemState state)
         {
             state.RequireForUpdate<HostMigrationConfig>();
-            m_HostMigrationCache = new HostMigration.Data();
+            m_HostMigrationCache = new HostMigrationUtility.Data();
             m_HostMigrationCache.ServerOnlyComponentsFlag = new NativeList<int>(64, Allocator.Persistent);
             m_HostMigrationCache.ServerOnlyComponentsPerGhostType = new NativeHashMap<int, NativeList<ComponentType>>(64, Allocator.Persistent);
 
@@ -335,6 +332,8 @@ namespace Unity.NetCode
             }
             hostMigrationData.ValueRW.HostData.Connections.Dispose();
             hostMigrationData.ValueRW.HostData.SubScenes.Dispose();
+            hostMigrationData.ValueRW.HostData.PrespawnGhostIdRanges.Dispose();
+            hostMigrationData.ValueRW.HostData.FreeNetworkIds.Dispose();
             hostMigrationData.ValueRW.Ghosts.GhostPrefabs.Dispose();
             for (int i = 0; i < hostMigrationData.ValueRW.Ghosts.Ghosts.Length; i++)
                 hostMigrationData.ValueRW.Ghosts.Ghosts[i].Data.Dispose();
@@ -344,7 +343,6 @@ namespace Unity.NetCode
                 componentList.Dispose();
             m_HostMigrationCache.ServerOnlyComponentsPerGhostType.Dispose();
             m_NetworkIdMap.Dispose();
-            m_GhostOwnerMap.Dispose();
         }
 
         [BurstCompile]
@@ -360,13 +358,13 @@ namespace Unity.NetCode
                 if (migrate.ValueRW.Step == 0)
                 {
                     migrate.ValueRW.Step++;
-                    HostMigration.HandleReconnection(hostMigrationData.HostData.Connections, commandBuffer, entity, uniqueId.ValueRO);
+                    HostMigrationUtility.HandleReconnection(hostMigrationData.HostData.Connections, commandBuffer, entity, uniqueId.ValueRO);
                 }
                 // After the component is added to the connection entity we can copy the migrated connection data
                 else if (migrate.ValueRW.Step == 1)
                 {
                     commandBuffer.RemoveComponent<MigrateComponents>(entity);
-                    HostMigration.RestoreConnectionComponentData(hostMigrationData.HostData.Connections, state.EntityManager, entity, uniqueId.ValueRO);
+                    HostMigrationUtility.RestoreConnectionComponentData(hostMigrationData.HostData.Connections, state.EntityManager, entity, uniqueId.ValueRO);
                 }
             }
 
@@ -421,24 +419,6 @@ namespace Unity.NetCode
                     state.EntityManager.DestroyEntity(SystemAPI.GetSingletonEntity<HostMigrationRequest>());
                     state.EntityManager.DestroyEntity(SystemAPI.GetSingletonEntity<HostMigrationInProgress>());
                     var spawnedGhosts = SpawnAllGhosts(ref state, hostMigrationData.Ghosts.Ghosts, hostMigrationData.Ghosts.GhostPrefabs);
-                    m_GhostOwnerMap = new NativeHashMap<Entity, int>(spawnedGhosts.Length, Allocator.Persistent);
-                    var ghostOwnerLookup = SystemAPI.GetComponentLookup<GhostOwner>();
-                    for (int i = 0; i < spawnedGhosts.Length; ++i)
-                    {
-                        if (ghostOwnerLookup.HasComponent(spawnedGhosts[i]))
-                        {
-                            var ghostOwner = ghostOwnerLookup[spawnedGhosts[i]];
-                            m_GhostOwnerMap.Add(spawnedGhosts[i], ghostOwner.NetworkId);
-                            state.EntityManager.SetComponentData(spawnedGhosts[i], new GhostOwner(){ NetworkId = -1 });
-                        }
-                    }
-                    var ghostOwnerMapEntity = state.EntityManager.CreateEntity();
-                    state.EntityManager.AddComponentData(ghostOwnerMapEntity, new GhostOwnerMap(){GhostEntityToPreviousNetworkId = m_GhostOwnerMap});
-                    foreach (var (uniqueId, entity) in SystemAPI.Query<RefRO<ConnectionUniqueId>>().WithEntityAccess())
-                    {
-                        // We have to do this here as well as during HandleReconnection as the ghost collection will not initialize until a connection is in game first
-                        ReconnectOwnedGhosts(ref state, commandBuffer, entity, uniqueId.ValueRO);
-                    }
                 }
 
                 // Host migration has timed out (not all subscenes have finished loading and/or not all ghost prefabs exist)
@@ -476,19 +456,15 @@ namespace Unity.NetCode
                 migrationStats.ValueRW.TotalUpdateSize += updateSize;
             }
 
-            // For new connections check if they previously owned any ghosts, but only if a connection map exists (a migration has occured)
-            if (SystemAPI.HasSingleton<ConnectionMap>())
+            // For new connections check if they previously owned any ghosts
+            var connectionEventsForTick = SystemAPI.GetSingleton<NetworkStreamDriver>().ConnectionEventsForTick;
+            for (int i = 0; i < connectionEventsForTick.Length; ++i)
             {
-                var connectionEventsForTick = SystemAPI.GetSingleton<NetworkStreamDriver>().ConnectionEventsForTick;
-                for (int i = 0; i < connectionEventsForTick.Length; ++i)
+                if (connectionEventsForTick[i].State == ConnectionState.State.Connected)
                 {
-                    if (connectionEventsForTick[i].State == ConnectionState.State.Connected)
-                    {
-                        var evt = connectionEventsForTick[i];
-                        var uniqueIdLookup = SystemAPI.GetComponentLookup<ConnectionUniqueId>();
-                        HandleNetworkStreamInGame(hostMigrationData.HostData.Connections, commandBuffer, evt.ConnectionEntity, uniqueIdLookup[evt.ConnectionEntity]);
-                        ReconnectOwnedGhosts(ref state, commandBuffer, evt.ConnectionEntity, uniqueIdLookup[evt.ConnectionEntity]);
-                    }
+                    var evt = connectionEventsForTick[i];
+                    var uniqueIdLookup = SystemAPI.GetComponentLookup<ConnectionUniqueId>();
+                    HandleNetworkStreamInGame(hostMigrationData.HostData.Connections, commandBuffer, evt.ConnectionEntity, uniqueIdLookup[evt.ConnectionEntity]);
                 }
             }
             commandBuffer.Playback(state.EntityManager);
@@ -809,6 +785,27 @@ namespace Unity.NetCode
             migrationData.NextNewGhostId = SystemAPI.GetSingleton<SpawnedGhostEntityMap>().m_ServerAllocatedGhostIds[0];
             migrationData.NextNewPrespawnGhostId = SystemAPI.GetSingleton<SpawnedGhostEntityMap>().m_ServerAllocatedGhostIds[1];
 
+            // Collect the Prespawn GhostId Ranges, these are used to ensure prespans are given matching Ids between migrations
+            if (SystemAPI.HasSingleton<PrespawnGhostIdRange>())
+            {
+                var prespawnGhostIdRanges = SystemAPI.GetBuffer<PrespawnGhostIdRange>(SystemAPI.GetSingletonEntity<PrespawnGhostIdRange>());
+
+                migrationData.PrespawnGhostIdRanges = new NativeArray<HostPrespawnGhostIdRangeData>(prespawnGhostIdRanges.Length, Allocator.Persistent);
+                for ( int i=0; i< prespawnGhostIdRanges.Length; ++i )
+                {
+                    migrationData.PrespawnGhostIdRanges[i] = new HostPrespawnGhostIdRangeData()
+                    {
+                        SubSceneHash = prespawnGhostIdRanges[i].SubSceneHash,
+                        FirstGhostId = prespawnGhostIdRanges[i].FirstGhostId
+                        // We don't need to copy the count here as it will be reassigned correctly in ServerPopulatePrespawnedGhostsSystem::AllocatePrespawnGhostRange
+                    };
+                }
+            }
+
+            migrationData.NumNetworkIds = SystemAPI.GetSingleton<NetworkIDAllocationData>().NumNetworkIds.Value;
+            migrationData.FreeNetworkIds.Dispose();
+            migrationData.FreeNetworkIds = SystemAPI.GetSingleton<NetworkIDAllocationData>().FreeNetworkIds.ToArray(Allocator.Persistent);
+
             hostDataBlob.Clear();
 
             var writer = new DataStreamWriter(1024, Allocator.Temp);
@@ -862,6 +859,18 @@ namespace Unity.NetCode
 
                 dataStreamWriter.WriteInt(migrationData.NextNewGhostId);
                 dataStreamWriter.WriteInt(migrationData.NextNewPrespawnGhostId);
+
+                dataStreamWriter.WriteShort((short)migrationData.PrespawnGhostIdRanges.Length);
+                foreach (var idData in migrationData.PrespawnGhostIdRanges)
+                {
+                    dataStreamWriter.WriteULong(idData.SubSceneHash);
+                    dataStreamWriter.WriteInt(idData.FirstGhostId);
+                }
+
+                dataStreamWriter.WriteInt(migrationData.NumNetworkIds);
+                dataStreamWriter.WriteInt(migrationData.FreeNetworkIds.Length);
+                foreach ( var fid in migrationData.FreeNetworkIds)
+                    dataStreamWriter.WriteInt(fid);
             }
         }
 
@@ -927,7 +936,7 @@ namespace Unity.NetCode
                     Debug.LogError($"Trying to send a ghost with an id of 0 this should not be possible. GhostIds are assigned by the GhostSendSystem and this should always run before the migration system ensuring all ghosts have a valid id.");
                 }
 
-                var ghostData = HostMigration.GetGhostComponentData(m_HostMigrationCache, ref state, ghostEntities[i], ghostInstances[i].ghostType, out hasErrors);
+                var ghostData = HostMigrationUtility.GetGhostComponentData(m_HostMigrationCache, ref state, ghostEntities[i], ghostInstances[i].ghostType, out hasErrors);
 
                 ghostList.Add(new GhostData()
                 {
@@ -940,7 +949,7 @@ namespace Unity.NetCode
 
             ghosts.Ghosts = ghostList.AsArray();
 
-            HostMigration.SerializeGhostData(ref ghosts, ghostDataBlob);
+            HostMigrationUtility.SerializeGhostData(ref ghosts, ghostDataBlob);
             UpdateGhostStats(ref state, ref ghosts);
         }
 
@@ -950,37 +959,6 @@ namespace Unity.NetCode
             var stats = statsQuery.GetSingletonRW<HostMigrationStats>();
             stats.ValueRW.GhostCount = ghostStorage.Ghosts.Length;
             stats.ValueRW.PrefabCount = ghostStorage.GhostPrefabs.Length;
-        }
-
-        /// <summary>
-        /// For the given connection entity with this unique ID find any GhostOwner components on spawned ghosts which are
-        /// pointing to the network ID the connection previously had, and update it to the current network ID. Also
-        /// update the CommandTarget component to point to the new spawned ghost entity.
-        /// </summary>
-        void ReconnectOwnedGhosts(ref SystemState state, EntityCommandBuffer commandBuffer, Entity connectionEntity, ConnectionUniqueId uniqueId)
-        {
-            var ghostOwnerMapQuery = state.GetEntityQuery(ComponentType.ReadOnly<GhostOwnerMap>());
-            // If the ghost owner map is not yet created there are no spawned ghosts yet (or none with owner exists)
-            if (!ghostOwnerMapQuery.TryGetSingleton<GhostOwnerMap>(out var ghostOwnerMap))
-                return;
-            var mapQuery = state.GetEntityQuery(ComponentType.ReadOnly<ConnectionMap>());
-            var connectionMap = mapQuery.GetSingleton<ConnectionMap>();
-            var builder = new EntityQueryBuilder(Allocator.Temp).WithAll<GhostInstance,GhostOwner>();
-            var ghostQuery = state.GetEntityQuery(builder);
-            var owners = ghostQuery.ToComponentDataArray<GhostOwner>(Allocator.Temp);
-            if (connectionMap.UniqueIdToPreviousNetworkId.TryGetValue(uniqueId.Value, out var previousNetworkId))
-            {
-                var newNetworkId = state.EntityManager.GetComponentData<NetworkId>(connectionEntity);
-                var ownerEntities = ghostQuery.ToEntityArray(Allocator.Temp);
-                for (int i = 0; i < owners.Length; ++i)
-                {
-                    var ghostEntity = ownerEntities[i];
-                    if (ghostOwnerMap.GhostEntityToPreviousNetworkId.TryGetValue(ghostEntity, out var ghostNetworkId) && ghostNetworkId == previousNetworkId)
-                    {
-                        commandBuffer.SetComponent(ghostEntity, new GhostOwner { NetworkId = newNetworkId.Value});
-                    }
-                }
-            }
         }
 
         /// <summary>

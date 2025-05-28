@@ -7,7 +7,7 @@ using UnityEngine.TestTools;
 
 namespace Unity.NetCode.Tests
 {
-    public class GhostGroupGhostConverter : TestNetCodeAuthoring.IConverter
+    internal class GhostGroupGhostConverter : TestNetCodeAuthoring.IConverter
     {
         public void Bake(GameObject gameObject, IBaker baker)
         {
@@ -24,7 +24,7 @@ namespace Unity.NetCode.Tests
                 baker.AddComponent(entity, default(GhostChildEntity));
         }
     }
-    public class LargeDataSizeGroupGhostConverter : TestNetCodeAuthoring.IConverter
+    internal class LargeDataSizeGroupGhostConverter : TestNetCodeAuthoring.IConverter
     {
         //we need different archetype for the children
         public void Bake(GameObject gameObject, IBaker baker)
@@ -78,9 +78,9 @@ namespace Unity.NetCode.Tests
             }
         }
     }
-    public struct GhostGroupRoot : IComponentData
+    internal struct GhostGroupRoot : IComponentData
     {}
-    public class GhostGroupTests
+    internal class GhostGroupTests
     {
         [Test]
         public void EntityMarkedAsChildIsNotSent()
@@ -536,6 +536,13 @@ namespace Unity.NetCode.Tests
             var clientChildEnt = testWorld.TryGetSingletonEntity<GhostChildEntity>(testWorld.ClientWorlds[0]) != Entity.Null;
             Assert.AreEqual(expectRoot, clientEnt, "root failed:" + context);
             Assert.AreEqual(expectChild, clientChildEnt, "child failed:" + context);
+
+            var ghostCount = testWorld.GetSingleton<GhostCount>(testWorld.ClientWorlds[0]);
+            int expectedCount = (expectRoot ? 1 : 0) + (expectChild ? 1 : 0);
+            var msg = ghostCount.ToString();
+            Assert.AreEqual(expectedCount, ghostCount.GhostCountInstantiatedOnClient, msg);
+            Assert.AreEqual(expectedCount, ghostCount.GhostCountReceivedOnClient, msg);
+            Assert.AreEqual(expectedCount, ghostCount.GhostCountOnServer, msg);
         }
     }
 }

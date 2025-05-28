@@ -49,7 +49,7 @@ namespace Unity.NetCode.Tests
         }
     }
 
-    public class OwnerPredictedSwitchOwnerTests
+    internal class OwnerPredictedSwitchOwnerTests
     {
         [Test]
         public void SwitchingOwner_ChangeGhostModeOnClients()

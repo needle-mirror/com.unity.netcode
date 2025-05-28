@@ -16,7 +16,7 @@ namespace Unity.NetCode.PrespawnTests
     {
     }
 
-    public class LateJoinOptTests : TestWithSceneAsset
+    internal class LateJoinOptTests : TestWithSceneAsset
     {
         private static void CheckPrespawnArePresent(int numObjects, NetCodeTestWorld testWorld)
         {
@@ -530,7 +530,7 @@ namespace Unity.NetCode.PrespawnTests
                 }
 
                 //Even if I change 3 entities, I still receive the full chunk (8 now) delta compressed, but only once.
-                if(latencyProfile == NetCodeTestLatencyProfile.NoLatency)
+                if(latencyProfile == NetCodeTestLatencyProfile.None)
                     Assert.AreEqual(8, numReceived);
                 else Assert.IsTrue(numReceived >= 8 && numReceived % 8 == 0, $"numReceived:{numReceived}");
                 Assert.AreNotEqual(0, totalDataReceived);
@@ -628,7 +628,7 @@ namespace Unity.NetCode.PrespawnTests
                     Assert.AreEqual(0, uncompressed);
                     Assert.AreEqual(0, totalDataReceived);
                 }
-                else if (latencyProfile == NetCodeTestLatencyProfile.NoLatency)
+                else if (latencyProfile == NetCodeTestLatencyProfile.None)
                 {
                     Assert.AreEqual(5, numReceived);
                     Assert.AreEqual(0, uncompressed);
@@ -675,7 +675,7 @@ namespace Unity.NetCode.PrespawnTests
                     }
                 }
                 // Chunk 1 contains 5 entities:
-                if(latencyProfile == NetCodeTestLatencyProfile.NoLatency)
+                if(latencyProfile == NetCodeTestLatencyProfile.None)
                     Assert.AreEqual(5, numReceived);
                 else Assert.IsTrue(numReceived >= 5 && numReceived % 5 == 0, $"numReceived:{numReceived}");
                 Assert.AreNotEqual(0, totalDataReceived);
@@ -726,7 +726,7 @@ namespace Unity.NetCode.PrespawnTests
                 }
 
                 VerifyReplicatedValues(numObjects, testWorld, serverEntities, recvGhostMapSingleton, "After returning changed ghosts to their original chunk, and matching their GhostField data back to the prespawn values.");
-                if(latencyProfile == NetCodeTestLatencyProfile.NoLatency)
+                if(latencyProfile == NetCodeTestLatencyProfile.None)
                     Assert.AreEqual(6, numReceived);
                 else Assert.IsTrue(numReceived >= 6 && numReceived % 6 == 0, $"numReceived:{numReceived}");
                 Assert.AreEqual(0, uncompressed);
@@ -760,7 +760,7 @@ namespace Unity.NetCode.PrespawnTests
                         uncompressed += netStats[9];
                     }
                 }
-                if(latencyProfile == NetCodeTestLatencyProfile.NoLatency)
+                if(latencyProfile == NetCodeTestLatencyProfile.None)
                     Assert.AreEqual(10, numReceived);
                 else Assert.IsTrue(numReceived >= 10 && numReceived % 10 == 0, $"numReceived:{numReceived}");
                 Assert.AreEqual(0, uncompressed);

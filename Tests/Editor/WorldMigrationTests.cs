@@ -4,7 +4,7 @@ using Unity.Networking.Transport;
 
 namespace Unity.NetCode.Tests
 {
-    public class WorldMigrationTests
+    internal class WorldMigrationTests
     {
         static void StepTicks(NetCodeTestWorld world, int count)
         {

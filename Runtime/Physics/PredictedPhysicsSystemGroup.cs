@@ -1,6 +1,10 @@
 #if UNITY_EDITOR && !NETCODE_NDEBUG
 #define NETCODE_DEBUG
 #endif
+#if ENTITIES_1_5_OR_NEWER
+//Uncomment this to test the version with Reflection. It is only for testing purpose.
+#define  HAS_NEW_SYSTEMATTRIBUTE_API
+#endif
 
 using Unity.Entities;
 using System;
@@ -12,7 +16,9 @@ using Unity.Physics.GraphicsIntegration;
 using Unity.Physics.Systems;
 using Unity.Transforms;
 using System.Collections.Generic;
+using System.Reflection;
 using Unity.Burst;
+using Unity.Collections.LowLevel.Unsafe;
 
 namespace Unity.NetCode
 {
@@ -122,6 +128,129 @@ namespace Unity.NetCode
         }
     }
 
+    static class MovePhysicsSystemUtilities
+    {
+#if !HAS_NEW_SYSTEMATTRIBUTE_API
+        //TODO: remove this hack when the new Entities package is public.
+        private static MethodInfo s_HackGetSystemTypeMethod = null;
+        private static int s_FieldOffset = -1;
+        public static Type GetSystemType(World world, SystemHandle systemHandle)
+        {
+            if (s_HackGetSystemTypeMethod == null || s_FieldOffset == -1)
+            {
+                s_HackGetSystemTypeMethod = typeof(TypeManager).GetMethod("GetSystemType",
+                    System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic,
+                    null, new Type[] { typeof(SystemTypeIndex) }, null);
+                Assertions.Assert.IsNotNull(s_HackGetSystemTypeMethod);
+                var fieldInfo = typeof(SystemState).GetField("m_SystemTypeIndex",
+                    System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+                Assertions.Assert.IsNotNull(fieldInfo);
+                s_FieldOffset = UnsafeUtility.GetFieldOffset(fieldInfo);
+            }
+
+            ref var systemState = ref world.Unmanaged.ResolveSystemStateRef(systemHandle);
+            SystemTypeIndex systemTypeIndex;
+            unsafe { fixed (void* data = &systemState) {
+                systemTypeIndex = *(SystemTypeIndex*)((byte*)data + s_FieldOffset);
+            }}
+            return (Type)s_HackGetSystemTypeMethod.Invoke(null, new object[] { systemTypeIndex });
+        }
+
+        public static bool MovePhysicsSystem(Type systemType, SystemHandle handle,
+            ref NativeHashMap<SystemTypeIndex, SystemHandle> physicsSystemTypes)
+        {
+            SystemTypeIndex systemTypeIndex = TypeManager.GetSystemTypeIndex(systemType);
+            if (physicsSystemTypes.ContainsKey(systemTypeIndex))
+                return false;
+            var attribs = TypeManager.GetSystemAttributes(systemType, typeof(UpdateBeforeAttribute));
+            foreach (var attr in attribs)
+            {
+                var dependencyTypeIndex = TypeManager.GetSystemTypeIndex(((UpdateBeforeAttribute)attr).SystemType);
+                if (physicsSystemTypes.ContainsKey(dependencyTypeIndex))
+                {
+                    physicsSystemTypes[systemTypeIndex] = handle;
+                    return true;
+                }
+            }
+            attribs = TypeManager.GetSystemAttributes(systemType, typeof(UpdateAfterAttribute));
+            foreach (var attr in attribs)
+            {
+                var dependencyTypeIndex = TypeManager.GetSystemTypeIndex(((UpdateAfterAttribute)attr).SystemType);
+                if (physicsSystemTypes.ContainsKey(dependencyTypeIndex))
+                {
+                    physicsSystemTypes[systemTypeIndex] = handle;
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        public static void MovePhysicsSystems(FixedStepSimulationSystemGroup srcGrp,
+            PredictedFixedStepSimulationSystemGroup dstGrp, ref NativeHashMap<SystemTypeIndex, SystemHandle> physicsSystemTypes)
+        {
+            bool didMove = true;
+            var managedSystems = srcGrp.ManagedSystems;
+            var unmanagedSystems = srcGrp.GetUnmanagedSystems();
+            while (didMove)
+            {
+                didMove = false;
+                foreach (var system in managedSystems)
+                {
+                    didMove |= MovePhysicsSystemUtilities.MovePhysicsSystem(system.GetType(), system.SystemHandle, ref physicsSystemTypes);
+                }
+                foreach (var system in unmanagedSystems)
+                {
+                    var systemType = MovePhysicsSystemUtilities.GetSystemType(srcGrp.World, system);
+                    didMove |= MovePhysicsSystemUtilities.MovePhysicsSystem(systemType, system, ref physicsSystemTypes);
+                }
+            }
+        }
+#else
+        public static void MovePhysicsSystems(FixedStepSimulationSystemGroup srcGrp,
+            PredictedFixedStepSimulationSystemGroup dstGrp,
+            ref NativeHashMap<SystemTypeIndex, SystemHandle> physicsSystemTypes)
+        {
+            bool didMove = true;
+            var systems = srcGrp.GetAllSystems();
+            while (didMove)
+            {
+                didMove = false;
+                foreach (var system in systems)
+                {
+                    var systemTypeIndex = srcGrp.World.Unmanaged.GetSystemTypeIndex(system);
+                    didMove |= MovePhysicsSystemUtilities.MovePhysicsSystem(system, systemTypeIndex, ref physicsSystemTypes);
+                }
+            }
+        }
+
+        public static bool MovePhysicsSystem(SystemHandle handle, SystemTypeIndex systemTypeIndex,
+            ref NativeHashMap<SystemTypeIndex, SystemHandle> physicsSystemTypes)
+        {
+            if (physicsSystemTypes.ContainsKey(systemTypeIndex))
+                return false;
+            var attribs = TypeManager.GetSystemAttributes(systemTypeIndex, TypeManager.SystemAttributeKind.UpdateBefore);
+            foreach (var attr in attribs)
+            {
+                if (physicsSystemTypes.ContainsKey(attr.TargetSystemTypeIndex))
+                {
+                    physicsSystemTypes[systemTypeIndex] = handle;
+                    return true;
+                }
+            }
+            attribs = TypeManager.GetSystemAttributes(systemTypeIndex, TypeManager.SystemAttributeKind.UpdateAfter);
+            foreach (var attr in attribs)
+            {
+                if (physicsSystemTypes.ContainsKey(attr.TargetSystemTypeIndex))
+                {
+                    physicsSystemTypes[systemTypeIndex] = handle;
+                    return true;
+                }
+            }
+            return false;
+        }
+#endif
+    }
+
     /// <summary>
     /// A system which setup physics for prediction. It will move the PhysicsSystemGroup
     /// to the PredictedFixedStepSimulationSystemGroup.
@@ -137,58 +266,31 @@ namespace Unity.NetCode
             physGrp.RateManager = new NetcodePhysicsRateManager(physGrp);
             World.GetExistingSystemManaged<InitializationSystemGroup>().RemoveSystemFromUpdateList(this);
         }
-        bool MovePhysicsSystem(Type systemType, Dictionary<Type, bool> physicsSystemTypes)
-        {
-            if (physicsSystemTypes.ContainsKey(systemType))
-                return false;
-            var attribs = TypeManager.GetSystemAttributes(systemType, typeof(UpdateBeforeAttribute));
-            foreach (var attr in attribs)
-            {
-                var dep = attr as UpdateBeforeAttribute;
-                if (physicsSystemTypes.ContainsKey(dep.SystemType))
-                {
-                    physicsSystemTypes[systemType] = true;
-                    return true;
-                }
-            }
-            attribs = TypeManager.GetSystemAttributes(systemType, typeof(UpdateAfterAttribute));
-            foreach (var attr in attribs)
-            {
-                var dep = attr as UpdateAfterAttribute;
-                if (physicsSystemTypes.ContainsKey(dep.SystemType))
-                {
-                    physicsSystemTypes[systemType] = true;
-                    return true;
-                }
-            }
-            return false;
-        }
+
         void MovePhysicsSystems()
         {
             var srcGrp = World.GetExistingSystemManaged<FixedStepSimulationSystemGroup>();
             var dstGrp = World.GetExistingSystemManaged<PredictedFixedStepSimulationSystemGroup>();
 
-            var physicsSystemTypes = new Dictionary<Type, bool>();
-            physicsSystemTypes.Add(typeof(PhysicsSystemGroup), true);
-
-            bool didMove = true;
-            var fixedUpdateSystems = srcGrp.ManagedSystems;
-            while (didMove)
+            var physicsSystemTypes = new NativeHashMap<SystemTypeIndex, SystemHandle>(100, Allocator.Temp);
+            var physicsGroupTypeIndex = TypeManager.GetSystemTypeIndex<PhysicsSystemGroup>();
+            //TODO: there are a couple of problem with Incremental Physics world build and multiple worlds in general:
+            //- the InjectTemporalInfo bla bla system add temporal coherence to all physics entities, regardless of the PhysicsWorld index.
+            //- the InjectTemporalInfo is not moved. There is a "last resort system that does that" but seems to me just incorrect.
+            //- there is not possibilty (yet) to get a PhysicsStep per "PhysicsWorld". Instead, it should be possible to specify different settings
+            //  and simulation rate for the different physics world in my opinion.
+            //TODO: let's resolve the problem at the source: we don't need to move physics in first place, nor the fixed step group. that means changing the
+            //      whole system group and order. We can reason about this for 2.0
+            physicsSystemTypes.Add(physicsGroupTypeIndex, srcGrp.World.GetExistingSystem(physicsGroupTypeIndex));
+            MovePhysicsSystemUtilities.MovePhysicsSystems(srcGrp, dstGrp, ref physicsSystemTypes);
+            foreach (var kv in physicsSystemTypes)
             {
-                didMove = false;
-                foreach (var system in fixedUpdateSystems)
-                {
-                    var systemType = system.GetType();
-                    didMove |= MovePhysicsSystem(systemType, physicsSystemTypes);
-                }
-            }
-            foreach (var system in fixedUpdateSystems)
-            {
-                if (physicsSystemTypes.ContainsKey(system.GetType()))
-                {
-                    srcGrp.RemoveSystemFromUpdateList(system);
-                    dstGrp.AddSystemToUpdateList(system);
-                }
+                //TODO: this is silly. I think the group API should be litte more consistent
+                if (!kv.Key.IsManaged)
+                    srcGrp.RemoveSystemFromUpdateList(kv.Value);
+                else
+                    srcGrp.RemoveSystemFromUpdateList(World.GetExistingSystemManaged(kv.Key));
+                dstGrp.AddSystemToUpdateList(kv.Value);
             }
         }
     }

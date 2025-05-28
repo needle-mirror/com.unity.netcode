@@ -33,6 +33,17 @@ namespace Unity.NetCode
     {
     }
 
+    internal struct MigratedNetworkIdsData : IComponentData
+    {
+        public NativeHashMap<uint, int> MigratedNetworkIds;
+    }
+
+    internal struct NetworkIDAllocationData : IComponentData
+    {
+        public NativeReference<int> NumNetworkIds;
+        public NativeQueue<int> FreeNetworkIds;
+    }
+
     /// <summary>
     /// Factory interface that needs to be implemented by a concrete class for creating and registering new <see cref="NetworkDriver"/> instances.
     /// </summary>
@@ -297,6 +308,8 @@ namespace Unity.NetCode
         NativeList<NetCodeConnectionEvent> m_ConnectionEvents;
         private NetworkPipelineStageId m_reliableSequencedPipelineStageId;
 
+        NativeHashMap<uint, int> m_MigrationIds;
+
         /// <inheritdoc/>
         public void OnCreate(ref SystemState state)
         {
@@ -369,6 +382,16 @@ namespace Unity.NetCode
 
             var builder = new EntityQueryBuilder(Allocator.Temp).WithAll<ClientServerTickRateRefreshRequest>();
             m_RefreshTickRateQuery = state.GetEntityQuery(builder);
+
+            m_MigrationIds = new NativeHashMap<uint, int>(8, Allocator.Persistent);
+
+            var migratedNetworkIds = state.EntityManager.CreateEntity(ComponentType.ReadWrite<MigratedNetworkIdsData>());
+            state.EntityManager.SetName(migratedNetworkIds, "MigratedNetworkIDds");
+            state.EntityManager.SetComponentData(migratedNetworkIds, new MigratedNetworkIdsData() { MigratedNetworkIds = m_MigrationIds });
+
+            var networkIDAllocationData = state.EntityManager.CreateEntity(ComponentType.ReadWrite<NetworkIDAllocationData>());
+            state.EntityManager.SetName(networkIDAllocationData, "NetworkIDAllocationData");
+            state.EntityManager.SetComponentData(networkIDAllocationData, new NetworkIDAllocationData() { FreeNetworkIds = m_FreeNetworkIds, NumNetworkIds = m_NumNetworkIds });
         }
 
         /// <inheritdoc/>
@@ -379,6 +402,7 @@ namespace Unity.NetCode
             m_FreeNetworkIds.Dispose();
             m_ConnectionEvents.Dispose();
             m_ConnectionUniqueIds.Dispose();
+            m_MigrationIds.Dispose();
 
             ref readonly var networkStreamDriver = ref SystemAPI.GetSingletonRW<NetworkStreamDriver>().ValueRO;
             if (DriverState.Default == networkStreamDriver.DriverState)
@@ -542,6 +566,7 @@ namespace Unity.NetCode
                 inGameFromEntity = m_InGameFromEntity,
                 enablePacketLoggingFromEntity = m_EnablePacketLoggingFromEntity,
                 freeNetworkIds = m_FreeNetworkIds,
+                migrationIds = m_MigrationIds,
                 connectionEvents = m_ConnectionEvents,
                 connectionUniqueIds = m_ConnectionUniqueIds,
 
@@ -672,6 +697,7 @@ namespace Unity.NetCode
             public ComponentLookup<NetworkStreamInGame> inGameFromEntity;
             public ComponentLookup<EnablePacketLogging> enablePacketLoggingFromEntity;
             public NativeQueue<int> freeNetworkIds;
+            public NativeHashMap<uint, int> migrationIds;
             public NativeList<NetCodeConnectionEvent> connectionEvents;
             public NativeList<uint> connectionUniqueIds;
 
@@ -1079,13 +1105,6 @@ namespace Unity.NetCode
             /// <summary>Logic to actually fully accept a connection. Only called once handshake + approval (if enabled) is successful.</summary>
             private void ApproveConnection(Entity ent, ref NetworkStreamConnection connection, DynamicBuffer<OutgoingRpcDataStreamBuffer> outgoingBuffer, ref NetworkId networkId)
             {
-                if (!freeNetworkIds.TryDequeue(out var nid))
-                {
-                    // Avoid using 0
-                    nid = numNetworkId.Value + 1;
-                    numNetworkId.Value = nid;
-                }
-
                 // Re-assign previous unique Id in case this is a returning client
                 uint connectionUniqueId = 0;
                 bool isReconnecting = false;
@@ -1096,9 +1115,24 @@ namespace Unity.NetCode
                     if (!connectionUniqueIds.Contains(clientReportedId))
                         connectionUniqueId = clientReportedId;
                     else
-                        Debug.LogWarning($"Client is reporting an already reserved connection unique ID {clientReportedId}. Will generate a new one.");
+                        Debug.LogWarning($"Client is reporting an already reserved connection unique ID {clientReportedId} but this ID is already registered. Generating a new one.");
                     isReconnecting = true;
                 }
+
+                var newNetworkId = 0;
+
+                if ( isReconnecting && connectionUniqueId != 0 )
+                {
+                    migrationIds.TryGetValue(connectionUniqueId, out newNetworkId);
+                }
+
+                if (newNetworkId == 0 && !freeNetworkIds.TryDequeue(out newNetworkId))
+                {
+                    // Avoid using 0
+                    newNetworkId = numNetworkId.Value + 1;
+                    numNetworkId.Value = newNetworkId;
+                }
+
                 if (connectionUniqueId == 0)
                 {
                     if (randomIndex.Value == uint.MaxValue)
@@ -1115,7 +1149,7 @@ namespace Unity.NetCode
                         // Doubtful we'll ever have 100 collisions but just to prevent infinite loops
                         if (count++ > 100)
                         {
-                            Debug.LogError($"Failed to generate a non-colliding unique ID for network ID {nid}, unique ID count {connectionUniqueIds.Length}.");
+                            Debug.LogError($"Failed to generate a non-colliding unique ID for network ID {newNetworkId}, unique ID count {connectionUniqueIds.Length}.");
                             break;
                         }
                     }
@@ -1124,11 +1158,11 @@ namespace Unity.NetCode
                 commandBuffer.AddComponent(ent, new ConnectionUniqueId(){ Value = connectionUniqueId });
                 connectionUniqueIds.Add(connectionUniqueId);
 
-                networkId = new NetworkId {Value = nid};
+                networkId = new NetworkId {Value = newNetworkId};
                 commandBuffer.AddComponent(ent, networkId);
-                commandBuffer.SetName(ent, new FixedString64Bytes(FixedString.Format("NetworkConnection ({0})", nid)));
+                commandBuffer.SetName(ent, new FixedString64Bytes(FixedString.Format("NetworkConnection ({0})", newNetworkId)));
                 var serverApprovedConnection = new ServerApprovedConnection();
-                serverApprovedConnection.NetworkId = nid;
+                serverApprovedConnection.NetworkId = newNetworkId;
                 serverApprovedConnection.UniqueId = connectionUniqueId;
                 serverApprovedConnection.RefreshRequest.ReadFrom(in tickRate);
                 serverApprovedConnectionRpcQueue.Schedule(outgoingBuffer, ghostFromEntity, serverApprovedConnection);
@@ -1143,7 +1177,7 @@ namespace Unity.NetCode
                     DisconnectReason = default,
                     ConnectionEntity = ent,
                 });
-                netDebug.DebugLog($"{debugPrefix} Server approved connection {connection.Value.ToFixedString()}, assigning NetworkId={nid} UniqueId={connectionUniqueId} Reconnecting={isReconnecting} State={connection.CurrentState}.");
+                netDebug.DebugLog($"{debugPrefix} Server approved connection {connection.Value.ToFixedString()}, assigning NetworkId={newNetworkId} UniqueId={connectionUniqueId} Reconnecting={isReconnecting} State={connection.CurrentState}.");
             }
 
             /// <summary>

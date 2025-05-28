@@ -10,7 +10,7 @@ using UnityEngine.Assertions;
 namespace Unity.NetCode.Tests
 {
     [BurstCompile]
-    public struct SimpleRpcCommand : IComponentData, IRpcCommandSerializer<SimpleRpcCommand>
+    internal struct SimpleRpcCommand : IComponentData, IRpcCommandSerializer<SimpleRpcCommand>
     {
         public void Serialize(ref DataStreamWriter writer, in RpcSerializerState state, in SimpleRpcCommand data)
         {
@@ -37,7 +37,7 @@ namespace Unity.NetCode.Tests
     }
 
     [BurstCompile]
-    public struct SerializedRpcCommand : IComponentData, IRpcCommandSerializer<SerializedRpcCommand>
+    internal struct SerializedRpcCommand : IComponentData, IRpcCommandSerializer<SerializedRpcCommand>
     {
         public int intValue;
         public short shortValue;
@@ -79,13 +79,13 @@ namespace Unity.NetCode.Tests
             new PortableFunctionPointer<RpcExecutor.ExecuteDelegate>(InvokeExecute);
     }
 
-    public struct SerializedSmallRpcCommand : IRpcCommand
+    internal struct SerializedSmallRpcCommand : IRpcCommand
     {
         public long Value;
     }
 
     [BurstCompile]
-    public struct SerializedLargeRpcCommand : IComponentData, IRpcCommandSerializer<SerializedLargeRpcCommand>
+    internal struct SerializedLargeRpcCommand : IComponentData, IRpcCommandSerializer<SerializedLargeRpcCommand>
     {
         public FixedString512Bytes stringValue;
 
@@ -122,7 +122,7 @@ namespace Unity.NetCode.Tests
     }
 
     [BurstCompile]
-    public struct SerializedTooBigCommand : IRpcCommand
+    internal struct SerializedTooBigCommand : IRpcCommand
     {
         public FixedBytes4094 bytes0;
         public FixedBytes4094 bytes1;
@@ -130,9 +130,9 @@ namespace Unity.NetCode.Tests
     }
 
     [BurstCompile]
-    public struct IncorrectDeserializationCommand : IComponentData, IRpcCommandSerializer<IncorrectDeserializationCommand>
+    internal struct IncorrectDeserializationCommand : IComponentData, IRpcCommandSerializer<IncorrectDeserializationCommand>
     {
-        public enum IncorrectMode : byte
+        internal enum IncorrectMode : byte
         {
             DeserializeTooManyBytes = 1,
             DeserializeTooFewBytes = 2,
@@ -185,7 +185,7 @@ namespace Unity.NetCode.Tests
     }
 
     [BurstCompile]
-    public struct ClientIdRpcCommand : IComponentData, IRpcCommandSerializer<ClientIdRpcCommand>
+    internal struct ClientIdRpcCommand : IComponentData, IRpcCommandSerializer<ClientIdRpcCommand>
     {
         public int Id;
 
@@ -222,7 +222,7 @@ namespace Unity.NetCode.Tests
     }
 
     [BurstCompile]
-    public struct VariableSizedRpc : IComponentData, IRpcCommandSerializer<VariableSizedRpc>
+    internal struct VariableSizedRpc : IComponentData, IRpcCommandSerializer<VariableSizedRpc>
     {
         public const int Value1Multiplier = 86;
         public const int Value1Baseline = 5;
@@ -274,7 +274,7 @@ namespace Unity.NetCode.Tests
             new PortableFunctionPointer<RpcExecutor.ExecuteDelegate>(InvokeExecute);
     }
 
-    public struct InvalidRpcCommand : IComponentData, IRpcCommandSerializer<InvalidRpcCommand>
+    internal struct InvalidRpcCommand : IComponentData, IRpcCommandSerializer<InvalidRpcCommand>
     {
         public void Serialize(ref DataStreamWriter writer, in RpcSerializerState state, in InvalidRpcCommand data)
         {
@@ -291,7 +291,7 @@ namespace Unity.NetCode.Tests
     }
 
     [BurstCompile]
-    public struct RpcWithEntity : IComponentData, IRpcCommandSerializer<RpcWithEntity>
+    internal struct RpcWithEntity : IComponentData, IRpcCommandSerializer<RpcWithEntity>
     {
         public Entity entity;
 
@@ -338,7 +338,7 @@ namespace Unity.NetCode.Tests
     }
 
     [BurstCompile]
-    public struct VeryLargeRPC : IRpcCommand
+    internal struct VeryLargeRPC : IRpcCommand
     {
         public FixedString512Bytes value;
         public FixedString512Bytes value1;
@@ -347,7 +347,7 @@ namespace Unity.NetCode.Tests
     #region Send Systems
     [DisableAutoCreation]
     [WorldSystemFilter(WorldSystemFilterFlags.ClientSimulation)]
-    public partial class ClientRcpSendSystem : SystemBase
+    internal partial class ClientRcpSendSystem : SystemBase
     {
         public static int SendCount = 0;
         public Entity Remote = Entity.Null;
@@ -371,7 +371,7 @@ namespace Unity.NetCode.Tests
 
     [DisableAutoCreation]
     [WorldSystemFilter(WorldSystemFilterFlags.ServerSimulation)]
-    public partial class ServerRpcBroadcastSendSystem : SystemBase
+    internal partial class ServerRpcBroadcastSendSystem : SystemBase
     {
         public static int SendCount = 0;
 
@@ -390,7 +390,7 @@ namespace Unity.NetCode.Tests
 
     [DisableAutoCreation]
     [WorldSystemFilter(WorldSystemFilterFlags.ClientSimulation)]
-    public partial class MalformedClientRcpSendSystem : SystemBase
+    internal partial class MalformedClientRcpSendSystem : SystemBase
     {
         public static int[] SendCount = new int[2];
         public static ClientIdRpcCommand[] Cmds = new ClientIdRpcCommand[2];
@@ -424,7 +424,7 @@ namespace Unity.NetCode.Tests
 
     [DisableAutoCreation]
     [WorldSystemFilter(WorldSystemFilterFlags.ServerSimulation)]
-    public partial class SerializedServerRcpSendSystem : SystemBase
+    internal partial class SerializedServerRcpSendSystem : SystemBase
     {
         public static int SendCount = 0;
         public static SerializedRpcCommand Cmd;
@@ -449,7 +449,7 @@ namespace Unity.NetCode.Tests
 
     [DisableAutoCreation]
     [WorldSystemFilter(WorldSystemFilterFlags.ClientSimulation)]
-    public partial class SerializedClientRcpSendSystem : SystemBase
+    internal partial class SerializedClientRcpSendSystem : SystemBase
     {
         public static int SendCount = 0;
         public static SerializedRpcCommand Cmd;
@@ -474,7 +474,7 @@ namespace Unity.NetCode.Tests
 
     [DisableAutoCreation]
     [WorldSystemFilter(WorldSystemFilterFlags.ClientSimulation)]
-    public partial class SerializedClientLargeRcpSendSystem : SystemBase
+    internal partial class SerializedClientLargeRcpSendSystem : SystemBase
     {
         public static int SendCount = 0;
         public static SerializedLargeRpcCommand LargeCmd;
@@ -502,7 +502,7 @@ namespace Unity.NetCode.Tests
 
     [DisableAutoCreation]
     [WorldSystemFilter(WorldSystemFilterFlags.ClientSimulation)]
-    public partial class FlawedClientRcpSendSystem : SystemBase
+    internal partial class FlawedClientRcpSendSystem : SystemBase
     {
         public static int SendCount = 0;
 
@@ -524,7 +524,7 @@ namespace Unity.NetCode.Tests
     [DisableAutoCreation]
     [RequireMatchingQueriesForUpdate]
     [WorldSystemFilter(WorldSystemFilterFlags.ServerSimulation)]
-    public partial class ServerMultipleRpcReceiveSystem : SystemBase
+    internal partial class ServerMultipleRpcReceiveSystem : SystemBase
     {
         public static int[] ReceivedCount = new int[2];
 
@@ -544,7 +544,7 @@ namespace Unity.NetCode.Tests
 
     [DisableAutoCreation]
     [WorldSystemFilter(WorldSystemFilterFlags.ClientSimulation)]
-    public partial class MultipleClientBroadcastRpcReceiveSystem : SystemBase
+    internal partial class MultipleClientBroadcastRpcReceiveSystem : SystemBase
     {
         public static int[] ReceivedCount = new int[2];
 
@@ -574,7 +574,7 @@ namespace Unity.NetCode.Tests
     [DisableAutoCreation]
     [RequireMatchingQueriesForUpdate]
     [WorldSystemFilter(WorldSystemFilterFlags.ServerSimulation)]
-    public partial class ServerRpcReceiveSystem : SystemBase
+    internal partial class ServerRpcReceiveSystem : SystemBase
     {
         public static int ReceivedCount = 0;
 
@@ -597,7 +597,7 @@ namespace Unity.NetCode.Tests
     [DisableAutoCreation]
     [RequireMatchingQueriesForUpdate]
     [WorldSystemFilter(WorldSystemFilterFlags.ClientSimulation)]
-    public partial class ClientRpcReceiveSystem : SystemBase
+    internal partial class ClientRpcReceiveSystem : SystemBase
     {
         public int ReceivedCount = 0;
 
@@ -618,7 +618,7 @@ namespace Unity.NetCode.Tests
     [DisableAutoCreation]
     [RequireMatchingQueriesForUpdate]
     [WorldSystemFilter(WorldSystemFilterFlags.ClientSimulation)]
-    public partial class SerializedClientRpcReceiveSystem : SystemBase
+    internal partial class SerializedClientRpcReceiveSystem : SystemBase
     {
         public static int ReceivedCount = 0;
         public static SerializedRpcCommand ReceivedCmd;
@@ -639,7 +639,7 @@ namespace Unity.NetCode.Tests
     [DisableAutoCreation]
     [RequireMatchingQueriesForUpdate]
     [WorldSystemFilter(WorldSystemFilterFlags.ServerSimulation)]
-    public partial class SerializedServerRpcReceiveSystem : SystemBase
+    internal partial class SerializedServerRpcReceiveSystem : SystemBase
     {
         public static int ReceivedCount = 0;
         public static SerializedRpcCommand ReceivedCmd;
@@ -659,7 +659,7 @@ namespace Unity.NetCode.Tests
     [DisableAutoCreation]
     [RequireMatchingQueriesForUpdate]
     [WorldSystemFilter(WorldSystemFilterFlags.ServerSimulation)]
-    public partial class SerializedServerLargeRpcReceiveSystem : SystemBase
+    internal partial class SerializedServerLargeRpcReceiveSystem : SystemBase
     {
         public static int ReceivedLargeCount = 0;
         public static int ReceivedSmallCount = 0;
@@ -888,7 +888,7 @@ namespace Unity.NetCode.Tests
         }
     }
 
-    public struct MyApprovalRpc : IApprovalRpcCommand
+    internal struct MyApprovalRpc : IApprovalRpcCommand
     {
 
     }
@@ -896,7 +896,7 @@ namespace Unity.NetCode.Tests
     [DisableAutoCreation]
     [RequireMatchingQueriesForUpdate]
     [WorldSystemFilter(WorldSystemFilterFlags.ServerSimulation)]
-    public partial class VeryLargeRpcReceiveSystem : SystemBase
+    internal partial class VeryLargeRpcReceiveSystem : SystemBase
     {
         public static int ReceivedCount = 0;
         public static VeryLargeRPC ReceivedCmd;
@@ -916,7 +916,7 @@ namespace Unity.NetCode.Tests
 
     [DisableAutoCreation]
     [WorldSystemFilter(WorldSystemFilterFlags.ClientSimulation)]
-    public partial class VeryLargeRcpSendSystem : SystemBase
+    internal partial class VeryLargeRcpSendSystem : SystemBase
     {
         public static int SendCount = 0;
         public static VeryLargeRPC Cmd;
@@ -939,17 +939,17 @@ namespace Unity.NetCode.Tests
         }
     }
 
-public struct FastReconnectRpc : IRpcCommand
+internal struct FastReconnectRpc : IRpcCommand
     {
         public int Value;
     }
 
-    public struct FastReconnectApprovalRpc : IApprovalRpcCommand
+    internal struct FastReconnectApprovalRpc : IApprovalRpcCommand
     {
         public int Value;
     }
 
-    public struct FastReconnectRpcStartedApproval : IComponentData
+    internal struct FastReconnectRpcStartedApproval : IComponentData
     { }
 
     [DisableAutoCreation]
@@ -957,7 +957,7 @@ public struct FastReconnectRpc : IRpcCommand
     [UpdateInGroup(typeof(NetworkReceiveSystemGroup))]
     [UpdateBefore(typeof(NetworkGroupCommandBufferSystem))]
     [RequireMatchingQueriesForUpdate]
-    public partial class FastReconnectRpcConnectBeforeSystem : SystemBase
+    internal partial class FastReconnectRpcConnectBeforeSystem : SystemBase
     {
         public static bool ConnectNow;
         EntityQuery m_ConnectionQuery;
@@ -985,7 +985,7 @@ public struct FastReconnectRpc : IRpcCommand
     [UpdateInGroup(typeof(NetworkReceiveSystemGroup), OrderLast = true)]
     [UpdateAfter(typeof(NetworkGroupCommandBufferSystem))]
     [RequireMatchingQueriesForUpdate]
-    public partial class FastReconnectRpcConnectAfterSystem : SystemBase
+    internal partial class FastReconnectRpcConnectAfterSystem : SystemBase
     {
         public static bool ConnectNow;
         EntityQuery m_ConnectionQuery;
@@ -1013,7 +1013,7 @@ public struct FastReconnectRpc : IRpcCommand
     [UpdateInGroup(typeof(NetworkReceiveSystemGroup))]
     [UpdateBefore(typeof(NetworkGroupCommandBufferSystem))]
     [RequireMatchingQueriesForUpdate]
-    public partial class FastReconnectRpcDisconnectBeforeSystem : SystemBase
+    internal partial class FastReconnectRpcDisconnectBeforeSystem : SystemBase
     {
         public static int DisconnectDelay = -1;
 
@@ -1038,7 +1038,7 @@ public struct FastReconnectRpc : IRpcCommand
     [UpdateInGroup(typeof(NetworkReceiveSystemGroup), OrderLast = true)]
     [UpdateAfter(typeof(NetworkGroupCommandBufferSystem))]
     [RequireMatchingQueriesForUpdate]
-    public partial class FastReconnectRpcDisconnectAfterSystem : SystemBase
+    internal partial class FastReconnectRpcDisconnectAfterSystem : SystemBase
     {
         public static int DisconnectDelay = -1;
 
@@ -1063,7 +1063,7 @@ public struct FastReconnectRpc : IRpcCommand
     [UpdateInGroup(typeof(NetworkReceiveSystemGroup))]
     [UpdateBefore(typeof(NetworkGroupCommandBufferSystem))]
     [RequireMatchingQueriesForUpdate]
-    public partial class SendFastReconnectRpc : SystemBase
+    internal partial class SendFastReconnectRpc : SystemBase
     {
         protected override void OnUpdate()
         {
@@ -1082,7 +1082,7 @@ public struct FastReconnectRpc : IRpcCommand
     [DisableAutoCreation]
     [WorldSystemFilter(WorldSystemFilterFlags.ClientSimulation)]
     [RequireMatchingQueriesForUpdate]
-    public partial class SendFastReconnectApprovalRpc : SystemBase
+    internal partial class SendFastReconnectApprovalRpc : SystemBase
     {
         protected override void OnUpdate()
         {
@@ -1107,7 +1107,7 @@ public struct FastReconnectRpc : IRpcCommand
     [DisableAutoCreation]
     [WorldSystemFilter(WorldSystemFilterFlags.ServerSimulation)]
     [RequireMatchingQueriesForUpdate]
-    public partial class ReceiveFastReconnectApprovalRpc : SystemBase
+    internal partial class ReceiveFastReconnectApprovalRpc : SystemBase
     {
         protected override void OnUpdate()
         {
@@ -1126,7 +1126,7 @@ public struct FastReconnectRpc : IRpcCommand
     [UpdateInGroup(typeof(NetworkReceiveSystemGroup))]
     [UpdateBefore(typeof(NetworkGroupCommandBufferSystem))]
     [RequireMatchingQueriesForUpdate]
-    public partial class ReceiveFastReconnectRpcBefore : SystemBase
+    internal partial class ReceiveFastReconnectRpcBefore : SystemBase
     {
         protected override void OnUpdate()
         {
@@ -1146,7 +1146,7 @@ public struct FastReconnectRpc : IRpcCommand
     [UpdateInGroup(typeof(NetworkReceiveSystemGroup), OrderLast = true)]
     [UpdateAfter(typeof(NetworkGroupCommandBufferSystem))]
     [RequireMatchingQueriesForUpdate]
-    public partial class ReceiveFastReconnectRpcAfter : SystemBase
+    internal partial class ReceiveFastReconnectRpcAfter : SystemBase
     {
         protected override void OnUpdate()
         {
@@ -1164,7 +1164,7 @@ public struct FastReconnectRpc : IRpcCommand
     [DisableAutoCreation]
     [WorldSystemFilter(WorldSystemFilterFlags.ServerSimulation)]
     [RequireMatchingQueriesForUpdate]
-    public partial class ReceiveFastReconnectRpc : SystemBase
+    internal partial class ReceiveFastReconnectRpc : SystemBase
     {
         protected override void OnUpdate()
         {

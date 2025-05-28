@@ -6,7 +6,7 @@ using System.Text.RegularExpressions;
 
 namespace Unity.NetCode.Tests
 {
-    public class InvalidUsageConverter : TestNetCodeAuthoring.IConverter
+    internal class InvalidUsageConverter : TestNetCodeAuthoring.IConverter
     {
         public void Bake(GameObject gameObject, IBaker baker)
         {
@@ -16,7 +16,7 @@ namespace Unity.NetCode.Tests
     }
     [DisableAutoCreation]
     [WorldSystemFilter(WorldSystemFilterFlags.ClientSimulation)]
-    public partial class DeleteGhostOnClientSystem : SystemBase
+    internal partial class DeleteGhostOnClientSystem : SystemBase
     {
         public static int s_DeleteCount;
         protected override void OnCreate()
@@ -32,7 +32,7 @@ namespace Unity.NetCode.Tests
             }
         }
     }
-    public class InvalidUsageTests
+    internal class InvalidUsageTests
     {
         [Test]
         public void CanRecoverFromDeletingGhostOnClient()

@@ -8,7 +8,7 @@ namespace Unity.NetCode.Tests
 {
     class SendToOwnerTests
     {
-        public class TestComponentConverter : TestNetCodeAuthoring.IConverter
+        internal class TestComponentConverter : TestNetCodeAuthoring.IConverter
         {
             public void Bake(GameObject gameObject, IBaker baker)
             {

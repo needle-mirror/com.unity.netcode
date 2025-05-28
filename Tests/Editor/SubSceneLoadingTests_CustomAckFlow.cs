@@ -6,16 +6,16 @@ using Unity.Scenes;
 
 namespace Unity.NetCode.Tests
 {
-    public struct RequestUnLoadScene : IRpcCommand
+    internal struct RequestUnLoadScene : IRpcCommand
     {
         public ulong SceneHash;
         public NetworkTick ServerTick;
     }
-    public struct NotifySceneLoaded : IRpcCommand
+    internal struct NotifySceneLoaded : IRpcCommand
     {
         public ulong SceneHash;
     }
-    public struct NotifyUnloadingScene : IRpcCommand
+    internal struct NotifyUnloadingScene : IRpcCommand
     {
         public ulong SceneHash;
     }
@@ -98,7 +98,7 @@ namespace Unity.NetCode.Tests
         }
     }
 
-    public partial class SubSceneLoadingTests
+    internal partial class SubSceneLoadingTests
     {
         [Test]
         public void CustomSceneAckFlowTest()

@@ -1,4 +1,5 @@
 using System;
+using System.Diagnostics;
 using Unity.Assertions;
 using Unity.Collections;
 using Unity.Entities;
@@ -9,6 +10,7 @@ using Unity.Networking.Transport.TLS;
 using Unity.Networking.Transport.Relay;
 using Unity.Networking.Transport.Utilities;
 using UnityEngine;
+
 
 namespace Unity.NetCode
 {
@@ -80,18 +82,9 @@ namespace Unity.NetCode
         public static void AddNetcodePackageNetworkConfigParameters(ref NetworkSettings settings, bool isServer)
         {
             var config = NetCodeConfig.Global;
-            // TODO - Add support in Transport to fetch the default struct directly, so we don't miss any fields.
-            var ncp = new NetworkConfigParameter
-            {
-                connectTimeoutMS = NetworkParameterConstants.ConnectTimeoutMS,
-                maxConnectAttempts = NetworkParameterConstants.MaxConnectAttempts,
-                disconnectTimeoutMS = NetworkParameterConstants.DisconnectTimeoutMS,
-                heartbeatTimeoutMS = NetworkParameterConstants.HeartbeatTimeoutMS,
-                reconnectionTimeoutMS = NetworkParameterConstants.ReconnectionTimeoutMS,
-                maxMessageSize = NetworkParameterConstants.MaxMessageSize,
-                receiveQueueCapacity = NetworkParameterConstants.ReceiveQueueCapacity,
-                sendQueueCapacity = NetworkParameterConstants.SendQueueCapacity,
-            };
+            //force retrieve the default if not already added
+            if (!settings.TryGet(out NetworkConfigParameter ncp))
+                ncp = settings.GetNetworkConfigParameters();
             if (config)
             {
                 ncp.connectTimeoutMS = config.ConnectTimeoutMS;
@@ -161,8 +154,6 @@ namespace Unity.NetCode
             return driverInstance;
         }
 
-#if !UNITY_WEBGL || UNITY_EDITOR
-
         /// <inheritdoc cref="CreateServerNetworkDriver{T}(T)"/>
         //[Obsolete("Removed playerCount (RemovedAfter 2.0). (UnityUpgradable) -> CreateServerNetworkDriver<T>(*)", false)]
         public static NetworkDriverStore.NetworkDriverInstance CreateServerNetworkDriver<T>(T netIf, int playerCount = 0) where T : unmanaged, INetworkInterface
@@ -200,7 +191,6 @@ namespace Unity.NetCode
 
             return driverInstance;
         }
-#endif
 
         /// <summary>
         /// Helper method to determine if the client world should prefer using a socket-based network interface
@@ -271,7 +261,7 @@ namespace Unity.NetCode
         {
             if (ClientUseSocketDriver(netDebug))
             {
-#if !UNITY_WEBGL
+#if !UNITY_WEBGL || UNITY_EDITOR
                 RegisterClientUdpDriver(world, ref driverStore, netDebug, settings);
 #else
                 RegisterClientWebSocketDriver(world, ref driverStore, netDebug, settings);
@@ -353,7 +343,6 @@ namespace Unity.NetCode
             driverStore.RegisterDriver(TransportType.IPC, driverInstance);
         }
 
-#if !UNITY_WEBGL || UNITY_EDITOR
         /// <inheritdoc cref="RegisterServerDriver(World, ref NetworkDriverStore, NetDebug)"/>
         //[Obsolete("Removed playerCount (RemovedAfter 2.0). (UnityUpgradable) -> RegisterServerDriver(*)", false)]
         public static void RegisterServerDriver(World world, ref NetworkDriverStore driverStore, NetDebug netDebug, int playerCount = 0)
@@ -395,7 +384,7 @@ namespace Unity.NetCode
         public static void RegisterServerDriver(World world, ref NetworkDriverStore driverStore, NetDebug netDebug, NetworkSettings settings)
         {
             RegisterServerIpcDriver(world, ref driverStore, netDebug, settings);
-#if !UNITY_WEBGL
+#if !UNITY_WEBGL || UNITY_EDITOR
             RegisterServerUdpDriver(world, ref driverStore, netDebug, settings);
 #else
             RegisterServerWebSocketDriver(world, ref driverStore, netDebug, settings);
@@ -419,6 +408,7 @@ namespace Unity.NetCode
             driverStore.RegisterDriver(TransportType.IPC, ipcDriver);
         }
 
+#if !UNITY_WEBGL || UNITY_EDITOR
         /// <summary>
         /// Register a <see cref="UDPNetworkInterface"/> NetworkDriver instance in <paramref name="driverStore"/>.
         /// These are configured using the <paramref name="settings"/> passed in.
@@ -435,6 +425,7 @@ namespace Unity.NetCode
             var socketDriver = CreateServerNetworkDriver(new UDPNetworkInterface(), settings);
             driverStore.RegisterDriver(TransportType.Socket, socketDriver);
         }
+#endif
 
         /// <summary>
         /// Register a <see cref="WebSocketNetworkInterface"/> NetworkDriver instance in <paramref name="driverStore"/>.
@@ -464,7 +455,6 @@ namespace Unity.NetCode
             driverInstance.unreliableFragmentedPipeline = driverInstance.driver.CreatePipeline(typeof(FragmentationPipelineStage));
             driverStore.RegisterDriver(TransportType.Socket, driverInstance);
         }
-#endif
 
         /// <summary>
         /// Create the default network pipelines (reliable, unreliable, unreliable fragmented) for the client.
@@ -525,7 +515,6 @@ namespace Unity.NetCode
             RegisterClientDriver(world, ref driverStore, netDebug, settings);
         }
 
-#if !UNITY_WEBGL || UNITY_EDITOR
         /// <inheritdoc cref="RegisterServerDriver(World, ref NetworkDriverStore, NetDebug, ref FixedString4096Bytes, ref FixedString4096Bytes)"/>
         //[Obsolete("Removed default parameter `GetNetworkClientSettings` (RemovedAfter 2.0). (UnityUpgradable) -> RegisterServerDriver(*)", false)]
         public static void RegisterServerDriver(World world, ref NetworkDriverStore driverStore, NetDebug netDebug,
@@ -556,7 +545,6 @@ namespace Unity.NetCode
             RegisterServerDriver(world, ref driverStore, netDebug, settings);
         }
 #endif
-#endif
         /// <summary>
         /// Register a NetworkDriver instance in and stores it in <paramref name="driverStore"/>:<br/>
         ///     - a single <see cref="IPCNetworkInterface"/> NetworkDriver if the both client and server worlds are present in the same process.<br/>
@@ -577,7 +565,6 @@ namespace Unity.NetCode
             RegisterClientDriver(world, ref driverStore, netDebug, settings);
         }
 
-#if UNITY_EDITOR || !UNITY_WEBGL
         /// <inheritdoc cref="RegisterServerDriver(World, ref NetworkDriverStore, NetDebug, ref RelayServerData)"/>
         //[Obsolete("Removed playerCount (RemovedAfter 2.0). (UnityUpgradable) -> RegisterServerDriver(*)", false)]
         public static void RegisterServerDriver(World world, ref NetworkDriverStore driverStore, NetDebug netDebug, ref RelayServerData relayData, int playerCount = 0)
@@ -604,9 +591,10 @@ namespace Unity.NetCode
             var settings = GetNetworkServerSettings();
             RegisterServerIpcDriver(world, ref driverStore, netDebug, settings);
             settings = settings.WithRelayParameters(ref relayData);
+#if !UNITY_WEBGL || UNITY_EDITOR
             RegisterServerUdpDriver(world, ref driverStore, netDebug, settings);
-        }
 #endif
+        }
     }
 
     /// <summary>
@@ -634,9 +622,8 @@ namespace Unity.NetCode
         /// <param name="netDebug">The <see cref="netDebug"/> singleton, for logging errors and debug information</param>
         public void CreateClientDriver(World world, ref NetworkDriverStore driverStore, NetDebug netDebug)
         {
-            DefaultDriverBuilder.RegisterClientDriver(world, ref driverStore, netDebug);
+            DefaultDriverBuilder.RegisterClientDriver(world, ref driverStore, netDebug, DefaultDriverBuilder.GetNetworkClientSettings());
         }
-
 
         /// <summary>
         /// Create and register one or more network drivers that can be used to listen for incoming connection into the destination <see cref="NetworkDriverStore"/>.
@@ -652,11 +639,13 @@ namespace Unity.NetCode
         public void CreateServerDriver(World world, ref NetworkDriverStore driverStore, NetDebug netDebug)
         {
 #if UNITY_EDITOR || !UNITY_WEBGL
-            DefaultDriverBuilder.RegisterServerDriver(world, ref driverStore, netDebug);
+            DefaultDriverBuilder.RegisterServerDriver(world, ref driverStore, netDebug, DefaultDriverBuilder.GetNetworkServerSettings());
 #else
             throw new NotSupportedException(
-                "Creating a server driver for a WebGL build is not supported. You can't listen on a WebSocket in the browser." +
-                " WebGL builds should be ideally client-only (has UNITY_CLIENT define) and in case a Client/Server build is made, only client worlds should be created.");
+                "It is not valid to use the `IPCAndSocketDriverConstructor` as default constructor for configure the Server NetworkDriverStore for WebGL build.\n" +
+                "For self-hosting scenario (client/server mode) using WebGL player, in order to be able to listen for incoming connections you need to use Unity.Relay. Therefore,\n" +
+                "you must create a custom INetworkStreamDriverConstructor implementation that will setup the server driver using NetworkSettings that include the necessary relay data.\n" +
+                "Please refer to the Netcode For Entities documentation, in particular `Configure NetworkDriverStore to use Unity.Relay` section for more details about how to do it.");
 #endif
         }
     }

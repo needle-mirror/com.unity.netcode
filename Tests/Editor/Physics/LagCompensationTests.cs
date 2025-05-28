@@ -20,7 +20,7 @@ using SphereCollider = Unity.Physics.SphereCollider;
 
 namespace Unity.NetCode.Physics.Tests
 {
-    public class LagCompensationTestPlayerConverter : TestNetCodeAuthoring.IConverter
+    internal class LagCompensationTestPlayerConverter : TestNetCodeAuthoring.IConverter
     {
         public void Bake(GameObject gameObject, IBaker baker)
         {
@@ -32,12 +32,12 @@ namespace Unity.NetCode.Physics.Tests
         }
     }
 
-    public struct LagCompensationTestPlayer : IComponentData
+    internal struct LagCompensationTestPlayer : IComponentData
     {
     }
 
     [NetCodeDisableCommandCodeGen]
-    public struct LagCompensationTestCommand : ICommandData, ICommandDataSerializer<LagCompensationTestCommand>
+    internal struct LagCompensationTestCommand : ICommandData, ICommandDataSerializer<LagCompensationTestCommand>
     {
         public NetworkTick Tick {get; set;}
         public float3 origin;
@@ -75,7 +75,7 @@ namespace Unity.NetCode.Physics.Tests
     }
     [DisableAutoCreation]
     [WorldSystemFilter(WorldSystemFilterFlags.ClientSimulation|WorldSystemFilterFlags.ServerSimulation)]
-    public partial class TestAutoInGameSystem : SystemBase
+    internal partial class TestAutoInGameSystem : SystemBase
     {
         BeginSimulationEntityCommandBufferSystem m_BeginSimulationCommandBufferSystem;
         EntityQuery m_PlayerPrefabQuery;
@@ -114,7 +114,7 @@ namespace Unity.NetCode.Physics.Tests
     [DisableAutoCreation]
     [UpdateInGroup(typeof(CommandSendSystemGroup))]
     [BurstCompile]
-    public partial struct LagCompensationTestCommandCommandSendSystem : ISystem
+    internal partial struct LagCompensationTestCommandCommandSendSystem : ISystem
     {
         CommandSendSystem<LagCompensationTestCommand, LagCompensationTestCommand> m_CommandSend;
         [BurstCompile]
@@ -145,7 +145,7 @@ namespace Unity.NetCode.Physics.Tests
     [WorldSystemFilter(WorldSystemFilterFlags.ServerSimulation)]
     [UpdateInGroup(typeof(CommandReceiveSystemGroup))]
     [BurstCompile]
-    public partial struct LagCompensationTestCommandCommandReceiveSystem : ISystem
+    internal partial struct LagCompensationTestCommandCommandReceiveSystem : ISystem
     {
         CommandReceiveSystem<LagCompensationTestCommand, LagCompensationTestCommand> m_CommandRecv;
         [BurstCompile]
@@ -174,7 +174,7 @@ namespace Unity.NetCode.Physics.Tests
     [DisableAutoCreation]
     [RequireMatchingQueriesForUpdate]
     [WorldSystemFilter(WorldSystemFilterFlags.ServerSimulation)]
-    public unsafe partial class LagCompensationTestCubeMoveSystem : SystemBase
+    internal unsafe partial class LagCompensationTestCubeMoveSystem : SystemBase
     {
         internal const float DebugDrawLineDuration = 30f;
         protected  override void OnUpdate()
@@ -233,7 +233,7 @@ namespace Unity.NetCode.Physics.Tests
     [RequireMatchingQueriesForUpdate]
     [UpdateInGroup(typeof(PredictedSimulationSystemGroup))]
     [WorldSystemFilter(WorldSystemFilterFlags.ClientSimulation|WorldSystemFilterFlags.ServerSimulation)]
-    public unsafe partial class LagCompensationTestHitScanSystem : SystemBase
+    internal unsafe partial class LagCompensationTestHitScanSystem : SystemBase
     {
         public static RaycastHit? ServerRayCastHit;
         public static RaycastHit? ClientRayCastHit;
@@ -361,9 +361,9 @@ namespace Unity.NetCode.Physics.Tests
     [UpdateInGroup(typeof(GhostInputSystemGroup))]
     [AlwaysSynchronizeSystem]
     [DisableAutoCreation]
-    public partial class LagCompensationTestCommandSystem : SystemBase
+    internal partial class LagCompensationTestCommandSystem : SystemBase
     {
-        public enum ShotType
+        internal enum ShotType
         {
             DontShoot = default,
             ShootToHit,
@@ -431,7 +431,7 @@ namespace Unity.NetCode.Physics.Tests
         }
     }
 
-    public class LagCompensationTests
+    internal class LagCompensationTests
     {
         const int k_TicksToRegisterHit = 12;
 
@@ -516,19 +516,19 @@ namespace Unity.NetCode.Physics.Tests
             }
         }
 
-        public enum ColliderChangeType
+        internal enum ColliderChangeType
         {
             NoColliderChange,
             ResizeCollider,
             ChangeColliderToSphere,
             ColliderMakeUnique,
         }
-        public enum DestroyType
+        internal enum DestroyType
         {
             DestroyVictimEntity,
             KeepVictimEntityAlive,
         }
-        public enum DeepCopyStrategy
+        internal enum DeepCopyStrategy
         {
             DeepCopyOnlyDynamic,
             DeepCopyOnlyStatic,
@@ -536,17 +536,17 @@ namespace Unity.NetCode.Physics.Tests
             DeepCopyBoth,
             DeepCopyNeither,
         }
-        public enum ColliderStaticType
+        internal enum ColliderStaticType
         {
             StaticVictimEntity,
             DynamicVictimEntity,
         }
-        public enum ColliderChangeTiming
+        internal enum ColliderChangeTiming
         {
             ColliderChangeBeforeShot,
             ColliderChangeAfterShot,
         }
-        public enum IncrementalBroadphase
+        internal enum IncrementalBroadphase
         {
             FullBVHRebuild,
             IncrementalBVH,

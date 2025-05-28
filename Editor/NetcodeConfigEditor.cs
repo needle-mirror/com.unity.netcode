@@ -12,18 +12,11 @@ using Debug = UnityEngine.Debug;
 namespace Unity.NetCode.Editor
 {
     /// <summary>Editor script managing the creation and registration of <see cref="NetCodeConfig"/> Global ScriptableObject.</summary>
-    /// <remarks>
-    /// Adding the Global config to the build using the same logic as the Localization package,
-    /// com.unity.localization/Editor/Asset Pipeline/LocalizationBuildPlayer.cs.
-    /// </remarks>
     [CustomEditor(typeof(NetCodeConfig), true, isFallback = false)]
-    internal class NetcodeConfigEditor : UnityEditor.Editor, IPreprocessBuildWithReport, IPostprocessBuildWithReport
+    internal class NetcodeConfigEditor : UnityEditor.Editor
     {
         private const string k_LiveEditingWarning = " Therefore, be aware that the Global config is applied project-wide automatically:\n - In the Editor; this config is set every frame, enabling live editing. Note that this invalidates (by replacing) any C# code of yours that modifies these NetCode configuration singleton components manually.\n - In a build; this config is applied once (during Server & Client World system creation).";
         private static readonly GUILayoutOption s_ButtonWidth = GUILayout.Width(90);
-
-        bool m_RemoveFromPreloadedAssets;
-        public int callbackOrder => 0;
 
         private static NetCodeConfig SavedConfig
         {
@@ -181,65 +174,6 @@ namespace Unity.NetCode.Editor
             }
         }
 
-        /// <summary>Copied almost verbatim from com.unity.localization/Editor/Asset Pipeline/LocalizationBuildPlayer.cs.</summary>
-        public void OnPreprocessBuild(BuildReport report)
-        {
-            m_RemoveFromPreloadedAssets = false;
-            if (SavedConfig == null)
-                return;
-
-            // Add the NETCODE settings to the preloaded assets.
-            var preloadedAssets = PlayerSettings.GetPreloadedAssets();
-            bool wasDirty = IsPlayerSettingsDirty();
-
-            if (!preloadedAssets.Contains(SavedConfig))
-            {
-                ArrayUtility.Add(ref preloadedAssets, SavedConfig);
-                PlayerSettings.SetPreloadedAssets(preloadedAssets);
-
-                // If we have to add the settings then we should also remove them.
-                m_RemoveFromPreloadedAssets = true;
-
-                // Clear the dirty flag so we dont flush the modified file (case 1254502)
-                if (!wasDirty)
-                    ClearPlayerSettingsDirtyFlag();
-            }
-        }
-
-        /// <summary>Copied almost verbatim from com.unity.localization/Editor/Asset Pipeline/LocalizationBuildPlayer.cs.</summary>
-        public void OnPostprocessBuild(BuildReport report)
-        {
-            if (SavedConfig == null || !m_RemoveFromPreloadedAssets)
-                return;
-
-            bool wasDirty = IsPlayerSettingsDirty();
-
-            var preloadedAssets = PlayerSettings.GetPreloadedAssets();
-            ArrayUtility.Remove(ref preloadedAssets, SavedConfig);
-            PlayerSettings.SetPreloadedAssets(preloadedAssets);
-
-            // Clear the dirty flag so we dont flush the modified file (case 1254502)
-            if (!wasDirty)
-                ClearPlayerSettingsDirtyFlag();
-        }
-
-        /// <summary>Copied almost verbatim from com.unity.localization/Editor/Asset Pipeline/LocalizationBuildPlayer.cs.</summary>
-        static bool IsPlayerSettingsDirty()
-        {
-            var settings = Resources.FindObjectsOfTypeAll<PlayerSettings>();
-            if (settings != null && settings.Length > 0)
-                return EditorUtility.IsDirty(settings[0]);
-            return false;
-        }
-
-        /// <summary>Copied almost verbatim from com.unity.localization/Editor/Asset Pipeline/LocalizationBuildPlayer.cs.</summary>
-        static void ClearPlayerSettingsDirtyFlag()
-        {
-            var settings = Resources.FindObjectsOfTypeAll<PlayerSettings>();
-            if (settings != null && settings.Length > 0)
-                EditorUtility.ClearDirty(settings[0]);
-        }
-
         private static readonly GUIContent s_ClientServerTickRate = new GUIContent("ClientServerTickRate", "General multiplayer settings.\n\nServer Authoritative - Thus, when a client connects, the server will send an RPC clobbering any existing client values.");
         private static readonly GUIContent s_ClientTickRate = new GUIContent("ClientTickRate", "General multiplayer settings for the client.\n\nCan be configured on a per-client basis (via use of multiple configs, or direct C# component manipulation).");
         private static readonly GUIContent s_GhostSendSystemData = new GUIContent("GhostSendSystemData", "Specific optimization (and debug) settings for the GhostSendSystem to reduce bandwidth and CPU consumption.");
@@ -376,6 +310,76 @@ namespace Unity.NetCode.Editor
             if (config.EnablePerComponentProfiling) EditorGUILayout.HelpBox("You've enabled EnablePerComponentProfiling, which will adversely impact performance.", MessageType.Warning);
             if (config.ForcePreSerialize) EditorGUILayout.HelpBox("You've enabled ForcePreSerialize (a debug setting), which may adversely impact performance.", MessageType.Warning);
             if (config.ForceSingleBaseline) EditorGUILayout.HelpBox("You've enabled ForceSingleBaseline, which will adversely impact bandwidth (often significantly), but improve CPU performance.", MessageType.Warning);
+        }
+
+
+        /// <summary>
+        /// Adding the Global config to the build using the same logic as the Localization package,
+        /// com.unity.localization/Editor/Asset Pipeline/LocalizationBuildPlayer.cs.
+        /// </summary>
+        internal class NetcodeConfigEditorBuildProcess : IPreprocessBuildWithReport, IPostprocessBuildWithReport
+        {
+            bool m_RemoveFromPreloadedAssets;
+            public int callbackOrder => 0;
+
+           /// <summary>Copied almost verbatim from com.unity.localization/Editor/Asset Pipeline/LocalizationBuildPlayer.cs.</summary>
+            public void OnPreprocessBuild(BuildReport report)
+            {
+                m_RemoveFromPreloadedAssets = false;
+                if (SavedConfig == null)
+                    return;
+
+                // Add the NETCODE settings to the preloaded assets.
+                var preloadedAssets = PlayerSettings.GetPreloadedAssets();
+                bool wasDirty = IsPlayerSettingsDirty();
+
+                if (!preloadedAssets.Contains(SavedConfig))
+                {
+                    ArrayUtility.Add(ref preloadedAssets, SavedConfig);
+                    PlayerSettings.SetPreloadedAssets(preloadedAssets);
+
+                    // If we have to add the settings then we should also remove them.
+                    m_RemoveFromPreloadedAssets = true;
+
+                    // Clear the dirty flag so we dont flush the modified file (case 1254502)
+                    if (!wasDirty)
+                        ClearPlayerSettingsDirtyFlag();
+                }
+            }
+
+            /// <summary>Copied almost verbatim from com.unity.localization/Editor/Asset Pipeline/LocalizationBuildPlayer.cs.</summary>
+            public void OnPostprocessBuild(BuildReport report)
+            {
+                if (SavedConfig == null || !m_RemoveFromPreloadedAssets)
+                    return;
+
+                bool wasDirty = IsPlayerSettingsDirty();
+
+                var preloadedAssets = PlayerSettings.GetPreloadedAssets();
+                ArrayUtility.Remove(ref preloadedAssets, SavedConfig);
+                PlayerSettings.SetPreloadedAssets(preloadedAssets);
+
+                // Clear the dirty flag so we dont flush the modified file (case 1254502)
+                if (!wasDirty)
+                    ClearPlayerSettingsDirtyFlag();
+            }
+
+            /// <summary>Copied almost verbatim from com.unity.localization/Editor/Asset Pipeline/LocalizationBuildPlayer.cs.</summary>
+            static bool IsPlayerSettingsDirty()
+            {
+                var settings = Resources.FindObjectsOfTypeAll<PlayerSettings>();
+                if (settings != null && settings.Length > 0)
+                    return EditorUtility.IsDirty(settings[0]);
+                return false;
+            }
+
+            /// <summary>Copied almost verbatim from com.unity.localization/Editor/Asset Pipeline/LocalizationBuildPlayer.cs.</summary>
+            static void ClearPlayerSettingsDirtyFlag()
+            {
+                var settings = Resources.FindObjectsOfTypeAll<PlayerSettings>();
+                if (settings != null && settings.Length > 0)
+                    EditorUtility.ClearDirty(settings[0]);
+            }
         }
     }
 }

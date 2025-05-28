@@ -5,7 +5,7 @@ using Unity.NetCode.Tests;
 
 namespace Unity.Scenes.Editor.Tests
 {
-    public class DotsGlobalSettingsTests : TestWithSceneAsset
+    internal class DotsGlobalSettingsTests : TestWithSceneAsset
     {
         [Test]
         public void NetCodeDebugDefine_IsSetForDevelopmentBuild()

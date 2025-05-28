@@ -8,7 +8,7 @@ using UnityEngine.TestTools;
 
 namespace Unity.NetCode.Tests
 {
-    public class GhostPrefabCreationTests
+    internal class GhostPrefabCreationTests
     {
         [Test]
         public void CreateGhostPrefabWithChildren()

@@ -6,17 +6,17 @@ using UnityEngine;
 
 namespace Unity.NetCode.Tests
 {
-    public class NetCodePrespawnAuthoring : MonoBehaviour
+    internal class NetCodePrespawnAuthoring : MonoBehaviour
     {}
 
     [GhostComponent(SendDataForChildEntity = true)]
     [GhostEnabledBit]
-    public struct TestComponent1 : IComponentData, IEnableableComponent
+    internal struct TestComponent1 : IComponentData, IEnableableComponent
     {}
 
     [GhostComponent(SendDataForChildEntity = true)]
     [GhostEnabledBit]
-    public struct TestComponent2 : IComponentData, IEnableableComponent, IEquatable<TestComponent2>
+    internal struct TestComponent2 : IComponentData, IEnableableComponent, IEquatable<TestComponent2>
     {
         [GhostField] public float3 Test1;
         [GhostField] public long Test2;
@@ -32,7 +32,7 @@ namespace Unity.NetCode.Tests
     [GhostComponent(SendDataForChildEntity = true)]
     [InternalBufferCapacity(0)]
     [GhostEnabledBit]
-    public struct TestBuffer3 : IBufferElementData, IEnableableComponent, IEquatable<TestBuffer3>
+    internal struct TestBuffer3 : IBufferElementData, IEnableableComponent, IEquatable<TestBuffer3>
     {
         [GhostField] public float2 Test1;
         [GhostField] public int Test2;

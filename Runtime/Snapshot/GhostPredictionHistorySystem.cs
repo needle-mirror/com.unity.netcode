@@ -166,6 +166,8 @@ namespace Unity.NetCode
     /// </summary>
     [WorldSystemFilter(WorldSystemFilterFlags.ClientSimulation)]
     [UpdateInGroup(typeof(PredictedSimulationSystemGroup), OrderLast = true)]
+    [UpdateAfter(typeof(GhostPredictionEnableSimulateSystem))]
+    [UpdateBefore(typeof(EndPredictedSimulationEntityCommandBufferSystem))]
     [BurstCompile]
     public unsafe partial struct GhostPredictionHistorySystem : ISystem
     {

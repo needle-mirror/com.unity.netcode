@@ -11,7 +11,7 @@ namespace Unity.NetCode.Tests
     [UpdateInGroup(typeof(SimulationSystemGroup), OrderLast = true)]
     [UpdateBefore(typeof(GhostSendSystem))]
     [UpdateAfter(typeof(EndSimulationEntityCommandBufferSystem))]
-    public partial class SimpleGhostSendSystemProxy : ComponentSystemGroup
+    internal partial class SimpleGhostSendSystemProxy : ComponentSystemGroup
     {
         static readonly ProfilerMarker k_Update = new ProfilerMarker("GhostSendSystem_OnUpdate");
         static readonly ProfilerMarker k_CompleteTrackedJobs = new ProfilerMarker("GhostSendSystem_CompleteAllTrackedJobs");
@@ -51,7 +51,7 @@ namespace Unity.NetCode.Tests
     [UpdateInGroup(typeof(SimulationSystemGroup), OrderLast = true)]
     [UpdateBefore(typeof(GhostSendSystem))]
     [UpdateAfter(typeof(EndSimulationEntityCommandBufferSystem))]
-    public partial class GhostSendSystemProxy : ComponentSystemGroup
+    internal partial class GhostSendSystemProxy : ComponentSystemGroup
     {
         List<SampleGroup> m_GhostSampleGroups;
         readonly SampleGroup m_SerializationGroup = new SampleGroup("SpeedOfLightGroup", SampleUnit.Nanosecond);

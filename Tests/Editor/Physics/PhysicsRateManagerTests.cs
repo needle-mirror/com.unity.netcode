@@ -58,7 +58,7 @@ namespace Unity.NetCode.Physics.Tests
         }
     }
 
-    public class RateManagerTests
+    internal class RateManagerTests
     {
         [TestCase(60, 60)]
         [TestCase(60, 120)]

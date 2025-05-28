@@ -20,12 +20,12 @@ using UnityEngine.TestTools;
 
 namespace Unity.NetCode.PrespawnTests
 {
-    public struct EnableVerifyGhostIds : IComponentData
+    internal struct EnableVerifyGhostIds : IComponentData
     {}
 
     [DisableAutoCreation]
     [WorldSystemFilter(WorldSystemFilterFlags.ClientSimulation | WorldSystemFilterFlags.ServerSimulation)]
-    public partial class VerifyGhostIds : SystemBase
+    internal partial class VerifyGhostIds : SystemBase
     {
         public int Matches = 0;
         public static int GhostsPerScene = 7;
@@ -72,7 +72,7 @@ namespace Unity.NetCode.PrespawnTests
         }
     }
 
-    public class PreSpawnTests : TestWithSceneAsset
+    internal class PreSpawnTests : TestWithSceneAsset
     {
         void CheckAllPrefabsInWorlds(NetCodeTestWorld testWorld)
         {

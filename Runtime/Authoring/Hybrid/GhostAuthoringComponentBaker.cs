@@ -143,8 +143,14 @@ namespace Unity.NetCode
                     AddComponent<GhostPrefabRuntimeStrip>(entity);
             }
 
-            if (isPrefab && (target != NetcodeConversionTarget.Server) && (bakingConfig.Config.SupportedGhostModes != GhostModeMask.Interpolated))
+            if (isPrefab && (target != NetcodeConversionTarget.Server) &&
+                (bakingConfig.Config.SupportedGhostModes != GhostModeMask.Interpolated))
+            {
                 AddComponent<PredictedGhostSpawnRequest>(entity);
+                //We start from disabled to have better query support
+                SetComponentEnabled<PredictedGhostSpawnRequest>(entity, false);
+            }
+
         }
     }
 

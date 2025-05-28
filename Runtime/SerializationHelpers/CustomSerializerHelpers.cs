@@ -38,6 +38,8 @@ namespace Unity.NetCode.LowLevel.Unsafe
             IntPtr snapshotData,
             ref int snapshotOffset) where T: unmanaged, IGhostSerializer
         {
+            if(Burst.CompilerServices.Hint.Unlikely(!serializer.HasGhostFields))
+                return;
             var data = (IntPtr)chunk.GetDynamicComponentDataArrayReinterpret<byte>(ref typeHandles[index.ComponentIndex], index.ComponentSize).GetUnsafeReadOnlyPtr();
             var snapshot = snapshotData + snapshotOffset;
             for (int ent = context.startIndex; ent < context.endIndex; ++ent)
@@ -70,6 +72,8 @@ namespace Unity.NetCode.LowLevel.Unsafe
             in GhostCollectionComponentIndex index,
             IntPtr snapshotData, ref int snapshotOffset) where T: unmanaged, IGhostSerializer
         {
+            if(Burst.CompilerServices.Hint.Unlikely(!serializer.HasGhostFields))
+                return;
             var data = (IntPtr)chunk.GetDynamicComponentDataArrayReinterpret<byte>(ref typeHandles[index.ComponentIndex], index.ComponentSize).GetUnsafeReadOnlyPtr();
             serializer.CopyToSnapshot(context.serializerState, snapshotData + snapshotOffset, data + index.ComponentSize*indexInChunk);
             snapshotOffset += GhostComponentSerializer.SnapshotSizeAligned(index.SnapshotSize);
@@ -98,6 +102,8 @@ namespace Unity.NetCode.LowLevel.Unsafe
             IntPtr snapshotData,
             ref int snapshotOffset, ref int dynamicSnapshotDataOffset) where T: unmanaged, IGhostSerializer
         {
+            if(Burst.CompilerServices.Hint.Unlikely(!serializer.HasGhostFields))
+                return;
             var bufAccessor = chunk.GetUntypedBufferAccessor(ref typeHandles[index.ComponentIndex]);
             var snapshot = snapshotData + snapshotOffset;
             for (int ent = context.startIndex; ent < context.endIndex; ++ent)
@@ -133,6 +139,8 @@ namespace Unity.NetCode.LowLevel.Unsafe
             IntPtr snapshotData,ref int snapshotOffset, ref int dynamicSnapshotOffset)
             where T: unmanaged, IGhostSerializer
         {
+            if(Burst.CompilerServices.Hint.Unlikely(!serializer.HasGhostFields))
+                return;
             var bufAccessor = chunk.GetUntypedBufferAccessor(ref typeHandles[index.ComponentIndex]);
             var snapshot = snapshotData + snapshotOffset;
             var bufData = (IntPtr)bufAccessor.GetUnsafeReadOnlyPtrAndLength(indexInChunk, out var bufLen);
@@ -147,6 +155,8 @@ namespace Unity.NetCode.LowLevel.Unsafe
             ref int dynamicSnapshotOffset, int componentSize, int snapshotSize, T serializer,
             IntPtr snapshot, IntPtr bufData, int bufLen) where T : unmanaged, IGhostSerializer
         {
+            if(Burst.CompilerServices.Hint.Unlikely(!serializer.HasGhostFields))
+                return;
             var dynamicSnapshot = context.snapshotDynamicDataPtr + dynamicSnapshotOffset;
             //Set the elements count and the buffer content offset inside the dynamic data history buffer
             *(uint*)snapshot = (uint)bufLen;

@@ -9,7 +9,7 @@ using UnityEngine.TestTools;
 namespace Unity.NetCode.Tests
 {
     // This test class is coupled with GhostGenTestUtils, which holds the types used
-    public class GhostGenTestTypes
+    internal class GhostGenTestTypes
     {
         // TODO - Test fragmented unreliable sends by having two large ICommandDatas on 1 client.
         // Tests that all supported ghost values are replicated from Server->Client on IComponentData via ghost fields
@@ -364,7 +364,7 @@ namespace Unity.NetCode.Tests
             }
         }
 
-        public struct GhostGenBigStruct : IComponentData
+        internal struct GhostGenBigStruct : IComponentData
         {
             //Add 100 int fields and check they are serialized correctly
             [GhostField] public int field000;
@@ -470,7 +470,7 @@ namespace Unity.NetCode.Tests
             [GhostField] public int field100;
         }
 
-        public class GhostGenBigStructConverter : TestNetCodeAuthoring.IConverter
+        internal class GhostGenBigStructConverter : TestNetCodeAuthoring.IConverter
         {
             public void Bake(GameObject gameObject, IBaker baker)
             {

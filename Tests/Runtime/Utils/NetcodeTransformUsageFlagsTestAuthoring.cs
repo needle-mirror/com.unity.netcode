@@ -6,12 +6,12 @@ using Unity.Entities;
 /// <summary>
 /// NetcodeTransformUsageFlagsTestAuthoring
 /// </summary>
-public class NetcodeTransformUsageFlagsTestAuthoring : MonoBehaviour
+internal class NetcodeTransformUsageFlagsTestAuthoring : MonoBehaviour
 {
     /// <summary>
     /// Baker for NetcodeTransformUsageFlagsTestAuthoring
     /// </summary>
-    public class Baker : Baker<NetcodeTransformUsageFlagsTestAuthoring>
+    internal class Baker : Baker<NetcodeTransformUsageFlagsTestAuthoring>
     {
         /// <summary>
         /// Baker function

@@ -148,6 +148,9 @@ namespace Unity.NetCode
                 // Find the ghost type for this chunk
                 var ghostType = ghosts[0].ghostType;
                 // Pre spawned ghosts might not have a proper ghost type index yet, we calculate it here for pre spawns
+                // This case should be almost impossible, given the fact all pre-spawned ghosts are initialized after the scene
+                // is loaded. Server either initialize them all or nothing, unless an error preven the GhostCollectionSystem to
+                // properly process and initialize the ghost prefabs.
                 if (ghostType < 0)
                 {
                     var GhostCollection = GhostCollectionFromEntity[GhostCollectionSingleton];
@@ -157,9 +160,18 @@ namespace Unity.NetCode
                         if (GhostCollection[ghostType].GhostType == ghostTypeComponent)
                             break;
                     }
-                    if(ghostType >= GhostTypeCollection.Length)
+
+                    if (ghostType >= GhostCollection.Length)
                     {
-                        netDebug.LogError($"Could not find ghost type {(Hash128)ghostTypeComponent} in the GhostCollectionPrefab list.");
+                        netDebug.LogError($"Could not find ghost type {(Hash128)ghostTypeComponent} for a pre-spawned ghosts in the GhostCollectionPrefab list. This usually indicates the GhostCollection has not been able to process the ghost prefab or the prefab entity has not been loaded as depedency or has been deleted. Please check for error log in relation to the GhostCollectionSystem.");
+                        return;
+                    }
+                    //The prefab has been detected but the GhostCollectionPrefabSerializer entry has not been setup. The only conditions for this are
+                    //-an error during the initialization of another prefab
+                    //-the server has reset the collection (i.e no more connection in game),
+                    if (ghostType >= GhostTypeCollection.Length)
+                    {
+                        netDebug.LogError($"Could not find ghost type {(Hash128)ghostTypeComponent} in the GhostCollectionPrefabSerializer list. The ghost prefab has been detected by the GhostCollectionSystem but the serialization data has not being initialized. That usually indicates some error during the initialization of the serialization data for some other prefab type. Please check for error log in relation to the GhostCollectionSystem.");
                         return;
                     }
                 }

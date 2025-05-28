@@ -6,7 +6,7 @@ using UnityEngine;
 
 namespace Unity.NetCode.Tests
 {
-    public class MultiDriverTests
+    internal class MultiDriverTests
     {
         [Test]
         public void LocalEndpointCanBeRetrieved()

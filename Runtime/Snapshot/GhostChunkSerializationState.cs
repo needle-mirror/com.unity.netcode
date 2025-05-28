@@ -11,6 +11,7 @@ using Unity.Mathematics;
 
 namespace Unity.NetCode.LowLevel.Unsafe
 {
+    /// <summary>A per-connection, per-ghost-chunk state, storing snapshot send reliability info (baselines etc).</summary>
     unsafe struct GhostChunkSerializationState
     {
         public ulong sequenceNumber;
@@ -27,6 +28,7 @@ namespace Unity.NetCode.LowLevel.Unsafe
         private int allocatedChunkCapacity;
         private int allocatedDataSize;
 
+        /// <summary>The subset of this per-chunk state that changes often.</summary>
         [StructLayout(LayoutKind.Sequential)]
         public struct MetaData
         {
@@ -36,7 +38,7 @@ namespace Unity.NetCode.LowLevel.Unsafe
             public uint orderChangeVersion;
             public NetworkTick firstZeroChangeTick;
             public uint firstZeroChangeVersion;
-            public int allIrrelevant;
+            public int numRelevant;
             public NetworkTick lastValidTick;
         }
 
@@ -100,13 +102,16 @@ namespace Unity.NetCode.LowLevel.Unsafe
             return size == allocatedDataSize && capacity == allocatedChunkCapacity;
         }
 
-        public bool GetAllIrrelevant()
+        public int GetNumRelevant() => ((MetaData*)snapshotData)->numRelevant;
+
+        public bool GetAllIrrelevant() => ((MetaData*)snapshotData)->numRelevant == 0;
+
+        public void SetNumRelevant(int numRelevant, in ArchetypeChunk chunk)
         {
-            return ((MetaData*)snapshotData)->allIrrelevant != 0;
-        }
-        public void SetAllIrrelevant(bool irrelevant)
-        {
-            ((MetaData*)snapshotData)->allIrrelevant = (irrelevant?1:0);
+#if ENABLE_UNITY_COLLECTIONS_CHECKS
+            UnityEngine.Debug.Assert(numRelevant >= 0 && numRelevant <= chunk.Count);
+#endif
+            ((MetaData*)snapshotData)->numRelevant = numRelevant;
         }
         public NetworkTick GetLastUpdate()
         {

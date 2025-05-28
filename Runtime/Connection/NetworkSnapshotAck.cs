@@ -280,12 +280,12 @@ namespace Unity.NetCode
         /// </summary>
         public uint LastReceiveTimestamp;
         /// <summary>
-        /// The calculated exponential smoothing average connection round trip time.
+        /// The calculated exponential smoothing average connection round trip time, in milliseconds.
         /// </summary>
         public float EstimatedRTT;
         /// <summary>
-        /// The round trip time average deviation from the <see cref="EstimatedRTT"/>. It is not a real standard deviation but an approximation
-        /// using a simpler exponential smoothing average.
+        /// The round trip time average deviation from the <see cref="EstimatedRTT"/>, in milliseconds.
+        /// It is not a real standard deviation but an approximation using a simpler exponential smoothing average.
         /// </summary>
         public float DeviationRTT;
         /// <summary>

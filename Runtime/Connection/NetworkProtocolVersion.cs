@@ -1,9 +1,11 @@
 using System;
-using System.Collections.Generic;
 using System.Diagnostics;
 using Unity.Burst;
 using Unity.Collections;
 using Unity.Entities;
+#if ENABLE_HOST_MIGRATION
+using Unity.NetCode.HostMigration;
+#endif
 using UnityEngine;
 
 namespace Unity.NetCode

@@ -383,9 +383,9 @@ namespace Unity.NetCode
         public int SerializerIndex;
         /// <summary>The <see cref="TypeIndex"/> the component.</summary>
         public int TypeIndex;
-        /// <summary>Size of the component.</summary>
+        /// <summary>Size of the component or buffer element</summary>
         public int ComponentSize;
-        /// <summary>Size of the component in the snapshot buffer.</summary>
+        /// <summary>Size of the component in the snapshot buffer. 0 if not ghost fields are serialized </summary>
         public int SnapshotSize;
         /// <summary>Current send mask for that component, used to not send/receive components in some configuration.</summary>
         public GhostSendType SendMask;

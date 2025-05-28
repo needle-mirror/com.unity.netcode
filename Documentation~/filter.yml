@@ -24,9 +24,6 @@ apiRules:
       uidRegex: \.OnInspectorGUI$
       type: Method
   - exclude:
-      uidRegex: .*Tests.*
-      type: Namespace
-  - exclude:
       uidRegex: \.__COMMAND_NAMESPACE__$
       type: Namespace
   - exclude:
@@ -38,4 +35,21 @@ apiRules:
   - exclude:
       uidRegex: \.ToString$
       type: Method
-
+  - exclude:
+      uidRegex: ^Unity\.NetCode\.Tests\.FixedListComplexData.*$
+      type: Struct
+  - exclude:
+      uidRegex: ^Unity\.NetCode\.Tests\.HybridComponentWeWillOverride$
+      type: Class
+  - exclude:
+      uidRegex: ^Unity\.NetCode\.Tests\.SimpleData.*$
+      type: Struct
+  - exclude:
+      uidRegex: ^Unity\.NetCode\.Tests\.FixedElement8.*$
+      type: Struct
+  - exclude:
+      uidRegex: ^Unity\.NetCode\.Tests\.Nested.*$
+      type: Struct
+  - exclude:
+      uidRegex: ^Unity\.NetCode\.Tests\.(.*)(Variant|Variation).*$
+      type: Struct

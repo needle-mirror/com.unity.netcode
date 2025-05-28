@@ -10,7 +10,7 @@ using Unity.Transforms;
 
 namespace Unity.NetCode.Tests.Performance
 {
-    public class PerformanceTests
+    internal class PerformanceTests
     {
         private const int numPrefabs = 1000;
 

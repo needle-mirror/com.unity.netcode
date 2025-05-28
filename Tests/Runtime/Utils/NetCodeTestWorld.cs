@@ -1,5 +1,9 @@
+#if UNITY_EDITOR && !NETCODE_NDEBUG
+#define NETCODE_DEBUG
+#endif
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
 using System.Text.RegularExpressions;
 using NUnit.Framework;
@@ -8,6 +12,7 @@ using Unity.Entities;
 using Unity.Networking.Transport;
 using Unity.Networking.Transport.Utilities;
 using Unity.Collections;
+using Unity.NetCode.LowLevel.Unsafe;
 using Unity.Profiling;
 using Unity.Transforms;
 using UnityEngine.TestTools;
@@ -23,14 +28,14 @@ using Unity.Logging.Sinks;
 
 namespace Unity.NetCode.Tests
 {
-    public struct NetCodeTestPrefabCollection : IComponentData
+    internal struct NetCodeTestPrefabCollection : IComponentData
     {}
-    public struct NetCodeTestPrefab : IBufferElementData
+    internal struct NetCodeTestPrefab : IBufferElementData
     {
         public Entity Value;
     }
 
-    public class NetCodeTestWorld : IDisposable, INetworkStreamDriverConstructor
+    internal class NetCodeTestWorld : IDisposable, INetworkStreamDriverConstructor
     {
         /// <summary>
         /// True if you want to forward all netcode logs from the server, to allow <see cref="LogAssert"/> usage.
@@ -83,6 +88,7 @@ namespace Unity.NetCode.Tests
         public int DriverMaxMessageSize = NetworkParameterConstants.MaxMessageSize;
         public int DriverReliablePipelineWindowSize = 32;
         public int UseMultipleDrivers = 0;
+        public int DriverFragmentedPayloadCapacity = 16 * 1024;
         public int UseFakeSocketConnection = 1;
         private int WorldCreationIndex = 0;
         public NetCodeConfig m_OldGlobalConfig;
@@ -655,6 +661,7 @@ namespace Unity.NetCode.Tests
             var networkSettings = new NetworkSettings();
             networkSettings
                 .WithReliableStageParameters(windowSize:DriverReliablePipelineWindowSize)
+                .WithFragmentationStageParameters(payloadCapacity:DriverFragmentedPayloadCapacity)
                 .WithNetworkConfigParameters
             (
                 maxFrameTimeMS: 100,
@@ -663,7 +670,7 @@ namespace Unity.NetCode.Tests
             );
             networkSettings.AddRawParameterStruct(ref simParams);
 
-            //We are forcing here the connection type to be a socket but the connection is instead based on IPC.
+            //We are forcing here the connection type to be a socket but thxe connection is instead based on IPC.
             //The reason for that is that we want to be able to disable any check/logic that optimise for that use case
             //by default in the test.
             //It is possible however to disable this behavior using the provided opt
@@ -711,6 +718,7 @@ namespace Unity.NetCode.Tests
             var networkSettings = new NetworkSettings();
             networkSettings
                 .WithReliableStageParameters(windowSize: DriverReliablePipelineWindowSize)
+                .WithFragmentationStageParameters(payloadCapacity:DriverFragmentedPayloadCapacity)
                 .WithNetworkConfigParameters(
                 maxFrameTimeMS: 100,
                 fixedFrameTimeMS: DriverFixedTime,
@@ -732,7 +740,7 @@ namespace Unity.NetCode.Tests
         /// <summary>
         /// Will throw if connect fails.
         /// </summary>
-        public void Connect(float dt = 1f / 60f, int maxSteps = 7, bool failTestIfConnectionFails = true)
+        public void Connect(float dt = k_defaultDT, int maxSteps = 7, bool failTestIfConnectionFails = true)
         {
             var ep = NetworkEndpoint.LoopbackIpv4;
             ep.Port = 7979;
@@ -766,6 +774,45 @@ namespace Unity.NetCode.Tests
                 }
             }
         }
+        public void StartSeverListen()
+        {
+            var ep = NetworkEndpoint.LoopbackIpv4;
+            ep.Port = 7979;
+            Debug.Assert(GetSingletonRW<NetworkStreamDriver>(ServerWorld).ValueRW.Listen(ep), $"[{ServerWorld.Name}] Listen failed during Connect!");
+        }
+
+        public void ConnectSingleClientWorld(int clientIndex, float dt = NetCodeTestWorld.k_defaultDT, int maxSteps = 7, bool failTestIfConnectionFails = true)
+        {
+            Assert.True( clientIndex < ClientWorlds.Length );
+            var ep = NetworkEndpoint.LoopbackIpv4;
+            ep.Port = 7979;
+
+            var connectionEntity = GetSingletonRW<NetworkStreamDriver>(ClientWorlds[clientIndex]).ValueRW.Connect(ClientWorlds[clientIndex].EntityManager, ep);
+
+            int stepsLeft = maxSteps;
+
+            while (TryGetSingletonEntity<NetworkId>(ClientWorlds[clientIndex]) == Entity.Null)
+            {
+                if (stepsLeft <= 0)
+                {
+                    var streamDriver = GetSingleton<NetworkStreamDriver>(ClientWorlds[clientIndex]);
+                    if (failTestIfConnectionFails)
+                    {
+                        string connectionState = "No_NetworkConnection_Entity_Left";
+                        if (ClientWorlds[clientIndex].EntityManager.Exists(connectionEntity))
+                        {
+                            var nsc = ClientWorlds[clientIndex].EntityManager.GetComponentData<NetworkStreamConnection>(connectionEntity);
+                            connectionState = $"{connectionEntity.ToFixedString()} NetworkStreamConnection[{nsc.Value.ToFixedString()}-{nsc.CurrentState.ToString()}]";
+                        }
+                        Assert.Fail($"ClientWorld {clientIndex}{ClientWorlds[clientIndex].Name} failed to connect to the server after {maxSteps} ticks! Driver status: {connectionState}!");
+                    }
+                    return;
+                }
+                --stepsLeft;
+                Tick(dt);
+            }
+        }
+
 
         public void GoInGame(World w = null)
         {
@@ -1063,6 +1110,28 @@ namespace Unity.NetCode.Tests
                 NetCodeTestLatencyProfile.RTT16ms_PL5 => 20, // Every Nth.
                 _ => 0,
             };
+        }
+
+        /// <summary>Attempt to log to all available packet dumps.</summary>
+        /// <param name="msg">Message to log.</param>
+        public void TryLogPacket(in FixedString512Bytes msg)
+        {
+#if NETCODE_DEBUG
+            TryPacketDump(m_ServerWorld, msg);
+            foreach (var clientWorld in m_ClientWorlds)
+                TryPacketDump(clientWorld, msg);
+
+            static void TryPacketDump(World world, in FixedString512Bytes msg)
+            {
+                if (world == null || !world.IsCreated) return;
+                using var query = world.EntityManager.CreateEntityQuery(ComponentType.ReadWrite<EnablePacketLogging>());
+                foreach (var logger in query.ToComponentDataArray<EnablePacketLogging>(Allocator.Temp))
+                {
+                    if(logger.NetDebugPacketCache.IsCreated)
+                        logger.NetDebugPacketCache.Log(msg);
+                }
+            }
+#endif
         }
     }
 }

@@ -1,23 +1,51 @@
 ---
 uid: changelog
 ---
-## [1.5.1] - 2025-05-06
+
+## [1.6.1] - 2025-05-28
 
 ### Added
 
+* Two new entity command buffer systems that run at the beginning and end of the `PredictedSimulationSystemGroup` respectively: `BeginPredictedSimulationCommandBufferSystem` and `EndPredictedSimulationCommandBufferSystem`.
+* A new internal `PredictedSpawningSystemGroup`, running after the `EndPredictedSimulationCommandBufferSystem`, created to guarantee that when a new snapshot is received from server, all new ghosts are spawned and ready to receive new data.
+* New documentation regarding the NetworkDriverStore architecture, setup and how to use it in conjunction with Unity.Relay.
 * Experimental host migration feature added, enabled with the ENABLE_HOST_MIGRATION define but otherwise hidden.
 * With ENABLE_HOST_MIGRATION defined, when a client reconnects to a server after disconnecting the connection entity on both sides will receive a `NetworkStreamIsReconnected` component. An internal unique ID is added to connections to track this behaviour.
+* The ability to define a smaller `GhostSystemConstants.SnapshotHistorySize` value via compiler define `NETCODE_SNAPSHOT_HISTORY_SIZE_6` or `NETCODE_SNAPSHOT_HISTORY_SIZE_16`. These values are well suited for larger scale use-cases where server memory is constrained, and snapshot sends of individual ghosts are relatively infrequent.
+* Support for combining Ghost Relevancy with Ghost Importance Scaling via new `PrioChunks.isRelevant` field, [enabling a fast-path for relevancy calculations](https://docs.unity3d.com/Packages/com.unity.netcode@latest?subfolder=/manual/optimizations.html#relevancy-fast-path-via-importance-scaling).
+* Analytics to netcode tools to better understand their usage.
 
 ### Changed
 
+* **Behaviour Breaking Change:** Predicted spawned ghosts for partial ticks skip restoring the state from the backup (and instead continue prediction from their spawn state) when the last backup state tick is identical to the spawn tick, as no data has changed.
+* **Behaviour Breaking Change:** Reduced the complexity (and performance overhead) of the `GhostCount.GhostCountOnServer` calculations internally. Note that this value is (and always has been) an approximation.
 * IsReconnected split into NetworkStreamIsReconnected for reconnected connections and IsMigrated for re-spawned ghosts (Host Migration).
+* Moved host migration related types into a `Unity.Netcode.HostMigration` namespace, renamed the `HostMigration` class to `HostMigrationUtility` so it works in the new namespace.
+* Prespawn ghost IDs will now be preserved between host migrations
+* Client connection `NetworkIDs` are now preserved between host migrations.
 
 ### Fixed
 
+* **Behaviour Breaking Change:** Incorrect state serialized inside the `SnapshotDataBuffer` for predicted spawned ghost on the client when spawned inside the prediction loop. The `PredictedGhostSpawnSystem` is now updated also as part of the prediction loop (inside the `PredictedSpawningSystemGroup`) to ensure that any predicted spawned ghosts on the client are correctly initialized at the tick they are spawned, and not with partial tick state.
+* Issue where predicted spawned ghosts re-simulated from the wrong tick when configured to rollback to their `spawnTick` and are spawned inside the prediction loop. They are now restored using the corrected full tick state, rather than the erroneous partial tick state.
+* Enable creating and initializing server drivers when using WebGL to enable self-hosting cases using relay. Many methods were under conditional compilation flags and removed from the WebGL build and not usable outside the editor.
+* All the unmanaged systems present in the FixedStepSimulationSystemGroup that have a direct or indirect update dependency to the PhysicsSystemGroup are now correctly moved to the PredictedFixedStepSimulationSystemGroup. This is a **Behaviour Change** in respect the previous versions, where all the unmanaged systems continued to stay inside the fixed update group, regardless of the dependency of update order.
 * An issue with Mutiplayer PlayModeTool window, throwing exceptions when docked after a domain reload. The issue was due to because of an access to `EditorPrefs` and `Application.productName` while restoring the window state.
 * Issue where, during host migration, ghosts could be migrated with a 0 id and type. Causing various issues when instantiated on the new host.
 * Crash which could happen after host migrations when the server is deploying the host migration data.
 * Issue with prespawn prefab entity list initialization after a host migration, the ordering of the prespawn ghosts could be shifted by one because of the internal `PrespawnSceneList` entity prefab creation. This would result in *invalid ghost type X (expected X+1)* off by one style errors.
+* The prediction loop will no longer rollback too many times when one ghost is switched from predicted to interpolated, and later switched back to predicted, when that ghost is the only predicted ghost.
+* If you update multiple packages, create a new section with a new header for the other package.
+* The client packet dump was not being written to the `EnablePacketLogging.NetDebugPacketCache` field, thus were not usable by users and other netcode call-sites (like the `NetworkStreamReceiveSystem`).
+* `SnapshotHistorySize` values below 32 uncovered an issue where a ghost chunk being written would write over its snapshot history entries for currently-in-flight snapshots, leading to a cycle of never being able to fetch a valid baseline, in perpetuity. The fix for this requires us to stall the send of this ghost chunk if the in-flight queue is full, until the in-flight snapshots are assumed to have either arrived or been lost/dropped.
+* Buffer serialization errors caused by incorrect pointer stepping when ghost fields are not present (i.e. surrounding `GhostComponentSerializer.State.HasGhostFields`).
+* Buffer serialization errors caused by missing change mask invalidation when `SendToOwnerType` or `GhostSendType` conditionally prevented sending of the buffer.
+* Readded `UsePreSerialization` to the `GhostAuthoringComponent` inspector that was accidentally removed.
+
+### Obsolete
+
+* Prefer `BatchScaleImportanceDelegate` to `ScaleImportanceFunction` as the latter significantly reduces the total number of function pointer calls.
+
 
 
 ## [1.5.0] - 2025-04-22
@@ -74,7 +102,7 @@ uid: changelog
 * Inconsistencies in documentation around RollbackPredictionOnStructuralChanges have been fixed and sorted out a couple of typos.
 * Issue with prespawned ghosts not updating anymore after the client disconnects and reconnects to a server.
 * Issue where Ghost Importance Scaling would throw if the `GhostDistancePartitionShared` (or user-code equivalent `GhostImportancePerChunkDataType`) was only added to a subset of ghost instances.
-* The `GhostDistancePartitioningSystem` is now significantly faster in cases where the `GhostDistancePartitionShared` is able to successfully exclude unchanged `LocalTransform` chunks (via change filtering). `AddSharedDistancePartitionJob` is now `.ScheduleParallel` (from `.Schedule`), as there is no reason not to queue ECB operations in parallel.
+* The `GhostDistancePartitioningSystem` is now significantly faster in cases where the `GhostDistancePartitionShared` is able to successfully exclude unchanged `LocalTransform` chunks (via change filtering).
 * an issue in MultiPhysics sample, causing particle emitter not spawning particles in the client-only physics world.
 * an issues with GhostPresentationGameObjectSystem throwing ObjectDisposedExceptions when entity are destroyed.
 * an issues with GhostPresentationGameObjectSystem throwing exceptions trying accessing ComponentLookup after structural changes.
@@ -93,10 +121,9 @@ uid: changelog
 * an issue when using custom templates for type that handle different smoothing options. This was failing validation and causing compilation error, even when it was not the case.
 * Case where `GhostUpdateSystem.RestorePredictionBackup` would cause change version changes on unchanged child components (as `PredictionBackupJob` was not updating the `childChangeVersions` pointer when `HasGhostFields == 0 && SerializesEnabledBit != 0`).
 * "Size limitation on snapshot did not prevent all errors" and improper serialization of a ghost group root when the group is empty and the available space in the data stream is not enough to encode the length of the group (0, that takes 2 bits).
-* missing reset of the entity sent state when a group fail to serialize. The serialized children entity were incorrectly reported to be sent, potentially causing improper baseline used by the server to delta compress the data.
-* incorrect warning message when run in background is disable.
+* Missing reset of the entity sent state when a group fail to serialize. The serialized children entity were incorrectly reported to be sent, potentially causing improper baseline used by the server to delta compress the data.
+* Incorrect warning message when run in background is disable.
 * Esoteric `IBufferElementData` serialization issue caused by an incorrect assumption that `stackalloc` would default init its elements.
-
 
 ## [1.4.0] - 2024-11-14
 

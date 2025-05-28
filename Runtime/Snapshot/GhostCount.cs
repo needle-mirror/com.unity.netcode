@@ -12,8 +12,8 @@ namespace Unity.NetCode
     public struct GhostCount : IComponentData
     {
         /// <summary>
-        /// The total number of relevant (to our connection) ghosts that the server wishes to send this client.
-        /// Sent in each snapshot, thus count is updated whenever a snapshot was received.
+        /// The <b>approximate</b> total number of relevant ghosts that the server wishes to send to this client.
+        /// Updated in each snapshot, thus updated on the client whenever a snapshot is received.
         /// </summary>
         /// <seealso cref="InstantiatedPercent"/>
         /// <seealso cref="ReceivedPercent"/>
@@ -73,7 +73,7 @@ namespace Unity.NetCode
 
         /// <summary>
         /// Denotes the percentage of ghosts received by the client (<see cref="GhostCountReceivedOnClient"/>)
-        /// versus the number of ghosts the server has said exist (i.e. <see cref="GhostCountOnServer"/>).
+        /// versus the number of ghosts the server has said exist to us (i.e. <see cref="GhostCountOnServer"/>).
         /// <br/>Only counts relevant ghosts!
         /// <br/>0% when no ghosts are expected: I.e. No ghosts spawned on server, or no ghosts considered relevant,
         /// or if this struct is not initialized (i.e. when <see cref="IsCreated"/> is false).

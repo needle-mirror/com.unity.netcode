@@ -9,7 +9,7 @@ using UnityEngine.SceneManagement;
 
 namespace Unity.NetCode.Tests
 {
-    public abstract class TestWithSceneAsset
+    internal abstract class TestWithSceneAsset
     {
         public string ScenePath;
         public DateTime LastWriteTime;

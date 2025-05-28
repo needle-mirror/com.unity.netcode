@@ -4,17 +4,17 @@ using UnityEngine;
 namespace Unity.NetCode.Tests
 {
     // used to verify ghost id's and spawn ticks are consistent across migrations
-    public struct GhostIdAndTickChecker : IComponentData
+    internal struct GhostIdAndTickChecker : IComponentData
     {
         [GhostField] public int originalGhostId;
         [GhostField] public NetworkTick originalSpawnTick;
     }
 
     // used to mark ghosts spawned after a migration action (save/load) so they are easy to find
-    public struct CreatedPostHostMigrationAction : IComponentData
+    internal struct CreatedPostHostMigrationAction : IComponentData
     { }
 
-    public class GhostIdAndTickCheckerAuthoring : MonoBehaviour
+    internal class GhostIdAndTickCheckerAuthoring : MonoBehaviour
     {
     }
 

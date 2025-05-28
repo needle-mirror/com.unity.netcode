@@ -244,10 +244,14 @@ namespace Unity.NetCode.LowLevel
                     compSerializerIndex = compIndices.SerializerIndex;
                     return offset;
                 }
-                var compSize =  comType.IsBuffer
-                    ? GhostComponentSerializer.DynamicBufferComponentSnapshotSize
-                    : m_ghostSerializers.ElementAtRO(compIndices.SerializerIndex).SnapshotSize;
-                offset += GhostComponentSerializer.SnapshotSizeAligned(compSize);
+
+                if (compIndices.SnapshotSize != 0)
+                {
+                    var compSize =  comType.IsBuffer
+                        ? GhostComponentSerializer.DynamicBufferComponentSnapshotSize
+                        : compIndices.SnapshotSize;
+                    offset += GhostComponentSerializer.SnapshotSizeAligned(compSize);
+                }
             }
             //Not found
             compSerializerIndex = default;

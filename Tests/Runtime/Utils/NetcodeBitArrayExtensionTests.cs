@@ -7,7 +7,7 @@ using Assert = Unity.Assertions.Assert;
 
 namespace Unity.NetCode.Tests
 {
-    public class NetcodeBitArrayExtensionTests
+    internal class NetcodeBitArrayExtensionTests
     {
         [Test]
         public unsafe void UnsafeBitArray_ShiftLeftRightExt([Values] bool up)

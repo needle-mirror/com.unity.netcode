@@ -1,7 +1,9 @@
+using System;
 using Unity.Entities;
 using Unity.Collections.LowLevel.Unsafe;
 using Unity.Collections;
 using System.Runtime.InteropServices;
+using Unity.Assertions;
 
 namespace Unity.NetCode
 {
@@ -10,6 +12,10 @@ namespace Unity.NetCode
     /// It only exists because of an IJob limitation where <see cref="DynamicComponentTypeHandle"/>'s MUST be defined as fields.
     /// I.e. Collections containing <see cref="DynamicComponentTypeHandle"/>'s are not valid.
     /// </summary>
+    /// <remarks>
+    /// Using the 256 version of this struct will lead to an "InvalidProgramException: Passing an argument of size ..." if you pass it as an parameter
+    /// including job's schedule (which is an extension method). This is a mono limitation. Use ScheduleByRef instead.
+    /// </remarks>
     [StructLayout(LayoutKind.Sequential)]
     internal struct DynamicTypeList
     {
@@ -82,6 +88,14 @@ namespace Unity.NetCode
             fixed (DynamicComponentTypeHandle* ptr = &dynamicType000.dynamicType00)
             {
                 return ptr;
+            }
+        }
+
+        public unsafe Span<DynamicComponentTypeHandle> AsSpan()
+        {
+            fixed (DynamicComponentTypeHandle* ptr = &dynamicType000.dynamicType00)
+            {
+                return new Span<DynamicComponentTypeHandle>(ptr, Length);
             }
         }
     }

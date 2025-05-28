@@ -47,7 +47,7 @@ namespace Unity.NetCode.Physics.Tests
         }
     }
 
-    public class HistoryBufferTests
+    internal class HistoryBufferTests
     {
         [Test]
         public void CreatePhysicsHistoryBuffer_AllWorldsAreInitializedToDefault()

@@ -7,9 +7,9 @@ using UnityEngine;
 namespace Unity.NetCode.Tests
 {
 #if UNITY_EDITOR
-    public class NetcodeScenarioUtils
+    internal class NetcodeScenarioUtils
     {
-        public struct ScenarioDesc
+        internal struct ScenarioDesc
         {
             public float FrameTime;
             public GameObject[] GhostPrefabs;
@@ -17,9 +17,9 @@ namespace Unity.NetCode.Tests
             public Type[] GhostComponentForVerification;
         }
 
-        public struct ScenarioParams
+        internal struct ScenarioParams
         {
-            public struct GhostSystemParameters
+            internal struct GhostSystemParameters
             {
                 public int MinSendImportance;
                 public int MinDistanceScaledSendImportance;

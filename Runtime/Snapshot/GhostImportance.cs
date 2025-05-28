@@ -11,8 +11,7 @@ namespace Unity.NetCode
     /// Structure that contains the ghost <see cref="ArchetypeChunk"/> to serialize.
     /// Each chunk has its own priority, that is calculated based on the importance scaling
     /// factor (set for each ghost prefab at authoring time) and that can be further scaled
-    /// using a custom <see cref="GhostImportance.ScaleImportanceFunction"/> or
-    /// <see cref="GhostImportance.BatchScaleImportanceFunction"/>.
+    /// using a custom <see cref="GhostImportance.BatchScaleImportanceFunction"/>.
     /// </summary>
     public struct PrioChunk : IComparable<PrioChunk>
     {
@@ -25,6 +24,25 @@ namespace Unity.NetCode
         /// scaling, it is the method responsibility to update this with the scaled priority.
         /// </summary>
         public int priority;
+        /// <summary>
+        /// Fast-path denoting the relevancy of the entire chunk.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        ///     Defaults to <c>true</c> when relevancy is in mode <see cref="GhostRelevancyMode.Disabled"/> or <see cref="GhostRelevancyMode.SetIsIrrelevant"/>,
+        ///     otherwise defaults to <c>false</c>.
+        /// </para>
+        /// <para>
+        ///     When using this bool, there is no need to write ghost instances into the global `GhostRelevancySet`, unless
+        ///     you need to add an exception (e.g. a ghost that is very far away from the player, yet should remain relevant).
+        /// </para>
+        /// <para>
+        ///     Note: Why not use <see cref="priority"/> to denote relevancy? Because relevancy still requires the chunk
+        ///     to be processed occassionally. In other words; there is a risk of breaking relevancy by forcing the importance
+        ///     to be artificially low.
+        /// </para>
+        /// </remarks>
+        public bool isRelevant;
         /// <summary>
         /// The first entity index in the chunk that should be serialized. Normally 0, but if was not possible to
         /// serialize the whole chunk, the next time we will start replicating ghosts from that index.
@@ -101,6 +119,7 @@ namespace Unity.NetCode
         /// It is also valid to set both, in which case the BatchScaleImportanceFunction is preferred.
         /// </para>
         /// </summary>
+        [Obsolete("Prefer `BatchScaleImportanceDelegate` as it significantly reduces the total number of function pointer calls. RemoveAfter 1.x", false)]
         public PortableFunctionPointer<ScaleImportanceDelegate> ScaleImportanceFunction;
         /// <summary>
         /// <para>
@@ -140,5 +159,13 @@ namespace Unity.NetCode
         {
             return basePriority;
         }
+
+#pragma warning disable 618 // Type or member is obsolete.
+        /// <summary>
+        /// This property successfully suppresses the obsolete warning.
+        /// Attempting to do so inside the <see cref="GhostSendSystem"/> did not work (presumably for SystemAPI code-gen reasons).
+        /// </summary>
+        internal PortableFunctionPointer<ScaleImportanceDelegate> ScaleImportanceFunctionSuppressedWarning => ScaleImportanceFunction;
+#pragma warning restore 618 // Type or member is obsolete.
     }
 }

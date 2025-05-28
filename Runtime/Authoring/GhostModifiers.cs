@@ -68,22 +68,23 @@ namespace Unity.NetCode
     }
 
     /// <summary>
-    /// <para><b>Meta-data of a <see cref="ICommandData"/> component, denoting whether or not the server should replicate the
-    /// input commands back down to clients.
-    /// Configure via <see cref="GhostComponentAttribute"/>.</b></para>
-    /// <para>See the documentation for ICommandData:<see cref="ICommandData"/></para>
+    /// Meta-data of a <see cref="GhostComponentAttribute"/>, denoting whether or not the server should replicate the
+    /// GhostField value back down to clients.
     /// </summary>
+    /// <remarks>
+    /// Typically used by <see cref="IInputComponentData"/> structs to replicate each clients inputs ONLY to other players.
+    /// </remarks>
     [Flags]
     public enum SendToOwnerType
     {
-        /// <summary>Informs the server not not replicate this <see cref="ICommandData"/> back down to any clients.</summary>
+        /// <summary>Informs the server to not replicate this component to any clients.</summary>
         None = 0,
-        /// <summary>Informs the server to replicate this <see cref="ICommandData"/> back to the owner, exclusively.</summary>
+        /// <summary>Informs the server to replicate this component back to the owner, exclusively.</summary>
         SendToOwner = 1,
-        /// <summary>Informs the server to replicate this <see cref="ICommandData"/> to all clients except the input "author"
-        /// (i.e. the player who owns the ghost).</summary>
+        /// <summary>Informs the server to replicate this component to all clients except the ghost owner
+        /// (i.e. the player who owns this ghost).</summary>
         SendToNonOwner = 2,
-        /// <summary>Informs the server to replicate this <see cref="ICommandData"/> to all clients, including back to ourselves.</summary>
+        /// <summary>Informs the server to replicate this component to all clients, including to the ghost owner.</summary>
         All = 3,
     }
 

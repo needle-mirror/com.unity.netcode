@@ -40,16 +40,35 @@ namespace Unity.NetCode
     internal struct GhostSystemConstants
     {
         /// <summary>
-        /// The number of ghost snapshots stored internally by the server in
-        /// the <see cref="GhostChunkSerializationState"/>, and by the client in the <see cref="SnapshotDataBuffer"/>
-        /// ring buffer.
-        /// Reducing the SnapshotHistorySize would reduce the cost of storage on both server and client, but will
-        /// affect the server ability to delta compress data. This is because; based on the client latency, by the time
-        /// the server receive the snapshot acks (inside the client command stream), the slot in which the acked data
-        /// was stored could have been overwritten.
-        /// The default size is designed to work with a round trip time of about 500ms at 60hz network tick rate.
+        ///     The number of ghost snapshots stored internally by the server in the <see cref="GhostChunkSerializationState" />,
+        ///     and by the client in the <see cref="SnapshotDataBuffer" /> ring buffer.
+        ///     Reducing the SnapshotHistorySize would reduce the cost of storage on both server and client, but will
+        ///     affect the server's ability to effectively delta-compress data.
+        ///     This is because; based on the client latency, by the time the server receives the snapshot acks (inside the
+        ///     client command stream), the slot in which the acked data was stored could have been overwritten.
+        ///     The default of 32 is designed to work with a round trip time of about 500ms at a 60hz NetworkTickRate,
+        ///     where the server is sending a single connection the same dynamic ghost every tick.
         /// </summary>
-        public const int SnapshotHistorySize = 32;
+        /// <remarks>
+        ///     32 (the default) is designed to work with a round trip time of about 500ms at a 60hz NetworkTickRate,
+        ///     where the server is sending a single connection the same dynamic ghost every tick.
+        ///     <br />
+        ///     <c>NETCODE_SNAPSHOT_HISTORY_SIZE_16</c> is a good middle-ground between size-reduction (for static ghosts)
+        ///     and ack availability (for dynamic ghosts). Recommended for projects where the highest <see cref="GhostPrefabCreation.Config.MaxSendRate" />
+        ///     is 30Hz, or where the <see cref="ClientServerTickRate.NetworkTickRate" /> is 30.
+        ///     <br />
+        ///     <c>NETCODE_SNAPSHOT_HISTORY_SIZE_6</c> is best suited for larger scale projects (i.e. hundreds of dynamic
+        ///     ghosts, thousands of static ghosts, and where the player character controller is already sent at a
+        ///     significantly lower frequency due to congestion or <see cref="GhostPrefabCreation.Config.MaxSendRate" />).
+        /// </remarks>
+        public const int SnapshotHistorySize =
+#if NETCODE_SNAPSHOT_HISTORY_SIZE_6
+            6;
+#elif NETCODE_SNAPSHOT_HISTORY_SIZE_16
+            16;
+#else
+            32;
+#endif
         /// <summary>At most, around half the snapshot can consist of new prefabs to use.</summary>
         public const uint MaxNewPrefabsPerSnapshot = 32u;
         /// <summary>At most, around one quarter the snapshot can consist of despawns. Serialized as a byte.</summary>
@@ -420,7 +439,6 @@ namespace Unity.NetCode
         StreamCompressionModel m_CompressionModel;
         NativeParallelHashMap<int, ulong> m_SceneSectionHashLookup;
 
-        NativeList<int> m_ConnectionRelevantCount;
         NativeList<ConnectionStateData> m_ConnectionsToProcess;
 #if NETCODE_DEBUG
         EntityQuery m_PacketLogEnableQuery;
@@ -434,6 +452,8 @@ namespace Unity.NetCode
         static readonly Profiling.ProfilerMarker s_PrioritizeChunksMarker = new Profiling.ProfilerMarker("PrioritizeChunks");
         internal static readonly Profiling.ProfilerMarker s_GhostGroupMarker = new Profiling.ProfilerMarker("GhostGroup");
         internal static readonly Profiling.ProfilerMarker s_CanUseStaticOptimizationMarker = new Profiling.ProfilerMarker("CanUseStaticOptimization");
+        internal static readonly Profiling.ProfilerMarker s_RelevancyMarker = new Profiling.ProfilerMarker("Relevancy");
+        internal static readonly Profiling.ProfilerMarker s_GhostGroupRelevancyMarker = new Profiling.ProfilerMarker("GhostGroupRelevancy");
         static readonly Profiling.ProfilerMarker k_Scheduling = new Profiling.ProfilerMarker("GhostSendSystem_Scheduling");
         static readonly Profiling.ProfilerMarker s_TryGetChunkStateOrNewMarker = new Profiling.ProfilerMarker("TryGetChunkStateOrNew");
 
@@ -527,7 +547,6 @@ namespace Unity.NetCode
             state.RequireForUpdate<GhostCollection>();
 
             m_GhostRelevancySet = new NativeParallelHashMap<RelevantGhostForConnection, int>(1024, Allocator.Persistent);
-            m_ConnectionRelevantCount = new NativeList<int>(16, Allocator.Persistent);
             m_ConnectionsToProcess = new NativeList<ConnectionStateData>(16, Allocator.Persistent);
             var relevancySingleton = state.EntityManager.CreateEntity(ComponentType.ReadWrite<GhostRelevancy>());
             state.EntityManager.SetName(relevancySingleton, "GhostRelevancy-Singleton");
@@ -627,7 +646,6 @@ namespace Unity.NetCode
             m_ConnectionStateLookup.Dispose();
 
             m_GhostRelevancySet.Dispose();
-            m_ConnectionRelevantCount.Dispose();
             m_ConnectionsToProcess.Dispose();
 
             state.Dependency.Complete(); // for ghost map access
@@ -805,7 +823,6 @@ namespace Unity.NetCode
 
             public GhostRelevancyMode relevancyMode;
             [ReadOnly] public NativeParallelHashMap<RelevantGhostForConnection, int> relevantGhostForConnection;
-            [ReadOnly] public NativeArray<int> relevantGhostCountForConnection;
             [ReadOnly] public EntityQueryMask userGlobalRelevantMask;
             [ReadOnly] public EntityQueryMask internalGlobalRelevantMask;
 
@@ -823,6 +840,8 @@ namespace Unity.NetCode
 
             public NetworkTick currentTick;
             public uint localTime;
+            public float simulationTickRateIntervalMs;
+            public int networkTickRateIntervalTicks;
 
             public PortableFunctionPointer<GhostImportance.BatchScaleImportanceDelegate> BatchScaleImportance;
             public PortableFunctionPointer<GhostImportance.ScaleImportanceDelegate> ScaleGhostImportance;
@@ -902,16 +921,6 @@ namespace Unity.NetCode
                 s_PrioritizeChunksMarker.Begin();
                 GatherGhostChunksBatch(out GhostChunksContext ctx);
                 s_PrioritizeChunksMarker.End();
-
-                switch (relevancyMode)
-                {
-                    case GhostRelevancyMode.SetIsRelevant:
-                        ctx.TotalRelevantGhosts = relevantGhostCountForConnection[ctx.NetworkId.Value];
-                        break;
-                    case GhostRelevancyMode.SetIsIrrelevant:
-                        ctx.TotalRelevantGhosts -= relevantGhostCountForConnection[ctx.NetworkId.Value];
-                        break;
-                }
 
                 // MaxIterateChunks is how many we process (i.e. query i.e. how many we ATTEMPT to send),
                 // MaxSendChunks is how many we ALLOW to send.
@@ -1042,6 +1051,13 @@ namespace Unity.NetCode
                 public NativeList<PrioChunk> SerialChunks;
                 public int MaxChunksToIterate;
                 public int MaxGhostsPerChunk;
+                /// <summary>
+                /// Approximates the total number of relevant ghosts.
+                /// <br/>
+                /// Note: Does not count ghost chunks that aren't passed into this job yet (e.g. ones without the <see cref="GhostCleanup"/>).
+                /// And, when relevancy is enabled, this does not count ghost chunks that have not yet run through the
+                /// <see cref="GhostChunkSerializer.UpdateGhostRelevancy"/> step.
+                /// </summary>
                 public int TotalRelevantGhosts;
                 public int NumZeroChangeChunks;
             }
@@ -1161,6 +1177,8 @@ namespace Unity.NetCode
                     ghostChunkComponentTypesPtr = ghostChunkComponentTypesPtr,
                     ghostChunkComponentTypesLength = ghostChunkComponentTypesLength,
                     currentTick = currentTick,
+                    // Add networkTickRateIntervalTicks as we only send a snapshot on this interval, which artificially inflates the expected snapshot RTT.
+                    expectedSnapshotRttInSimTicks = networkTickRateIntervalTicks + math.max(Mathf.CeilToInt(snapshotAckCopy.EstimatedRTT / simulationTickRateIntervalMs), networkTickRateIntervalTicks),
                     compressionModel = compressionModel,
                     serializerState = serializerState,
                     NetworkId = ctx.NetworkId.Value,
@@ -1639,8 +1657,15 @@ namespace Unity.NetCode
                 // Therefore, FirstSendImportanceMultiplier is more about HOW MUCH we want to bias the first send of a
                 // low importance ghost type (e.g. a tree) ABOVE the resending of a very high importance existing ghost (like the player).
                 var maxResendIntervalTicks = math.max((uint) (systemData.MinSendImportance / chunkState.baseImportance), chunkState.maxSendRateAsSimTickInterval);
-                importanceTick.Subtract(systemData.FirstSendImportanceMultiplier + maxResendIntervalTicks);
+                importanceTick.Subtract((uint) (systemData.FirstSendImportanceMultiplier * systemData.IrrelevantImportanceDownScale * maxResendIntervalTicks));
                 chunkState.SetLastFullUpdate(importanceTick);
+                // When relevancy is enabled, our first estimated relevant ghost count has to be 0, because otherwise
+                // every new chunk seen by this connection will spike the GhostCount singleton for one tick, even if none are relevant.
+                // Unfortunately, working around this requires us to use `math.max(relevantGhostCount, actuallySentGhostCount)`
+                // when writing to the stream, and note that this will cause irrelevant downscaling (which is why we account for it above).
+                var relevancyEnabled = relevancyMode != GhostRelevancyMode.Disabled;
+                var numRelevant = relevancyEnabled ? 0 : ghostChunk.Count;
+                chunkState.SetNumRelevant(numRelevant, ghostChunk);
 
                 chunkStates.TryAdd(ghostChunk, chunkState);
 #if NETCODE_DEBUG
@@ -1702,7 +1727,7 @@ namespace Unity.NetCode
                     }
 
                     chunkState.SetLastValidTick(currentTick);
-                    ctx.TotalRelevantGhosts += ghostChunk.Count;
+                    ctx.TotalRelevantGhosts += chunkState.GetNumRelevant();
                     ctx.NumZeroChangeChunks += chunkState.GetFirstZeroChangeVersion() != 0 ? 1 : 0;
                     ctx.MaxGhostsPerChunk = math.max(ctx.MaxGhostsPerChunk, ghostChunk.Count);
 
@@ -1747,6 +1772,7 @@ namespace Unity.NetCode
                     {
                         chunk = ghostChunk,
                         priority = chunkPriority,
+                        isRelevant = relevancyMode != GhostRelevancyMode.SetIsRelevant,
                         startIndex = chunkState.GetStartIndex(),
                         ghostType = chunkState.ghostType,
                     });
@@ -1919,16 +1945,13 @@ namespace Unity.NetCode
             k_Scheduling.Begin();
             state.Dependency = new UpdateConnectionsJob()
             {
-                ConnectionRelevantCount = m_ConnectionRelevantCount,
                 Connections = connections,
                 ConnectionStateLookup = m_ConnectionStateLookup,
                 ConnectionStates = m_ConnectionStates,
                 ConnectionsToProcess = connectionsToProcess,
                 DespawnAckedByAll = m_DespawnAckedByAllTick,
-                GhostRelevancySet = m_GhostRelevancySet,
                 NetTickInterval = netTickInterval,
                 NetworkIdFromEntity = m_NetworkIdFromEntity,
-                RelevancyEnabled = relevancyEnabled ? (byte) 1 : (byte)0,
                 SendThisTick = sendThisTick ? (byte)1 : (byte)0,
                 SentSnapshots = m_SentSnapshots,
             }.Schedule(JobHandle.CombineDependencies(state.Dependency, connectionHandle));
@@ -2097,7 +2120,6 @@ namespace Unity.NetCode
                 userGlobalRelevantMask = userGlobalRelevantQueryMask,
                 internalGlobalRelevantMask = internalGlobalRelevantQueryMask,
                 relevancyMode = relevancyMode,
-                relevantGhostCountForConnection = m_ConnectionRelevantCount.AsDeferredJobArray(),
 #if UNITY_EDITOR || NETCODE_DEBUG
                 netStatsBuffer = netStats.Data.AsArray(),
                 netStatSize = netStats.Size,
@@ -2107,10 +2129,11 @@ namespace Unity.NetCode
                 ghostFromEntity = m_GhostFromEntity,
                 currentTick = currentTick,
                 localTime = NetworkTimeSystem.TimestampMS,
+                simulationTickRateIntervalMs = (tickRate.SimulationFixedTimeStep * 1000f),
+                networkTickRateIntervalTicks = tickRate.CalculateNetworkSendRateInterval(),
+
                 snapshotTargetSizeFromEntity = m_SnapshotTargetFromEntity,
-
                 ghostTypeFromEntity = m_GhostTypeFromEntity,
-
                 allocatedGhostIds = m_AllocatedGhostIds,
                 prespawnDespawns = m_DestroyedPrespawns,
                 childEntityLookup = state.GetEntityStorageInfoLookup(),
@@ -2142,7 +2165,7 @@ namespace Unity.NetCode
             else
             {
                 serializeJob.BatchScaleImportance = importance.BatchScaleImportanceFunction;
-                serializeJob.ScaleGhostImportance = importance.ScaleImportanceFunction;
+                serializeJob.ScaleGhostImportance = importance.ScaleImportanceFunctionSuppressedWarning;
             }
 
             // We don't want to assign default value to type handles as this would lead to a safety error
@@ -2287,25 +2310,22 @@ namespace Unity.NetCode
         struct UpdateConnectionsJob : IJob
         {
             [ReadOnly] public ComponentLookup<NetworkId> NetworkIdFromEntity;
-            [ReadOnly] public NativeParallelHashMap<RelevantGhostForConnection, int> GhostRelevancySet;
             public NativeList<Entity> Connections;
             public NativeParallelHashMap<Entity, int> ConnectionStateLookup;
             public NativeList<ConnectionStateData> ConnectionStates;
             public NativeList<ConnectionStateData> ConnectionsToProcess;
-            public NativeList<int> ConnectionRelevantCount;
             public NativeReference<NetworkTick> DespawnAckedByAll;
-            public byte RelevancyEnabled;
             public byte SendThisTick;
             public int NetTickInterval;
             public uint SentSnapshots;
 
             public void Execute()
             {
-                var existing = new NativeParallelHashMap<Entity, int>(Connections.Length, Allocator.Temp);
+                var existing = new NativeParallelHashSet<Entity>(Connections.Length, Allocator.Temp);
                 int maxConnectionId = 0;
                 foreach (var connection in Connections)
                 {
-                    existing.TryAdd(connection, 1);
+                    existing.Add(connection);
                     if (!ConnectionStateLookup.TryGetValue(connection, out var stateIndex))
                     {
                         stateIndex = ConnectionStates.Length;
@@ -2325,7 +2345,7 @@ namespace Unity.NetCode
 
                 for (int i = 0; i < ConnectionStates.Length; ++i)
                 {
-                    if (existing.TryGetValue(ConnectionStates[i].Entity, out var val))
+                    if (existing.Contains(ConnectionStates[i].Entity))
                     {
                         continue;
                     }
@@ -2343,20 +2363,6 @@ namespace Unity.NetCode
                     --i;
                 }
 
-                ConnectionRelevantCount.ResizeUninitialized(maxConnectionId+2);
-                for (int i = 0; i < ConnectionRelevantCount.Length; ++i)
-                    ConnectionRelevantCount[i] = 0;
-
-                // go through all keys in the relevancy set, +1 to the connection idx array
-                if (RelevancyEnabled == 1)
-                {
-                    var values = GhostRelevancySet.GetKeyArray(Allocator.Temp);
-                    for (int i = 0; i < values.Length; ++i)
-                    {
-                        var cid = math.min(values[i].Connection, maxConnectionId+1);
-                        ConnectionRelevantCount[cid] += 1;
-                    }
-                }
                 if (SendThisTick == 0)
                     return;
                 var sendPerFrame = (ConnectionStates.Length + NetTickInterval - 1) / NetTickInterval;

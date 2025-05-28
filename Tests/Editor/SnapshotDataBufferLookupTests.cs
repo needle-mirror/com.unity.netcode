@@ -77,7 +77,7 @@ namespace Unity.NetCode.Tests.Editor
         }
     }
 
-    public class SnapshotDataBufferLookupTests
+    internal class SnapshotDataBufferLookupTests
     {
         [Test]
         public void ComponentCanBeInspected()

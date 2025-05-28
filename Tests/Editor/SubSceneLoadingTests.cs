@@ -18,7 +18,7 @@ namespace Unity.NetCode.Tests
     [UpdateInGroup(typeof(GhostSimulationSystemGroup))]
     [UpdateBefore(typeof(GhostCollectionSystem))]
     [WorldSystemFilter(WorldSystemFilterFlags.ClientSimulation | WorldSystemFilterFlags.ServerSimulation)]
-    public partial class LoadingGhostCollectionSystem : SystemBase
+    internal partial class LoadingGhostCollectionSystem : SystemBase
     {
         protected override void OnUpdate()
         {
@@ -43,7 +43,7 @@ namespace Unity.NetCode.Tests
     [DisableAutoCreation]
     [UpdateInGroup(typeof(GhostSimulationSystemGroup))]
     [WorldSystemFilter(WorldSystemFilterFlags.ClientSimulation | WorldSystemFilterFlags.ServerSimulation)]
-    public partial class UpdatePrespawnGhostTransform : SystemBase
+    internal partial class UpdatePrespawnGhostTransform : SystemBase
     {
         protected override void OnCreate()
         {
@@ -72,7 +72,7 @@ namespace Unity.NetCode.Tests
         }
     }
 
-    public partial class SubSceneLoadingTests : TestWithSceneAsset
+    internal partial class SubSceneLoadingTests : TestWithSceneAsset
     {
         [Test]
         public void SubSceneListIsSentToClient()

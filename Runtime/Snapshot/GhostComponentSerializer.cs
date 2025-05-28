@@ -370,6 +370,9 @@ namespace Unity.NetCode.LowLevel.Unsafe
         /// <returns>Size in bytes (aligned to 16 bytes boundary)</returns>
         public static int SizeInSnapshot(in State serializer)
         {
+            if (!serializer.HasGhostFields)
+                return 0;
+
             return serializer.ComponentType.IsBuffer
                 ? SnapshotSizeAligned(GhostComponentSerializer.DynamicBufferComponentSnapshotSize)
                 : SnapshotSizeAligned(serializer.SnapshotSize);

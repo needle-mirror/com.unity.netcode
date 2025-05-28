@@ -955,8 +955,12 @@ namespace Unity.NetCode
             }
             //This should be present only for prefabs. FinalizePrefabComponents is also called for not prefab entities so it should not
             //be added there.
-            if(target != NetcodeConversionTarget.Server && config.SupportedGhostModes != GhostModeMask.Interpolated)
+            if (target != NetcodeConversionTarget.Server && config.SupportedGhostModes != GhostModeMask.Interpolated)
+            {
                 entityManager.AddComponent<PredictedGhostSpawnRequest>(prefab);
+                entityManager.SetComponentEnabled<PredictedGhostSpawnRequest>(prefab, false);
+            }
+
 
             FinalizePrefabComponents(config, entityManager, prefab, ghostType, linkedEntitiesArray,
                         allComponents, componentCounts, target, prefabTypes);

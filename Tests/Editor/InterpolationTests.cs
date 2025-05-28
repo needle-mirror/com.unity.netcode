@@ -14,7 +14,7 @@ namespace Unity.NetCode.Tests
     [DisableAutoCreation]
     [RequireMatchingQueriesForUpdate]
     [WorldSystemFilter(WorldSystemFilterFlags.ServerSimulation)]
-    public partial class MoveAlongAxisSystem : SystemBase
+    internal partial class MoveAlongAxisSystem : SystemBase
     {
         //move 1/10 unit per frame
         public float moveSpeed = 6f;
@@ -32,7 +32,7 @@ namespace Unity.NetCode.Tests
     [UpdateInGroup(typeof(GhostSimulationSystemGroup))]
     [UpdateAfter(typeof(GhostUpdateSystem))]
     [WorldSystemFilter(WorldSystemFilterFlags.ClientSimulation)]
-    public partial class TestInterpGhost : SystemBase
+    internal partial class TestInterpGhost : SystemBase
     {
         private float3 prevPos;
         protected override void OnUpdate()
@@ -47,7 +47,7 @@ namespace Unity.NetCode.Tests
         }
     }
 
-    public class NetworkTimeTests
+    internal class NetworkTimeTests
     {
         const float FrameTime = 1.0f / 60.0f;
 

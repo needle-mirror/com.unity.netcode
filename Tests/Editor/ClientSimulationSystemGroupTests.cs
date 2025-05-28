@@ -10,7 +10,7 @@ namespace Tests.Editor
 {
     [UpdateInGroup(typeof(SimulationSystemGroup))]
     [WorldSystemFilter(WorldSystemFilterFlags.ClientSimulation)]
-    public partial class TestClientSimulationSystemGroup : SystemBase
+    internal partial class TestClientSimulationSystemGroup : SystemBase
     {
         public bool WasUpdated
         {
@@ -33,7 +33,7 @@ namespace Tests.Editor
         }
     }
 
-    public class ClientSimulationSystemGroup
+    internal class ClientSimulationSystemGroup
     {
         /// <summary>
         /// This test will trigger a rollback. Simulating that the client has not received anything from the server

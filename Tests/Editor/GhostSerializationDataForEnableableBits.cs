@@ -7,18 +7,16 @@ using UnityEngine;
 
 namespace Unity.NetCode.Tests
 {
-    public class GhostTypeConverter : TestNetCodeAuthoring.IConverter
+    internal class GhostTypeConverter : TestNetCodeAuthoring.IConverter
     {
-        public enum GhostTypes
+        internal enum GhostTypes
         {
-            EnableableComponent,
-            MultipleEnableableComponent,
-            EnableableBuffer,
-            MultipleEnableableBuffer,
-            ChildComponent,
-            ChildBufferComponent,
+            EnableableComponents,
+            EnableableBuffers,
+            Mixed,
+            ChildComponents,
+            ChildBufferComponents,
             GhostGroup,
-            // TODO: Support GhostGroupBuffers!
         }
 
         // TODO - Tests for ClientOnlyVariant.
@@ -35,26 +33,18 @@ namespace Unity.NetCode.Tests
             var entity = baker.GetEntity(TransformUsageFlags.Dynamic);
             switch (_type)
             {
-                case GhostTypes.EnableableComponent:
-                    baker.AddComponent(entity, new GhostOwner());
-                    AddTestEnableableComponents(baker);
+                case GhostTypes.EnableableComponents:
+                    SetupEnableableComponents(baker);
                     break;
-                case GhostTypes.MultipleEnableableComponent:
-                    baker.AddComponent(entity, new GhostOwner());
-                    SetupMultipleEnableableComponents(baker);
+                case GhostTypes.EnableableBuffers:
+                    SetupEnableableBuffers(baker);
                     break;
-                case GhostTypes.EnableableBuffer:
-                    baker.AddComponent(entity, new GhostOwner());
-                    AddBufferWithLength<EnableableBuffer>(baker);
-                    // TODO - Same tests for buffers.
+                case GhostTypes.Mixed:
+                    SetupEnableableComponents(baker);
+                    SetupEnableableBuffers(baker);
                     break;
-                case GhostTypes.MultipleEnableableBuffer:
-                    baker.AddComponent(entity, new GhostOwner());
-                    SetupMultipleEnableableBuffer(baker);
-                    break;
-                case GhostTypes.ChildComponent:
-                    baker.AddComponent(entity, new GhostOwner());
-                    AddTestEnableableComponents(baker);
+                case GhostTypes.ChildComponents:
+                    SetupEnableableComponents(baker);
                     var transform = baker.GetComponent<Transform>();
                     baker.DependsOn(transform.parent);
                     if (transform.parent == null)
@@ -71,26 +61,26 @@ namespace Unity.NetCode.Tests
                         AddComponentWithDefaultValue<ChildOnlyComponent_4>(baker);
                     }
                     break;
-                case GhostTypes.ChildBufferComponent:
-                    baker.AddComponent(entity, new GhostOwner());
-                    AddBufferWithLength<EnableableBuffer>(baker);
+                case GhostTypes.ChildBufferComponents:
+                    SetupEnableableBuffers(baker);
                     if (gameObject.transform.parent == null)
                         baker.AddComponent(entity, new TopLevelGhostEntity());
                     break;
                 case GhostTypes.GhostGroup:
-                    baker.AddComponent(entity, new GhostOwner());
                     // Dependency on the name
                     baker.DependsOn(gameObject);
                     if (gameObject.name.StartsWith("ParentGhost"))
                     {
                         baker.AddBuffer<GhostGroup>(entity);
                         baker.AddComponent(entity, default(GhostGroupRoot));
-                        AddTestEnableableComponents(baker);
+                        SetupEnableableComponents(baker);
+                        SetupEnableableBuffers(baker);
                     }
                     else
                     {
                         baker.AddComponent(entity, default(GhostChildEntity));
-                        AddTestEnableableComponents(baker);
+                        SetupEnableableComponents(baker);
+                        SetupEnableableBuffers(baker);
                     }
                     break;
                 default:
@@ -115,6 +105,8 @@ namespace Unity.NetCode.Tests
                 // Skipped as never replicated. (typeof(NeverReplicatedEnableableFlagComponent), null),
 
                 // GhostComponent:
+                (typeof(SendForChildren_OnlyPredictedGhosts_SendToNone_EnableableComponent), null),
+                (typeof(SendForChildren_DontSend_SendToOwner_EnableableComponent), null),
                 (typeof(SendForChildren_OnlyPredictedGhosts_SendToOwner_EnableableComponent), null),
                 (typeof(SendForChildren_OnlyInterpolatedGhosts_SendToOwner_EnableableComponent), null),
                 (typeof(SendForChildren_OnlyPredictedGhosts_SendToNonOwner_EnableableComponent), null),
@@ -164,6 +156,25 @@ namespace Unity.NetCode.Tests
                 (typeof(EnableableComponent_32), null),
 
                 (typeof(EnableableBuffer), null),
+                (typeof(EnableableBufferWithNonGhostField), null),
+                (typeof(ReplicatedFieldWithNonReplicatedEnableableBuffer), null),
+                (typeof(ReplicatedEnableableBufferWithNonReplicatedField), null),
+                (typeof(BufferWithReplicatedVariant), typeof(BufferWithVariantVariation)),
+                (typeof(BufferWithDontSendChildrenVariant), typeof(BufferWithDontSendChildrenVariantVariation)),
+                (typeof(BufferWithNonReplicatedVariant), typeof(BufferWithNonReplicatedVariantVariation)),
+
+                // GhostBuffer:
+                (typeof(SendForChildren_OnlyPredictedGhosts_SendToNone_EnableableBuffer), null),
+                (typeof(SendForChildren_DontSend_SendToOwner_EnableableBuffer), null),
+                (typeof(SendForChildren_OnlyPredictedGhosts_SendToOwner_EnableableBuffer), null),
+                (typeof(SendForChildren_OnlyInterpolatedGhosts_SendToOwner_EnableableBuffer), null),
+                (typeof(SendForChildren_OnlyPredictedGhosts_SendToNonOwner_EnableableBuffer), null),
+                (typeof(SendForChildren_OnlyInterpolatedGhosts_SendToNonOwner_EnableableBuffer), null),
+                (typeof(DontSendForChildren_OnlyPredictedGhosts_SendToOwner_EnableableBuffer), null),
+                (typeof(DontSendForChildren_OnlyInterpolatedGhosts_SendToOwner_EnableableBuffer), null),
+                (typeof(DontSendForChildren_OnlyPredictedGhosts_SendToNonOwner_EnableableBuffer), null),
+                (typeof(DontSendForChildren_OnlyInterpolatedGhosts_SendToNonOwner_EnableableBuffer), null),
+
                 (typeof(EnableableBuffer_0), null),
                 (typeof(EnableableBuffer_1), null),
                 (typeof(EnableableBuffer_2), null),
@@ -232,7 +243,7 @@ namespace Unity.NetCode.Tests
             }
         }
 
-        void AddTestEnableableComponents(IBaker baker)
+        void SetupEnableableComponents(IBaker baker)
         {
             AddComponentWithDefaultValue<EnableableComponent>(baker);
             AddComponentWithDefaultValue<EnableableComponentWithNonGhostField>(baker);
@@ -244,7 +255,8 @@ namespace Unity.NetCode.Tests
             AddComponentWithDefaultValue<ComponentWithDontSendChildrenVariant>(baker);
             AddComponentWithDefaultValue<ComponentWithNonReplicatedVariant>(baker);
 
-            // FIXME: GhostComponentAttribute coverage.
+            AddComponentWithDefaultValue<SendForChildren_OnlyPredictedGhosts_SendToNone_EnableableComponent>(baker);
+            AddComponentWithDefaultValue<SendForChildren_DontSend_SendToOwner_EnableableComponent>(baker);
             AddComponentWithDefaultValue<SendForChildren_OnlyPredictedGhosts_SendToOwner_EnableableComponent>(baker);
             AddComponentWithDefaultValue<SendForChildren_OnlyInterpolatedGhosts_SendToOwner_EnableableComponent>(baker);
             AddComponentWithDefaultValue<SendForChildren_OnlyPredictedGhosts_SendToNonOwner_EnableableComponent>(baker);
@@ -253,10 +265,7 @@ namespace Unity.NetCode.Tests
             AddComponentWithDefaultValue<DontSendForChildren_OnlyInterpolatedGhosts_SendToOwner_EnableableComponent>(baker);
             AddComponentWithDefaultValue<DontSendForChildren_OnlyPredictedGhosts_SendToNonOwner_EnableableComponent>(baker);
             AddComponentWithDefaultValue<DontSendForChildren_OnlyInterpolatedGhosts_SendToNonOwner_EnableableComponent>(baker);
-        }
 
-        void SetupMultipleEnableableComponents(IBaker baker)
-        {
             AddComponentWithDefaultValue<EnableableComponent_0>(baker);
             AddComponentWithDefaultValue<EnableableComponent_1>(baker);
             AddComponentWithDefaultValue<EnableableComponent_2>(baker);
@@ -295,7 +304,7 @@ namespace Unity.NetCode.Tests
         void AddComponentWithDefaultValue<T>(IBaker baker) where T : unmanaged, IComponentData, IComponentValue, IEnableableComponent
         {
             var def = default(T);
-            def.SetValue(GhostSerializationTestsForEnableableBits.kDefaultValueIfNotReplicated);
+            def.SetValue(GhostSerializationTestsForEnableableBits.kBakedValue);
             var entity = baker.GetEntity(TransformUsageFlags.Dynamic);
             baker.AddComponent(entity, def);
             baker.SetComponentEnabled<T>(entity, BakedEnabledBitValue(_enabledBitBakedValue));
@@ -317,14 +326,33 @@ namespace Unity.NetCode.Tests
             for (var index = 0; index < enableableBuffers.Length; index++)
             {
                 var bufferElementData = enableableBuffers[index];
-                bufferElementData.SetValue(GhostSerializationTestsForEnableableBits.kDefaultValueIfNotReplicated);
+                bufferElementData.SetValue(GhostSerializationTestsForEnableableBits.kBakedValue);
                 enableableBuffers[index] = bufferElementData;
             }
             baker.SetComponentEnabled<T>(entity, BakedEnabledBitValue(_enabledBitBakedValue));
         }
 
-        void SetupMultipleEnableableBuffer(IBaker baker)
+        void SetupEnableableBuffers(IBaker baker)
         {
+            AddBufferWithLength<EnableableBuffer>(baker);
+            AddBufferWithLength<EnableableBufferWithNonGhostField>(baker);
+            AddBufferWithLength<ReplicatedFieldWithNonReplicatedEnableableBuffer>(baker);
+            AddBufferWithLength<ReplicatedEnableableBufferWithNonReplicatedField>(baker);
+            AddBufferWithLength<BufferWithReplicatedVariant>(baker);
+            AddBufferWithLength<BufferWithDontSendChildrenVariant>(baker);
+            AddBufferWithLength<BufferWithNonReplicatedVariant>(baker);
+
+            AddBufferWithLength<SendForChildren_OnlyPredictedGhosts_SendToNone_EnableableBuffer>(baker);
+            AddBufferWithLength<SendForChildren_DontSend_SendToOwner_EnableableBuffer>(baker);
+            AddBufferWithLength<SendForChildren_OnlyPredictedGhosts_SendToOwner_EnableableBuffer>(baker);
+            AddBufferWithLength<SendForChildren_OnlyInterpolatedGhosts_SendToOwner_EnableableBuffer>(baker);
+            AddBufferWithLength<SendForChildren_OnlyPredictedGhosts_SendToNonOwner_EnableableBuffer>(baker);
+            AddBufferWithLength<SendForChildren_OnlyInterpolatedGhosts_SendToNonOwner_EnableableBuffer>(baker);
+            AddBufferWithLength<DontSendForChildren_OnlyPredictedGhosts_SendToOwner_EnableableBuffer>(baker);
+            AddBufferWithLength<DontSendForChildren_OnlyInterpolatedGhosts_SendToOwner_EnableableBuffer>(baker);
+            AddBufferWithLength<DontSendForChildren_OnlyPredictedGhosts_SendToNonOwner_EnableableBuffer>(baker);
+            AddBufferWithLength<DontSendForChildren_OnlyInterpolatedGhosts_SendToNonOwner_EnableableBuffer>(baker);
+
             AddBufferWithLength<EnableableBuffer_0>(baker);
             AddBufferWithLength<EnableableBuffer_1>(baker);
             AddBufferWithLength<EnableableBuffer_2>(baker);
@@ -361,15 +389,109 @@ namespace Unity.NetCode.Tests
         }
     }
 
-    public interface IComponentValue
+    internal interface IComponentValue
     {
         void SetValue(int value);
         int GetValue();
     }
 
+    [GhostComponent(SendDataForChildEntity = true, SendTypeOptimization = GhostSendType.OnlyPredictedClients, OwnerSendType = SendToOwnerType.None)]
+    [GhostEnabledBit]
+    internal struct SendForChildren_OnlyPredictedGhosts_SendToNone_EnableableBuffer : IBufferElementData, IComponentValue, IEnableableComponent
+    {
+        [GhostField]
+        public int value;
+        public void SetValue(int value) => this.value = value;
+        public int GetValue() => value;
+    }
+    [GhostComponent(SendDataForChildEntity = true, SendTypeOptimization = GhostSendType.DontSend, OwnerSendType = SendToOwnerType.SendToOwner)]
+    [GhostEnabledBit]
+    internal struct SendForChildren_DontSend_SendToOwner_EnableableBuffer : IBufferElementData, IComponentValue, IEnableableComponent
+    {
+        [GhostField]
+        public int value;
+        public void SetValue(int value) => this.value = value;
+        public int GetValue() => value;
+    }
+    [GhostComponent(SendDataForChildEntity = true, SendTypeOptimization = GhostSendType.OnlyPredictedClients, OwnerSendType = SendToOwnerType.SendToOwner)]
+    [GhostEnabledBit]
+    internal struct SendForChildren_OnlyPredictedGhosts_SendToOwner_EnableableBuffer : IBufferElementData, IComponentValue, IEnableableComponent
+    {
+        [GhostField]
+        public int value;
+        public void SetValue(int value) => this.value = value;
+        public int GetValue() => value;
+    }
+    [GhostComponent(SendDataForChildEntity = true, SendTypeOptimization = GhostSendType.OnlyInterpolatedClients, OwnerSendType = SendToOwnerType.SendToOwner)]
+    [GhostEnabledBit]
+    internal struct SendForChildren_OnlyInterpolatedGhosts_SendToOwner_EnableableBuffer : IBufferElementData, IComponentValue, IEnableableComponent
+    {
+        [GhostField]
+        public int value;
+        public void SetValue(int value) => this.value = value;
+        public int GetValue() => value;
+    }
+    [GhostComponent(SendDataForChildEntity = true, SendTypeOptimization = GhostSendType.OnlyPredictedClients, OwnerSendType = SendToOwnerType.SendToNonOwner)]
+    [GhostEnabledBit]
+    internal struct SendForChildren_OnlyPredictedGhosts_SendToNonOwner_EnableableBuffer : IBufferElementData, IComponentValue, IEnableableComponent
+    {
+        [GhostField]
+        public int value;
+        public void SetValue(int value) => this.value = value;
+        public int GetValue() => value;
+    }
+    [GhostComponent(SendDataForChildEntity = true, SendTypeOptimization = GhostSendType.OnlyInterpolatedClients, OwnerSendType = SendToOwnerType.SendToNonOwner)]
+    [GhostEnabledBit]
+    internal struct SendForChildren_OnlyInterpolatedGhosts_SendToNonOwner_EnableableBuffer : IBufferElementData, IComponentValue, IEnableableComponent
+    {
+        [GhostField]
+        public int value;
+        public void SetValue(int value) => this.value = value;
+        public int GetValue() => value;
+    }
+    // ----
+    [GhostComponent(SendDataForChildEntity = false, SendTypeOptimization = GhostSendType.OnlyPredictedClients, OwnerSendType = SendToOwnerType.SendToOwner)]
+    [GhostEnabledBit]
+    internal struct DontSendForChildren_OnlyPredictedGhosts_SendToOwner_EnableableBuffer : IBufferElementData, IComponentValue, IEnableableComponent
+    {
+        [GhostField]
+        public int value;
+        public void SetValue(int value) => this.value = value;
+        public int GetValue() => value;
+    }
+    [GhostComponent(SendDataForChildEntity = false, SendTypeOptimization = GhostSendType.OnlyInterpolatedClients, OwnerSendType = SendToOwnerType.SendToOwner)]
+    [GhostEnabledBit]
+    internal struct DontSendForChildren_OnlyInterpolatedGhosts_SendToOwner_EnableableBuffer : IBufferElementData, IComponentValue, IEnableableComponent
+    {
+        [GhostField]
+        public int value;
+        public void SetValue(int value) => this.value = value;
+        public int GetValue() => value;
+    }
+    [GhostComponent(SendDataForChildEntity = false, SendTypeOptimization = GhostSendType.OnlyPredictedClients, OwnerSendType = SendToOwnerType.SendToNonOwner)]
+    [GhostEnabledBit]
+    internal struct DontSendForChildren_OnlyPredictedGhosts_SendToNonOwner_EnableableBuffer : IBufferElementData, IComponentValue, IEnableableComponent
+    {
+        [GhostField]
+        public int value;
+        public void SetValue(int value) => this.value = value;
+        public int GetValue() => value;
+    }
+    [GhostComponent(SendDataForChildEntity = false, SendTypeOptimization = GhostSendType.OnlyInterpolatedClients, OwnerSendType = SendToOwnerType.SendToNonOwner)]
+    [GhostEnabledBit]
+    internal struct DontSendForChildren_OnlyInterpolatedGhosts_SendToNonOwner_EnableableBuffer : IBufferElementData, IComponentValue, IEnableableComponent
+    {
+        [GhostField]
+        public int value;
+        public void SetValue(int value) => this.value = value;
+        public int GetValue() => value;
+    }
+
+    ////////////////////////////////////////////////////////////////////////////
+
     [GhostComponent(SendDataForChildEntity = true)] // We test this attribute flag too.
     [GhostEnabledBit]
-    public struct EnableableBuffer : IBufferElementData, IEnableableComponent, IComponentValue
+    internal struct EnableableBuffer : IBufferElementData, IEnableableComponent, IComponentValue
     {
         [GhostField] public int value;
 
@@ -384,33 +506,134 @@ namespace Unity.NetCode.Tests
         }
     }
 
-    [GhostComponent(SendDataForChildEntity = true)] // We test this attribute flag too.
-    [GhostEnabledBit]
-    public struct EnableableComponent : IComponentData, IEnableableComponent, IComponentValue
-    {
-        [GhostField] public int value;
-
-        public void SetValue(int value)
-        {
-            this.value = value;
-        }
-
-        public int GetValue()
-        {
-            return value;
-        }
-    }
-
-    /// <summary>Enable flag SHOULD BE replicated.</summary>
     [GhostComponent(SendDataForChildEntity = true)]
     [GhostEnabledBit]
-    public struct EnableableFlagComponent : IComponentData, IEnableableComponent
+    internal struct EnableableBufferWithNonGhostField : IBufferElementData, IEnableableComponent, IComponentValue
+    {
+        [GhostField(SendData = false)]public int nonGhostField1;
+        [GhostField] public int value;
+        [GhostField(SendData = false)]public int nonGhostField2;
+
+        public void SetValue(int value)
+        {
+            nonGhostField1 = GhostSerializationTestsForEnableableBits.kDefaultValueForNonGhostFields;
+            nonGhostField2 = GhostSerializationTestsForEnableableBits.kDefaultValueForNonGhostFields;
+            this.value = value;
+        }
+
+        public int GetValue()
+        {
+            GhostSerializationTestsForEnableableBits.EnsureNonGhostFieldValueIsNotClobbered(nonGhostField1);
+            GhostSerializationTestsForEnableableBits.EnsureNonGhostFieldValueIsNotClobbered(nonGhostField2);
+            return value;
+        }
+    }
+
+    [GhostComponent(SendDataForChildEntity = true)]
+    internal struct ReplicatedFieldWithNonReplicatedEnableableBuffer : IBufferElementData, IEnableableComponent, IComponentValue
+    {
+        [GhostField]
+        public int value;
+
+        public void SetValue(int value) => this.value = value;
+
+        public int GetValue() => value;
+    }
+
+    [GhostComponent(SendDataForChildEntity = true)]
+    [GhostEnabledBit]
+    internal struct ReplicatedEnableableBufferWithNonReplicatedField : IBufferElementData, IEnableableComponent, IComponentValue
+    {
+        public int value;
+
+        public void SetValue(int value) => this.value = value;
+
+        public int GetValue() => value;
+    }
+
+    public struct BufferWithReplicatedVariant : IBufferElementData, IEnableableComponent, IComponentValue
+    {
+        public int value;
+
+        public void SetValue(int value) => this.value = value;
+
+        public int GetValue() => value;
+    }
+
+    // As this is the only variant, it becomes the default variant.
+    [GhostComponentVariation(typeof(BufferWithReplicatedVariant))]
+    [GhostComponent(SendDataForChildEntity = true)]
+    [GhostEnabledBit]
+    internal struct BufferWithVariantVariation
+    {
+        [GhostField]
+        public int value;
+    }
+
+    [GhostComponent(SendDataForChildEntity = true)] // Testing this as well, as this should be clobbered by the Variant.
+    public struct BufferWithDontSendChildrenVariant  : IBufferElementData, IEnableableComponent, IComponentValue
+    {
+        public int value;
+
+        public void SetValue(int value) => this.value = value;
+
+        public int GetValue() => value;
+    }
+
+    // As this is the only variant, it becomes the default variant.
+    [GhostComponentVariation(typeof(BufferWithDontSendChildrenVariant))]
+    [GhostComponent(SendDataForChildEntity = false)]
+    [GhostEnabledBit]
+    public struct BufferWithDontSendChildrenVariantVariation
+    {
+        [GhostField]
+        public int value;
+    }
+
+    [GhostEnabledBit]
+    public struct BufferWithNonReplicatedVariant : IBufferElementData, IEnableableComponent, IComponentValue
+    {
+        [GhostField]
+        public int value;
+
+        public void SetValue(int value) => this.value = value;
+
+        public int GetValue() => value;
+    }
+
+    // As this is the only variant, it becomes the default variant.
+    [GhostComponentVariation(typeof(BufferWithNonReplicatedVariant))]
+    public struct BufferWithNonReplicatedVariantVariation
+    {
+        public int value;
+    }
+
+    [GhostComponent(SendDataForChildEntity = true)]
+    [GhostEnabledBit]
+    internal struct EnableableComponent : IComponentData, IEnableableComponent, IComponentValue
+    {
+        [GhostField] public int value;
+
+        public void SetValue(int value)
+        {
+            this.value = value;
+        }
+
+        public int GetValue()
+        {
+            return value;
+        }
+    }
+
+    [GhostComponent(SendDataForChildEntity = true)]
+    [GhostEnabledBit]
+    internal struct EnableableFlagComponent : IComponentData, IEnableableComponent
     {
     }
 
-    [GhostComponent(SendDataForChildEntity = true)] // We test this attribute flag too.
+    [GhostComponent(SendDataForChildEntity = true)]
     [GhostEnabledBit]
-    public struct EnableableComponentWithNonGhostField : IComponentData, IEnableableComponent, IComponentValue
+    internal struct EnableableComponentWithNonGhostField : IComponentData, IEnableableComponent, IComponentValue
     {
         public int nonGhostField1;
         [GhostField] public int value;
@@ -432,13 +655,12 @@ namespace Unity.NetCode.Tests
     }
 
     /// <summary>Enable flag should NOT BE replicated.</summary>
-    public struct NeverReplicatedEnableableFlagComponent : IComponentData, IEnableableComponent
+    internal struct NeverReplicatedEnableableFlagComponent : IComponentData, IEnableableComponent
     {
     }
 
-    /// <summary>Enable flag should NOT BE replicated, but the field A SHOULD BE.</summary>
     [GhostComponent(SendDataForChildEntity = true)]
-    public struct ReplicatedFieldWithNonReplicatedEnableableComponent : IComponentData, IEnableableComponent, IComponentValue
+    internal struct ReplicatedFieldWithNonReplicatedEnableableComponent : IComponentData, IEnableableComponent, IComponentValue
     {
         [GhostField]
         public int value;
@@ -448,10 +670,9 @@ namespace Unity.NetCode.Tests
         public int GetValue() => value;
     }
 
-    /// <summary>Enable flag SHOULD BE replicated, but the field B should NOT BE.</summary>
     [GhostComponent(SendDataForChildEntity = true)]
     [GhostEnabledBit]
-    public struct ReplicatedEnableableComponentWithNonReplicatedField : IComponentData, IEnableableComponent, IComponentValue
+    internal struct ReplicatedEnableableComponentWithNonReplicatedField : IComponentData, IEnableableComponent, IComponentValue
     {
         public int value;
 
@@ -520,16 +741,16 @@ namespace Unity.NetCode.Tests
     // Test child-only components:
     [GhostComponent(SendDataForChildEntity = true)]
     [GhostEnabledBit]
-    public struct ChildOnlyComponent_1 : IComponentData, IEnableableComponent
+    internal struct ChildOnlyComponent_1 : IComponentData, IEnableableComponent
     {
     }
     [GhostComponent(SendDataForChildEntity = false)]
-    public struct ChildOnlyComponent_2 : IComponentData, IEnableableComponent
+    internal struct ChildOnlyComponent_2 : IComponentData, IEnableableComponent
     {
     }
     [GhostComponent(SendDataForChildEntity = true)]
     [GhostEnabledBit]
-    public struct ChildOnlyComponent_3 : IComponentData, IComponentValue, IEnableableComponent
+    internal struct ChildOnlyComponent_3 : IComponentData, IComponentValue, IEnableableComponent
     {
         public int nonGhostField1;
         [GhostField]
@@ -550,7 +771,7 @@ namespace Unity.NetCode.Tests
         }
     }
     [GhostComponent(SendDataForChildEntity = false)]
-    public struct ChildOnlyComponent_4 : IComponentData, IComponentValue, IEnableableComponent
+    internal struct ChildOnlyComponent_4 : IComponentData, IComponentValue, IEnableableComponent
     {
         [GhostField]
         public int value;
@@ -558,13 +779,28 @@ namespace Unity.NetCode.Tests
         public int GetValue() => value;
     }
 
-    // FIXME: GhostComponentAttribute coverage, test children equivalents of this.
-    // FIXME: GhostComponentAttribute coverage, test SendData = false too.
-
     // Test components with lots of GhostComponentAttribute modifications (note: PrefabType stripping is tested elsewhere):
+    [GhostComponent(SendDataForChildEntity = true, SendTypeOptimization = GhostSendType.OnlyPredictedClients, OwnerSendType = SendToOwnerType.None)]
+    [GhostEnabledBit]
+    internal struct SendForChildren_OnlyPredictedGhosts_SendToNone_EnableableComponent : IComponentData, IComponentValue, IEnableableComponent
+    {
+        [GhostField]
+        public int value;
+        public void SetValue(int value) => this.value = value;
+        public int GetValue() => value;
+    }
+    [GhostComponent(SendDataForChildEntity = true, SendTypeOptimization = GhostSendType.DontSend, OwnerSendType = SendToOwnerType.SendToOwner)]
+    [GhostEnabledBit]
+    internal struct SendForChildren_DontSend_SendToOwner_EnableableComponent : IComponentData, IComponentValue, IEnableableComponent
+    {
+        [GhostField]
+        public int value;
+        public void SetValue(int value) => this.value = value;
+        public int GetValue() => value;
+    }
     [GhostComponent(SendDataForChildEntity = true, SendTypeOptimization = GhostSendType.OnlyPredictedClients, OwnerSendType = SendToOwnerType.SendToOwner)]
     [GhostEnabledBit]
-    public struct SendForChildren_OnlyPredictedGhosts_SendToOwner_EnableableComponent : IComponentData, IComponentValue, IEnableableComponent
+    internal struct SendForChildren_OnlyPredictedGhosts_SendToOwner_EnableableComponent : IComponentData, IComponentValue, IEnableableComponent
     {
         [GhostField]
         public int value;
@@ -573,7 +809,7 @@ namespace Unity.NetCode.Tests
     }
     [GhostComponent(SendDataForChildEntity = true, SendTypeOptimization = GhostSendType.OnlyInterpolatedClients, OwnerSendType = SendToOwnerType.SendToOwner)]
     [GhostEnabledBit]
-    public struct SendForChildren_OnlyInterpolatedGhosts_SendToOwner_EnableableComponent : IComponentData, IComponentValue, IEnableableComponent
+    internal struct SendForChildren_OnlyInterpolatedGhosts_SendToOwner_EnableableComponent : IComponentData, IComponentValue, IEnableableComponent
     {
         [GhostField]
         public int value;
@@ -582,7 +818,7 @@ namespace Unity.NetCode.Tests
     }
     [GhostComponent(SendDataForChildEntity = true, SendTypeOptimization = GhostSendType.OnlyPredictedClients, OwnerSendType = SendToOwnerType.SendToNonOwner)]
     [GhostEnabledBit]
-    public struct SendForChildren_OnlyPredictedGhosts_SendToNonOwner_EnableableComponent : IComponentData, IComponentValue, IEnableableComponent
+    internal struct SendForChildren_OnlyPredictedGhosts_SendToNonOwner_EnableableComponent : IComponentData, IComponentValue, IEnableableComponent
     {
         [GhostField]
         public int value;
@@ -591,7 +827,7 @@ namespace Unity.NetCode.Tests
     }
     [GhostComponent(SendDataForChildEntity = true, SendTypeOptimization = GhostSendType.OnlyInterpolatedClients, OwnerSendType = SendToOwnerType.SendToNonOwner)]
     [GhostEnabledBit]
-    public struct SendForChildren_OnlyInterpolatedGhosts_SendToNonOwner_EnableableComponent : IComponentData, IComponentValue, IEnableableComponent
+    internal struct SendForChildren_OnlyInterpolatedGhosts_SendToNonOwner_EnableableComponent : IComponentData, IComponentValue, IEnableableComponent
     {
         [GhostField]
         public int value;
@@ -601,7 +837,7 @@ namespace Unity.NetCode.Tests
     // ----
     [GhostComponent(SendDataForChildEntity = false, SendTypeOptimization = GhostSendType.OnlyPredictedClients, OwnerSendType = SendToOwnerType.SendToOwner)]
     [GhostEnabledBit]
-    public struct DontSendForChildren_OnlyPredictedGhosts_SendToOwner_EnableableComponent : IComponentData, IComponentValue, IEnableableComponent
+    internal struct DontSendForChildren_OnlyPredictedGhosts_SendToOwner_EnableableComponent : IComponentData, IComponentValue, IEnableableComponent
     {
         [GhostField]
         public int value;
@@ -610,7 +846,7 @@ namespace Unity.NetCode.Tests
     }
     [GhostComponent(SendDataForChildEntity = false, SendTypeOptimization = GhostSendType.OnlyInterpolatedClients, OwnerSendType = SendToOwnerType.SendToOwner)]
     [GhostEnabledBit]
-    public struct DontSendForChildren_OnlyInterpolatedGhosts_SendToOwner_EnableableComponent : IComponentData, IComponentValue, IEnableableComponent
+    internal struct DontSendForChildren_OnlyInterpolatedGhosts_SendToOwner_EnableableComponent : IComponentData, IComponentValue, IEnableableComponent
     {
         [GhostField]
         public int value;
@@ -619,7 +855,7 @@ namespace Unity.NetCode.Tests
     }
     [GhostComponent(SendDataForChildEntity = false, SendTypeOptimization = GhostSendType.OnlyPredictedClients, OwnerSendType = SendToOwnerType.SendToNonOwner)]
     [GhostEnabledBit]
-    public struct DontSendForChildren_OnlyPredictedGhosts_SendToNonOwner_EnableableComponent : IComponentData, IComponentValue, IEnableableComponent
+    internal struct DontSendForChildren_OnlyPredictedGhosts_SendToNonOwner_EnableableComponent : IComponentData, IComponentValue, IEnableableComponent
     {
         [GhostField]
         public int value;
@@ -628,7 +864,7 @@ namespace Unity.NetCode.Tests
     }
     [GhostComponent(SendDataForChildEntity = false, SendTypeOptimization = GhostSendType.OnlyInterpolatedClients, OwnerSendType = SendToOwnerType.SendToNonOwner)]
     [GhostEnabledBit]
-    public struct DontSendForChildren_OnlyInterpolatedGhosts_SendToNonOwner_EnableableComponent : IComponentData, IComponentValue, IEnableableComponent
+    internal struct DontSendForChildren_OnlyInterpolatedGhosts_SendToNonOwner_EnableableComponent : IComponentData, IComponentValue, IEnableableComponent
     {
         [GhostField]
         public int value;
@@ -639,7 +875,7 @@ namespace Unity.NetCode.Tests
     ////////////////////////////////////////////////////////////////////////////
 
     [GhostEnabledBit]
-    public struct EnableableComponent_0: IComponentData, IEnableableComponent, IComponentValue
+    internal struct EnableableComponent_0: IComponentData, IEnableableComponent, IComponentValue
     {
         [GhostField] public int value;
 
@@ -654,7 +890,7 @@ namespace Unity.NetCode.Tests
         }
     }
     [GhostEnabledBit]
-    public struct EnableableComponent_1: IComponentData, IEnableableComponent, IComponentValue
+    internal struct EnableableComponent_1: IComponentData, IEnableableComponent, IComponentValue
     {
         [GhostField] public int value;
 
@@ -669,7 +905,7 @@ namespace Unity.NetCode.Tests
         }
     }
     [GhostEnabledBit]
-    public struct EnableableComponent_2: IComponentData, IEnableableComponent, IComponentValue
+    internal struct EnableableComponent_2: IComponentData, IEnableableComponent, IComponentValue
     {
         [GhostField] public int value;
 
@@ -684,7 +920,7 @@ namespace Unity.NetCode.Tests
         }
     }
     [GhostEnabledBit]
-    public struct EnableableComponent_3: IComponentData, IEnableableComponent, IComponentValue
+    internal struct EnableableComponent_3: IComponentData, IEnableableComponent, IComponentValue
     {
         [GhostField] public int value;
 
@@ -699,7 +935,7 @@ namespace Unity.NetCode.Tests
         }
     }
     [GhostEnabledBit]
-    public struct EnableableComponent_4: IComponentData, IEnableableComponent, IComponentValue
+    internal struct EnableableComponent_4: IComponentData, IEnableableComponent, IComponentValue
     {
         [GhostField] public int value;
 
@@ -714,98 +950,7 @@ namespace Unity.NetCode.Tests
         }
     }
     [GhostEnabledBit]
-    public struct EnableableComponent_5: IComponentData, IEnableableComponent, IComponentValue
-    {
-        [GhostField] public int value;
-
-        public void SetValue(int value)
-        {
-            this.value = value;
-        }
-
-        public int GetValue()
-        {
-            return value;
-        }
-    }
-
-    [GhostEnabledBit]
-    public struct EnableableComponent_6: IComponentData, IEnableableComponent, IComponentValue
-    {
-        [GhostField] public int value;
-
-        public void SetValue(int value)
-        {
-            this.value = value;
-        }
-
-        public int GetValue()
-        {
-            return value;
-        }
-    }
-    [GhostEnabledBit]
-    public struct EnableableComponent_7: IComponentData, IEnableableComponent, IComponentValue
-    {
-        [GhostField] public int value;
-
-        public void SetValue(int value)
-        {
-            this.value = value;
-        }
-
-        public int GetValue()
-        {
-            return value;
-        }
-    }
-    [GhostEnabledBit]
-    public struct EnableableComponent_8: IComponentData, IEnableableComponent, IComponentValue
-    {
-        [GhostField] public int value;
-
-        public void SetValue(int value)
-        {
-            this.value = value;
-        }
-
-        public int GetValue()
-        {
-            return value;
-        }
-    }
-    [GhostEnabledBit]
-    public struct EnableableComponent_9: IComponentData, IEnableableComponent, IComponentValue
-    {
-        [GhostField] public int value;
-
-        public void SetValue(int value)
-        {
-            this.value = value;
-        }
-
-        public int GetValue()
-        {
-            return value;
-        }
-    }
-    [GhostEnabledBit]
-    public struct EnableableComponent_10: IComponentData, IEnableableComponent, IComponentValue
-    {
-        [GhostField] public int value;
-
-        public void SetValue(int value)
-        {
-            this.value = value;
-        }
-
-        public int GetValue()
-        {
-            return value;
-        }
-    }
-    [GhostEnabledBit]
-    public struct EnableableComponent_11: IComponentData, IEnableableComponent, IComponentValue
+    internal struct EnableableComponent_5: IComponentData, IEnableableComponent, IComponentValue
     {
         [GhostField] public int value;
 
@@ -821,7 +966,7 @@ namespace Unity.NetCode.Tests
     }
 
     [GhostEnabledBit]
-    public struct EnableableComponent_12: IComponentData, IEnableableComponent, IComponentValue
+    internal struct EnableableComponent_6: IComponentData, IEnableableComponent, IComponentValue
     {
         [GhostField] public int value;
 
@@ -836,7 +981,7 @@ namespace Unity.NetCode.Tests
         }
     }
     [GhostEnabledBit]
-    public struct EnableableComponent_13: IComponentData, IEnableableComponent, IComponentValue
+    internal struct EnableableComponent_7: IComponentData, IEnableableComponent, IComponentValue
     {
         [GhostField] public int value;
 
@@ -851,7 +996,7 @@ namespace Unity.NetCode.Tests
         }
     }
     [GhostEnabledBit]
-    public struct EnableableComponent_14: IComponentData, IEnableableComponent, IComponentValue
+    internal struct EnableableComponent_8: IComponentData, IEnableableComponent, IComponentValue
     {
         [GhostField] public int value;
 
@@ -866,23 +1011,7 @@ namespace Unity.NetCode.Tests
         }
     }
     [GhostEnabledBit]
-    public struct EnableableComponent_15: IComponentData, IEnableableComponent, IComponentValue
-    {
-        [GhostField] public int value;
-
-        public void SetValue(int value)
-        {
-            this.value = value;
-        }
-
-        public int GetValue()
-        {
-            return value;
-        }
-    }
-
-    [GhostEnabledBit]
-    public struct EnableableComponent_16: IComponentData, IEnableableComponent, IComponentValue
+    internal struct EnableableComponent_9: IComponentData, IEnableableComponent, IComponentValue
     {
         [GhostField] public int value;
 
@@ -897,7 +1026,7 @@ namespace Unity.NetCode.Tests
         }
     }
     [GhostEnabledBit]
-    public struct EnableableComponent_17: IComponentData, IEnableableComponent, IComponentValue
+    internal struct EnableableComponent_10: IComponentData, IEnableableComponent, IComponentValue
     {
         [GhostField] public int value;
 
@@ -912,52 +1041,7 @@ namespace Unity.NetCode.Tests
         }
     }
     [GhostEnabledBit]
-    public struct EnableableComponent_18: IComponentData, IEnableableComponent, IComponentValue
-    {
-        [GhostField] public int value;
-
-        public void SetValue(int value)
-        {
-            this.value = value;
-        }
-
-        public int GetValue()
-        {
-            return value;
-        }
-    }
-    [GhostEnabledBit]
-    public struct EnableableComponent_19: IComponentData, IEnableableComponent, IComponentValue
-    {
-        [GhostField] public int value;
-
-        public void SetValue(int value)
-        {
-            this.value = value;
-        }
-
-        public int GetValue()
-        {
-            return value;
-        }
-    }
-    [GhostEnabledBit]
-    public struct EnableableComponent_20: IComponentData, IEnableableComponent, IComponentValue
-    {
-        [GhostField] public int value;
-
-        public void SetValue(int value)
-        {
-            this.value = value;
-        }
-
-        public int GetValue()
-        {
-            return value;
-        }
-    }
-    [GhostEnabledBit]
-    public struct EnableableComponent_21: IComponentData, IEnableableComponent, IComponentValue
+    internal struct EnableableComponent_11: IComponentData, IEnableableComponent, IComponentValue
     {
         [GhostField] public int value;
 
@@ -973,7 +1057,7 @@ namespace Unity.NetCode.Tests
     }
 
     [GhostEnabledBit]
-    public struct EnableableComponent_22: IComponentData, IEnableableComponent, IComponentValue
+    internal struct EnableableComponent_12: IComponentData, IEnableableComponent, IComponentValue
     {
         [GhostField] public int value;
 
@@ -988,7 +1072,7 @@ namespace Unity.NetCode.Tests
         }
     }
     [GhostEnabledBit]
-    public struct EnableableComponent_23: IComponentData, IEnableableComponent, IComponentValue
+    internal struct EnableableComponent_13: IComponentData, IEnableableComponent, IComponentValue
     {
         [GhostField] public int value;
 
@@ -1003,7 +1087,7 @@ namespace Unity.NetCode.Tests
         }
     }
     [GhostEnabledBit]
-    public struct EnableableComponent_24: IComponentData, IEnableableComponent, IComponentValue
+    internal struct EnableableComponent_14: IComponentData, IEnableableComponent, IComponentValue
     {
         [GhostField] public int value;
 
@@ -1018,7 +1102,7 @@ namespace Unity.NetCode.Tests
         }
     }
     [GhostEnabledBit]
-    public struct EnableableComponent_25: IComponentData, IEnableableComponent, IComponentValue
+    internal struct EnableableComponent_15: IComponentData, IEnableableComponent, IComponentValue
     {
         [GhostField] public int value;
 
@@ -1034,7 +1118,7 @@ namespace Unity.NetCode.Tests
     }
 
     [GhostEnabledBit]
-    public struct EnableableComponent_26: IComponentData, IEnableableComponent, IComponentValue
+    internal struct EnableableComponent_16: IComponentData, IEnableableComponent, IComponentValue
     {
         [GhostField] public int value;
 
@@ -1049,7 +1133,7 @@ namespace Unity.NetCode.Tests
         }
     }
     [GhostEnabledBit]
-    public struct EnableableComponent_27: IComponentData, IEnableableComponent, IComponentValue
+    internal struct EnableableComponent_17: IComponentData, IEnableableComponent, IComponentValue
     {
         [GhostField] public int value;
 
@@ -1064,7 +1148,7 @@ namespace Unity.NetCode.Tests
         }
     }
     [GhostEnabledBit]
-    public struct EnableableComponent_28: IComponentData, IEnableableComponent, IComponentValue
+    internal struct EnableableComponent_18: IComponentData, IEnableableComponent, IComponentValue
     {
         [GhostField] public int value;
 
@@ -1079,7 +1163,7 @@ namespace Unity.NetCode.Tests
         }
     }
     [GhostEnabledBit]
-    public struct EnableableComponent_29: IComponentData, IEnableableComponent, IComponentValue
+    internal struct EnableableComponent_19: IComponentData, IEnableableComponent, IComponentValue
     {
         [GhostField] public int value;
 
@@ -1094,7 +1178,7 @@ namespace Unity.NetCode.Tests
         }
     }
     [GhostEnabledBit]
-    public struct EnableableComponent_30: IComponentData, IEnableableComponent, IComponentValue
+    internal struct EnableableComponent_20: IComponentData, IEnableableComponent, IComponentValue
     {
         [GhostField] public int value;
 
@@ -1109,7 +1193,23 @@ namespace Unity.NetCode.Tests
         }
     }
     [GhostEnabledBit]
-    public struct EnableableComponent_31: IComponentData, IEnableableComponent, IComponentValue
+    internal struct EnableableComponent_21: IComponentData, IEnableableComponent, IComponentValue
+    {
+        [GhostField] public int value;
+
+        public void SetValue(int value)
+        {
+            this.value = value;
+        }
+
+        public int GetValue()
+        {
+            return value;
+        }
+    }
+
+    [GhostEnabledBit]
+    internal struct EnableableComponent_22: IComponentData, IEnableableComponent, IComponentValue
     {
         [GhostField] public int value;
 
@@ -1124,7 +1224,7 @@ namespace Unity.NetCode.Tests
         }
     }
     [GhostEnabledBit]
-    public struct EnableableComponent_32: IComponentData, IEnableableComponent, IComponentValue
+    internal struct EnableableComponent_23: IComponentData, IEnableableComponent, IComponentValue
     {
         [GhostField] public int value;
 
@@ -1139,7 +1239,143 @@ namespace Unity.NetCode.Tests
         }
     }
     [GhostEnabledBit]
-    public struct EnableableBuffer_0 : IBufferElementData, IEnableableComponent, IComponentValue
+    internal struct EnableableComponent_24: IComponentData, IEnableableComponent, IComponentValue
+    {
+        [GhostField] public int value;
+
+        public void SetValue(int value)
+        {
+            this.value = value;
+        }
+
+        public int GetValue()
+        {
+            return value;
+        }
+    }
+    [GhostEnabledBit]
+    internal struct EnableableComponent_25: IComponentData, IEnableableComponent, IComponentValue
+    {
+        [GhostField] public int value;
+
+        public void SetValue(int value)
+        {
+            this.value = value;
+        }
+
+        public int GetValue()
+        {
+            return value;
+        }
+    }
+
+    [GhostEnabledBit]
+    internal struct EnableableComponent_26: IComponentData, IEnableableComponent, IComponentValue
+    {
+        [GhostField] public int value;
+
+        public void SetValue(int value)
+        {
+            this.value = value;
+        }
+
+        public int GetValue()
+        {
+            return value;
+        }
+    }
+    [GhostEnabledBit]
+    internal struct EnableableComponent_27: IComponentData, IEnableableComponent, IComponentValue
+    {
+        [GhostField] public int value;
+
+        public void SetValue(int value)
+        {
+            this.value = value;
+        }
+
+        public int GetValue()
+        {
+            return value;
+        }
+    }
+    [GhostEnabledBit]
+    internal struct EnableableComponent_28: IComponentData, IEnableableComponent, IComponentValue
+    {
+        [GhostField] public int value;
+
+        public void SetValue(int value)
+        {
+            this.value = value;
+        }
+
+        public int GetValue()
+        {
+            return value;
+        }
+    }
+    [GhostEnabledBit]
+    internal struct EnableableComponent_29: IComponentData, IEnableableComponent, IComponentValue
+    {
+        [GhostField] public int value;
+
+        public void SetValue(int value)
+        {
+            this.value = value;
+        }
+
+        public int GetValue()
+        {
+            return value;
+        }
+    }
+    [GhostEnabledBit]
+    internal struct EnableableComponent_30: IComponentData, IEnableableComponent, IComponentValue
+    {
+        [GhostField] public int value;
+
+        public void SetValue(int value)
+        {
+            this.value = value;
+        }
+
+        public int GetValue()
+        {
+            return value;
+        }
+    }
+    [GhostEnabledBit]
+    internal struct EnableableComponent_31: IComponentData, IEnableableComponent, IComponentValue
+    {
+        [GhostField] public int value;
+
+        public void SetValue(int value)
+        {
+            this.value = value;
+        }
+
+        public int GetValue()
+        {
+            return value;
+        }
+    }
+    [GhostEnabledBit]
+    internal struct EnableableComponent_32: IComponentData, IEnableableComponent, IComponentValue
+    {
+        [GhostField] public int value;
+
+        public void SetValue(int value)
+        {
+            this.value = value;
+        }
+
+        public int GetValue()
+        {
+            return value;
+        }
+    }
+    [GhostEnabledBit]
+    internal struct EnableableBuffer_0 : IBufferElementData, IEnableableComponent, IComponentValue
     {
 #pragma warning disable CS0414
         private int nonGhostField1;
@@ -1162,7 +1398,7 @@ namespace Unity.NetCode.Tests
         }
     }
     [GhostEnabledBit]
-    public struct EnableableBuffer_1 : IBufferElementData, IEnableableComponent, IComponentValue
+    internal struct EnableableBuffer_1 : IBufferElementData, IEnableableComponent, IComponentValue
     {
         [GhostField] public int value;
         public void SetValue(int value)
@@ -1176,7 +1412,7 @@ namespace Unity.NetCode.Tests
         }
     }
     [GhostEnabledBit]
-    public struct EnableableBuffer_2 : IBufferElementData, IEnableableComponent, IComponentValue
+    internal struct EnableableBuffer_2 : IBufferElementData, IEnableableComponent, IComponentValue
     {
         [GhostField] public int value;
         public void SetValue(int value)
@@ -1190,7 +1426,7 @@ namespace Unity.NetCode.Tests
         }
     }
     [GhostEnabledBit]
-    public struct EnableableBuffer_3 : IBufferElementData, IEnableableComponent, IComponentValue
+    internal struct EnableableBuffer_3 : IBufferElementData, IEnableableComponent, IComponentValue
     {
         [GhostField] public int value;
         public void SetValue(int value)
@@ -1204,7 +1440,7 @@ namespace Unity.NetCode.Tests
         }
     }
     [GhostEnabledBit]
-    public struct EnableableBuffer_4 : IBufferElementData, IEnableableComponent, IComponentValue
+    internal struct EnableableBuffer_4 : IBufferElementData, IEnableableComponent, IComponentValue
     {
         [GhostField] public int value;
         public void SetValue(int value)
@@ -1218,7 +1454,7 @@ namespace Unity.NetCode.Tests
         }
     }
     [GhostEnabledBit]
-    public struct EnableableBuffer_5 : IBufferElementData, IEnableableComponent, IComponentValue
+    internal struct EnableableBuffer_5 : IBufferElementData, IEnableableComponent, IComponentValue
     {
         [GhostField] public int value;
         public void SetValue(int value)
@@ -1232,7 +1468,7 @@ namespace Unity.NetCode.Tests
         }
     }
     [GhostEnabledBit]
-    public struct EnableableBuffer_6 : IBufferElementData, IEnableableComponent, IComponentValue
+    internal struct EnableableBuffer_6 : IBufferElementData, IEnableableComponent, IComponentValue
     {
         [GhostField] public int value;
         public void SetValue(int value)
@@ -1246,7 +1482,7 @@ namespace Unity.NetCode.Tests
         }
     }
     [GhostEnabledBit]
-    public struct EnableableBuffer_7 : IBufferElementData, IEnableableComponent, IComponentValue
+    internal struct EnableableBuffer_7 : IBufferElementData, IEnableableComponent, IComponentValue
     {
         [GhostField] public int value;
         public void SetValue(int value)
@@ -1260,7 +1496,7 @@ namespace Unity.NetCode.Tests
         }
     }
     [GhostEnabledBit]
-    public struct EnableableBuffer_8 : IBufferElementData, IEnableableComponent, IComponentValue
+    internal struct EnableableBuffer_8 : IBufferElementData, IEnableableComponent, IComponentValue
     {
         [GhostField] public int value;
         public void SetValue(int value)
@@ -1274,7 +1510,7 @@ namespace Unity.NetCode.Tests
         }
     }
     [GhostEnabledBit]
-    public struct EnableableBuffer_9 : IBufferElementData, IEnableableComponent, IComponentValue
+    internal struct EnableableBuffer_9 : IBufferElementData, IEnableableComponent, IComponentValue
     {
         [GhostField] public int value;
         public void SetValue(int value)
@@ -1288,7 +1524,7 @@ namespace Unity.NetCode.Tests
         }
     }
     [GhostEnabledBit]
-    public struct EnableableBuffer_10 : IBufferElementData, IEnableableComponent, IComponentValue
+    internal struct EnableableBuffer_10 : IBufferElementData, IEnableableComponent, IComponentValue
     {
         [GhostField] public int value;
         public void SetValue(int value)
@@ -1302,7 +1538,7 @@ namespace Unity.NetCode.Tests
         }
     }
     [GhostEnabledBit]
-    public struct EnableableBuffer_11 : IBufferElementData, IEnableableComponent, IComponentValue
+    internal struct EnableableBuffer_11 : IBufferElementData, IEnableableComponent, IComponentValue
     {
         [GhostField] public int value;
         public void SetValue(int value)
@@ -1316,7 +1552,7 @@ namespace Unity.NetCode.Tests
         }
     }
     [GhostEnabledBit]
-    public struct EnableableBuffer_12 : IBufferElementData, IEnableableComponent, IComponentValue
+    internal struct EnableableBuffer_12 : IBufferElementData, IEnableableComponent, IComponentValue
     {
         [GhostField] public int value;
         public void SetValue(int value)
@@ -1330,7 +1566,7 @@ namespace Unity.NetCode.Tests
         }
     }
     [GhostEnabledBit]
-    public struct EnableableBuffer_13 : IBufferElementData, IEnableableComponent, IComponentValue
+    internal struct EnableableBuffer_13 : IBufferElementData, IEnableableComponent, IComponentValue
     {
         [GhostField] public int value;
         public void SetValue(int value)
@@ -1344,7 +1580,7 @@ namespace Unity.NetCode.Tests
         }
     }
     [GhostEnabledBit]
-    public struct EnableableBuffer_14 : IBufferElementData, IEnableableComponent, IComponentValue
+    internal struct EnableableBuffer_14 : IBufferElementData, IEnableableComponent, IComponentValue
     {
         [GhostField] public int value;
         public void SetValue(int value)
@@ -1358,7 +1594,7 @@ namespace Unity.NetCode.Tests
         }
     }
     [GhostEnabledBit]
-    public struct EnableableBuffer_15 : IBufferElementData, IEnableableComponent, IComponentValue
+    internal struct EnableableBuffer_15 : IBufferElementData, IEnableableComponent, IComponentValue
     {
         [GhostField] public int value;
         public void SetValue(int value)
@@ -1372,7 +1608,7 @@ namespace Unity.NetCode.Tests
         }
     }
     [GhostEnabledBit]
-    public struct EnableableBuffer_16 : IBufferElementData, IEnableableComponent, IComponentValue
+    internal struct EnableableBuffer_16 : IBufferElementData, IEnableableComponent, IComponentValue
     {
         [GhostField] public int value;
         public void SetValue(int value)
@@ -1386,7 +1622,7 @@ namespace Unity.NetCode.Tests
         }
     }
     [GhostEnabledBit]
-    public struct EnableableBuffer_17 : IBufferElementData, IEnableableComponent, IComponentValue
+    internal struct EnableableBuffer_17 : IBufferElementData, IEnableableComponent, IComponentValue
     {
         [GhostField] public int value;
         public void SetValue(int value)
@@ -1400,7 +1636,7 @@ namespace Unity.NetCode.Tests
         }
     }
     [GhostEnabledBit]
-    public struct EnableableBuffer_18 : IBufferElementData, IEnableableComponent, IComponentValue
+    internal struct EnableableBuffer_18 : IBufferElementData, IEnableableComponent, IComponentValue
     {
         [GhostField] public int value;
         public void SetValue(int value)
@@ -1414,7 +1650,7 @@ namespace Unity.NetCode.Tests
         }
     }
     [GhostEnabledBit]
-    public struct EnableableBuffer_19 : IBufferElementData, IEnableableComponent, IComponentValue
+    internal struct EnableableBuffer_19 : IBufferElementData, IEnableableComponent, IComponentValue
     {
         [GhostField] public int value;
         public void SetValue(int value)
@@ -1428,7 +1664,7 @@ namespace Unity.NetCode.Tests
         }
     }
     [GhostEnabledBit]
-    public struct EnableableBuffer_20 : IBufferElementData, IEnableableComponent, IComponentValue
+    internal struct EnableableBuffer_20 : IBufferElementData, IEnableableComponent, IComponentValue
     {
         [GhostField] public int value;
         public void SetValue(int value)
@@ -1442,7 +1678,7 @@ namespace Unity.NetCode.Tests
         }
     }
     [GhostEnabledBit]
-    public struct EnableableBuffer_21 : IBufferElementData, IEnableableComponent, IComponentValue
+    internal struct EnableableBuffer_21 : IBufferElementData, IEnableableComponent, IComponentValue
     {
         [GhostField] public int value;
         public void SetValue(int value)
@@ -1456,7 +1692,7 @@ namespace Unity.NetCode.Tests
         }
     }
     [GhostEnabledBit]
-    public struct EnableableBuffer_22 : IBufferElementData, IEnableableComponent, IComponentValue
+    internal struct EnableableBuffer_22 : IBufferElementData, IEnableableComponent, IComponentValue
     {
         [GhostField] public int value;
         public void SetValue(int value)
@@ -1470,7 +1706,7 @@ namespace Unity.NetCode.Tests
         }
     }
     [GhostEnabledBit]
-    public struct EnableableBuffer_23 : IBufferElementData, IEnableableComponent, IComponentValue
+    internal struct EnableableBuffer_23 : IBufferElementData, IEnableableComponent, IComponentValue
     {
         [GhostField] public int value;
         public void SetValue(int value)
@@ -1484,7 +1720,7 @@ namespace Unity.NetCode.Tests
         }
     }
     [GhostEnabledBit]
-    public struct EnableableBuffer_24 : IBufferElementData, IEnableableComponent, IComponentValue
+    internal struct EnableableBuffer_24 : IBufferElementData, IEnableableComponent, IComponentValue
     {
         [GhostField] public int value;
         public void SetValue(int value)
@@ -1498,7 +1734,7 @@ namespace Unity.NetCode.Tests
         }
     }
     [GhostEnabledBit]
-    public struct EnableableBuffer_25 : IBufferElementData, IEnableableComponent, IComponentValue
+    internal struct EnableableBuffer_25 : IBufferElementData, IEnableableComponent, IComponentValue
     {
         [GhostField] public int value;
         public void SetValue(int value)
@@ -1512,7 +1748,7 @@ namespace Unity.NetCode.Tests
         }
     }
     [GhostEnabledBit]
-    public struct EnableableBuffer_26 : IBufferElementData, IEnableableComponent, IComponentValue
+    internal struct EnableableBuffer_26 : IBufferElementData, IEnableableComponent, IComponentValue
     {
         [GhostField] public int value;
         public void SetValue(int value)
@@ -1526,7 +1762,7 @@ namespace Unity.NetCode.Tests
         }
     }
     [GhostEnabledBit]
-    public struct EnableableBuffer_27 : IBufferElementData, IEnableableComponent, IComponentValue
+    internal struct EnableableBuffer_27 : IBufferElementData, IEnableableComponent, IComponentValue
     {
         [GhostField] public int value;
         public void SetValue(int value)
@@ -1540,7 +1776,7 @@ namespace Unity.NetCode.Tests
         }
     }
     [GhostEnabledBit]
-    public struct EnableableBuffer_28 : IBufferElementData, IEnableableComponent, IComponentValue
+    internal struct EnableableBuffer_28 : IBufferElementData, IEnableableComponent, IComponentValue
     {
         [GhostField] public int value;
         public void SetValue(int value)
@@ -1554,7 +1790,7 @@ namespace Unity.NetCode.Tests
         }
     }
     [GhostEnabledBit]
-    public struct EnableableBuffer_29 : IBufferElementData, IEnableableComponent, IComponentValue
+    internal struct EnableableBuffer_29 : IBufferElementData, IEnableableComponent, IComponentValue
     {
         [GhostField] public int value;
         public void SetValue(int value)
@@ -1568,7 +1804,7 @@ namespace Unity.NetCode.Tests
         }
     }
     [GhostEnabledBit]
-    public struct EnableableBuffer_30 : IBufferElementData, IEnableableComponent, IComponentValue
+    internal struct EnableableBuffer_30 : IBufferElementData, IEnableableComponent, IComponentValue
     {
         [GhostField] public int value;
         public void SetValue(int value)
@@ -1582,7 +1818,7 @@ namespace Unity.NetCode.Tests
         }
     }
     [GhostEnabledBit]
-    public struct EnableableBuffer_31 : IBufferElementData, IEnableableComponent, IComponentValue
+    internal struct EnableableBuffer_31 : IBufferElementData, IEnableableComponent, IComponentValue
     {
         [GhostField] public int value;
         public void SetValue(int value)
@@ -1596,7 +1832,7 @@ namespace Unity.NetCode.Tests
         }
     }
     [GhostEnabledBit]
-    public struct EnableableBuffer_32 : IBufferElementData, IEnableableComponent, IComponentValue
+    internal struct EnableableBuffer_32 : IBufferElementData, IEnableableComponent, IComponentValue
     {
         [GhostField] public int value;
         public void SetValue(int value)

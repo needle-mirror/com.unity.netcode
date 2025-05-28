@@ -1,37 +1,73 @@
-# Spawn and pre-spawn ghosts
+# Spawn ghosts
 
-After creating ghost prefabs (and defining how they're [synchronized](ghost-snapshots.md#synchronizing-ghost-components-and-fields) between the client and server), [ghosts](ghost-snapshots.md#ghosts) are spawned by instantiating them on your server via server simulation logic. Matching ghosts will be automatically created by netcode on each client, as part of the [snapshot replication](ghost-snapshots.md#snapshots) sub-system. Updates from the server version of each ghost are then sent to each client, as defined by the ghost's synchronization settings.
+After creating ghost prefabs (and defining how they're [synchronized](ghost-snapshots.md#synchronizing-ghost-components-and-fields) between the client and server), [ghosts](ghost-snapshots.md#ghosts) can spawned by:
 
-You can spawn a ghost on clients in multiple different ways, that you can learn about in the [spawn types](#spawn-types) section. Ghosts can also be [pre-spawned](#pre-spawned-ghosts), which is a special case.
+- Instantiating them on your server via server simulation logic. All entities instantiated from a ghost prefab by the server are automatically spawned and replicated to the client. The spawning and despawning is handled by the Netcode for Entities package.
+- Instantiating ghosts prefabs configured as `Predicted` or `OwnerPredicted` on the client [using predicted spawning](#implement-predicted-spawning-for-player-spawned-objects).
+- By adding instances of ghost prefabs inside a sub-scene (in-scene placed objects). See [pre-spawned](#pre-spawned-ghosts) for more details.
 
-## Spawn a ghost on a client
+## Spawn ghosts on the server
+
+The server can spawn replicated entities in two ways:
+
+- By instantiating the prefab via the `EntityManager.Instantiate` method (or variants).
+- By using [pre-spawned ghosts](#pre-spawned-ghosts).
+
+In both cases, the server is allowed to spawn new ghosts at any point in time and systems:
+
+- Before clients are connected.
+- After clients are connected.
+- In any place or groups inside `SimulationSystemGroup` (suggested and preferred).
+- Inside the `InitializatioSystemGroup` (this group does not run at a fixed step so care may be necessary).
+
+Because the server has authority, by default all replicated entities present on the server are automatically spawned on each client by the [snapshot replication](ghost-snapshots.md#snapshots) sub-system. Updates from the server version of each ghost are then sent to each client, as defined by the ghost's synchronization settings.
+
+### Limit replicated entities on a per-client basis
+
+There are situations where the default behavior of replicating all entities to all clients is not desirable. For example, in large virtual worlds, clients usually interact and view only a subset of the world (the area nearby the player location), and in team versus team battles certain replicated entities are team-specific.
+
+On the server-side you can use [relevancy](optimizations.md#relevancy) to specify, on a per-client basis, which entities need to be replicated or not.
+
+## Spawning ghosts on the client
+
+You can spawn a ghost on clients in multiple different ways, as described in the [spawn types](#spawn-types) table below.
+
+### Spawn types
+
+| Type                                                  | Description                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+|-------------------------------------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| Delayed or interpolated spawning                      | [Interpolated](interpolation.md) ghosts don't use [prediction](prediction-n4e.md) and aren't immediately spawned when the client world starts. Otherwise, the ghost object would appear when the first snapshot arrives, even if its ghost data is only applicable for a later interpolation tick. _For example; a player ghost would appear to spawn, idle for a few ticks, and then begin to interpolate (as new data is finally received from the server)._<br/><br/>Instead, they are spawned on the __Interpolation Timeline__. This delay in spawning is governed by the interpolation timeline delay, which can be configured via [`ClientTickRate.InterpolationTimeNetTicks`](https://docs.unity3d.com/Packages/com.unity.netcode@latest?subfolder=/api/Unity.NetCode.ClientTickRate.InterpolationTimeNetTicks.html) (or [`ClientTickRate.InterpolationTimeMS`](https://docs.unity3d.com/Packages/com.unity.netcode@latest?subfolder=/api/Unity.NetCode.ClientTickRate.InterpolationTimeMS.html)). Interpolated ghosts spawn when the [`NetworkTime.InterpolationTick`](https://docs.unity3d.com/Packages/com.unity.netcode@latest?subfolder=/api/Unity.NetCode.NetworkTime.InterpolationTick.html) is greater or equal to a ghosts [`GhostInstance.spawnTick`](https://docs.unity3d.com/Packages/com.unity.netcode@latest?subfolder=/api/Unity.NetCode.GhostInstance.spawnTick.html). Refer to [time synchronization](time-synchronization.md) for more information about interpolation delay and interpolation tick. |
+| Predicted spawning for client-predicted player spawns | The spawned ghost is [predicted](prediction-n4e.md), and typically instantiated in response to inputs raised on the client. This usually applies to objects that the player spawns, like in-game bullets or rockets that the player fires. Refer to [implementing predicted spawning for player-spawned objects](#implementing-predicted-spawning-for-player-spawned-objects) for more information. Predictively spawning ghosts in this way removes round trip spawn delays and reduces perceived latency, improving gameplay quality. If/when the server authoritative snapshot data arrives for the ghost object, we first map our predicted spawn entity to the real ghost entity (in a process known as 'Ghost Classification'), and then the `GhostUpdateSystem` applies the data directly to the predicted ghost, and plays back the local inputs that have happened since that time. If the predictive spawn was created by the client in error, the prediction error is corrected by destroying the predicted ghost.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| Pre-spawned Ghost (i.e. Ghost Prespawns)              | All ghost prefabs dragged into a sub scene - at authoring time - are considered prespawns. These are typically level-specific gameplay entities like spawn points, destructible rocks, openable doors, loot chests, weapon pickups etc. [See details of pre-spawned ghosts](#pre-spawned-ghosts).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
 
 Netcode for Entities doesn't require a specific spawn message for client-side ghosts. When the client receives a new ghost ID from the server, it's treated as an implicit spawn and the ghost is assigned a [spawn type](#spawn-types) based on a set of classification systems.
 
 Once you have the spawn type, the [`GhostSpawnSystem`](https://docs.unity3d.com/Packages/com.unity.netcode@latest?subfolder=/api/Unity.NetCode.GhostSpawnSystem.html) handles instantiating the new entity.
 
-### Spawn types
-
-Spawning on clients is split into the following main types:
-
-| Type | Description |
-|---|---|
-| Delayed or interpolated spawning | [Interpolated](interpolation.md) ghosts don't use [prediction](prediction-n4e.md) and aren't immediately spawned when the client world starts. Otherwise, the ghost object would appear when the first snapshot arrives, even if its ghost data is only applicable for a later interpolation tick. _For example; a player ghost would appear to spawn, idle for a few ticks, and then begin to interpolate (as new data is finally received from the server)._<br/><br/>Instead, they are spawned on the __Interpolation Timeline__. This delay in spawning is governed by the interpolation timeline delay, which can be configured via [`ClientTickRate.InterpolationTimeNetTicks`](https://docs.unity3d.com/Packages/com.unity.netcode@latest?subfolder=/api/Unity.NetCode.ClientTickRate.InterpolationTimeNetTicks.html) (or [`ClientTickRate.InterpolationTimeMS`](https://docs.unity3d.com/Packages/com.unity.netcode@latest?subfolder=/api/Unity.NetCode.ClientTickRate.InterpolationTimeMS.html)). Interpolated ghosts spawn when the [`NetworkTime.InterpolationTick`](https://docs.unity3d.com/Packages/com.unity.netcode@latest?subfolder=/api/Unity.NetCode.NetworkTime.InterpolationTick.html) is greater or equal to a ghosts [`GhostInstance.spawnTick`](https://docs.unity3d.com/Packages/com.unity.netcode@latest?subfolder=/api/Unity.NetCode.GhostInstance.spawnTick.html). Refer to [time synchronization](time-synchronization.md) for more information about interpolation delay and interpolation tick. |
-| Predicted spawning for client-predicted player spawns | The spawned ghost is [predicted](prediction-n4e.md), and typically instantiated in response to inputs raised on the client. This usually applies to objects that the player spawns, like in-game bullets or rockets that the player fires. Refer to [implementing predicted spawning for player-spawned objects](#implementing-predicted-spawning-for-player-spawned-objects) for more information. Predictively spawning ghosts in this way removes round trip spawn delays and reduces perceived latency, improving gameplay quality. If/when the server authoritative snapshot data arrives for the ghost object, we first map our predicted spawn entity to the real ghost entity (in a process known as 'Ghost Classification'), and then the `GhostUpdateSystem` applies the data directly to the predicted ghost, and plays back the local inputs that have happened since that time. If the predictive spawn was created by the client in error, the prediction error is corrected by destroying the predicted ghost. |
-| Prespawned Ghost (i.e. Ghost Prespawns) | All ghost prefabs dragged into a sub scene - at authoring time - are considered prespawns. These are typically level-specific gameplay entities like spawn points, destructible rocks, openable doors, loot chests, weapon pickups etc. [See details of pre-spawned ghosts](#pre-spawned-ghosts). |
-
 > [!NOTE]
 > Ghost entities can only be spawned if the ghost prefabs are loaded in the world. Server and client need to agree on the prefabs they have and the server will only replicate to the client ghosts for which the client has the prefab.
 
-### Implement predicted spawning for player-spawned objects
+## Implement predicted spawning for player-spawned objects
 
-Like other aspects of [client prediction](intro-to-prediction.md#client-prediction), predicted spawns require the same logic to be run on both the client and server, to make sure that the two are as deterministic as possible. Add your spawn system to the [`PredictedSimulationSystemGroup`](https://docs.unity3d.com/Packages/com.unity.netcode@latest?subfolder=/api/Unity.NetCode.PredictedSimulationSystemGroup.html) to make the client code instantiate the spawn under the same conditions that the server does (for example, after the player presses the shoot mouse button).
+Like other aspects of [client prediction](intro-to-prediction.md#client-prediction), predicted spawns require the same logic to be run on both the client and server, to make sure that the two are as deterministic as possible.
 
-All ghost prefabs configured to be predicted upon spawn have the [`PredictedGhostSpawnRequest`](https://docs.unity3d.com/Packages/com.unity.netcode@latest?subfolder=/api/Unity.NetCode.PredictedGhostSpawnRequest.html) component already added to them, and are therefore treated as predicted spawns by default. When your system (running in the client world) instantiates the ghost entity, it's already treated as predicted spawn automatically, and the only change required to your system (to make it correct) is to add an early out for `networkTime.IsFirstTimeFullyPredictingTick`.
+The predicted spawning process on the client requires two steps:
+
+1. Create the entity in a system that runs inside the prediction loop.
+2. After the entity has been created, the entity must be first 'classified' as a predicted spawn and then
+matched with the authoritative update received from the server.
+
+### Spawn predicted ghosts on the client side
+
+To spawn predicted ghosts on the client side, you need to add your spawn system to the [`PredictedSimulationSystemGroup`](https://docs.unity3d.com/Packages/com.unity.netcode@latest?subfolder=/api/Unity.NetCode.PredictedSimulationSystemGroup.html) to make the client code instantiate the spawn under the same conditions that the server does (for example, after the player presses the shoot mouse button).
+
+All ghost prefabs configured to be predicted upon spawn have the [`PredictedGhostSpawnRequest`](https://docs.unity3d.com/Packages/com.unity.netcode@latest?subfolder=/api/Unity.NetCode.PredictedGhostSpawnRequest.html) component already added to them, and are therefore treated as predicted spawns by default.
+
+When your system (running in the client world) instantiates the ghost entity, it's already treated as a predicted spawn automatically, and the only change required to your system (to make it correct) is to add an early out for `networkTime.IsFirstTimeFullyPredictingTick`.
 
 When the first snapshot update for this entity arrives on the client, the system detects that the received update is for an entity already spawned by the client and from that time on, all the updates are applied to it.
 
-In the prediction system code, the [`NetworkTime.IsFirstTimeFullyPredictingTick`](https://docs.unity3d.com/Packages/com.unity.netcode@latest/index.html?subfolder=/api/Unity.NetCode.NetworkTime.html) value needs to be checked to prevent the spawned object from being spawned multiple times as data is rolled back and redeployed as part of the prediction loop.
+In the prediction system code, the [`NetworkTime.IsFirstTimeFullyPredictingTick`](https://docs.unity3d.com/Packages/com.unity.netcode@latest/index.html?subfolder=/api/Unity.NetCode.NetworkTime.html) value needs to be checked to prevent the spawned object from being spawned multiple times as data is rolled back and re-simulated as part of the prediction loop.
 
 ```csharp
 public void OnUpdate()
@@ -46,9 +82,41 @@ public void OnUpdate()
 }
 ```
 
-These client-spawned objects are automatically handled by the [`GhostSpawnClassificationSystem`](https://docs.unity3d.com/Packages/com.unity.netcode@latest?subfolder=/api/Unity.NetCode.GhostSpawnClassificationSystem.html) system, which matches the newly received ghosts with any of the client-predicted spawned ones based on their types and spawning tick (within five ticks).
+#### Conditions to check before spawning predicted ghosts
 
-You can [implement a custom classification](#adding-your-own-classification-system) with more advanced logic than this to override the default behavior.
+Clients shouldn't be allowed to spawn an entity until:
+
+1. A singleton `NetworkStreamConnectionInGame` exists. This is a necessary requirement because otherwise the created entity will be disposed of automatically.
+2. The `GhostCollectionPrefab` buffer has been initialized (length > 0) and:
+    - A ghost prefab matching the spawned entity `GhostType` component exists in that buffer.
+    - Alternatively, an entry in the `GhostCollection.GhostTypeToColletionIndex` hashmap is present (this is a faster check).
+
+```csharp
+[UpdateInGroup(typeof(PredictedSimulationSystemGroup))]
+public partial class SpawnGhost : SystemBase
+{
+    protected override void OnUpdate()
+    {
+        var networkTime = SystemAPI.GetSingleton<NetworkTime>();
+        //Only do that once. When the client re-simulate the same tick, the flag is false.
+        if(!networkTime.IsFirstTimeFullyPredictedTick())
+            return;
+        var prefab = GetPrefabToSpawn();
+        var typeToCollection = SystemApi.GetSingleton<GhostCollection>() GhostTypeToColletionIndex;
+        var type = World.EntityManager.GetComponentData<GhostType>(prefab);
+        //Can't spawn yet. The prefab is not registered.
+        if(!typeToCollection.ContainsKey(type))
+            return;
+        //it is now valid to spawn. That does not means the ghost will be initialized properly yet
+        //that can be still the case if the
+    }
+}
+```
+
+The `GhostCollection` data condition is critical for spawning predicted ghosts because the data is required by the
+`PredictedGhostSpawningSystem` to initialize the new ghosts.
+
+If the originating prefab isn't found inside the `GhostCollectionPrefab` during this initialization phase, exceptions are thrown to flag that the current predicted spawn can't be handled.
 
 #### Specify rollback options for predicted spawned ghosts
 
@@ -58,14 +126,28 @@ By checking the **Rollback Predicted Spawned Ghost State** toggle in the Ghost A
 
 This can alleviate some misprediction errors caused by ghost-ghost interaction (refer to [prediction error and mitigation](prediction-details.md#predicted-spawn-interactions-with-other-predicted-ghosts)).
 
-#### Adding your own classification system
+### Ghost classification and entity matching
 
 The process of matching a predicted spawned ghost to its server-authoritative counterpart is referred to as classification. If classification fails, the locally predicted spawn is deleted after a grace period.
 
-To override the default client classification you can create your own classification system. The system is required to:
+Netcode for Entities provides a default classification strategy to automatically handle all the client-spawned predicted objects by the client, which is implemented by the [`GhostSpawnClassificationSystem`](https://docs.unity3d.com/Packages/com.unity.netcode@latest?subfolder=/api/Unity.NetCode.GhostSpawnClassificationSystem.html).
 
-- Update in the [`GhostSimulationSystemGroup`](https://docs.unity3d.com/Packages/com.unity.netcode@latest?subfolder=/api/Unity.NetCode.GhostSimulationSystemGroup.html)
-- Run after the [`GhostSpawnClassificationSystem`](https://docs.unity3d.com/Packages/com.unity.netcode@latest?subfolder=/api/Unity.NetCode.GhostSpawnClassificationSystem.html)
+The `GhostSpawnClassificationSystem` uses a tick-based check to match newly received ghosts with any of the
+client-predicted spawned ones based on their types and spawning tick (within a five-tick window).
+
+The default implementation has some limitations:
+
+- It can only reliably match one predicted spawned ghost of a single type inside the five-tick window. For example, if you spawn multiple bullets in the same tick then only one of them can be matched, and the match may not be the correct one. The spawning tick value alone is not enough to resolve the individual bullet identity.
+- If [tick batching](client-server-worlds.md#avoiding-performance-issues) is enabled and the server batches ticks together then inputs can be applied on a different tick than the one they were issued on, causing entities to be spawned at a slightly different tick than intended. These differences can impact the `GhostSpawnClassificationSystem` logic and cause it to fail to match ghosts correctly.
+
+If you want more control or advanced logic for matching spawned ghosts, then you can [add your own classification system](#add-your-own-classification-system) to override the default behavior.
+
+### Add your own classification system
+
+You can create your own classification system to override the default client classification. Your custom classification system must:
+
+- Update in the [`GhostSimulationSystemGroup`](https://docs.unity3d.com/Packages/com.unity.netcode@latest?subfolder=/api/Unity.NetCode.GhostSimulationSystemGroup.html).
+- Run after the [`GhostSpawnClassificationSystem`](https://docs.unity3d.com/Packages/com.unity.netcode@latest?subfolder=/api/Unity.NetCode.GhostSpawnClassificationSystem.html).
 
 The classification system works by inspecting the ghosts that need to be spawned by retrieving the
 [`GhostSpawnBuffer`](https://docs.unity3d.com/Packages/com.unity.netcode@latest?subfolder=/api/Unity.NetCode.GhostSpawnBuffer.html) on the singleton

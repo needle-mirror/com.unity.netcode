@@ -8,7 +8,7 @@ namespace Unity.NetCode.Tests
     [WorldSystemFilter(WorldSystemFilterFlags.Default | WorldSystemFilterFlags.ThinClientSimulation)]
     [UpdateInGroup(typeof(GhostSimulationSystemGroup))]
     [UpdateBefore(typeof(GhostCollectionSystem))]
-    public partial class GhostCollectionSystemProxy : ComponentSystemGroup
+    internal partial class GhostCollectionSystemProxy : ComponentSystemGroup
     {
         static readonly ProfilerMarker k_Update = new ProfilerMarker("GhostCollectionSystem_OnUpdate");
         static readonly ProfilerMarker k_CompleteTrackedJobs = new ProfilerMarker("GhostCollectionSystem_CompleteAllTrackedJobs");

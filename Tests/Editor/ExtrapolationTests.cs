@@ -11,7 +11,7 @@ using UnityEngine;
 
 namespace Unity.NetCode.Tests
 {
-    public class GhostExtrapolationConverter : TestNetCodeAuthoring.IConverter
+    internal class GhostExtrapolationConverter : TestNetCodeAuthoring.IConverter
     {
         public TestExtrapolated TestExtrapolated;
 
@@ -22,7 +22,7 @@ namespace Unity.NetCode.Tests
         }
     }
 
-    public struct TestExtrapolated : IComponentData
+    internal struct TestExtrapolated : IComponentData
     {
         [GhostField(Smoothing=SmoothingAction.InterpolateAndExtrapolate, MaxSmoothingDistance=5)]
         public float ReceivedValueIaE;
@@ -43,7 +43,7 @@ namespace Unity.NetCode.Tests
         public GhostOptimizationMode OptimizationMode;
     }
 
-    public struct ExtrapolateBackup : IComponentData
+    internal struct ExtrapolateBackup : IComponentData
     {
         public NetworkTick Tick;
         public float Fraction;
@@ -59,7 +59,7 @@ namespace Unity.NetCode.Tests
     [DisableAutoCreation]
     [RequireMatchingQueriesForUpdate]
     [UpdateInGroup(typeof(PredictedSimulationSystemGroup))]
-    public partial class MoveExtrapolated : SystemBase
+    internal partial class MoveExtrapolated : SystemBase
     {
         protected override void OnUpdate()
         {
@@ -85,7 +85,7 @@ namespace Unity.NetCode.Tests
     [RequireMatchingQueriesForUpdate]
     [WorldSystemFilter(WorldSystemFilterFlags.ClientSimulation)]
     [UpdateInGroup(typeof(SimulationSystemGroup), OrderLast = true)]
-    public partial class CheckExtrapolate : SystemBase
+    internal partial class CheckExtrapolate : SystemBase
     {
         private const float DrawDurationSeconds = 180;
         public static uint NumStepsTested;
@@ -215,7 +215,7 @@ namespace Unity.NetCode.Tests
         }
     }
 
-    public enum Result
+    internal enum Result
     {
         Unknown,
         /// <summary>Denotes the value has (or should) smoothly increase (by deltaTime) in a positive direction, without any noticeable jumps or negative values.</summary>
@@ -228,10 +228,10 @@ namespace Unity.NetCode.Tests
         Any,
     }
 
-    public class ExtrapolationTests
+    internal class ExtrapolationTests
     {
         public static NetcodeSetupMode TMode;
-        public enum NetcodeSetupMode
+        internal enum NetcodeSetupMode
         {
             OnlyInterpolate100ms,
             /// <summary>
@@ -401,7 +401,7 @@ namespace Unity.NetCode.Tests
             }
         }
 
-        public struct ResultGroup
+        internal struct ResultGroup
         {
             public Result ExpectedRIaE;
             public Result ExpectedRInterp;

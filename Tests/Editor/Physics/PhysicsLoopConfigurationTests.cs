@@ -1,5 +1,6 @@
 using System;
 using NUnit.Framework;
+using Unity.Collections;
 using Unity.Entities;
 using Unity.NetCode.Tests;
 using Unity.Physics.Systems;
@@ -51,8 +52,104 @@ namespace Unity.NetCode.Physics.Tests
         }
     }
 
-    public class PhysicsLoopConfigurationTests
+    [DisableAutoCreation]
+    [UpdateInGroup(typeof(FixedStepSimulationSystemGroup))]
+    [UpdateAfter(typeof(PhysicsSystemGroup))]
+    partial struct MovedBeforeISystem : ISystem
     {
+    }
+    [DisableAutoCreation]
+    [UpdateInGroup(typeof(FixedStepSimulationSystemGroup))]
+    [UpdateAfter(typeof(PhysicsSystemGroup))]
+    partial struct MovedAfterSystem : ISystem
+    {
+    }
+    [DisableAutoCreation]
+    [UpdateInGroup(typeof(FixedStepSimulationSystemGroup))]
+    [UpdateAfter(typeof(MovedAfterSystem))]
+    partial struct MovedIndirectSystem : ISystem
+    {
+    }
+
+    [DisableAutoCreation]
+    [UpdateInGroup(typeof(FixedStepSimulationSystemGroup))]
+    partial struct StayISystem : ISystem
+    {
+    }
+
+    [DisableAutoCreation]
+    [UpdateInGroup(typeof(FixedStepSimulationSystemGroup))]
+    [UpdateAfter(typeof(PhysicsSystemGroup))]
+    partial class MovedBeforeSystemBase : SystemBase
+    {
+        protected override void OnUpdate()
+        {
+        }
+    }
+    [DisableAutoCreation]
+    [UpdateInGroup(typeof(FixedStepSimulationSystemGroup))]
+    [UpdateAfter(typeof(PhysicsSystemGroup))]
+    partial class MovedAfterSystemBase : SystemBase
+    {
+        protected override void OnUpdate()
+        {
+        }
+    }
+    [DisableAutoCreation]
+    [UpdateInGroup(typeof(FixedStepSimulationSystemGroup))]
+    [UpdateAfter(typeof(MovedAfterSystemBase))]
+    partial class MovedIndirectSystemBase : SystemBase
+    {
+        protected override void OnUpdate()
+        {
+        }
+    }
+
+    [DisableAutoCreation]
+    [UpdateInGroup(typeof(FixedStepSimulationSystemGroup))]
+    partial class StaySystemBase : SystemBase
+    {
+        protected override void OnUpdate()
+        {
+        }
+    }
+
+    internal class PhysicsLoopConfigurationTests
+    {
+        [Test]
+        public void SystemsAreMovedInThePredictedFixedStepGroup()
+        {
+            using var testWorld = new NetCodeTestWorld();
+            testWorld.TestSpecificAdditionalAssemblies.Add("Unity.NetCode.Physics,");
+            testWorld.TestSpecificAdditionalAssemblies.Add("Unity.Physics,");
+            var systemsToMove = new Type[]
+            {
+                typeof(MovedBeforeISystem),
+                typeof(MovedAfterSystem),
+                typeof(MovedIndirectSystem),
+                typeof(StayISystem),
+                typeof(MovedBeforeSystemBase),
+                typeof(MovedAfterSystemBase),
+                typeof(MovedIndirectSystemBase),
+                typeof(StaySystemBase)
+            };
+            testWorld.Bootstrap(true,systemsToMove);
+
+            testWorld.CreateWorlds(true, 1);
+            //check that all these systems has been moved
+            var predictedFixedGroup = testWorld.ServerWorld.GetExistingSystemManaged<PredictedFixedStepSimulationSystemGroup>();
+            var fixedGroup = testWorld.ServerWorld.GetExistingSystemManaged<FixedStepSimulationSystemGroup>();
+            var systems = predictedFixedGroup.GetAllSystems();
+            var allFixedSystems = fixedGroup.GetAllSystems();
+            Assert.IsTrue(systems.Contains(testWorld.ServerWorld.GetExistingSystem<PhysicsSystemGroup>()), "PhysicsSystemGroup not moved");
+            foreach (var s in systemsToMove)
+            {
+                var shouldBeMoved = s != typeof(StaySystemBase) && s != typeof(StayISystem);
+                Assert.AreEqual(shouldBeMoved, systems.Contains(testWorld.ServerWorld.GetExistingSystem(s)), $"{s.Name} not moved into {nameof(PredictedFixedStepSimulationSystemGroup)}");
+                Assert.AreEqual(shouldBeMoved, !allFixedSystems.Contains(testWorld.ServerWorld.GetExistingSystem(s)), $"{s.Name} not moved from {nameof(FixedStepSimulationSystemGroup)}");
+            }
+        }
+
         class GhostConverter : TestNetCodeAuthoring.IConverter
         {
             public void Bake(GameObject gameObject, IBaker baker)
@@ -63,7 +160,7 @@ namespace Unity.NetCode.Physics.Tests
             }
         }
 
-        public enum PhysicsRunMode
+        internal enum PhysicsRunMode
         {
             RequirePredictedGhost = 0,
             EnableLagCompensation = 1,

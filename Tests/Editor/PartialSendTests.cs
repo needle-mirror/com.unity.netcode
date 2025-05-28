@@ -4,7 +4,7 @@ using UnityEngine;
 
 namespace Unity.NetCode.Tests
 {
-    public class GhostPredictedOnlyConverter : TestNetCodeAuthoring.IConverter
+    internal class GhostPredictedOnlyConverter : TestNetCodeAuthoring.IConverter
     {
         public void Bake(GameObject gameObject, IBaker baker)
         {
@@ -16,16 +16,16 @@ namespace Unity.NetCode.Tests
     }
 
     [GhostComponent(SendTypeOptimization = GhostSendType.OnlyPredictedClients)]
-    public struct GhostPredictedOnly : IComponentData
+    internal struct GhostPredictedOnly : IComponentData
     {
         [GhostField] public int Value;
     }
     [GhostComponent(SendTypeOptimization = GhostSendType.OnlyInterpolatedClients)]
-    public struct GhostInterpolatedOnly : IComponentData
+    internal struct GhostInterpolatedOnly : IComponentData
     {
         [GhostField] public int Value;
     }
-    public class PartialSendTests
+    internal class PartialSendTests
     {
         [Test]
         public void OwnerPredictedSendsDataToPredicted()

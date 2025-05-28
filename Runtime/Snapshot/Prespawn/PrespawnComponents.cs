@@ -141,7 +141,7 @@ namespace Unity.NetCode
     [InternalBufferCapacity(0)]
     internal struct PrespawnGhostIdRange : IBufferElementData
     {
-        //the scene for witch the range apply to
+        // the scene for which the range is applied to
         public ulong SubSceneHash;
         //the first id in the range
         public int FirstGhostId;

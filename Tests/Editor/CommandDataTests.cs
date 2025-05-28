@@ -6,22 +6,22 @@ using UnityEngine;
 
 namespace Unity.NetCode.Tests
 {
-    public struct CommandDataTestsTickInput : ICommandData
+    internal struct CommandDataTestsTickInput : ICommandData
     {
         public NetworkTick Tick { get; set; }
         public int Value;
     }
-    public struct CommandDataTestsTickInput2 : ICommandData
+    internal struct CommandDataTestsTickInput2 : ICommandData
     {
         public NetworkTick Tick { get; set; }
         public int Value;
     }
-    public struct CommandDataTestsTickInputDouble : ICommandData
+    internal struct CommandDataTestsTickInputDouble : ICommandData
     {
         public NetworkTick Tick { get; set; }
         public double Value;
     }
-    public struct CommandDataTestsTickInputLarge : ICommandData
+    internal struct CommandDataTestsTickInputLarge : ICommandData
     {
         public NetworkTick Tick { get; set; }
 
@@ -32,7 +32,7 @@ namespace Unity.NetCode.Tests
     [UpdateInGroup(typeof(GhostInputSystemGroup))]
     [DisableAutoCreation]
     [WorldSystemFilter(WorldSystemFilterFlags.ClientSimulation)]
-    public partial class CommandDataTestsTickInputSystem : SystemBase
+    internal partial class CommandDataTestsTickInputSystem : SystemBase
     {
         protected override void OnCreate()
         {
@@ -54,7 +54,7 @@ namespace Unity.NetCode.Tests
     [UpdateInGroup(typeof(GhostInputSystemGroup))]
     [DisableAutoCreation]
     [WorldSystemFilter(WorldSystemFilterFlags.ClientSimulation)]
-    public partial class CommandDataTestsTickInput2System : SystemBase
+    internal partial class CommandDataTestsTickInput2System : SystemBase
     {
         protected override void OnCreate()
         {
@@ -76,7 +76,7 @@ namespace Unity.NetCode.Tests
     [UpdateInGroup(typeof(GhostInputSystemGroup))]
     [DisableAutoCreation]
     [WorldSystemFilter(WorldSystemFilterFlags.ClientSimulation)]
-    public partial class CommandDataTestsTickInputLargeSystem : SystemBase
+    internal partial class CommandDataTestsTickInputLargeSystem : SystemBase
     {
         protected override void OnCreate()
         {
@@ -113,7 +113,7 @@ namespace Unity.NetCode.Tests
     [UpdateInGroup(typeof(GhostInputSystemGroup))]
     [DisableAutoCreation]
     [WorldSystemFilter(WorldSystemFilterFlags.ClientSimulation)]
-    public partial class CommandDataTestsTickInputIncreaseSystem : SystemBase
+    internal partial class CommandDataTestsTickInputIncreaseSystem : SystemBase
     {
         public double m_Value = 0;
         protected override void OnCreate()
@@ -136,7 +136,7 @@ namespace Unity.NetCode.Tests
         }
     }
 
-    public class CommandDataTests
+    internal class CommandDataTests
     {
         [Test]
         public void MissingCommandTargetUpdatesAckAndCommandAge([Values]GhostMode ghostMode)

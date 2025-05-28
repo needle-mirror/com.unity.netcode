@@ -118,7 +118,7 @@ namespace Unity.NetCode.Tests
     [UpdateInGroup(typeof(GhostInputSystemGroup))]
     [DisableAutoCreation]
     [WorldSystemFilter(WorldSystemFilterFlags.ClientSimulation)]
-    public partial class FixedListCommandSystem : SystemBase
+    internal partial class FixedListCommandSystem : SystemBase
     {
         protected override void OnCreate()
         {
@@ -143,7 +143,7 @@ namespace Unity.NetCode.Tests
     [UpdateInGroup(typeof(GhostInputSystemGroup))]
     [DisableAutoCreation]
     [WorldSystemFilter(WorldSystemFilterFlags.ClientSimulation)]
-    public partial class FixedListInputCommandSystem : SystemBase
+    internal partial class FixedListInputCommandSystem : SystemBase
     {
         protected override void OnCreate()
         {
@@ -197,14 +197,14 @@ namespace Unity.NetCode.Tests
         public int Value2;
         public FixedList32Bytes<SimpleData> FixedList;
     }
-    public struct Primitive : IComponentData
+    internal struct Primitive : IComponentData
     {
         [GhostField]public int Value1;
         [GhostField]public int Value2;
         [GhostField]public int Value3;
         [GhostField(Quantization = 1000)]public FixedList32Bytes<float> Value4;
     }
-    public struct WithStruct : IComponentData
+    internal struct WithStruct : IComponentData
     {
         [GhostField]public int Value1;
         [GhostField]public int Value2;
@@ -212,7 +212,7 @@ namespace Unity.NetCode.Tests
         [GhostField(Quantization = 1000)]public FixedList128Bytes<SimpleData> Value4;
         [GhostField(Quantization = 1000)]public Nested Value5;
     }
-    public struct MoreThan64Elements : IComponentData
+    internal struct MoreThan64Elements : IComponentData
     {
         [GhostField]public FixedElement8 Value1;
         [GhostField]
@@ -230,7 +230,7 @@ namespace Unity.NetCode.Tests
 
     //Sent to remote players
     [GhostComponent(OwnerSendType = SendToOwnerType.SendToNonOwner)]
-    public struct CappedInput : IInputComponentData
+    internal struct CappedInput : IInputComponentData
     {
         [GhostField]
         [GhostFixedListCapacity(Capacity = 8)]
@@ -247,7 +247,7 @@ namespace Unity.NetCode.Tests
     }
 
     //Sent to remote players
-    public struct CappedRpc : IRpcCommand
+    internal struct CappedRpc : IRpcCommand
     {
         //maximum allowed size is 1024 (this is the upper limit for RPC)
         [GhostFixedListCapacity(Capacity = 1024)]
@@ -262,7 +262,7 @@ namespace Unity.NetCode.Tests
         }
     }
 
-    public class FixedListSupportTests
+    internal class FixedListSupportTests
     {
         [Test]
         public void RPC_SupportFixedLists_WithStruct()
@@ -707,7 +707,7 @@ namespace Unity.NetCode.Tests
         }
     }
 
-    public class FixedList_CapTests
+    internal class FixedList_CapTests
     {
 
         [Test]

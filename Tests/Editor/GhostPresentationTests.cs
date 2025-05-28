@@ -51,7 +51,7 @@ namespace Unity.NetCode.Tests
             }
         }
     }
-    public class GhostPresentationTests
+    internal class GhostPresentationTests
     {
         [Test]
         public void SpawningEntityWithGhostPresentationCreateGameObject(

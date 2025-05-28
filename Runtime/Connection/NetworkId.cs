@@ -3,7 +3,6 @@ using Unity.Burst;
 using Unity.Collections;
 using Unity.Entities;
 
-
 namespace Unity.NetCode
 {
     /// <summary>
@@ -12,23 +11,6 @@ namespace Unity.NetCode
     [Obsolete("NetworkIdComponent has been deprecated. Use NetworkId instead (UnityUpgradable) -> NetworkId", true)]
     public struct NetworkIdComponent : IComponentData
     {}
-
-    /// <summary>
-    /// The unique ID assigned to the connection entity in this world, to be sent to the server in case of re-connects.
-    /// It needs to be a separate singleton entity as the connection entity itself will be destroyed during disconnect.
-    /// </summary>
-    struct ConnectionUniqueId : IComponentData
-    {
-        public uint Value;
-    }
-
-#if ENABLE_HOST_MIGRATION
-    /// <summary>
-    /// This tag is added to connections which have been reconnected (client reconnects to a server after diconnecting).
-    /// It is added on both the server and client side.
-    /// </summary>
-    public struct NetworkStreamIsReconnected : IComponentData { }
-#endif
 
     /// <summary>
     /// The connection identifier assigned by the server to the incoming client connection.

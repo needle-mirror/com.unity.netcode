@@ -4,7 +4,7 @@ using UnityEngine;
 
 namespace Unity.NetCode.Tests
 {
-    public class MultiEntityGhostConverter : TestNetCodeAuthoring.IConverter
+    internal class MultiEntityGhostConverter : TestNetCodeAuthoring.IConverter
     {
         public void Bake(GameObject gameObject, IBaker baker)
         {
@@ -17,14 +17,14 @@ namespace Unity.NetCode.Tests
                 baker.AddComponent(entity, new TopLevelGhostEntity());
         }
     }
-    public struct TopLevelGhostEntity : IComponentData
+    internal struct TopLevelGhostEntity : IComponentData
     {}
     [GhostComponent(SendDataForChildEntity = false)]
-    public struct ChildLevelComponent : IComponentData
+    internal struct ChildLevelComponent : IComponentData
     {
         [GhostField] public int Value;
     }
-    public class MultiEntityGhostTests
+    internal class MultiEntityGhostTests
     {
         [Test]
         public void ChildEntityDataReplicationCanBeDisabledViaFlagOnGhostComponentAttribute()

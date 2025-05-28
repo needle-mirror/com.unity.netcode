@@ -8,30 +8,30 @@ using UnityEngine;
 
 namespace Unity.NetCode.Tests
 {
-    public static class GhostGenTestUtils
+    internal static class GhostGenTestUtils
     {
         #region Types
-        public struct int3
+        internal struct int3
         {
             public int x;
             public int y;
             public int z;
         }
 
-        public struct uint3
+        internal struct uint3
         {
             public uint x;
             public uint y;
             public uint z;
         }
-        public struct partialUint3
+        internal struct partialUint3
         {
             public uint x;
             public uint y;
             [GhostField(SendData = false)] public uint z;
         }
 
-        public struct floatX
+        internal struct floatX
         {
             public float2 x;
             public float3 y;
@@ -42,7 +42,7 @@ namespace Unity.NetCode.Tests
         /// Clamped ghostfields that can be used in all supported replicated data
         /// They need to be split into multiple values, since there is a max size that commands can have
         /// </summary>
-        public struct GhostGenTypesClamp_Values
+        internal struct GhostGenTypesClamp_Values
         {
             [GhostField(Composite=true)] public int3 Composed_Int3;
             [GhostField] public int3 Int3;
@@ -86,7 +86,7 @@ namespace Unity.NetCode.Tests
             [GhostField] public NetworkEndpoint EndpointCustom;
         }
 
-        public struct GhostGenTypesClamp_Strings
+        internal struct GhostGenTypesClamp_Strings
         {
             [GhostField] public FixedString32Bytes String32Value;
             [GhostField] public FixedString64Bytes String64Value;
@@ -98,7 +98,7 @@ namespace Unity.NetCode.Tests
         /// <summary>
         /// Interpolated ghostfields that are not supported for input, but for ghost snapshots
         /// </summary>
-        public struct GhostGenTypesInterpolate
+        internal struct GhostGenTypesInterpolate
         {
             [GhostField(Quantization=10, Smoothing=SmoothingAction.Interpolate)] public floatX FloatX;
 
@@ -121,14 +121,14 @@ namespace Unity.NetCode.Tests
             [GhostField(Smoothing=SmoothingAction.Interpolate)] public quaternion Interpolated_Unquantized_QuaternionValue;
         }
 
-        public struct GhostGenTestType_IComponentData : IComponentData
+        internal struct GhostGenTestType_IComponentData : IComponentData
         {
             [GhostField] public GhostGenTypesClamp_Values GhostGenTypesClamp_Values;
             [GhostField] public GhostGenTypesClamp_Strings GhostGenTypesClamp_Strings;
             [GhostField] public GhostGenTypesInterpolate GhostGenTypesInterpolate;
         }
 
-        public class GhostGenTestTypesConverter_IComponentData : TestNetCodeAuthoring.IConverter
+        internal class GhostGenTestTypesConverter_IComponentData : TestNetCodeAuthoring.IConverter
         {
             public void Bake(GameObject gameObject, IBaker baker)
             {
@@ -137,30 +137,30 @@ namespace Unity.NetCode.Tests
             }
         }
 
-        public struct GhostGenTestType_ICommandData_Values : ICommandData
+        internal struct GhostGenTestType_ICommandData_Values : ICommandData
         {
             [GhostField] public NetworkTick Tick { get; set; }
             [GhostField] public GhostGenTypesClamp_Values GhostGenTypesClamp_Values;
         }
 
-        public struct GhostGenTestType_ICommandData_Strings : ICommandData
+        internal struct GhostGenTestType_ICommandData_Strings : ICommandData
         {
             [GhostField] public NetworkTick Tick { get; set; }
             [GhostField] public GhostGenTypesClamp_Strings GhostGenTypesClamp_Strings;
         }
 
         // InputEvent is already tested in the specific IInputComponentData tests, so they are not added here.
-        public struct GhostGenTestType_IInputComponentData_Values : IInputComponentData
+        internal struct GhostGenTestType_IInputComponentData_Values : IInputComponentData
         {
             public GhostGenTestUtils.GhostGenTypesClamp_Values GhostGenTypesClamp_Values;
         }
 
-        public struct GhostGenTestType_IInputComponentData_Strings : IInputComponentData
+        internal struct GhostGenTestType_IInputComponentData_Strings : IInputComponentData
         {
             public GhostGenTestUtils.GhostGenTypesClamp_Strings GhostGenTypesClamp_Strings;
         }
 
-        public class GhostGenTestTypesConverter_IInputComponentData_Values : TestNetCodeAuthoring.IConverter
+        internal class GhostGenTestTypesConverter_IInputComponentData_Values : TestNetCodeAuthoring.IConverter
         {
             public void Bake(GameObject gameObject, IBaker baker)
             {
@@ -169,7 +169,7 @@ namespace Unity.NetCode.Tests
             }
         }
 
-        public class GhostGenTestTypesConverter_IInputComponentData_Strings : TestNetCodeAuthoring.IConverter
+        internal class GhostGenTestTypesConverter_IInputComponentData_Strings : TestNetCodeAuthoring.IConverter
         {
             public void Bake(GameObject gameObject, IBaker baker)
             {
@@ -178,7 +178,7 @@ namespace Unity.NetCode.Tests
             }
         }
 
-        public struct GhostGenTestType_IRpc : IRpcCommand
+        internal struct GhostGenTestType_IRpc : IRpcCommand
         {
             public GhostGenTypesClamp_Values GhostGenTypesClamp_Values;
             public GhostGenTypesClamp_Strings GhostGenTypesClamp_Strings;

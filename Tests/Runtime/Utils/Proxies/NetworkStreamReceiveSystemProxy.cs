@@ -8,7 +8,7 @@ namespace Unity.NetCode.Tests
     [WorldSystemFilter(WorldSystemFilterFlags.ClientSimulation | WorldSystemFilterFlags.ServerSimulation | WorldSystemFilterFlags.ThinClientSimulation)]
     [UpdateInGroup(typeof(NetworkReceiveSystemGroup))]
     [UpdateBefore(typeof(NetworkStreamReceiveSystem))]
-    public partial class NetworkStreamReceiveSystemProxy : ComponentSystemGroup
+    internal partial class NetworkStreamReceiveSystemProxy : ComponentSystemGroup
     {
         static readonly ProfilerMarker k_Update = new ProfilerMarker("NetworkStreamReceiveSystem_OnUpdate");
         static readonly ProfilerMarker k_CompleteTrackedJobs = new ProfilerMarker("NetworkStreamReceiveSystem_CompleteAllTrackedJobs");

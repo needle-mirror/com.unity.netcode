@@ -39,7 +39,12 @@ namespace Unity.NetCode
         }
         private DebugWebSocket m_Socket;
         private List<GhostStatsToSend> m_StatsCollections;
+#if !UNITY_WEBGL
         internal static ushort Port = 8787;
+#else
+        //disable listening
+        internal static ushort Port = 0;
+#endif
 
         public uint UpdateId;
         public int RefCount;

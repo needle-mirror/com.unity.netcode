@@ -5,7 +5,7 @@ using Unity.Collections;
 
 namespace Unity.NetCode.Tests
 {
-    public class GhostTypeIndexConverter : TestNetCodeAuthoring.IConverter
+    internal class GhostTypeIndexConverter : TestNetCodeAuthoring.IConverter
     {
         public void Bake(GameObject gameObject, IBaker baker)
         {
@@ -15,11 +15,11 @@ namespace Unity.NetCode.Tests
         }
     }
 
-    public struct GhostTypeIndex : IComponentData
+    internal struct GhostTypeIndex : IComponentData
     {
         [GhostField] public int Value;
     }
-    public class GhostTypeTests
+    internal class GhostTypeTests
     {
         void VerifyGhostTypes(World w)
         {

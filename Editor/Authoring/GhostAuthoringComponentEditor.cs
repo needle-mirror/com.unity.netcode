@@ -179,6 +179,7 @@ namespace Unity.NetCode.Editor
                 EditorGUILayout.PropertyField(TrackInterpolationDelay);
             }
             EditorGUILayout.PropertyField(GhostGroup);
+            EditorGUILayout.PropertyField(UsePreSerialization);
 
             if(self.SupportedGhostModes != GhostModeMask.Interpolated)
             {

@@ -94,8 +94,11 @@ namespace Unity.NetCode
                     uniqueInputTicks.Clear();
                     appliedPredictedTicks.Clear();
                     //early exit if the prediction mode require ghosts are present, thus the appliedPredictedTicks should be non empty.
-                    if(clientTickRate.PredictionLoopUpdateMode == PredictionLoopUpdateMode.RequirePredictedGhost)
+                    if (clientTickRate.PredictionLoopUpdateMode == PredictionLoopUpdateMode.RequirePredictedGhost)
+                    {
+                        m_LastFullPredictionTick = NetworkTick.Invalid;
                         return false;
+                    }
                 }
 
                 m_TargetTick = m_CurrentTime.ServerTick;

@@ -16,9 +16,9 @@ namespace Unity.NetCode.Tests
     // TODO - Test case for usage of `ClientOnlyVariant`.
 
     [TestFixture]
-    public class PerPrefabOverridesTests
+    internal class PerPrefabOverridesTests
     {
-        public class GhostConverter : TestNetCodeAuthoring.IConverter
+        internal class GhostConverter : TestNetCodeAuthoring.IConverter
         {
             public void Bake(GameObject gameObject, IBaker baker)
             {
@@ -457,7 +457,7 @@ namespace Unity.NetCode.Tests
         /// <summary>A client only variant we can assign.</summary>
         [GhostComponentVariation(typeof(Transforms.LocalTransform), nameof(TransformVariantTest))]
         [GhostComponent(PrefabType=GhostPrefabType.All, SendTypeOptimization=GhostSendType.AllClients)]
-        public struct TransformVariantTest
+        internal struct TransformVariantTest
         {
             [GhostField(Quantization=100, Smoothing=SmoothingAction.InterpolateAndExtrapolate)]
             public float3 Position;

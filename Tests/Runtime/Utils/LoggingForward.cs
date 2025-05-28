@@ -4,7 +4,7 @@ using Unity.Logging.Sinks;
 
 namespace Unity.NetCode.Tests
 {
-    public static class LoggingForward
+    internal static class LoggingForward
     {
         /// <summary>
         /// Forwards loggings to the Unity DebugLog sink to ensure that errors in tests actually cause the tests to fail.

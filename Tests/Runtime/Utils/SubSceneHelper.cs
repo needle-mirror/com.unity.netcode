@@ -17,7 +17,7 @@ using Random = UnityEngine.Random;
 
 namespace Unity.NetCode.Tests
 {
-    public class SubSceneHelper
+    internal class SubSceneHelper
     {
         static public GameObject CreatePrefabVariant(GameObject prefab, string variantName = null)
         {

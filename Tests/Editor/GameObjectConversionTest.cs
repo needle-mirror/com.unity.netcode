@@ -8,7 +8,7 @@ namespace Unity.NetCode.Tests
 {
     [GhostComponentVariation(typeof(HybridComponentWeWillOverride), "Client Only")]
     [GhostComponent(PrefabType = GhostPrefabType.Client)]
-    public struct HybridComponentWeWillOverrideVariant
+    internal struct HybridComponentWeWillOverrideVariant
     {
     }
     [DisableAutoCreation]
@@ -20,7 +20,7 @@ namespace Unity.NetCode.Tests
         }
     }
 
-    public class HybridComponentWeWillOverrideConverter : TestNetCodeAuthoring.IConverter
+    internal class HybridComponentWeWillOverrideConverter : TestNetCodeAuthoring.IConverter
     {
         public void Bake(GameObject gameObject, IBaker baker)
         {
@@ -30,7 +30,7 @@ namespace Unity.NetCode.Tests
 #endif
         }
     }
-    public class ServerComponentDataConverter : TestNetCodeAuthoring.IConverter
+    internal class ServerComponentDataConverter : TestNetCodeAuthoring.IConverter
     {
         public void Bake(GameObject gameObject, IBaker baker)
         {
@@ -38,7 +38,7 @@ namespace Unity.NetCode.Tests
             baker.AddComponent(entity, new ServerComponentData {Value = 1});
         }
     }
-    public class ClientComponentDataConverter : TestNetCodeAuthoring.IConverter
+    internal class ClientComponentDataConverter : TestNetCodeAuthoring.IConverter
     {
         public void Bake(GameObject gameObject, IBaker baker)
         {
@@ -46,7 +46,7 @@ namespace Unity.NetCode.Tests
             baker.AddComponent(entity, new ClientComponentData {Value = 1});
         }
     }
-    public class InterpolatedClientComponentDataConverter : TestNetCodeAuthoring.IConverter
+    internal class InterpolatedClientComponentDataConverter : TestNetCodeAuthoring.IConverter
     {
         public void Bake(GameObject gameObject, IBaker baker)
         {
@@ -54,7 +54,7 @@ namespace Unity.NetCode.Tests
             baker.AddComponent(entity, new InterpolatedClientComponentData {Value = 1});
         }
     }
-    public class PredictedClientComponentDataConverter : TestNetCodeAuthoring.IConverter
+    internal class PredictedClientComponentDataConverter : TestNetCodeAuthoring.IConverter
     {
         public void Bake(GameObject gameObject, IBaker baker)
         {
@@ -62,7 +62,7 @@ namespace Unity.NetCode.Tests
             baker.AddComponent(entity, new PredictedClientComponentData {Value = 1});
         }
     }
-    public class AllPredictedComponentDataConverter : TestNetCodeAuthoring.IConverter
+    internal class AllPredictedComponentDataConverter : TestNetCodeAuthoring.IConverter
     {
         public void Bake(GameObject gameObject, IBaker baker)
         {
@@ -70,7 +70,7 @@ namespace Unity.NetCode.Tests
             baker.AddComponent(entity, new AllPredictedComponentData {Value = 1});
         }
     }
-    public class AllComponentDataConverter : TestNetCodeAuthoring.IConverter
+    internal class AllComponentDataConverter : TestNetCodeAuthoring.IConverter
     {
         public void Bake(GameObject gameObject, IBaker baker)
         {
@@ -78,7 +78,7 @@ namespace Unity.NetCode.Tests
             baker.AddComponent(entity, new AllComponentData {Value = 1});
         }
     }
-    public class ServerHybridComponentConverter : TestNetCodeAuthoring.IConverter
+    internal class ServerHybridComponentConverter : TestNetCodeAuthoring.IConverter
     {
         public void Bake(GameObject gameObject, IBaker baker)
         {
@@ -88,7 +88,7 @@ namespace Unity.NetCode.Tests
 #endif
         }
     }
-    public class ClientHybridComponentConverter : TestNetCodeAuthoring.IConverter
+    internal class ClientHybridComponentConverter : TestNetCodeAuthoring.IConverter
     {
         public void Bake(GameObject gameObject, IBaker baker)
         {
@@ -105,53 +105,53 @@ namespace Unity.NetCode.Tests
         public int value;
     }
     [GhostComponent(PrefabType = GhostPrefabType.Server)]
-    public struct ServerComponentData : IComponentData
+    internal struct ServerComponentData : IComponentData
     {
         [GhostField]
         public int Value;
     }
     [GhostComponent(PrefabType = GhostPrefabType.Client)]
-    public struct ClientComponentData : IComponentData
+    internal struct ClientComponentData : IComponentData
     {
         [GhostField]
         public int Value;
     }
     [GhostComponent(PrefabType = GhostPrefabType.Client)]
-    public class ClientHybridComponent : MonoBehaviour
+    internal class ClientHybridComponent : MonoBehaviour
     {
         public int value;
     }
     [GhostComponent(PrefabType = GhostPrefabType.Server)]
-    public class ServerHybridComponent : MonoBehaviour
+    internal class ServerHybridComponent : MonoBehaviour
     {
         public int value;
     }
     [GhostComponent(PrefabType = GhostPrefabType.InterpolatedClient)]
-    public struct InterpolatedClientComponentData : IComponentData
+    internal struct InterpolatedClientComponentData : IComponentData
     {
         [GhostField]
         public int Value;
     }
     [GhostComponent(PrefabType = GhostPrefabType.PredictedClient)]
-    public struct PredictedClientComponentData : IComponentData
+    internal struct PredictedClientComponentData : IComponentData
     {
         [GhostField]
         public int Value;
     }
     [GhostComponent(PrefabType = GhostPrefabType.AllPredicted)]
-    public struct AllPredictedComponentData : IComponentData
+    internal struct AllPredictedComponentData : IComponentData
     {
         [GhostField]
         public int Value;
     }
     [GhostComponent(PrefabType = GhostPrefabType.All)]
-    public struct AllComponentData : IComponentData
+    internal struct AllComponentData : IComponentData
     {
         [GhostField]
         public int Value;
     }
 
-    public class GameObjectConversionTest
+    internal class GameObjectConversionTest
     {
         void CheckComponent(World w, ComponentType testType, int expectedCount)
         {

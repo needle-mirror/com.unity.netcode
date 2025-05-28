@@ -7,9 +7,9 @@ using Unity.Transforms;
 
 namespace Unity.NetCode.Tests
 {
-    public struct PredictionSwitchComponent : IComponentData { } // Component to identify the ghosts we're testing
+    internal struct PredictionSwitchComponent : IComponentData { } // Component to identify the ghosts we're testing
 
-    public class PredictionSwitchTestConverter : TestNetCodeAuthoring.IConverter
+    internal class PredictionSwitchTestConverter : TestNetCodeAuthoring.IConverter
     {
         public void Bake(GameObject gameObject, IBaker baker)
         {
@@ -21,12 +21,12 @@ namespace Unity.NetCode.Tests
     }
 
     [GhostComponent(PrefabType = GhostPrefabType.AllPredicted)]
-    public struct PredictedOnlyTestComponent : IComponentData
+    internal struct PredictedOnlyTestComponent : IComponentData
     {
         public int Value;
     }
     [GhostComponent(PrefabType = GhostPrefabType.InterpolatedClient)]
-    public struct InterpolatedOnlyTestComponent : IComponentData
+    internal struct InterpolatedOnlyTestComponent : IComponentData
     {
         public int Value;
     }
@@ -59,7 +59,7 @@ namespace Unity.NetCode.Tests
         }
     }
 
-    public class PredictionSwitchTests
+    internal class PredictionSwitchTests
     {
         [Test]
         public void SwitchingPredictionAddsAndRemovesComponent()
@@ -132,7 +132,7 @@ namespace Unity.NetCode.Tests
         // To get as much precision as possible with no interpolation noise
         [GhostComponentVariation(typeof(Transforms.LocalTransform), nameof(ClampedTransformVariant))]
         [GhostComponent(PrefabType=GhostPrefabType.All, SendTypeOptimization=GhostSendType.AllClients)]
-        public struct ClampedTransformVariant
+        internal struct ClampedTransformVariant
         {
             [GhostField(Quantization=0, Smoothing=SmoothingAction.Clamp)]
             public float3 Position;
@@ -394,6 +394,92 @@ namespace Unity.NetCode.Tests
             testWorld.Tick();
             // we're done switching, increment should be simple expected k_valueIncrease
             Assert.That((entityManager.GetComponentData<LocalToWorld>(clientEnt).Position - oldLocalToWorld.Position).x, Is.EqualTo(valueIncreasePerTick));
+        }
+
+        // If there is a single predicted ghost, then no ghost for a while, then a predicted ghost again,
+        // we should not rollback to the last tick there was a predicted ghost.
+        [Test]
+        public void DoesNotRollbackAfterPredictionSwitching()
+        {
+            using (var testWorld = new NetCodeTestWorld())
+            {
+                testWorld.UseFakeSocketConnection = 0;
+                testWorld.Bootstrap(true);
+                var ghostGameObject = new GameObject();
+                var authoring = ghostGameObject.AddComponent<GhostAuthoringComponent>();
+                authoring.SupportedGhostModes = GhostModeMask.All;
+                authoring.DefaultGhostMode = GhostMode.Predicted;
+                authoring.HasOwner = true;
+                testWorld.CreateGhostCollection(ghostGameObject);
+                testWorld.CreateWorlds(true, 1);
+                var entity = testWorld.SpawnOnServer(ghostGameObject);
+                testWorld.ServerWorld.EntityManager.SetComponentData(entity, new GhostOwner()
+                {
+                    NetworkId = 1
+                });
+                testWorld.Connect();
+                testWorld.ClientWorlds[0].EntityManager.CompleteAllTrackedJobs();
+                testWorld.GoInGame();
+
+                var clientQuery = testWorld.ClientWorlds[0].EntityManager.CreateEntityQuery(typeof(PredictedGhost));
+                int i = 0;
+                while (clientQuery.IsEmpty)
+                {
+                    testWorld.Tick();
+                    i++;
+                    if (i > 16)
+                    {
+                        Assert.Fail("Timed out waiting for predicted ghost to spawn");
+                        return;
+                    }
+                }
+
+                var clientTime = testWorld.GetNetworkTime(testWorld.ClientWorlds[0]);
+                Assert.Greater(clientTime.PredictedTickIndex, 0);
+
+                // Switch to non-predicted
+                var clientEntity = testWorld.TryGetSingletonEntity<GhostOwner>(testWorld.ClientWorlds[0]);
+                var ghostPredictionSwitchingQueues = testWorld.GetSingleton<GhostPredictionSwitchingQueues>(testWorld.ClientWorlds[0]);
+                ghostPredictionSwitchingQueues.ConvertToInterpolatedQueue.Enqueue(new ConvertPredictionEntry
+                {
+                    TargetEntity = clientEntity,
+                });
+                testWorld.Tick();
+
+                clientTime = testWorld.GetNetworkTime(testWorld.ClientWorlds[0]);
+                Assert.AreEqual(0, clientTime.PredictedTickIndex);
+
+                // Run to the max ticks (2 less because we predict 2 ticks ahead)
+                for (i = 0; i < CommandDataUtility.k_CommandDataMaxSize - 2; ++i)
+                {
+                    testWorld.Tick();
+                }
+
+                // Switch back to predicted
+                ghostPredictionSwitchingQueues.ConvertToPredictedQueue.Enqueue(new ConvertPredictionEntry
+                {
+                    TargetEntity = clientEntity,
+                });
+
+                i = 0;
+                while (clientQuery.IsEmpty)
+                {
+                    testWorld.Tick();
+                    i++;
+                    if (i > 16)
+                    {
+                        Assert.Fail("Timed out waiting for predicted ghost to spawn");
+                        return;
+                    }
+                }
+
+                for (i = 0; i < 3; i++)
+                {
+                    clientTime = testWorld.GetNetworkTime(testWorld.ClientWorlds[0]);
+                    Assert.IsTrue(clientTime.PredictedTickIndex > 0 && clientTime.PredictedTickIndex < 5);
+                    testWorld.Tick();
+                }
+            }
         }
     }
 }

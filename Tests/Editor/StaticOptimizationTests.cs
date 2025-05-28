@@ -9,7 +9,7 @@ using Unity.Mathematics;
 
 namespace Unity.NetCode.Tests
 {
-    public class StaticOptimizationTestConverter : TestNetCodeAuthoring.IConverter
+    internal class StaticOptimizationTestConverter : TestNetCodeAuthoring.IConverter
     {
         public void Bake(GameObject gameObject, IBaker baker)
         {
@@ -21,7 +21,7 @@ namespace Unity.NetCode.Tests
     [DisableAutoCreation]
     [RequireMatchingQueriesForUpdate]
     [WorldSystemFilter(WorldSystemFilterFlags.ClientSimulation | WorldSystemFilterFlags.ServerSimulation)]
-    public partial class StaticOptimizationTestSystem : SystemBase
+    internal partial class StaticOptimizationTestSystem : SystemBase
     {
         public static int s_ModifyNetworkId;
         protected override void OnUpdate()
@@ -35,7 +35,7 @@ namespace Unity.NetCode.Tests
         }
     }
 
-    public class StaticOptimizationTests
+    internal class StaticOptimizationTests
     {
         void SetupBasicTest(NetCodeTestWorld testWorld, NetCodeTestLatencyProfile latencyProfile, int entitiesToSpawn = 1)
         {

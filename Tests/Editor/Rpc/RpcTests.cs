@@ -10,7 +10,7 @@ using UnityEngine.Scripting;
 
 namespace Unity.NetCode.Tests
 {
-    public class RpcTests
+    internal class RpcTests
     {
         [Test]
         public void Rpc_UsingBroadcastOnClient_Works()
@@ -431,7 +431,7 @@ namespace Unity.NetCode.Tests
         }
 
         // Where RPCs are received and processed on the server
-        public enum SystemSetup
+        internal enum SystemSetup
         {
             UpdateBeforeNetworkECB,
             UpdateAfterNetworkECB,
@@ -439,14 +439,14 @@ namespace Unity.NetCode.Tests
         }
 
         // Where we'll trigger connect from a system
-        public enum ConnectSetup
+        internal enum ConnectSetup
         {
             BeforeNetworkECB,
             AfterNetworkECB
         }
 
         // Where we'll trigger disconnect from a system
-        public enum DisconnectSetup
+        internal enum DisconnectSetup
         {
             BeforeNetworkECB,
             AfterNetworkECB
@@ -582,7 +582,7 @@ namespace Unity.NetCode.Tests
             }
         }
 
-        public class GhostConverter : TestNetCodeAuthoring.IConverter
+        internal class GhostConverter : TestNetCodeAuthoring.IConverter
         {
             public void Bake(GameObject gameObject, IBaker baker)
             {

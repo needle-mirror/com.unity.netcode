@@ -3,6 +3,8 @@
 * [Setting up client and server worlds](set-up-client-server-worlds.md)
   * [Client and server worlds networking model](client-server-worlds.md)
   * [Network protocol checks](network-protocol-checks.md)
+  * [Netcode for Entities multi-driver architecture](networking-network-drivers.md)
+  * [Use Unity Relay with Netcode for Entities](networking-using-relay.md)
 * [Creating multiplayer gameplay](creating-multiplayer-gameplay.md)
   * [Connecting server and clients](network-connection.md)
   * [Synchronizing states and inputs](synchronization.md)

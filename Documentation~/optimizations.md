@@ -22,6 +22,21 @@ When a GhostField change Netcode will send the changes regardless of this settin
 * Static-optimization is not supported for ghosts involved in a [ghost group](ghost-groups.md) (neither the root, nor ghost group children), nor for ghosts containing any replicated child components. In both of these cases, ghosts will be treated as `Dynamic` at runtime.
 * Ghosts that are both static-optimized and interpolated will not run `GhostField` extrapolation (i.e. `SmoothingAction.InterpolateAndExtrapolate` will be forced into `SmoothingAction.Interpolate`).
 
+## Reducing netcode memory consumption
+By default, Netcode for Entities stores up to 32 snapshot history buffer entries for each connection and ghost chunk pair, as defined by `GhostSystemConstants.SnapshotHistorySize:32`.
+This allows future snapshots to delta-compress newer `GhostField` values against the latest acked of these 32 previously-sent snapshots.
+The `const` value of 32 is best suited for ghosts sending at very high rates (such as 60Hz), providing roughly 500ms worth of history.
+
+However, for MMO-scale games (where `MaxSendRate`s are often significantly lower), smaller snapshot history sizes may be preferable.
+To change this `const`, define one of the following in your **Project Settings** > **Player** > **Scripting Define Symbols**:
+
+* `NETCODE_SNAPSHOT_HISTORY_SIZE_16` is a good middle-ground between size-reduction (for static ghosts) and ack availability (for dynamic ghosts). Recommended for projects where the highest `GhostPrefabCreation.Config.MaxSendRate` is 30Hz, or where the `ClientServerTickRate.NetworkTickRate` is 30.
+* `NETCODE_SNAPSHOT_HISTORY_SIZE_6` is best suited for larger scale projects, such as those with hundreds of dynamic ghosts, thousands of static ghosts, and where the player character controller is already sent at a significantly lower frequency due to congestion or widespread use of `GhostPrefabCreation.Config.MaxSendRate`.
+
+> [!NOTE]
+> Be aware that ghost chunks may not be sent to a specific connection if their entire snapshot history buffer fills up with 'in-flight' snapshots (un-acked snapshots - sent less than one round trip ago - containing this ghost chunk).
+> See the `PacketDumpResult_SnapshotHistorySaturated` method for debugging.
+
 ## Reducing prediction CPU overhead
 
 ### Physics scheduling
@@ -107,6 +122,23 @@ relevancy.ValueRW.DefaultRelevancyQuery = GetEntityQuery(typeof(AsteroidScore));
 > If a ghost has been replicated to a client, then is set to **not be** relevant to said client, that client will be notified that this entity has been **destroyed**, and will do so. This misnomer can be confusing, as the entity being despawned does not imply the server entity was destroyed.
 > Example: Despawning an enemy monster in a MOBA because it became hidden in the Fog of War should not trigger a death animation (nor S/VFX). Thus, use some other data to notify what kind of entity-destruction state your entity has entered (e.g. enabling an `IsDead`/`IsCorpse` component).
 
+### Relevancy fast-path via importance scaling
+You can merge the ghost relevancy calculation with the batched importance scaling function pointer (assuming relevancy can be expressed via the same data as importance scaling).
+As shown in the [`GhostDistanceImportance.BatchScaleWithRelevancy` sample code](https://docs.unity3d.com/Packages/com.unity.netcode@latest?subfolder=/api/Unity.NetCode.GhostDistanceImportance.html#Unity_NetCode_GhostDistanceImportance_BatchScaleWithRelevancyFunctionPointer), enabling this fast-path requires the following steps:
+
+1. Enabling relevancy via `SystemAPI.GetSingletonRW<GhostRelevancy>().ValueRW.GhostRelevancyMode = GhostRelevancyMode.SetIsRelevant;` (or `SetIsIrrelevant`).
+2. Setting the `PrioChunk.isRelevant` flag for each chunk (this flag ignores the `SetIsRelevant` vs `SetIsIrrelevant` distinction, so setting `isRelevant = true` will cause the chunk to be relevant, regardless of which mode we're in).
+```csharp
+    ...
+    data.priority = basePriority;
+    data.isRelevant = distSq <= 16; // Any chunks greater than 4 tiles from the player will be irrelevant (unless explicitly added to the `GhostRelevancySet`).
+```
+When using this fast-path, there is no need to write ghost instances into the global `GhostRelevancySet` unless they would not be added via the ghost importance function `isRelevant` flag.
+For example; a map marker ghost far outside the practical `BatchScaleWithRelevancy` radius, but that you still want to replicate.
+
+> [!NOTE]
+> `PrioChunk.isRelevant` has lower precedence than the per-entity `GhostRelevancySet`.
+
 ## Limiting snapshot size
 
 * Use `GhostAuthoringComponent.MaxSendRate` to broadly reduce/clamp the resend rate of each of your ghost prefab types.
@@ -163,10 +195,11 @@ Below is an example of how to set up the built-in distance-based importance scal
 
 ### `GhostImportance`
 
-[`GhostImportance`](https://docs.unity3d.com/Packages/com.unity.netcode@latest/index.html?subfolder=/api/Unity.NetCode.GhostImportance.html) is the configuration component for setting up importance scaling. `GhostSendSystem` invokes the `ScaleImportanceFunction` only if the `GhostConnectionComponentType` and `GhostImportanceDataType` are created.
+[`GhostImportance`](https://docs.unity3d.com/Packages/com.unity.netcode@latest/index.html?subfolder=/api/Unity.NetCode.GhostImportance.html) is the configuration component for setting up importance scaling.
+`GhostSendSystem` invokes the `BatchScaleImportanceFunction` only if the `GhostConnectionComponentType` and `GhostImportanceDataType` are created.
 
 The fields you can set on this is:
-- `ScaleImportanceFunction` allows you to write and assign a custom scaling function (to scale the importance, with chunk granularity).
+- `BatchScaleImportanceFunction` allows you to write and assign a custom scaling function (to scale the importance, with chunk granularity).
 - `GhostConnectionComponentType` is the type added per-connection, allowing you to store per-connection data needed in the scaling calculation.
 - `GhostImportanceDataType` is an optional singleton component, allowing you to pass in any of your own static data necessary in the scaling calculation.
 - `GhostImportancePerChunkDataType` is the shared component added per-chunk, storing any chunk-specific data used in the scaling calculation.
@@ -175,7 +208,7 @@ Flow: The function pointer is invoked by the `GhostSendSystem` for each chunk, a
 The parameters are `IntPtr`s, which point to instances of the three types of data described above.
 
 You must add a `GhostConnectionComponentType` component to each connection to determine which tile the connection should prioritize.
-As mentioned, this `GhostSendSystem` passes this per-connection information to the `ScaleImportanceFunction` function.
+As mentioned, this `GhostSendSystem` passes this per-connection information to the `BatchScaleImportanceFunction` function.
 
 The `GhostImportanceDataType` is global, static, singleton data, which configures how chunks are constructed. It's optional, and `IntPtr.Zero` will be passed if it is not found.
 **Importantly: This static data _must_ be added to the same entity that holds the `GhostImportance` singleton. You'll get an exception in the editor if this type is not found here.**

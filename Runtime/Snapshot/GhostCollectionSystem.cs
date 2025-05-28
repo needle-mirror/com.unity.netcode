@@ -1024,19 +1024,22 @@ namespace Unity.NetCode
                 ++ghostType.NumComponents;
                 if (!isRoot)
                     ++ghostType.NumChildComponents;
-                if (!type.IsBuffer)
-                {
-                    ghostType.SnapshotSize += GhostComponentSerializer.SnapshotSizeAligned(compState.SnapshotSize);
-                    ghostType.ChangeMaskBits += compState.ChangeMaskBits;
-                }
-                else
-                {
-                    ghostType.SnapshotSize += GhostComponentSerializer.SnapshotSizeAligned(GhostComponentSerializer.DynamicBufferComponentSnapshotSize);
-                    ghostType.ChangeMaskBits += GhostComponentSerializer.DynamicBufferComponentMaskBits; //1bit for the content and 1 bit for the len
-                    ghostType.MaxBufferSnapshotSize = math.max(compState.SnapshotSize, ghostType.MaxBufferSnapshotSize);
-                    ++ghostType.NumBuffers;
-                }
 
+                if(compState.HasGhostFields)
+                {
+                    if (type.IsBuffer)
+                    {
+                        ghostType.SnapshotSize += GhostComponentSerializer.SnapshotSizeAligned(GhostComponentSerializer.DynamicBufferComponentSnapshotSize);
+                        ghostType.ChangeMaskBits += GhostComponentSerializer.DynamicBufferComponentMaskBits;
+                        ghostType.MaxBufferSnapshotSize = math.max(compState.SnapshotSize, ghostType.MaxBufferSnapshotSize);
+                        ++ghostType.NumBuffers;
+                    }
+                    else
+                    {
+                        ghostType.SnapshotSize += GhostComponentSerializer.SnapshotSizeAligned(compState.SnapshotSize);
+                        ghostType.ChangeMaskBits += compState.ChangeMaskBits;
+                    }
+                }
                 ghostType.EnableableBits += compState.SerializesEnabledBit; // 1 = true, 0 = false; implicit map to counter here.
 
                 // Make sure the component is now in use

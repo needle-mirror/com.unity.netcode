@@ -6,7 +6,7 @@ namespace Unity.NetCode.Tests
     /// <summary>
     /// Helper functions that helps building playmode tests.
     /// </summary>
-    public static class PlaymodeUtils
+    internal static class PlaymodeUtils
     {
         /// <summary>
         /// Helper function to set the current build-target to client-only.

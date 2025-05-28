@@ -1,5 +1,4 @@
 using System;
-using System.Linq;
 using System.Text.RegularExpressions;
 using NUnit.Framework;
 using Unity.Collections;
@@ -14,7 +13,7 @@ namespace Unity.NetCode.Tests
 {
     [DisableAutoCreation]
     [WorldSystemFilter(WorldSystemFilterFlags.ClientSimulation | WorldSystemFilterFlags.ServerSimulation)]
-    public partial class CheckConnectionSystem : SystemBase
+    internal partial class CheckConnectionSystem : SystemBase
     {
         public int numConnected;
         public int numInGame;
@@ -32,9 +31,9 @@ namespace Unity.NetCode.Tests
             numInGame = inGame.CalculateEntityCount();
         }
     }
-    public class ConnectionTests
+    internal class ConnectionTests
     {
-        public struct CheckApproval : IApprovalRpcCommand
+        internal struct CheckApproval : IApprovalRpcCommand
         {
             public int Payload;
         }
@@ -139,12 +138,12 @@ namespace Unity.NetCode.Tests
             }
         }
 
-        public enum ApprovalMode
+        internal enum ApprovalMode
         {
             NoApproval,
             WithApproval,
         }
-        public enum ConnectionStateMode
+        internal enum ConnectionStateMode
         {
             UsingConnectionState,
             NoConnectionState,
@@ -545,7 +544,7 @@ namespace Unity.NetCode.Tests
     // Without NETCODE_DEBUG, ALL error logs are logged to the console, thus we cannot turn on specific ones to test against.
     // Hard to fix the tests to correctly expect, so simply disabled all of them.
 #if !NETCODE_NDEBUG
-    public class VersionTests
+    internal class VersionTests
     {
         [Test]
         public void SameVersion_ConnectSuccessfully()
@@ -586,7 +585,7 @@ namespace Unity.NetCode.Tests
             }
         }
 
-        public enum DifferenceType
+        internal enum DifferenceType
         {
             GameVersion,
             NetCodeVersion,
@@ -753,7 +752,7 @@ namespace Unity.NetCode.Tests
                 LogAssert.Expect(LogType.Error, new Regex(@$"ComponentHash\[{i}\] = Type:"));
         }
 
-        public class TestConverter : TestNetCodeAuthoring.IConverter
+        internal class TestConverter : TestNetCodeAuthoring.IConverter
         {
             public void Bake(GameObject gameObject, IBaker baker)
             {

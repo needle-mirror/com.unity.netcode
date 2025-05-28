@@ -8,14 +8,14 @@ using UnityEngine.TestTools;
 
 namespace Unity.NetCode.Tests
 {
-    public partial class ConnectionApprovalTests
+    internal partial class ConnectionApprovalTests
     {
-        public struct CheckApproval : IApprovalRpcCommand
+        internal struct CheckApproval : IApprovalRpcCommand
         {
             public int Payload;
         }
 
-        public struct NormalRpc : IRpcCommand
+        internal struct NormalRpc : IRpcCommand
         {
             public int Value;
         }
@@ -150,7 +150,7 @@ namespace Unity.NetCode.Tests
         [DisableAutoCreation]
         [WorldSystemFilter(WorldSystemFilterFlags.ClientSimulation)]
         [RequireMatchingQueriesForUpdate]
-        public partial class SendServerApprovalRpcSystem : SystemBase
+        internal partial class SendServerApprovalRpcSystem : SystemBase
         {
             protected override void OnUpdate()
             {

@@ -1,4 +1,5 @@
 using System;
+using System.Diagnostics;
 using System.Text.RegularExpressions;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
@@ -10,10 +11,15 @@ using Unity.Collections;
 using Unity.Collections.LowLevel.Unsafe;
 using Unity.NetCode.LowLevel.Unsafe;
 using UnityEngine.TestTools;
+using Debug = UnityEngine.Debug;
 
 namespace Unity.NetCode.Tests
 {
-    public class GhostValueSerializerConverter : TestNetCodeAuthoring.IConverter
+    internal struct Elem : IBufferElementData
+    {
+        [GhostField]public GhostValueSerializer Value;
+    }
+    internal class GhostValueSerializerConverter : TestNetCodeAuthoring.IConverter
     {
         public void Bake(GameObject gameObject, IBaker baker)
         {
@@ -23,50 +29,50 @@ namespace Unity.NetCode.Tests
         }
     }
 
-    public enum EnumUntyped
+    internal enum EnumUntyped
     {
         Value0 = 255,
     }
-    public enum EnumS8 : sbyte
+    internal enum EnumS8 : sbyte
     {
         Value0 = 126,
     }
-    public enum EnumU8 : byte
+    internal enum EnumU8 : byte
     {
         Value0 = 253,
     }
-    public enum EnumS16 : short
+    internal enum EnumS16 : short
     {
         Value0 = 0x7AAB
     }
-    public enum EnumU16 : ushort
+    internal enum EnumU16 : ushort
     {
         Value0 = 0xF00D,
     }
-    public enum EnumS32
+    internal enum EnumS32
     {
         Value0 = 0x007AD0BE,
     }
-    public enum EnumU32 : uint
+    internal enum EnumU32 : uint
     {
         Value0 = 0xBAADF00D
     }
-    public enum EnumS64 : long
+    internal enum EnumS64 : long
     {
         Value0 = 0x791BBCDC0CCAEDD1,
     }
-    public enum EnumU64 : ulong
+    internal enum EnumU64 : ulong
     {
         Value0 = 0xABBA1970F1809FE2,
     }
 
-    public struct GhostValueBufferSerializer : IBufferElementData
+    internal struct GhostValueBufferSerializer : IBufferElementData
     {
         [GhostField] public GhostValueSerializer Values;
         public override string ToString() => $"BUF[{Values}]";
     }
 
-    public struct GhostValueSerializer : IComponentData
+    internal struct GhostValueSerializer : IComponentData
     {
         [GhostField] public bool BoolValue;
         [GhostField] public int IntValue;
@@ -112,21 +118,21 @@ namespace Unity.NetCode.Tests
 
         [GhostField(Composite = true)] public Union UnionValue;
         [StructLayout(LayoutKind.Explicit)]
-        public struct Union
+        internal struct Union
         {
             [FieldOffset(0)] [GhostField(SendData = false)] public StructA State1;
             [FieldOffset(0)] [GhostField(Quantization = 0, Smoothing = SmoothingAction.Clamp, Composite = true)] public StructB State2;
             [FieldOffset(0)] [GhostField(SendData = false)] public StructC State3;
-            public struct StructA
+            internal struct StructA
             {
                 public int A, B;
                 public float C;
             }
-            public struct StructB
+            internal struct StructB
             {
                 public ulong A, B, C, D;
             }
-            public struct StructC
+            internal struct StructC
             {
                 public double A, B;
             }
@@ -138,7 +144,7 @@ namespace Unity.NetCode.Tests
         }
     }
 
-    public class GhostSerializationTests
+    internal class GhostSerializationTests
     {
         static void VerifyGhostValues(NetCodeTestWorld testWorld)
         {
@@ -215,7 +221,6 @@ namespace Unity.NetCode.Tests
             Assert.AreEqual(serverValues.UnionValue.State3.A,clientValues.UnionValue.State3.A);
             Assert.AreEqual(serverValues.UnionValue.State3.B,clientValues.UnionValue.State3.B);
         }
-
         void SetGhostValuesOnServer(NetCodeTestWorld testWorld, int baseValue)
         {
             var serverEntity = testWorld.TryGetSingletonEntity<GhostValueSerializer>(testWorld.ServerWorld);
@@ -375,12 +380,13 @@ namespace Unity.NetCode.Tests
             }
         }
 
-        public enum SetMode
+        internal enum SetMode
         {
             ConstantChanges,
             OnlyOneChange,
         }
 
+#if !NETCODE_SNAPSHOT_HISTORY_SIZE_6
         // TODO: Really we should add test coverage to ensure we're actually hitting the MaxSendRate condition of `GhostSendSystem.GatherGhostChunks`,
         // but that requires better analytics.
         [Test]
@@ -485,6 +491,8 @@ namespace Unity.NetCode.Tests
                 return false;
             }
         }
+#endif
+
         [Test]
         public void GhostValuesAreSerialized_WithPacketDumpsEnabled()
         {
@@ -906,5 +914,27 @@ namespace Unity.NetCode.Tests
                 LogAssert.Expect(LogType.Warning, new Regex(@"PERFORMANCE(.*)NID\[1\](.*)fit even one ghost"));
             LogAssert.Expect(LogType.Error, new Regex(@$"FATAL(.*){nameof(GhostSystemConstants.MaxSnapshotSendAttempts)}(.*)NID\[1\]"));
         }
+
+#if NETCODE_SNAPSHOT_HISTORY_SIZE_6
+        [Test(Description = "When the snapshot history is small, users can fill up the snapshot history buffer with in-flight snapshot packets. This test ensures we gracefully process this case.")]
+        public void SnapshotHistorySize6_TriggersHistoryBufferSaturation_Gracefully()
+        {
+            using var testWorld = new NetCodeTestWorld();
+            testWorld.DriverSimulatedDelay = 100; // Causes snapshots to remain 'in-flight' for more ticks.
+            testWorld.LogLevel = NetDebug.LogLevelType.Debug; // PERFORMANCE warnings need this.
+            testWorld.Bootstrap(true);
+            var ghostGameObject = new GameObject();
+            ghostGameObject.AddComponent<TestNetCodeAuthoring>().Converter = new GhostValueSerializerConverter();
+            Assert.IsTrue(testWorld.CreateGhostCollection(ghostGameObject));
+            testWorld.CreateWorlds(true, 1);
+            testWorld.SpawnOnServer(ghostGameObject);
+            testWorld.Connect(maxSteps:32);
+            testWorld.GoInGame();
+
+            for(int i = 0; i < 24; i++)
+                testWorld.Tick();
+            LogAssert.Expect(LogType.Warning, new Regex(@"PERFORMANCE\: Snapshot history is saturated for ghost chunk:(\d*), ghostType\:0, 4\/6 in\-flight \(TSLR\:15\<\=16\), sent anyway\:(true|false)\!"));
+        }
+#endif
     }
 }

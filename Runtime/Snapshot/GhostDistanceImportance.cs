@@ -65,15 +65,23 @@ namespace Unity.NetCode
         /// </summary>
         public static readonly PortableFunctionPointer<GhostImportance.BatchScaleImportanceDelegate> BatchScaleFunctionPointer =
             new PortableFunctionPointer<GhostImportance.BatchScaleImportanceDelegate>(BatchScale);
+        /// <summary>
+        /// Pointer to the <see cref="BatchScaleWithRelevancy"/> static method.
+        /// </summary>
+        public static readonly PortableFunctionPointer<GhostImportance.BatchScaleImportanceDelegate> BatchScaleWithRelevancyFunctionPointer =
+            new PortableFunctionPointer<GhostImportance.BatchScaleImportanceDelegate>(BatchScaleWithRelevancy);
 
         /// <summary>
         /// Pointer to the <see cref="Scale"/> static method.
         /// </summary>
+#pragma warning disable CS0618 // Type or member is obsolete
         public static readonly PortableFunctionPointer<GhostImportance.ScaleImportanceDelegate> ScaleFunctionPointer =
             new PortableFunctionPointer<GhostImportance.ScaleImportanceDelegate>(Scale);
+#pragma warning restore CS0618 // Type or member is obsolete
 
         [BurstCompile(DisableDirectCall = true)]
         [AOT.MonoPInvokeCallback(typeof(GhostImportance.ScaleImportanceDelegate))]
+        [Obsolete("Prefer `BatchScale` as it significantly reduces the total number of function pointer calls. RemoveAfter 1.x")]
         private static int Scale(IntPtr connectionDataPtr, IntPtr distanceDataPtr, IntPtr chunkTilePtr, int basePriority)
         {
             var distanceData = GhostComponentSerializer.TypeCast<GhostDistanceData>(distanceDataPtr);
@@ -90,7 +98,7 @@ namespace Unity.NetCode
 
         [BurstCompile(DisableDirectCall = true)]
         [AOT.MonoPInvokeCallback(typeof(GhostImportance.BatchScaleImportanceDelegate))]
-        private unsafe static void BatchScale(IntPtr connectionDataPtr, IntPtr distanceDataPtr, IntPtr sharedComponentTypeHandlePtr,
+        private static unsafe void BatchScale(IntPtr connectionDataPtr, IntPtr distanceDataPtr, IntPtr sharedComponentTypeHandlePtr,
             ref UnsafeList<PrioChunk> chunks)
         {
             var distanceData = GhostComponentSerializer.TypeCast<GhostDistanceData>(distanceDataPtr);
@@ -110,6 +118,33 @@ namespace Unity.NetCode
                     if (distSq > 3)
                         basePriority /= distSq;
                     data.priority = basePriority;
+                }
+            }
+        }
+
+        [BurstCompile(DisableDirectCall = true)]
+        [AOT.MonoPInvokeCallback(typeof(GhostImportance.BatchScaleImportanceDelegate))]
+        private static unsafe void BatchScaleWithRelevancy(IntPtr connectionDataPtr, IntPtr distanceDataPtr, IntPtr sharedComponentTypeHandlePtr,
+            ref UnsafeList<PrioChunk> chunks)
+        {
+            var distanceData = GhostComponentSerializer.TypeCast<GhostDistanceData>(distanceDataPtr);
+            var centerTile = (int3)((GhostComponentSerializer.TypeCast<GhostConnectionPosition>(connectionDataPtr).Position - distanceData.TileCenter) / distanceData.TileSize);
+            var sharedType = GhostComponentSerializer.TypeCast<DynamicSharedComponentTypeHandle>(sharedComponentTypeHandlePtr);
+            for (int i = 0; i < chunks.Length ; ++i)
+            {
+                ref var data = ref chunks.ElementAt(i);
+                var basePriority = data.priority;
+                if (data.chunk.Has(ref sharedType))
+                {
+                    var chunkTile = (GhostDistancePartitionShared*) data.chunk.GetDynamicSharedComponentDataAddress(ref sharedType);
+                    var delta = chunkTile->Index - centerTile;
+                    var distSq = math.dot(delta, delta);
+                    basePriority *= 1000;
+                    // 3 makes sure all adjacent tiles are considered the same as the tile the connection is in - required since it might be close to the edge
+                    basePriority = math.select(basePriority, basePriority / math.max(1, distSq), distSq > 3);
+                    data.priority = basePriority;
+                    // Any chunks greater than 4 tiles from the player will be irrelevant (unless explicitly added to the `GhostRelevancySet`).
+                    data.isRelevant = distSq <= 16;
                 }
             }
         }

@@ -7,7 +7,7 @@ namespace Unity.NetCode.Tests
 {
     [DisableAutoCreation]
     [WorldSystemFilter(WorldSystemFilterFlags.LocalSimulation)]
-    public partial class ExplicitDefaultSystem : SystemBase
+    internal partial class ExplicitDefaultSystem : SystemBase
     {
         protected override void OnUpdate()
         {
@@ -15,7 +15,7 @@ namespace Unity.NetCode.Tests
     }
     [DisableAutoCreation]
     [WorldSystemFilter(WorldSystemFilterFlags.ClientSimulation)]
-    public partial class ExplicitClientSystem : SystemBase
+    internal partial class ExplicitClientSystem : SystemBase
     {
         protected override void OnUpdate()
         {
@@ -23,7 +23,7 @@ namespace Unity.NetCode.Tests
     }
     [DisableAutoCreation]
     [WorldSystemFilter(WorldSystemFilterFlags.ServerSimulation)]
-    public partial class ExplicitServerSystem : SystemBase
+    internal partial class ExplicitServerSystem : SystemBase
     {
         protected override void OnUpdate()
         {
@@ -31,7 +31,7 @@ namespace Unity.NetCode.Tests
     }
     [DisableAutoCreation]
     [WorldSystemFilter(WorldSystemFilterFlags.ClientSimulation | WorldSystemFilterFlags.ServerSimulation)]
-    public partial class ExplicitClientServerSystem : SystemBase
+    internal partial class ExplicitClientServerSystem : SystemBase
     {
         protected override void OnUpdate()
         {
@@ -39,15 +39,14 @@ namespace Unity.NetCode.Tests
     }
 
     /// <summary>The <see cref="GhostPredictionHistorySystem"/> does some additional saving and writing, which needs to be tested.</summary>
-    public enum PredictionSetting
+    internal enum PredictionSetting
     {
         WithPredictedEntities = 1,
         WithInterpolatedEntities = 2,
-        // FIXME: Add support for WithPredictedAndOwnedEntities = 3,
     }
 
     /// <summary>Defines which variant to use during testing (and how that variant is applied), thus testing all user flows.</summary>
-    public enum SendForChildrenTestCase
+    internal enum SendForChildrenTestCase
     {
         /// <summary>
         /// Creating a parent and child overload via <see cref="DefaultVariantSystemBase.RegisterDefaultVariants"/>
@@ -71,7 +70,7 @@ namespace Unity.NetCode.Tests
         Default,
     }
 
-    public class BootstrapTests
+    internal class BootstrapTests
     {
         [Test]
         public void BootstrapRespectsUpdateInWorld()

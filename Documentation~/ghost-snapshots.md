@@ -45,6 +45,68 @@ E.g. `NetworkTickRate:30Hz`, `MaxSendRate:45` means 30Hz is the actual maximum s
 * __Dynamic__: The ghost is optimized for a small snapshot size when both changing and not changing.
 * __Static__: The ghost isn't optimized for a small snapshot size when changing, but isn't sent at all when it's not changing.
 
+## Structural changes on instantiated ghosts
+
+You can make some structural changes to already instantiated ghost prefabs, such as [adding or removing components](#add-or-remove-components-on-an-instantiated-prefab) or [adding, removing, or destroying child entities](#add-remove-or-destroy-child-entities-on-an-instantiated-prefab), although there are limitations.
+
+| Action                                         | Supported  | Limitations                                                                |
+|------------------------------------------------|------------|----------------------------------------------------------------------------|
+| Add or remove components or buffers            | Yes        | None                                                                       |                                                  |
+| Add or remove replicated components or buffers | Yes        | Refer to [adding or removing components](#add-or-remove-components-on-an-instantiated-prefab)                        |
+| Add, remove, or destroy child entities                   | Yes        | Refer to [adding, removing, or destroying child entities](#add-remove-or-destroy-child-entities-on-an-instantiated-prefab)   |
+
+> [!NOTE]
+> Adding, removing, or destroying child entities is not technically a structural change, but has implications for replication.
+
+### Add or remove components on an instantiated prefab
+
+You can add or remove any user-side components from both the root and child entities of an instantiated prefab and serialization and deserialization of the ghost, as well as delta compression, will continue to work.
+
+However, adding a component to an instantiated ghost (even if it has a `[GhostField]`), will not replicate the component to other instances of the same ghost prefab. For a component to be replicated, it must be part of the prefab at authoring time.
+
+### Add, remove, or destroy child entities on an instantiated prefab
+
+You can't remove or change the index of any replicated child entity within the `LinkedEntityGroup` buffer, since doing so can cause serialization and deserialization errors. You can, however, do the following:
+
+* Destroy any child entity in the `LinkedEntityGroup`, with or without replicated components, as long as you don't re-order or remove the associated entry in the `LinkedEntityGroup`.
+* Remove entities from the `LinkedEntityGroup` buffer, as long as doing so doesn't cause a re-ordering of the original replicated child entities.
+* Append entities to the `LinkedEntityGroup`.
+    * In general, avoid prepending or inserting entities in between the original entries of the `LinkedEntityGroup` buffer. However, you can insert an entity in the `LinkedEntityGroup` after the last children that has replicated components.
+
+Refer to the following examples of valid and invalid configurations for more details:
+
+```
+// This is a valid configuration, where (*) denotes a destroyed entity.
+root
+  child 1 (*) <-- Replicated
+  child 2
+  child 3     <-- Replicated
+  child 4 (*)
+
+// This is a valid configuration, where entities have been appended.
+root
+  child 1   <-- Replicated
+  child 2   <-- Replicated
+  =-----=  Append / Remove after here
+  child 3
+  user entity 1
+  user entity 2
+
+// This is an invalid configuration because entities have been prepended, changing the index.
+root
+  new user entity 1 <--- INVALID, break replicated entity indexes
+  child 1  <-- Replicated
+  child 2  <-- Replicated
+  child 3
+
+// This is an invalid configuration, because entities have been added in between original entries, changing the index.
+root
+  child 1  <-- Replicated
+  new user entity 1 <--- INVALID, break replicated entity indexes
+  child 2  <-- Replicated
+  child 3
+```
+
 ## Synchronize ghost components and fields
 
 Netcode for Entities uses C# attributes to configure which components and fields to synchronize as part of a ghost.

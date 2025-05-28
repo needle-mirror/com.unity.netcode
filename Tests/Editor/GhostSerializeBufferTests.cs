@@ -10,7 +10,7 @@ using Unity.NetCode.LowLevel.Unsafe;
 
 namespace Unity.NetCode.Tests
 {
-    public struct GhostGenTest_Buffer : IBufferElementData
+    internal struct GhostGenTest_Buffer : IBufferElementData
     {
         [GhostField] public int IntValue;
         [GhostField] public uint UIntValue;
@@ -18,65 +18,84 @@ namespace Unity.NetCode.Tests
         [GhostField(Quantization = 10)] public float FloatValue;
     }
 
-    public struct GhostGen_InterpolatedStruct : IComponentData
+    [GhostEnabledBit]
+    internal struct GhostGenTest_NoReplicatedFieldsBuffer : IBufferElementData, IEnableableComponent
+    {
+        public int IntValue;
+        public uint UIntValue;
+        public bool BoolValue;
+    }
+
+    internal struct GhostGen_InterpolatedStruct : IComponentData
     {
         [GhostField(Smoothing = SmoothingAction.Interpolate)] public float FloatValue;
     }
 
-    public struct GhostGen_IntStruct : IComponentData
+    internal struct GhostGen_IntStruct : IComponentData
     {
         [GhostField] public int IntValue;
     }
 
-    public struct GhostGen_CompositeStruct
+    internal struct GhostGen_CompositeStruct
     {
         [GhostField] public int IntValue1;
         [GhostField] public int IntValue2;
         [GhostField] public int IntValue3;
     }
 
-    public struct GhostGen_BufferInterpolated : IBufferElementData
+    internal struct GhostGen_BufferInterpolated : IBufferElementData
     {
         //Buffers will discard the Interpolate attribute for either the field members and / or any struct sub-fields
         [GhostField(Smoothing = SmoothingAction.Interpolate)] public float FloatValue;
         [GhostField] public GhostGen_InterpolatedStruct Vec;
     }
 
-    public struct GhostGenBuffer_BufferComposite : IBufferElementData
+    internal struct GhostGenBuffer_BufferComposite : IBufferElementData
     {
         [GhostField(Composite = true)] public GhostGen_CompositeStruct Field1;
     }
 
-    public struct GhostGenBuffer_ByteBuffer : IBufferElementData
+    internal struct GhostGenBuffer_ByteBuffer : IBufferElementData
     {
         [GhostField] public byte Value;
     }
 
-    public class GhostByteBufferAuthoringComponent : MonoBehaviour
+    internal class GhostByteBufferAuthoringComponent : MonoBehaviour
     {
-    }
-
-    class GhostByteBufferAuthoringComponentBaker : Baker<GhostByteBufferAuthoringComponent>
-    {
-        public override void Bake(GhostByteBufferAuthoringComponent authoring)
+        class Baker : Baker<GhostByteBufferAuthoringComponent>
         {
-            var entity = GetEntity(TransformUsageFlags.Dynamic);
-            AddBuffer<GhostGenBuffer_ByteBuffer>(entity);
+            public override void Bake(GhostByteBufferAuthoringComponent authoring)
+            {
+                var entity = GetEntity(TransformUsageFlags.Dynamic);
+                AddBuffer<GhostGenBuffer_ByteBuffer>(entity);
+            }
         }
     }
 
-    public class GhostGenBufferAuthoringComponent : MonoBehaviour
+    internal class GhostGenBufferAuthoringComponent : MonoBehaviour
     {
-    }
-
-    class GhostGenBufferAuthoringComponentBaker : Baker<GhostGenBufferAuthoringComponent>
-    {
-        public override void Bake(GhostGenBufferAuthoringComponent authoring)
+        class Baker : Baker<GhostGenBufferAuthoringComponent>
         {
-            var entity = GetEntity(TransformUsageFlags.Dynamic);
-            AddBuffer<GhostGenTest_Buffer>(entity);
+            public override void Bake(GhostGenBufferAuthoringComponent authoring)
+            {
+                var entity = GetEntity(TransformUsageFlags.Dynamic);
+                AddBuffer<GhostGenTest_Buffer>(entity);
+            }
         }
     }
+
+    internal class GhostGenNoReplicatedFieldBuffer : MonoBehaviour
+    {
+        class Baker : Baker<GhostGenNoReplicatedFieldBuffer>
+        {
+            public override void Bake(GhostGenNoReplicatedFieldBuffer authoring)
+            {
+                var entity = GetEntity(TransformUsageFlags.Dynamic);
+                AddBuffer<GhostGenTest_NoReplicatedFieldsBuffer>(entity);
+            }
+        }
+    }
+
 
     static class BufferTestHelper
     {
@@ -220,7 +239,7 @@ namespace Unity.NetCode.Tests
     }
 
     [TestFixture]
-    public partial class DynamicBufferSerializationTests
+    internal partial class DynamicBufferSerializationTests
     {
         [Test]
         public void BuffersAreSerialized()
@@ -254,6 +273,45 @@ namespace Unity.NetCode.Tests
                 for (int i = 0; i < 8; ++i)
                     testWorld.Tick();
                 BufferTestHelper.CheckBuffersValues(testWorld, serverEntity, clientEntities[0], true);
+            }
+        }
+
+        [Test]
+        public void BuffersWithoutReplicatedFieldsAreSerialized()
+        {
+            using (var testWorld = new NetCodeTestWorld())
+            {
+                testWorld.Bootstrap(true);
+
+                var ghostGameObject = new GameObject();
+                ghostGameObject.AddComponent<GhostGenNoReplicatedFieldBuffer>();
+
+                Assert.IsTrue(testWorld.CreateGhostCollection(ghostGameObject));
+
+                testWorld.CreateWorlds(true, 1);
+                var serverEntity = testWorld.SpawnOnServer(ghostGameObject);
+                var serverBuffer = testWorld.ServerWorld.EntityManager.GetBuffer<GhostGenTest_NoReplicatedFieldsBuffer>(serverEntity);
+                serverBuffer.ResizeUninitialized(10);
+                testWorld.ServerWorld.EntityManager.SetComponentEnabled<GhostGenTest_NoReplicatedFieldsBuffer>(serverEntity, false);
+
+                // Connect and make sure the connection could be established
+                testWorld.Connect();
+
+                // Go in-game
+                testWorld.GoInGame();
+
+                // Let the game run for a bit so the ghosts are spawned on the client
+                for (int i = 0; i < 32; ++i)
+                    testWorld.Tick();
+
+                var clientEntities = BufferTestHelper.GetClientEntities(testWorld, new [] {serverEntity});
+                var clientBuffer = testWorld.ClientWorlds[0].EntityManager.GetBuffer<GhostGenTest_NoReplicatedFieldsBuffer>(clientEntities[0]);
+                Assert.AreEqual(0, clientBuffer.Length);
+                Assert.IsFalse(testWorld.ClientWorlds[0].EntityManager.IsComponentEnabled<GhostGenTest_NoReplicatedFieldsBuffer>(clientEntities[0]));
+                testWorld.ServerWorld.EntityManager.SetComponentEnabled<GhostGenTest_NoReplicatedFieldsBuffer>(serverEntity, true);
+                for (int i = 0; i < 8; ++i)
+                    testWorld.Tick();
+                Assert.IsTrue(testWorld.ClientWorlds[0].EntityManager.IsComponentEnabled<GhostGenTest_NoReplicatedFieldsBuffer>(clientEntities[0]));
             }
         }
 
@@ -369,7 +427,7 @@ namespace Unity.NetCode.Tests
             }
         }
 
-        public class GhostBufferMixedTypesConverter : TestNetCodeAuthoring.IConverter
+        internal class GhostBufferMixedTypesConverter : TestNetCodeAuthoring.IConverter
         {
             public void Bake(GameObject gameObject, IBaker baker)
             {
@@ -729,7 +787,7 @@ namespace Unity.NetCode.Tests
         }
 
 
-        public class GhostGroupGhostConverter : TestNetCodeAuthoring.IConverter
+        internal class GhostGroupGhostConverter : TestNetCodeAuthoring.IConverter
         {
             public void Bake(GameObject gameObject, IBaker baker)
             {
@@ -791,25 +849,25 @@ namespace Unity.NetCode.Tests
         }
 
         [GhostComponent(PrefabType = GhostPrefabType.Server)]
-        public struct GhostServerOnlyBuffer : IBufferElementData
+        internal struct GhostServerOnlyBuffer : IBufferElementData
         {
             [GhostField] public byte Value;
         }
 
         [GhostComponent(PrefabType = GhostPrefabType.Client)]
-        public struct GhostClientOnlyBuffer : IBufferElementData
+        internal struct GhostClientOnlyBuffer : IBufferElementData
         {
             [GhostField] public byte Value;
         }
 
         [GhostComponent(PrefabType = GhostPrefabType.AllPredicted, SendDataForChildEntity = true)]
-        public struct GhostPredictedOnlyBuffer : IBufferElementData
+        internal struct GhostPredictedOnlyBuffer : IBufferElementData
         {
             [GhostField] public float Value;
         }
 
         [GhostComponent(PrefabType = GhostPrefabType.InterpolatedClient, SendDataForChildEntity = true)]
-        public struct GhostInterpolatedOnlyBuffer : IBufferElementData
+        internal struct GhostInterpolatedOnlyBuffer : IBufferElementData
         {
             [GhostField] public byte Value;
         }
@@ -878,7 +936,7 @@ namespace Unity.NetCode.Tests
         [RequireMatchingQueriesForUpdate]
         [UpdateInGroup(typeof(PredictedSimulationSystemGroup))]
         [WorldSystemFilter(WorldSystemFilterFlags.ClientSimulation | WorldSystemFilterFlags.ServerSimulation)]
-        public partial class BufferTestPredictionSystem : SystemBase
+        internal partial class BufferTestPredictionSystem : SystemBase
         {
             protected override void OnUpdate()
             {
@@ -1047,7 +1105,7 @@ namespace Unity.NetCode.Tests
         [UpdateAfter(typeof(GhostSpawnClassificationSystem))]
         [DisableAutoCreation]
         [WorldSystemFilter(WorldSystemFilterFlags.ClientSimulation)]
-        public partial class TestSpawnClassificationSystem : SystemBase
+        internal partial class TestSpawnClassificationSystem : SystemBase
         {
             public NativeList<Entity> m_PredictedEntities;
             protected override void OnCreate()
@@ -1097,7 +1155,7 @@ namespace Unity.NetCode.Tests
         [DisableAutoCreation]
         [RequireMatchingQueriesForUpdate]
         [WorldSystemFilter(WorldSystemFilterFlags.ClientSimulation | WorldSystemFilterFlags.ServerSimulation)]
-        public partial class SpawnPredictedGhost : SystemBase
+        internal partial class SpawnPredictedGhost : SystemBase
         {
             public NetworkTick spawnAtTick = NetworkTick.Invalid;
             public Entity spawnedEntity;

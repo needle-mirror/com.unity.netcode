@@ -5,10 +5,12 @@ using Unity.Jobs;
 using UnityEngine;
 using Unity.Collections;
 using System.Collections.Generic;
+using Unity.Mathematics;
+using Unity.Transforms;
 
 namespace Unity.NetCode.Tests
 {
-    public class GhostRelevancyTestConverter : TestNetCodeAuthoring.IConverter
+    internal class GhostRelevancyTestConverter : TestNetCodeAuthoring.IConverter
     {
         public void Bake(GameObject gameObject, IBaker baker)
         {
@@ -51,7 +53,7 @@ namespace Unity.NetCode.Tests
         }
     }
 
-    public class RelevancyTests
+    internal class RelevancyTests
     {
         GameObject bootstrapAndSetup(NetCodeTestWorld testWorld, System.Type additionalSystem = null)
         {
@@ -622,6 +624,121 @@ namespace Unity.NetCode.Tests
             }
         }
 
+        [Test(Description = "Tests the BatchScaleWithRelevancy fast-path.")]
+        public void Relevancy_ViaDistanceImportanceScaling_Works([Values] GhostOptimizationMode optMode)
+        {
+            using var testWorld = new NetCodeTestWorld();
+            testWorld.SetTestLatencyProfile(NetCodeTestLatencyProfile.RTT16ms_PL5);
+            testWorld.Bootstrap(true);
+            var ghostGameObject = new GameObject("Ghost");
+            ghostGameObject.AddComponent<GhostAuthoringComponent>().OptimizationMode = optMode;
+            ghostGameObject.AddComponent<TestNetCodeAuthoring>().Converter = new GhostValueSerializerConverter();
+            Assert.IsTrue(testWorld.CreateGhostCollection(ghostGameObject));
+            testWorld.CreateWorlds(true, 1);
+            var prefabCollection = testWorld.TryGetSingletonEntity<NetCodeTestPrefabCollection>(testWorld.ServerWorld);
+            var prefab = testWorld.ServerWorld.EntityManager.GetBuffer<NetCodeTestPrefab>(prefabCollection)[0].Value;
+
+            // One ghost per 1x1x1 tile:
+            const int gridXYZ = 10;
+            const int instanceCount = gridXYZ * gridXYZ * gridXYZ;
+            testWorld.Connect(maxSteps: 16);
+            testWorld.GoInGame();
+            using var entities = testWorld.ServerWorld.EntityManager.Instantiate(prefab, instanceCount, Allocator.Persistent);
+            int entId = 0;
+            for (int x = 0; x < gridXYZ; x++)
+            for (int y = 0; y < gridXYZ; y++)
+            for (int z = 0; z < gridXYZ; z++)
+            {
+                testWorld.ServerWorld.EntityManager.SetComponentData(entities[entId], new LocalTransform
+                {
+                    Position = new float3(x, y, z),
+                    Scale = 1,
+                    Rotation = quaternion.identity,
+                });
+                testWorld.ServerWorld.EntityManager.AddSharedComponent(entities[entId], new GhostDistancePartitionShared
+                {
+                    Index = new int3(x, y, z),
+                });
+                entId++;
+            }
+
+            var client0NetworkId = testWorld.TryGetSingletonEntity<NetworkId>(testWorld.ServerWorld);
+            testWorld.ServerWorld.EntityManager.AddComponentData(client0NetworkId, new GhostConnectionPosition
+            {
+                Position = new float3(0),
+            });
+
+            // Let the game run for a bit so the ghosts are spawned on the client:
+            for (int i = 0; i < 32; ++i)
+                testWorld.Tick();
+
+            var ghostCount = testWorld.GetSingleton<GhostCount>(testWorld.ClientWorlds[0]);
+            Assert.AreEqual(instanceCount, ghostCount.GhostCountInstantiatedOnClient);
+            Assert.AreEqual(instanceCount, ghostCount.GhostCountReceivedOnClient);
+
+            // Make all instanceCount ghosts are irrelevant
+            ref var ghostRelevancy = ref testWorld.GetSingletonRW<GhostRelevancy>(testWorld.ServerWorld).ValueRW;
+            ghostRelevancy.GhostRelevancyMode = GhostRelevancyMode.SetIsRelevant;
+
+            testWorld.TryLogPacket("SetIsRelevant:0");
+            for (int i = 0; i < 64; ++i)
+                testWorld.Tick();
+
+            // Assert that replicated version is correct
+            ghostCount = testWorld.GetSingleton<GhostCount>(testWorld.ClientWorlds[0]);
+            Assert.AreEqual(0, ghostCount.GhostCountInstantiatedOnClient);
+            Assert.AreEqual(0, ghostCount.GhostCountReceivedOnClient);
+            Assert.AreEqual(0, ghostCount.GhostCountOnServer);
+
+            // Enable ghost distance importance:
+            var gridSingleton = testWorld.ServerWorld.EntityManager.CreateSingleton(new GhostDistanceData
+            {
+                TileSize = new int3(1),
+                TileCenter = new int3(.5f),
+                TileBorderWidth = new float3(.1f),
+            });
+            testWorld.ServerWorld.EntityManager.AddComponentData(gridSingleton, new GhostImportance
+            {
+                BatchScaleImportanceFunction = GhostDistanceImportance.BatchScaleWithRelevancyFunctionPointer,
+                GhostConnectionComponentType = ComponentType.ReadOnly<GhostConnectionPosition>(),
+                GhostImportanceDataType = ComponentType.ReadOnly<GhostDistanceData>(),
+                GhostImportancePerChunkDataType = ComponentType.ReadOnly<GhostDistancePartitionShared>(),
+            });
+
+            // Replicate relevant ghosts. Note that with importance scaling, it can take
+            // more ticks to replicate the ghosts at the boundaries.
+            for (int i = 0; i < 64; ++i)
+                testWorld.Tick();
+
+            // Assert that we have some ghosts.
+            {
+                ghostCount = testWorld.GetSingleton<GhostCount>(testWorld.ClientWorlds[0]);
+                const int expectedCount = 54;
+                Assert.That(ghostCount.GhostCountInstantiatedOnClient, Is.EqualTo(expectedCount));
+                Assert.That(ghostCount.GhostCountReceivedOnClient, Is.EqualTo(expectedCount));
+                Assert.That(ghostCount.GhostCountOnServer, Is.EqualTo(expectedCount));
+                Assert.AreEqual(0, ghostRelevancy.GhostRelevancySet.Count(), "No ghosts need to be added to the set.");
+            }
+
+            // Now move the connection, and assert that the set of ghosts has changed:
+            testWorld.ServerWorld.EntityManager.SetComponentData(client0NetworkId, new GhostConnectionPosition
+            {
+                Position = new float3(gridXYZ * .5f),
+            });
+            for (int i = 0; i < 32; ++i)
+                testWorld.Tick();
+
+            // Assert that we have new ghosts.
+            {
+                ghostCount = testWorld.GetSingleton<GhostCount>(testWorld.ClientWorlds[0]);
+                const int expectedCount = 257;
+                Assert.That(ghostCount.GhostCountInstantiatedOnClient, Is.EqualTo(expectedCount));
+                Assert.That(ghostCount.GhostCountReceivedOnClient, Is.EqualTo(expectedCount));
+                Assert.That(ghostCount.GhostCountOnServer, Is.EqualTo(expectedCount));
+                Assert.AreEqual(0, ghostRelevancy.GhostRelevancySet.Count(), "No ghosts need to be added to the set.");
+            }
+        }
+
         [Test]
         public void TestAlwaysRelevantQuery()
         {
@@ -663,7 +780,7 @@ namespace Unity.NetCode.Tests
             Assert.That(clientGhostQuery.CalculateEntityCount(), Is.EqualTo(1));
         }
 
-        public class GhostRelevancyConverterA : TestNetCodeAuthoring.IConverter
+        internal class GhostRelevancyConverterA : TestNetCodeAuthoring.IConverter
         {
             public void Bake(GameObject gameObject, IBaker baker)
             {
@@ -672,7 +789,7 @@ namespace Unity.NetCode.Tests
                 baker.AddComponent(entity, new GhostRelevancyA());
             }
         }
-        public class GhostRelevancyConverterB : TestNetCodeAuthoring.IConverter
+        internal class GhostRelevancyConverterB : TestNetCodeAuthoring.IConverter
         {
             public void Bake(GameObject gameObject, IBaker baker)
             {
@@ -682,11 +799,11 @@ namespace Unity.NetCode.Tests
             }
         }
 
-        public struct GhostRelevancyA : IComponentData
+        internal struct GhostRelevancyA : IComponentData
         {
             [GhostField] public int Value;
         }
-        public struct GhostRelevancyB : IComponentData
+        internal struct GhostRelevancyB : IComponentData
         {
             [GhostField] public int Value;
         }
@@ -897,6 +1014,7 @@ namespace Unity.NetCode.Tests
             Assert.That(clientGhostQueryB.IsEmpty);
         }
 
+        [Test(Description = "Set the relevancy of EntityA only, then ensures the relevancy sub-system works correctly (and that GhostCount's are correct).")]
         [TestCase(GhostRelevancyMode.SetIsRelevant, true, true, true)]
         [TestCase(GhostRelevancyMode.SetIsRelevant, true, false, true)]
         [TestCase(GhostRelevancyMode.SetIsRelevant, false, true, true)]
@@ -913,6 +1031,7 @@ namespace Unity.NetCode.Tests
         {
             // Setup spawn
             using var testWorld = new NetCodeTestWorld();
+            testWorld.SetTestLatencyProfile(NetCodeTestLatencyProfile.RTT16ms_PL5);
             testWorld.Bootstrap(true);
             var ghostGameObjectPrefabA = new GameObject();
             ghostGameObjectPrefabA.AddComponent<TestNetCodeAuthoring>().Converter = new GhostRelevancyConverterA();
@@ -931,9 +1050,9 @@ namespace Unity.NetCode.Tests
 
             relevancy.ValueRW.GhostRelevancyMode = mode;
             relevancy.ValueRW.GhostRelevancySet.Clear(); // make sure the only way to get the ghost is through the query
-            testWorld.Connect();
+            testWorld.Connect(maxSteps:16);
             testWorld.GoInGame();
-            for (int i = 0; i < 100; i++)
+            for (int i = 0; i < 8; i++)
             {
                 testWorld.Tick();
             }
@@ -956,12 +1075,20 @@ namespace Unity.NetCode.Tests
                 relevancy.ValueRW.GhostRelevancySet.Add(new RelevantGhostForConnection(connection.Value, ghostIDA), 0);
             }
 
-            for (int i = 0; i < 4; i++)
+            for (int i = 0; i < 8; i++)
             {
                 testWorld.Tick();
             }
 
             Assert.That(clientGhostQueryA.CalculateEntityCount(), expectedRelevancyResult ? Is.EqualTo(1) : Is.EqualTo(0));
+
+            // GhostCount Singleton:
+            var ghostCount = testWorld.GetSingleton<GhostCount>(testWorld.ClientWorlds[0]);
+            string msg = ghostCount.ToString();
+            int expectedGhostInstancesCount = expectedRelevancyResult ? 1 : 0;
+            Assert.AreEqual(expectedGhostInstancesCount, ghostCount.GhostCountOnServer, msg);
+            Assert.AreEqual(expectedGhostInstancesCount, ghostCount.GhostCountReceivedOnClient, msg);
+            Assert.AreEqual(expectedGhostInstancesCount, ghostCount.GhostCountInstantiatedOnClient, msg);
         }
     }
 }

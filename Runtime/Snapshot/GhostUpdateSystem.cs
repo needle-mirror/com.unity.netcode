@@ -149,17 +149,16 @@ namespace Unity.NetCode
                 var ghostTypeId = ghostComponents[0].ghostType;
                 if (chunk.Has(ref predictedGhostRequestType) || chunk.Has(ref prespawnGhostIndexType))
                 {
-                    //using the type of the first ghost != 0 will not help. In order to have a valid type,
-                    //the SpawnTick should be at least set.
-                    //For pre-spawned ghost, the ghost type can be < 0 (until we do the baseline, which is not done yet here).
-                    //So, to get the correct type, the easiest way is to use the map for either prespawned or predicted-spawned entities.
+                    //Check if the pre-spawned ghost and predicted ghost has a valid prefab and serializer.
+                    //if they don't skip the chunk.
                     var ghostType = ghostTypes[0];
                     if (!GhostTypeToCollectionIndex.TryGetValue(ghostType, out ghostTypeId))
-                        ghostTypeId = GhostTypeCollection.Length;
+                        return;
                 }
-                //this can also happen for prespawned ghosts, if the ghost collection didn't process them.
+                // serialization data has not been loaded yet. This can happen if the prefab has been loaded but
+                // not processed yet (i.e previous prefab in the GhostCollectionPrefab is still missing).
                 if (ghostTypeId >= GhostTypeCollection.Length)
-                    return; // serialization data has not been loaded yet. This can only happen for prespawn objects
+                    return;
                 var typeData = GhostTypeCollection[ghostTypeId];
                 var ghostSnapshotDataArray = chunk.GetNativeArray(ref ghostSnapshotDataType);
                 var ghostSnapshotDataBufferArray = chunk.GetBufferAccessor(ref ghostSnapshotDataBufferType);
@@ -183,11 +182,11 @@ namespace Unity.NetCode
                 var restoreFromBackupRange = new NativeList<BackupRange>(ghostComponents.Length, Allocator.Temp);
                 var chunkEntities = chunk.GetNativeArray(entityType);
 
-                int somePredictedGhostWillRollback = 0;
+                int shouldRewindAndResimulate = 0;
                 if (typeData.PredictedSpawnedGhostRollbackToSpawnTick != 0)
                 {
                     for (int i = 0; i < JobsUtility.ThreadIndexCount; ++i)
-                        somePredictedGhostWillRollback += numPredictedGhostWithNewData[i*JobsUtility.CacheLineSize/sizeof(int)];
+                        shouldRewindAndResimulate += numPredictedGhostWithNewData[i*JobsUtility.CacheLineSize/sizeof(int)];
                 }
                 // Find the ranges of entities which have data to apply, store the data to apply in an array while doing so
                 for (int ent = 0; ent < ghostComponents.Length; ++ent)
@@ -271,27 +270,29 @@ namespace Unity.NetCode
 
                             //we should try to restore from backup if a backup is available, and if we want to continue prediction, and the last
                             //predicted tick was a full tick (we avoid a rollback in this case).
-                            bool restoreStateFromBackup = predictionStartTick != snapshotTick;
+                            bool continuePrediction = predictionStartTick != snapshotTick;
 
-                            //For predicted spawned ghosts (that have ghostId = 0), we prefer use the backup instead of using the
-                            //snapshot history buffer.
-                            if (ghostComponents[ent].ghostId == 0)
+                            //For predicted spawned ghosts (that have ghostId = 0), if user selected to always start
+                            //re-predicting from the spawn tick, we always honour that if there is at least another predicted ghost
+                            //that will rollback.
+                            //Otherwise we try to continue prediction from the backup if available.
+                            if (ghostComponents[ent].ghostId == 0 && shouldRewindAndResimulate != 0)
                             {
-                                //If user selected to always start re-predicting from the spawn tick, we always honour that if
-                                //there is at least another predicted ghost that will rollback.
-                                if (somePredictedGhostWillRollback != 0 && predictionStartTick != snapshotTick)
-                                {
-                                    predictionStartTick = snapshotTick;
-                                    restoreStateFromBackup = false;
-                                }
-                                //In all cases, we prefer using the backup (instead of the snapshot tick) if the last backup tick is identical
-                                //to the snapshot tick.
-                                if (!restoreStateFromBackup && predictionStateBackupTick.IsValid && predictionStateBackupTick == snapshotTick)
-                                    restoreStateFromBackup = true;
+                                //Force rewind to the snapshot tick the PredictedGhpstSpawnSystem saved in the snapshot buffer.
+                                predictionStartTick = snapshotTick;
+                                continuePrediction = false;
                             }
-                            // If we want to continue prediction, and this is not the currently applied prediction state, we must restore the state from the backup
-                            restoreStateFromBackup &= predictionStartTick != lastPredictedTick;
-                            if (restoreStateFromBackup)
+
+                            // Optimization
+                            // If we want to continue prediction, but the last tick was a full tick and therefore the state
+                            // it is going to be identical to the backup, we avoid restoring from it (cpu optimization).
+                            // NOTE:
+                            // This case for client that aren't v-sync is quite rare (or let's say occasional). However, for
+                            // mobile or devices that run at fixed tick rate (v-synced) this is the norm, and therefore the backup
+                            // is useless (never used pretty much).
+                            // We are also wasting CPU time for the backup as well for nothing in these scenario.
+                            var restoreFromBackup = continuePrediction && (!lastPredictedTick.IsValid || predictionStartTick != lastPredictedTick);
+                            if (restoreFromBackup)
                             {
                                 // If we cannot restore the backup and continue prediction, we roll back and resimulate
                                 if (TryGetChunkBackupState(chunk, ent, typeData.RollbackPredictionOnStructuralChanges,
@@ -307,13 +308,15 @@ namespace Unity.NetCode
                                 else
                                 {
                                     predictionStartTick = snapshotTick;
-                                    restoreStateFromBackup = false;
+                                    continuePrediction = false;
                                 }
                             }
 
                             AddPredictionStartTick(targetTick, predictionStartTick);
 
-                            if (predictionStartTick != snapshotTick || restoreStateFromBackup)
+                            continuePrediction |= predictionStartTick == lastPredictedTick;
+
+                            if (continuePrediction)
                             {
                                 if (nextRange.y != 0)
                                     entityRange.Add(nextRange);
@@ -415,9 +418,7 @@ namespace Unity.NetCode
                         throw new System.InvalidOperationException("Component index out of range");
 #endif
                     ref readonly var ghostSerializer = ref GhostComponentCollection.ElementAtRO(serializerIdx);
-                    var snapshotSize = ghostSerializer.ComponentType.IsBuffer
-                        ? GhostComponentSerializer.SnapshotSizeAligned(GhostComponentSerializer.DynamicBufferComponentSnapshotSize)
-                        : GhostComponentSerializer.SnapshotSizeAligned(ghostSerializer.SnapshotSize);
+                    var snapshotSize = GhostComponentSerializer.SizeInSnapshot(ghostSerializer);
                     if (!chunk.Has(ref ghostChunkComponentTypesPtr[compIdx]) || (GhostComponentIndex[typeData.FirstComponent + comp].SendMask&requiredSendMask) == 0)
                     {
                         snapshotDataOffset += snapshotSize;
@@ -472,98 +473,87 @@ namespace Unity.NetCode
                             }
                             snapshotDataOffset += snapshotSize;
                         }
-
-                        if (typeData.EnableableBits > 0 && ghostSerializer.SerializesEnabledBit != 0)
-                        {
-                            for (var rangeIdx = 0; rangeIdx < entityRange.Length; ++rangeIdx)
-                            {
-                                var range = entityRange[rangeIdx];
-                                var dataAtTickPtr = (SnapshotData.DataAtTick*)dataAtTick.GetUnsafeReadOnlyPtr();
-                                dataAtTickPtr += range.x;
-                                UpdateEnableableMask(chunk, dataAtTickPtr, ghostSerializer.SendToOwner,
-                                    changeMaskUints, enableableMaskOffset, range, ghostChunkComponentTypesPtr, compIdx, ref componentHasChanges);
-                            }
-                            ++enableableMaskOffset;
-                            ValidateReadEnableBits(enableableMaskOffset, typeData.EnableableBits);
-                        }
                     }
                     else
                     {
-                        var roDynamicComponentTypeHandle = ghostChunkComponentTypesPtr[compIdx].CopyToReadOnly();
-                        var bufferAccessor = chunk.GetUntypedBufferAccessor(ref roDynamicComponentTypeHandle);
-                        var dynamicDataSize = ghostSerializer.SnapshotSize;
-                        var maskBits = ghostSerializer.ChangeMaskBits;
                         deserializerState.SendToOwner = ghostSerializer.SendToOwner;
-                        for (var rangeIdx = 0; rangeIdx < entityRange.Length; ++rangeIdx)
+                        if (ghostSerializer.HasGhostFields)
                         {
-                            var range = entityRange[rangeIdx];
-                            for (int ent = range.x; ent < range.y; ++ent)
+                            var roDynamicComponentTypeHandle = ghostChunkComponentTypesPtr[compIdx].CopyToReadOnly();
+                            var bufferAccessor = chunk.GetUntypedBufferAccessor(ref roDynamicComponentTypeHandle);
+                            var dynamicDataSize = ghostSerializer.SnapshotSize;
+                            var maskBits = ghostSerializer.ChangeMaskBits;
+                            for (var rangeIdx = 0; rangeIdx < entityRange.Length; ++rangeIdx)
                             {
-                                //Compute the required owner mask for the buffers and skip the copyfromsnapshot. The check must be done
-                                //for each entity.
-                                if((ghostSerializer.SendToOwner & dataAtTick[ent].RequiredOwnerSendMask) == 0)
-                                    continue;
-
-                                var dynamicDataBuffer = ghostSnapshotDynamicBufferArray[ent];
-                                var dynamicDataAtTick = SetupDynamicDataAtTick(dataAtTick[ent], snapshotDataOffset, dynamicDataSize, maskBits, dynamicDataBuffer, out var bufLen);
-                                var prevBufLen = bufferAccessor.GetBufferLength(ent);
-                                if(prevBufLen != bufLen)
+                                var range = entityRange[rangeIdx];
+                                for (int ent = range.x; ent < range.y; ++ent)
                                 {
-                                    if (!componentHasChanges)
+                                    //Compute the required owner mask for the buffers and skip the copyfromsnapshot. The check must be done
+                                    //for each entity.
+                                    if((ghostSerializer.SendToOwner & dataAtTick[ent].RequiredOwnerSendMask) == 0)
+                                        continue;
+
+                                    var dynamicDataBuffer = ghostSnapshotDynamicBufferArray[ent];
+                                    var dynamicDataAtTick = SetupDynamicDataAtTick(dataAtTick[ent], snapshotDataOffset, dynamicDataSize, maskBits, dynamicDataBuffer, out var bufLen);
+                                    var prevBufLen = bufferAccessor.GetBufferLength(ent);
+                                    if(prevBufLen != bufLen)
                                     {
-                                        componentHasChanges = true;
-                                        // Bump change version.
-                                        bufferAccessor = chunk.GetUntypedBufferAccessor(ref ghostChunkComponentTypesPtr[compIdx]);
+                                        if (!componentHasChanges)
+                                        {
+                                            componentHasChanges = true;
+                                            // Bump change version.
+                                            bufferAccessor = chunk.GetUntypedBufferAccessor(ref ghostChunkComponentTypesPtr[compIdx]);
+                                        }
+                                        bufferAccessor.ResizeUninitialized(ent, bufLen);
+                                        var rwBufData = (byte*)bufferAccessor.GetUnsafePtr(ent);
+                                        ghostSerializer.CopyFromSnapshot.Invoke(
+                                            (System.IntPtr)UnsafeUtility.AddressOf(ref deserializerState),
+                                            (System.IntPtr) UnsafeUtility.AddressOf(ref dynamicDataAtTick), 0, dynamicDataSize,
+                                            (IntPtr)rwBufData, compSize, bufLen);
+                                        continue;
                                     }
-                                    bufferAccessor.ResizeUninitialized(ent, bufLen);
-                                    var rwBufData = (byte*)bufferAccessor.GetUnsafePtr(ent);
+
+                                    var requiredNumBytes = bufLen * compSize;
+                                    var roBufData = (byte*) bufferAccessor.GetUnsafeReadOnlyPtr(ent);
+                                    CopyRODataIntoTempChangeBuffer(requiredNumBytes, ref tempChangeBuffer, ref tempChangeBufferSize, ref tempChangeBufferLarge, roBufData);
+
+                                    // Again, hack to pass in the roBufData to be written into.
+                                    // NOTE: We know that these two buffers will be the EXACT same size, due to the above assurances.
                                     ghostSerializer.CopyFromSnapshot.Invoke(
                                         (System.IntPtr)UnsafeUtility.AddressOf(ref deserializerState),
                                         (System.IntPtr) UnsafeUtility.AddressOf(ref dynamicDataAtTick), 0, dynamicDataSize,
-                                        (IntPtr)rwBufData, compSize, bufLen);
-                                    continue;
-                                }
+                                        (IntPtr)roBufData, compSize, bufLen);
 
-                                var requiredNumBytes = bufLen * compSize;
-                                var roBufData = (byte*) bufferAccessor.GetUnsafeReadOnlyPtr(ent);
-                                CopyRODataIntoTempChangeBuffer(requiredNumBytes, ref tempChangeBuffer, ref tempChangeBufferSize, ref tempChangeBufferLarge, roBufData);
-
-                                // Again, hack to pass in the roBufData to be written into.
-                                // NOTE: We know that these two buffers will be the EXACT same size, due to the above assurances.
-                                ghostSerializer.CopyFromSnapshot.Invoke(
-                                    (System.IntPtr)UnsafeUtility.AddressOf(ref deserializerState),
-                                    (System.IntPtr) UnsafeUtility.AddressOf(ref dynamicDataAtTick), 0, dynamicDataSize,
-                                    (IntPtr)roBufData, compSize, bufLen);
-
-                                k_ChangeFiltering.Begin();
-                                if (UnsafeUtility.MemCmp(roBufData, tempChangeBuffer, requiredNumBytes) != 0)
-                                {
-                                    if (!componentHasChanges)
+                                    k_ChangeFiltering.Begin();
+                                    if (UnsafeUtility.MemCmp(roBufData, tempChangeBuffer, requiredNumBytes) != 0)
                                     {
-                                        componentHasChanges = true;
-                                        // Bump change version.
-                                        bufferAccessor = chunk.GetUntypedBufferAccessor(ref ghostChunkComponentTypesPtr[compIdx]);
-                                    };
+                                        if (!componentHasChanges)
+                                        {
+                                            componentHasChanges = true;
+                                            // Bump change version.
+                                            bufferAccessor = chunk.GetUntypedBufferAccessor(ref ghostChunkComponentTypesPtr[compIdx]);
+                                        };
+                                    }
+                                    k_ChangeFiltering.End();
                                 }
-                                k_ChangeFiltering.End();
                             }
-
+                            snapshotDataOffset += snapshotSize;
+                        }
+                    }
+                    if (typeData.EnableableBits > 0 && ghostSerializer.SerializesEnabledBit != 0)
+                    {
+                        for (var rangeIdx = 0; rangeIdx < entityRange.Length; ++rangeIdx)
+                        {
+                            var range = entityRange[rangeIdx];
                             //The following will update the enable bits for the whole chunk. So the data should be retrieved from the
                             //beginning of the range
                             var dataAtTickPtr = (SnapshotData.DataAtTick*)dataAtTick.GetUnsafeReadOnlyPtr();
                             dataAtTickPtr += range.x;
-                            if (typeData.EnableableBits > 0 && ghostSerializer.SerializesEnabledBit != 0)
-                                UpdateEnableableMask(chunk, dataAtTickPtr,
-                                    ghostSerializer.SendToOwner,
-                                    changeMaskUints, enableableMaskOffset, range, ghostChunkComponentTypesPtr, compIdx, ref componentHasChanges);
+                            UpdateEnableableMask(chunk, dataAtTickPtr, ghostSerializer.SendToOwner,
+                                changeMaskUints, enableableMaskOffset, range, ghostChunkComponentTypesPtr, compIdx, ref componentHasChanges);
                         }
-
-                        if (typeData.EnableableBits > 0 && ghostSerializer.SerializesEnabledBit != 0)
-                        {
-                            ++enableableMaskOffset;
-                            ValidateReadEnableBits(enableableMaskOffset, typeData.EnableableBits);
-                        }
-                        snapshotDataOffset += snapshotSize;
+                        ++enableableMaskOffset;
+                        ValidateReadEnableBits(enableableMaskOffset, typeData.EnableableBits);
                     }
                 }
                 if (typeData.NumChildComponents > 0)
@@ -579,9 +569,7 @@ namespace Unity.NetCode
 #endif
 
                         ref readonly var ghostSerializer = ref GhostComponentCollection.ElementAtRO(serializerIdx);
-                        var snapshotSize = ghostSerializer.ComponentType.IsBuffer
-                            ? GhostComponentSerializer.SnapshotSizeAligned(GhostComponentSerializer.DynamicBufferComponentSnapshotSize)
-                            : GhostComponentSerializer.SnapshotSizeAligned(ghostSerializer.SnapshotSize);
+                        var snapshotSize = GhostComponentSerializer.SizeInSnapshot(ghostSerializer);
                         if ((GhostComponentIndex[typeData.FirstComponent + comp].SendMask & requiredSendMask) == 0)
                         {
                             snapshotDataOffset += snapshotSize;
@@ -673,48 +661,50 @@ namespace Unity.NetCode
                                     if (!childChunk.Chunk.Has(ref ghostChunkComponentTypesPtr[compIdx]))
                                         continue;
 
-                                    //Compute the required owner mask for the buffers and skip the copyfromsnapshot. The check must be done
                                     if((ghostSerializer.SendToOwner & dataAtTick[rootEntity].RequiredOwnerSendMask) == 0)
                                         continue;
 
-                                    var roDynamicComponentTypeHandle = ghostChunkComponentTypesPtr[compIdx].CopyToReadOnly();
-                                    var roBufferAccessor = childChunk.Chunk.GetUntypedBufferAccessor(ref roDynamicComponentTypeHandle);
-
-                                    var dynamicDataBuffer = ghostSnapshotDynamicBufferArray[rootEntity];
-                                    var dynamicDataAtTick = SetupDynamicDataAtTick(dataAtTick[rootEntity], snapshotDataOffset, dynamicDataSize, maskBits, dynamicDataBuffer, out var bufLen);
-                                    var prevBufLen = roBufferAccessor.GetBufferLength(childChunk.IndexInChunk);
-                                    if (prevBufLen != bufLen)
+                                    if (ghostSerializer.HasGhostFields)
                                     {
-                                        var rwBufferAccessor = childChunk.Chunk.GetUntypedBufferAccessor(ref ghostChunkComponentTypesPtr[compIdx]);
-                                        rwBufferAccessor.ResizeUninitialized(childChunk.IndexInChunk, bufLen);
-                                        var rwBufData = rwBufferAccessor.GetUnsafePtr(childChunk.IndexInChunk);
+                                        var roDynamicComponentTypeHandle = ghostChunkComponentTypesPtr[compIdx].CopyToReadOnly();
+                                        var roBufferAccessor = childChunk.Chunk.GetUntypedBufferAccessor(ref roDynamicComponentTypeHandle);
 
-                                        ghostSerializer.CopyFromSnapshot.Invoke(
-                                            (System.IntPtr) UnsafeUtility.AddressOf(ref deserializerState),
-                                            (System.IntPtr) UnsafeUtility.AddressOf(ref dynamicDataAtTick), 0, dynamicDataSize,
-                                            (IntPtr) rwBufData, compSize, bufLen);
-                                    }
-                                    else
-                                    {
-                                        var roBufData = (byte*) roBufferAccessor.GetUnsafeReadOnlyPtr(childChunk.IndexInChunk);
-                                        var requiredNumBytes = bufLen * compSize;
-                                        CopyRODataIntoTempChangeBuffer(requiredNumBytes, ref tempChangeBuffer, ref tempChangeBufferSize, ref tempChangeBufferLarge, roBufData);
-
-                                        // Again, hack to pass in the roBufData to be written into.
-                                        // NOTE: We know that these two buffers will be the EXACT same size, due to the above assurances.
-                                        ghostSerializer.CopyFromSnapshot.Invoke(
-                                            (System.IntPtr) UnsafeUtility.AddressOf(ref deserializerState),
-                                            (System.IntPtr) UnsafeUtility.AddressOf(ref dynamicDataAtTick), 0, dynamicDataSize,
-                                            (IntPtr) roBufData, compSize, bufLen);
-
-                                        k_ChangeFiltering.Begin();
-
-                                        if (UnsafeUtility.MemCmp(roBufData, tempChangeBuffer, requiredNumBytes) != 0)
+                                        var dynamicDataBuffer = ghostSnapshotDynamicBufferArray[rootEntity];
+                                        var dynamicDataAtTick = SetupDynamicDataAtTick(dataAtTick[rootEntity], snapshotDataOffset, dynamicDataSize, maskBits, dynamicDataBuffer, out var bufLen);
+                                        var prevBufLen = roBufferAccessor.GetBufferLength(childChunk.IndexInChunk);
+                                        if (prevBufLen != bufLen)
                                         {
-                                            // Bump change version.
-                                            childChunk.Chunk.GetUntypedBufferAccessor(ref ghostChunkComponentTypesPtr[compIdx]);
+                                            var rwBufferAccessor = childChunk.Chunk.GetUntypedBufferAccessor(ref ghostChunkComponentTypesPtr[compIdx]);
+                                            rwBufferAccessor.ResizeUninitialized(childChunk.IndexInChunk, bufLen);
+                                            var rwBufData = rwBufferAccessor.GetUnsafePtr(childChunk.IndexInChunk);
+
+                                            ghostSerializer.CopyFromSnapshot.Invoke(
+                                                (System.IntPtr) UnsafeUtility.AddressOf(ref deserializerState),
+                                                (System.IntPtr) UnsafeUtility.AddressOf(ref dynamicDataAtTick), 0, dynamicDataSize,
+                                                (IntPtr) rwBufData, compSize, bufLen);
                                         }
-                                        k_ChangeFiltering.End();
+                                        else
+                                        {
+                                            var roBufData = (byte*) roBufferAccessor.GetUnsafeReadOnlyPtr(childChunk.IndexInChunk);
+                                            var requiredNumBytes = bufLen * compSize;
+                                            CopyRODataIntoTempChangeBuffer(requiredNumBytes, ref tempChangeBuffer, ref tempChangeBufferSize, ref tempChangeBufferLarge, roBufData);
+
+                                            // Again, hack to pass in the roBufData to be written into.
+                                            // NOTE: We know that these two buffers will be the EXACT same size, due to the above assurances.
+                                            ghostSerializer.CopyFromSnapshot.Invoke(
+                                                (System.IntPtr) UnsafeUtility.AddressOf(ref deserializerState),
+                                                (System.IntPtr) UnsafeUtility.AddressOf(ref dynamicDataAtTick), 0, dynamicDataSize,
+                                                (IntPtr) roBufData, compSize, bufLen);
+
+                                            k_ChangeFiltering.Begin();
+
+                                            if (UnsafeUtility.MemCmp(roBufData, tempChangeBuffer, requiredNumBytes) != 0)
+                                            {
+                                                // Bump change version.
+                                                childChunk.Chunk.GetUntypedBufferAccessor(ref ghostChunkComponentTypesPtr[compIdx]);
+                                            }
+                                            k_ChangeFiltering.End();
+                                        }
                                     }
 
                                     if (typeData.EnableableBits > 0 && ghostSerializer.SerializesEnabledBit != 0)
@@ -894,6 +884,8 @@ namespace Unity.NetCode
                     var compSize = ghostSerializer.ComponentType.IsBuffer
                         ? GhostComponentSerializer.DynamicBufferComponentSnapshotSize
                         : ghostSerializer.ComponentSize;
+                    if (!ghostSerializer.HasGhostFields)
+                        compSize = 0;
 
                     if (!chunk.Has(ref ghostChunkComponentTypesPtr[compIdx]))
                     {
@@ -1048,6 +1040,8 @@ namespace Unity.NetCode
                         var compSize = ghostSerializer.ComponentType.IsBuffer
                             ? GhostComponentSerializer.DynamicBufferComponentSnapshotSize
                             : ghostSerializer.ComponentSize;
+                        if (!ghostSerializer.HasGhostFields)
+                            compSize = 0;
 
                         var readonlyHandle = ghostChunkComponentTypesPtr[compIdx].CopyToReadOnly();
                         var childIndex = GhostComponentIndex[typeData.FirstComponent + comp].EntityIndex;

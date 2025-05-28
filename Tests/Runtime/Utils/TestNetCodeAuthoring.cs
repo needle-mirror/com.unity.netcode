@@ -4,12 +4,12 @@ using Unity.Entities;
 /// <summary>
 /// TestNetCodeAuthoring
 /// </summary>
-public class TestNetCodeAuthoring : MonoBehaviour
+internal class TestNetCodeAuthoring : MonoBehaviour
 {
     /// <summary>
     /// Interface for TestNetCodeAuthoring.IConverter
     /// </summary>
-    public interface IConverter
+    internal interface IConverter
     {
         /// <summary>
         /// Bake function

@@ -11,7 +11,7 @@ using Random = Unity.Mathematics.Random;
 
 namespace Unity.NetCode.Tests
 {
-    public struct InputComponentData : IInputComponentData
+    internal struct InputComponentData : IInputComponentData
     {
         public int Horizontal;
         public int Vertical;
@@ -21,7 +21,7 @@ namespace Unity.NetCode.Tests
         public InputEvent Jump;
     }
 
-    public struct InputRemoteTestComponentData : IInputComponentData
+    internal struct InputRemoteTestComponentData : IInputComponentData
     {
         [GhostField] public int Horizontal;
         [GhostField] public int Vertical;
@@ -29,7 +29,7 @@ namespace Unity.NetCode.Tests
     }
 
     [GhostComponent(PrefabType=GhostPrefabType.AllPredicted)]
-    public struct InputComponentDataAllPredicted : IInputComponentData
+    internal struct InputComponentDataAllPredicted : IInputComponentData
     {
         public int Horizontal;
         public int Vertical;
@@ -37,7 +37,7 @@ namespace Unity.NetCode.Tests
     }
 
     [GhostComponent(PrefabType=GhostPrefabType.AllPredicted)]
-    public struct InputComponentDataAllPredictedWithGhostFields : IInputComponentData
+    internal struct InputComponentDataAllPredictedWithGhostFields : IInputComponentData
     {
         [GhostField] public int Horizontal;
         [GhostField] public int Vertical;
@@ -45,7 +45,7 @@ namespace Unity.NetCode.Tests
     }
 
     [GhostComponent(PrefabType=GhostPrefabType.Server)]
-    public struct InputComponentDataServerOnly : IInputComponentData
+    internal struct InputComponentDataServerOnly : IInputComponentData
     {
         public int Horizontal;
         public int Vertical;
@@ -53,7 +53,7 @@ namespace Unity.NetCode.Tests
     }
 
     [GhostComponent(PrefabType = GhostPrefabType.Client, OwnerSendType = SendToOwnerType.SendToOwner, SendTypeOptimization = GhostSendType.OnlyInterpolatedClients, SendDataForChildEntity = false)]
-    public struct InputComponentDataWithGhostComponent : IInputComponentData
+    internal struct InputComponentDataWithGhostComponent : IInputComponentData
     {
         public int Horizontal;
         public int Vertical;
@@ -61,14 +61,14 @@ namespace Unity.NetCode.Tests
     }
 
     [GhostComponent(PrefabType = GhostPrefabType.Client, OwnerSendType = SendToOwnerType.SendToOwner, SendTypeOptimization = GhostSendType.OnlyInterpolatedClients, SendDataForChildEntity = false)]
-    public struct InputComponentDataWithGhostComponentAndGhostFields : IInputComponentData
+    internal struct InputComponentDataWithGhostComponentAndGhostFields : IInputComponentData
     {
         [GhostField] public int Horizontal;
         [GhostField] public int Vertical;
         [GhostField] public InputEvent Jump;
     }
 
-    public class InputRemoteTestComponentDataConverter : TestNetCodeAuthoring.IConverter
+    internal class InputRemoteTestComponentDataConverter : TestNetCodeAuthoring.IConverter
     {
         public void Bake(GameObject gameObject, IBaker baker)
         {
@@ -77,7 +77,7 @@ namespace Unity.NetCode.Tests
         }
     }
 
-    public class InputComponentDataConverter : TestNetCodeAuthoring.IConverter
+    internal class InputComponentDataConverter : TestNetCodeAuthoring.IConverter
     {
         public void Bake(GameObject gameObject, IBaker baker)
         {
@@ -86,7 +86,7 @@ namespace Unity.NetCode.Tests
         }
     }
 
-    public class InputComponentDataAllPredictedConverter : TestNetCodeAuthoring.IConverter
+    internal class InputComponentDataAllPredictedConverter : TestNetCodeAuthoring.IConverter
     {
         public void Bake(GameObject gameObject, IBaker baker)
         {
@@ -95,7 +95,7 @@ namespace Unity.NetCode.Tests
         }
     }
 
-    public class InputComponentDataAllPredictedWithGhostFieldsConverter : TestNetCodeAuthoring.IConverter
+    internal class InputComponentDataAllPredictedWithGhostFieldsConverter : TestNetCodeAuthoring.IConverter
     {
         public void Bake(GameObject gameObject, IBaker baker)
         {
@@ -104,7 +104,7 @@ namespace Unity.NetCode.Tests
         }
     }
 
-    public class InputComponentDataServerOnlyConverter : TestNetCodeAuthoring.IConverter
+    internal class InputComponentDataServerOnlyConverter : TestNetCodeAuthoring.IConverter
     {
         public void Bake(GameObject gameObject, IBaker baker)
         {
@@ -113,7 +113,7 @@ namespace Unity.NetCode.Tests
         }
     }
 
-    public class InputComponentDataWithGhostComponentConverter : TestNetCodeAuthoring.IConverter
+    internal class InputComponentDataWithGhostComponentConverter : TestNetCodeAuthoring.IConverter
     {
         public void Bake(GameObject gameObject, IBaker baker)
         {
@@ -122,7 +122,7 @@ namespace Unity.NetCode.Tests
         }
     }
 
-    public class InputComponentDataWithGhostComponentAndGhostFieldsConverter : TestNetCodeAuthoring.IConverter
+    internal class InputComponentDataWithGhostComponentAndGhostFieldsConverter : TestNetCodeAuthoring.IConverter
     {
         public void Bake(GameObject gameObject, IBaker baker)
         {
@@ -133,7 +133,7 @@ namespace Unity.NetCode.Tests
 
     [UpdateInGroup(typeof(GhostInputSystemGroup))]
     [DisableAutoCreation]
-    public partial class GatherInputsSystem : SystemBase
+    internal partial class GatherInputsSystem : SystemBase
     {
         int m_WaitTicks = 1;                // Must wait 1 tick as the copy system starts one frame delayed
         int m_EventCounter;                 // How many times have we set an input event so far
@@ -179,7 +179,7 @@ namespace Unity.NetCode.Tests
 
     [UpdateInGroup(typeof(GhostInputSystemGroup))]
     [DisableAutoCreation]
-    public partial class GatherInputsRemoteTestSystem : SystemBase
+    internal partial class GatherInputsRemoteTestSystem : SystemBase
     {
         protected override void OnCreate()
         {
@@ -203,7 +203,7 @@ namespace Unity.NetCode.Tests
 
     [DisableAutoCreation]
     [UpdateInGroup(typeof(PredictedSimulationSystemGroup))]
-    public partial class ProcessInputsSystem : SystemBase
+    internal partial class ProcessInputsSystem : SystemBase
     {
         public int EventCounter;
         public long EventCountSumValue;
@@ -242,9 +242,9 @@ namespace Unity.NetCode.Tests
         }
     }
 
-    public class InputComponentDataTest
+    internal class InputComponentDataTest
     {
-        public enum NetworkTestCondition
+        internal enum NetworkTestCondition
         {
             GoodNetwork,
             HighPacketLoss,

@@ -7,7 +7,7 @@ using Object = UnityEngine.Object;
 
 namespace Unity.NetCode.Tests
 {
-    public class TestEnterExitGame : TestWithSceneAsset
+    internal class TestEnterExitGame : TestWithSceneAsset
     {
         private void UnloadSubScene(World world)
         {

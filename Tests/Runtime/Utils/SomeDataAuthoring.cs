@@ -3,7 +3,7 @@ using UnityEngine;
 
 namespace Unity.NetCode.Tests
 {
-    public class SomeDataAuthoring : MonoBehaviour
+    internal class SomeDataAuthoring : MonoBehaviour
     {
     }
 

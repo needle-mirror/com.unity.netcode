@@ -8,7 +8,7 @@ namespace Unity.NetCode.Tests.Performance
 {
     internal class PerfTestRecorder
     {
-        public class SampleRecorder
+        internal class SampleRecorder
         {
             public string SampleName;
             public ProfilerRecorder Recorder;

@@ -5,7 +5,7 @@ using UnityEngine;
 
 namespace Tests.Editor
 {
-    public class SnapshotSequenceIdTests
+    internal class SnapshotSequenceIdTests
     {
         [Test]
         public void CalculateSequenceIdDelta_Works()
@@ -118,7 +118,7 @@ namespace Tests.Editor
             const float frameTime = 1.0f / 60.0f;
             testWorld.Bootstrap(true);
             var ghostGameObject = new GameObject("RandomGhostToTriggerSnapshotSends");
-            ghostGameObject.AddComponent<TestNetCodeAuthoring>().Converter = new GhostTypeConverter(GhostTypeConverter.GhostTypes.EnableableComponent, EnabledBitBakedValue.StartEnabledAndWaitForClientSpawn);
+            ghostGameObject.AddComponent<TestNetCodeAuthoring>().Converter = new GhostTypeConverter(GhostTypeConverter.GhostTypes.EnableableComponents, EnabledBitBakedValue.StartEnabledAndWaitForClientSpawn);
             Assert.IsTrue(testWorld.CreateGhostCollection(ghostGameObject));
             testWorld.CreateWorlds(true, 1);
             testWorld.Connect(frameTime, 32); // Packet loss can mess with this!

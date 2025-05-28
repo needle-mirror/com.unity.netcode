@@ -2,12 +2,12 @@ using Unity.Entities;
 
 namespace Unity.NetCode.Tests
 {
-    public struct SomeData : IComponentData
+    internal struct SomeData : IComponentData
     {
         [GhostField] public int Value;
     }
 
-    public struct SomeDataElement : IBufferElementData
+    internal struct SomeDataElement : IBufferElementData
     {
         [GhostField] public int Value;
     }

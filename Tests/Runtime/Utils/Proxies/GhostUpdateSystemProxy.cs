@@ -10,7 +10,7 @@ namespace Unity.NetCode.Tests
     [UpdateAfter(typeof(GhostReceiveSystem))]
     [UpdateBefore(typeof(GhostSpawnClassificationSystemGroup))]
     [UpdateBefore(typeof(GhostInputSystemGroup))]
-    public partial class GhostUpdateSystemProxy : ComponentSystemGroup
+    internal partial class GhostUpdateSystemProxy : ComponentSystemGroup
     {
         static readonly ProfilerMarker k_Update = new ProfilerMarker("GhostUpdateSystem_OnUpdate");
         static readonly ProfilerMarker k_CompleteTrackedJobs = new ProfilerMarker("GhostUpdateSystem_CompleteAllTrackedJobs");

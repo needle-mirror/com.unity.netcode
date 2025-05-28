@@ -11,7 +11,7 @@ using static Unity.NetCode.ClientServerTickRate.FrameRateMode;
 namespace Tests.Editor
 {
     [DisableAutoCreation]
-    public abstract partial class BaseCallbackSystem : SystemBase
+    internal abstract partial class BaseCallbackSystem : SystemBase
     {
         public delegate void OnUpdateDelegate(World world);
         public OnUpdateDelegate OnUpdateCallback;
@@ -24,32 +24,32 @@ namespace Tests.Editor
 
     [UpdateInGroup(typeof(SimulationSystemGroup), OrderFirst = true)]
     [UpdateBefore(typeof(PredictedSimulationSystemGroup))]
-    public partial class BeforePredictionSystem : BaseCallbackSystem
+    internal partial class BeforePredictionSystem : BaseCallbackSystem
     {
 
     }
 
     [UpdateInGroup(typeof(SimulationSystemGroup))]
     [UpdateAfter(typeof(PredictedSimulationSystemGroup))]
-    public partial class AfterPredictionSystem : BaseCallbackSystem
+    internal partial class AfterPredictionSystem : BaseCallbackSystem
     {
 
     }
 
     [UpdateInGroup(typeof(PredictedSimulationSystemGroup))]
-    public partial class UpdateInPredictionSystem : BaseCallbackSystem
+    internal partial class UpdateInPredictionSystem : BaseCallbackSystem
     {
 
     }
 
     [WorldSystemFilter(WorldSystemFilterFlags.ServerSimulation)]
     [UpdateInGroup(typeof(InitializationSystemGroup))]
-    public partial class BeforeSimulationSystemGroup : BaseCallbackSystem
+    internal partial class BeforeSimulationSystemGroup : BaseCallbackSystem
     {
 
     }
 
-    public class RateManagerTests
+    internal class RateManagerTests
     {
 
         [Test]
