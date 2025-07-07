@@ -2,6 +2,26 @@
 uid: changelog
 ---
 
+## [1.6.2] - 2025-07-07
+
+### Added
+
+* `UnityEngine.Time.frameCount` is appended to netcode packet `timestamp` logs using format: `[Fr{0}]`.
+
+### Changed
+
+* The client now sends - as part of its command data - some extra information regarding the command tick. In particular, it informs the server if the current command is for a full or partial update/tick. This ensure a more proper time-sync, and avoids mis-predictions.
+
+### Fixed
+
+* Adding `GhostAuthoringComponent` will now work properly for a prefab that is opened (double clicked instead of just selected).
+* Issue preventing static-optimized, not pre-spawned ghosts from spawning on clients when their first serialization result was 'zero-change' against a baseline value of `default(T)`. They'd previously only be sent for the first time after changing.
+* **Project Breaking Change:** Regenerated the GUID for `Packages/com.unity.netcode/Tests/Editor/Physics/Unity.NetCode.Physics.Editor.Tests.asmdef` so that it would no longer clash with `Packages/com.havok.physics/Plugins/Android/Havok.Physics.Plugin.Android.asmdef`. Any assemblies attempting to reference **Unity.NetCode.Physics.Editor.Tests** by GUID `d8342c4acf8f78e439367cff1a5e802f` will need to be changed to `bec3f262d6e6466eb2c61661da550f47`.
+* An issue - due to improper time syncing in between the client and server - especially when using IPC, causing multiple side effects:
+  * the client was typically only sending commands to the server for partial ticks, not full ticks, causing mis-predictions.
+  * the client was slightly behind the server, thus receiving new snapshots slightly in advance, and skipping running the `PredictedSimulationSystemGroup` for one frame or more, causing jittery and noticeable artefacts.
+* **Potential Behaviour Breaking Change:** GhostInstance's GhostType is now set with the same valid value for both client and server prespawned instances. (Previously, this was always kept at an initial -1 value server side and never initialized). This way is now more consistent behaviour between client and server.
+
 ## [1.6.1] - 2025-05-28
 
 ### Added

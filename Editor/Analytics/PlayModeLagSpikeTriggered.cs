@@ -14,6 +14,8 @@ namespace Unity.NetCode.Editor.Analytics
     }
 
 #if UNITY_2023_2_OR_NEWER
+    // Schema: com.unity3d.data.schemas.editor.analytics.n4eToolsPlayModeLagSpikeTriggered_v1
+    // Taxonomy: editor.analytics.n4eToolsPlayModeLagSpikeTriggered.v1
     [AnalyticInfo(eventName: "n4eToolsPlayModeLagSpikeTriggered", vendorKey: "unity.netcode", version:1, maxEventsPerHour: 1000)]
     internal class PlayModeLagSpikeTriggeredAnalytic : IAnalytic
 #else

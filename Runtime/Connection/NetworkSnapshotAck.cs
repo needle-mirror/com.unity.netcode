@@ -127,6 +127,14 @@ namespace Unity.NetCode
         /// <para>Server: record the last command tick that has been received. Used to discard either out of order or late commands.</para>
         /// </summary>
         public NetworkTick LastReceivedSnapshotByLocal;
+
+        /// <summary>
+        /// <para>
+        /// Server Only, denote if the last received command for a full tick from the client. It is used to tune the command age.
+        /// </para>
+        /// </summary>
+        internal NetworkTick MostRecentFullCommandTick;
+
         /// <summary>
         /// <para>Client: Records the last Snapshot Sequence Id received by this client.</para>
         /// <para>Server: Increments every time a Snapshot is successfully dispatched (thus, assumed sent).</para>

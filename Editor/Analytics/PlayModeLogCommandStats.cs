@@ -4,6 +4,8 @@ using UnityEngine.Analytics;
 namespace Unity.NetCode.Editor.Analytics
 {
 #if UNITY_2023_2_OR_NEWER
+    // Schema: com.unity3d.data.schemas.editor.analytics.n4eToolsPlayModeLogCommandStats_v1
+    // Taxonomy: editor.analytics.n4eToolsPlayModeLogCommandStats.v1
     [AnalyticInfo(eventName: "n4eToolsPlayModeLogCommandStats", vendorKey: "unity.netcode", version: 1, maxEventsPerHour: 1000)]
     internal struct PlayModeLogCommandStatsAnalytic : IAnalytic
     {
@@ -11,7 +13,7 @@ namespace Unity.NetCode.Editor.Analytics
         {
             data = null;
             error = null;
-            return false;
+            return true;
         }
     }
 #else

@@ -1,8 +1,8 @@
 # Use the command stream to handle inputs
 
-Each client send a continuous command stream to the server when [`NetworkStreamConnection`](https://docs.unity3d.com/Packages/com.unity.netcode@latest?subfolder=/api/Unity.NetCode.NetworkStreamConnection.html) is tagged as in-game. This stream includes all inputs and acknowledgements of the last received snapshot, and is typically one packet per `ServerTick`.
+Each client sends a continuous command stream to the server when [`NetworkStreamConnection`](https://docs.unity3d.com/Packages/com.unity.netcode@latest?subfolder=/api/Unity.NetCode.NetworkStreamConnection.html) is tagged as in-game. This stream includes all inputs and acknowledgements of the last received snapshot, and is typically one packet per `NetworkTime.ServerTick`.
 
-The connection is always kept alive, even if the client doesn't control any entities or generate any inputs that need to be transmitted to the server. The command packet is sent at a regular interval (every full simulated tick) to automatically acknowledge received snapshots, and to report other important information to the server.
+The connection is always kept alive, even if the client doesn't control any entities or generate any inputs that need to be transmitted to the server. The command packet is sent regularly on the timescale described in [Collecting and sending input from the client](#collecting-and-sending-input-from-the-client), automatically acknowledging received snapshots and reporting other important information to the server.
 
 ## Creating inputs (commands)
 
@@ -12,17 +12,19 @@ The serialization and registration code for the `ICommandData` is generated auto
 
 The `ICommandData` buffer can be added to the entity controlled by the player either at baking time (using an authoring component) or at runtime. When adding the buffer at runtime, make sure that the dynamic buffer is present on both server and client.
 
-### Handling input on the client
+### Collecting and sending input from the client
 
-The client is responsible for polling the input source and adding `ICommand` to the buffer for the entities it controls. The queued commands are then sent automatically at regular intervals by `CommandSendPacketSystem`.
+The client is responsible for polling the input source and adding `ICommand` to the buffer for the entities it controls. The systems responsible for writing to the command buffers must all run inside the [`GhostInputSystemGroup`](https://docs.unity3d.com/Packages/com.unity.netcode@latest?subfolder=/api/Unity.NetCode.GhostInputSystemGroup.html).
 
-The systems responsible for writing to the command buffers must all run inside the [`GhostInputSystemGroup`](https://docs.unity3d.com/Packages/com.unity.netcode@latest?subfolder=/api/Unity.NetCode.GhostInputSystemGroup.html).
+ The `CommandSendPacketSystem` automatically sends the queued commands on completion of the client's first [partial tick](intro-to-pediction.md#partial-ticks) per full tick, along with commands from the previous `n` ticks (where `n` is defined by [`ClientTickRate.TargetCommandSlack`](https://docs.unity3d.com/Packages/com.unity.netcode@latest?subfolder=/api/Unity.NetCode.ClientTickRate.html#Unity_NetCode_ClientTickRate_TargetCommandSlack) plus [`ClientTickRate.NumAdditionalCommandsToSend`](https://docs.unity3d.com/Packages/com.unity.netcode@latest?subfolder=/api/Unity.NetCode.ClientTickRate.html#Unity_NetCode_ClientTickRate_NumAdditionalCommandsToSend)) as a buffer against packet loss.
+
+ For example: in tick 10.3, input is gathered and sent to the server as input for tick 10. In tick 10.7, the input has changed but is not sent to the server. In tick 11.2, the input for the full previous tick 10 is sent (refer to [ICommandData serialization and payload limit](#icommanddata-serialization-and-payload-limit)). The server updates the inputs for tick 10 to use in its simulation, if it hasn't already simulated tick 10.
 
 ### `ICommandData` serialization and payload limit
 
-When using `ICommand`, Netcode for Entities automatically generates command serialization code in the [`CommandSendSystemGroup`](https://docs.unity3d.com/Packages/com.unity.netcode@latest?subfolder=/api/Unity.NetCode.CommandSendSystemGroup.html). Each individual command is serialized and queued in the [`OutgoingCommandDataStreamBuffer`](https://docs.unity3d.com/Packages/com.unity.netcode@latest?subfolder=/api/Unity.NetCode.OutgoingCommandDataStreamBuffer.html) (present on the network connection) by its own code-generated system. The `CommandSendPacketSystem` is then responsible for flushing the outgoing buffer at the `SimulationTickRate` interval.
+When using `ICommand`, Netcode for Entities automatically generates command serialization code in the [`CommandSendSystemGroup`](https://docs.unity3d.com/Packages/com.unity.netcode@latest?subfolder=/api/Unity.NetCode.CommandSendSystemGroup.html). Each individual command is serialized and queued in the [`OutgoingCommandDataStreamBuffer`](https://docs.unity3d.com/Packages/com.unity.netcode@latest?subfolder=/api/Unity.NetCode.OutgoingCommandDataStreamBuffer.html) (present on the network connection) by its own code-generated system. The `CommandSendPacketSystem` is then responsible for flushing the outgoing buffer on the timescale described in [Collecting and sending input from the client](#collecting-and-sending-input-from-the-client).
 
-In addition to the most recent input, the previous three inputs are also included to provide redundancy in the case of packet loss. Each redundant command is delta compressed against the command for the current tick. The final serialized data looks something like the following:
+In addition to the most recent input, inputs from the previous `n` ticks are also included to provide redundancy in the case of packet loss (where `n` is defined by [`ClientTickRate.TargetCommandSlack`](https://docs.unity3d.com/Packages/com.unity.netcode@latest?subfolder=/api/Unity.NetCode.ClientTickRate.html#Unity_NetCode_ClientTickRate_TargetCommandSlack) plus [`ClientTickRate.NumAdditionalCommandsToSend`](https://docs.unity3d.com/Packages/com.unity.netcode@latest?subfolder=/api/Unity.NetCode.ClientTickRate.html#Unity_NetCode_ClientTickRate_NumAdditionalCommandsToSend), with a default value of 4). Each redundant command is delta compressed against the command for the current tick. The final serialized data looks something like the following:
 
 ```
 | Tick, Command | CommandDelta(Tick-1, Tick) | CommandDelta(Tick-2, Tick) | CommandDelta(Tick-3, Tick)|

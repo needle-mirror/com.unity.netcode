@@ -1,6 +1,7 @@
 using NUnit.Framework;
 using Unity.NetCode;
 using Unity.NetCode.Tests;
+using Unity.Networking.Transport.Utilities;
 using UnityEngine;
 
 namespace Tests.Editor
@@ -39,6 +40,13 @@ namespace Tests.Editor
             {
                 testWorld.DriverSimulatedDelay = 50;
                 testWorld.DriverSimulatedDrop = 20; // Interval, so 5%.
+                //We need to set this to receive only, otherwise the packet receive and the send jobs will
+                //update the shared packet count internally, causing either more loss or less loss
+                //(depending what run first). And because we are not using a specific seed, the delay can affect
+                //that.
+                //this ensure only the Receive job increment the packet count using from dropping packet at the expected
+                //interval
+                testWorld.DriverSimulatorPacketMode = ApplyMode.ReceivedPacketsOnly;
 
                 var stats = RunForAWhile(testWorld);
                 // Other kinds of packet loss should not have occurred:
@@ -47,10 +55,10 @@ namespace Tests.Editor
                 // Expecting loss here:
                 Assert.NotZero(stats.NumPacketsDroppedNeverArrived);
                 // This could be higher due to low number of samples.
-                AssertPercentInRange(stats.NetworkPacketLossPercent, 5, 10, "NetworkPacketLossPercent");
+                AssertPercentInRange(stats.NetworkPacketLossPercent, 4, 8, "NetworkPacketLossPercent");
                 // Check combined:
                 Assert.AreEqual(stats.NumPacketsDroppedNeverArrived, stats.CombinedPacketLossCount);
-                AssertPercentInRange(stats.CombinedPacketLossPercent, 5, 10, "CombinedPacketLossPercent");
+                AssertPercentInRange(stats.CombinedPacketLossPercent, 4, 8, "CombinedPacketLossPercent");
             }
         }
 
@@ -90,13 +98,19 @@ namespace Tests.Editor
             {
                 testWorld.DriverSimulatedDelay = 50;
                 testWorld.DriverSimulatedJitter = 40;
-
                 testWorld.DriverSimulatedDrop = 20; // Interval, so 5%.
+                //We need to set this to receive only, otherwise the packet receive and the send jobs will
+                //update the shared packet count internally, causing either more loss or less loss
+                //(depending what run first). And because we are not using a specific seed, the delay can affect
+                //that.
+                //this ensure only the Receive job increment the packet count using from dropping packet at the expected
+                //interval
+                testWorld.DriverSimulatorPacketMode = ApplyMode.ReceivedPacketsOnly;
 
                 var stats = RunForAWhile(testWorld);
                 // Expecting loss across all types:
                 Assert.NotZero(stats.NumPacketsDroppedNeverArrived);
-                AssertPercentInRange(stats.NetworkPacketLossPercent, 2, 4, "NetworkPacketLossPercent");
+                AssertPercentInRange(stats.NetworkPacketLossPercent, 4, 8, "NetworkPacketLossPercent");
                 Assert.NotZero(stats.NumPacketsCulledAsArrivedOnSameFrame);
                 AssertPercentInRange(stats.ArrivedOnTheSameFrameClobberedPacketLossPercent, 7, 9, "ArrivedOnTheSameFrameClobberedPacketLossPercent");
                 Assert.NotZero(stats.NumPacketsCulledOutOfOrder);

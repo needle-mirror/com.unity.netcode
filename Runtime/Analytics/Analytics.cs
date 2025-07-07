@@ -7,10 +7,26 @@ using UnityEngine.Analytics;
 
 namespace Unity.NetCode.Analytics
 {
+
+#if UNITY_2023_2_OR_NEWER
+    internal interface IAnalyticsSender
+    {
+        void SendAnalytic(IAnalytic analytic);
+    }
+#endif
+
     internal static class NetCodeAnalytics
     {
         const string NetCodeGhostConfiguration = "netcode_ghost_configuration";
         const char Separator = ';';
+
+#if UNITY_2023_2_OR_NEWER
+        /// <summary>
+        /// Used for mocking.
+        /// Default is null which uses EditorAnalytics.
+        /// </summary>
+        internal static IAnalyticsSender s_AnalyticsSender { get; set; }
+#endif
 
         public static void StoreGhostComponent(GhostConfigurationAnalyticsData component)
         {
@@ -81,7 +97,14 @@ namespace Unity.NetCode.Analytics
         {
             try
             {
-                EditorAnalytics.SendAnalytic(data);
+                if(s_AnalyticsSender == null)
+                {
+                    EditorAnalytics.SendAnalytic(data);
+                }
+                else
+                {
+                    s_AnalyticsSender.SendAnalytic(data);
+                }
             }
             catch (Exception e)
             {

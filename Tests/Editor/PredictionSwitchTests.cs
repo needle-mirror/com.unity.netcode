@@ -226,9 +226,12 @@ namespace Unity.NetCode.Tests
                 PredictionSwitchMoveTestSystem.TickFreeze = timeQuery.GetSingleton<NetworkTime>().ServerTick; // have the entity interpolate to a now frozen predicted position (to make testing value changes easier)
 
                 Assert.That(entityManager.HasComponent<PredictedGhost>(clientEnt), "Sanity check failed, the entity should be marked as predicted now");
-                var expectedTickDiffBetweenInterpolatedPredicted = 6f; // Expected tick count between predicted tick and interpolated tick. 2 InterpolationTimeNetTicks + 2 TargetCommandSlack + 2 syncing
-                expectedTickDiffBetweenInterpolatedPredicted += 1; // since we're doing one more tick after copying originalLocalToWorld
-                var expectedIncrementPerTick = (expectedTickDiffBetweenInterpolatedPredicted * PredictionSwitchMoveTestSystem.k_valueIncrease) / 60f; // we expect to move by this much to catch up to the predicted value
+                var networkTime = testWorld.GetNetworkTime(testWorld.ClientWorlds[0]);
+                // Expected min tick count between predicted tick and interpolated tick. 2 InterpolationTimeNetTicks + 2 TargetCommandSlack + 2 syncing + partial
+                var currentDeltaTickBetweenInterpAndPredictTick = networkTime.ServerTick.TicksSince(networkTime.InterpolationTick);
+                Assert.GreaterOrEqual(currentDeltaTickBetweenInterpAndPredictTick, 6);
+                currentDeltaTickBetweenInterpAndPredictTick += 1; // since we're doing one more tick after copying originalLocalToWorld
+                var expectedIncrementPerTick = (currentDeltaTickBetweenInterpAndPredictTick * PredictionSwitchMoveTestSystem.k_valueIncrease) / 60f; // we expect to move by this much to catch up to the predicted value
                 // with 1 second interpolation duration and 60 hz, it should take 60 frames to reach the target predicted position
                 // with a +1 per tick and 8 ticks of diff between interpolated pos and predicted pos, we should expect a move of 8/60 per frame to reach the target
                 {

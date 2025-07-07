@@ -70,8 +70,10 @@ namespace Unity.NetCode.Tests
                 var serverEnt = testWorld.SpawnOnServer(ghostGameObject);
                 Assert.AreNotEqual(Entity.Null, serverEnt);
                 var connectionEnt = testWorld.TryGetSingletonEntity<NetworkSnapshotAck>(testWorld.ClientWorlds[0]);
-                var networkTimeEnt = testWorld.TryGetSingletonEntity<NetworkTime>(testWorld.ClientWorlds[0]);
-                for (int i = 0; i < 50; ++i)
+                //the test is tick sensitive because it takes some time to the command age to adjust toward 0.
+                //with the current setup (alpha = 1/8) and the current 20% max adjustment for the delta time it takes
+                //around 50 ticks to get the command age around 0.
+                for (int i = 0; i < 51; ++i)
                 {
                     //There will be some interpolated tick since we are running slighty faster on client
                     testWorld.Tick(FrameTime*0.75f);

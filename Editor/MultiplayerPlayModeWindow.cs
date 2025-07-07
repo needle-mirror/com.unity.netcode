@@ -167,6 +167,7 @@ Denotes that the server driver is closed i.e. not currently listening.
 
         void OnEnable()
         {
+            m_PreferencesData = MultiplayerPlaymodePreferencesUpdatedData.CurrentPlayModePreferences();
             titleContent = s_TitleContent;
             s_BoxStyleHack = null;
             EditorApplication.playModeStateChanged += PlayModeStateChanged;
@@ -215,9 +216,9 @@ Denotes that the server driver is closed i.e. not currently listening.
             EditorApplication.playModeStateChanged -= PlayModeStateChanged;
         }
 
-        void PlayModeStateChanged(PlayModeStateChange playModeStateChange)
+        internal void PlayModeStateChanged(PlayModeStateChange playModeStateChange)
         {
-            var newPrefsData = new MultiplayerPlaymodePreferencesUpdatedData();
+            var newPrefsData = MultiplayerPlaymodePreferencesUpdatedData.CurrentPlayModePreferences();
             if (!newPrefsData.Equals(m_PreferencesData))
             {
                 m_PreferencesData = newPrefsData;

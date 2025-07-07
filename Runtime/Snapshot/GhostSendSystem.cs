@@ -865,7 +865,7 @@ namespace Unity.NetCode
             public PacketDumpLogger netDebugPacket;
             [ReadOnly] public ComponentLookup<PrefabDebugName> prefabNamesFromEntity;
             [NativeDisableContainerSafetyRestriction] public ComponentLookup<EnablePacketLogging> enableLoggingFromEntity;
-            public FixedString32Bytes timestamp;
+            public FixedString128Bytes timestamp;
 #endif
 
             public Entity prespawnSceneLoadedEntity;
@@ -1958,11 +1958,11 @@ namespace Unity.NetCode
             k_Scheduling.End();
 
 #if NETCODE_DEBUG
-            FixedString32Bytes packetDumpTimestamp = default;
+            FixedString128Bytes packetDumpTimestamp = default;
             if (!m_PacketLogEnableQuery.IsEmptyIgnoreFilter)
             {
                 state.CompleteDependency();
-                NetDebugInterop.GetTimestamp(out packetDumpTimestamp);
+                NetDebugInterop.GetTimestampWithTick(currentTick, out packetDumpTimestamp);
                 FixedString128Bytes worldNameFixed = state.WorldUnmanaged.Name;
 
                 foreach (var (id, entity) in SystemAPI.Query<RefRO<NetworkId>>()

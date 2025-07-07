@@ -2,7 +2,7 @@
 
 Netcode for Entities uses the [Unity Transport package](https://docs.unity3d.com/Packages/com.unity.transport@latest) to manage connections and stores each connection as an entity. Each connection entity has a [NetworkStreamConnection](https://docs.unity3d.com/Packages/com.unity.netcode@latest/index.html?subfolder=/api/Unity.NetCode.NetworkStreamConnection.html) component with the `Transport` handle for the connection. When the connection is closed, either because the server disconnected the user or the client requested to disconnect, the entity is destroyed.
 
-To target which entity should receive the player commands, when not using the [`AutoCommandTarget` feature](command-stream#automatically handling-commands-autocommandtarget-) or for having more manual control, each connection has a [CommandTarget](https://docs.unity3d.com/Packages/com.unity.netcode@latest/index.html?subfolder=/api/Unity.NetCode.CommandTarget.html) which must point to the entity where the received commands need to be stored. Your game is responsible for keeping this entity reference up to date.
+To target which entity should receive the player commands, when not using the [`AutoCommandTarget` feature](command-stream.md#automatically-handling-commands-autocommandtarget) or for having more manual control, each connection has a [CommandTarget](https://docs.unity3d.com/Packages/com.unity.netcode@latest/index.html?subfolder=/api/Unity.NetCode.CommandTarget.html) which must point to the entity where the received commands need to be stored. Your game is responsible for keeping this entity reference up to date.
 
 Your game can mark a connection as being in-game with the `NetworkStreamInGame` component. Your game must do this; it's never done automatically. Before the `NetworkStreamInGame` component is added to the connection, the client does not send commands, nor does the server send snapshots.
 
@@ -16,8 +16,8 @@ Each connection can have up to three incoming buffers, one for each type of stre
 - [IncomingCommandDataStreamBuffer](https://docs.unity3d.com/Packages/com.unity.netcode@latest/index.html?subfolder=/api/Unity.NetCode.IncomingCommandDataStreamBuffer.html)
 - [IncomingSnapshotDataStreamBuffer](https://docs.unity3d.com/Packages/com.unity.netcode@latest/index.html?subfolder=/api/Unity.NetCode.IncomingSnapshotDataStreamBuffer.html)
 
-When a client receives a snapshot from the server, the message is queued into the buffer and processed later by the [GhostReceiveSystem](https://docs.unity3d.com/Packages/com.unity.netcode@latest/index.html?subfolder=/api/Unity.NetCode.IncomingSnapshotDataStreamBuffer.html).
-Similarly, RPCs and commands follow the sample principle. The messages are gathered first by the [NetworkStreamReceiveSystem](https://docs.unity3d.com/Packages/com.unity.netcode@latest/index.html?subfolder=/api/Unity.NetCode.NetworkStreamReceiveSystem.html) and then consumed by the respective RPC and command receive system.
+When a client receives a snapshot from the server, the message is queued into the buffer and processed later by the [`GhostReceiveSystem`](https://docs.unity3d.com/Packages/com.unity.netcode@latest/index.html?subfolder=/api/Unity.NetCode.IncomingSnapshotDataStreamBuffer.html).
+RPCs and commands follow the same principle. The messages are gathered first by the [`NetworkStreamReceiveSystem`](https://docs.unity3d.com/Packages/com.unity.netcode@latest/index.html?subfolder=/api/Unity.NetCode.NetworkStreamReceiveSystem.html) and then consumed by the respective RPC and command receive system.
 
 > [!NOTE]
 > Server connection does not have an IncomingSnapshotDataStreamBuffer.

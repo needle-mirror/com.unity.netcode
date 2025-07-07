@@ -145,6 +145,7 @@ namespace Unity.NetCode
                 var sharedFilter = new SubSceneGhostComponentHash {Value = subScenesWithGhosts[sceneIndex].SubSceneHash};
                 m_Prespawns.SetSharedComponentFilter(sharedFilter);
                 LogAssignPrespawnGhostIds(ref netDebug, subScenesWithGhosts[sceneIndex]);
+                var collectionEntity = SystemAPI.GetSingletonEntity<GhostCollection>();
                 var assignPrespawnGhostIdJob = new AssignPrespawnGhostIdJob
                 {
                     entityType = m_EntityTypeHandle,
@@ -153,7 +154,10 @@ namespace Unity.NetCode
                     ghostStateTypeHandle = m_GhostCleanupComponentHandle,
                     startGhostId = subsceneCollection[collectionIndex].FirstGhostId,
                     spawnedGhosts = spawnedGhosts.AsParallelWriter(),
-                    netDebug = netDebug
+                    netDebug = netDebug,
+                    GhostTypeToColletionIndex = state.EntityManager.GetComponentData<GhostCollection>(collectionEntity).GhostTypeToColletionIndex,
+                    ghostType = SystemAPI.GetComponentTypeHandle<GhostType>(),
+                    isServer = state.WorldUnmanaged.IsServer()
                 };
                 state.Dependency = assignPrespawnGhostIdJob.ScheduleParallel(m_Prespawns, state.Dependency);
                 //Add a state component to track the scene lifetime.

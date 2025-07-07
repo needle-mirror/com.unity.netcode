@@ -19,7 +19,7 @@ Physics Ghost Setup Checklist:
 
 ## Interpolated ghosts
 
-For interpolated ghosts it's important that the physics simulation only runs on the server.On the client, the ghost's position and rotation are controlled by the snapshots from the server and the client shouldn't run the physics simulation for interpolated ghosts.
+For interpolated ghosts it's important that the physics simulation only runs on the server. On the client, the ghost's position and rotation are controlled by the snapshots from the server and the client shouldn't run the physics simulation for interpolated ghosts.
 
 To make sure this is true, Netcode disables the `Simulate` component data tag on clients on appropriate ghost entities at the beginning on each frame. This makes the physics object `kinematic` and they won't be moved by the physics simulation.
 

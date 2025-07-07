@@ -3,11 +3,12 @@
 #endif
 #if NETCODE_DEBUG
 using System;
-using System.Diagnostics;
 using System.Runtime.InteropServices;
 using Unity.Burst;
+using Unity.Burst.CompilerServices;
 using Unity.Collections;
 using Unity.Entities;
+using UnityEngine;
 
 namespace Unity.NetCode.LowLevel.Unsafe
 {
@@ -16,19 +17,19 @@ namespace Unity.NetCode.LowLevel.Unsafe
     internal partial struct NetDebugInterop
     {
         [BurstDiscard]
-        private static void _GetTimestamp(out FixedString32Bytes timestamp)
+        private static void _GetTimestamp(out FixedString64Bytes timestamp)
         {
-            timestamp = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff", System.Globalization.CultureInfo.InvariantCulture);
+            timestamp = $"[Fr{Time.frameCount}][{DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff", System.Globalization.CultureInfo.InvariantCulture)}]";
         }
 
         [BurstDiscard]
         private static void _GetTimestampWithTick(NetworkTick predictedTick, out FixedString128Bytes timestampAndTick)
         {
             _GetTimestamp(out var timestamp);
-            if (predictedTick.IsValid)
-                timestampAndTick = FixedString.Format("[{0}][PredictedTick:{1}]", timestamp, (predictedTick.TickIndexForValidTick));
+            if (Hint.Likely(predictedTick.IsValid))
+                timestampAndTick = FixedString.Format("{0}[ST:{1}]", timestamp, (predictedTick.TickIndexForValidTick));
             else
-                timestampAndTick = FixedString.Format("[{0}][PredictedTick:Invalid]", timestamp);
+                timestampAndTick = FixedString.Format("{0}[ST:Invalid]", timestamp);
         }
         [BurstMonoInteropMethod]
         [BurstDiscard]
@@ -46,14 +47,14 @@ namespace Unity.NetCode.LowLevel.Unsafe
         public static bool _initialized;
 
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
-        public delegate void _dlg_GetTimeStamp(out FixedString32Bytes timestamp);
+        public delegate void _dlg_GetTimeStamp(out FixedString64Bytes timestamp);
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
         public delegate void _dlg_GetTimestampWithTick(NetworkTick serverTick, out FixedString128Bytes timestampAndTick);
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
         public delegate void _dlg_InitDebugPacketIfNotCreated(ref PacketDumpLogger netDebugPacket, in FixedString512Bytes logFolder, in FixedString128Bytes worldName, int connectionId);
 
         [AOT.MonoPInvokeCallback(typeof(_dlg_GetTimeStamp))]
-        private static void _wrapper_GetTimestamp(out FixedString32Bytes timestamp)
+        private static void _wrapper_GetTimestamp(out FixedString64Bytes timestamp)
         {
             _GetTimestamp(out timestamp);
         }
@@ -92,12 +93,12 @@ namespace Unity.NetCode.LowLevel.Unsafe
             _InitDebugPacketIfNotCreated(ref m_NetDebugPacket, logFolder, worldName, connectionId);
         }
 
-        public static unsafe void GetTimestamp(out FixedString32Bytes timestamp)
+        public static unsafe void GetTimestamp(out FixedString64Bytes timestamp)
         {
             if (BurstCompiler.IsEnabled)
             {
                 var ptr = ManagedFunctionPtr<_dlg_GetTimeStamp, NetDebugInterop>.Ptr;
-                ((delegate *unmanaged[Cdecl]<out FixedString32Bytes, void>)ptr)(out timestamp);
+                ((delegate *unmanaged[Cdecl]<out FixedString64Bytes, void>)ptr)(out timestamp);
                 return;
             }
 

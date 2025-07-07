@@ -22,19 +22,26 @@ namespace Unity.NetCode
     public class GhostAuthoringComponent : MonoBehaviour
     {
 #if UNITY_EDITOR
-        void OnValidate()
+    void OnValidate()
+    {
+        string assetPath = null;
+        if (UnityEditor.EditorUtility.IsPersistent(gameObject))  // faster way to check if part of an asset than gameObject.scene.IsValid()
         {
-            if (gameObject.scene.IsValid())
-                return;
-            var path = UnityEditor.AssetDatabase.GetAssetPath(gameObject);
-            if (string.IsNullOrEmpty(path))
-                return;
-            var guid = UnityEditor.AssetDatabase.AssetPathToGUID(path);
-            if (!string.Equals(guid, prefabId, StringComparison.OrdinalIgnoreCase))
-            {
-                prefabId = guid;
-            }
+            assetPath = UnityEditor.AssetDatabase.GetAssetPath(gameObject);
         }
+        else
+        {
+            var prefabStage = UnityEditor.SceneManagement.PrefabStageUtility.GetPrefabStage(gameObject);
+            if (prefabStage != null)
+                assetPath = prefabStage.assetPath;
+        }
+
+        if (!string.IsNullOrEmpty(assetPath))
+        {
+            var guid = UnityEditor.AssetDatabase.AssetPathToGUID(assetPath);
+            prefabId = guid;
+        }
+    }
 #endif
 
         /// <summary>

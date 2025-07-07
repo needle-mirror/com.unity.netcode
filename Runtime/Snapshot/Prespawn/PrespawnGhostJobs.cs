@@ -215,11 +215,22 @@ namespace Unity.NetCode
         public NativeList<SpawnedGhostMapping>.ParallelWriter spawnedGhosts;
         public int startGhostId;
         public NetDebug netDebug;
+        public bool isServer;
+        [ReadOnly] public ComponentTypeHandle<GhostType> ghostType;
+        [ReadOnly] public NativeHashMap<GhostType, int>.ReadOnly GhostTypeToColletionIndex;
 
         public unsafe void Execute(in ArchetypeChunk chunk, int unfilteredChunkIndex, bool useEnabledMask, in v128 chunkEnabledMask)
         {
             // This job is not written to support queries with enableable component types.
             Assert.IsFalse(useEnabledMask);
+
+            // find ghost type index
+            int ghostTypeIndex = -1;
+            if (isServer) // client side, this is deserialized in ghost receive so skipping this client side
+            {
+                GhostType currentChunkGhostType = ((GhostType*)chunk.GetRequiredComponentDataPtrRO(ref ghostType))[0];
+                ghostTypeIndex = GhostTypeToColletionIndex[currentChunkGhostType];
+            }
 
             var entities = chunk.GetNativeArray(entityType);
             var preSpawnedIndices = chunk.GetNativeArray(ref prespawnIndexType);
@@ -250,7 +261,7 @@ namespace Unity.NetCode
                 // once the ghost ids are known
                 // Pre-spawned uses spawnTick = 0, if there is a reference to a ghost and it has spawnTick 0 the ref is always resolved
                 // This works because there despawns are high priority and we never create pre-spawned ghosts after connection
-                ghostComponents[index] = new GhostInstance {ghostId = ghostId, ghostType = -1, spawnTick = NetworkTick.Invalid};
+                ghostComponents[index] = new GhostInstance {ghostId = ghostId, ghostType = ghostTypeIndex, spawnTick = NetworkTick.Invalid};
             }
             spawnedGhosts.AddRangeNoResize(chunkSpawnedGhostMappings, spawnedGhostCount);
         }

@@ -18,6 +18,15 @@ namespace Unity.NetCode.Tests
         }
     }
 
+    internal class ZeroChangeGhostStaticOptimizationTestConverter : TestNetCodeAuthoring.IConverter
+    {
+        public void Bake(GameObject gameObject, IBaker baker)
+        {
+            var entity = baker.GetEntity(TransformUsageFlags.None);
+            baker.AddComponent(entity, new GhostOwner());
+        }
+    }
+
     [DisableAutoCreation]
     [RequireMatchingQueriesForUpdate]
     [WorldSystemFilter(WorldSystemFilterFlags.ClientSimulation | WorldSystemFilterFlags.ServerSimulation)]
@@ -37,10 +46,10 @@ namespace Unity.NetCode.Tests
 
     internal class StaticOptimizationTests
     {
-        void SetupBasicTest(NetCodeTestWorld testWorld, NetCodeTestLatencyProfile latencyProfile, int entitiesToSpawn = 1)
+        void SetupBasicTest(NetCodeTestWorld testWorld, NetCodeTestLatencyProfile latencyProfile, TestNetCodeAuthoring.IConverter testConverter, int entitiesToSpawn = 1)
         {
             var ghostGameObject = new GameObject();
-            ghostGameObject.AddComponent<TestNetCodeAuthoring>().Converter = new StaticOptimizationTestConverter();
+            ghostGameObject.AddComponent<TestNetCodeAuthoring>().Converter = testConverter;
             var ghostConfig = ghostGameObject.AddComponent<GhostAuthoringComponent>();
             ghostConfig.OptimizationMode = GhostOptimizationMode.Static;
 
@@ -71,7 +80,7 @@ namespace Unity.NetCode.Tests
             {
                 testWorld.Bootstrap(true);
 
-                SetupBasicTest(testWorld, latencyProfile, 16);
+                SetupBasicTest(testWorld, latencyProfile, new StaticOptimizationTestConverter(), 16);
 
                 var clientEntityManager = testWorld.ClientWorlds[0].EntityManager;
                 using var clientQuery = clientEntityManager.CreateEntityQuery(ComponentType.ReadOnly<GhostOwner>());
@@ -111,7 +120,7 @@ namespace Unity.NetCode.Tests
                 testWorld.Bootstrap(true, typeof(StaticOptimizationTestSystem));
                 StaticOptimizationTestSystem.s_ModifyNetworkId = 1;
 
-                SetupBasicTest(testWorld, latencyProfile, 16);
+                SetupBasicTest(testWorld, latencyProfile, new StaticOptimizationTestConverter(), 16);
 
                 var clientEntityManager = testWorld.ClientWorlds[0].EntityManager;
                 using var clientQuery = clientEntityManager.CreateEntityQuery(ComponentType.ReadOnly<GhostOwner>());
@@ -152,7 +161,7 @@ namespace Unity.NetCode.Tests
                 testWorld.Bootstrap(true, typeof(StaticOptimizationTestSystem));
                 StaticOptimizationTestSystem.s_ModifyNetworkId = constantlyChangingIndex;
 
-                SetupBasicTest(testWorld, latencyProfile, entitiesToSpawn);
+                SetupBasicTest(testWorld, latencyProfile, new StaticOptimizationTestConverter(), entitiesToSpawn);
 
                 // Set one to be constantly modified.
                 var clientEm = testWorld.ClientWorlds[0].EntityManager;
@@ -202,7 +211,7 @@ namespace Unity.NetCode.Tests
                 testWorld.Bootstrap(true, typeof(StaticOptimizationTestSystem));
                 StaticOptimizationTestSystem.s_ModifyNetworkId = -1;
 
-                SetupBasicTest(testWorld, latencyProfile);
+                SetupBasicTest(testWorld, latencyProfile, new StaticOptimizationTestConverter());
 
                 var clientEnt = testWorld.TryGetSingletonEntity<GhostOwner>(testWorld.ClientWorlds[0]);
                 Assert.AreNotEqual(Entity.Null, clientEnt);
@@ -244,6 +253,32 @@ namespace Unity.NetCode.Tests
                 Assert.AreEqual(newLastSnapshot, clientSnapshot.GetLatestTick(clientSnapshotBuffer));
             }
         }
+
+        [Test]
+        public void StaticGhostsAreSentWhenUnmodified([Values]NetCodeTestLatencyProfile latencyProfile)
+        {
+            using var testWorld = new NetCodeTestWorld();
+            testWorld.Bootstrap(true);
+            const int entitiesToSpawn = 2;
+            SetupBasicTest(testWorld, latencyProfile, new ZeroChangeGhostStaticOptimizationTestConverter(), entitiesToSpawn:entitiesToSpawn);
+
+            // Verify the ghosts are spawned on client (bug in 1.5):
+            var clientEntityManager = testWorld.ClientWorlds[0].EntityManager;
+            var clientEntities = clientEntityManager.CreateEntityQuery(ComponentType.ReadWrite<GhostOwner>()).ToEntityArray(Allocator.Temp);
+            Assert.AreEqual(entitiesToSpawn, clientEntities.Length);
+
+            // Verify that static optimization kicked in:
+            var currentTick = testWorld.GetNetworkTime(testWorld.ServerWorld).ServerTick;
+            foreach (var clientEnt in clientEntities)
+            {
+                var clientSnapshotBuffer = clientEntityManager.GetBuffer<SnapshotDataBuffer>(clientEnt);
+                var clientSnapshot = clientEntityManager.GetComponentData<SnapshotData>(clientEnt);
+                var ghostsLatestReceivedTick = clientSnapshot.GetLatestTick(clientSnapshotBuffer);
+                var ticksSince = currentTick.TicksSince(ghostsLatestReceivedTick);
+                Assert.IsTrue(ticksSince > 3, ticksSince.ToString());
+            }
+        }
+
         [Test]
         public void RelevancyChangesSendsStaticGhosts([Values]NetCodeTestLatencyProfile latencyProfile)
         {
@@ -252,7 +287,7 @@ namespace Unity.NetCode.Tests
                 testWorld.Bootstrap(true);
 
                 // Spawn 16 ghosts
-                SetupBasicTest(testWorld, latencyProfile, 16);
+                SetupBasicTest(testWorld, latencyProfile, new StaticOptimizationTestConverter(), 16);
                 // Set the ghost id for one of them to 1 so it is modified
                 using var serverQuery = testWorld.ServerWorld.EntityManager.CreateEntityQuery(ComponentType.ReadOnly<GhostOwner>());
                 int ghostId;

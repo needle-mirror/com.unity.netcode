@@ -800,15 +800,18 @@ namespace Unity.NetCode.Tests
             testWorld.ClientWorlds[0].EntityManager.SetName(ghostWithRollback, "PredictedSpawnedGhost");
             Assert.IsTrue(testWorld.ClientWorlds[0].EntityManager.IsComponentEnabled<PredictedGhostSpawnRequest>(ghostWithRollback));
             Assert.AreEqual(spawnTick, testWorld.ClientWorlds[0].EntityManager.GetComponentData<GhostInstance>(ghostWithRollback).spawnTick);
-            // we run a partial to ensure that we are not tight to full ticks
-            testWorld.Tick(1.25f/60f);
+            // we run a partial to ensure that we are not tight to full ticks. Client should not do an extra tick so we ensure the
+            // portion of tick is small enough
+            var partialTickFrac = testWorld.GetNetworkTime(testWorld.ClientWorlds[0]).ServerTickFraction;
+            partialTickFrac /= 3f;
+            testWorld.Tick((1f + partialTickFrac)/60f);
             Assert.IsFalse(testWorld.ClientWorlds[0].EntityManager.HasComponent<PredictedGhostSpawnRequest>(ghostWithRollback));
             var fromSpawnTickCount = testWorld.ClientWorlds[0].EntityManager.GetComponentData<CountSimulationFromSpawnTick>(ghostWithRollback);
             //we always start from the spawn tick, therefore should increase by 1
             Assert.AreEqual(1, fromSpawnTickCount.Value);
             //do a structural change here. We will now have another rollback to the spawn tick if we can't keep the history
             testWorld.ClientWorlds[0].EntityManager.RemoveComponent<EnableableComponent_0>(ghostWithRollback);
-            testWorld.Tick(0.25f/60f);
+            testWorld.Tick(partialTickFrac/60f);
             fromSpawnTickCount = testWorld.ClientWorlds[0].EntityManager.GetComponentData<CountSimulationFromSpawnTick>(ghostWithRollback);
             //in both cases we have to forcibly restart from the spawn tick (in one case we have the backup for that tick, in the other the state)
             //Therefore the count increase to 1

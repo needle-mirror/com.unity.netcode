@@ -90,6 +90,17 @@ When a `GhostField` changes, we serialize the data and synchronize it over the n
 First, it serializes the data and compares it with the previous synchronized version of it. If the job did not change the `GhostField`, it discards the serialized result.
 For this reason, it is important to ensure that no jobs have write access to data if it will not change (to remove this hidden CPU cost).
 
+## Preserialization
+
+By default, all ghosts are serialized once per connection on the server. This is done on demand and each ghost is only serialized when it's actually sent to a client. This serialization process can be expensive in terms of CPU, especially when the server has many connections and many ghosts. To reduce this cost, you can use preserialization.
+
+Preserialization is a feature that allows you to serialize ghost data once and reuse it for all connections on the server. You can enable preserialization in two ways:
+
+1. Enabling [`UsePreserialization`](https://docs.unity3d.com/Packages/com.unity.netcode@latest?subfolder=/api/Unity.NetCode.GhostAuthoringComponent.html#Unity_NetCode_GhostAuthoringComponent_UsePreSerialization) in the `GhostAuthoringComponent` inspector on your ghost prefab. This causes all ghosts of this type to use preserialization.
+2. Adding the [`PreSerializedGhost`](https://docs.unity3d.com/Packages/com.unity.netcode@latest?subfolder=/api/Unity.NetCode.PreSerializedGhost.html) component to the ghost entity in the server world. This causes only this specific ghost to use preserialization.
+
+When preserialization is enabled the server only serializes the ghost once for all connections. However, preserialized ghosts are serialized regularly on every tick, even if the ghost isn't going to be sent to any client. As a result, preserialization is only recommended for ghosts that are frequently sent to multiple clients (otherwise the CPU cost might be higher than the default behavior of serializing ghosts on demand).
+
 ## Relevancy
 
 "Ghost Relevancy" (a.k.a. "Ghost Filtering") is a server feature, allowing you to set conditions on whether or not a specific ghost entity is replicated to (i.e. spawned on) a specific client. You can use this to:

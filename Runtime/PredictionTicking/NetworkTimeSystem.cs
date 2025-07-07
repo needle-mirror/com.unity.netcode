@@ -395,7 +395,9 @@ namespace Unity.NetCode
             var driverType = SystemAPI.GetSingleton<NetworkStreamDriver>().DriverStore.GetDriverType(NetworkDriverStore.FirstDriverId);
             if (driverType == TransportType.IPC)
             {
-                //override this param with 0. The predicted target tick is the latest snapshot received + 1 (the next server tick)
+                //override this param with 1. The predicted target tick needs to the latest snapshot received + 1 (the next server tick)
+                //but because we send the partial tick, we need the server to always receive by the client the next partial.
+                //therefore, the command age should be near -1. This is controlled server side, by using the last full tick as guidance.
                 clientTickRate.TargetCommandSlack = 0;
                 //these are 0 and we enforce that here
                 ack.DeviationRTT = 0f;
@@ -435,21 +437,31 @@ namespace Unity.NetCode
             }
             else
             {
-                // Add number of ticks based on deltaTime
-                netTimeData.latestSnapshotEstimate.Add((uint) deltaTicks);
                 //If ack.LastReceivedSnapshotByLocal is 0, it mean that a desync has been detected.
                 //Updating the estimates using deltas in that case is completely wrong
                 if (netTimeData.latestSnapshot != ack.LastReceivedSnapshotByLocal && ack.LastReceivedSnapshotByLocal.IsValid)
                     netTimeData.UpdateWithLastSnapshot(TimestampMS, ack.LastReceivedSnapshotByLocal);
 
-                //Add the elapsed time. The delta < 0 is necesary to compensate the extra -1 when the delta is negative
-                netTimeData.latestSnapshotAge -= (int) (math.frac(deltaTicks) * 256.0f);
-                int delta = netTimeData.latestSnapshotAge >> 8;
+                // Add number of ticks based on deltaTime
+                // netTimeData.latestSnapshotEstimate.Add((uint) deltaTicks);
+                // The snapshot age should be usually negative and represent the fractional part of the latestSnapshotEstimate in principle.
+                // In reality, because the UpdateWithLastSnapshot update the `latestSnapshotAge` using the last calculate age
+                // using exponential moving average, it behave as both compensation for estimate and fractional part.
+                netTimeData.latestSnapshotAge -= (int)(deltaTicks * 256f);
+                int delta = netTimeData.latestSnapshotAge / 256;
                 if (delta < 0)
-                    ++delta;
-                if (delta != 0)
                 {
-                    netTimeData.latestSnapshotEstimate.Subtract((uint) delta);
+                    netTimeData.latestSnapshotEstimate.Add((uint)-delta);
+                    netTimeData.latestSnapshotAge -= delta << 8;
+                }
+                else if (delta > 0)
+                {
+                    //i.e:
+                    //10 (estimate), 1.35 (age) delta = 1
+                    //10-1.35 = 8.65 => 8 (est), -0.65 (age)
+                    //incrementing the delta here is the same as applying the right math to the fractional part
+                    ++delta;
+                    netTimeData.latestSnapshotEstimate.Subtract((uint)delta);
                     netTimeData.latestSnapshotAge -= delta << 8;
                 }
             }
@@ -458,7 +470,7 @@ namespace Unity.NetCode
             // Check which slot in the circular buffer of command age adjustments the current data should go in
             // use the latestSnapshot and not the LastReceivedSnapshotByLocal because the latter can be reset to 0, causing
             // a wrong reset of the adjustments
-            uint rttInTicks = (((uint) estimatedRTT * (uint) tickRate.SimulationTickRate) / 1000);
+            uint rttInTicks = ((uint)(estimatedRTT * tickRate.SimulationTickRate) + 999) / 1000;
             commandAge = AdjustCommandAge(netTimeData.latestSnapshot, commandAge, rttInTicks);
             if (math.abs(commandAge) < 10)
             {
@@ -594,8 +606,16 @@ namespace Unity.NetCode
             // round down to whole ticks performed in one rtt
             if (rttInTicks > CommandAgeAdjustmentLength)
                 rttInTicks = CommandAgeAdjustmentLength;
+            //The client adjust the command age by removing the already applied correction to avoid over or under compensating.
+            //Let's say the client receive tick X from the server, saying that command for that tick was late. The client needs
+            //to compensate by accelerating/decelarate the time.
+            //The received ack from the server is for the past, so the client may have already applied some compensation due to
+            //the previous reported command age.
             for (int i = 0; i < rttInTicks; ++i)
-                commandAge -= commandAgeAdjustment[(CommandAgeAdjustmentLength+commandAgeAdjustmentSlot-i) % CommandAgeAdjustmentLength];
+            {
+                var slot = (CommandAgeAdjustmentLength + commandAgeAdjustmentSlot - i) % CommandAgeAdjustmentLength;
+                commandAge -= commandAgeAdjustment[slot];
+            }
             return commandAge;
         }
     }

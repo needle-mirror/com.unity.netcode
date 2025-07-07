@@ -23,6 +23,8 @@ namespace Unity.NetCode.Analytics
     }
 
 #if UNITY_2023_2_OR_NEWER
+    // Schema: com.unity3d.data.schemas.editor.analytics.n4eToolsDebugGhostDrawerPrefsUpdated_v1
+    // Taxonomy: editor.analytics.n4eToolsDebugGhostDrawerPrefsUpdated.v1
     [AnalyticInfo(eventName: "n4eToolsDebugGhostDrawerPrefsUpdated", vendorKey: "unity.netcode", version:1, maxEventsPerHour: 1000)]
     internal class DebugGhostDrawerPreferencesUpdatedAnalytic : IAnalytic
 #else

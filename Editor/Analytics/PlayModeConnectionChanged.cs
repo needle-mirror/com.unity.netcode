@@ -36,6 +36,8 @@ namespace Unity.NetCode.Editor.Analytics
     }
 
 #if UNITY_2023_2_OR_NEWER
+    // Schema: com.unity3d.data.schemas.editor.analytics.n4eToolsPlayModeConnectionChanged_v1
+    // Taxonomy: editor.analytics.n4eToolsPlayModeConnectionChanged.v1
     [AnalyticInfo(eventName: "n4eToolsPlayModeConnectionChanged", vendorKey: "unity.netcode", version:1, maxEventsPerHour: 1000)]
     internal class PlayModeConnectionChangedAnalytic : IAnalytic
 #else

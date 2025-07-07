@@ -427,6 +427,9 @@ namespace Unity.NetCode
                 return;
             EntityCommandBuffer commandBuffer = SystemAPI.GetSingleton<BeginSimulationEntityCommandBufferSystem.Singleton>().CreateCommandBuffer(state.WorldUnmanaged);
             var destroyTick = networkTime.InterpolationTick;
+            //WE SHOULD DESPAWN AT FULL INTERPOLATION TICKS
+            if(networkTime.InterpolationTickFraction < 1)
+                destroyTick.Decrement();
             if(!SystemAPI.TryGetSingleton(out ClientTickRate clientTickRate))
                 clientTickRate = NetworkTimeSystem.DefaultClientTickRate;
             destroyTick.Subtract(clientTickRate.NumAdditionalClientPredictedGhostLifetimeTicks);

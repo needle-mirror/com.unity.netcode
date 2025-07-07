@@ -130,6 +130,7 @@ namespace Unity.NetCode
                 m_Prespawns.SetSharedComponentFilter(sharedFilter);
                 //Allocate or reuse an id-range for that subscene and assign the ids to the ghosts
                 int startId = AllocatePrespawnGhostRange(ref netDebug, ref spawnedGhostEntityMap, subScenesWithGhosts[i].SubSceneHash, subScenesWithGhosts[i].PrespawnCount);
+                var collectionEntity = SystemAPI.GetSingletonEntity<GhostCollection>();
                 var assignPrespawnGhostIdJob = new AssignPrespawnGhostIdJob
                 {
                     entityType = m_EntityTypeHandle,
@@ -138,7 +139,10 @@ namespace Unity.NetCode
                     ghostStateTypeHandle = m_GhostCleanupComponentHandle,
                     startGhostId = startId,
                     spawnedGhosts = spawnedGhosts.AsParallelWriter(),
-                    netDebug = netDebug
+                    netDebug = netDebug,
+                    GhostTypeToColletionIndex = state.EntityManager.GetComponentData<GhostCollection>(collectionEntity).GhostTypeToColletionIndex,
+                    ghostType = SystemAPI.GetComponentTypeHandle<GhostType>(),
+                    isServer = state.WorldUnmanaged.IsServer()
                 };
                 state.Dependency = assignPrespawnGhostIdJob.ScheduleParallel(m_Prespawns, state.Dependency);
                 //add the subscene to the collection. This will be synchronized to the clients

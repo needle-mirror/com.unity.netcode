@@ -174,7 +174,8 @@ namespace Unity.NetCode
             4 + //the local time (used for RTT calc)
             4 + //the delta in between the local time and the last received remote time. Used to calculate the elapsed RTT and remove the time spent on client to resend the ack.
             4 + //the interpolation delay
-            4 + //the loaded prefabs
+            2 + //the loaded prefabs
+            1 +  //byte denoting if the command tick is for a full or partial tick,
             4; //the first command tick
 
         [BurstCompile]
@@ -202,6 +203,7 @@ namespace Unity.NetCode
             public uint localTime;
             public int numLoadedPrefabs;
             public NetworkTick inputTargetTick;
+            public float inputTargetTickFraction;
             public uint interpolationDelay;
             public unsafe void Execute(DynamicBuffer<OutgoingCommandDataStreamBuffer> rpcData,
                     in NetworkStreamConnection connection, in NetworkSnapshotAck ack)
@@ -229,7 +231,8 @@ namespace Unity.NetCode
                 uint returnTime = ack.CalculateReturnTime(localTime);
                 writer.WriteUInt(returnTime);
                 writer.WriteUInt(interpolationDelay);
-                writer.WriteUInt((uint)numLoadedPrefabs);
+                writer.WriteUShort((ushort)numLoadedPrefabs);
+                writer.WriteByte((byte)(inputTargetTickFraction < 1f ? 0 : 1));
                 writer.WriteUInt(inputTargetTick.SerializedData);
 #if ENABLE_UNITY_COLLECTIONS_CHECKS
                 Assertions.Assert.AreEqual(writer.Length, k_CommandHeadersBytes);
@@ -275,6 +278,7 @@ namespace Unity.NetCode
                 localTime = NetworkTimeSystem.TimestampMS,
                 numLoadedPrefabs = SystemAPI.GetSingleton<GhostCollection>().NumLoadedPrefabs,
                 inputTargetTick = targetTick,
+                inputTargetTickFraction = clientNetTime.ServerTickFraction,
                 interpolationDelay = (uint)interpolationDelay
             };
             state.Dependency = sendJob.Schedule(state.Dependency);

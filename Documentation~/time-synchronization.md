@@ -57,16 +57,18 @@ For example:
 
 And many others. Please check [NetworkTime docs](https://docs.unity3d.com/Packages/com.unity.netcode@latest/index.html?subfolder=/api/Unity.NetCode.NetworkTime.html) for further information.
 
-## Client DeltaTime, ElapsedTime and Unscaled time
-When the client connect to the server, the elapsed `DeltaTime`, and total `ElapsedTime` are handled differently. </br>
-That because the needs for the client to keep the predicted tick in sync with the server; The application perceived `DeltaTime` is scaled up and down, to accelerate or slowdown the simulation.
+## Client `DeltaTime`, `ElapsedTime`, and `Unscaled` time
 
-The time scaling has some implication:
-- **For all systems updating inside the `SimulationSystemGroup`** (and sub-groups) the `Time.DeltaTime` and the `Time.ElapsedTime` will reflects this scaled elapsed time.
-- For systems updating in the `PresentationSystemGroup` or `InitializationSystemGroup`, or in general outside the `SimulationSystemGroup`, the reported timing are the one normally reported by the application loop.
+When the client connects to the server, the elapsed `DeltaTime` and total `ElapsedTime` are handled differently. The client needs to keep its predicted tick in sync with the server, so the application's perceived `DeltaTime` is scaled up or down to accelerate or slow down the simulation.
 
-Because of that, the `Time.ElapsedTime` seen inside and outside the simulation group is usually different. <br/>
+This time scaling has some additional implications:
+
+- For all systems updating inside the `SimulationSystemGroup` (and sub-groups) the `Time.DeltaTime` and the `Time.ElapsedTime` reflect this scaled elapsed time.
+- For systems updating in the `PresentationSystemGroup` or `InitializationSystemGroup`, or in general outside the `SimulationSystemGroup`, the reported timings are the ones normally reported by the application loop.
+
+As a result, the `Time.ElapsedTime` seen inside and outside the simulation group is usually different.
 
 For cases where you need to have access to real, unscaled delta and elapsed time inside the `SimulationSystemGroup`, you can use the
-[UnscaledClientTime](https://docs.unity3d.com/Packages/com.unity.netcode@latest/index.html?subfolder=/api/Unity.NetCode.NetworkTime.html) singleton.<br/>
+[`UnscaledClientTime`](https://docs.unity3d.com/Packages/com.unity.netcode@latest/index.html?subfolder=/api/Unity.NetCode.NetworkTime.html) singleton.
+
 The values in the `UnscaledClientTime.DeltaTime` and `UnscaledClientTime.ElapsedTime` are the ones normally reported by application loop.

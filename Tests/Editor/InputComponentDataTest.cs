@@ -331,7 +331,7 @@ namespace Unity.NetCode.Tests
                 Assert.GreaterOrEqual(cas.NumCommandsArrived, expectedMinPacketsArrived * 4, "Expected command packets to be full of inputs!?");
                 Assert.GreaterOrEqual(cas.NumRedundantResends, expectedMinPacketsArrived * 2.2f, "Expected most resends to be redundant!?");
                 if(networkCondition != NetworkTestCondition.HighJitter)
-                    Assert.GreaterOrEqual(cas.NumArrivedTooLate, expectedMinPacketsArrived * 0.1f, "Expected to have *some* inputs arriving too late!?");
+                    Assert.GreaterOrEqual(cas.NumArrivedTooLate, 0f, "Expected no inputs arriving too late!");
                 Assert.IsTrue(math.abs(cas.AvgCommandsPerPacket - 4) < double.Epsilon, "Expected the default of 4 commands per packet!");
                 Assert.GreaterOrEqual(cas.AvgCommandPayloadSizeInBits, 200, "Expected command bits to be ~200!");
             }

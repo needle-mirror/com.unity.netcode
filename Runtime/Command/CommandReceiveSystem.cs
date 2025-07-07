@@ -43,9 +43,9 @@ namespace Unity.NetCode
             public void Execute(DynamicBuffer<IncomingCommandDataStreamBuffer> buffer, ref NetworkSnapshotAck snapshotAck)
             {
                 buffer.Clear();
-                if (snapshotAck.LastReceivedSnapshotByLocal.IsValid)
+                if (snapshotAck.MostRecentFullCommandTick.IsValid)
                 {
-                    int age = _currentTick.TicksSince(snapshotAck.LastReceivedSnapshotByLocal);
+                    int age = _currentTick.TicksSince(snapshotAck.MostRecentFullCommandTick);
                     age *= 256;
                     snapshotAck.ServerCommandAge = (snapshotAck.ServerCommandAge * 7 + age) / 8;
                 }

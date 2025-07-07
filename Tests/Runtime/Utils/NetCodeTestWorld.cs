@@ -85,6 +85,7 @@ namespace Unity.NetCode.Tests
         public int DriverSimulatedDelay = 0;
         public int DriverSimulatedJitter = 0;
         public int DriverSimulatedDrop = 0;
+        public ApplyMode DriverSimulatorPacketMode = ApplyMode.AllPackets;
         public int DriverMaxMessageSize = NetworkParameterConstants.MaxMessageSize;
         public int DriverReliablePipelineWindowSize = 32;
         public int UseMultipleDrivers = 0;
@@ -649,7 +650,7 @@ namespace Unity.NetCode.Tests
 
             var simParams = new SimulatorUtility.Parameters
             {
-                Mode = ApplyMode.AllPackets,
+                Mode = DriverSimulatorPacketMode,
                 MaxPacketSize = NetworkParameterConstants.MTU, MaxPacketCount = maxPackets,
                 PacketDelayMs = packetDelay,
                 PacketJitterMs = DriverSimulatedJitter,

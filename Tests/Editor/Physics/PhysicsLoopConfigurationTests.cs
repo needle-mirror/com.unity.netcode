@@ -29,6 +29,7 @@ namespace Unity.NetCode.Physics.Tests
         {
             var singleton = SystemAPI.GetSingleton<BeginFixedStepSimulationEntityCommandBufferSystem.Singleton>();
             var cmd = singleton.CreateCommandBuffer(World.Unmanaged);
+            var time = SystemAPI.GetSingleton<NetworkTime>();
             foreach (var (data, ent) in SystemAPI.Query<RefRO<SomeData>>().WithEntityAccess())
             {
                 var newValue = data.ValueRO;
@@ -205,14 +206,30 @@ namespace Unity.NetCode.Physics.Tests
                      testWorld.Tick();
                 var clientTick = testWorld.GetNetworkTime(testWorld.ClientWorlds[0]).ServerTick;
                 var serverTick = testWorld.GetNetworkTime(testWorld.ServerWorld).ServerTick;
-                var fullServerTicks = serverTick.TicksSince(prevServerTick);
+                var clientTime = testWorld.GetNetworkTime(testWorld.ClientWorlds[0]);
+                var serverPhysicsTicks = ctr.PredictedFixedStepSimulationTickRatio*serverTick.TicksSince(prevServerTick);
+                var serverTicks = serverTick.TicksSince(prevServerTick);
                 var clientTicks = clientTick.TicksSince(prevClientTick) + clientTick.TicksSince(serverTick);
-                var clientFullTicks = clientTicks - 1; //because the last tick is partial
+                var clientPhysicsTicks = ctr.PredictedFixedStepSimulationTickRatio*clientTicks;
+                //if the fractional part of the tick is sufficient to let the fixed step group to run, we need to include
+                //an extra +1
+                if (clientTime.IsPartialTick)
+                {
+                    if (clientTime.ServerTickFraction < 0.5f)
+                    {
+                        clientPhysicsTicks -= ctr.PredictedFixedStepSimulationTickRatio;
+                    }
+                    else
+                    {
+                        --clientPhysicsTicks;
+                    }
+                }
+
                 var clientEntity = testWorld.TryGetSingletonEntity<GhostInstance>(testWorld.ClientWorlds[0]);
                 Assert.AreNotEqual(Entity.Null, clientEntity);
-                Assert.AreEqual(2*fullServerTicks, testWorld.ServerWorld.EntityManager.GetComponentData<SomeData>(serverEntity).Value);
-                Assert.AreEqual(2*clientFullTicks, testWorld.ClientWorlds[0].EntityManager.GetComponentData<SomeData>(clientEntity).Value);
-                Assert.AreEqual(fullServerTicks, testWorld.ServerWorld.EntityManager.GetComponentData<AllPredictedComponentData>(serverEntity).Value);
+                Assert.AreEqual(serverPhysicsTicks, testWorld.ServerWorld.EntityManager.GetComponentData<SomeData>(serverEntity).Value);
+                Assert.AreEqual(clientPhysicsTicks, testWorld.ClientWorlds[0].EntityManager.GetComponentData<SomeData>(clientEntity).Value);
+                Assert.AreEqual(serverTicks, testWorld.ServerWorld.EntityManager.GetComponentData<AllPredictedComponentData>(serverEntity).Value);
                 Assert.AreEqual(clientTicks , testWorld.ClientWorlds[0].EntityManager.GetComponentData<AllPredictedComponentData>(clientEntity).Value);
             }
         }

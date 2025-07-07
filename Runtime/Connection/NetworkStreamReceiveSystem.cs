@@ -829,14 +829,17 @@ namespace Unity.NetCode
                                     uint remoteTime = reader.ReadUInt();
                                     uint localTimeMinusRTT = reader.ReadUInt();
                                     uint interpolationDelay = reader.ReadUInt();
-                                    uint numLoadedPrefabs = reader.ReadUInt();
+                                    uint numLoadedPrefabs = reader.ReadUShort();
 
                                     snapshotAck.UpdateRemoteAckedData(remoteTime, numLoadedPrefabs, interpolationDelay);
                                     var rtt = NetworkSnapshotAck.CalculateRttViaLocalTime(localTime, localTimeMinusRTT);
                                     snapshotAck.UpdateRemoteTime(remoteTime, rtt, localTime);
+                                    var cmdTickIsFull = reader.ReadByte();
                                     var tickReader = reader;
                                     var cmdTick = new NetworkTick{SerializedData = tickReader.ReadUInt()};
-                                    var isValidCmdTick = !snapshotAck.LastReceivedSnapshotByLocal.IsValid || cmdTick.IsNewerThan(snapshotAck.LastReceivedSnapshotByLocal);
+                                    var isValidCmdTick = !snapshotAck.LastReceivedSnapshotByLocal.IsValid ||
+                                                         cmdTick.IsNewerThan(snapshotAck.LastReceivedSnapshotByLocal) ||
+                                                         (snapshotAck.LastReceivedSnapshotByLocal.Equals(cmdTick) && cmdTickIsFull != 0);
 #if UNITY_EDITOR || NETCODE_DEBUG
                                     netStats[0] = lastServerTick.SerializedData;
                                     netStats[1] = (uint)reader.Length - 1u;
@@ -855,7 +858,9 @@ namespace Unity.NetCode
                                     if (!isValidCmdTick)
                                         break;
                                     snapshotAck.LastReceivedSnapshotByLocal = cmdTick;
-
+                                    snapshotAck.MostRecentFullCommandTick = cmdTick;
+                                    if(cmdTickIsFull == 0)
+                                        snapshotAck.MostRecentFullCommandTick.Decrement();
                                     buffer.Clear();
                                     buffer.Add(ref reader);
                                     break;

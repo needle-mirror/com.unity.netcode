@@ -1289,26 +1289,21 @@ namespace Unity.NetCode.Tests
             ghostConfig.DefaultGhostMode = predictionSetting == PredictionSetting.WithPredictedEntities ? GhostMode.Predicted : GhostMode.Interpolated;
             ghostConfig.SupportedGhostModes = GhostModeMask.All;
             ghostConfig.HasOwner = true;
+            ghostConfig.OptimizationMode = (flags & GhostFlags.StaticOptimization) != 0 ? GhostOptimizationMode.Static : GhostOptimizationMode.Dynamic;
+            ghostConfig.UsePreSerialization = (flags & GhostFlags.PreSerialize) != 0;
             if (type == GhostTypeConverter.GhostTypes.GhostGroup)
             {
                 // TODO: Ghost with BOTH Children and Group.
                 // TODO: Do we want to have the child the same as the root or different? This depend on what we want to test.
                 // For now let's make them identical (except for the values themselves) as the test logic right now are designed to work that way,
                 // but should be a little more flexible.
-                ghostConfig = objects[1].AddComponent<GhostAuthoringComponent>();
-                ghostConfig.DefaultGhostMode = predictionSetting == PredictionSetting.WithPredictedEntities ? GhostMode.Predicted : GhostMode.Interpolated;
-                ghostConfig.SupportedGhostModes = GhostModeMask.All;
-                ghostConfig.HasOwner = true;
-            }
-
-            if ((flags & GhostFlags.StaticOptimization) == GhostFlags.StaticOptimization)
-            {
-                ghostConfig.OptimizationMode = GhostOptimizationMode.Static;
-            }
-
-            if ((flags & GhostFlags.PreSerialize) == GhostFlags.PreSerialize)
-            {
-                ghostConfig.UsePreSerialization = true;
+                var groupElementGhostConfig = objects[1].AddComponent<GhostAuthoringComponent>();
+                groupElementGhostConfig.DefaultGhostMode = predictionSetting == PredictionSetting.WithPredictedEntities ? GhostMode.Predicted : GhostMode.Interpolated;
+                groupElementGhostConfig.SupportedGhostModes = GhostModeMask.All;
+                groupElementGhostConfig.HasOwner = true;
+                // Note: OptimizationMode on ghost group elements is ignored (while they're IN the group).
+                groupElementGhostConfig.OptimizationMode = (flags & GhostFlags.StaticOptimization) != 0 ? GhostOptimizationMode.Static : GhostOptimizationMode.Dynamic;
+                groupElementGhostConfig.UsePreSerialization = (flags & GhostFlags.PreSerialize) != 0;
             }
 
             Assert.IsTrue(m_TestWorld.CreateGhostCollection(objects));

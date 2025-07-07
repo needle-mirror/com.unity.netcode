@@ -298,11 +298,11 @@ namespace Unity.NetCode
 #endif
         }
         [Conditional("NETCODE_DEBUG")]
-        private void PacketDumpForceSend(bool forceResendExisting)
+        private void PacketDumpForceResendPrespawn(bool forceResendExisting)
         {
 #if NETCODE_DEBUG
-            if (netDebugPacket.IsCreated)
-                netDebugPacketDebug.Append(forceResendExisting ? (FixedString32Bytes)" ForceResend" : (FixedString32Bytes)" ForceSendNew");
+            if (netDebugPacket.IsCreated && forceResendExisting)
+                netDebugPacketDebug.Append((FixedString32Bytes) " FRP!");
 #endif
         }
         [Conditional("NETCODE_DEBUG")]
@@ -1433,9 +1433,10 @@ namespace Unity.NetCode
                     dataStream = oldStream;
                     return ent;
                 }
-                PacketDumpFlush();
+
                 if (typeData.IsGhostGroup != 0)
                 {
+                    PacketDumpFlush();
                     GhostSendSystem.s_GhostGroupMarker.Begin();
                     var ghostGroup = chunk.GetBufferAccessor(ref ghostGroupType)[ent];
                     // Serialize all other ghosts in the group, this also needs to be handled correctly in the receive system
@@ -1449,7 +1450,8 @@ namespace Unity.NetCode
                     PacketDumpBeginGroup(ghostGroup.Length);
                     PacketDumpFlush();
 
-                    bool success = SerializeGroup(ref dataStream, ref compressionModel, ghostGroup, useSingleBaseline);
+                    bool success = SerializeGroup(ref dataStream, ref compressionModel, ghostGroup, useSingleBaseline, ref anyChangeMaskThisEntity);
+                    anyChangeMask |= anyChangeMaskThisEntity;
 
                     GhostSendSystem.s_GhostGroupMarker.End();
 
@@ -1469,25 +1471,32 @@ namespace Unity.NetCode
                     // Mark this entity as spawned.
                     ref var ghostState = ref ghostStateData.GetGhostState(ghostSystemState[ent]);
 
-                    // Our static-optimization system needs to be able to distinguish between:
-                    // A) A COMPLETELY new ghost (i.e. one not yet seen by this connection).
-                    // B) An existing ghost that has MOVED into this chunk, but otherwise has no GhostField changes.
-                    // C) An existing ghost that has MOVED into this chunk, AND has GhostField changes.
-                    // All three cases are simple without prespawns, but prespawns delta-compress as zero against their prespawn baselines,
-                    // so we MUST detect them and resend them (as we CANNOT know if they've ACTUALLY changed).
+                    // Our static-optimization system needs to be able to distinguish between all of the following permutations:
+                    // A) [A newly spawned ghost | a pre-spawned ghost | an existing ghost].
+                    // B) [with SOME existing baselines | with ZERO baselines | with PRESPAWN baselines].
+                    // C) [With no changes vs baseline OR `default(T)` | with changes].
+                    // D) [Ghost has just MOVED into this chunk (WITHOUT baselines) | Ghost has just MOVED into this chunk (WITH baselines) | ghost has not recently moved to this chunk]
+                    //
+                    // Thus, we send the ghost when we have the following conditions:
+                    // 1. If we have ZERO previously acked baselines (including prespawn baselines), we MUST send,
+                    // as this is a new ghost, or a (very unlucky) recently changed or moved or frequently sent ghost.
+                    // Note: Prespawns are automatically spawned on the client with their special prespawn baseline.
+                    // Note2: When a ghost moves to another chunk, its baselines MAY be moved too (see `UpdateChunkHistory`).
+                    // 2. If anyChangeMask != 0, we MUST send, as our baseline is out of date i.e. we can presume some data changed.
+                    var hasRuntimeBaseline = baseline0 < numAvailableBaselines;
+                    var hasValidAckedBaseline = hasRuntimeBaseline || (isPrespawn && numPrespawnBaselines > 0);
                     var wasSentWithChangesBefore = (ghostState.Flags & ConnectionStateData.GhostStateFlags.SentWithChanges) != 0;
-                    var hasValidAckedBaseline = baseline0 < numAvailableBaselines;
-                    var forceResendExisting = isPrespawn && anyChangeMaskThisEntity == 0 && wasSentWithChangesBefore && !hasValidAckedBaseline;
-                    if (forceResendExisting)
-                    {
-                        PacketDumpForceSend(forceResendExisting);
-                        anyChangeMaskThisEntity |= 1u;
-                        anyChangeMask |= 1u;
-                    }
+                    var forceResendPrespawn = isPrespawn && anyChangeMaskThisEntity == 0 && wasSentWithChangesBefore && !hasRuntimeBaseline;
+                    PacketDumpForceResendPrespawn(forceResendPrespawn);
+
+                    anyChangeMaskThisEntity |= !hasValidAckedBaseline || forceResendPrespawn ? 1u : 0u;
+                    anyChangeMask |= anyChangeMaskThisEntity;
+
                     ghostState.Flags |= ConnectionStateData.GhostStateFlags.IsRelevant;
                     if(anyChangeMaskThisEntity != 0)
                         ghostState.Flags |= ConnectionStateData.GhostStateFlags.SentWithChanges;
                 }
+                PacketDumpFlush();
             }
 
             if (hasCustomSerializer && lastSerializedEntity != endIndex)
@@ -1580,7 +1589,7 @@ namespace Unity.NetCode
 
         [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
         private bool SerializeGroup(ref DataStreamWriter dataStream, ref StreamCompressionModel compressionModel,
-            in DynamicBuffer<GhostGroup> ghostGroup, bool useSingleBaseline)
+            in DynamicBuffer<GhostGroup> ghostGroup, bool useSingleBaseline, ref uint anyChangeMaskThisGroup)
         {
             var grpAvailableBaselines = new NativeList<SnapshotBaseline>(GhostSystemConstants.SnapshotHistorySize, Allocator.Temp);
             var baselinesPerEntity = stackalloc byte*[4];
@@ -1653,7 +1662,7 @@ namespace Unity.NetCode
                 int sameBaselinePerEntity;
                 int dynamicDataLenPerEntity;
 
-                if (SerializeEntities(ref dataStream, out _, out _, childGhostType, childChunk.Chunk, childChunk.IndexInChunk, childChunk.IndexInChunk+1, useSingleBaseline, groupSnapshot,
+                if (SerializeEntities(ref dataStream, out _, out var anyChangeMaskThisEntity, childGhostType, childChunk.Chunk, childChunk.IndexInChunk, childChunk.IndexInChunk+1, useSingleBaseline, groupSnapshot,
                     baselinesPerEntity, &sameBaselinePerEntity, &dynamicDataLenPerEntity, entityStartBit) != childChunk.IndexInChunk+1)
                 {
                     // FIXME: this does not work if a group member is itself the root of a group since it can fail to roll back state to compress against in that case. This is the reason nested ghost groups are not supported
@@ -1672,6 +1681,7 @@ namespace Unity.NetCode
                     }
                     return false;
                 }
+                anyChangeMaskThisGroup |= anyChangeMaskThisEntity;
             }
             return true;
         }

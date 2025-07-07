@@ -84,7 +84,8 @@ namespace Unity.NetCode.PrespawnTests
                 unsafe
                 {
                     var ghost = world.EntityManager.GetComponentData<GhostInstance>(ent);
-                    Assert.AreEqual(-1, ghost.ghostType);
+                    if (world.IsClient())
+                        Assert.AreEqual(-1, ghost.ghostType); // not set yet
                     var ghostType = world.EntityManager.GetComponentData<GhostType>(ent);
                     var idx = FindGhostType(ghostPrefabs, ghostType);
                     Assert.AreNotEqual(-1, idx);
@@ -431,9 +432,8 @@ namespace Unity.NetCode.PrespawnTests
                     }
                 }
 
-                // TEST-CASE: Expect NO snapshot updates, as prespawns "waking up" (i.e. becoming enabled) doesn't require us to
-                // send individual ghosts (as they wake up as a result of their sub-scene being acked, and their prespawns
-                // being mapped, which happens via RPC IIRC).
+                testWorld.TryLogPacket("\nTEST-CASE: Expect NO snapshot updates, as prespawns 'waking up' (i.e. becoming enabled) doesn't require us to" +
+                                       " send individual ghosts (as they wake up as a result of their sub-scene being acked, and their prespawns being mapped, which happens via RPC IIRC).");
                 Assert.AreEqual(0, numReceived);
                 Assert.AreEqual(0, uncompressed);
                 Assert.AreEqual(0, totalDataReceived);
@@ -450,7 +450,7 @@ namespace Unity.NetCode.PrespawnTests
                     baselineSomeDataValues[i] = testWorld.ServerWorld.EntityManager.GetComponentData<SomeData>(serverEntities[i]);
                 VerifyReplicatedValues(numObjects, testWorld, serverEntities, recvGhostMapSingleton, "After prespawns enable themselves.");
 
-                // TEST-CASE: Create a FALSE POSITIVE write, to test out the zero change optimization for prespawn baselines:
+                testWorld.TryLogPacket("\nTEST-CASE: Create a FALSE POSITIVE write, to test out the zero change optimization for prespawn baselines:\n");
                 {
                     var data = testWorld.ServerWorld.EntityManager.GetComponentData<SomeData>(serverEntities[5]);
                     testWorld.ServerWorld.EntityManager.SetComponentData(serverEntities[5], data);
@@ -472,7 +472,7 @@ namespace Unity.NetCode.PrespawnTests
                 Assert.AreEqual(0, totalDataReceived);
                 VerifyReplicatedValues(numObjects, testWorld, serverEntities, recvGhostMapSingleton, "After FALSE-POSITIVE write.");
 
-                // TEST-CASE: Make a structural change and verify that entities are STILL not sent (no changes in respect to the 0 baselines)
+                testWorld.TryLogPacket("\nTEST-CASE: Make a structural change and verify that entities are STILL not sent (no changes in respect to the 0 baselines)\n");
                 for (int i = 8; i < 10; ++i)
                 {
                     //I will add a tag. This should cause changes on the server side but NOT on the client, that still see the entities
@@ -505,7 +505,7 @@ namespace Unity.NetCode.PrespawnTests
                 Assert.AreEqual(0, uncompressed);
                 Assert.AreEqual(0, totalDataReceived);
 
-                // TEST-CASE: ACTUALLY change some components for entities 0,1,2
+                testWorld.TryLogPacket("\nTEST-CASE: ACTUALLY change some components for entities 0,1,2\n");
                 for (int i = 0; i < numObjects; ++i)
                 {
                     var data = testWorld.ServerWorld.EntityManager.GetComponentData<SomeData>(serverEntities[i]);
@@ -570,7 +570,7 @@ namespace Unity.NetCode.PrespawnTests
                     Assert.AreEqual(-1, ghostType);
                 }
 
-                // TEST-CASE: From here on I should NOT receive any ghosts again (since they're zero-change, as the zero-change has been acked)
+                testWorld.TryLogPacket("\nTEST-CASE: From here on I should NOT receive any ghosts again (since they're zero-change, as the zero-change has been acked)\n");
                 numReceived = 0;
                 totalDataReceived = 0;
                 for (int i = 0; i < 16; ++i)
@@ -589,7 +589,7 @@ namespace Unity.NetCode.PrespawnTests
                     Assert.AreEqual(0, totalDataReceived);
                 }
 
-                // TEST-CASE: Now make a structural change WITHOUT any GhostField changes,
+                testWorld.TryLogPacket("\nTEST-CASE: Now make a structural change WITHOUT any GhostField changes,\n");
                 // and verify that entities are NOT sent again (as we're still ZeroChange in respect to GhostField
                 // data vs its baseline) UNLESS we don't correctly copy over said data (via `keepSnapshotHistoryOnStructuralChange:false`).
                 for (int i = 3; i < 6; ++i)
@@ -652,7 +652,7 @@ namespace Unity.NetCode.PrespawnTests
 
                 VerifyReplicatedValues(numObjects, testWorld, serverEntities, recvGhostMapSingleton, "After 3,4,5 changed chunk.");
 
-                // TEST-CASE: Change 3,4 in the second chunk:
+                testWorld.TryLogPacket("\nTEST-CASE: Change 3,4 in the second chunk:\n");
                 for (int i = 3; i < 5; ++i)
                 {
                     var data = testWorld.ServerWorld.EntityManager.GetComponentData<SomeData>(serverEntities[i]);
@@ -686,7 +686,7 @@ namespace Unity.NetCode.PrespawnTests
                 totalDataReceived = 0;
                 uncompressed = 0;
 
-                // TEST-CASE: Expect no changes now.
+                testWorld.TryLogPacket("\nTEST-CASE: Expect no changes now.\n");
                 for (int tick = 0; tick < 8; tick++)
                 {
                     testWorld.Tick();
@@ -704,9 +704,8 @@ namespace Unity.NetCode.PrespawnTests
                 Assert.AreEqual(0, uncompressed);
                 VerifyReplicatedValues(numObjects, testWorld, serverEntities, recvGhostMapSingleton, "After 3,4 update arrives - expect no more updates.");
 
-                // TEST-CASE: EXTREMELY esoteric: Prespawn 3 is currently NOT matching their prespawn baseline, and NOT in their prespawn chunk.
-                // If we move them BACK to their prespawn chunk, AND revert their GhostField changes, will the GhostChunkSerializer
-                // understand that it needs to send a change for them?
+                testWorld.TryLogPacket("\nTEST-CASE: EXTREMELY esoteric: Prespawn 3 is currently NOT matching their prespawn baseline, and NOT in their prespawn chunk.");
+                testWorld.TryLogPacket("If we move prespawn 3 BACK to their prespawn chunk, AND revert their GhostField changes, will the GhostChunkSerializer understand that it needs to send said change?\n");
                 testWorld.ServerWorld.EntityManager.RemoveComponent<ServerOnlyTag>(serverEntities[3]);
                 testWorld.ServerWorld.EntityManager.SetComponentData(serverEntities[3], baselineSomeDataValues[3].Value);
 
@@ -732,7 +731,7 @@ namespace Unity.NetCode.PrespawnTests
                 Assert.AreEqual(0, uncompressed);
                 Assert.AreNotEqual(0, totalDataReceived);
 
-                // TEST-CASE: Again expect no changes.
+                testWorld.TryLogPacket("\nTEST-CASE: Again expect no changes.\n");
                 numReceived = 0;
                 uncompressed = 0;
                 totalDataReceived = 0;
@@ -743,7 +742,7 @@ namespace Unity.NetCode.PrespawnTests
                 Assert.AreEqual(0, totalDataReceived);
                 VerifyReplicatedValues(numObjects, testWorld, serverEntities, recvGhostMapSingleton, "Expect no more changes.");
 
-                // TEST-CASE: Revert all other SomeData back to their pre-spawn values, ensure it works:
+                testWorld.TryLogPacket("\nTEST-CASE: Revert all other SomeData back to their pre-spawn values, ensure it works:\n");
                 for (int i = 0; i < numObjects; i++)
                 {
                     testWorld.ServerWorld.EntityManager.RemoveComponent<ServerOnlyTag>(serverEntities[i]);
@@ -767,7 +766,7 @@ namespace Unity.NetCode.PrespawnTests
                 Assert.AreNotEqual(0, totalDataReceived);
                 VerifyReplicatedValues(numObjects, testWorld, serverEntities, recvGhostMapSingleton, "After returning changed ghosts to their original is completed - expect no more changes.");
 
-                // TEST-CASE: Again, expect no more changes:
+                testWorld.TryLogPacket("\nTEST-CASE: Again, expect no more changes:\n");
                 numReceived = 0;
                 uncompressed = 0;
                 totalDataReceived = 0;
@@ -792,6 +791,7 @@ namespace Unity.NetCode.PrespawnTests
         private void VerifyReplicatedValues(int numObjects, NetCodeTestWorld testWorld, NativeArray<Entity> serverEntities, Entity recvGhostMapSingleton, string context)
         {
             string s = context;
+            testWorld.TryLogPacket($"\n\nTEST-VerifyReplicatedValues:{context}\n");
             for (int i = 0; i < numObjects; ++i)
             {
                 var serverEntity = serverEntities[i];

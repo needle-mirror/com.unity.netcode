@@ -194,6 +194,38 @@ namespace Unity.NetCode.Tests
 
     [DisableAutoCreation]
     [UpdateInGroup(typeof(PredictedSimulationSystemGroup))]
+    [WorldSystemFilter(WorldSystemFilterFlags.ClientSimulation | WorldSystemFilterFlags.ServerSimulation)]
+    internal partial class CheckSkipFrameSystem : SystemBase
+    {
+        public struct Count : IComponentData
+        {
+            public NetworkTick LastProcessedServerTick;
+            public int lastFrame;
+            public int SkippedFrames;
+        }
+
+        protected override void OnCreate()
+        {
+            EntityManager.CreateSingleton(new Count());
+        }
+
+        protected override void OnUpdate()
+        {
+            ref var c = ref SystemAPI.GetSingletonRW<Count>().ValueRW;
+            var tick = SystemAPI.GetSingleton<NetworkTime>().ServerTick;
+            if (UnityEngine.Time.frameCount > c.lastFrame
+                && c.lastFrame != 0
+                && (UnityEngine.Time.frameCount - c.lastFrame) > 1)
+            {
+                ++c.SkippedFrames;
+                UnityEngine.Debug.Log($"[{UnityEngine.Time.frameCount}] CheckSkipFrameSystem missed a Unity frame. Current frame {UnityEngine.Time.frameCount} last processed frame {c.lastFrame} - tick {tick}");
+            }
+            c.lastFrame = UnityEngine.Time.frameCount;
+        }
+    }
+
+    [DisableAutoCreation]
+    [UpdateInGroup(typeof(PredictedSimulationSystemGroup))]
     [WorldSystemFilter(WorldSystemFilterFlags.ClientSimulation)]
     partial struct CountNumberOfRollbacksSystem : ISystem
     {
@@ -728,10 +760,59 @@ namespace Unity.NetCode.Tests
 
                     // Check that the margin is zero
                     var serverTime = testWorld.GetNetworkTime(testWorld.ServerWorld);
+                    var clientTime = testWorld.GetNetworkTime(testWorld.ClientWorlds[0]);
                     var serverAck = testWorld.GetSingleton<NetworkSnapshotAck>(testWorld.ServerWorld);
                     if (serverAck.LastReceivedSnapshotByRemote.IsValid)
-                        Assert.AreEqual(serverTime.ServerTick, serverAck.LastReceivedSnapshotByLocal);
+                        Assert.IsTrue(!serverTime.ServerTick.IsNewerThan(serverAck.LastReceivedSnapshotByLocal));
+                    if (serverAck.MostRecentFullCommandTick.IsValid)
+                        Assert.AreEqual(serverTime.ServerTick, serverAck.MostRecentFullCommandTick);
                 }
+            }
+        }
+
+        [Test(Description = "Tests that the client stay ahead of the server and never skip a prediction tick, even in presence of partial ticks and lower send rate.")]
+        public void ClientNeverSkipAPredictionTick()
+        {
+            using (var testWorld = new NetCodeTestWorld())
+            {
+                //enable using IPC connection
+                testWorld.UseFakeSocketConnection = 0;
+                testWorld.Bootstrap(true, typeof(CheckSkipFrameSystem));
+                var ghostGameObject = new GameObject();
+                ghostGameObject.AddComponent<TestNetCodeAuthoring>().Converter = new StructuralChangesConverter();
+                var authoring = ghostGameObject.AddComponent<GhostAuthoringComponent>();
+                authoring.DefaultGhostMode = GhostMode.Predicted;
+                authoring.HasOwner = true;
+                testWorld.CreateGhostCollection(ghostGameObject);
+                testWorld.CreateWorlds(true, 1);
+                var entity = testWorld.SpawnOnServer(ghostGameObject);
+                testWorld.ServerWorld.EntityManager.SetComponentData(entity, new GhostOwner()
+                {
+                    NetworkId = 1
+                });
+                testWorld.ServerWorld.EntityManager.CreateSingleton(new ClientServerTickRate
+                {
+                    SimulationTickRate = 30,
+                });
+                testWorld.Connect(0.271f/60f, 64);
+                testWorld.ClientWorlds[0].EntityManager.CompleteAllTrackedJobs();
+                testWorld.GoInGame();
+                var rnd = new Unity.Mathematics.Random(0x4000);
+                for (int i = 0; i < 2048; ++i)
+                {
+                    var dt = rnd.NextFloat(0.1f, 0.4f) / 60f;
+                    testWorld.Tick(dt);
+                    var serverTime = testWorld.GetNetworkTime(testWorld.ServerWorld);
+                    var clientTime = testWorld.GetNetworkTime(testWorld.ClientWorlds[0]);
+                    //check that when the server tick change, the client tick is already ahead so that the server always
+                    //receive the right full tick.
+                    if (clientTime.ServerTick.IsValid)
+                    {
+                        Assert.IsTrue(clientTime.ServerTick.IsNewerThan(serverTime.ServerTick), $"Expected client tick {clientTime.ServerTick}.{clientTime.ServerTickFraction} to be always ahead of the server to ensure full command tick update arrive in time, but server tick was already {serverTime.ServerTick}");
+                    }
+                }
+                var count = testWorld.GetSingleton<CheckSkipFrameSystem.Count>(testWorld.ClientWorlds[0]);
+                Assert.AreEqual(0, count.SkippedFrames, "Expect client does not skip any partial prediction or ticks.");
             }
         }
     }

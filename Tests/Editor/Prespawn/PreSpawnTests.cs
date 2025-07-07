@@ -451,19 +451,20 @@ namespace Unity.NetCode.PrespawnTests
                 var serverGhostPos = testWorld.ServerWorld.EntityManager.CreateEntityQuery(typeof(GhostInstance), typeof(LocalTransform), ComponentType.ReadOnly<PreSpawnedGhostIndex>())
                     .ToComponentDataArray<LocalTransform>(Allocator.Temp);
 
-                var serverPosLookup = new NativeParallelHashMap<int, float3>(serverGhostPos.Length, Allocator.Temp);
+                var serverPosLookup = new NativeParallelHashMap<int, (float3 pos, GhostInstance ghostInstance)>(serverGhostPos.Length, Allocator.Temp);
                 Assert.AreEqual(clientGhostPos.Length, serverGhostPos.Length);
                 // Fill a hashmap with mapping from server ghost id to server position
                 for (int i = 0; i < serverGhosts.Length; ++i)
                 {
-                    serverPosLookup.Add(serverGhosts[i].ghostId, serverGhostPos[i].Position);
+                    serverPosLookup.Add(serverGhosts[i].ghostId, (serverGhostPos[i].Position, serverGhosts[i]));
                 }
                 for (int i = 0; i < clientGhosts.Length; ++i)
                 {
                     Assert.IsTrue(PrespawnHelper.IsPrespawnGhostId(clientGhosts[i].ghostId), "Prespawned ghosts not initialized");
-                    // Verify that the client ghost id exists on the server with the same position
+                    // Verify that the client ghost id exists on the server with the same position and same ghostType
                     Assert.IsTrue(serverPosLookup.TryGetValue(clientGhosts[i].ghostId, out var serverPos));
-                    Assert.LessOrEqual(math.distance(clientGhostPos[i].Position, serverPos), 0.001f);
+                    Assert.LessOrEqual(math.distance(clientGhostPos[i].Position, serverPos.pos), 0.001f);
+                    Assert.AreEqual(clientGhosts[i].ghostType, serverPosLookup[clientGhosts[i].ghostId].ghostInstance.ghostType);
 
                     // Remove the server ghost id which we already matched against to make sure htere are no duplicates
                     serverPosLookup.Remove(clientGhosts[i].ghostId);
