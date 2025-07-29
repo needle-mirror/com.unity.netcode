@@ -2,14 +2,15 @@
 
 There are 2 ways of gathering metrics about the netcode simulation. The simplest and most straight forward way is to use the Network Debugger from the Multiplayer Menu in the Editor. This will provide you with a simple web interface to view the metrics.
 
-The second way is to create a Singleton of type [MetricsMonitorComponent](https://docs.unity3d.com/Packages/com.unity.netcode@latest/index.html?subfolder=/api/Unity.NetCode.MetricsMonitor.html)
+The second way is to create a singleton of type [GhostMetricsMonitor](https://docs.unity3d.com/Packages/com.unity.netcode@latest/index.html?subfolder=/api/Unity.NetCode.GhostMetricsMonitor.html)
 and populate it with the data points you want to monitor.
 
 In the following example we create a singleton containing all data metrics available.
+Adding the respective `IComponentData` to the singleton enables the collection of that metrics type.
 
-```
+```csharp
     var typeList = new NativeArray<ComponentType>(8, Allocator.Temp);
-    typeList[0] = ComponentType.ReadWrite<MetricsMonitor>();
+    typeList[0] = ComponentType.ReadWrite<GhostMetricsMonitor>();
     typeList[1] = ComponentType.ReadWrite<NetworkMetrics>();
     typeList[2] = ComponentType.ReadWrite<SnapshotMetrics>();
     typeList[3] = ComponentType.ReadWrite<GhostNames>();
@@ -23,15 +24,20 @@ In the following example we create a singleton containing all data metrics avail
     state.EntityManager.SetName(metricSingleton, singletonName);
 ```
 
+Use `SystemAPI.GetSingleton` to access data metrics for a specific metrics type. For example, to access the `NetworkMetrics`:
+
+```csharp
+    var networkMetrics = SystemAPI.GetSingleton<NetworkMetrics>();
+```
+
 ## Data Points
 
-| component type | description |
-| -------------- | ----------- |
-| `NetworkMetrics` | time related network metrics |
-| `SnapshotMetrics` | snapshot related network metrics |
-| `GhostMetrics` | ghost related metrics - indexed using `GhostNames` |
-| `GhostSerializationMetrics` | ghost serialization metrics - indexed using `GhostNames` |
-| `PredictionErrorMetrics` | prediction errors - indexed using `PredictionErrorNames` |
-| `GhostNames` | a list of all availeble ghosts for this simulation |
-| `PredictionErrorNames` | a list of all availeble prediciton errors for this simulation |
-
+| component type              | description                                                   |
+|-----------------------------|---------------------------------------------------------------|
+| `NetworkMetrics`            | time related network metrics                                  |
+| `SnapshotMetrics`           | snapshot related network metrics                              |
+| `GhostMetrics`              | ghost related metrics - indexed using `GhostNames`            |
+| `GhostSerializationMetrics` | ghost serialization metrics - indexed using `GhostNames`      |
+| `PredictionErrorMetrics`    | prediction errors - indexed using `PredictionErrorNames`      |
+| `GhostNames`                | a list of all available ghosts for this simulation            |
+| `PredictionErrorNames`      | a list of all available prediction errors for this simulation |

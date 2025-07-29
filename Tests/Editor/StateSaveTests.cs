@@ -42,6 +42,33 @@ namespace Tests.Editor
         public ushort valueUshort;
     }
 
+    internal struct TestEnablebleComponent : IComponentData, IEnableableComponent
+    {
+        public int value;
+    }
+
+    internal struct TestBufferA : IBufferElementData, IEnableableComponent
+    {
+        public int value;
+    }
+
+    internal struct TestBufferB : IBufferElementData
+    {
+        public bool valueBool;
+        public byte valueByte;
+        public sbyte valueSbyte;
+        public double valueDouble;
+        public float valueFloat;
+        public int valueInt;
+        public uint valueUint;
+        public nint valueNint;
+        public nuint valueNuint;
+        public long valueLong;
+        public ulong valueUlong;
+        public short valueShort;
+        public ushort valueUshort;
+    }
+
     internal struct PerfTestStruct
     {
         public ulong a;
@@ -149,7 +176,7 @@ namespace Tests.Editor
             // Setup
             var testStateSaveSingleton = SystemAPI.GetSingleton<TestStateSaveSingleton>();
             var strategyToUse = testStateSaveSingleton.StrategyToUse;
-            var requiredTypesToSave = new NativeHashSet<ComponentType>(2, Allocator.Temp) { ComponentType.ReadOnly<TestComponentA>(), ComponentType.ReadOnly<TestComponentB>() };
+            var requiredTypesToSave = new NativeHashSet<ComponentType>(5, Allocator.Temp) { ComponentType.ReadOnly<TestComponentA>(), ComponentType.ReadOnly<TestComponentB>(), ComponentType.ReadOnly<TestEnablebleComponent>(), ComponentType.ReadOnly<TestBufferA>(), ComponentType.ReadOnly<TestBufferB>() };
             requiredTypesToSave.Add(ComponentType.ReadOnly<PerfTestComp1>());
             requiredTypesToSave.Add(ComponentType.ReadOnly<PerfTestComp2>());
             requiredTypesToSave.Add(ComponentType.ReadOnly<PerfTestComp3>());
@@ -196,7 +223,7 @@ namespace Tests.Editor
             // state.Dependency.Complete(); // TODO should we complete as part of the perf test?
             s_PerfTestMarker.End();
 
-            state.Dependency = new ValidateAfterDependency(){Count = testStateSaveSingleton.Count, StateSave = stateSave, TypeCount = strategyToUse == StateSaveTests.SaveStrategyToUse.Indexed ? 23 : 22 }.Schedule(state.Dependency);
+            state.Dependency = new ValidateAfterDependency(){Count = testStateSaveSingleton.Count, StateSave = stateSave, TypeCount = strategyToUse == StateSaveTests.SaveStrategyToUse.Indexed ? 26 : 25 }.Schedule(state.Dependency);
             // Validate in test
             SystemAPI.SetSingleton(new TestStateSaveSingleton() { stateSaveToTest = stateSave });
             state.Enabled = false;
@@ -245,6 +272,31 @@ namespace Tests.Editor
             {
                 em.SetComponentData(entity, GetTestComponentB(index));
             }
+
+            if (em.HasComponent<TestEnablebleComponent>(entity))
+            {
+                em.SetComponentEnabled<TestEnablebleComponent>(entity, index % 2 == 0);
+            }
+
+            if (em.HasBuffer<TestBufferA>(entity))
+            {
+                var buf = em.GetBuffer<TestBufferA>(entity);
+                for (int i = 0; i < 10; ++i)
+                {
+                    buf.Add(new TestBufferA()
+                    {
+                        value = index * 2 + i
+                    });
+                }
+                em.SetComponentEnabled<TestBufferA>(entity, index % 2 == 0);
+            }
+
+            if (em.HasBuffer<TestBufferB>(entity))
+            {
+                var buf = em.GetBuffer<TestBufferB>(entity);
+                for (int i = 0; i < 10; ++i)
+                    buf.Add(GetTestBufferB(index, i));
+            }
         }
 
         static TestComponentB GetTestComponentB(int index)
@@ -267,6 +319,26 @@ namespace Tests.Editor
             };
         }
 
+        static TestBufferB GetTestBufferB(int index, int bufIndex)
+        {
+            return new TestBufferB()
+            {
+                valueBool = true,
+                valueByte = (byte)(index + bufIndex),
+                valueSbyte = (sbyte)(index + bufIndex),
+                valueDouble = 1.234 + index + bufIndex,
+                valueFloat = 1.234f + index + bufIndex,
+                valueInt = index + bufIndex,
+                valueUint = (uint)(index + bufIndex),
+                valueNint = index + bufIndex,
+                valueNuint = (nuint)(index + bufIndex),
+                valueLong = index + bufIndex,
+                valueUlong = (ulong)(index + bufIndex),
+                valueShort = (short)(index + bufIndex),
+                valueUshort = (ushort)(index + bufIndex),
+            };
+        }
+
         static void ValidateCompB(in TestComponentB compB, int index)
         {
             Unity.Assertions.Assert.AreEqual(true, compB.valueBool);
@@ -282,6 +354,24 @@ namespace Tests.Editor
             Unity.Assertions.Assert.AreEqual((ulong)index, compB.valueUlong);
             Unity.Assertions.Assert.AreEqual((short)index, compB.valueShort);
             Unity.Assertions.Assert.AreEqual((ushort)index, compB.valueUshort);
+        }
+
+        static void ValidateBufferB(in TestBufferB compB, int index, int bufIndex)
+        {
+            int value = index + bufIndex;
+            Unity.Assertions.Assert.AreEqual(true, compB.valueBool);
+            Unity.Assertions.Assert.AreEqual((byte)value, compB.valueByte);
+            Unity.Assertions.Assert.AreEqual((sbyte)value, compB.valueSbyte);
+            Unity.Assertions.Assert.AreApproximatelyEqual(1.234f + value, (float)compB.valueDouble);
+            Unity.Assertions.Assert.AreApproximatelyEqual(1.234f + value, compB.valueFloat);
+            Unity.Assertions.Assert.AreEqual(value, compB.valueInt);
+            Unity.Assertions.Assert.AreEqual((uint)value, compB.valueUint);
+            Unity.Assertions.Assert.AreEqual((nint)value, compB.valueNint);
+            Unity.Assertions.Assert.AreEqual((nuint)(value), compB.valueNuint);
+            Unity.Assertions.Assert.AreEqual(value, compB.valueLong);
+            Unity.Assertions.Assert.AreEqual((ulong)value, compB.valueUlong);
+            Unity.Assertions.Assert.AreEqual((short)value, compB.valueShort);
+            Unity.Assertions.Assert.AreEqual((ushort)value, compB.valueUshort);
         }
 
         [BurstDiscard]
@@ -314,6 +404,28 @@ namespace Tests.Editor
                         compData.ToConcrete(out TestComponentB compB);
                         ValidateCompB(compB, iterationCount);
                     }
+
+                    if (componentType == ComponentType.ReadOnly<TestEnablebleComponent>())
+                    {
+                        Unity.Assertions.Assert.AreEqual(iterationCount % 2 == 0, compData.Enabled);
+                    }
+
+                    if (componentType == ComponentType.ReadOnly<TestBufferA>())
+                    {
+                        var bufA = new NativeList<TestBufferA>(compData.Length, Allocator.Temp);
+                        compData.ToConcrete(ref bufA);
+                        for (int i = 0; i < bufA.Length; ++i)
+                            Unity.Assertions.Assert.AreEqual(iterationCount * 2 + i, bufA[i].value);
+                        Unity.Assertions.Assert.AreEqual(iterationCount % 2 == 0, compData.Enabled);
+                    }
+
+                    if (componentType == ComponentType.ReadOnly<TestBufferB>())
+                    {
+                        var bufB = new NativeList<TestBufferB>(compData.Length, Allocator.Temp);
+                        compData.ToConcrete(ref bufB);
+                        for (int i = 0; i < bufB.Length; ++i)
+                            ValidateBufferB(bufB[i], iterationCount, i);
+                    }
                 }
 
                 entry.types.Dispose(); // Editor should crash if this actually tries to dispose the main allocation. The editor not crashing means we pass :)
@@ -327,7 +439,7 @@ namespace Tests.Editor
             // Setup
             ref var state = ref system.CheckedStateRef;
             var config = state.EntityManager.GetComponentData<TestStateSaveSingleton>(singletonEntity);
-            var requiredTypesToSave = new NativeHashSet<ComponentType>(2, Allocator.Temp) { ComponentType.ReadOnly<TestComponentA>(), ComponentType.ReadOnly<TestComponentB>() };
+            var requiredTypesToSave = new NativeHashSet<ComponentType>(5, Allocator.Temp) { ComponentType.ReadOnly<TestComponentA>(), ComponentType.ReadOnly<TestComponentB>(), ComponentType.ReadOnly<TestEnablebleComponent>(), ComponentType.ReadOnly<TestBufferA>(), ComponentType.ReadOnly<TestBufferB>() };
 
             // Test
             WorldStateSave stateSave;
@@ -375,7 +487,7 @@ namespace Tests.Editor
 
             for (int i = 0; i < count; i++)
             {
-                var ent = testWorld.ServerWorld.EntityManager.CreateEntity(typeof(TestComponentA), typeof(TestComponentB));
+                var ent = testWorld.ServerWorld.EntityManager.CreateEntity(typeof(TestComponentA), typeof(TestComponentB), typeof(TestEnablebleComponent), typeof(TestBufferA), typeof(TestBufferB));
                 UpdateTestComponents(i, ent, testWorld);
             }
 
@@ -383,13 +495,13 @@ namespace Tests.Editor
             testWorld.Tick();
             createStateSystem.Enabled = false;
             var result = testWorld.GetSingleton<TestStateSaveSingleton>(testWorld.ServerWorld);
-            ValidateStateSave(count, result.stateSaveToTest, expectedTypeCount: 2);
+            ValidateStateSave(count, result.stateSaveToTest, expectedTypeCount: 5);
         }
 
         static DynamicBuffer<NetCodeTestPrefab> SetupWithPrefab(NetCodeTestWorld testWorld, List<ComponentType> typesToAdd = null)
         {
             if (typesToAdd == null)
-                typesToAdd = new List<ComponentType>() { ComponentType.ReadOnly<TestComponentA>(), ComponentType.ReadOnly<TestComponentB>() };
+                typesToAdd = new List<ComponentType>() { ComponentType.ReadOnly<TestComponentA>(), ComponentType.ReadOnly<TestComponentB>(), ComponentType.ReadOnly<TestEnablebleComponent>(), ComponentType.ReadOnly<TestBufferA>(), ComponentType.ReadOnly<TestBufferB>() };
             // Predicted ghost
             var predictedGhostGO = new GameObject("PredictedGO");
             predictedGhostGO.AddComponent<TestNetCodeAuthoring>().Converter = new StateSaveTestDataConverter() { typesToAdd = typesToAdd};
@@ -443,9 +555,9 @@ namespace Tests.Editor
             createStateSystem.Enabled = false;
 
             var result = testWorld.GetSingleton<TestStateSaveSingleton>(testWorld.ServerWorld);
-            ValidateStateSave(count, result.stateSaveToTest, expectedTypeCount: 3); // 3 types. GhostInstance (for the indexing), TestComponentA and TestComponentB
+            ValidateStateSave(count, result.stateSaveToTest, expectedTypeCount: 6); // 6 types. GhostInstance (for the indexing), TestComponentA, TestComponentB, TestEnableableComponent, TestBufferA and TestBufferB
 
-            ValidateIndexedStateSave(count, allEntities, testWorld, result.stateSaveToTest, expectedTypesCount: 3);
+            ValidateIndexedStateSave(count, allEntities, testWorld, result.stateSaveToTest, expectedTypesCount: 6);
         }
 
         static unsafe void ValidateIndexedStateSave(int count, List<Entity> allEntities, NetCodeTestWorld testWorld, WorldStateSave stateSaveToTest, int expectedTypesCount)
@@ -466,11 +578,17 @@ namespace Tests.Editor
                 Assert.That(types.Contains(ComponentType.ReadOnly<GhostInstance>()));
                 Assert.That(types.Contains(ComponentType.ReadOnly<TestComponentA>()));
                 Assert.That(types.Contains(ComponentType.ReadOnly<TestComponentB>()));
+                Assert.That(types.Contains(ComponentType.ReadOnly<TestEnablebleComponent>()));
+                Assert.That(types.Contains(ComponentType.ReadOnly<TestBufferA>()));
+                Assert.That(types.Contains(ComponentType.ReadOnly<TestBufferB>()));
                 Assert.That(entitiesInStateSave.Contains(savedEntityID));
                 Assert.That(stateSaveToTest.Exists(savedEntityID));
                 Assert.That(stateSaveToTest.HasComponent(savedEntityID, ComponentType.ReadOnly<GhostInstance>()));
                 Assert.That(stateSaveToTest.HasComponent(savedEntityID, ComponentType.ReadOnly<TestComponentA>()));
                 Assert.That(stateSaveToTest.HasComponent(savedEntityID, ComponentType.ReadOnly<TestComponentB>()));
+                Assert.That(stateSaveToTest.HasComponent(savedEntityID, ComponentType.ReadOnly<TestEnablebleComponent>()));
+                Assert.That(stateSaveToTest.HasComponent(savedEntityID, ComponentType.ReadOnly<TestBufferA>()));
+                Assert.That(stateSaveToTest.HasComponent(savedEntityID, ComponentType.ReadOnly<TestBufferB>()));
                 Assert.IsTrue(stateSaveToTest.TryGetComponentData<GhostInstance>(savedEntityID, out var data));
                 Assert.AreEqual(ghostInstance, data);
                 Assert.IsTrue(stateSaveToTest.TryGetComponentData<TestComponentA>(savedEntityID, out var savedCompAGeneric));
@@ -683,18 +801,18 @@ namespace Tests.Editor
             var allEntities = new List<Entity>();
             for (int i = 0; i < count; i++)
             {
-                var ent = testWorld.ServerWorld.EntityManager.CreateEntity(typeof(TestComponentA), typeof(TestComponentB));
+                var ent = testWorld.ServerWorld.EntityManager.CreateEntity(typeof(TestComponentA), typeof(TestComponentB), typeof(TestEnablebleComponent), ComponentType.ReadOnly<TestBufferA>(), ComponentType.ReadOnly<TestBufferB>());
                 allEntities.Add(ent);
                 UpdateTestComponents(i, ent, testWorld);
             }
 
-            Assert.AreEqual((count == 100 ? 1 : 2), testWorld.ServerWorld.EntityManager.CreateEntityQuery(typeof(TestComponentA)).CalculateChunkCount());
+            Assert.AreEqual((count == 100 ? 2 : 4), testWorld.ServerWorld.EntityManager.CreateEntityQuery(typeof(TestComponentA)).CalculateChunkCount());
             WorldStateSave stateSave = default;
             createStateSystem.StateSaveTestCallback = (system, singletonEntity) =>
             {
                 // Setup
                 ref var state = ref system.CheckedStateRef;
-                var requiredTypesToSave = new NativeHashSet<ComponentType>(2, Allocator.Temp) { ComponentType.ReadOnly<TestComponentA>(), ComponentType.ReadOnly<TestComponentB>() };
+                var requiredTypesToSave = new NativeHashSet<ComponentType>(5, Allocator.Temp) { ComponentType.ReadOnly<TestComponentA>(), ComponentType.ReadOnly<TestComponentB>(), typeof(TestEnablebleComponent), ComponentType.ReadOnly<TestBufferA>(), ComponentType.ReadOnly<TestBufferB>() };
 
                 // Test
                 var strategy = new DirectStateSaveStrategy();
@@ -710,7 +828,7 @@ namespace Tests.Editor
             testWorld.Tick();
             createStateSystem.Enabled = false;
             Assert.That(stateSave.Initialized);
-            ValidateStateSave(count, stateSave, expectedTypeCount: 2);
+            ValidateStateSave(count, stateSave, expectedTypeCount: 5);
 
             // Test we can reuse allocation correctly if the size is the same
             int oldSize = stateSave.AsSpan.Length;
@@ -725,7 +843,7 @@ namespace Tests.Editor
             {
                 // Setup
                 ref var state = ref system.CheckedStateRef;
-                var requiredTypesToSave = new NativeHashSet<ComponentType>(2, Allocator.Temp) { ComponentType.ReadOnly<TestComponentA>(), ComponentType.ReadOnly<TestComponentB>() };
+                var requiredTypesToSave = new NativeHashSet<ComponentType>(5, Allocator.Temp) { ComponentType.ReadOnly<TestComponentA>(), ComponentType.ReadOnly<TestComponentB>(), typeof(TestEnablebleComponent), ComponentType.ReadOnly<TestBufferA>(), ComponentType.ReadOnly<TestBufferB>() };
 
                 // Test
                 var strategy = new DirectStateSaveStrategy();
@@ -744,7 +862,7 @@ namespace Tests.Editor
             createStateSystem.Enabled = false;
             var newAdr = (byte*)UnsafeUtility.AddressOf(ref stateSave.AsSpan[0]);
             Assert.IsTrue(oldAdr == newAdr && oldSize == stateSave.AsSpan.Length);
-            ValidateStateSave(count, stateSave, expectedTypeCount: 2);
+            ValidateStateSave(count, stateSave, expectedTypeCount: 5);
 
             // Test that if we need more space, then we can't reuse the allocation and still create a new allocation
             stateSave.Reset();
@@ -754,7 +872,7 @@ namespace Tests.Editor
             var newCount = count * 2;
             for (int i = count; i < newCount; i++)
             {
-                var ent = testWorld.ServerWorld.EntityManager.CreateEntity(typeof(TestComponentA), typeof(TestComponentB));
+                var ent = testWorld.ServerWorld.EntityManager.CreateEntity(typeof(TestComponentA), typeof(TestComponentB), typeof(TestEnablebleComponent), typeof(TestBufferA), typeof(TestBufferB));
                 allEntities.Add(ent);
                 UpdateTestComponents(i, ent, testWorld);
             }
@@ -763,7 +881,7 @@ namespace Tests.Editor
             {
                 // Setup
                 ref var state = ref system.CheckedStateRef;
-                var requiredTypesToSave = new NativeHashSet<ComponentType>(2, Allocator.Temp) { ComponentType.ReadOnly<TestComponentA>(), ComponentType.ReadOnly<TestComponentB>() };
+                var requiredTypesToSave = new NativeHashSet<ComponentType>(5, Allocator.Temp) { ComponentType.ReadOnly<TestComponentA>(), ComponentType.ReadOnly<TestComponentB>(), typeof(TestEnablebleComponent), ComponentType.ReadOnly<TestBufferA>(), ComponentType.ReadOnly<TestBufferB>() };
 
                 // Test
                 var strategy = new DirectStateSaveStrategy();
@@ -784,7 +902,7 @@ namespace Tests.Editor
             // doing both checks (adr and length) in the same check, since it's possible for Unity to return the same address when we're changing size. It'll just reuse the same spot in memory but with different size if space is available.
             Assert.IsTrue(oldAdr != newAdr || oldSize != stateSave.AsSpan.Length);
             Assert.That(oldSize, Is.LessThan(stateSave.AsSpan.Length));
-            ValidateStateSave(newCount, stateSave, expectedTypeCount: 2);
+            ValidateStateSave(newCount, stateSave, expectedTypeCount: 5);
 
             // test that we don't grow forever
             // remove enough entities to trigger the "this is 2x too large, let's shrink" logic. so remove half the entities + 1
@@ -803,7 +921,7 @@ namespace Tests.Editor
             {
                 // Setup
                 ref var state = ref system.CheckedStateRef;
-                var requiredTypesToSave = new NativeHashSet<ComponentType>(2, Allocator.Temp) { ComponentType.ReadOnly<TestComponentA>(), ComponentType.ReadOnly<TestComponentB>() };
+                var requiredTypesToSave = new NativeHashSet<ComponentType>(4, Allocator.Temp) { ComponentType.ReadOnly<TestComponentA>(), ComponentType.ReadOnly<TestComponentB>(), typeof(TestEnablebleComponent), ComponentType.ReadOnly<TestBufferA>(), ComponentType.ReadOnly<TestBufferB>() };
 
                 // Test
                 var strategy = new DirectStateSaveStrategy();
@@ -824,7 +942,7 @@ namespace Tests.Editor
             // doing both checks (adr and length) in the same check, since it's possible for Unity to return the same address when we're shrinking. It'll just reuse the same spot in memory but with different size.
             Assert.IsTrue(doubledOldAllocationAdr != newAdr || doubledSize != stateSave.AsSpan.Length);
 
-            ValidateStateSave(newCount, stateSave, expectedTypeCount: 2);
+            ValidateStateSave(newCount, stateSave, expectedTypeCount: 5);
         }
 
         [Test, Description("Test all APIs and make sure they throw if not initialized")]
@@ -1021,7 +1139,7 @@ namespace Tests.Editor
             NativeArray<Entity> allEntities;
             if (strategyToUse == SaveStrategyToUse.Default)
             {
-                var archetypeToSpawn = testWorld.ServerWorld.EntityManager.CreateArchetype(typeof(TestComponentA), typeof(TestComponentB),
+                var archetypeToSpawn = testWorld.ServerWorld.EntityManager.CreateArchetype(typeof(TestComponentA), typeof(TestComponentB), typeof(TestEnablebleComponent), typeof(TestBufferA), typeof(TestBufferB),
                     typeof(PerfTestComp1),
                     typeof(PerfTestComp2),
                     typeof(PerfTestComp3),
@@ -1098,7 +1216,7 @@ namespace Tests.Editor
 
             createStateSystem.Enabled = false;
             var result = testWorld.GetSingleton<TestStateSaveSingleton>(testWorld.ServerWorld);
-            var expectedTypeCount = 2 + (strategyToUse == SaveStrategyToUse.Default ? 0 : 1) + 20;
+            var expectedTypeCount = 5 + (strategyToUse == SaveStrategyToUse.Default ? 0 : 1) + 20;
 
             if (strategyToUse == SaveStrategyToUse.Indexed)
                 ValidateIndexedStateSave(count, allEntities.ToList(), testWorld, result.stateSaveToTest, expectedTypesCount: expectedTypeCount);

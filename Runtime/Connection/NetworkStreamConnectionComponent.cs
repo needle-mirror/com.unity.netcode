@@ -72,13 +72,11 @@ namespace Unity.NetCode
     {
     }
 
-#if ENABLE_HOST_MIGRATION
     /// <summary>
     /// This tag is added to connections which have been reconnected (client reconnects to a server after diconnecting).
     /// It is added on both the server and client side.
     /// </summary>
     public struct NetworkStreamIsReconnected : IComponentData { }
-#endif
 
     /// <summary>
     /// The unique ID assigned to the connection entity in this world, to be sent to the server in case of re-connects.

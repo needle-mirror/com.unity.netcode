@@ -2,10 +2,13 @@
 #define NETCODE_DEBUG
 #endif
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
+using System.Runtime.CompilerServices;
 using System.Text.RegularExpressions;
+using System.Threading.Tasks;
 using NUnit.Framework;
 using Unity.Core;
 using Unity.Entities;
@@ -21,6 +24,7 @@ using Debug = UnityEngine.Debug;
 using Unity.NetCode.Editor;
 #endif
 using UnityEngine;
+using Object = UnityEngine.Object;
 #if USING_UNITY_LOGGING
 using Unity.Logging;
 using Unity.Logging.Sinks;
@@ -35,8 +39,81 @@ namespace Unity.NetCode.Tests
         public Entity Value;
     }
 
+    // Used to work around that Awaitable doesn't exist in 2022, so we don't have to ifdef all over the place
+    internal class NetcodeAwaitable : IEnumerator, INotifyCompletion
+    {
+#if UNITY_6000_0_OR_NEWER
+        internal Awaitable awaitable;
+#endif
+
+        public bool MoveNext()
+        {
+#if UNITY_6000_0_OR_NEWER
+            return ((IEnumerator)awaitable).MoveNext();
+#else
+            return false;
+#endif
+        }
+
+        public void Reset()
+        {
+#if UNITY_6000_0_OR_NEWER
+            ((IEnumerator)awaitable).Reset();
+#endif
+        }
+
+#if UNITY_6000_0_OR_NEWER
+        public object Current => ((IEnumerator)awaitable).Current;
+#else
+        public object Current => null;
+#endif
+
+        public NetcodeAwaitable GetAwaiter() => this;
+
+        public bool IsCompleted => !MoveNext();
+
+        public void OnCompleted(Action continuation)
+        {
+#if UNITY_6000_0_OR_NEWER
+            if (awaitable is INotifyCompletion awaitableCompletion)
+                awaitableCompletion.OnCompleted(continuation);
+            else
+                continuation();
+#endif
+        }
+
+        public void GetResult()
+        {
+
+        }
+
+#if UNITY_6000_0_OR_NEWER
+        public static implicit operator NetcodeAwaitable(Awaitable awaitable)
+        {
+            return new NetcodeAwaitable { awaitable = awaitable };
+        }
+#endif
+    }
+
     internal class NetCodeTestWorld : IDisposable, INetworkStreamDriverConstructor
     {
+        internal interface ITestWorldStrategy : IDisposable
+        {
+            void Bootstrap(NetCodeTestWorld testWorld);
+            World CreateClientWorld(string name, bool thinClient, World world = null);
+            World CreateServerWorld(string name, World world = null);
+            //public World CreateHostWorld(string name, World world = null);
+            void DisposeClientWorld(World clientWorld);
+            void DisposeServerWorld(World serverWorld);
+            void TickNoAwait(float dt);
+            Task TickAsync(float dt, NetcodeAwaitable waitInstruction = null);
+            void TickClientWorld(float dt);
+            void TickServerWorld(float dt);
+            void RemoveWorldFromUpdateList(World world);
+            World DefaultWorld { get; }
+            void DisposeDefaultWorld();
+        }
+
         /// <summary>
         /// True if you want to forward all netcode logs from the server, to allow <see cref="LogAssert"/> usage.
         /// <b>WARNING: DISABLE "Force Log Settings" TOOL OR THIS TEST WILL FAIL!</b>
@@ -62,7 +139,7 @@ namespace Unity.NetCode.Tests
         static readonly ProfilerMarker k_TickClientSimulationSystem = new ProfilerMarker("TickClientSimulationSystem");
         static readonly ProfilerMarker k_TickClientPresentationSystem = new ProfilerMarker("TickClientPresentationSystem");
 
-        public World DefaultWorld => m_DefaultWorld;
+        public World DefaultWorld => m_WorldStrategy.DefaultWorld;
         public World ServerWorld
         {
             get { return m_ServerWorld; }
@@ -75,13 +152,16 @@ namespace Unity.NetCode.Tests
         /// </summary>
         public static int TickIndex { get; private set; }
 
-        private World m_DefaultWorld;
-        private World[] m_ClientWorlds;
-        private World m_ServerWorld;
+        private World m_DefaultWorld => m_WorldStrategy.DefaultWorld;
+        public World[] m_ClientWorlds;
+        public World m_ServerWorld;
         private ushort m_OldBootstrapAutoConnectPort;
         private bool m_DefaultWorldInitialized;
         private double m_ElapsedTime;
+        public int MaxFrameTime = 100;
         public int DriverFixedTime = 16;
+        public int ConnectTimeout = NetworkParameterConstants.ConnectTimeoutMS;
+        public int MaxConnectAttempts = NetworkParameterConstants.MaxConnectAttempts;
         public int DriverSimulatedDelay = 0;
         public int DriverSimulatedJitter = 0;
         public int DriverSimulatedDrop = 0;
@@ -93,6 +173,7 @@ namespace Unity.NetCode.Tests
         public int UseFakeSocketConnection = 1;
         private int WorldCreationIndex = 0;
         public NetCodeConfig m_OldGlobalConfig;
+        List<NetCodeConfig> m_OldConfigsList = new();
         NetCodeConfig m_GlobalConfigForTests;
 
         public int[] DriverFuzzFactor;
@@ -100,11 +181,15 @@ namespace Unity.NetCode.Tests
         public uint DriverRandomSeed = 0;
 
         private bool m_IsFirstTimeTicking = true;
+        internal bool m_IncludeNetcodeSystems;
 
 #if UNITY_EDITOR
         private List<GameObject> m_GhostCollection;
         private BlobAssetStore m_BlobAssetStore;
 #endif
+
+        public bool AlwaysDispose;
+        ITestWorldStrategy m_WorldStrategy;
 
         /// <summary>Configure how logging should occur in tests. We apply <see cref="LogLevel"/> and <see cref="DebugPackets"/> here.</summary>
         /// <param name="world">World to apply this config on.</param>
@@ -129,12 +214,19 @@ namespace Unity.NetCode.Tests
             // Not having a default world means RegisterUnloadOrPlayModeChangeShutdown has not been called which causes memory leaks
             DefaultWorldInitialization.DefaultLazyEditModeInitialize();
 #endif
+            m_OldConfigsList.AddRange(Resources.FindObjectsOfTypeAll<NetCodeConfig>());
             m_OldGlobalConfig = NetCodeConfig.Global;
             m_GlobalConfigForTests = useGlobalConfig ? ScriptableObject.CreateInstance<NetCodeConfig>() : null;
             NetCodeConfig.Global = m_GlobalConfigForTests;
+
+            if (m_GlobalConfigForTests != null)
+            {
+                if (m_OldGlobalConfig != null) m_OldGlobalConfig.IsGlobalConfig = false;
+                m_GlobalConfigForTests.IsGlobalConfig = true;
+            }
+
             m_OldBootstrapAutoConnectPort = ClientServerBootstrap.AutoConnectPort;
             ClientServerBootstrap.AutoConnectPort = 0;
-            m_DefaultWorld = new World("NetCodeTest");
             m_ElapsedTime = initialElapsedTime;
 #if !UNITY_SERVER || UNITY_EDITOR
             m_ElapsedTimeClient = initialElapsedTime;
@@ -146,40 +238,74 @@ namespace Unity.NetCode.Tests
 
         public void Dispose()
         {
+            // destroy configs that were generated by tests (the ones that weren't there when starting the test)
+            foreach (var config in Resources.FindObjectsOfTypeAll<NetCodeConfig>())
+            {
+                if (!m_OldConfigsList.Contains(config))
+                {
+                    Object.DestroyImmediate(config, allowDestroyingAssets: true);
+                }
+            }
+            m_WorldStrategy.Dispose();
             if (m_ClientWorlds != null)
             {
                 for (int i = 0; i < m_ClientWorlds.Length; ++i)
                 {
-                    if (m_ClientWorlds[i] != null)
-                    {
-                        m_ClientWorlds[i].Dispose();
-                    }
+                    m_WorldStrategy.DisposeClientWorld(m_ClientWorlds[i]);
                 }
             }
 
-            if (m_ServerWorld != null)
-                m_ServerWorld.Dispose();
-            if (m_DefaultWorld != null)
-                m_DefaultWorld.Dispose();
+            if (m_ServerWorld != null && m_ServerWorld.IsCreated) // already disposed above
+            {
+                //Assert.That(m_ServerWorld.IsHost(), Is.Not.True, "sanity check failed! world should already have been disposed above");
+                m_WorldStrategy.DisposeServerWorld(m_ServerWorld);
+            }
+
             m_ClientWorlds = null;
             m_ServerWorld = null;
-            m_DefaultWorld = null;
             ClientServerBootstrap.AutoConnectPort = m_OldBootstrapAutoConnectPort;
 
 #if UNITY_EDITOR
             if (m_GhostCollection != null)
                 m_BlobAssetStore.Dispose();
 #endif
-            if(m_GlobalConfigForTests)
-                UnityEngine.Object.DestroyImmediate(m_GlobalConfigForTests);
+            if (m_GlobalConfigForTests)
+                UnityEngine.Object.DestroyImmediate(m_GlobalConfigForTests, allowDestroyingAssets:true);
+            if (m_OldGlobalConfig != null)
+                m_OldGlobalConfig.IsGlobalConfig = true;
             NetCodeConfig.Global = m_OldGlobalConfig;
+            m_GlobalConfigForTests = null;
+            m_OldGlobalConfig = null;
+
+            // sanity check
+            {
+                List<World> toForceCleanup = new();
+                foreach (var world in World.All)
+                {
+                    if (world.IsClient() || world.IsServer() || world.IsThinClient())
+                    {
+                        Debug.LogError($"world {world} wasn't cleaned up, force cleaning now");
+                        toForceCleanup.Add(world);
+                    }
+                }
+
+                foreach (var world in toForceCleanup)
+                {
+                    world.Dispose();
+                }
+
+                if (toForceCleanup.Count > 0)
+                {
+                    Assert.Fail("world cleanup issue, sanity check failed");
+                }
+            }
         }
 
         public void DisposeAllClientWorlds()
         {
             for (int i = 0; i < m_ClientWorlds.Length; ++i)
             {
-                m_ClientWorlds[i].Dispose();
+                m_WorldStrategy.DisposeClientWorld(m_ClientWorlds[i]);
             }
 
             m_ClientWorlds = null;
@@ -187,14 +313,13 @@ namespace Unity.NetCode.Tests
 
         public void DisposeServerWorld()
         {
-            m_ServerWorld.Dispose();
+            m_WorldStrategy.DisposeServerWorld(m_ServerWorld);
             m_ServerWorld = null;
         }
 
         public void DisposeDefaultWorld()
         {
-            m_DefaultWorld.Dispose();
-            m_DefaultWorld = null;
+            m_WorldStrategy.DisposeDefaultWorld();
         }
 
         public void SetServerTick(NetworkTick tick)
@@ -211,19 +336,19 @@ namespace Unity.NetCode.Tests
             return world.EntityManager.GetComponentData<NetworkTime>(ent);
         }
 
-        private static IReadOnlyList<Type> s_AllClientSystems;
-        private static IReadOnlyList<Type> s_AllThinClientSystems;
-        private static IReadOnlyList<Type> s_AllServerSystems;
+        internal static IReadOnlyList<Type> s_AllClientSystems;
+        internal static IReadOnlyList<Type> s_AllThinClientSystems;
+        internal static IReadOnlyList<Type> s_AllServerSystems;
 
-        private static List<Type> m_ControlSystems;
-        private static List<Type> m_ClientSystems;
-        private static List<Type> m_ThinClientSystems;
-        private static List<Type> m_ServerSystems;
-        private static List<Type> m_BakingSystems;
+        internal static List<Type> m_ControlSystems;
+        internal static List<Type> m_ClientSystems;
+        internal static List<Type> m_ThinClientSystems;
+        internal static List<Type> m_ServerSystems;
+        internal static List<Type> m_BakingSystems;
 
         public List<string> TestSpecificAdditionalAssemblies = new List<string>(8);
 
-        int m_NumClients = -1;
+        int m_NumClients = 0;
 
         private static bool IsFromNetCodeAssembly(Type sys)
         {
@@ -250,6 +375,31 @@ namespace Unity.NetCode.Tests
 
         public void Bootstrap(bool includeNetCodeSystems, params Type[] userSystems)
         {
+            Bootstrap(includeNetCodeSystems, false, userSystems);
+        }
+
+        public void Bootstrap(bool includeNetCodeSystems, bool useNormalMainLoop, params Type[] userSystems)
+        {
+#if UNITY_6000_0_OR_NEWER
+            if (useNormalMainLoop)
+            {
+                m_WorldStrategy = new PlayModeTestWorldStrategy();
+            }
+            else
+            {
+                m_WorldStrategy = new EditModeTestWorldStrategy();
+            }
+#else
+            if (useNormalMainLoop)
+                Assert.Fail("PlayModeTestWorldStrategy is only supported in 6000.0 and newer, use EditModeTestWorldStrategy instead.");
+            m_WorldStrategy = new EditModeTestWorldStrategy();
+#endif
+
+
+            m_WorldStrategy.Bootstrap(this);
+
+            m_IncludeNetcodeSystems = includeNetCodeSystems;
+
             m_ControlSystems = new List<Type>(256);
             m_ClientSystems = new List<Type>(256);
             m_ThinClientSystems = new List<Type>(256);
@@ -275,6 +425,7 @@ namespace Unity.NetCode.Tests
             Func<Type, bool> filter = includeNetCodeSystems
                 ? IncludeNetcodeSystemsFilter
                 : IsFromTestSpecificAdditionalAssembly;
+            m_IncludeNetcodeSystems = includeNetCodeSystems;
 
             m_ClientSystems.AddRange(s_AllClientSystems.Where(filter));
             m_ThinClientSystems.AddRange(s_AllThinClientSystems.Where(filter));
@@ -322,9 +473,20 @@ namespace Unity.NetCode.Tests
             }
         }
 
-        public void CreateWorlds(bool server, int numClients, bool tickWorldAfterCreation = true, bool useThinClients = false)
+        public void CreateAdditionalClientWorlds(int numClients, bool tickWorldAfterCreation = true, bool useThinClients = false)
         {
-            m_NumClients = numClients;
+            CreateWorlds(false, numClients, tickWorldAfterCreation, useThinClients, throwIfWorldsAlreadyExist: false);
+        }
+
+        public void CreateWorlds(bool server, int numClients, bool tickWorldAfterCreation = true,
+            bool useThinClients = false, bool throwIfWorldsAlreadyExist = true)
+        {
+            CreateWorldsAsync(server, numClients, tickWorldAfterCreation, useThinClients, throwIfWorldsAlreadyExist).Wait();
+        }
+
+        public async Task CreateWorldsAsync(bool server, int numClients, bool tickWorldAfterCreation = true, bool useThinClients = false, bool throwIfWorldsAlreadyExist = true)
+        {
+            m_NumClients += numClients;
             var oldConstructor = NetworkStreamReceiveSystem.DriverConstructor;
             NetworkStreamReceiveSystem.DriverConstructor = this;
 #if UNITY_EDITOR || NETCODE_DEBUG
@@ -342,40 +504,41 @@ namespace Unity.NetCode.Tests
             var testMethodName = NUnit.Framework.TestContext.CurrentContext.Test.MethodName;
             if (server)
             {
-                if (m_ServerWorld != null)
+                if (m_ServerWorld != null && throwIfWorldsAlreadyExist)
                     throw new InvalidOperationException("Server world already created");
-                m_ServerWorld = CreateServerWorld($"ServerTest-{testMethodName}");
-#if UNITY_EDITOR
-                BakeGhostCollection(m_ServerWorld);
-#endif
-
+                m_ServerWorld = m_WorldStrategy.CreateServerWorld($"ServerTest-{testMethodName}");
                 SetupNetDebugConfig(m_ServerWorld);
             }
 
             if (numClients > 0)
             {
-                if (m_ClientWorlds != null)
+                var oldSize = m_ClientWorlds?.Length ?? 0;
+                var newSize = oldSize + numClients;
+
+                if (m_ClientWorlds != null && throwIfWorldsAlreadyExist)
                     throw new InvalidOperationException("Client worlds already created");
+                if (m_ClientWorlds == null)
+                    m_ClientWorlds = new World[newSize];
+                else
+                    Array.Resize(ref m_ClientWorlds, newSize);
+
                 WorldCreationIndex = 0;
-                m_ClientWorlds = new World[numClients];
-                for (int i = 0; i < numClients; ++i)
+                for (int i = oldSize; i < newSize; ++i)
                 {
                     try
                     {
                         WorldCreationIndex = i;
 
-                        m_ClientWorlds[i] = CreateClientWorld($"ClientTest{i}-{testMethodName}", useThinClients);
+                        m_ClientWorlds[i] = m_WorldStrategy.CreateClientWorld($"ClientTest{i}-{testMethodName}", useThinClients);
 
                         SetupNetDebugConfig(m_ClientWorlds[i]);
                     }
-                    catch (Exception)
+                    catch (Exception e)
                     {
                         m_ClientWorlds = null;
+                        Debug.LogException(e);
                         throw;
                     }
-#if UNITY_EDITOR
-                    BakeGhostCollection(m_ClientWorlds[i]);
-#endif
                 }
             }
 
@@ -384,11 +547,13 @@ namespace Unity.NetCode.Tests
 #endif
             NetworkStreamReceiveSystem.DriverConstructor = oldConstructor;
 
+            // This needs to execute before the first tick
+            TrySuppressNetDebug(true, true, hasServer: true);
+
             //Run 1 tick so that all the ghost collection and the ghost collection component run once.
             if (tickWorldAfterCreation)
-                Tick();
+                await TickAsync();
 
-            TrySuppressNetDebug(true, true);
         }
 
         /// <summary>
@@ -402,101 +567,47 @@ namespace Unity.NetCode.Tests
         /// This log can get very spammy in RPC tests, and it can bring down the logger (lol), so suppressed by default.
         /// </param>
         /// <remarks>Called multiple times as some tests don't tick until they've established a collection.</remarks>
-        public bool TrySuppressNetDebug(bool suppressRunInBackground, bool suppressApprovalRpc)
+        public bool TrySuppressNetDebug(bool suppressRunInBackground, bool suppressApprovalRpc, bool hasServer = true)
         {
-            var success = TryGetSingletonEntity<NetDebug>(ServerWorld) != default;
-            if (success)
+            var success = true;
+            if (hasServer && (AlwaysDispose || ServerWorld.IsCreated))
             {
-                ref var netDebug = ref GetSingletonRW<NetDebug>(ServerWorld).ValueRW;
-                netDebug.SuppressApplicationRunInBackgroundWarning = suppressRunInBackground;
-                netDebug.SuppressApprovalRpcSentWhenApprovalFlowDisabledWarning = suppressApprovalRpc;
+                success &= TryGetSingletonEntity<NetDebug>(ServerWorld) != default;
+                if (success)
+                {
+                    ref var netDebug = ref GetSingletonRW<NetDebug>(ServerWorld).ValueRW;
+                    netDebug.SuppressApplicationRunInBackgroundWarning = suppressRunInBackground;
+                    netDebug.SuppressApprovalRpcSentWhenApprovalFlowDisabledWarning = suppressApprovalRpc;
+                }
             }
 
             if (ClientWorlds != null)
             {
                 foreach (var clientWorld in ClientWorlds)
                 {
-                    success &= TryGetSingletonEntity<NetDebug>(clientWorld) != default;
-                    if (success)
+                    if (AlwaysDispose || clientWorld.IsCreated)
                     {
-                        ref var netDebug = ref GetSingletonRW<NetDebug>(clientWorld).ValueRW;
-                        netDebug.SuppressApplicationRunInBackgroundWarning = suppressRunInBackground;
-                        netDebug.SuppressApprovalRpcSentWhenApprovalFlowDisabledWarning = suppressApprovalRpc;
+                        var foundClient = TryGetSingletonEntity<NetDebug>(clientWorld) != Entity.Null;
+                        if (foundClient)
+                        {
+                            ref var netDebug = ref GetSingletonRW<NetDebug>(clientWorld).ValueRW;
+                            netDebug.SuppressApplicationRunInBackgroundWarning = suppressRunInBackground;
+                            netDebug.SuppressApprovalRpcSentWhenApprovalFlowDisabledWarning = suppressApprovalRpc;
+                        }
+                        success &= foundClient;
                     }
                 }
             }
             return success;
         }
 
-        public World CreateServerWorld(string name, World world = null)
+        public void ApplyDT(float dt)
         {
-            if (world == null)
-                world = new World(name, WorldFlags.GameServer);
-
-            TypeManager.SortSystemTypesInCreationOrder(m_ServerSystems); // Ensure CreationOrder is respected.
-            DefaultWorldInitialization.AddSystemsToRootLevelSystemGroups(world, m_ServerSystems);
-            var initializationGroup = world.GetExistingSystemManaged<InitializationSystemGroup>();
-            var simulationGroup = world.GetExistingSystemManaged<SimulationSystemGroup>();
-            world.GetExistingSystemManaged<UpdateWorldTimeSystem>().Enabled = false;
-#if !UNITY_CLIENT || UNITY_EDITOR
-            var initializationTickSystem = m_DefaultWorld.GetExistingSystemManaged<TickServerInitializationSystem>();
-            var simulationTickSystem = m_DefaultWorld.GetExistingSystemManaged<TickServerSimulationSystem>();
-            initializationTickSystem.AddSystemGroupToTickList(initializationGroup);
-            simulationTickSystem.AddSystemGroupToTickList(simulationGroup);
-#endif
-            ClientServerBootstrap.ServerWorlds.Add(world);
-            return world;
+            ApplyDTServer(dt);
+            ApplyDTClient(dt);
         }
 
-        private World CreateClientWorld(string name, bool thinClient, World world = null)
-        {
-            if (world == null)
-                world = new World(name, thinClient ? WorldFlags.GameThinClient : WorldFlags.GameClient);
-
-            // TODO: GameThinClient for ThinClientSystem for ultra thin
-            TypeManager.SortSystemTypesInCreationOrder(m_ClientSystems); // Ensure CreationOrder is respected.
-            DefaultWorldInitialization.AddSystemsToRootLevelSystemGroups(world, m_ClientSystems);
-            var initializationGroup = world.GetExistingSystemManaged<InitializationSystemGroup>();
-            var simulationGroup = world.GetExistingSystemManaged<SimulationSystemGroup>();
-            var presentationGroup = world.GetExistingSystemManaged<PresentationSystemGroup>();
-            world.GetExistingSystemManaged<UpdateWorldTimeSystem>().Enabled = false;
-#if !UNITY_SERVER || UNITY_EDITOR
-            var initializationTickSystem = m_DefaultWorld.GetExistingSystemManaged<TickClientInitializationSystem>();
-            var simulationTickSystem = m_DefaultWorld.GetExistingSystemManaged<TickClientSimulationSystem>();
-            var presentationTickSystem = m_DefaultWorld.GetExistingSystemManaged<TickClientPresentationSystem>();
-            initializationTickSystem.AddSystemGroupToTickList(initializationGroup);
-            simulationTickSystem.AddSystemGroupToTickList(simulationGroup);
-            presentationTickSystem.AddSystemGroupToTickList(presentationGroup);
-#endif
-            ClientServerBootstrap.ClientWorlds.Add(world);
-            return world;
-        }
-
-        const float k_defaultDT = 1f / 60f;
-        public void TickMultiple( int numTicks, float dt = k_defaultDT)
-        {
-            for ( int t=0; t<numTicks; ++t )
-            {
-                Tick(dt);
-            }
-        }
-
-        public void Tick(float dt = k_defaultDT)
-        {
-#if !UNITY_CLIENT || UNITY_EDITOR
-            TickServerOnly(dt);
-#endif
-#if !UNITY_SERVER || UNITY_EDITOR
-            TickClientOnly(dt);
-#endif
-
-#if USING_UNITY_LOGGING
-            // Flush the pending logs since the system doing that might not have run yet which means Log.Expect does not work
-            Logging.Internal.LoggerManager.ScheduleUpdateLoggers().Complete();
-#endif
-        }
-
-        public void TickServerOnly(float dt = 1 / 60f)
+        public void ApplyDTServer(float dt)
         {
             ++TickIndex;
             //Debug.Log($"[{TickIndex}]: TICK");
@@ -514,18 +625,13 @@ namespace Unity.NetCode.Tests
             {
                 m_ServerWorld.SetTime(new TimeData(m_ElapsedTime, dt));
             }
-
-            TickServerWorld();
         }
 
-#if !UNITY_SERVER || UNITY_EDITOR
         private bool m_IsFirstTimeTickingClient = true;
         private double m_ElapsedTimeClient = 0;
         public static int ClientTickIndex { get; private set; }
 
-        // This is close to the same as the Tick method, but only ticks the client world
-        // This is useful if a test needs to do partial ticks without ticking the server, or to get very specific timings between server and client
-        public void TickClientOnly(float dt = 1 / 60f)
+        public void ApplyDTClient(float dt)
         {
             ++ClientTickIndex;
             if (m_IsFirstTimeTickingClient)
@@ -541,36 +647,60 @@ namespace Unity.NetCode.Tests
             {
                 foreach (var clientWorld in m_ClientWorlds)
                 {
-                    clientWorld.SetTime(new TimeData(m_ElapsedTimeClient, dt));
+                    if (clientWorld.IsCreated)
+                        clientWorld.SetTime(new TimeData(m_ElapsedTimeClient, dt));
                 }
             }
-
-            TickClientWorld();
         }
 
-        public void TickClientWorld()
-        {
-            k_TickClientInitializationSystem.Begin();
-            m_DefaultWorld.GetExistingSystemManaged<TickClientInitializationSystem>().Update();
-            k_TickClientInitializationSystem.End();
-            k_TickClientSimulationSystem.Begin();
-            m_DefaultWorld.GetExistingSystemManaged<TickClientSimulationSystem>().Update();
-            k_TickClientSimulationSystem.End();
-            k_TickClientPresentationSystem.Begin();
-            m_DefaultWorld.GetExistingSystemManaged<TickClientPresentationSystem>().Update();
-            k_TickClientPresentationSystem.End();
-        }
-#endif
+        const float k_defaultDT = 1f / 60f;
 
-#if !UNITY_CLIENT || UNITY_EDITOR
-        public void TickServerWorld()
+        public void Tick(float dt = k_defaultDT)
         {
-            k_TickServerInitializationSystem.Begin();
-            m_DefaultWorld.GetExistingSystemManaged<TickServerInitializationSystem>().Update();
-            k_TickServerInitializationSystem.End();
-            k_TickServerSimulationSystem.Begin();
-            m_DefaultWorld.GetExistingSystemManaged<TickServerSimulationSystem>().Update();
-            k_TickServerSimulationSystem.End();
+            m_WorldStrategy.TickNoAwait(dt);
+        }
+
+        public void TickMultiple( int numTicks, float dt = k_defaultDT)
+        {
+            for ( int t=0; t<numTicks; ++t )
+            {
+                Tick(dt);
+            }
+        }
+
+        /// <summary>
+        /// Executes a full engine frame, including all systems.
+        /// This will execute until the EndOfFrame, contrary to yield return null which executes until after Update()
+        /// In edit mode tests, this ticks NetcodeTestWorld normally with no frame yield and so this method is not really async.
+        /// </summary>
+        /// <param name="dt"></param>
+        /// <param name="waitInstruction">By default, ticking ticks for the full frame (so until EndOfFrame). To end up in a different part of the frame, use Awaitable.Something to and pass it in as an argument here.</param>
+        /// <returns></returns>
+        public async Task TickAsync(float dt=k_defaultDT, NetcodeAwaitable waitInstruction = null)
+        {
+            await m_WorldStrategy.TickAsync(dt, waitInstruction);
+        }
+
+        public async Task TickMultipleAsync(int count, float dt = k_defaultDT, NetcodeAwaitable waitInstruction = null)
+        {
+            for (int i = 0; i < count; i++)
+            {
+                await TickAsync(dt, waitInstruction);
+            }
+        }
+
+        public void TickServerWorld(float dt = k_defaultDT)
+        {
+            m_WorldStrategy.TickServerWorld(dt);
+        }
+
+#if !UNITY_SERVER || UNITY_EDITOR
+
+        // This is close to the same as the Tick method, but only ticks the client world
+        // This is useful if a test needs to do partial ticks without ticking the server, or to get very specific timings between server and client
+        public void TickClientWorld(float dt = k_defaultDT)
+        {
+            m_WorldStrategy.TickClientWorld(dt);
         }
 #endif
 
@@ -585,11 +715,11 @@ namespace Unity.NetCode.Tests
             }
 
             var ticket = migrationSystem.StoreWorld(ServerWorld);
-            ServerWorld.Dispose();
+            DisposeServerWorld();
 
             Assert.True(suppliedWorld == null || suppliedWorld.IsServer());
             var newWorld = migrationSystem.LoadWorld(ticket, suppliedWorld);
-            m_ServerWorld = CreateServerWorld(newWorld.Name, newWorld);
+            m_ServerWorld = m_WorldStrategy.CreateServerWorld(newWorld.Name, newWorld);
 
             Assert.True(newWorld.Name == m_ServerWorld.Name);
 
@@ -610,14 +740,19 @@ namespace Unity.NetCode.Tests
             }
 
             var ticket = migrationSystem.StoreWorld(ClientWorlds[index]);
-            ClientWorlds[index].Dispose();
+            m_WorldStrategy.DisposeClientWorld(ClientWorlds[index]);
 
             var newWorld = migrationSystem.LoadWorld(ticket, suppliedWorld);
-            m_ClientWorlds[index] = CreateClientWorld(newWorld.Name, false, newWorld);
+            m_ClientWorlds[index] = m_WorldStrategy.CreateClientWorld(newWorld.Name, false, newWorld);
 
             Assert.True(newWorld.Name == m_ClientWorlds[index].Name);
 
             TrySuppressNetDebug(true, true);
+        }
+
+        public World CreateServerWorld(string name, World world = null)
+        {
+            return m_WorldStrategy.CreateServerWorld(name, world);
         }
 
         public void RestartClientWorld(int index)
@@ -626,57 +761,22 @@ namespace Unity.NetCode.Tests
             NetworkStreamReceiveSystem.DriverConstructor = this;
 
             var name = m_ClientWorlds[index].Name;
-            m_ClientWorlds[index].Dispose();
+            m_WorldStrategy.DisposeClientWorld(ClientWorlds[index]);
 
-            m_ClientWorlds[index] = CreateClientWorld(name, false);
+            m_ClientWorlds[index] = m_WorldStrategy.CreateClientWorld(name, false);
+            SetupNetDebugConfig(ClientWorlds[index]);
             NetworkStreamReceiveSystem.DriverConstructor = oldConstructor;
         }
 
         public void CreateClientDriver(World world, ref NetworkDriverStore driverStore, NetDebug netDebug)
         {
-            var packetDelay = DriverSimulatedDelay;
-            int networkRate = 60;
-
-            // All 3 packet types every frame stored for maximum delay, doubled for safety margin
-            int maxPackets = 2 * (networkRate * 3 * (packetDelay + DriverSimulatedJitter) + 999) / 1000;
-
-            var fuzzFactor = 0;
-            // We name it "ClientTestXX-NameOfTest", so extract the XX.
-            var worldId = CalculateWorldId(world);
-            if (DriverFuzzFactor?.Length >= worldId + 1)
-            {
-                fuzzFactor = DriverFuzzFactor[worldId];
-            }
-
-            var simParams = new SimulatorUtility.Parameters
-            {
-                Mode = DriverSimulatorPacketMode,
-                MaxPacketSize = NetworkParameterConstants.MTU, MaxPacketCount = maxPackets,
-                PacketDelayMs = packetDelay,
-                PacketJitterMs = DriverSimulatedJitter,
-                PacketDropInterval = DriverSimulatedDrop,
-                FuzzFactor = fuzzFactor,
-                FuzzOffset = DriverFuzzOffset,
-                RandomSeed = DriverRandomSeed
-            };
-            var networkSettings = new NetworkSettings();
-            networkSettings
-                .WithReliableStageParameters(windowSize:DriverReliablePipelineWindowSize)
-                .WithFragmentationStageParameters(payloadCapacity:DriverFragmentedPayloadCapacity)
-                .WithNetworkConfigParameters
-            (
-                maxFrameTimeMS: 100,
-                fixedFrameTimeMS: DriverFixedTime,
-                maxMessageSize: DriverMaxMessageSize
-            );
-            networkSettings.AddRawParameterStruct(ref simParams);
-
             //We are forcing here the connection type to be a socket but thxe connection is instead based on IPC.
             //The reason for that is that we want to be able to disable any check/logic that optimise for that use case
             //by default in the test.
             //It is possible however to disable this behavior using the provided opt
             var transportType = UseFakeSocketConnection == 1 ? TransportType.Socket : TransportType.IPC;
 
+            var networkSettings = GetClientNetworkSettings(world, out int fuzzFactor);
             var driverInstance = new NetworkDriverStore.NetworkDriverInstance();
             if (UseMultipleDrivers == 0)
                 driverInstance.driver = NetworkDriver.Create(new IPCNetworkInterface(), networkSettings);
@@ -690,11 +790,9 @@ namespace Unity.NetCode.Tests
                 {
                     driverInstance.driver = NetworkDriver.Create(new UDPNetworkInterface(), networkSettings);
                 }
-
             }
 
             //Fake the driver as it is always using a socket, even though we are also using IPC as a transport medium
-
             if (DriverSimulatedDelay + fuzzFactor > 0)
             {
                 DefaultDriverBuilder.CreateClientSimulatorPipelines(ref driverInstance);
@@ -707,6 +805,55 @@ namespace Unity.NetCode.Tests
             }
         }
 
+        public NetworkSettings GetClientNetworkSettings(World world, out int fuzzFactor)
+        {
+            var packetDelay = DriverSimulatedDelay;
+            int networkRate = 60;
+
+            // All 3 packet types every frame stored for maximum delay, doubled for safety margin
+            int maxPackets = 2 * (networkRate * 3 * (packetDelay + DriverSimulatedJitter) + 999) / 1000;
+
+            fuzzFactor = 0;
+            // We name it "ClientTestXX-NameOfTest", so extract the XX.
+            var worldId = CalculateWorldId(world);
+            if (DriverFuzzFactor?.Length >= worldId + 1)
+            {
+                fuzzFactor = DriverFuzzFactor[worldId];
+            }
+
+            var simParams = new SimulatorUtility.Parameters
+            {
+                Mode = DriverSimulatorPacketMode,
+                MaxPacketSize = NetworkParameterConstants.MTU,
+                MaxPacketCount = maxPackets,
+                PacketDelayMs = packetDelay,
+                PacketJitterMs = DriverSimulatedJitter,
+                PacketDropInterval = DriverSimulatedDrop,
+                FuzzFactor = fuzzFactor,
+                FuzzOffset = DriverFuzzOffset,
+                RandomSeed = DriverRandomSeed
+            };
+            var networkSettings = new NetworkSettings();
+            networkSettings
+                .WithReliableStageParameters(windowSize:DriverReliablePipelineWindowSize)
+                .WithFragmentationStageParameters(payloadCapacity:DriverFragmentedPayloadCapacity)
+                .WithNetworkConfigParameters
+                (
+                    maxFrameTimeMS: MaxFrameTime,
+                    fixedFrameTimeMS: DriverFixedTime,
+                    connectTimeoutMS: ConnectTimeout,
+                    maxConnectAttempts: MaxConnectAttempts,
+                    maxMessageSize: DriverMaxMessageSize
+                );
+            if (DriverFuzzFactor != null ||
+                DriverSimulatedJitter != 0 ||
+                DriverSimulatedDrop != 0 ||
+                DriverSimulatedDelay != 0)
+                networkSettings.AddRawParameterStruct(ref simParams);
+
+            return networkSettings;
+        }
+
         public static int CalculateWorldId(World world)
         {
             var regex = new Regex(@"(ClientTest)(\d)", RegexOptions.Singleline);
@@ -716,15 +863,7 @@ namespace Unity.NetCode.Tests
 
         public void CreateServerDriver(World world, ref NetworkDriverStore driverStore, NetDebug netDebug)
         {
-            var networkSettings = new NetworkSettings();
-            networkSettings
-                .WithReliableStageParameters(windowSize: DriverReliablePipelineWindowSize)
-                .WithFragmentationStageParameters(payloadCapacity:DriverFragmentedPayloadCapacity)
-                .WithNetworkConfigParameters(
-                maxFrameTimeMS: 100,
-                fixedFrameTimeMS: DriverFixedTime,
-                maxMessageSize: DriverMaxMessageSize
-            );
+            var networkSettings = GetServerNetworkSettings();
             var driverInstance = new NetworkDriverStore.NetworkDriverInstance();
             driverInstance.driver = NetworkDriver.Create(new IPCNetworkInterface(), networkSettings);
             DefaultDriverBuilder.CreateServerPipelines(ref driverInstance);
@@ -738,10 +877,30 @@ namespace Unity.NetCode.Tests
             }
         }
 
+        public NetworkSettings GetServerNetworkSettings()
+        {
+            var networkSettings = new NetworkSettings();
+            networkSettings
+                .WithReliableStageParameters(windowSize: DriverReliablePipelineWindowSize)
+                .WithFragmentationStageParameters(payloadCapacity:DriverFragmentedPayloadCapacity)
+                .WithNetworkConfigParameters(
+                    maxFrameTimeMS: MaxFrameTime,
+                    fixedFrameTimeMS: DriverFixedTime,
+                    maxMessageSize: DriverMaxMessageSize
+                );
+
+            return networkSettings;
+        }
+
+        public void Connect(float dt = k_defaultDT, int maxSteps = 7, bool failTestIfConnectionFails = true, bool tickUntilConnected = true)
+        {
+            ConnectAsync(dt, maxSteps, failTestIfConnectionFails, tickUntilConnected).Wait();
+        }
+
         /// <summary>
         /// Will throw if connect fails.
         /// </summary>
-        public void Connect(float dt = k_defaultDT, int maxSteps = 7, bool failTestIfConnectionFails = true)
+        public async Task ConnectAsync(float dt = k_defaultDT, int maxSteps = 7, bool failTestIfConnectionFails = true, bool tickUntilConnected = true)
         {
             var ep = NetworkEndpoint.LoopbackIpv4;
             ep.Port = 7979;
@@ -750,31 +909,49 @@ namespace Unity.NetCode.Tests
             for (int i = 0; i < ClientWorlds.Length; ++i)
                 connectionEntities[i] = GetSingletonRW<NetworkStreamDriver>(ClientWorlds[i]).ValueRW.Connect(ClientWorlds[i].EntityManager, ep);
             int stepsLeft = maxSteps;
-            for (int i = 0; i < ClientWorlds.Length; ++i)
+            if (tickUntilConnected)
             {
-                while (TryGetSingletonEntity<NetworkId>(ClientWorlds[i]) == Entity.Null)
+                for (int i = 0; i < ClientWorlds.Length; ++i)
                 {
-
-                    if (stepsLeft <= 0)
-                    {
-                        var streamDriver = GetSingleton<NetworkStreamDriver>(ClientWorlds[i]);
-                        if (failTestIfConnectionFails)
-                        {
-                            string connectionState = "No_NetworkConnection_Entity_Left";
-                            if (ClientWorlds[i].EntityManager.Exists(connectionEntities[i]))
-                            {
-                                var nsc = ClientWorlds[i].EntityManager.GetComponentData<NetworkStreamConnection>(connectionEntities[i]);
-                                connectionState = $"{connectionEntities[i].ToFixedString()} NetworkStreamConnection[{nsc.Value.ToFixedString()}-{nsc.CurrentState.ToString()}]";
-                            }
-                            Assert.Fail($"ClientWorld[{i}] failed to connect to the server after {maxSteps} ticks! Driver status: {connectionState}!");
-                        }
-                        return;
-                    }
-                    --stepsLeft;
-                    Tick(dt);
+                    await TickUntilConnectedAsync(ClientWorlds[i], dt, stepsLeft, connectionEntities[i], failTestIfConnectionFails);
                 }
             }
         }
+
+        public void TickUntilConnected(World world, float dt = k_defaultDT, int maxSteps = 7, Entity connectionEntity = default, bool failTestIfConnectionFails = true)
+        {
+            TickUntilConnectedAsync(world, dt, maxSteps, connectionEntity, failTestIfConnectionFails).Wait();
+        }
+
+        public async Task TickUntilConnectedAsync(World world, float dt = k_defaultDT, int maxSteps = 7, Entity connectionEntity = default, bool failTestIfConnectionFails = true)
+        {
+            var initialMaxSteps = maxSteps;
+            int stepsLeft = maxSteps;
+
+            while (TryGetSingletonEntity<NetworkId>(world) == Entity.Null)
+            {
+
+                if (stepsLeft <= 0)
+                {
+                    var streamDriver = GetSingleton<NetworkStreamDriver>(world);
+                    if (failTestIfConnectionFails)
+                    {
+                        string connectionState = "No_NetworkConnection_Entity_Left";
+                        if (world.EntityManager.Exists(connectionEntity))
+                        {
+                            var nsc = world.EntityManager.GetComponentData<NetworkStreamConnection>(connectionEntity);
+                            connectionState = $"{connectionEntity.ToFixedString()} NetworkStreamConnection[{nsc.Value.ToFixedString()}-{nsc.CurrentState.ToString()}]";
+                        }
+                        Assert.Fail($"ClientWorld[{world.Name}] failed to connect to the server after {initialMaxSteps} ticks! Driver status: {connectionState}!");
+                    }
+
+                    return;
+                }
+                --stepsLeft;
+                await m_WorldStrategy.TickAsync(dt);
+            }
+        }
+
         public void StartSeverListen()
         {
             var ep = NetworkEndpoint.LoopbackIpv4;
@@ -1133,6 +1310,11 @@ namespace Unity.NetCode.Tests
                 }
             }
 #endif
+        }
+
+        internal void RemoveWorldFromUpdateList(World world)
+        {
+            m_WorldStrategy.RemoveWorldFromUpdateList(world);
         }
     }
 }

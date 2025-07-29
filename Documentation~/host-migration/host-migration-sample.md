@@ -2,9 +2,6 @@
 
 This sample demonstrates an implementation of [host migration](host-migration.md) in Netcode for Entities using the Asteroids sample as a base.
 
-> [!NOTE]
-> Host migration is an experimental feature so the API and implementation can change in the future. By default it's not exposed, enable it by adding the `ENABLE_HOST_MIGRATION` define in the __Scripting Define Symbols__ in the __Player__ tab of the project settings.
-
 For more general information about host migration in Netcode for Entities, refer to the [host migration page](host-migration.md).
 
 ## Requirements

@@ -1,32 +1,33 @@
 # Netcode Project Settings reference
 
-Netcode derives classes Entities __DOTS Settings__ to define Netcode-specific settings.
-To open these Project Settings, go to **Edit** &gt; **Project Settings** &gt; **Entities**.
+Netcode for Entities uses classes from the [Entities](https://docs.unity3d.com/Packages/com.unity.entities@latest?subfolder=/manual/index.html) **DOTS Settings** to define Netcode-specific settings. To open these project settings, go to **Edit** > **Project Settings** > **Entities**.
 
-## Netcode Client Target (a.k.a. Client Hosted Servers)
-The `Netcode Client Target` dropdown determines whether or not you want the resulting client build to **_support_** hosting server worlds in-process.
+## Netcode Client Target
 
-| NCT               | Use-cases      |
+The **Netcode Client Target** dropdown menu determines whether the resulting client build supports hosting server worlds in-process.
+
+| Netcode Client Target               | Use-cases      |
 |-------------------|--------------------------------------------|
-| `ClientAndServer` | - You want users to be able to host their own servers (via UI) in the main game executable.<br/>Calling `ClientServerBootstrap.CreateServerWorld` will work.  |
-| `ClientOnly`      | - You only want the server to be hosted by you - the developer.<br/>- You want to ship a DGS (Dedicated Game Server) executable alongside your game executable. Use `ClientOnly` for the game client build and `ClientAndServer` for the DGS build (automatic).<br/>Your players won't have access to server server hosting functionality.<br/>Calling `ClientServerBootstrap.CreateServerWorld` throws a NotSupportedException. |
+| `ClientAndServer` | Users can host their own servers (via UI) in the main game executable. Calling `ClientServerBootstrap.CreateServerWorld` will work.  |
+| `ClientOnly`      | The server can only be hosted by you, the developer. Use this option to ship a DGS (Dedicated Game Server) executable alongside your game executable. Use `ClientOnly` for the game client build and `ClientAndServer` for the DGS build (automatic). Your players won't have access to server hosting functionality and calling `ClientServerBootstrap.CreateServerWorld` throws a `NotSupportedException`. |
 
-This setting is only valid for non-DGS build targets. We support "client hosted servers" in standalone, console, and mobile.
+The **Build Type** setting is only valid for non-DGS build targets. Client-hosted servers are supported in standalone, console, and mobile builds.
 
 | Build Type            | Netcode Client Target | Defines                                                                                                |
 |-----------------------|-----------------------|-------------------------------------------------------------------------------------------------------|
-| Standalone Client     | ClientAndServer      | Neither the `UNITY_CLIENT`, nor the `UNITY_SERVER` are set (i.e. not in built players, nor in-editor). |
-| Standalone Client     | ClientOnly           | The `UNITY_CLIENT` define will be set in the build (**but not in-editor**).                            |
-| Dedicated Game Server | n/a                   | The `UNITY_SERVER` define will be set in the build (**but not in-editor**).                           |
+| Standalone Client     | `ClientAndServer`      | Neither the `UNITY_CLIENT`, nor the `UNITY_SERVER` are set (not in built players, nor in-Editor). |
+| Standalone Client     | `ClientOnly`           | The `UNITY_CLIENT` define is set in the build (but not in-Editor).                            |
+| Dedicated Game Server | N/A                   | The `UNITY_SERVER` define is set in the build (but not in-Editor).                           |
 
-For either build type, specific baking filters can be specified in the `DOTS` `ProjectSettings`:
+For either build type, specific baking filters can be specified in the DOTS project settings, as described in the following section.
 
-## Excluded Baking System Assemblies
-To build a standalone server, you need to switch to a `Dedicated Server` platform. When building a server, the `UNITY_SERVER` define is set automatically (and also automatically set in the editor). <br/>
-The `DOTS` project setting will reflect this change, by using the setting for the server build type.
+### Excluded Baking System Assemblies
 
-## Additional Scripting Defines
-Use the following scripting defines to determine mode-specific baking settings (via `Excluded Baking System Assemblies` and `Additional Scripting Defines`) for both the editor and builds. For example, the inclusion and exclusion of specific C# assemblies.
+To build a standalone server, you need to switch to a `Dedicated Server` platform. When building a server, the `UNITY_SERVER` define is set automatically (and also automatically set in the Editor). The DOTS project setting will reflect this change by using the setting for the server build type.
+
+### Additional Scripting Defines
+
+Use the following scripting defines to determine mode-specific baking settings (via `Excluded Baking System Assemblies` and `Additional Scripting Defines`) for both the Editor and builds. For example, the inclusion and exclusion of specific C# assemblies.
 
 | Setting                           | Description    |
 |---------------------------------------|-------------------|
@@ -34,19 +35,19 @@ Use the following scripting defines to determine mode-specific baking settings (
 | **Excluded Baking System Assemblies** | Add assembly definition assets to exclude from the baking system. You can set this for both client and server setups. |
 | **Additional Scripting Defines**      | Add additional [scripting defines](https://docs.unity3d.com/Manual/CustomScriptingSymbols.html) to exclude specific client or server code from compilation. |
 
+## `NetCodeConfig` ScriptableObject
+
+Netcode for Entities has a [ScriptableObject](https://docs.unity3d.com/Manual/class-ScriptableObject.html) called `NetCodeConfig` that allows you to change `ClientServerTickRate`, `ClientTickRate`, `GhostSendSystemData`, and `NetworkConfigParameter` (from Unity Transport) parameters without writing any C#. It also has a dedicated 'Netcode for Entities' Project Settings page under **Edit** > **Project Settings** > **Multiplayer**.  Refer to the [`NetCodeConfig` API documentation](https://docs.unity3d.com/Packages/com.unity.netcode@latest/index.html?subfolder=/api/Unity.NetCode.NetCodeConfig.html) for more information on each property.
+
+You can also refer to the API documentation for [`ClientServerTickRate`](https://docs.unity3d.com/Packages/com.unity.netcode@latest/index.html?subfolder=/api/Unity.NetCode.ClientServerTickRate.html), [`ClientTickRate`](https://docs.unity3d.com/Packages/com.unity.netcode@latest/index.html?subfolder=/api/Unity.NetCode.ClientTickRate.html), [GhostSendSystemData](https://docs.unity3d.com/Packages/com.unity.netcode@latest/index.html?subfolder=/api/Unity.NetCode.GhostSendSystemData.html), and [`NetworkConfigParameter`](https://docs.unity3d.com/Packages/com.unity.transport@latest/index.html?subfolder=/api/Unity.Networking.Transport.NetworkConfigParameter.html).
+
+### Using  `NetCodeConfig`
+
+1. Create a `NetCodeConfig` ScriptableObject via either Unity's **Create** menu, the **Multiplayer** menu, or the **Project Settings** helper button. Default values are the recommended defaults.
+2. Open the **Multiplayer Project Settings** window, and set your ScriptableObject as the global one.
+    * **Warning**: This action may cause runtime errors in your project, as this config will clobber any user-code which adds, removes, or modifies these singleton components directly.
+3. Modify any settings you'd like to. Most fields support live-tweaking, and those that don't are disabled during Play mode.
+
 ## Additional resources
 
 * [Entities Project Settings reference](https://docs.unity3d.com/Packages/com.unity.entities@latest/index.html?subfolder=/manual/editor-project-settings.html)
-
-## NetCode Config ScriptableObject
-We added a ScriptableObject asset, removing the need to write C# to tweak `ClientServerTickRate`, `ClientTickRate`, and `GhostSendSystemData` parameters.
-We also added a dedicated 'Netcode for Entities' Project Settings page. Find it via **Edit** &gt; **Project Settings** &gt; **Netcode for Entities**.
-
-> [!NOTE]
-> We will soon be consolidating netcode settings under this label.
-
-### Using the Config
-
-1. Create a NetCodeConfig ScriptableObject via either Unity's Create menu, our Multiplayer menu, or the Project Settings helper button. Default values are our recommended defaults.
-2. Open the Netcode for Entities Project Settings window, and set your ScriptableObject as the global one.<br>**Warning**: This action may cause runtime errors in your project, as this config will clobber any user-code which adds, removes, or modifies these singleton components directly.
-3. Modify any settings you'd like to. Most fields support live-tweaking, and those that don't are disabled during play-mode.

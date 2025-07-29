@@ -1,0 +1,33 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <TargetFramework>net6.0</TargetFramework>
+    <Nullable>disable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <Deterministic>True</Deterministic>
+    <PlatformTarget>AnyCPU</PlatformTarget>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AssemblyName>NetcodeMock</AssemblyName>
+    <RootNamespace>NetcodeMock</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="..\..\..\..\..\..\com.unity.entities\Unity.Entities\SourceGenerators\Source~\Mock\Unity.Burst.Mock\BurstMock.cs">
+      <Link>Mock\Unity.Burst.Mock\BurstMock.cs</Link>
+    </Compile>
+    <Compile Include="..\..\..\..\..\..\com.unity.entities\Unity.Entities\SourceGenerators\Source~\Mock\Unity.Collections.Mock\CollectionsMock.cs">
+      <Link>Mock\Unity.Collections.Mock\CollectionsMock.cs</Link>
+    </Compile>
+    <Compile Include="..\..\..\..\..\..\com.unity.entities\Unity.Entities\SourceGenerators\Source~\Mock\Unity.Entities.Mock\EntitiesInternalMock.cs">
+      <Link>Mock\Unity.Entities.Mock\EntitiesInternalMock.cs</Link>
+    </Compile>
+    <Compile Include="..\..\..\..\..\..\com.unity.entities\Unity.Entities\SourceGenerators\Source~\Mock\Unity.Entities.Mock\EntitiesMock.cs">
+      <Link>Mock\Unity.Entities.Mock\EntitiesMock.cs</Link>
+    </Compile>
+    <Compile Include="..\..\..\..\..\..\com.unity.entities\Unity.Entities\SourceGenerators\Source~\Mock\Unity.Entities.Mock\LambdaJobDescription.cs">
+      <Link>Mock\Unity.Entities.Mock\LambdaJobDescription.cs</Link>
+    </Compile>
+  </ItemGroup>
+
+</Project>

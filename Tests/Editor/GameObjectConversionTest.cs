@@ -151,6 +151,7 @@ namespace Unity.NetCode.Tests
         public int Value;
     }
 
+    [Category(NetcodeTestCategories.Foundational)]
     internal class GameObjectConversionTest
     {
         void CheckComponent(World w, ComponentType testType, int expectedCount)

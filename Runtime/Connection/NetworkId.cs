@@ -102,12 +102,10 @@ namespace Unity.NetCode
             else
             {
                 parameters.CommandBuffer.SetComponent(parameters.JobIndex, parameters.ClientConnectionUniqueIdEntity, new ConnectionUniqueId() { Value = rpcData.UniqueId });
-#if ENABLE_HOST_MIGRATION
                 if (parameters.ClientCurrentConnectionUniqueId == rpcData.UniqueId)
                 {
                     parameters.CommandBuffer.AddComponent<NetworkStreamIsReconnected>(parameters.JobIndex, parameters.Connection);
                 }
-#endif
             }
 
             parameters.CommandBuffer.AddComponent<ConnectionApproved>(parameters.JobIndex, parameters.Connection);

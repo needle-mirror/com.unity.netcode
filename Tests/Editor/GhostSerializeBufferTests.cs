@@ -242,6 +242,7 @@ namespace Unity.NetCode.Tests
     internal partial class DynamicBufferSerializationTests
     {
         [Test]
+        [Category(NetcodeTestCategories.Foundational)]
         public void BuffersAreSerialized()
         {
             using (var testWorld = new NetCodeTestWorld())
@@ -316,6 +317,7 @@ namespace Unity.NetCode.Tests
         }
 
         [Test]
+        [Category(NetcodeTestCategories.Foundational)]
         public void BuffersCanChangeSize()
         {
             using (var testWorld = new NetCodeTestWorld())
@@ -362,6 +364,7 @@ namespace Unity.NetCode.Tests
         }
 
         [Test]
+        [Category(NetcodeTestCategories.Foundational)]
         public void MultipleBuffersCanChangeSize()
         {
             using (var testWorld = new NetCodeTestWorld())
@@ -441,6 +444,7 @@ namespace Unity.NetCode.Tests
         }
 
         [Test]
+        [Category(NetcodeTestCategories.Foundational)]
         public void BuffersSupportMultipleBuffers()
         {
             using (var testWorld = new NetCodeTestWorld())

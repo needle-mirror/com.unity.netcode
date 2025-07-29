@@ -246,6 +246,7 @@ namespace Unity.NetCode
 
                 foreach (var serverWorld in ClientServerBootstrap.ServerWorlds)
                 {
+                    if (!serverWorld.IsCreated) continue;
                     using var netDebugQuery = serverWorld.EntityManager.CreateEntityQuery(ComponentType.ReadWrite<NetDebug>());
                     netDebugQuery.GetSingletonRW<NetDebug>().ValueRW.WarnBatchedTicks = value;
                 }

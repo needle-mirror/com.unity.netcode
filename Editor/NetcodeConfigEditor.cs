@@ -194,6 +194,9 @@ namespace Unity.NetCode.Editor
 
             //.
             GUI.enabled = !Application.isPlaying;
+            EditorGUILayout.PropertyField(serializedObject.FindProperty(nameof(NetCodeConfig.EnableClientServerBootstrap)));
+
+            //.
             EditorGUILayout.PropertyField(serializedObject.FindProperty(nameof(NetCodeConfig.ClientServerTickRate)), s_ClientServerTickRate);
             GUI.enabled = true;
             ValidateClientServerTickRate(config.ClientServerTickRate);

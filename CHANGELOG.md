@@ -2,6 +2,29 @@
 uid: changelog
 ---
 
+## [1.7.0] - 2025-07-29
+
+### Added
+
+* A warning will now appear if you have a query involving `Simulate` while ignoring enabled state with `EntityQueryOptions.IgnoreComponentEnabledState` in the prediction loop.
+
+### Changed
+
+* Removed `ENABLE_HOST_MIGRATION` define which hid the host migration feature, it's now enabled by default. This also enables by default the `NetworkStreamIsReconnected` component which works without host migration.
+* Refactor host migration API
+  * Removed `MigrateDataToNewServerWorld`/`ConfigureClientAndConnect` helper functions. They'll be in the docs and sample instead.
+  * Renamed `HostMigrationUtility`->`HostMigrationData` and in that class renamed `Get/SetHostMigrationData` to `Get/Set` (class only contains data methods) with parameters reflecting directionality of data buffer and world. Removed `TryGetHostMigrationData`, use `Get` instead (native list version).
+  * Removed `DataStorageMethod` as it no only has one enum value.
+* The ghost component serialization method in the host migration feature changed to a much better performing one.
+
+### Fixed
+
+* Issue where `PreparePredictedData` was not being called on `GhostPlayableBehaviour`, breaking `GhostAnimationController` functionality.
+* Issue where `NetCodeConfig.EnableClientServerBootstrap` was not visible within the `NetCodeConfig`.
+* Issue when running a webgl player where you could not connect or receive connections from non-webgl platform players.
+
+
+
 ## [1.6.2] - 2025-07-07
 
 ### Added
@@ -18,8 +41,8 @@ uid: changelog
 * Issue preventing static-optimized, not pre-spawned ghosts from spawning on clients when their first serialization result was 'zero-change' against a baseline value of `default(T)`. They'd previously only be sent for the first time after changing.
 * **Project Breaking Change:** Regenerated the GUID for `Packages/com.unity.netcode/Tests/Editor/Physics/Unity.NetCode.Physics.Editor.Tests.asmdef` so that it would no longer clash with `Packages/com.havok.physics/Plugins/Android/Havok.Physics.Plugin.Android.asmdef`. Any assemblies attempting to reference **Unity.NetCode.Physics.Editor.Tests** by GUID `d8342c4acf8f78e439367cff1a5e802f` will need to be changed to `bec3f262d6e6466eb2c61661da550f47`.
 * An issue - due to improper time syncing in between the client and server - especially when using IPC, causing multiple side effects:
-  * the client was typically only sending commands to the server for partial ticks, not full ticks, causing mis-predictions.
-  * the client was slightly behind the server, thus receiving new snapshots slightly in advance, and skipping running the `PredictedSimulationSystemGroup` for one frame or more, causing jittery and noticeable artefacts.
+    * the client was typically only sending commands to the server for partial ticks, not full ticks, causing mis-predictions.
+    * the client was slightly behind the server, thus receiving new snapshots slightly in advance, and skipping running the `PredictedSimulationSystemGroup` for one frame or more, causing jittery and noticeable artefacts.
 * **Potential Behaviour Breaking Change:** GhostInstance's GhostType is now set with the same valid value for both client and server prespawned instances. (Previously, this was always kept at an initial -1 value server side and never initialized). This way is now more consistent behaviour between client and server.
 
 ## [1.6.1] - 2025-05-28

@@ -285,6 +285,8 @@ namespace Unity.NetCode.Tests
 
     internal class PredictionTests
     {
+        [Category(NetcodeTestCategories.Foundational)]
+        [Category(NetcodeTestCategories.Smoke)]
         [TestCase((uint)0x229321)]
         [TestCase((uint)100)]
         [TestCase((uint)0x7FFF011F)]
@@ -437,6 +439,7 @@ namespace Unity.NetCode.Tests
             }
         }
 
+        [Category(NetcodeTestCategories.Foundational)]
         [TestCase(90)]
         [TestCase(82)]
         [TestCase(45)]
@@ -489,6 +492,7 @@ namespace Unity.NetCode.Tests
             }
         }
 
+        [Category(NetcodeTestCategories.Foundational)]
         [TestCase(1)]
         [TestCase(2)]
         [TestCase(3)]
@@ -659,7 +663,7 @@ namespace Unity.NetCode.Tests
 
                 //Run one last time with a delta time such that we end up exactly on a full tick
                 var time = testWorld.GetNetworkTime(testWorld.ClientWorlds[0]);
-                testWorld.TickClientOnly((1 - time.ServerTickFraction)/60f);
+                testWorld.TickClientWorld((1 - time.ServerTickFraction)/60f);
 
                 time = testWorld.GetNetworkTime(testWorld.ClientWorlds[0]);
                 Assert.IsFalse(time.IsPartialTick);
@@ -679,12 +683,12 @@ namespace Unity.NetCode.Tests
                 //there is no partial tick restore in this tick because the last tick was a full tick. The continuation goes without actually
                 //restoring from the backup.
                 //TODO: would be nice to distinguish
-                testWorld.TickClientOnly(1f/240f);
+                testWorld.TickClientWorld(1f/240f);
                 var currentPartialTick = testWorld.GetNetworkTime(testWorld.ClientWorlds[0]).ServerTick;
                 CheckPredicitionStepsAndStartTick(entities, testWorld, currentPartialTick, lastBackupTick);
                 //Now I can invalidate and check restore work properly
                 InvalidateValues(entities, testWorld);
-                testWorld.TickClientOnly(1f/240f);
+                testWorld.TickClientWorld(1f/240f);
                 //run partial ticks and verify max 1 prediction step is done`
                 Assert.AreEqual(testWorld.GetSingleton<GhostSnapshotLastBackupTick>(testWorld.ClientWorlds[0]).Value, lastBackupTick);
                 CheckPredicitionStepsAndStartTick(entities, testWorld, currentPartialTick, lastBackupTick);
@@ -696,8 +700,8 @@ namespace Unity.NetCode.Tests
                 //What happen in this tick ? The client will receive a new snapshot from the server and rollback-prediction will occur,
                 //causing a new backup being made for the same tick on the client. What the Data backup contains? because the component has been
                 //removed, the value should be 0 on certain entities
-                testWorld.TickServerOnly();
-                testWorld.TickClientOnly(1f/240f);
+                testWorld.TickServerWorld();
+                testWorld.TickClientWorld(1f/240f);
                 //run partial ticks and verify max 1 prediction step is done`
                 Assert.AreEqual(testWorld.GetSingleton<GhostSnapshotLastBackupTick>(testWorld.ClientWorlds[0]).Value, lastBackupTick);
                 CheckPredicitionStepsAndStartTick(entities, testWorld, currentPartialTick, lastBackupTick);
@@ -717,7 +721,7 @@ namespace Unity.NetCode.Tests
                 //But because now the recovery is able to find the backup, until we don't receive new data from the server, that value is stale.
                 //This does not occur if the structural change does not affect replicated components. That is probably the most common scenario.
                 //How do we solve this?
-                testWorld.TickClientOnly(1f/240f);
+                testWorld.TickClientWorld(1f/240f);
                 Assert.AreEqual(currentPartialTick.TickIndexForValidTick, testWorld.GetNetworkTime(testWorld.ClientWorlds[0]).ServerTick.TickIndexForValidTick);
                 //A new backup has been made
                 Assert.AreNotEqual(lastBackupTick, testWorld.GetSingleton<GhostSnapshotLastBackupTick>(testWorld.ClientWorlds[0]).Value);

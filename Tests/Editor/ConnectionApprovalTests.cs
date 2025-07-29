@@ -8,6 +8,7 @@ using UnityEngine.TestTools;
 
 namespace Unity.NetCode.Tests
 {
+    [Category(NetcodeTestCategories.Foundational)]
     internal partial class ConnectionApprovalTests
     {
         internal struct CheckApproval : IApprovalRpcCommand

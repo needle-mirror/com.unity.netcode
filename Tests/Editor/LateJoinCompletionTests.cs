@@ -16,6 +16,7 @@ namespace Unity.NetCode.Tests
     internal class LateJoinCompletionTests
     {
         [Test]
+        [Category(NetcodeTestCategories.Foundational)]
         public void ServerGhostCountIsVisibleOnClient()
         {
             using (var testWorld = new NetCodeTestWorld())

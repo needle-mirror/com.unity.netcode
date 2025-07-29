@@ -102,7 +102,7 @@ namespace Unity.NetCode.Tests
                 var sseqn = testWorld.ServerWorld.SequenceNumber;
                 var cseqn = testWorld.ClientWorlds[0].SequenceNumber;
 
-                var bananaWorld = new World("BananaWorld", WorldFlags.GameServer);
+                using var bananaWorld = new World("BananaWorld", WorldFlags.GameServer);
                 var oldName = testWorld.ServerWorld.Name;
 
                 testWorld.MigrateServerWorld(bananaWorld);

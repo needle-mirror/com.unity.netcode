@@ -777,7 +777,7 @@ namespace Unity.NetCode.Tests
 
             // Ensure client actually ticks fully in the next ticks so the prediction loop will run multiple times
             var clientTime = testWorld.GetNetworkTime(testWorld.ClientWorlds[0]);
-            testWorld.TickClientOnly((1 - clientTime.ServerTickFraction)/60f);
+            testWorld.TickClientWorld((1 - clientTime.ServerTickFraction)/60f);
             clientTime = testWorld.GetNetworkTime(testWorld.ClientWorlds[0]);
             Assert.IsFalse(clientTime.IsPartialTick);
             var spawnTick = clientTime.ServerTick;
@@ -870,7 +870,7 @@ namespace Unity.NetCode.Tests
             [Values]KeepHistoryBufferOptions keepHistoryBufferOnStructuralChanges)
         {
             var gameObjects = SetupGhosts(rollback, keepHistoryBufferOnStructuralChanges);
-            var testWorld = new NetCodeTestWorld();
+            using var testWorld = new NetCodeTestWorld();
             testWorld.Bootstrap(true, typeof(PredictSpawnGhost),
                 typeof(PredictSpawnGhostUpdate), typeof(CountNumberOfRollbacksSystem));
             Assert.IsTrue(testWorld.CreateGhostCollection(gameObjects));
@@ -892,7 +892,7 @@ namespace Unity.NetCode.Tests
 
             // Ensure we're in a known state on the client
             var time = testWorld.GetNetworkTime(testWorld.ClientWorlds[0]);
-            testWorld.TickClientOnly((1 - time.ServerTickFraction)/60f);
+            testWorld.TickClientWorld((1 - time.ServerTickFraction)/60f);
             time = testWorld.GetNetworkTime(testWorld.ClientWorlds[0]);
             Assert.IsFalse(time.IsPartialTick);
             var spawnTick = time.ServerTick;
@@ -910,7 +910,7 @@ namespace Unity.NetCode.Tests
             //for the spawnTick, that is when the entity is spawned. The predicted spawned ghost is not initialized yet.
             testWorld.Tick();
             var predictedSpawnEntity = predictedSpawnRequests.GetSingletonEntity();
-            testWorld.TickClientOnly(.5f/60f);
+            testWorld.TickClientWorld(.5f/60f);
             //The intial value for the Data is 100. The data is always incremented every prediction update (partial or not).
             //Request consumed. The predicted spawn entity should have 102 here.
             //But in the snapshot buffer we should have 101. We verify this indirectly
@@ -934,7 +934,7 @@ namespace Unity.NetCode.Tests
             // This will move the entity into the other chunk, instead of reusing the same. This give the test
             // more predictable results.
             testWorld.ClientWorlds[0].EntityManager.RemoveComponent<EnableableComponent_0>(predictedSpawnEntity);
-            testWorld.TickClientOnly(0.25f/60f);
+            testWorld.TickClientWorld(0.25f/60f);
             lastBackupTick = testWorld.GetSingleton<GhostSnapshotLastBackupTick>(testWorld.ClientWorlds[0]).Value;
             Assert.AreEqual(spawnTick.TickIndexForValidTick + 1, lastBackupTick.TickIndexForValidTick);
             time = testWorld.GetNetworkTime(testWorld.ClientWorlds[0]);

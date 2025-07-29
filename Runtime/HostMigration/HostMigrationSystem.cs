@@ -1,17 +1,15 @@
 using System;
-using System.Collections.Generic;
 using System.Runtime.InteropServices;
-using System.Text;
 using Unity.Burst;
 using Unity.Collections;
 using Unity.Collections.LowLevel.Unsafe;
 using Unity.Entities;
+using Unity.Jobs;
+using Unity.NetCode.LowLevel.StateSave;
 using Unity.NetCode.LowLevel.Unsafe;
 using Unity.Scenes;
 using Debug = UnityEngine.Debug;
 using Hash128 = Unity.Entities.Hash128;
-
-#if ENABLE_HOST_MIGRATION
 
 namespace Unity.NetCode.HostMigration
 {
@@ -40,7 +38,7 @@ namespace Unity.NetCode.HostMigration
         public int Step;
     }
 
-    struct HostMigrationData : IComponentData
+    struct HostMigrationStorage : IComponentData
     {
         public HostDataStorage HostData;
         public GhostStorage Ghosts;
@@ -74,9 +72,6 @@ namespace Unity.NetCode.HostMigration
     /// </summary>
     public struct HostMigrationConfig : IComponentData
     {
-        /// <inheritdoc cref="DataStorageMethod"/>
-        public DataStorageMethod StorageMethod;
-
         /// <summary>
         /// Store ghosts owned by the local client on the host. As during a host migration
         /// the original host including the client are gone it might be ok to not include the
@@ -104,21 +99,9 @@ namespace Unity.NetCode.HostMigration
         public static HostMigrationConfig Default = new HostMigrationConfig()
         {
             StoreOwnGhosts = false,
-            StorageMethod = DataStorageMethod.StreamCompressed,
             MigrationTimeout = 30.0f,
             ServerUpdateInterval = 2.0f
         };
-    }
-
-    /// <summary>
-    /// How the host migration data is serialized for sending to the service.
-    /// </summary>
-    public enum DataStorageMethod : byte
-    {
-        /// <summary>
-        /// Serialize data with <see cref="DataStreamWriter"/> and compress into byte array.
-        /// </summary>
-        StreamCompressed
     }
 
     /// <summary>
@@ -135,15 +118,15 @@ namespace Unity.NetCode.HostMigration
         /// </summary>
         public int PrefabCount;
         /// <summary>
-        /// The size of the last serialized host migration data blob. This is the blob accessed via <see cref="HostMigrationUtility.GetHostMigrationData"/>.
+        /// The size of the last serialized host migration data blob. This is the blob accessed via <see cref="HostMigrationData.Get"/>.
         /// </summary>
         public int UpdateSize;
         /// <summary>
-        /// The total upload size collected so far from the host migration system.
+        /// The total size collected so far from the host migration system.
         /// </summary>
         public int TotalUpdateSize;
         /// <summary>
-        /// The last time the host migration data blob was updated. Accessed via <see cref="HostMigrationUtility.GetHostMigrationData"/>.
+        /// The last time the host migration data blob was updated. Accessed via <see cref="HostMigrationData.Get"/>.
         /// </summary>
         public double LastDataUpdateTime;
     }
@@ -191,6 +174,14 @@ namespace Unity.NetCode.HostMigration
         /// <summary>
         /// The component data for each ghost component
         /// </summary>
+        public NativeArray<DataComponent> DataComponents;
+    }
+
+    struct DataComponent
+    {
+        public ulong StableHash;
+        public int Length;
+        public bool Enabled;
         public NativeArray<byte> Data;
     }
 
@@ -256,12 +247,12 @@ namespace Unity.NetCode.HostMigration
         double m_LastServerUpdate;
         NativeHashMap<uint, int> m_NetworkIdMap;
         NativeArray<ComponentType> m_DefaultComponents;
-        HostMigrationUtility.Data m_HostMigrationCache;
+        HostMigrationData.Data m_HostMigrationCache;
 
         public void OnCreate(ref SystemState state)
         {
             state.RequireForUpdate<HostMigrationConfig>();
-            m_HostMigrationCache = new HostMigrationUtility.Data();
+            m_HostMigrationCache = new HostMigrationData.Data();
             m_HostMigrationCache.ServerOnlyComponentsFlag = new NativeList<int>(64, Allocator.Persistent);
             m_HostMigrationCache.ServerOnlyComponentsPerGhostType = new NativeHashMap<int, NativeList<ComponentType>>(64, Allocator.Persistent);
 
@@ -313,15 +304,15 @@ namespace Unity.NetCode.HostMigration
 
             var statsEntity = state.EntityManager.CreateEntity(ComponentType.ReadOnly<HostMigrationStats>());
             state.EntityManager.SetName(statsEntity, "HostMigrationStats");
-            state.EntityManager.CreateSingleton<HostMigrationData>();
-            var hostMigrationData = SystemAPI.GetSingletonRW<HostMigrationData>();
+            state.EntityManager.CreateSingleton<HostMigrationStorage>();
+            var hostMigrationData = SystemAPI.GetSingletonRW<HostMigrationStorage>();
             hostMigrationData.ValueRW.HostDataBlob = new NativeList<byte>(Allocator.Persistent);
             hostMigrationData.ValueRW.GhostDataBlob = new NativeList<byte>(Allocator.Persistent);
         }
 
         public void OnDestroy(ref SystemState state)
         {
-            var hostMigrationData = SystemAPI.GetSingletonRW<HostMigrationData>();
+            var hostMigrationData = SystemAPI.GetSingletonRW<HostMigrationStorage>();
             hostMigrationData.ValueRW.HostDataBlob.Dispose();
             hostMigrationData.ValueRW.GhostDataBlob.Dispose();
             for (int i = 0; i < hostMigrationData.ValueRW.HostData.Connections.Length; i++)
@@ -336,7 +327,7 @@ namespace Unity.NetCode.HostMigration
             hostMigrationData.ValueRW.HostData.FreeNetworkIds.Dispose();
             hostMigrationData.ValueRW.Ghosts.GhostPrefabs.Dispose();
             for (int i = 0; i < hostMigrationData.ValueRW.Ghosts.Ghosts.Length; i++)
-                hostMigrationData.ValueRW.Ghosts.Ghosts[i].Data.Dispose();
+                hostMigrationData.ValueRW.Ghosts.Ghosts[i].DataComponents.Dispose();
             hostMigrationData.ValueRW.Ghosts.Ghosts.Dispose();
             m_HostMigrationCache.ServerOnlyComponentsFlag.Dispose();
             foreach (var componentList in m_HostMigrationCache.ServerOnlyComponentsPerGhostType.GetValueArray(Allocator.Temp))
@@ -349,7 +340,7 @@ namespace Unity.NetCode.HostMigration
         public void OnUpdate(ref SystemState state)
         {
             var commandBuffer = new EntityCommandBuffer(Allocator.Temp);
-            var hostMigrationData = SystemAPI.GetSingleton<HostMigrationData>();
+            var hostMigrationData = SystemAPI.GetSingleton<HostMigrationStorage>();
 
             // Restore the connection data from previous session, this happens after accepting the connection
             foreach (var (uniqueId, migrate, entity) in SystemAPI.Query<RefRO<ConnectionUniqueId>, RefRW<MigrateComponents>>().WithEntityAccess())
@@ -358,26 +349,17 @@ namespace Unity.NetCode.HostMigration
                 if (migrate.ValueRW.Step == 0)
                 {
                     migrate.ValueRW.Step++;
-                    HostMigrationUtility.HandleReconnection(hostMigrationData.HostData.Connections, commandBuffer, entity, uniqueId.ValueRO);
+                    HostMigrationData.HandleReconnection(hostMigrationData.HostData.Connections, commandBuffer, entity, uniqueId.ValueRO);
                 }
                 // After the component is added to the connection entity we can copy the migrated connection data
                 else if (migrate.ValueRW.Step == 1)
                 {
                     commandBuffer.RemoveComponent<MigrateComponents>(entity);
-                    HostMigrationUtility.RestoreConnectionComponentData(hostMigrationData.HostData.Connections, state.EntityManager, entity, uniqueId.ValueRO);
+                    HostMigrationData.RestoreConnectionComponentData(hostMigrationData.HostData.Connections, state.EntityManager, entity, uniqueId.ValueRO);
                 }
             }
 
-            // TODO: Make json path work with burst or remove it
             var config = SystemAPI.GetSingleton<HostMigrationConfig>();
-            if (BurstCompiler.IsEnabled && config.StorageMethod != DataStorageMethod.StreamCompressed)
-            {
-                Debug.LogError($"HostMigrationConfig StorageMethod must be set to StreamCompressed with Burst enabled (will switch to this).");
-                config.StorageMethod = DataStorageMethod.StreamCompressed;
-                SystemAPI.SetSingleton(config);
-                return;
-            }
-
             if (SystemAPI.TryGetSingleton<HostMigrationRequest>(out var migrationRequest))
             {
                 if (m_MigrationTime == 0.0)
@@ -418,7 +400,7 @@ namespace Unity.NetCode.HostMigration
                     migrationRequest.ServerSubScenes.Dispose();
                     state.EntityManager.DestroyEntity(SystemAPI.GetSingletonEntity<HostMigrationRequest>());
                     state.EntityManager.DestroyEntity(SystemAPI.GetSingletonEntity<HostMigrationInProgress>());
-                    var spawnedGhosts = SpawnAllGhosts(ref state, hostMigrationData.Ghosts.Ghosts, hostMigrationData.Ghosts.GhostPrefabs);
+                    SpawnAllGhosts(ref state, hostMigrationData.Ghosts.Ghosts, hostMigrationData.Ghosts.GhostPrefabs);
                 }
 
                 // Host migration has timed out (not all subscenes have finished loading and/or not all ghost prefabs exist)
@@ -447,13 +429,76 @@ namespace Unity.NetCode.HostMigration
                 var networkTime = SystemAPI.GetSingleton<NetworkTime>();
                 state.EntityManager.CompleteAllTrackedJobs();
                 GetHostConfigurationForSerializer(ref state, hostMigrationData.HostDataBlob, config, networkTime);
-                GetGhostDataForSerializer(ref state, hostMigrationData.GhostDataBlob, config, out var hasErrors);
 
-                var updateSize = hostMigrationData.GhostDataBlob.Length + hostMigrationData.HostDataBlob.Length;
-                var migrationStats = SystemAPI.GetSingletonRW<HostMigrationStats>();
-                migrationStats.ValueRW.LastDataUpdateTime = state.WorldUnmanaged.Time.ElapsedTime;
-                migrationStats.ValueRW.UpdateSize = updateSize;
-                migrationStats.ValueRW.TotalUpdateSize += updateSize;
+                // TODO: Find a better way to gather the ghost component types we need, this iterates all ghost components
+                // and figures out which are being used currently by a ghost prefab because we have ca 500 ghost
+                // types, only 128 types (can be increased to 256 via define) is supported by netcode (DynamicTypeList limitation)
+                var ghostComponentCollection = SystemAPI.GetSingletonBuffer<GhostComponentSerializer.State>();
+                var ghostPrefabsBuffer = SystemAPI.GetSingletonBuffer<GhostCollectionPrefab>();
+                var ghostTypes = new NativeHashSet<ComponentType>(ghostComponentCollection.Length, Allocator.Temp);
+                foreach (var ghostComponent in ghostComponentCollection)
+                {
+                    foreach (var ghostPrefab in ghostPrefabsBuffer)
+                    {
+                        foreach (var usedComponent in state.EntityManager.GetComponentTypes(ghostPrefab.GhostPrefab))
+                        {
+                            if (usedComponent == ghostComponent.ComponentType)
+                            {
+                                var componentType = ghostComponent.ComponentType;
+                                componentType.AccessModeType = ComponentType.AccessMode.ReadOnly;
+                                if (ghostTypes.Contains(componentType))
+                                    continue;
+                                if (componentType.IsBuffer && IsInputBuffer(componentType, ghostComponentCollection))
+                                    continue;
+                                ghostTypes.Add(componentType);
+                            }
+                        }
+                    }
+                }
+                var requiredTypes = new NativeHashSet<ComponentType>(1, Allocator.Temp);
+                requiredTypes.Add(ComponentType.ReadOnly<GhostInstance>());
+
+                var stateSave = new WorldStateSave(Allocator.Persistent).WithRequiredTypes(requiredTypes).WithOptionalTypes(ghostTypes).Initialize(ref state);
+                var stateSaveJob = stateSave.ScheduleStateSaveJob(ref state);
+
+                // TODO: Cache prefab list, update when count changes
+                var ghostPrefabs = new NativeArray<GhostPrefabData>(ghostPrefabsBuffer.Length, Allocator.Persistent);
+                for (int i = 0; i < ghostPrefabs.Length; ++i)
+                {
+                    ghostPrefabs[i] = new GhostPrefabData()
+                    {
+                        GhostTypeIndex = i,
+                        GhostTypeHash = ghostPrefabsBuffer[i].GhostType.GetHashCode()
+                    };
+                }
+
+                // Find the network ID of the local client
+                int localNetworkId = 0;
+                if (!config.StoreOwnGhosts)
+                {
+                    var networkIdQuery = state.GetEntityQuery(ComponentType.ReadOnly<NetworkId>());
+                    var networkIds = networkIdQuery.ToComponentDataArray<NetworkId>(Allocator.Temp);
+                    if (networkIds.Length > 0)
+                    {
+                        localNetworkId = networkIds[0].Value;
+                    }
+                }
+
+                var updateJob = new UpdateMigrationStatsJob()
+                {
+                    StateSave = stateSave,
+                    LocalNetworkId = localNetworkId,
+                    StoreOwnGhosts = config.StoreOwnGhosts,
+                    WriteLocation = 0,
+                    GhostPrefabs = ghostPrefabs,
+                    OwnerLookup = state.GetComponentLookup<GhostOwner>(),
+                    GhostDataBlob = hostMigrationData.GhostDataBlob,
+                    Stats = SystemAPI.GetSingletonRW<HostMigrationStats>(),
+                    UpdateTime = state.WorldUnmanaged.Time.ElapsedTime,
+                    HostDataSize = hostMigrationData.HostDataBlob.Length,
+                };
+                state.Dependency = updateJob.Schedule(JobHandle.CombineDependencies(state.Dependency, stateSaveJob));
+                state.Dependency.Complete();
             }
 
             // For new connections check if they previously owned any ghosts
@@ -470,6 +515,31 @@ namespace Unity.NetCode.HostMigration
             commandBuffer.Playback(state.EntityManager);
         }
 
+        // TODO: Cache the result, or find a better way to figure this out in burst friendly way
+        bool IsInputBuffer(ComponentType componentType, DynamicBuffer<GhostComponentSerializer.State> ghostComponentCollection)
+        {
+            var collectionData = SystemAPI.GetSingleton<GhostComponentSerializerCollectionData>();
+            var ghostCollectionComponentIndex = SystemAPI.GetSingletonBuffer<GhostCollectionComponentIndex>();
+            bool isInputBuffer = false;
+            foreach (var componentIndex in ghostCollectionComponentIndex)
+            {
+                if (componentIndex.TypeIndex == componentType.TypeIndex)
+                {
+                    var componentTypeRW = componentType;
+                    componentTypeRW.AccessModeType = ComponentType.AccessMode.ReadWrite;
+                    foreach (var componentMapping in collectionData.InputComponentBufferMap)
+                    {
+                        if (componentMapping.Value == componentTypeRW)
+                        {
+                            isInputBuffer = true;
+                            break;
+                        }
+                    }
+                }
+            }
+            return isInputBuffer;
+        }
+
         NativeList<Entity> SpawnAllGhosts(ref SystemState state, NativeArray<GhostData> ghosts, NativeArray<GhostPrefabData> ghostPrefabs)
         {
             var ghostEntities = new NativeList<Entity>(ghosts.Length, Allocator.Temp);
@@ -477,23 +547,22 @@ namespace Unity.NetCode.HostMigration
             var ghostTypeMap = CreateGhostTypeMap(ghostPrefabs);
 
             // save the ghostIds we have used so we can mark unused ids as free once we have added all the override components
-            var hostMigrationData = SystemAPI.GetSingleton<HostMigrationData>();
+            var hostMigrationData = SystemAPI.GetSingleton<HostMigrationStorage>();
             NativeBitArray migratedGhostIds = new NativeBitArray(hostMigrationData.HostData.NextNewGhostId, Allocator.Temp);
 
             for (int i = 0; i < ghosts.Length; ++i)
             {
                 var entity = Entity.Null;
                 var ghost = ghosts[i];
-                int ghostType = -1;
+                int ghostType = ghostTypeMap[ghost.GhostType];
 
-                if (ghost.GhostType >= 0)
+                if (!PrespawnHelper.IsPrespawnGhostId(ghost.GhostId))
                 {
                     if (ghostTypeMap.Count <= ghost.GhostType)
                     {
                         Debug.LogError($"Did not find migrated ghost type {ghost.GhostType} in the current servers ghost type list (count={ghostTypeMap.Count})");
                         return new NativeList<Entity>(0, Allocator.Temp);
                     }
-                    ghostType = ghostTypeMap[ghost.GhostType];
                     var collectionEntity = SystemAPI.GetSingletonEntity<GhostCollection>();
                     var buffer = state.EntityManager.GetBuffer<GhostCollectionPrefab>(collectionEntity);
                     entity = state.EntityManager.Instantiate(buffer[ghostType].GhostPrefab);
@@ -509,10 +578,9 @@ namespace Unity.NetCode.HostMigration
                 }
                 else
                 {
-                    var prespawnId = (int)(ghost.GhostId | 0x80000000);
                     foreach (var (ghostId, prespawnEntity) in SystemAPI.Query<RefRO<GhostInstance>>().WithAll<PreSpawnedGhostIndex>().WithEntityAccess())
                     {
-                        if (ghostId.ValueRO.ghostId == prespawnId)
+                        if (ghostId.ValueRO.ghostId == ghost.GhostId)
                         {
                             entity = prespawnEntity;
                             break;
@@ -521,11 +589,11 @@ namespace Unity.NetCode.HostMigration
 
                     if ( entity == Entity.Null)
                     {
-                        Debug.LogError($"Trying to migrate prespawn entity with id {prespawnId} but it's scene isn't/hasn't been loaded. This is usually caused by unloading/reordering of subscenes before a migration. Currently this is unsupported.");
+                        Debug.LogError($"Trying to migrate prespawn entity with id {ghost.GhostId} but it's scene isn't/hasn't been loaded. This is usually caused by unloading/reordering of subscenes before a migration. Currently this is unsupported.");
                     }
                 }
 
-                SetGhostComponentData(ref state, entity, ghostType, ghost.Data);
+                SetGhostComponentData(ref state, entity, ghostType, ghost.DataComponents);
                 state.EntityManager.AddComponent<IsMigrated>(entity);
             }
 
@@ -566,39 +634,22 @@ namespace Unity.NetCode.HostMigration
             return ghostTypeMap;
         }
 
-        unsafe void SetGhostComponentData(ref SystemState state, Entity ghostEntity, int ghostType, NativeArray<byte> ghostData)
+        unsafe void SetGhostComponentData(ref SystemState state, Entity ghostEntity, int ghostType, NativeArray<DataComponent> componentDatas)
         {
-            const int bufferHeaderSize = sizeof(uint);
-            var ghostDataPtr = (byte*)ghostData.GetUnsafePtr();
-
             var chunk = state.EntityManager.GetChunk(ghostEntity);
-            var ghostTypeCollection = SystemAPI.GetSingletonBuffer<GhostCollectionPrefabSerializer>();
-            var ghostCollectionComponentIndex = SystemAPI.GetSingletonBuffer<GhostCollectionComponentIndex>();
-            var ghostComponentCollection = SystemAPI.GetSingletonBuffer<GhostComponentSerializer.State>();
             var entityStorageInfo = state.GetEntityStorageInfoLookup();
             var indexInChunk = entityStorageInfo[ghostEntity].IndexInChunk;
-            var collectionDataQuery = state.GetEntityQuery(new EntityQueryBuilder(Allocator.Temp).WithAll<GhostComponentSerializerCollectionData>());
-            var collectionData = collectionDataQuery.GetSingleton<GhostComponentSerializerCollectionData>();
 
-            if (ghostType == -1)
+            // int numBaseComponents = typeData.NumComponents - typeData.NumChildComponents;
+            // for (int comp = 0; comp < numBaseComponents; ++comp)
+            foreach (var componentData in componentDatas)
             {
-                var ghostCollectionQuery = state.GetEntityQuery(ComponentType.ReadOnly<GhostCollection>());
-                var ghostCollection = ghostCollectionQuery.GetSingleton<GhostCollection>();
-                var ghostTypeComponent = state.EntityManager.GetComponentData<GhostType>(ghostEntity);
-                ghostType = ghostCollection.GhostTypeToColletionIndex[ghostTypeComponent];
-            }
-            var typeData = ghostTypeCollection[ghostType];
-
-            int numBaseComponents = typeData.NumComponents - typeData.NumChildComponents;
-            for (int comp = 0; comp < numBaseComponents; ++comp)
-            {
-                int serializerIdx = ghostCollectionComponentIndex[typeData.FirstComponent + comp].SerializerIndex;
-                var ptr = (GhostComponentSerializer.State*)ghostComponentCollection.GetUnsafeReadOnlyPtr();
-                ref readonly var ghostSerializer = ref ptr[serializerIdx];
-                var componentType = ghostSerializer.ComponentType;
-                var componentSize = ghostSerializer.ComponentSize;
-                var serializationStrategy = collectionData.GetCurrentSerializationStrategyForComponent(componentType, ghostSerializer.VariantHash, false);
+                var typeIndex = TypeManager.GetTypeIndexFromStableTypeHash(componentData.StableHash);
+                var typeInfo = TypeManager.GetTypeInfo(typeIndex);
+                var componentSize = typeInfo.SizeInChunk;
+                var componentType = ComponentType.ReadWrite(typeIndex);
                 var typeHandle = state.EntityManager.GetDynamicComponentTypeHandle(componentType);
+                var ghostDataPtr = componentData.Data.GetUnsafePtr();
 
                 if (!chunk.Has(ref typeHandle))
                 {
@@ -607,12 +658,7 @@ namespace Unity.NetCode.HostMigration
                 }
 
                 if (componentType.IsEnableable)
-                {
-                    byte isSet = 0;
-                    UnsafeUtility.MemCpy(&isSet, ghostDataPtr, 1);
-                    chunk.SetComponentEnabled(ref typeHandle, indexInChunk, isSet == 1);
-                    ghostDataPtr += 1;
-                }
+                    chunk.SetComponentEnabled(ref typeHandle, indexInChunk, componentData.Enabled);
 
                 if (!componentType.IsBuffer)
                 {
@@ -621,74 +667,17 @@ namespace Unity.NetCode.HostMigration
                         .GetDynamicComponentDataArrayReinterpret<byte>(ref typeHandle, componentSize)
                         .GetUnsafeReadOnlyPtr() + offset;
                     UnsafeUtility.MemCpy(compDataPtr, ghostDataPtr, componentSize);
-
-                    ghostDataPtr += componentSize;
                 }
                 else
                 {
-                    // Input buffers must also be skipped when restoring data as we're parsing ghost collection metadata
-                    if (serializationStrategy.IsInputBuffer == 1)
-                        continue;
                     // Deserialize buffer, the new ghosts will have 0 elements to start with
                     var bufferData = chunk.GetUntypedBufferAccessor(ref typeHandle);
-                    var length = ((int*) ghostDataPtr)[0];
-                    ghostDataPtr += bufferHeaderSize;
+                    var length = componentData.Length;
                     if (length > 0)
                     {
                         bufferData.ResizeUninitialized(indexInChunk, length);
                         var bufferPtr = bufferData.GetUnsafePtr(indexInChunk);
                         UnsafeUtility.MemCpy(bufferPtr, ghostDataPtr, length * componentSize);
-                        ghostDataPtr += length * componentSize;
-                    }
-                }
-            }
-
-            // Deserialize the server-only ghost data
-            var archetype = chunk.Archetype;
-            var componentTypes = archetype.GetComponentTypes(Allocator.Temp);
-            foreach (var componentType in componentTypes)
-            {
-                foreach (var ghostComponent in ghostComponentCollection)
-                {
-                    if (ghostComponent.PrefabType != GhostPrefabType.Server)
-                        continue;
-                    if (componentType == ghostComponent.ComponentType)
-                    {
-                        var typeInfo = TypeManager.GetTypeInfo(componentType.TypeIndex);
-                        var typeHandle = state.EntityManager.GetDynamicComponentTypeHandle(componentType);
-                        if (!chunk.Has(ref typeHandle))
-                        {
-                            Debug.LogError($"Component {componentType} not found on server-only ghost entity {ghostEntity.ToFixedString()} ghost type {ghostType} while trying to migrate ghost component data");
-                            continue;
-                        }
-                        if (componentType.IsComponent && typeInfo.SizeInChunk != 0)
-                        {
-                            var compSize = typeInfo.SizeInChunk;
-                            int offset = indexInChunk * compSize;
-                            var compDataPtr = (byte*)chunk
-                                .GetDynamicComponentDataArrayReinterpret<byte>(ref typeHandle, compSize)
-                                .GetUnsafeReadOnlyPtr() + offset;
-                            UnsafeUtility.MemCpy(compDataPtr, ghostDataPtr, compSize);
-                            ghostDataPtr += compSize;
-                        }
-                        else if (componentType.IsBuffer)
-                        {
-                            if (!chunk.Has(ref typeHandle))
-                                continue;
-                            var bufferData = chunk.GetUntypedBufferAccessor(ref typeHandle);
-                            var bufferElementSize = bufferData.ElementSize;
-
-                            // Deserialize buffer, the new ghosts will have 0 elements to start with
-                            var length = ((int*) ghostDataPtr)[0];
-                            ghostDataPtr += bufferHeaderSize;
-                            if (length > 0)
-                            {
-                                bufferData.ResizeUninitialized(indexInChunk, length);
-                                var bufferPtr = bufferData.GetUnsafePtr(indexInChunk);
-                                UnsafeUtility.MemCpy(bufferPtr, ghostDataPtr, length * bufferElementSize);
-                                ghostDataPtr += length * bufferElementSize;
-                            }
-                        }
                     }
                 }
             }
@@ -849,7 +838,6 @@ namespace Unity.NetCode.HostMigration
                     dataStreamWriter.WriteUInt(subscene.SubSceneGuid.Value.z);
                     dataStreamWriter.WriteUInt(subscene.SubSceneGuid.Value.w);
                 }
-                dataStreamWriter.WriteByte((byte)migrationData.Config.StorageMethod);
                 dataStreamWriter.WriteByte(migrationData.Config.StoreOwnGhosts ? (byte)1 : (byte)0);
                 dataStreamWriter.WriteFloat(migrationData.Config.MigrationTimeout);
                 dataStreamWriter.WriteFloat(migrationData.Config.ServerUpdateInterval);
@@ -874,92 +862,6 @@ namespace Unity.NetCode.HostMigration
             }
         }
 
-        /// <summary>
-        /// Get ghost data in the format specified in the HostMigrationConfig. Includes the ghost instance ID,
-        /// the ghost type and the full component data on all ghost components (not only ghost fields). The output will
-        /// be either plain text (json) or base64 encoded binary data.
-        /// </summary>
-        /// <param name="state">The SystemState to use for collecting the data</param>
-        /// <param name="ghostDataBlob">Reference to the output ghost data blob</param>
-        /// <param name="config">The configuration for how data is written to the data blob</param>
-        /// <param name="hasErrors">Will be set to true in case any errors occur during the operation</param>
-        /// <returns></returns>
-        // TODO: Handle errors better, add more validation...
-        [BurstCompile]
-        unsafe void GetGhostDataForSerializer(ref SystemState state, NativeList<byte> ghostDataBlob, HostMigrationConfig config, out bool hasErrors)
-        {
-            ghostDataBlob.Clear();
-            hasErrors = false;
-            var ghostQuery = state.GetEntityQuery(ComponentType.ReadOnly<GhostInstance>());
-            var ghostEntities = ghostQuery.ToEntityArray(Allocator.Temp);
-            var ghostInstances = ghostQuery.ToComponentDataArray<GhostInstance>(Allocator.Temp);
-            var ghostPrefabsQuery = state.GetEntityQuery(ComponentType.ReadOnly<GhostCollectionPrefab>());
-            var ghostPrefabs = ghostPrefabsQuery.GetSingletonBuffer<GhostCollectionPrefab>();
-            var ownerLookup = state.GetComponentLookup<GhostOwner>();
-            var prespawnSceneLoadedLookup = state.GetBufferLookup<PrespawnSceneLoaded>();
-
-            var ghosts = new GhostStorage();
-            ghosts.GhostPrefabs = new NativeArray<GhostPrefabData>(ghostPrefabs.Length, Allocator.Persistent);
-
-            for (int i = 0; i < ghostPrefabs.Length; ++i)
-            {
-                ghosts.GhostPrefabs[i] = new GhostPrefabData()
-                {
-                    GhostTypeIndex = i,
-                    GhostTypeHash = ghostPrefabs[i].GhostType.GetHashCode()
-                };
-            }
-
-            // Find the network ID of the local client
-            int localNetworkId = 0;
-            if (!config.StoreOwnGhosts)
-            {
-                var networkIdQuery = state.GetEntityQuery(ComponentType.ReadOnly<NetworkId>());
-                var networkIds = networkIdQuery.ToComponentDataArray<NetworkId>(Allocator.Temp);
-                if (networkIds.Length > 0)
-                {
-                    localNetworkId = networkIds[0].Value;
-                }
-            }
-
-            var ghostList = new NativeList<GhostData>(ghostInstances.Length, Allocator.Temp);
-            for (int i = 0; i < ghostInstances.Length; ++i)
-            {
-                // Omit the ghosts owned by the host as he's leaving the session
-                if (!config.StoreOwnGhosts && ownerLookup.HasComponent(ghostEntities[i]) && ownerLookup[ghostEntities[i]].NetworkId == localNetworkId)
-                    continue;
-                if (prespawnSceneLoadedLookup.HasBuffer(ghostEntities[i]))
-                    continue;
-
-                if (ghostInstances[i].ghostId == 0)
-                {
-                    Debug.LogError($"Trying to send a ghost with an id of 0 this should not be possible. GhostIds are assigned by the GhostSendSystem and this should always run before the migration system ensuring all ghosts have a valid id.");
-                }
-
-                var ghostData = HostMigrationUtility.GetGhostComponentData(m_HostMigrationCache, ref state, ghostEntities[i], ghostInstances[i].ghostType, out hasErrors);
-
-                ghostList.Add(new GhostData()
-                {
-                    GhostId = ghostInstances[i].ghostId,
-                    SpawnTick = ghostInstances[i].spawnTick,
-                    GhostType = ghostInstances[i].ghostType,
-                    Data = ghostData
-                });
-            }
-
-            ghosts.Ghosts = ghostList.AsArray();
-
-            HostMigrationUtility.SerializeGhostData(ref ghosts, ghostDataBlob);
-            UpdateGhostStats(ref state, ref ghosts);
-        }
-
-        void UpdateGhostStats(ref SystemState state, ref GhostStorage ghostStorage)
-        {
-            var statsQuery = state.GetEntityQuery(ComponentType.ReadWrite<HostMigrationStats>());
-            var stats = statsQuery.GetSingletonRW<HostMigrationStats>();
-            stats.ValueRW.GhostCount = ghostStorage.Ghosts.Length;
-            stats.ValueRW.PrefabCount = ghostStorage.GhostPrefabs.Length;
-        }
 
         /// <summary>
         /// On the server check if an incoming connection is a known connection reconnecting
@@ -981,6 +883,130 @@ namespace Unity.NetCode.HostMigration
             }
         }
     }
-}
 
-#endif // ENABLE_HOST_MIGRATION
+    [BurstCompile]
+    internal struct UpdateMigrationStatsJob : IJob
+    {
+        public WorldStateSave StateSave;
+        [NativeDisableUnsafePtrRestriction] public RefRW<HostMigrationStats> Stats;
+        public NativeList<byte> GhostDataBlob;
+        public int WriteLocation;
+        public double UpdateTime;
+        public int HostDataSize;
+        [ReadOnly] public NativeArray<GhostPrefabData> GhostPrefabs;
+        public int LocalNetworkId;
+        public bool StoreOwnGhosts;
+        public ComponentLookup<GhostOwner> OwnerLookup;
+
+        [BurstCompile]
+        public void Execute()
+        {
+            unsafe
+            {
+                GhostDataBlob.Clear();
+                // TODO: Set minimum size constant somewhere
+                var requiredSize = StateSave.Size + GhostPrefabs.Length * sizeof(GhostPrefabData) + 2 * sizeof(int);
+                if (GhostDataBlob.Capacity < requiredSize)
+                    GhostDataBlob.Resize(2*requiredSize, NativeArrayOptions.ClearMemory);
+                // TODO: If we run out of space when writing, we'll need to resize this buffer and redo this whole loop
+                GhostDataBlob.Length = GhostDataBlob.Capacity;
+                var writer = new DataStreamWriter(GhostDataBlob.AsArray());
+
+                // Write prefab data
+                writer.WriteShort((short)GhostPrefabs.Length);
+                foreach (var ghostPrefab in GhostPrefabs)
+                {
+                    writer.WriteShort((short)ghostPrefab.GhostTypeIndex);
+                    writer.WriteInt(ghostPrefab.GhostTypeHash);
+                }
+
+                var ghostCountWriter = writer;
+                writer.WriteShort(0);
+                short ghostCount = 0;
+                foreach (var entry in StateSave)
+                {
+                    if (WriteGhost(ref writer, entry))
+                        ghostCount++;
+
+                    if (writer.HasFailedWrites)
+                    {
+                        Debug.LogError($"Failed to write ghost data for host migration HasFailedWrites={writer.HasFailedWrites} Length={writer.Length} Capacity={writer.Capacity}");
+                        return;
+                    }
+                }
+
+                ghostCountWriter.WriteShort(ghostCount);
+                GhostDataBlob.Length = writer.Length;
+
+                Stats.ValueRW.PrefabCount = GhostPrefabs.Length;
+                Stats.ValueRW.GhostCount = StateSave.EntityCount;
+                Stats.ValueRW.LastDataUpdateTime = UpdateTime;
+                var updateSize = HostDataSize + GhostDataBlob.Length;
+                Stats.ValueRW.UpdateSize = updateSize;
+                Stats.ValueRW.TotalUpdateSize += updateSize;
+            }
+        }
+
+        unsafe bool WriteGhost(ref DataStreamWriter writer, WorldStateSave.StateSaveEntry entry)
+        {
+            // TODO: Maybe have a quick convencience method to get these bits (this is in SavedEntityID but can't get it from entry)
+            // First find the GhostInstance to get the ghost ID/type information
+            var foundGhostInstance = false;
+            GhostInstance ghostInstance = default;
+            // TODO: Could add this API
+            //entry.TryGetComponent<GhostInstance>(out ghostInstance);
+            foreach (var compData in entry)
+            {
+                if (compData.Type == ComponentType.ReadOnly<GhostInstance>())
+                {
+                    compData.ToConcrete(out ghostInstance);
+                    if (ghostInstance.ghostId == 0)
+                        Debug.LogError($"Trying to send a ghost with an id of 0 this should not be possible. GhostIds are assigned by the GhostSendSystem and this should always run before the migration system ensuring all ghosts have a valid id.");
+                    foundGhostInstance = true;
+                }
+
+                if (compData.Type == ComponentType.ReadOnly<GhostOwner>())
+                {
+                    compData.ToConcrete(out GhostOwner ghostOwner);
+                    // Omit the ghosts owned by the host as he's leaving the session
+                    if (!StoreOwnGhosts && ghostOwner.NetworkId == LocalNetworkId)
+                        return false;
+                }
+
+                // Skip the special case of the entity tracking loaded prespawn scenes, the whole entity must be skipped, not just the component (it will be recreated automatically)
+                if (compData.Type == ComponentType.ReadOnly<PrespawnSceneLoaded>())
+                    return false;
+            }
+
+            if (!foundGhostInstance)
+            {
+                Debug.LogError($"Failed to find GhostInstance data on entry");
+                return false;
+            }
+
+            writer.WriteInt(ghostInstance.ghostId);
+            writer.WriteUInt(ghostInstance.spawnTick.SerializedData);
+            writer.WriteShort((short)ghostInstance.ghostType);
+            writer.WriteShort((short)entry.types.Length);
+            foreach (var compData in entry)
+            {
+                var typeInfo = TypeManager.GetTypeInfo(compData.Type.TypeIndex);
+                writer.WriteULong(typeInfo.StableTypeHash);
+                if (compData.Type.IsEnableable)
+                    writer.WriteByte((byte)(compData.Enabled ? 1 : 0));
+                if (compData.Type.IsBuffer)
+                {
+                    writer.WriteInt(compData.Length);
+                    var elementSize = TypeManager.GetTypeInfo(compData.Type.TypeIndex).ElementSize;
+                    writer.WriteBytes(new Span<byte>(compData.ComponentAdr, compData.Length * elementSize));
+                }
+                else
+                {
+                    writer.WriteBytes(new Span<byte>(compData.ComponentAdr, typeInfo.TypeSize));
+                }
+            }
+
+            return true;
+        }
+    }
+}

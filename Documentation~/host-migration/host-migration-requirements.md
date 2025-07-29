@@ -1,8 +1,5 @@
 # Host migration requirements
 
-> [!NOTE]
-> Host migration is an experimental feature so the API and implementation can change in the future. By default it's not exposed, enable it by adding the `ENABLE_HOST_MIGRATION` define in the __Scripting Define Symbols__ in the __Player__ tab of the project settings.
-
 Understand the requirements for using host migration in a project and which platforms are supported.
 
 After ensuring your project meets these requirements, you can move on to [setting up host migration systems in your project](host-migration-systems.md).

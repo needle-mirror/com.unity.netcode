@@ -241,19 +241,25 @@ namespace Unity.NetCode
         /// <returns>Thin client world instance.</returns>
         public static World CreateThinClientWorld()
         {
+            var systems = DefaultWorldInitialization.GetAllSystemTypeIndices(WorldSystemFilterFlags.ThinClientSimulation);
+            return CreateThinClientWorld(systems);
+        }
+
+        /// <param name="systems">List of systems to be included.</param>
+        /// <inheritdoc cref="CreateThinClientWorld()"/>
+        public static World CreateThinClientWorld(NativeList<SystemTypeIndex> systems)
+        {
 #if UNITY_SERVER && !UNITY_EDITOR
             Debug.LogWarning("This executable was built using a 'server-only' build target (likely DGS). Thus, may not be able to successfully initialize thin client world.");
 #endif
             var world = new World("ThinClientWorld" + s_NextThinClientId++, WorldFlags.GameThinClient);
 
-            var systems = DefaultWorldInitialization.GetAllSystems(WorldSystemFilterFlags.ThinClientSimulation);
             DefaultWorldInitialization.AddSystemsToRootLevelSystemGroups(world, systems);
 
             ScriptBehaviourUpdateOrder.AppendWorldToCurrentPlayerLoop(world);
             ThinClientWorlds.Add(world);
 
             return world;
-
         }
 
         /// <summary>
@@ -264,12 +270,20 @@ namespace Unity.NetCode
         /// <returns>Client world instance.</returns>
         public static World CreateClientWorld(string name)
         {
+            var systems = DefaultWorldInitialization.GetAllSystemTypeIndices(WorldSystemFilterFlags.ClientSimulation | WorldSystemFilterFlags.Presentation);
+            return CreateClientWorld(name, systems);
+        }
+
+        /// <param name="name">The client world name</param>
+        /// <param name="systems">List of systems to be included.</param>
+        /// <inheritdoc cref="CreateClientWorld(string)"/>
+        public static World CreateClientWorld(string name, NativeList<SystemTypeIndex> systems)
+        {
 #if UNITY_SERVER && !UNITY_EDITOR
             throw new PlatformNotSupportedException("This executable was built using a 'server-only' build target (likely DGS). Thus, cannot create client worlds.");
 #else
             var world = new World(name, WorldFlags.GameClient);
 
-            var systems = DefaultWorldInitialization.GetAllSystems(WorldSystemFilterFlags.ClientSimulation | WorldSystemFilterFlags.Presentation);
             DefaultWorldInitialization.AddSystemsToRootLevelSystemGroups(world, systems);
             ScriptBehaviourUpdateOrder.AppendWorldToCurrentPlayerLoop(world);
 
@@ -277,9 +291,10 @@ namespace Unity.NetCode
                 World.DefaultGameObjectInjectionWorld = world;
 
             ClientWorlds.Add(world);
-            return  world;
+            return world;
 #endif
         }
+
 
         /// <summary>
         /// Optional client bootstrap helper method, so your custom bootstrap flows can copy this subset of auto-connect logic.
@@ -358,13 +373,20 @@ namespace Unity.NetCode
         /// <returns>Server world instance.</returns>
         public static World CreateServerWorld(string name)
         {
+            var systems = DefaultWorldInitialization.GetAllSystemTypeIndices(WorldSystemFilterFlags.ServerSimulation);
+            return CreateServerWorld(name, systems);
+        }
+
+        /// <param name="systems">List of systems to be included.</param>
+        /// <inheritdoc cref="CreateServerWorld(string)"/>
+        public static World CreateServerWorld(string name, NativeList<SystemTypeIndex> systems)
+        {
 #if UNITY_CLIENT && !UNITY_SERVER && !UNITY_EDITOR
             throw new PlatformNotSupportedException("This executable was built using a 'client-only' build target. Thus, cannot create a server world. In your ProjectSettings, change your 'Client Build Target' to `ClientAndServer` to support creating client-hosted servers.");
 #else
 
             var world = new World(name, WorldFlags.GameServer);
 
-            var systems = DefaultWorldInitialization.GetAllSystems(WorldSystemFilterFlags.ServerSimulation);
             DefaultWorldInitialization.AddSystemsToRootLevelSystemGroups(world, systems);
             ScriptBehaviourUpdateOrder.AppendWorldToCurrentPlayerLoop(world);
 
@@ -520,6 +542,19 @@ namespace Unity.NetCode
                 yield return client;
             foreach (var thin in ThinClientWorlds)
                 yield return thin;
+        }
+
+        /// <summary>
+        /// Conditionally assign the given world to both the DefaultGameObjectInjectionWorld and/or CurrentlyActiveGameObjectWorld
+        /// if the respective value is either null or the current worlds are not created.
+        /// </summary>
+        /// <param name="world"></param>
+        internal static void AssignCurrentActiveWorldIfNotSet(World world)
+        {
+            if (World.DefaultGameObjectInjectionWorld == null || !World.DefaultGameObjectInjectionWorld.IsCreated)
+                World.DefaultGameObjectInjectionWorld = world;
+            /*if (ActiveGameObjectWorld.World == null || !ActiveGameObjectWorld.World.IsCreated)
+                ActiveGameObjectWorld.World = world;*/
         }
     }
 

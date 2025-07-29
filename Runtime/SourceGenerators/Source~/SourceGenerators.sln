@@ -4,6 +4,16 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "NetCodeSourceGenerator", "N
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Unity.NetCode.SourceGeneratorsTests", "Tests\Unity.NetCode.SourceGeneratorsTests.csproj", "{BB0EEFF3-3F39-D1F8-0CB6-C18929D1DD2A}"
 EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Mock", "Mock", "{DFE1E945-7F31-48DB-A289-A8B46B5179CE}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "NetCodeAnalyzers", "NetCodeAnalyzers\NetCodeAnalyzers.csproj", "{5781AA76-643C-43A4-B2E9-B58CEB4B2C04}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "NetCodeAnalyzer.Tests", "NetCodeAnalyzer.Tests\NetCodeAnalyzer.Tests.csproj", "{69100F06-C2E7-49A5-A3E0-D006B754B17E}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Unity.NetCode", "Mock\Unity.NetCode\Unity.NetCode.csproj", "{3A56267A-DD76-499B-9968-1034395F757F}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "EntitiesMockReference", "Mock\EntitiesMockReference\EntitiesMockReference.csproj", "{DB42A102-93E0-47F0-967E-E268DC5A5A47}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -18,5 +28,25 @@ Global
 		{BB0EEFF3-3F39-D1F8-0CB6-C18929D1DD2A}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{BB0EEFF3-3F39-D1F8-0CB6-C18929D1DD2A}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{BB0EEFF3-3F39-D1F8-0CB6-C18929D1DD2A}.Release|Any CPU.Build.0 = Release|Any CPU
+		{5781AA76-643C-43A4-B2E9-B58CEB4B2C04}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{5781AA76-643C-43A4-B2E9-B58CEB4B2C04}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{5781AA76-643C-43A4-B2E9-B58CEB4B2C04}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{5781AA76-643C-43A4-B2E9-B58CEB4B2C04}.Release|Any CPU.Build.0 = Release|Any CPU
+		{69100F06-C2E7-49A5-A3E0-D006B754B17E}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{69100F06-C2E7-49A5-A3E0-D006B754B17E}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{69100F06-C2E7-49A5-A3E0-D006B754B17E}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{69100F06-C2E7-49A5-A3E0-D006B754B17E}.Release|Any CPU.Build.0 = Release|Any CPU
+		{3A56267A-DD76-499B-9968-1034395F757F}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{3A56267A-DD76-499B-9968-1034395F757F}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{3A56267A-DD76-499B-9968-1034395F757F}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{3A56267A-DD76-499B-9968-1034395F757F}.Release|Any CPU.Build.0 = Release|Any CPU
+		{DB42A102-93E0-47F0-967E-E268DC5A5A47}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{DB42A102-93E0-47F0-967E-E268DC5A5A47}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{DB42A102-93E0-47F0-967E-E268DC5A5A47}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{DB42A102-93E0-47F0-967E-E268DC5A5A47}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(NestedProjects) = preSolution
+		{3A56267A-DD76-499B-9968-1034395F757F} = {DFE1E945-7F31-48DB-A289-A8B46B5179CE}
+		{DB42A102-93E0-47F0-967E-E268DC5A5A47} = {DFE1E945-7F31-48DB-A289-A8B46B5179CE}
 	EndGlobalSection
 EndGlobal

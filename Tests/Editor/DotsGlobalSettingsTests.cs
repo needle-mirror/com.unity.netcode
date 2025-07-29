@@ -8,6 +8,7 @@ namespace Unity.Scenes.Editor.Tests
     internal class DotsGlobalSettingsTests : TestWithSceneAsset
     {
         [Test]
+        [Category(NetcodeTestCategories.Foundational)]
         public void NetCodeDebugDefine_IsSetForDevelopmentBuild()
         {
             var originalValue = EditorUserBuildSettings.development;

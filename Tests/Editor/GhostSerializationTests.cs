@@ -304,6 +304,7 @@ namespace Unity.NetCode.Tests
         }
 
         [Test]
+        [Category(NetcodeTestCategories.Foundational)]
         public void ChangeMaskUtilitiesWorks()
         {
             //256 bit mask, the extra bits are for checking any overflow
@@ -354,6 +355,7 @@ namespace Unity.NetCode.Tests
         }
 
         [Test]
+        [Category(NetcodeTestCategories.Foundational)]
         public void GhostValuesAreSerialized()
         {
             using (var testWorld = new NetCodeTestWorld())
@@ -706,6 +708,7 @@ namespace Unity.NetCode.Tests
             }
         }
         [Test]
+        [Category(NetcodeTestCategories.Foundational)]
         public void SnapshotAckMaskIsReportedCorrectlyByTheClient()
         {
             using (var testWorld = new NetCodeTestWorld())

@@ -1,8 +1,5 @@
 # Introduction to host migration
 
-> [!NOTE]
-> Host migration is an experimental feature so the API and implementation can change in the future. By default it's not exposed, enable it by adding the `ENABLE_HOST_MIGRATION` define in the __Scripting Define Symbols__ in the __Player__ tab of the project settings.
-
 Understand the basics of host migration in Netcode for Entities and whether it might be suitable for your project.
 
 Host migration in Netcode for Entities uses [Unity Gaming Services](https://unity.com/solutions/gaming-services) to allow a client hosted networking experience to continue after the loss of the host. You can use host migration to manage a variety of voluntary and involuntary interruptions, including network disconnections, power failures, or the host exiting the application.

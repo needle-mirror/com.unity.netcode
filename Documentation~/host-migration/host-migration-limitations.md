@@ -1,8 +1,5 @@
 # Limitations and known issues
 
-> [!NOTE]
-> Host migration is an experimental feature so the API and implementation can change in the future. By default it's not exposed, enable it by adding the `ENABLE_HOST_MIGRATION` define in the __Scripting Define Symbols__ in the __Player__ tab of the project settings.
-
 Understand the limitations and known issues with host migration to implement it most effectively in your project.
 
 ## Limitations
@@ -20,10 +17,6 @@ Understand the limitations and known issues with host migration to implement it 
 Ghost IDs and connection Network IDs will not be identical on the new host compared to the old host. When the new host respawns ghosts they're being allocated fresh IDs from the new host ghost ID pool. The same goes for the Network IDs on connection: they will be assigned from 1 and onwards on the new host, and the ordering will likely be different than on the old host.
 
 Because of this network ID mismatch the ghost owner needs to be updated every time a new connection arrives. Right after the migration all ghost owners are set to -1, then when a connection arrives which is a returning client the ghost owner value will be updated to reflect their current network ID value.
-
-### Compatibility with Burst
-
-When burst is enabled the JSON and binary serialization methods won't work. `DataStorageMethod.StreamCompressed` must be selected in the host migration config.
 
 ### Allocation ID not found errors
 

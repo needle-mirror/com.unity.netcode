@@ -71,6 +71,21 @@ namespace Unity.NetCode.LowLevel.StateSave
         }
     }
 
+    /// <summary>
+    /// Buffer data offset and length data for buffer types used inside the entity component space in the container save.
+    /// </summary>
+    internal struct BufferHandle
+    {
+        /// <summary>
+        /// Length of the buffer or the buffer element count.
+        /// </summary>
+        public int Length;
+
+        /// <summary>
+        /// Offset to the whole buffer stored behind the component data, size will be the entity count * buffer length
+        /// </summary>
+        public int Offset;
+    }
 
     /// <summary>
     /// Some basic extension methods for configuring the state save. Could potentially add new extension methods in other assemblies to create more state save filters. e.g. WithAllGhosts could go through all ghost types and gather all ghost components
@@ -122,12 +137,15 @@ namespace Unity.NetCode.LowLevel.StateSave
         readonly void CheckInitialized() { if (!Initialized) throw new ObjectDisposedException($"{nameof(WorldStateSave)} not initialized, don't forget to call {nameof(Initialize)}"); }
 
         #region Main Allocation
+        // Buffers: these are stored in the entity component data space as the buffer header, containing the offset to the buffer data.
+        //          buffer data is then stored behind all the component data (end of component data is the offset) for the current Container/chunk
+        // Enableable: types which are enableable will have their enabled status stored behind the component data (an extra byte)
         // Main allocation
-        // Structure of the main allocation:
-        // |                       Main allocation                                                 |
-        // |              container                                 | container |   container      | // containers are ptrs to parts of the main alloc
-        // | component types list |  entity data                    |    |      |      |           | // the part has a header for the types list, then per entity data
-        // |  A B C               |A1|   B1   | C1 |A2|   B2   | C2 | AB | | |  |  AC  |  | | |    | // types have different sizes. ordered by entity
+        // Structure of the main allocation (B is an enableable component, C is a buffer type):
+        // |                       Main allocation                                                                             |
+        // |              container                              | buffer data | container      | buffer data| container           | // containers are ptrs to parts of the main alloc
+        // | component types list |  entity data                 |             |                |            |                       // the part has a header for the types list, then per entity data, then buffer data at the end
+        // |  A B C               |A1|   B1E   | C1B |A2|   B2E  | C1-12345    | C2B | AB       | C2-123     | |  | A C  |  | | |  | // types have different sizes. ordered by entity. 'E' is enabled status. 'B' is the buffer handle info
         [NativeDisableUnsafePtrRestriction]
         void* m_BaseStateSaveAddress;
         long m_AllocationSize;
@@ -170,6 +188,8 @@ namespace Unity.NetCode.LowLevel.StateSave
             }
             private set => m_EntityCount = value;
         }
+
+        public int Size => (int)m_AllocationSize;
 
         static readonly ProfilerMarker s_PerChunkMarker = new("Per Chunk");
         static readonly ProfilerMarker s_MainStateAlloc = new ProfilerMarker("Main State Alloc");
@@ -258,6 +278,25 @@ namespace Unity.NetCode.LowLevel.StateSave
             else
                 this.m_OptionalTypesToSave = new(0, m_Allocator);
 
+            for (int i = 0; i < m_RequiredTypesToSave.Length; i++)
+            {
+                if (m_RequiredTypesToSave[i].AccessModeType != ComponentType.AccessMode.ReadOnly)
+                {
+                    var t = m_RequiredTypesToSave[i];
+                    t.AccessModeType = ComponentType.AccessMode.ReadOnly;
+                    m_RequiredTypesToSave[i] = t;
+                }
+            }
+            for (int i = 0; i < m_OptionalTypesToSave.Length; i++)
+            {
+                if (m_OptionalTypesToSave[i].AccessModeType != ComponentType.AccessMode.ReadOnly)
+                {
+                    var t = m_OptionalTypesToSave[i];
+                    t.AccessModeType = ComponentType.AccessMode.ReadOnly;
+                    m_OptionalTypesToSave[i] = t;
+                }
+            }
+
             var requiredTypesList = new NativeList<ComponentType>(m_RequiredTypesToSave.Length, Allocator.Temp);
             requiredTypesList.AddRange(m_RequiredTypesToSave);
             var optionalTypesList = new NativeList<ComponentType>(m_OptionalTypesToSave.Length, Allocator.Temp);
@@ -272,8 +311,9 @@ namespace Unity.NetCode.LowLevel.StateSave
 
             // we're not exposing this builder since the order of required + optional needs to be controlled for when we save components. We instead rely on a limited set of filters like required and optional to simplify this
             using var builder = new EntityQueryBuilder(Allocator.Temp);
+            // Using WithPresent will include entities which have disabled components, WithAll will completely omit the whole entity if one of the enablable components is disabled
             if (requiredTypesList.Length != 0)
-                builder.WithAll(ref requiredTypesList);
+                builder.WithPresent(ref requiredTypesList);
             else
                 builder.WithAny(ref optionalTypesList); // we're already iterating over all required types and checking in the IJobChunk if it contains the optional types. However, if we want to track entities with completely different sets of components with no overlap, we can set no required and just iterate WithAny
             m_ToSaveQuery = state.EntityManager.CreateEntityQuery(builder);
@@ -289,11 +329,16 @@ namespace Unity.NetCode.LowLevel.StateSave
             // It's going to be the case for Unity 6, improvements coming in U7, but need to work around it for now
             s_ChunkCalculation.Begin();
             long totalSizeBytesNeeded = 0;
-            long requiredSize = 0;
-            // TODO handle buffers, potentially add them at the end of the sub container
+            long singleEntityRequiredSize = 0;
+            // First calculate requiredTypes component size (without buffer data, only buffer header)
             for (int i = 0; i < m_RequiredTypesToSave.Length; i++)
             {
-                requiredSize += TypeManager.GetTypeInfo(m_RequiredTypesToSave[i].TypeIndex).SizeInChunk;
+                if (m_RequiredTypesToSave[i].IsBuffer)
+                    singleEntityRequiredSize += sizeof(BufferHandle);
+                else
+                    singleEntityRequiredSize += TypeManager.GetTypeInfo(m_RequiredTypesToSave[i].TypeIndex).SizeInChunk;
+                if (m_RequiredTypesToSave[i].IsEnableable)
+                    singleEntityRequiredSize++; // save one byte at the end of the component data for enableable status. TODO could save chunk's bitfield instead?
             }
 
             // this assumes the job will execute right after calculating this with no structural change
@@ -322,19 +367,48 @@ namespace Unity.NetCode.LowLevel.StateSave
                         t.AccessModeType = ComponentType.AccessMode.ReadOnly; // for the Contains() below
                         if (m_OptionalTypesToSave.Contains(t))
                         {
-                            singleEntityOptionalSize += TypeManager.GetTypeInfo(t.TypeIndex).SizeInChunk;
+                            if (t.IsBuffer)
+                                singleEntityOptionalSize += sizeof(BufferHandle);
+                            else
+                                singleEntityOptionalSize += TypeManager.GetTypeInfo(t.TypeIndex).SizeInChunk;
+                            if (t.IsEnableable)
+                                singleEntityOptionalSize++;
                             allComponentTypesInContainer.Add(t);
                         }
                     }
                 }
 
+                // Collect buffer types and complete dependency them as we need to read their data
+                var bufferTypes = new NativeList<ComponentType>(Allocator.Temp);
+                for (int j = 0; j < allComponentTypesInContainer.Length; j++)
+                {
+                    var type = allComponentTypesInContainer[j];
+                    if (!type.IsBuffer) continue;
+                    bufferTypes.Add(type);
+                }
+                var bufferQueryBuilder = new EntityQueryBuilder(Allocator.Temp);
+                bufferQueryBuilder.WithAny(ref bufferTypes);
+                using var bufferQuery = state.EntityManager.CreateEntityQuery(bufferQueryBuilder);
+                bufferQuery.CompleteDependency();
+
+                // Calculate buffer size used by this container, for each type check how many elements are present on each entity
+                var bufferSizeForComponentTypes = 0;
+                for (int j = 0; j < bufferTypes.Length; j++)
+                {
+                    var type = bufferTypes[j];
+                    var typeHandle = state.EntityManager.GetDynamicComponentTypeHandle(type);
+                    var bufferData = chunk.GetUntypedBufferAccessor(ref typeHandle);
+                    for (int k = 0; k < chunk.Count; k++)
+                        bufferSizeForComponentTypes += bufferData.GetBufferLength(k) * TypeManager.GetTypeInfo(type.TypeIndex).ElementSize;
+                }
+
                 // each state save chunk is actually pointing to consecutive parts of the same big memory allocation
                 // we initialize the container with an offset, then once we have the actual allocation later the container can use it with InitializeSaveAddress()
                 var containerOffset = totalSizeBytesNeeded;
-                var currentStateSave = new StateSaveContainer(allComponentTypesInContainer.AsArray(), containerOffset, entityCountInChunk, m_Allocator);
+                var currentStateSave = new StateSaveContainer(allComponentTypesInContainer.AsArray(), containerOffset, entityCountInChunk, m_Allocator, state.WorldUnmanaged, chunk, bufferSizeForComponentTypes);
                 m_AllStateSaveContainers[i] = currentStateSave;
 
-                totalSizeBytesNeeded += entityCountInChunk * (singleEntityOptionalSize + requiredSize) + currentStateSave.HeaderSize;
+                totalSizeBytesNeeded += entityCountInChunk * (singleEntityOptionalSize + singleEntityRequiredSize) + bufferSizeForComponentTypes + currentStateSave.HeaderSize;
             }
             s_PerChunkMarker.End();
 
@@ -468,6 +542,8 @@ namespace Unity.NetCode.LowLevel.StateSave
                 optionalTypes = m_OptionalTypesToSave,
                 fullWorldStateSave = this.GetParallelWriter(),
                 stateSaveStrategy = stateSaveStrategy,
+                entityType = state.GetEntityTypeHandle(),
+                entityStorageInfo = state.GetEntityStorageInfoLookup()
             };
             var dep = job.ScheduleParallelByRef(m_ToSaveQuery, state.Dependency);
             return dep;
@@ -536,31 +612,47 @@ namespace Unity.NetCode.LowLevel.StateSave
         {
             // TODO add a way to get a specific component directly. Like GetComponentData<T>(). Could be useful for getting GhostInstance metadata before restoring a ghost for example
             public byte* entityBaseAdr;
+            public byte* containerBaseAdr;
             public NativeArray<ComponentType> types; // points to existing memory in the main allocation. Shouldn't modify the content of this array.
 
             int m_CurrentIndex;
             int m_CurrentOffset;
-            int m_Length;
 
             internal static int SizeInSave(ComponentType type)
             {
-                return TypeManager.GetTypeInfo(type.TypeIndex).SizeInChunk;
+                int enabledBitSize = 0;
+                if (type.IsEnableable)
+                    enabledBitSize = 1;
+                if (type.IsBuffer)
+                    return sizeof(BufferHandle) + enabledBitSize;
+                return TypeManager.GetTypeInfo(type.TypeIndex).SizeInChunk + enabledBitSize;
             }
 
             public struct SavedComponentData
             {
                 public byte* ComponentAdr;
+                public int Length;
                 public ComponentType Type;
+                public bool Enabled;
 
                 public void ToConcrete<T>(out T data) where T : struct
                 {
                     UnsafeUtility.CopyPtrToStructure(ComponentAdr, out data);
                 }
+
+                public void ToConcrete<T>(ref NativeList<T> data) where T : unmanaged, IBufferElementData
+                {
+                    var elementSize = TypeManager.GetTypeInfo(Type.TypeIndex).ElementSize;
+                    for (int i = 0; i < Length; ++i)
+                    {
+                        UnsafeUtility.CopyPtrToStructure(ComponentAdr + (i*elementSize), out T element);
+                        data.Add(element);
+                    }
+                }
             }
 
             void InitIterator()
             {
-                m_Length = types.Length;
                 m_CurrentIndex = -1;
             }
 
@@ -588,11 +680,11 @@ namespace Unity.NetCode.LowLevel.StateSave
             public bool MoveNext()
             {
                 m_CurrentIndex++;
-                if (m_CurrentIndex < m_Length && m_CurrentIndex > 0)
+                if (m_CurrentIndex < types.Length && m_CurrentIndex > 0)
                 {
                     m_CurrentOffset += SizeInSave(types[m_CurrentIndex - 1]); // we need to add the previous type's size to get the current offset
                 }
-                return m_CurrentIndex < m_Length;
+                return m_CurrentIndex < types.Length;
             }
             public void Reset()
             {
@@ -602,7 +694,29 @@ namespace Unity.NetCode.LowLevel.StateSave
             public SavedComponentData Current
             {
                 [MethodImpl(MethodImplOptions.AggressiveInlining)]
-                get => new() { ComponentAdr = this.entityBaseAdr + m_CurrentOffset, Type = types[m_CurrentIndex] };
+                get
+                {
+                    var address = entityBaseAdr + m_CurrentOffset;
+                    var type = types[m_CurrentIndex];
+                    var length = 0;
+                    byte enabledByte = 0;
+                    byte* enabledAddress;
+                    if (type.IsBuffer)
+                    {
+                        enabledAddress = address + sizeof(BufferHandle);
+                        var bufHeader = (BufferHandle*)address;
+                        length = bufHeader->Length;
+                        address = containerBaseAdr + bufHeader->Offset;
+                    }
+                    else
+                    {
+                        enabledAddress = address + TypeManager.GetTypeInfo(type.TypeIndex).SizeInChunk;
+                    }
+                    if (type.IsEnableable)
+                        UnsafeUtility.MemCpy(UnsafeUtility.AddressOf(ref enabledByte), enabledAddress, 1);
+
+                    return new SavedComponentData { ComponentAdr = address, Length = length, Type = type, Enabled = enabledByte == 1};
+                }
             }
 
             object IEnumerator.Current => Current;
@@ -672,8 +786,9 @@ namespace Unity.NetCode.LowLevel.StateSave
 
                     var currentAsSpan = saveContainerSpan.Slice(m_CurrentEntityIndexInContainer * currentContainer.SingleEntitySize, currentContainer.SingleEntitySize);
                     byte* currentAdr = (byte*)UnsafeUtility.AddressOf(ref currentAsSpan[0]);
+                    byte* containerAdr = (byte*)UnsafeUtility.AddressOf(ref saveContainerSpan[0]);
 
-                    return new() { entityBaseAdr = currentAdr, types = typesForCurrentContainer };
+                    return new() { entityBaseAdr = currentAdr, containerBaseAdr = containerAdr,types = typesForCurrentContainer };
                 }
             }
 
@@ -714,7 +829,7 @@ namespace Unity.NetCode.LowLevel.StateSave
         internal int HeaderSize;
 
         public readonly Span<ComponentType> ComponentTypesListHeader => new(m_ContainerStateSaveAdr, HeaderSize / UnsafeUtility.SizeOf<ComponentType>());
-        public readonly Span<byte> StateSave => new(m_ContainerStateSaveAdr + HeaderSize, SingleEntitySize * EntityCount);
+        public readonly Span<byte> StateSave => new(m_ContainerStateSaveAdr + HeaderSize, SingleEntitySize * EntityCount + TotalBufferSize);
 
         readonly byte* GetContainerSaveDataAddress
         {
@@ -726,14 +841,16 @@ namespace Unity.NetCode.LowLevel.StateSave
         }
         long m_ContainerOffsetInParentAllocation; // the above pointer points to an allocation not owned by this container, so we need to know the offset in that allocation
         bool m_Initialized;
+        int m_NextBufferOffset;
 
         readonly void CheckInitialized() { if (!m_Initialized) throw new ObjectDisposedException($"Container disposed, make sure you call {nameof(InitializeSaveAddress)}"); }
 
         internal int SingleEntitySize;
+        internal int TotalBufferSize;
         public readonly int EntityCount;
 
         static readonly ProfilerMarker s_StateSaveConstructorMarker = new($"{nameof(StateSaveContainer)} Constructor");
-        internal StateSaveContainer(in NativeArray<ComponentType> componentTypes, long containerOffsetInParentAllocation, int entityCount, in Allocator allocator)
+        internal StateSaveContainer(in NativeArray<ComponentType> componentTypes, long containerOffsetInParentAllocation, int entityCount, in Allocator allocator, WorldUnmanaged world, ArchetypeChunk chunk, int totalBufferSize)
         {
             using var a = s_StateSaveConstructorMarker.Auto();
             var offset = 0;
@@ -741,16 +858,27 @@ namespace Unity.NetCode.LowLevel.StateSave
             foreach (var type in componentTypes)
             {
                 var dotsTypeInfo = TypeManager.GetTypeInfo(type.TypeIndex);
-                offset += dotsTypeInfo.SizeInChunk;
+                if (!type.IsBuffer)
+                {
+                    offset += dotsTypeInfo.SizeInChunk;
+                }
+                else
+                {
+                    offset += sizeof(BufferHandle); // Store length + offset for each buffer type in the entity component data part
+                }
+                if (type.IsEnableable)
+                    offset++;
                 headerSize += UnsafeUtility.SizeOf<ComponentType>(); // a list of component types will be saved in the header at job time. data adr not known right now, so can't save it now.
             }
 
             HeaderSize = headerSize;
             SingleEntitySize = offset;
+            TotalBufferSize = totalBufferSize;
             EntityCount = entityCount;
 
             this.m_ContainerStateSaveAdr = null;
             this.m_ContainerOffsetInParentAllocation = containerOffsetInParentAllocation;
+            m_NextBufferOffset = 0;
             m_Initialized = false; // only initialized once we call InitializeSaveAddress
         }
 
@@ -767,7 +895,7 @@ namespace Unity.NetCode.LowLevel.StateSave
             m_Initialized = false;
         }
 
-        public void SaveCompForEntityIndex(in int entIndex, in ComponentType componentType, in byte* chunkCompData)
+        public void SaveCompForEntityIndex(in int entIndex, in ComponentType componentType, in byte* chunkCompData, bool enableBitIsSet)
         {
             CheckInitialized();
             var found = TryGetOffsetForComponentType(componentType, out var compOffset);
@@ -778,6 +906,47 @@ namespace Unity.NetCode.LowLevel.StateSave
 
             byte* dstAdr = (byte*)UnsafeUtility.AddressOf(ref dstAdrSpan[0]);
             UnsafeUtility.MemCpy(dstAdr, srcAdr, size);
+            if (componentType.IsEnableable)
+            {
+                // Enabled state is written into the byte behind the component data
+                var enableBitAddress = dstAdr + size;
+                UnsafeUtility.MemCpy(enableBitAddress, &enableBitIsSet, 1);
+            }
+        }
+
+        public void SaveBufferForEntityIndex(in WorldStateSave.WorldSaveParallelWriter fullWorldStateSave, in int entIndex, in ComponentType componentType, in byte* chunkCompData, int bufferElementCount, bool enableBitIsSet)
+        {
+            CheckInitialized();
+            var found = TryGetOffsetForComponentType(componentType, out var compOffset);
+            var size = TypeManager.GetTypeInfo(componentType.TypeIndex).ElementSize * bufferElementCount;
+
+            var dstAdrSpan = GetObjectAdrInSave(entIndex).Slice(compOffset, sizeof(BufferHandle));
+            byte* dstAdr = (byte*)UnsafeUtility.AddressOf(ref dstAdrSpan[0]);
+
+            var bufferHeader = (BufferHandle*)dstAdr;
+            if (bufferElementCount == 0)
+            {
+                bufferHeader->Length = 0;
+                bufferHeader->Offset = -1;
+                return;
+            }
+
+            if (componentType.IsEnableable)
+            {
+                // Enabled state is written into the byte behind the buffer header data
+                var enableBitAddress = dstAdr + sizeof(BufferHandle);
+                UnsafeUtility.MemCpy(enableBitAddress, &enableBitIsSet, 1);
+            }
+
+            // Start at end of last buffer registered so we continue copying into buffer space for each entity index
+            if (m_NextBufferOffset == 0)
+                m_NextBufferOffset = EntityCount * SingleEntitySize;  // Initialize to start of buffer space for the first copied buffer
+            bufferHeader->Offset = m_NextBufferOffset;
+            bufferHeader->Length = bufferElementCount;
+            m_NextBufferOffset += size;
+
+            dstAdr = GetContainerSaveDataAddress + bufferHeader->Offset;
+            UnsafeUtility.MemCpy(dstAdr, chunkCompData, size);
         }
 
         internal readonly Span<byte> GetObjectAdrInSave(int entIndex)
@@ -815,7 +984,14 @@ namespace Unity.NetCode.LowLevel.StateSave
             {
                 if (containedType == type)
                     return true;
-                offset += TypeManager.GetTypeInfo(containedType.TypeIndex).SizeInChunk;
+
+                // Component part will contain the buffer header only (which will contain the offset into the buffer space)
+                if (containedType.IsBuffer)
+                    offset += sizeof(BufferHandle);
+                else
+                    offset += TypeManager.GetTypeInfo(containedType.TypeIndex).SizeInChunk;
+                if (containedType.IsEnableable)
+                    offset++;
             }
 
             offset = -1;
@@ -825,14 +1001,17 @@ namespace Unity.NetCode.LowLevel.StateSave
         public void AddComponentType(int index, ComponentType currentCompType)
         {
             CheckInitialized();
-            ComponentTypesListHeader[index] = currentCompType;
+            if (index >= ComponentTypesListHeader.Length)
+                UnityEngine.Debug.LogError($"Component type index out of bounds while adding component {currentCompType}");
+            else
+                ComponentTypesListHeader[index] = currentCompType;
         }
     }
 
     internal unsafe interface IStateSaveStrategy
     {
         void UpdateTypesToTrack(ref NativeHashSet<ComponentType> requiredTypes, ref NativeHashSet<ComponentType> optionalTypes);
-        void SaveEntity(ref StateSaveContainer currentStateSave, ref WorldStateSave.WorldSaveParallelWriter fullWorldStateSave, in ArchetypeChunk chunk, in int unfilteredChunkIndex, in int entIndex, in ComponentType currentCompType, in byte* toCopyPtr, in int compIndex);
+        void SaveEntity(ref StateSaveContainer currentStateSave, ref WorldStateSave.WorldSaveParallelWriter fullWorldStateSave, in ArchetypeChunk chunk, in int unfilteredChunkIndex, in int entIndex, in ComponentType currentCompType, in byte* toCopyPtr, in int bufferElementCount, in int compIndex, bool enableBitIsSet);
     }
 
     /// <summary>
@@ -843,9 +1022,12 @@ namespace Unity.NetCode.LowLevel.StateSave
     {
         static readonly ProfilerMarker s_Marker = new("DefaultStateSaveStrategy.SaveEntity");
         static readonly ProfilerMarker s_MarkerProfiler = new("DefaultStateSaveStrategy.SaveEntity.profilerMarker");
-        public void SaveEntity(ref StateSaveContainer currentStateSave, ref WorldStateSave.WorldSaveParallelWriter fullWorldStateSave, in ArchetypeChunk chunk, in int unfilteredChunkIndex, in int entIndex, in ComponentType currentCompType, in byte* toCopyPtr, in int compIndex)
+        public void SaveEntity(ref StateSaveContainer currentStateSave, ref WorldStateSave.WorldSaveParallelWriter fullWorldStateSave, in ArchetypeChunk chunk, in int unfilteredChunkIndex, in int entIndex, in ComponentType currentCompType, in byte* toCopyPtr, in int bufferElementCount, in int compIndex, bool enableBitIsSet)
         {
-            currentStateSave.SaveCompForEntityIndex(entIndex: entIndex, componentType: currentCompType, toCopyPtr);
+            if (currentCompType.IsBuffer)
+                currentStateSave.SaveBufferForEntityIndex(fullWorldStateSave, entIndex, currentCompType, toCopyPtr, bufferElementCount, enableBitIsSet);
+            else
+                currentStateSave.SaveCompForEntityIndex(entIndex: entIndex, componentType: currentCompType, toCopyPtr, enableBitIsSet);
         }
 
         public void UpdateTypesToTrack(ref NativeHashSet<ComponentType> requiredTypes, ref NativeHashSet<ComponentType> optionalTypes)
@@ -865,11 +1047,14 @@ namespace Unity.NetCode.LowLevel.StateSave
             ghostInstanceHandle = handle;
         }
 
-        public void SaveEntity(ref StateSaveContainer currentStateSave, ref WorldStateSave.WorldSaveParallelWriter fullWorldStateSave, in ArchetypeChunk chunk, in int unfilteredChunkIndex, in int entIndex, in ComponentType currentCompType, in byte* toCopyPtr, in int compIndex)
+        public void SaveEntity(ref StateSaveContainer currentStateSave, ref WorldStateSave.WorldSaveParallelWriter fullWorldStateSave, in ArchetypeChunk chunk, in int unfilteredChunkIndex, in int entIndex, in ComponentType currentCompType, in byte* toCopyPtr, in int bufferElementCount, in int compIndex, bool enableBitIsSet)
         {
+            if (currentCompType.IsBuffer)
+                currentStateSave.SaveBufferForEntityIndex(fullWorldStateSave, entIndex, currentCompType, toCopyPtr, bufferElementCount, enableBitIsSet);
+            else
+                currentStateSave.SaveCompForEntityIndex(entIndex: entIndex, componentType: currentCompType, toCopyPtr, enableBitIsSet);
             GhostInstance* ghostInstancePtr = (GhostInstance*)chunk.GetRequiredComponentDataPtrRO(ref ghostInstanceHandle);
             var ghostInstance = ghostInstancePtr[entIndex];
-            currentStateSave.SaveCompForEntityIndex(entIndex: entIndex, componentType: currentCompType, toCopyPtr);
             if (compIndex == 0)
             {
                 var ghost = new SavedEntityID(ghostInstance);
@@ -889,6 +1074,8 @@ namespace Unity.NetCode.LowLevel.StateSave
         [ReadOnly] public DynamicTypeList dynamicTypeList; // for dependency management. Equivalent to required + optional, in that order
         [ReadOnly] public NativeArray<ComponentType> requiredTypes;
         [ReadOnly] public NativeArray<ComponentType> optionalTypes;
+        [ReadOnly] public EntityTypeHandle entityType;
+        [ReadOnly] public EntityStorageInfoLookup entityStorageInfo;
 
         // destination state save
         public WorldStateSave.WorldSaveParallelWriter fullWorldStateSave; // includes all containers
@@ -938,12 +1125,25 @@ namespace Unity.NetCode.LowLevel.StateSave
                 var currentCompType = allComponentTypesInChunk[compIndex];
                 currentStateSaveContainer.AddComponentType(compIndex, currentCompType);
                 var typeInfo = TypeManager.GetTypeInfo(currentCompType.TypeIndex);
-                var compSize = typeInfo.SizeInChunk;
-                byte* toCopyPtr = (byte*)chunk.GetDynamicComponentDataArrayReinterpret<byte>(ref dynamicTypeList.AsSpan()[indicesInDynamicTypeList[compIndex]], compSize).GetUnsafeReadOnlyPtr();
-
+                ref var typeHandle = ref dynamicTypeList.AsSpan()[indicesInDynamicTypeList[compIndex]];
                 for (int entIndex = 0; entIndex < entityCountInChunk; entIndex++)
                 {
-                    stateSaveStrategy.SaveEntity(currentStateSave: ref currentStateSaveContainer, fullWorldStateSave: ref fullWorldStateSave, chunk: chunk, unfilteredChunkIndex: unfilteredChunkIndex, entIndex: entIndex, currentCompType: currentCompType, toCopyPtr: toCopyPtr, compIndex: compIndex);
+                    var array = chunk.GetEnableableBits(ref typeHandle);
+                    var bitArray = new UnsafeBitArray(&array, 2 * sizeof(ulong));
+                    var enableBitIsSet = bitArray.IsSet(entIndex);
+                    if (currentCompType.IsBuffer)
+                    {
+                        // Save the whole buffer for current entity
+                        var bufferData = chunk.GetUntypedBufferAccessor(ref typeHandle);
+                        var bufferPtr = bufferData.GetUnsafeReadOnlyPtrAndLength(entIndex, out var length);
+                        stateSaveStrategy.SaveEntity(ref currentStateSaveContainer, ref fullWorldStateSave, chunk, unfilteredChunkIndex, entIndex, currentCompType, (byte*)bufferPtr, length, compIndex, enableBitIsSet);
+                    }
+                    else
+                    {
+                        var compSize = typeInfo.SizeInChunk;
+                        byte* toCopyPtr = (byte*)chunk.GetDynamicComponentDataArrayReinterpret<byte>(ref dynamicTypeList.AsSpan()[indicesInDynamicTypeList[compIndex]], compSize).GetUnsafeReadOnlyPtr();
+                        stateSaveStrategy.SaveEntity(ref currentStateSaveContainer, ref fullWorldStateSave, chunk, unfilteredChunkIndex, entIndex, currentCompType,  toCopyPtr, bufferElementCount: 0, compIndex, enableBitIsSet);
+                    }
                 }
             }
         }

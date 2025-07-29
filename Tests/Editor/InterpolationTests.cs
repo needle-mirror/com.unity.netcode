@@ -52,6 +52,8 @@ namespace Unity.NetCode.Tests
         const float FrameTime = 1.0f / 60.0f;
 
         [Test]
+        [Category(NetcodeTestCategories.Foundational)]
+        [Category(NetcodeTestCategories.Smoke)]
         public void WhenUsingIPC_ClientPredictOnlyOneTickAhead()
         {
             using (var testWorld = new NetCodeTestWorld())
@@ -99,6 +101,7 @@ namespace Unity.NetCode.Tests
         }
 
         [Test]
+        [Category(NetcodeTestCategories.Foundational)]
         public void InterpolationAndPredictedTickNeverGoesBack()
         {
             using (var testWorld = new NetCodeTestWorld())
@@ -136,6 +139,7 @@ namespace Unity.NetCode.Tests
         }
 
         [Test]
+        [Category(NetcodeTestCategories.Foundational)]
         public void InterpolationTickAdaptToPacketDelay()
         {
             using (var testWorld = new NetCodeTestWorld())

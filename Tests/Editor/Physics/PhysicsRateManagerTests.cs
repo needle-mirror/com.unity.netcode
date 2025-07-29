@@ -92,7 +92,7 @@ namespace Unity.NetCode.Physics.Tests
                 testWorld.Tick();
             var clientTime0 = testWorld.GetNetworkTime(testWorld.ClientWorlds[0]);
             // Ensure client is on a full tick so we know what will happen in future ticks
-            testWorld.TickClientOnly((1 - clientTime0.ServerTickFraction) / simulationTickRate);
+            testWorld.TickClientWorld((1 - clientTime0.ServerTickFraction) / simulationTickRate);
             clientTime0 = testWorld.GetNetworkTime(testWorld.ClientWorlds[0]);
             Assert.IsFalse(clientTime0.IsPartialTick);
 

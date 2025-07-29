@@ -32,7 +32,9 @@ namespace Unity.NetCode
             var builder = new EntityQueryBuilder(Allocator.Temp)
                 .WithAllRW<Simulate>()
                 .WithAll<GhostInstance, PredictedGhost>()
+#pragma warning disable NETC0001
                 .WithOptions(EntityQueryOptions.IgnoreComponentEnabledState);
+#pragma warning restore NETC0001
             m_PredictedQuery = state.GetEntityQuery(builder);
             m_NetworkTimeSingleton = state.GetEntityQuery(ComponentType.ReadOnly<NetworkTime>());
         }

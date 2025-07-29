@@ -309,21 +309,17 @@ namespace Unity.NetCode
             if (NetworkSimulatorSettings.Enabled)
             {
                 driverInstance.driver = NetworkDriver.Create(new WebSocketNetworkInterface(), settings);
-                //Web socket does not require reliable pipeline, nor technically the fragmented stage but we keep that one
-                //for compatibility reason.
-                driverInstance.unreliablePipeline = driverInstance.driver.CreatePipeline(typeof(SimulatorPipelineStage));
-                driverInstance.reliablePipeline = driverInstance.driver.CreatePipeline(typeof(SimulatorPipelineStage));
-                driverInstance.unreliableFragmentedPipeline = driverInstance.driver.CreatePipeline(typeof(FragmentationPipelineStage), typeof(SimulatorPipelineStage));
+                // Web socket does not require reliable pipeline, nor technically the fragmented stage, but they need
+                // to be kept around for compatibility reasons for cross-platform connections to non-webgl players
+                CreateClientSimulatorPipelines(ref driverInstance);
             }
             else
 #endif
             {
                 driverInstance.driver = NetworkDriver.Create(new WebSocketNetworkInterface(), settings);
-                //Web socket does not require reliable pipeline, nor technically the fragmented stage but we keep that one
-                //for compatibility reason.
-                driverInstance.unreliablePipeline = driverInstance.driver.CreatePipeline(typeof(NullPipelineStage));
-                driverInstance.reliablePipeline = driverInstance.driver.CreatePipeline(typeof(NullPipelineStage));
-                driverInstance.unreliableFragmentedPipeline = driverInstance.driver.CreatePipeline(typeof(FragmentationPipelineStage));
+                // Web socket does not require reliable pipeline, nor technically the fragmented stage, but they need
+                // to be kept around for compatibility reasons for cross-platform connections to non-webgl players
+                CreateClientPipelines(ref driverInstance);
             }
             driverStore.RegisterDriver(TransportType.Socket, driverInstance);
         }
@@ -421,7 +417,7 @@ namespace Unity.NetCode
         public static void RegisterServerUdpDriver(World world, ref NetworkDriverStore driverStore, NetDebug netDebug, NetworkSettings settings)
         {
             Assert.IsTrue(world.IsServer());
-            netDebug.DebugLog("[DefaultDriverConstructor.RegisterServerIpcDriver] Creating the server default socket network interface driver.");
+            netDebug.DebugLog("[DefaultDriverConstructor.RegisterServerUdpDriver] Creating the server default socket network interface driver.");
             var socketDriver = CreateServerNetworkDriver(new UDPNetworkInterface(), settings);
             driverStore.RegisterDriver(TransportType.Socket, socketDriver);
         }
@@ -448,11 +444,9 @@ namespace Unity.NetCode
             {
                 driver = NetworkDriver.Create(new WebSocketNetworkInterface(), settings)
             };
-            //Web socket does not require reliable pipeline, nor technically the fragmented stage but we keep that one
-            //for compatibility reason.
-            driverInstance.unreliablePipeline = driverInstance.driver.CreatePipeline(typeof(NullPipelineStage));
-            driverInstance.reliablePipeline = driverInstance.driver.CreatePipeline(typeof(NullPipelineStage));
-            driverInstance.unreliableFragmentedPipeline = driverInstance.driver.CreatePipeline(typeof(FragmentationPipelineStage));
+            // Web socket does not require reliable pipeline, nor technically the fragmented stage, but they need
+            // to be kept around for compatibility reasons for cross-platform connections to non-webgl players
+            CreateServerPipelines(ref driverInstance);
             driverStore.RegisterDriver(TransportType.Socket, driverInstance);
         }
 

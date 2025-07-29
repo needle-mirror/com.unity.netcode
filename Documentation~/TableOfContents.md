@@ -26,6 +26,7 @@
     * [Prediction smoothing](prediction-smoothing.md)
     * [Prediction switching](prediction-switching.md)
     * [Prediction edge cases and known issues](prediction-details.md)
+  * [Server-side rewind](server-rewind.md)
   * [Physics](physics.md)
   * [Host migration](host-migration/host-migration.md)
     * [Introduction to host migration](host-migration/host-migration-intro.md)

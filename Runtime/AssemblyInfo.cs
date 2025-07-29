@@ -7,4 +7,4 @@ using System.Runtime.CompilerServices;
 [assembly: InternalsVisibleTo("Unity.NetCode.Physics")]
 [assembly: InternalsVisibleTo("Unity.NetCode.BurstCompatibilityCodeGenTests")]
 [assembly: InternalsVisibleTo("Unity.NetcodeSamples.EditModeTests")]
-
+[assembly: InternalsVisibleTo("Unity.NetcodeSamples.PlayModeTests")]

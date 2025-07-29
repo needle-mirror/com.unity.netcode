@@ -1,7 +1,7 @@
 {
   "name": "com.unity.netcode",
   "displayName": "Netcode for Entities",
-  "version": "1.6.2",
+  "version": "1.7.0",
   "unity": "2022.3",
   "unityRelease": "20f1",
   "description": "Unity's Data Oriented Technology Stack (DOTS) multiplayer netcode layer - a high level netcode system built on entities. This package provides a foundation for creating networked multiplayer applications within DOTS.",
@@ -11,15 +11,15 @@
     "com.unity.modules.animation": "1.0.0"
   },
   "_upm": {
-    "changelog": "### Added\n\n* `UnityEngine.Time.frameCount` is appended to netcode packet `timestamp` logs using format: `[Fr{0}]`.\n\n### Changed\n\n* The client now sends - as part of its command data - some extra information regarding the command tick. In particular, it informs the server if the current command is for a full or partial update/tick. This ensure a more proper time-sync, and avoids mis-predictions.\n\n### Fixed\n\n* Adding `GhostAuthoringComponent` will now work properly for a prefab that is opened (double clicked instead of just selected).\n* Issue preventing static-optimized, not pre-spawned ghosts from spawning on clients when their first serialization result was 'zero-change' against a baseline value of `default(T)`. They'd previously only be sent for the first time after changing.\n* **Project Breaking Change:** Regenerated the GUID for `Packages/com.unity.netcode/Tests/Editor/Physics/Unity.NetCode.Physics.Editor.Tests.asmdef` so that it would no longer clash with `Packages/com.havok.physics/Plugins/Android/Havok.Physics.Plugin.Android.asmdef`. Any assemblies attempting to reference **Unity.NetCode.Physics.Editor.Tests** by GUID `d8342c4acf8f78e439367cff1a5e802f` will need to be changed to `bec3f262d6e6466eb2c61661da550f47`.\n* An issue - due to improper time syncing in between the client and server - especially when using IPC, causing multiple side effects:\n  * the client was typically only sending commands to the server for partial ticks, not full ticks, causing mis-predictions.\n  * the client was slightly behind the server, thus receiving new snapshots slightly in advance, and skipping running the `PredictedSimulationSystemGroup` for one frame or more, causing jittery and noticeable artefacts.\n* **Potential Behaviour Breaking Change:** GhostInstance's GhostType is now set with the same valid value for both client and server prespawned instances. (Previously, this was always kept at an initial -1 value server side and never initialized). This way is now more consistent behaviour between client and server."
+    "changelog": "### Added\n\n* A warning will now appear if you have a query involving `Simulate` while ignoring enabled state with `EntityQueryOptions.IgnoreComponentEnabledState` in the prediction loop.\n\n### Changed\n\n* Removed `ENABLE_HOST_MIGRATION` define which hid the host migration feature, it's now enabled by default. This also enables by default the `NetworkStreamIsReconnected` component which works without host migration.\n* Refactor host migration API\n  * Removed `MigrateDataToNewServerWorld`/`ConfigureClientAndConnect` helper functions. They'll be in the docs and sample instead.\n  * Renamed `HostMigrationUtility`->`HostMigrationData` and in that class renamed `Get/SetHostMigrationData` to `Get/Set` (class only contains data methods) with parameters reflecting directionality of data buffer and world. Removed `TryGetHostMigrationData`, use `Get` instead (native list version).\n  * Removed `DataStorageMethod` as it no only has one enum value.\n* The ghost component serialization method in the host migration feature changed to a much better performing one.\n\n### Fixed\n\n* Issue where `PreparePredictedData` was not being called on `GhostPlayableBehaviour`, breaking `GhostAnimationController` functionality.\n* Issue where `NetCodeConfig.EnableClientServerBootstrap` was not visible within the `NetCodeConfig`.\n* Issue when running a webgl player where you could not connect or receive connections from non-webgl platform players."
   },
   "upmCi": {
-    "footprint": "1db732a9d4d4026785ed588de9116fb08a6efef1"
+    "footprint": "0349a4699c6cd44f7a77bc80e3e48fbfeacc1835"
   },
-  "documentationUrl": "https://docs.unity3d.com/Packages/com.unity.netcode@1.6/manual/index.html",
+  "documentationUrl": "https://docs.unity3d.com/Packages/com.unity.netcode@1.7/manual/index.html",
   "repository": {
     "url": "https://github.cds.internal.unity3d.com/unity/dots.git",
     "type": "git",
-    "revision": "98a31e8be7dc69ae1c7864198512b1125dd6180d"
+    "revision": "0ed604a095f71663580cdfae45dc4476eb183eb7"
   }
 }

@@ -77,6 +77,7 @@ namespace Unity.NetCode.Tests.Editor
         }
     }
 
+    [Category(NetcodeTestCategories.Foundational)]
     internal class SnapshotDataBufferLookupTests
     {
         [Test]

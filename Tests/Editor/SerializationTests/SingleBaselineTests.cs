@@ -373,7 +373,7 @@ class SingleBaselineTests
 
     Bandwidth Scenario(GhostPrefabCreation.Config config)
     {
-        var testWorld = new NetCodeTestWorld();
+        using var testWorld = new NetCodeTestWorld();
         testWorld.Bootstrap(true, typeof(ChangeComponentValueSystem));
         testWorld.CreateWorlds(true, 1);
         testWorld.Connect();

@@ -1,6 +1,6 @@
-# Playmode Tool window
+# PlayMode Tool window
 
-Use the __Playmode Tools__ window (menu: **Window** > **Multiplayer** > **Playmode Tools**) to do the following:
+Use the __PlayMode Tools__ window (menu: **Window** > **Multiplayer** > **PlayMode Tools**) to do the following:
 - Select the behaviour of the Netcode for Entities bootstrapping flow (assuming it's enabled) when you enter Play Mode. This controls whether the `ClientServerBootstrap` creates a client world, a server world, or both client and server worlds, and whether they connect automatically.
 - Enable and configure the [network simulator](network-connection.md#network-simulator).
 - Configure the number of [thin-clients](client-server-worlds.md#thin-clients) to use.

@@ -31,6 +31,8 @@ namespace Unity.NetCode.Tests
             numInGame = inGame.CalculateEntityCount();
         }
     }
+
+    [Category(NetcodeTestCategories.Foundational)]
     internal class ConnectionTests
     {
         internal struct CheckApproval : IApprovalRpcCommand
@@ -39,6 +41,7 @@ namespace Unity.NetCode.Tests
         }
 
         [Test]
+        [Category(NetcodeTestCategories.Smoke)]
         public void ConnectSingleClient()
         {
             using (var testWorld = new NetCodeTestWorld())
@@ -481,7 +484,6 @@ namespace Unity.NetCode.Tests
             }
         }
 
-#if ENABLE_HOST_MIGRATION
         [Test]
         public void ReconnectedConnectionsAreDetected()
         {
@@ -538,7 +540,6 @@ namespace Unity.NetCode.Tests
                 Assert.IsFalse(clientIsReconnectedQuery.CalculateEntityCount() == 1);
             }
         }
-#endif
     }
 
     // Without NETCODE_DEBUG, ALL error logs are logged to the console, thus we cannot turn on specific ones to test against.

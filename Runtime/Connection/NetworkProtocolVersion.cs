@@ -3,9 +3,7 @@ using System.Diagnostics;
 using Unity.Burst;
 using Unity.Collections;
 using Unity.Entities;
-#if ENABLE_HOST_MIGRATION
 using Unity.NetCode.HostMigration;
-#endif
 using UnityEngine;
 
 namespace Unity.NetCode
@@ -171,13 +169,9 @@ namespace Unity.NetCode
                     if (parameters.IsServer)
                     {
                         parameters.CommandBuffer.AddComponent(parameters.JobIndex, parameters.Connection, new ConnectionUniqueId() { Value = rpcData.ConnectionUniqueId });
-#if ENABLE_HOST_MIGRATION
                         parameters.CommandBuffer.AddComponent<MigrateComponents>(parameters.JobIndex, parameters.Connection);
-#endif
                     }
-#if ENABLE_HOST_MIGRATION
                     parameters.CommandBuffer.AddComponent<NetworkStreamIsReconnected>(parameters.JobIndex, parameters.Connection);
-#endif
                 }
                 return;
             }

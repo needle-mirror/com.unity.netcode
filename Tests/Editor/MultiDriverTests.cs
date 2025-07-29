@@ -6,6 +6,7 @@ using UnityEngine;
 
 namespace Unity.NetCode.Tests
 {
+    [Category(NetcodeTestCategories.Foundational)]
     internal class MultiDriverTests
     {
         [Test]

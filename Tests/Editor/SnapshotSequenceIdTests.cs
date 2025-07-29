@@ -6,6 +6,7 @@ using UnityEngine;
 
 namespace Tests.Editor
 {
+    [Category(NetcodeTestCategories.Foundational)]
     internal class SnapshotSequenceIdTests
     {
         [Test]

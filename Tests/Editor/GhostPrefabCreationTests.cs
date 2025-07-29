@@ -11,6 +11,7 @@ namespace Unity.NetCode.Tests
     internal class GhostPrefabCreationTests
     {
         [Test]
+        [Category(NetcodeTestCategories.Foundational)]
         public void CreateGhostPrefabWithChildren()
         {
             using var testWorld = new NetCodeTestWorld();

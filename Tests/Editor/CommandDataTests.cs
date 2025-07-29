@@ -688,19 +688,19 @@ namespace Unity.NetCode.Tests
 
                 // Tick so we're on a full tick on the client
                 var clientTime = testWorld.GetNetworkTime(testWorld.ClientWorlds[0]);
-                testWorld.TickClientOnly((1 - clientTime.ServerTickFraction) / 60f);
+                testWorld.TickClientWorld((1 - clientTime.ServerTickFraction) / 60f);
                 clientTime = testWorld.GetNetworkTime(testWorld.ClientWorlds[0]);
                 Assert.IsFalse(clientTime.IsPartialTick);
 
                 // Tick half a tick
                 // This will send the command to the server
-                testWorld.TickClientOnly(1/120f);
+                testWorld.TickClientWorld(1/120f);
                 clientTime = testWorld.GetNetworkTime(testWorld.ClientWorlds[0]);
                 testWorld.GetSingletonBuffer<CommandDataTestsTickInputDouble>(testWorld.ClientWorlds[0]).GetDataAtTick(clientTime.ServerTick, out var clientFirstSendCommand);
 
                 // Tick half a tick
                 // This will not send a command, but will update the value for the tick
-                testWorld.TickClientOnly(1/120f);
+                testWorld.TickClientWorld(1/120f);
                 // Will be same ServerTick
                 testWorld.GetSingletonBuffer<CommandDataTestsTickInputDouble>(testWorld.ClientWorlds[0]).GetDataAtTick(clientTime.ServerTick, out var clientUpdatedCommand);
                 Assert.AreNotEqual(clientFirstSendCommand, clientUpdatedCommand);

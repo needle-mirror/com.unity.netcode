@@ -36,6 +36,7 @@ namespace Unity.NetCode.Tests
             Assert.AreEqual(2, count[1]);
         }
         [Test]
+        [Category(NetcodeTestCategories.Foundational)]
         public void GhostsWithSameArchetypeAreDifferent()
         {
             using (var testWorld = new NetCodeTestWorld())

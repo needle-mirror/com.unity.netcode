@@ -1,8 +1,5 @@
 # Project considerations for supporting host migration
 
-> [!NOTE]
-> Host migration is an experimental feature so the API and implementation can change in the future. By default it's not exposed, enable it by adding the `ENABLE_HOST_MIGRATION` define in the __Scripting Define Symbols__ in the __Player__ tab of the project settings.
-
 When server data is migrated to a new server the normal flow for setting up ghosts and players / connections is different and might require certain consideration for making it work. Anything not migrated over will start from defaults after unity scenes have been loaded in the server world and the normal scene will be in whatever configuration it was on the client before he took over hosting duties. Reconnecting clients connecting might not need to initialize like new clients as their data might have been migrated, and so on.
 
 ## `NetworkStreamInGame` considerations

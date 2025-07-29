@@ -1,8 +1,5 @@
 # Lobby and Relay integration
 
-> [!NOTE]
-> Host migration is an experimental feature so the API and implementation can change in the future. By default it's not exposed, enable it by adding the `ENABLE_HOST_MIGRATION` define in the __Scripting Define Symbols__ in the __Player__ tab of the project settings.
-
 Integrate with Unity Lobby and Unity Relay to enable host migration in Netcode for Entities.
 
 The information on this page requires the use of the Multiplayer Services SDK (com.unity.services.multiplayer) package, as outlined in the [host migration requirements](host-migration-requirements.md).

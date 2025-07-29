@@ -49,6 +49,7 @@ namespace Tests.Editor
 
     }
 
+    [Category(NetcodeTestCategories.Foundational)]
     internal class RateManagerTests
     {
 

@@ -70,6 +70,8 @@ namespace Unity.NetCode.Tests
         Default,
     }
 
+    [Category(NetcodeTestCategories.Foundational)]
+    [Category(NetcodeTestCategories.Smoke)]
     internal class BootstrapTests
     {
         [Test]
