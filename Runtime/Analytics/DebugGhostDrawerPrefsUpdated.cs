@@ -35,7 +35,8 @@ namespace Unity.NetCode.Analytics
         {
             m_Data = data;
             // Only report our DebugGhostDrawer names, not the custom user ones because it could be PI.
-            if(m_Data.name != "Bounding Boxes")
+            var ourDrawerNames = new[] { "Bounding Boxes", "Importance Visualizer" };
+            if (!Array.Exists(ourDrawerNames, n => n == m_Data.name))
                 m_Data.name = "Custom";
         }
 

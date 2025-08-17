@@ -1,4 +1,4 @@
-# Creating multiplayer gameplay
+# Create multiplayer gameplay
 
 Create multiplayer gameplay in Netcode for Entities.
 

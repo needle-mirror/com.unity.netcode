@@ -423,6 +423,7 @@ namespace Unity.NetCode.LowLevel.Unsafe
             AckedPrespawnSceneMap.Dispose();
             UnsafeList<PrespawnHelper.GhostIdInterval>.Destroy(m_NewLoadedPrespawnRanges);
             GhostStateData.Dispose();
+            UnsafeList<PrioChunk>.Destroy(PrioChunksPtr);
 #if NETCODE_DEBUG
             NetDebugPacket.Dispose();
 #endif
@@ -444,11 +445,14 @@ namespace Unity.NetCode.LowLevel.Unsafe
                 GhostStateData = new GhostStateList(1024, 1024, Allocator.Persistent),
                 AckedPrespawnSceneMap = new UnsafeParallelHashMap<ulong, int>(256, Allocator.Persistent),
                 m_NewLoadedPrespawnRanges = UnsafeList<PrespawnHelper.GhostIdInterval>.Create(32, Allocator.Persistent),
+                PrioChunksPtr = UnsafeList<PrioChunk>.Create(256, Allocator.Persistent),
             };
         }
 
         public Entity Entity;
         public UnsafeHashMap<ArchetypeChunk, GhostChunkSerializationState>* SerializationState;
+        public ref UnsafeList<PrioChunk> PrioChunks => ref PrioChunksPtr[0];
+        public UnsafeList<PrioChunk>* PrioChunksPtr;
         public UnsafeParallelHashMap<int, NetworkTick> ClearHistory;
 #if NETCODE_DEBUG
         public PacketDumpLogger NetDebugPacket;

@@ -235,7 +235,8 @@ namespace Unity.NetCode
                     //For predicted ghosts there will be never a snapshot for the predicted tick, unless:
                     // - The client is behind the server
                     // - The predicted tick rolled back
-                    //This method is quite heavy, and inside is doing a bunch of logic to retrieve:
+                    // - Forced Input Latency is enabled.
+                    // This method is quite heavy, and inside is doing a bunch of logic to retrieve:
                     // - the received snapshot ticks and indices before and after the targetTick
                     bool hasSnapshot = ghostSnapshotData.GetDataAtTick(targetTick, typeData.PredictionOwnerOffset, ghostOwnerId,
                         targetTickFraction, snapshotDataBuffer, out var data, MaxExtrapolationTicks);

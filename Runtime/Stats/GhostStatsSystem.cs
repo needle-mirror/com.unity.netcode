@@ -76,7 +76,7 @@ namespace Unity.NetCode
                     var collectionDataQry = world.EntityManager.CreateEntityQuery(
                         ComponentType.ReadWrite<GhostStatsCollectionData>(),
                         ComponentType.ReadWrite<GhostStatsCollectionCommand>(),
-                        ComponentType.ReadWrite<GhostStatsCollectionSnapshot>(),
+                        ComponentType.ReadWrite<GhostStatsSnapshotSingleton>(),
                         ComponentType.ReadWrite<GhostStatsCollectionPredictionError>(),
                         ComponentType.ReadWrite<GhostStatsCollectionMinMaxTick>());
                     if (!collectionDataQry.HasSingleton<GhostStatsCollectionData>())
@@ -129,27 +129,26 @@ namespace Unity.NetCode
             data.m_UsedPacketPoolSize = 0;
         }
 
-        private unsafe void SetStatIndex(EntityQuery query, int index)
+        private unsafe void SetStatIndex(EntityQuery singletonQuery, int index)
         {
             //Reset the collected stats when we invalidate the index
-            ref var statsData = ref query.GetSingletonRW<GhostStatsCollectionData>().ValueRW;
+            ref var statsData = ref singletonQuery.GetSingletonRW<GhostStatsCollectionData>().ValueRW;
             statsData.m_StatIndex = index;
             statsData.m_CollectionTick = NetworkTick.Invalid;
             statsData.m_PacketQueue.Clear();
             statsData.m_UsedPacketPoolSize = 0;
             if (statsData.m_LastNameAndErrorArray.Length > 0)
-                statsData.AppendNamePacket();
+                statsData.AppendNamePacket(singletonQuery.GetSingleton<GhostStatsSnapshotSingleton>());
 
             //Complete any pending jobs before resetting singleton data
-            query.CompleteDependency();
-            ref var commandStatsData = ref query.GetSingletonRW<GhostStatsCollectionCommand>().ValueRW;
-            ref var snapshotCollectionData = ref query.GetSingletonRW<GhostStatsCollectionSnapshot>().ValueRW;
-            ref var predictionErrorData = ref query.GetSingletonRW<GhostStatsCollectionPredictionError>().ValueRW;
-            ref readonly var minMaxTickData = ref query.GetSingletonRW<GhostStatsCollectionMinMaxTick>().ValueRO;
+            singletonQuery.CompleteDependency();
+            ref var commandStatsData = ref singletonQuery.GetSingletonRW<GhostStatsCollectionCommand>().ValueRW;
+            ref var predictionErrorData = ref singletonQuery.GetSingletonRW<GhostStatsCollectionPredictionError>().ValueRW;
+            ref readonly var minMaxTickData = ref singletonQuery.GetSingletonRW<GhostStatsCollectionMinMaxTick>().ValueRO;
             commandStatsData.Value[0] = 0;
             commandStatsData.Value[1] = 0;
             commandStatsData.Value[2] = 0;
-            snapshotCollectionData.Data.Clear();
+            // snapshotCollectionData.Data.Clear(); // No need to do this here. We're clearing write stats right after copying them to read stats.
             predictionErrorData.Data.Clear();
             UnsafeUtility.MemClear(minMaxTickData.Value.GetUnsafePtr(), UnsafeUtility.SizeOf<NetworkTick>()*minMaxTickData.Value.Length);
         }

@@ -19,7 +19,7 @@ namespace Unity.NetCode
         where TInputComponentData : unmanaged, IInputComponentData
         where TInputHelper : unmanaged, IInputEventHelper<TInputComponentData>
     {
-        internal NetworkTick Tick;
+        internal NetworkTick InputTargetTick;
         internal int ConnectionId;
         [ReadOnly] internal ComponentTypeHandle<TInputComponentData> InputDataType;
         [ReadOnly] internal ComponentTypeHandle<GhostOwner> GhostOwnerDataType;
@@ -52,12 +52,12 @@ namespace Unity.NetCode
                 //the previous tick. Thus this method is always guaranteed to increment (using the current counter for
                 //for the event) in respect to the previous tick, that is the requirement for having an always incrementing
                 //counter.
-                inputBuffer.GetDataAtTick(Tick, out var inputDataElement);
+                inputBuffer.GetDataAtTick(InputTargetTick, out var inputDataElement);
                 // Increment event count for current tick. There could be an event and then no event but on the same
                 // predicted/simulated tick, this will still be registered as an event (count > 0) instead of the later
                 // event overriding the event to 0/false.
                 var input = default(InputBufferData<TInputComponentData>);
-                input.Tick = Tick;
+                input.Tick = InputTargetTick;
                 input.InternalInput = inputData;
                 helper.IncrementEvents(ref input.InternalInput, inputDataElement.InternalInput);
 
@@ -112,7 +112,7 @@ namespace Unity.NetCode
 
             var job = new CopyInputToBufferJob<TInputComponentData, TInputHelper>
             {
-                Tick =  m_TimeQuery.GetSingleton<NetworkTime>().ServerTick,
+                InputTargetTick =  m_TimeQuery.GetSingleton<NetworkTime>().InputTargetTick,
                 ConnectionId = m_ConnectionQuery.GetSingleton<NetworkId>().Value,
                 GhostOwnerDataType = m_GhostOwnerDataType,
                 InputBufferDataType = m_InputBufferTypeHandle,
@@ -123,13 +123,73 @@ namespace Unity.NetCode
     }
 
     /// <summary>
+    /// For internal use only.
+    /// When using Forced Input Latency (<see cref="ClientTickRate.ForcedInputLatencyTicks"/>),
+    /// this system writes the latest input back into the <see cref="IInputComponentData"/> just before input is gathered,
+    /// which puts the input struct back into the correct state to be updated by the users gather input step (i.e. this
+    /// system allows incremental values - like mouse pitch and yaw - to sum correctly).
+    /// </summary>
+    /// <typeparam name="TInputComponentData">Input component data.</typeparam>
+    /// <typeparam name="TInputHelper">Input helper.</typeparam>
+    [BurstCompile]
+    [UpdateInGroup(typeof(GhostInputSystemGroup), OrderFirst = true)]
+    public partial struct ApplyCurrentInputBufferElementToInputDataForGatherSystem<TInputComponentData, TInputHelper> : ISystem
+        where TInputComponentData : unmanaged, IInputComponentData
+        where TInputHelper : unmanaged, IInputEventHelper<TInputComponentData>
+    {
+        private EntityQuery m_EntityQuery;
+        private EntityQuery m_TimeQuery;
+        private EntityTypeHandle m_EntityTypeHandle;
+        private ComponentTypeHandle<TInputComponentData> m_InputDataType;
+        private BufferTypeHandle<InputBufferData<TInputComponentData>> m_InputBufferTypeHandle;
+
+        /// <inheritdoc/>
+        [BurstCompile]
+        public void OnCreate(ref SystemState state)
+        {
+            var builder = new EntityQueryBuilder(Allocator.Temp)
+                .WithAll<InputBufferData<TInputComponentData>, TInputComponentData, PredictedGhost>();
+            m_EntityQuery = state.GetEntityQuery(builder);
+            m_TimeQuery = state.GetEntityQuery(ComponentType.ReadOnly<NetworkTime>());
+            m_EntityTypeHandle = state.GetEntityTypeHandle();
+            m_InputBufferTypeHandle = state.GetBufferTypeHandle<InputBufferData<TInputComponentData>>();
+            m_InputDataType = state.GetComponentTypeHandle<TInputComponentData>();
+            state.RequireForUpdate<NetworkId>();
+            state.RequireForUpdate(m_EntityQuery);
+        }
+
+        /// <inheritdoc/>
+        [BurstCompile]
+        public void OnUpdate(ref SystemState state)
+        {
+            var networkTime = m_TimeQuery.GetSingleton<NetworkTime>();
+            if (networkTime.EffectiveInputLatencyTicks == 0)
+                return;
+
+            m_EntityTypeHandle.Update(ref state);
+            m_InputBufferTypeHandle.Update(ref state);
+            m_InputDataType.Update(ref state);
+            var jobData = new ApplyInputDataFromBufferJob<TInputComponentData, TInputHelper>
+            {
+                CurrentPredictionTick = networkTime.InputTargetTick, // Note use of `InputTargetTick` here!
+                StepLength = networkTime.SimulationStepBatchSize,
+                InputBufferTypeHandle = m_InputBufferTypeHandle,
+                InputDataType = m_InputDataType
+            };
+            state.Dependency = jobData.Schedule(m_EntityQuery, state.Dependency);
+        }
+    }
+
+    /// <summary>
     /// For internal use only, system that copies commands from the <see cref="InputBufferData{T}"/> buffer
     /// to the <see cref="IInputComponentData"/> component present on the entity.
     /// </summary>
-    /// <typeparam name="TInputComponentData">Input component data</typeparam>
-    /// <typeparam name="TInputHelper">Input helper</typeparam>
-    // This needs to run early to ensure the input data has been applied from buffer to input data
-    // struct before the input processing system runs
+    /// <remarks>
+    /// This needs to run early to ensure the input data has been applied from buffer to input data
+    /// struct before the input processing system runs.
+    /// </remarks>
+    /// <typeparam name="TInputComponentData">Input component data.</typeparam>
+    /// <typeparam name="TInputHelper">Input helper.</typeparam>
     [BurstCompile]
     [UpdateInGroup(typeof(CopyCommandBufferToInputSystemGroup), OrderFirst = true)]
     [UpdateBefore(typeof(PredictedFixedStepSimulationSystemGroup))]
@@ -169,7 +229,7 @@ namespace Unity.NetCode
             var networkTime = m_TimeQuery.GetSingleton<NetworkTime>();
             var jobData = new ApplyInputDataFromBufferJob<TInputComponentData, TInputHelper>
             {
-                Tick = networkTime.ServerTick,
+                CurrentPredictionTick = networkTime.ServerTick,
                 StepLength = networkTime.SimulationStepBatchSize,
                 InputBufferTypeHandle = m_InputBufferTypeHandle,
                 InputDataType = m_InputDataType
@@ -193,7 +253,7 @@ namespace Unity.NetCode
         where TInputComponentData : unmanaged, IInputComponentData
         where TInputHelper : unmanaged, IInputEventHelper<TInputComponentData>
     {
-        internal NetworkTick Tick;
+        internal NetworkTick CurrentPredictionTick;
         internal int StepLength;
         internal ComponentTypeHandle<TInputComponentData> InputDataType;
         internal BufferTypeHandle<InputBufferData<TInputComponentData>> InputBufferTypeHandle;
@@ -214,11 +274,11 @@ namespace Unity.NetCode
             for (int i = 0, chunkEntityCount = chunk.Count; i < chunkEntityCount; ++i)
             {
                 var inputBuffer = inputBuffers[i];
-                inputBuffer.GetDataAtTick(Tick, out var inputDataElement);
+                inputBuffer.GetDataAtTick(CurrentPredictionTick, out var inputDataElement);
                 // Sample tick and tick-StepLength, if tick is not in the buffer it will return the latest input
                 // closest to it, and the same input for tick-StepLength, which is the right result as it should
                 // assume the same tick is repeating
-                var prevSampledTick = Tick;
+                var prevSampledTick = CurrentPredictionTick;
                 prevSampledTick.Subtract((uint)StepLength);
                 inputBuffer.GetDataAtTick(prevSampledTick, out var prevInputDataElement);
                 //reset the input data to match the current input and decrement the event counts

@@ -381,7 +381,7 @@ namespace Unity.NetCode
         public int ComponentIndex;
         /// <summary>Index in the <see cref="GhostComponentSerializer.State"/> collection, used to get the type of serializer to use.</summary>
         public int SerializerIndex;
-        /// <summary>The <see cref="TypeIndex"/> the component.</summary>
+        /// <summary>The <see cref="Unity.Entities.TypeIndex"/> the component.</summary>
         public int TypeIndex;
         /// <summary>Size of the component or buffer element</summary>
         public int ComponentSize;

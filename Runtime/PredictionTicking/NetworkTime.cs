@@ -46,23 +46,61 @@ namespace Unity.NetCode
     public struct NetworkTime : IComponentData
     {
         /// <summary>
-        /// The current simulated server tick the server will run this frame. Always start from 1. 0 is consider an invalid value.
-        /// The ServerTick value behave differently on client and server.
+        /// The current simulated server tick the server will run this frame. Always start from 1. 0 is considered an invalid value.
+        /// The ServerTick value behaves differently on client vs the server.
         /// On the server:
         ///  - it is always a "full" tick
-        ///  - strict monontone and continue (up to the wrap around)
-        ///  - the same inside or outside the prediction loop
+        ///  - i.e. it is strict and monotone, and only increments on the server DGS render (i.e. UnityEngine) frame rate (which you can configure to be the same as this).
+        ///  - is therefore the same inside or outside the prediction loop
         /// On the client:
-        ///  - it is the tick the client predict the server should simulate this frame. Depends on current lag and command slack
-        ///  - can be either a full or partial.
-        ///  - if the tick is partial, the client would run the simulation for it multiple time, each time with a different delta time proportion
+        ///  - it is the tick the client is currently predicting the server should simulate on this frame.
+        ///  I.e. Depends on current <see cref="NetworkSnapshotAck.EstimatedRTT"/> and <see cref="ClientTickRate.TargetCommandSlack"/> values.
+        ///  - can be either a full or partial (see details on client partial ticks in docs).
         ///  - it is not monotone:
-        ///      - in some rare/recovery situation may rollback or having jump forward (due to time/lag adjustments).
-        ///      - during the prediction loop the ServerTick value is changed to match either the last full simulated tick or
-        ///        , in case of a rollback because a snapshot has been received, to the oldest received tick among all entities. In both case, and the end of
-        ///        of the prediction loop the server tick will be reset to current predicted server tick.
+        ///      - in some rare/recovery situations, it may rollback, or jump forward (due to time/lag adjustments).
+        ///      - during the prediction loop, the ServerTick value is changed to match either the last full simulated tick or,
+        ///      in case of a rollback (because a snapshot has been received), to the oldest received tick among all entities.
+        ///  - in both cases, this value will be reset to current predicted server tick at the end of the prediction loop.
         /// </summary>
+        /// <remarks>
+        /// Use <see cref="InputTargetTick"/> (not <see cref="ServerTick"/>!) when assigning a tick value to
+        /// your command data values for <see cref="CommandDataUtility.AddCommandData{T}"/>.
+        /// </remarks>
         public NetworkTick ServerTick;
+
+        /// <summary>
+        /// The tick we should be gathering (i.e. raising, sending) input commands for, for them to arrive in time
+        /// to be processed by the server.
+        /// It is identical to the <see cref="ServerTick"/> except; a) when using <see cref="ClientTickRate.MaxPredictAheadTimeMS"/>
+        /// with a very high ping connection, and b) when using <see cref="ClientTickRate.ForcedInputLatencyTicks"/>.
+        /// The four timelines are therefore in this order: <c>Interpolation Tick (oldest) -> Snapshot Arrival Tick (from the server)
+        /// -> ServerTick (client prediction) -> InputTargetTick (i.e. inputs being sent)</c>.
+        /// </summary>
+        /// <remarks>
+        /// Use this variable (not <see cref="ServerTick"/>) when assigning a tick value to your command data
+        /// values for <see cref="CommandDataUtility.AddCommandData{T}"/>.
+        /// </remarks>
+        public NetworkTick InputTargetTick
+        {
+            get
+            {
+                if (ServerTick.IsValid)
+                {
+                    var networkTick = ServerTick;
+                    networkTick.Add(EffectiveInputLatencyTicks);
+                    return networkTick;
+                }
+                return NetworkTick.Invalid;
+            }
+        }
+
+        /// <summary>
+        /// The current effective <see cref="ClientTickRate.ForcedInputLatencyTicks"/> value (in ticks). <b>Client-only!</b>
+        /// </summary>
+        /// <remarks>
+        /// Note: This value will increase if/when the clients ping value is greater than <see cref="ClientTickRate.MaxPredictAheadTimeMS"/>.
+        /// </remarks>
+        public uint EffectiveInputLatencyTicks;
         /// <summary>
         /// Only meaningful on the client that run at variable step rate. On the server is always 1.0. Always in range is (0.0 and 1.0].
         /// </summary>
@@ -117,28 +155,50 @@ namespace Unity.NetCode
         /// </summary>
         public bool IsFirstTimeFullyPredictingTick => (Flags & NetworkTimeFlags.IsFirstTimeFullyPredictingTick) != 0;
         /// <summary>
-        /// Only valid on server. True when the current simulated tick is running with a variabled delta time to recover from
-        /// a previous long running frame.
+        /// Only valid on server. When the server determines that it is behind by more than one tick,
+        /// it queries <see cref="ClientServerTickRate.MaxSimulationStepBatchSize"/> and
+        /// <see cref="ClientServerTickRate.MaxSimulationStepsPerFrame"/> to determine how to catch up.
+        /// If your configuration causes the server to simulate two or more ticks within a single frame, all non-final
+        /// ticks will have the catchup flag set to true.
+        /// <br/>Note: Batching multiple ticks into one tick will not - by itself - be considered a catch up tick.
         /// </summary>
+        /// <remarks>
+        /// This flag is used to limit the sending of snapshots (via <see cref="GhostSendSystem"/>) when
+        /// <see cref="ClientServerTickRate.SendSnapshotsForCatchUpTicks"/> is false.
+        /// </remarks>
         public bool IsCatchUpTick => (Flags & NetworkTimeFlags.IsCatchUpTick) != 0;
         /// <summary>
-        /// Counts the number of predicted ticks triggered on this frame (while inside the prediction loop).
+        /// Counts the number of predicted ticks that have been triggered on this frame (while inside the prediction loop).
         /// Thus, client only, and increments BEFORE the tick occurs (i.e. the first predicted tick will have a value of 1).
         /// Outside the prediction loop, records the current or last frames prediction tick count (until prediction restarts).
         /// </summary>
         public int PredictedTickIndex { get; internal set; }
+        /// <summary>
+        /// Counts the number of predicted ticks expected to trigger on this frame, ignoring batching.
+        /// Written at the start of the prediction loop. Thus, client only, and is set BEFORE the first tick occurs.
+        /// </summary>
+        public int NumPredictedTicksExpected { get; internal set; }
 
         /// <summary>Helper to debug NetworkTime issues via logs.</summary>
         /// <returns>Formatted string containing NetworkTime data.</returns>
-        public FixedString512Bytes ToFixedString() =>
-            $"NetworkTime[{nameof(ServerTick)}:{ServerTick.ToFixedString()} {nameof(ServerTickFraction)}:{ServerTickFraction} " +
-            $"{nameof(InterpolationTick)}:{InterpolationTick.ToFixedString()} {nameof(InterpolationTickFraction)}:{InterpolationTickFraction} " +
-            $"{nameof(SimulationStepBatchSize)}:{SimulationStepBatchSize} {nameof(Flags)}:{(int) Flags} " +
-            $"{nameof(ElapsedNetworkTime)}:{ElapsedNetworkTime} {nameof(IsPartialTick)}:{IsPartialTick} " +
-            $"{nameof(IsInPredictionLoop)}:{IsInPredictionLoop} {nameof(IsFirstPredictionTick)}: {IsFirstPredictionTick} " +
-            $"{nameof(IsFinalPredictionTick)}:{IsFinalPredictionTick} {nameof(IsFinalFullPredictionTick)}:{IsFinalFullPredictionTick} " +
-            $"{nameof(IsFirstTimeFullyPredictingTick)}:{IsFirstTimeFullyPredictingTick} {nameof(IsCatchUpTick)}:{IsCatchUpTick} " +
-            $"{nameof(PredictedTickIndex)}:{PredictedTickIndex}]";
+        public FixedString512Bytes ToFixedString()
+        {
+            var commandInterpolationDelay = ServerTick.IsValid && InterpolationTick.IsValid ? ServerTick.TicksSince(InterpolationTick) : 0;
+            FixedString512Bytes flags = default;
+            if (Flags == default)
+                flags = "0";
+            else
+            {
+                if (IsInPredictionLoop) flags.Append((FixedString32Bytes) $"|{nameof(IsInPredictionLoop)}");
+                if (IsFirstPredictionTick) flags.Append((FixedString32Bytes) $"|{nameof(IsFirstPredictionTick)}");
+                if (IsFinalPredictionTick) flags.Append((FixedString32Bytes) $"|{nameof(IsFinalPredictionTick)}");
+                if (IsFinalFullPredictionTick) flags.Append((FixedString32Bytes) $"|{nameof(IsFinalFullPredictionTick)}");
+                if (IsFirstTimeFullyPredictingTick) flags.Append((FixedString64Bytes) $"|{nameof(IsFirstTimeFullyPredictingTick)}");
+                if (IsCatchUpTick) flags.Append((FixedString32Bytes) $"|{nameof(IsCatchUpTick)}");
+            }
+            FixedString32Bytes partial = IsPartialTick ? "PARTIAL" : "FULL";
+            return $"NetworkTime[ServerTick:{ServerTick.ToFixedString()}|{(int) (ServerTickFraction * 100)}%|{partial}|+{SimulationStepBatchSize}|{PredictedTickIndex}/{NumPredictedTicksExpected}, InputTargetTick:{InputTargetTick.ToFixedString()}|+{EffectiveInputLatencyTicks}, InterpolationTick:{InterpolationTick.ToFixedString()}|{(int) (InterpolationTickFraction * 100)}%|D{commandInterpolationDelay}, Flags:{flags}]";
+        }
 
         /// <inheritdoc cref="ToFixedString"/>
         public override string ToString() => ToFixedString().ToString();
@@ -164,7 +224,7 @@ namespace Unity.NetCode
     static class NetworkTimeHelper
     {
         /// <summary>
-        /// Return the current ServerTick value if is a fulltick, otherwise the previous one. The returned
+        /// Return the current ServerTick value if is a full tick, otherwise the previous one. The returned
         /// server tick value is correctly wrap around (server tick never equal 0)
         /// </summary>
         /// <param name="networkTime"></param>
@@ -172,6 +232,21 @@ namespace Unity.NetCode
         static public NetworkTick LastFullServerTick(in NetworkTime networkTime)
         {
             var targetTick = networkTime.ServerTick;
+            if (targetTick.IsValid && networkTime.IsPartialTick)
+            {
+                targetTick.Decrement();
+            }
+            return targetTick;
+        }
+
+        /// <summary>
+        /// Returns the current InputTargetTick value if is a full tick, otherwise the previous one (for a partial tick).
+        /// </summary>
+        /// <param name="networkTime"></param>
+        /// <returns></returns>
+        public static NetworkTick LastFullInputTargetTick(in NetworkTime networkTime)
+        {
+            var targetTick = networkTime.InputTargetTick;
             if (targetTick.IsValid && networkTime.IsPartialTick)
             {
                 targetTick.Decrement();

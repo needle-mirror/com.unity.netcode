@@ -18,7 +18,8 @@
         "Unity.Properties",
         "Unity.Properties.UI.Editor",
         "Unity.Entities.Build",
-        "Unity.DedicatedServer.MultiplayerRoles.Editor"
+        "Unity.DedicatedServer.MultiplayerRoles.Editor",
+        "Unity.Profiling.Core"
     ],
     "includePlatforms": [
         "Editor"
@@ -31,9 +32,9 @@
     "defineConstraints": [],
     "versionDefines": [
         {
-          "name": "com.unity.logging",
-          "expression": "0.0",
-          "define": "USING_UNITY_LOGGING"
+            "name": "com.unity.logging",
+            "expression": "0.0",
+            "define": "USING_UNITY_LOGGING"
         },
         {
             "name": "com.unity.dedicated-server",

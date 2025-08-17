@@ -1,4 +1,4 @@
-# Testing and debugging your game
+# Test and debug your game
 
 Test and debug your game using tools available for Netcode for Entities.
 

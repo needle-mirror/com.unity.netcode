@@ -1,4 +1,4 @@
-# Setting up client and server worlds
+# Set up client and server worlds
 
 Set up your clients and server using Netcode for Entities' networking model.
 

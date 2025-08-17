@@ -11,12 +11,19 @@ namespace Unity.NetCode.Tests
 
     internal class PredictionSwitchTestConverter : TestNetCodeAuthoring.IConverter
     {
+        internal const int bufferElementCount = 100;
+
         public void Bake(GameObject gameObject, IBaker baker)
         {
             var entity = baker.GetEntity(TransformUsageFlags.Dynamic);
             baker.AddComponent(entity, new PredictionSwitchComponent());
             baker.AddComponent(entity, new PredictedOnlyTestComponent{Value = 42});
             baker.AddComponent(entity, new InterpolatedOnlyTestComponent{Value = 43});
+            var buffer = baker.AddBuffer<BufferInterpolatedOnlyTestComponent>(entity);
+            for (int i = 0; i < bufferElementCount; i++)
+            {
+                buffer.Add(new BufferInterpolatedOnlyTestComponent() { Value = i });
+            }
         }
     }
 
@@ -30,6 +37,14 @@ namespace Unity.NetCode.Tests
     {
         public int Value;
     }
+
+    [GhostComponent(PrefabType = GhostPrefabType.InterpolatedClient)]
+    [InternalBufferCapacity(0)] // to make sure if there's wrong memory access that we crash instead of running the risk of silently overwriting. Without this, we still get an error in the test about wrong length for the buffer without the buffer length fix, but better safe than sorry.
+    internal struct BufferInterpolatedOnlyTestComponent : IBufferElementData
+    {
+        [GhostField] public int Value;
+    }
+
     [DisableAutoCreation]
     [UpdateInGroup(typeof(PredictedSimulationSystemGroup))]
     internal partial class PredictionSwitchMoveTestSystem : SystemBase
@@ -71,6 +86,7 @@ namespace Unity.NetCode.Tests
                 var ghostGameObject = new GameObject();
                 ghostGameObject.AddComponent<TestNetCodeAuthoring>().Converter = new PredictionSwitchTestConverter();
                 var ghostConfig = ghostGameObject.AddComponent<GhostAuthoringComponent>();
+                // Ghost is interpolated by default
 
                 Assert.IsTrue(testWorld.CreateGhostCollection(ghostGameObject));
 
@@ -102,6 +118,11 @@ namespace Unity.NetCode.Tests
                 Assert.IsTrue(entityManager.HasComponent<InterpolatedOnlyTestComponent>(clientEnt));
                 Assert.IsFalse(entityManager.HasComponent<SwitchPredictionSmoothing>(clientEnt));
                 Assert.AreEqual(43, entityManager.GetComponentData<InterpolatedOnlyTestComponent>(clientEnt).Value);
+                var buffer = entityManager.GetBuffer<BufferInterpolatedOnlyTestComponent>(clientEnt);
+                for (int i = 0; i < PredictionSwitchTestConverter.bufferElementCount; i++)
+                {
+                    Assert.AreEqual(buffer[i].Value, i);
+                }
 
                 ghostPredictionSwitchingQueues.ConvertToPredictedQueue.Enqueue(new ConvertPredictionEntry
                 {
@@ -112,6 +133,7 @@ namespace Unity.NetCode.Tests
                 Assert.IsTrue(entityManager.HasComponent<PredictedGhost>(clientEnt));
                 Assert.IsTrue(entityManager.HasComponent<PredictedOnlyTestComponent>(clientEnt));
                 Assert.IsFalse(entityManager.HasComponent<InterpolatedOnlyTestComponent>(clientEnt));
+                Assert.IsFalse(entityManager.HasBuffer<BufferInterpolatedOnlyTestComponent>(clientEnt));
                 Assert.IsFalse(entityManager.HasComponent<SwitchPredictionSmoothing>(clientEnt));
                 Assert.AreEqual(42, entityManager.GetComponentData<PredictedOnlyTestComponent>(clientEnt).Value);
 
@@ -126,6 +148,11 @@ namespace Unity.NetCode.Tests
                 Assert.IsTrue(entityManager.HasComponent<InterpolatedOnlyTestComponent>(clientEnt));
                 Assert.IsTrue(entityManager.HasComponent<SwitchPredictionSmoothing>(clientEnt));
                 Assert.AreEqual(43, entityManager.GetComponentData<InterpolatedOnlyTestComponent>(clientEnt).Value);
+                buffer = entityManager.GetBuffer<BufferInterpolatedOnlyTestComponent>(clientEnt);
+                for (int i = 0; i < PredictionSwitchTestConverter.bufferElementCount; i++)
+                {
+                    Assert.AreEqual(buffer[i].Value, i);
+                }
             }
         }
 

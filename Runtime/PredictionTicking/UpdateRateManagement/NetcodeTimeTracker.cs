@@ -154,6 +154,7 @@ namespace Unity.NetCode
             var nextTick = currentServerTick;
             nextTick.Add((uint)(m_UpdateCount.LengthLongSteps - 1));
             networkTime.ServerTick = nextTick;
+            networkTime.EffectiveInputLatencyTicks = 0;
             networkTime.InterpolationTick = networkTime.ServerTick;
             networkTime.SimulationStepBatchSize = m_UpdateCount.LengthLongSteps;
             if (RemainingTicksToRun == 1)

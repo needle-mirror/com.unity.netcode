@@ -33,15 +33,25 @@ The term dead reckoning is also used in a similar context as extrapolation, but 
 
 ## Timelines
 
-Any given client has two timelines at the same time: the [predicted](intro-to-prediction.md) timeline that runs in your game's 'present', and the interpolated timeline that shows delayed (due to network latency) server values. Refer to the [time synchronization page](time-synchronization.md) for more details.
+Clients operate on three different timelines simultaneously:
+1. The client input target tick timeline (i.e. the 'present') - which must be ahead of the server to ensure that inputs you poll are sent to the server in time to be processed (by said server).
+2. The [client predicted](intro-to-prediction.md) timeline - which is where the client non-authoritatively predicts its own future position - which typically runs on the same timeline as the input gathering timeline above, except when [Forced Input Latency](optimizations.md#using-forcedinputlatencyticks) is enabled.
+3. The interpolated timeline - which runs behind the server authoritative simulation timeline, as it plays back interpolated `GhostField` values from received snapshots, and is therefore delayed by `RTT/2 + InterpolationTimeNetTicks`. Refer to the [time synchronization page](time-synchronization.md) for more details.
 
-Server-side, there's only one timeline: the present timeline.
+Server-side, there's only one timeline:
+* The server authoritative simulation timeline (i.e. the 'present' from its POV).
 
-In total, there are three timelines:
+> [!NOTE]
+> The server is the authority on the current time (& tick), as well as the rate at which time passes.
 
-- The server's present timeline (`NetworkTime.ServerTick`)
-- The client's predicted timeline (`NetworkTime.ServerTick`)
-- The client's interpolated timeline (`NetworkTime.InterpolationTick`).
+Therefore, in total, there are four timelines (or 3, if not using Forced Input Latency):
+
+| Timeline                                      | Fields                                                                                                    | Timeline Offset (ignoring `deltaTime` smoothing)           |
+|-----------------------------------------------|-----------------------------------------------------------------------------------------------------------|------------------------------------------------------------|
+| The client's input target tick timeline       | `NetworkTime.InputTargetTick (ClientWorld)`                                                               | T + (RTT/2 + TargetCommandSlack)                           |
+| The client's client prediction timeline       | `NetworkTime.ServerTick (ClientWorld)` &<br/>`NetworkTime.ServerTickFraction (ClientWorld)`               | T + (RTT/2 + TargetCommandSlack) - ForcedInputLatencyTicks |
+| The server's authoritative simulation timeline | `NetworkTime.ServerTick (ServerWorld)`                                                                    | T                                                         |
+| The client's interpolated timeline            | `NetworkTime.InterpolationTick (ClientWorld)` &<br/>`NetworkTime.InterpolationTickFraction (ClientWorld)` | T - (RTT/2 + InterpolationTimeNetTicks)                    |
 
 ![Timelines.jpg](images/PredictionSteps/Timelines.jpg)
 

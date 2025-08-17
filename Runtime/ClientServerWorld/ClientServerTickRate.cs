@@ -485,11 +485,40 @@ namespace Unity.NetCode
         [Min(0)]
         public uint MaxExtrapolationTimeSimTicks;
         /// <summary>
-        /// This is the maximum accepted ping. RTT will be clamped to this value when calculating the server tick on the client,
-        /// which means if ping is higher than this, the server will get old commands.
-        /// Increasing this makes the client able to deal with higher ping, but higher-ping clients will then need to run more prediction steps, which incurs more CPU time.
+        /// Force the client input to be delayed by this many SimulationTickRate ticks before even being played back
+        /// locally (via client prediction).
+        /// <b>Significantly</b> reduces the number of ticks your client needs to rollback and re-simulate on average,
+        /// but at the <b>considerable</b> "game feel" expense of increased perceived input latency.
         /// </summary>
-        [Tooltip("This is the maximum accepted ping. RTT will be clamped to this value when calculating the server tick on the client, which means if ping is higher than this, the server will get old commands.\n\nIncreasing this makes the client able to deal with higher ping, but higher-ping clients will then need to run more prediction steps, which incurs more CPU time.")]
+        /// <remarks>
+        /// <para>
+        /// <b>WARNING 1:</b> This value should only be set to a non-zero value for games and platforms
+        /// which can support slower-paced play. E.g. Mobile games, games without mouse aim etc.
+        /// </para>
+        /// <para>
+        /// <b>WARNING 2:</b> It is possible for this value to be configured so high that it pushes <see cref="NetworkTime.ServerTick"/>
+        /// back far enough to fall behind the <see cref="NetworkTime.InterpolationTick"/>. If this is about to happen,
+        /// Netcode for Entities will increase the interpolated window interval instead, pushing the interpolated timeline
+        /// further back. Therefore, it will always run at least one prediction loop (assuming <see cref="PredictionLoopUpdateMode"/>
+        /// conditions are met).
+        /// </para>
+        /// <para>
+        /// As we don’t store inputs for partial ticks, even a value of 1 here will result in Netcode for Entities clamping
+        /// input playback to full tick values, which may result in a perceptible loss of smoothness for continuous inputs
+        /// (like controller d-pads/sticks).
+        /// </para>
+        /// </remarks>
+        /// <seealso cref="NetworkTime.InputTargetTick"/>
+        [Tooltip("Force the client input to be delayed by this many SimulationTickRate ticks before even being played back locally (via client prediction).\n\nI.e. Reduces the quantity of ticks your client needs to predict, but at the <b>considerable</b> expense of local input latency.\n\nDefaults to 0 (OFF).\n\n<i><b>WARNING: This value should only be greater than zero for games and platforms which can support slower-paced play. E.g. Mobile.</b></i>")]
+        public byte ForcedInputLatencyTicks;
+        /// <summary>
+        /// This is the maximum accepted ping. RTT will be clamped to this value when calculating the server tick on the client,
+        /// which means if ping is higher than this, your client will begin to incur input latency (as if you'd enabled
+        /// <see cref="ForcedInputLatencyTicks"/>).
+        /// Increasing this value makes the client able to deal with higher ping, but higher-ping clients will then need
+        /// to run more prediction steps, which incurs more CPU overhead.
+        /// </summary>
+        [Tooltip("This is the maximum accepted ping. RTT will be clamped to this value when calculating the server tick on the client, which means if ping is higher than this, the client will begin to incur input latency.\n\nIncreasing this makes the client able to deal with higher ping, but higher-ping clients will then need to run more prediction steps, which incurs more CPU time.")]
         [Range(0, 500)]
         public uint MaxPredictAheadTimeMS;
 

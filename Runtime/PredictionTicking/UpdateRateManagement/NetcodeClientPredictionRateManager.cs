@@ -73,6 +73,7 @@ namespace Unity.NetCode
             if (m_TickIdx == 0)
             {
                 networkTime.PredictedTickIndex = 0;
+                networkTime.NumPredictedTicksExpected = 0;
                 m_CurrentTime = networkTime;
                 m_ClientTickRateQuery.TryGetSingleton<ClientTickRate>(out var clientTickRate);
 
@@ -172,6 +173,7 @@ namespace Unity.NetCode
 
                 networkTime.Flags |= NetworkTimeFlags.IsInPredictionLoop | NetworkTimeFlags.IsFirstPredictionTick;
                 networkTime.Flags &= ~(NetworkTimeFlags.IsFinalPredictionTick|NetworkTimeFlags.IsFinalFullPredictionTick|NetworkTimeFlags.IsFirstTimeFullyPredictingTick);
+                networkTime.NumPredictedTicksExpected = m_TargetTick.TicksSince(oldestTick) + (m_CurrentTime.IsPartialTick ? 1 : 0);
 
                 group.World.EntityManager.SetComponentEnabled<Simulate>(m_GhostQuery, false);
 
@@ -232,13 +234,14 @@ namespace Unity.NetCode
                 return true;
             }
 
-            if (m_TickIdx == m_NumAppliedPredictedTicks && m_CurrentTime.ServerTickFraction < 1f)
+            if (m_TickIdx == m_NumAppliedPredictedTicks && m_CurrentTime.IsPartialTick)
             {
 #if UNITY_EDITOR || NETCODE_DEBUG
                 if(networkTime.IsFinalPredictionTick)
                     throw new InvalidOperationException("IsFinalPredictionTick should not be set before executing the final prediction tick");
 #endif
                 networkTime.ServerTick = m_CurrentTime.ServerTick;
+                networkTime.EffectiveInputLatencyTicks = m_CurrentTime.EffectiveInputLatencyTicks;
                 networkTime.SimulationStepBatchSize = 1;
                 networkTime.ServerTickFraction = m_CurrentTime.ServerTickFraction;
                 networkTime.Flags |= NetworkTimeFlags.IsFinalPredictionTick;

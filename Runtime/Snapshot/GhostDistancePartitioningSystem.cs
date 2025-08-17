@@ -4,6 +4,7 @@ using Unity.Collections;
 using Unity.Entities;
 using Unity.Mathematics;
 using Unity.Transforms;
+using UnityEngine;
 using UnityEngine.Assertions;
 
 namespace Unity.NetCode
@@ -48,6 +49,26 @@ namespace Unity.NetCode
     [BurstCompile]
     public partial struct GhostDistancePartitioningSystem : ISystem, ISystemStartStop
     {
+        /// <summary>
+        /// If true (the default), this system will add the <see cref="GhostDistancePartitionShared"/> shared component
+        /// to all server ghost instances that meet filtering criteria (<see cref="LocalTransform"/> etc).
+        /// </summary>
+        /// <remarks>
+        /// Set to false if you want to use the shared component as a filter, allowing you to only enable importance scaling
+        /// on a subset of ghost instances. You must therefore add the component yourself.
+        /// </remarks>
+        public static bool AutomaticallyAddGhostDistancePartitionSharedComponent
+        {
+            get => s_AutomaticallyAddGhostDistancePartitionShared.Data;
+            set => s_AutomaticallyAddGhostDistancePartitionShared.Data = value;
+        }
+        private static readonly SharedStatic<bool> s_AutomaticallyAddGhostDistancePartitionShared = SharedStatic<bool>.GetOrCreate<GhostDistancePartitioningSystem>();
+        [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
+        static void Reset()
+        {
+            AutomaticallyAddGhostDistancePartitionSharedComponent = true;
+        }
+
         EntityQuery m_DistancePartitionedEntitiesQuery;
         EntityTypeHandle m_EntityTypeHandle;
         ComponentTypeHandle<LocalTransform> m_Transform;
@@ -81,7 +102,7 @@ namespace Unity.NetCode
                         continue;
                     }
 
-                    var tileIndex = ((int3)transform.Position - Config.TileCenter) / Config.TileSize;
+                    var tileIndex = CalculateTile(in Config, transform.Position);
                     if (math.all(tile.Index == tileIndex))
                     {
                         continue;
@@ -103,9 +124,20 @@ namespace Unity.NetCode
 
             void Execute(Entity ent, [ChunkIndexInQuery]int chunkIndexInQuery, in LocalTransform trans)
             {
-                var tileIndex = ((int3) trans.Position - Config.TileCenter) / Config.TileSize;
+                var tileIndex = CalculateTile(Config, trans.Position);
                 ConcurrentCommandBuffer.AddSharedComponent(chunkIndexInQuery, ent, new GhostDistancePartitionShared{Index = tileIndex});
             }
+        }
+
+        /// <summary>
+        /// Calculates the tile value for the specified position.
+        /// </summary>
+        /// <param name="ghostDistanceData"> The ghost distance data</param>
+        /// <param name="position">The positon</param>
+        /// <returns>The tile value for the specified position</returns>
+        public static int3 CalculateTile(in GhostDistanceData ghostDistanceData, in float3 position)
+        {
+            return ((int3) position - ghostDistanceData.TileCenter) / ghostDistanceData.TileSize;
         }
 
         /// <inheritdoc/>
@@ -129,13 +161,17 @@ namespace Unity.NetCode
             }
 #endif
             var barrier = SystemAPI.GetSingleton<EndSimulationEntityCommandBufferSystem.Singleton>();
-            var sharedPartitionHandle = new AddSharedDistancePartitionJob
+            if (AutomaticallyAddGhostDistancePartitionSharedComponent)
             {
-                ConcurrentCommandBuffer = barrier.CreateCommandBuffer(state.WorldUnmanaged).AsParallelWriter(),
-                Config = config,
-            }.Schedule(state.Dependency); // Using ScheduleParallel here reduces wall time - on ticks where hundreds of new ghosts spawn - by more than half.
-                                          // However, it increases the mean time by ~7% due to scheduling overhead, seen also through worsening UpdateTileIndexJob timings.
-                                          // Therefore, it is likely not worth it.
+                state.Dependency = new AddSharedDistancePartitionJob
+                {
+                    ConcurrentCommandBuffer = barrier.CreateCommandBuffer(state.WorldUnmanaged).AsParallelWriter(),
+                    Config = config,
+                }.Schedule(state.Dependency);
+                // Using ScheduleParallel here reduces wall time - on ticks where hundreds of new ghosts spawn - by more than half.
+                // However, it increases the mean time by ~7% due to scheduling overhead, seen also through worsening UpdateTileIndexJob timings.
+                // Therefore, it is likely not worth it.
+            }
 
             m_EntityTypeHandle.Update(ref state);
             m_Transform.Update(ref state);
@@ -148,7 +184,7 @@ namespace Unity.NetCode
                 EntityTypeHandle = m_EntityTypeHandle,
                 TileTypeHandle = m_SharedPartition,
                 TransHandle = m_Transform,
-            }.ScheduleParallel(m_DistancePartitionedEntitiesQuery, sharedPartitionHandle);
+            }.ScheduleParallel(m_DistancePartitionedEntitiesQuery, state.Dependency);
         }
 
         /// <inheritdoc/>

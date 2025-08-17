@@ -139,11 +139,11 @@ namespace Unity.NetCode.Samples.Common
             using (s_SetMeshesMarker.Auto())
             {
                 if (mesh.vertexCount < newVerts.Length)
-                    mesh.SetVertexBufferParams(RoundTo(newVerts.Length, 2048), k_VertexAttributeDescriptors);
+                    mesh.SetVertexBufferParams(DrawerHelpers.RoundTo(newVerts.Length, 2048), k_VertexAttributeDescriptors);
                 mesh.SetVertexBufferData<float3>(newVerts.AsArray(), 0, 0, newVerts.Length, 0, flags);
 
                 if (mesh.GetIndexCount(0) < newIndices.Length)
-                    mesh.SetIndexBufferParams(RoundTo(newIndices.Length, 8192), IndexFormat.UInt32);
+                    mesh.SetIndexBufferParams(DrawerHelpers.RoundTo(newIndices.Length, 8192), IndexFormat.UInt32);
                 mesh.SetIndexBufferData<int>(newIndices.AsArray(), 0, 0, newIndices.Length, flags);
 
                 var smd = new SubMeshDescriptor
@@ -158,10 +158,6 @@ namespace Unity.NetCode.Samples.Common
                 mesh.UploadMeshData(false);
             }
         }
-
-        /// <summary>Rounds up to the next multiplier value (which must be a power of 2) in `multiplier` increments.</summary>
-        /// <remarks>This *linear* approach is better than an exponential (e.g. `math.ceilpow2`), as the latter is far too excessive in allocation (which slows down `Mesh.SetVertexBufferData`).</remarks>
-        static int RoundTo(int value, int roundToWithPow2) => (value + roundToWithPow2 - 1)&~(roundToWithPow2-1);
 
         protected override void OnStopRunning()
         {
@@ -203,7 +199,7 @@ namespace Unity.NetCode.Samples.Common
             public NativeArray<LocalToWorld> ServerL2Ws;
 
             public NativeList<int> ServerIndices;
-            public NativeList<float3> ServerVertices;
+            public NativeList<DrawerHelpers.Vertex> ServerVertices;
             public float Scale;
 
             public void Execute()
@@ -211,15 +207,12 @@ namespace Unity.NetCode.Samples.Common
                 var x = new float3(Scale, 0, 0);
                 var y = new float3(0, Scale, 0);
                 var z = new float3(0, 0, Scale);
-                ServerVertices.Capacity = math.max(ServerVertices.Capacity, ServerVertices.Length + ServerL2Ws.Length * 6);
-                ServerIndices.Capacity = math.max(ServerIndices.Capacity, ServerIndices.Length + ServerL2Ws.Length * 6);
-
                 for (var i = 0; i < ServerL2Ws.Length; i++)
                 {
                     var pos = ServerL2Ws[i].Position;
-                    DebugDrawLine(pos - x, pos + x, ref ServerVertices, ref ServerIndices);
-                    DebugDrawLine(pos - y, pos + y, ref ServerVertices, ref ServerIndices);
-                    DebugDrawLine(pos - z, pos + z, ref ServerVertices, ref ServerIndices);
+                    DrawerHelpers.DrawLine(pos - x, pos + x, ref ServerVertices, ref ServerIndices);
+                    DrawerHelpers.DrawLine(pos - y, pos + y, ref ServerVertices, ref ServerIndices);
+                    DrawerHelpers.DrawLine(pos - z, pos + z, ref ServerVertices, ref ServerIndices);
                 }
             }
         }
@@ -259,7 +252,7 @@ namespace Unity.NetCode.Samples.Common
             var serverLocalToWorldMap = serverSystem.LocalToWorldsMapR0;
             serverLocalToWorldMap.Update(serverSystem);
 
-            var serverVertices = new NativeList<float3>(numEntitiesToIterate * 10, Allocator.TempJob);
+            var serverVertices = new NativeList<DrawerHelpers.Vertex>(numEntitiesToIterate * 10, Allocator.TempJob);
             var serverIndices = new NativeList<int>(numEntitiesToIterate * 26, Allocator.TempJob);
 
             s_GatherDataMarker.End();
@@ -291,7 +284,7 @@ namespace Unity.NetCode.Samples.Common
 
             if (numPredictedEntities > 0)
             {
-                var predictedClientVertices = new NativeList<float3>(numPredictedEntities * 10, Allocator.Temp);
+                var predictedClientVertices = new NativeList<DrawerHelpers.Vertex>(numPredictedEntities * 10, Allocator.Temp);
                 var predictedClientIndices = new NativeList<int>(numPredictedEntities * 26, Allocator.Temp);
 
                 using (s_CreateGeometryJobMarker.Auto())
@@ -308,7 +301,7 @@ namespace Unity.NetCode.Samples.Common
                     }
                 }
 
-                UpdateIndividualMeshOptimized(m_PredictedClientMesh, ref predictedClientVertices, ref predictedClientIndices);
+                DrawerHelpers.UpdateMesh(ref m_PredictedClientMesh, ref predictedClientVertices, ref predictedClientIndices);
 
                 predictedClientVertices.Dispose();
                 predictedClientIndices.Dispose();
@@ -317,7 +310,7 @@ namespace Unity.NetCode.Samples.Common
 
             if (numInterpolatedEntities > 0)
             {
-                var interpolatedClientVertices = new NativeList<float3>(numInterpolatedEntities * 10, Allocator.Temp);
+                var interpolatedClientVertices = new NativeList<DrawerHelpers.Vertex>(numInterpolatedEntities * 10, Allocator.Temp);
                 var interpolatedClientIndices = new NativeList<int>(numInterpolatedEntities * 26, Allocator.Temp);
 
                 using (s_CreateGeometryJobMarker.Auto())
@@ -338,7 +331,7 @@ namespace Unity.NetCode.Samples.Common
                     }
                 }
 
-                UpdateIndividualMeshOptimized(m_InterpolatedClientMesh, ref interpolatedClientVertices, ref interpolatedClientIndices);
+                DrawerHelpers.UpdateMesh(ref m_InterpolatedClientMesh, ref interpolatedClientVertices, ref interpolatedClientIndices);
 
                 interpolatedClientVertices.Dispose();
                 interpolatedClientIndices.Dispose();
@@ -364,24 +357,18 @@ namespace Unity.NetCode.Samples.Common
                 }
             }
 
-            UpdateIndividualMeshOptimized(m_ServerMesh, ref serverVertices, ref serverIndices);
+            DrawerHelpers.UpdateMesh(ref m_ServerMesh, ref serverVertices, ref serverIndices);
 
             serverVertices.Dispose();
             serverIndices.Dispose();
         }
 
-        void ClearMeshes()
-        {
-            m_ServerMesh.Clear(true);
-            m_PredictedClientMesh.Clear(true);
-            m_InterpolatedClientMesh.Clear(true);
-        }
-
         [BurstCompile]
-        static void CreateLineGeometryWithGhosts(in AABB aabb, in LocalToWorld ghostL2Wtransform, in GhostInstance ghostInstance, in NativeParallelHashMap<SpawnedGhost, Entity>.ReadOnly serverSpawnedGhostEntityMap, in ComponentLookup<LocalToWorld> serverLocalToWorldMap, ref NativeList<float3> clientVertices, ref NativeList<int> clientIndices, ref NativeList<float3> serverVertices, ref NativeList<int> serverIndices)
+        static void CreateLineGeometryWithGhosts(in AABB aabb, in LocalToWorld ghostL2Wtransform, in GhostInstance ghostInstance, in NativeParallelHashMap<SpawnedGhost, Entity>.ReadOnly serverSpawnedGhostEntityMap,
+            in ComponentLookup<LocalToWorld> serverLocalToWorldMap, ref NativeList<DrawerHelpers.Vertex> clientVertices, ref NativeList<int> clientIndices, ref NativeList<DrawerHelpers.Vertex> serverVertices, ref NativeList<int> serverIndices)
         {
             // Client AABB:
-            DebugDrawWireCube(in aabb, in ghostL2Wtransform, ref clientVertices, ref clientIndices);
+            DrawerHelpers.DrawWireCube(aabb.Min, aabb.Max, ref clientVertices, ref clientIndices, ghostL2Wtransform);
 
             if (serverSpawnedGhostEntityMap.TryGetValue(ghostInstance, out var serverEntity) && serverLocalToWorldMap.TryGetComponent(serverEntity, out var serverL2W))
             {
@@ -391,28 +378,19 @@ namespace Unity.NetCode.Samples.Common
                 if (math.distancesq(aabb.Center, serverPos) > 0.002f || angleDiff > 0.002f)
                 {
                     // Server to Client Line:
-                    DebugDrawLine(ghostL2Wtransform.Position, serverPos, ref serverVertices, ref serverIndices);
+                    DrawerHelpers.DrawLine(ghostL2Wtransform.Position, serverPos, ref serverVertices, ref serverIndices);
 
                     // Server AABB:
-                    DebugDrawWireCube(in aabb, in serverL2W, ref serverVertices, ref serverIndices);
+                    DrawerHelpers.DrawWireCube(aabb.Min, aabb.Max, ref serverVertices, ref serverIndices, serverL2W);
                 }
             }
         }
 
-        static void DebugDrawLine(float3 a, float3 b, ref NativeList<float3> verts, ref NativeList<int> indices)
-        {
-            var length = verts.Length;
-            indices.Add(length);
-            indices.Add(length + 1);
-            verts.Add(a);
-            verts.Add(b);
-        }
-
         void SetupMeshAndMaterials()
         {
-            m_ServerMesh = CreateMesh(nameof(m_ServerMesh));
-            m_InterpolatedClientMesh = CreateMesh(nameof(m_InterpolatedClientMesh));
-            m_PredictedClientMesh = CreateMesh(nameof(m_PredictedClientMesh));
+            m_ServerMesh = DrawerHelpers.CreateMesh(nameof(m_ServerMesh));
+            m_InterpolatedClientMesh = DrawerHelpers.CreateMesh(nameof(m_InterpolatedClientMesh));
+            m_PredictedClientMesh = DrawerHelpers.CreateMesh(nameof(m_PredictedClientMesh));
 
             var unlitShaderName = GetUnlitShader();
             var unlitShader = Shader.Find(unlitShaderName);
@@ -454,7 +432,10 @@ namespace Unity.NetCode.Samples.Common
 
             SetupMeshAndMaterials();
 
-            GameObject serverGo = new GameObject(m_ServerMesh.name);
+            GameObject serverGo = new GameObject(m_ServerMesh.name)
+            {
+                hideFlags = HideFlags.HideAndDontSave
+            };
             var serverMeshFilter = serverGo.AddComponent<MeshFilter>();
             m_ServerMeshRenderer = serverGo.AddComponent<MeshRenderer>();
             m_ServerMeshRenderer.shadowCastingMode = ShadowCastingMode.Off;
@@ -515,75 +496,6 @@ namespace Unity.NetCode.Samples.Common
         }
 #endif
 
-        static Mesh CreateMesh(string name)
-        {
-            var mesh = new Mesh
-            {
-                name = name,
-                indexFormat = IndexFormat.UInt32,
-                hideFlags = HideFlags.HideAndDontSave,
-
-                // We do not want to have to constantly recalculate this debug drawer bounds, so set it to a huge value and leave it.
-                bounds = new Bounds(new float3(0), new float3(100_000_000)),
-            };
-            mesh.MarkDynamic();
-            return mesh;
-        }
-
-        [BurstCompile]
-        static unsafe void DebugDrawWireCube(in AABB aabb, in LocalToWorld GhostL2WMatrix, ref NativeList<float3> vertices, ref NativeList<int> indices)
-        {
-            var i = vertices.Length;
-            var min = aabb.Min;
-            var max = aabb.Max;
-
-            // We take a local bounds and transform it to world space using the ghost's position, rotation and scale.
-            float3 transformLocalToWorld(float3 p, LocalToWorld GhostL2WMatrix)
-            {
-                return math.mul(GhostL2WMatrix.Value, new float4(p, 1)).xyz;
-            }
-
-            var newVertices = stackalloc float3[8];
-            newVertices[0] = transformLocalToWorld(new float3(min.x, min.y, min.z), GhostL2WMatrix);
-            newVertices[1] = transformLocalToWorld(new float3(min.x, max.y, min.z), GhostL2WMatrix);
-            newVertices[2] = transformLocalToWorld(new float3(min.x, min.y, max.z), GhostL2WMatrix);
-            newVertices[3] = transformLocalToWorld(new float3(min.x, max.y, max.z), GhostL2WMatrix);
-            newVertices[4] = transformLocalToWorld(new float3(max.x, min.y, min.z), GhostL2WMatrix);
-            newVertices[5] = transformLocalToWorld(new float3(max.x, min.y, max.z), GhostL2WMatrix);
-            newVertices[6] = transformLocalToWorld(new float3(max.x, max.y, min.z), GhostL2WMatrix);
-            newVertices[7] = transformLocalToWorld(new float3(max.x, max.y, max.z), GhostL2WMatrix);
-            vertices.AddRange(newVertices, 8);
-
-            var newIndices = stackalloc int[24];
-            // 4 left to right (x) rows.
-            newIndices[0] = i + 0;
-            newIndices[1] = i + 4;
-            newIndices[2] = i + 1;
-            newIndices[3] = i + 6;
-            newIndices[4] = i + 2;
-            newIndices[5] = i + 5;
-            newIndices[6] = i + 3;
-            newIndices[7] = i + 7;
-            // 4 bottom to top (y) columns.
-            newIndices[8] = i + 0;
-            newIndices[9] = i + 1;
-            newIndices[10] = i + 4;
-            newIndices[11] = i + 6;
-            newIndices[12] = i + 5;
-            newIndices[13] = i + 7;
-            newIndices[14] = i + 5;
-            newIndices[15] = i + 7;
-            // 4 back to front (z) lines.
-            newIndices[16] = i + 0;
-            newIndices[17] = i + 2;
-            newIndices[18] = i + 4;
-            newIndices[19] = i + 5;
-            newIndices[20] = i + 1;
-            newIndices[21] = i + 3;
-            newIndices[22] = i + 6;
-            newIndices[23] = i + 7;
-            indices.AddRange(newIndices, 24);
-        }
     }
 
     // TODO - Exposing APIs on systems is an anti-pattern, but there is no clear alternative for 'world to world' communication.

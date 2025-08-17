@@ -247,6 +247,8 @@ namespace Unity.NetCode
         /// </summary>
         internal FixedString32Bytes WorldName;
 
+        static readonly FixedString512Bytes registerASerializationStrategy = "register a SerializationStrategy";
+
         ulong HashGhostComponentSerializer(in GhostComponentSerializer.State comp)
         {
             //this will give us a good starting point
@@ -270,7 +272,7 @@ namespace Unity.NetCode
         /// <param name="serializationStrategy">Strategy to register.</param>
         public void AddSerializationStrategy(ref ComponentTypeSerializationStrategy serializationStrategy)
         {
-            ThrowIfNotInRegistrationPhase("register a SerializationStrategy");
+            ThrowIfNotInRegistrationPhase(registerASerializationStrategy);
 
             // Validate that source-generator hashes don't collide.
 #if ENABLE_UNITY_COLLECTIONS_CHECKS

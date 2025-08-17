@@ -41,7 +41,7 @@ namespace Unity.NetCode.Tests
         }
         protected override void OnUpdate()
         {
-            var tick = SystemAPI.GetSingleton<NetworkTime>().ServerTick;
+            var tick = SystemAPI.GetSingleton<NetworkTime>().InputTargetTick;
             Entities.ForEach((DynamicBuffer<CommandDataTestsTickInput> inputBuffer) => {
                 inputBuffer.AddCommandData(new CommandDataTestsTickInput
                 {
@@ -63,7 +63,7 @@ namespace Unity.NetCode.Tests
         }
         protected override void OnUpdate()
         {
-            var tick = SystemAPI.GetSingleton<NetworkTime>().ServerTick;
+            var tick = SystemAPI.GetSingleton<NetworkTime>().InputTargetTick;
             Entities.ForEach((DynamicBuffer<CommandDataTestsTickInput2> inputBuffer) => {
                 inputBuffer.AddCommandData(new CommandDataTestsTickInput2
                 {

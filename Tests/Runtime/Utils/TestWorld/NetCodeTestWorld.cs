@@ -600,6 +600,22 @@ namespace Unity.NetCode.Tests
             }
             return success;
         }
+#if UNITY_EDITOR || NETCODE_DEBUG
+        public Entity TryCreateGhostMetricsSingleton(World world)
+        {
+            if (!world.EntityManager.CreateEntityQuery(typeof(GhostMetricsMonitor)).TryGetSingletonEntity<GhostMetricsMonitor>(out var singletonEntity))
+            {
+                singletonEntity = world.EntityManager.CreateEntity(
+                    typeof(GhostMetricsMonitor),
+                    typeof(SnapshotMetrics),
+                    typeof(GhostMetrics),
+                    typeof(GhostNames),
+                    typeof(PredictionErrorNames)
+                );
+            }
+            return singletonEntity;
+        }
+#endif
 
         public void ApplyDT(float dt)
         {

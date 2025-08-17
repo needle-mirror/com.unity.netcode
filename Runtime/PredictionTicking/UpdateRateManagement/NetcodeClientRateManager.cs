@@ -128,6 +128,7 @@ namespace Unity.NetCode
             unscaledTime.UnscaleDeltaTime = currentTime.DeltaTime;
             networkTime.ElapsedNetworkTime += networkDeltaTime;
             networkTime.ServerTick = curServerTick;
+            networkTime.EffectiveInputLatencyTicks = networkTimeSystemData.effectiveForcedInputLatencyTicks;
             networkTime.ServerTickFraction = serverTickFraction;
             networkTime.InterpolationTick = curInterpoationTick;
             networkTime.InterpolationTickFraction = interpolationTickFraction;

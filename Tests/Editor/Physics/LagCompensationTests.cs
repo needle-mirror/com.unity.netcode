@@ -184,11 +184,11 @@ namespace Unity.NetCode.Physics.Tests
             {
                 var prevPos = transRef.ValueRW.Position;
                 var newPos = prevPos;
-                newPos.x = LagCompensationTestCommandSystem.GetDeterministicXPosition(networkTime);
+                newPos.x = LagCompensationTestCommandSystem.GetDeterministicXPosition(networkTime.ServerTick);
                 transRef.ValueRW.Position = newPos;
 
                 var stepColor = Color.green;
-                if (networkTime.ServerTick.TickIndexForValidTick % 2 == 0) stepColor.a = 0.4f;
+                if (networkTime.InputTargetTick.TickIndexForValidTick % 2 == 0) stepColor.a = 0.4f;
 
                 Debug.DrawLine(newPos, prevPos, stepColor, DebugDrawLineDuration);
                 Debug.DrawLine(newPos, newPos + new float3(0, 0.5f, 0), stepColor, DebugDrawLineDuration);
@@ -243,6 +243,7 @@ namespace Unity.NetCode.Physics.Tests
         public static bool NoHitsRegistered => ServerRayCastHit == null && ClientRayCastHit == null;
         public static bool OnlyClientHitRegistered => ServerRayCastHit == null && ClientRayCastHit != null;
         public static bool BothHitsRegistered => ServerRayCastHit != null && ClientRayCastHit != null;
+        public static byte ForcedInputLatencyTicks;
 
         protected override void OnUpdate()
         {
@@ -262,12 +263,12 @@ namespace Unity.NetCode.Physics.Tests
 
                     // Movement:
                     var prevPos = characterTrans.Position;
-                    characterTrans.Position = LagCompensationTestCommandSystem.GetPlayersDeterministicPositionForFrame(networkTime);
+                    characterTrans.Position = LagCompensationTestCommandSystem.GetPlayersDeterministicPositionForTick(networkTime.ServerTick);
 
                     if (networkTime.IsFirstTimeFullyPredictingTick)
                     {
                         // Draw:
-                        var stepColor = networkTime.ServerTick.TickIndexForValidTick % 2 == 0
+                        var stepColor = networkTime.InputTargetTick.TickIndexForValidTick % 2 == 0
                             ? (isServer ? Color.grey : Color.white)
                             : (isServer ? Color.black : Color.grey);
                         var offset = new float3(0, 0, isServer ? 0.05f : 0);
@@ -294,21 +295,42 @@ namespace Unity.NetCode.Physics.Tests
                                       // which doesn't have any additional input delay on the server.
                         : additionalRenderDelay;
 
+                    var forcedInputLatencyEnabled = ForcedInputLatencyTicks > 0;
+                    var (expected, margin) = (isServer, forcedInputLatencyEnabled) switch
+                    {
+                        // The client has a default value of 0, even with ForcedInputLatency enabled,
+                        // as we're not polling input gather ticks here, we're polling predicted ticks.
+                        (false, _) => (0, 0),
+                        // Server, with lag compensation enabled, we expect a huge difference between
+                        // ForcedInputLatency ON vs OFF:
+                        (true, true) => (14 - (int)ForcedInputLatencyTicks, 2),
+                        (true, false) => (14, 2),
+                    };
+                    Assert.That(delay.Delay, Is.EqualTo(expected).Within(margin), $"CommandDataInterpolationDelay.Delay value for: EnableLagCompensation:{EnableLagCompensation}, isServer:{isServer}, ForcedInputLatencyTicks:{ForcedInputLatencyTicks} ({forcedInputLatencyEnabled})!");
+
                     // Get the collision world to use given the tick currently being predicted and the interpolation delay for the connection
                     collisionHistory.GetCollisionWorldFromTick(networkTime.ServerTick, interpolDelay, ref physicsWorld, out var collWorld, out var expectedTick, out var returnedTick);
                     var rayInput = new Unity.Physics.RaycastInput();
                     rayInput.Start = characterTrans.Position; // NOTE: We're NOT using the ray origin here!
                     var positionDesyncMeters = math.distance(rayInput.Start, cmd.origin);
-                    rayInput.End = cmd.origin + cmd.direction;
+                    rayInput.End = rayInput.Start + cmd.direction;
                     rayInput.Filter = Unity.Physics.CollisionFilter.Default;
 
                     bool hit = collWorld.CastRay(rayInput, out var raycastHit);
                     var color = isServer ? Color.blue : Color.red;
-                    Debug.DrawLine(rayInput.Start, rayInput.End, color, LagCompensationTestCubeMoveSystem.DebugDrawLineDuration);
+                    Debug.DrawLine(characterTrans.Position, rayInput.End, color, LagCompensationTestCubeMoveSystem.DebugDrawLineDuration);
+
+                    // Draw a faint line showing where the client originally shot from, to show the divergence when using Forced Input Latency.
+                    {
+                        var black = Color.black;
+                        black.a = 0.2f;
+                        Debug.DrawLine(cmd.origin, cmd.origin + cmd.direction, black, LagCompensationTestCubeMoveSystem.DebugDrawLineDuration);
+                    }
+
                     var victimIsAlive = EntityManager.Exists(raycastHit.Entity);
                     FixedString512Bytes networkTickInfo = $"\n{networkTime.ToFixedString()}";
-                    string collisionInfo = hit ? $" - {collWorld.Bodies[raycastHit.RigidBodyIndex].Collider.Value.Type}!\n\tray(start: {rayInput.Start} vs cmd.origin: {cmd.origin}, end: {rayInput.End}, dir: {(rayInput.End - rayInput.Start)}) \traycastHit[Entity: {raycastHit.Entity} (alive: {victimIsAlive}), Position: {raycastHit.Position}, SurfaceNormal: {raycastHit.SurfaceNormal}, Fraction: {raycastHit.Fraction}, ColliderKey: {raycastHit.ColliderKey.ToString()}, RigidBodyIndex: {raycastHit.RigidBodyIndex}, Material.Friction: {raycastHit.Material.Friction}]" : "";
-                    collisionInfo = $"[TickIndex:{NetCodeTestWorld.TickIndex}][ServerTick:{networkTime.ServerTick.ToFixedString()}] LagCompensationTest result on <color=green>{(isServer ? "SERVER" : "CLIENT")}</color> is {(hit ? $"<color=green>HIT</color> (index: {raycastHit.RigidBodyIndex})" : "<color=red>MISS</color>")} on ServerTick {cmd.Tick.ToFixedString()} with interpolDelay: {interpolDelay} ticks (historyBufferEntry[expectedTick:{expectedTick}, returnedTick:{returnedTick.ToFixedString()}]), and position desync of: {positionDesyncMeters}m!, shot range: {math.length(cmd.direction):0.00} meters! {networkTickInfo} {collisionInfo}\n";
+                    string collisionInfo = hit ? $" - {collWorld.Bodies[raycastHit.RigidBodyIndex].Collider.Value.Type}!\n\traycastHit[Entity: {raycastHit.Entity} (alive: {victimIsAlive}), Position: {raycastHit.Position}, SurfaceNormal: {raycastHit.SurfaceNormal}, Fraction: {raycastHit.Fraction}, ColliderKey: {raycastHit.ColliderKey.ToString()}, RigidBodyIndex: {raycastHit.RigidBodyIndex}, Material.Friction: {raycastHit.Material.Friction}]" : "";
+                    collisionInfo = $"[TickIndex:{NetCodeTestWorld.TickIndex}][ServerTick:{networkTime.ServerTick.ToFixedString()}] LagCompensationTest result on <color=green>{(isServer ? "SERVER" : "CLIENT")}</color> is {(hit ? $"<color=green>HIT</color> (index: {raycastHit.RigidBodyIndex})" : "<color=red>MISS</color>")} on ServerTick {cmd.Tick.ToFixedString()} with interpolDelay: {interpolDelay} ticks (historyBufferEntry[expectedTick:{expectedTick}, returnedTick:{returnedTick.ToFixedString()}]), and origin desync of: {positionDesyncMeters}m!\n\tRay(start: {rayInput.Start} vs cmd.origin: {cmd.origin}, end: {rayInput.End}, dir: {(rayInput.End - rayInput.Start)}, range: {math.length(cmd.direction):0.00}m)! {networkTickInfo} {collisionInfo}\n";
                     if (hit)
                     {
                         if (isServer)
@@ -393,14 +415,15 @@ namespace Unity.NetCode.Physics.Tests
 
             var buffer = EntityManager.GetBuffer<LagCompensationTestCommand>(target.targetEntity);
             var cmd = default(LagCompensationTestCommand);
-            cmd.Tick = networkTime.ServerTick;
+            cmd.Tick = networkTime.InputTargetTick;
             if (ClientShotAction != ShotType.DontShoot)
             {
                 foreach (var localTransform in SystemAPI.Query<LocalTransform>().WithAll<LagCompensationTestPlayer>())
                 {
                     // We CANNOT use the players CURRENT Entity LocalTransform.Position here,
-                    // because it's out of date!?
-                    cmd.origin = GetPlayersDeterministicPositionForFrame(networkTime);
+                    // because it's out of date, because it has not been updated yet, as the GhostInputSystemGroup
+                    // runs before both the GhostUpdateSystem and the Prediction Loop.
+                    cmd.origin = GetPlayersDeterministicPositionForTick(networkTime.ServerTick);
 
                     var victimTransform = EntityManager.GetComponentData<LocalTransform>(ClientAimAtTarget);
                     var aimPoint = victimTransform.Position;
@@ -410,7 +433,7 @@ namespace Unity.NetCode.Physics.Tests
                     cmd.lastFire = cmd.Tick;
 
                     Debug.DrawLine(cmd.origin, aimPoint, Color.yellow, LagCompensationTestCubeMoveSystem.DebugDrawLineDuration);
-                    Debug.Log($"<color=yellow>[TickIndex:{NetCodeTestWorld.TickIndex}][ServerTick:{networkTime.ServerTick.ToFixedString()}] Client aiming at {ClientAimAtTarget.ToFixedString()} and pressing shoot once: From {cmd.origin} (vs deterministic: {GetPlayersDeterministicPositionForFrame(networkTime)}), to: {victimTransform.Position}, thus direction {cmd.direction}, with goal '{ClientShotAction}'!</color>");
+                    Debug.Log($"<color=yellow>[TickIndex:{NetCodeTestWorld.TickIndex}][ServerTick:{networkTime.ServerTick.ToFixedString()}] Client aiming at {ClientAimAtTarget.ToFixedString()} and pressing shoot once: From {cmd.origin} (vs deterministic: {GetPlayersDeterministicPositionForTick(networkTime.InputTargetTick)}), to: {victimTransform.Position}, thus direction {cmd.direction}, with goal '{ClientShotAction}'!</color>");
                     ClientShotAction = default;
                 }
             }
@@ -420,14 +443,14 @@ namespace Unity.NetCode.Physics.Tests
             buffer.AddCommandData(cmd);
         }
 
-        internal static float3 GetPlayersDeterministicPositionForFrame(NetworkTime networkTime)
+        internal static float3 GetPlayersDeterministicPositionForTick(NetworkTick targetTick)
         {
-            return new float3(GetDeterministicXPosition(networkTime), 0, -10);
+            return new float3(GetDeterministicXPosition(targetTick), 0, -10);
         }
 
-        internal static float GetDeterministicXPosition(NetworkTime networkTime)
+        internal static float GetDeterministicXPosition(NetworkTick targetTick)
         {
-            return (networkTime.ServerTick.TickIndexForValidTick * LagCompensationTests.MovementSpeedPerTick);
+            return (targetTick.TickIndexForValidTick * LagCompensationTests.MovementSpeedPerTick);
         }
     }
 
@@ -468,6 +491,20 @@ namespace Unity.NetCode.Physics.Tests
         [UnityPlatform(RuntimePlatform.OSXEditor, RuntimePlatform.WindowsEditor)]
         public void HitAndMissWithLagCompensation()
         {
+            LagCompensationTestHitScanSystem.ForcedInputLatencyTicks = 0;
+            HitAndMissWithLagCompensationTest();
+        }
+
+        [Test]
+        [UnityPlatform(RuntimePlatform.OSXEditor, RuntimePlatform.WindowsEditor)]
+        public void HitAndMissWithLagCompensation_AndForcedInputLatency_Of4()
+        {
+            LagCompensationTestHitScanSystem.ForcedInputLatencyTicks = 4;
+            HitAndMissWithLagCompensationTest();
+        }
+
+        public void HitAndMissWithLagCompensationTest()
+        {
             using (var testWorld = new NetCodeTestWorld())
             {
                 InitTest(testWorld, false, IncrementalBroadphase.FullBVHRebuild, out var clientEm, out _, new LagCompensationConfig
@@ -477,6 +514,9 @@ namespace Unity.NetCode.Physics.Tests
                     DeepCopyDynamicColliders = true,
                     DeepCopyStaticColliders = true,
                 });
+                var clientTickRate = NetworkTimeSystem.DefaultClientTickRate;
+                clientTickRate.ForcedInputLatencyTicks = LagCompensationTestHitScanSystem.ForcedInputLatencyTicks;
+                testWorld.ClientWorlds[0].EntityManager.CreateSingleton(clientTickRate);
 
                 // Give the netcode some time to spawn entities and settle on a good time synchronization
                 for (int i = 0; i < 70; ++i)
@@ -485,17 +525,18 @@ namespace Unity.NetCode.Physics.Tests
                 GetCubeAndSphere(clientEm, out var clientVictimCubeEntity, out _, out _, out _);
                 LagCompensationTestCommandSystem.ClientAimAtTarget = clientVictimCubeEntity;
                 LagCompensationTestHitScanSystem.EnableLagCompensation = true;
+                int ticksToRegisterHit = k_TicksToRegisterHit + LagCompensationTestHitScanSystem.ForcedInputLatencyTicks;
 
                 // Test hit:
                 LagCompensationTestCommandSystem.ClientShotAction = LagCompensationTestCommandSystem.ShotType.ShootToHit;
-                for (int i = 0; i < k_TicksToRegisterHit; ++i)
+                for (int i = 0; i < ticksToRegisterHit; ++i)
                     testWorld.Tick();
                 Assert.IsTrue(LagCompensationTestHitScanSystem.BothHitsRegistered);
 
                 // Test miss
                 ResetHits();
                 LagCompensationTestCommandSystem.ClientShotAction = LagCompensationTestCommandSystem.ShotType.ShootToMiss;
-                for (int i = 0; i < k_TicksToRegisterHit; ++i)
+                for (int i = 0; i < ticksToRegisterHit; ++i)
                     testWorld.Tick();
                 Assert.IsTrue(LagCompensationTestHitScanSystem.NoHitsRegistered);
 
@@ -503,14 +544,14 @@ namespace Unity.NetCode.Physics.Tests
                 ResetHits();
                 LagCompensationTestHitScanSystem.EnableLagCompensation = false;
                 LagCompensationTestCommandSystem.ClientShotAction = LagCompensationTestCommandSystem.ShotType.ShootToHit;
-                for (int i = 0; i < k_TicksToRegisterHit; ++i)
+                for (int i = 0; i < ticksToRegisterHit; ++i)
                     testWorld.Tick();
                 Assert.IsTrue(LagCompensationTestHitScanSystem.OnlyClientHitRegistered);
 
                 // Test miss
                 ResetHits();
                 LagCompensationTestCommandSystem.ClientShotAction = LagCompensationTestCommandSystem.ShotType.ShootToMiss;
-                for (int i = 0; i < k_TicksToRegisterHit; ++i)
+                for (int i = 0; i < ticksToRegisterHit; ++i)
                     testWorld.Tick();
                 Assert.IsTrue(LagCompensationTestHitScanSystem.NoHitsRegistered);
             }
@@ -636,6 +677,7 @@ namespace Unity.NetCode.Physics.Tests
                     testWorld.Tick();
 
                 // Client fires shot.
+                LagCompensationTestHitScanSystem.ForcedInputLatencyTicks = 0;
                 LagCompensationTestCommandSystem.ClientAimAtTarget = clientVictimCubeEntity;
                 LagCompensationTestHitScanSystem.EnableLagCompensation = true;
                 Assert.IsTrue(LagCompensationTestHitScanSystem.NoHitsRegistered, "Sanity check: Neither client nor server should have hit anything yet.");
@@ -746,7 +788,7 @@ namespace Unity.NetCode.Physics.Tests
                     var isInBounds = math.abs(rawDelta) <= allowedTolerance;
                     if (!isInBounds)
                     {
-                        reasoning = $"Expected {testedValue} to BE WITHIN {expectedValue}±{allowedTolerance}, but it wasn't! Value was {testedValue} (a delta of Δ{rawDelta})! " + reasoning;
+                        reasoning = $"Expected {testedValue} to BE WITHIN {expectedValue}±{allowedTolerance}, but it wasn't! Value was {testedValue} (a delta of ?{rawDelta})! " + reasoning;
                         Assert.Fail(reasoning);
                     }
                 }

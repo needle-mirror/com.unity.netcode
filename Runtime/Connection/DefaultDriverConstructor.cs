@@ -20,7 +20,7 @@ namespace Unity.NetCode
     /// </summary>
     public static class DefaultDriverBuilder
     {
-        const int DefaultPayloadCapacity = 16 * 1024;
+        internal const int DefaultPayloadCapacity = 16 * 1024;
         const int MaxFrameTimeMS = 100;
         const int DefaultWindowSize = 32;
 

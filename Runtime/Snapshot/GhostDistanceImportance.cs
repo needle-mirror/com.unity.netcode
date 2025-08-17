@@ -44,7 +44,7 @@ namespace Unity.NetCode
         /// </summary>
         public int3 TileCenter;
         /// <summary>
-        /// An optimization. Denotes the width of each tiles border.
+        /// An optimization. Denotes the width of each tiles border (each way i.e. plus AND minus).
         /// When deciding whether an entity has moved to another tile, this border value is added as an additional distance
         /// threshold requirement, reducing the frequency of expensive structural changes for ghosts that commonly move
         /// around a lot within a small area.
@@ -72,7 +72,7 @@ namespace Unity.NetCode
             new PortableFunctionPointer<GhostImportance.BatchScaleImportanceDelegate>(BatchScaleWithRelevancy);
 
         /// <summary>
-        /// Pointer to the <see cref="Scale"/> static method.
+        /// Pointer to the <see cref="CalculateDefaultScaledPriority"/> static method.
         /// </summary>
 #pragma warning disable CS0618 // Type or member is obsolete
         public static readonly PortableFunctionPointer<GhostImportance.ScaleImportanceDelegate> ScaleFunctionPointer =
@@ -85,15 +85,9 @@ namespace Unity.NetCode
         private static int Scale(IntPtr connectionDataPtr, IntPtr distanceDataPtr, IntPtr chunkTilePtr, int basePriority)
         {
             var distanceData = GhostComponentSerializer.TypeCast<GhostDistanceData>(distanceDataPtr);
-            var centerTile = (int3)((GhostComponentSerializer.TypeCast<GhostConnectionPosition>(connectionDataPtr).Position - distanceData.TileCenter) / distanceData.TileSize);
+            var centerTile = GhostDistancePartitioningSystem.CalculateTile(in distanceData, in GhostComponentSerializer.TypeCast<GhostConnectionPosition>(connectionDataPtr).Position);
             var chunkTile = GhostComponentSerializer.TypeCast<GhostDistancePartitionShared>(chunkTilePtr);
-            var delta = chunkTile.Index - centerTile;
-            var distSq = math.dot(delta, delta);
-            basePriority *= 1000;
-            // 3 makes sure all adjacent tiles are considered the same as the tile the connection is in - required since it might be close to the edge
-            if (distSq > 3)
-                basePriority /= distSq;
-            return basePriority;
+            return CalculateDefaultScaledPriority(basePriority, chunkTile, centerTile);
         }
 
         [BurstCompile(DisableDirectCall = true)]
@@ -104,22 +98,32 @@ namespace Unity.NetCode
             var distanceData = GhostComponentSerializer.TypeCast<GhostDistanceData>(distanceDataPtr);
             var centerTile = (int3)((GhostComponentSerializer.TypeCast<GhostConnectionPosition>(connectionDataPtr).Position - distanceData.TileCenter) / distanceData.TileSize);
             var sharedType = GhostComponentSerializer.TypeCast<DynamicSharedComponentTypeHandle>(sharedComponentTypeHandlePtr);
-            for (int i = 0; i < chunks.Length ; ++i)
+            for (int i = 0; i < chunks.Length; ++i)
             {
                 ref var data = ref chunks.ElementAt(i);
-                var basePriority = data.priority;
-                if (data.chunk.Has(ref sharedType))
-                {
-                    var chunkTile = (GhostDistancePartitionShared*)data.chunk.GetDynamicSharedComponentDataAddress(ref sharedType);
-                    var delta = chunkTile->Index - centerTile;
-                    var distSq = math.dot(delta, delta);
-                    basePriority *= 1000;
-                    // 3 makes sure all adjacent tiles are considered the same as the tile the connection is in - required since it might be close to the edge
-                    if (distSq > 3)
-                        basePriority /= distSq;
-                    data.priority = basePriority;
-                }
+                if (!data.chunk.Has(ref sharedType)) continue;
+                var chunkTile = (GhostDistancePartitionShared*)data.chunk.GetDynamicSharedComponentDataAddress(ref sharedType);
+                data.priority = CalculateDefaultScaledPriority(data.priority, in *chunkTile, centerTile);
             }
+        }
+
+        /// <summary>
+        /// Default implementation of the distance scaling function.
+        /// </summary>
+        /// <param name="priority">The base priority</param>
+        /// <param name="chunkTile">The chunk tile</param>
+        /// <param name="centerTile">The center tile</param>
+        /// <returns>The resulting priority</returns>
+        public static int CalculateDefaultScaledPriority(int priority, in GhostDistancePartitionShared chunkTile, in int3 centerTile)
+        {
+            var delta = chunkTile.Index - centerTile;
+            var distSq = math.dot(delta, delta);
+
+            // 3 makes sure all adjacent tiles are considered the same as the tile the connection is in - required since it might be close to the edge
+            if (distSq > 3)
+                priority /= distSq;
+
+            return priority;
         }
 
         [BurstCompile(DisableDirectCall = true)]

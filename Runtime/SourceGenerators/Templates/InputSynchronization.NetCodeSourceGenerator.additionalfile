@@ -11,6 +11,7 @@ using __COMMAND_USING__;
 
 [assembly: RegisterGenericComponentType(typeof(Unity.NetCode.InputBufferData<__COMMAND_COMPONENT_TYPE__>))]
 [assembly: RegisterGenericSystemType(typeof(Unity.NetCode.ApplyCurrentInputBufferElementToInputDataSystem<__COMMAND_COMPONENT_TYPE__, __COMMAND_NAMESPACE__.__COMMAND_NAME__EventHelper>))]
+[assembly: RegisterGenericSystemType(typeof(Unity.NetCode.ApplyCurrentInputBufferElementToInputDataForGatherSystem<__COMMAND_COMPONENT_TYPE__, __COMMAND_NAMESPACE__.__COMMAND_NAME__EventHelper>))]
 [assembly: RegisterGenericSystemType(typeof(Unity.NetCode.CopyInputToCommandBufferSystem<__COMMAND_COMPONENT_TYPE__, __COMMAND_NAMESPACE__.__COMMAND_NAME__EventHelper>))]
 [assembly: Unity.Jobs.RegisterGenericJobType(typeof(Unity.NetCode.ApplyInputDataFromBufferJob<__COMMAND_COMPONENT_TYPE__, __COMMAND_NAMESPACE__.__COMMAND_NAME__EventHelper>))]
 [assembly: Unity.Jobs.RegisterGenericJobType(typeof(Unity.NetCode.CopyInputToBufferJob<__COMMAND_COMPONENT_TYPE__, __COMMAND_NAMESPACE__.__COMMAND_NAME__EventHelper>))]

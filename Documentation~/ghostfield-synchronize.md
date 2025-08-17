@@ -149,4 +149,4 @@ Refer to [how to use and write templates](ghost-types-templates.md#defining-addi
 - [Ghost types templates](ghost-types-templates.md)
 - [Ghost variants](ghost-variants.md)
 - [Customizing replication with `GhostComponentAttribute`](ghostcomponentattribute.md)
-- [Preserializing ghosts](optimizations.md#preserialization)
+- [Preserialize ghosts](optimization/optimize-ghosts.md#preserialize-ghosts)

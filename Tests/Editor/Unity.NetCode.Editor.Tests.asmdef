@@ -8,6 +8,7 @@
         "Unity.Mathematics.Extensions",
         "Unity.NetCode",
         "Unity.NetCode.Editor",
+        "Unity.NetCode.Profiler.Editor",
         "Unity.NetCode.TestsUtils",
         "Unity.NetCode.Authoring.Hybrid",
         "Unity.Entities",

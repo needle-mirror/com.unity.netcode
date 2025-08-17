@@ -68,7 +68,7 @@ namespace Unity.NetCode
     public struct SnapshotMetrics : IComponentData
     {
         /// <summary>
-        /// The server tick when the snapshot metrics where collected.
+        /// The server tick when the snapshot metrics were collected.
         /// </summary>
         public uint SnapshotTick;
         /// <summary>
@@ -165,7 +165,7 @@ namespace Unity.NetCode
         public uint ChunkCount;   // server
         /// <summary>
         /// <remarks>Only Available on Client</remarks>
-        /// The uncompressed size of the ghost.
+        /// The number of uncompressed ghosts received (usually due to new spawns).
         /// </summary>
         public uint Uncompressed; // client
     }

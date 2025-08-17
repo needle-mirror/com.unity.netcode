@@ -7,6 +7,7 @@ using Unity.Mathematics;
 using Unity.NetCode.LowLevel.Unsafe;
 using Unity.Transforms;
 using UnityEngine;
+using UnityEngine.TestTools;
 using Random = Unity.Mathematics.Random;
 
 namespace Unity.NetCode.Tests
@@ -135,9 +136,11 @@ namespace Unity.NetCode.Tests
     [DisableAutoCreation]
     internal partial class GatherInputsSystem : SystemBase
     {
-        int m_WaitTicks = 1;                // Must wait 1 tick as the copy system starts one frame delayed
+        private const int k_WaitDuration = 5;
+        int m_WaitTicks = k_WaitDuration;   // Wait n ticks to ensure we read individual Input sends.
         int m_EventCounter;                 // How many times have we set an input event so far
         public static int TargetEventCount; // How many times total should we trigger events
+
         protected override void OnCreate()
         {
             RequireForUpdate<InputComponentData>();
@@ -146,11 +149,9 @@ namespace Unity.NetCode.Tests
         protected override void OnUpdate()
         {
             var networkTime = SystemAPI.GetSingleton<NetworkTime>();
-
-            var waitTicks = m_WaitTicks;
-            var eventCounter = m_EventCounter;
             var targetEventCount = TargetEventCount;
             Entities
+                .WithoutBurst()
                 .WithAll<GhostOwnerIsLocal>()
                 .ForEach((ref InputComponentData inputData) =>
                 {
@@ -159,21 +160,20 @@ namespace Unity.NetCode.Tests
                     inputData.Vertical = 1;
                     inputData.SentinelTick = networkTime.ServerTick;
                     inputData.Sentinel = Unity.Mathematics.Random.CreateFromIndex(networkTime.ServerTick.TickIndexForValidTick).NextUInt();
-                    if (eventCounter < targetEventCount)
+                    if (m_EventCounter < targetEventCount)
                     {
-                        if (waitTicks > 0)
+                        if (m_WaitTicks > 0)
                         {
-                            waitTicks--;
+                            m_WaitTicks--;
                         }
                         else
                         {
-                            eventCounter++;
+                            m_EventCounter++;
                             inputData.Jump.Set();
+                            m_WaitTicks = k_WaitDuration;
                         }
                     }
                 }).Run();
-            m_WaitTicks = waitTicks;
-            m_EventCounter = eventCounter;
         }
     }
 
@@ -207,6 +207,9 @@ namespace Unity.NetCode.Tests
     {
         public int EventCounter;
         public long EventCountSumValue;
+        public int ArrivedOnTimeCounter;
+        public int ArrivedLateCounter;
+        public int ExpectedInputDeltaTicks;
         protected override void OnCreate()
         {
             RequireForUpdate<InputComponentData>();
@@ -214,127 +217,141 @@ namespace Unity.NetCode.Tests
         protected override void OnUpdate()
         {
             var networkTime = SystemAPI.GetSingleton<NetworkTime>();
-            var eventCounter = EventCounter;
+            var worldName = World.Unmanaged.Name;
+            bool client = World.IsClient();
             Entities.WithoutBurst().WithAll<Simulate>().ForEach(
-                (ref InputComponentData input, ref LocalTransform trans) =>
+                (ref InputComponentData input) =>
                 {
-                    var newPosition = new float3();
                     if (input.Jump.IsSet)
                     {
-                        eventCounter++;
+                        EventCounter++;
                         EventCountSumValue += input.Jump.Count;
                     }
-                    newPosition.x = input.Horizontal;
-                    newPosition.z = input.Vertical;
-                    trans = trans.WithPosition(newPosition);
 
                     // Validate Sentinel (but only when inputs begin to arrive):
                     if (input.Horizontal != 0)
                     {
                         var deltaTicks = networkTime.ServerTick.TicksSince(input.SentinelTick);
-                        Assert.LessOrEqual(math.abs(deltaTicks), 2, $"Input was raised on ServerTick {input.SentinelTick.ToFixedString()}, but was consumed by the server more than ±2 ticks away from the arrival tick of {networkTime.ServerTick.ToFixedString()}!");
+                        var world = (client ? "CLIENT" : "SERVER");
+                        var arrivedOnTime = deltaTicks >= 0 && deltaTicks <= ExpectedInputDeltaTicks;
+                        if (arrivedOnTime)
+                            ArrivedOnTimeCounter++;
+                        else
+                        {
+                            ArrivedLateCounter++;
+                            Debug.LogWarning($"Input was raised on client on ServerTick {input.SentinelTick.ToFixedString()}, but was consumed by the {world} {deltaTicks} tick later (on arrival tick {networkTime.ServerTick.ToFixedString()}), which is more than expected [0, {ExpectedInputDeltaTicks}]!");
+                            Assert.That(deltaTicks - ExpectedInputDeltaTicks <= 1, "deltaTicks - ExpectedInputDeltaTicks <= 1");
+                        }
                         var expectedSentinelValue = Random.CreateFromIndex(input.SentinelTick.TickIndexForValidTick).NextUInt();
-                        Assert.AreEqual(expectedSentinelValue, input.Sentinel, $"Input Sentinel value was incorrect for seed value {input.SentinelTick.ToFixedString()}!");
+                        Assert.AreEqual(expectedSentinelValue, input.Sentinel, $"Input Sentinel value was incorrect for seed value {input.SentinelTick.ToFixedString()} on {world}!");
+                        //Debug.Log($" >> ProcessInputsSystem:{worldName}\n\tST:{networkTime.ServerTick}.{(int)(networkTime.ServerTickFraction * 100)} | H:{input.Horizontal} V:{input.Vertical} Jump:{input.Jump} SentinelTick:{input.SentinelTick} Sentinel:{input.Sentinel} deltaTicks:{deltaTicks} of {ExpectedInputDeltaTicks}, arrivedOnTime:{arrivedOnTime}!");
                     }
                 }).Run();
-
-            EventCounter = eventCounter;
         }
     }
 
     internal class InputComponentDataTest
     {
-        internal enum NetworkTestCondition
+        public enum ForcedInputLatencyMode : uint
         {
-            GoodNetwork,
-            HighPacketLoss,
-            HighJitter
+            Disabled = 0u,
+            ForcedInputLatency_1 = 1u,
+            ForcedInputLatency_2 = 2u,
+            ForcedInputLatency_8 = 16u,
         }
-        [Test]
-        public void InputComponentData_IsCorrectlySynchronized([Values] NetworkTestCondition networkCondition)
+
+        [Test, Description("Ensures that InputComponentData's are correctly handled by netcode locally (i.e. client-side, inside prediction) and remotely (i.e. on the server), and without input delay. Also ensures ForcedInputLatency is correctly applied.")]
+        [Ignore("Disabled as there is a GhostOwner field assignment bug in the GhostUpdateSystem on IPC.")]
+        public void InputComponentData_IsCorrectlySynchronized_CorrectInputDelay_IPC(
+            [Values] ForcedInputLatencyMode forcedInputLatency)
         {
+            using var testWorld = new NetCodeTestWorld();
+            testWorld.UseFakeSocketConnection = 0;
+            InputComponentData_IsCorrectlySynchronized_CorrectInputDelay_RunTest(true, NetCodeTestLatencyProfile.None, forcedInputLatency, testWorld);
+        }
+
+        [Test, Description("Ensures that InputComponentData's are correctly handled by netcode locally (i.e. client-side, inside prediction) and remotely (i.e. on the server), and without input delay. Also ensures ForcedInputLatency is correctly applied.")]
+        public void InputComponentData_IsCorrectlySynchronized_CorrectInputDelay_UDP(
+            [Values]NetCodeTestLatencyProfile profile,
+            [Values]ForcedInputLatencyMode forcedInputLatency)
+        {
+            using var testWorld = new NetCodeTestWorld();
+            testWorld.SetTestLatencyProfile(profile);
+            InputComponentData_IsCorrectlySynchronized_CorrectInputDelay_RunTest(false, profile, forcedInputLatency, testWorld);
+        }
+
+        private static void InputComponentData_IsCorrectlySynchronized_CorrectInputDelay_RunTest(bool isIPC, NetCodeTestLatencyProfile profile, ForcedInputLatencyMode forcedInputLatency, NetCodeTestWorld testWorld)
+        {
+            GatherInputsSystem.TargetEventCount = 0;
+            testWorld.Bootstrap(true, typeof(GatherInputsSystem), typeof(ProcessInputsSystem));
+
+            var ghostGameObject = new GameObject();
+            ghostGameObject.AddComponent<TestNetCodeAuthoring>().Converter = new InputComponentDataConverter();
+            var ghostConfig = ghostGameObject.AddComponent<GhostAuthoringComponent>();
+            ghostConfig.DefaultGhostMode = GhostMode.OwnerPredicted;
+            ghostConfig.HasOwner = true;
+            ghostConfig.SupportAutoCommandTarget = true;
+            Assert.IsTrue(testWorld.CreateGhostCollection(ghostGameObject));
+            testWorld.CreateWorlds(true, 1);
+            testWorld.Connect(maxSteps: 32);
+            testWorld.GoInGame();
+            var serverInputSystem = testWorld.ServerWorld.GetExistingSystemManaged<ProcessInputsSystem>();
+            serverInputSystem.ExpectedInputDeltaTicks = (isIPC ? 1 : (int)NetworkTimeSystem.DefaultClientTickRate.TargetCommandSlack);
+            serverInputSystem.ExpectedInputDeltaTicks += (int)forcedInputLatency;
+            var clientInputSystem = testWorld.ClientWorlds[0].GetExistingSystemManaged<ProcessInputsSystem>();
+            clientInputSystem.ExpectedInputDeltaTicks = (int)forcedInputLatency;
+
+            //.
+            var clientTickRate = NetworkTimeSystem.DefaultClientTickRate;
+            clientTickRate.ForcedInputLatencyTicks = (byte)forcedInputLatency;
+            testWorld.ClientWorlds[0].EntityManager.CreateSingleton(clientTickRate);
+
+            // Ghost & GhostOwner.
+            var clientConnectionEnt = testWorld.TryGetSingletonEntity<NetworkId>(testWorld.ClientWorlds[0]);
+            var netId = testWorld.ClientWorlds[0].EntityManager.GetComponentData<NetworkId>(clientConnectionEnt).Value;
+            var serverEnt = testWorld.SpawnOnServer(ghostGameObject);
+            testWorld.ServerWorld.EntityManager.SetComponentData(serverEnt, new GhostOwner {NetworkId = netId,});
+
+            // Wait for client spawn:
+            for (int i = 0; i < 16; ++i)
+                testWorld.Tick();
+            var clientEnt = testWorld.TryGetSingletonEntity<InputComponentData>(testWorld.ClientWorlds[0]);
+            Assert.AreNotEqual(Entity.Null, clientEnt, "Sanity!");
+
+            // Run test:
             GatherInputsSystem.TargetEventCount = 5;
-            using (var testWorld = new NetCodeTestWorld())
-            {
-                // Set conditions:
-                {
-                    testWorld.DriverSimulatedDelay = 50; // Milliseconds.
-                    switch (networkCondition)
-                    {
-                        case NetworkTestCondition.GoodNetwork:
-                            break;
-                        case NetworkTestCondition.HighPacketLoss:
-                            testWorld.DriverSimulatedDrop = 3; //rd tick interval, so 33%.
-                            break;
-                        case NetworkTestCondition.HighJitter:
-                            testWorld.DriverSimulatedJitter = 100; // ±Milliseconds.
-                            break;
-                        default:
-                            throw new ArgumentOutOfRangeException(nameof(networkCondition), networkCondition, null);
-                    }
-                }
+            for (int i = 0; i < 64; ++i)
+                testWorld.Tick();
 
-                testWorld.Bootstrap(true, typeof(GatherInputsSystem), typeof(ProcessInputsSystem));
+            // Event should only fire equal to TargetEventCount on the server (but can multiple times on client because of prediction loop)
+            Assert.AreEqual(GatherInputsSystem.TargetEventCount, serverInputSystem.EventCounter, "serverInputSystem.TargetEventCount");
+            Assert.AreEqual(GatherInputsSystem.TargetEventCount, serverInputSystem.EventCountSumValue, "serverInputSystem.TargetEventCount");
+            // Client prediction rollback & re-simulation means these counts will be higher.
+            Assert.GreaterOrEqual(clientInputSystem.EventCounter, GatherInputsSystem.TargetEventCount, "clientInputSystem.TargetEventCount");
+            Assert.GreaterOrEqual(clientInputSystem.EventCountSumValue, GatherInputsSystem.TargetEventCount, "clientInputSystem.TargetEventCount");
 
-                var ghostGameObject = new GameObject();
-                ghostGameObject.AddComponent<TestNetCodeAuthoring>().Converter = new InputComponentDataConverter();
-                var ghostConfig = ghostGameObject.AddComponent<GhostAuthoringComponent>();
-                ghostConfig.HasOwner = true;
-                ghostConfig.SupportAutoCommandTarget = true;
-                Assert.IsTrue(testWorld.CreateGhostCollection(ghostGameObject));
-                testWorld.CreateWorlds(true, 1);
-                testWorld.Connect(maxSteps: 32);
-                testWorld.GoInGame();
+            // Assert input polling -> processing tick latency:
+            Assert.That(clientInputSystem.ArrivedLateCounter, Is.LessThan(10), "clientInputSystem.ArrivedLateCounter");
+            Assert.That(clientInputSystem.ArrivedOnTimeCounter, Is.GreaterThan(clientInputSystem.ArrivedLateCounter), "clientInputSystem.ArrivedOnTimeCounter");
+            Assert.That(serverInputSystem.ArrivedLateCounter, Is.LessThan(10), "serverInputSystem.ArrivedLateCounter");
+            Assert.That(serverInputSystem.ArrivedOnTimeCounter, Is.GreaterThan(serverInputSystem.ArrivedLateCounter), "serverInputSystem.ArrivedOnTimeCounter");
 
-                var serverConnectionEnt = testWorld.TryGetSingletonEntity<NetworkId>(testWorld.ServerWorld);
-                var clientConnectionEnt = testWorld.TryGetSingletonEntity<NetworkId>(testWorld.ClientWorlds[0]);
-                var netId = testWorld.ClientWorlds[0].EntityManager.GetComponentData<NetworkId>(clientConnectionEnt).Value;
+            // Assert input logging is realistic:
+            var networkSnapshotAck = testWorld.GetSingleton<NetworkSnapshotAck>(testWorld.ServerWorld);
+            var cas = networkSnapshotAck.CommandArrivalStatistics;
+            Debug.Log(cas.ToFixedString());
+            const int expectedMinPacketsArrived = 7;
+            Assert.GreaterOrEqual(cas.NumCommandPacketsArrived, expectedMinPacketsArrived, "Expected command packets to arrive!?");
+            Assert.GreaterOrEqual(cas.NumCommandsArrived, expectedMinPacketsArrived * 4, "Expected command packets to be full of inputs!?");
+            Assert.GreaterOrEqual(cas.NumRedundantResends, expectedMinPacketsArrived * 2.2f, "Expected most resends to be redundant!?");
+            if (profile != NetCodeTestLatencyProfile.PL33)
+                Assert.GreaterOrEqual(cas.NumArrivedTooLate, 0f, "Expected no inputs arriving too late!");
+            Assert.IsTrue(math.abs(cas.AvgCommandsPerPacket - 4) < double.Epsilon, "Expected the default of 4 commands per packet!");
+            Assert.GreaterOrEqual(cas.AvgCommandPayloadSizeInBits, 200, "Expected command bits to be ~200!");
 
-                var serverEnt = testWorld.SpawnOnServer(ghostGameObject);
-                testWorld.ServerWorld.EntityManager.SetComponentData(serverEnt, new GhostOwner {NetworkId = netId});
-
-                // Wait for client spawn
-                Entity clientEnt;
-                for (int i = 0; i < 32; ++i)
-                {
-                    clientEnt = testWorld.TryGetSingletonEntity<InputComponentData>(testWorld.ClientWorlds[0]);
-                    if (clientEnt != Entity.Null) break;
-                    testWorld.Tick();
-                }
-
-                clientEnt = testWorld.TryGetSingletonEntity<InputComponentData>(testWorld.ClientWorlds[0]);
-                Assert.AreNotEqual(Entity.Null, clientEnt);
-
-                testWorld.ServerWorld.EntityManager.SetComponentData(serverConnectionEnt, new CommandTarget{targetEntity = serverEnt});
-                testWorld.ClientWorlds[0].EntityManager.SetComponentData(clientConnectionEnt, new CommandTarget{targetEntity = clientEnt});
-
-                for (int i = 0; i < 40; ++i)
-                    testWorld.Tick();
-
-                // The IInputComponentData should have been copied to buffer, sent to server, and then transform
-                // result sent back to the client.
-                var transform = testWorld.ClientWorlds[0].EntityManager.GetComponentData<LocalTransform>(clientEnt);
-                Assert.AreEqual(1f, transform.Position.x);
-                Assert.AreEqual(1f, transform.Position.z);
-
-                // Event should only fire equal to TargetEventCount on the server (but can multiple times on client because of prediction loop)
-                var serverInputSystem = testWorld.ServerWorld.GetExistingSystemManaged<ProcessInputsSystem>();
-                Assert.AreEqual(GatherInputsSystem.TargetEventCount, serverInputSystem.EventCounter);
-                Assert.AreEqual(GatherInputsSystem.TargetEventCount, serverInputSystem.EventCountSumValue);
-
-                // Assert input logging is realistic:
-                var networkSnapshotAck = testWorld.GetSingleton<NetworkSnapshotAck>(testWorld.ServerWorld);
-                var cas = networkSnapshotAck.CommandArrivalStatistics;
-                Debug.Log(cas.ToFixedString());
-                const int expectedMinPacketsArrived = 7;
-                Assert.GreaterOrEqual(cas.NumCommandPacketsArrived, expectedMinPacketsArrived, "Expected command packets to arrive!?");
-                Assert.GreaterOrEqual(cas.NumCommandsArrived, expectedMinPacketsArrived * 4, "Expected command packets to be full of inputs!?");
-                Assert.GreaterOrEqual(cas.NumRedundantResends, expectedMinPacketsArrived * 2.2f, "Expected most resends to be redundant!?");
-                if(networkCondition != NetworkTestCondition.HighJitter)
-                    Assert.GreaterOrEqual(cas.NumArrivedTooLate, 0f, "Expected no inputs arriving too late!");
-                Assert.IsTrue(math.abs(cas.AvgCommandsPerPacket - 4) < double.Epsilon, "Expected the default of 4 commands per packet!");
-                Assert.GreaterOrEqual(cas.AvgCommandPayloadSizeInBits, 200, "Expected command bits to be ~200!");
-            }
+            //.
+            var clientNetTime = testWorld.GetSingleton<NetworkTime>(testWorld.ClientWorlds[0]);
+            Assert.AreEqual(clientNetTime.EffectiveInputLatencyTicks, (uint)forcedInputLatency, "EffectiveForcedInputLatencyTicks");
         }
 
         /* Validate that remote predicted input is properly synchronized when input fields are

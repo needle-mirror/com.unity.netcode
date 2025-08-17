@@ -78,6 +78,9 @@ namespace Unity.NetCode
 
         private int m_PrevPredictionErrorNamesCount;
         private int m_PrevGhostNamesCount;
+
+        private bool m_HasGhostNamesSingleton;
+        private bool m_HasPredictionErrorNamesSingleton;
 #endif
 
         private EntityQuery m_InGameQuery;
@@ -325,8 +328,9 @@ namespace Unity.NetCode
                     m_currentPredictionErrorCount = 0;
                     if (m_PrevPredictionErrorNamesCount > 0 || m_PrevGhostNamesCount > 0)
                     {
+
                         SystemAPI.GetSingletonRW<GhostStatsCollectionData>().ValueRW.SetGhostNames(state.WorldUnmanaged.Name,
-                            m_GhostNames, m_PredictionErrorNames, 0);
+                            m_GhostNames, m_PredictionErrorNames, 0, ref SystemAPI.GetSingletonRW<GhostStatsSnapshotSingleton>().ValueRW);
                         if (SystemAPI.TryGetSingletonBuffer<GhostNames>(out var ghosts))
                             UpdateGhostNames(ghosts, m_GhostNames);
                         if (SystemAPI.TryGetSingletonBuffer<PredictionErrorNames>(out var predictionErrors))
@@ -596,12 +600,15 @@ namespace Unity.NetCode
                 return;
             }
 #if UNITY_EDITOR || NETCODE_DEBUG
-            if (m_PrevPredictionErrorNamesCount < m_currentPredictionErrorNamesCount || m_PrevGhostNamesCount < m_GhostNames.Length)
+            if (m_PrevPredictionErrorNamesCount < m_currentPredictionErrorNamesCount ||
+                m_PrevGhostNamesCount < m_GhostNames.Length ||
+                m_HasGhostNamesSingleton != SystemAPI.HasSingleton<GhostNames>() ||
+                m_HasPredictionErrorNamesSingleton != SystemAPI.HasSingleton<PredictionErrorNames>())
             {
                 using var _ = m_UpdateNameMarker.Auto();
                 ProcessPendingNameAssignments(ctx.ghostSerializerCollection);
                 SystemAPI.GetSingletonRW<GhostStatsCollectionData>().ValueRW.SetGhostNames(state.WorldUnmanaged.Name,
-                    m_GhostNames, m_PredictionErrorNames, m_currentPredictionErrorCount);
+                    m_GhostNames, m_PredictionErrorNames, m_currentPredictionErrorCount, ref SystemAPI.GetSingletonRW<GhostStatsSnapshotSingleton>().ValueRW);
                 if (SystemAPI.TryGetSingletonBuffer<GhostNames>(out var ghosts))
                     UpdateGhostNames(ghosts, m_GhostNames);
                 if (SystemAPI.TryGetSingletonBuffer<PredictionErrorNames>(out var predictionErrors))
@@ -612,6 +619,9 @@ namespace Unity.NetCode
                 m_PrevPredictionErrorNamesCount = m_PredictionErrorNames.Length;
                 m_PrevGhostNamesCount = m_GhostNames.Length;
             }
+
+            m_HasGhostNamesSingleton = SystemAPI.HasSingleton<GhostNames>();
+            m_HasPredictionErrorNamesSingleton = SystemAPI.HasSingleton<PredictionErrorNames>();
 #endif
 #if UNITY_EDITOR || NETCODE_DEBUG
             ref var ghostCollectionRef = ref SystemAPI.GetSingletonRW<GhostCollection>().ValueRW;

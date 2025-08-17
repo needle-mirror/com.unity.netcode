@@ -59,6 +59,7 @@ namespace Unity.NetCode
         public FixedString512Bytes netDebugPacketDebug;
         public FixedString128Bytes netDebugPacketResult;
         public FixedString64Bytes ghostTypeName;
+        public NativeList<UnsafeGhostStatsSnapshot.PerComponentStats> componentStats;
 #endif
 
         [ReadOnly] public NativeParallelHashMap<ArchetypeChunk, SnapshotPreSerializeData> SnapshotPreSerializeData;
@@ -351,32 +352,37 @@ namespace Unity.NetCode
             netDebugPacketDebug.Append((FixedString32Bytes)", HasRelevancySpawns");
 #endif
         }
-        [Conditional("NETCODE_DEBUG")]
-        private void PacketDumpComponentSize(in GhostCollectionPrefabSerializer typeData, int* entityStartBit, int bitCountsPerComponent, int entOffset)
-        {
 #if NETCODE_DEBUG
-            if (!netDebugPacket.IsCreated)
-                return;
+        private void PacketDumpComponentSize(in GhostCollectionPrefabSerializer typeData, int* entityStartBit, int bitCountsPerComponent, int entOffset, ref NativeList<UnsafeGhostStatsSnapshot.PerComponentStats> tempComponentStats)
+        {
+            var packetDumpEnabled = netDebugPacket.IsCreated;
 
-            int total = 0;
+            uint total = 0;
+
             for (int comp = 0; comp < typeData.NumComponents; ++comp)
             {
-                if (netDebugPacketDebug.Length > (netDebugPacketDebug.Capacity >> 1))
+                uint numBits = (uint)entityStartBit[(bitCountsPerComponent*comp + entOffset)*2+1];
+                tempComponentStats.ElementAt(comp).SizeInSnapshotInBits += numBits;
+                if (packetDumpEnabled)
                 {
-                    netDebugPacketDebug.Append((FixedString32Bytes)" CONT");
-                    PacketDumpFlush();
-                }
-                int numBits = entityStartBit[(bitCountsPerComponent*comp + entOffset)*2+1];
-                total += numBits;
-                int serializerIdx = GhostComponentIndex[typeData.FirstComponent + comp].SerializerIndex;
-                var ghostComponent = GhostComponentCollection[serializerIdx];
+                    if (netDebugPacketDebug.Length > (netDebugPacketDebug.Capacity >> 1))
+                    {
+                        netDebugPacketDebug.Append((FixedString32Bytes)" CONT");
+                        PacketDumpFlush();
+                    }
 
-                var typeName = netDebug.ComponentTypeNameLookup[ghostComponent.ComponentType.TypeIndex];
-                netDebugPacketDebug.Append(FixedString.Format(" {0}:{1} ({2}B)", typeName, ghostComponent.PredictionErrorNames, numBits));
+                    total += numBits;
+                    int serializerIdx = GhostComponentIndex[typeData.FirstComponent + comp].SerializerIndex;
+                    var ghostComponent = GhostComponentCollection[serializerIdx];
+                    var typeName = netDebug.ComponentTypeNameLookup[ghostComponent.ComponentType.TypeIndex];
+                    netDebugPacketDebug.Append(FixedString.Format(" {0}:{1} ({2}b)", typeName, ghostComponent.PredictionErrorNames, numBits));
+                }
             }
-            netDebugPacketDebug.Append(FixedString.Format(" Total ({0}B)", total));
-#endif
+            if (packetDumpEnabled)
+                netDebugPacketDebug.Append(FixedString.Format(" Total ({0}b)", total));
+            // TODO there's cancellation happening after this where we reset the datastream with certain conditions. We should cancel the stats gathering there too
         }
+#endif
         [Conditional("NETCODE_DEBUG")]
         private void PacketDumpSkipInvalidGroup(int ghostId)
         {
@@ -696,7 +702,9 @@ namespace Unity.NetCode
             byte** baselinesPerEntity = null, int* sameBaselinePerEntity = null, int* dynamicDataLenPerEntity = null, int* entityStartBit = null)
         {
             PacketDumpBegin(ref chunk, startIndex, endIndex);
-
+#if NETCODE_DEBUG
+            using var tempComponentStats = new NativeList<UnsafeGhostStatsSnapshot.PerComponentStats>(20, Allocator.Temp); // each recursive call to SerializeEntities needs its own temp buffer
+#endif
             skippedEntityCount = 0;
             anyChangeMask = 0;
 
@@ -842,7 +850,7 @@ namespace Unity.NetCode
             int dynamicSnapshotDataCapacity = currentSnapshot.SnapshotDynamicDataCapacity;
 
             byte* snapshotDynamicDataPtr = currentSnapshot.SnapshotDynamicData;
-            //This condition is possible when we spawn new entities and we send the chunck the first time
+            //This condition is possible when we spawn new entities and we send the chunk the first time
             if (typeData.NumBuffers > 0 && currentSnapshot.SnapshotDynamicData == null && currentSnapshot.SnapshotDynamicDataSize > 0)
             {
                 snapshotDynamicDataPtr = (byte*)UnsafeUtility.Malloc(currentSnapshot.SnapshotDynamicDataSize + dynamicDataHeaderSize, 16, Allocator.Temp);
@@ -1389,11 +1397,19 @@ namespace Unity.NetCode
                 anyChangeMask |= anyChangeMaskThisEntity;
                 anyChangeMask |= anyEnableableMaskChangedThisEntity;
 
+#if NETCODE_DEBUG
+                // resize only grows the allocation, never shrinks. Our analytics show on average users have a bit more than 20 components per ghost type, I figured 20 was a good first size and worst comes to worst resize can make it grow.
+                tempComponentStats.Resize(typeData.NumComponents, options: NativeArrayOptions.ClearMemory);
+                tempComponentStats.ResetToDefault();
+                var stats = tempComponentStats;
+#endif
                 if (anyChangeMaskThisEntity != 0)
                 {
                     if (hasCustomSerializer)
                     {
-                        PacketDumpComponentSize(typeData, entityStartBit+entityOffset*2, entityOffset, entOffset);
+#if NETCODE_DEBUG
+                        PacketDumpComponentSize(typeData, entityStartBit+entityOffset*2, entityOffset, entOffset, ref stats);
+#endif
                         int start = entityStartBit[(entOffset)*2];
                         int len = entityStartBit[(entOffset)*2+1];
                         if (len > 0)
@@ -1408,7 +1424,9 @@ namespace Unity.NetCode
                     }
                     else
                     {
-                        PacketDumpComponentSize(typeData, entityStartBit, entityOffset, entOffset);
+#if NETCODE_DEBUG
+                        PacketDumpComponentSize(typeData, entityStartBit, entityOffset, entOffset, ref stats);
+#endif
                         for (int comp = 0; comp < typeData.NumComponents; ++comp)
                         {
                             int start = entityStartBit[(entityOffset*comp + entOffset)*2];
@@ -1464,6 +1482,11 @@ namespace Unity.NetCode
                         return ent;
                     }
                 }
+
+#if NETCODE_DEBUG
+                // there was no cancellation, so we can increment the stats
+                this.componentStats.IncrementWith(tempComponentStats);
+#endif
                 if (currentSnapshot.SnapshotData != null)
                 {
                     currentSnapshot.SnapshotEntity[ent] = ghostEntities[ent];

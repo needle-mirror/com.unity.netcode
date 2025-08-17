@@ -434,6 +434,16 @@ namespace Unity.NetCode
             var netDebug = SystemAPI.GetSingleton<NetDebug>();
             FixedString128Bytes debugPrefix = $"[{state.WorldUnmanaged.Name}][Connection]";
 
+#if UNITY_EDITOR || NETCODE_DEBUG
+            if (!state.WorldUnmanaged.IsServer())
+            {
+                // Not needed for server, we're only gathering client stats for now. Should come back to this if we gather server stats here too, it's also reset in GhostSendSystem
+                var numLoadedPrefabs = SystemAPI.GetSingleton<GhostCollection>().NumLoadedPrefabs;
+                ref var netStatsSnapshotSingleton = ref SystemAPI.GetSingletonRW<GhostStatsSnapshotSingleton>().ValueRW;
+                netStatsSnapshotSingleton.ResetWriter(numLoadedPrefabs);
+            }
+#endif
+
             if (!SystemAPI.HasSingleton<NetworkProtocolVersion>())
             {
                 // Fix: Wait for the CreateComponentCollection to have been called, otherwise we'd create a
@@ -592,6 +602,7 @@ namespace Unity.NetCode
             };
 #if UNITY_EDITOR || NETCODE_DEBUG
             handleJob.netStats = SystemAPI.GetSingletonRW<GhostStatsCollectionCommand>().ValueRO.Value;
+            handleJob.SnapshotStatsWriters = SystemAPI.GetSingleton<GhostStatsSnapshotSingleton>().allGhostStatsParallelWrites.AsArray();
 #endif
             k_Scheduling.Begin();
             state.Dependency = handleJob.ScheduleByRef(state.Dependency);
@@ -724,8 +735,11 @@ namespace Unity.NetCode
             [ReadOnly] public ComponentLookup<ConnectionApproved> connectionApprovedLookup;
             public bool isServer;
 
+            [NativeSetThreadIndex] int m_ThreadIndex;
+
 #if UNITY_EDITOR || NETCODE_DEBUG
             public NativeArray<uint> netStats;
+            public NativeArray<UnsafeGhostStatsSnapshot> SnapshotStatsWriters;
 #endif
 
             public void Execute(Entity entity, ref NetworkStreamConnection connection, ref NetworkSnapshotAck snapshotAck)
@@ -869,7 +883,10 @@ namespace Unity.NetCode
                                 {
                                     if (Hint.Unlikely(!snapshotBuffer.TryGetBuffer(entity, out var buffer)))
                                         break;
-
+#if UNITY_EDITOR || NETCODE_DEBUG
+                                    ref var netStatsSnapshots = ref SnapshotStatsWriters.AsSpan()[m_ThreadIndex];
+                                    netStatsSnapshots.SnapshotTotalSizeInBits = (uint)(reader.Length) * 8;
+#endif
                                     uint remoteTime = reader.ReadUInt();
                                     uint localTimeMinusRTT = reader.ReadUInt();
                                     snapshotAck.ServerCommandAge = reader.ReadInt();

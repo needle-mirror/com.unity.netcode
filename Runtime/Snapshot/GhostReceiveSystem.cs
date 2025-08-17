@@ -12,7 +12,6 @@ using Unity.Collections.LowLevel.Unsafe;
 using Unity.Entities;
 using Unity.Jobs;
 using Unity.Mathematics;
-using Unity.NetCode.LowLevel;
 using Unity.NetCode.LowLevel.Unsafe;
 using UnityEngine;
 
@@ -342,7 +341,7 @@ namespace Unity.NetCode
             public NativeHashMap<GhostType, int> PendingGhostPrefabAssignment;
             public StreamCompressionModel CompressionModel;
 #if UNITY_EDITOR || NETCODE_DEBUG
-            public NativeArray<uint> NetStats;
+            public NativeArray<UnsafeGhostStatsSnapshot> SnapshotStatsWriters;
 #endif
             public NativeQueue<GhostDespawnSystem.DelayedDespawnGhost> InterpolatedDespawnQueue;
             public NativeQueue<GhostDespawnSystem.DelayedDespawnGhost> PredictedDespawnQueue;
@@ -369,10 +368,7 @@ namespace Unity.NetCode
             public void Execute()
             {
 #if UNITY_EDITOR || NETCODE_DEBUG
-                for (int i = 0; i < NetStats.Length; ++i)
-                {
-                    NetStats[i] = 0;
-                }
+                ref var netStatsSnapshot = ref SnapshotStatsWriters.AsSpan()[0]; // this is an IJob, so just one thread
 #endif
 #if NETCODE_DEBUG
                 EnablePacketLogging.InitAndFetch(Connections[0], EnableLoggingFromEntity, NetDebugPacket);
@@ -508,11 +504,11 @@ namespace Unity.NetCode
 #if UNITY_EDITOR || NETCODE_DEBUG
                 PacketDumpFlush();
                 data.CurPos = dataStream.GetBitsRead();
-                NetStats[0] = serverTick.SerializedData;
-                NetStats[1] = despawnLen;
-                NetStats[2] = (uint) (dataStream.GetBitsRead() - data.StartPos);
-                NetStats[3] = 0;
+                netStatsSnapshot.Tick = serverTick;
+                netStatsSnapshot.DespawnCount = despawnLen;
+                netStatsSnapshot.DestroySizeInBits = (uint) (dataStream.GetBitsRead() - data.StartPos);
                 data.StartPos = data.CurPos;
+                data.NetStatsSnapshot = (UnsafeGhostStatsSnapshot*)UnsafeUtility.AddressOf(ref netStatsSnapshot);
 #endif
 
                 bool dataValid = true;
@@ -524,10 +520,11 @@ namespace Unity.NetCode
                 if (data.StatCount > 0)
                 {
                     data.CurPos = dataStream.GetBitsRead();
-                    int statType = (int) data.TargetArch;
-                    NetStats[statType * 3 + 4] = NetStats[statType * 3 + 4] + data.StatCount;
-                    NetStats[statType * 3 + 5] = NetStats[statType * 3 + 5] + (uint) (data.CurPos - data.StartPos);
-                    NetStats[statType * 3 + 6] = NetStats[statType * 3 + 6] + data.UncompressedCount;
+                    int statType = (int) data.TargetArch; // index in the ghost collection. identifies the current ghost type (aka the current prefab)
+                    ref var perGhostTypeStats = ref netStatsSnapshot.PerGhostTypeStatsListRefRW.ElementAt(statType);
+                    perGhostTypeStats.EntityCount += data.StatCount;
+                    perGhostTypeStats.SizeInBits += (uint) (data.CurPos - data.StartPos);
+                    perGhostTypeStats.UncompressedCount += data.UncompressedCount;
                 }
 #endif
                 while (GhostEntityMap.Capacity < GhostEntityMap.Count() + data.NewGhosts)
@@ -554,7 +551,7 @@ namespace Unity.NetCode
             }
             struct DeserializeData
             {
-                public uint TargetArch;
+                public uint TargetArch; // index in the ghost type collection. TODO wrap this int in a specific type?
                 public uint TargetArchLen;
                 public uint BaseGhostId;
                 public NetworkTick BaselineTick;
@@ -567,6 +564,7 @@ namespace Unity.NetCode
                 public int CurPos;
                 public uint StatCount;
                 public uint UncompressedCount;
+                public UnsafeGhostStatsSnapshot* NetStatsSnapshot;
 #endif
             }
 
@@ -578,10 +576,12 @@ namespace Unity.NetCode
                     data.CurPos = dataStream.GetBitsRead();
                     if (data.StatCount > 0)
                     {
-                        int statType = (int) data.TargetArch;
-                        NetStats[statType * 3 + 4] = NetStats[statType * 3 + 4] + data.StatCount;
-                        NetStats[statType * 3 + 5] = NetStats[statType * 3 + 5] + (uint) (data.CurPos - data.StartPos);
-                        NetStats[statType * 3 + 6] = NetStats[statType * 3 + 6] + data.UncompressedCount;
+                        int statType = (int)data.TargetArch;
+                        ref var netStatsSnapshot = ref SnapshotStatsWriters.AsSpan()[0];
+                        ref var perGhostTypeStats = ref netStatsSnapshot.PerGhostTypeStatsListRefRW.ElementAt(statType);
+                        perGhostTypeStats.EntityCount += data.StatCount;
+                        perGhostTypeStats.SizeInBits += (uint)(data.CurPos - data.StartPos);
+                        perGhostTypeStats.UncompressedCount += data.UncompressedCount;
                     }
 
                     data.StartPos = data.CurPos;
@@ -1028,18 +1028,22 @@ namespace Unity.NetCode
 #if NETCODE_DEBUG
                 int entityStartBit = dataStream.GetBitsRead();
 #endif
+#if UNITY_EDITOR || NETCODE_DEBUG
+                var perComponentStats = data.NetStatsSnapshot->PerGhostTypeStatsListRefRW.ElementAt((int)data.TargetArch).PerComponentStatsList;
+                if (perComponentStats.Length < typeData.NumComponents) // since comp count doesn't change, this should happen only once
+                    perComponentStats.Resize(typeData.NumComponents, NativeArrayOptions.ClearMemory);
+#endif
                 for (int comp = 0; comp < typeData.NumComponents; ++comp)
                 {
                     int serializerIdx = m_GhostComponentIndex[typeData.FirstComponent + comp].SerializerIndex;
                     ref readonly var ghostSerializer = ref m_GhostComponentCollection.ElementAtRO(serializerIdx);
 #if NETCODE_DEBUG
                     FixedString128Bytes componentName = default;
-                    int numBits = 0;
+                    var numBits = dataStream.GetBitsRead();
                     if (NetDebugPacket.IsCreated)
                     {
                         var componentTypeIndex = ghostSerializer.ComponentType.TypeIndex;
                         componentName = NetDebug.ComponentTypeNameLookup[componentTypeIndex];
-                        numBits = dataStream.GetBitsRead();
                     }
 #endif
                     if (ghostSerializer.HasGhostFields)
@@ -1120,15 +1124,22 @@ namespace Unity.NetCode
                         }
                     }
 #if NETCODE_DEBUG
-                    if (NetDebugPacket.IsCreated && anyChangeMaskThisEntity != 0)
+                    numBits = dataStream.GetBitsRead() - numBits;
+
+                    if (anyChangeMaskThisEntity != 0)
                     {
-                        if (DebugLog.Length > (DebugLog.Capacity >> 1))
+                        perComponentStats.ElementAt(comp).SizeInSnapshotInBits += (uint)numBits;
+
+                        if (NetDebugPacket.IsCreated)
                         {
-                            DebugLog.Append((FixedString32Bytes) " CONT");
-                            PacketDumpFlush();
+                            if (DebugLog.Length > (DebugLog.Capacity >> 1))
+                            {
+                                DebugLog.Append((FixedString32Bytes)" CONT");
+                                PacketDumpFlush();
+                            }
+
+                            DebugLog.Append(FixedString.Format(" {0}:{1} ({2}B)", componentName, ghostSerializer.PredictionErrorNames, numBits));
                         }
-                        numBits = dataStream.GetBitsRead() - numBits;
-                        DebugLog.Append(FixedString.Format(" {0}:{1} ({2}B)", componentName, ghostSerializer.PredictionErrorNames, numBits));
                     }
 #endif
                 }
@@ -1227,6 +1238,9 @@ namespace Unity.NetCode
 #if NETCODE_DEBUG
                         if(NetDebugPacket.IsCreated)
                             NetDebugPacket.Log(FixedString.Format("\t\t\t\t[{0}/{1}] ", i, groupLen));
+#endif
+#if UNITY_EDITOR || NETCODE_DEBUG
+                        childData.NetStatsSnapshot = data.NetStatsSnapshot;
 #endif
                         if (!DeserializeEntity(serverTick, ref dataStream, ref childData, i))
                         {
@@ -1351,12 +1365,10 @@ namespace Unity.NetCode
         [BurstCompile]
         public void OnUpdate(ref SystemState state)
         {
+            var serverTick = SystemAPI.GetSingleton<NetworkTime>().ServerTick;
+
 #if UNITY_EDITOR || NETCODE_DEBUG
-            var numLoadedPrefabs = SystemAPI.GetSingleton<GhostCollection>().NumLoadedPrefabs;
-            ref var netStats = ref SystemAPI.GetSingletonRW<GhostStatsCollectionSnapshot>().ValueRW;
-            netStats.Size = numLoadedPrefabs * 3 + 3 + 1;
-            netStats.Stride = netStats.Size;
-            netStats.Data.Resize(netStats.Size, NativeArrayOptions.ClearMemory);
+            ref var netStatsSnapshotSingleton = ref SystemAPI.GetSingletonRW<GhostStatsSnapshotSingleton>().ValueRW;
 #endif
 
             var commandBuffer = SystemAPI.GetSingleton<BeginSimulationEntityCommandBufferSystem.Singleton>().CreateCommandBuffer(state.WorldUnmanaged);
@@ -1403,7 +1415,7 @@ namespace Unity.NetCode
             if (SystemAPI.HasSingleton<EnablePacketLogging>())
             {
                 NetDebugInterop.InitDebugPacketIfNotCreated(ref m_NetDebugPacket, m_LogFolder, state.WorldUnmanaged.Name, 0);
-                NetDebugInterop.GetTimestampWithTick(SystemAPI.GetSingleton<NetworkTime>().ServerTick, out timestampAndTick);
+                NetDebugInterop.GetTimestampWithTick(serverTick, out timestampAndTick);
                 timestampAndTick = $"█ {timestampAndTick}[GRS-RSJ] ";
             }
 #endif
@@ -1442,7 +1454,7 @@ namespace Unity.NetCode
                 PendingGhostPrefabAssignment = pendingAssignment,
                 CompressionModel = m_CompressionModel,
 #if UNITY_EDITOR || NETCODE_DEBUG
-                NetStats = netStats.Data.AsArray(),
+                SnapshotStatsWriters = netStatsSnapshotSingleton.allGhostStatsParallelWrites.AsArray(),
 #endif
                 InterpolatedDespawnQueue = ghostDespawnQueues.InterpolatedDespawnQueue,
                 PredictedDespawnQueue = ghostDespawnQueues.PredictedDespawnQueue,

@@ -1,5 +1,7 @@
 using System.Runtime.CompilerServices;
 [assembly: InternalsVisibleTo("Unity.NetCode.Editor")]
+[assembly: InternalsVisibleTo("Unity.NetCode.Editor.Drawers")]
+[assembly: InternalsVisibleTo("Unity.NetCode.Profiler.Editor")]
 [assembly: InternalsVisibleTo("Unity.NetCode.EditorTests")]
 [assembly: InternalsVisibleTo("Unity.NetCode.Physics.EditorTests")]
 [assembly: InternalsVisibleTo("Unity.NetCode.TestsUtils")]

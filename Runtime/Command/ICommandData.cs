@@ -220,8 +220,9 @@ namespace Unity.NetCode
         /// Add an instance of a <see cref="ICommandData"/> into the command circular buffer.
         /// The command buffer capacity if fixed and the <see cref="ICommandData.Tick"/> is
         /// used to find in which slot the command should be put to keep the command buffer sorted.
-        /// If a command with the same tick already exists in the buffer, it will be overritten
+        /// If a command with the same tick already exists in the buffer, it will be overwritten.
         /// </summary>
+        /// <remarks>Ensure you set the <see cref="ICommandData.Tick"/> value to <see cref="NetworkTime.InputTargetTick"/>.</remarks>
         /// <typeparam name="T">the command type</typeparam>
         /// <param name="commandBuffer">The buffer being written to.</param>
         /// <param name="commandData">The individual input struct to add.</param>

@@ -76,7 +76,7 @@ namespace Unity.NetCode.Tests
             var inputBuffer = EntityManager.GetBuffer<TestInput>(commandTarget.targetEntity);
             inputBuffer.AddCommandData(new TestInput
             {
-                Tick = SystemAPI.GetSingleton<NetworkTime>().ServerTick,
+                Tick = SystemAPI.GetSingleton<NetworkTime>().InputTargetTick,
                 Value = 1
             });
         }

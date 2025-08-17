@@ -2,6 +2,31 @@
 uid: changelog
 ---
 
+## [1.8.0] - 2025-08-17
+
+### Added
+
+* The Playmode Tool's Importance Visualizer drawer that helps visualize Importance Scaling outcomes.
+* The `GhostDistancePartitioningSystem.AutomaticallyAddGhostDistancePartitionSharedComponent`, which allows you to opt-out of the default behaviour (of always adding a `GhostDistancePartitionShared` to all valid ghost instances), enabling you to filter your importance scaling on the existence of this shared component (without having to rip out the entire implementation).
+* Test coverage of `GhostImportance.BatchScaleImportanceFunction` and `GhostImportance.ScaleImportanceFunction` has been improved (via NetcodeSamples tests), particularly in cases where the `GhostDistancePartitionShared` (or user-code equivalent) is only added to a subset of all ghosts (i.e. used as a filter).
+* Support for Forced Input Latency via `ClientTickRate.ForcedInputLatencyTicks`, with new fields `NetworkTime.InputTargetTick` and `NetworkTime.EffectiveInputLatencyTicks`, and new input system `ApplyCurrentInputBufferElementToInputDataForGatherSystem<TInputComponentData, TInputHelper>` (which was needed to correctly handle `IInputComponentData` incremental values).
+* `NetworkTime.NumPredictedTicksExpected` denotes the (un-batched) number of predicted ticks that the client is expected to run within this prediction loop update.
+* [Experimental] Server and Client Profiler Modules for the Unity Profiler Window as an alternative to the web profiler. Adds new stats and includes per-component stats. Requires Unity 6 or newer. Set the script define NETCODE_PROFILER_ENABLED to enable this feature.
+
+### Changed
+
+* **Behaviour Breaking Change:** `GhostDistanceImportance` scale functions no longer multiply the `baseImportance` by 1000, as that is now performed automatically by the `GhostSendSystem` (see new `GhostSystemConstants.ImportanceScalingMultiplier` constant), removing the final importance 1000x discrepancy between ghost chunks that use importance scaling, and ones that don't.
+* Input systems that write the `NetworkTime.ServerTick` into `AddCommandData` calls should instead use `InputTargetTick` for correctness. This value only differs from `ServerTick` when input latency is encountered (see `ForcedInputLatencyTicks` and `MaxPredictAheadTimeMS`).
+* `NetworkTime.ToFixedString` output has been extended to reflect the new Forced Input Latency data.
+* Updated com.unity.transport dependency to 2.5.3 from 2.4.0
+
+### Fixed
+
+* Instead of constantly mispredicting, `MaxPredictAheadTimeMS` will now correctly add forced input latency to the client when said clients RTT is higher than this value.
+* A potential crash with buffers and prediction switching stripping when your prefab contained a non-zero sized IBufferElementData that was marked for prediction/interpolation only. When restoring any buffer to their prefab value, the wrong length was used, potentially leading to a memcpy overwriting memory.
+
+
+
 ## [1.7.0] - 2025-07-29
 
 ### Added
@@ -12,9 +37,9 @@ uid: changelog
 
 * Removed `ENABLE_HOST_MIGRATION` define which hid the host migration feature, it's now enabled by default. This also enables by default the `NetworkStreamIsReconnected` component which works without host migration.
 * Refactor host migration API
-  * Removed `MigrateDataToNewServerWorld`/`ConfigureClientAndConnect` helper functions. They'll be in the docs and sample instead.
-  * Renamed `HostMigrationUtility`->`HostMigrationData` and in that class renamed `Get/SetHostMigrationData` to `Get/Set` (class only contains data methods) with parameters reflecting directionality of data buffer and world. Removed `TryGetHostMigrationData`, use `Get` instead (native list version).
-  * Removed `DataStorageMethod` as it no only has one enum value.
+    * Removed `MigrateDataToNewServerWorld`/`ConfigureClientAndConnect` helper functions. They'll be in the docs and sample instead.
+    * Renamed `HostMigrationUtility`->`HostMigrationData` and in that class renamed `Get/SetHostMigrationData` to `Get/Set` (class only contains data methods) with parameters reflecting directionality of data buffer and world. Removed `TryGetHostMigrationData`, use `Get` instead (native list version).
+    * Removed `DataStorageMethod` as it no only has one enum value.
 * The ghost component serialization method in the host migration feature changed to a much better performing one.
 
 ### Fixed
@@ -22,8 +47,6 @@ uid: changelog
 * Issue where `PreparePredictedData` was not being called on `GhostPlayableBehaviour`, breaking `GhostAnimationController` functionality.
 * Issue where `NetCodeConfig.EnableClientServerBootstrap` was not visible within the `NetCodeConfig`.
 * Issue when running a webgl player where you could not connect or receive connections from non-webgl platform players.
-
-
 
 ## [1.6.2] - 2025-07-07
 

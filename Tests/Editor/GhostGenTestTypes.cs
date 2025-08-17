@@ -147,7 +147,7 @@ namespace Unity.NetCode.Tests
                 var clientGhostEntity = testWorld.TryGetSingletonEntity<GhostGenTestUtils.GhostGenTestType_IComponentData>(testWorld.ClientWorlds[0]); // Ghost entity
                 Assert.AreNotEqual(Entity.Null, clientGhostEntity);
                 var clientBuffer = testWorld.ClientWorlds[0].EntityManager.GetBuffer<T>(clientConnection);
-                var clientTick = testWorld.GetNetworkTime(testWorld.ClientWorlds[0]).ServerTick;
+                var clientTick = testWorld.GetNetworkTime(testWorld.ClientWorlds[0]).InputTargetTick;
                 var newValues = creator(clientTick, 42, clientGhostEntity);
                 clientBuffer.AddCommandData(newValues);
 
@@ -354,7 +354,7 @@ namespace Unity.NetCode.Tests
                 // Add MASSIVE command:
                 var newInvalidClampValues = GhostGenTestUtils.CreateTooLargeGhostValuesStrings();
                 var clientBuffer = testWorld.ClientWorlds[0].EntityManager.GetBuffer<GhostGenTestUtils.GhostGenTestType_ICommandData_Strings>(clientConnection);
-                var clientTick = testWorld.GetNetworkTime(testWorld.ClientWorlds[0]).ServerTick;
+                var clientTick = testWorld.GetNetworkTime(testWorld.ClientWorlds[0]).InputTargetTick;
                 clientBuffer.AddCommandData(new GhostGenTestUtils.GhostGenTestType_ICommandData_Strings()
                     { Tick = clientTick, GhostGenTypesClamp_Strings = newInvalidClampValues });
 
@@ -471,6 +471,111 @@ namespace Unity.NetCode.Tests
             [GhostField] public int field098;
             [GhostField] public int field099;
             [GhostField] public int field100;
+
+            public void Increment()
+            {
+                field000 += 1;
+                field001 += 1;
+                field002 += 1;
+                field003 += 1;
+                field004 += 1;
+                field005 += 1;
+                field006 += 1;
+                field007 += 1;
+                field008 += 1;
+                field009 += 1;
+                field010 += 1;
+                field011 += 1;
+                field012 += 1;
+                field013 += 1;
+                field014 += 1;
+                field015 += 1;
+                field016 += 1;
+                field017 += 1;
+                field018 += 1;
+                field019 += 1;
+                field020 += 1;
+                field021 += 1;
+                field022 += 1;
+                field023 += 1;
+                field024 += 1;
+                field025 += 1;
+                field026 += 1;
+                field027 += 1;
+                field028 += 1;
+                field029 += 1;
+                field030 += 1;
+                field031 += 1;
+                field032 += 1;
+                field033 += 1;
+                field034 += 1;
+                field035 += 1;
+                field036 += 1;
+                field037 += 1;
+                field038 += 1;
+                field039 += 1;
+                field040 += 1;
+                field041 += 1;
+                field042 += 1;
+                field043 += 1;
+                field044 += 1;
+                field045 += 1;
+                field046 += 1;
+                field047 += 1;
+                field048 += 1;
+                field049 += 1;
+                field050 += 1;
+                field051 += 1;
+                field052 += 1;
+                field053 += 1;
+                field054 += 1;
+                field055 += 1;
+                field056 += 1;
+                field057 += 1;
+                field058 += 1;
+                field059 += 1;
+                field060 += 1;
+                field061 += 1;
+                field062 += 1;
+                field063 += 1;
+                field064 += 1;
+                field065 += 1;
+                field066 += 1;
+                field067 += 1;
+                field068 += 1;
+                field069 += 1;
+                field070 += 1;
+                field071 += 1;
+                field072 += 1;
+                field073 += 1;
+                field074 += 1;
+                field075 += 1;
+                field076 += 1;
+                field077 += 1;
+                field078 += 1;
+                field079 += 1;
+                field080 += 1;
+                field081 += 1;
+                field082 += 1;
+                field083 += 1;
+                field084 += 1;
+                field085 += 1;
+                field086 += 1;
+                field087 += 1;
+                field088 += 1;
+                field089 += 1;
+                field090 += 1;
+                field091 += 1;
+                field092 += 1;
+                field093 += 1;
+                field094 += 1;
+                field095 += 1;
+                field096 += 1;
+                field097 += 1;
+                field098 += 1;
+                field099 += 1;
+                field100 += 1;
+            }
         }
 
         internal class GhostGenBigStructConverter : TestNetCodeAuthoring.IConverter

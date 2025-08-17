@@ -8,6 +8,7 @@ using Unity.Jobs;
 using Unity.Collections.LowLevel.Unsafe;
 using Unity.Burst;
 using Unity.Burst.CompilerServices;
+using Unity.Mathematics;
 
 namespace Unity.NetCode
 {
@@ -133,7 +134,7 @@ namespace Unity.NetCode
         /// </summary>
         internal const int k_TickDeltaBits = 2;
 
-        private NetworkTick m_LastServerTick;
+        private NetworkTick m_LastInputTargetTick;
 
         protected override void OnCreate()
         {
@@ -142,12 +143,11 @@ namespace Unity.NetCode
         protected override void OnUpdate()
         {
             var clientNetTime = SystemAPI.GetSingleton<NetworkTime>();
-            var targetTick = clientNetTime.ServerTick;
+            var inputTargetTick = clientNetTime.InputTargetTick;
             // Make sure we only send a single ack per tick - only triggers when using dynamic timestep
-            if (targetTick.IsValid && targetTick != m_LastServerTick)
+            if (inputTargetTick.IsValid && inputTargetTick != m_LastInputTargetTick)
                 base.OnUpdate();
-            m_LastServerTick = targetTick;
-
+            m_LastInputTargetTick = inputTargetTick;
         }
     }
 
@@ -256,7 +256,7 @@ namespace Unity.NetCode
         public void OnUpdate(ref SystemState state)
         {
             var clientNetTime = SystemAPI.GetSingleton<NetworkTime>();
-            var targetTick = clientNetTime.ServerTick;
+            var inputTargetTick = clientNetTime.InputTargetTick;
             // The time left util interpolation is at the given tick, the delta should be increased by this
             var subTickDeltaAdjust = 1 - clientNetTime.InterpolationTickFraction;
             // The time left util we are actually at the server tick, the delta should be reduced by this
@@ -266,6 +266,7 @@ namespace Unity.NetCode
                 ++interpolationDelay;
             else if (subTickDeltaAdjust < 0)
                 --interpolationDelay;
+            interpolationDelay = math.max(interpolationDelay, 0);
 
             ref var networkStreamDriver = ref SystemAPI.GetSingletonRW<NetworkStreamDriver>().ValueRW;
             var sendJob = new CommandSendPacket
@@ -277,7 +278,7 @@ namespace Unity.NetCode
 #endif
                 localTime = NetworkTimeSystem.TimestampMS,
                 numLoadedPrefabs = SystemAPI.GetSingleton<GhostCollection>().NumLoadedPrefabs,
-                inputTargetTick = targetTick,
+                inputTargetTick = inputTargetTick,
                 inputTargetTickFraction = clientNetTime.ServerTickFraction,
                 interpolationDelay = (uint)interpolationDelay
             };
@@ -468,7 +469,7 @@ namespace Unity.NetCode
                     {
                         tickBits = writer.LengthInBits - tickBits;
                         payloadTickBits += tickBits;
-                        debug.Append((FixedString512Bytes) $"\t[{inputIndex}]=[{inputData.Tick.ToFixedString()}|{inputData.ToFixedString()}] (cb: {changeBit}) (tΔ: {CommandDataUtility.FormatBitsBytes(tickBits)})");
+                        debug.Append((FixedString512Bytes) $"\t[{inputIndex}]=[{inputData.Tick.ToFixedString()}|{inputData.ToFixedString()}] (cb: {changeBit}) (t?: {CommandDataUtility.FormatBitsBytes(tickBits)})");
                     }
 #endif
 
@@ -695,7 +696,7 @@ namespace Unity.NetCode
             m_AutoCommandTargetFromEntity.Update(ref state);
 
             var clientNetTime = m_networkTimeQuery.GetSingleton<NetworkTime>();
-            var targetTick = clientNetTime.ServerTick;
+            var inputTargetTick = clientNetTime.InputTargetTick;
             var targetEntities = m_autoTargetQuery.ToEntityListAsync(state.WorldUpdateAllocator, out var autoHandle);
 
             // NumAdditionalCommandsToSend is really important! Why?
@@ -720,13 +721,13 @@ namespace Unity.NetCode
                 ghostOwnerFromEntity = m_GhostOwnerLookup,
                 autoCommandTargetFromEntity = m_AutoCommandTargetFromEntity,
                 compressionModel = m_CompressionModel,
-                inputTargetTick = targetTick,
+                inputTargetTick = inputTargetTick,
                 prevInputTargetTick = m_PrevInputTargetTick,
                 autoCommandTargetEntities = targetEntities,
                 stableHash = TypeManager.GetTypeInfo<TCommandData>().StableTypeHash,
                 numCommandsToSend = numCommandsToSend,
             };
-            m_PrevInputTargetTick = targetTick;
+            m_PrevInputTargetTick = inputTargetTick;
             state.Dependency = JobHandle.CombineDependencies(state.Dependency, autoHandle);
             return sendJob;
         }

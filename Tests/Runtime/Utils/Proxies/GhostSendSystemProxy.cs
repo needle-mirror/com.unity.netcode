@@ -107,7 +107,7 @@ namespace Unity.NetCode.Tests
             m_IsSetup = true;
         }
 
-        protected override void OnUpdate()
+        protected override unsafe void OnUpdate()
         {
             var numLoadedPrefabs = SystemAPI.GetSingleton<GhostCollection>().NumLoadedPrefabs;
 
@@ -138,15 +138,12 @@ namespace Unity.NetCode.Tests
                             EntityManager.CompleteAllTrackedJobs();
 
 #if UNITY_EDITOR || NETCODE_DEBUG
-                            var netStats = SystemAPI.GetSingletonRW<GhostStatsCollectionSnapshot>().ValueRW;
-                            for (int worker = 1; worker < netStats.Workers; ++worker)
+                            ref var snapshotStatsSingleton = ref SystemAPI.GetSingletonRW<GhostStatsSnapshotSingleton>().ValueRW;
+                            for (int worker = 1; worker < snapshotStatsSingleton.allGhostStatsParallelWrites.Length; ++worker)
                             {
-                                int statOffset = worker * netStats.Stride;
-                                for (int i = 1; i < netStats.Size; ++i)
-                                {
-                                    netStats.Data[i] += netStats.Data[statOffset + i];
-                                    netStats.Data[statOffset + i] = 0;
-                                }
+                                var currentWorkerStat = snapshotStatsSingleton.allGhostStatsParallelWrites.ElementAt(worker);
+                                snapshotStatsSingleton.MainStatsWrite.IncrementWith(currentWorkerStat);
+                                currentWorkerStat.ResetToDefault();
                             }
 
                             uint totalCount = 0;
@@ -154,8 +151,9 @@ namespace Unity.NetCode.Tests
 
                             for (int i = 0; i < numLoadedPrefabs; ++i)
                             {
-                                var count = netStats.Data[i * 3 + 4];
-                                var length = netStats.Data[i * 3 + 5];
+                                var perGhostTypeStat = snapshotStatsSingleton.MainStatsWrite.PerGhostTypeStatsListRefRW.ElementAt(i);
+                                var count = perGhostTypeStat.EntityCount;
+                                var length = perGhostTypeStat.SizeInBits;
                                 uint soloLength = 0;
                                 if (count > 0)
                                     soloLength = length / count;

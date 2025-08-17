@@ -388,8 +388,7 @@ class SingleBaselineTests
         for(int i=0;i<30;++i)
             entities[i] = testWorld.ServerWorld.EntityManager.Instantiate(serverPrefab);
 
-        var metrics = testWorld.ClientWorlds[0].EntityManager.CreateEntity(typeof(GhostMetricsMonitor),
-            typeof(SnapshotMetrics), typeof(GhostMetrics));
+        Entity metrics = testWorld.TryCreateGhostMetricsSingleton(testWorld.ClientWorlds[0]);
         for (int i = 0; i < 4; ++i)
             testWorld.Tick();
         SnapshotMetrics firstSnapshot = testWorld.ClientWorlds[0].EntityManager.GetComponentData<SnapshotMetrics>(metrics);

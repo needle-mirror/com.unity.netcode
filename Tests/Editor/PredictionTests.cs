@@ -1,6 +1,7 @@
 #pragma warning disable CS0618 // Disable Entities.ForEach obsolete warnings
 using NUnit.Framework;
 using Unity.Collections;
+using Unity.Core;
 using Unity.Entities;
 using UnityEngine;
 using Unity.Mathematics;
@@ -283,7 +284,7 @@ namespace Unity.NetCode.Tests
         }
     }
 
-    internal class PredictionTests
+    internal partial class PredictionTests
     {
         [Category(NetcodeTestCategories.Foundational)]
         [Category(NetcodeTestCategories.Smoke)]
@@ -381,6 +382,65 @@ namespace Unity.NetCode.Tests
                 prevClient = testWorld.ClientWorlds[0].EntityManager.GetComponentData<LocalTransform>(clientEnt).Position;
                 Assert.IsTrue(math.distance(prevServer, prevClient) < 0.01);
             }
+        }
+
+        [Test]
+        [Description("Expect that MaxPredictAheadTimeMS a) caps the number of prediction ticks performed & b) adds some forced input latency.")]
+        public void MaxPredictAheadTimeMS_Works()
+        {
+            using var testWorld = new NetCodeTestWorld();
+            testWorld.Bootstrap(true);
+
+            var ghostGameObject = new GameObject();
+            ghostGameObject.AddComponent<TestNetCodeAuthoring>().Converter = new PredictionTestConverter();
+            var ghostConfig = ghostGameObject.AddComponent<GhostAuthoringComponent>();
+            ghostConfig.DefaultGhostMode = GhostMode.Predicted;
+
+            const int one60HzTickMs = 17;
+            testWorld.DriverSimulatedDelay = 150 - one60HzTickMs; // EACH WAY! Thus, adjusted to be a EstimatedRTT of ~300ms.
+            Assert.IsTrue(testWorld.CreateGhostCollection(ghostGameObject));
+            testWorld.CreateWorlds(true, 3);
+            var serverEnt = testWorld.SpawnOnServer(ghostGameObject);
+            Assert.AreNotEqual(Entity.Null, serverEnt);
+
+            var clientTickRate = NetworkTimeSystem.DefaultClientTickRate;
+            clientTickRate.MaxPredictAheadTimeMS = 200;
+            clientTickRate.ForcedInputLatencyTicks = 0;
+            testWorld.ClientWorlds[0].EntityManager.CreateSingleton(clientTickRate);
+
+            clientTickRate.MaxPredictAheadTimeMS = 200;
+            clientTickRate.ForcedInputLatencyTicks = 6; // 100ms.
+            testWorld.ClientWorlds[1].EntityManager.CreateSingleton(clientTickRate);
+
+            clientTickRate.MaxPredictAheadTimeMS = 500;
+            clientTickRate.ForcedInputLatencyTicks = 3; // 50ms.
+            testWorld.ClientWorlds[2].EntityManager.CreateSingleton(clientTickRate);
+
+            testWorld.Connect(maxSteps:64);
+            testWorld.GoInGame();
+
+            for (int i = 0; i < 512; ++i)
+                testWorld.Tick();
+
+            var client0NetTime = testWorld.GetSingleton<NetworkTime>(testWorld.ClientWorlds[0]);
+            var client0SnapshotAck = testWorld.GetSingleton<NetworkSnapshotAck>(testWorld.ClientWorlds[0]);
+            var client1NetTime = testWorld.GetSingleton<NetworkTime>(testWorld.ClientWorlds[1]);
+            var client1SnapshotAck = testWorld.GetSingleton<NetworkSnapshotAck>(testWorld.ClientWorlds[1]);
+            var client2NetTime = testWorld.GetSingleton<NetworkTime>(testWorld.ClientWorlds[2]);
+            var client2SnapshotAck = testWorld.GetSingleton<NetworkSnapshotAck>(testWorld.ClientWorlds[2]);
+            Debug.Log($"Client0: {client0NetTime} {(int)client0SnapshotAck.EstimatedRTT}ms \nClient1:{client1NetTime} {(int)client1SnapshotAck.EstimatedRTT}ms\nClient2:{client2NetTime} {(int)client2SnapshotAck.EstimatedRTT}ms");
+            Assert.That(client0SnapshotAck.EstimatedRTT, Is.EqualTo(300).Within(20));
+            Assert.That(client1SnapshotAck.EstimatedRTT, Is.EqualTo(300).Within(20));
+            Assert.That(client2SnapshotAck.EstimatedRTT, Is.EqualTo(300).Within(20));
+            Assert.That(client0NetTime.EffectiveInputLatencyTicks, Is.EqualTo(9).Within(2)); // ( ~18 ticks (~300ms) + 2 ticks for TargetCommandSlack - clamped at 12 ticks (200ms) = ~8 ticks.
+            Assert.That(client1NetTime.EffectiveInputLatencyTicks, Is.EqualTo(9).Within(2)); // Same as above, as ForcedInputLatency is essentially ignored here, as its lower than 8 ticks, which is being forced by MaxPredictAheadMS.
+            Assert.That(client2NetTime.EffectiveInputLatencyTicks, Is.EqualTo(3).Within(2)); // Expect it to be the same as its config value.
+            Assert.That(client0NetTime.InputTargetTick.TicksSince(client0NetTime.ServerTick), Is.EqualTo(client0NetTime.EffectiveInputLatencyTicks));
+            Assert.That(client1NetTime.InputTargetTick.TicksSince(client1NetTime.ServerTick), Is.EqualTo(client1NetTime.EffectiveInputLatencyTicks));
+            Assert.That(client2NetTime.InputTargetTick.TicksSince(client2NetTime.ServerTick), Is.EqualTo(client2NetTime.EffectiveInputLatencyTicks));
+            Assert.That(client0NetTime.PredictedTickIndex, Is.GreaterThan(12)); // ~200ms + 1 for partial tick.
+            Assert.That(client1NetTime.PredictedTickIndex, Is.GreaterThan(12)); // ~200ms + 1 for partial tick.
+            Assert.That(client2NetTime.PredictedTickIndex, Is.GreaterThan((6*3)-3)); // ~300ms - 3 ticks for ForcedInputLatency.
         }
 
         [TestCase(1)]
@@ -766,6 +826,7 @@ namespace Unity.NetCode.Tests
                     var serverTime = testWorld.GetNetworkTime(testWorld.ServerWorld);
                     var clientTime = testWorld.GetNetworkTime(testWorld.ClientWorlds[0]);
                     var serverAck = testWorld.GetSingleton<NetworkSnapshotAck>(testWorld.ServerWorld);
+                    Debug.Log($"[{i}] ST:{serverTime.ServerTick}, LastReceivedSnapshotByRemote:{serverAck.LastReceivedSnapshotByRemote}, LastReceivedSnapshotByLocal:{serverAck.LastReceivedSnapshotByLocal}, MostRecentFullCommandTick:{serverAck.MostRecentFullCommandTick}!");
                     if (serverAck.LastReceivedSnapshotByRemote.IsValid)
                         Assert.IsTrue(!serverTime.ServerTick.IsNewerThan(serverAck.LastReceivedSnapshotByLocal));
                     if (serverAck.MostRecentFullCommandTick.IsValid)
@@ -817,6 +878,203 @@ namespace Unity.NetCode.Tests
                 }
                 var count = testWorld.GetSingleton<CheckSkipFrameSystem.Count>(testWorld.ClientWorlds[0]);
                 Assert.AreEqual(0, count.SkippedFrames, "Expect client does not skip any partial prediction or ticks.");
+            }
+        }
+
+        [Test]
+        public void NetworkTimeSingleton_CorrectValuesInsidePredictionLoop()
+        {
+            using var testWorld = new NetCodeTestWorld();
+            testWorld.Bootstrap(true, typeof(AssertNetworkTimeSingletonValuesCorrectInsidePredictionLoopSystem));
+            testWorld.DriverSimulatedDelay = 40;
+            testWorld.DriverSimulatedJitter = 20;
+            testWorld.DriverSimulatedDrop = 20; // Interval, so 5%, or every 20th packet.
+            var ghostGameObject = new GameObject();
+            var ghostConfig = ghostGameObject.AddComponent<GhostAuthoringComponent>();
+            ghostConfig.DefaultGhostMode = GhostMode.Predicted;
+            Assert.IsTrue(testWorld.CreateGhostCollection(ghostGameObject));
+            testWorld.CreateWorlds(true, 1);
+            const float FrameTime = 1.0f / 60.0f;
+            testWorld.Connect(FrameTime, 128);
+            testWorld.GoInGame();
+            // Spawn a new entity on the server. Server will start send snapshots now.
+            var serverEnt = testWorld.SpawnOnServer(ghostGameObject);
+            Assert.AreNotEqual(Entity.Null, serverEnt);
+
+            // Tick for a while, using an extremely wobbly client step.
+            AssertNetworkTimeSingletonValuesCorrectInsidePredictionLoopSystem.Reset();
+            var rand = Unity.Mathematics.Random.CreateFromIndex(10350135);
+            for (int i = 0; i < 100; i++)
+            {
+                testWorld.Tick(rand.NextFloat(FrameTime * 0.5f, FrameTime * 1.5f));
+            }
+
+            AssertNetworkTimeSingletonValuesCorrectInsidePredictionLoopSystem.Validate();
+        }
+
+        [DisableAutoCreation]
+        [UpdateInGroup(typeof(PredictedSimulationSystemGroup))]
+        internal partial struct AssertNetworkTimeSingletonValuesCorrectInsidePredictionLoopSystem : ISystem
+        {
+            public static bool HasHadPartialTickOnClient;
+            public static bool HasHadFullTickOnClient;
+            public static bool HasHadFinalPredictionTickOnClient;
+            public static bool HasHadFinalPredictionTickOnServer;
+
+            private NetworkTick m_LatestFullServerTick;
+            private NetworkTick m_LastServerTickOnServer;
+            private int m_LastFinalTickIndex;
+            private double m_LastElapsedNetworkTimeOnServer;
+
+            public static void Reset()
+            {
+                HasHadPartialTickOnClient = false;
+                HasHadFullTickOnClient = false;
+                HasHadFinalPredictionTickOnClient = false;
+                HasHadFinalPredictionTickOnServer = false;
+            }
+
+            public static void Validate()
+            {
+                Assert.IsTrue(HasHadPartialTickOnClient);
+                Assert.IsTrue(HasHadFullTickOnClient);
+                Assert.IsTrue(HasHadFinalPredictionTickOnClient);
+                Assert.IsTrue(HasHadFinalPredictionTickOnServer);
+            }
+
+            public void OnUpdate(ref SystemState state)
+            {
+                Assert.IsFalse(state.WorldUnmanaged.IsThinClient());
+                var networkTime = SystemAPI.GetSingleton<NetworkTime>();
+                SystemAPI.GetSingleton<NetDebug>().Log($"[{state.WorldUnmanaged.Name}] [TestTick:{NetCodeTestWorld.TickIndex}] ServerTick:{networkTime.ServerTick.ToFixedString()} (fraction:{(int) (100 * networkTime.ServerTickFraction)}%), SimulationStepBatchSize:{networkTime.SimulationStepBatchSize}, ElapsedNT:{networkTime.ElapsedNetworkTime}\n<color=green>{networkTime.Flags}</color>");
+                Assert.IsTrue(networkTime.IsInPredictionLoop);
+
+                if (!networkTime.ServerTick.IsValid) return;
+
+                SystemAPI.TryGetSingleton<ClientServerTickRate>(out var clientServerTickRate);
+                clientServerTickRate.ResolveDefaults();
+
+                if (state.WorldUnmanaged.IsClient())
+                    AssertForClient(networkTime, SystemAPI.Time);
+                else
+                    AssertForServer(networkTime, clientServerTickRate, SystemAPI.Time);
+                AssertForBoth(networkTime);
+            }
+
+            private void AssertForClient(NetworkTime networkTime, TimeData timeData)
+            {
+                Assert.IsFalse(networkTime.IsCatchUpTick, "IsCatchUpTick");
+                Assert.NotZero(networkTime.ElapsedNetworkTime, "ElapsedNetworkTime");
+                Assert.NotZero(timeData.DeltaTime, "DeltaTime");
+                Assert.NotZero(timeData.ElapsedTime, "ElapsedTime");
+                Assert.That(networkTime.PredictedTickIndex, Is.AtLeast(1), "PredictedTickIndex");
+                Assert.That(networkTime.NumPredictedTicksExpected, Is.AtLeast(1), "NumPredictedTicksExpected");
+
+                Assert.IsTrue(networkTime.ServerTick.IsNewerThan(networkTime.InterpolationTick), "ST.IsNewerThan(IT)");
+                if (networkTime.IsPartialTick)
+                {
+                    HasHadPartialTickOnClient = true;
+                    Assert.IsFalse(networkTime.IsFirstTimeFullyPredictingTick, "IsFirstTimeFullyPredictingTick when IsPartialTick");
+                    Assert.NotZero(networkTime.ServerTickFraction, "ServerTickFraction when IsPartialTick");
+                }
+                else
+                {
+                    HasHadFullTickOnClient = true;
+                    Assert.That(networkTime.ServerTickFraction, Is.EqualTo(1), "ServerTickFraction");
+
+                    if (networkTime.IsFirstTimeFullyPredictingTick)
+                    {
+                        if (m_LatestFullServerTick.IsValid) Assert.That(networkTime.ServerTick.TicksSince(m_LatestFullServerTick), Is.GreaterThanOrEqualTo(0), "networkTime.ServerTick.TicksSince(m_LatestFullServerTick)");
+                        m_LatestFullServerTick = networkTime.ServerTick;
+                    }
+                }
+
+                if (networkTime.IsFinalPredictionTick) HasHadFinalPredictionTickOnClient = true;
+                if (networkTime.IsFinalFullPredictionTick) Assert.IsFalse(networkTime.IsPartialTick, "IsPartialTick");
+
+                Assert.NotZero(networkTime.ServerTickFraction, "ServerTickFraction");
+            }
+
+            private void AssertForServer(NetworkTime networkTime, ClientServerTickRate clientServerTickRate, TimeData timeData)
+            {
+                Assert.IsFalse(networkTime.IsPartialTick, "IsPartialTick");
+                Assert.IsTrue(networkTime.IsFirstTimeFullyPredictingTick, "IsFirstTimeFullyPredictingTick");
+                Assert.AreEqual(networkTime.IsFinalFullPredictionTick, networkTime.IsFinalPredictionTick, "IsFinalPredictionTick");
+                Assert.That(networkTime.SimulationStepBatchSize, Is.AtLeast(1), "SimulationStepBatchSize");
+                Assert.That(networkTime.ServerTickFraction, Is.EqualTo(1), "ServerTickFraction");
+                Assert.That(networkTime.PredictedTickIndex, Is.EqualTo(0), "PredictedTickIndex");
+                Assert.That(networkTime.NumPredictedTicksExpected, Is.EqualTo(0), "PredictedTickIndex");
+
+                Assert.IsFalse(networkTime.IsCatchUpTick, "Server is not being death-spiral stressed in this test.");
+                if (networkTime.IsFinalPredictionTick) HasHadFinalPredictionTickOnServer = true;
+
+                if (m_LastServerTickOnServer.IsValid)
+                    Assert.That(networkTime.ServerTick.TicksSince(m_LastServerTickOnServer), Is.EqualTo(networkTime.SimulationStepBatchSize), "ServerTick.TicksSince(m_LastServerTickOnServer)");
+                m_LastServerTickOnServer = networkTime.ServerTick;
+
+                if (m_LastElapsedNetworkTimeOnServer != default)
+                {
+                    var deltaTime = networkTime.ElapsedNetworkTime - m_LastElapsedNetworkTimeOnServer;
+                    Assert.That(deltaTime, Is.EqualTo(clientServerTickRate.SimulationFixedTimeStep * networkTime.SimulationStepBatchSize), "dt == SimulationStepBatchSize");
+                    Assert.That(deltaTime, Is.EqualTo(timeData.DeltaTime), "dt == timeData.DeltaTime");
+                    Assert.That(networkTime.ElapsedNetworkTime, Is.EqualTo(timeData.ElapsedTime), "ElapsedNetworkTime == timeData.ElapsedTime");
+                }
+
+                m_LastElapsedNetworkTimeOnServer = networkTime.ElapsedNetworkTime;
+            }
+
+            private void AssertForBoth(NetworkTime networkTime)
+            {
+                Assert.IsTrue(networkTime.InputTargetTick.IsValid, "InputTargetTick.IsValid");
+                Assert.IsTrue(networkTime.ServerTick.IsValid, "ServerTick.IsValid");
+
+                // NetCodeTestWorld.TickIndex is a test-compatible proxy for the outer loop tick.
+                // I.e. Time.frameCount.
+                // So we can use this to validate that we're not ticking
+                // the outer loop when networkTime.IsFinalPredictionTick is false.
+                if (networkTime.IsFinalPredictionTick)
+                {
+                    m_LastFinalTickIndex = NetCodeTestWorld.TickIndex;
+                }
+                else if (m_LastFinalTickIndex != default)
+                {
+                    Assert.That(NetCodeTestWorld.TickIndex - m_LastFinalTickIndex, Is.EqualTo(1), "TickIndex - m_LastFinalTickIndex");
+                }
+
+                Assert.Zero(networkTime.EffectiveInputLatencyTicks, "EffectiveInputLatencyTicks");
+            }
+        }
+
+        [DisableAutoCreation]
+        internal partial struct AssertNetworkTimeSingletonValuesCorrectOutsidePredictionLoopSystem : ISystem
+        {
+            public void OnUpdate(ref SystemState state)
+            {
+                Assert.IsFalse(state.WorldUnmanaged.IsThinClient());
+                var networkTime = SystemAPI.GetSingleton<NetworkTime>();
+                Assert.IsFalse(networkTime.IsInPredictionLoop, "A system created without an UpdateInGroup should NOT automatically be added to the prediction loop.");
+
+                if (!networkTime.ServerTick.IsValid) return;
+
+                Assert.IsTrue(networkTime.InputTargetTick.IsValid);
+                Assert.IsTrue(networkTime.ServerTick.IsValid);
+
+                SystemAPI.TryGetSingleton<ClientServerTickRate>(out var clientServerTickRate);
+                clientServerTickRate.ResolveDefaults();
+
+                Assert.NotZero(SystemAPI.Time.DeltaTime);
+                Assert.NotZero(SystemAPI.Time.ElapsedTime);
+
+                Assert.IsFalse(networkTime.IsCatchUpTick);
+                Assert.IsFalse(networkTime.IsFinalPredictionTick);
+                Assert.IsFalse(networkTime.IsFirstTimeFullyPredictingTick);
+                Assert.IsFalse(networkTime.IsFirstPredictionTick);
+                Assert.IsFalse(networkTime.IsFinalFullPredictionTick);
+                Assert.NotZero(networkTime.ElapsedNetworkTime);
+                Assert.That(networkTime.SimulationStepBatchSize, Is.GreaterThanOrEqualTo(1));
+                Assert.That(networkTime.PredictedTickIndex, Is.InRange(0, 10));
+                Assert.That(networkTime.NumPredictedTicksExpected, Is.EqualTo(networkTime.PredictedTickIndex));
+                Assert.Zero(networkTime.EffectiveInputLatencyTicks);
             }
         }
     }

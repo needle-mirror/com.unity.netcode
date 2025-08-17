@@ -432,12 +432,13 @@ namespace Unity.NetCode
                 var dstInfo = entityManager.GetStorageInfo(linkedEntityGroup[toAdd[add].EntityIndex].Value);
                 if (compType.IsBuffer)
                 {
-                    var srcBuffer = srcInfo.Chunk.GetUntypedBufferAccessor(ref typeHandle);
-                    var dstBuffer = dstInfo.Chunk.GetUntypedBufferAccessor(ref typeHandle);
-                    dstBuffer.ResizeUninitialized(dstInfo.IndexInChunk, srcBuffer.Length);
-                    var dstDataPtr = dstBuffer.GetUnsafeReadOnlyPtr(dstInfo.IndexInChunk);
-                    var srcDataPtr = srcBuffer.GetUnsafeReadOnlyPtrAndLength(srcInfo.IndexInChunk, out var bufLen);
-                    UnsafeUtility.MemCpy(dstDataPtr, srcDataPtr, typeInfo.ElementSize * bufLen);
+                    var srcBufferChunkAccessor = srcInfo.Chunk.GetUntypedBufferAccessor(ref typeHandle);
+                    var dstBufferChunkAccessor = dstInfo.Chunk.GetUntypedBufferAccessor(ref typeHandle);
+                    // srcBuffer.Length is the number of entities in that chunk. We need to get srcPrefabBufferLength instead
+                    var srcDataPtr = srcBufferChunkAccessor.GetUnsafeReadOnlyPtrAndLength(srcInfo.IndexInChunk, out var srcPrefabBufferLength);
+                    dstBufferChunkAccessor.ResizeUninitialized(dstInfo.IndexInChunk, srcPrefabBufferLength); // resize entity's buffer to fit all prefab's original buffer elements
+                    var dstDataPtr = dstBufferChunkAccessor.GetUnsafeReadOnlyPtr(dstInfo.IndexInChunk);
+                    UnsafeUtility.MemCpy(dstDataPtr, srcDataPtr, typeInfo.ElementSize * srcPrefabBufferLength);
                 }
                 else
                 {

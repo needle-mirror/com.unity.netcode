@@ -16,7 +16,7 @@ namespace Unity.NetCode.Tests
         }
 
         [Test]
-        public void PrespawnSystemResetWhenExitGame()
+        public unsafe void PrespawnSystemResetWhenExitGame()
         {
             const int numClients = 2;
             const int numObjects = 10;
@@ -43,13 +43,14 @@ namespace Unity.NetCode.Tests
                     testWorld.Tick();
                     for (int client = 0; client < testWorld.ClientWorlds.Length; ++client)
                     {
-                        var netStats = testWorld.ClientWorlds[client].EntityManager.GetComponentData<GhostStatsCollectionSnapshot>(testWorld.TryGetSingletonEntity<GhostStatsCollectionSnapshot>(testWorld.ClientWorlds[client])).Data;
+                        var singletonEntity = testWorld.TryGetSingletonEntity<GhostStatsSnapshotSingleton>(testWorld.ClientWorlds[client]);
+                        var netStats = testWorld.ClientWorlds[client].EntityManager.GetComponentData<GhostStatsSnapshotSingleton>(singletonEntity).MainStatsWrite;
                         //Gather some stats for later, it will be used to make some comparison
-                        if (netStats.Length == 10)
+                        if (netStats.PerGhostTypeStatsListRefRW.Length == 2)
                         {
-                            firstTimeJoinStats[3 * client] += netStats[7]; //entities in the packet
-                            firstTimeJoinStats[3 * client + 1] += netStats[8]; //byte received
-                            firstTimeJoinStats[3 * client + 2] += netStats[9]; //uncompressed entities
+                            firstTimeJoinStats[3 * client] += netStats.PerGhostTypeStatsListRefRW.ElementAt(1).EntityCount; //entities in the packet
+                            firstTimeJoinStats[3 * client + 1] += netStats.PerGhostTypeStatsListRefRW.ElementAt(1).SizeInBits; //byte received
+                            firstTimeJoinStats[3 * client + 2] += netStats.PerGhostTypeStatsListRefRW.ElementAt(1).UncompressedCount; //uncompressed entities
                         }
                     }
                     if (firstTimeJoinStats[0] >= numObjects)
@@ -66,10 +67,11 @@ namespace Unity.NetCode.Tests
                     for (int k = 0; k < 6; ++k)
                         testWorld.Tick();
                     //Verify that all the mappings are empty
-                    var netStats = testWorld.ClientWorlds[client].EntityManager.GetComponentData<GhostStatsCollectionSnapshot>(testWorld.TryGetSingletonEntity<GhostStatsCollectionSnapshot>(testWorld.ClientWorlds[client])).Data;
+                    var singletonEntity = testWorld.TryGetSingletonEntity<GhostStatsSnapshotSingleton>(testWorld.ClientWorlds[client]);
+                    var netStats = testWorld.ClientWorlds[client].EntityManager.GetComponentData<GhostStatsSnapshotSingleton>(singletonEntity).MainStatsWrite;
                     var recvGhostMapSingleton = testWorld.TryGetSingletonEntity<SpawnedGhostEntityMap>(testWorld.ClientWorlds[client]);
                     Assert.AreEqual(0, testWorld.ClientWorlds[client].EntityManager.GetComponentData<SpawnedGhostEntityMap>(recvGhostMapSingleton).Value.Count());
-                    Assert.AreEqual(4, netStats.Length);
+                    Assert.AreEqual(0, netStats.PerGhostTypeStatsListRefRW.Length);
                     var inGame = testWorld.ServerWorld.EntityManager.CreateEntityQuery(ComponentType.ReadOnly<NetworkId>(),
                         ComponentType.Exclude<NetworkStreamInGame>()).ToEntityArray(Allocator.Temp);
                     Assert.AreEqual(1, inGame.Length);
@@ -83,12 +85,13 @@ namespace Unity.NetCode.Tests
                     {
                         ++rejoinTickCount;
                         testWorld.Tick();
-                        netStats = testWorld.ClientWorlds[client].EntityManager.GetComponentData<GhostStatsCollectionSnapshot>(testWorld.TryGetSingletonEntity<GhostStatsCollectionSnapshot>(testWorld.ClientWorlds[client])).Data;
-                        if (netStats.Length == 10)
+                        singletonEntity = testWorld.TryGetSingletonEntity<GhostStatsSnapshotSingleton>(testWorld.ClientWorlds[client]);
+                        netStats = testWorld.ClientWorlds[client].EntityManager.GetComponentData<GhostStatsSnapshotSingleton>(singletonEntity).MainStatsWrite;
+                        if (netStats.PerGhostTypeStatsListRefRW.Length == 2)
                         {
-                            rejoinStats[3 * client] += netStats[7]; //entities in the packet
-                            rejoinStats[3 * client + 1] += netStats[8]; //byte received
-                            rejoinStats[3 * client + 2] += netStats[9]; //uncompressed entities
+                            rejoinStats[3 * client] += netStats.PerGhostTypeStatsListRefRW.ElementAt(1).EntityCount; //entities in the packet
+                            rejoinStats[3 * client + 1] += netStats.PerGhostTypeStatsListRefRW.ElementAt(1).SizeInBits; //byte received
+                            rejoinStats[3 * client + 2] += netStats.PerGhostTypeStatsListRefRW.ElementAt(1).UncompressedCount; //uncompressed entities
                         }
                         if (rejoinStats[3 * client] >= numObjects)
                             break;
@@ -120,11 +123,12 @@ namespace Unity.NetCode.Tests
                 // 2- no prespawn data present
                 for (int i = 0; i < 2; ++i)
                 {
-                    var netStats = testWorld.ClientWorlds[i].EntityManager.GetComponentData<GhostStatsCollectionSnapshot>(testWorld.TryGetSingletonEntity<GhostStatsCollectionSnapshot>(testWorld.ClientWorlds[i])).Data;
+                    var singletonEntity = testWorld.TryGetSingletonEntity<GhostStatsSnapshotSingleton>(testWorld.ClientWorlds[i]);
+                    var netStats = testWorld.ClientWorlds[i].EntityManager.GetComponentData<GhostStatsSnapshotSingleton>(singletonEntity).MainStatsWrite;
                     var recvGhostMapSingleton = testWorld.TryGetSingletonEntity<SpawnedGhostEntityMap>(testWorld.ClientWorlds[i]);
                     Assert.AreEqual(0, testWorld.ClientWorlds[i].EntityManager.GetComponentData<SpawnedGhostEntityMap>(recvGhostMapSingleton).Value.Count(), "client spawn map must be empty");
                     Assert.AreEqual(Entity.Null, testWorld.TryGetSingletonEntity<SubScenePrespawnBaselineResolved>(testWorld.ClientWorlds[i]));
-                    Assert.AreEqual(4, netStats.Length, "client ghost stats must be empty");
+                    Assert.AreEqual(0, netStats.PerGhostTypeStatsListRefRW.Length, "client ghost stats must be empty");
 
                     var appliedPredictionTicks = testWorld.ClientWorlds[i].EntityManager.GetComponentData<GhostPredictionGroupTickState>(testWorld.TryGetSingletonEntity<GhostPredictionGroupTickState>(testWorld.ClientWorlds[i])).AppliedPredictedTicks;
                     Assert.AreEqual(0, appliedPredictionTicks.Count(), "client prediction tick must be 0");
@@ -153,12 +157,13 @@ namespace Unity.NetCode.Tests
                     testWorld.Tick();
                     for (int client = 0; client < testWorld.ClientWorlds.Length; ++client)
                     {
-                        var netStats = testWorld.ClientWorlds[client].EntityManager.GetComponentData<GhostStatsCollectionSnapshot>(testWorld.TryGetSingletonEntity<GhostStatsCollectionSnapshot>(testWorld.ClientWorlds[client])).Data;
-                        if (netStats.Length == 10)
+                        var singletonEntity = testWorld.TryGetSingletonEntity<GhostStatsSnapshotSingleton>(testWorld.ClientWorlds[client]);
+                        var netStats = testWorld.ClientWorlds[client].EntityManager.GetComponentData<GhostStatsSnapshotSingleton>(singletonEntity).MainStatsWrite;
+                        if (netStats.PerGhostTypeStatsListRefRW.Length == 2)
                         {
-                            rejoinStats[3 * client] += netStats[7];
-                            rejoinStats[3 * client + 1] += netStats[8];
-                            rejoinStats[3 * client + 2] += netStats[9];
+                            rejoinStats[3 * client] += netStats.PerGhostTypeStatsListRefRW.ElementAt(1).EntityCount; //entities in the packet
+                            rejoinStats[3 * client + 1] += netStats.PerGhostTypeStatsListRefRW.ElementAt(1).SizeInBits; //byte received
+                            rejoinStats[3 * client + 2] += netStats.PerGhostTypeStatsListRefRW.ElementAt(1).UncompressedCount; //uncompressed entities
                         }
                     }
                     if (rejoinStats[0] >= numObjects)

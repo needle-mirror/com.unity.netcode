@@ -1,0 +1,283 @@
+:root {
+    --color-snapshot: #7B9E05;
+    --color-commands: #C5A205;
+    --color-rpcs: #7B9E05;
+    --color-rpcs-sent: #3b4e01;
+    --legend-color-indicator-size: 14px;
+    --legend-color-indicator-size-half: 7px;
+}
+
+.unity-tab-view__content-viewport {
+    min-height: 22px;
+}
+.unity-tab-view__header-container{
+    min-height: 22px;
+}
+
+
+/* World View */
+.worldinfo-container {
+    flex-direction: row;
+    padding-bottom: 8px;
+}
+
+.worldinfo-container * {
+    width: 120px;
+}
+
+.worldinfo__name-label {
+    font-size: 14px;
+    padding-bottom: 8px;
+}
+
+.worldinfo__info-label {
+    width: 200px;
+}
+
+/* Bar Chart (Graph plus Legend) */
+.barchart {
+    padding-bottom: 16px;
+    margin-bottom: 16px;
+    border-color: var(--unity-colors-headerbar_column-background-hover);
+    border-bottom-width: 1px;
+}
+
+.barchart__bar-container {
+    flex-direction: row;
+}
+
+.barchart__header{
+    flex-direction: row;
+    padding-bottom: 8px;
+}
+
+.barchart__header * {
+    width: 120px;
+}
+
+.barchart__header__name {
+    -unity-font-style: bold;
+}
+
+.barchart__info-label {
+    width: 200px;
+}
+
+/* Bar Chart Legend */
+.legend {
+    margin-right: auto;
+    flex-grow: 1;
+}
+
+.legend__name-container{
+    flex-direction: row;
+    margin-top: 16px;
+    margin-bottom: 4px;
+}
+
+.legend__listview{
+    border-width: 1px;
+    border-color: var(--unity-colors-app_toolbar_button-border);
+}
+
+.legend Button {
+    margin-left: 8px;
+    margin-right: auto;
+}
+
+.legend__color-indicator--ghost-snapshot {
+    background-color: var(--color-snapshot);
+}
+
+.legend__color-indicator--commands {
+    background-color: var(--color-commands);
+}
+
+.legend__color-indicator--rpcs {
+    background-color: var(--color-rpcs);
+}
+
+.legend__color-indicator--rpcs--sub {
+    background-color: var(--color-rpcs-sent);
+    border-color: var(--color-rpcs-sent);
+}
+
+.legend__color-indicator {
+    margin-right: 4px;
+    min-height: var(--legend-color-indicator-size);
+    max-height: var(--legend-color-indicator-size);
+    min-width: var(--legend-color-indicator-size);
+    max-width: var(--legend-color-indicator-size);
+}
+
+.legend__color-indicator__sub {
+    background-color: transparent;
+    position: absolute;
+    right: 0;
+    max-width: 0;
+    max-height: 0;
+    border-width: var(--legend-color-indicator-size-half);
+    border-left-color: transparent;
+    border-bottom-color: transparent;
+}
+
+/* Bar Chart Graph (just the bar itself) */
+.bargraph {
+    flex-direction: row;
+    padding-top: 8px;
+    padding-bottom: 8px;
+    font-size: var(--unity-metrics-default-font_normal_size);
+    color: var(--unity-colors-default-text);
+}
+
+.bargraph__element {
+    min-height: 24px;
+    max-height: 24px;
+}
+
+.bargraph__element--ghost-snapshot {
+    background-color: var(--color-snapshot);
+}
+
+.bargraph__element--commands {
+    background-color: var(--color-commands);
+}
+
+.bargraph__element--rpcs {
+    background-color: var(--color-rpcs);
+}
+
+.bargraph__element--rpcs--sub {
+    background-color: var(--color-rpcs-sent);
+}
+
+.bargraph__element--first {
+    border-bottom-left-radius: 4px;
+    border-top-left-radius: 4px;
+}
+
+.bargraph__element--last {
+    border-bottom-right-radius: 4px;
+    border-top-right-radius: 4px;
+}
+
+.mainview-container {
+    margin: 16px;
+}
+
+.percentage-bar {
+    flex-grow: 1;
+    margin: 4px;
+    background-color: var(--unity-colors-object_field-background);
+}
+
+.percentage-bar__indicator {
+    background-color: var(--unity-colors-scrollbar_thumb-background);
+    position: absolute;
+    min-height: 100%;
+}
+
+.percentage-bar__label {
+    padding-left: 4px;
+    min-height: 100%;
+    -unity-text-align: middle-left;
+}
+
+.tab-header {
+    margin-right: auto;
+    padding-right: 24px;
+    margin-bottom: 24px;
+}
+
+.tab-header__main-name {
+    font-size: var(--unity-metrics-default-font_big_size);
+    padding-bottom: 8px;
+}
+
+.tab-header__sub-element {
+    flex-direction: row;
+    padding-top: 8px;
+    padding-bottom: 8px;
+    border-color: #464646;
+    border-top-width: 1px;
+}
+
+.tab-header__sub-element--last {
+    border-bottom-width: 1px;
+}
+
+.tab-header__sub-element-column-name {
+    font-size: var(--unity-metrics-default-font_normal_size);
+    color: var(--unity-colors-default-text);
+    margin-right: 8px;
+    min-width: 200px;
+}
+
+.tab-header__sub-element-column-value {
+}
+
+.ghost-snapshot__filter{
+    margin-bottom: 8px;
+}
+
+.ghost-snapshot__filter--horizontal{
+    flex-direction: row;
+    align-items: center;
+    padding-bottom: 4px;
+}
+
+.ghost-snapshot__filter__horizontal > Toggle{
+    padding-top: 2px;
+    padding-left: 8px;
+    flex-direction: row-reverse;
+}
+
+.ghost-snapshot__filter__horizontal > Toggle > Label{
+    padding-left: 4px;
+}
+
+/* Ghost Snapshot TreeView */
+.unity-multi-column-view__cell__icon {
+    background-image: var(--overhead-icon);
+    width: 16px;
+    height: 16px;
+    align-self: center;
+    display: none;
+}
+
+/* Metrics Header */
+.metrics-header {
+    flex-direction: row;
+    margin-top: -16px;
+    margin-bottom: 8px;
+    margin-left: -16px;
+    margin-right: -16px;
+    padding-bottom: 4px;
+    padding-left: 16px;
+    padding-right: 16px;
+    padding-top: 4px;
+    justify-content: space-between;
+    align-items: center;
+    border-top-color: black;
+    border-top-width: 1px;
+}
+
+.metrics-header__left-aligned {
+    flex-direction: row;
+    align-items: center;
+    align-self: flex-start;
+}
+
+.metrics-header__left-aligned > Label {
+    padding-right: 16px;
+}
+
+.metrics-header__right-aligned {
+    flex-direction: row;
+    align-items: center;
+    align-self: flex-end;
+}
+
+.metrics-header__right-aligned > Label {
+    padding-left: 16px;
+}

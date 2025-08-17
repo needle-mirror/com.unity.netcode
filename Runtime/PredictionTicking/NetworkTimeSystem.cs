@@ -72,6 +72,10 @@ namespace Unity.NetCode
         /// </summary>
         public NetworkTick predictTargetTick;
         /// <summary>
+        /// The number of ticks that we're deliberately ignoring local inputs for, before client predicting them.
+        /// </summary>
+        public uint effectiveForcedInputLatencyTicks;
+        /// <summary>
         /// The residual tick portion of the predictTargetTick.
         /// </summary>
         public float subPredictTargetTick;
@@ -117,21 +121,23 @@ namespace Unity.NetCode
         /// <param name="snapshot">The snapshot tick received by the server </param>
         /// <param name="currentTs">The current local timestamp (in ms)</param>
         /// <param name="commandSlack">The <see cref="ClientTickRate.TargetCommandSlack"/></param>
-        /// <param name="rtt">The current calculated round trip time</param>
+        /// <param name="predictAheadByTicks">The number ticks the client should predict ahead - can be negative!</param>
         /// <param name="devRtt">The current calculated round trip jitter</param>
         /// <param name="interpolationDelay">The desired interpolation delay (in ticks)</param>
         /// <param name="simTickRate">The <see cref="ClientServerTickRate.SimulationTickRate"/></param>
-        /// <param name="netTickRate">The packet interarrival, in simulation ticks.</param>
+        /// <param name="netTickRate">The packet arrival interval, in simulation ticks.</param>
         internal void InitWithFirstSnapshot(NetworkTick snapshot, uint currentTs, uint commandSlack,
-            float rtt, float devRtt, float interpolationDelay, int simTickRate, int netTickRate)
+            int predictAheadByTicks, float devRtt, float interpolationDelay, int simTickRate, int netTickRate)
         {
-            var rttTicks = ((uint) rtt * simTickRate + 999) / 1000;
             latestSnapshot = snapshot;
             latestSnapshotEstimate = snapshot;
             latestSnapshotAge = 0;
             predictTargetTick = snapshot;
-            predictTargetTick.Add(commandSlack + (uint)rttTicks);
-            //initial guess estimate for the interpolation frame. Uses the DeviatioRTT as a measurement of the jitter in the snapshot rate
+            if(predictAheadByTicks >= 0)
+                predictTargetTick.Add((uint) predictAheadByTicks);
+            else predictTargetTick.Subtract((uint) -predictAheadByTicks);
+
+            //initial guess estimate for the interpolation frame. Uses the DeviationRTT as a measurement of the jitter in the snapshot rate
             avgDeltaSimTicks = netTickRate;
             devDeltaSimTicks = (devRtt * netTickRate / 1000f);
             avgPacketInterArrival = ((float)1000)/(netTickRate*simTickRate);
@@ -208,6 +214,7 @@ namespace Unity.NetCode
             MaxExtrapolationTimeSimTicks = 20,
             MaxPredictAheadTimeMS = 500,
             NumAdditionalClientPredictedGhostLifetimeTicks = 0,
+            ForcedInputLatencyTicks = 0,
             TargetCommandSlack = 2,
             DefaultClassificationAllowableTickPeriod = 5,
             NumAdditionalCommandsToSend = 2,
@@ -225,7 +232,7 @@ namespace Unity.NetCode
         static void ValidateClientTickRate(in ClientTickRate tickRate, in NetDebug netDebug)
         {
             if(tickRate.MaxPredictAheadTimeMS > 500f)
-                netDebug.LogError("MaxPredictAheadTimeMS must be less then 500ms");
+                netDebug.LogError("MaxPredictAheadTimeMS must be less than 500ms");
             if(tickRate.PredictionTimeScaleMin < 0.01f || tickRate.PredictionTimeScaleMin >= 1.0f)
                 netDebug.LogError("PredictionTimeScaleMin must be in range [0.01, 1.0)");
             if(tickRate.PredictionTimeScaleMax < 1f || tickRate.PredictionTimeScaleMax > 2f)
@@ -404,14 +411,22 @@ namespace Unity.NetCode
                 ack.EstimatedRTT = 1000f/tickRate.SimulationTickRate;
             }
 
-            var estimatedRTT = math.min(ack.EstimatedRTT, clientTickRate.MaxPredictAheadTimeMS);
+            // Calculate how far ahead our client timeline needs to be (versus the servers timeline):
+            ref var netTimeData = ref SystemAPI.GetSingletonRW<NetworkTimeSystemData>().ValueRW;
+            uint rttInTicks = ((uint)(ack.EstimatedRTT * tickRate.SimulationTickRate) + 999) / 1000;
+            var inputTargetTicks = rttInTicks + clientTickRate.TargetCommandSlack;
+            // Note: `EstimatedRTT` hitting `MaxPredictAheadTimeMS` leads to forced input latency.
+            uint maxAllowedPredictionTicks = ((uint)(clientTickRate.MaxPredictAheadTimeMS * tickRate.SimulationTickRate) + 999) / 1000;
+            uint minForcedInputLatencyTicksFromMaxPredictAheadTime = (uint)math.max(0, (int)inputTargetTicks - (int)maxAllowedPredictionTicks);
+            netTimeData.effectiveForcedInputLatencyTicks = math.max(minForcedInputLatencyTicksFromMaxPredictAheadTime, clientTickRate.ForcedInputLatencyTicks);
+            int predictAheadByTicks = (int)inputTargetTicks - (int)netTimeData.effectiveForcedInputLatencyTicks; // Can be negative!
+
             var netTickRateInterval = tickRate.CalculateNetworkSendRateInterval();
             // The desired number of interpolation frames depend on the ratio in between the simulation and the network tick rate
             // ex: if the server run the sim at 60hz but send at 20hz we need to stay back at least 3 ticks, or
             // any integer multiple of that
             var interpolationTimeTicks = clientTickRate.CalculateInterpolationBufferTimeInTicks(tickRate);
             // Reset the latestSnapshotEstimate if not in game
-            ref var netTimeData = ref SystemAPI.GetSingletonRW<NetworkTimeSystemData>().ValueRW;
 #if UNITY_EDITOR || NETCODE_DEBUG
             ref var  netTimeDataStats = ref SystemAPI.GetSingletonRW<NetworkTimeSystemStats>().ValueRW;
 #endif
@@ -425,7 +440,7 @@ namespace Unity.NetCode
                     return;
                 }
                 netTimeData.InitWithFirstSnapshot(ack.LastReceivedSnapshotByLocal, TimestampMS, clientTickRate.TargetCommandSlack,
-                    ack.EstimatedRTT, ack.DeviationRTT, interpolationTimeTicks, tickRate.SimulationTickRate, netTickRateInterval);
+                    predictAheadByTicks, ack.DeviationRTT, interpolationTimeTicks, tickRate.SimulationTickRate, netTickRateInterval);
 
                 commandAgeAdjustment.Length = CommandAgeAdjustmentLength;
                 for (int i = 0; i < CommandAgeAdjustmentLength; ++i)
@@ -470,7 +485,6 @@ namespace Unity.NetCode
             // Check which slot in the circular buffer of command age adjustments the current data should go in
             // use the latestSnapshot and not the LastReceivedSnapshotByLocal because the latter can be reset to 0, causing
             // a wrong reset of the adjustments
-            uint rttInTicks = ((uint)(estimatedRTT * tickRate.SimulationTickRate) + 999) / 1000;
             commandAge = AdjustCommandAge(netTimeData.latestSnapshot, commandAge, rttInTicks);
             if (math.abs(commandAge) < 10)
             {
@@ -483,7 +497,9 @@ namespace Unity.NetCode
             else
             {
                 var curPredict = netTimeData.latestSnapshotEstimate;
-                curPredict.Add(clientTickRate.TargetCommandSlack + ((uint) estimatedRTT * (uint) tickRate.SimulationTickRate + 999) / 1000);
+                if(predictAheadByTicks >= 0)
+                    curPredict.Add((uint) predictAheadByTicks);
+                else curPredict.Subtract((uint) -predictAheadByTicks);
                 float predictDelta = (float)(curPredict.TicksSince(netTimeData.predictTargetTick)) - deltaTicks;
                 if (math.abs(predictDelta) > 10)
                 {
@@ -556,6 +572,12 @@ namespace Unity.NetCode
 
             var newInterpolationTargetTick = netTimeData.latestSnapshotEstimate;
             newInterpolationTargetTick.Subtract((uint)netTimeData.currentInterpolationFrames);
+
+            // When using Forced Input Latency, it's feasible that our target client prediction tick can fall behind
+            // the target interpolation tick, so we clamp it here, effectively lengthening the interpolation window dynamically.
+            if (netTimeData.effectiveForcedInputLatencyTicks > 0 && netTimeData.predictTargetTick.TicksSince(newInterpolationTargetTick) < 0)
+                newInterpolationTargetTick = netTimeData.predictTargetTick;
+
             var targetTickDelta = newInterpolationTargetTick.TicksSince(netTimeData.interpolateTargetTick) - netTimeData.subInterpolateTargetTick - deltaTicks;
             float interpolationTimeScale = 1f;
             //if we are behind (10 tick is quite a lot though, this require 100 frame to recover with 10% deltaTime scaling)

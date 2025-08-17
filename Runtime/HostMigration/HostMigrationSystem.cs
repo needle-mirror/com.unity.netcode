@@ -334,6 +334,7 @@ namespace Unity.NetCode.HostMigration
                 componentList.Dispose();
             m_HostMigrationCache.ServerOnlyComponentsPerGhostType.Dispose();
             m_NetworkIdMap.Dispose();
+            m_DefaultComponents.Dispose();
         }
 
         [BurstCompile]

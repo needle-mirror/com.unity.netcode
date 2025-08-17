@@ -325,7 +325,10 @@ namespace Unity.NetCode.Tests
 
                 // Let the game run for a bit so the ghosts are spawned on the client
                 for (int i = 0; i < 64; ++i)
+                {
+                    ValidateComponentStatsLessThanTypeStats(testWorld);
                     testWorld.Tick();
+                }
 
                 // Check that the client world has the right thing and value
                 var ghostQuery = testWorld.ClientWorlds[0].EntityManager.CreateEntityQuery(typeof(GhostChildEntity));
@@ -452,6 +455,26 @@ namespace Unity.NetCode.Tests
                     for (int i = 0; i < rootBuffer.Length; ++i)
                         Assert.AreEqual(7, rootBuffer[i].Value);
                 }
+            }
+        }
+
+        static unsafe void ValidateComponentStatsLessThanTypeStats(NetCodeTestWorld testWorld)
+        {
+            var stats = testWorld.GetSingleton<GhostStatsSnapshotSingleton>(testWorld.ServerWorld);
+
+            // TODO validate total size of packet sent is bigger than total stats size
+
+            var perTypeStatsList = stats.UnsafeMainStatsRead.PerGhostTypeStatsListRO;
+            for (int i = 0; i < perTypeStatsList.Length; i++)
+            {
+                uint totalSize = perTypeStatsList[i].SizeInBits;
+                uint componentSizesSum = 0;
+                var perComponentStatsList = perTypeStatsList[i].PerComponentStatsList;
+                for (int j = 0; j < perComponentStatsList.Length; j++)
+                {
+                    componentSizesSum  += perComponentStatsList[j].SizeInSnapshotInBits;
+                }
+                Assert.IsTrue(totalSize >= componentSizesSum, $"Sum of all component stats {componentSizesSum} is larger than actual total size {totalSize}, something went wrong in stats calculations. Normally, we can expect some metadata in total size that's not accounted for by component size. But component size should always remain smaller than total size.");
             }
         }
 

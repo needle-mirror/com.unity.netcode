@@ -172,7 +172,7 @@ namespace Unity.NetCode.PrespawnTests
             }
         }
 
-        void TestRunner(int numClients, int numObjectsPerPrefabs, int numPrefabs,
+        unsafe void TestRunner(int numClients, int numObjectsPerPrefabs, int numPrefabs,
             uint[] initialDataSize,
             uint[] initialAvgBitsPerEntity,
             uint[] avgBitsPerEntity,
@@ -237,13 +237,13 @@ namespace Unity.NetCode.PrespawnTests
                     testWorld.Tick();
                     for (int i = 0; i < testWorld.ClientWorlds.Length; ++i)
                     {
-                        var netStats = testWorld.ClientWorlds[i].EntityManager.GetComponentData<GhostStatsCollectionSnapshot>(testWorld.TryGetSingletonEntity<GhostStatsCollectionSnapshot>(testWorld.ClientWorlds[i])).Data;
-                        totalSceneData += netStats[5];
-                        for (int gtype = 0; gtype < numPrefabs; ++gtype)
+                        var netStats = testWorld.ClientWorlds[i].EntityManager.GetComponentData<GhostStatsSnapshotSingleton>(testWorld.TryGetSingletonEntity<GhostStatsSnapshotSingleton>(testWorld.ClientWorlds[i])).MainStatsWrite;
+                        totalSceneData += netStats.PerGhostTypeStatsListRefRW.ElementAt(0).SizeInBits;
+                        for (int gtype = 0; gtype < numPrefabs; ++gtype) // numPrefabs doesn't match with PerGhostTypeStats length, since the ghost stats list also contains the extra netcode owned prespawn ghost (first index)
                         {
-                            numReceived[i] += netStats[3*gtype + 7];
-                            totalDataReceived[i] += netStats[3*gtype + 8];
-                            uncompressed[i] += netStats[3*gtype + 9];
+                            numReceived[i] += netStats.PerGhostTypeStatsListRefRW.ElementAt(gtype + 1).EntityCount;
+                            totalDataReceived[i] += netStats.PerGhostTypeStatsListRefRW.ElementAt(gtype + 1).SizeInBits;
+                            uncompressed[i] += netStats.PerGhostTypeStatsListRefRW.ElementAt(gtype + 1).UncompressedCount;
                         }
                         if(enableFallbackBaseline)
                             ValidateReceivedSnapshotData(testWorld.ClientWorlds[i]);
@@ -252,7 +252,7 @@ namespace Unity.NetCode.PrespawnTests
                         //This is always true for enableFallbackBaseline is true
                         newObjects = 0;
                         for (int gtype = 0; gtype < numPrefabs; ++gtype)
-                            newObjects += netStats[3*gtype + 9];
+                            newObjects += netStats.PerGhostTypeStatsListRefRW.ElementAt(gtype + 1).UncompressedCount;
                     }
 
                     if (newObjects == 0 && numReceived[0] >= numObjects)
@@ -276,12 +276,13 @@ namespace Unity.NetCode.PrespawnTests
                     testWorld.Tick();
                     for (int i = 0; i < testWorld.ClientWorlds.Length; ++i)
                     {
-                        var netStats = testWorld.ClientWorlds[i].EntityManager.GetComponentData<GhostStatsCollectionSnapshot>(testWorld.TryGetSingletonEntity<GhostStatsCollectionSnapshot>(testWorld.ClientWorlds[i])).Data;
+                        var netStats = testWorld.ClientWorlds[i].EntityManager.GetComponentData<GhostStatsSnapshotSingleton>(testWorld.TryGetSingletonEntity<GhostStatsSnapshotSingleton>(testWorld.ClientWorlds[i])).MainStatsWrite;
+
                         for (int gtype = 0; gtype < numPrefabs; ++gtype)
                         {
-                            Assert.AreEqual(0, netStats[3*gtype + 9]); //No new object
-                            numReceived[i] += netStats[3*gtype + 7];
-                            totalDataReceived[i] += netStats[3*gtype + 8];
+                            Assert.AreEqual(0, netStats.PerGhostTypeStatsListRefRW.ElementAt(gtype + 1).UncompressedCount); //No new object
+                            numReceived[i] += netStats.PerGhostTypeStatsListRefRW.ElementAt(gtype + 1).EntityCount;
+                            totalDataReceived[i] += netStats.PerGhostTypeStatsListRefRW.ElementAt(gtype + 1).SizeInBits;
                         }
                         ValidateReceivedSnapshotData(testWorld.ClientWorlds[i]);
                     }
@@ -386,7 +387,7 @@ namespace Unity.NetCode.PrespawnTests
         /// </param>
         /// <param name="latencyProfile">Static-optimization should be tested under various conditions.</param>
         [Test(Description = "Tests only the common set of static-optimized, prespawn ghost replication cases.")]
-        public void UsingStaticOptimizationServerDoesNotSendData([Values]bool keepSnapshotHistoryOnStructuralChange, [Values] NetCodeTestLatencyProfile latencyProfile)
+        public unsafe void UsingStaticOptimizationServerDoesNotSendData([Values]bool keepSnapshotHistoryOnStructuralChange, [Values] NetCodeTestLatencyProfile latencyProfile)
         {
             const int numObjects = 10;
             //Set the scene with multiple prefab types
@@ -422,13 +423,14 @@ namespace Unity.NetCode.PrespawnTests
                 for (int tick = 0; tick < 16; ++tick)
                 {
                     testWorld.Tick();
-                    var netStats = testWorld.ClientWorlds[0].EntityManager.GetComponentData<GhostStatsCollectionSnapshot>(testWorld.TryGetSingletonEntity<GhostStatsCollectionSnapshot>(testWorld.ClientWorlds[0])).Data;
-                    //Skip the frist ghost type (is be the subscene list)
-                    if (netStats.Length > 6)
+                    var netStats = testWorld.ClientWorlds[0].EntityManager.GetComponentData<GhostStatsSnapshotSingleton>(testWorld.TryGetSingletonEntity<GhostStatsSnapshotSingleton>(testWorld.ClientWorlds[0])).MainStatsWrite;
+
+                    //Skip the first ghost type (is be the subscene list)
+                    if (netStats.PerGhostTypeStatsListRefRW.Length > 1)
                     {
-                        numReceived += netStats[7];
-                        totalDataReceived += netStats[8];
-                        uncompressed += netStats[9];
+                        numReceived += netStats.PerGhostTypeStatsListRefRW.ElementAt(1).EntityCount;
+                        totalDataReceived += netStats.PerGhostTypeStatsListRefRW.ElementAt(1).SizeInBits;
+                        uncompressed += netStats.PerGhostTypeStatsListRefRW.ElementAt(1).UncompressedCount;
                     }
                 }
 
@@ -458,12 +460,13 @@ namespace Unity.NetCode.PrespawnTests
                 for (int i = 0; i < 16; ++i)
                 {
                     testWorld.Tick();
-                    var netStats = testWorld.ClientWorlds[0].EntityManager.GetComponentData<GhostStatsCollectionSnapshot>(testWorld.TryGetSingletonEntity<GhostStatsCollectionSnapshot>(testWorld.ClientWorlds[0])).Data;
-                    if (netStats.Length > 6)
+                    var netStats = testWorld.ClientWorlds[0].EntityManager.GetComponentData<GhostStatsSnapshotSingleton>(testWorld.TryGetSingletonEntity<GhostStatsSnapshotSingleton>(testWorld.ClientWorlds[0])).MainStatsWrite;
+
+                    if (netStats.PerGhostTypeStatsListRefRW.Length > 1)
                     {
-                        numReceived += netStats[7];
-                        totalDataReceived += netStats[8];
-                        uncompressed += netStats[9];
+                        numReceived += netStats.PerGhostTypeStatsListRefRW.ElementAt(1).EntityCount;
+                        totalDataReceived += netStats.PerGhostTypeStatsListRefRW.ElementAt(1).SizeInBits;
+                        uncompressed += netStats.PerGhostTypeStatsListRefRW.ElementAt(1).UncompressedCount;
                     }
                 }
 
@@ -491,12 +494,13 @@ namespace Unity.NetCode.PrespawnTests
                 for (int i = 0; i < 16; ++i)
                 {
                     testWorld.Tick();
-                    var netStats = testWorld.ClientWorlds[0].EntityManager.GetComponentData<GhostStatsCollectionSnapshot>(testWorld.TryGetSingletonEntity<GhostStatsCollectionSnapshot>(testWorld.ClientWorlds[0])).Data;
-                    if (netStats.Length > 6)
+
+                    var netStats = testWorld.ClientWorlds[0].EntityManager.GetComponentData<GhostStatsSnapshotSingleton>(testWorld.TryGetSingletonEntity<GhostStatsSnapshotSingleton>(testWorld.ClientWorlds[0])).MainStatsWrite;
+                    if (netStats.PerGhostTypeStatsListRefRW.Length > 1)
                     {
-                        numReceived += netStats[7];
-                        totalDataReceived += netStats[8];
-                        uncompressed += netStats[9];
+                        numReceived += netStats.PerGhostTypeStatsListRefRW.ElementAt(1).EntityCount;
+                        totalDataReceived += netStats.PerGhostTypeStatsListRefRW.ElementAt(1).SizeInBits;
+                        uncompressed += netStats.PerGhostTypeStatsListRefRW.ElementAt(1).UncompressedCount;
                     }
                 }
 
@@ -520,12 +524,13 @@ namespace Unity.NetCode.PrespawnTests
                 for (int i = 0; i < 32; ++i)
                 {
                     testWorld.Tick();
-                    var netStats = testWorld.ClientWorlds[0].EntityManager.GetComponentData<GhostStatsCollectionSnapshot>(testWorld.TryGetSingletonEntity<GhostStatsCollectionSnapshot>(testWorld.ClientWorlds[0])).Data;
-                    if (netStats.Length > 7)
+
+                    var netStats = testWorld.ClientWorlds[0].EntityManager.GetComponentData<GhostStatsSnapshotSingleton>(testWorld.TryGetSingletonEntity<GhostStatsSnapshotSingleton>(testWorld.ClientWorlds[0])).MainStatsWrite;
+                    if (netStats.PerGhostTypeStatsListRefRW.Length > 1)
                     {
-                        numReceived += netStats[7];
-                        totalDataReceived += netStats[8];
-                        uncompressed += netStats[9];
+                        numReceived += netStats.PerGhostTypeStatsListRefRW.ElementAt(1).EntityCount;
+                        totalDataReceived += netStats.PerGhostTypeStatsListRefRW.ElementAt(1).SizeInBits;
+                        uncompressed += netStats.PerGhostTypeStatsListRefRW.ElementAt(1).UncompressedCount;
                     }
                 }
 
@@ -576,12 +581,13 @@ namespace Unity.NetCode.PrespawnTests
                 for (int i = 0; i < 16; ++i)
                 {
                     testWorld.Tick();
-                    var netStats = testWorld.ClientWorlds[0].EntityManager.GetComponentData<GhostStatsCollectionSnapshot>(testWorld.TryGetSingletonEntity<GhostStatsCollectionSnapshot>(testWorld.ClientWorlds[0])).Data;
-                    if (netStats.Length > 6)
+
+                    var netStats = testWorld.ClientWorlds[0].EntityManager.GetComponentData<GhostStatsSnapshotSingleton>(testWorld.TryGetSingletonEntity<GhostStatsSnapshotSingleton>(testWorld.ClientWorlds[0])).MainStatsWrite;
+                    if (netStats.PerGhostTypeStatsListRefRW.Length > 1)
                     {
-                        numReceived += netStats[7];
-                        totalDataReceived += netStats[8];
-                        uncompressed += netStats[9];
+                        numReceived += netStats.PerGhostTypeStatsListRefRW.ElementAt(1).EntityCount;
+                        totalDataReceived += netStats.PerGhostTypeStatsListRefRW.ElementAt(1).SizeInBits;
+                        uncompressed += netStats.PerGhostTypeStatsListRefRW.ElementAt(1).UncompressedCount;
                     }
 
                     Assert.AreEqual(0, numReceived);
@@ -613,12 +619,13 @@ namespace Unity.NetCode.PrespawnTests
                 for (int i = 0; i < 8; ++i)
                 {
                     testWorld.Tick();
-                    var netStats = testWorld.ClientWorlds[0].EntityManager.GetComponentData<GhostStatsCollectionSnapshot>(testWorld.TryGetSingletonEntity<GhostStatsCollectionSnapshot>(testWorld.ClientWorlds[0])).Data;
-                    if (netStats.Length > 6)
+
+                    var netStats = testWorld.ClientWorlds[0].EntityManager.GetComponentData<GhostStatsSnapshotSingleton>(testWorld.TryGetSingletonEntity<GhostStatsSnapshotSingleton>(testWorld.ClientWorlds[0])).MainStatsWrite;
+                    if (netStats.PerGhostTypeStatsListRefRW.Length > 1)
                     {
-                        numReceived += netStats[7];
-                        totalDataReceived += netStats[8];
-                        uncompressed += netStats[9];
+                        numReceived += netStats.PerGhostTypeStatsListRefRW.ElementAt(1).EntityCount;
+                        totalDataReceived += netStats.PerGhostTypeStatsListRefRW.ElementAt(1).SizeInBits;
+                        uncompressed += netStats.PerGhostTypeStatsListRefRW.ElementAt(1).UncompressedCount;
                     }
                 }
 
@@ -666,12 +673,13 @@ namespace Unity.NetCode.PrespawnTests
                 for(int i = 0; i < 8; i++)
                 {
                     testWorld.Tick();
-                    var netStats = testWorld.ClientWorlds[0].EntityManager.GetComponentData<GhostStatsCollectionSnapshot>(testWorld.TryGetSingletonEntity<GhostStatsCollectionSnapshot>(testWorld.ClientWorlds[0])).Data;
-                    if (netStats.Length > 6)
+
+                    var netStats = testWorld.ClientWorlds[0].EntityManager.GetComponentData<GhostStatsSnapshotSingleton>(testWorld.TryGetSingletonEntity<GhostStatsSnapshotSingleton>(testWorld.ClientWorlds[0])).MainStatsWrite;
+                    if (netStats.PerGhostTypeStatsListRefRW.Length > 1)
                     {
-                        numReceived += netStats[7];
-                        totalDataReceived += netStats[8];
-                        uncompressed += netStats[9];
+                        numReceived += netStats.PerGhostTypeStatsListRefRW.ElementAt(1).EntityCount;
+                        totalDataReceived += netStats.PerGhostTypeStatsListRefRW.ElementAt(1).SizeInBits;
+                        uncompressed += netStats.PerGhostTypeStatsListRefRW.ElementAt(1).UncompressedCount;
                     }
                 }
                 // Chunk 1 contains 5 entities:
@@ -690,12 +698,12 @@ namespace Unity.NetCode.PrespawnTests
                 for (int tick = 0; tick < 8; tick++)
                 {
                     testWorld.Tick();
-                    var netStats = testWorld.ClientWorlds[0].EntityManager.GetComponentData<GhostStatsCollectionSnapshot>(testWorld.TryGetSingletonEntity<GhostStatsCollectionSnapshot>(testWorld.ClientWorlds[0])).Data;
-                    if (netStats.Length > 6)
+                    var netStats = testWorld.ClientWorlds[0].EntityManager.GetComponentData<GhostStatsSnapshotSingleton>(testWorld.TryGetSingletonEntity<GhostStatsSnapshotSingleton>(testWorld.ClientWorlds[0])).MainStatsWrite;
+                    if (netStats.PerGhostTypeStatsListRefRW.Length > 1)
                     {
-                        numReceived += netStats[7];
-                        totalDataReceived += netStats[8];
-                        uncompressed += netStats[9];
+                        numReceived += netStats.PerGhostTypeStatsListRefRW.ElementAt(1).EntityCount;
+                        totalDataReceived += netStats.PerGhostTypeStatsListRefRW.ElementAt(1).SizeInBits;
+                        uncompressed += netStats.PerGhostTypeStatsListRefRW.ElementAt(1).UncompressedCount;
                     }
                 }
 
@@ -715,12 +723,12 @@ namespace Unity.NetCode.PrespawnTests
                 for (int tick = 0; tick < 8; tick++)
                 {
                     testWorld.Tick();
-                    var netStats = testWorld.ClientWorlds[0].EntityManager.GetComponentData<GhostStatsCollectionSnapshot>(testWorld.TryGetSingletonEntity<GhostStatsCollectionSnapshot>(testWorld.ClientWorlds[0])).Data;
-                    if (netStats.Length > 6)
+                    var netStats = testWorld.ClientWorlds[0].EntityManager.GetComponentData<GhostStatsSnapshotSingleton>(testWorld.TryGetSingletonEntity<GhostStatsSnapshotSingleton>(testWorld.ClientWorlds[0])).MainStatsWrite;
+                    if (netStats.PerGhostTypeStatsListRefRW.Length > 1)
                     {
-                        numReceived += netStats[7];
-                        totalDataReceived += netStats[8];
-                        uncompressed += netStats[9];
+                        numReceived += netStats.PerGhostTypeStatsListRefRW.ElementAt(1).EntityCount;
+                        totalDataReceived += netStats.PerGhostTypeStatsListRefRW.ElementAt(1).SizeInBits;
+                        uncompressed += netStats.PerGhostTypeStatsListRefRW.ElementAt(1).UncompressedCount;
                     }
                 }
 
@@ -751,12 +759,12 @@ namespace Unity.NetCode.PrespawnTests
                 for (int tick = 0; tick < 8; tick++)
                 {
                     testWorld.Tick();
-                    var netStats = testWorld.ClientWorlds[0].EntityManager.GetComponentData<GhostStatsCollectionSnapshot>(testWorld.TryGetSingletonEntity<GhostStatsCollectionSnapshot>(testWorld.ClientWorlds[0])).Data;
-                    if (netStats.Length > 6)
+                    var netStats = testWorld.ClientWorlds[0].EntityManager.GetComponentData<GhostStatsSnapshotSingleton>(testWorld.TryGetSingletonEntity<GhostStatsSnapshotSingleton>(testWorld.ClientWorlds[0])).MainStatsWrite;
+                    if (netStats.PerGhostTypeStatsListRefRW.Length > 1)
                     {
-                        numReceived += netStats[7];
-                        totalDataReceived += netStats[8];
-                        uncompressed += netStats[9];
+                        numReceived += netStats.PerGhostTypeStatsListRefRW.ElementAt(1).EntityCount;
+                        totalDataReceived += netStats.PerGhostTypeStatsListRefRW.ElementAt(1).SizeInBits;
+                        uncompressed += netStats.PerGhostTypeStatsListRefRW.ElementAt(1).UncompressedCount;
                     }
                 }
                 if(latencyProfile == NetCodeTestLatencyProfile.None)
@@ -773,12 +781,12 @@ namespace Unity.NetCode.PrespawnTests
                 for (int tick = 0; tick < 8; tick++)
                 {
                     testWorld.Tick();
-                    var netStats = testWorld.ClientWorlds[0].EntityManager.GetComponentData<GhostStatsCollectionSnapshot>(testWorld.TryGetSingletonEntity<GhostStatsCollectionSnapshot>(testWorld.ClientWorlds[0])).Data;
-                    if (netStats.Length > 6)
+                    var netStats = testWorld.ClientWorlds[0].EntityManager.GetComponentData<GhostStatsSnapshotSingleton>(testWorld.TryGetSingletonEntity<GhostStatsSnapshotSingleton>(testWorld.ClientWorlds[0])).MainStatsWrite;
+                    if (netStats.PerGhostTypeStatsListRefRW.Length > 1)
                     {
-                        numReceived += netStats[7];
-                        totalDataReceived += netStats[8];
-                        uncompressed += netStats[9];
+                        numReceived += netStats.PerGhostTypeStatsListRefRW.ElementAt(1).EntityCount;
+                        totalDataReceived += netStats.PerGhostTypeStatsListRefRW.ElementAt(1).SizeInBits;
+                        uncompressed += netStats.PerGhostTypeStatsListRefRW.ElementAt(1).UncompressedCount;
                     }
                 }
                 Assert.AreEqual(0, numReceived);
