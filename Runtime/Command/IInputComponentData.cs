@@ -16,6 +16,7 @@ namespace Unity.NetCode
     public interface IInputComponentData : IComponentData
     {
         /// <inheritdoc cref="ICommandData.ToFixedString"/>
+        [GenerateTestsForBurstCompatibility]
         public FixedString512Bytes ToFixedString() => "?InputComponentData?";
     }
 
@@ -51,6 +52,7 @@ namespace Unity.NetCode
 
         /// <summary>Helper.</summary>
         /// <returns>'InputEvent[<see cref="Count"/>]'</returns>
+        [GenerateTestsForBurstCompatibility]
         public FixedString32Bytes ToFixedString() => $"InputEvent[{Count}]";
 
         /// <inheritdoc cref="ToFixedString"/>
@@ -205,11 +207,15 @@ namespace Unity.NetCode
         /// <summary>Helper.</summary>
         /// <remarks>Prefer <see cref="ToPrettyFixedString"/> as it provides much more info.</remarks>
         /// <returns>Returns only the <see cref="ICommandData.ToFixedString"/> result from <see cref="InternalInput"/>.</returns>
+        [GenerateTestsForBurstCompatibility]
         public FixedString512Bytes ToFixedString() => InternalInput.ToFixedString();
 
         /// <summary>Helper.</summary>
         /// <returns>Full debug info for this struct; the type, the tick, and the <see cref="ICommandData.ToFixedString"/> result.</returns>
         public FixedString4096Bytes ToPrettyFixedString() => $"IBD<{default(ICommandDataSerializer<InputBufferData<T>>).ToFixedString()}>[{Tick.ToFixedString()}|{InternalInput.ToFixedString()}]";
+
+        /// <inheritdoc cref="ToPrettyFixedString"/>
+        public override string ToString() => ToPrettyFixedString().ToString();
     }
 
     /// <summary>

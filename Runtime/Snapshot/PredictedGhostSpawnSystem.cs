@@ -43,6 +43,7 @@ namespace Unity.NetCode
 
         /// <summary>Helper.</summary>
         /// <returns>Formatted informational string.</returns>
+        [GenerateTestsForBurstCompatibility]
         public FixedString128Bytes ToFixedString() => $"PredictedGhostSpawn[ghostType:{ghostType},st:{spawnTick.ToFixedString()},ent:{entity.ToFixedString()}]";
         /// <inheritdoc cref="ToFixedString"/>
         public override string ToString() => ToFixedString().ToString();
@@ -236,6 +237,11 @@ namespace Unity.NetCode
         [BurstCompile]
         public void OnCreate(ref SystemState state)
         {
+            if (state.WorldUnmanaged.IsHost())
+            {
+                state.Enabled = false;
+                return;
+            }
             var ent = state.EntityManager.CreateEntity();
             state.EntityManager.SetName(ent, (FixedString64Bytes)"PredictedGhostSpawnList");
             state.EntityManager.AddComponentData(ent, new PredictedGhostSpawnList{});

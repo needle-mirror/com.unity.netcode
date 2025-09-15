@@ -36,6 +36,11 @@ namespace Unity.NetCode
         [BurstCompile]
         public void OnCreate(ref SystemState state)
         {
+            if (state.WorldUnmanaged.IsHost())
+            {
+                state.Enabled = false;
+                return;
+            }
             var builder = new EntityQueryBuilder(Allocator.Temp)
                 .WithAll<PredictedGhost, GhostInstance>();
             m_PredictionQuery = state.GetEntityQuery(builder);
@@ -55,6 +60,8 @@ namespace Unity.NetCode
         [BurstCompile]
         public void OnDestroy(ref SystemState state)
         {
+            if (state.WorldUnmanaged.IsHost())
+                return;
             m_PredictionErrors.Dispose();
         }
         [BurstCompile]

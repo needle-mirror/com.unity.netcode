@@ -89,6 +89,17 @@ namespace Unity.NetCode
             if (!SystemAPI.TryGetSingletonEntity<PrespawnSceneLoaded>(out var prespawnSceneListEntity))
             {
                 var prefab = m_PrefabQuery.GetSingletonEntity();
+                // TODO-release Validate if this issue still happens
+                // this assumes that NetworkStreamInGame has been called later
+                // steps of issue:
+                // - Game starts
+                // - NetworkId is created
+                // - user system makes it NetworkStreamInGame
+                // - next frame
+                // - GhostCollection runs and registers prefabs
+                // - PrespawnGhostInitializationSystem OnBeforeStart runs, creating the prespawn scene list prefab
+                // - that prefab is instantiated right after, since NetworkStreamInGame is present
+                // - GhostSendSystem updates, and sees an extra prefab which wasn't registered as part of the GhostCollection yet and throws an exception
                 prespawnSceneListEntity = state.EntityManager.Instantiate(prefab);
                 state.EntityManager.RemoveComponent<GhostPrefabMetaData>(prespawnSceneListEntity);
                 state.EntityManager.GetBuffer<PrespawnSceneLoaded>(prespawnSceneListEntity).EnsureCapacity(128);

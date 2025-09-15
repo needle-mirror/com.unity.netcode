@@ -78,6 +78,12 @@ namespace Unity.NetCode
         /// </summary>
         protected override void OnCreate()
         {
+            if (World.IsHost())
+            {
+                base.OnCreate();
+                Enabled = false;
+                return;
+            }
             m_UniqueInputTicks = new NativeParallelHashMap<NetworkTick, NetworkTick>(CommandDataUtility.k_CommandDataMaxSize * 4, Allocator.Persistent);
             var singletonEntity = EntityManager.CreateEntity(ComponentType.ReadWrite<UniqueInputTickMap>());
             EntityManager.SetName(singletonEntity, "UniqueInputTickMap-Singleton");
@@ -139,6 +145,8 @@ namespace Unity.NetCode
         protected override void OnCreate()
         {
             base.OnCreate();
+            if (World.IsHost())
+                Enabled = false;
         }
         protected override void OnUpdate()
         {
@@ -653,6 +661,11 @@ namespace Unity.NetCode
         /// <param name="state"><see cref="SystemState"/></param>
         public void OnCreate(ref SystemState state)
         {
+            if (state.WorldUnmanaged.IsHost())
+            {
+                state.Enabled = false;
+                return;
+            }
             var builder = new EntityQueryBuilder(Allocator.Temp)
                 .WithAll<NetworkStreamInGame, CommandTarget>();
             m_connectionQuery = state.GetEntityQuery(builder);

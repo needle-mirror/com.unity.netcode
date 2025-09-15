@@ -25,6 +25,11 @@ namespace Unity.NetCode
         [BurstCompile]
         public void OnCreate(ref SystemState state)
         {
+            if (state.WorldUnmanaged.IsHost())
+            {
+                state.Enabled = false;
+                return;
+            }
             m_SimulateHandle = state.GetComponentTypeHandle<Simulate>();
             m_PredictedHandle = state.GetComponentTypeHandle<PredictedGhost>(true);
             m_GhostChildEntityHandle = state.GetComponentTypeHandle<GhostChildEntity>(true);

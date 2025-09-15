@@ -570,31 +570,37 @@ namespace Unity.NetCode.Tests
             }
         }
         [Test]
-        public void ManyEntitiesCanBecomeIrrelevantSameTick()
+        public void ManyEntitiesCanBecomeIrrelevantSameTick([Values(NetCodeTestLatencyProfile.PL33, NetCodeTestLatencyProfile.RTT16ms_PL5)]NetCodeTestLatencyProfile profile)
         {
             using (var testWorld = new NetCodeTestWorld())
             {
+                testWorld.SetTestLatencyProfile(profile);
                 testWorld.Bootstrap(true);
 
-                var ghostGameObject = new GameObject();
-                ghostGameObject.AddComponent<TestNetCodeAuthoring>().Converter = new GhostValueSerializerConverter();
+                var staticGo = new GameObject("Static");
+                staticGo.AddComponent<GhostAuthoringComponent>().OptimizationMode = GhostOptimizationMode.Static;
+                staticGo.AddComponent<TestNetCodeAuthoring>().Converter = new GhostValueSerializerConverter();
 
-                Assert.IsTrue(testWorld.CreateGhostCollection(ghostGameObject));
+                var dynamicGo = new GameObject("Dynamic");
+                dynamicGo.AddComponent<GhostAuthoringComponent>().OptimizationMode = GhostOptimizationMode.Dynamic;
+                dynamicGo.AddComponent<TestNetCodeAuthoring>().Converter = new GhostValueSerializerConverter();
+
+                Assert.IsTrue(testWorld.CreateGhostCollection(staticGo, dynamicGo));
 
                 testWorld.CreateWorlds(true, 1);
 
                 var prefabCollection = testWorld.TryGetSingletonEntity<NetCodeTestPrefabCollection>(testWorld.ServerWorld);
-                var prefab = testWorld.ServerWorld.EntityManager.GetBuffer<NetCodeTestPrefab>(prefabCollection)[0].Value;
-                using (var entities = testWorld.ServerWorld.EntityManager.Instantiate(prefab, 10000, Allocator.Persistent))
+                var netCodeTestPrefabs = testWorld.ServerWorld.EntityManager.GetBuffer<NetCodeTestPrefab>(prefabCollection);
+                var prefabStatic = netCodeTestPrefabs[0].Value;
+                var prefabDynamic = netCodeTestPrefabs[1].Value;
+                using (var staticEntities = testWorld.ServerWorld.EntityManager.Instantiate(prefabStatic, 8_000, Allocator.Persistent))
+                using (var dynamicEntities = testWorld.ServerWorld.EntityManager.Instantiate(prefabDynamic, 2_000, Allocator.Persistent))
                 {
-                    // Connect and make sure the connection could be established
-                    testWorld.Connect();
-
-                    // Go in-game
+                    testWorld.Connect(maxSteps:32);
                     testWorld.GoInGame();
 
-                    // Let the game run for a bit so the ghosts are spawned on the client
-                    for (int i = 0; i < 128; ++i)
+                    // Let the game run for a bit so the ghosts are spawned on the client:
+                    for (int i = 0; i < 200; ++i)
                         testWorld.Tick();
 
                     var ghostCount = testWorld.GetSingleton<GhostCount>(testWorld.ClientWorlds[0]);
@@ -605,16 +611,17 @@ namespace Unity.NetCode.Tests
                     ref var ghostRelevancy = ref testWorld.GetSingletonRW<GhostRelevancy>(testWorld.ServerWorld).ValueRW;
                     ghostRelevancy.GhostRelevancyMode = GhostRelevancyMode.SetIsRelevant;
 
-                    for (int i = 0; i < 256; ++i)
+                    for (int i = 0; i < 16; ++i)
                         testWorld.Tick();
 
                     // Assert that replicated version is correct
                     Assert.AreEqual(0, ghostCount.GhostCountInstantiatedOnClient);
                     Assert.AreEqual(0, ghostCount.GhostCountReceivedOnClient);
 
-                    testWorld.ServerWorld.EntityManager.DestroyEntity(entities);
+                    testWorld.ServerWorld.EntityManager.DestroyEntity(staticEntities);
+                    testWorld.ServerWorld.EntityManager.DestroyEntity(dynamicEntities);
 
-                    for (int i = 0; i < 128; ++i)
+                    for (int i = 0; i < 16; ++i)
                         testWorld.Tick();
 
                     // Assert that replicated version is correct

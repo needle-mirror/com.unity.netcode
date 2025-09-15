@@ -60,13 +60,19 @@ namespace Unity.NetCode
         public BlobArray<ComponentInfo> ServerComponentList;
         public BlobArray<int> NumServerComponentsPerEntity;
         /// <summary>
-        /// A list of (child index, components) pairs which should be removed from the prefab when using it on the server. The main use-case is to support ClientAndServer data.
+        /// A list of (child index, components) pairs which should be removed from the prefab when using it on server-only worlds (binary worlds). The main use-case is to support ClientAndServer data.
         /// </summary>
-        public BlobArray<ComponentReference> RemoveOnServer;
+        public BlobArray<ComponentReference> RemoveOnServerOnlyWorld;
+
+        /// <summary>
+        /// Common set of components, used by both single world host and binary world servers. Single World Host should use this directly, while binary world servers should augment this with other components. You can't strip all components on a single world host as it is a server as well.
+        /// </summary>
+        internal BlobArray<ComponentReference> RemoveOnAllServerWorldsSharedList;
+
         /// <summary>
         /// A list of (child index, components) pairs which should be removed from the prefab when using it on the client. The main use-case is to support ClientAndServer data.
         /// </summary>
-        public BlobArray<ComponentReference> RemoveOnClient;
+        public BlobArray<ComponentReference> RemoveOnClientWorlds;
         /// <summary>
         /// A list of (child index, components) pairs which should be disabled when the prefab is used to instantiate a predicted ghost. This is used so we can have a single client prefab.
         /// </summary>

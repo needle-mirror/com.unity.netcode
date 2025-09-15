@@ -14,7 +14,7 @@ namespace Unity.NetCode
 
     /// <summary>
     /// <para>Singleton used to register a <see cref="SmoothingAction"/> for a certain component type.
-    /// The <see cref="SmoothingAction"/> is used to change the component value over time correct misprediction. Two different types of
+    /// The <see cref="SmoothingAction"/> is used to change the component value over time to correct misprediction. Two different types of
     /// smoothing action can be registered:</para>
     /// <para>- A smoothing action without argument. See <see cref="RegisterSmoothingAction{T}"/></para>
     /// <para>- A smoothing action that take a component data as argument. See <see cref="RegisterSmoothingAction{T,U}"/></para>
@@ -175,6 +175,11 @@ namespace Unity.NetCode
         [BurstCompile]
         public void OnCreate(ref SystemState state)
         {
+            if (state.WorldUnmanaged.IsHost())
+            {
+                state.Enabled = false;
+                return;
+            }
             var builder = new EntityQueryBuilder(Allocator.Temp).WithAll<PredictedGhost, GhostInstance>();
             m_PredictionQuery = state.GetEntityQuery(builder);
 

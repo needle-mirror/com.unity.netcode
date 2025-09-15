@@ -41,6 +41,7 @@ If you use **Packet View**, enter custom values in the following fields:
 - **Packet Drop**
 
 Unity runs the network emulation via a Unity Transport Pipeline Stage. This stage is only added to the client driver and so Unity applies these settings to incoming and outgoing packets. To view the combined impact on the ping, open the dropdown and select __Ping View__.
+
 | **Property**                           | **Description**                                                                                                                                                                                                                                                                         |
 |----------------------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | __RTT Delay (ms)__                     | Use this property to emulate round trip time. This property delays the incoming and outgoing packet (in ms) such that the sum of the delays equals the specified value.                                                                                                                   |
@@ -61,6 +62,29 @@ Entities that use Entities Graphics automatically draw bounding boxes. To draw b
 Refer to `GhostPresentationGameObjectEntityOwner` for an example.
 
 <img src="images/DebugBoundingBox.png" width="600" alt="Predicted and Server Debug Bounding Boxes"/>
+
+### Visualize importance of ghosts
+
+When using [ghost importance](optimize-ghosts.html#importance-scaling), you can visualize the importance of ghosts in the Scene and Game view by enabling the Importance Visualizer in the PlayMode Tool window.
+
+| **Property**          | **Description**                                                                                                                                                                                                                                                          |
+|-----------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| __Connection entity__ | Select the connection to visualize importance for.                                                                                                                                                                                                                       |
+| __Draw entity mode__  | Select which mode to use when visualizing importance. **Per entity importance heatmap** colors each entity with its importance value. **Per chunk** groups entities into chunks and colors based on the importance value of the chunk.                                   |
+| __Tile draw mode__    | Selects whether to draw a grid or not, and which axis to draw it on. The grid is based on [GhostDistanceData](https://docs.unity3d.com/Packages/com.unity.netcode@latest?subfolder=/api/Unity.NetCode.GhostDistanceData.html), and needs to be present for this to work. |
+| __Heatmap Gradient__  | Allows you to customize the gradient used for the heatmap visualization.                                                                                                                                                                                                 |
+| __Render Distance__   | How many tiles to render. Increases from (0, 0, 0).                                                                                                                                                                                                                      |
+
+The data for importance visualization is gathered from the server world. A line is drawn between each ghost's position to the first entity found in the same chunk of that ghost (the first entity in the chunk is arbitrary and has no specific meaning). When using the per entity mode, each line is colored based on the gradient, where high priority is the first color (green by default), and low priority is the last color (red by default). When using the per chunk mode, each line is colored the same for all ghosts in the same chunk.
+
+The tile draw mode is only applicable when using the built-in [distance-based importance scaling](optimize-ghosts.html#distance-based-importance). It is based on the tiles from [GhostDistanceData](https://docs.unity3d.com/Packages/com.unity.netcode@latest?subfolder=/api/Unity.NetCode.GhostDistanceData.html). If you aren't using distance-based importance scaling, then grid mode is not applicable.
+
+The following image shows an example importance visualization from the Asteroids sample project using the per entity importance heatmap mode, with a grid on the XZ plane. All asteroids have a line, and each origin point where many lines start from signifies that ghosts belong to that specific chunk. To interpret this, we can see that in the middle of the screen is our ship. This ship is inside a tile. That tile, and the immediate surrounding tiles, all have the same green color. The color is relative, so the more green the color, the higher priority that chunk has. Further away tiles have lower priority and show up as more red. Also note that there can be multiple chunks within the same tile. You can also see that only the closest tiles have asteroids rendered. This is because of relevancy, not importance. This indicates that the system works as intended: the closest asteroids are updated more often than the asteroids that are further away. With a custom importance scaling function that is not based on distance, the lines might be more interwoven and not as clear as this example.
+
+<img src="images/importance-visualizer.png" width="600" alt="Asteroids sample with importance visualizer"/>
+
+> [!NOTE]
+> The importance visualizer only works when the server world is present, and requires [Entities Graphics](https://docs.unity3d.com/Packages/com.unity.entities.graphics@latest) to function correctly.
 
 ## Initialize the network emulator from the command line
 Use the command line arguments `--loadNetworkSimulatorJsonFile [optionalJsonFilePath]` to load an existing JSON (.json) `SimulatorUtility.Parameters` preset. If the file isn't found, unity throws an error.

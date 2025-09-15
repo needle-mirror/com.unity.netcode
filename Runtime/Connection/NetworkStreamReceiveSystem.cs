@@ -346,6 +346,8 @@ namespace Unity.NetCode
             m_SnapshotBufferFromEntity = state.GetBufferLookup<IncomingSnapshotDataStreamBuffer>();
             m_reliableSequencedPipelineStageId = NetworkPipelineStageId.Get<ReliableSequencedPipelineStage>();
 
+            AttemptCreateFakeHostConnection(ref state);
+
             NetworkEndpoint lastEp = default;
             NetworkDriverStore driverStore = default;
             if (SystemAPI.HasSingleton<MigrationTicket>())
@@ -392,6 +394,31 @@ namespace Unity.NetCode
             var networkIDAllocationData = state.EntityManager.CreateEntity(ComponentType.ReadWrite<NetworkIDAllocationData>());
             state.EntityManager.SetName(networkIDAllocationData, "NetworkIDAllocationData");
             state.EntityManager.SetComponentData(networkIDAllocationData, new NetworkIDAllocationData() { FreeNetworkIds = m_FreeNetworkIds, NumNetworkIds = m_NumNetworkIds });
+        }
+
+
+        // The content of this method should shadow the logic in HandleDriverEvents.ApproveConnection
+        void AttemptCreateFakeHostConnection(ref SystemState state)
+        {
+            if (state.WorldUnmanaged.IsHost())
+            {
+                // Combined single world host still needs a connection entity
+                // Generate a fake connection for handling going in game etc
+                var ent = state.EntityManager.CreateEntity();
+                state.EntityManager.AddComponent(ent, NetworkStreamConnection.GetEssentialComponentsForConnection());
+                state.EntityManager.AddBuffer<OutgoingRpcDataStreamBuffer>(ent);
+                // TODO set NetworkStreamInGame on by default? As a single world host, there's not really a case for that to be off. If users rely on this to know if they are ready, they should instead have their own user side signal.
+                state.EntityManager.GetBuffer<LinkedEntityGroup>(ent).Add(new LinkedEntityGroup { Value = ent });
+
+                // Avoid using 0
+                int nid = m_NumNetworkIds.Value + 1;
+                m_NumNetworkIds.Value = nid;
+
+                var networkId = new NetworkId {Value = nid};
+                state.EntityManager.AddComponentData(ent, networkId);
+                state.EntityManager.AddComponent<LocalConnection>(ent); // we're not doing this for binary world servers, since it doesn't really make sense. For a server world, a local client world shouldn't be different from other client worlds.
+                state.EntityManager.SetName(ent, new FixedString64Bytes(FixedString.Format("Host Fake NetworkConnection ({0})", nid)));
+            }
         }
 
         /// <inheritdoc/>
@@ -503,8 +530,6 @@ namespace Unity.NetCode
                 {
                     driverStore = DriverStore,
                     commandBuffer = commandBuffer,
-                    numNetworkId = m_NumNetworkIds,
-                    freeNetworkIds = m_FreeNetworkIds,
                     connectionEvents = m_ConnectionEvents,
                     serverApprovedConnectionRpcQueue = m_ServerApprovedConnectionRpcQueue,
                     requestProtocolVersionHandshakeQueue = m_RequestProtocolVersionHandshakeRpcQueue,
@@ -616,8 +641,6 @@ namespace Unity.NetCode
         {
             public EntityCommandBuffer commandBuffer;
             public NetworkDriverStore driverStore;
-            public NativeReference<int> numNetworkId;
-            public NativeQueue<int> freeNetworkIds;
             public NativeList<NetCodeConnectionEvent> connectionEvents;
             public RpcQueue<ServerApprovedConnection, ServerApprovedConnection> serverApprovedConnectionRpcQueue;
             public RpcQueue<RequestProtocolVersionHandshake, RequestProtocolVersionHandshake> requestProtocolVersionHandshakeQueue;
@@ -649,6 +672,8 @@ namespace Unity.NetCode
                         //TODO: Lookup for any connection that is already connected with the same ip address or any other player identity.
                         //Relying on the IP is pretty weak test but at least is remove already some positives
                         Debug.Assert(tickRate.HandshakeApprovalTimeoutMS > 0);
+                        var ent = commandBuffer.CreateEntity();
+                        commandBuffer.AddComponent(ent, NetworkStreamConnection.GetEssentialComponentsForConnection());
                         var connection = new NetworkStreamConnection
                         {
                             Value = con,
@@ -657,18 +682,15 @@ namespace Unity.NetCode
                             CurrentStateDirty = false,
                             ConnectionApprovalTimeoutStart = currentTime,
                         };
-                        var ent = commandBuffer.CreateEntity();
                         commandBuffer.AddComponent(ent, connection);
                         commandBuffer.AddComponent(ent, new NetworkSnapshotAck
                         {
                             ReceivedSnapshotByRemoteMask = new UnsafeBitArray((int)math.max(1024, tickRate.SnapshotAckMaskCapacity), Allocator.Persistent),
                         });
                         commandBuffer.AddBuffer<PrespawnSectionAck>(ent);
-                        commandBuffer.AddComponent(ent, new CommandTarget());
-                        commandBuffer.AddBuffer<IncomingRpcDataStreamBuffer>(ent);
                         var outgoingBuf = commandBuffer.AddBuffer<OutgoingRpcDataStreamBuffer>(ent);
                         commandBuffer.AddBuffer<IncomingCommandDataStreamBuffer>(ent);
-                        commandBuffer.AddBuffer<LinkedEntityGroup>(ent).Add(new LinkedEntityGroup{Value = ent});
+                        commandBuffer.AppendToBuffer(ent, new LinkedEntityGroup{Value = ent});
                         commandBuffer.SetName(ent, (FixedString64Bytes)$"NetworkConnection (Handshake:{tickRate.HandshakeApprovalTimeoutMS}ms)");
 
                         requestProtocolVersionHandshakeQueue.Schedule(outgoingBuf, ghostFromEntity, new RequestProtocolVersionHandshake
@@ -786,7 +808,7 @@ namespace Unity.NetCode
                         {
                             // This event is only invoked on the client. The server bypasses, as part of the Accept() call.
 #if ENABLE_UNITY_COLLECTIONS_CHECKS
-                            Debug.Assert(!isServer);
+                            Debug.Assert(!isServer, "Sanity check failed: got connect event, but not on server");
                             Debug.Assert(!snapshotAck.ReceivedSnapshotByRemoteMask.IsCreated);
 #endif
                             netDebug.DebugLog($"{debugPrefix} Client connected to driver, sending {protocolVersion.ToFixedString()} Connection[UniqueId:{clientConnectionUniqueId}] to server to begin handshake...");
@@ -1180,6 +1202,7 @@ namespace Unity.NetCode
                 commandBuffer.AddComponent(ent, new ConnectionUniqueId(){ Value = connectionUniqueId });
                 connectionUniqueIds.Add(connectionUniqueId);
 
+                // the logic in AttemptCreateFakeHostConnection should shadow the logic here. I.e. If you update this, double check AttemptCreateFakeHostConnection.
                 networkId = new NetworkId {Value = newNetworkId};
                 commandBuffer.AddComponent(ent, networkId);
                 commandBuffer.SetName(ent, new FixedString64Bytes(FixedString.Format("NetworkConnection ({0})", newNetworkId)));

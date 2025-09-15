@@ -187,6 +187,15 @@ If your client or server aren't able to simulate all the required ticks at a spe
 
 To help preserve determinism, if your inputs change between two ticks, Netcode won't batch those two ticks. For example, if input `FOO=1` for tick 10, 11, and 12 then changes to `FOO=2` for tick 13, 14, and 15, Netcode won't try to batch tick 12 and 13 together, only 10, 11, and 12, or 13, 14, and 15.
 
+<!--
+### Off frames
+
+[Single-world hosts](client-server-worlds.md) can have off frames, where no netcode simulation code executes. These off frames can occur because the client runs at a variable frame rate (for presentation), but simulates on a fixed tick rate (for netcode simulation).
+
+ > [!NOTE] The `InitializationSystemGroup`, `SimulationSystemGroup`, and `PresentationSystemGroup` still run on these off-frames, but system groups defined by Netcode for Entities will not (see `NetcodeHostRateManager`).
+
+You can [use off frames to optimize the performance of your project](optimization/off-frame.md). For example, you can still execute visual-related systems during an off frame. `ServerTick` will be the last tick calculated when a tick executed. `InputTargetTick` will be the next tick, since you're gathering inputs for the next netcode simulation tick.
+-->
 ## Multiple timelines
 
 Clients have the interpolation and prediction timeline which behave differently. Refer to the pages below for more details.

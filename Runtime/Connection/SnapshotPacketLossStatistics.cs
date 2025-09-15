@@ -81,6 +81,7 @@ namespace Unity.NetCode
         /// Formatted dump of statistics for this world-type.
         /// </summary>
         /// <returns>Formatted dump of statistics for this world-type.</returns>
+        [GenerateTestsForBurstCompatibility]
         public FixedString512Bytes ToFixedString()
         {
             if (NumPacketsReceived == 0) return "SPLS[default]";

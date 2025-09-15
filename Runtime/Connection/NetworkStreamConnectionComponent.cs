@@ -14,13 +14,14 @@ namespace Unity.NetCode
     /// The component hold a reference to the underlying transport <see cref="NetworkConnection"/> and the <see cref="NetworkDriver"/>
     /// that created it.
     /// All connections share a common set of components:</para>
-    /// <para>- <see cref="NetworkId"/></para>
+    /// <para>- <see cref="NetworkId"/>only if the connection is established</para>
     /// <para>- <see cref="IncomingRpcDataStreamBuffer"/></para>
     /// <para>- <see cref="OutgoingCommandDataStreamBuffer"/></para>
     /// <para>- <see cref="OutgoingRpcDataStreamBuffer"/></para>
     /// <para>- <see cref="PrespawnSectionAck"/></para>
     /// <para>- <see cref="CommandTarget"/></para>
     /// <para>Client connections also have a <see cref="IncomingSnapshotDataStreamBuffer"/> to handle server ghost snapshots.</para>
+    /// <para>Single world hosts and clients also have a <see cref="LocalConnection"/> to identify your local connection (vs other client connections). On a server world, all connections are "other client" connections.</para>
     ///</summary>
     /// <remarks>Never destroy this entity yourself. You'll receive an error if you attempt to do so.</remarks>
     public struct NetworkStreamConnection : ICleanupComponentData
@@ -62,6 +63,18 @@ namespace Unity.NetCode
 
         /// <summary>Helper.</summary>
         internal bool IsHandshakeOrApproval => CurrentState is ConnectionState.State.Handshake or ConnectionState.State.Approval;
+
+        internal static ComponentTypeSet GetEssentialComponentsForConnection()
+        {
+            return new ComponentTypeSet(
+                // components
+                ComponentType.ReadWrite<CommandTarget>(),
+
+                // buffers
+                ComponentType.ReadWrite<IncomingRpcDataStreamBuffer>(),
+                ComponentType.ReadWrite<LinkedEntityGroup>()
+            );
+        }
     }
 
     /// <summary>
@@ -395,6 +408,16 @@ namespace Unity.NetCode
         /// </summary>
         public byte Value;
     }
+
+
+    /// <summary>
+    /// Used to mark your local NetworkConnection entity. Useful on a single world host (where you typically have multiple NetworkConnection and player entities for other connected clients).
+    /// This will always be present client side, never present on a server only world, and present on only one connection in a single world client-hosted server world.
+    /// </summary>
+    /// <remarks>
+    /// On a single world host, an alternative for finding the local connection is to query for entities WithAll <see cref="NetworkId"/> and WithNone <see cref="NetworkStreamConnection"/>. However, LocalConnection is more explicit.
+    /// </remarks>
+    public struct LocalConnection : IComponentData { }
 
     internal static class NetCodeBufferComponentExtensions
     {

@@ -107,6 +107,7 @@ namespace Unity.NetCode
         /// For debugging and logging.
         /// </summary>
         /// <returns>Logs <c>GhostCount[received:GhostCountReceivedOnClient %, inst:GhostCountInstantiatedOnClient %, server:GhostCountOnServer]</c>.</returns>
+        [GenerateTestsForBurstCompatibility]
         public FixedString128Bytes ToFixedString() => IsCreated ? $"GhostCount[received:{GhostCountReceivedOnClient} {(int)(ReceivedPercent * 100)}%, inst:{GhostCountInstantiatedOnClient} {(int)(InstantiatedPercent * 100)}%, server:{GhostCountOnServer}]" : "GhostCount[default]";
 
         /// <inheritdoc cref="ToFixedString"/>

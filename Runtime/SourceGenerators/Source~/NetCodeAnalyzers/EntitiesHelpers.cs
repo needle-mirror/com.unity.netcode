@@ -36,10 +36,10 @@ namespace NetCodeAnalyzer
                     {
                         if (checkNestedStruct) // Checks when Simulate is used in a nested generic parameter of the method chain, such as Query<RefRO<Simulate>>()
                         {
-                            if (context.SemanticModel.GetSymbolInfo(typeArg).Symbol is INamedTypeSymbol typeSymbol &&
-                                typeSymbol.IsGenericType)
+                            if (context.SemanticModel.GetSymbolInfo(typeArg).Symbol is INamedTypeSymbol nestedTypeSymbol &&
+                                nestedTypeSymbol.IsGenericType)
                             {
-                                foreach (var innerTypeArgs in typeSymbol.TypeArguments)
+                                foreach (var innerTypeArgs in nestedTypeSymbol.TypeArguments)
                                 {
                                     if (IsSimulateComponent(innerTypeArgs))
                                     {
@@ -48,13 +48,12 @@ namespace NetCodeAnalyzer
                                 }
                             }
                         }
-                        else // Checks when Simulate is used directly in the method chain, such as EntityQueryBuilder().WithAll<Simulate>()
+
+                        // Checks when Simulate is used directly in the method chain, such as EntityQueryBuilder().WithAll<Simulate>()
+                        if (context.SemanticModel.GetSymbolInfo(typeArg).Symbol is ITypeSymbol typeSymbol &&
+                            IsSimulateComponent(typeSymbol))
                         {
-                            if (context.SemanticModel.GetSymbolInfo(typeArg).Symbol is ITypeSymbol typeSymbol &&
-                                IsSimulateComponent(typeSymbol))
-                            {
-                                return true;
-                            }
+                            return true;
                         }
                     }
                 }

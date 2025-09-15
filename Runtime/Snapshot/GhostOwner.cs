@@ -40,8 +40,9 @@ namespace Unity.NetCode
     }
 
     /// <summary>
-    /// An enableable tag component used to track if a ghost with an owner is owned by the local host or not.
-    /// This is enabled for all ghosts on the server and for ghosts where the ghost owner network id matches the connection id on the client.
+    /// An enableable component denoting that the current world has input ownership over a ghost. E.g. a player ghost would have this enabled only on the client that owns it.
+    /// This is enabled for ghosts where the <see cref="GhostOwner.NetworkId"/> matches the <see cref="NetworkId.Value"/> on the client. For <see cref="NetCodeConfig.HostWorldMode.SingleWorld"/>, this matches the connection tagged with <see cref="LocalConnection"/>. For binary world's server, this is undefined.
+    /// This shouldn't be used inside the prediction group. For differentiating ghosts inside the prediction group, use the <see cref="GhostComponentAttribute"/> to strip your commands and inputs to only be on predicted ghosts.
     /// </summary>
     public struct GhostOwnerIsLocal : IComponentData, IEnableableComponent
     {}

@@ -31,6 +31,7 @@ namespace Unity.NetCode
                 return 0;
             }
 
+            [GenerateTestsForBurstCompatibility]
             public FixedString512Bytes ToFixedString()
             {
 #if ENABLE_UNITY_COLLECTIONS_CHECKS || UNITY_DOTS_DEBUG
@@ -39,6 +40,8 @@ namespace Unity.NetCode
                 return (FixedString512Bytes)$"Rpc[{TypeHash}, ???]";
                 #endif
             }
+            /// <inheritdoc cref="ToFixedString"/>
+            public override string ToString() => ToFixedString().ToString();
         }
         /// <summary>
         /// <para>

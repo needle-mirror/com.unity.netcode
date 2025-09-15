@@ -225,8 +225,8 @@ namespace Unity.NetCode.Editor
                 CreateBakedComponentItem(compTypes[i]);
 
             // Store the types that have been removed from BOTH the server and client (as they'd not be found via the above):
-            TryAddRemoved(ref blobAssetReference.Value.RemoveOnServer);
-            TryAddRemoved(ref blobAssetReference.Value.RemoveOnClient);
+            TryAddRemoved(ref blobAssetReference.Value.RemoveOnServerOnlyWorld);
+            TryAddRemoved(ref blobAssetReference.Value.RemoveOnClientWorlds);
 
             void TryAddRemoved(ref BlobArray<GhostPrefabBlobMetaData.ComponentReference> removedArray)
             {

@@ -726,7 +726,7 @@ namespace Unity.NetCode.Tests
                 testWorld.TickClientWorld((1 - time.ServerTickFraction)/60f);
 
                 time = testWorld.GetNetworkTime(testWorld.ClientWorlds[0]);
-                Assert.IsFalse(time.IsPartialTick);
+                Assert.IsFalse(time.IsPartialTick, $"time.IsPartialTick, server tick fraction is {time.ServerTickFraction}");
 
                 var ghosts = testWorld.ClientWorlds[0].EntityManager.CreateEntityQuery(typeof(GhostInstance));
                 var entities = ghosts.ToEntityArray(Allocator.Temp);
@@ -1003,7 +1003,7 @@ namespace Unity.NetCode.Tests
                 Assert.That(networkTime.SimulationStepBatchSize, Is.AtLeast(1), "SimulationStepBatchSize");
                 Assert.That(networkTime.ServerTickFraction, Is.EqualTo(1), "ServerTickFraction");
                 Assert.That(networkTime.PredictedTickIndex, Is.EqualTo(0), "PredictedTickIndex");
-                Assert.That(networkTime.NumPredictedTicksExpected, Is.EqualTo(0), "PredictedTickIndex");
+                Assert.That(networkTime.NumPredictedTicksExpected, Is.EqualTo(1), "PredictedTickIndex");
 
                 Assert.IsFalse(networkTime.IsCatchUpTick, "Server is not being death-spiral stressed in this test.");
                 if (networkTime.IsFinalPredictionTick) HasHadFinalPredictionTickOnServer = true;

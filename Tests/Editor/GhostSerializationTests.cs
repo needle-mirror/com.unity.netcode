@@ -15,10 +15,6 @@ using Debug = UnityEngine.Debug;
 
 namespace Unity.NetCode.Tests
 {
-    internal struct Elem : IBufferElementData
-    {
-        [GhostField]public GhostValueSerializer Value;
-    }
     internal class GhostValueSerializerConverter : TestNetCodeAuthoring.IConverter
     {
         public void Bake(GameObject gameObject, IBaker baker)
@@ -221,15 +217,17 @@ namespace Unity.NetCode.Tests
             Assert.AreEqual(serverValues.UnionValue.State3.A,clientValues.UnionValue.State3.A);
             Assert.AreEqual(serverValues.UnionValue.State3.B,clientValues.UnionValue.State3.B);
         }
-        void SetGhostValuesOnServer(NetCodeTestWorld testWorld, int baseValue)
+        void SetGhostValuesOnServer(NetCodeTestWorld testWorld, int baseValue, int length = 2)
         {
             var serverEntity = testWorld.TryGetSingletonEntity<GhostValueSerializer>(testWorld.ServerWorld);
             Assert.AreNotEqual(Entity.Null, serverEntity);
             testWorld.ServerWorld.EntityManager.SetComponentData(serverEntity, CreateGhostValues(baseValue, serverEntity));
             var buffer = testWorld.ServerWorld.EntityManager.GetBuffer<GhostValueBufferSerializer>(serverEntity);
-            buffer.Length = 2;
-            buffer.ElementAt(0) = new GhostValueBufferSerializer {Values = CreateGhostValues(baseValue * -1, serverEntity),};
-            buffer.ElementAt(1) = new GhostValueBufferSerializer {Values = CreateGhostValues(baseValue * 83, serverEntity),};
+            buffer.Length = length;
+            for (int i = 0; i < length; i++)
+            {
+                buffer.ElementAt(i) = new GhostValueBufferSerializer {Values = CreateGhostValues(baseValue + i, serverEntity),};
+            }
         }
 
         private static GhostValueSerializer CreateGhostValues(int baseValue, Entity serverEntity)
@@ -664,10 +662,11 @@ namespace Unity.NetCode.Tests
             }
         }
         [Test]
-        public void ManyEntitiesCanBeDespawnedSameTick()
+        public void ManyEntitiesCanBeDespawnedSameTick([Values(NetCodeTestLatencyProfile.PL33, NetCodeTestLatencyProfile.RTT16ms_PL5)]NetCodeTestLatencyProfile profile)
         {
             using (var testWorld = new NetCodeTestWorld())
             {
+                testWorld.SetTestLatencyProfile(profile);
                 testWorld.Bootstrap(true);
 
                 var ghostGameObject = new GameObject();
@@ -681,16 +680,12 @@ namespace Unity.NetCode.Tests
                 var prefab = testWorld.ServerWorld.EntityManager.GetBuffer<NetCodeTestPrefab>(prefabCollection)[0].Value;
                 using (var entities = testWorld.ServerWorld.EntityManager.Instantiate(prefab, 10000, Allocator.Persistent))
                 {
-                    // Connect and make sure the connection could be established
-                    testWorld.Connect();
-
-                    // Go in-game
+                    testWorld.Connect(maxSteps:32);
                     testWorld.GoInGame();
 
-                    // Let the game run for a bit so the ghosts are spawned on the client
-                    for (int i = 0; i < 128; ++i)
+                    // Let the game run for a bit so the ghosts are spawned on the client:
+                    for (int i = 0; i < 200; ++i)
                         testWorld.Tick();
-
 
                     var ghostCount = testWorld.GetSingleton<GhostCount>(testWorld.ClientWorlds[0]);
                     Assert.AreEqual(10000, ghostCount.GhostCountInstantiatedOnClient);
@@ -698,7 +693,7 @@ namespace Unity.NetCode.Tests
 
                     testWorld.ServerWorld.EntityManager.DestroyEntity(entities);
 
-                    for (int i = 0; i < 256; ++i)
+                    for (int i = 0; i < 12; ++i)
                         testWorld.Tick();
 
                     // Assert that replicated version is correct
@@ -735,7 +730,7 @@ namespace Unity.NetCode.Tests
                         var currentServerTick = testWorld.GetNetworkTime(testWorld.ServerWorld).ServerTick;
                         var lastTickClientAck = testWorld.GetSingleton<NetworkSnapshotAck>(testWorld.ClientWorlds[0]);
                         var serverAck = testWorld.GetSingleton<NetworkSnapshotAck>(testWorld.ServerWorld);
-                        Assert.GreaterOrEqual(serverAck.LastReceivedSnapshotByLocal.TickIndexForValidTick, currentServerTick.TickIndexForValidTick + 2);
+                        Assert.That(serverAck.LastReceivedSnapshotByLocal.TickIndexForValidTick, Is.GreaterThanOrEqualTo(currentServerTick.TickIndexForValidTick + 2));
                         //if the client has received some data from the server
                         if (lastTickClientAck.LastReceivedSnapshotByLocal.IsValid)
                         {
@@ -890,14 +885,17 @@ namespace Unity.NetCode.Tests
             Assert.IsTrue(testWorld.CreateGhostCollection(ghostGameObject));
             testWorld.CreateWorlds(true, 1);
 
-            const int maxMessageSize = 31;
+            const int maxMessageSize = GhostSystemConstants.MinSnapshotPacketSize;
             testWorld.SpawnOnServer(ghostGameObject);
             var maxTheoreticalSizeGhostSendSystemCanSend = (int)(maxMessageSize * math.pow(2, GhostSystemConstants.MaxSnapshotSendAttempts-1)); // Ignoring headers etc.
-            SetLargeGhostValues(testWorld, "a", maxTheoreticalSizeGhostSendSystemCanSend);
+            SetGhostValuesOnServer(testWorld, 43, (int) (maxTheoreticalSizeGhostSendSystemCanSend * 0.01f)); // It's a huge struct inside the buffer.
+
             testWorld.Connect();
             testWorld.GoInGame();
 
             // Configure Snapshot Packet Size limit:
+            ref var ghostSendSystemData = ref testWorld.GetSingletonRW<GhostSendSystemData>(testWorld.ServerWorld).ValueRW;
+            ghostSendSystemData.TempStreamInitialSize *= 32; // Prevents the other overflow error regarding temp stream size!
             if (useNetworkStreamSnapshotTargetSize)
             {
                 var ent = testWorld.TryGetSingletonEntity<NetworkId>(testWorld.ServerWorld);
@@ -906,12 +904,13 @@ namespace Unity.NetCode.Tests
                     Value = maxMessageSize,
                 });
             }
-            else testWorld.GetSingletonRW<GhostSendSystemData>(testWorld.ServerWorld).ValueRW.DefaultSnapshotPacketSize = maxMessageSize;
+            else
+            {
+                ghostSendSystemData.DefaultSnapshotPacketSize = maxMessageSize;
+            }
 
             testWorld.Tick();
-            LogAssert.Expect(LogType.Warning, new Regex(@"PERFORMANCE(.*)NID\[1\](.*)fit even one ghost")); // Triggered trying to send even an empty snapshot.
             testWorld.Tick();
-            LogAssert.Expect(LogType.Warning, new Regex(@"PERFORMANCE(.*)NID\[1\](.*)fit even one ghost")); // Triggered trying to send even an empty snapshot.
             testWorld.Tick();
             for(int i = 0; i < GhostSystemConstants.MaxSnapshotSendAttempts - 1; i++)
                 LogAssert.Expect(LogType.Warning, new Regex(@"PERFORMANCE(.*)NID\[1\](.*)fit even one ghost"));

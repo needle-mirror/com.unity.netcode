@@ -96,7 +96,7 @@ namespace Unity.NetCode.Tests
                     }
                 }
                 var ack = testWorld.ClientWorlds[0].EntityManager.GetComponentData<NetworkSnapshotAck>(connectionEnt);
-                Assert.AreEqual(0, ack.ServerCommandAge);
+                Assert.AreEqual(0, ack.ServerCommandAge, "Server command age should be zero!");
             }
         }
 

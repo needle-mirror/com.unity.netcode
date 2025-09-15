@@ -45,12 +45,12 @@ namespace Unity.NetCode.Tests
             return world;
         }
 
-        /*public World CreateHostWorld(string name, World world = null)
+        public World CreateHostWorld(string name, World world = null)
         {
             EnsureDefaultWorldInitialized();
             if (world == null)
                 world = new World(name, WorldFlags.GameServer | WorldFlags.GameClient);
-            NetcodeWorldManager.AssignCurrentActiveWorldIfNotSet(world);
+            ClientServerBootstrap.AssignCurrentActiveWorldIfNotSet(world);
 
             TypeManager.SortSystemTypesInCreationOrder(NetCodeTestWorld.m_HostSystems); // Ensure CreationOrder is respected.
             DefaultWorldInitialization.AddSystemsToRootLevelSystemGroups(world, NetCodeTestWorld.m_HostSystems);
@@ -60,14 +60,14 @@ namespace Unity.NetCode.Tests
             if (!m_TestWorld.m_IncludeNetcodeSystems)
             {
                 // this also happens in Unity.NetCode.ConfigureClientWorldSystem.OnCreate, we need to register only if necessary
-                NetcodeWorldManager.ClientWorlds.Add(world);
-                NetcodeWorldManager.ServerWorlds.Add(world);
+                ClientServerBootstrap.ClientWorlds.Add(world);
+                ClientServerBootstrap.ServerWorlds.Add(world);
             }
 #if UNITY_EDITOR
             m_TestWorld.BakeGhostCollection(world);
 #endif
             return world;
-        }*/
+        }
 
         public void Bootstrap(NetCodeTestWorld testWorld)
         {
@@ -149,7 +149,6 @@ namespace Unity.NetCode.Tests
                 if (!m_TestWorld.m_IncludeNetcodeSystems)
                 {
                     ClientServerBootstrap.ClientWorlds.Remove(clientWorld);
-                    //ClientServerBootstrap.ServerWorlds.Remove(clientWorld); // since a world can be both now with single world host, removing this from this list just in case
                 }
                 if (m_TestWorld.AlwaysDispose || clientWorld.IsCreated) // issue with shutdown test, shutdown already destroys a world, no need to dispose it again
                 {

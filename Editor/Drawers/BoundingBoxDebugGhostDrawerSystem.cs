@@ -249,9 +249,6 @@ namespace Unity.NetCode.Samples.Common
             serverSystem.SpawnedGhostEntityMapSingletonQuery.CompleteDependency();
             var serverSpawnedGhostEntityMap = serverSystem.SpawnedGhostEntityMapSingletonQuery.GetSingleton<SpawnedGhostEntityMap>().Value;
 
-            var serverLocalToWorldMap = serverSystem.LocalToWorldsMapR0;
-            serverLocalToWorldMap.Update(serverSystem);
-
             var serverVertices = new NativeList<DrawerHelpers.Vertex>(numEntitiesToIterate * 10, Allocator.TempJob);
             var serverIndices = new NativeList<int>(numEntitiesToIterate * 26, Allocator.TempJob);
 
@@ -281,6 +278,9 @@ namespace Unity.NetCode.Samples.Common
                 }
             }
 #endif
+            // doing the lookup update after the above setup to avoid structural changes errors when spawning new ghosts
+            var serverLocalToWorldMap = serverSystem.LocalToWorldsMapR0;
+            serverLocalToWorldMap.Update(serverSystem);
 
             if (numPredictedEntities > 0)
             {

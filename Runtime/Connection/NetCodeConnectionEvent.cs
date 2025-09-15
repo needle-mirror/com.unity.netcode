@@ -43,6 +43,7 @@ namespace Unity.NetCode
         /// Returns a human-readable print of values.
         /// </summary>
         /// <returns>Returns a human-readable print of values.</returns>
+        [GenerateTestsForBurstCompatibility]
         public FixedString128Bytes ToFixedString()
         {
             FixedString128Bytes s = "NetCodeConnEvt[";
@@ -59,5 +60,8 @@ namespace Unity.NetCode
             s.Append(']');
             return s;
         }
+
+        /// <inheritdoc cref="ToFixedString"/>
+        public override string ToString() => ToFixedString().ToString();
     }
 }

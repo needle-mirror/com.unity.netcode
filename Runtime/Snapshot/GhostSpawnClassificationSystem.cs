@@ -127,6 +127,7 @@ namespace Unity.NetCode
         internal  int SectionIndex;
         /// <summary>Helper.</summary>
         /// <returns>Formatted informational string.</returns>
+        [GenerateTestsForBurstCompatibility]
         public FixedString512Bytes ToFixedString()
         {
             FixedString32Bytes spawnType = SpawnType switch
@@ -182,6 +183,11 @@ namespace Unity.NetCode
         [BurstCompile]
         public void OnCreate(ref SystemState state)
         {
+            if (state.WorldUnmanaged.IsHost())
+            {
+                state.Enabled = false;
+                return;
+            }
             m_spawnBufferHelper = new SnapshotDataLookupHelper(ref state,
                 SystemAPI.GetSingletonEntity<GhostCollection>(),
                 SystemAPI.GetSingletonEntity<SpawnedGhostEntityMap>());
@@ -245,6 +251,11 @@ namespace Unity.NetCode
         [BurstCompile]
         public void OnCreate(ref SystemState state)
         {
+            if (state.WorldUnmanaged.IsHost())
+            {
+                state.Enabled = false;
+                return;
+            }
             m_PredictedGhostSpawnLookup = state.GetBufferLookup<PredictedGhostSpawn>();
             state.RequireForUpdate<GhostSpawnQueue>();
             state.RequireForUpdate<PredictedGhostSpawnList>();

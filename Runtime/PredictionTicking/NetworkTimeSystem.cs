@@ -319,6 +319,12 @@ namespace Unity.NetCode
         [BurstCompile]
         public void OnCreate(ref SystemState state)
         {
+            if (state.WorldUnmanaged.IsHost())
+            {
+                state.Enabled = false;
+                return;
+            }
+
 #if UNITY_EDITOR || NETCODE_DEBUG
             var types = new NativeArray<ComponentType>(2, Allocator.Temp);
             types[0] = ComponentType.ReadWrite<NetworkTimeSystemData>();

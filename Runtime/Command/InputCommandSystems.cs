@@ -52,16 +52,17 @@ namespace Unity.NetCode
                 //the previous tick. Thus this method is always guaranteed to increment (using the current counter for
                 //for the event) in respect to the previous tick, that is the requirement for having an always incrementing
                 //counter.
-                inputBuffer.GetDataAtTick(InputTargetTick, out var inputDataElement);
+
+                inputBuffer.GetDataAtTick(InputTargetTick, out var lastInputDataElement);
                 // Increment event count for current tick. There could be an event and then no event but on the same
                 // predicted/simulated tick, this will still be registered as an event (count > 0) instead of the later
                 // event overriding the event to 0/false.
-                var input = default(InputBufferData<TInputComponentData>);
-                input.Tick = InputTargetTick;
-                input.InternalInput = inputData;
-                helper.IncrementEvents(ref input.InternalInput, inputDataElement.InternalInput);
+                var currentInput = default(InputBufferData<TInputComponentData>);
+                currentInput.Tick = InputTargetTick;
+                currentInput.InternalInput = inputData;
+                helper.IncrementEvents(ref currentInput.InternalInput, lastInputDataElement.InternalInput);
 
-                inputBuffer.AddCommandData(input);
+                inputBuffer.AddCommandData(currentInput);
             }
         }
     }
@@ -87,14 +88,13 @@ namespace Unity.NetCode
         private BufferTypeHandle<InputBufferData<TInputComponentData>> m_InputBufferTypeHandle;
 
         /// <inheritdoc/>
-        [BurstCompile]
         public void OnCreate(ref SystemState state)
         {
             var builder = new EntityQueryBuilder(Allocator.Temp)
                 .WithAll<InputBufferData<TInputComponentData>, TInputComponentData, GhostOwner>();
             m_EntityQuery = state.GetEntityQuery(builder);
             m_TimeQuery = state.GetEntityQuery(ComponentType.ReadOnly<NetworkTime>());
-            m_ConnectionQuery = state.GetEntityQuery(ComponentType.ReadOnly<NetworkId>());
+            m_ConnectionQuery = state.GetEntityQuery(ComponentType.ReadOnly<NetworkId>(), ComponentType.ReadOnly<LocalConnection>());
             m_GhostOwnerDataType = state.GetComponentTypeHandle<GhostOwner>(true);
             m_InputBufferTypeHandle = state.GetBufferTypeHandle<InputBufferData<TInputComponentData>>();
             m_InputDataType = state.GetComponentTypeHandle<TInputComponentData>(true);
@@ -232,7 +232,7 @@ namespace Unity.NetCode
                 CurrentPredictionTick = networkTime.ServerTick,
                 StepLength = networkTime.SimulationStepBatchSize,
                 InputBufferTypeHandle = m_InputBufferTypeHandle,
-                InputDataType = m_InputDataType
+                InputDataType = m_InputDataType,
             };
             state.Dependency = jobData.Schedule(m_EntityQuery, state.Dependency);
         }
@@ -268,6 +268,7 @@ namespace Unity.NetCode
         [BurstCompile]
         public void Execute(in ArchetypeChunk chunk, int unfilteredChunkIndex, bool useEnabledMask, in v128 chunkEnabledMask)
         {
+            // We still do buffer copying for single world host, since we still have a need for InputEvents when sampling our inputs
             var inputs = chunk.GetNativeArray(ref InputDataType);
             var inputBuffers = chunk.GetBufferAccessor(ref InputBufferTypeHandle);
             var helper = default(TInputHelper);

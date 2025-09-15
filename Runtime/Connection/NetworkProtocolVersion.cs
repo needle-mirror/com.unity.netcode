@@ -79,7 +79,11 @@ namespace Unity.NetCode
 
         /// <summary>Helper.</summary>
         /// <returns>"NPV[NetCodeVersion:0, GameVersion:0, RpcCollection:00000000000, ComponentCollection:00000000000]"</returns>
+        [GenerateTestsForBurstCompatibility]
         public FixedString512Bytes ToFixedString() => $"NPV[NetCodeVersion:{NetCodeVersion}, GameVersion:{GameVersion}, RpcCollection:{RpcCollectionVersion}, ComponentCollection:{ComponentCollectionVersion}]";
+
+        /// <inheritdoc cref="ToFixedString"/>
+        public override string ToString() => ToFixedString().ToString();
 
         /// <summary>Ensures we're not writing invalid values.</summary>
         [Conditional("UNITY_ASSERTIONS")]

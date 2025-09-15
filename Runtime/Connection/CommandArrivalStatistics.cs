@@ -53,6 +53,7 @@ namespace Unity.NetCode
         /// Debug string.
         /// </summary>
         /// <returns>A formatted debug string.</returns>
+        [GenerateTestsForBurstCompatibility]
         public FixedString128Bytes ToFixedString()
         {
             var commandsPerPacket = AvgCommandsPerPacket;
@@ -60,5 +61,8 @@ namespace Unity.NetCode
             var tooLatePercent = (int) (ArrivedTooLatePercent * 100);
             return $"CAS[packets:{NumCommandPacketsArrived},commands:{NumCommandsArrived},avgCommandsPerPacket:{commandsPerPacket},resends:{NumRedundantResends} {resendPercent}%,late:{NumArrivedTooLate} {tooLatePercent}%,avgSize:{CommandDataUtility.FormatBitsBytes((int)AvgCommandPayloadSizeInBits)}]";
         }
+
+        /// <inheritdoc cref="ToFixedString"/>
+        public override string ToString() => ToFixedString().ToString();
     }
 }

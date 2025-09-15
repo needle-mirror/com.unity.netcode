@@ -381,41 +381,24 @@ namespace Unity.NetCode.Tests
                     testWorld.Tick();
 
                 var systemData = testWorld.GetSingletonRW<GhostSendSystemData>(testWorld.ServerWorld);
-                //force a very small packet size to easily force the case I want.
-                //the number are a little tricky to get but approximatively:
-                //packet header : 206 bits
-                //ghost size in bits: cap + mask bits + data bits
-                //dynamic data capacity bits: deps on count
-                //change masks bits: 2 bits
-                //data bits: deps on count
-                //..group start.
-                //I need to have a condition for which
-                //the data stream has less than 2 bits (that are used to decode the 0)
-                //This data all makes the count
-                //ghost size in bits
-                //dynamic data capacity bits
-                //change masks bits
-                //data bits
-                // so: e(x + y + z) == 1008 - 206 - (e(x) + e(y) + e(z))
-                //
-                // by iteratively change one variable (i.e keep fixed the buffer size) change the encoded size
-                // until we find the hot spot (not easy)..
-                // anyway, these number works the way I want:
-                //  fail on the first entity: expected: -> larger size requested (twice the size)
-                //  fail on the second entity: only the first transmitted, then second time other entity
-                int baseSize = 55;
-                int inc = 3;
+                // Force a very small packet size to trigger a HasFailedWrites within the ghost group serialization logic:
+                // Tweak the test by iteratively changing one the encoded size:
+                // Expected test SETUP result:
+                //  * fail on the first entity: expected: -> larger size requested (twice the size)
+                //  * fail on the second entity: only the first transmitted, then second time other entity
+                int baseSize;
+                int inc;
                 if (failingEntity == 0)
                 {
                     baseSize = 101;
                     inc = 0;
-                    systemData.ValueRW.DefaultSnapshotPacketSize = 126;
+                    systemData.ValueRW.DefaultSnapshotPacketSize = 122;
                 }
                 else
                 {
                     baseSize = 55;
                     inc = 3;
-                    systemData.ValueRW.DefaultSnapshotPacketSize = 150;
+                    systemData.ValueRW.DefaultSnapshotPacketSize = 146;
                 }
 
                 for (int ent = 0; ent < 2; ++ent)

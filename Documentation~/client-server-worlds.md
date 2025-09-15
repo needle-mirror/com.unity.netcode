@@ -2,9 +2,82 @@
 
 Understand the client and server networking model that the Netcode for Entities package uses.
 
-Netcode for Entities separates client and server logic into two worlds, referred to as the client world and the server world respectively. The concept of [worlds](https://docs.unity3d.com/Packages/com.unity.entities@latest?subfolder=/manual/concepts-worlds.html) is inherited from Unity's Entity Component System (ECS), and refers to a collection of [entities](https://docs.unity3d.com/Packages/com.unity.entities@latest?subfolder=/manual/concepts-entities.html) and [systems](https://docs.unity3d.com/Packages/com.unity.entities@latest?subfolder=/manual/concepts-systems.html) arranged into [system groups](https://docs.unity3d.com/Packages/com.unity.entities@latest?subfolder=/manual/systems-update-order.html).
+Netcode for Entities uses a client-server model and has a separation between client and server logic that is split into multiple worlds (the client world and server world <!-- or host world (Experimental) TODO -->). The concept of [worlds](https://docs.unity3d.com/Packages/com.unity.entities@latest?subfolder=/manual/concepts-worlds.html) is inherited from Unity's Entity Component System (ECS), and refers to a collection of [entities](https://docs.unity3d.com/Packages/com.unity.entities@latest?subfolder=/manual/concepts-entities.html) and [systems](https://docs.unity3d.com/Packages/com.unity.entities@latest?subfolder=/manual/concepts-systems.html) arranged into [system groups](https://docs.unity3d.com/Packages/com.unity.entities@latest?subfolder=/manual/systems-update-order.html).
 
 In addition to the standard client and server worlds, Netcode for Entities also supports [thin clients](thin-clients.md) which you can use to test your game during development.
+
+## Terminology
+
+The words client and server can mean different things depending on the context. They can refer to the role a world is taking, or they can refer to the device a game is executing on.
+
+- From a hosting perspective, server refers to the hardware or virtual machine that is running the server world for client devices to connect to.
+- From a role perspective, server refers to the world that's running the authoritative simulation, and client refers to the world that's running the local simulation for a player.
+
+A client device can have a server role, for example, which is referred to as a client-hosted server (or simply host).
+
+<!--
+
+TODO remove this comment once ready to be used by users
+
+## Client, server, and host worlds
+
+Netcode for Entities supports different configurations of worlds within the client-server model. A host world is a special type of server world that also runs client systems, allowing one of the players to act as a server. This is referred to as a client-hosted server.
+
+[See Hosting vs Roles](hosting-vs-role.md) for the difference between the two.
+
+| Configuration                                                          | Description                                                                                                                                                                                                                                                                                                                                                                                     |
+|-----------------------------------------------------------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| Client-only world connecting to a server-only world.                  | You distribute client builds to your players and host a server build yourself in dedicated servers.                                                                                                                                                                                                                                                                                 |
+| Client-only world connecting to a client-hosted server world          | You distribute client-server builds to your players and one of the players acts as a server.<br/>The host player has a client world connecting through IPC to a server world.                                                                                                                                                                                                       |
+| Client-only world connecting to a client-hosted single-world server   | You distribute client-server builds to your players, but instead of the host player creating two worlds, they create a single world acting as both a client and server world. This single-world host behaves as a server with client systems running on it as well. Visible ghosts are no longer predicted or interpolated, they are simply the authoritative ghosts being rendered. |
+
+### Binary and single-world host modes
+
+You can choose between the default binary host mode and single-world host mode using the NetcodeConfig's **Host World Mode Selection** dropdown.
+
+> [!NOTE]
+> Because this is an experimental feature, you also need to add the NETCODE_EXPERIMENTAL_SINGLE_WORLD_HOST define in your project to enable single-world host mode.
+
+Each mode has its own advantages and disadvantages, as described below.
+
+TODO-next format the following in a table
+
+Single-world host mode advantages:
+
+- Performance: a binary world host has multiple extra steps to spend CPU time on. A server world's `SimulationGroup`, `GhostSendSystem`'s serialization, a client world's deserialization, rolling back to the last snapshot, replaying 1+ ticks, 1 partial tick, serializing and sending inputs to the local server world. Whereas a single-world host only has one world to execute locally, with one simulation tick and spends no time sending/receiving data for its own player.
+- Because there's no longer two worlds in the same process, static state is for only one world (a client world or a host world).
+
+Binary host mode advantages:
+
+- Client and server separation: `IsClient` and `IsServer` are always exclusive, making writing client and server code easier to think about. Client-only logic will behave the same whether executing on a client or on a client-hosted server.
+- Easier testing: when you test locally with a split client world connecting through IPC to a local server world, you are already testing a client connecting to a server. The chances of client-only issues when testing a second client connecting to your host are lessened (although not zero, you should still test with builds or [Multiplayer Play Mode](https://docs.unity3d.com/Packages/com.unity.multiplayer.playmode@latest) clones). For example, it can be easy to forget adding a `[GhostField]` attribute on your `Entity somePlayer` or `int myHealth` fields. With single-world host, you need to always test the behavior of client-only separately.
+- When using binary host mode, your game is closer to a dedicated server. It's easier to port to a dedicated server hosting model since your gameplay logic is already split between client and server worlds.
+
+### Behavior differences and migration considerations
+
+If you want to switch between binary host mode and single-world host mode mid-project, you need to be aware of the following differences in behavior between the two modes.
+
+- Connection entity: a world where client systems execute (your host) can have multiple connections containing `NetworkId` and `NetworkStreamInGame`.
+  - Single-world host has a fake connection entity, containing a singleton `LocalConnection` component, a `NetworkId` component, and no `NetworkStreamConnection` component.
+- Inputs: client systems have access to other player's inputs on a host. You need to filter appropriately using `GhostOwnerIsLocal`.
+- `GhostOwnerIsLocal` behaves differently between the two modes.
+    - In a binary host mode setup, client worlds see `GhostOwnerIsLocal` active on locally owned ghosts (ghosts whose owner ID corresponds to the `LocalConnection`'s network ID). On a server world, the behaviour is undefined.
+    - In a single-world setup, the host world sees `GhostOwnerIsLocal` active on its locally owned ghosts, just like for client worlds.
+    - Make sure to strip your input components so they only appear on predicted ghosts if you want to run prediction code reading inputs server-side without having to rely on `GhostOwnerIsLocal`. Refer to `GhostComponent` for stripping configurations.
+- Client-only logic executes in the same world as server systems when using single-world host mode.
+- Relevancy and culling: as the single hosting world is the server role, it must have all server ghost entities loaded in memory to be able to properly perform server duties (for other connections). Therefore, host worlds cannot enable relevancy for the host connection (though relevancy can still be applied to other connections). Therefore, you need to manually disable rendering for far away ghosts in single-world host mode, you can't rely on relevancy.
+- Prediction switching isn't supported on hosts, so can't be used in single-world host mode.
+- When using single-world host mode, all ghosts are authoritative ghosts which means interpolation must be handled differently.
+    - Instead of changing the authoritative value, it's recommended to just smooth the visual instead when interpolating. For example, use `LocalToWorld` for transforms.
+    - Refer to the [Health sample](https://github.com/Unity-Technologies/EntityComponentSystemSamples/tree/master/NetcodeSamples/Assets/Samples/HelloNetcode/3_Advanced/01_HealthBars) for an example of an interpolated and replicated values (the player's health).
+- You can use a fast path for RPCs in single-world host mode. Custom serialization should take advantage of that fast path with `IsPassthroughRPC` and `GetPassthroughActionData`.
+- Partial Ticks: single-host world doesn't support partial ticks. You can instead interpolate your ghosts between full ticks on the host.
+- Testing with lag: to test with lag, you need to test with an external client connecting to your host. Because the host doesn't serialize/deserialize its own state in single-host world mode, there's no way to add artificial latency on your local objects.
+- Sending snapshots on catchup ticks: in a server-only world, the server can send snapshot packets for each individual catchup ticks if they all happen in the same frame. This isn't the case for single-world host, where the host only sends one snapshot per frame.
+
+TODO-next see comment here https://github.cds.internal.unity3d.com/unity/dots/pull/14369/files/ee874d6192b2d76cf38a3aa733b54469b65b24fa#r831105 the above should be a table.
+
+-->
 
 ## Configuring system creation and updates
 
@@ -68,7 +141,7 @@ The default bootstrap creates the client and server worlds automatically at star
 
 This automatic world creation is most useful when you're working in the Editor and enter Play mode with your game scene opened, because it allows immediate Editor iteration testing of your multiplayer game. However, in a standalone game where you typically want to use some sort of front-end menu, you might want to delay world creation, or choose which Netcode worlds to spawn.
 
-For example, consider a "Hosting a client-hosted server" flow versus a "Connect as a client to a dedicated server via matchmaking" flow. In the first scenario, you want to add (and connect via IPC to) an in-process server world. In second scenario, you only want to create a client world. In these cases, you can choose to customize the bootstrapping flow.
+For example, consider a "Hosting a client-hosted server" flow versus a "Connect as a client to a dedicated server via matchmaking" flow. In the first scenario, you may want to add (and connect via IPC to) an in-process server world. In the second scenario, you only want to create a client world. In these cases, you can choose to customize the bootstrapping flow.
 
 ### Customize the bootstrapping flow
 

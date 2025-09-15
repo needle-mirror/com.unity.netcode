@@ -83,11 +83,42 @@ namespace Unity.NetCode
             public bool IsServer;
 
             /// <summary>
+            /// Whether this RPC is a loopback RPC that's bypassing serialization. Your RPC execution code shouldn't need to serialize in this case for performance reasons and should just read data from <see cref="GetPassthroughActionData"/>
+            /// </summary>
+            // TODO-release new doc entry for adding this use case (plus some samples)
+            [MarshalAs(UnmanagedType.U1)]
+#if NETCODE_EXPERIMENTAL_SINGLE_WORLD_HOST
+            public bool IsPassthroughRPC;
+#else
+            internal bool IsPassthroughRPC;
+#endif
+
+            /// <summary>
+            /// Ptr to the action data passthrough. Useful for single world host where we bypass the serialization flow
+            /// </summary>
+            internal IntPtr actionDataOverridePtr;
+
+            /// <summary>
             /// An instance of <see cref="RpcDeserializerState"/> that can be used to deserialize the rpcs.
             /// </summary>
             public RpcDeserializerState DeserializerState
             {
                 get { unsafe { return UnsafeUtility.AsRef<RpcDeserializerState>((void*)State); } }
+            }
+
+            // TODO-release better name
+            /// <summary>
+            /// In a single world host scenario, rpc data doesn't need to be deserialized and is instead already available here, bypassing serialization/deserialization logic
+            /// </summary>
+            /// <typeparam name="TActionData">RPC component type</typeparam>
+            /// <returns></returns>
+#if NETCODE_EXPERIMENTAL_SINGLE_WORLD_HOST
+            public unsafe TActionData GetPassthroughActionData<TActionData>() where TActionData : unmanaged, IComponentData
+#else
+            internal unsafe TActionData GetPassthroughActionData<TActionData>() where TActionData : unmanaged, IComponentData
+#endif
+            {
+                return UnsafeUtility.AsRef<TActionData>((void*)actionDataOverridePtr);
             }
         }
 
@@ -147,8 +178,16 @@ namespace Unity.NetCode
         {
             var rpcData = default(TActionRequest);
 
-            var rpcSerializer = default(TActionSerializer);
-            rpcSerializer.Deserialize(ref parameters.Reader, parameters.DeserializerState, ref rpcData);
+            if (parameters.IsPassthroughRPC)
+            {
+                rpcData = parameters.GetPassthroughActionData<TActionRequest>();
+            }
+            else
+            {
+                var rpcSerializer = default(TActionSerializer);
+                rpcSerializer.Deserialize(ref parameters.Reader, parameters.DeserializerState, ref rpcData);
+            }
+
             var entity = parameters.CommandBuffer.CreateEntity(parameters.JobIndex);
             parameters.CommandBuffer.AddComponent(parameters.JobIndex, entity, new ReceiveRpcCommandRequest {SourceConnection = parameters.Connection});
             parameters.CommandBuffer.AddComponent(parameters.JobIndex, entity, rpcData);
@@ -212,7 +251,6 @@ namespace Unity.NetCode
         private ComponentTypeHandle<NetworkStreamConnection> m_NetworkStreamConnectionHandle;
         private BufferTypeHandle<IncomingRpcDataStreamBuffer> m_IncomingRpcDataStreamBufferComponentHandle;
         private BufferTypeHandle<OutgoingRpcDataStreamBuffer> m_OutgoingRpcDataStreamBufferComponentHandle;
-        private ComponentTypeHandle<NetworkSnapshotAck> m_NetworkSnapshotAckComponentHandle;
 
         /// <inheritdoc/>
         public void OnCreate(ref SystemState state)
@@ -238,15 +276,14 @@ namespace Unity.NetCode
             m_RpcBufferGroup = state.GetEntityQuery(
                 ComponentType.ReadWrite<IncomingRpcDataStreamBuffer>(),
                 ComponentType.ReadWrite<OutgoingRpcDataStreamBuffer>(),
-                ComponentType.ReadWrite<NetworkStreamConnection>(),
-                ComponentType.ReadOnly<NetworkSnapshotAck>());
+                ComponentType.ReadWrite<NetworkStreamConnection>() // single world host has a connection with no NetworkStreamConnection. TODO-release handle disconnected clients
+                );
             state.RequireForUpdate(m_RpcBufferGroup);
 
             m_EntityTypeHandle = state.GetEntityTypeHandle();
             m_NetworkStreamConnectionHandle = state.GetComponentTypeHandle<NetworkStreamConnection>();
             m_IncomingRpcDataStreamBufferComponentHandle = state.GetBufferTypeHandle<IncomingRpcDataStreamBuffer>();
             m_OutgoingRpcDataStreamBufferComponentHandle = state.GetBufferTypeHandle<OutgoingRpcDataStreamBuffer>();
-            m_NetworkSnapshotAckComponentHandle = state.GetComponentTypeHandle<NetworkSnapshotAck>(true);
 
             var rpcCollection = SystemAPI.GetSingleton<RpcCollection>();
             rpcCollection.RegisterRpc<RequestProtocolVersionHandshake>();
@@ -263,6 +300,9 @@ namespace Unity.NetCode
             m_DynamicAssemblyList.Dispose();
         }
 
+        /// <summary>
+        /// Calls RPC's execute methods. By default, those will have deserialization logic from <see cref="RpcExecutor.ExecuteCreateRequestComponent"/>
+        /// </summary>
         [BurstCompile]
         struct RpcExecJob : IJobChunk
         {
@@ -277,7 +317,6 @@ namespace Unity.NetCode
             [ReadOnly] public NativeParallelHashMap<ulong, int> hashToIndex; // TODO - int > ushort.
             [ReadOnly] public NativeParallelHashMap<SpawnedGhost, Entity>.ReadOnly ghostMap;
 
-            [ReadOnly] public ComponentTypeHandle<NetworkSnapshotAck> ackType;
             public uint localTime;
 
             public ConcurrentDriverStore concurrentDriverStore;
@@ -296,7 +335,6 @@ namespace Unity.NetCode
                 var rpcInBuffer = chunk.GetBufferAccessor(ref inBufferType);
                 var rpcOutBuffer = chunk.GetBufferAccessor(ref outBufferType);
                 var connections = chunk.GetNativeArray(ref connectionType);
-                var acks = chunk.GetNativeArray(ref ackType);
                 var deserializeState = new RpcDeserializerState
                 {
                     ghostMap = ghostMap,
@@ -429,7 +467,6 @@ namespace Unity.NetCode
                     dynArray.Clear();
 
                     var sendBuffer = rpcOutBuffer[i];
-                    var ack = acks[i];
                     while (sendBuffer.Length > 0)
                     {
                         // The writer will return a buffer with a size defined by the Transport.
@@ -555,7 +592,6 @@ namespace Unity.NetCode
             m_NetworkStreamConnectionHandle.Update(ref state);
             m_IncomingRpcDataStreamBufferComponentHandle.Update(ref state);
             m_OutgoingRpcDataStreamBufferComponentHandle.Update(ref state);
-            m_NetworkSnapshotAckComponentHandle.Update(ref state);
             var execJob = new RpcExecJob
             {
                 commandBuffer = SystemAPI.GetSingleton<BeginSimulationEntityCommandBufferSystem.Singleton>().CreateCommandBuffer(state.WorldUnmanaged).AsParallelWriter(),
@@ -568,7 +604,6 @@ namespace Unity.NetCode
                 execute = m_RpcData,
                 hashToIndex = m_RpcTypeHashToIndex,
                 ghostMap = SystemAPI.GetSingleton<SpawnedGhostEntityMap>().Value,
-                ackType = m_NetworkSnapshotAckComponentHandle,
                 localTime = NetworkTimeSystem.TimestampMS,
                 concurrentDriverStore = networkStreamDriver.ConcurrentDriverStore,
                 jobProtocolVersion = protocolVersion,

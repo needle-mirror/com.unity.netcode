@@ -73,6 +73,7 @@ namespace Unity.NetCode
         /// </summary>
         /// <remarks>This function must be burst compatible too, otherwise you'll get burst compiler errors.</remarks>
         /// <returns>Field values of your input struct.</returns>
+        [GenerateTestsForBurstCompatibility]
         public FixedString512Bytes ToFixedString() => "?ICD?";
     }
 
@@ -142,6 +143,7 @@ namespace Unity.NetCode
 
         /// <summary>Helper.</summary>
         /// <returns>A short name, for use in packet dumps.</returns>
+        [GenerateTestsForBurstCompatibility]
         public FixedString64Bytes ToFixedString()
         {
             var fs = new FixedString64Bytes();

@@ -29,7 +29,7 @@ public class SystemApiQueryAnalyzerTests
             {
                 public void OnUpdate(ref SystemState state)
                 {
-                    foreach (var test in SystemAPI.Query<RefRW<TestComponent>>().WithAll<RefRO<Simulate>>().WithOptions(EntityQueryOptions.IgnoreComponentEnabledState))
+                    foreach (var test in SystemAPI.Query<RefRW<TestComponent>>().WithAll<Simulate>().WithOptions(EntityQueryOptions.IgnoreComponentEnabledState))
                     {
                     }
                 }
@@ -37,7 +37,7 @@ public class SystemApiQueryAnalyzerTests
 ";
 
         var expected = VerifyCS.Diagnostic(NetcodeDiagnostics.k_NetC0001Descriptor)
-            .WithLocation(19, 121);
+            .WithLocation(19, 114);
         await VerifyCS.VerifyAnalyzerAsync(text, expected);
     }
 
@@ -57,7 +57,7 @@ public class SystemApiQueryAnalyzerTests
             {
                 public void OnUpdate(ref SystemState state)
                 {
-                    foreach (var test in SystemAPI.Query<RefRW<TestComponent>>().WithAll<RefRO<Simulate>>().WithOptions(EntityQueryOptions.IgnoreComponentEnabledState))
+                    foreach (var test in SystemAPI.Query<RefRW<TestComponent>>().WithAll<Simulate>().WithOptions(EntityQueryOptions.IgnoreComponentEnabledState))
                     {
                     }
                 }
@@ -109,7 +109,7 @@ public class SystemApiQueryAnalyzerTests
             {
                 public void OnUpdate(ref SystemState state)
                 {
-                    foreach (var test in SystemAPI.Query<RefRW<TestComponent>>().WithAll<RefRO<Simulate>>())
+                    foreach (var test in SystemAPI.Query<RefRW<TestComponent>>().WithAll<Simulate>())
                     {
                     }
                 }

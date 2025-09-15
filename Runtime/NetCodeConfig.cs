@@ -31,6 +31,27 @@ namespace Unity.NetCode
         }
 
         /// <summary>
+        /// Which client-hosted mode to use.
+        /// </summary>
+#if NETCODE_EXPERIMENTAL_SINGLE_WORLD_HOST
+        public enum HostWorldMode
+#else
+        internal enum HostWorldMode
+#endif
+        {
+            /// <summary>
+            /// A local client and server world are used to host a server on a client. A local IPC connection is used for communication between the two.
+            /// </summary>
+            BinaryWorlds = 0, // TODO change this so SingleWorld is default in N4E 2.0.
+            // TODO start host methods in Unified Netcode should have single world as the default
+
+            /// <summary>
+            /// This world acts as both client and server. There's no client to server connection, only a listening driver. A fake connection entity is generated for convenience.
+            /// </summary>
+            SingleWorld = 1,
+        }
+
+        /// <summary>
         /// Netcode helper: Allows you to add multiple configs to the PreloadedAssets list. There can only be one global one.
         /// </summary>
         public bool IsGlobalConfig;
@@ -42,6 +63,20 @@ namespace Unity.NetCode
         [Header("NetCode")]
         [Tooltip("Denotes if the ClientServerBootstrap (or any derived version of it) should be triggered on game boot. Project-wide setting (when this config is applied in the Netcode tab), overridable via the OverrideAutomaticNetCodeBootstrap MonoBehaviour.")] [SerializeField]
         public AutomaticBootstrapSetting EnableClientServerBootstrap = AutomaticBootstrapSetting.EnableAutomaticBootstrap;
+
+#if NETCODE_EXPERIMENTAL_SINGLE_WORLD_HOST
+        /// <summary>
+        /// Denotes which client-hosted server world mode to use. Single world mode will create a world that acts as both client and server. Binary world mode will create a client and a server world, connected together through intra-process communication (IPC).
+        /// </summary>
+        /// <remarks>
+        /// Once this is set, the expectation is that users will create their whole project with this assumption. This shouldn't be something you change lightly once in a while to test things. This should be commited to your project's source control.
+        /// </remarks>
+        [Tooltip("Denotes which client-hosted server world mode to use. Single world mode will create a world that acts as both client and server. Binary world mode will create a client and a server world, connected together through intra-process communication (IPC).")]
+        [SerializeField]
+        public HostWorldMode HostWorldModeSelection;
+#else
+        internal HostWorldMode HostWorldModeSelection;
+#endif
 
         // TODO - Add a helper link to open the NetDbg when viewing the NetConfig asset.
         /// <inheritdoc cref="Unity.NetCode.ClientServerTickRate" path="/summary"/>
@@ -191,7 +226,7 @@ Default value: 512 i.e. <b>NetworkParameterConstants.ReceiveQueueCapacity</b>")]
         /// <remarks><see cref="RuntimeInitializeLoadType.AfterAssembliesLoaded"/> guarantees that this is called BEFORE Entities initialization.</remarks>
         /// <returns></returns>
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterAssembliesLoaded)]
-        private static void RuntimeTryFindSettings()
+        internal static void RuntimeTryFindSettings()
         {
             if (Application.isEditor)
             {

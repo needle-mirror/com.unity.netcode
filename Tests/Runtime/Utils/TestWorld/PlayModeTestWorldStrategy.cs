@@ -98,17 +98,16 @@ namespace Unity.NetCode.Tests
             return world;
         }
 
-        /*public World CreateHostWorld(string name, World world = null)
+        public World CreateHostWorld(string name, World world = null)
         {
             if (world == null)
             {
                 TypeManager.SortSystemTypesInCreationOrder(NetCodeTestWorld.m_HostSystems); // Ensure CreationOrder is respected.
-                world = ClientServerBootstrap.CreateSingleHostWorld(name, ListToNativeList(NetCodeTestWorld.m_HostSystems));
+                world = ClientServerBootstrap.CreateSingleWorldHost(name, ListToNativeList(NetCodeTestWorld.m_HostSystems));
             }
             world.GetExistingSystemManaged<UpdateWorldTimeSystem>().Enabled = false;
             return world;
-        }*/
-
+        }
         NativeList<SystemTypeIndex> ListToNativeList(List<Type> list)
         {
 

@@ -905,38 +905,19 @@ namespace Unity.NetCode.HostMigration
             unsafe
             {
                 GhostDataBlob.Clear();
-                // TODO: Set minimum size constant somewhere
-                var requiredSize = StateSave.Size + GhostPrefabs.Length * sizeof(GhostPrefabData) + 2 * sizeof(int);
+                // Use double estimated size, the actual size could be bigger than the estimate
+                var requiredSize =2*(StateSave.Size + GhostPrefabs.Length * sizeof(GhostPrefabData) + 2 * sizeof(int));
                 if (GhostDataBlob.Capacity < requiredSize)
                     GhostDataBlob.Resize(2*requiredSize, NativeArrayOptions.ClearMemory);
-                // TODO: If we run out of space when writing, we'll need to resize this buffer and redo this whole loop
                 GhostDataBlob.Length = GhostDataBlob.Capacity;
                 var writer = new DataStreamWriter(GhostDataBlob.AsArray());
 
-                // Write prefab data
-                writer.WriteShort((short)GhostPrefabs.Length);
-                foreach (var ghostPrefab in GhostPrefabs)
+                while (!WriteAllGhostData(ref writer))
                 {
-                    writer.WriteShort((short)ghostPrefab.GhostTypeIndex);
-                    writer.WriteInt(ghostPrefab.GhostTypeHash);
+                    GhostDataBlob.Resize(2*GhostDataBlob.Capacity, NativeArrayOptions.ClearMemory);
+                    writer = new DataStreamWriter(GhostDataBlob.AsArray());
                 }
 
-                var ghostCountWriter = writer;
-                writer.WriteShort(0);
-                short ghostCount = 0;
-                foreach (var entry in StateSave)
-                {
-                    if (WriteGhost(ref writer, entry))
-                        ghostCount++;
-
-                    if (writer.HasFailedWrites)
-                    {
-                        Debug.LogError($"Failed to write ghost data for host migration HasFailedWrites={writer.HasFailedWrites} Length={writer.Length} Capacity={writer.Capacity}");
-                        return;
-                    }
-                }
-
-                ghostCountWriter.WriteShort(ghostCount);
                 GhostDataBlob.Length = writer.Length;
 
                 Stats.ValueRW.PrefabCount = GhostPrefabs.Length;
@@ -946,6 +927,32 @@ namespace Unity.NetCode.HostMigration
                 Stats.ValueRW.UpdateSize = updateSize;
                 Stats.ValueRW.TotalUpdateSize += updateSize;
             }
+        }
+
+        bool WriteAllGhostData(ref DataStreamWriter writer)
+        {
+            // Write prefab data
+            writer.WriteShort((short)GhostPrefabs.Length);
+            foreach (var ghostPrefab in GhostPrefabs)
+            {
+                writer.WriteShort((short)ghostPrefab.GhostTypeIndex);
+                writer.WriteInt(ghostPrefab.GhostTypeHash);
+            }
+
+            var ghostCountWriter = writer;
+            writer.WriteShort(0);
+            short ghostCount = 0;
+            foreach (var entry in StateSave)
+            {
+                if (WriteGhost(ref writer, entry))
+                    ghostCount++;
+
+                if (writer.HasFailedWrites)
+                    return false;
+            }
+
+            ghostCountWriter.WriteShort(ghostCount);
+            return true;
         }
 
         unsafe bool WriteGhost(ref DataStreamWriter writer, WorldStateSave.StateSaveEntry entry)
@@ -1005,6 +1012,9 @@ namespace Unity.NetCode.HostMigration
                 {
                     writer.WriteBytes(new Span<byte>(compData.ComponentAdr, typeInfo.TypeSize));
                 }
+
+                if (writer.HasFailedWrites)
+                    return false;
             }
 
             return true;

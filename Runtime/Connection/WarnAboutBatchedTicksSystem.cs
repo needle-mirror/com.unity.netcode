@@ -47,7 +47,7 @@ namespace Unity.NetCode
             {
                 FixedString64Bytes detailsString = (m_ShowDetailedWarning ? "" : " (see first warning for more details)");
 
-                netDebug.ValueRW.LogWarning($"Server Tick Batching has occurred due to the server falling behind its desired `SimulationTickRate`. An average of {m_RollingAverage:G3} ticks per frame has been detected for the last ~{netDebug.ValueRO.WarnBatchedTicksRollingWindowSize} frames.{detailsString}" );
+                netDebug.ValueRW.LogWarning($"Server Tick Batching has occurred due to the server falling behind its desired `SimulationTickRate`. An average of {m_RollingAverage:G3} ticks per frame has been detected for the last ~{netDebug.ValueRO.WarnBatchedTicksRollingWindowSize} frames. Click <a href=\"{NetCodeHyperLinkArguments.s_OpenPlayModeTools}\" highlight=\"{NetCodeHyperLinkArguments.s_HighlightWarnBatchedTicks}\">here</a> to disable this warning.{detailsString}" );
 
                 if ( m_ShowDetailedWarning )
                 {

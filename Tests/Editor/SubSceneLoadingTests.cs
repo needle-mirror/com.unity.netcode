@@ -517,7 +517,7 @@ namespace Unity.NetCode.Tests
         }
 
         [Test]
-        public void ClientReceiveDespawedGhostsWhenReloadingScene()
+        public void ClientReceiveDespawnedGhostsWhenReloadingScene()
         {
             const int numObjects = 5;
             var ghostPrefab = SubSceneHelper.CreateSimplePrefab(ScenePath, "SimpleGhost", typeof(GhostAuthoringComponent),

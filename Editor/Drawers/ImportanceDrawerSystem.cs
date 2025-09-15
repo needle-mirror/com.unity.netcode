@@ -23,7 +23,6 @@ namespace Unity.NetCode.Samples.Common
     [BurstCompile]
     partial class GhostImportanceDrawerSystem : SystemBase
     {
-        NativeHashMap<ArchetypeChunk, PrioChunk> prioChunks;
         private const string k_HeatmapGradientKey = "GhostImportanceDrawerSystem_HeatmapGradient";
         private const string k_DrawGridKey = "GhostImportanceDrawerSystem_DrawGrid";
         private const string k_DrawModeKey = "GhostImportanceDrawerSystem_DrawMode";
@@ -34,11 +33,12 @@ namespace Unity.NetCode.Samples.Common
         private static bool s_HasGhostDistanceData;
         private static bool s_SelectedEntityGhostPosition;
         private Mesh m_GridMesh;
-        private NativeList<DrawerHelpers.Vertex> s_GridVertices;
-        private NativeList<int> s_GridIndices;
+        private NativeHashMap<ArchetypeChunk, PrioChunk> m_PrioChunks;
+        private NativeList<DrawerHelpers.Vertex> m_GridVertices;
+        private NativeList<int> m_GridIndices;
         private Mesh m_LineMesh;
-        private NativeList<DrawerHelpers.Vertex> s_LineVertices;
-        private NativeList<int> s_LineIndices;
+        private NativeList<DrawerHelpers.Vertex> m_LineVertices;
+        private NativeList<int> m_LineIndices;
 
         public enum DrawMode
         {
@@ -48,7 +48,7 @@ namespace Unity.NetCode.Samples.Common
             PerEntityImportanceHeatmap,
 
             /// <summary>Assigns a random color for each chunk, and draws said random color for all entities in that chunk.</summary>
-            PerEntitySpatialChunkStructure,
+            PerChunk,
         }
 
         public enum DrawGridMode
@@ -93,7 +93,7 @@ namespace Unity.NetCode.Samples.Common
             if(Application.isPlaying && !s_HasGhostDistanceData)
                 EditorGUILayout.HelpBox("The GhostDistanceData component is required for Grid visualization.", MessageType.Info);
             else
-                s_DrawGrid = (DrawGridMode)EditorGUILayout.EnumPopup("Draw grid mode", s_DrawGrid);
+                s_DrawGrid = (DrawGridMode)EditorGUILayout.EnumPopup("Tile draw mode", s_DrawGrid);
 
             s_HeatmapGradient = EditorGUILayout.GradientField("Heatmap Gradient", s_HeatmapGradient);
             s_RenderDistance = EditorGUILayout.IntSlider("Render Distance", s_RenderDistance, 1, 100);
@@ -160,7 +160,7 @@ namespace Unity.NetCode.Samples.Common
             var labelIdPairs = new System.Collections.Generic.List<(string Label, Entity Id)>();
             foreach (var world in ClientServerBootstrap.ServerWorlds)
             {
-                using var query = world.EntityManager.CreateEntityQuery(ComponentType.ReadOnly<NetworkId>());
+                using var query = world.EntityManager.CreateEntityQuery(ComponentType.ReadOnly<NetworkId>(), ComponentType.ReadOnly<NetworkStreamConnection>());
                 if (query.IsEmptyIgnoreFilter) continue;
                 var connectionEntities = query.ToEntityArray(Allocator.Temp);
                 var networkIds = query.ToComponentDataArray<NetworkId>(Allocator.Temp);
@@ -247,11 +247,11 @@ namespace Unity.NetCode.Samples.Common
         protected override void OnCreate()
         {
             ResetSelectedConnection();
-            s_GridVertices = new NativeList<DrawerHelpers.Vertex>(Allocator.Persistent);
-            s_GridIndices = new NativeList<int>(Allocator.Persistent);
-            s_LineVertices = new NativeList<DrawerHelpers.Vertex>(Allocator.Persistent);
-            s_LineIndices = new NativeList<int>(Allocator.Persistent);
-            prioChunks = new NativeHashMap<ArchetypeChunk, PrioChunk>(32, Allocator.Persistent);
+            m_GridVertices = new NativeList<DrawerHelpers.Vertex>(Allocator.Persistent);
+            m_GridIndices = new NativeList<int>(Allocator.Persistent);
+            m_LineVertices = new NativeList<DrawerHelpers.Vertex>(Allocator.Persistent);
+            m_LineIndices = new NativeList<int>(Allocator.Persistent);
+            m_PrioChunks = new NativeHashMap<ArchetypeChunk, PrioChunk>(32, Allocator.Persistent);
         }
 
         [BurstCompile]
@@ -268,17 +268,16 @@ namespace Unity.NetCode.Samples.Common
                 return;
 
             CreateDebugMeshObjectsIfNull();
-            s_GridVertices.Clear();
-            s_GridIndices.Clear();
-            s_LineVertices.Clear();
-            s_LineIndices.Clear();
-
+            m_GridVertices.Clear();
+            m_GridIndices.Clear();
+            m_LineVertices.Clear();
+            m_LineIndices.Clear();
             foreach (var serverWorld in ClientServerBootstrap.ServerWorlds)
             {
-                TryDrawWorld(serverWorld);
+                TryDrawWorld(serverWorld, ref this.CheckedStateRef);
             }
-            DrawerHelpers.UpdateMesh(ref m_GridMesh, ref s_GridVertices, ref s_GridIndices);
-            DrawerHelpers.UpdateMesh(ref m_LineMesh, ref s_LineVertices, ref s_LineIndices);
+            DrawerHelpers.UpdateMesh(ref m_GridMesh, ref m_GridVertices, ref m_GridIndices);
+            DrawerHelpers.UpdateMesh(ref m_LineMesh, ref m_LineVertices, ref m_LineIndices);
         }
 
         protected override void OnStopRunning()
@@ -290,17 +289,22 @@ namespace Unity.NetCode.Samples.Common
         protected override void OnDestroy()
         {
             ResetSelectedConnection();
-            if (s_GridVertices.IsCreated)
-                s_GridVertices.Dispose();
-            if (s_GridIndices.IsCreated)
-                s_GridIndices.Dispose();
-            if (prioChunks.IsCreated)
-                prioChunks.Dispose();
+            if (m_GridVertices.IsCreated)
+                m_GridVertices.Dispose();
+            if (m_GridIndices.IsCreated)
+                m_GridIndices.Dispose();
+            if (m_PrioChunks.IsCreated)
+                m_PrioChunks.Dispose();
+            if (m_LineVertices.IsCreated)
+                m_LineVertices.Dispose();
+            if (m_LineIndices.IsCreated)
+                m_LineIndices.Dispose();
+
             ClearDebugMeshObjects();
         }
 
         [BurstCompile]
-        private void TryDrawWorld(World world)
+        private void TryDrawWorld(World world, ref SystemState state)
         {
             if (!world.IsCreated) return;
             s_HasGhostImportanceSingleton = true;
@@ -347,8 +351,8 @@ namespace Unity.NetCode.Samples.Common
             switch (s_Mode)
             {
                 case DrawMode.PerEntityImportanceHeatmap:
-                case DrawMode.PerEntitySpatialChunkStructure:
-                    DrawPerEntityHeatmap(world, scalingMultiplayer, gcp, tilingData.TileSize, ghostImp);
+                case DrawMode.PerChunk:
+                    DrawPerEntityHeatmap(world, ref state, scalingMultiplayer, gcp, tilingData.TileSize, ghostImp);
                     break;
                 case DrawMode.None:
                     return;
@@ -374,7 +378,7 @@ namespace Unity.NetCode.Samples.Common
         }
 
         [BurstCompile]
-        private void DrawPerEntityHeatmap(World world, ushort scalingMultiplayer, GhostConnectionPosition gcp, int3 tileSize, in GhostImportance ghostImp)
+        private void DrawPerEntityHeatmap(World world, ref SystemState state, ushort scalingMultiplayer, GhostConnectionPosition gcp, int3 tileSize, in GhostImportance ghostImp)
         {
             var ghostSendSystemHandle = world.GetExistingSystem<GhostSendSystem>();
             var ghostSendSystem = world.Unmanaged.GetUnsafeSystemRef<GhostSendSystem>(ghostSendSystemHandle);
@@ -392,7 +396,7 @@ namespace Unity.NetCode.Samples.Common
             var job = new FetchPrioChunkJob()
             {
                 NewPrioChunks = connectionStateData.PrioChunks,
-                PrioChunks = prioChunks
+                PrioChunks = m_PrioChunks
             };
 
             // Use prioChunksSingleton.jobHandle as a dependency for scheduling
@@ -410,7 +414,7 @@ namespace Unity.NetCode.Samples.Common
             var minPriority = float.MaxValue;
             var maxPriority = float.MinValue;
 
-            var prioChunksValues = prioChunks.GetValueArray(Allocator.Temp);
+            var prioChunksValues = m_PrioChunks.GetValueArray(Allocator.Temp);
             foreach (var prioChunk in prioChunksValues)
             {
                 if (prioChunk.priority < minPriority) minPriority = prioChunk.priority;
@@ -422,11 +426,12 @@ namespace Unity.NetCode.Samples.Common
 
             prioChunksValues.Dispose();
 
-            var positionsHandle = world.EntityManager.GetComponentTypeHandle<LocalTransform>(true);
+            var positionsHandle = state.GetComponentTypeHandle<LocalTransform>(true);
 
+            state.CompleteDependency();
             foreach (var chunk in ghostChunks)
             {
-                if (!prioChunks.TryGetValue(chunk, out var prioChunk))
+                if (!m_PrioChunks.TryGetValue(chunk, out var prioChunk))
                     continue;
                 if (prioChunk.chunk.Count == 0)
                     continue;
@@ -459,7 +464,7 @@ namespace Unity.NetCode.Samples.Common
 
                         break;
                     }
-                    case DrawMode.PerEntitySpatialChunkStructure:
+                    case DrawMode.PerChunk:
                     {
                         // One random color per spatial chunk
                         var rand = Mathematics.Random.CreateFromIndex((uint)prioChunk.chunk.SequenceNumber);
@@ -488,14 +493,14 @@ namespace Unity.NetCode.Samples.Common
                     var renderBoundsHandle = world.EntityManager.GetComponentTypeHandle<RenderBounds>(true);
                     var aabb = chunk.GetNativeArray(ref renderBoundsHandle)[0].Value;
                     var localToWorld = chunk.GetNativeArray(ref localToWorldHandle)[0];
-                    DrawerHelpers.DrawWireCross(aabb.Min, aabb.Max, ref s_LineVertices, ref s_LineIndices, localToWorld, colors[0]);
+                    DrawerHelpers.DrawWireCross(aabb.Min, aabb.Max, ref m_LineVertices, ref m_LineIndices, localToWorld, colors[0]);
 #endif
                     continue;
                 }
 
                 for (int i =0; i < positions.Length; ++i)
                 {
-                    DrawerHelpers.DrawLine(positions[i].Position, firstPos, ref s_LineVertices, ref s_LineIndices, colors[i]);
+                    DrawerHelpers.DrawLine(positions[i].Position, firstPos, ref m_LineVertices, ref m_LineIndices, colors[i]);
                 }
             }
 
@@ -522,7 +527,7 @@ namespace Unity.NetCode.Samples.Common
                     var tilePos = ((centerTileIdx + new int3(x, 0, z)) * tileSize) + tilingData.TileCenter;
                     tilePos.y = 0; // Removes tilingData.TileCenter offset
                     tilePos -= new float3(tileSize.x, 0, tileSize.z) * 0.5f;
-                    DrawSquare(tilePos, ref s_GridIndices, ref s_GridVertices, false);
+                    DrawSquare(tilePos, ref m_GridIndices, ref m_GridVertices, false);
                 }
             }
             if (s_DrawGrid == DrawGridMode.XY)
@@ -535,7 +540,7 @@ namespace Unity.NetCode.Samples.Common
                     var tilePos = ((centerTileIdx + new int3(x, y, 0)) * tileSize) + tilingData.TileCenter;
                     tilePos.z = 0; // Removes tilingData.TileCenter offset
                     tilePos -= new float3(tileSize.x, tileSize.y, 0) * 0.5f;
-                    DrawSquare(tilePos, ref s_GridIndices, ref s_GridVertices,true);
+                    DrawSquare(tilePos, ref m_GridIndices, ref m_GridVertices,true);
                 }
             }
 

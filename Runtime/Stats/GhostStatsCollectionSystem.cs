@@ -658,7 +658,7 @@ namespace Unity.NetCode
                 {
                     ref var driverStore = ref networkStreamDriver.DriverStore;
                     var connection = networkStreamConnection.ValueRO.Value;
-                    for (int i = driverStore.FirstDriver; i <= driverStore.LastDriver; i++)
+                    for (int i = driverStore.FirstDriver; i < driverStore.LastDriver; i++)
                     {
                         var networkDriver = driverStore.GetDriverRO(i); // each driver should be configured with the same pipelines
                         var pipeline = driverStore.GetDriverInstanceRO(i).unreliablePipeline;

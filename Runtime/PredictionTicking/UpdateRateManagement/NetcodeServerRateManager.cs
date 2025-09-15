@@ -1,3 +1,4 @@
+using System;
 using Unity.Entities;
 using UnityEngine;
 
@@ -6,6 +7,8 @@ namespace Unity.NetCode
     /// <summary>
     /// Server world's main update rate manager. Determines whether simulation system group should run or not, depending on tick rate and
     /// accumulator logic.
+    /// Host side, Simulation Group runs at frame rate. Prediction Group runs at tick rate
+    /// DGS side, Simulation Group runs at tick rate, Prediction Group runs at same tick rate (pass through).
     /// </summary>
     public class NetcodeServerRateManager : IRateManager
     {
@@ -32,9 +35,13 @@ namespace Unity.NetCode
         {
             m_ClientSeverTickRateQuery.TryGetSingleton<ClientServerTickRate>(out var tickRate);
             tickRate.ResolveDefaults();
+            ref var networkTime = ref m_NetworkTimeQuery.GetSingletonRW<NetworkTime>().ValueRW;
 
             var updateCountThisFrame = TimeTracker.RefreshUpdateCount(group.World.Time.DeltaTime, tickRate.SimulationFixedTimeStep, tickRate.MaxSimulationStepsPerFrame, tickRate.MaxSimulationStepBatchSize);
-            return TimeTracker.InitializeNetworkTimeForFrame(group, tickRate, updateCountThisFrame);
+
+            networkTime.NumPredictedTicksExpected = updateCountThisFrame.TotalSteps;
+            var shouldRun = TimeTracker.InitializeNetworkTimeForFrame(group, tickRate, updateCountThisFrame);
+            return shouldRun;
         }
 
         bool ShouldContinueRun(ComponentSystemGroup group)
@@ -64,6 +71,7 @@ namespace Unity.NetCode
             TimeTracker.PopTime(group);
 
             TimeTracker.UpdateNetworkTime(group, tickRate, ref networkTime);
+            // TODO-2.0 make breaking change and have this be frame time? In sleep mode this wouldn't change much and in busyWait, it'd be the actual frame time, not tickDeltaTime
             TimeTracker.RemainingTicksToRun--;
             var dt = TimeTracker.GetDeltaTimeForCurrentTick(tickRate);
             TimeTracker.PushTime(group, dt, networkTime);
@@ -71,7 +79,10 @@ namespace Unity.NetCode
 
         void OnExitServerFrame(ComponentSystemGroup group)
         {
+            // To stay consistent with previous server logic, pushing and popping time in server group
             TimeTracker.PopTime(group);
+            ref var networkTime = ref m_NetworkTimeQuery.GetSingletonRW<NetworkTime>().ValueRW;
+            networkTime.NumPredictedTicksExpected = 0;
         }
 
         /// <summary>
@@ -102,6 +113,9 @@ namespace Unity.NetCode
 
         /// <summary>
         /// <para>
+        /// IMPORTANT: This method is obsolete and you should prefer using <see cref="NetworkTime.IsOffFrame"/> instead. This method will be removed in upcoming versions.
+        /// </para>
+        /// <para>
         /// Utility method to help determine if the server <see cref="SimulationSystemGroup"/> will update this frame or not. This should only be valid when <see cref="ClientServerTickRate.TargetFrameRateMode"/> is set to <see cref="ClientServerTickRate.FrameRateMode.BusyWait"/>
         /// This can be useful if your host's rate mode is set to BusyWait and you want to do client operations during frames where your server isn't ticking.
         /// Ex: for a tick rate of 60Hz and a frame rate of 120Hz, a client hosted server would execute 2 frames for every tick. In other words, your game would be
@@ -123,7 +137,17 @@ namespace Unity.NetCode
         /// }
         /// </example>
         /// <returns>Whether the server's simulation system group will update this frame or not</returns>
+        [Obsolete("Prefer using NetworkTime.IsOffFrame")]
         public bool WillUpdate()
+        {
+            return WillUpdateInternal();
+        }
+
+        /// <summary>
+        /// Non obsolete method for our own internal usage. Should keep this even once we remove the above obsolete method.
+        /// </summary>
+        /// <returns></returns>
+        internal bool WillUpdateInternal()
         {
             m_ClientSeverTickRateQuery.TryGetSingleton<ClientServerTickRate>(out var tickRate);
             tickRate.ResolveDefaults();

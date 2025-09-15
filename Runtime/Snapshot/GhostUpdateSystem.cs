@@ -643,7 +643,7 @@ namespace Unity.NetCode
                             }
                             snapshotDataOffset += snapshotSize;
                         }
-                        else
+                        else // component type is buffer
                         {
                             var dynamicDataSize = ghostSerializer.SnapshotSize;
                             var maskBits = ghostSerializer.ChangeMaskBits;
@@ -1183,14 +1183,6 @@ namespace Unity.NetCode
             }
         }
 
-        [BurstCompile]
-        [WithOptions(EntityQueryOptions.IgnoreComponentEnabledState)]
-        [WithChangeFilter(typeof(GhostOwner), typeof(GhostOwnerIsLocal))]
-        partial struct UpdateGhostOwnerIsLocal : IJobEntity
-        {
-            public int localNetworkId;
-            public void Execute(in GhostOwner ghostOwner, EnabledRefRW<GhostOwnerIsLocal> isLocalEnabledRef) => isLocalEnabledRef.ValueRW = ghostOwner.NetworkId == localNetworkId;
-        }
 
         [BurstCompile]
         struct UpdateLastInterpolatedTick : IJob
@@ -1242,12 +1234,16 @@ namespace Unity.NetCode
         ComponentTypeHandle<PreSpawnedGhostIndex> m_PreSpawnedGhostIndexTypeHandle;
         ComponentTypeHandle<PredictedGhostSpawnRequest> m_PredictedGhostSpawnRequestTypeHandle;
         EntityTypeHandle m_EntityTypeHandle;
-        ComponentTypeHandle<GhostOwner> m_GhostOwnerType;
-        ComponentTypeHandle<GhostOwnerIsLocal> m_GhostOwnerIsLocalType;
 
         /// <inheritdoc/>
         public void OnCreate(ref SystemState systemState)
         {
+            if (systemState.WorldUnmanaged.IsHost())
+            {
+                systemState.Enabled = false;
+                return;
+            }
+
 #if UNITY_2022_2_14F1_OR_NEWER
             int maxThreadCount = JobsUtility.ThreadIndexCount;
 #else
@@ -1292,13 +1288,13 @@ namespace Unity.NetCode
             m_PreSpawnedGhostIndexTypeHandle = systemState.GetComponentTypeHandle<PreSpawnedGhostIndex>(true);
             m_PredictedGhostSpawnRequestTypeHandle = systemState.GetComponentTypeHandle<PredictedGhostSpawnRequest>(true);
             m_EntityTypeHandle = systemState.GetEntityTypeHandle();
-            m_GhostOwnerType = systemState.GetComponentTypeHandle<GhostOwner>(true);
-            m_GhostOwnerIsLocalType = systemState.GetComponentTypeHandle<GhostOwnerIsLocal>();
         }
 
         /// <inheritdoc/>
         public void OnDestroy(ref SystemState systemState)
         {
+            if (systemState.WorldUnmanaged.IsHost())
+                return;
             m_LastInterpolatedTick.Dispose();
             m_AppliedPredictedTicks.Dispose();
             m_NumPredictedGhostWithNewData.Dispose();
@@ -1398,16 +1394,6 @@ namespace Unity.NetCode
                 DynamicTypeList.PopulateList(ref systemState, ghostComponentCollection, false, ref updateJob.DynamicTypeList); // Change Filtering is handled on a per-chunk basis, inside the job.
                 k_Scheduling.Begin();
                 systemState.Dependency = updateJob.ScheduleParallelByRef(m_ghostQuery, predictedGhostWithNewDataJob);
-                k_Scheduling.End();
-
-                m_GhostOwnerType.Update(ref systemState);
-                m_GhostOwnerIsLocalType.Update(ref systemState);
-                var updateOwnerIsLocal = new UpdateGhostOwnerIsLocal
-                {
-                    localNetworkId = localNetworkId
-                };
-                k_Scheduling.Begin();
-                systemState.Dependency = updateOwnerIsLocal.ScheduleParallel(systemState.Dependency);
                 k_Scheduling.End();
             }
 

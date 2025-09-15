@@ -217,20 +217,26 @@ namespace Unity.NetCode
         /// </summary>
         protected virtual void CreateDefaultClientServerWorlds()
         {
-            var requestedPlayType = RequestedPlayType;
-            if (requestedPlayType != PlayType.Client)
+#if NETCODE_EXPERIMENTAL_SINGLE_WORLD_HOST
+            if (NetCodeConfig.Global != null && NetCodeConfig.Global.HostWorldModeSelection == NetCodeConfig.HostWorldMode.SingleWorld && RequestedPlayType == PlayType.ClientAndServer)
             {
-                CreateServerWorld("ServerWorld");
+                CreateSingleWorldHost("ClientAndServerWorld");
             }
-
-            if (requestedPlayType != PlayType.Server)
+            else
+#endif
             {
-                CreateClientWorld("ClientWorld");
+                if (RequestedPlayType == PlayType.Server || RequestedPlayType == PlayType.ClientAndServer)
+                    CreateServerWorld("ServerWorld");
+                if (RequestedPlayType == PlayType.Client || RequestedPlayType == PlayType.ClientAndServer)
+                    CreateClientWorld("ClientWorld");
+            }
 
 #if UNITY_EDITOR
+            if (RequestedPlayType == PlayType.Client || RequestedPlayType == PlayType.ClientAndServer)
+            {
                 AutomaticThinClientWorldsUtility.BootstrapThinClientWorlds();
-#endif
             }
+#endif
         }
 
         /// <summary>
@@ -262,9 +268,48 @@ namespace Unity.NetCode
             return world;
         }
 
+#if NETCODE_EXPERIMENTAL_SINGLE_WORLD_HOST
+        /// <inheritdoc cref="CreateSingleWorldHost(string,Unity.Collections.NativeList{Unity.Entities.SystemTypeIndex})"/>
+        public static World CreateSingleWorldHost(string name)
+#else
+        internal static World CreateSingleWorldHost(string name)
+
+#endif
+        {
+            var systems = DefaultWorldInitialization.GetAllSystemTypeIndices(WorldSystemFilterFlags.ServerSimulation | WorldSystemFilterFlags.ClientSimulation | WorldSystemFilterFlags.Presentation);
+            return CreateSingleWorldHost(name, systems);
+        }
+
+        /// <summary>
+        /// Utility method for creating combined client and server world (a single world "host")
+        /// Can be used in custom implementations of `Initialize` as well as at runtime,
+        /// to add new clients dynamically.
+        /// </summary>
+        /// <returns></returns>
+#if NETCODE_EXPERIMENTAL_SINGLE_WORLD_HOST
+        public static World CreateSingleWorldHost(string name, NativeList<SystemTypeIndex> systems)
+#else
+        internal static World CreateSingleWorldHost(string name, NativeList<SystemTypeIndex> systems)
+#endif
+        {
+#if (UNITY_CLIENT || UNITY_SERVER) && !UNITY_EDITOR
+                throw new NotImplementedException();
+#endif
+            var world = new World(name, WorldFlags.GameServer | WorldFlags.GameClient);
+
+            DefaultWorldInitialization.AddSystemsToRootLevelSystemGroups(world, systems);
+            ScriptBehaviourUpdateOrder.AppendWorldToCurrentPlayerLoop(world);
+
+            if (World.DefaultGameObjectInjectionWorld == null)
+                World.DefaultGameObjectInjectionWorld = world;
+
+            return world;
+        }
+
         /// <summary>
         /// Utility method for creating new clients worlds.
-        /// Can be used in custom implementations of `Initialize` as well as at runtime to add new clients dynamically.
+        /// Can be used in custom implementations of `Initialize`, as well as at runtime (to add new clients dynamically),
+        /// or when you need to create a client programmatically (for example; frontends that allow selecting "Create Game" vs "Join Game", or similar).
         /// </summary>
         /// <param name="name">The client world name</param>
         /// <returns>Client world instance.</returns>
@@ -451,7 +496,7 @@ namespace Unity.NetCode
             /// The application runs as a server. Usually only the server world is created and the application can only
             /// listen for incoming connections.
             /// </summary>
-            Server = 2
+            Server = 2,
         }
 
         /// <summary>
@@ -617,14 +662,37 @@ namespace Unity.NetCode
         {
             return (world.Flags&WorldFlags.GameServer) == WorldFlags.GameServer;
         }
+
+        /// <summary>
+        /// Check if a world is a single world host (both client and server role).
+        /// </summary>
+        /// <param name="world">A <see cref="World"/> instance</param>
+        /// <returns>Whether <paramref name="world"/> is a client+server world.</returns>
+        public static bool IsHost(this World world)
+        {
+            return IsClient(world) && IsServer(world);
+        }
+
+        /// <inheritdoc cref="IsHost(World)"/>
+        public static bool IsHost(this WorldUnmanaged world)
+        {
+            return IsClient(world) && IsServer(world);
+        }
     }
 
     [WorldSystemFilter(WorldSystemFilterFlags.ServerSimulation)]
     [CreateAfter(typeof(NetworkStreamReceiveSystem))]
     internal partial struct ConfigureServerWorldSystem : ISystem
     {
+        EntityQuery m_SendDataQuery;
+        EntityQuery m_TickRateQuery;
         public void OnCreate(ref SystemState state)
         {
+            if (state.WorldUnmanaged.IsHost())
+            {
+                state.Enabled = false;
+                return;
+            }
             if (!state.World.IsServer())
                 throw new InvalidOperationException("Server worlds must be created with the WorldFlags.GameServer flag");
             var simulationGroup = state.World.GetExistingSystemManaged<SimulationSystemGroup>();
@@ -632,37 +700,43 @@ namespace Unity.NetCode
 
             var predictionGroup = state.World.GetExistingSystemManaged<PredictedSimulationSystemGroup>();
             predictionGroup.RateManager = new NetcodeServerPredictionRateManager(predictionGroup);
-
             ++ClientServerBootstrap.WorldCounts.Data.serverWorlds;
             if (ClientServerBootstrap.WillServerAutoListen)
             {
                 SystemAPI.GetSingletonRW<NetworkStreamDriver>().ValueRW.Listen(ClientServerBootstrap.DefaultListenAddress.WithPort(ClientServerBootstrap.AutoConnectPort));
             }
-            ApplyGlobalNetCodeConfigIfPresent(ref state);
+
+            m_SendDataQuery = state.GetEntityQuery(typeof(GhostSendSystemData));
+            m_TickRateQuery = state.GetEntityQuery(typeof(ClientServerTickRate));
+            ApplyGlobalNetCodeConfigIfPresent(state.World, m_TickRateQuery, m_SendDataQuery);
+
         }
 
 #if UNITY_EDITOR
         public void OnUpdate(ref SystemState state)
         {
-            ApplyGlobalNetCodeConfigIfPresent(ref state);
+            ApplyGlobalNetCodeConfigIfPresent(state.World, m_TickRateQuery, m_SendDataQuery);
         }
 #endif
 
-        private void ApplyGlobalNetCodeConfigIfPresent(ref SystemState state)
+        internal static void ApplyGlobalNetCodeConfigIfPresent(World world, EntityQuery tickRateQuery, EntityQuery ghostSendQuery)
         {
             var serverConfig = NetCodeConfig.Global;
             if (serverConfig)
             {
-                if (SystemAPI.TryGetSingletonRW<ClientServerTickRate>(out var clientServerTickRate))
+                if (tickRateQuery.TryGetSingletonRW<ClientServerTickRate>(out var clientServerTickRate))
                     clientServerTickRate.ValueRW = serverConfig.ClientServerTickRate;
                 else
-                    state.EntityManager.CreateSingleton(serverConfig.ClientServerTickRate);
-                SystemAPI.GetSingletonRW<GhostSendSystemData>().ValueRW = serverConfig.GhostSendSystemData;
+                    world.EntityManager.CreateSingleton(serverConfig.ClientServerTickRate);
+                ghostSendQuery.GetSingletonRW<GhostSendSystemData>().ValueRW = NetCodeConfig.Global.GhostSendSystemData;
             }
         }
 
         public void OnDestroy(ref SystemState state)
         {
+            if (state.WorldUnmanaged.IsHost())
+                return;
+
             --ClientServerBootstrap.WorldCounts.Data.serverWorlds;
             ClientServerBootstrap.ServerWorlds.Remove(state.World);
         }
@@ -672,8 +746,14 @@ namespace Unity.NetCode
     [CreateAfter(typeof(NetworkStreamReceiveSystem))]
     internal partial struct ConfigureClientWorldSystem : ISystem
     {
+        EntityQuery m_TickRateQuery;
         public void OnCreate(ref SystemState state)
         {
+            if (state.WorldUnmanaged.IsHost())
+            {
+                state.Enabled = false;
+                return;
+            }
             if (!state.World.IsClient() && !state.World.IsThinClient())
                 throw new InvalidOperationException("Client worlds must be created with the WorldFlags.GameClient flag");
             var simulationGroup = state.World.GetExistingSystemManaged<SimulationSystemGroup>();
@@ -687,31 +767,34 @@ namespace Unity.NetCode
             {
                 SystemAPI.GetSingletonRW<NetworkStreamDriver>().ValueRW.Connect(state.EntityManager, autoConnectEp);
             }
-
-            ApplyGlobalNetCodeConfigIfPresent(ref state);
+            m_TickRateQuery = state.GetEntityQuery(typeof(ClientTickRate));
+            ApplyGlobalNetCodeConfigIfPresent(state.World, m_TickRateQuery);
         }
 
 #if UNITY_EDITOR
         public void OnUpdate(ref SystemState state)
         {
-            ApplyGlobalNetCodeConfigIfPresent(ref state);
+            ApplyGlobalNetCodeConfigIfPresent(state.World, m_TickRateQuery);
         }
 #endif
 
-        private void ApplyGlobalNetCodeConfigIfPresent(ref SystemState state)
+        internal static void ApplyGlobalNetCodeConfigIfPresent(World world, EntityQuery tickRateQuery)
         {
             var clientConfig = NetCodeConfig.Global;
             if (clientConfig)
             {
-                if (SystemAPI.TryGetSingletonRW<ClientTickRate>(out var clientTickRate))
+                if (tickRateQuery.TryGetSingletonRW<ClientTickRate>(out var clientTickRate))
                     clientTickRate.ValueRW = clientConfig.ClientTickRate;
                 else
-                    state.EntityManager.CreateSingleton(clientConfig.ClientTickRate);
+                    world.EntityManager.CreateSingleton(clientConfig.ClientTickRate);
             }
         }
 
         public void OnDestroy(ref SystemState state)
         {
+            if (state.WorldUnmanaged.IsHost())
+                return;
+
             --ClientServerBootstrap.WorldCounts.Data.clientWorlds;
             ClientServerBootstrap.ClientWorlds.Remove(state.World);
         }
@@ -753,6 +836,67 @@ namespace Unity.NetCode
             --ClientServerBootstrap.WorldCounts.Data.clientWorlds;
             ClientServerBootstrap.ThinClientWorlds.Remove(state.World);
             AutomaticThinClientWorldsUtility.AutomaticallyManagedWorlds.Remove(state.World);
+        }
+    }
+
+
+    [WorldSystemFilter(WorldSystemFilterFlags.ServerSimulation)]
+    [CreateAfter(typeof(NetworkStreamReceiveSystem))]
+    internal partial struct ConfigureSingleWorldHostSystem : ISystem
+    {
+        EntityQuery m_SendDataQuery;
+        EntityQuery m_ClientTickRateQuery;
+        EntityQuery m_ClientServerTickRateQuery;
+        public void OnCreate(ref SystemState state)
+        {
+            if (!state.WorldUnmanaged.IsHost())
+            {
+                state.Enabled = false;
+                return;
+            }
+            var simulationGroup = state.World.GetExistingSystemManaged<SimulationSystemGroup>();
+            var simulationRateManager = new NetcodeHostRateManager(simulationGroup);
+            simulationGroup.SetRateManagerCreateAllocator(simulationRateManager);
+
+            var predictionGroup = state.World.GetExistingSystemManaged<PredictedSimulationSystemGroup>();
+            // On a Host, we only want the prediction loop to be fixed, we want to keep normal frame rate for rest of SimulationSystemGroup
+            //Input gathering happens outside the prediction loop, to make sure we don't miss inputs
+            predictionGroup.RateManager = new NetcodeHostPredictionRateManager(predictionGroup, simulationRateManager.TimeTracker);
+
+            ++ClientServerBootstrap.WorldCounts.Data.serverWorlds;
+            ++ClientServerBootstrap.WorldCounts.Data.clientWorlds;
+            ClientServerBootstrap.ServerWorlds.Add(state.World);
+            ClientServerBootstrap.ClientWorlds.Add(state.World);
+
+            state.Enabled = false;
+
+            if (ClientServerBootstrap.WillServerAutoListen)
+            {
+                SystemAPI.GetSingletonRW<NetworkStreamDriver>().ValueRW.Listen(ClientServerBootstrap.DefaultListenAddress.WithPort(ClientServerBootstrap.AutoConnectPort));
+            }
+            m_SendDataQuery = state.GetEntityQuery(typeof(GhostSendSystemData));
+            m_ClientTickRateQuery = state.GetEntityQuery(typeof(ClientTickRate));
+            m_ClientServerTickRateQuery = state.GetEntityQuery(typeof(ClientServerTickRate));
+            ConfigureServerWorldSystem.ApplyGlobalNetCodeConfigIfPresent(state.World, m_ClientServerTickRateQuery, m_SendDataQuery);
+            ConfigureClientWorldSystem.ApplyGlobalNetCodeConfigIfPresent(state.World, m_ClientTickRateQuery);
+        }
+
+#if UNITY_EDITOR
+        public void OnUpdate(ref SystemState state)
+        {
+            ConfigureServerWorldSystem.ApplyGlobalNetCodeConfigIfPresent(state.World, m_ClientServerTickRateQuery, m_SendDataQuery);
+            ConfigureClientWorldSystem.ApplyGlobalNetCodeConfigIfPresent(state.World, m_ClientTickRateQuery);
+        }
+#endif
+        public void OnDestroy(ref SystemState state)
+        {
+            if (!state.WorldUnmanaged.IsHost())
+                return;
+
+            --ClientServerBootstrap.WorldCounts.Data.serverWorlds;
+            --ClientServerBootstrap.WorldCounts.Data.clientWorlds;
+            ClientServerBootstrap.ServerWorlds.Remove(state.World);
+            ClientServerBootstrap.ClientWorlds.Remove(state.World);
         }
     }
 }

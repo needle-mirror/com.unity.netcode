@@ -49,7 +49,7 @@ namespace Unity.NetCode
         /// <param name="data">data</param>
         /// <exception cref="InvalidOperationException">If the RPC index cannot be found for the rpc type.</exception>
         public unsafe void Schedule(DynamicBuffer<OutgoingRpcDataStreamBuffer> buffer,
-            ComponentLookup<GhostInstance> ghostFromEntity, TActionRequest data)
+            ComponentLookup<GhostInstance> ghostFromEntity, TActionRequest data) // TODO-2.0 data should be an "in". However if we refactor this to do pointer manipulations, then we should keep the copy
         {
             var serializer = default(TActionSerializer);
             // TODO - Expose a user-configurable StreamCompressionModel for both RPCs and ghosts, and hook it up here.

@@ -24,6 +24,7 @@ namespace Unity.NetCode.Tests
         public bool m_WarnWhenTicksBatch;
 
         [UnityTest, Timeout(60_000), Description("Tests all permutations of the NetCodeConfig.EnableClientServerBootstrap option against all permutations of the EnterPlayModeOptions option. As a secondary test: It ensures no runtime errors when domain reloads is either on or off."),]
+        [Ignore("Unstable test that times out and not properly cleaning NetCodeConfig upon such event which leads to more failures. Tracked in MTT-13034")]
         public IEnumerator Test([Values] NetCodeConfig.AutomaticBootstrapSetting value,
             [Values(EnterPlayModeOptions.None,
                 EnterPlayModeOptions.DisableDomainReload,

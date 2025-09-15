@@ -140,6 +140,11 @@ The [`IRpcCommandSerializer`](https://docs.unity3d.com/Packages/com.unity.netcod
 
 > [!NOTE]
 > Don't read from (or write to) the struct field values themselves (do not read or write in-place), instead read from (and write to) the by-ref argument `data`.
+<!--
+TODO enable with single world host
+> [!NOTE]
+> When using a single-world host, local RPCs bypass the serialization/deserialization flow and are executed locally. You can access local RPC data using the `RpcExecutor.Parameters.GetPassthroughActionData` method and test whether you're in a passthrough situation using the `RpcExecutor.Parameters.IsPassthroughRPC` bool.
+-->
 
 Because the function is static, it needs to use `Deserialize` to read the struct data before it executes the RPC. The RPC then either uses the command buffer to modify the connection entity, or uses it to create a new request entity for more complex tasks. It then applies the command in a separate system at a later time. This means that you don't need to perform any additional operations to receive an RPC; its `Execute` method is called on the receiving end automatically.
 

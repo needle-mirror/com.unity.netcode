@@ -101,7 +101,7 @@ namespace Unity.NetCode
         /// <param name="store">Store used to retrieve drivers from.</param>
         public static void RefreshSimulationPipelineParametersLive(in SimulatorUtility.Parameters parameters, ref NetworkDriverStore store)
         {
-            for (var i = store.FirstDriver; i <= store.LastDriver; ++i)
+            for (var i = store.FirstDriver; i < store.LastDriver; ++i)
             {
                 ref var driverInstance = ref store.GetDriverInstanceRW(i);
                 if (!driverInstance.simulatorEnabled) continue;

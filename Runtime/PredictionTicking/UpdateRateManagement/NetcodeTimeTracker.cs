@@ -15,7 +15,7 @@ namespace Unity.NetCode
     {
         internal struct Count
         {
-            // The total number of step the simulation should take
+            // The total number of step the simulation should take. Correspond 1:1 to number of PredictedSimulationSystemGroup iterations (ignoring the effects of batching).
             public int TotalSteps;
             // The number of short steps, if for example Total is 4 and Short is 1 the update will
             // take 3 long steps followed by on short step
@@ -25,7 +25,7 @@ namespace Unity.NetCode
             public int LengthLongSteps;
         }
 
-        internal int RemainingTicksToRun;
+        internal int RemainingTicksToRun; // number of prediction loops to run
         private float m_AccumulatedTime;
         private bool m_IsFirstTimeExecuting = true;
         private double m_ElapsedTime;
@@ -106,9 +106,14 @@ namespace Unity.NetCode
             return tickRate.TargetFrameRateMode == Sleep;
 #endif
         }
-
+        /// <summary>
+        /// called on each prediction iteration, to update network time state accordingly
+        /// returns true if has simulation to run
+        /// </summary>
         internal bool InitializeNetworkTimeForFrame(ComponentSystemGroup group, ClientServerTickRate tickRate, Count updateCount)
         {
+            // initialize all runs of prediction system group this frame
+            // for whole frame server side. for prediction group only host side. TODO-2.0 all this should only be prediction group even for DGS? more consistent DGS vs host?
             m_UpdateCount = updateCount;
             RemainingTicksToRun = m_UpdateCount.TotalSteps;
             m_PredictedFixedStepSimulationSystemGroup.ConfigureTimeStep(tickRate); // TODO-MovePred

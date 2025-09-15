@@ -72,7 +72,8 @@ namespace Unity.NetCode
         /// The tick we should be gathering (i.e. raising, sending) input commands for, for them to arrive in time
         /// to be processed by the server.
         /// It is identical to the <see cref="ServerTick"/> except; a) when using <see cref="ClientTickRate.MaxPredictAheadTimeMS"/>
-        /// with a very high ping connection, and b) when using <see cref="ClientTickRate.ForcedInputLatencyTicks"/>.
+        /// with a very high ping connection, b) when using <see cref="ClientTickRate.ForcedInputLatencyTicks"/>, c) when in an "off" frame with no prediction in
+        /// <see cref="NetCodeConfig.HostWorldMode.SingleWorld"/> mode (in this case, <see cref="InputTargetTick"/> is for the next tick, as we're accumulating inputs for it in those off frames).
         /// The four timelines are therefore in this order: <c>Interpolation Tick (oldest) -> Snapshot Arrival Tick (from the server)
         /// -> ServerTick (client prediction) -> InputTargetTick (i.e. inputs being sent)</c>.
         /// </summary>
@@ -88,6 +89,8 @@ namespace Unity.NetCode
                 {
                     var networkTick = ServerTick;
                     networkTick.Add(EffectiveInputLatencyTicks);
+                    if (IsOffFrame)
+                        networkTick.Add(1);
                     return networkTick;
                 }
                 return NetworkTick.Invalid;
@@ -175,9 +178,22 @@ namespace Unity.NetCode
         public int PredictedTickIndex { get; internal set; }
         /// <summary>
         /// Counts the number of predicted ticks expected to trigger on this frame, ignoring batching.
-        /// Written at the start of the prediction loop. Thus, client only, and is set BEFORE the first tick occurs.
+        /// Client side: written at the start of the prediction loop (see <see cref="PredictedSimulationSystemGroup"/>) and is set BEFORE the first tick occurs.
+        /// Server side: written right before the simulation group (<see cref="SimulationSystemGroup"/>).
         /// </summary>
+        /// <remarks>
+        /// With Single World Host, it's possible to have "off" frames where no game prediction group executes. If there will be or if there has been a
+        /// prediction group execution this frame, this value will be set. This value is only set during the SimulationSystemGroup.
+        /// To see if a tick will execute this frame, use <see cref="IsOffFrame"/>
+        /// </remarks>
         public int NumPredictedTicksExpected { get; internal set; }
+        /// <summary>
+        /// Indicates whether we're in an "off" frame where no netcode tick is executing.
+        /// Always false on clients worlds, since they always have partial ticks.
+        /// For server and host worlds, this will depend on the tick rate and <see cref="ClientServerTickRate.FrameRateMode"/>
+        /// This value is updated in <see cref="UpdateNetworkTimeSystem"/> so make sure to read it after this system executes
+        /// </summary>
+        public bool IsOffFrame;
 
         /// <summary>Helper to debug NetworkTime issues via logs.</summary>
         /// <returns>Formatted string containing NetworkTime data.</returns>
@@ -252,6 +268,43 @@ namespace Unity.NetCode
                 targetTick.Decrement();
             }
             return targetTick;
+        }
+    }
+
+    /// <summary>
+    /// System in charge of updating some network time values in advance, so they can be used outside the normal <see cref="SimulationSystemGroup"/>
+    /// In order to get <see cref="NetworkTime.IsOffFrame"/>, make sure your system executes after this system.
+    /// </summary>
+    [UpdateInGroup(typeof(InitializationSystemGroup))]
+    [WorldSystemFilter(WorldSystemFilterFlags.ServerSimulation | WorldSystemFilterFlags.ClientSimulation)]
+    public partial struct UpdateNetworkTimeSystem : ISystem
+    {
+        /// <inheritdoc cref="ISystem.OnUpdate"/>
+        public void OnUpdate(ref SystemState state)
+        {
+            // need to set IsOffFrame outside of the SimulationGroup rate managers, so it can be accessed by user systems outside of that group. That's because
+            // server worlds just don't run the simulation group, so users would never be able to read a valid value.
+            ref var networkTime = ref SystemAPI.GetSingletonRW<NetworkTime>().ValueRW;
+            var rateManager = state.World.GetExistingSystemManaged<SimulationSystemGroup>().RateManager;
+            if (state.World.IsServer())
+            {
+                if (state.World.IsHost())
+                {
+                    var hostRateManager = rateManager as NetcodeHostRateManager;
+                    networkTime.IsOffFrame = !hostRateManager.WillUpdateInternal();
+                }
+                else
+                {
+                    var serverRateManager = rateManager as NetcodeServerRateManager;
+#pragma warning disable CS0618 // Type or member is obsolete
+                    networkTime.IsOffFrame = !serverRateManager.WillUpdateInternal();
+#pragma warning restore CS0618 // Type or member is obsolete
+                }
+            }
+            else
+            {
+                networkTime.IsOffFrame = false; // clients have partial ticks, they always tick
+            }
         }
     }
 }

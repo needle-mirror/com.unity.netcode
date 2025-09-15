@@ -127,6 +127,7 @@ namespace Unity.NetCode
 
         /// <summary>Logs a burst compatible debug string (if in burst), otherwise logs even more info.</summary>
         /// <returns>A debug string.</returns>
+        [GenerateTestsForBurstCompatibility]
         public FixedString512Bytes ToFixedString()
         {
             var fs = new FixedString512Bytes((FixedString32Bytes) $"SS<");

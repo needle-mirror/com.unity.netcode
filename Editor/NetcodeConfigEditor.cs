@@ -195,7 +195,9 @@ namespace Unity.NetCode.Editor
             //.
             GUI.enabled = !Application.isPlaying;
             EditorGUILayout.PropertyField(serializedObject.FindProperty(nameof(NetCodeConfig.EnableClientServerBootstrap)));
-
+#if NETCODE_EXPERIMENTAL_SINGLE_WORLD_HOST
+            EditorGUILayout.PropertyField(serializedObject.FindProperty(nameof(NetCodeConfig.HostWorldModeSelection)));
+#endif
             //.
             EditorGUILayout.PropertyField(serializedObject.FindProperty(nameof(NetCodeConfig.ClientServerTickRate)), s_ClientServerTickRate);
             GUI.enabled = true;

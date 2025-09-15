@@ -172,6 +172,7 @@ namespace Unity.NetCode
         /// Convert the tick to a fixed string. Also handles invalid ticks.
         /// </summary>
         /// <returns>The tick index as a fixed string, or "Invalid" for invalid ticks.</returns>
+        [GenerateTestsForBurstCompatibility]
         public FixedString32Bytes ToFixedString()
         {
             if (IsValid)

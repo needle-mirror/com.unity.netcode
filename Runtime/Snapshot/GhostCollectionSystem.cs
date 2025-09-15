@@ -304,6 +304,7 @@ namespace Unity.NetCode
 
             if (m_InGameQuery.IsEmptyIgnoreFilter)
             {
+                // Was in-game but we aren't anymore. Clearing everything so that if we do a scene switch for example, rebuilding the ghost collection will be from a clean state.
                 if (SystemAPI.GetSingletonRW<GhostCollection>().ValueRO.IsInGame)
                 {
                     state.EntityManager.GetBuffer<GhostCollectionPrefab>(m_CollectionSingleton).Clear();
@@ -860,8 +861,17 @@ namespace Unity.NetCode
         /// <exception cref="InvalidOperationException"></exception>
         private void RuntimeStripPrefabs(ref SystemState state, in NetDebug netDebug)
         {
-            bool isServer = state.WorldUnmanaged.IsServer();
             using var prefabEntities = m_RuntimeStripQuery.ToEntityArray(Allocator.Temp);
+            if (state.WorldUnmanaged.IsHost())
+            {
+                // On single world host, manually strip essentials and early return
+                state.EntityManager.RemoveComponent(m_RuntimeStripQuery, GhostPrefabCreation.RemoveOnServerWorldsSharedList(Entity.Null, state.EntityManager));
+                state.EntityManager.RemoveComponent<GhostPrefabRuntimeStrip>(m_RuntimeStripQuery);
+
+                // Since this is a single world host, we can't strip anything else so early return
+                return;
+            }
+
             using var metaDatas = m_RuntimeStripQuery.ToComponentDataArray<GhostPrefabMetaData>(Allocator.Temp);
             for (int i = 0; i < prefabEntities.Length; i++)
             {
@@ -869,7 +879,7 @@ namespace Unity.NetCode
                 ref var ghostMetaData = ref metaDatas[i].Value.Value;
 
                 // Delete everything from toBeDeleted from the prefab
-                ref var removeOnWorld = ref GetRemoveOnWorldList(ref ghostMetaData);
+                ref var removeOnWorld = ref GetRemoveOnWorldList(ref ghostMetaData, state.WorldUnmanaged.IsServer());
                 if (removeOnWorld.Length > 0)
                 {
                     //Need to make a copy since we are making structural changes (removing components). The entity values
@@ -897,11 +907,11 @@ namespace Unity.NetCode
             }
             state.EntityManager.RemoveComponent<GhostPrefabRuntimeStrip>(m_RuntimeStripQuery);
 
-            ref BlobArray<GhostPrefabBlobMetaData.ComponentReference> GetRemoveOnWorldList(ref GhostPrefabBlobMetaData ghostMetaData)
+            ref BlobArray<GhostPrefabBlobMetaData.ComponentReference> GetRemoveOnWorldList(ref GhostPrefabBlobMetaData ghostMetaData, bool isServer)
             {
                 if (isServer)
-                    return ref ghostMetaData.RemoveOnServer;
-                return ref ghostMetaData.RemoveOnClient;
+                    return ref ghostMetaData.RemoveOnServerOnlyWorld;
+                return ref ghostMetaData.RemoveOnClientWorlds;
             }
         }
 

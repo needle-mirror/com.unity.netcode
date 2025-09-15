@@ -4,6 +4,16 @@ Each client sends a continuous command stream to the server when [`NetworkStream
 
 The connection is always kept alive, even if the client doesn't control any entities or generate any inputs that need to be transmitted to the server. The command packet is sent regularly on the timescale described in [Collecting and sending input from the client](#collecting-and-sending-input-from-the-client), automatically acknowledging received snapshots and reporting other important information to the server.
 
+## Ownership in Netcode for Entities
+
+Netcode for Entities defines an owner as the connection that has input authority over a ghost. If a given client owns a ghost, it can affect that ghost with its inputs. Other clients can predict the ghost, but don't have the local inputs required to precisely predict it and rely on other heuristics (such as current velocity and acceleration).
+
+For example, if a client predicted spawns a missile, then, although that client doesn't continue to send inputs to the missile ghost directly, its inputs still caused the missile to exist. So that client has input authority over (in other words: ghost ownership over) the missile.
+
+> [!NOTE]
+> Note that input authority is a distinct concept to simulation authority. The simulation authority is the machine (or role) that has the authority to simulate the authoritative outcome for a ghost driven by inputs, which is given to the server role in Netcode for Entities, by default.
+> Example: The input authority for a FPS character controller will be one of the players (denoted by `GhostOwner`), but the client is only allowed to predict the outcome of this character controller -- the actual simulation authority of this character controller remains with the server. The server role is also allowed to destroy, respawn, and modify the character controller entity in any other way.
+> Similarly, because clients are not the simulation authority over other ghosts (like missiles), clients are only permitted to predict the spawn of ghosts.
 ## Creating inputs (commands)
 
 To create a new input type, create a struct that implements the [`ICommandData`](https://docs.unity3d.com/Packages/com.unity.netcode@latest?subfolder=/api/Unity.NetCode.ICommandData.html) interface. To implement the interface, you need to provide a property for accessing the `Tick`.
@@ -85,6 +95,9 @@ Entities
         // your logic here will be applied only to the entities owned by the local player.
     }).Run();
 ```
+
+`GhostOwnerIsLocal` should be used for client-side operations, such as processing inputs for the local player or matching a camera position to your local player's position. `GhostOwnerIsLocal`'s behaviour is undefined server-side.
+
 ### Use the `GhostOwner` component
 
 You can filter entities manually by checking that the `GhostOwner.NetworkId` of the entity equals the `NetworkId` of the player.

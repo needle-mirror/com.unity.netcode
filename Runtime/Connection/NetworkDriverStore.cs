@@ -128,13 +128,13 @@ namespace Unity.NetCode
         /// </summary>
         public const int Capacity = 3;
         /// <summary>
-        /// The first assigned uniqued identifier to each driver.
+        /// The first assigned unique identifier to each driver.
         /// </summary>
         public const int FirstDriverId = 1;
         /// <summary>
-        /// The number of registered drivers. Must be always less then the total driver <see cref="Capacity"/>.
+        /// The number of registered drivers. Must be always less than the total driver <see cref="Capacity"/>.
         /// </summary>
-        public int DriversCount => m_numDrivers;
+        public readonly int DriversCount => m_numDrivers;
         /// <summary>
         /// The first driver id present in the store.
         /// Can be used to iterate over all registered drivers in a for loop.
@@ -146,7 +146,7 @@ namespace Unity.NetCode
         ///      ....
         /// }
         /// </code></example>
-        public int FirstDriver => FirstDriverId;
+        public readonly int FirstDriver => FirstDriverId;
         /// <summary>
         /// The last driver id present in the store.
         /// Can be used to iterate over all registered drivers in a for loop.
@@ -158,15 +158,15 @@ namespace Unity.NetCode
         ///      ....
         /// }
         /// </code></example>
-        public int LastDriver => FirstDriverId + m_numDrivers;
+        public readonly int LastDriver => FirstDriverId + m_numDrivers;
         /// <summary>
         /// Return true if the driver store contains a driver that has a simulator pipeline.
         /// </summary>
-        public bool IsAnyUsingSimulator
+        public readonly bool IsAnyUsingSimulator
         {
             get
             {
-                for (var i = FirstDriver; i <= LastDriver; ++i)
+                for (var i = FirstDriver; i < LastDriver; ++i)
                 {
                     if (GetDriverInstanceRO(i).simulatorEnabled)
                         return true;
@@ -183,7 +183,7 @@ namespace Unity.NetCode
         {
             get
             {
-                for (var i = FirstDriver; i <= LastDriver; ++i)
+                for (var i = FirstDriver; i < LastDriver; ++i)
                 {
                     ref readonly var driverInstance = ref GetDriverInstanceRO(i);
                     if (driverInstance.driver.IsCreated && driverInstance.driver.Listening)
@@ -295,8 +295,9 @@ namespace Unity.NetCode
         /// <param name="driverId">The index of the target driver. See <see cref="FirstDriver"/> and <see cref="LastDriver"/>.</param>
         /// <returns>The <see cref="NetworkDriverData"/> instance, by readonly ref.</returns>
         /// <exception cref="InvalidOperationException">Throws if driverId is out of range.</exception>
-        internal readonly unsafe ref NetworkDriverData GetDriverDataRO(int driverId)
+        internal readonly unsafe ref readonly NetworkDriverData GetDriverDataRO(int driverId)
         {
+            CheckValid(driverId);
             fixed (NetworkDriverStore* store = &this)
             {
                 switch (driverId)
@@ -313,8 +314,9 @@ namespace Unity.NetCode
         /// Returns the <see cref="NetworkDriverData"/> instance, by ref.
         /// </summary>
         /// <inheritdoc cref="GetDriverDataRO"/>
-        internal unsafe ref NetworkDriverData GetDriverDataRW(int driverId)
+        internal readonly unsafe ref NetworkDriverData GetDriverDataRW(int driverId)
         {
+            CheckValid(driverId);
             fixed (NetworkDriverStore* store = &this)
             {
                 switch (driverId)
@@ -338,7 +340,7 @@ namespace Unity.NetCode
         /// </remarks>
         /// <inheritdoc cref="GetDriverDataRO"/>
         [Obsolete("Prefer GetDriverInstanceRW or GetDriverInstanceRO to avoid copying.", false)]
-        public readonly ref NetworkDriverInstance GetDriverInstance(int driverId) => ref GetDriverDataRO(driverId).instance;
+        public readonly ref NetworkDriverInstance GetDriverInstance(int driverId) => ref GetDriverDataRW(driverId).instance;
 
         /// <summary>
         /// Return the <see cref="NetworkDriver"/> with the given <see cref="driverId"/>.
@@ -351,31 +353,31 @@ namespace Unity.NetCode
         ///  Return a reference to the <see cref="NetworkDriverStore.NetworkDriverInstance"/> instance with the given <see cref="driverId"/>.
         ///  </summary>
         /// <inheritdoc cref="GetDriverDataRO"/>
-        public ref NetworkDriverStore.NetworkDriverInstance GetDriverInstanceRW(int driverId) => ref GetDriverDataRW(driverId).instance;
+        public readonly ref NetworkDriverStore.NetworkDriverInstance GetDriverInstanceRW(int driverId) => ref GetDriverDataRW(driverId).instance;
 
         /// <summary>
         ///  Return a reference to the <see cref="NetworkDriverStore.NetworkDriverInstance"/> instance with the given <see cref="driverId"/>.
         ///  </summary>
         /// <inheritdoc cref="GetDriverDataRO"/>
-        public ref readonly NetworkDriverStore.NetworkDriverInstance GetDriverInstanceRO(int driverId) => ref GetDriverDataRO(driverId).instance;
+        public readonly ref readonly NetworkDriverStore.NetworkDriverInstance GetDriverInstanceRO(int driverId) => ref GetDriverDataRO(driverId).instance;
 
         /// <summary>
         /// Retrieve a ReadWrite reference to the <see cref="NetworkDriver"/> for the given <see cref="driverId"/>.
         /// </summary>
         /// <inheritdoc cref="GetDriverDataRO"/>
-        public ref NetworkDriver GetDriverRW(int driverId) => ref GetDriverInstanceRW(driverId).driver;
+        public readonly ref NetworkDriver GetDriverRW(int driverId) => ref GetDriverInstanceRW(driverId).driver;
 
         /// <summary>
         /// Retrieve a Read-Only reference to the <see cref="NetworkDriver"/> for the given <see cref="driverId"/>.
         /// </summary>
         /// <inheritdoc cref="GetDriverDataRO"/>
-        public ref readonly NetworkDriver GetDriverRO(int driverId) => ref GetDriverInstanceRO(driverId).driver;
+        public readonly ref readonly NetworkDriver GetDriverRO(int driverId) => ref GetDriverInstanceRO(driverId).driver;
 
         /// <summary>
         /// Return the transport type used by the registered driver.
         /// </summary>
         /// <inheritdoc cref="GetDriverDataRO"/>
-        public TransportType GetDriverType(int driverId) => GetDriverDataRO(driverId).transportType;
+        public readonly TransportType GetDriverType(int driverId) => GetDriverDataRO(driverId).transportType;
 
         /// <summary>
         /// Return the state of the <see cref="NetworkStreamConnection"/> connection.
@@ -383,7 +385,7 @@ namespace Unity.NetCode
         /// <param name="connection">A client or server connection</param>
         /// <returns>The state of the <see cref="NetworkStreamConnection"/> connection</returns>
         /// <exception cref="InvalidOperationException">Throw an exception if the driver associated to the connection is not found</exception>
-        public NetworkConnection.State GetConnectionState(NetworkStreamConnection connection) => GetDriverRW(connection.DriverId).GetConnectionState(connection.Value);
+        public readonly NetworkConnection.State GetConnectionState(NetworkStreamConnection connection) => GetDriverRW(connection.DriverId).GetConnectionState(connection.Value);
 
         /// <summary>
         /// Signature for all functions that can be used to visit the registered drivers in the store using the <see cref="ForEachDriver"/> method.
@@ -445,6 +447,13 @@ namespace Unity.NetCode
             return JobHandle.CombineDependencies(driver0, driver1, driver2);
         }
 
+        private readonly void CheckValid(int driverId)
+        {
+            var isValidDriverId = driverId >= FirstDriverId && driverId < LastDriver;
+            if (!isValidDriverId)
+                throw new InvalidOperationException($"DriverId:{driverId} out of range: {FirstDriverId} -> {LastDriver}!");
+        }
+
 #if ENABLE_UNITY_COLLECTIONS_CHECKS
         /// <summary>
         /// A do-nothing network interface for internal use. All the NetworkDriver slots in the <see cref="NetworkDriverStore"/>
@@ -479,24 +488,23 @@ namespace Unity.NetCode
         internal NetworkDriverStore.Concurrent m_Concurrent2;
 
         /// <summary>
-        /// Get the concurrent driver with the given driver id
+        /// Get the concurrent driver with the given driver id.
         /// </summary>
         /// <param name="driverId">the id of the driver. Must always greater or equals <see cref="NetworkDriverStore.FirstDriverId"/></param>
         /// <returns>the concurrent version of the NetworkdDriverStore</returns>
         /// <exception cref="InvalidOperationException">Throws if driverId is out of range.</exception>
         public NetworkDriverStore.Concurrent GetConcurrentDriver(int driverId)
         {
-            switch (driverId)
+            var concurrent = driverId switch
             {
-                case 1:
-                    return m_Concurrent0;
-                case 2:
-                    return m_Concurrent1;
-                case 3:
-                    return m_Concurrent2;
-                default:
-                    throw new InvalidOperationException($"Cannot find concurrent driver with id {driverId}");
-            }
+                1 => m_Concurrent0,
+                2 => m_Concurrent1,
+                3 => m_Concurrent2,
+                _ => throw new InvalidOperationException($"Concurrent driverId:{driverId} out of range!"),
+            };
+            if (!concurrent.driver.m_ConnectionList.IsCreated)
+                throw new InvalidOperationException($"Concurrent driverId:{driverId} invalid!");
+            return concurrent;
         }
     }
 }

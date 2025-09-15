@@ -114,6 +114,11 @@ Denotes that the server driver is closed i.e. not currently listening.
             new GUIContent("Client", "Only instantiate a client (with a configurable number of thin clients) that'll automatically attempt to connect to the listed address and port." + k_PlayModeTooltip),
             new GUIContent("Server", "Only instantiate a server. Expects that clients will be instantiated in another process." + k_PlayModeTooltip),
         };
+        static readonly GUIContent[] k_PlayModeStringsSingleWorld =
+        {
+            new GUIContent("Host (Client & Server)", "Instantiates a single host world instance, with a configurable number of accompanying thin client world instances." + k_PlayModeTooltip),
+            new GUIContent("Client", "Only instantiate a client world (with a configurable number of accompanying thin client worlds), which will attempt to connect to the listed address and port." + k_PlayModeTooltip),
+        };
         static GUIContent s_WorldName = new GUIContent("", "The <b>World.Name</b>.");
         static GUIContent s_NetworkId = new GUIContent("", "The <b>NetworkId</b> associated with this client. The server uses the reserved value 0.");
         internal static GUIContent s_ServerStats = new GUIContent("", "<b>Client Connections</b> | <b>Connections In-Game</b> (via <b>NetworkStreamInGame</b>)");
@@ -146,6 +151,8 @@ Denotes that the server driver is closed i.e. not currently listening.
         static GUILayoutOption s_RightButtonWidth = GUILayout.Width(120);
         static DateTime s_LastWrittenUtc;
         static DateTime s_LastRepaintedUtc;
+        static DateTime s_HighlightWarnBatchedTicksTime;
+        static bool s_HighlightWarnBatchedTicks;
         static bool s_ShouldUpdateStatusTexts;
         public static bool s_ForceRepaint;
         Vector2 m_WorldScrollPosition;
@@ -163,6 +170,12 @@ Denotes that the server driver is closed i.e. not currently listening.
         private static void ShowWindow()
         {
             GetWindow<MultiplayerPlayModeWindow>(false, k_Title, true);
+        }
+
+        [InitializeOnLoadMethod]
+        private static void RegisterHyperLinkHandler()
+        {
+            EditorGUI.hyperLinkClicked += HandleHyperLinkClicked;
         }
 
         void OnEnable()
@@ -188,6 +201,12 @@ Denotes that the server driver is closed i.e. not currently listening.
             foreach (var guiContent in s_ServerEmulationContents)
             {
                 s_ServerEmulation.tooltip += $"\n\n - <b>{guiContent.text}</b>: {guiContent.tooltip}";
+            }
+
+            if ( s_HighlightWarnBatchedTicks )
+            {
+                s_HighlightWarnBatchedTicksTime = DateTime.UtcNow + TimeSpan.FromSeconds(0.5f); // we need to defer the highlight as calling it here causes errors
+                EditorApplication.update += HighlightWarnBatchedTicks;
             }
         }
 
@@ -451,6 +470,7 @@ Denotes that the server driver is closed i.e. not currently listening.
             {
                 if (!ClientServerBootstrap.DetermineIfBootstrappingEnabled())
                 {
+                    // TODO should be able to do this warning outside of playmode
                     EditorGUILayout.HelpBox("Bootstrapping is disabled for this project or scene. I.e. Waiting for you to create netcode worlds yourself, which will then appear here.", MessageType.Warning);
                 }
                 else if (!ClientServerBootstrap.WillServerAutoListen)
@@ -502,7 +522,13 @@ Denotes that the server driver is closed i.e. not currently listening.
                 GUI.enabled = EditorApplication.isPlaying
                     ? AutomaticThinClientWorldsUtility.IsRuntimeInitializationEnabled
                     : AutomaticThinClientWorldsUtility.IsBootstrapInitializationEnabled || AutomaticThinClientWorldsUtility.IsRuntimeInitializationEnabled;
-                Prefs.RequestedNumThinClients = EditorGUILayout.IntField(s_NumThinClients, Prefs.RequestedNumThinClients);
+                var buttonLayout = GUILayout.ExpandWidth(false);
+                EditorGUILayout.PrefixLabel(s_NumThinClients);
+                if (GUILayout.Button("-", buttonLayout))
+                    Prefs.RequestedNumThinClients--;
+                Prefs.RequestedNumThinClients = EditorGUILayout.IntField(Prefs.RequestedNumThinClients, GUILayout.MaxWidth(200));
+                if (GUILayout.Button("+", buttonLayout))
+                    Prefs.RequestedNumThinClients++;
                 Prefs.ThinClientCreationFrequency = EditorGUILayout.FloatField(s_InstantiationFrequency, Prefs.ThinClientCreationFrequency);
                 GUI.enabled = true;
             }
@@ -526,24 +552,53 @@ Denotes that the server driver is closed i.e. not currently listening.
             GUI.color = EditorApplication.isPlayingOrWillChangePlaymode ? Color.grey : Color.white;
             EditorGUI.BeginChangeCheck();
             var requestedPlayType = (int) Prefs.RequestedPlayType;
-            EditorPopup(s_PlayModeType, k_PlayModeStrings, ref requestedPlayType);
+            var hostMode = NetCodeConfig.HostWorldMode.BinaryWorlds;
+            var hasHostWorld = false;
+            foreach (var world in World.All)
+            {
+                if (world.IsHost())
+                {
+                    hasHostWorld = true;
+                    break;
+                }
+            }
+
+            if (hasHostWorld)
+            {
+                hostMode = NetCodeConfig.HostWorldMode.SingleWorld;
+            }
+            else
+            {
+                NetCodeConfig.RuntimeTryFindSettings();
+                if (NetCodeConfig.Global != null)
+                    hostMode = NetCodeConfig.Global.HostWorldModeSelection;
+            }
+            EditorPopup(s_PlayModeType, hostMode == NetCodeConfig.HostWorldMode.BinaryWorlds ? k_PlayModeStrings : k_PlayModeStringsSingleWorld, ref requestedPlayType);
+
             if (EditorGUI.EndChangeCheck())
             {
                 Prefs.RequestedPlayType = (ClientServerBootstrap.PlayType) requestedPlayType;
                 EditorApplication.isPlaying = false;
             }
 
-            if ((ClientServerBootstrap.PlayType)requestedPlayType != ClientServerBootstrap.PlayType.Client &&
-                NetCodeClientSettings.instance.ClientTarget == NetCodeClientTarget.ClientAndServer)
+            if (hostMode == NetCodeConfig.HostWorldMode.BinaryWorlds)
             {
-                EditorGUI.BeginChangeCheck();
-                var simulateDedicatedServer = Prefs.SimulateDedicatedServer ? 1 : 0;
-                EditorPopup(s_ServerEmulation, s_ServerEmulationContents, ref simulateDedicatedServer);
-                if (EditorGUI.EndChangeCheck())
+                if ((ClientServerBootstrap.PlayType)requestedPlayType != ClientServerBootstrap.PlayType.Client &&
+                    NetCodeClientSettings.instance.ClientTarget == NetCodeClientTarget.ClientAndServer)
                 {
-                    Prefs.SimulateDedicatedServer = simulateDedicatedServer > 0;
-                    EditorApplication.isPlaying = false;
+                    EditorGUI.BeginChangeCheck();
+                    var simulateDedicatedServer = Prefs.SimulateDedicatedServer ? 1 : 0;
+                    EditorPopup(s_ServerEmulation, s_ServerEmulationContents, ref simulateDedicatedServer);
+                    if (EditorGUI.EndChangeCheck())
+                    {
+                        Prefs.SimulateDedicatedServer = simulateDedicatedServer > 0;
+                        EditorApplication.isPlaying = false;
+                    }
                 }
+            }
+            else
+            {
+                Prefs.SimulateDedicatedServer = false;
             }
 
 #if UNITY_USE_MULTIPLAYER_ROLES
@@ -750,11 +805,16 @@ Denotes that the server driver is closed i.e. not currently listening.
 
         void DrawClientWorld(World world)
         {
-            if (world == default || !world.IsCreated) return;
+            if (world == default || !world.IsCreated || world.IsHost()) return;
 
             var conSystem = world.GetExistingSystemManaged<MultiplayerClientPlayModeConnectionSystem>();
+            if (conSystem == null)
+            {
+                // during playmode tests, only essential systems are included as part of the world. editor systems aren't which means conSystem is null
+                // TODO should just query the world directly for that info, why is this cached in a system?
+                return;
+            }
             if (s_ShouldUpdateStatusTexts) conSystem.UpdateStatusText();
-
             var isConnected = conSystem.ClientConnectionState == ConnectionState.State.Connected;
             var isHandshakeOrApproval = conSystem.NetworkStreamConnection.IsHandshakeOrApproval;
             var connectionColor = GetConnectionStateColor(conSystem.ClientConnectionState);
@@ -765,7 +825,7 @@ Denotes that the server driver is closed i.e. not currently listening.
                 GUILayout.Box(s_NetworkId, s_BoxStyleHack, s_NetworkIdWidth);
 
                 s_WorldName.text = world.Name;
-                GUILayout.Label(s_WorldName, s_WorldNameWidth);
+                GUILayout.Label(world.Name + $" [{(world.IsHost() ? "Host" : world.IsClient() ? "Client" : "Server")}]", s_WorldNameWidth);
                 GUI.color = Color.white;
                 DrawDriverDisplayInfo(ref conSystem.DriverInfos, conSystem.NetworkStreamConnection);
 
@@ -898,8 +958,14 @@ Denotes that the server driver is closed i.e. not currently listening.
                 GUILayout.Box(s_NetworkId, s_BoxStyleHack, s_NetworkIdWidth);
 
                 s_WorldName.text = serverWorld.Name;
-                EditorGUILayout.LabelField(s_WorldName, s_WorldNameWidth);
-
+                EditorGUILayout.LabelField(s_WorldName + $" [{(serverWorld.IsHost() ? "host" : "server")}]", s_WorldNameWidth);
+                if (conSystem == null)
+                {
+                    // during playmode tests, only essential systems are included as part of the world. editor systems aren't which means conSystem is null
+                    // TODO should just query the world directly for that info, why is this cached in a system?
+                    GUILayout.EndHorizontal();
+                    return;
+                }
                 DrawDriverDisplayInfo(ref conSystem.DriverInfos, null);
 
                 GUILayout.FlexibleSpace();
@@ -1120,8 +1186,14 @@ Denotes that the server driver is closed i.e. not currently listening.
             DrawSeparator();
 
             GUILayout.BeginHorizontal();
+            bool WarnBatchedTicksBeforeToggle = Prefs.WarnBatchedTicks;
             Prefs.WarnBatchedTicks = EditorGUILayout.Toggle(s_WarnBatchedTicks, Prefs.WarnBatchedTicks);
             GUILayout.EndHorizontal();
+
+            if ( Highlighter.active && WarnBatchedTicksBeforeToggle != Prefs.WarnBatchedTicks && Highlighter.activeText == s_WarnBatchedTicks.text )
+            {
+                Highlighter.Stop();
+            }
 
             if (Prefs.WarnBatchedTicks)
             {
@@ -1259,6 +1331,34 @@ Denotes that the server driver is closed i.e. not currently listening.
                 connSystem.DisconnectPending = true;
             }
         }
+
+        private static void HandleHyperLinkClicked(EditorWindow window, HyperLinkClickedEventArgs args)
+        {
+            HandleHyperLinkArgs(args.hyperLinkData);
+        }
+
+        internal static void HandleHyperLinkArgs( Dictionary<string,string> hyperLinkData )
+        {
+            if ( hyperLinkData.TryGetValue("href", out var href ) && href == NetCodeHyperLinkArguments.s_OpenPlayModeTools )
+            {
+                ShowWindow();
+            }
+
+            if ( hyperLinkData.TryGetValue( "highlight", out var highlight ) && highlight == NetCodeHyperLinkArguments.s_HighlightWarnBatchedTicks )
+            {
+                s_HighlightWarnBatchedTicks = true;
+            }
+        }
+
+
+        private void HighlightWarnBatchedTicks()
+        {
+            if (DateTime.UtcNow > s_HighlightWarnBatchedTicksTime)
+            {
+                Highlighter.Highlight(k_Title, s_WarnBatchedTicks.text );
+                EditorApplication.update -= HighlightWarnBatchedTicks;
+            }
+        }
     }
 
     [WorldSystemFilter(WorldSystemFilterFlags.ClientSimulation|WorldSystemFilterFlags.ThinClientSimulation)]
@@ -1295,6 +1395,12 @@ Denotes that the server driver is closed i.e. not currently listening.
 
         protected override void OnCreate()
         {
+            if (World.IsHost())
+            {
+                Enabled = false;
+                return;
+            }
+            RequireForUpdate<UnscaledClientTime>();
             m_PredictedGhostsQuery = GetEntityQuery(ComponentType.ReadOnly<PredictedGhost>());
             UpdateStatusText();
         }

@@ -18,8 +18,18 @@ namespace Unity.NetCode
         /// <summary>
         /// The name of the prefab.
         /// </summary>
-        [Obsolete("The PrefabDebugName.Name field has been deprecated. Please use the PrefabName instea.", false)]
-        public FixedString64Bytes Name;
+        [Obsolete("The PrefabDebugName.Name field has been deprecated. Please use the PrefabName instead.", true)]
+        public FixedString64Bytes Name
+        {
+            readonly get
+            {
+                var fs = default(FixedString64Bytes);
+                fs.CopyFromTruncated(PrefabName);
+                return fs;
+            }
+            // ReSharper disable once ValueParameterNotUsed
+            set {}
+        }
 
         /// <summary>
         /// The name of the prefab.

@@ -49,6 +49,11 @@ namespace Unity.NetCode
         /// <inheritdoc/>
         public void OnCreate(ref SystemState state)
         {
+            if (state.WorldUnmanaged.IsHost())
+            {
+                state.Enabled = false;
+                return;
+            }
             var singleton = state.EntityManager.CreateEntity(ComponentType.ReadWrite<GhostDespawnQueues>());
             state.EntityManager.SetName(singleton, "GhostLifetimeComponent-Singleton");
             m_InterpolatedDespawnQueue = new NativeQueue<DelayedDespawnGhost>(Allocator.Persistent);

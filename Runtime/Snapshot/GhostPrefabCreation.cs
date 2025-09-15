@@ -424,6 +424,19 @@ namespace Unity.NetCode
             private uint h3;
             private uint h4;
         }
+
+        internal static ComponentTypeSet RemoveOnServerWorldsSharedList(Entity prefabEntityToStrip, EntityManager entityManager)
+        {
+            FixedList64Bytes<ComponentType> resList = new();
+            // Snapshot data buffers should be removed from the server, and shared ghost type from the client
+            resList.Add(ComponentType.ReadWrite<SnapshotData>());
+            resList.Add(ComponentType.ReadWrite<SnapshotDataBuffer>());
+            if (prefabEntityToStrip != Entity.Null && entityManager.HasComponent<SnapshotDynamicDataBuffer>(prefabEntityToStrip))
+                resList.Add(ComponentType.ReadWrite<SnapshotDynamicDataBuffer>());
+            resList.Add(ComponentType.ReadWrite<PredictedGhostSpawnRequest>());
+            ComponentTypeSet res = new ComponentTypeSet(resList);
+            return res;
+        }
         /// <summary>
         /// Helper method to build a blob asset for a ghost prefab, should not be called directly.
         /// </summary>
@@ -492,15 +505,25 @@ namespace Unity.NetCode
             var disableOnPredicted = new NativeList<GhostPrefabBlobMetaData.ComponentReference>(allComponents.Length, Allocator.Temp);
             var disableOnInterpolated = new NativeList<GhostPrefabBlobMetaData.ComponentReference>(allComponents.Length, Allocator.Temp);
 
-            // Snapshot data buffers should be removed from the server, and shared ghost type from the client
-            removeOnServer.Add(new GhostPrefabBlobMetaData.ComponentReference(0,TypeManager.GetTypeInfo(ComponentType.ReadWrite<SnapshotData>().TypeIndex).StableTypeHash));
-            removeOnServer.Add(new GhostPrefabBlobMetaData.ComponentReference(0,TypeManager.GetTypeInfo(ComponentType.ReadWrite<SnapshotDataBuffer>().TypeIndex).StableTypeHash));
-            if(entityManager.HasComponent<SnapshotDynamicDataBuffer>(rootEntity))
-                removeOnServer.Add(new GhostPrefabBlobMetaData.ComponentReference(0, TypeManager.GetTypeInfo(ComponentType.ReadWrite<SnapshotDynamicDataBuffer>().TypeIndex).StableTypeHash));
+            var removeOnServerSharedList = RemoveOnServerWorldsSharedList(rootEntity, entityManager);
+            for (int i = 0; i < removeOnServerSharedList.Length; i++)
+            {
+                removeOnServer.Add(new GhostPrefabBlobMetaData.ComponentReference(0, TypeManager.GetTypeInfo(removeOnServerSharedList.GetTypeIndex(i)).StableTypeHash));
+            }
 
-            // Remove predicted spawn request component from server in the client+server case, as the prefab asset needs to have it in this case but not in server world
-            if (target == NetcodeConversionTarget.ClientAndServer && (ghostConfig.SupportedGhostModes & GhostModeMask.Predicted) == GhostModeMask.Predicted)
-                removeOnServer.Add(new GhostPrefabBlobMetaData.ComponentReference(0, TypeManager.GetTypeInfo(ComponentType.ReadWrite<PredictedGhostSpawnRequest>().TypeIndex).StableTypeHash));
+            if (target == NetcodeConversionTarget.Server || target == NetcodeConversionTarget.ClientAndServer)
+            {
+                var blobRemoveOnAllServerWorldsSharedList = builder.Allocate(ref root.RemoveOnAllServerWorldsSharedList, removeOnServer.Length);
+
+                for (int i = 0; i < removeOnServer.Length; i++)
+                {
+                    blobRemoveOnAllServerWorldsSharedList[i] = removeOnServer[i];
+                }
+            }
+            else
+            {
+                builder.Allocate(ref root.RemoveOnAllServerWorldsSharedList, 0);
+            }
 
             // If both interpolated and predicted clients are supported the interpolated client needs to disable the prediction component
             // If the ghost is interpolated only the prediction component can be removed on clients
@@ -589,20 +612,20 @@ namespace Unity.NetCode
             if (target != NetcodeConversionTarget.Client)
             {
                 // Client only data never needs information about the server
-                var blobRemoveOnServer = builder.Allocate(ref root.RemoveOnServer, removeOnServer.Length);
+                var blobRemoveOnServer = builder.Allocate(ref root.RemoveOnServerOnlyWorld, removeOnServer.Length);
                 for (int i = 0; i < removeOnServer.Length; ++i)
                     blobRemoveOnServer[i] = removeOnServer[i];
             }
             else
-                builder.Allocate(ref root.RemoveOnServer, 0);
+                builder.Allocate(ref root.RemoveOnServerOnlyWorld, 0);
             if (target != NetcodeConversionTarget.Server)
             {
-                var blobRemoveOnClient = builder.Allocate(ref root.RemoveOnClient, removeOnClient.Length);
+                var blobRemoveOnClient = builder.Allocate(ref root.RemoveOnClientWorlds, removeOnClient.Length);
                 for (int i = 0; i < removeOnClient.Length; ++i)
                     blobRemoveOnClient[i] = removeOnClient[i];
             }
             else
-                builder.Allocate(ref root.RemoveOnClient, 0);
+                builder.Allocate(ref root.RemoveOnClientWorlds, 0);
 
             if (target != NetcodeConversionTarget.Server)
             {

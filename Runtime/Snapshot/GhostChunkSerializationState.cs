@@ -302,22 +302,33 @@ namespace Unity.NetCode.LowLevel.Unsafe
 
     static class ConnectionGhostStateExtensions
     {
+        public static ref ConnectionStateData.GhostState GetPrespawnGhostState(ref this ConnectionStateData.GhostStateList self, in int ghostId)
+        {
+#if ENABLE_UNITY_COLLECTIONS_CHECKS
+            UnityEngine.Debug.Assert(PrespawnHelper.IsPrespawnGhostId(ghostId));
+#endif
+            return ref self.GetGhostState(ghostId, NetworkTick.Invalid);
+        }
+
         public static ref ConnectionStateData.GhostState GetGhostState(ref this ConnectionStateData.GhostStateList self, in GhostCleanup cleanup)
+            => ref self.GetGhostState(cleanup.ghostId, cleanup.spawnTick);
+
+        public static ref ConnectionStateData.GhostState GetGhostState(ref this ConnectionStateData.GhostStateList self, in int ghostId, NetworkTick spawnTick)
         {
             //Map the right index by unmasking the prespawn bit (if present)
-            var index = (int)(cleanup.ghostId & ~PrespawnHelper.PrespawnGhostIdBase);
-            var isPrespawnGhost = PrespawnHelper.IsPrespawnGhostId(cleanup.ghostId);
+            var index = (int)(ghostId & ~PrespawnHelper.PrespawnGhostIdBase);
+            var isPrespawnGhost = PrespawnHelper.IsPrespawnGhostId(ghostId);
             var list = isPrespawnGhost ? self.PrespawnList : self.List;
             ref var state = ref list.ElementAt(index);
 
-            //The initial state for pre-spawned ghosts must be set to relevant, otherwise clients may not received despawn messages
+            //The initial state for pre-spawned ghosts must be set to relevant, otherwise clients may not receive despawn messages
             //for prespawn that has been destroyed or marked as irrelevant. It is also mandatory for static optimization since
             //we never actually send information to the client until the prespawns changed state.
-            if (state.SpawnTick != cleanup.spawnTick || (state.Flags & ConnectionStateData.GhostStateFlags.Initialized) == 0)
+            if (state.SpawnTick != spawnTick || (state.Flags & ConnectionStateData.GhostStateFlags.Initialized) == 0)
             {
                 state = new ConnectionStateData.GhostState
                 {
-                    SpawnTick = cleanup.spawnTick,
+                    SpawnTick = spawnTick,
                     Flags = isPrespawnGhost
                         ? ConnectionStateData.GhostStateFlags.Initialized | ConnectionStateData.GhostStateFlags.IsRelevant
                         : ConnectionStateData.GhostStateFlags.Initialized,
@@ -331,19 +342,54 @@ namespace Unity.NetCode.LowLevel.Unsafe
         [Flags]
         public enum GhostStateFlags
         {
+            /// <summary>
+            /// Denotes only that the ghost is relevant to this connection.
+            /// Note: Prespawns are automatically relevant. Therefore, this flag does not denote that we've sent
+            /// a snapshot about this ghost yet, as, for prespawns, this flag is implied.
+            /// </summary>
+            /// <remarks>
+            /// Example: A prespawn scene is loaded on both client and server.
+            /// The client informs the server that this prespawn scene is loaded, but a "relevancy radius" forces
+            /// most of these newly loaded ghosts to need to be despawned (as they've been spawned on the client,
+            /// but are outside the relevancy radius).
+            /// Therefore, the server need to properly set this flag, so that it knows it needs to send despawn
+            /// messages for those irrelevant ghosts.
+            /// </remarks>
             IsRelevant = 1,
+            /// <summary>
+            /// Denotes that we have sent this ghost inside a snapshot to this client at least once.
+            /// I.e. It MAY HAVE BEEN spawned on said client.
+            /// </summary>
             SentWithChanges = 2,
-            CantUsePrespawnBaseline = 4,
+            /// <summary>
+            /// Prespawned ghosts have a special prespawn baseline, but said baseline is only valid until they've
+            /// been despawned once (as the baseline is now destroyed on clients).
+            /// </summary>
+            HasBeenDespawnedAtLeastOnce = 4,
+            /// <summary>
+            /// Denotes that netcode has set up this ghost.
+            /// </summary>
             Initialized = 8,
+            /// <summary>
+            /// Denotes that one or more despawn messages are "in-flight" i.e. awaiting client ack.
+            /// I.e. That this ghost has an entry inside the <see cref="ConnectionStateData.PendingDespawns"/> collection.
+            /// </summary>
+            IsDespawning = 16,
         }
         [StructLayout(LayoutKind.Sequential)]
         public struct GhostState
         {
+            /// <summary>
+            /// Used to determine that the ghost has changed.
+            /// TODO - Do we need this? Consider low NetworkTickRate use-cases.
+            /// </summary>
             public NetworkTick SpawnTick;
+            /// <summary>Used to find the snapshot history buffer, after structural changes occur.</summary>
             public int LastIndexInChunk;
+            /// <summary>Used to find the snapshot history buffer, after structural changes occur.</summary>
             public ArchetypeChunk LastChunk;
+            /// <summary>Tracks initialization, relevancy, and despawn state for this ghost, for this connection.</summary>
             public GhostStateFlags Flags;
-            public NetworkTick LastDespawnSendTick;
         }
         public struct GhostStateList : IDisposable
         {
@@ -355,7 +401,11 @@ namespace Unity.NetCode.LowLevel.Unsafe
             {
                 get { return ref m_List[1]; }
             }
-            public NetworkTick AckedDespawnTick
+            /// <summary>
+            /// Denotes the oldest <see cref="GhostCleanup.despawnTick"/> that this client has not yet acked.
+            /// Used to allow netcode to clean up <see cref="GhostCleanup"/> chunks.
+            /// </summary>
+            public NetworkTick OldestPendingDespawnTick
             {
                 get
                 {
@@ -370,21 +420,6 @@ namespace Unity.NetCode.LowLevel.Unsafe
                     *(uint*)ptr = value.SerializedData;
                 }
             }
-            public uint DespawnRepeatCount
-            {
-                get
-                {
-                    byte* ptr = (byte*)m_List;
-                    ptr += 2*UnsafeUtility.SizeOf<UnsafeList<GhostState>>();
-                    return ((uint*)ptr)[1];
-                }
-                set
-                {
-                    byte* ptr = (byte*)m_List;
-                    ptr += 2*UnsafeUtility.SizeOf<UnsafeList<GhostState>>();
-                    ((uint*)ptr)[1] = value;
-                }
-            }
             [NativeDisableUnsafePtrRestriction]
             // The "list" is 2 UnsafeLists, one for regular and one for pre-spawned ghosts, followed by a uint for AckedDespawnTick
             UnsafeList<GhostState>* m_List;
@@ -394,10 +429,10 @@ namespace Unity.NetCode.LowLevel.Unsafe
             public GhostStateList(int capacity, int prespawnCapacity, Allocator allocator)
             {
                 m_Allocator = allocator;
-                m_List = (UnsafeList<GhostState>*)UnsafeUtility.Malloc(2*UnsafeUtility.SizeOf<UnsafeList<GhostState>>() + 2*UnsafeUtility.SizeOf<uint>(), UnsafeUtility.AlignOf<UnsafeList<GhostState>>(), allocator);
+                m_List = (UnsafeList<GhostState>*)UnsafeUtility.Malloc(2*UnsafeUtility.SizeOf<UnsafeList<GhostState>>() + UnsafeUtility.SizeOf<uint>(), UnsafeUtility.AlignOf<UnsafeList<GhostState>>(), allocator);
                 m_List[0] = new UnsafeList<GhostState>(CalculateStateListCapacity(capacity), allocator, NativeArrayOptions.ClearMemory);
                 m_List[1] = new UnsafeList<GhostState>(CalculateStateListCapacity(prespawnCapacity), allocator, NativeArrayOptions.ClearMemory);
-                AckedDespawnTick = NetworkTick.Invalid;
+                OldestPendingDespawnTick = NetworkTick.Invalid;
             }
             public void Dispose()
             {
@@ -419,7 +454,8 @@ namespace Unity.NetCode.LowLevel.Unsafe
                 chunkStates[i].FreeSnapshotData();
             SerializationState->Dispose();
             AllocatorManager.Free(Allocator.Persistent, SerializationState);
-            ClearHistory.Dispose();
+            PendingDespawns->Dispose();
+            AllocatorManager.Free(Allocator.Persistent, PendingDespawns);
             AckedPrespawnSceneMap.Dispose();
             UnsafeList<PrespawnHelper.GhostIdInterval>.Destroy(m_NewLoadedPrespawnRanges);
             GhostStateData.Dispose();
@@ -432,13 +468,15 @@ namespace Unity.NetCode.LowLevel.Unsafe
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         static public ConnectionStateData Create(Entity connection)
         {
-            var hashMapData = AllocatorManager.Allocate<UnsafeHashMap<ArchetypeChunk, GhostChunkSerializationState>>(Allocator.Persistent);
-            *hashMapData = new UnsafeHashMap<ArchetypeChunk, GhostChunkSerializationState>(1024, Allocator.Persistent);
+            var serializationState = AllocatorManager.Allocate<UnsafeHashMap<ArchetypeChunk, GhostChunkSerializationState>>(Allocator.Persistent);
+            *serializationState = new UnsafeHashMap<ArchetypeChunk, GhostChunkSerializationState>(1024, Allocator.Persistent);
+            var pendingDespawns = AllocatorManager.Allocate<UnsafeList<PendingGhostDespawn>>(Allocator.Persistent);
+            *pendingDespawns = new(256, Allocator.Persistent);
             return new ConnectionStateData
             {
                 Entity = connection,
-                SerializationState = hashMapData,
-                ClearHistory = new UnsafeParallelHashMap<int, NetworkTick>(256, Allocator.Persistent),
+                SerializationState = serializationState,
+                PendingDespawns = pendingDespawns,
 #if NETCODE_DEBUG
                 NetDebugPacket = new PacketDumpLogger(),
 #endif
@@ -453,7 +491,7 @@ namespace Unity.NetCode.LowLevel.Unsafe
         public UnsafeHashMap<ArchetypeChunk, GhostChunkSerializationState>* SerializationState;
         public ref UnsafeList<PrioChunk> PrioChunks => ref PrioChunksPtr[0];
         public UnsafeList<PrioChunk>* PrioChunksPtr;
-        public UnsafeParallelHashMap<int, NetworkTick> ClearHistory;
+        public UnsafeList<PendingGhostDespawn>* PendingDespawns;
 #if NETCODE_DEBUG
         public PacketDumpLogger NetDebugPacket;
 #endif

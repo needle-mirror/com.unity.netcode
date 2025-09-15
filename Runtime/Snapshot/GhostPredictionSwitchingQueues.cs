@@ -110,6 +110,11 @@ namespace Unity.NetCode
         /// <inheritdoc/>
         public void OnCreate(ref SystemState state)
         {
+            if (state.WorldUnmanaged.IsHost())
+            {
+                state.Enabled = false;
+                return;
+            }
 #if UNITY_EDITOR
             SetupAnalyticsSingleton(state.EntityManager);
 #endif

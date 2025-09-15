@@ -19,7 +19,7 @@ namespace Unity.NetCode
     /// Thus, there is no guarantee that a disconnecting client will receive the same network id once reconnected.
     /// As such, the network identifier should never be used to persist - and then retrieve - information for a given client/player.
     /// </summary>
-    public struct NetworkId : IComponentData
+    public struct NetworkId : IComponentData, IEquatable<NetworkId>
     {
         /// <summary>
         /// The network identifier assigned by the server. A valid identifier it is always greater than 0.
@@ -30,6 +30,7 @@ namespace Unity.NetCode
         /// Returns 'NID[value]'.
         /// </summary>
         /// <returns>Returns 'NID[value]'.</returns>
+        [GenerateTestsForBurstCompatibility]
         public FixedString32Bytes ToFixedString()
         {
             var s = new FixedString32Bytes((FixedString32Bytes)"NID[");
@@ -40,6 +41,21 @@ namespace Unity.NetCode
 
         /// <inheritdoc cref="ToFixedString"/>>
         public override string ToString() => ToFixedString().ToString();
+
+        /// <inheritdoc cref="IEquatable{T}.Equals(object)"/>
+        public static bool operator ==(NetworkId left, NetworkId right) => left.Equals(right);
+
+        /// <inheritdoc cref="IEquatable{T}.Equals(object)"/>
+        public static bool operator !=(NetworkId left, NetworkId right) => !left.Equals(right);
+
+        /// <inheritdoc cref="IEquatable{T}.Equals(object)"/>
+        public bool Equals(NetworkId other) => this.Value == other.Value;
+
+        /// <inheritdoc cref="IEquatable{T}.Equals(object)"/>
+        public override bool Equals(object obj) => obj is NetworkId other && Equals(other);
+
+        /// <inheritdoc cref="object.GetHashCode"/>
+        public override int GetHashCode() => Value;
     }
 
     /// <summary>
@@ -110,6 +126,7 @@ namespace Unity.NetCode
 
             parameters.CommandBuffer.AddComponent<ConnectionApproved>(parameters.JobIndex, parameters.Connection);
             parameters.CommandBuffer.AddComponent(parameters.JobIndex, parameters.Connection, new NetworkId {Value = rpcData.NetworkId});
+            parameters.CommandBuffer.AddComponent<LocalConnection>(parameters.JobIndex, parameters.Connection);
             var ent = parameters.CommandBuffer.CreateEntity(parameters.JobIndex);
             parameters.CommandBuffer.AddComponent(parameters.JobIndex, ent, rpcData.RefreshRequest);
             parameters.CommandBuffer.SetName(parameters.JobIndex, parameters.Connection, new FixedString64Bytes(FixedString.Format("NetworkConnection ({0})", rpcData.NetworkId)));

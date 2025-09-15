@@ -960,5 +960,143 @@ namespace Unity.NetCode.Tests
             var expectedRewind = rollback == PredictedSpawnRollbackOptions.RollbackToSpawnTick ? 1 : 0;
             Assert.AreEqual(expectedRewind, testWorld.ClientWorlds[0].EntityManager.GetComponentData<CountSimulationFromSpawnTick>(predictedSpawnEntity).Value);
         }
+
+        [Test(Description = "server side ghost has a ICleanupComponent that gets removed after all clients have acked the despawn. Testing there's no regression with the amount of time it takes to clean that up.")]
+        public void GhostDespawn_SanityCheck()
+        {
+            using var testWorld = new NetCodeTestWorld();
+            testWorld.Bootstrap(true);
+
+            var ghostGO = new GameObject("TestGhost");
+            ghostGO.AddComponent<TestNetCodeAuthoring>().Converter = new PredictedGhostDataConverter();
+            var ghostConfig = ghostGO.AddComponent<GhostAuthoringComponent>();
+            ghostConfig.DefaultGhostMode = GhostMode.Interpolated;
+            ghostConfig.SupportedGhostModes = GhostModeMask.Interpolated;
+
+            Assert.IsTrue(testWorld.CreateGhostCollection(ghostGO));
+            testWorld.CreateWorlds(true, 1);
+            testWorld.Connect();
+            testWorld.GoInGame();
+
+            // Spawn server side
+            var serverEnt = testWorld.SpawnOnServer(0);
+
+            // Let is spawn client side
+            testWorld.TickMultiple(16);
+
+            // Destroy and check how much time it takes for the entity to be cleaned up
+            testWorld.ServerWorld.EntityManager.DestroyEntity(serverEnt);
+
+            for (int i = 0; i < 10; i++)
+            {
+                testWorld.Tick();
+                var exists = testWorld.ServerWorld.EntityManager.Exists(serverEnt);
+                if (i <= 2 && !exists)
+                    Assert.Fail("GhostCleanup was removed too soon, most likely before the despawn was acked by the client");
+                if (i > 2 && exists)
+                    Assert.Fail("Tick count for server side ghost cleanup was exceeded, got a regression in the number of ticks it took to cleanup server ghosts. ");
+            }
+        }
+
+        [Test]
+        public void GhostDespawn_CheckLowNetworkRate()
+        {
+            using var testWorld = new NetCodeTestWorld();
+            testWorld.Bootstrap(true);
+
+            var ghostGO = new GameObject("TestGhost");
+            ghostGO.AddComponent<TestNetCodeAuthoring>().Converter = new PredictedGhostDataConverter();
+            var ghostConfig = ghostGO.AddComponent<GhostAuthoringComponent>();
+            ghostConfig.DefaultGhostMode = GhostMode.Interpolated;
+            ghostConfig.SupportedGhostModes = GhostModeMask.Interpolated;
+
+            Assert.IsTrue(testWorld.CreateGhostCollection(ghostGO));
+            testWorld.CreateWorlds(true, 1);
+            var tickRateEntity = testWorld.TryGetSingletonEntity<ClientServerTickRate>(testWorld.ServerWorld);
+            if (tickRateEntity == Entity.Null)
+                tickRateEntity = testWorld.ServerWorld.EntityManager.CreateEntity(typeof(ClientServerTickRate));
+            var tickRate = new ClientServerTickRate();
+            tickRate.ResolveDefaults();
+            tickRate.SimulationTickRate = 60;
+            tickRate.NetworkTickRate = 15;
+            testWorld.ServerWorld.EntityManager.SetComponentData<ClientServerTickRate>(tickRateEntity, tickRate);
+            testWorld.Connect();
+            testWorld.GoInGame();
+
+            // Spawn server side
+            var serverEnt = testWorld.SpawnOnServer(0);
+
+            // Let is spawn client side
+            testWorld.TickMultiple(16);
+
+            // Destroy and check how much time it takes for the entity to be cleaned up
+            testWorld.ServerWorld.EntityManager.DestroyEntity(serverEnt);
+
+            for (int i = 0; i < 50; i++)
+            {
+                testWorld.Tick();
+                var exists = testWorld.ServerWorld.EntityManager.Exists(serverEnt);
+                if (i <= 2 && !exists)
+                    Assert.Fail("GhostCleanup was removed too soon, most likely before the despawn was acked by the client");
+                if (i > 6 && exists)
+                    Assert.Fail("Tick count for server side ghost cleanup was exceeded, got a regression in the number of ticks it took to cleanup server ghosts. ");
+            }
+        }
+
+        [Test(Description = "Make sure that with lag and packet loss, the acking of despawns works properly.")]
+        public void GhostDespawn_DespawnAck_WorksProperly()
+        {
+            // There used to be an issue where we would release a ghost id before we received acks from all clients, which meant weird behaviour and asserts.
+            // This test reproduced the conditions for this to happen
+            using var testWorld = new NetCodeTestWorld();
+            testWorld.Bootstrap(true);
+            testWorld.DriverSimulatedDelay = 200;
+            testWorld.DriverSimulatedDrop = 15;
+
+            var ghostGO = new GameObject("TestGhost");
+            ghostGO.AddComponent<TestNetCodeAuthoring>().Converter = new PredictedGhostDataConverter();
+            var ghostConfig = ghostGO.AddComponent<GhostAuthoringComponent>();
+            ghostConfig.DefaultGhostMode = GhostMode.Interpolated;
+            ghostConfig.SupportedGhostModes = GhostModeMask.Interpolated;
+
+            Assert.IsTrue(testWorld.CreateGhostCollection(ghostGO));
+            testWorld.CreateWorlds(true, 1);
+            var tickRateEntity = testWorld.TryGetSingletonEntity<ClientServerTickRate>(testWorld.ServerWorld);
+            if (tickRateEntity == Entity.Null)
+                tickRateEntity = testWorld.ServerWorld.EntityManager.CreateEntity(typeof(ClientServerTickRate));
+
+            var tickRate = new ClientServerTickRate();
+            tickRate.ResolveDefaults();
+            tickRate.SimulationTickRate = 60;
+            tickRate.NetworkTickRate = 15;
+            testWorld.ServerWorld.EntityManager.SetComponentData<ClientServerTickRate>(tickRateEntity, tickRate);
+
+            testWorld.Connect(maxSteps:100);
+            testWorld.GoInGame();
+
+            // Spawn server side
+            var serverEnt = testWorld.SpawnOnServer(0);
+
+            // Let it spawn client side
+            testWorld.TickMultiple(16); // make sure it's this count, we align ticks to the network tick rate to reproduce potential issues
+
+            testWorld.ServerWorld.EntityManager.DestroyEntity(serverEnt);
+
+            // run this multiple times, since we have a drop rate chance
+            for (int i = 0; i < 100; i++)
+            {
+                testWorld.TickMultiple(2);
+                var newEnt = testWorld.SpawnOnServer(0);
+                testWorld.TickMultiple(2);
+                testWorld.ServerWorld.EntityManager.DestroyEntity(newEnt);
+            }
+            testWorld.TickMultiple(500);
+
+            // make sure everything is cleaned up
+            var existsServer = testWorld.ServerWorld.EntityManager.Exists(serverEnt);
+            var existsClient = !testWorld.ClientWorlds[0].EntityManager.CreateEntityQuery(typeof(GhostInstance)).IsEmpty;
+            Assert.IsFalse(existsClient);
+            Assert.IsFalse(existsServer);
+        }
     }
 }

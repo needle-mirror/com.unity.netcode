@@ -132,6 +132,7 @@ namespace Unity.NetCode
         public EntityCommandBuffer.ParallelWriter commandBuffer;
         public NetDebug netDebug;
         public byte server;
+        public byte isHost;
 
         public void Execute(in ArchetypeChunk chunk, int unfilteredChunkIndex, bool useEnabledMask, in v128 chunkEnabledMask)
         {
@@ -159,18 +160,23 @@ namespace Unity.NetCode
                 var linkedEntityGroup = linkedEntityBufferAccessor[index];
                 if (server == 1)
                 {
-                    for (int rm = 0; rm < ghostMetaData.RemoveOnServer.Length; ++rm)
+                    ref var toRemoveArray = ref ghostMetaData.RemoveOnServerOnlyWorld;
+                    if (isHost == 1)
                     {
-                        var childIndexCompHashPair = ghostMetaData.RemoveOnServer[rm];
+                        toRemoveArray = ref ghostMetaData.RemoveOnAllServerWorldsSharedList;
+                    }
+                    for (int rm = 0; rm < ghostMetaData.RemoveOnServerOnlyWorld.Length; ++rm)
+                    {
+                        var childIndexCompHashPair = ghostMetaData.RemoveOnServerOnlyWorld[rm];
                         var rmCompType = ComponentType.ReadWrite(TypeManager.GetTypeIndexFromStableTypeHash(childIndexCompHashPair.StableHash));
                         commandBuffer.RemoveComponent(unfilteredChunkIndex, linkedEntityGroup[childIndexCompHashPair.EntityIndex].Value, rmCompType);
                     }
                 }
                 else
                 {
-                    for (int rm = 0; rm < ghostMetaData.RemoveOnClient.Length; ++rm)
+                    for (int rm = 0; rm < ghostMetaData.RemoveOnClientWorlds.Length; ++rm)
                     {
-                        var childIndexCompHashPair = ghostMetaData.RemoveOnClient[rm];
+                        var childIndexCompHashPair = ghostMetaData.RemoveOnClientWorlds[rm];
                         var rmCompType = ComponentType.ReadWrite(TypeManager.GetTypeIndexFromStableTypeHash(childIndexCompHashPair.StableHash));
                         commandBuffer.RemoveComponent(unfilteredChunkIndex,linkedEntityGroup[childIndexCompHashPair.EntityIndex].Value, rmCompType);
                     }

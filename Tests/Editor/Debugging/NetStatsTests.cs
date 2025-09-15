@@ -400,7 +400,7 @@ namespace Unity.NetCode.Tests
         }
 #if NETCODE_PROFILER_ENABLED && UNITY_6000_0_OR_NEWER
         [UnityTest, Description("Collects some stats while profiling, saves the session and loads it back to verify the stats are still correct")]
-        [Ignore("Save and Load triggers a 'Profiler data stream has invalid signature.' error. Need to fix this test")]
+        [Ignore("Save and Load triggers a 'Profiler data stream has invalid signature.' error. Need to fix this test. Ticket to reenable test https://jira.unity3d.com/browse/MTT-13004")]
         public IEnumerator Profiler_SaveAndLoadStats()
         {
             using var testWorld = new NetCodeTestWorld();

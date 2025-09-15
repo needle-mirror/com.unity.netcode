@@ -78,7 +78,7 @@ namespace Unity.NetCode
             get => RequireConnectionApprovalInternal == 1;
             set
             {
-                for (var i = DriverStore.FirstDriver; i <= DriverStore.LastDriver; ++i)
+                for (var i = DriverStore.FirstDriver; i < DriverStore.LastDriver; ++i)
                 {
                     ref readonly var driverInstance = ref DriverStore.GetDriverInstanceRO(i);
                     if (driverInstance.driver.IsCreated && driverInstance.driver.Bound)
@@ -292,6 +292,8 @@ namespace Unity.NetCode
             ref var driver = ref DriverStore.GetDriverRW(NetworkDriverStore.FirstDriverId);
             var connection = driver.Connect(endpoint);
             var state = driver.GetConnectionState(connection).ToNetcodeState(hasHandshaked: false, hasApproval: false);
+
+            entityManager.AddComponent(ent, NetworkStreamConnection.GetEssentialComponentsForConnection());
             entityManager.AddComponentData(ent, new NetworkStreamConnection
             {
                 Value = connection,
@@ -308,12 +310,10 @@ namespace Unity.NetCode
                 });
             }
             entityManager.AddComponentData(ent, new NetworkSnapshotAck());
-            entityManager.AddComponentData(ent, new CommandTarget());
             entityManager.AddBuffer<OutgoingRpcDataStreamBuffer>(ent);
-            entityManager.AddBuffer<IncomingRpcDataStreamBuffer>(ent);
             entityManager.AddBuffer<OutgoingCommandDataStreamBuffer>(ent);
             entityManager.AddBuffer<IncomingSnapshotDataStreamBuffer>(ent);
-            entityManager.AddBuffer<LinkedEntityGroup>(ent).Add(new LinkedEntityGroup{Value = ent});
+            entityManager.GetBuffer<LinkedEntityGroup>(ent).Add(new LinkedEntityGroup{Value = ent});
             netDebug.DebugLog($"[{entityManager.WorldUnmanaged.Name}][Connection] Connect called: Connection={connection.ToFixedString()}, State={state}.");
             return ent;
         }

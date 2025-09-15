@@ -177,6 +177,11 @@ namespace Unity.NetCode
         /// <inheritdoc/>
         public void OnCreate(ref SystemState state)
         {
+            if (state.WorldUnmanaged.IsHost())
+            {
+                state.Enabled = false;
+                return;
+            }
 #if NETCODE_DEBUG
             m_LogFolder = NetDebug.LogFolderForPlatform();
             NetDebugInterop.Initialize();
@@ -244,6 +249,8 @@ namespace Unity.NetCode
         [BurstCompile]
         public void OnDestroy(ref SystemState state)
         {
+            if (state.WorldUnmanaged.IsHost())
+                return;
             state.CompleteDependency(); // Make sure we can access the ghost maps
             m_GhostEntityMap.Dispose();
             m_SpawnedGhostEntityMap.Dispose();
@@ -408,7 +415,7 @@ namespace Unity.NetCode
                     var ghostCollection = GhostCollectionFromEntity[GhostCollectionSingleton];
                     // The server only sends ghost types which have not been acked yet, acking takes one RTT so we need to check
                     // which prefab was the first included in the list sent by the server
-                    int firstPrefab = (int)dataStream.ReadUInt();
+                    int firstPrefab = (int)dataStream.ReadPackedUInt(CompressionModel);
 #if NETCODE_DEBUG
                     if(NetDebugPacket.IsCreated)
                         DebugLog.Append(FixedString.Format(" FirstPrefab: {0}\n", firstPrefab));
@@ -453,7 +460,7 @@ namespace Unity.NetCode
                 }
 
                 uint relevantGhostCount = dataStream.ReadPackedUInt(CompressionModel);
-                uint despawnLen = dataStream.ReadByte();
+                uint despawnLen = dataStream.ReadUShort();
                 uint numEntitiesUpdated = dataStream.ReadUShort();
 
                 // Note: The server counts new chunks as containing 0 relevant ghosts UNTIL it knows how many it actually has.
@@ -474,10 +481,11 @@ namespace Unity.NetCode
                 if (NetDebugPacket.IsCreated && despawnLen > 0)
                     DebugLog.Append((FixedString32Bytes)"\t[Despawn GIDs]");
 #endif
+                int nextExpectedGhostId = PendingGhostDespawn.k_ExpectedGhostIdDelta;
                 for (var i = 0; i < despawnLen; ++i)
                 {
-                    uint encodedGhostId = dataStream.ReadPackedUInt(CompressionModel);
-                    var ghostId = (int)((encodedGhostId >> 1) | (encodedGhostId << 31));
+                    var ghostId = dataStream.ReadPackedIntDelta(nextExpectedGhostId, CompressionModel);
+                    nextExpectedGhostId = ghostId + PendingGhostDespawn.k_ExpectedGhostIdDelta;
 #if NETCODE_DEBUG
                     if(NetDebugPacket.IsCreated)
                         DebugLog.Append(FixedString.Format(" {0}", ghostId));
@@ -527,6 +535,23 @@ namespace Unity.NetCode
                     perGhostTypeStats.UncompressedCount += data.UncompressedCount;
                 }
 #endif
+
+                // Check we read EXACTLY what we expected to:
+#if ENABLE_UNITY_COLLECTIONS_CHECKS
+                if(dataValid)
+                {
+                    dataStream.Flush(); // DataStream can only send full bytes, so align the bit reader with the next full byte.
+                    var bitsRead = dataStream.GetBitsRead();
+                    var lengthInBits = dataStream.Length * 8;
+                    var delta = bitsRead - lengthInBits;
+                    if (delta != 0 || dataStream.HasFailedReads)
+                    {
+                        dataValid = false;
+                        LogDeserializeFailure(LogType.Error, $"Read {bitsRead} bits, expected {lengthInBits} bits (delta:{delta}) in received snapshot:{serverTick.ToFixedString()}!");
+                    }
+                }
+#endif
+
                 while (GhostEntityMap.Capacity < GhostEntityMap.Count() + data.NewGhosts)
                     GhostEntityMap.Capacity += 1024;
 
@@ -553,7 +578,8 @@ namespace Unity.NetCode
             {
                 public uint TargetArch; // index in the ghost type collection. TODO wrap this int in a specific type?
                 public uint TargetArchLen;
-                public uint BaseGhostId;
+                public int BaseGhostId;
+                public NetworkTick BaseSpawnTick;
                 public NetworkTick BaselineTick;
                 public NetworkTick BaselineTick2;
                 public NetworkTick BaselineTick3;
@@ -590,7 +616,9 @@ namespace Unity.NetCode
 #endif
                     data.TargetArch = dataStream.ReadPackedUInt(CompressionModel);
                     data.TargetArchLen = dataStream.ReadPackedUInt(CompressionModel);
-                    data.BaseGhostId = dataStream.ReadRawBits(1) == 0 ? 0 : PrespawnHelper.PrespawnGhostIdBase;
+                    data.BaseGhostId = dataStream.ReadRawBits(1) != 0 ? unchecked((int)PrespawnHelper.PrespawnGhostIdBase) : 1;
+                    data.BaseSpawnTick = serverTick;
+                    data.BaseSpawnTick.Decrement();
 
                     if (data.TargetArch >= m_GhostTypeCollection.Length)
                     {
@@ -650,7 +678,8 @@ namespace Unity.NetCode
                 }
 
                 --data.BaselineLen;
-                int ghostId = (int)(dataStream.ReadPackedUInt(CompressionModel) + data.BaseGhostId);
+                int ghostId = dataStream.ReadPackedIntDelta(data.BaseGhostId, CompressionModel);
+                data.BaseGhostId = ghostId + 1;
 #if NETCODE_DEBUG
                 if (NetDebugPacket.IsCreated)
                     DebugLog.Append((FixedString128Bytes)$"\t\t\tGID:{ghostId}");
@@ -661,10 +690,11 @@ namespace Unity.NetCode
                 NetworkTick serverSpawnTick = NetworkTick.Invalid;
                 if (isNewGhostForClient && !PrespawnHelper.IsPrespawnGhostId(ghostId))
                 {
-                    //restrieve spawn tick only for non-prespawn ghosts
-                    if (!PrespawnHelper.IsPrespawnGhostId(ghostId))
+                    // Retrieve spawn tick only for non-prespawn ghosts:
+                    if (PrespawnHelper.IsRuntimeSpawnedGhost(ghostId))
                     {
-                        serverSpawnTick = new NetworkTick{SerializedData = dataStream.ReadPackedUInt(CompressionModel)};
+                        serverSpawnTick = new NetworkTick{SerializedData = dataStream.ReadPackedUIntDelta(data.BaseSpawnTick.SerializedData, CompressionModel)};
+                        data.BaseSpawnTick = serverSpawnTick;
 #if NETCODE_DEBUG
                         if (NetDebugPacket.IsCreated)
                             DebugLog.Append(FixedString.Format(" SpawnTick:{0}", serverSpawnTick.ToFixedString()));

@@ -264,9 +264,15 @@ namespace Unity.NetCode
         /// Max value is 50 (i.e. 50% each way, leading to full clamping, as it's applied in both directions).
         /// </summary>
         /// <remarks>High values will lead to more aggressive alignment, which may be perceivable (as we'll need to shift time further).</remarks>
+        public int ClampPartialTicksThreshold
+        {
+            readonly get => m_ClampPartialTicksThreshold;
+            set => m_ClampPartialTicksThreshold = value;
+        }
         [Tooltip("On the client, Netcode attempts to align its own fixed step with the render refresh rate, with the goal of reducing Partial ticks, and increasing stability.\n\nThis setting denotes the window (in %) to snap and align.\n\nDefaults to 5 (5%), which is applied each way.\nI.e. If you're within 5% of the last full tick, or if you're within 5% of the next full tick, we'll clamp. 50 (50%) to always clamp.")]
-        // FIX! [Range(-1, 50)]
-        public int ClampPartialTicksThreshold { get; set; }
+        [SerializeField]
+        [Range(-1, 50)]
+        private int m_ClampPartialTicksThreshold;
 
         /// <summary>
         /// The timeout for the connection handshake and approval procedure.

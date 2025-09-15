@@ -182,6 +182,7 @@ namespace Unity.NetCode
                     commandBuffer = ecb.AsParallelWriter(),
                     netDebug = netDebug,
                     server = (byte) (state.WorldUnmanaged.IsServer() ? 1 : 0),
+                    isHost = (byte) (state.WorldUnmanaged.IsHost() ? 1 : 0),
                 };
                 jobs.Add(stripPrespawnGhostJob.ScheduleParallel(m_Prespawns, state.Dependency));
             }

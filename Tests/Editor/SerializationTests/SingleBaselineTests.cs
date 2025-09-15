@@ -27,62 +27,6 @@ partial class SingleBaselineDefaultConfig : DefaultVariantSystemBase
 }
 
 [DisableAutoCreation]
-[WorldSystemFilter(WorldSystemFilterFlags.ClientSimulation)]
-[UpdateInGroup(typeof(GhostSimulationSystemGroup))]
-[UpdateAfter(typeof(GhostCollectionSystem))]
-[UpdateBefore(typeof(GhostReceiveSystem))]
-partial struct VerifyOnlyOneBaseline : ISystem
-{
-    public void OnUpdate(ref SystemState state)
-    {
-        foreach (var buffer in SystemAPI.Query<DynamicBuffer<IncomingSnapshotDataStreamBuffer>>())
-        {
-            if (buffer.Length == 0)
-                continue;
-
-            var compressionModel = StreamCompressionModel.Default;
-            var dataStream = buffer.AsDataStreamReader();
-            var serverTick = new NetworkTick { SerializedData = dataStream.ReadUInt() };
-            uint numPrefabs = dataStream.ReadPackedUInt(compressionModel);
-            if (numPrefabs > 0)
-            {
-                dataStream.ReadUInt();
-                for (int i = 0; i < numPrefabs; ++i)
-                {
-                    dataStream.ReadUInt();
-                    dataStream.ReadUInt();
-                    dataStream.ReadUInt();
-                    dataStream.ReadUInt();
-                    dataStream.ReadULong();
-                }
-            }
-            uint totalGhostCount = dataStream.ReadPackedUInt(compressionModel);
-            uint despawnLen = dataStream.ReadByte(); // TODO - Move these into a Snapshot header serializer utility.
-            Assert.AreEqual(0, despawnLen);
-            uint updateLen = dataStream.ReadUShort();
-            for (var i = 0; i < despawnLen; ++i)
-            {
-                dataStream.ReadPackedUInt(compressionModel);
-            }
-            for (var i = 0; i < updateLen; ++i)
-            {
-                //decode the run
-                var ghostType = dataStream.ReadPackedUInt(compressionModel);
-                var numGhosts = dataStream.ReadPackedUInt(compressionModel);
-                var baseId = dataStream.ReadRawBits(1) == 0 ? 0 : PrespawnHelper.PrespawnGhostIdBase;
-                //decode the baselines
-                var baselineDelta = dataStream.ReadPackedUInt(compressionModel);
-                Assert.AreNotEqual(baselineDelta, GhostSystemConstants.MaxBaselineAge);
-                baselineDelta = dataStream.ReadPackedUInt(compressionModel);
-                Assert.AreEqual(0, baselineDelta);
-                baselineDelta = dataStream.ReadPackedUInt(compressionModel);
-                Assert.AreEqual(0, baselineDelta);
-            }
-        }
-    }
-}
-
-[DisableAutoCreation]
 [WorldSystemFilter(WorldSystemFilterFlags.ServerSimulation)]
 [UpdateInGroup(typeof(PredictedSimulationSystemGroup))]
 partial struct ChangeComponentValueSystem : ISystem
@@ -274,51 +218,6 @@ class SingleBaselineTests
 
         for (int i = 0; i < 64; ++i)
         {
-            VerifyEntities(testWorld, serverEntity, clientEntity);
-            testWorld.Tick();
-        }
-    }
-
-    [Test(Description = "Verify that using the per-prefab UseSingleBaseline option, ghost are serialized correctly")]
-    public void UseSingleBaselinePerPrefab()
-    {
-        using var testWorld = new NetCodeTestWorld();
-        testWorld.Bootstrap(true, typeof(ChangeComponentValueSystem),
-            typeof(SingleBaselineDefaultConfig), typeof(VerifyOnlyOneBaseline));
-        testWorld.CreateWorlds(true, 1);
-        var config = new GhostPrefabCreation.Config
-        {
-            Name = "ComplexPrefab",
-            Importance = 0,
-            SupportedGhostModes = GhostModeMask.Predicted,
-            OptimizationMode = GhostOptimizationMode.Dynamic,
-            UsePreSerialization = false,
-            UseSingleBaseline = true
-        };
-        var serverPrefab = CreatePrefab(testWorld.ServerWorld.EntityManager, config);
-        CreatePrefab(testWorld.ClientWorlds[0].EntityManager, config);
-
-        testWorld.Connect();
-        testWorld.GoInGame();
-        for (int i = 0; i < 64; ++i)
-            testWorld.Tick();
-
-        //How do we verify that we set everything right?
-        var gc = testWorld.TryGetSingletonEntity<GhostCollection>(testWorld.ServerWorld);
-        var serializers = testWorld.ServerWorld.EntityManager.GetBuffer<GhostCollectionPrefabSerializer>(gc);
-        Assert.AreEqual(1, serializers.Length);
-        Assert.AreEqual(1, serializers.ElementAt(0).UseSingleBaseline);
-
-        var serverEntity = testWorld.ServerWorld.EntityManager.Instantiate(serverPrefab);
-        for (int i = 0; i < 4; ++i)
-            testWorld.Tick();
-        var clientEntity = testWorld.TryGetSingletonEntity<GhostInstance>(testWorld.ClientWorlds[0]);
-        Assert.AreNotEqual(Entity.Null, clientEntity);
-        for (int i = 0; i < 64; ++i)
-        {
-            //Verify that the server is using a single baseline. This is a tricky test. We inject ourself before
-            //the ghost receive system, and we decode the packet!
-
             VerifyEntities(testWorld, serverEntity, clientEntity);
             testWorld.Tick();
         }

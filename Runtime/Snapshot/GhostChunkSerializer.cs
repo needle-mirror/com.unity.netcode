@@ -50,7 +50,7 @@ namespace Unity.NetCode
         public GhostRelevancyMode relevancyMode;
         public EntityQueryMask userGlobalRelevantMask;
         public EntityQueryMask internalGlobalRelevantMask;
-        public UnsafeParallelHashMap<int, NetworkTick> clearHistoryData;
+        public UnsafeList<PendingGhostDespawn>* pendingDespawns;
         public ConnectionStateData.GhostStateList ghostStateData;
         public uint CurrentSystemVersion;
         public NetDebug netDebug;
@@ -434,7 +434,7 @@ namespace Unity.NetCode
         {
 #if NETCODE_DEBUG
             if (netDebugPacket.IsCreated)
-                netDebugPacketResult = $"Undid write of static as allowed to, saving {(dataStream.LengthInBits-oldStream.LengthInBits)}B! Set {chunkState.ZeroChangeFixedString()} LU:{chunkState.GetLastUpdate()}";
+                netDebugPacketResult = $"Undid write of static as allowed to, saving {(dataStream.LengthInBits-oldStream.LengthInBits)}b! Set {chunkState.ZeroChangeFixedString()} LU:{chunkState.GetLastUpdate()}";
 #endif
         }
         [Conditional("NETCODE_DEBUG")]
@@ -581,6 +581,14 @@ namespace Unity.NetCode
 #if NETCODE_DEBUG
             if(netDebugPacket.IsCreated)
                 netDebugPacketResult = "Partial send, so reset ZC!";
+#endif
+        }
+        [Conditional("NETCODE_DEBUG")]
+        private void PacketDumpResult_PacketFullBeforeOneEntity()
+        {
+#if NETCODE_DEBUG
+            if(netDebugPacket.IsCreated)
+                netDebugPacketResult = "Packet full before writing any ghosts in this chunk!";
 #endif
         }
         [Conditional("NETCODE_DEBUG")]
@@ -763,7 +771,9 @@ namespace Unity.NetCode
             int sameBaseline2 = -1;
             int sameBaselineIndex = 0;
             int lastRelevantEntity = startIndex+1;
-            uint baseGhostId = chunk.Has(ref PrespawnIndexType) ? PrespawnHelper.PrespawnGhostIdBase : 0;
+            int baseGhostId = chunk.Has(ref PrespawnIndexType) ? unchecked((int)PrespawnHelper.PrespawnGhostIdBase) : 1;
+            var baseSpawnTick = currentTick; // Compression optimization: Assume the SpawnTick of a ghost
+            baseSpawnTick.Decrement();       // will be nearer to the currentTick-1, than 0.
             var isPrespawn = chunk.Has(ref prespawnBaselineTypeHandle);
             int numPrespawnBaselines = 0;
             for (int ent = startIndex; ent < endIndex; ++ent)
@@ -819,7 +829,7 @@ namespace Unity.NetCode
                 }
 
                 if (baseline0 == numAvailableBaselines && isPrespawn && chunk.Has(ref PrespawnIndexType) &&
-                    (ghostStateData.GetGhostState(ghostSystemState[ent]).Flags & ConnectionStateData.GhostStateFlags.CantUsePrespawnBaseline) == 0)
+                    (ghostStateData.GetGhostState(ghostSystemState[ent]).Flags & ConnectionStateData.GhostStateFlags.HasBeenDespawnedAtLeastOnce) == 0)
                 {
                     var prespawnBaselines = chunk.GetBufferAccessor(ref prespawnBaselineTypeHandle);
                     ValidatePrespawnBaseline(ghostEntities[ent], ghosts[ent].ghostId,ent,prespawnBaselines.Length);
@@ -1192,7 +1202,11 @@ namespace Unity.NetCode
                 ValidateGhostType(ghost.ghostType, ghostType);
 
                 // write the ghost + change mask from the snapshot
-                dataStream.WritePackedUInt((uint)ghost.ghostId - baseGhostId, compressionModel);
+                dataStream.WritePackedIntDelta(ghost.ghostId, baseGhostId, compressionModel);
+                baseGhostId = ghost.ghostId + 1; // Compression optimization: Assume the next GID will be:
+                                                 // A) Similar to the last, and...
+                                                 // B) Commonly the next GID assigned, as ghosts adjacent to
+                                                 // each other in chunks tend to be spawned together.
                 PacketDumpFlush();
                 PacketDumpGhostID(ghost.ghostId);
 
@@ -1214,7 +1228,8 @@ namespace Unity.NetCode
                     //Serialize the spawn tick only for runtime spawned ghost
                     if (PrespawnHelper.IsRuntimeSpawnedGhost(ghost.ghostId))
                     {
-                        dataStream.WritePackedUInt(ghost.spawnTick.SerializedData, compressionModel);
+                        dataStream.WritePackedUIntDelta(ghost.spawnTick.SerializedData, baseSpawnTick.SerializedData, compressionModel);
+                        baseSpawnTick = ghost.spawnTick; // Compression optimization: Assume the next spawnTick will be similar to the last.
                         PacketDumpSpawnTick(ghost.spawnTick);
                     }
                 }
@@ -1756,29 +1771,29 @@ namespace Unity.NetCode
 
                 ref var ghostState = ref ghostStateData.GetGhostState(ghostSystemState[ent]);
                 bool wasRelevant = (ghostState.Flags&ConnectionStateData.GhostStateFlags.IsRelevant) != 0;
+                var isDespawning = (ghostState.Flags & ConnectionStateData.GhostStateFlags.IsDespawning) != 0;
                 relevancyData[ent] = 1;
 
                 // If this ghost was previously irrelevant, we need to wait until that despawn is acked to avoid sending spawn + despawn in the same snapshot.
-                if (!isRelevant || clearHistoryData.ContainsKey(ghost[ent].ghostId))
+                if (!isRelevant || isDespawning)
                 {
                     relevancyData[ent] = 0;
                     // if the already irrelevant flag is not set the client might have seen this entity
                     if (wasRelevant)
                     {
-                        // Clear the snapshot history buffer so we do not delta compress against this
+                        // Clear the snapshot history buffer, so we do not delta compress against this.
                         for (int hp = 0; hp < GhostSystemConstants.SnapshotHistorySize; ++hp)
                         {
                             var clearSnapshotEntity = chunkState.GetEntity(snapshotSize, chunk.Capacity, hp);
                             clearSnapshotEntity[ent] = Entity.Null;
                         }
-                        // Add this ghost to the despawn queue. We have not actually sent the despawn yet, so set last sent to an invalid tick
-                        clearHistoryData.TryAdd(ghost[ent].ghostId, NetworkTick.Invalid);
-                        // set the flag indicating this entity is already irrelevant and does not need to be despawned again
-                        ghostState.Flags &= (~ConnectionStateData.GhostStateFlags.IsRelevant);
-
-                        // If this is a prespawned ghost the prespawn baseline cannot be used after being despawned (as it's gone on clients)
-                        if (PrespawnHelper.IsPrespawnGhostId(ghost[ent].ghostId))
-                            ghostState.Flags |= ConnectionStateData.GhostStateFlags.CantUsePrespawnBaseline;
+                        // Add this ghost to the pending despawn queue. We have not actually sent the despawn yet!
+                        PendingGhostDespawn.AddNewPendingDespawn(ref *pendingDespawns, ref ghostState.Flags, new GhostCleanup
+                        {
+                            ghostId = ghost[ent].ghostId,
+                            spawnTick = ghost[ent].spawnTick,
+                            despawnTick = NetworkTick.Invalid, // Not applicable to irrelevant despawns.
+                        }, PendingGhostDespawn.DespawnReason.Irrelevant);
                     }
                     if (ent >= startIndex)
                         irrelevantCount = irrelevantCount + 1;
@@ -2199,6 +2214,8 @@ namespace Unity.NetCode
                     PacketDumpResult_PartialSend();
                     return SerializeEnitiesResult.Ok;
                 }
+                PacketDumpResult_PacketFullBeforeOneEntity();
+                dataStream = oldStream;
                 return SerializeEnitiesResult.Failed;
             }
 

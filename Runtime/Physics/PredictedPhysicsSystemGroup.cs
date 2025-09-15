@@ -328,6 +328,7 @@ namespace Unity.NetCode
         /// <inheritdoc/>
         public void OnCreate(ref SystemState state)
         {
+            // This would still be needed on host worlds, to allow having physics scenes that don't interact with the authoritative world. Host worlds still need to have ragdolls for example.
             // If not debug, require the singleton for update
             #if !NETCODE_DEBUG
             state.RequireForUpdate<PredictedPhysicsNonGhostWorld>();

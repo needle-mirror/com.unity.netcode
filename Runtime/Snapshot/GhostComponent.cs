@@ -67,7 +67,7 @@ namespace Unity.NetCode
     /// Component signaling an entity which is replicated over the network
     /// </summary>
     [DontSupportPrefabOverrides]
-    public struct GhostInstance : IComponentData
+    public struct GhostInstance : IComponentData, IEquatable<GhostInstance>
     {
         /// <summary>
         /// The id assigned to the ghost by the server. When a ghost is destroyed, its id is recycled and can assigned to
@@ -99,10 +99,29 @@ namespace Unity.NetCode
         /// Returns a human-readable GhostComponent FixedString, containing its values.
         /// </summary>
         /// <returns>A human-readable GhostComponent FixedString, containing its values.</returns>
+        [GenerateTestsForBurstCompatibility]
         public FixedString128Bytes ToFixedString()
         {
             return $"GhostInst[type:{ghostType}|id:{ghostId},st:{spawnTick.ToFixedString()}]";
         }
+
+        /// <inheritdoc cref="object.Equals(object)"/>
+        public static bool operator ==(GhostInstance left, GhostInstance right) => left.Equals(right);
+
+        /// <inheritdoc cref="object.Equals(object)"/>
+        public static bool operator !=(GhostInstance left, GhostInstance right) => !left.Equals(right);
+
+        /// <inheritdoc cref="object.Equals(object)"/>
+        public bool Equals(GhostInstance other) => ghostId == other.ghostId && ghostType == other.ghostType && spawnTick.Equals(other.spawnTick);
+
+        /// <inheritdoc cref="object.Equals(object)"/>
+        public override bool Equals(object obj) => obj is GhostInstance other && Equals(other);
+
+        /// <inheritdoc cref="object.GetHashCode"/>
+        public override int GetHashCode() => HashCode.Combine(ghostId, ghostType, spawnTick);
+
+        /// <inheritdoc cref="ToFixedString"/>
+        public override string ToString() => ToFixedString().ToString();
     }
 
     /// <summary>

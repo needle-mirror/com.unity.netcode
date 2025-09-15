@@ -223,6 +223,11 @@ namespace Unity.NetCode
         [BurstCompile]
         public void OnCreate(ref SystemState state)
         {
+            if (state.WorldUnmanaged.IsHost())
+            {
+                state.Enabled = false;
+                return;
+            }
             m_PredictionState = new NativeParallelHashMap<ArchetypeChunk, System.IntPtr>(128, Allocator.Persistent);
             m_StillUsedPredictionState = new NativeParallelHashMap<ArchetypeChunk, int>(128, Allocator.Persistent);
             m_EntityData = new NativeParallelHashMap<Entity, PredictionBufferHistoryData>(128, Allocator.Persistent);
@@ -261,6 +266,8 @@ namespace Unity.NetCode
         [BurstCompile]
         public void OnDestroy(ref SystemState state)
         {
+            if (state.WorldUnmanaged.IsHost())
+                return;
             var values = m_PredictionState.GetValueArray(Allocator.Temp);
             for (int i = 0; i < values.Length; ++i)
             {

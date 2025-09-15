@@ -23,6 +23,11 @@ namespace Unity.NetCode
         [BurstCompile]
         public void OnCreate(ref SystemState state)
         {
+            if (state.WorldUnmanaged.IsHost())
+            {
+                state.Enabled = false;
+                return;
+            }
             var builder = new EntityQueryBuilder(Allocator.Temp)
                 .WithAll<SubSceneWithGhostCleanup>()
                 .WithNone<IsSectionLoaded>();

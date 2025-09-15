@@ -2,6 +2,41 @@
 uid: changelog
 ---
 
+## [1.9.0] - 2025-09-15
+
+### Added
+
+* `GenerateTestsForBurstCompatibility` test coverage - and `ToString` overloads - of `ToFixedString` methods.
+* **Behaviour Breaking Change:** `GhostSendSystemData.PercentReservedForDespawnMessages` denoting the percentage of the snapshot capacity reserved for ghost despawn messages, with a default value of 33% (i.e. one third of the snapshot). This replaces the internal const of 100 ghosts.
+* A clickable link directing users where to disable Batched Tick Warnings.
+* New + and - buttons for automatic thin client creation in the PlayMode Tools window.
+* Bounds checks to `NetworkDriverStore` and `NetworkDriverStore.Concurrent` driver accessors.
+
+### Changed
+
+* Marginally reduced the bandwidth consumption of the `GID` and `SpawnTick` values of ghosts within snapshots, on average.
+* **API Breaking Change:** The `PrefabDebugName.Name` has now been fully deprecated, reducing archetype chunk sizes, increasing per-chunk entity capacity for ghost instances.
+* Best practice on GhostOwnerIsLocal usage. Server-only world behaviour is now undefined and might be changed in future versions. GhostOwnerIsLocal should only be used in client logic. To find owned ghosts in prediction logic, please make sure to strip your input components so they only appear on predicted ghosts.
+* Best practice on NetcodeServerRateManage.WillUpdate. Should now use NetworkTime.NumPredictedTicksExpected server side.
+* Significant internal refactoring for upcoming Single World Host feature.
+* The importance visualizer setting name for "Per Entity Spatial Chunk Structure" has been changed to "Per Chunk". This does not change the behavior, the name is only changed to more accurately reflect the underlying data that is being visualized.
+* Made `NetworkDriverStore` methods readonly, where possible.
+
+### Fixed
+
+* The analyzer to warn about using the `Simulate` component while ignoring enabled state has been fixed to correctly warn when using SystemAPI.Query().WithAll<Simulate>()` and similar calls.
+* Issue where the ghost data writes could fail while gathering the host migration data (now it will always grow correctly).
+* `Allocator.Persistent` memory leaks caused by `ImportanceDrawerSystem.cs`.
+* `ClampPartialTicksThreshold` now displays correctly in the `NetCodeConfig`.
+* **Behaviour Breaking Change:** Ghost despawn messages are now added to the snapshot in a round-robin priority order, where up to 2 despawn messages can be "in-flight" for a single ghost at once. Old behaviour was to send up to 100 ghostIds per snapshot, where each despawn was sent up to 5 times in a row before the next 100 could be added. Delta-compression has also been significantly improved. This new approach significantly improves despawn throughput, while also significantly reducing despawn bandwidth consumption.
+* **Behaviour Breaking Change:** The minimum `DefaultSnapshotPacketSize` is now 100 bytes, up from 1 byte.
+* Incorrectness in ghost despawn message handling, leading to missed despawns, and rare snapshot errors.
+* Hardened snapshot receive logic to expect exact `dataStream.GetBitsRead()` correctness, and used it to fix a (harmless) incorrectness when a chunk attempts to write its first ghost into the snapshot, but fails due to exceeding the stream capacity.
+* Potential dependency error with importance visualization.
+* Broken table on PlayMode Tool documentation page.
+
+
+
 ## [1.8.0] - 2025-08-17
 
 ### Added
@@ -967,7 +1002,6 @@ All the information in regards the current simulated tick MUST be retrieved from
 
 * Package Dependencies
     * `com.unity.entities` to version `0.51.1`
-
 
 ## [0.51.0] - 2022-05-04
 
