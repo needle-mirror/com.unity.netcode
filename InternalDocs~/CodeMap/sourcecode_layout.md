@@ -1,0 +1,22 @@
+
+- **Editor** : scripts used only in the editor.
+  - **Authoring**: Most the GhostAuthoringInspector and GhostAuthoringInspectionComponentInspector and other related drawers are here.
+  - **Drawers**: BoundingBox and other visualization tools
+  - **Templates**: All the source genetators templates
+- **Runtime** : all the scripts used at runtime
+    - **Analytics**: Analytics data and facade
+    - **Authoring**: Contains all the classes that are related to authoring ghosts. The main folder usually contains classes that don't require any UnityEngine or MonoBehaviour.
+      - Hybrid: All authoring monobehaviour and the Netcode bakers are here. The GhostAuhtoringComponent, GhostAuthoringInspectionComponent and related baker utilities are here.
+    - **ClientServerWorld**: World management, bootstrapping and world configuration. Notably, ClientServerBootstrap and ClientServerTick rate are here.
+    - **Command**: all files related to commands and input handling (i.e ICommand and IInputComponentData).
+    - **Connection**: everything related to Networking, NetworkDriver and in general client/server connectivity.
+    - **Hybrid**: GameObject presentation systems and Playable animation support.
+    - **Physics**: Physics replication
+    - **Rpc**: all the rpc systems and data structure
+    - **PredictionTicking**: Prediction, Ticks and NetworkTime.
+    - **SerializationHelpers**: helpers for serializing / deserializing snapshot data.
+    - **Simulator**: network simulator
+    - **SourceGenerators**: the soruce generator code and tests.
+    - **Stats**: runtime stats and net debugger (web app)
+    - **Variants**: the default variant provided by netcode.
+- Tests: contains all the package editor and playmode tests

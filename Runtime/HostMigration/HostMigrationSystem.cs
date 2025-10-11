@@ -142,6 +142,7 @@ namespace Unity.NetCode.HostMigration
         public int NextNewGhostId;
         public int NextNewPrespawnGhostId;
         public NativeArray<HostPrespawnGhostIdRangeData> PrespawnGhostIdRanges;
+        public int HostNetworkId;
         public int NumNetworkIds;
         public NativeArray<int> FreeNetworkIds;
     }
@@ -248,6 +249,12 @@ namespace Unity.NetCode.HostMigration
         NativeHashMap<uint, int> m_NetworkIdMap;
         NativeArray<ComponentType> m_DefaultComponents;
         HostMigrationData.Data m_HostMigrationCache;
+        int m_LastSeenGhostPrefabCount;
+        NativeHashSet<ComponentType> m_GhostComponentTypes;
+        NativeHashSet<ComponentType> m_RequiredComponentTypes;
+        NativeHashSet<ComponentType> m_InputBuffers;
+        NativeList<GhostPrefabData> m_GhostPrefabData;
+        WorldStateSave m_WorldStateSave;
 
         public void OnCreate(ref SystemState state)
         {
@@ -273,6 +280,12 @@ namespace Unity.NetCode.HostMigration
             m_DefaultComponents[13] = ComponentType.ReadOnly<NetworkStreamIsReconnected>();
             m_DefaultComponents[14] = ComponentType.ReadOnly<IsMigrated>();
             m_DefaultComponents[15] = ComponentType.ReadOnly<EnablePacketLogging>();
+
+            m_GhostComponentTypes = new NativeHashSet<ComponentType>(16, Allocator.Persistent);
+            m_RequiredComponentTypes = new NativeHashSet<ComponentType>(1, Allocator.Persistent);
+            m_RequiredComponentTypes.Add(ComponentType.ReadOnly<GhostInstance>());
+            m_GhostPrefabData = new NativeList<GhostPrefabData>(Allocator.Persistent);
+            m_InputBuffers = new NativeHashSet<ComponentType>(16, Allocator.Persistent);
 
             m_LastServerUpdate = 0.0;
             m_MigrationTime = 0.0;
@@ -308,6 +321,8 @@ namespace Unity.NetCode.HostMigration
             var hostMigrationData = SystemAPI.GetSingletonRW<HostMigrationStorage>();
             hostMigrationData.ValueRW.HostDataBlob = new NativeList<byte>(Allocator.Persistent);
             hostMigrationData.ValueRW.GhostDataBlob = new NativeList<byte>(Allocator.Persistent);
+
+            m_WorldStateSave = new WorldStateSave(Allocator.Persistent);
         }
 
         public void OnDestroy(ref SystemState state)
@@ -335,6 +350,11 @@ namespace Unity.NetCode.HostMigration
             m_HostMigrationCache.ServerOnlyComponentsPerGhostType.Dispose();
             m_NetworkIdMap.Dispose();
             m_DefaultComponents.Dispose();
+            m_GhostComponentTypes.Dispose();
+            m_RequiredComponentTypes.Dispose();
+            m_GhostPrefabData.Dispose();
+            m_InputBuffers.Dispose();
+            m_WorldStateSave.Dispose();
         }
 
         [BurstCompile]
@@ -359,6 +379,8 @@ namespace Unity.NetCode.HostMigration
                     HostMigrationData.RestoreConnectionComponentData(hostMigrationData.HostData.Connections, state.EntityManager, entity, uniqueId.ValueRO);
                 }
             }
+
+            CacheGhostComponentTypes(ref state);
 
             var config = SystemAPI.GetSingleton<HostMigrationConfig>();
             if (SystemAPI.TryGetSingleton<HostMigrationRequest>(out var migrationRequest))
@@ -431,68 +453,17 @@ namespace Unity.NetCode.HostMigration
                 state.EntityManager.CompleteAllTrackedJobs();
                 GetHostConfigurationForSerializer(ref state, hostMigrationData.HostDataBlob, config, networkTime);
 
-                // TODO: Find a better way to gather the ghost component types we need, this iterates all ghost components
-                // and figures out which are being used currently by a ghost prefab because we have ca 500 ghost
-                // types, only 128 types (can be increased to 256 via define) is supported by netcode (DynamicTypeList limitation)
-                var ghostComponentCollection = SystemAPI.GetSingletonBuffer<GhostComponentSerializer.State>();
-                var ghostPrefabsBuffer = SystemAPI.GetSingletonBuffer<GhostCollectionPrefab>();
-                var ghostTypes = new NativeHashSet<ComponentType>(ghostComponentCollection.Length, Allocator.Temp);
-                foreach (var ghostComponent in ghostComponentCollection)
-                {
-                    foreach (var ghostPrefab in ghostPrefabsBuffer)
-                    {
-                        foreach (var usedComponent in state.EntityManager.GetComponentTypes(ghostPrefab.GhostPrefab))
-                        {
-                            if (usedComponent == ghostComponent.ComponentType)
-                            {
-                                var componentType = ghostComponent.ComponentType;
-                                componentType.AccessModeType = ComponentType.AccessMode.ReadOnly;
-                                if (ghostTypes.Contains(componentType))
-                                    continue;
-                                if (componentType.IsBuffer && IsInputBuffer(componentType, ghostComponentCollection))
-                                    continue;
-                                ghostTypes.Add(componentType);
-                            }
-                        }
-                    }
-                }
-                var requiredTypes = new NativeHashSet<ComponentType>(1, Allocator.Temp);
-                requiredTypes.Add(ComponentType.ReadOnly<GhostInstance>());
+                if (m_WorldStateSave.Initialized)
+                    m_WorldStateSave.Reset();
+                m_WorldStateSave.RequiredTypesToSaveConfig = m_RequiredComponentTypes;
+                m_WorldStateSave.OptionalTypesToSaveConfig = m_GhostComponentTypes;
+                m_WorldStateSave.Initialize(ref state);
+                var stateSaveJob = m_WorldStateSave.ScheduleStateSaveJob(ref state);
 
-                var stateSave = new WorldStateSave(Allocator.Persistent).WithRequiredTypes(requiredTypes).WithOptionalTypes(ghostTypes).Initialize(ref state);
-                var stateSaveJob = stateSave.ScheduleStateSaveJob(ref state);
-
-                // TODO: Cache prefab list, update when count changes
-                var ghostPrefabs = new NativeArray<GhostPrefabData>(ghostPrefabsBuffer.Length, Allocator.Persistent);
-                for (int i = 0; i < ghostPrefabs.Length; ++i)
+                var updateJob = new GatherGhostsAndMigrationStatsJob()
                 {
-                    ghostPrefabs[i] = new GhostPrefabData()
-                    {
-                        GhostTypeIndex = i,
-                        GhostTypeHash = ghostPrefabsBuffer[i].GhostType.GetHashCode()
-                    };
-                }
-
-                // Find the network ID of the local client
-                int localNetworkId = 0;
-                if (!config.StoreOwnGhosts)
-                {
-                    var networkIdQuery = state.GetEntityQuery(ComponentType.ReadOnly<NetworkId>());
-                    var networkIds = networkIdQuery.ToComponentDataArray<NetworkId>(Allocator.Temp);
-                    if (networkIds.Length > 0)
-                    {
-                        localNetworkId = networkIds[0].Value;
-                    }
-                }
-
-                var updateJob = new UpdateMigrationStatsJob()
-                {
-                    StateSave = stateSave,
-                    LocalNetworkId = localNetworkId,
-                    StoreOwnGhosts = config.StoreOwnGhosts,
-                    WriteLocation = 0,
-                    GhostPrefabs = ghostPrefabs,
-                    OwnerLookup = state.GetComponentLookup<GhostOwner>(),
+                    StateSave = m_WorldStateSave,
+                    GhostPrefabs = m_GhostPrefabData,
                     GhostDataBlob = hostMigrationData.GhostDataBlob,
                     Stats = SystemAPI.GetSingletonRW<HostMigrationStats>(),
                     UpdateTime = state.WorldUnmanaged.Time.ElapsedTime,
@@ -516,26 +487,61 @@ namespace Unity.NetCode.HostMigration
             commandBuffer.Playback(state.EntityManager);
         }
 
-        // TODO: Cache the result, or find a better way to figure this out in burst friendly way
-        bool IsInputBuffer(ComponentType componentType, DynamicBuffer<GhostComponentSerializer.State> ghostComponentCollection)
+        /// <summary>
+        /// When the ghost prefab count changes check which ghost components are now being referenced in these
+        /// ghosts, cache this in a hashset so we don't need to do this again
+        /// </summary>
+        void CacheGhostComponentTypes(ref SystemState state)
         {
-            var collectionData = SystemAPI.GetSingleton<GhostComponentSerializerCollectionData>();
-            var ghostCollectionComponentIndex = SystemAPI.GetSingletonBuffer<GhostCollectionComponentIndex>();
-            bool isInputBuffer = false;
-            foreach (var componentIndex in ghostCollectionComponentIndex)
+            var ghostPrefabsBuffer = SystemAPI.GetSingletonBuffer<GhostCollectionPrefab>();
+            if (ghostPrefabsBuffer.Length != m_LastSeenGhostPrefabCount)
             {
-                if (componentIndex.TypeIndex == componentType.TypeIndex)
+                m_LastSeenGhostPrefabCount = ghostPrefabsBuffer.Length;
+                m_GhostComponentTypes.Clear();
+                m_GhostPrefabData.Clear();
+
+                // Move the ghost component types into a hashset for quicker lookup
+                var ghostComponentCollection = SystemAPI.GetSingletonBuffer<GhostComponentSerializer.State>();
+                var ghostComponentTypes = new NativeHashSet<ComponentType>(ghostComponentCollection.Length, Allocator.Temp);
+                foreach (var ghostComponent in ghostComponentCollection)
                 {
-                    var componentTypeRW = componentType;
-                    componentTypeRW.AccessModeType = ComponentType.AccessMode.ReadWrite;
-                    foreach (var componentMapping in collectionData.InputComponentBufferMap)
+                    if (ghostComponent.ComponentType.IsBuffer && IsInputBuffer(ghostComponent.ComponentType))
+                        continue;
+                    ghostComponentTypes.Add(ghostComponent.ComponentType);
+                }
+
+                for (int i = 0; i < ghostPrefabsBuffer.Length; ++i)
+                {
+                    m_GhostPrefabData.Add(new GhostPrefabData()
                     {
-                        if (componentMapping.Value == componentTypeRW)
-                        {
-                            isInputBuffer = true;
-                            break;
-                        }
+                        GhostTypeIndex = i,
+                        GhostTypeHash = ghostPrefabsBuffer[i].GhostType.GetHashCode()
+                    });
+
+                    foreach (var usedComponent in state.EntityManager.GetComponentTypes(ghostPrefabsBuffer[i].GhostPrefab))
+                    {
+                        if (ghostComponentTypes.Contains(usedComponent))
+                            m_GhostComponentTypes.Add(usedComponent);
                     }
+                }
+            }
+        }
+
+        bool IsInputBuffer(ComponentType componentType)
+        {
+            if (m_InputBuffers.Contains(componentType))
+                return true;
+            var collectionData = SystemAPI.GetSingleton<GhostComponentSerializerCollectionData>();
+            bool isInputBuffer = false;
+            var componentTypeRW = componentType;
+            componentTypeRW.AccessModeType = ComponentType.AccessMode.ReadWrite;
+            foreach (var componentMapping in collectionData.InputComponentBufferMap)
+            {
+                if (componentMapping.Value == componentTypeRW)
+                {
+                    m_InputBuffers.Add(componentType);
+                    isInputBuffer = true;
+                    break;
                 }
             }
             return isInputBuffer;
@@ -792,6 +798,14 @@ namespace Unity.NetCode.HostMigration
                 }
             }
 
+            // Write the local/host network ID
+            var networkIdQuery = state.GetEntityQuery(ComponentType.ReadOnly<NetworkId>());
+            var networkIds = networkIdQuery.ToComponentDataArray<NetworkId>(Allocator.Temp);
+            var localNetworkId = 0;
+            if (networkIds.Length > 0)
+                localNetworkId = networkIds[0].Value;
+            migrationData.HostNetworkId = localNetworkId;
+
             migrationData.NumNetworkIds = SystemAPI.GetSingleton<NetworkIDAllocationData>().NumNetworkIds.Value;
             migrationData.FreeNetworkIds.Dispose();
             migrationData.FreeNetworkIds = SystemAPI.GetSingleton<NetworkIDAllocationData>().FreeNetworkIds.ToArray(Allocator.Persistent);
@@ -856,6 +870,7 @@ namespace Unity.NetCode.HostMigration
                     dataStreamWriter.WriteInt(idData.FirstGhostId);
                 }
 
+                dataStreamWriter.WriteInt(migrationData.HostNetworkId);
                 dataStreamWriter.WriteInt(migrationData.NumNetworkIds);
                 dataStreamWriter.WriteInt(migrationData.FreeNetworkIds.Length);
                 foreach ( var fid in migrationData.FreeNetworkIds)
@@ -886,18 +901,14 @@ namespace Unity.NetCode.HostMigration
     }
 
     [BurstCompile]
-    internal struct UpdateMigrationStatsJob : IJob
+    internal struct GatherGhostsAndMigrationStatsJob : IJob
     {
-        public WorldStateSave StateSave;
+        [ReadOnly] public WorldStateSave StateSave;
         [NativeDisableUnsafePtrRestriction] public RefRW<HostMigrationStats> Stats;
         public NativeList<byte> GhostDataBlob;
-        public int WriteLocation;
         public double UpdateTime;
         public int HostDataSize;
-        [ReadOnly] public NativeArray<GhostPrefabData> GhostPrefabs;
-        public int LocalNetworkId;
-        public bool StoreOwnGhosts;
-        public ComponentLookup<GhostOwner> OwnerLookup;
+        [ReadOnly] public NativeList<GhostPrefabData> GhostPrefabs;
 
         [BurstCompile]
         public void Execute()
@@ -905,20 +916,33 @@ namespace Unity.NetCode.HostMigration
             unsafe
             {
                 GhostDataBlob.Clear();
-                // Use double estimated size, the actual size could be bigger than the estimate
-                var requiredSize =2*(StateSave.Size + GhostPrefabs.Length * sizeof(GhostPrefabData) + 2 * sizeof(int));
-                if (GhostDataBlob.Capacity < requiredSize)
-                    GhostDataBlob.Resize(2*requiredSize, NativeArrayOptions.ClearMemory);
-                GhostDataBlob.Length = GhostDataBlob.Capacity;
-                var writer = new DataStreamWriter(GhostDataBlob.AsArray());
-
-                while (!WriteAllGhostData(ref writer))
+                if (StateSave.EntityCount != 0)
                 {
-                    GhostDataBlob.Resize(2*GhostDataBlob.Capacity, NativeArrayOptions.ClearMemory);
-                    writer = new DataStreamWriter(GhostDataBlob.AsArray());
-                }
+                    // Use double estimated size, the actual size could be bigger than the estimate
+                    var requiredSize = 2 * (StateSave.Size + GhostPrefabs.Length * sizeof(GhostPrefabData) + 2 * sizeof(int));
+                    if (GhostDataBlob.Capacity < requiredSize)
+                        GhostDataBlob.Resize(2 * requiredSize, NativeArrayOptions.ClearMemory);
+                    GhostDataBlob.Length = GhostDataBlob.Capacity;
+                    var writer = new DataStreamWriter(GhostDataBlob.AsArray());
 
-                GhostDataBlob.Length = writer.Length;
+                    // Write prefab data
+                    var ghostPrefabWriter = writer;
+                    writer.WriteInt(0);
+                    writer.WriteShort((short)GhostPrefabs.Length);
+                    foreach (var ghostPrefab in GhostPrefabs)
+                    {
+                        writer.WriteShort((short)ghostPrefab.GhostTypeIndex);
+                        writer.WriteInt(ghostPrefab.GhostTypeHash);
+                    }
+
+                    ghostPrefabWriter.WriteInt(writer.Length);
+
+                    // Copy ghost data from the state save behind the ghost prefab data
+                    var ghostPrefabDataSize = writer.Length;
+                    var ghostDataInBlob = new Span<byte>(GhostDataBlob.GetUnsafePtr() + ghostPrefabDataSize, StateSave.AsSpan.Length);
+                    StateSave.AsSpan.CopyTo(ghostDataInBlob);
+                    GhostDataBlob.Length = ghostPrefabDataSize + StateSave.AsSpan.Length;
+                }
 
                 Stats.ValueRW.PrefabCount = GhostPrefabs.Length;
                 Stats.ValueRW.GhostCount = StateSave.EntityCount;
@@ -927,97 +951,6 @@ namespace Unity.NetCode.HostMigration
                 Stats.ValueRW.UpdateSize = updateSize;
                 Stats.ValueRW.TotalUpdateSize += updateSize;
             }
-        }
-
-        bool WriteAllGhostData(ref DataStreamWriter writer)
-        {
-            // Write prefab data
-            writer.WriteShort((short)GhostPrefabs.Length);
-            foreach (var ghostPrefab in GhostPrefabs)
-            {
-                writer.WriteShort((short)ghostPrefab.GhostTypeIndex);
-                writer.WriteInt(ghostPrefab.GhostTypeHash);
-            }
-
-            var ghostCountWriter = writer;
-            writer.WriteShort(0);
-            short ghostCount = 0;
-            foreach (var entry in StateSave)
-            {
-                if (WriteGhost(ref writer, entry))
-                    ghostCount++;
-
-                if (writer.HasFailedWrites)
-                    return false;
-            }
-
-            ghostCountWriter.WriteShort(ghostCount);
-            return true;
-        }
-
-        unsafe bool WriteGhost(ref DataStreamWriter writer, WorldStateSave.StateSaveEntry entry)
-        {
-            // TODO: Maybe have a quick convencience method to get these bits (this is in SavedEntityID but can't get it from entry)
-            // First find the GhostInstance to get the ghost ID/type information
-            var foundGhostInstance = false;
-            GhostInstance ghostInstance = default;
-            // TODO: Could add this API
-            //entry.TryGetComponent<GhostInstance>(out ghostInstance);
-            foreach (var compData in entry)
-            {
-                if (compData.Type == ComponentType.ReadOnly<GhostInstance>())
-                {
-                    compData.ToConcrete(out ghostInstance);
-                    if (ghostInstance.ghostId == 0)
-                        Debug.LogError($"Trying to send a ghost with an id of 0 this should not be possible. GhostIds are assigned by the GhostSendSystem and this should always run before the migration system ensuring all ghosts have a valid id.");
-                    foundGhostInstance = true;
-                }
-
-                if (compData.Type == ComponentType.ReadOnly<GhostOwner>())
-                {
-                    compData.ToConcrete(out GhostOwner ghostOwner);
-                    // Omit the ghosts owned by the host as he's leaving the session
-                    if (!StoreOwnGhosts && ghostOwner.NetworkId == LocalNetworkId)
-                        return false;
-                }
-
-                // Skip the special case of the entity tracking loaded prespawn scenes, the whole entity must be skipped, not just the component (it will be recreated automatically)
-                if (compData.Type == ComponentType.ReadOnly<PrespawnSceneLoaded>())
-                    return false;
-            }
-
-            if (!foundGhostInstance)
-            {
-                Debug.LogError($"Failed to find GhostInstance data on entry");
-                return false;
-            }
-
-            writer.WriteInt(ghostInstance.ghostId);
-            writer.WriteUInt(ghostInstance.spawnTick.SerializedData);
-            writer.WriteShort((short)ghostInstance.ghostType);
-            writer.WriteShort((short)entry.types.Length);
-            foreach (var compData in entry)
-            {
-                var typeInfo = TypeManager.GetTypeInfo(compData.Type.TypeIndex);
-                writer.WriteULong(typeInfo.StableTypeHash);
-                if (compData.Type.IsEnableable)
-                    writer.WriteByte((byte)(compData.Enabled ? 1 : 0));
-                if (compData.Type.IsBuffer)
-                {
-                    writer.WriteInt(compData.Length);
-                    var elementSize = TypeManager.GetTypeInfo(compData.Type.TypeIndex).ElementSize;
-                    writer.WriteBytes(new Span<byte>(compData.ComponentAdr, compData.Length * elementSize));
-                }
-                else
-                {
-                    writer.WriteBytes(new Span<byte>(compData.ComponentAdr, typeInfo.TypeSize));
-                }
-
-                if (writer.HasFailedWrites)
-                    return false;
-            }
-
-            return true;
         }
     }
 }

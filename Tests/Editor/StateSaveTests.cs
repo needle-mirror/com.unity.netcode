@@ -498,6 +498,54 @@ namespace Tests.Editor
             ValidateStateSave(count, result.stateSaveToTest, expectedTypeCount: 5);
         }
 
+        [Test, Description("Test state save with a buffer created in another state save")]
+        public unsafe void StateSave_InitializeWithBuffer_Works()
+        {
+            const int entityCount = 100;
+            using var testWorld = new NetCodeTestWorld();
+            testWorld.Bootstrap(includeNetCodeSystems: true, typeof(BehaviourTestCreateStateSaveSystem));
+
+            testWorld.CreateWorlds(true, 1);
+            testWorld.Connect();
+            testWorld.GoInGame();
+
+            var requiredTypesToSave = new NativeHashSet<ComponentType>(5, Allocator.Temp)
+            {
+                ComponentType.ReadOnly<TestComponentA>(),
+                ComponentType.ReadOnly<TestComponentB>(),
+                ComponentType.ReadOnly<TestEnablebleComponent>(),
+                ComponentType.ReadOnly<TestBufferA>(),
+                ComponentType.ReadOnly<TestBufferB>()
+            };
+            for (int i = 0; i < entityCount; i++)
+            {
+                var ent = testWorld.ServerWorld.EntityManager.CreateEntity(requiredTypesToSave.ToNativeArray(Allocator.Temp));
+                UpdateTestComponents(i, ent, testWorld);
+            }
+
+            var stateSave = new WorldStateSave(Allocator.Persistent).WithRequiredTypes(requiredTypesToSave);
+            stateSave.Initialize(ref testWorld.ServerWorld.Unmanaged.GetExistingSystemState<BehaviourTestCreateStateSaveSystem>());
+            var stateSaveJob = stateSave.ScheduleStateSaveJob(ref testWorld.ServerWorld.Unmanaged.GetExistingSystemState<BehaviourTestCreateStateSaveSystem>());
+            stateSaveJob.Complete();
+
+            // It's assumed the buffer would normally be coming from some byte array, from disk or over the network for example
+            var stateSaveBuffer = new NativeArray<byte>(stateSave.AsSpan.Length, Allocator.Temp);
+            var originalEntityCount = stateSave.EntityCount;
+            var originalSpanLength = stateSave.AsSpan.Length;
+            var originalSize = stateSave.Size;
+            stateSave.AsSpan.CopyTo(stateSaveBuffer);
+            stateSave.Reset();
+
+            var restoredStateSave = new WorldStateSave(Allocator.Persistent).InitializeFromBuffer(stateSaveBuffer);
+            Assert.AreEqual(originalEntityCount, restoredStateSave.EntityCount, "Restored state save does not contain correct entity count");
+            Assert.AreEqual(originalSpanLength, restoredStateSave.AsSpan.Length);
+            Assert.AreEqual(originalSize, restoredStateSave.Size);
+            Assert.AreEqual(0, restoredStateSave.OptionalTypesToSaveConfig.Count);
+            Assert.AreEqual(0, restoredStateSave.RequiredTypesToSaveConfig.Count);
+            ValidateStateSave(entityCount, restoredStateSave, expectedTypeCount: requiredTypesToSave.Count);
+            restoredStateSave.Dispose();
+        }
+
         static DynamicBuffer<NetCodeTestPrefab> SetupWithPrefab(NetCodeTestWorld testWorld, List<ComponentType> typesToAdd = null)
         {
             if (typesToAdd == null)
@@ -952,8 +1000,6 @@ namespace Tests.Editor
             Assert.IsFalse(stateSave.Initialized);
             Assert.Throws<ObjectDisposedException>(() => { var a = stateSave.AsSpan; });
             Assert.Throws<ObjectDisposedException>(() => { var a = stateSave.EntityCount; });
-            Assert.Throws<ObjectDisposedException>(() => { stateSave.Dispose(); });
-            Assert.Throws<ObjectDisposedException>(() => { stateSave.Reset(); });
             Assert.Throws<ObjectDisposedException>(() => {
                 SystemState state = default;
                 var a = stateSave.ScheduleStateSaveJob(ref state, new DirectStateSaveStrategy());

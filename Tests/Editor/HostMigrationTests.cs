@@ -1658,6 +1658,289 @@ namespace Unity.NetCode.Tests
         }
 
         /// <summary>
+        /// Test to verify that after a host migration the new host will correctly re-create changes made to data on prespawns
+        /// </summary>
+        [Test]
+        [Ignore("Disabled as this functionality is currently unsupported by host migration. See MTT-11194 tracking internal state migration.")]
+        public unsafe void MigrationKeepsDeletedPresapwns()
+        {
+            GameObject go1 = new GameObject("Ghost1", typeof(GhostAuthoringComponent), typeof(SomeDataValueAuthoring) );
+            go1.GetComponent<SomeDataValueAuthoring>().value = 1;
+            var ghost1 = SubSceneHelper.CreatePrefab(ScenePath, go1);
+
+            GameObject go2 = new GameObject("Ghost2", typeof(GhostAuthoringComponent), typeof(SomeDataValueAuthoring) );
+            go2.GetComponent<SomeDataValueAuthoring>().value = 2;
+            var ghost2 = SubSceneHelper.CreatePrefab(ScenePath, go2);
+
+            GameObject go3 = new GameObject("Ghost3", typeof(GhostAuthoringComponent), typeof(SomeDataValueAuthoring) );
+            go3.GetComponent<SomeDataValueAuthoring>().value = 3;
+            var ghost3 = SubSceneHelper.CreatePrefab(ScenePath, go3);
+
+            var scene = SubSceneHelper.CreateEmptyScene(ScenePath, "ParentScene");
+            var subscene = SubSceneHelper.CreateSubSceneWithPrefabs(scene, ScenePath, "SubScene", new[] { ghost1, ghost2, ghost3 }, 1);
+
+            SceneManager.SetActiveScene(scene);
+
+            const int clientCount = 2;
+            using (var testWorld = new NetCodeTestWorld())
+            {
+                testWorld.Bootstrap(true, typeof(ServerHostMigrationSystem));
+                testWorld.CreateWorlds(true, clientCount);
+                SubSceneHelper.LoadSubSceneInWorlds(testWorld);
+
+                testWorld.ServerWorld.EntityManager.CreateEntity(ComponentType.ReadOnly<EnableHostMigration>());
+
+                testWorld.Connect(maxSteps: 10);
+                testWorld.GoInGame();
+
+                testWorld.TickMultiple(8);
+
+                var serverEntityManager = testWorld.ServerWorld.EntityManager;
+
+                // We should have 1 subscene and 3 instances of SomeData
+                Assert.AreEqual(1, serverEntityManager.CreateEntityQuery(ComponentType.ReadOnly<SceneReference>()).ToEntityArray(Allocator.Temp).Length, "Test should contain 1 scene on setup");
+                Assert.AreEqual(3, serverEntityManager.CreateEntityQuery(ComponentType.ReadOnly<SomeData>()).ToEntityArray(Allocator.Temp).Length, "Test should contain 3 'SomeData' components on setup");
+
+                var preMigrationGhostData = new Dictionary<int, int>();
+
+                // Gather the prespawn data pre migration
+                var prespawnGhosts = serverEntityManager.CreateEntityQuery(ComponentType.ReadOnly<GhostInstance>(), ComponentType.ReadOnly<SomeData>());
+                Entity toDestroy = Entity.Null;
+                foreach (var e in prespawnGhosts.ToEntityArray(Allocator.Temp))
+                {
+                    var ghostInstance = serverEntityManager.GetComponentData<GhostInstance>(e);
+                    var someData = serverEntityManager.GetComponentData<SomeData>(e);
+                    preMigrationGhostData.Add( ghostInstance.ghostId, someData.Value );
+
+                    // save the entity we are going to modify
+                    if ( someData.Value == 2 )
+                    {
+                        toDestroy = e;
+                    }
+                }
+
+                // verify the initial state of the data matches as expected
+                var expectedValues = new List<int>{ 1,2,3 };
+                var actualValues = new List<int>();
+
+                foreach ( var ghostData in preMigrationGhostData )
+                {
+                    actualValues.Add(ghostData.Value);
+                }
+
+                actualValues.Sort();
+
+                Assert.AreEqual( expectedValues, actualValues, $"The expected {expectedValues} and actual {actualValues} 'SomeData' values should match." );
+
+                testWorld.TickMultiple(8);
+
+                Assert.True( toDestroy != Entity.Null, "The prespawn we are going to remove should exist." );
+                // destroy the entity
+                if (toDestroy != Entity.Null)
+                {
+                    // remove from the tracking data
+                    preMigrationGhostData.Remove( serverEntityManager.GetComponentData<GhostInstance>(toDestroy).ghostId );
+
+                    // remove the actual entity for migration
+                    serverEntityManager.DestroyEntity(toDestroy);
+                }
+
+                testWorld.TickMultiple(16);
+
+                Assert.AreEqual(1, serverEntityManager.CreateEntityQuery(ComponentType.ReadOnly<SceneReference>()).ToEntityArray(Allocator.Temp).Length, "After removing the prespawn we should have 1 scene.");
+                Assert.AreEqual(2, serverEntityManager.CreateEntityQuery(ComponentType.ReadOnly<SomeData>()).ToEntityArray(Allocator.Temp).Length, "After removing the prespawn we should have 2 'SomeData' components.");
+
+                // do a host migration
+                GetHostMigrationData(testWorld, out var migrationData);
+                DisconnectServerAndCreateNewServerWorld(testWorld, ref migrationData);
+
+                testWorld.TickMultiple(2);
+
+                // re-connect the clients
+                var ep = NetworkEndpoint.LoopbackIpv4;
+                ep.Port = 7979;
+                testWorld.GetSingletonRW<NetworkStreamDriver>(testWorld.ServerWorld).ValueRW.Listen(ep);
+                for (int i = 0; i < testWorld.ClientWorlds.Length; ++i)
+                    testWorld.GetSingletonRW<NetworkStreamDriver>(testWorld.ClientWorlds[i]).ValueRW.Connect(testWorld.ClientWorlds[i].EntityManager, ep);
+
+                testWorld.TickMultiple(8);
+
+                // TODO: We don't handle connection restore on clients atm, so need to manually place in game
+                for (int i = 0; i < clientCount; ++i)
+                {
+                    using var clientConnectionQuery = testWorld.ClientWorlds[i].EntityManager.CreateEntityQuery(ComponentType.ReadOnly<NetworkStreamConnection>());
+                    testWorld.ClientWorlds[i].EntityManager.AddComponent<NetworkStreamInGame>(clientConnectionQuery.GetSingletonEntity());
+                }
+
+                testWorld.TickMultiple(32);
+
+                // get the server entity manager from the new world
+                serverEntityManager = testWorld.ServerWorld.EntityManager;
+
+                // we should have 1 scene and 2 instances of SomeData (same as before the migration after deleting one of the prespawns)
+                Assert.AreEqual(1, serverEntityManager.CreateEntityQuery(ComponentType.ReadOnly<SceneReference>()).ToEntityArray(Allocator.Temp).Length, "After migration we should have 1 scene loaded.");
+                Assert.AreEqual(2, serverEntityManager.CreateEntityQuery(ComponentType.ReadOnly<SomeData>()).ToEntityArray(Allocator.Temp).Length, "After migration we should have 2 'SomeData' components. The deletion of the componenet should persist.");
+
+                var postMigrationPrespawnGhosts = serverEntityManager.CreateEntityQuery(ComponentType.ReadOnly<GhostInstance>(), ComponentType.ReadOnly<SomeData>());
+
+                var postMigrationData = new Dictionary<int, int>();
+
+                foreach (var e in postMigrationPrespawnGhosts.ToEntityArray(Allocator.Temp))
+                {
+                    var ghostInstance = serverEntityManager.GetComponentData<GhostInstance>(e);
+                    var someData = serverEntityManager.GetComponentData<SomeData>(e);
+                    postMigrationData.Add( ghostInstance.ghostId, someData.Value );
+                }
+
+                Assert.AreEqual( preMigrationGhostData, postMigrationData, $"After migration the pre {preMigrationGhostData} and post {postMigrationData} migration 'SomeData' component data should match." );
+            }
+        }
+
+
+        /// <summary>
+        /// Test to verify that after a host migration the new host will correctly re-create changes made to data on prespawns
+        /// </summary>
+        [Test]
+        public unsafe void MigrationKeepsModifiedPrespawnData()
+        {
+            GameObject go1 = new GameObject("Ghost1", typeof(GhostAuthoringComponent), typeof(SomeDataValueAuthoring) );
+            go1.GetComponent<SomeDataValueAuthoring>().value = 1;
+            var ghost1 = SubSceneHelper.CreatePrefab(ScenePath, go1);
+
+            GameObject go2 = new GameObject("Ghost2", typeof(GhostAuthoringComponent), typeof(SomeDataValueAuthoring) );
+            go2.GetComponent<SomeDataValueAuthoring>().value = 2;
+            var ghost2 = SubSceneHelper.CreatePrefab(ScenePath, go2);
+
+            GameObject go3 = new GameObject("Ghost3", typeof(GhostAuthoringComponent), typeof(SomeDataValueAuthoring) );
+            go3.GetComponent<SomeDataValueAuthoring>().value = 3;
+            var ghost3 = SubSceneHelper.CreatePrefab(ScenePath, go3);
+
+            var scene = SubSceneHelper.CreateEmptyScene(ScenePath, "ParentScene");
+            var subscene = SubSceneHelper.CreateSubSceneWithPrefabs(scene, ScenePath, "SubScene", new[] { ghost1, ghost2, ghost3 }, 1);
+
+            SceneManager.SetActiveScene(scene);
+
+            const int clientCount = 2;
+            using (var testWorld = new NetCodeTestWorld())
+            {
+                testWorld.Bootstrap(true, typeof(ServerHostMigrationSystem));
+                testWorld.CreateWorlds(true, clientCount);
+                SubSceneHelper.LoadSubSceneInWorlds(testWorld);
+
+                testWorld.ServerWorld.EntityManager.CreateEntity(ComponentType.ReadOnly<EnableHostMigration>());
+
+                testWorld.Connect(maxSteps: 10);
+                testWorld.GoInGame();
+
+                testWorld.TickMultiple(8);
+
+                var serverEntityManager = testWorld.ServerWorld.EntityManager;
+
+                // We should have 1 subscene and 3 instances of SomeData
+                Assert.AreEqual(1, serverEntityManager.CreateEntityQuery(ComponentType.ReadOnly<SceneReference>()).ToEntityArray(Allocator.Temp).Length);
+                Assert.AreEqual(3, serverEntityManager.CreateEntityQuery(ComponentType.ReadOnly<SomeData>()).ToEntityArray(Allocator.Temp).Length);
+
+                var preMigrationGhostData = new Dictionary<int, int>();
+
+                // Gather the prespawn data pre migration
+                var prespawnGhosts = serverEntityManager.CreateEntityQuery(ComponentType.ReadOnly<GhostInstance>(), ComponentType.ReadOnly<SomeData>());
+                Entity toModify = Entity.Null;
+                foreach (var e in prespawnGhosts.ToEntityArray(Allocator.Temp))
+                {
+                    var ghostInstance = serverEntityManager.GetComponentData<GhostInstance>(e);
+                    var someData = serverEntityManager.GetComponentData<SomeData>(e);
+                    preMigrationGhostData.Add( ghostInstance.ghostId, someData.Value );
+
+                    // save the entity we are going to modify
+                    if ( someData.Value == 2 )
+                    {
+                        toModify = e;
+                    }
+                }
+
+                // verify the initial state of the data matches as expected
+                var expectedValues = new List<int>{ 1,2,3 };
+                var actualValues = new List<int>();
+
+                foreach ( var ghostData in preMigrationGhostData )
+                {
+                    actualValues.Add(ghostData.Value);
+                }
+
+                actualValues.Sort();
+
+                Assert.AreEqual( expectedValues, actualValues );
+
+                testWorld.TickMultiple(8);
+
+                Assert.True( toModify != Entity.Null );
+                var expectedPostMigrationData = new Dictionary<int, int>(preMigrationGhostData);
+                // modify the entity
+                if (toModify != Entity.Null)
+                {
+                    // modify the actual ghost data
+                    var someData = serverEntityManager.GetComponentData<SomeData>(toModify);
+                    someData.Value = 4;
+                    serverEntityManager.SetComponentData<SomeData>(toModify, someData);
+
+                    // modify the verification data
+                    var ghostInstance = serverEntityManager.GetComponentData<GhostInstance>(toModify);
+                    expectedPostMigrationData[ghostInstance.ghostId] = 4;
+                }
+
+                Assert.AreNotEqual( preMigrationGhostData, expectedPostMigrationData );
+
+                testWorld.TickMultiple(16);
+
+                // do a host migration
+                GetHostMigrationData(testWorld, out var migrationData);
+                DisconnectServerAndCreateNewServerWorld(testWorld, ref migrationData);
+
+                serverEntityManager = testWorld.ServerWorld.EntityManager;
+
+                testWorld.TickMultiple(2);
+
+                // re-connect the clients
+                var ep = NetworkEndpoint.LoopbackIpv4;
+                ep.Port = 7979;
+                testWorld.GetSingletonRW<NetworkStreamDriver>(testWorld.ServerWorld).ValueRW.Listen(ep);
+                for (int i = 0; i < testWorld.ClientWorlds.Length; ++i)
+                    testWorld.GetSingletonRW<NetworkStreamDriver>(testWorld.ClientWorlds[i]).ValueRW.Connect(testWorld.ClientWorlds[i].EntityManager, ep);
+
+                testWorld.TickMultiple(8);
+
+                // TODO: We don't handle connection restore on clients atm, so need to manually place in game
+                for (int i = 0; i < clientCount; ++i)
+                {
+                    using var clientConnectionQuery = testWorld.ClientWorlds[i].EntityManager.CreateEntityQuery(ComponentType.ReadOnly<NetworkStreamConnection>());
+                    testWorld.ClientWorlds[i].EntityManager.AddComponent<NetworkStreamInGame>(clientConnectionQuery.GetSingletonEntity());
+                }
+
+                testWorld.TickMultiple(32);
+
+                // get the server entity manager from the new world
+                serverEntityManager = testWorld.ServerWorld.EntityManager;
+
+                // we should have 1 scene and 3 instances of SomeData (same as before the migration)
+                Assert.AreEqual(1, serverEntityManager.CreateEntityQuery(ComponentType.ReadOnly<SceneReference>()).ToEntityArray(Allocator.Temp).Length);
+                Assert.AreEqual(3, serverEntityManager.CreateEntityQuery(ComponentType.ReadOnly<SomeData>()).ToEntityArray(Allocator.Temp).Length);
+
+                var postMigrationPrespawnGhosts = serverEntityManager.CreateEntityQuery(ComponentType.ReadOnly<GhostInstance>(), ComponentType.ReadOnly<SomeData>());
+
+                var postMigrationData = new Dictionary<int, int>();
+
+                foreach (var e in postMigrationPrespawnGhosts.ToEntityArray(Allocator.Temp))
+                {
+                    var ghostInstance = serverEntityManager.GetComponentData<GhostInstance>(e);
+                    var someData = serverEntityManager.GetComponentData<SomeData>(e);
+                    postMigrationData.Add( ghostInstance.ghostId, someData.Value );
+                }
+
+                Assert.AreEqual( expectedPostMigrationData, postMigrationData );
+            }
+        }
+
+        /// <summary>
         /// After a host migration re-connecting clients who were originally in the session will retain their network ID
         /// </summary>
         [Test]

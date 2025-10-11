@@ -10,7 +10,7 @@ using UnityEngine.TestTools;
 
 namespace Unity.NetCode.Tests
 {
-    public struct FixedListComplexData
+    internal struct FixedListComplexData
     {
         public int Value1;
         public uint Value2;
@@ -33,8 +33,21 @@ namespace Unity.NetCode.Tests
     {
         public FixedList32Bytes<int> FixedList1;
         public FixedList64Bytes<float> FixedList2;
+        public const int FixedIntArrayLength = 7;
+        public unsafe fixed int FixedIntArray[FixedIntArrayLength];
         public FixedList128Bytes<uint> FixedList3;
         public FixedList512Bytes<ulong> FixedList4;
+
+        /// <summary>This method must be implemented by the user, when using fixed arrays, to allow code-gen to access it safely.</summary>
+        /// <param name="index">The array index.</param>
+        /// <returns>A ref to the array element.</returns>
+        /// <exception cref="InvalidOperationException">When <see cref="index"/> is out of bounds.</exception>
+        public unsafe ref int FixedIntArrayRef(int index)
+        {
+            if (index < 0 || index >= FixedIntArrayLength)
+                throw new InvalidOperationException($"FixedIntArray[{index}] is out of bounds (Length:{FixedIntArrayLength})!");
+            return ref FixedIntArray[index];
+        }
     }
 
     struct Axis
@@ -171,15 +184,33 @@ namespace Unity.NetCode.Tests
     }
 
     //Components
-    public struct SimpleData
+    struct SimpleFixedListData
     {
-        public int Value1;
-        public int Value2;
+        [GhostField(Quantization=0)]public int Value1;
+        public float Value2;
         [GhostField(SendData = false)]public int Value3;
         [GhostField(Quantization=100)]public float Value4;
+        /// <remarks>
+        /// <c>Quantization = 0</c> cancels out the <c>Quantization = 1000</c> in the outer collection,
+        /// which would have emitted a compiler error (as no suitable template could be found).
+        /// </remarks>
+        [GhostField(Quantization=0)]public Entity Value5;
+        public const int Value6FixedArrayLength = 3;
+        [GhostField(Quantization = 100)]public unsafe fixed float Value6FixedArray[Value6FixedArrayLength];
+
+        /// <summary>This method must be implemented by the user, when using fixed arrays, to allow code-gen to access it safely.</summary>
+        /// <param name="index">The array index.</param>
+        /// <returns>A ref to the array element.</returns>
+        /// <exception cref="InvalidOperationException">When <see cref="index"/> is out of bounds.</exception>
+        public unsafe ref float Value6FixedArrayRef(int index)
+        {
+            if (index < 0 || index >= Value6FixedArrayLength)
+                throw new InvalidOperationException($"FixedIntArray[{index}] is out of bounds (Length:{Value6FixedArrayLength})!");
+            return ref Value6FixedArray[index];
+        }
     }
 
-    public struct FixedElement8
+    internal struct FixedElement8
     {
         public int Value1;
         public int Value2;
@@ -191,26 +222,42 @@ namespace Unity.NetCode.Tests
         public int Value8;
     }
 
-    public struct Nested
+    internal struct NestedFixedList
     {
-        public int Value1;
-        public int Value2;
-        public FixedList32Bytes<SimpleData> FixedList;
+        [GhostField(Quantization=0)]public int Value1;
+        [GhostField(Quantization=0)]public int Value2;
+        public FixedList32Bytes<NestedFixedListNestedData> FixedList;
+
+        /// <summary>Nested SimpleData with the same name as the above!</summary>
+        public struct NestedFixedListNestedData
+        {
+            /// <remarks>
+            /// <c>Quantization = 0</c> cancels out the <c>Quantization = 1000</c> in the outer collection,
+            /// which would have emitted a compiler error (as no suitable template could be found).
+            /// </remarks>
+            [GhostField(Quantization = 0)]public Entity Value1;
+            [GhostField(Quantization = 0)]public long Value2;
+            [GhostField(SendData = false)]public int Value3;
+            [GhostField(Quantization=100)]public float Value4;
+            public float Value5;
+        }
     }
     internal struct Primitive : IComponentData
     {
         [GhostField]public int Value1;
         [GhostField]public int Value2;
         [GhostField]public int Value3;
-        [GhostField(Quantization = 1000)]public FixedList32Bytes<float> Value4;
+        [GhostField(Quantization = 1000)]
+        public FixedList32Bytes<float> Value4;
     }
     internal struct WithStruct : IComponentData
     {
         [GhostField]public int Value1;
         [GhostField]public int Value2;
         [GhostField]public int Value3;
-        [GhostField(Quantization = 1000)]public FixedList128Bytes<SimpleData> Value4;
-        [GhostField(Quantization = 1000)]public Nested Value5;
+        [GhostFixedListCapacity] // An empty value here should use the FixedList capacity upper-bound!
+        [GhostField(Quantization = 1000)]public FixedList512Bytes<SimpleFixedListData> Value4;
+        [GhostField(Quantization = 1000)]public NestedFixedList Value5;
     }
     internal struct MoreThan64Elements : IComponentData
     {
@@ -361,6 +408,13 @@ namespace Unity.NetCode.Tests
             {
                 rpc.Value.FixedList4[i] = 0xfFaEfful ^ (ulong)(102032 * i);
             }
+            unsafe
+            {
+                for (int i = 0; i < FixedListPrimitive.FixedIntArrayLength; ++i)
+                {
+                    rpc.Value.FixedIntArray[i] = 8;
+                }
+            }
 
             for (int i = 0; i < 3; i++)
             {
@@ -390,6 +444,13 @@ namespace Unity.NetCode.Tests
                     Assert.AreEqual(rpc.Value.FixedList4.Length, recvRpc.Value.FixedList4.Length);
                     for (int i = 0; i < rpc.Value.FixedList4.Length; ++i)
                         Assert.AreEqual(rpc.Value.FixedList4[i], recvRpc.Value.FixedList4[i]);
+                    unsafe
+                    {
+                        for (int i = 0; i < FixedListPrimitive.FixedIntArrayLength; ++i)
+                        {
+                            Assert.AreEqual(rpc.Value.FixedIntArray[i], recvRpc.Value.FixedIntArray[i]);
+                        }
+                    }
                 }
             }
         }
@@ -503,7 +564,7 @@ namespace Unity.NetCode.Tests
                         5.0f,
                         6.0f,
                         7.0f,
-                    }
+                    },
                 });
 
                 GhostPrefabCreation.ConvertToGhostPrefab(world.EntityManager, entity, new GhostPrefabCreation.Config
@@ -590,37 +651,43 @@ namespace Unity.NetCode.Tests
             Entity CreateGhost(World world)
             {
                 var entity = world.EntityManager.CreateEntity();
+
                 var data = new WithStruct
                 {
                     Value1 = 100,
                     Value2 = 200,
                     Value3 = 300,
-                    Value4 = new FixedList128Bytes<SimpleData>(),
                 };
-                data.Value4.Length = data.Value4.Capacity - data.Value4.Capacity/2;
+                data.Value4.Length = 3;
                 for (int i = 0; i < data.Value4.Length; ++i)
                 {
-                    data.Value4[i] = new SimpleData
+                    ref var entryRef = ref data.Value4.ElementAt(i);
+                    data.Value4[i] = new SimpleFixedListData
                     {
                         Value1 = 10 + i,
                         Value2 = 20 + i,
                         Value3 = 30 + i,
-                        Value4 = 40 + i
+                        Value4 = 40 + i,
+                        Value5 = default,
                     };
+                    entryRef.Value6FixedArrayRef(0) = i - 25059;
+                    entryRef.Value6FixedArrayRef(1) = i + 23;
+                    entryRef.Value6FixedArrayRef(2) = i + 3335;
                 }
 
                 data.Value5.Value1 = 500;
                 data.Value5.Value2 = 1000;
-                data.Value5.FixedList = new FixedList32Bytes<SimpleData>();
+                data.Value5.FixedList = new FixedList32Bytes<NestedFixedList.NestedFixedListNestedData>();
                 data.Value5.FixedList.Length = data.Value5.FixedList.Capacity - data.Value5.FixedList.Capacity/2;
                 for (int i = 0; i < data.Value5.FixedList.Length; ++i)
                 {
-                    data.Value5.FixedList[i] = new SimpleData()
+                    data.Value5.FixedList[i] = new NestedFixedList.NestedFixedListNestedData
                     {
-                        Value1 = -10 - i,
+                        Value1 = default,
                         Value2 = -20 - i,
                         Value3 = -30 - i,
-                        Value4 = -40 - i
+                        Value4 = -40 - i,
+                        Value5 = -50 - i,
                     };
                 }
                 world.EntityManager.AddComponentData(entity, data);
@@ -646,7 +713,18 @@ namespace Unity.NetCode.Tests
             testWorld.GoInGame();
             for (int i = 0; i < 16; ++i)
                 testWorld.Tick();
+
+            // Spawn server instance, and set up the Entity field on the instance:
             var serverGhost = testWorld.ServerWorld.EntityManager.Instantiate(ghostPrefab);
+            {
+                var serverWithStruct = testWorld.ServerWorld.EntityManager.GetComponentData<WithStruct>(serverGhost);
+                for (int i = 0; i < serverWithStruct.Value4.Length; i++)
+                    serverWithStruct.Value4.ElementAt(i).Value5 = i % 3 == 0 ? serverGhost : default;
+                for (int i = 0; i < serverWithStruct.Value5.FixedList.Length; i++)
+                    serverWithStruct.Value5.FixedList.ElementAt(i).Value1 = i % 2 == 0 ? serverGhost : default;
+                testWorld.ServerWorld.EntityManager.SetComponentData(serverGhost, serverWithStruct);
+            }
+
             for (int i = 0; i < 4; ++i)
             {
                 testWorld.Tick();
@@ -659,6 +737,7 @@ namespace Unity.NetCode.Tests
             serverValues[3] = serverData;
             var lengthInc0 = 0;
             var lengthInc1 = 0;
+            const float quantizationError = 0.002f;
             for (int i = 0; i < 24; ++i)
             {
                 testWorld.Tick();
@@ -669,10 +748,49 @@ namespace Unity.NetCode.Tests
                 Assert.AreEqual(serverValues[i].Value4.Length, clientData.Value4.Length);
                 for (int el = 0; el < serverValues[i].Value4.Length; ++el)
                 {
-                    Assert.AreEqual(serverValues[i].Value4[el].Value1, clientData.Value4[el].Value1);
-                    Assert.AreEqual(serverValues[i].Value4[el].Value2, clientData.Value4[el].Value2);
-                    Assert.AreEqual(serverValues[i].Value4[el].Value3, clientData.Value4[el].Value3);
-                    Assert.AreEqual(serverValues[i].Value4[el].Value4, clientData.Value4[el].Value4);
+                    Assert.That(clientData.Value4[el].Value1, Is.EqualTo(serverValues[i].Value4[el].Value1));
+                    Assert.That(clientData.Value4[el].Value2, Is.EqualTo(serverValues[i].Value4[el].Value2).Within(quantizationError));
+                    Assert.That(clientData.Value4[el].Value3, Is.EqualTo(serverValues[i].Value4[el].Value3));
+                    Assert.That(clientData.Value4[el].Value4, Is.EqualTo(serverValues[i].Value4[el].Value4).Within(quantizationError));
+                    if (el % 3 == 0)
+                    {
+                        // Both should be pointing to their respective valid entities.
+                        Assert.IsTrue(testWorld.ServerWorld.EntityManager.Exists(serverValues[i].Value4[el].Value5));
+                        Assert.IsTrue(testWorld.ClientWorlds[0].EntityManager.Exists(clientData.Value4[el].Value5));
+                    }
+                    else
+                    {
+                        // Both should be Entity.Null.
+                        Assert.AreEqual(Entity.Null, serverValues[i].Value4[el].Value5);
+                        Assert.AreEqual(Entity.Null, clientData.Value4[el].Value5);
+                    }
+
+
+                    Assert.That(clientData.Value4[el].Value6FixedArrayRef(0), Is.EqualTo(serverValues[i].Value4[el].Value6FixedArrayRef(0)).Within(quantizationError));
+                    Assert.That(clientData.Value4[el].Value6FixedArrayRef(1), Is.EqualTo(serverValues[i].Value4[el].Value6FixedArrayRef(1)).Within(quantizationError));
+                    Assert.That(clientData.Value4[el].Value6FixedArrayRef(2), Is.EqualTo(serverValues[i].Value4[el].Value6FixedArrayRef(2)).Within(quantizationError));
+                }
+
+                Assert.AreEqual(serverValues[i].Value5.Value1, clientData.Value5.Value1);
+                Assert.AreEqual(serverValues[i].Value5.Value2, clientData.Value5.Value2);
+                for (int el = 0; el < serverValues[i].Value5.FixedList.Length; ++el)
+                {
+                    Assert.AreEqual(serverValues[i].Value5.FixedList[el].Value1, clientData.Value5.FixedList[el].Value1);
+                    Assert.AreEqual(serverValues[i].Value5.FixedList[el].Value2, clientData.Value5.FixedList[el].Value2);
+                    Assert.AreEqual(serverValues[i].Value5.FixedList[el].Value3, clientData.Value5.FixedList[el].Value3);
+                    Assert.That(clientData.Value5.FixedList[el].Value5, Is.EqualTo(serverValues[i].Value5.FixedList[el].Value5).Within(quantizationError));
+                    if(el % 2 == 0)
+                    {
+                        // Both should be pointing to their respective valid entities.
+                        Assert.IsTrue(testWorld.ServerWorld.EntityManager.Exists(serverValues[i].Value5.FixedList[el].Value1));
+                        Assert.IsTrue(testWorld.ClientWorlds[0].EntityManager.Exists(clientData.Value5.FixedList[el].Value1));
+                    }
+                    else
+                    {
+                        // Both should be Entity.Null.
+                        Assert.AreEqual(Entity.Null, serverValues[i].Value5.FixedList[el].Value1);
+                        Assert.AreEqual(Entity.Null, clientData.Value5.FixedList[el].Value1);
+                    }
                 }
                 serverData = serverValues[i];
                 serverData.Value1 = serverValues[i].Value1 + 1;
@@ -690,16 +808,21 @@ namespace Unity.NetCode.Tests
                     serverValues[i].Value4.ElementAt(el).Value2 = serverData.Value4[el].Value2 + lengthInc0;
                     serverValues[i].Value4.ElementAt(el).Value3 = serverData.Value4[el].Value3 + lengthInc0;
                     serverValues[i].Value4.ElementAt(el).Value4 = serverData.Value4[el].Value4 + lengthInc0;
+                    serverValues[i].Value4.ElementAt(el).Value5 = serverData.Value4[el].Value5;
+                    serverValues[i].Value4.ElementAt(el).Value6FixedArrayRef(0) = serverData.Value4[el].Value6FixedArrayRef(0);
+                    serverValues[i].Value4.ElementAt(el).Value6FixedArrayRef(1) = serverData.Value4[el].Value6FixedArrayRef(1);
+                    serverValues[i].Value4.ElementAt(el).Value6FixedArrayRef(2) = serverData.Value4[el].Value6FixedArrayRef(2);
                 }
                 serverData.Value5.Value1 = serverData.Value5.Value1 + 11;
                 serverData.Value5.Value2 = serverData.Value5.Value1 + 17;
-                serverData.Value5.FixedList.Length = serverValues[i].Value5.FixedList.Length + lengthInc0;
+                serverData.Value5.FixedList.Length = serverValues[i].Value5.FixedList.Length + lengthInc1;
                 for (int el = 0; el < serverData.Value5.FixedList.Length; ++el)
                 {
-                    serverValues[i].Value5.FixedList.ElementAt(el).Value1 = serverData.Value5.FixedList[el].Value1 + lengthInc0;
+                    serverValues[i].Value5.FixedList.ElementAt(el).Value1 = serverData.Value5.FixedList[el].Value1;
                     serverValues[i].Value5.FixedList.ElementAt(el).Value2 = serverData.Value5.FixedList[el].Value2 + lengthInc0;
                     serverValues[i].Value5.FixedList.ElementAt(el).Value3 = serverData.Value5.FixedList[el].Value3 + lengthInc0;
                     serverValues[i].Value5.FixedList.ElementAt(el).Value4 = serverData.Value5.FixedList[el].Value4 + lengthInc0;
+                    serverValues[i].Value5.FixedList.ElementAt(el).Value5 = serverData.Value5.FixedList[el].Value5 + lengthInc0;
                 }
                 testWorld.ServerWorld.EntityManager.SetComponentData(serverGhost, serverData);
                 serverValues[i + 4] = serverData;

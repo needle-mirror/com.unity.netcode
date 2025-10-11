@@ -33,6 +33,7 @@ namespace Unity.NetCode
     /// Uses tiling to group entities into spatial chunks, allowing chunks to be prioritized based on distance (via the
     /// <see cref="GhostDistancePartitioningSystem"/>), effectively giving you performant distance-based importance scaling.
     /// </summary>
+    [Serializable]
     public struct GhostDistanceData : IComponentData
     {
         /// <summary>

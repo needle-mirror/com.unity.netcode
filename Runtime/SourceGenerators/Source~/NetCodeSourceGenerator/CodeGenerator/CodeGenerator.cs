@@ -75,47 +75,75 @@ namespace Unity.NetCode.Generators
             var description = typeInfo.Description;
             if (!context.templateProvider.TypeTemplates.TryGetValue(description, out template))
             {
-                if (description.Attribute.subtype == 0)
-                    return false;
-
                 bool foundSubType = false;
-                foreach (var myType in context.templateProvider.TypeTemplates)
+                TypeDescription? foundDesc = null;
+                if (description.Attribute.subtype == 0)
                 {
-                    if (description.Attribute.subtype == myType.Key.Attribute.subtype)
+                    // Try to find the closest valid anyway, so we can err on the fact that it doesn't meet all criteria.
+                    // NOTE: We should really find ALL templates for a given type, then select the best, where possible.
+                    foreach (var kvp in context.templateProvider.TypeTemplates)
                     {
-                        if (description.Key == myType.Key.Key)
+                        if (description.Key == kvp.Key.Key)
                         {
-                            foundSubType = true;
-                            break;
+                            // If the `kvp` entry has the exact subtype, but our best match doesn't, prefer the other one.
+                            if (template == null || (foundDesc.Value.Attribute.subtype != 0 && kvp.Key.Attribute.subtype == 0))
+                            {
+                                foundDesc = kvp.Key;
+                                template = kvp.Value;
+                            }
                         }
-                        context.diagnostic.LogError($"'{context.generatorName}' defines a field '{typeInfo.FieldName}' with GhostField configuration '{description}' with a subtype, but subType '{description.Attribute.subtype}' is registered to a different type ('{myType.Key.TypeFullName}'). Thus, ignoring this field. Did you mean to use a different subType?",
+                    }
+                    if (template == null)
+                    {
+                        context.diagnostic.LogDebug($"'{context.generatorName}' defines a field '{typeInfo.FieldName}' with GhostField configuration '{description}' but no template found.",
                             typeInfo.Location);
                         return false;
                     }
+                    context.diagnostic.LogWarning($"'{context.generatorName}' defines a field '{typeInfo.FieldName}' with GhostField configuration '{description}', but no exact template match found. Thus, using best-match similar template {template.TemplatePath} with description {foundDesc}! To remove this warning, specify this exact description in the GhostField attribute of this field, or, alternatively, provide a new ghost field template that matches this exact description.",
+                        typeInfo.Location);
                 }
-                if (!foundSubType)
+                else
                 {
-                    context.diagnostic.LogError($"'{context.generatorName}' defines a field '{typeInfo.FieldName}' with GhostField configuration '{description}' with a subtype, but this subType has not been registered. Known subTypes are {context.templateProvider.FormatAllKnownSubTypes()}. Please register your SubType Template in the `UserDefinedTemplates` `TypeRegistry` via an `.additionalfile` (see docs).",
+                    // Try to find the same subtype manually, ignoring other description settings:
+                    foreach (var kvp in context.templateProvider.TypeTemplates)
+                    {
+                        if (description.Attribute.subtype == kvp.Key.Attribute.subtype)
+                        {
+                            if (description.Key == kvp.Key.Key)
+                            {
+                                foundSubType = true;
+                                break;
+                            }
+
+                            context.diagnostic.LogError($"'{context.generatorName}' defines a field '{typeInfo.FieldName}' with GhostField configuration '{description}' with a subtype, but subType '{description.Attribute.subtype}' is registered to a different type ('{kvp.Key.TypeFullName}'). Thus, ignoring this field. Did you mean to use a different subType?",
+                                typeInfo.Location);
+                            return false;
+                        }
+                    }
+
+                    if (!foundSubType)
+                    {
+                        context.diagnostic.LogError($"'{context.generatorName}' defines a field '{typeInfo.FieldName}' with GhostField configuration '{description}' with subtype:{description.Attribute.subtype}, but this subType has not been registered. Known subTypes are {context.templateProvider.FormatAllKnownSubTypes()}. Please register your SubType Template in the `UserDefinedTemplates` `TypeRegistry` via an `.additionalfile` (see docs).",
+                            typeInfo.Location);
+                        return false;
+                    }
+                    context.diagnostic.LogDebug($"'{context.generatorName}' defines a field '{typeInfo.FieldName}' with GhostField configuration '{description}' -- found its subtype!",
                         typeInfo.Location);
                     return false;
                 }
-                return false;
             }
 
-            if (template.SupportsQuantization && description.Attribute.quantization < 0)
+            if (template.SupportsQuantization && description.Attribute.quantization <= 0)
             {
-                context.diagnostic.LogError($"'{context.generatorName}' defines a field '{typeInfo.FieldName}' with GhostField configuration '{description}' which requires a quantization value to be specified, but it has not been. Thus, ignoring the field. To fix, add a quantization value to the GhostField attribute constructor.",
+                const int defaultQuantizationValue = 1000;
+                context.diagnostic.LogWarning($"'{context.generatorName}' defines a field '{typeInfo.FieldName}' with GhostField configuration '{description}' which matches template '{template.TemplatePath}'. However, this template requires a quantization value to be specified, but it has not been. Using {defaultQuantizationValue} for now. To remove this warning, add a quantization value to the GhostField attribute constructor.",
                     typeInfo.Location);
-                template = default;
-                return false;
+                description.Attribute.quantization = defaultQuantizationValue;
             }
-
-            if (!template.SupportsQuantization && description.Attribute.quantization > 0)
+            else if (!template.SupportsQuantization && description.Attribute.quantization > 0)
             {
-                context.diagnostic.LogError($"'{context.generatorName}' defines a field '{typeInfo.FieldName}' with GhostField configuration '{description}' that does not support quantization, but has a quantization value specified. Thus, ignoring the field. To fix, remove the quantization value from the GhostField attribute constructor.",
+                context.diagnostic.LogWarning($"'{context.generatorName}' defines a field '{typeInfo.FieldName}' with GhostField configuration '{description}' which matches template '{template.TemplatePath}'. However, this template does not support quantization, but has a quantization value of {description.Attribute.quantization} specified. Thus, the quantization value will be ignored. To remove this warning, either remove the quantization value from the GhostField attribute constructor, or, if the GhostFieldAttribute is inherited, add a Quantization=-1 to this field.",
                     typeInfo.Location);
-                template = default;
-                return false;
             }
 
             // TODO: subtype + composite doesn't work atm, we don't pass the subtype=x info down
@@ -124,11 +152,14 @@ namespace Unity.NetCode.Generators
             // we can't detect this atm
             if (template.Composite && description.Attribute.subtype > 0)
             {
-                context.diagnostic.LogError($"'{context.generatorName}' defines a field '{typeInfo.FieldName}' with GhostField configuration '{description}' using an invalid configuration: Subtyped types cannot also be defined as composite, as it is assumed your Template given is the one in use for the whole type. I.e. If you'd like to implement change-bit composition yourself on this type, modify the template directly (at '{template.TemplatePath}').");
+                context.diagnostic.LogError($"'{context.generatorName}' defines a field '{typeInfo.FieldName}' with GhostField configuration '{description}' using an invalid configuration: Subtyped types cannot also be defined as composite, as it is assumed your Template given is the one in use for the whole type. I.e. If you'd like to implement change-bit composition yourself on this type, modify the template directly (at '{template.TemplatePath}').",
+                    typeInfo.Location);
                 return false;
             }
 
-            context.diagnostic.LogDebug($"'{context.generatorName}' found Template for field '{typeInfo.FieldName}' with GhostField configuration '{description}': '{template}'.");
+            // TODO: Ensure all Log's have typeInfo.Location.
+            context.diagnostic.LogDebug($"'{context.generatorName}' found Template for field '{typeInfo.FieldName}' with GhostField configuration '{description}': '{template}'.",
+                typeInfo.Location);
             return true;
         }
 
@@ -266,7 +297,7 @@ namespace Unity.NetCode.Generators
                     var elementType = fieldType.PointeeType;
                     for (int index = 0; index < fieldType.ElementCount; ++index)
                     {
-                        elementType.FieldName = $"{fieldType.FieldName}[{index}]";
+                        elementType.FieldName = $"{fieldType.FieldName}Ref({index})";
                         BuildGenerator(ctx, elementType, root, fieldGen);
                     }
                     fieldGen.AppendTarget(parentGenerator);
@@ -506,7 +537,7 @@ namespace Unity.NetCode.Generators
                     context.curChangeMaskBits += 2;
                     context.changeMaskBitCount += 2;
                 }
-                else if (template.Composite)
+                else if (template.Composite) // TODO: Remove this special flow and prefer `context.forceComposite`.
                 {
                     if(!GenerateCompositeField(context, type, parentContainer, template, rootPath))
                         return;
@@ -520,7 +551,7 @@ namespace Unity.NetCode.Generators
                     generator.AppendTarget(parentContainer);
                 }
 
-                if (!parentContainer.TypeInformation.Attribute.aggregateChangeMask)
+                if (!parentContainer.TypeInformation.Attribute.aggregateChangeMask && !context.forceComposite)
                 {
                     //We need to increment both the total current and total changemask bit counter if the
                     //parent class does not aggregate field.
@@ -539,7 +570,7 @@ namespace Unity.NetCode.Generators
                     //We need to differentiate the accessor path in this case. For fixed buffer we are using a simplified logic to serialized
                     //element X directly, given that the argument must be necessarily a primitive.
                     //When C#11 will be avaiable and finally we can have fixed buffer for structs we may need this more similar to the fixed list approach (so extra helper class)
-                    elementType.FieldName = $"{type.FieldName}[{index}]";
+                    elementType.FieldName = $"{type.FieldName}Ref({index})";
                     elementType.SnapshotFieldName = $"{type.FieldName}_{index}";
                     GenerateType(context, elementType, parentContainer, rootPath,$"{elementType.ContainingTypeFullName}.{elementType.FieldName}", index);
                 }
@@ -571,7 +602,7 @@ namespace Unity.NetCode.Generators
                 temp.AppendTarget(parentContainer);
             }
             //increment the mask bits if the current aggregation scope is completed.
-            if (type.Attribute.aggregateChangeMask && !parentContainer.TypeInformation.Attribute.aggregateChangeMask)
+            if (type.Attribute.aggregateChangeMask && !parentContainer.TypeInformation.Attribute.aggregateChangeMask && !context.forceComposite)
             {
                 parentContainer.m_TargetGenerator.AppendFragment("GHOST_AGGREGATE_WRITE", parentContainer.m_TargetGenerator, "GHOST_WRITE_COMBINED");
                 parentContainer.m_TargetGenerator.Fragments["__GHOST_AGGREGATE_WRITE__"].Content = "";
@@ -606,30 +637,35 @@ namespace Unity.NetCode.Generators
             //a temporary (for the assembly) struct that hold the field data.
             var fixedListFieldType = fixedListType.PointeeType;
             var argumentContainer = new ComponentSerializer(context, fixedListFieldType);
-            var isPrimitive = argumentContainer.TypeInformation.Kind != GenTypeKind.Struct;
+
             context.PushState();
+            // CAVEAT 1: FixedList's use a Composite change-mask (i.e. 1 bit per list element), so they don't write to the changeMask.
+            // CAVEAT 2: AND FixedList's write to their own change-mask (instead of the main one).
+            // Thus, because they're writing a composite mask (which is reset to 0), we never want to generate the `changeMaskFragZero` field.
             context.changeMaskBitCount = 0;
             context.curChangeMaskBits = 0;
-            //We first generate the argumen type in its own temporary template container.
-            //That allow us to know how many bits are needed to serialize the element.
-            //TODO what about hard limiting the component bit mask capacity (i.e max 128 bits). This would simplify everything by a very large margin
+            context.forceComposite = true;
             fixedListFieldType.Attribute.aggregateChangeMask = true;
+
+            //We first generate the argument type in its own temporary template container.
+            //That allow us to know how many bits are needed to serialize the element.
             GenerateType(context, fixedListFieldType,  argumentContainer, null, fixedListFieldType.TypeFullName,0);
             context.PopState();
 
             //Generate the serialization helper (in all cases, also for primitive types)
             var fixedListElementHelperGen = context.codeGenCache.GetTemplate(CodeGenerator.GhostFixedListSnapshotHelpers).Clone();
-            //Generate a unique fixed list generic argument name based on the type description hash, the type fullname, and fieldname
+            //Generate a unique fixed list generic argument name based on the type description hash, the type fullname, and fieldName.
             //Why using type description hash? Because the struct depend on the parameter applied to the field (i.e quantization).
-            //We want this to be generated only once per struct and ghost field option combinations.
-            //Unfortunately, because we do code-generation on per assembly basis (should be done only once with all the assembly data to reduce all the code bloat)
-            //One possible solution for this is to use the Metadata and generate instead of code some serialization schema and employ a generic serialization mechanism that
-            //does not require any code-generation at all.
+            //Ideally, we want this to be generated only once per struct and ghost field option combinations.
+            //Unfortunately, because we do code-generation on per assembly basis, we get one per FixedList field!
+
+            //One possible solution for this is to use the Metadata and generate instead of code some serialization schema,
+            //then and employ a generic serialization mechanism that does not require any code-generation at all.
             //The big question in that sense is then to understand how good or bad it is the bursted generated code for such serializer.
             //But from maintainability perspective and handling, it will be MUCH easier to add custom types and make checks consistently across-assemblies.
             //The struct name is like MyType_FixedListFieldName_ArgumentTypeName
             //TODO: optimize this be unique per type, not per field and type. Too much code bloat and duplication
-            string elementHelperPrefix = $"_{argumentContainer.TypeInformation.Description.GetHashCode():x}_{argumentContainer.TypeInformation.TypeFullName}".Replace('.', '_');
+            string elementHelperPrefix = $"_{argumentContainer.TypeInformation.Description.GetHashCode():x}_{argumentContainer.TypeInformation.TypeFullName}".Replace('+','.').Replace('.', '_');
             string elementTypeName;
             //if the type is struct we need an extra struct that holds the element in snapshot format
             //we also need to generate a ghost serializer for that struct that provide:
@@ -650,15 +686,9 @@ namespace Unity.NetCode.Generators
             }
             else
             {
-                //this depend upon quantization or user template in general. So we need to generate directly the GHOST FIELD fragment
+                //this depends upon quantization or user template in general. So we need to generate directly the GHOST FIELD fragment
                 //and extract the type information from there. We do so by parsing the generated replacement to find the type information
-                var argField = argumentContainer.m_TargetGenerator.GetFragmentContent("GHOST_FIELD");
-                argField = argField.Substring(argField.IndexOf("public", StringComparison.Ordinal));
-                //assumption: type is the second field. But at least verify that assumption:
-                var args = argField.Split(' ');
-                if (args.Length < 3)
-                    throw new Exception($"The __GHOST_FIELD__ region for template {template.TemplatePath} used for primitive type {fixedListType.TypeFullName} does not comply with the `public {{c# type}} __GHOST_FIELD_NAME__` format. Please ensure that the region is in this format");
-                elementTypeName = args[1];
+                elementTypeName = FindGhostFieldType();
             }
 
             fixedListElementHelperGen.Replacements["GHOST_FIXEDLIST_ELEMENT_SERIALIZER"] = $"{elementHelperPrefix}_Serializer";
@@ -696,7 +726,7 @@ namespace Unity.NetCode.Generators
                 fixedListSnapshotField.GenerateFragment("GHOST_FIXEDLIST_ELEMENTS", fixedListSnapshotField.Replacements);
             }
             //TODO: this can also be shared per "type"
-            var fixedListStructName = $"_{argumentContainer.TypeInformation.Description.GetHashCode():x}_{fixedListType.ContainingTypeFullName}.{fixedListType.FieldName}".Replace('.','_');
+            var fixedListStructName = $"_{argumentContainer.TypeInformation.Description.GetHashCode():x}_{fixedListType.ContainingTypeFullName}.{fixedListType.FieldName}".Replace('+','_').Replace('.','_');
             fixedListSnapshotField.Replacements["GHOST_NAME"] = context.root.TypeFullName;
             fixedListSnapshotField.Replacements["GHOST_FIXEDLIST_ELEMENT_SERIALIZER"] = fixedListElementHelperGen.Replacements["GHOST_FIXEDLIST_ELEMENT_SERIALIZER"];
             fixedListSnapshotField.Replacements["GHOST_FIXEDLIST_SERIALIZER"] = fixedListElementHelperGen.Replacements["GHOST_FIXEDLIST_SERIALIZER"];
@@ -717,6 +747,25 @@ namespace Unity.NetCode.Generators
             fixedListGenerator.GenerateFields(context, rootPath, replacements: fixedListSnapshotField.Replacements);
             fixedListGenerator.GenerateMasks(context, 2, false, fieldIndex);
             fixedListGenerator.AppendTarget(parentContainer);
+
+            string FindGhostFieldType()
+            {
+                var argField = argumentContainer.m_TargetGenerator.GetFragmentContent("GHOST_FIELD");
+                var args = argField.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
+                for (int i = 0; i < args.Length; i++)
+                {
+                    if (string.Equals(args[i], "public", StringComparison.Ordinal))
+                    {
+                        if (i + 1 < args.Length)
+                        {
+                            return args[i + 1];
+                        }
+                        break;
+                    }
+                }
+                context.diagnostic.LogWarning($"The __GHOST_FIELD__ region for template {template?.TemplatePath ?? "null"} used for primitive type {fixedListType.TypeFullName} does not comply with the `public {{c# type}} __GHOST_FIELD_NAME__` format. Please ensure that the region is in this format!");
+                return argumentContainer.TypeInformation.FieldTypeName;
+            }
         }
 
         private static bool GenerateCompositeField(Context context, TypeInformation type, ComponentSerializer parentContainer,
@@ -866,6 +915,7 @@ namespace Unity.NetCode.Generators
             public int changeMaskBitCount;
             //The current used mask bits
             public int curChangeMaskBits;
+            public bool forceComposite;
             public ulong ghostFieldHash;
             public TypeInformation root;
 
@@ -873,6 +923,7 @@ namespace Unity.NetCode.Generators
             {
                 public int changeMaskBitCount;
                 public int curChangeMaskBits;
+                public bool forceComposite;
                 public string generatorName;
                 public string generatedFilePrefix;
                 public string generatedNs;
@@ -886,6 +937,7 @@ namespace Unity.NetCode.Generators
                 {
                     changeMaskBitCount = changeMaskBitCount,
                     curChangeMaskBits =  curChangeMaskBits,
+                    forceComposite = forceComposite,
                     generatorName =  generatorName,
                     generatedFilePrefix =  generatedFilePrefix,
                     generatedNs =  generatedNs,
@@ -896,6 +948,7 @@ namespace Unity.NetCode.Generators
                 var state = m_FieldStateStack.Pop();
                 changeMaskBitCount = state.changeMaskBitCount;
                 curChangeMaskBits =  state.curChangeMaskBits;
+                forceComposite = state.forceComposite;
                 generatorName =  state.generatorName;
                 generatedFilePrefix =  state.generatedFilePrefix;
                 generatedNs =  state.generatedNs;
@@ -905,6 +958,7 @@ namespace Unity.NetCode.Generators
                 m_FieldStateStack.Clear();
                 changeMaskBitCount = 0;
                 curChangeMaskBits = 0;
+                forceComposite = false;
                 ghostFieldHash = 0;
                 variantTypeFullName = null;
                 variantHash = 0;

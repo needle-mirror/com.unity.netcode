@@ -29,43 +29,60 @@ By default, Netcode for Entities has serialization templates for the following t
 * `quaternion`
 * `double`
 * `NetworkEndpoint`
-* FixedList32Bytes<T> (where T can be any supported unmanaged replicated type)
-* FixedList64Bytes<T> (where T can be any supported unmanaged replicated type)
-* FixedList128Bytes<T> (where T can be any supported unmanaged replicated type)
-* FixedList512Bytes<T> (where T can be any supported unmanaged replicated type)
-* FixedList4096Bytes<T> (where T can be any supported unmanaged replicated type)
-* fixed-size unsafe buffers (require unsafe code to be enabled for the assembly)
-* unions ([with caveats](#how-to-support-unions))
+* `FixedList32Bytes<T>` (where T can be any supported unmanaged replicated type)
+* `FixedList64Bytes<T>` (where T can be any supported unmanaged replicated type)
+* `FixedList128Bytes<T>` (where T can be any supported unmanaged replicated type)
+* `FixedList512Bytes<T>` (where T can be any supported unmanaged replicated type)
+* `FixedList4096Bytes<T>` (where T can be any supported unmanaged replicated type)
+* `unsafe fixed T[const]` ([with caveats](#supporting-unsafe-fixed-tconst)).
+* C# unions ([with caveats](#how-to-support-unions))
+
+### Supporting unsafe fixed T\[const\]
+Fields such as the following:
+```csharp
+    public const int MyFixedArrayLength = 3;
+    [GhostField(Quantization = 100)]public unsafe fixed float MyFixedArray[MyFixedArrayLength];
+```
+Must provide a helper method, named `{MyFieldName}Ref`, to safely fetch `ref` access in a safe context, as follows:
+```csharp
+    public unsafe ref float MyFixedArrayRef(int index)
+    {
+        if (index < 0 || index >= MyFixedArrayLength)
+            throw new InvalidOperationException($"MyFixedArrayRef<float>[{index}] is out of bounds (Length:{MyFixedArrayLength})!");
+        return ref MyFixedArray[index];
+    }
+```
+Without the helper method, you will get compiler errors because Netcode for Entities can't access its unsafe fields.
 
 ### Types that support reporting of prediction errors
 
-* bool
-* int
-* uint
-* short
-* ushort
-* long
-* ulong
-* byte
-* sbyte
-* bool
-* float
-* double
-* float2
-* float3
-* float4
-* quaternion
-* NetworkTick
-* NetworkEndPoint
+* `bool`
+* `int`
+* `uint`
+* `short`
+* `ushort`
+* `long`
+* `ulong`
+* `byte`
+* `sbyte`
+* `bool`
+* `float`
+* `double`
+* `float2`
+* `float3`
+* `float4`
+* `quaternion`
+* `NetworkTick`
+* `NetworkEndPoint`
 
 ### Types that don't support reporting of prediction errors
 
-* Entity
-* All FixedString
-* All FixedList
-* All fixed buffers
-* Dynamic Buffers
-* unions
+* `Entity`
+* All `FixedStringXXBytes<T>`
+* All `FixedListXXBytes<T>`
+* All `unsafe fixed T[const]` arrays
+* All `DynamicBuffer<T>`
+* C# unions
 
 ### Types with multiple templates
 

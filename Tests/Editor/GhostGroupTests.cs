@@ -1,3 +1,6 @@
+#if UNITY_EDITOR && !NETCODE_NDEBUG
+#define NETCODE_DEBUG
+#endif
 using System.Text.RegularExpressions;
 using NUnit.Framework;
 using Unity.Collections;
@@ -348,8 +351,10 @@ namespace Unity.NetCode.Tests
                         Assert.AreEqual((byte)j, rootBuffer[j].Value);
                 }
 
+#if NETCODE_DEBUG
                 LogAssert.Expect(LogType.Warning, new Regex(@"PERFORMANCE(.*)NID\[1\](.*)fit even one ghost"));
-            }
+#endif
+}
         }
 
         [Test]

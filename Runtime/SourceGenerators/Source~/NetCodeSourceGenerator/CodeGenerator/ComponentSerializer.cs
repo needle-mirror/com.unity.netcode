@@ -252,28 +252,31 @@ namespace Unity.NetCode.Generators
             var changeMaskFragZero = "GHOST_CALCULATE_CHANGE_MASK_ZERO";
             var ghostWriteFrag = "GHOST_WRITE";
             var ghostReadFrag = "GHOST_READ";
-            var curChangeMaskBit = context.curChangeMaskBits;
             var generator = m_ActiveGenerator;
             var target = m_TargetGenerator;
 
             if (fieldChangeMaskBits > 1 && aggregateMask)
                 fieldChangeMaskBits = 1;
 
-            if (curChangeMaskBit == 32 || (fieldChangeMaskBits > 1 && curChangeMaskBit + fieldChangeMaskBits > 32))
+            if (context.curChangeMaskBits == 32 || (fieldChangeMaskBits > 1 && context.curChangeMaskBits + fieldChangeMaskBits > 32))
             {
-                generator.Replacements.Add("GHOST_CURRENT_MASK_BITS", (context.changeMaskBitCount - curChangeMaskBit).ToString());
+                generator.Replacements.Add("GHOST_CURRENT_MASK_BITS", (context.changeMaskBitCount - context.curChangeMaskBits).ToString());
                 generator.Replacements.Add("GHOST_CHANGE_MASK_BITS", context.changeMaskBitCount.ToString());
                 target.GenerateFragment("GHOST_FLUSH_COMPONENT_CHANGE_MASK", generator.Replacements, target, "GHOST_CALCULATE_CHANGE_MASK");
                 target.GenerateFragment("GHOST_FLUSH_COMPONENT_CHANGE_MASK", generator.Replacements, target, "GHOST_WRITE_COMBINED");
                 target.GenerateFragment("GHOST_REFRESH_CHANGE_MASK", generator.Replacements, target, "GHOST_READ");
                 target.GenerateFragment("GHOST_REFRESH_CHANGE_MASK", generator.Replacements, target, "GHOST_WRITE");
-                curChangeMaskBit = 0;
+                context.curChangeMaskBits = 0;
             }
-            context.curChangeMaskBits = curChangeMaskBit;
-            generator.Replacements["GHOST_MASK_INDEX"] = curChangeMaskBit.ToString();
+            generator.Replacements["GHOST_MASK_INDEX"] = context.curChangeMaskBits.ToString();
             generator.Replacements["GHOST_CHANGE_MASK_BITS"] = context.changeMaskBitCount.ToString();
-            generator.Replacements["GHOST_CURRENT_MASK_BITS"] = (context.changeMaskBitCount - curChangeMaskBit).ToString();
-            if (curChangeMaskBit == 0 && (!aggregateMask || fieldIndex == 0))
+            generator.Replacements["GHOST_CURRENT_MASK_BITS"] = (context.changeMaskBitCount - context.curChangeMaskBits).ToString();
+
+            // TODO: Remove the special handling for zero, and just always do `mask |= value != 0 ? 1 << bit : 0;`
+            var createFragAsZero = context.curChangeMaskBits == 0 && (!aggregateMask || fieldIndex == 0) && !context.forceComposite;
+            context.diagnostic.LogDebug($"\tGenerateMasks(context[curChangeMaskBits:{context.curChangeMaskBits}, changeMaskBitCount:{context.changeMaskBitCount}, forceComposite:{context.forceComposite}], fieldChangeMaskBits:{fieldChangeMaskBits}, aggregateMask:{aggregateMask}, fieldIndex:{fieldIndex}) createFragAsZero:{createFragAsZero} for {context.root.FieldTypeName}.{generator.Replacements["GHOST_FIELD_NAME"]}!");
+
+            if (createFragAsZero)
             {
                 generator.GenerateFragment(changeMaskFragZero, generator.Replacements, target, "GHOST_CALCULATE_CHANGE_MASK");
                 if (!generator.HasFragment("GHOST_WRITE_COMBINED"))

@@ -27,10 +27,9 @@ namespace Generated
             {
                 #region __GHOST_COPY_TO_SNAPSHOT__
                 snapshot.__GHOST_FIELD_NAME__ = 0;
-                snapshot.__GHOST_FIELD_NAME__SpawnTick = NetworkTick.Invalid.SerializedData;
-                if (serializerState.GhostFromEntity.HasComponent(component.__GHOST_FIELD_REFERENCE__))
+                snapshot.__GHOST_FIELD_NAME__SpawnTick = Unity.NetCode.NetworkTick.Invalid.SerializedData;
+                if (serializerState.GhostFromEntity.TryGetComponent(component.__GHOST_FIELD_REFERENCE__, out var ghostComponent))
                 {
-                    var ghostComponent = serializerState.GhostFromEntity[component.__GHOST_FIELD_REFERENCE__];
                     snapshot.__GHOST_FIELD_NAME__ = ghostComponent.ghostId;
                     snapshot.__GHOST_FIELD_NAME__SpawnTick = ghostComponent.spawnTick.SerializedData;
                 }
@@ -42,7 +41,7 @@ namespace Generated
             if (true)
             {
                 #region __GHOST_COPY_FROM_SNAPSHOT__
-                component.__GHOST_FIELD_REFERENCE__ = Entity.Null;
+                component.__GHOST_FIELD_REFERENCE__ = default;
                 if (snapshotBefore.__GHOST_FIELD_NAME__ != 0)
                 {
                     if (deserializerState.GhostMap.TryGetValue(new SpawnedGhost{ghostId = snapshotBefore.__GHOST_FIELD_NAME__, spawnTick = new NetworkTick{SerializedData = snapshotBefore.__GHOST_FIELD_NAME__SpawnTick}}, out var ghostEnt))
@@ -82,29 +81,27 @@ namespace Generated
         public void SerializeCommand(ref DataStreamWriter writer, in IComponentData data, in IComponentData baseline, in RpcSerializerState state, StreamCompressionModel compressionModel)
         {
             #region __COMMAND_WRITE__
-            if (state.GhostFromEntity.HasComponent(data.__COMMAND_FIELD_NAME__))
+            if (state.GhostFromEntity.TryGetComponent(data.__COMMAND_FIELD_NAME__, out var ghostComponent))
             {
-                var ghostComponent = state.GhostFromEntity[data.__COMMAND_FIELD_NAME__];
                 writer.WriteInt(ghostComponent.ghostId);
                 writer.WriteUInt(ghostComponent.spawnTick.SerializedData);
             }
             else
             {
                 writer.WriteInt(0);
-                writer.WriteUInt(NetworkTick.Invalid.SerializedData);
+                writer.WriteUInt(Unity.NetCode.NetworkTick.Invalid.SerializedData);
             }
             #endregion
             #region __COMMAND_WRITE_PACKED__
-            if (state.GhostFromEntity.HasComponent(data.__COMMAND_FIELD_NAME__))
+            if (state.GhostFromEntity.TryGetComponent(data.__COMMAND_FIELD_NAME__, out var ghostComponent))
             {
-                var ghostComponent = state.GhostFromEntity[data.__COMMAND_FIELD_NAME__];
                 writer.WriteInt(ghostComponent.ghostId);
                 writer.WriteUInt(ghostComponent.spawnTick.SerializedData);
             }
             else
             {
                 writer.WriteInt(0);
-                writer.WriteUInt(NetworkTick.Invalid.SerializedData);
+                writer.WriteUInt(Unity.NetCode.NetworkTick.Invalid.SerializedData);
             }
             #endregion
         }
@@ -115,7 +112,7 @@ namespace Generated
             {
                 var ghostId = reader.ReadInt();
                 NetworkTick spawnTick = new NetworkTick{SerializedData = reader.ReadUInt()};
-                data.__COMMAND_FIELD_NAME__ = Entity.Null;
+                data.__COMMAND_FIELD_NAME__ = default;
                 if (ghostId != 0)
                 {
                     if (state.ghostMap.TryGetValue(new SpawnedGhost{ghostId = ghostId, spawnTick = spawnTick}, out var ghostEnt))
@@ -127,7 +124,7 @@ namespace Generated
             {
                 var ghostId = reader.ReadInt();
                 NetworkTick spawnTick = new NetworkTick{SerializedData = reader.ReadUInt()};
-                data.__COMMAND_FIELD_NAME__ = Entity.Null;
+                data.__COMMAND_FIELD_NAME__ = default;
                 if (ghostId != 0)
                 {
                     if (state.ghostMap.TryGetValue(new SpawnedGhost{ghostId = ghostId, spawnTick = spawnTick}, out var ghostEnt))

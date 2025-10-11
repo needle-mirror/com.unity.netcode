@@ -336,13 +336,31 @@ namespace Unity.NetCode.Generators
         public TypeInformation ParseFieldType(ISymbol member, ITypeSymbol memberType, TypeInformation parent, string fieldPath, int level=1, GhostField ghostFieldOverride = null)
         {
             m_context.CancellationToken.ThrowIfCancellationRequested();
+
+            GenTypeKind typeKind;
+            var isElement = parent.Kind is GenTypeKind.FixedList or GenTypeKind.FixedSizeArray;
+            var location = member.Locations.FirstOrDefault() ?? parent.Location;
+            if (member is IFieldSymbol symbol && symbol.IsFixedSizeBuffer)
+            {
+                typeKind = GenTypeKind.FixedSizeArray;
+            }
+            else
+            {
+                typeKind = Roslyn.Extensions.GetTypeKind(memberType);
+                if (typeKind == GenTypeKind.Struct && Roslyn.Extensions.IsFixedList(memberType))
+                {
+                    typeKind = GenTypeKind.FixedList;
+                }
+            }
+
             var ghostField = default(GhostField);
             if (m_SerializationMode == SerializationMode.Component)
             {
                 if (ghostFieldOverride != null)
                 {
-                    // Only apply overrides to members which are valid  as ghost fields
-                    if (!member.IsStatic && member.DeclaredAccessibility == Accessibility.Public)
+                    // Only apply overrides to members which are valid as ghost fields.
+                    // Note: FixedList & fixed size array sub-types auto-inherit the GhostField.
+                    if (!member.IsStatic && (member.DeclaredAccessibility == Accessibility.Public || isElement))
                         ghostField = ghostFieldOverride;
                 }
                 else
@@ -350,10 +368,20 @@ namespace Unity.NetCode.Generators
             }
             if(m_SerializationMode != SerializationMode.Commands)
             {
-                if (member.IsStatic || (m_RequiresPublicFields && member.DeclaredAccessibility != Accessibility.Public))
+                if (member.IsStatic)
                 {
-                    if(ghostField != null)
-                        m_Reporter.LogError($"GhostField present on a non public or non instance field '{parent.TypeFullName}.{member.Name}'! GhostFields must be public, instance fields.");
+                    if(ghostField != null || isElement)
+                        m_Reporter.LogError($"GhostField present on a non-public or non-instance field {(isElement ? $"{parent.TypeFullName}! Types used as elements inside serializable collections must be public" : $"field '{parent.TypeFullName}.{member.Name}'")}! GhostFields must be public, instance fields.",
+                            location);
+                    return null;
+                }
+
+                // Note: Element types can be internal!
+                if (m_RequiresPublicFields && member.DeclaredAccessibility != Accessibility.Public && (!isElement || member.DeclaredAccessibility != Accessibility.Internal))
+                {
+                    if(ghostField != null || isElement)
+                        m_Reporter.LogError((isElement ? $"GhostField present on field '{parent.TypeFullName} {parent.FieldName}', but '{member.Name}' is not accessible. Types used as elements inside GhostField supported collections must be public!" : $"GhostField present on a non-public field '{parent.TypeFullName}.{member.Name}'! GhostFields must be public, instance fields."),
+                            location);
                     return null;
                 }
 
@@ -370,38 +398,35 @@ namespace Unity.NetCode.Generators
                 if ((ghostField != null && !ghostField.SendData))
                     return null;
             }
-            else if (member.IsStatic || member.DeclaredAccessibility != Accessibility.Public)
+            else if (member.IsStatic || member.DeclaredAccessibility < (isElement ? Accessibility.ProtectedAndInternal : Accessibility.Public))
                 return null;
 
             if(member.Name.StartsWith("__COMMAND", StringComparison.Ordinal) ||
                member.Name.StartsWith("__GHOST", StringComparison.Ordinal))
             {
                 m_Reporter.LogError($"Invalid field name '{parent.TypeFullName}.{member.Name}'. __GHOST and __COMMAND are reserved prefixes and cannot be used in namespace, type and field names!",
-                    member.Locations[0]);
+                    location);
                 return null;
             }
 
-            GenTypeKind typeKind;
-            if (member is IFieldSymbol && ((IFieldSymbol)member).IsFixedSizeBuffer)
+            if (typeKind == GenTypeKind.Invalid)
             {
-                typeKind = GenTypeKind.FixedSizeArray;
+                m_Reporter.LogError($"GhostField annotation present on non serializable field '{parent.TypeFullName}.{member.Name}'.",
+                    location);
+                return null;
             }
-            else
-            {
-                typeKind = Roslyn.Extensions.GetTypeKind(memberType);
-                if (typeKind == GenTypeKind.Struct && Roslyn.Extensions.IsFixedList(memberType))
-                {
-                    typeKind = GenTypeKind.FixedList;
-                }
-                if (typeKind == GenTypeKind.Invalid)
-                {
-                    m_Reporter.LogError($"GhostField annotation present on non serializable field '{parent.TypeFullName}.{member.Name}'.");
-                    return null;
-                }
 
-                if (typeKind != GenTypeKind.Struct && (ghostField != null && ghostField.Composite.HasValue && ghostField.Composite.Value))
-                    m_Reporter.LogError($"GhostField for field '{parent.TypeFullName}.{member.Name}' set Composite=True, but this is invalid on primitive types.");
+            if (typeKind is GenTypeKind.FixedList or GenTypeKind.FixedSizeArray && isElement)
+            {
+                // TODO - Fix support for this.
+                m_Reporter.LogError($"Nested FixedLists are not directly supported! Add a struct to wrap the inner FixedList '{member.Name}' on '{parent.TypeFullName}'!",
+                    location);
+                return null;
             }
+
+            if (typeKind != GenTypeKind.Struct && typeKind != GenTypeKind.FixedSizeArray && ghostField?.Composite != null && ghostField.Composite.Value)
+                m_Reporter.LogWarning($"GhostField for field '{parent.TypeFullName}.{member.Name}' set Composite=True, but this is invalid on primitive types.",
+                    location);
 
             //Add some validation and skip irrelevant fields too
             var typeInfo = new TypeInformation
@@ -416,7 +441,7 @@ namespace Unity.NetCode.Generators
                 Attribute = parent.Attribute,
                 AttributeMask = parent.AttributeMask,
                 FieldPath = fieldPath,
-                Location = member.Locations[0],
+                Location = location,
                 CanBatchPredict = CanBatchPredict(member),
                 Symbol = member as ITypeSymbol
             };
@@ -440,17 +465,14 @@ namespace Unity.NetCode.Generators
                     typeInfo.Attribute.aggregateChangeMask = ghostField.Composite.Value;
                     if (typeKind != GenTypeKind.Struct && typeInfo.Attribute.aggregateChangeMask)
                     {
-                        m_Reporter.LogInfo($"GhostField composite set to true for primitive field '{fieldPath} {parent.TypeFullName}.{member.Name}', which will be ignored. We assume this is fine as the parent having Composite is valid.");
+                        m_Reporter.LogInfo($"GhostField composite set to true for primitive field '{fieldPath} {parent.TypeFullName}.{member.Name}', which will be ignored. We assume this is fine as the parent having Composite is valid.",
+                            typeInfo.Location);
                         typeInfo.Attribute.aggregateChangeMask = false;
                     }
                 }
 
                 if (ghostField.MaxSmoothingDistance > 0) typeInfo.Attribute.maxSmoothingDist = ghostField.MaxSmoothingDistance;
             }
-
-            //Integer types don't support any quantization or interpolation flags.
-            if (typeKind == GenTypeKind.Primitive && Roslyn.Extensions.IsIntegerType(memberType))
-                typeInfo.AttributeMask &= ~(TypeAttribute.AttributeFlags.InterpolatedAndExtrapolated|TypeAttribute.AttributeFlags.Interpolated|TypeAttribute.AttributeFlags.Quantized);
 
             //And then reset based on the mask
             typeInfo.Attribute.smoothing &= (uint)(typeInfo.AttributeMask & TypeAttribute.AttributeFlags.InterpolatedAndExtrapolated);
@@ -475,7 +497,7 @@ namespace Unity.NetCode.Generators
                     Attribute = parent.Attribute,
                     AttributeMask = parent.AttributeMask,
                     FieldPath = fieldPath,
-                    Location = member.Locations[0],
+                    Location = typeInfo.Location,
                     CanBatchPredict = CanBatchPredict(member),
                     Symbol = member as ITypeSymbol
                 };
@@ -489,13 +511,20 @@ namespace Unity.NetCode.Generators
                 //Force aggregateChangeMask to be false. Fixed list never "aggregate" with other fields in the same struct
                 //and always uses 2 bits of change masks.
                 typeInfo.Attribute.aggregateChangeMask = false;
-                var argumentTypeInfo = ParseFieldType(fixedListArgumentType, fixedListArgumentType, typeInfo, null, level+1);
+                var argumentTypeInfo = ParseFieldType(fixedListArgumentType, fixedListArgumentType, typeInfo, null, level+1, ghostField);
+                if (argumentTypeInfo == null)
+                {
+                    m_Reporter.LogError($"Unable to correctly generate code for FixedList element '{memberType.ToDisplayString()}' on '{member.ToDisplayString()}'!",
+                        typeInfo.Location);
+                    return null;
+                }
                 typeInfo.ElementCount = FixedListUtils.CalculateNumElements(memberType);
                 var customCapacityCap = 0;
                 customCapacityCap = TryGetGhostFixedListCapacity(member);
                 if (customCapacityCap > m_FixedListSizeCap)
                 {
-                    m_Reporter.LogError($"Invalid GhostFixedListCapacity attribute present on {member.ToDisplayString()} of type {memberType.ToDisplayString()}. The maximum allowed capacity for a fixed list must bet less or equal than {m_FixedListSizeCap} elements.");
+                    m_Reporter.LogError($"Invalid GhostFixedListCapacity attribute present on {member.ToDisplayString()} of type {memberType.ToDisplayString()}. The maximum allowed capacity for a fixed list must bet less or equal than {m_FixedListSizeCap} elements.",
+                        typeInfo.Location);
                     customCapacityCap = 0;
                 }
                 //if this is set is because the attribute is present and valid, therefore we can set the limit as is
@@ -507,7 +536,8 @@ namespace Unity.NetCode.Generators
                 // - Everything else: 64
                 if (typeInfo.ElementCount > m_FixedListSizeCap)
                 {
-                    m_Reporter.LogError($"{member.ToDisplayString()} of type {memberType.ToDisplayString()} has a capacity greater than {m_FixedListSizeCap} elements. Replicated fixed lists can contain at most {m_FixedListSizeCap} elements. If the capacity exceed, please use the GhostFixedListCapacity attribute to constrain the maximum allowed length of the list.");
+                    m_Reporter.LogError($"{member.ToDisplayString()} of type {memberType.ToDisplayString()} has a capacity greater than {m_FixedListSizeCap} elements. Replicated fixed lists can contain at most {m_FixedListSizeCap} elements. If the capacity exceed, please use the GhostFixedListCapacity attribute to constrain the maximum allowed length of the list.",
+                        typeInfo.Location);
                     typeInfo.ElementCount = m_FixedListSizeCap;
                 }
                 typeInfo.GenericTypeName = Roslyn.Extensions.GetGenericTypeName(memberType);

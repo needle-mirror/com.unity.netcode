@@ -11,6 +11,7 @@ using Unity.NetCode.LowLevel.Unsafe;
 using Unity.Networking.Transport;
 using UnityEngine;
 using Hash128 = Unity.Entities.Hash128;
+using MemoryStream = System.IO.MemoryStream;
 
 namespace Unity.NetCode.HostMigration
 {
@@ -40,6 +41,9 @@ namespace Unity.NetCode.HostMigration
             var hostMigrationData = hostMigrationDataQuery.GetSingletonRW<HostMigrationStorage>();
             var hostData = hostMigrationData.ValueRO.HostDataBlob;
             var ghostData = hostMigrationData.ValueRO.GhostDataBlob;
+
+            if (ghostData.Length == 0)
+                Debug.LogWarning("No ghost data has been collected yet");
 
             var compressedGhostData = CompressGhostDataIfEnabled(fromWorld, ghostData, hostData, out var size);
 
@@ -224,7 +228,7 @@ namespace Unity.NetCode.HostMigration
             toWorld.EntityManager.SetComponentData(configQuery.GetSingletonEntity(), config);
             Debug.Log($"Setting host migration configuration StoreOwnGhosts={config.StoreOwnGhosts} MigrationTimeout={config.MigrationTimeout} ServerUpdateInterval={config.ServerUpdateInterval}");
 
-            hostMigrationData.ValueRW.Ghosts = DecompressAndDecodeGhostData(ghostData);
+            hostMigrationData.ValueRW.Ghosts = DecompressAndDecodeGhostData(ghostData, hostMigrationData.ValueRW.HostData);
 
             // TODO: It appears this does not work
             toWorld.SetTime(new TimeData(hostMigrationData.ValueRO.HostData.ElapsedTime, 0));
@@ -303,8 +307,10 @@ namespace Unity.NetCode.HostMigration
             toWorld.EntityManager.CreateEntity(ComponentType.ReadOnly<HostMigrationInProgress>());
         }
 
-        internal static unsafe GhostStorage DecompressAndDecodeGhostData(NativeSlice<byte> ghostDataBlob)
+        internal static unsafe GhostStorage DecompressAndDecodeGhostData(NativeSlice<byte> ghostDataBlob, HostDataStorage hostData)
         {
+            if (ghostDataBlob.Length == 0)
+                return default;
             var dataPtr = (sbyte*)ghostDataBlob.GetUnsafePtr();
             var decodedBytes = Convert.FromBase64String(new string(dataPtr));
 
@@ -314,8 +320,14 @@ namespace Unity.NetCode.HostMigration
             compressionStream.CopyTo(decompressStream);
             compressionStream.Flush();
             var decompressedBytes = new NativeArray<byte>(decompressStream.ToArray(), Allocator.Persistent);
+            if (decompressedBytes.Length == 0)
+            {
+                Debug.LogWarning("No ghost prefabs or instances found in host migration data.");
+                return default;
+            }
 
             var reader = new DataStreamReader(decompressedBytes);
+            var ghostPrefabDataSize = reader.ReadInt();
             var prefabCount = reader.ReadShort();
             var prefabs = new NativeArray<GhostPrefabData>(prefabCount, Allocator.Persistent);
             for (int i = 0; i < prefabCount; ++i)
@@ -328,54 +340,92 @@ namespace Unity.NetCode.HostMigration
                     GhostTypeHash = ghostTypeHash
                 };
             }
-            var ghostCount = reader.ReadShort();
-            var ghostData = new GhostStorage()
+
+            // There could be ghost prefabs registered but no actual ghost entities spawned yet
+            if (decompressedBytes.Length <= ghostPrefabDataSize)
             {
-                GhostPrefabs = prefabs,
-                // TODO: Free/reuse this buffer
-                Ghosts = new NativeArray<GhostData>(ghostCount, Allocator.Persistent)
-            };
-            for (int i = 0; i < ghostCount; ++i)
+                Debug.LogWarning("No ghost instances found in host migration data.");
+                return new GhostStorage() { GhostPrefabs = prefabs, Ghosts = new NativeArray<GhostData>(0, Allocator.Persistent) };
+            }
+
+            var stateSave = new WorldStateSave(Allocator.Persistent).InitializeFromBuffer((byte*)decompressedBytes.GetUnsafeReadOnlyPtr() + ghostPrefabDataSize, decompressedBytes.Length - ghostPrefabDataSize);
+            var ghosts = new NativeList<GhostData>(stateSave.EntityCount, Allocator.Persistent);
+            foreach (var entry in stateSave)
             {
-                var ghostId = reader.ReadInt();
-                var spawnTick = reader.ReadUInt();
-                var ghostType = reader.ReadShort();
-                var componentCount = reader.ReadShort();
-                var componentData = new NativeArray<DataComponent>(componentCount, Allocator.Persistent);
-                for (int j = 0; j < componentCount; ++j)
+                GhostInstance ghostInstance = default;
+                var skipEntity = false;
+                var componentData = new NativeArray<DataComponent>(entry.types.Length, Allocator.Persistent);
+                var componentCount = 0;
+                foreach (var compData in entry)
                 {
-                    var stableTypeHash = reader.ReadULong();
-                    var typeIndex = TypeManager.GetTypeIndexFromStableTypeHash(stableTypeHash);
-                    var componentType = ComponentType.FromTypeIndex(typeIndex);
-                    byte enabled = 0;
-                    if (componentType.IsEnableable)
-                        enabled = reader.ReadByte();
-                    if (componentType.IsBuffer)
+                    if (compData.Type == ComponentType.ReadOnly<GhostInstance>())
                     {
-                        var elementSize = TypeManager.GetTypeInfo(typeIndex).ElementSize;
-                        var bufferLength = reader.ReadInt();
-                        var data = new NativeArray<byte>(bufferLength * elementSize, Allocator.Persistent);
-                        reader.ReadBytes(data);
-                        componentData[j] = new DataComponent() { StableHash = stableTypeHash, Length = bufferLength, Enabled = enabled == 1, Data = data };
+                        compData.ToConcrete(out ghostInstance);
+                        if (ghostInstance.ghostId == 0)
+                            Debug.LogError($"Received a ghost with an id of 0 this should not be possible. GhostIds are assigned by the GhostSendSystem and this should always run before the migration system ensuring all ghosts have a valid id.");
+                    }
+
+                    if (compData.Type == ComponentType.ReadOnly<GhostOwner>())
+                    {
+                        compData.ToConcrete(out GhostOwner ghostOwner);
+                        // Omit the ghosts owned by the host as he's leaving the session
+                        if (!hostData.Config.StoreOwnGhosts && ghostOwner.NetworkId == hostData.HostNetworkId)
+                        {
+                            skipEntity = true;
+                            break;
+                        }
+                    }
+
+                    // Skip the special case of the entity tracking loaded prespawn scenes, the whole entity must be skipped, not just the component (it will be recreated automatically)
+                    if (compData.Type == ComponentType.ReadOnly<PrespawnSceneLoaded>())
+                    {
+                        skipEntity = true;
+                        break;
+                    }
+
+                    var typeInfo = TypeManager.GetTypeInfo(compData.Type.TypeIndex);
+                    if (compData.Type.IsBuffer)
+                    {
+                        var elementSize = TypeManager.GetTypeInfo(compData.Type.TypeIndex).ElementSize;
+                        var srcDataSize = compData.Length * elementSize;
+                        if (srcDataSize > decompressedBytes.Length)
+                        {
+                            Debug.LogError($"Invalid buffer size detected while unpacking ghost data, buffer size={srcDataSize}, source data size={decompressedBytes.Length}");
+                            return default;
+                        }
+                        var data = new NativeArray<byte>(srcDataSize, Allocator.Persistent);
+                        var dataSpan = new Span<byte>(compData.ComponentAdr, compData.Length * elementSize);
+                        dataSpan.CopyTo(data);
+                        componentData[componentCount++] = new DataComponent() { StableHash = typeInfo.StableTypeHash, Length = compData.Length, Enabled = compData.Enabled, Data = data };
                     }
                     else
                     {
-                        var dataLength = TypeManager.GetTypeInfo(typeIndex).TypeSize;
-                        var data = new NativeArray<byte>(dataLength, Allocator.Persistent);
-                        reader.ReadBytes(data);
-                        componentData[j] = new DataComponent() { StableHash = stableTypeHash, Enabled = enabled == 1, Data = data };
+                        var data = new NativeArray<byte>(typeInfo.TypeSize, Allocator.Persistent);
+                        var dataSpan = new Span<byte>(compData.ComponentAdr, typeInfo.TypeSize);
+                        dataSpan.CopyTo(data);
+                        componentData[componentCount++] = new DataComponent() { StableHash = typeInfo.StableTypeHash, Enabled = compData.Enabled, Data = data };
                     }
                 }
 
+                if (skipEntity)
+                    continue;
+
                 var newGhostData = new GhostData()
                 {
-                    GhostId = ghostId,
-                    GhostType = ghostType,
+                    GhostId = ghostInstance.ghostId,
+                    GhostType = ghostInstance.ghostType,
+                    SpawnTick = ghostInstance.spawnTick,
                     DataComponents = componentData
                 };
-                newGhostData.SpawnTick.SerializedData = spawnTick;
-                ghostData.Ghosts[i] = newGhostData;
+                ghosts.Add(newGhostData);
             }
+
+            var ghostData = new GhostStorage()
+            {
+                GhostPrefabs = prefabs,
+                Ghosts = ghosts.AsArray()
+            };
+
             return ghostData;
         }
 
@@ -448,6 +498,7 @@ namespace Unity.NetCode.HostMigration
             }
             hostData.PrespawnGhostIdRanges = prespawnGhostIdRanges;
 
+            hostData.HostNetworkId = reader.ReadInt();
             hostData.NumNetworkIds = reader.ReadInt();
             int numFreeIds = reader.ReadInt();
             hostData.FreeNetworkIds = new NativeArray<int>(numFreeIds,Allocator.Persistent);

@@ -41,7 +41,7 @@ public static class FixedListUtils
         //Then there is the padding to align the element. I could avoid that honestly but for sake of complete
         //"compatibility" (same calculation) I added here as well.
         var storageSize = int.Parse(byteSize) - 2 - PaddingBytes(sizeAndAlignment.Item2);
-        int numElements = storageSize / sizeAndAlignment.Item1;
+        int numElements = storageSize / Math.Max(sizeAndAlignment.Item1, 1); // TODO - Handle zero as error.
         return numElements;
     }
 

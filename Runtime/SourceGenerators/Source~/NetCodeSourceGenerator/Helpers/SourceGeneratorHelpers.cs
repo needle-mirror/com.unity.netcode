@@ -97,8 +97,12 @@ namespace Unity.NetCode.Generators
             //The default log level is info. User can customise that via debug config. Info level is very light right now.
             s_LogLevel.Value = LoggingLevel.Info;
             var loggingLevel = executionContext.GetOptionsString(GlobalOptions.LoggingLevel);
-            if (!string.IsNullOrEmpty(loggingLevel) && Enum.TryParse<LoggingLevel>(loggingLevel.ToLower(), out var logLevel))
-                s_LogLevel.Value = logLevel;
+            if (!string.IsNullOrEmpty(loggingLevel))
+            {
+                if (Enum.TryParse<LoggingLevel>(loggingLevel, ignoreCase:true, out var logLevel))
+                    s_LogLevel.Value = logLevel;
+                else throw new InvalidOperationException($"Unable to parse {GlobalOptions.LoggingLevel}:{loggingLevel}!");
+            }
         }
 
         public static string GetOutputPath()

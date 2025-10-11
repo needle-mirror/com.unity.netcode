@@ -2,7 +2,28 @@
 uid: changelog
 ---
 
-## [1.9.0] - 2025-09-15
+## [1.9.1] - 2025-10-11
+
+### Changed
+
+* Host migration system now caches the ghost component types it uses when collecting host migration ghost data, resulting in faster host migration data collections. It's updated any time the ghost prefab count changes.
+* `GhostField.Quantization` template mismatch errors are now warnings, and will resolve to working code, rather than outputting errors. As a result, we will no longer assume primitive integer types want to disable quantization, as that logic did not cover all cases (e.g. like `Entity` structs etc).
+* Host migration internal ghost data gathering has improved and should be faster now but add a few bytes of extra data compared to before.
+
+### Fixed
+
+* Occasional `MultiplayerPlayModeWindow.HandleHyperLinkArgs` truncation error spam.
+* Unsafe compiler error when using a `fixed` array as a `GhostField`. [Note: You must implement a corresponding safe accessor method implementing ref returns](https://docs.unity3d.com/Packages/com.unity.netcode@latest?subfolder=/manual/ghost-types-templates.html#supporting-unsafe-fixed-tconst).
+* `GhostField` compiler error when using `FixedList` with nested `struct` types, as well as related `InvalidOperationException` in a `SubString` call when using a `FixedList` with a primitive type.
+* Code generator incorrectness when generating struct fields for `GhostField` `FixedList` and `fixed` array serializers (`Entity` fields in particular).
+* Incorrect `curChangeMaskBits` offset after a `FixedList` field is generated, due to incorrect `aggregateChangeMask` flag. It's now forced correct via `forceComposite`.
+* `FixedList`'s and `unsafe fixed array`) now correctly support non-public structs for the element type (in cases where we know the code-gen will resolve without compiler errors).
+* `GhostSnapshotValueEntity` now uses `TryGetValue` rather than a `HasComponent` call followed by a lookup, reducing lookup costs.
+* Issue where specifying a `LogLevel` (via the `Default.globalconfig`'s `unity.netcode.sourcegenerator.logging_level` property) did nothing.
+
+
+
+## [1.9.0] - 2025-09-13
 
 ### Added
 
@@ -34,8 +55,6 @@ uid: changelog
 * Hardened snapshot receive logic to expect exact `dataStream.GetBitsRead()` correctness, and used it to fix a (harmless) incorrectness when a chunk attempts to write its first ghost into the snapshot, but fails due to exceeding the stream capacity.
 * Potential dependency error with importance visualization.
 * Broken table on PlayMode Tool documentation page.
-
-
 
 ## [1.8.0] - 2025-08-17
 

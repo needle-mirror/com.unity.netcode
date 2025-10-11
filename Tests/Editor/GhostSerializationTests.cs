@@ -1,3 +1,6 @@
+#if UNITY_EDITOR && !NETCODE_NDEBUG
+#define NETCODE_DEBUG
+#endif
 using System;
 using System.Diagnostics;
 using System.Text.RegularExpressions;
@@ -869,8 +872,10 @@ namespace Unity.NetCode.Tests
                 // Assert that replicated version is correct
                 VerifyGhostValues(testWorld);
 
+#if NETCODE_DEBUG
                 LogAssert.Expect(LogType.Warning, new Regex(@"PERFORMANCE(.*)NID\[1\](.*)fit even one ghost"));
                 LogAssert.Expect(LogType.Warning, new Regex(@"PERFORMANCE(.*)NID\[1\](.*)fit even one ghost"));
+#endif
             }
         }
 
@@ -912,8 +917,10 @@ namespace Unity.NetCode.Tests
             testWorld.Tick();
             testWorld.Tick();
             testWorld.Tick();
+#if NETCODE_DEBUG // These warnings only appear when NETCODE_DEBUG is defined, but the fatal error makes it through.
             for(int i = 0; i < GhostSystemConstants.MaxSnapshotSendAttempts - 1; i++)
                 LogAssert.Expect(LogType.Warning, new Regex(@"PERFORMANCE(.*)NID\[1\](.*)fit even one ghost"));
+#endif
             LogAssert.Expect(LogType.Error, new Regex(@$"FATAL(.*){nameof(GhostSystemConstants.MaxSnapshotSendAttempts)}(.*)NID\[1\]"));
         }
 
@@ -935,7 +942,9 @@ namespace Unity.NetCode.Tests
 
             for(int i = 0; i < 24; i++)
                 testWorld.Tick();
+    #if NETCODE_DEBUG
             LogAssert.Expect(LogType.Warning, new Regex(@"PERFORMANCE\: Snapshot history is saturated for ghost chunk:(\d*), ghostType\:0, 4\/6 in\-flight \(TSLR\:15\<\=16\), sent anyway\:(true|false)\!"));
+    #endif
         }
 #endif
     }

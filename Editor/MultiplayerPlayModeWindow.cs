@@ -1339,12 +1339,12 @@ Denotes that the server driver is closed i.e. not currently listening.
 
         internal static void HandleHyperLinkArgs( Dictionary<string,string> hyperLinkData )
         {
-            if ( hyperLinkData.TryGetValue("href", out var href ) && href == NetCodeHyperLinkArguments.s_OpenPlayModeTools )
+            if ( hyperLinkData.TryGetValue("href", out var href ) && NetCodeHyperLinkArguments.s_OpenPlayModeTools.Equals(href) )
             {
                 ShowWindow();
             }
 
-            if ( hyperLinkData.TryGetValue( "highlight", out var highlight ) && highlight == NetCodeHyperLinkArguments.s_HighlightWarnBatchedTicks )
+            if ( hyperLinkData.TryGetValue( "highlight", out var highlight ) && NetCodeHyperLinkArguments.s_HighlightWarnBatchedTicks.Equals(highlight) )
             {
                 s_HighlightWarnBatchedTicks = true;
             }

@@ -160,7 +160,6 @@ namespace Unity.NetCode.Tests
         /// </summary>
         public static int TickIndex { get; private set; }
 
-        private World m_DefaultWorld => m_WorldStrategy.DefaultWorld;
         public List<World> m_ClientWorlds;
         public World m_ServerWorld;
         private ushort m_OldBootstrapAutoConnectPort;
@@ -386,10 +385,17 @@ namespace Unity.NetCode.Tests
 
         public void Bootstrap(bool includeNetCodeSystems, params Type[] userSystems)
         {
-            Bootstrap(includeNetCodeSystems, false, userSystems);
+            Bootstrap(includeNetCodeSystems ? SystemResolutionMode.NetcodeAndUserSystems : SystemResolutionMode.OnlyIncludeUserSystems, false, false, userSystems);
         }
 
-        public void Bootstrap(bool includeNetCodeSystems, bool useNormalMainLoop, params Type[] userSystems)
+        public enum SystemResolutionMode
+        {
+            AllSystems,
+            NetcodeAndUserSystems,
+            OnlyIncludeUserSystems,
+        }
+
+        public void Bootstrap(SystemResolutionMode systemResolutionMode, bool includePresentationSystemsOnClient, bool useNormalMainLoop, params Type[] userSystems)
         {
 #if UNITY_6000_0_OR_NEWER
             if (useNormalMainLoop)
@@ -409,7 +415,8 @@ namespace Unity.NetCode.Tests
 
             m_WorldStrategy.Bootstrap(this);
 
-            m_IncludeNetcodeSystems = includeNetCodeSystems;
+            m_IncludeNetcodeSystems = systemResolutionMode == SystemResolutionMode.NetcodeAndUserSystems ||
+                                      systemResolutionMode == SystemResolutionMode.AllSystems;
 
             m_ControlSystems = new List<Type>(256);
             m_ClientSystems = new List<Type>(256);
@@ -428,22 +435,33 @@ namespace Unity.NetCode.Tests
 #endif
             m_ControlSystems.Add(typeof(DriverMigrationSystem));
 
-            s_AllClientSystems ??= DefaultWorldInitialization.GetAllSystems(WorldSystemFilterFlags.ClientSimulation);
+            WorldSystemFilterFlags clientFlags = WorldSystemFilterFlags.ClientSimulation;
+            if (includePresentationSystemsOnClient)
+                clientFlags |= WorldSystemFilterFlags.Presentation;
+            s_AllClientSystems ??= DefaultWorldInitialization.GetAllSystems(clientFlags);
             s_AllThinClientSystems ??= DefaultWorldInitialization.GetAllSystems(WorldSystemFilterFlags.ThinClientSimulation);
             s_AllServerSystems ??= DefaultWorldInitialization.GetAllSystems(WorldSystemFilterFlags.ServerSimulation);
             s_AllHostSystems ??= DefaultWorldInitialization.GetAllSystems(WorldSystemFilterFlags.ServerSimulation | WorldSystemFilterFlags.ClientSimulation | WorldSystemFilterFlags.Presentation);
 
-            bool IncludeNetcodeSystemsFilter(Type x) => IsFromNetCodeAssembly(x) || IsFromTestSpecificAdditionalAssembly(x);
+            bool ShouldIncludeSystemFilter(Type type)
+            {
+                switch (systemResolutionMode)
+                {
+                    case SystemResolutionMode.AllSystems:
+                        return true;
+                    case SystemResolutionMode.NetcodeAndUserSystems:
+                        return IsFromNetCodeAssembly(type) || IsFromTestSpecificAdditionalAssembly(type);
+                    case SystemResolutionMode.OnlyIncludeUserSystems:
+                        return IsFromTestSpecificAdditionalAssembly(type);
+                    default:
+                        throw new ArgumentOutOfRangeException(nameof(systemResolutionMode), systemResolutionMode, null);
+                }
+            }
 
-            Func<Type, bool> filter = includeNetCodeSystems
-                ? IncludeNetcodeSystemsFilter
-                : IsFromTestSpecificAdditionalAssembly;
-            m_IncludeNetcodeSystems = includeNetCodeSystems;
-
-            m_ClientSystems.AddRange(s_AllClientSystems.Where(filter));
-            m_ThinClientSystems.AddRange(s_AllThinClientSystems.Where(filter));
-            m_ServerSystems.AddRange(s_AllServerSystems.Where(filter));
-            m_HostSystems.AddRange(s_AllHostSystems.Where(filter));
+            m_ClientSystems.AddRange(s_AllClientSystems.Where(ShouldIncludeSystemFilter));
+            m_ThinClientSystems.AddRange(s_AllThinClientSystems.Where(ShouldIncludeSystemFilter));
+            m_ServerSystems.AddRange(s_AllServerSystems.Where(ShouldIncludeSystemFilter));
+            m_HostSystems.AddRange(s_AllHostSystems.Where(ShouldIncludeSystemFilter));
 
             m_ClientSystems.Add(typeof(Unity.Entities.UpdateWorldTimeSystem));
             m_ThinClientSystems.Add(typeof(Unity.Entities.UpdateWorldTimeSystem));
@@ -510,10 +528,10 @@ namespace Unity.NetCode.Tests
             var oldDebugPort = GhostStatsConnection.Port;
             GhostStatsConnection.Port = 0;
 #endif
-            if (!m_DefaultWorldInitialized)
+            if (!m_DefaultWorldInitialized && DefaultWorld != null)
             {
                 TypeManager.SortSystemTypesInCreationOrder(m_ControlSystems); // Ensure CreationOrder is respected.
-                DefaultWorldInitialization.AddSystemsToRootLevelSystemGroups(m_DefaultWorld,
+                DefaultWorldInitialization.AddSystemsToRootLevelSystemGroups(DefaultWorld,
                     m_ControlSystems);
                 m_DefaultWorldInitialized = true;
             }
@@ -663,8 +681,8 @@ namespace Unity.NetCode.Tests
 
             // Use fixed timestep in network time system to prevent time dependencies in tests
             m_ElapsedTime += dt;
-            m_DefaultWorld.SetTime(new TimeData(m_ElapsedTime, dt));
-            if (m_ServerWorld != null)
+            DefaultWorld?.SetTime(new TimeData(m_ElapsedTime, dt));
+            if (m_ServerWorld != null && m_ServerWorld.IsCreated)
             {
                 m_ServerWorld.SetTime(new TimeData(m_ElapsedTime, dt));
             }

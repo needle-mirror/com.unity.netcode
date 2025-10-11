@@ -17,13 +17,6 @@ namespace Unity.NetCode.Tests
         int m_oldThinClientRequestCount;
         public float DeltaTime { private get; set; } = 1 / 60f;
         public World DefaultWorld => World.DefaultGameObjectInjectionWorld;
-        public static PlayModeTestWorldStrategy Instance = null;
-
-        public PlayModeTestWorldStrategy()
-        {
-            Assert.IsNull(Instance, "assumption broken, s_Instance wasn't cleaned up properly");
-            Instance = this;
-        }
 
         public void Dispose()
         {
@@ -31,7 +24,6 @@ namespace Unity.NetCode.Tests
 #if UNITY_EDITOR
             MultiplayerPlayModePreferences.RequestedNumThinClients = m_oldThinClientRequestCount;
 #endif
-            Instance = null;
         }
 
         internal void ApplyDT()
@@ -45,7 +37,7 @@ namespace Unity.NetCode.Tests
 
             var mainLoop = PlayerLoop.GetCurrentPlayerLoop();
             var oldLoop = mainLoop;
-            Instance.m_OldLoop = oldLoop;
+            m_OldLoop = oldLoop;
 #if UNITY_EDITOR
             m_oldThinClientRequestCount = MultiplayerPlayModePreferences.RequestedNumThinClients;
 #endif
@@ -59,7 +51,7 @@ namespace Unity.NetCode.Tests
 
             mainLoop.subSystemList = systemList.ToArray();
 
-            Assert.AreNotEqual(mainLoop.subSystemList, Instance.m_OldLoop);
+            Assert.AreNotEqual(mainLoop.subSystemList, m_OldLoop);
             PlayerLoop.SetPlayerLoop(mainLoop);
         }
 
@@ -140,7 +132,7 @@ namespace Unity.NetCode.Tests
 
         public async Task TickAsync(float dt, NetcodeAwaitable awaitInstruction = null)
         {
-            Instance.DeltaTime = dt;
+            DeltaTime = dt;
             if (awaitInstruction == null)
             {
                 await Awaitable.NextFrameAsync();
@@ -172,9 +164,9 @@ namespace Unity.NetCode.Tests
             throw new NotImplementedException();
         }
 
-        static void UpdateTimeFromUpdateLoop()
+        void UpdateTimeFromUpdateLoop()
         {
-            Instance.m_TestWorld.ApplyDT(Instance.DeltaTime);
+            m_TestWorld.ApplyDT(DeltaTime);
         }
     }
 }

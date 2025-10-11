@@ -8,7 +8,7 @@ using Unity.Mathematics;
 namespace __GHOST_NAMESPACE__
 {
     /// <summary>
-    /// Auto-Generated stuct used to wrap FixedList's when used inside snapshots. Not responsible for serializing the field itself.
+    /// Auto-Generated struct used to wrap FixedList's when used inside snapshots. Not responsible for serializing the field itself.
     /// /summary>
     [System.Runtime.CompilerServices.CompilerGenerated]
     internal struct __GHOST_FIXEDLIST_NAME__

@@ -6,7 +6,7 @@ using System;
 
 namespace Generated
 {
-    internal struct GhostSnapshotData
+    internal unsafe struct GhostSnapshotData
     {
         struct Snapshot
         {
@@ -87,7 +87,7 @@ namespace Generated
             #endregion
         }
 
-        public unsafe void CopyToSnapshot(ref Snapshot snapshot, ref IComponentData component)
+        public unsafe void CopyToSnapshot(in GhostSerializerState serializerState, ref Snapshot snapshot, ref IComponentData component)
         {
             #region __GHOST_COPY_TO_SNAPSHOT__
 #if UNITY_EDITOR || NETCODE_DEBUG
@@ -102,6 +102,7 @@ namespace Generated
             if(snapshot.__GHOST_FIELD_NAME___Length > 0)
             {
                 __GHOST_FIXEDLIST_SERIALIZER__.CopyToSnapshot(
+                    serializerState,
                     snapshot.__GHOST_FIELD_NAME__.ToSpan(),
                     component.__GHOST_FIELD_REFERENCE__.ToReadOnlySpan(snapshot.__GHOST_FIELD_NAME___Length));
             }
@@ -121,6 +122,7 @@ namespace Generated
             if (snapshotBefore.__GHOST_FIELD_NAME___Length > 0)
             {
                 __GHOST_FIXEDLIST_SERIALIZER__.CopyFromSnapshot(
+                    deserializerState,
                     snapshotBefore.__GHOST_FIELD_NAME__.ToReadOnlySpan(),
                     component.__GHOST_FIELD_REFERENCE__.ToSpan(component.__GHOST_FIELD_REFERENCE__.Length));
             }

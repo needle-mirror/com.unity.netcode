@@ -4,6 +4,7 @@ using Unity.Collections;
 using Unity.NetCode.LowLevel.Unsafe;
 using Unity.Collections.LowLevel.Unsafe;
 using Unity.Mathematics;
+using Unity.NetCode;
 
 #region __GHOST_FIXEDLIST_ELEMENT__
 #endregion
@@ -15,13 +16,13 @@ namespace __GHOST_NAMESPACE__
     /// </summary>
     internal struct __GHOST_FIXEDLIST_ELEMENT_SERIALIZER__
     {
-        public static void CopyToSnapshot(ref __GHOST_FIELD_TYPE__ snapshot, in __GHOST_COMPONENT_TYPE__ component)
+        public static void CopyToSnapshot(in GhostSerializerState serializerState, ref __GHOST_FIELD_TYPE__ snapshot, in __GHOST_COMPONENT_TYPE__ component)
         {
             #region __GHOST_COPY_TO_SNAPSHOT__
             #endregion
         }
 
-        public static void CopyFromSnapshot(in __GHOST_FIELD_TYPE__ snapshotBefore, ref __GHOST_COMPONENT_TYPE__ component)
+        public static void CopyFromSnapshot(in GhostDeserializerState deserializerState, in __GHOST_FIELD_TYPE__ snapshotBefore, ref __GHOST_COMPONENT_TYPE__ component)
         {
             #region __GHOST_COPY_FROM_SNAPSHOT__
             #endregion
@@ -48,24 +49,25 @@ namespace __GHOST_NAMESPACE__
     }
 
     /// <summary>
-    /// generic fixed-size list serializer helper, that works on `System.Span`. Does not enforce any capacity limitation here (64 element max)
-    /// because expecting all the necessary rules are enforced by the callee (see GhostSnapshotFixedList.cs template)
+    /// Generic fixed-size list serializer helper, that works on System.Span. Does not enforce any capacity limitation here (64 element max)
+    /// because it expects all the necessary rules to be enforced by the callee (see GhostSnapshotFixedList.cs template).
     /// </summary>
     internal struct __GHOST_FIXEDLIST_SERIALIZER__
     {
-        static public void CopyToSnapshot(Span<__GHOST_FIELD_TYPE__> snapshot, ReadOnlySpan<__GHOST_COMPONENT_TYPE__> component)
+        static public void CopyToSnapshot(in GhostSerializerState serializerState, Span<__GHOST_FIELD_TYPE__> snapshot, ReadOnlySpan<__GHOST_COMPONENT_TYPE__> component)
         {
             for (int i = 0; i < component.Length; ++i)
-                __GHOST_FIXEDLIST_ELEMENT_SERIALIZER__.CopyToSnapshot(ref snapshot[i], component[i]);
+                __GHOST_FIXEDLIST_ELEMENT_SERIALIZER__.CopyToSnapshot(serializerState, ref snapshot[i], component[i]);
             for (int i = component.Length; i < snapshot.Length; ++i)
                 snapshot[i] = default;
         }
 
-        static public void CopyFromSnapshot(ReadOnlySpan<__GHOST_FIELD_TYPE__> snapshotBefore, Span<__GHOST_COMPONENT_TYPE__> component)
+        static public void CopyFromSnapshot(in GhostDeserializerState deserializerState, ReadOnlySpan<__GHOST_FIELD_TYPE__> snapshotBefore, Span<__GHOST_COMPONENT_TYPE__> component)
         {
             for (int i = 0; i < component.Length; ++i)
-                __GHOST_FIXEDLIST_ELEMENT_SERIALIZER__.CopyFromSnapshot(snapshotBefore[i], ref component[i]);
+                __GHOST_FIXEDLIST_ELEMENT_SERIALIZER__.CopyFromSnapshot(deserializerState, snapshotBefore[i], ref component[i]);
         }
+
         static public void CalculateChangeMask(ReadOnlySpan<__GHOST_FIELD_TYPE__> snapshot, ReadOnlySpan<__GHOST_FIELD_TYPE__> baseline,
             int length, out ulong longMask)
         {

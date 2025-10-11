@@ -28,16 +28,23 @@ namespace Unity.NetCode.GeneratorTests
 
             namespace N1
             {
-                public struct T1{}
+                public struct T1
+                {
+                    [GhostField] public int A;
+                }
                 namespace N2
                 {
-                    public struct T2{}
+                    public struct T2
+                    {
+                        [GhostField] public int A;
+                    }
                 }
             }
             namespace N1.N2.N3
             {
                 public struct T3
                 {
+                    [GhostField] public int A;
                 }
             }";
 
@@ -67,8 +74,11 @@ namespace Unity.NetCode.GeneratorTests
 
             public struct Outer
             {
+                [GhostField] public int A;
+
                 public struct Inner
                 {
+                    [GhostField] public int A;
                 }
             }
 
@@ -76,8 +86,11 @@ namespace Unity.NetCode.GeneratorTests
             {
                 public struct Outer
                 {
+                    [GhostField] public int A;
+
                     public struct InnerWithNS
                     {
+                        [GhostField] public int A;
                     }
                 }
             }";
@@ -2181,7 +2194,7 @@ namespace Unity.NetCode.GeneratorTests
             using Unity.Collections;
 
             [StructLayout(LayoutKind.Explicit)]
-            public struct Data
+            internal struct Data // Note that we support internal!
             {
                 public int Value1;
                 public int Value2;
@@ -2335,14 +2348,6 @@ namespace Unity.NetCode.GeneratorTests
                 [GhostField(SendData = false)]public int Value3;
                 [GhostField(Quantization=100)]public float Value4;
             }
-            public struct Nested
-            {
-                public int Value1;
-                public int Value2;
-                public FixedList32Bytes<Data> FixedList;
-                public int Value4;
-                public int Value5;
-            }
             public struct Primitive : IComponentData
             {
                 [GhostField]public ulong Value1;
@@ -2363,6 +2368,15 @@ namespace Unity.NetCode.GeneratorTests
                 [GhostField]public int Value2;
                 [GhostField]public int Value3;
                 [GhostField(Quantization = 1000)]public Nested Value4;
+
+                public struct Nested
+                {
+                    public int Value1;
+                    public int Value2;
+                    public FixedList32Bytes<Data> FixedList;
+                    public int Value4;
+                    public int Value5;
+                }
             }
             ";
 
@@ -2422,14 +2436,14 @@ namespace Unity.NetCode.GeneratorTests
             //nested should also have additional helper struct and the the right indexer
             structs = results.GeneratedSources[6].SyntaxTree.GetRoot().DescendantNodes().OfType<StructDeclarationSyntax>()
                 .ToArray();
-            Assert.AreEqual($"{ghostFieldHash}_Nested_FixedList", structs[0].Identifier.ValueText);
+            Assert.AreEqual($"{ghostFieldHash}_WithNested_Nested_FixedList", structs[0].Identifier.ValueText);
             Assert.AreEqual("Capacity", structs[0].Members.OfType<FieldDeclarationSyntax>().First().Declaration.Variables[0].Identifier.Value?.ToString());
             Assert.AreEqual("1", structs[0].Members.OfType<FieldDeclarationSyntax>().First().Declaration.Variables[0].Initializer?.Value.ToString());
             Assert.IsNotNull(structs[0].Modifiers.FirstOrDefault(m=>m.ValueText == "partial"));
             structs = results.GeneratedSources[7].SyntaxTree.GetRoot().DescendantNodes().OfType<StructDeclarationSyntax>()
                 .ToArray();
             Assert.AreEqual("Snapshot", structs[1].Identifier.ValueText);
-            Assert.Contains($"{ghostFieldHash}_Nested_FixedList", structs[1].Members.OfType<FieldDeclarationSyntax>().Select(m=>m.Declaration.Type.ToString()).ToArray());
+            Assert.Contains($"{ghostFieldHash}_WithNested_Nested_FixedList", structs[1].Members.OfType<FieldDeclarationSyntax>().Select(m=>m.Declaration.Type.ToString()).ToArray());
         }
 
         [Test]
@@ -2492,12 +2506,12 @@ namespace Unity.NetCode.GeneratorTests
             using Unity.NetCode;
             using Unity.Mathematics;
 
-            public struct Data
+            internal struct Data // Note that we support internal!
             {
                 public int Value1;
                 public float Value2;
             }
-            public struct Nested
+            internal struct Nested
             {
                 public int Value1;
                 public FixedList32Bytes<Data> Value2;
@@ -2533,7 +2547,8 @@ namespace Unity.NetCode.GeneratorTests
             {
                 public float Value1;
                 public Nested Value2;
-            }";
+            }
+            ";
 
             var tree = CSharpSyntaxTree.ParseText(testData);
             GeneratorRunResult results = default;
@@ -2545,8 +2560,68 @@ namespace Unity.NetCode.GeneratorTests
             //2 helpers, 6 rpc serializer
             Assert.AreEqual(8, results.GeneratedSources.Length);
             //We expect to have 1 helper for Data and one helper for float (silly I know, we can generate directly)
-            results.GeneratedSources[0].SyntaxTree.FilePath.Contains("Nested_CmdSerializer");
-            results.GeneratedSources[1].SyntaxTree.FilePath.Contains("Single_CmdSerializer");
+            results.GeneratedSources[0].SyntaxTree.FilePath.EndsWith("_System_Single_CmdSerializer_CommandHelper");
+            results.GeneratedSources[1].SyntaxTree.FilePath.EndsWith("_PrimitiveCmdCommandSerializer");
+            results.GeneratedSources[2].SyntaxTree.FilePath.EndsWith("Unity_NetCode_Test_Generated_Data_CmdSerializer_CommandHelper");
+            results.GeneratedSources[3].SyntaxTree.FilePath.EndsWith("_StructCmdCommandSerializer");
+            results.GeneratedSources[4].SyntaxTree.FilePath.EndsWith("_NestedCmdCommandSerializer");
+            results.GeneratedSources[5].SyntaxTree.FilePath.EndsWith("_PrimitiveRpcCommandSerializer");
+            results.GeneratedSources[6].SyntaxTree.FilePath.EndsWith("Unity_NetCode_Test_Generated_Data_CmdSerializer_CommandHelper");
+            results.GeneratedSources[7].SyntaxTree.FilePath.EndsWith("_StructRpcCommandSerializer");
+
+            results.GeneratedSources[7].HintName.EndsWith("_NestedRpcCommandSerializer");
+        }
+
+        [Test, Description("Limitation: You cannot DIRECTLY put one FixedList inside another FixedList, but you can if you use a wrapper struct.")]
+        public void SourceGenerator_Nested_FixedLists_Errs()
+        {
+            var testData = @"
+            using Unity.Collections;
+            using Unity.Entities;
+            using Unity.NetCode;
+            using Unity.Mathematics;
+
+            internal struct Data // Note that we support internal!
+            {
+                public byte Value1;
+            }
+            public struct StructRpc : IRpcCommand
+            {
+                public FixedList512Bytes<FixedList32Bytes<Data>> NestedFL; // Expect not supported.
+                public FixedList512Bytes<NestedFL> NestedFL; // Expect supported.
+                public struct NestedFL { public FixedList32Bytes<Data> Value; }
+            }
+            public struct StructCmd : ICommandData
+            {
+                public FixedList512Bytes<FixedList32Bytes<Data>> NestedFL;
+                public FixedList512Bytes<NestedFL> NestedFL; // Expect supported.
+                public struct NestedFL { public FixedList32Bytes<Data> Value; }
+            }
+            public struct StructComp : IComponentData
+            {
+                [GhostField] public FixedList512Bytes<FixedList32Bytes<Data>> NestedFL;
+                public FixedList512Bytes<NestedFL> NestedFL; // Expect supported.
+                public struct NestedFL { public FixedList32Bytes<Data> Value; }
+            }
+            ";
+
+            ErrorLogExclusion = new Regex("");
+            var tree = CSharpSyntaxTree.ParseText(testData);
+            GeneratorRunResult results = default;
+            Assert.DoesNotThrow(() =>
+            {
+                results = GeneratorTestHelpers.RunGenerators(tree);
+            });
+            var errors = results.Diagnostics.Where(d=>d.Severity >= DiagnosticSeverity.Error).ToArray();
+            Assert.AreEqual(8, errors.Length);
+            Assert.That(errors[0].GetMessage().Contains("Nested FixedLists are not directly supported! Add a struct to wrap the inner FixedList 'FixedList32Bytes' on 'Unity.Collections.FixedList512Bytes<Unity.Collections.FixedList32Bytes<Data>>'!"));
+            Assert.That(errors[1].GetMessage().Contains("Unable to correctly generate code for FixedList element 'Unity.Collections.FixedList512Bytes<Unity.Collections.FixedList32Bytes<Data>>' on 'StructComp.NestedFL'!"));
+            Assert.That(errors[2].GetMessage().Contains("Couldn't find the TypeDescriptor for GhostField 'Unity_NetCode_Test_Generated_StructComp.' the type Type:StructComp Key:StructComp (quantized=-1 composite=False smoothing=0 subtype=0) when processing StructComp!"));
+            Assert.That(errors[3].GetMessage().Contains("Nested FixedLists are not directly supported! Add a struct to wrap the inner FixedList 'FixedList32Bytes' on 'Unity.Collections.FixedList512Bytes<Unity.Collections.FixedList32Bytes<Data>>'!"));
+            Assert.That(errors[4].GetMessage().Contains("Unable to correctly generate code for FixedList element 'Unity.Collections.FixedList512Bytes<Unity.Collections.FixedList32Bytes<Data>>' on 'StructCmd.NestedFL'!"));
+            Assert.That(errors[5].GetMessage().Contains("StructCmd.NestedFL of type Unity.Collections.FixedList512Bytes<StructCmd.NestedFL> has a capacity greater than 64 elements. Replicated fixed lists can contain at most 64 elements. If the capacity exceed, please use the GhostFixedListCapacity attribute to constrain the maximum allowed length of the list."));
+            Assert.That(errors[6].GetMessage().Contains("Nested FixedLists are not directly supported! Add a struct to wrap the inner FixedList 'FixedList32Bytes' on 'Unity.Collections.FixedList512Bytes<Unity.Collections.FixedList32Bytes<Data>>'!"));
+            Assert.That(errors[7].GetMessage().Contains("Unable to correctly generate code for FixedList element 'Unity.Collections.FixedList512Bytes<Unity.Collections.FixedList32Bytes<Data>>' on 'StructRpc.NestedFL'!"));
         }
 
         [Test]
@@ -2587,16 +2662,16 @@ namespace Unity.NetCode.GeneratorTests
                 .ToArray();
             for (int i = 0; i < 5; ++i)
             {
-                Assert.IsTrue(methods[1].Body!.Statements[i].ToString().Contains($"data.Value[{i}] ="));
-                Assert.IsTrue(methods[2].Body!.Statements[i].ToString().Contains($"data.Value[{i}]"));
-                Assert.IsTrue(methods[2].Body!.Statements[i].ToString().Contains($"baseline.Value[{i}]"));
+                Assert.IsTrue(methods[1].Body!.Statements[i].ToString().Contains($"data.ValueRef({i}) ="));
+                Assert.IsTrue(methods[2].Body!.Statements[i].ToString().Contains($"data.ValueRef({i})"));
+                Assert.IsTrue(methods[2].Body!.Statements[i].ToString().Contains($"baseline.ValueRef({i})"));
             }
             methods = results.GeneratedSources[3].SyntaxTree.GetRoot().DescendantNodes().OfType<MethodDeclarationSyntax>()
                 .ToArray();
             for (int i = 0; i < 5; ++i)
             {
-                Assert.IsTrue(methods[0].Body!.Statements[i].ToString().Contains($"data.Value[{i}]"));
-                Assert.IsTrue(methods[1].Body!.Statements[i].ToString().Contains($"data.Value[{i}] ="));
+                Assert.IsTrue(methods[0].Body!.Statements[i].ToString().Contains($"data.ValueRef({i})"));
+                Assert.IsTrue(methods[1].Body!.Statements[i].ToString().Contains($"data.ValueRef({i}) ="));
             }
 
             var snapshotDataSyntax = results.GeneratedSources[0].SyntaxTree.GetRoot().DescendantNodes().OfType<StructDeclarationSyntax>()
@@ -2614,14 +2689,14 @@ namespace Unity.NetCode.GeneratorTests
             for (int i = 0; i < 5; ++i)
             {
                 //copyto
-                Assert.IsTrue(methods[1].Body!.Statements[i].ToString().Contains($"component.Value[{i}]"));
+                Assert.IsTrue(methods[1].Body!.Statements[i].ToString().Contains($"component.ValueRef({i})"));
                 Assert.IsTrue(methods[0].Body!.Statements[i].ToString().Contains($"snapshot.Value_{i} ="));
                 //copyfrom
-                Assert.IsTrue(methods[1].Body!.Statements[i].ToString().Contains($"component.Value[{i}]"));
+                Assert.IsTrue(methods[1].Body!.Statements[i].ToString().Contains($"component.ValueRef({i})"));
                 Assert.IsTrue(methods[1].Body!.Statements[i].ToString().Contains($"snapshotBefore.Value_{i}"));
                 //restore
-                Assert.IsTrue(methods[2].Body!.Statements[i].ToString().Contains($"component.Value[{i}]"));
-                Assert.IsTrue(methods[2].Body!.Statements[i].ToString().Contains($"backup.Value[{i}]"));
+                Assert.IsTrue(methods[2].Body!.Statements[i].ToString().Contains($"component.ValueRef({i})"));
+                Assert.IsTrue(methods[2].Body!.Statements[i].ToString().Contains($"backup.ValueRef({i})"));
                 //changemask
                 Assert.IsTrue(methods[4].Body!.Statements[1+i].ToString().Contains($"snapshot.Value_{i}"));
                 Assert.IsTrue(methods[4].Body!.Statements[1+i].ToString().Contains($"baseline.Value_{i}"));

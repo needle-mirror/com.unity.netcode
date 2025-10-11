@@ -133,6 +133,25 @@ namespace Unity.NetCode.LowLevel.StateSave
             }
         }
 
+        StateSaveHeader* GetHeader()
+        {
+            return (StateSaveHeader*)m_BaseStateSaveAddress;
+        }
+
+        internal struct StateSaveHeader
+        {
+            public int ContainerCount;
+        }
+
+        // Temporary tracker used when calculating how much memory all the containers will need
+        struct ChunkInformation
+        {
+            public NativeArray<ComponentType> AllComponentTypes;
+            public long OffsetInParentAllocation;
+            public int EntityCount;
+            public int BufferSizeForComponentTypes;
+        }
+
         public bool Initialized { get; private set; }
         readonly void CheckInitialized() { if (!Initialized) throw new ObjectDisposedException($"{nameof(WorldStateSave)} not initialized, don't forget to call {nameof(Initialize)}"); }
 
@@ -142,10 +161,10 @@ namespace Unity.NetCode.LowLevel.StateSave
         // Enableable: types which are enableable will have their enabled status stored behind the component data (an extra byte)
         // Main allocation
         // Structure of the main allocation (B is an enableable component, C is a buffer type):
-        // |                       Main allocation                                                                             |
-        // |              container                              | buffer data | container      | buffer data| container           | // containers are ptrs to parts of the main alloc
-        // | component types list |  entity data                 |             |                |            |                       // the part has a header for the types list, then per entity data, then buffer data at the end
-        // |  A B C               |A1|   B1E   | C1B |A2|   B2E  | C1-12345    | C2B | AB       | C2-123     | |  | A C  |  | | |  | // types have different sizes. ordered by entity. 'E' is enabled status. 'B' is the buffer handle info
+        // |                                                                       Main allocation                                                                       |
+        // |                 |                                     container                                               |       container       |      container      | // containers are ptrs to parts of the main alloc
+        // | container count | container header | component types list |          entity data          |    buffer data    |          |            |                     | // the part has a header for the types list, then per entity data, then buffer data at the end
+        // |                 |                  | A B C                | A1|   B1E   | C1B |A2|   B2E  | C1-12345    | C2B | AB       | C2-123     | |  | A C  |  | | |  | // types have different sizes. ordered by entity. 'E' is enabled status. 'B' is the buffer handle info
         [NativeDisableUnsafePtrRestriction]
         void* m_BaseStateSaveAddress;
         long m_AllocationSize;
@@ -174,6 +193,7 @@ namespace Unity.NetCode.LowLevel.StateSave
         NativeArray<ComponentType> m_OptionalTypesToSave; // order is important after initialization
         [NativeDisableUnsafePtrRestriction] EntityQuery m_ToSaveQuery;
         int m_EntityCount;
+        bool m_CreatedFromBuffer;
 #if ENABLE_UNITY_COLLECTIONS_CHECKS
         AtomicSafetyHandle m_SafetyHandle; // TODO make sure we can't dispose while a job is not finished yet
         // TODO make sure APIs check for safety using this ^^^
@@ -231,6 +251,51 @@ namespace Unity.NetCode.LowLevel.StateSave
             m_SafetyHandle = default;
 #endif
             Initialized = false;
+            m_CreatedFromBuffer = false;
+        }
+
+        /// <summary>
+        /// Initialize the WorldStateSave from a buffer created by another state save.
+        /// It will contain all the entity data collected by the state save before but not the
+        /// required/optional types or any queries internally, only the data.
+        /// </summary>
+        public WorldStateSave InitializeFromBuffer(NativeArray<byte> stateSave)
+        {
+            return InitializeFromBuffer(stateSave.GetUnsafePtr(), stateSave.Length);
+        }
+
+        /// <inheritdoc cref="InitializeFromBuffer(NativeArray{byte})"/>
+        public WorldStateSave InitializeFromBuffer(void* stateSaveAddress, int length)
+        {
+            m_BaseStateSaveAddress = stateSaveAddress;
+            m_AllocationSize = length;
+            Initialized = true;
+            m_CreatedFromBuffer = true;
+            m_AllStateSaveContainers = InitializeContainersFromBuffer(stateSaveAddress);
+            return this;
+        }
+
+        /// <summary>
+        /// Initialize the containers from the given state save buffer, it will recreate the
+        /// WorldStateSave.m_AllStateSaveContainers list of containers from the buffer according
+        /// to the data layout used. From this it's possible to iterate over all the entity
+        /// data inside the all the containers.
+        /// </summary>
+        NativeArray<StateSaveContainer> InitializeContainersFromBuffer(void* stateSaveAddress)
+        {
+            var stateSaveHeader = *(StateSaveHeader*)stateSaveAddress;
+            var containerCount = stateSaveHeader.ContainerCount;
+            var containers = new NativeArray<StateSaveContainer>(containerCount, Allocator.Persistent);
+            var containerOffsetInStateSave = sizeof(StateSaveHeader); // Start reading containers after the world state save header
+            for (int i = 0; i < containerCount; i++)
+            {
+                var containerAddress = (byte*)stateSaveAddress + containerOffsetInStateSave;
+                var container = new StateSaveContainer(containerAddress);
+                containers[i] = container;
+                containerOffsetInStateSave += container.ContainerSize;
+                m_EntityCount += container.EntityCount;
+            }
+            return containers;
         }
 
         /// <inheritdoc cref="Initialize"/>
@@ -347,6 +412,7 @@ namespace Unity.NetCode.LowLevel.StateSave
             s_QueryMarker.End();
             EntityArchetype previousArchetype = default; // the order of each chunk is per archetype, so can fast path if the previous archetype is the same as the current one, just reuse the same sizes
             using var allComponentTypesInContainer = new NativeList<ComponentType>(Allocator.Temp);
+            var chunkInformation = new NativeArray<ChunkInformation>(chunkCount, Allocator.Temp);
             var singleEntityOptionalSize = 0;
             s_PerChunkMarker.Begin();
             for (int i = 0; i < chunks.Length; i++)
@@ -402,15 +468,25 @@ namespace Unity.NetCode.LowLevel.StateSave
                         bufferSizeForComponentTypes += bufferData.GetBufferLength(k) * TypeManager.GetTypeInfo(type.TypeIndex).ElementSize;
                 }
 
-                // each state save chunk is actually pointing to consecutive parts of the same big memory allocation
-                // we initialize the container with an offset, then once we have the actual allocation later the container can use it with InitializeSaveAddress()
-                var containerOffset = totalSizeBytesNeeded;
-                var currentStateSave = new StateSaveContainer(allComponentTypesInContainer.AsArray(), containerOffset, entityCountInChunk, m_Allocator, state.WorldUnmanaged, chunk, bufferSizeForComponentTypes);
-                m_AllStateSaveContainers[i] = currentStateSave;
-
-                totalSizeBytesNeeded += entityCountInChunk * (singleEntityOptionalSize + singleEntityRequiredSize) + bufferSizeForComponentTypes + currentStateSave.HeaderSize;
+                // Each state save chunk is actually pointing to consecutive parts of the same big memory allocation
+                // Record the information we'll need to create a container with the chunk data at an offset in the state save main allocation
+                chunkInformation[i] = new ChunkInformation()
+                {
+                    AllComponentTypes = allComponentTypesInContainer.ToArray(Allocator.Temp),
+                    OffsetInParentAllocation = totalSizeBytesNeeded + sizeof(StateSaveHeader),
+                    EntityCount = entityCountInChunk,
+                    BufferSizeForComponentTypes = bufferSizeForComponentTypes
+                };
+                // Need to add the container header to the total size calculation, which is the header struct followed by the component type list
+                var componentTypeListSize = allComponentTypesInContainer.Length * sizeof(ComponentType);
+                var stableTypeHashListSize = allComponentTypesInContainer.Length * sizeof(ulong);
+                var containerHeaderSpace = sizeof(StateSaveContainer.ContainerHeader) + componentTypeListSize + stableTypeHashListSize;
+                totalSizeBytesNeeded += entityCountInChunk * (singleEntityOptionalSize + singleEntityRequiredSize) + bufferSizeForComponentTypes + containerHeaderSpace;
             }
             s_PerChunkMarker.End();
+
+            // Make room for the container count value at the start of the state save buffer
+            totalSizeBytesNeeded += sizeof(StateSaveHeader);
 
             s_MainStateAlloc.Begin();
 
@@ -442,15 +518,20 @@ namespace Unity.NetCode.LowLevel.StateSave
                 m_AllocationSize = totalSizeBytesNeeded;
             }
 
+            // Write down the amount of containers in this state save
+            WriteStateSaveHeader();
+
             s_MainStateAlloc.End();
-            for (int i = 0; i < m_AllStateSaveContainers.Length; i++)
+            for (int i = 0; i < chunkInformation.Length; i++)
             {
-                // we have the main allocation, now make the containers point to their right spot
-                var stateSaveContainer =  m_AllStateSaveContainers[i];
-                stateSaveContainer.InitializeSaveAddress((byte*)m_BaseStateSaveAddress);
+                var chunkInfo = chunkInformation[i];
+                var containerAddress = (byte*)m_BaseStateSaveAddress + chunkInfo.OffsetInParentAllocation;
+                var stateSaveContainer = new StateSaveContainer(containerAddress, chunkInfo.AllComponentTypes, chunkInfo.EntityCount, chunkInfo.BufferSizeForComponentTypes);
                 m_AllStateSaveContainers[i] = stateSaveContainer;
+                chunkInfo.AllComponentTypes.Dispose();
             }
             s_ChunkCalculation.End();
+            chunkInformation.Dispose();
             requiredTypesList.Dispose();
             optionalTypesList.Dispose();
 
@@ -459,10 +540,14 @@ namespace Unity.NetCode.LowLevel.StateSave
             return this;
         }
 
+        void WriteStateSaveHeader()
+        {
+            GetHeader()->ContainerCount = m_AllStateSaveContainers.Length;
+        }
+
         // disposes internal metadata but keeps the main allocation for future use
         public void Reset()
         {
-            CheckInitialized();
             // Keeps the main allocation there, but resets everything else
             foreach (var oneContainer in m_AllStateSaveContainers)
             {
@@ -471,29 +556,28 @@ namespace Unity.NetCode.LowLevel.StateSave
             m_AllStateSaveContainers.Dispose();
             m_RequiredTypesToSave.Dispose();
             m_OptionalTypesToSave.Dispose();
-            m_EntityIndex.Dispose();
-            m_ToSaveQuery.Dispose();
+            if (m_EntityIndex.IsCreated)
+                m_EntityIndex.Dispose();
+            if (!m_CreatedFromBuffer && Initialized)
+                m_ToSaveQuery.Dispose();
             Initialized = false;
         }
 
         public void Dispose()
         {
-            CheckInitialized();
-            UnsafeUtility.Free(m_BaseStateSaveAddress, this.m_Allocator);
-#if ENABLE_UNITY_COLLECTIONS_CHECKS
-            AtomicSafetyHandle.Release(m_SafetyHandle);
-#endif
-            m_BaseStateSaveAddress = null;
-            foreach (var oneContainer in m_AllStateSaveContainers)
+            if (!m_CreatedFromBuffer && Initialized)
             {
-                oneContainer.Dispose();
+                UnsafeUtility.Free(m_BaseStateSaveAddress, m_Allocator);
+#if ENABLE_UNITY_COLLECTIONS_CHECKS
+                AtomicSafetyHandle.Release(m_SafetyHandle);
+#endif
             }
-            m_AllStateSaveContainers.Dispose();
-            m_RequiredTypesToSave.Dispose();
-            m_OptionalTypesToSave.Dispose();
-            m_EntityIndex.Dispose();
-            m_ToSaveQuery.Dispose();
-            Initialized = false;
+            m_BaseStateSaveAddress = null;
+            if (RequiredTypesToSaveConfig.IsCreated)
+                RequiredTypesToSaveConfig.Dispose();
+            if (OptionalTypesToSaveConfig.IsCreated)
+                OptionalTypesToSaveConfig.Dispose();
+            Reset();
         }
 
         // TODO main thread state save
@@ -542,8 +626,6 @@ namespace Unity.NetCode.LowLevel.StateSave
                 optionalTypes = m_OptionalTypesToSave,
                 fullWorldStateSave = this.GetParallelWriter(),
                 stateSaveStrategy = stateSaveStrategy,
-                entityType = state.GetEntityTypeHandle(),
-                entityStorageInfo = state.GetEntityStorageInfoLookup()
             };
             var dep = job.ScheduleParallelByRef(m_ToSaveQuery, state.Dependency);
             return dep;
@@ -822,14 +904,29 @@ namespace Unity.NetCode.LowLevel.StateSave
     // maps 1:1 to a chunk while saving. one chunk's content is copied to a container. That container is just a smart pointer for an address in the world state save
     internal unsafe struct StateSaveContainer : IDisposable
     {
+        internal struct ContainerHeader
+        {
+            public byte ComponentTypeCount;
+            public byte EntityCount;
+            public int TotalBufferSize;
+            public int ContainerSize;
+        }
         // Data Layout
-        // Header --> list of ComponentType
-        // Data --> list of entities, each being a list of the same n component data. e.g.[compA for entity 1, compB for entity 1, compC for entity 1, compA for entity 2, compB for entity 2, compC for entity 2]
+        // ContainerHeader
+        // ListOfComponentTypes
+        // ComponentData --> list of entities, each being a list of the same n component data. e.g.[compA for entity 1, compB for entity 1, compC for entity 1, compA for entity 2, compB for entity 2, compC for entity 2]
+        // BufferData --> buffer data laid out like the component data
         byte* m_ContainerStateSaveAdr;
-        internal int HeaderSize;
+        internal int StableTypeHashListSize;
+        internal int ComponentTypeListSize;
+        internal readonly int HeaderSize => ComponentTypeListSize + StableTypeHashListSize + UnsafeUtility.SizeOf<ContainerHeader>();
 
-        public readonly Span<ComponentType> ComponentTypesListHeader => new(m_ContainerStateSaveAdr, HeaderSize / UnsafeUtility.SizeOf<ComponentType>());
-        public readonly Span<byte> StateSave => new(m_ContainerStateSaveAdr + HeaderSize, SingleEntitySize * EntityCount + TotalBufferSize);
+        // The stable type hash list contains the same types as the component type list, but is safe to use when the
+        // container is coming from a buffer as opposed to being constructed in the same WorldStateSave which created it.
+        // This is just used to re-initialize the component types when the container is being restored from a buffer
+        readonly Span<ulong> StableTypeHashListHeader => new(m_ContainerStateSaveAdr + sizeof(ContainerHeader), StableTypeHashListSize / UnsafeUtility.SizeOf<ulong>());
+        public readonly Span<ComponentType> ComponentTypesListHeader => new(m_ContainerStateSaveAdr + sizeof(ContainerHeader) + StableTypeHashListSize, ComponentTypeListSize / UnsafeUtility.SizeOf<ComponentType>());
+        public Span<byte> StateSave => new(m_ContainerStateSaveAdr + HeaderSize, SingleEntitySize * EntityCount + TotalBufferSize);
 
         readonly byte* GetContainerSaveDataAddress
         {
@@ -839,53 +936,95 @@ namespace Unity.NetCode.LowLevel.StateSave
                 return m_ContainerStateSaveAdr + HeaderSize;
             }
         }
-        long m_ContainerOffsetInParentAllocation; // the above pointer points to an allocation not owned by this container, so we need to know the offset in that allocation
         bool m_Initialized;
         int m_NextBufferOffset;
-
-        readonly void CheckInitialized() { if (!m_Initialized) throw new ObjectDisposedException($"Container disposed, make sure you call {nameof(InitializeSaveAddress)}"); }
-
         internal int SingleEntitySize;
-        internal int TotalBufferSize;
-        public readonly int EntityCount;
+
+        readonly void CheckInitialized() { if (!m_Initialized) throw new ObjectDisposedException("Container disposed or not initialized."); }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        ContainerHeader* GetHeader()
+        {
+            return (ContainerHeader*)m_ContainerStateSaveAdr;
+        }
+
+        internal int TotalBufferSize => GetHeader()->TotalBufferSize;
+        internal int ContainerSize => GetHeader()->ContainerSize;
+        public int EntityCount => GetHeader()->EntityCount;
 
         static readonly ProfilerMarker s_StateSaveConstructorMarker = new($"{nameof(StateSaveContainer)} Constructor");
-        internal StateSaveContainer(in NativeArray<ComponentType> componentTypes, long containerOffsetInParentAllocation, int entityCount, in Allocator allocator, WorldUnmanaged world, ArchetypeChunk chunk, int totalBufferSize)
+        internal StateSaveContainer(byte* containerAddress, in NativeArray<ComponentType> componentTypes, int entityCount, int totalBufferSize)
         {
             using var a = s_StateSaveConstructorMarker.Auto();
-            var offset = 0;
-            var headerSize = 0;
+            StableTypeHashListSize = componentTypes.Length * sizeof(ulong);
+            ComponentTypeListSize = componentTypes.Length * sizeof(ComponentType);
+            SingleEntitySize = 0;
+
+            m_ContainerStateSaveAdr = containerAddress;
+            m_NextBufferOffset = 0;
+            m_Initialized = true;
+
+            if (containerAddress == null)
+            {
+                UnityEngine.Debug.LogError($"Invalid memory address for {nameof(StateSaveContainer)}");
+                return;
+            }
+            SingleEntitySize = GetSingleEntitySize(componentTypes.AsSpan());
+            GetHeader()->ComponentTypeCount = (byte)componentTypes.Length;
+            GetHeader()->TotalBufferSize = totalBufferSize;
+            GetHeader()->ContainerSize = ComponentTypeListSize + StableTypeHashListSize + sizeof(ContainerHeader) + entityCount * SingleEntitySize + totalBufferSize;
+            GetHeader()->EntityCount = (byte)entityCount;
+        }
+
+        public StateSaveContainer(byte* containerAddress)
+        {
+            using var a = s_StateSaveConstructorMarker.Auto();
+            StableTypeHashListSize = 0;
+            ComponentTypeListSize = 0;
+            SingleEntitySize = 0;
+
+            m_ContainerStateSaveAdr = containerAddress;
+            m_NextBufferOffset = 0;
+            m_Initialized = true;
+
+            ComponentTypeListSize = GetHeader()->ComponentTypeCount * sizeof(ComponentType);
+            StableTypeHashListSize = GetHeader()->ComponentTypeCount * sizeof(ulong);
+
+            // Reinitialize the component type values based on the stable type hashes (if buffer came from another
+            // process these values have changed)
+            for (int i = 0; i < StableTypeHashListHeader.Length; ++i)
+            {
+                var stableHash = StableTypeHashListHeader[i];
+                var typeIndex = TypeManager.GetTypeIndexFromStableTypeHash(stableHash);
+                var componentType = ComponentType.FromTypeIndex(typeIndex);
+                componentType.AccessModeType = ComponentType.AccessMode.ReadOnly;
+                ComponentTypesListHeader[i] = componentType;
+            }
+
+            SingleEntitySize = GetSingleEntitySize(ComponentTypesListHeader);
+        }
+
+        /// <summary>
+        /// Calculate the size this entity type will need in the component data portion of the container memory.
+        /// </summary>
+        int GetSingleEntitySize(Span<ComponentType> componentTypes)
+        {
+            var singleEntitySize = 0;
             foreach (var type in componentTypes)
             {
                 var dotsTypeInfo = TypeManager.GetTypeInfo(type.TypeIndex);
                 if (!type.IsBuffer)
                 {
-                    offset += dotsTypeInfo.SizeInChunk;
+                    singleEntitySize += dotsTypeInfo.SizeInChunk;
                 }
                 else
                 {
-                    offset += sizeof(BufferHandle); // Store length + offset for each buffer type in the entity component data part
+                    singleEntitySize += sizeof(BufferHandle); // Store length + offset for each buffer type in the entity component data part
                 }
                 if (type.IsEnableable)
-                    offset++;
-                headerSize += UnsafeUtility.SizeOf<ComponentType>(); // a list of component types will be saved in the header at job time. data adr not known right now, so can't save it now.
+                    singleEntitySize++;
             }
-
-            HeaderSize = headerSize;
-            SingleEntitySize = offset;
-            TotalBufferSize = totalBufferSize;
-            EntityCount = entityCount;
-
-            this.m_ContainerStateSaveAdr = null;
-            this.m_ContainerOffsetInParentAllocation = containerOffsetInParentAllocation;
-            m_NextBufferOffset = 0;
-            m_Initialized = false; // only initialized once we call InitializeSaveAddress
-        }
-
-        internal void InitializeSaveAddress(byte* baseAddress)
-        {
-            this.m_ContainerStateSaveAdr = baseAddress + m_ContainerOffsetInParentAllocation;
-            m_Initialized = true;
+            return singleEntitySize;
         }
 
         public void Dispose()
@@ -898,7 +1037,7 @@ namespace Unity.NetCode.LowLevel.StateSave
         public void SaveCompForEntityIndex(in int entIndex, in ComponentType componentType, in byte* chunkCompData, bool enableBitIsSet)
         {
             CheckInitialized();
-            var found = TryGetOffsetForComponentType(componentType, out var compOffset);
+            TryGetOffsetForComponentType(componentType, out var compOffset);
             // TODO cache these offsets and sizes
             var size = TypeManager.GetTypeInfo(componentType.TypeIndex).SizeInChunk;
             var dstAdrSpan = GetObjectAdrInSave(entIndex).Slice(compOffset, size);
@@ -917,7 +1056,7 @@ namespace Unity.NetCode.LowLevel.StateSave
         public void SaveBufferForEntityIndex(in WorldStateSave.WorldSaveParallelWriter fullWorldStateSave, in int entIndex, in ComponentType componentType, in byte* chunkCompData, int bufferElementCount, bool enableBitIsSet)
         {
             CheckInitialized();
-            var found = TryGetOffsetForComponentType(componentType, out var compOffset);
+            TryGetOffsetForComponentType(componentType, out var compOffset);
             var size = TypeManager.GetTypeInfo(componentType.TypeIndex).ElementSize * bufferElementCount;
 
             var dstAdrSpan = GetObjectAdrInSave(entIndex).Slice(compOffset, sizeof(BufferHandle));
@@ -1002,9 +1141,13 @@ namespace Unity.NetCode.LowLevel.StateSave
         {
             CheckInitialized();
             if (index >= ComponentTypesListHeader.Length)
+            {
                 UnityEngine.Debug.LogError($"Component type index out of bounds while adding component {currentCompType}");
-            else
-                ComponentTypesListHeader[index] = currentCompType;
+                return;
+            }
+            ComponentTypesListHeader[index] = currentCompType;
+            var stableHash = TypeManager.GetTypeInfo(currentCompType.TypeIndex).StableTypeHash;
+            StableTypeHashListHeader[index] = stableHash;
         }
     }
 
@@ -1074,8 +1217,6 @@ namespace Unity.NetCode.LowLevel.StateSave
         [ReadOnly] public DynamicTypeList dynamicTypeList; // for dependency management. Equivalent to required + optional, in that order
         [ReadOnly] public NativeArray<ComponentType> requiredTypes;
         [ReadOnly] public NativeArray<ComponentType> optionalTypes;
-        [ReadOnly] public EntityTypeHandle entityType;
-        [ReadOnly] public EntityStorageInfoLookup entityStorageInfo;
 
         // destination state save
         public WorldStateSave.WorldSaveParallelWriter fullWorldStateSave; // includes all containers
