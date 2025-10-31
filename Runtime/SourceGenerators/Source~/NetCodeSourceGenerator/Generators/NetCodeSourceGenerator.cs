@@ -178,9 +178,18 @@ namespace Unity.NetCode.Generators
                 if(!executionContext.GetOptionsFlag(GlobalOptions.DisableRerencesChecks))
                 {
                     //Make sure the assembly has the right references and treat them as a fatal error
-                    var missingReferences = new HashSet<string>{"Unity.Collections", "Unity.Burst", "Unity.Mathematics"};
+                    var missingReferences = new HashSet<string>{"Unity.Collections", "Unity.Burst"};
+                    var hasMathematics = false;
                     foreach (var r in executionContext.Compilation.ReferencedAssemblyNames)
+                    {
                         missingReferences.Remove(r.Name);
+                        // Check for either Unity.Mathematics or UnityEngine.MathematicsModule
+                        if (r.Name == "Unity.Mathematics" || r.Name == "UnityEngine.MathematicsModule")
+                            hasMathematics = true;
+                    }
+                    if (!hasMathematics)
+                        missingReferences.Add("Unity.Mathematics"); // Keeping the error to just Unity.Mathematics
+
                     if (missingReferences.Count > 0)
                     {
                         codeGenerationContext.diagnostic.LogError(

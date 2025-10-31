@@ -296,9 +296,7 @@ namespace Unity.NetCode
                 else
                 {
                     var serverRateManager = rateManager as NetcodeServerRateManager;
-#pragma warning disable CS0618 // Type or member is obsolete
                     networkTime.IsOffFrame = !serverRateManager.WillUpdateInternal();
-#pragma warning restore CS0618 // Type or member is obsolete
                 }
             }
             else

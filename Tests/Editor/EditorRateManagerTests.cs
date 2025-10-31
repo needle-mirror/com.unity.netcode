@@ -420,7 +420,8 @@ namespace Tests.Editor
             {
                 expectedWillUpdate = true;
                 testWorld.Tick();
-                LogAssert.Expect(LogType.Warning, "Testing if will update when TargetFrameRateMode is set to Sleep. This will always return true.");
+                // Commented out because the warning is removed - MTTB-1663
+                //LogAssert.Expect(LogType.Warning, "Testing if will update when TargetFrameRateMode is set to Sleep. This will always return true.");
             }
             else
             {

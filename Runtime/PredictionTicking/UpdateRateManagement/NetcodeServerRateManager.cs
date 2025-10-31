@@ -152,12 +152,13 @@ namespace Unity.NetCode
             m_ClientSeverTickRateQuery.TryGetSingleton<ClientServerTickRate>(out var tickRate);
             tickRate.ResolveDefaults();
 
-            if (TimeTracker.ShouldSleep(tickRate))
+            var totalSteps = TimeTracker.GetUpdateCountReadonly(m_Group.World.Time.DeltaTime, tickRate.SimulationFixedTimeStep, tickRate.MaxSimulationStepsPerFrame, tickRate.MaxSimulationStepBatchSize).TotalSteps;
+            if (TimeTracker.ShouldSleep(tickRate) && totalSteps != 1)
             {
-                Debug.LogWarning($"Testing if will update when {nameof(ClientServerTickRate.TargetFrameRateMode)} is set to {nameof(ClientServerTickRate.FrameRateMode.Sleep)}. This will always return true.");
+                Debug.LogWarning($"Expected server to always update once per frame when in sleep mode. Ran {totalSteps} steps. If you are setting Application.targetFrameRate, please remove that. If not, please report a bug.");
             }
 
-            return TimeTracker.GetUpdateCountReadonly(m_Group.World.Time.DeltaTime, tickRate.SimulationFixedTimeStep, tickRate.MaxSimulationStepsPerFrame, tickRate.MaxSimulationStepBatchSize).TotalSteps > 0;
+            return totalSteps > 0;
         }
     }
 }

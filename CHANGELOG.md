@@ -2,6 +2,13 @@
 uid: changelog
 ---
 
+## [1.9.2] - 2025-10-31
+
+### Fixed
+
+* Removed warning that spams console when `ClientServerTickRate.TargetFrameRateMode` is set to `Sleep`.
+
+
 ## [1.9.1] - 2025-10-11
 
 ### Changed
