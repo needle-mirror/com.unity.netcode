@@ -31,10 +31,16 @@ namespace Unity.NetCode.Tests
                 testWorld.SpawnOnServer(ghostGameObject);
                 var serverEntity = testWorld.TryGetSingletonEntity<GhostGenTestUtils.GhostGenTestType_IComponentData>(testWorld.ServerWorld);
                 Assert.AreNotEqual(Entity.Null, serverEntity);
-                var newClampValues = GhostGenTestUtils.CreateGhostValuesClamp_Values(42, serverEntity);
+                var (newClampValues, newClampValues2) = GhostGenTestUtils.CreateGhostValuesClamp_Values(42, serverEntity);
                 var newClampStrings = GhostGenTestUtils.CreateGhostValuesClamp_Strings(42);
                 var newInterpolateValues = GhostGenTestUtils.CreateGhostValuesInterpolate(42);
-                testWorld.ServerWorld.EntityManager.SetComponentData(serverEntity, new GhostGenTestUtils.GhostGenTestType_IComponentData {GhostGenTypesClamp_Values = newClampValues, GhostGenTypesClamp_Strings = newClampStrings, GhostGenTypesInterpolate = newInterpolateValues});
+                testWorld.ServerWorld.EntityManager.SetComponentData(serverEntity, new GhostGenTestUtils.GhostGenTestType_IComponentData
+                {
+                    GhostGenTypesClamp_Values = newClampValues,
+                    GhostGenTypesClamp_Values2 = newClampValues2,
+                    GhostGenTypesClamp_Strings = newClampStrings,
+                    GhostGenTypesInterpolate = newInterpolateValues
+                });
 
                 // Connect and make sure the connection could be established
                 testWorld.Connect();
@@ -52,14 +58,20 @@ namespace Unity.NetCode.Tests
                 var serverValues = testWorld.ServerWorld.EntityManager.GetComponentData<GhostGenTestUtils.GhostGenTestType_IComponentData>(serverEntity);
                 var clientValues = testWorld.ClientWorlds[0].EntityManager.GetComponentData<GhostGenTestUtils.GhostGenTestType_IComponentData>(clientEntity);
 
-                GhostGenTestUtils.VerifyGhostValuesClamp_Values(false, serverValues.GhostGenTypesClamp_Values, clientValues.GhostGenTypesClamp_Values, serverEntity, clientEntity);
+                GhostGenTestUtils.VerifyGhostValuesClamp_Values(false, serverValues.GhostGenTypesClamp_Values, clientValues.GhostGenTypesClamp_Values, serverValues.GhostGenTypesClamp_Values2, clientValues.GhostGenTypesClamp_Values2, serverEntity, clientEntity);
                 GhostGenTestUtils.VerifyGhostValuesClamp_Strings( serverValues.GhostGenTypesClamp_Strings, clientValues.GhostGenTypesClamp_Strings);
                 GhostGenTestUtils.VerifyGhostValuesInterpolate(serverValues.GhostGenTypesInterpolate, clientValues.GhostGenTypesInterpolate);
 
-                newClampValues = GhostGenTestUtils.CreateGhostValuesClamp_Values(43, serverEntity);
+                (newClampValues, newClampValues2) = GhostGenTestUtils.CreateGhostValuesClamp_Values(43, serverEntity);
                 newClampStrings = GhostGenTestUtils.CreateGhostValuesClamp_Strings(43);
                 newInterpolateValues = GhostGenTestUtils.CreateGhostValuesInterpolate(43);
-                testWorld.ServerWorld.EntityManager.SetComponentData(serverEntity, new GhostGenTestUtils.GhostGenTestType_IComponentData {GhostGenTypesClamp_Values = newClampValues, GhostGenTypesClamp_Strings = newClampStrings, GhostGenTypesInterpolate = newInterpolateValues});
+                testWorld.ServerWorld.EntityManager.SetComponentData(serverEntity, new GhostGenTestUtils.GhostGenTestType_IComponentData
+                {
+                    GhostGenTypesClamp_Values = newClampValues,
+                    GhostGenTypesClamp_Values2 = newClampValues2,
+                    GhostGenTypesClamp_Strings = newClampStrings,
+                    GhostGenTypesInterpolate = newInterpolateValues
+                });
 
                 for (int i = 0; i < 64; ++i)
                     testWorld.Tick();
@@ -68,7 +80,7 @@ namespace Unity.NetCode.Tests
                 serverValues = testWorld.ServerWorld.EntityManager.GetComponentData<GhostGenTestUtils.GhostGenTestType_IComponentData>(serverEntity);
                 clientValues = testWorld.ClientWorlds[0].EntityManager.GetComponentData<GhostGenTestUtils.GhostGenTestType_IComponentData>(clientEntity);
 
-                GhostGenTestUtils.VerifyGhostValuesClamp_Values(false, serverValues.GhostGenTypesClamp_Values, clientValues.GhostGenTypesClamp_Values, serverEntity, clientEntity);
+                GhostGenTestUtils.VerifyGhostValuesClamp_Values(false, serverValues.GhostGenTypesClamp_Values, clientValues.GhostGenTypesClamp_Values, serverValues.GhostGenTypesClamp_Values2, clientValues.GhostGenTypesClamp_Values2, serverEntity, clientEntity);
                 GhostGenTestUtils.VerifyGhostValuesClamp_Strings( serverValues.GhostGenTypesClamp_Strings, clientValues.GhostGenTypesClamp_Strings);
                 GhostGenTestUtils.VerifyGhostValuesInterpolate(serverValues.GhostGenTypesInterpolate, clientValues.GhostGenTypesInterpolate);
             }

@@ -1,4 +1,5 @@
 using System;
+using JetBrains.Annotations;
 using NUnit.Framework;
 using Unity.Collections;
 using Unity.Entities;
@@ -86,6 +87,16 @@ namespace Unity.NetCode.Tests
             [GhostField] public NetworkEndpoint EndpointCustom;
         }
 
+        // Splitting up due to size constraints
+        internal struct GhostGenTypesClamp_Values2
+        {
+            [GhostField] public short ShortValue;
+            [GhostField] public ushort UShortValue;
+
+            [GhostField] public sbyte SByteValue;
+            [GhostField] public byte ByteValue;
+        }
+
         internal struct GhostGenTypesClamp_Strings
         {
             [GhostField] public FixedString32Bytes String32Value;
@@ -124,6 +135,7 @@ namespace Unity.NetCode.Tests
         internal struct GhostGenTestType_IComponentData : IComponentData
         {
             [GhostField] public GhostGenTypesClamp_Values GhostGenTypesClamp_Values;
+            [GhostField] public GhostGenTypesClamp_Values2 GhostGenTypesClamp_Values2;
             [GhostField] public GhostGenTypesClamp_Strings GhostGenTypesClamp_Strings;
             [GhostField] public GhostGenTypesInterpolate GhostGenTypesInterpolate;
         }
@@ -141,6 +153,7 @@ namespace Unity.NetCode.Tests
         {
             [GhostField] public NetworkTick Tick { get; set; }
             [GhostField] public GhostGenTypesClamp_Values GhostGenTypesClamp_Values;
+            [GhostField] public GhostGenTypesClamp_Values2 GhostGenTypesClamp_Values2;
         }
 
         internal struct GhostGenTestType_ICommandData_Strings : ICommandData
@@ -153,6 +166,7 @@ namespace Unity.NetCode.Tests
         internal struct GhostGenTestType_IInputComponentData_Values : IInputComponentData
         {
             public GhostGenTestUtils.GhostGenTypesClamp_Values GhostGenTypesClamp_Values;
+            public GhostGenTestUtils.GhostGenTypesClamp_Values2 GhostGenTypesClamp_Values2;
         }
 
         internal struct GhostGenTestType_IInputComponentData_Strings : IInputComponentData
@@ -181,15 +195,141 @@ namespace Unity.NetCode.Tests
         internal struct GhostGenTestType_IRpc : IRpcCommand
         {
             public GhostGenTypesClamp_Values GhostGenTypesClamp_Values;
+            public GhostGenTypesClamp_Values2 GhostGenTypesClamp_Values2;
             public GhostGenTypesClamp_Strings GhostGenTypesClamp_Strings;
             public GhostGenTypesInterpolate GhostGenTypesInterpolate;
+        }
+
+        // Not used directly as the component is too large, but it is being compiled by the source generator to verify all types work
+        [UsedImplicitly]
+        public struct AllTemplateTypesTwice_IComponentData : IComponentData
+        {
+            [GhostField] public byte ByteValue1;
+            [GhostField] public byte ByteValue2;
+            [GhostField] public double DoubleValue1;
+            [GhostField] public double DoubleValue2;
+            [GhostField(Quantization=0)] public double UnquantizedDoubleValue1;
+            [GhostField(Quantization=0)] public double UnquantizedDoubleValue2;
+            [GhostField] public Entity EntityValue1;
+            [GhostField] public Entity EntityValue2;
+            [GhostField] public FixedString32Bytes String32Value1;
+            [GhostField] public FixedString32Bytes String32Value2;
+            [GhostField] public FixedString64Bytes String64Value1;
+            [GhostField] public FixedString64Bytes String64Value2;
+            [GhostField] public FixedString128Bytes String128Value1;
+            [GhostField] public FixedString128Bytes String128Value2;
+            [GhostField] public FixedString512Bytes String512Value1;
+            [GhostField] public FixedString512Bytes String512Value2;
+            [GhostField] public FixedString4096Bytes String4096Value1;
+            [GhostField] public FixedString4096Bytes String4096Value2;
+            [GhostField] public float FloatValue1;
+            [GhostField] public float FloatValue2;
+            [GhostField(Quantization=0)] public float UnquantizedFloatValue1;
+            [GhostField(Quantization=0)] public float UnquantizedFloatValue2;
+            [GhostField] public float2 Float2Value1;
+            [GhostField] public float2 Float2Value2;
+            [GhostField(Quantization=0)] public float2 UnquantizedFloat2Value1;
+            [GhostField(Quantization=0)] public float2 UnquantizedFloat2Value2;
+            [GhostField] public float3 Float3Value1;
+            [GhostField] public float3 Float3Value2;
+            [GhostField(Quantization=0)] public float3 UnquantizedFloat3Value1;
+            [GhostField(Quantization=0)] public float3 UnquantizedFloat3Value2;
+            [GhostField] public float4 Float4Value1;
+            [GhostField] public float4 Float4Value2;
+            [GhostField(Quantization=0)] public float4 UnquantizedFloat4Value1;
+            [GhostField(Quantization=0)] public float4 UnquantizedFloat4Value2;
+            [GhostField] public int IntValue1;
+            [GhostField] public int IntValue2;
+            [GhostField] public long LongValue1;
+            [GhostField] public long LongValue2;
+            [GhostField] public NetworkEndpoint NetworkEndpointValue1;
+            [GhostField] public NetworkEndpoint NetworkEndpointValue2;
+            [GhostField] public NetworkTick NetworkTickValue1;
+            [GhostField] public NetworkTick NetworkTickValue2;
+            [GhostField] public quaternion QuaternionValue1;
+            [GhostField] public quaternion QuaternionValue2;
+            [GhostField(Quantization=0)] public quaternion UnquantizedQuaternionValue1;
+            [GhostField(Quantization=0)] public quaternion UnquantizedQuaternionValue2;
+            [GhostField] public sbyte SByteValue1;
+            [GhostField] public sbyte SByteValue2;
+            [GhostField] public short ShortValue1;
+            [GhostField] public short ShortValue2;
+            [GhostField] public uint UIntValue1;
+            [GhostField] public uint UIntValue2;
+            [GhostField] public ulong ULongValue1;
+            [GhostField] public ulong ULongValue2;
+            [GhostField] public ushort UShortValue1;
+            [GhostField] public ushort UShortValue2;
+        }
+
+        // Not used directly as the component is too large, but it is being compiled by the source generator to verify all types work
+        [UsedImplicitly]
+        public struct AllTemplateTypesTwice_ICommandData : ICommandData
+        {
+            public NetworkTick Tick { get; set; }
+            public byte ByteValue1;
+            public byte ByteValue2;
+            public double DoubleValue1;
+            public double DoubleValue2;
+            public double UnquantizedDoubleValue1;
+            public double UnquantizedDoubleValue2;
+            public Entity EntityValue1;
+            public Entity EntityValue2;
+            public FixedString32Bytes String32Value1;
+            public FixedString32Bytes String32Value2;
+            public FixedString64Bytes String64Value1;
+            public FixedString64Bytes String64Value2;
+            public FixedString128Bytes String128Value1;
+            public FixedString128Bytes String128Value2;
+            public FixedString512Bytes String512Value1;
+            public FixedString512Bytes String512Value2;
+            public FixedString4096Bytes String4096Value1;
+            public FixedString4096Bytes String4096Value2;
+            public float FloatValue1;
+            public float FloatValue2;
+            public float UnquantizedFloatValue1;
+            public float UnquantizedFloatValue2;
+            public float2 Float2Value1;
+            public float2 Float2Value2;
+            public float2 UnquantizedFloat2Value1;
+            public float2 UnquantizedFloat2Value2;
+            public float3 Float3Value1;
+            public float3 Float3Value2;
+            public float3 UnquantizedFloat3Value1;
+            public float3 UnquantizedFloat3Value2;
+            public float4 Float4Value1;
+            public float4 Float4Value2;
+            public float4 UnquantizedFloat4Value1;
+            public float4 UnquantizedFloat4Value2;
+            public int IntValue1;
+            public int IntValue2;
+            public long LongValue1;
+            public long LongValue2;
+            public NetworkEndpoint NetworkEndpointValue1;
+            public NetworkEndpoint NetworkEndpointValue2;
+            public NetworkTick NetworkTickValue1;
+            public NetworkTick NetworkTickValue2;
+            public quaternion QuaternionValue1;
+            public quaternion QuaternionValue2;
+            public quaternion UnquantizedQuaternionValue1;
+            public quaternion UnquantizedQuaternionValue2;
+            public sbyte SByteValue1;
+            public sbyte SByteValue2;
+            public short ShortValue1;
+            public short ShortValue2;
+            public uint UIntValue1;
+            public uint UIntValue2;
+            public ulong ULongValue1;
+            public ulong ULongValue2;
+            public ushort UShortValue1;
+            public ushort UShortValue2;
         }
         #endregion
 
         #region Verification
         // Verifies the clamped data is correct between server and client.
         // isCommandData is used since some of the ghostfields have DontSend=false
-        public static void VerifyGhostValuesClamp_Values(bool hasPartialSupport, GhostGenTypesClamp_Values serverValues, GhostGenTypesClamp_Values clientValues, Entity serverGhost, Entity clientGhost)
+        public static void VerifyGhostValuesClamp_Values(bool hasPartialSupport, GhostGenTypesClamp_Values serverValues, GhostGenTypesClamp_Values clientValues, GhostGenTypesClamp_Values2 serverValues2, GhostGenTypesClamp_Values2 clientValues2, Entity serverGhost, Entity clientGhost)
         {
             Assert.AreEqual(serverValues.Int3, clientValues.Int3);
             Assert.AreEqual(serverValues.Composed_Int3, clientValues.Composed_Int3);
@@ -211,6 +351,12 @@ namespace Unity.NetCode.Tests
 
             Assert.AreEqual(serverValues.LongValue, clientValues.LongValue);
             Assert.AreEqual(serverValues.ULongValue, clientValues.ULongValue);
+
+            Assert.AreEqual(serverValues2.ShortValue, clientValues2.ShortValue);
+            Assert.AreEqual(serverValues2.UShortValue, clientValues2.UShortValue);
+
+            Assert.AreEqual(serverValues2.SByteValue, clientValues2.SByteValue);
+            Assert.AreEqual(serverValues2.ByteValue, clientValues2.ByteValue);
 
             AssertQuantizedDoubleIsWithinTolerance(0.001, serverValues.FloatValue, clientValues.FloatValue);
             Assert.AreEqual(serverValues.Unquantized_FloatValue, clientValues.Unquantized_FloatValue);
@@ -280,7 +426,7 @@ namespace Unity.NetCode.Tests
         public static void VerifyICommandData_Values(GhostGenTestType_ICommandData_Values serverValues,
             GhostGenTestType_ICommandData_Values clientValues, Entity serverGhost, Entity clientGhost)
         {
-            VerifyGhostValuesClamp_Values(true, serverValues.GhostGenTypesClamp_Values, clientValues.GhostGenTypesClamp_Values, serverGhost, clientGhost);
+            VerifyGhostValuesClamp_Values(true, serverValues.GhostGenTypesClamp_Values, clientValues.GhostGenTypesClamp_Values, serverValues.GhostGenTypesClamp_Values2, clientValues.GhostGenTypesClamp_Values2, serverGhost, clientGhost);
         }
 
         public static void VerifyICommandData_Strings(GhostGenTestType_ICommandData_Strings serverValues,
@@ -292,7 +438,7 @@ namespace Unity.NetCode.Tests
         public static void VerifyIInputComponentData_Values(GhostGenTestType_IInputComponentData_Values serverValues,
             GhostGenTestType_IInputComponentData_Values clientValues, Entity serverGhost, Entity clientGhost)
         {
-            VerifyGhostValuesClamp_Values(true, serverValues.GhostGenTypesClamp_Values, clientValues.GhostGenTypesClamp_Values, serverGhost, clientGhost);
+            VerifyGhostValuesClamp_Values(true, serverValues.GhostGenTypesClamp_Values, clientValues.GhostGenTypesClamp_Values, serverValues.GhostGenTypesClamp_Values2, clientValues.GhostGenTypesClamp_Values2, serverGhost, clientGhost);
         }
 
         public static void VerifyIInputComponentData_Strings(GhostGenTestType_IInputComponentData_Strings serverValues,
@@ -305,7 +451,7 @@ namespace Unity.NetCode.Tests
             Entity serverGhost, Entity clientGhost)
         {
             VerifyGhostValuesInterpolate(serverValues.GhostGenTypesInterpolate, clientValues.GhostGenTypesInterpolate);
-            VerifyGhostValuesClamp_Values(true, serverValues.GhostGenTypesClamp_Values, clientValues.GhostGenTypesClamp_Values, serverGhost, clientGhost);
+            VerifyGhostValuesClamp_Values(true, serverValues.GhostGenTypesClamp_Values, clientValues.GhostGenTypesClamp_Values, serverValues.GhostGenTypesClamp_Values2, clientValues.GhostGenTypesClamp_Values2, serverGhost, clientGhost);
             VerifyGhostValuesClamp_Strings(serverValues.GhostGenTypesClamp_Strings, clientValues.GhostGenTypesClamp_Strings);
         }
         #endregion
@@ -334,7 +480,7 @@ String that is so big it explodes the ICommandData max size (of 1024 bytes)!
             };
         }
 
-        public static GhostGenTypesClamp_Values CreateGhostValuesClamp_Values(int baseValue, Entity ghostEntity)
+        public static (GhostGenTypesClamp_Values, GhostGenTypesClamp_Values2) CreateGhostValuesClamp_Values(int baseValue, Entity ghostEntity)
         {
             int i = 0;
             var values = new GhostGenTypesClamp_Values()
@@ -413,8 +559,17 @@ String that is so big it explodes the ICommandData max size (of 1024 bytes)!
                 EndpointIPv6 = GetEndpointToTest(NetworkFamily.Ipv6),
                 EndpointCustom = GetEndpointToTest(NetworkFamily.Custom),
             };
-            UnityEngine.Debug.Log($"i is {i}");
-            return values;
+
+            var values2 = new GhostGenTypesClamp_Values2()
+            {
+                ShortValue = (short)(baseValue + ++i),
+                UShortValue = (ushort)(baseValue + ++i),
+
+                SByteValue = (sbyte)(baseValue + ++i),
+                ByteValue = (byte)(baseValue + ++i),
+            };
+
+            return (values, values2);
         }
 
         public static GhostGenTypesClamp_Strings CreateGhostValuesClamp_Strings(int baseValue)
@@ -428,7 +583,6 @@ String that is so big it explodes the ICommandData max size (of 1024 bytes)!
                 String512Value = new FixedString512Bytes($"bv:{baseValue + ++i}"),
                 String4096Value = new FixedString4096Bytes($"bv:{baseValue + ++i}"),
             };
-            UnityEngine.Debug.Log($"i is {i}");
             return values;
         }
 
@@ -462,28 +616,37 @@ String that is so big it explodes the ICommandData max size (of 1024 bytes)!
                 Interpolated_QuaternionValue = math.normalize(new quaternion(0.5f, 0.5f, 0.5f, 0.5f)),
                 Interpolated_Unquantized_QuaternionValue = math.normalize(new quaternion(0.5f, 0.5f, 0.5f, 0.5f))
             };
-            UnityEngine.Debug.Log($"i is {i}");
             return values;
         }
 
         // The functions below have the specific contract from the test source.
         public static GhostGenTestType_ICommandData_Values CreateICommandDataValues_Values(NetworkTick tick, int baseValue, Entity ghostEntity)
         {
+            var (values, values2) = CreateGhostValuesClamp_Values(baseValue, ghostEntity);
             return new GhostGenTestType_ICommandData_Values()
-                { Tick = tick, GhostGenTypesClamp_Values = CreateGhostValuesClamp_Values(baseValue, ghostEntity) };
+            {
+                Tick = tick,
+                GhostGenTypesClamp_Values = values,
+                GhostGenTypesClamp_Values2 = values2
+            };
         }
 
         public static GhostGenTestType_ICommandData_Strings CreateICommandDataValues_Strings(NetworkTick tick, int baseValue, Entity ghostEntity)
         {
             return new GhostGenTestType_ICommandData_Strings()
-                { Tick = tick, GhostGenTypesClamp_Strings = CreateGhostValuesClamp_Strings(baseValue) };
+            {
+                Tick = tick,
+                GhostGenTypesClamp_Strings = CreateGhostValuesClamp_Strings(baseValue)
+            };
         }
 
         public static GhostGenTestType_IInputComponentData_Values CreateIInputComponentDataValues_Values(int baseValue, Entity ghostEntity)
         {
+            var (values, values2) = CreateGhostValuesClamp_Values(baseValue, ghostEntity);
             return new GhostGenTestType_IInputComponentData_Values
             {
-                GhostGenTypesClamp_Values = CreateGhostValuesClamp_Values(baseValue, ghostEntity)
+                GhostGenTypesClamp_Values = values,
+                GhostGenTypesClamp_Values2 = values2
             };
         }
 
@@ -497,11 +660,13 @@ String that is so big it explodes the ICommandData max size (of 1024 bytes)!
 
         public static GhostGenTestType_IRpc CreateIRpcValues(int baseValue, Entity ghostEntity)
         {
+            var (values, values2) = CreateGhostValuesClamp_Values(baseValue, ghostEntity);
             return new GhostGenTestType_IRpc
             {
                 GhostGenTypesInterpolate = CreateGhostValuesInterpolate(baseValue),
                 GhostGenTypesClamp_Strings = CreateGhostValuesClamp_Strings(baseValue),
-                GhostGenTypesClamp_Values = CreateGhostValuesClamp_Values(baseValue, ghostEntity)
+                GhostGenTypesClamp_Values = values,
+                GhostGenTypesClamp_Values2 = values2
             };
         }
 

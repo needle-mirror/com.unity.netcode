@@ -2,6 +2,15 @@
 uid: changelog
 ---
 
+## [1.9.3] - 2025-11-06
+
+### Fixed
+
+* You can again add multiple `Entity` types to your ghost components and commands.
+* Shorts are now properly supported in components and commands.
+* Missing Physics-related API docs have been re-added.
+
+
 ## [1.9.2] - 2025-10-31
 
 ### Fixed

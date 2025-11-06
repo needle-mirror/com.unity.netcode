@@ -26,12 +26,14 @@ namespace Generated
             if (true)
             {
                 #region __GHOST_COPY_TO_SNAPSHOT__
-                snapshot.__GHOST_FIELD_NAME__ = 0;
-                snapshot.__GHOST_FIELD_NAME__SpawnTick = Unity.NetCode.NetworkTick.Invalid.SerializedData;
-                if (serializerState.GhostFromEntity.TryGetComponent(component.__GHOST_FIELD_REFERENCE__, out var ghostComponent))
                 {
-                    snapshot.__GHOST_FIELD_NAME__ = ghostComponent.ghostId;
-                    snapshot.__GHOST_FIELD_NAME__SpawnTick = ghostComponent.spawnTick.SerializedData;
+                    snapshot.__GHOST_FIELD_NAME__ = 0;
+                    snapshot.__GHOST_FIELD_NAME__SpawnTick = Unity.NetCode.NetworkTick.Invalid.SerializedData;
+                    if (serializerState.GhostFromEntity.TryGetComponent(component.__GHOST_FIELD_REFERENCE__, out var ghostComponent))
+                    {
+                        snapshot.__GHOST_FIELD_NAME__ = ghostComponent.ghostId;
+                        snapshot.__GHOST_FIELD_NAME__SpawnTick = ghostComponent.spawnTick.SerializedData;
+                    }
                 }
                 #endregion
             }
@@ -81,27 +83,31 @@ namespace Generated
         public void SerializeCommand(ref DataStreamWriter writer, in IComponentData data, in IComponentData baseline, in RpcSerializerState state, StreamCompressionModel compressionModel)
         {
             #region __COMMAND_WRITE__
-            if (state.GhostFromEntity.TryGetComponent(data.__COMMAND_FIELD_NAME__, out var ghostComponent))
             {
-                writer.WriteInt(ghostComponent.ghostId);
-                writer.WriteUInt(ghostComponent.spawnTick.SerializedData);
-            }
-            else
-            {
-                writer.WriteInt(0);
-                writer.WriteUInt(Unity.NetCode.NetworkTick.Invalid.SerializedData);
+                if (state.GhostFromEntity.TryGetComponent(data.__COMMAND_FIELD_NAME__, out var ghostComponent))
+                {
+                    writer.WriteInt(ghostComponent.ghostId);
+                    writer.WriteUInt(ghostComponent.spawnTick.SerializedData);
+                }
+                else
+                {
+                    writer.WriteInt(0);
+                    writer.WriteUInt(Unity.NetCode.NetworkTick.Invalid.SerializedData);
+                }
             }
             #endregion
             #region __COMMAND_WRITE_PACKED__
-            if (state.GhostFromEntity.TryGetComponent(data.__COMMAND_FIELD_NAME__, out var ghostComponent))
             {
-                writer.WriteInt(ghostComponent.ghostId);
-                writer.WriteUInt(ghostComponent.spawnTick.SerializedData);
-            }
-            else
-            {
-                writer.WriteInt(0);
-                writer.WriteUInt(Unity.NetCode.NetworkTick.Invalid.SerializedData);
+                if (state.GhostFromEntity.TryGetComponent(data.__COMMAND_FIELD_NAME__, out var ghostComponent))
+                {
+                    writer.WriteInt(ghostComponent.ghostId);
+                    writer.WriteUInt(ghostComponent.spawnTick.SerializedData);
+                }
+                else
+                {
+                    writer.WriteInt(0);
+                    writer.WriteUInt(Unity.NetCode.NetworkTick.Invalid.SerializedData);
+                }
             }
             #endregion
         }

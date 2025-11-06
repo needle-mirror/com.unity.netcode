@@ -9,7 +9,7 @@ namespace Generated
             writer.WriteShort((short)data.__COMMAND_FIELD_NAME__);
             #endregion
             #region __COMMAND_WRITE_PACKED__
-            writer.WritePackedInt((short)(data.__COMMAND_FIELD_NAME__, compressionModel);
+            writer.WritePackedInt((short)data.__COMMAND_FIELD_NAME__, compressionModel);
             #endregion
         }
 
