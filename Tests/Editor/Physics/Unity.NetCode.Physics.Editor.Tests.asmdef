@@ -1,5 +1,5 @@
 {
-    "name": "Unity.NetCode.Physics.EditorTests",
+    "name": "Unity.NetCode.Physics.Editor.Tests",
     "references": [
         "Unity.Burst",
         "Unity.Collections",
@@ -16,8 +16,8 @@
         "Unity.Networking.Transport",
         "UnityEngine.TestRunner",
         "UnityEditor.TestRunner",
-        "Unity.NetCode.EditorTests",
-        "Unity.NetCode.TestsUtils",
+        "Unity.NetCode.Editor.Tests",
+        "Unity.NetCode.TestsUtils.Runtime.Tests",
         "Unity.NetCode.Authoring.Hybrid",
         "Unity.Logging"
     ],

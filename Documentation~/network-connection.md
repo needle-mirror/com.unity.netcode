@@ -63,19 +63,7 @@ The `ClientServerBootstrap` [`AutoConnectPort` field](https://docs.unity3d.com/P
 
 To set up the `AutoConnectPort`, you need to create a custom [bootstrap](client-server-worlds.md#bootstrap) and set a value other than 0 for the `AutoConnectPort` before creating your worlds. For example:
 
-```c#
-public class AutoConnectBootstrap : ClientServerBootstrap
-{
-    public override bool Initialize(string defaultWorldName)
-    {
-        // This will enable auto connect.
-        AutoConnectPort = 7979;
-        // Create the default client and server worlds, depending on build type in a player or the PlayMode Tools in the editor
-        CreateDefaultClientServerWorlds();
-        return true;
-    }
-}
-```
+[!code-cs[blobs](../Tests/Editor/DocCodeSamples/network-connection.cs#AutoConnectPort)]
 
 The server starts listening at the wildcard address (`DefaultListenAddress`:`AutoConnectPort`). The `DefaultConnectAddress` is by default set to `NetworkEndpoint.AnyIpv4`. The client starts connecting to server address (`DefaultConnectAddress`:`AutoConnectPort`). The `DefaultConnectAddress` is by default set to `NetworkEndpoint.Loopback`.
 
@@ -89,16 +77,7 @@ Instead of invoking and calling methods on the [NetworkStreamDriver](https://doc
 - A [NetworkStreamRequestConnect](https://docs.unity3d.com/Packages/com.unity.netcode@latest/index.html?subfolder=/api/Unity.NetCode.NetworkStreamRequestConnect.html) singleton to request a connection to the desired server address/port.
 - A [NetworkStreamRequestListen](https://docs.unity3d.com/Packages/com.unity.netcode@latest/index.html?subfolder=/api/Unity.NetCode.NetworkStreamRequestListen.html) singleton to make the server start listening at the desired address/port.
 
-```csharp
-//On the client world, create a new entity with a NetworkStreamRequestConnect. It will be consumed by NetworkStreamReceiveSystem later.
-var connectRequest = clientWorld.EntityManager.CreateEntity(typeof(NetworkStreamRequestConnect));
-EntityManager.SetComponentData(connectRequest, new NetworkStreamRequestConnect { Endpoint = serverEndPoint });
-
-//On the server world, create a new entity with a NetworkStreamRequestConnect. It will be consumed by NetworkStreamReceiveSystem later.
-var listenRequest = serverWorld.EntityManager.CreateEntity(typeof(NetworkStreamRequestListen));
-EntityManager.SetComponentData(listenRequest, new NetworkStreamRequestListen { Endpoint = serverEndPoint });
-
-```
+[!code-cs[blobs](../Tests/Editor/DocCodeSamples/network-connection.cs#NetworkStreamRequest)]
 
 The request will be then consumed at runtime by the [NetworkStreamReceiveSystem](https://docs.unity3d.com/Packages/com.unity.netcode@latest/index.html?subfolder=/api/Unity.NetCode.NetworkStreamReceiveSystem.html).
 
@@ -119,23 +98,7 @@ There is a `public NativeArray<NetCodeConnectionEvent>.ReadOnly ConnectionEvents
 
 These events only persist for a single `SimulationSystemGroup` tick, and are reset during `NetworkStreamConnectSystem` and `NetworkStreamListenSystem` respectively. If your system runs _after_ these aforementioned system's jobs execute, you'll receive notifications on the same tick that they were raised. However, if you query this collection _before_ this system's jobs execute, you'll be iterating over the previous tick's values.
 
-```csharp
-// Example System:
-[UpdateAfter(typeof(NetworkReceiveSystemGroup))]
-[BurstCompile]
-public partial struct NetCodeConnectionEventListener : ISystem
-{
-    [BurstCompile]
-    public void OnUpdate(ref SystemState state)
-    {
-        var connectionEventsForClient = SystemAPI.GetSingleton<NetworkStreamDriver>().ConnectionEventsForTick;
-        foreach (var evt in connectionEventsForClient)
-        {
-            UnityEngine.Debug.Log($"[{state.WorldUnmanaged.Name}] {evt.ToFixedString()}!");
-        }
-    }
-}
-```
+[!code-cs[blobs](../Tests/Editor/DocCodeSamples/network-connection.cs#ClientEvents)]
 
 > [!NOTE]
 > Because the server runs on a fixed delta-time, the `SimulationSystemGroup` may tick any number of times (including zero times) on each render frame.
@@ -191,83 +154,8 @@ The `NetworkStreamDriver` has a `RequireConnectionApproval` field which must be 
 
 Enabling connection approval is done like this:
 
-```csharp
-if (isServer)
-{
-    using var drvQuery = server.EntityManager.CreateEntityQuery(ComponentType.ReadWrite<NetworkStreamDriver>());
-drvQuery.GetSingletonRW<NetworkStreamDriver>().ValueRW.RequireConnectionApproval = true;
-drvQuery.GetSingletonRW<NetworkStreamDriver>().ValueRW.Listen(ep);
-}
-else
-{
-    using var drvQuery = client.EntityManager.CreateEntityQuery(ComponentType.ReadWrite<NetworkStreamDriver>());
-    drvQuery.GetSingletonRW<NetworkStreamDriver>().ValueRW.RequireConnectionApproval = true;
-    drvQuery.GetSingletonRW<NetworkStreamDriver>().ValueRW.Connect(client.EntityManager, ep);
-}
-```
+[!code-cs[blobs](../Tests/Editor/DocCodeSamples/network-connection.cs#ConnectionApproval)]
 
 And connection approval handling could be set up like this:
 
-```csharp
-// The approval RPC, here it contains a hypothetical payload the server will validate
-public struct ApprovalFlow : IApprovalRpcCommand
-{
-    public FixedString512Bytes Payload;
-}
-
-// This is used to indicate we've already sent an approval RPC and don't need to do so again
-public struct ApprovalStarted : IComponentData
-{
-}
-
-[WorldSystemFilter(WorldSystemFilterFlags.ClientSimulation | WorldSystemFilterFlags.ThinClientSimulation)]
-public partial struct ClientConnectionApprovalSystem : ISystem
-{
-    public void OnCreate(ref SystemState state)
-    {
-        state.RequireForUpdate<RpcCollection>();
-    }
-
-    public void OnUpdate(ref SystemState state)
-    {
-        var ecb = new EntityCommandBuffer(Allocator.Temp);
-        // Check connections which have not yet fully connected and send connection approval message
-        foreach (var (connection, entity) in SystemAPI.Query<RefRW<NetworkStreamConnection>>().WithNone<NetworkId>().WithNone<ApprovalStarted>().WithEntityAccess())
-        {
-            var sendApprovalMsg = ecb.CreateEntity();
-            ecb.AddComponent(sendApprovalMsg, new ApprovalFlow { Payload = "ABC" });
-            ecb.AddComponent<SendRpcCommandRequest>(sendApprovalMsg);
-
-            ecb.AddComponent<ApprovalStarted>(entity);
-        }
-        ecb.Playback(state.EntityManager);
-    }
-}
-
-[WorldSystemFilter(WorldSystemFilterFlags.ServerSimulation)]
-public partial struct ServerConnectionApprovalSystem : ISystem
-{
-    public void OnUpdate(ref SystemState state)
-    {
-        var ecb = new EntityCommandBuffer(Allocator.Temp);
-        // Check connections which have not yet fully connected and send connection approval message
-        foreach (var (receiveRpc, approvalMsg, entity) in SystemAPI.Query<RefRO<ReceiveRpcCommandRequest>,RefRW<ApprovalFlow>>().WithEntityAccess())
-        {
-            var connectionEntity = receiveRpc.ValueRO.SourceConnection;
-            if (approvalMsg.ValueRO.Payload.Equals("ABC"))
-            {
-                ecb.AddComponent<ConnectionApproved>(connectionEntity);
-
-                // Destroy RPC message
-                ecb.DestroyEntity(entity);
-            }
-            else
-            {
-                // Failed approval messages should be disconnected
-                ecb.AddComponent<NetworkStreamRequestDisconnect>(connectionEntity);
-            }
-        }
-        ecb.Playback(state.EntityManager);
-    }
-}
-```
+[!code-cs[blobs](../Tests/Editor/DocCodeSamples/network-connection.cs#ConnectionApprovalHandling)]

@@ -68,49 +68,11 @@ You can customize how the `NetworkDriverStore` is set up at world creation by cr
 
 The `DefaultDriverBuilder` class provides a set of utility methods that can be used to help create and initialize the drivers required by Netcode for Entities.
 
-```csharp
-
-public class MyCustomDriverConstructor : INetworkStreamDriverConstructor
-
-    public void CreateClientDriver(World world, ref NetworkDriverStore driverStore, NetDebug netDebug)
-    {
-        var settings = DefaultDriverBuilder.GetClientNetworkSettings();
-        #if !UNITY_WEBGL
-        DefaultDriverBuilder.RegisterClientUdpDriver(world, ref driverStore, netDebug, settings);
-        #else
-        DefaultDriverBuilder.RegisterClientWebSocketDriver(world, ref driverStore, netDebug, settings);
-        #endif
-    }
-
-        public void CreateServerDriver(World world, ref NetworkDriverStore driverStore, NetDebug netDebug)
-        {
-            var settings = DefaultDriverBuilder.GetNetworkServerSettings();
-#if !UNITY_WEBGL
-            DefaultDriverBuilder.RegisterServerUdpDriver(world, ref driverStore, netDebug, relaySettings);
-#else
-            DefaultDriverBuilder.RegisterServerWebSocketDriver(world, ref driverStore, netDebug, relaySettings);
-#endif
-        }
-    }
-}
-```
+[!code-cs[blobs](../Tests/Editor/DocCodeSamples/networking-network-drivers.cs#CustomerDriverConstructor)]
 
 To use a custom strategy, you need to assign a new instance of your class to the `NetworkStreamReceiveSystem.DriverConstructor` static property before the worlds are created.
 
-```csharp
-var oldConstructor = NetworkStreamReceiveSystem.DriverConstructor;
-//The try/finally pattern can be used to avoid any exceptions resetting back to the old default.
-try
-{
-    NetworkStreamReceiveSystem.DriverConstructor = new MyCustomDriverConstructor();
-    var server = ClientServerBootstrap.CreateServerWorld("ServerWorld");
-    var client = ClientServerBootstrap.CreateClientWorld("ClientWorld");
-}
-finally
-{
-    NetworkStreamReceiveSystem.DriverConstructor = oldConstructor;
-}
-```
+[!code-cs[blobs](../Tests/Editor/DocCodeSamples/networking-network-drivers.cs#CustomStrategy)]
 
 
 > [!NOTE]
@@ -139,30 +101,11 @@ There are multiple ways to reset the driver store:
 
 - You can use an `INetworkDriverConstructor` instance to delegate the creation of the drivers.
 
-```csharp
-var driverStore = new NetworkDriverStore();
-var clientWorld = ClientServerBootstrap.ClientWorld;
-var netDebug = ClientServerBootstrap.ClientWorld.EntityManager.CreateEntityQuery(typeof(NetDebug)).GetSingleton<NetDebug>();
-// you can use any constructor to initialize the store
-NetworkStreamReceiveSystem.DriverConstructor.CreateClientDriver(m_ClientWorld, ref driverStore, netDebug);
-var networkStreamDriver = ClientServerBootstrap.ClientWorld.EntityManager.CreateEntityQuery(typeof(NetworkStreamDriver)).GetSingleton<NetworkStreamDriver>();
-networkStreamDriver.ResetDriverStore(ClientServerBootstrap.ServerWorld, ref driverStore);
-```
+[!code-cs[blobs](../Tests/Editor/DocCodeSamples/networking-network-drivers.cs#DelegateCreation)]
 
 - You can manually populate them directly.
 
-```csharp
-var driverStore = new NetworkDriverStore();
-var netDebug = SystemAPI.Query<NetDebug>();
-var settings = DefaultDriverBuilder.GetServerNetworkSettings();
-var netDebug = ClientServerBootstrap.ServerWorld.EntityManager.CreateEntityQuery(typeof(NetDebug)).GetSingleton<NetDebug>();
-//register some drivers
-DefaultDriverBuilder.RegisterServerIpcDriver(ClientServerBootstrap.ServerWorld, ref driverStore, netDebug, settings);
-DefaultDriverBuilder.RegisterServerUpdDriver(ClientServerBootstrap.ServerWorld, ref driverStore, netDebug, settings);
-//reset
-var networkStreamDriver = ClientServerBootstrap.ServerWorld.EntityManager.CreateEntityQuery(typeof(NetworkStreamDriver)).GetSingleton<NetworkStreamDriver>();
-networkStreamDriver.ResetDriverStore(ClientServerBootstrap.ServerWorld, ref driverStore);
-```
+[!code-cs[blobs](../Tests/Editor/DocCodeSamples/networking-network-drivers.cs#ManuallyPopulate)]
 
 ## Additional resources
 

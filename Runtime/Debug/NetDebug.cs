@@ -66,8 +66,7 @@ namespace Unity.NetCode
         /// <exception cref="InvalidOperationException"></exception>
         internal static byte InitAndFetch(Entity entity, ComponentLookup<EnablePacketLogging> lookup, in PacketDumpLogger netDebugPacket)
         {
-            var componentRef = lookup.GetRefRWOptional(entity);
-            if (!componentRef.IsValid)
+            if (!lookup.TryGetRefRW(entity, out var componentRef))
                 return 0;
             if (!netDebugPacket.IsCreated)
                 throw new InvalidOperationException("Packet logger has not been setup, InitAndFetch failed! Aborting.");

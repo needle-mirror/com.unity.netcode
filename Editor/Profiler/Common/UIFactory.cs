@@ -1,5 +1,6 @@
 using System;
 using UnityEditor.UIElements;
+using UnityEngine;
 using UnityEngine.UIElements;
 
 namespace Unity.NetCode.Editor
@@ -160,6 +161,8 @@ namespace Unity.NetCode.Editor
     {
         Label m_Label;
         VisualElement m_Icon;
+
+        public Label Label => m_Label;
 
         internal LabelWithIcon()
         {

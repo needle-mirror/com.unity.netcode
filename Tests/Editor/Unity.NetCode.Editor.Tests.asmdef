@@ -1,5 +1,5 @@
 {
-    "name": "Unity.NetCode.EditorTests",
+    "name": "Unity.NetCode.Editor.Tests",
     "references": [
         "Unity.Build",
         "Unity.Burst",
@@ -9,7 +9,7 @@
         "Unity.NetCode",
         "Unity.NetCode.Editor",
         "Unity.NetCode.Profiler.Editor",
-        "Unity.NetCode.TestsUtils",
+        "Unity.NetCode.TestsUtils.Runtime.Tests",
         "Unity.NetCode.Authoring.Hybrid",
         "Unity.Entities",
         "Unity.Entities.Hybrid",

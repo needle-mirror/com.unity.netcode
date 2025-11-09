@@ -3,7 +3,7 @@ using NUnit.Framework;
 using Unity.Entities.Build;
 using Unity.NetCode.Tests;
 
-namespace Unity.Scenes.Editor.Tests
+namespace Unity.NetCode.Tests.Scenes
 {
     internal class DotsGlobalSettingsTests : TestWithSceneAsset
     {

@@ -1,5 +1,5 @@
 {
-    "name": "Unity.NetCode.Editor.Drawers",
+    "name": "Unity.NetCode.Drawers.Editor",
     "rootNamespace": "",
     "references": [
         "GUID:953adc2a6b8b4e3c8df5b728bcd546e9",

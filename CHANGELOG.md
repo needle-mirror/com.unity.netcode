@@ -2,20 +2,31 @@
 uid: changelog
 ---
 
-## [1.9.3] - 2025-11-06
+## [1.10.0] - 2025-11-09
+
+### Added
+
+* World state save can now correctly save zero sized components.
+* Netcode Profiler - added a context menu in the Ghost Snapshot View's TreeView Labels to quickly access and inspect Ghost Prefabs and Components.
+
+### Changed
+
+* Dependent version of com.unity.entities is updated to 1.4.2.
+* Source generators will now only run as part of compilation within Unity, and not in IDEs (tested with Rider and Visual Studio, please report a bug if you use another IDE where they are not disabled). This will disable generated sources from showing up in your IDE, but will significantly speed up Roslyn processes in IDEs.
+
+### Removed
+
+* Usage of obsolete entities method `GetRefRWOptional`
 
 ### Fixed
 
+* Erroneous Assert in the `PredictedGhostSpawnSystem` incorrectly stating that the `InitJob` does not support enableable components, despite the fact that the query itself polls for disabled entities.
+* Removed warning that spams console when `ClientServerTickRate.TargetFrameRateMode` is set to `Sleep`.
+* Rare issue where an exception would happen in the first run of the prediction loop, only happens when `PredictionUpdateLoopMode` is set to `AlwaysRun`
 * You can again add multiple `Entity` types to your ghost components and commands.
 * Shorts are now properly supported in components and commands.
 * Missing Physics-related API docs have been re-added.
 
-
-## [1.9.2] - 2025-10-31
-
-### Fixed
-
-* Removed warning that spams console when `ClientServerTickRate.TargetFrameRateMode` is set to `Sleep`.
 
 
 ## [1.9.1] - 2025-10-11

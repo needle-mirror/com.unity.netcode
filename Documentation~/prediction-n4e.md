@@ -51,37 +51,17 @@ The client uses the `Simulate` tag, present on all entities in world, to specify
 - For each prediction tick, the `Simulate` tag is enabled for all the entities that should be simulated for that tick.
 - At the end of the prediction loop, all predicted ghost entities' `Simulate` components are guaranteed to be enabled.
 
-In game systems that run in the `PredictedSimulationSystemGroup` (or any of its sub-groups) you should add the following to your queries: EntitiesForEach (deprecated) and an idiomatic foreach `.WithAll&lt;Simulate&gt;>` condition. This automatically gives the job (or function) the correct set of entities you need to work on.
+In game systems that run in the `PredictedSimulationSystemGroup` (or any of its sub-groups) you should add the following to your queries: EntitiesForEach (deprecated) and an idiomatic foreach `.WithAll<Simulate>` condition. This automatically gives the job (or function) the correct set of entities you need to work on.
 
 For example:
 
-```c#
-
-Entities
-    .WithAll<PredictedGhost, Simulate>()
-    .ForEach(ref Translation trannslation)
-{
-      ///Your update logic here
-}
-```
+[!code-cs[blobs](../Tests/Editor/DocCodeSamples/prediction-n4e.cs#PredictionQuery)]
 
 ### Check which entities to predict using the `PredictedGhost.ShouldPredict` helper method (LEGACY)
 
 This is a legacy method of performing these checks and is not recommended, although it is still supported. You can call the static method  [`PredictedGhost.ShouldPredict`](https://docs.unity3d.com/Packages/com.unity.netcode@latest/index.html?subfolder=/api/Unity.NetCode.PredictedGhost.html#Unity_NetCode_PredictedGhost_ShouldPredict_System_UInt32_) before updating an entity. In this case the method or job that updates the entity should look something like this:
 
-```c#
-
-var serverTick = GetSingleton<NetworkTime>().ServerTick;
-Entities
-    .WithAll<PredictedGhost, Simulate>()
-    .ForEach(ref Translation trannslation)
-{
-      if!(PredictedGhost.ShouldPredict(serverTick))
-           return;
-
-      ///Your update logic here
-}
-```
+[!code-cs[blobs](../Tests/Editor/DocCodeSamples/prediction-n4e.cs#ShouldPredict)]
 
 If an entity didn't receive any new data from the network since the last prediction ran, and it ended with simulating a full tick (which is not always true when you use a dynamic time-step), the prediction continues from where it finished last time, rather than applying the network data.
 
@@ -104,34 +84,10 @@ When a new snapshot is received by the client, the `PredictedSimulationSystemGro
 
 Your input data for the current simulated tick will be updated automatically by Netcode for you.
 
-```c#
-    protected override void OnUpdate()
-    {
-        Entities
-            .WithAll<PredictedGhost, Simulate>()
-            .ForEach((Entity entity, ref Translation translation, in MyInput input) =>
-        {
-              ///Your update logic here
-        }).Run();
-    }
-```
+[!code-cs[blobs](../Tests/Editor/DocCodeSamples/prediction-n4e.cs#IInputComponentData)]
 
 ### (Legacy) commands
 
 If using the legacy commands, you need to check or retrieve the input buffer yourself.
 
-```c#
-    protected override void OnUpdate()
-    {
-        var tick = GetSingleton<NetworkTime>().ServerTick;
-        Entities
-            .WithAll<Simulate>()
-            .ForEach((Entity entity, ref Translation translation, in DynamicBuffer<MyInput> inputBuffer) =>
-            {
-                if (!inputBuffer.GetDataAtTick(tick, out var input))
-                    return;
-
-                //your move logic
-            }).Run();
-    }
-```
+[!code-cs[blobs](../Tests/Editor/DocCodeSamples/prediction-n4e.cs#Commands)]

@@ -87,13 +87,7 @@ By default, systems are created and updated in the [`SimulationSystemGroup`](htt
 
 When you specify a system group that your system belongs in, Unity automatically filters out your system in worlds where this system group isn't present. This means that systems in a system group inherit the world filter of said system group. For example:
 
-```csharp
-[UpdateInGroup(typeof(GhostInputSystemGroup))]
-public class MyInputSystem : SystemBase
-{
-  ...
-}
-```
+[!code-cs[blobs](../Tests/Editor/DocCodeSamples/client-server-worlds.cs#SystemGroup)]
 
 If you examine the `WorldSystemFilter` attribute on [`GhostInputSystemGroup`](https://docs.unity3d.com/Packages/com.unity.netcode@latest?subfolder=/api/Unity.NetCode.GhostInputSystemGroup.html), you will find that this system group only exists for client, thin client, and local simulation (offline) worlds. It also has a `childDefaultFlags` argument which specifies the flags that child systems, such as the example `MyInputSystem`, inherit (and this argument doesn't contain thin client worlds). Therefore, `MyInputSystem` will be present on full client and local simulation worlds exclusively (unless a `WorldSystemFilter` is added to `MyInputSystem` overriding this default).
 
@@ -115,27 +109,11 @@ Use `WorldSystemFilter` to declare (at compile time) which of the following worl
 
 In the following example, `MySystem` is defined such that it's only present for worlds that can be used to run the client simulation (any world that has the `WorldFlags.GameClient` set). `WorldSystemFilterFlags.Default` is used when this attribute isn't present and automatically inherits its filtering rules from its parent system group (in this case, that's the `SimulationSystemGroup`, because no `UpdateInGroup` attribute is specified).
 
-```csharp
-[WorldSystemFilter(WorldSystemFilterFlags.ClientSimulation)]
-public class MySystem : SystemBase
-{
-  ...
-}
-```
+[!code-cs[blobs](../Tests/Editor/DocCodeSamples/client-server-worlds.cs#WorldSystemFilter)]
 
 ## Creating client and server worlds with bootstrapping
 
-When you add Netcode for Entities to your project, the default [`ClientServerBootstrap` class](https://docs.unity3d.com/Packages/com.unity.netcode@latest/index.html?subfolder=/api/Unity.NetCode.ClientServerBootstrap.html) is added to the project. This bootstrapping class configures and creates the server and client worlds at runtime when your game starts (or when entering Play mode in the Unity Editor).
-
-The default bootstrap creates the client and server worlds automatically at startup:
-
-```c#
-        public virtual bool Initialize(string defaultWorldName)
-        {
-            CreateDefaultClientServerWorlds();
-            return true;
-        }
-```
+When you add Netcode for Entities to your project, the default [`ClientServerBootstrap` class](https://docs.unity3d.com/Packages/com.unity.netcode@latest/index.html?subfolder=/api/Unity.NetCode.ClientServerBootstrap.html) is added to the project. This bootstrapping class configures and creates the server and client worlds at runtime when your game starts (or when entering Play mode in the Unity Editor). The default bootstrap creates the client and server worlds automatically at startup.
 
 `ClientServerBootstrap` uses the same bootstrapping flows as defined by [Entities](https://docs.unity3d.com/Packages/com.unity.entities@latest?subfolder=/manual/index.html), which means that new worlds are populated using all the systems defined by the relevant world filtering set (such as `[WorldSystemFilter(...)]` attributes you have defined, `WorldSystemFilterFlags` rules your systems inherit, and other attributes like `DisableAutoCreation`). Netcode for Entities also injects many systems (and groups) automatically.
 
@@ -149,39 +127,11 @@ You can create your own bootstrap class and customize your game flow by creating
 
 The following code example shows how to override the default bootstrap to prevent automatic creation of the client and server worlds:
 
-```c#
-public class MyGameSpecificBootstrap : ClientServerBootstrap
-{
-    public override bool Initialize(string defaultWorldName)
-    {
-        //Create only a local simulation world without any multiplayer and netcode system in it.
-        CreateLocalWorld(defaultWorldName);
-        return true;
-    }
-
-}
-```
+[!code-cs[blobs](../Tests/Editor/DocCodeSamples/client-server-worlds.cs#CustomBootstrap)]
 
 Then, when you're ready to create the various Netcode worlds, call:
 
-```c#
-void OnPlayButtonClicked()
-{
-    // Typically this:
-    var clientWorld = ClientServerBootstrap.CreateClientWorld();
-    // And/Or this:
-    var serverWorld = ClientServerBootstrap.CreateServerWorld();
-
-    // And/Or something like this, for soak testing:
-    AutomaticThinClientWorldsUtility.NumThinClientsRequested = 10;
-    AutomaticThinClientWorldsUtility.BootstrapThinClientWorlds();
-
-    // Or the following, which creates worlds smartly based on:
-    // - The Playmode Tool setting specified in the editor.
-    // - The current build type, if used in a player.
-    ClientServerBootstrap.CreateDefaultClientServerWorlds();
-}
-```
+[!code-cs[blobs](../Tests/Editor/DocCodeSamples/client-server-worlds.cs#UsingCustomBootstrap)]
 
 There are [Netcode samples](https://github.com/Unity-Technologies/EntityComponentSystemSamples/blob/master/NetcodeSamples/README.md) showcasing how to manage scene and subscene loading with this world creation setup, as well as proper Netcode world disposal (when leaving the gameplay loop).
 
@@ -233,28 +183,7 @@ The `ClientServerTickRate` configuration is sent (by the server, to the client) 
 
 If you want to destroy the world you're in and spin up another world without losing the connection state, you can use `DriverMigrationSystem`, which allows you to store and load transport-related information so a smooth world transition can be made.
 
-```
-public World MigrateWorld(World sourceWorld)
-{
-    DriverMigrationSystem migrationSystem = default;
-    foreach (var world in World.All)
-    {
-        if ((migrationSystem = world.GetExistingSystem<DriverMigrationSystem>()) != null)
-            break;
-    }
-
-    var ticket = migrationSystem.StoreWorld(sourceWorld);
-    sourceWorld.Dispose();
-
-    var newWorld = migrationSystem.LoadWorld(ticket);
-
-    // NOTE: LoadWorld must be executed before you populate your world with the systems it needs!
-    // This is because LoadWorld creates a `MigrationTicket` Component that the NetworkStreamReceiveSystem needs in order to be able to Load
-    // the correct Driver.
-
-    return ClientServerBootstrap.CreateServerWorld(DefaultWorld, newWorld.Name, newWorld);
-}
-```
+[!code-cs[blobs](../Tests/Editor/DocCodeSamples/client-server-worlds.cs#WorldMigration)]
 
 ## Additional resources
 

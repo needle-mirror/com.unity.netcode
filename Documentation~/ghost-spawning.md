@@ -69,18 +69,7 @@ When the first snapshot update for this entity arrives on the client, the system
 
 In the prediction system code, the [`NetworkTime.IsFirstTimeFullyPredictingTick`](https://docs.unity3d.com/Packages/com.unity.netcode@latest/index.html?subfolder=/api/Unity.NetCode.NetworkTime.html) value needs to be checked to prevent the spawned object from being spawned multiple times as data is rolled back and re-simulated as part of the prediction loop.
 
-```csharp
-public void OnUpdate()
-{
-    // Other input like movement handled here or in another system...
-
-    var networkTime = SystemAPI.GetSingleton<NetworkTime>();
-    if (!networkTime.IsFirstTimeFullyPredictingTick)
-        return;
-    // Handle the input for instantiating a bullet for example here
-    // ...
-}
-```
+[!code-cs[blobs](../Tests/Editor/DocCodeSamples/ghost-spawning.cs#IsFirstTimeFullyPredictingTick)]
 
 #### Conditions to check before spawning predicted ghosts
 
@@ -91,27 +80,7 @@ Clients shouldn't be allowed to spawn an entity until:
     - A ghost prefab matching the spawned entity `GhostType` component exists in that buffer.
     - Alternatively, an entry in the `GhostCollection.GhostTypeToColletionIndex` hashmap is present (this is a faster check).
 
-```csharp
-[UpdateInGroup(typeof(PredictedSimulationSystemGroup))]
-public partial class SpawnGhost : SystemBase
-{
-    protected override void OnUpdate()
-    {
-        var networkTime = SystemAPI.GetSingleton<NetworkTime>();
-        //Only do that once. When the client re-simulate the same tick, the flag is false.
-        if(!networkTime.IsFirstTimeFullyPredictedTick())
-            return;
-        var prefab = GetPrefabToSpawn();
-        var typeToCollection = SystemApi.GetSingleton<GhostCollection>() GhostTypeToColletionIndex;
-        var type = World.EntityManager.GetComponentData<GhostType>(prefab);
-        //Can't spawn yet. The prefab is not registered.
-        if(!typeToCollection.ContainsKey(type))
-            return;
-        //it is now valid to spawn. That does not means the ghost will be initialized properly yet
-        //that can be still the case if the
-    }
-}
-```
+[!code-cs[blobs](../Tests/Editor/DocCodeSamples/ghost-spawning.cs#SpawnGhostSystem)]
 
 The `GhostCollection` data condition is critical for spawning predicted ghosts because the data is required by the
 `PredictedGhostSpawningSystem` to initialize the new ghosts.
@@ -156,42 +125,9 @@ The classification system works by inspecting the ghosts that need to be spawned
 Each entry in the `GhostSpawnQueueComponent` list should be compared to the entries in the [`PredictedGhostSpawn`](https://docs.unity3d.com/Packages/com.unity.netcode@latest?subfolder=/api/Unity.NetCode.PredictedGhostSpawn.html) buffer on the singleton with a [`PredictedGhostSpawnList`](https://docs.unity3d.com/Packages/com.unity.netcode@latest?subfolder=/api/Unity.NetCode.PredictedGhostSpawnList.html) component.
 If the two entries have the same type and match, then the classification system should set the `PredictedSpawnEntity` property in the [`GhostSpawnBuffer`](https://docs.unity3d.com/Packages/com.unity.netcode@latest?subfolder=/api/Unity.NetCode.GhostSpawnBuffer.html) element and remove the entry from `PredictedGhostSpawn` buffer.
 
-```csharp
-public void Execute(DynamicBuffer<GhostSpawnBuffer> ghosts, DynamicBuffer<SnapshotDataBuffer> data)
-{
-    var predictedSpawnList = PredictedSpawnListLookup[spawnListEntity];
-    for (int i = 0; i < ghosts.Length; ++i)
-    {
-        var newGhostSpawn = ghosts[i];
-        if (newGhostSpawn.SpawnType != GhostSpawnBuffer.Type.Predicted || newGhostSpawn.HasClassifiedPredictedSpawn || newGhostSpawn.PredictedSpawnEntity != Entity.Null)
-            continue;
+[!code-cs[blobs](../Tests/Editor/DocCodeSamples/ghost-spawning.cs#ClassificationSystem)]
 
-        // Mark all the spawns of this type as classified even if not our own predicted spawns
-        // otherwise spawns from other players might be picked up by the default classification system when
-        // it runs.
-        if (newGhostSpawn.GhostType == ghostType)
-            newGhostSpawn.HasClassifiedPredictedSpawn = true;
-
-        // Find new ghost spawns (from ghost snapshot) which match the predict spawned ghost type handled by
-        // this classification system. You can use the SnapshotDataBufferLookup to inspect components in the
-        // received snapshot in your matching function
-        for (int j = 0; j < predictedSpawnList.Length; ++j)
-        {
-            if (newGhostSpawn.GhostType != predictedSpawnList[j].ghostType)
-                continue;
-
-            if (YOUR_FUZZY_MATCH(newGhostSpawn, predictedSpawnList[j]))
-            {
-                newGhostSpawn.PredictedSpawnEntity = predictedSpawnList[j].entity;
-                predictedSpawnList[j] = predictedSpawnList[predictedSpawnList.Length - 1];
-                predictedSpawnList.RemoveAt(predictedSpawnList.Length - 1);
-                break;
-            }
-        }
-        ghosts[i] = newGhostSpawn;
-    }
-}
-```
+[!code-cs[blobs](../Tests/Editor/DocCodeSamples/ghost-spawning.cs#ClassificationJob)]
 
 Inside your classification system you can use the [`SnapshotDataBufferLookup`](https://docs.unity3d.com/Packages/com.unity.netcode@latest?subfolder=/api/Unity.NetCode.GhostSpawnQueue.html) to:
 

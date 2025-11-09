@@ -1,0 +1,39 @@
+{
+    "name": "Unity.Netcode.DocCodeSamples.Editor.Tests",
+    "rootNamespace": "",
+    "references": [
+        "GUID:734d92eba21c94caba915361bd5ac177",
+        "GUID:953adc2a6b8b4e3c8df5b728bcd546e9",
+        "GUID:e666fb332bb8f492b9617801d3f9d47c",
+        "GUID:2419f0405c1cc3648844bf370776b9d2",
+        "GUID:e0cd26848372d4e5c891c569017e11f1",
+        "GUID:2665a8d13d1b3f18800f46e256720795",
+        "GUID:a5baed0c9693541a5bd947d336ec7659",
+        "GUID:d8b63aba1907145bea998dd612889d6b",
+        "GUID:f2d49d9fa7e7eb3418e39723a7d3b92f",
+        "GUID:8819f35a0fc84499b990e90a4ca1911f",
+        "GUID:63afb046c8423dd448ae7aba042ea63d",
+        "GUID:fd228c28e14f1a34cbe508676c914dd7"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": true,
+    "overrideReferences": true,
+    "precompiledReferences": [
+        "nunit.framework.dll"
+    ],
+    "autoReferenced": false,
+    "defineConstraints": [
+        "UNITY_INCLUDE_TESTS"
+    ],
+    "versionDefines": [
+        {
+            "name": "com.unity.physics",
+            "expression": "0.10.0-preview.1",
+            "define": "ENABLE_UNITY_NETCODE_PHYSICS"
+        }
+    ],
+    "noEngineReferences": false
+}

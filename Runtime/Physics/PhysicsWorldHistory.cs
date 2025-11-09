@@ -10,7 +10,7 @@ using Unity.Physics;
 using Unity.Physics.Systems;
 using Unity.Mathematics;
 
-[assembly: InternalsVisibleTo("Unity.NetCode.Physics.EditorTests")]
+[assembly: InternalsVisibleTo("Unity.NetCode.Physics.Editor.Tests")]
 namespace Unity.NetCode
 {
 

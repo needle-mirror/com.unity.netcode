@@ -8,6 +8,7 @@ using System.Collections;
 using System.IO;
 using NUnit.Framework;
 using Unity.Collections;
+using Unity.Entities;
 using Unity.NetCode.Editor;
 using UnityEditor.Profiling;
 using UnityEditorInternal;
@@ -17,6 +18,16 @@ using UnityEngine.TestTools;
 
 namespace Unity.NetCode.Tests
 {
+    class NetcodeProfilerUtilityTests
+    {
+        [Test, Description("Verifies that we can call the internal Editor utility method to show ghost components in the inspector.")]
+        public void Profiler_Utility_ExecuteEntitiesEditorInternals()
+        {
+            var type = typeof(GhostGenTestUtils.GhostGenTestType_IComponentData);
+            NetcodeEditorUtility.ShowGhostComponentInspectorContent(type);
+        }
+    }
+
     class NetcodeProfilerTests
     {
         string m_ProfilerDataFilePath;

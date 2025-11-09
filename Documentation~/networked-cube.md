@@ -30,24 +30,7 @@ To enable communication between the client and server, you need to establish a [
 
 Create a file called *Game.cs* in your __Assets__ folder and add the following code to the file:
 
-```c#
-using System;
-using Unity.Entities;
-using Unity.NetCode;
-
-// Create a custom bootstrap, which enables auto-connect.
-// The bootstrap can also be used to configure other settings as well as to
-// manually decide which worlds (client and server) to create based on user input
-[UnityEngine.Scripting.Preserve]
-public class GameBootstrap : ClientServerBootstrap
-{
-    public override bool Initialize(string defaultWorldName)
-    {
-        AutoConnectPort = 7979; // Enabled auto connect
-        return base.Initialize(defaultWorldName); // Use the regular bootstrap
-    }
-}
-```
+[!code-cs[blobs](../Tests/Editor/DocCodeSamples/networked-cube.cs#EstablishConnection)]
 
 ## Communicate with the server
 
@@ -57,102 +40,7 @@ Before entering `InGame` state, the only way to communicate with a Netcode for E
 
 Create a file called *GoInGame.cs* in your __Assets__ folder and add the following code to the file.
 
-```c#
-using UnityEngine;
-using Unity.Burst;
-using Unity.Collections;
-using Unity.Entities;
-using Unity.NetCode;
-
-/// <summary>
-/// This allows sending RPCs between a stand alone build and the editor for testing purposes in the event when you finish this example
-/// you want to connect a server-client stand alone build to a client configured editor instance.
-/// </summary>
-[BurstCompile]
-[WorldSystemFilter(WorldSystemFilterFlags.ClientSimulation | WorldSystemFilterFlags.ServerSimulation | WorldSystemFilterFlags.ThinClientSimulation)]
-[UpdateInGroup(typeof(InitializationSystemGroup))]
-[CreateAfter(typeof(RpcSystem))]
-public partial struct SetRpcSystemDynamicAssemblyListSystem : ISystem
-{
-    public void OnCreate(ref SystemState state)
-    {
-        SystemAPI.GetSingletonRW<RpcCollection>().ValueRW.DynamicAssemblyList = true;
-        state.Enabled = false;
-    }
-}
-
-// RPC request from client to server for game to go "in game" and send snapshots / inputs
-public struct GoInGameRequest : IRpcCommand
-{
-}
-
-// When client has a connection with network id, go in game and tell server to also go in game
-[BurstCompile]
-[WorldSystemFilter(WorldSystemFilterFlags.ClientSimulation | WorldSystemFilterFlags.ThinClientSimulation)]
-public partial struct GoInGameClientSystem : ISystem
-{
-    [BurstCompile]
-    public void OnCreate(ref SystemState state)
-    {
-        var builder = new EntityQueryBuilder(Allocator.Temp)
-            .WithAll<NetworkId>()
-            .WithNone<NetworkStreamInGame>();
-        state.RequireForUpdate(state.GetEntityQuery(builder));
-    }
-
-    [BurstCompile]
-    public void OnUpdate(ref SystemState state)
-    {
-        var commandBuffer = new EntityCommandBuffer(Allocator.Temp);
-        foreach (var (id, entity) in SystemAPI.Query<RefRO<NetworkId>>().WithEntityAccess().WithNone<NetworkStreamInGame>())
-        {
-            commandBuffer.AddComponent<NetworkStreamInGame>(entity);
-            var req = commandBuffer.CreateEntity();
-            commandBuffer.AddComponent<GoInGameRequest>(req);
-            commandBuffer.AddComponent(req, new SendRpcCommandRequest { TargetConnection = entity });
-        }
-        commandBuffer.Playback(state.EntityManager);
-    }
-}
-
-// When server receives go in game request, go in game and delete request
-[BurstCompile]
-[WorldSystemFilter(WorldSystemFilterFlags.ServerSimulation)]
-public partial struct GoInGameServerSystem : ISystem
-{
-    private ComponentLookup<NetworkId> networkIdFromEntity;
-
-    [BurstCompile]
-    public void OnCreate(ref SystemState state)
-    {
-        var builder = new EntityQueryBuilder(Allocator.Temp)
-            .WithAll<GoInGameRequest>()
-            .WithAll<ReceiveRpcCommandRequest>();
-        state.RequireForUpdate(state.GetEntityQuery(builder));
-        networkIdFromEntity = state.GetComponentLookup<NetworkId>(true);
-    }
-
-    [BurstCompile]
-    public void OnUpdate(ref SystemState state)
-    {
-        var worldName = state.WorldUnmanaged.Name;
-
-        var commandBuffer = new EntityCommandBuffer(Allocator.Temp);
-        networkIdFromEntity.Update(ref state);
-
-        foreach (var (reqSrc, reqEntity) in SystemAPI.Query<RefRO<ReceiveRpcCommandRequest>>().WithAll<GoInGameRequest>().WithEntityAccess())
-        {
-            commandBuffer.AddComponent<NetworkStreamInGame>(reqSrc.ValueRO.SourceConnection);
-            var networkId = networkIdFromEntity[reqSrc.ValueRO.SourceConnection];
-
-            Debug.Log($"'{worldName}' setting connection '{networkId.Value}' to in game");
-
-            commandBuffer.DestroyEntity(reqEntity);
-        }
-        commandBuffer.Playback(state.EntityManager);
-    }
-}
-```
+[!code-cs[blobs](../Tests/Editor/DocCodeSamples/networked-cube.cs#GoInGame)]
 
 ## Create a ghost prefab
 
@@ -168,28 +56,7 @@ To create a ghost prefab:
 
 To identify and synchronize the cube prefab inside Netcode for Entities, you need to create an `IComponent` and author it. To do so, create a new file called *CubeAuthoring.cs* and enter the following:
 
-```c#
-using Unity.Entities;
-using Unity.NetCode;
-using UnityEngine;
-
-public struct Cube : IComponentData
-{
-}
-
-[DisallowMultipleComponent]
-public class CubeAuthoring : MonoBehaviour
-{
-    class Baker : Baker<CubeAuthoring>
-    {
-        public override void Bake(CubeAuthoring authoring)
-        {
-            var entity = GetEntity(TransformUsageFlags.Dynamic);
-            AddComponent<Cube>(entity);
-        }
-    }
-}
-```
+[!code-cs[blobs](../Tests/Editor/DocCodeSamples/networked-cube.cs#CubeAuthoring)]
 
 Once you create this component, add it to the `Cube.prefab`. Then, in the Inspector, add the __Ghost Authoring Component__ to the prefab.
 
@@ -207,32 +74,7 @@ Before you can move the cube around, you must change some settings in the newly 
 
 To tell Netcode for Entities which ghosts to use, you need to reference the prefabs from the subscene. First, create a new component for the spawner: create a file called _CubeSpawnerAuthoring.cs_ and add the following code:
 
-```c#
-using Unity.Entities;
-using UnityEngine;
-
-public struct CubeSpawner : IComponentData
-{
-    public Entity Cube;
-}
-
-[DisallowMultipleComponent]
-public class CubeSpawnerAuthoring : MonoBehaviour
-{
-    public GameObject Cube;
-
-    class Baker : Baker<CubeSpawnerAuthoring>
-    {
-        public override void Bake(CubeSpawnerAuthoring authoring)
-        {
-            CubeSpawner component = default(CubeSpawner);
-            component.Cube = GetEntity(authoring.Cube, TransformUsageFlags.Dynamic);
-            var entity = GetEntity(TransformUsageFlags.Dynamic);
-            AddComponent(entity, component);
-        }
-    }
-}
-```
+[!code-cs[blobs](../Tests/Editor/DocCodeSamples/networked-cube.cs#CubeSpawner)]
 
 1. Right-click on SharedData and select __Create Empty__.
 2. Rename it to __Spawner__, then add a __CubeSpawner__.
@@ -249,41 +91,15 @@ To spawn the prefab, you need to update the _GoInGame.cs_ file. As described ear
 
 `GoInGameClientSystem` and `GoInGameServerSystem` should only run on the entities that have `CubeSpawner` component data associated with them. To do this, add a call to [`SystemState.RequireForUpdate`](https://docs.unity3d.com/Packages/com.unity.entities@1.0/api/Unity.Entities.SystemState.RequireForUpdate.html) in both systems' `OnCreate` method:
 
-```C#
-state.RequireForUpdate<CubeSpawner>();
-```
+[!code-cs[blobs](../Tests/Editor/DocCodeSamples/networked-cube.cs#RequireSpawner)]
 
 Your `GoInGameClientSystem.OnCreate` method should look like this now:
 
-```C#
-    [BurstCompile]
-    public void OnCreate(ref SystemState state)
-    {
-        // Run only on entities with a CubeSpawner component data
-        state.RequireForUpdate<CubeSpawner>();
-
-        var builder = new EntityQueryBuilder(Allocator.Temp)
-            .WithAll<NetworkId>()
-            .WithNone<NetworkStreamInGame>();
-        state.RequireForUpdate(state.GetEntityQuery(builder));
-    }
-```
+[!code-cs[blobs](../Tests/Editor/DocCodeSamples/networked-cube.cs#ModifiedGoInGameClientCreate)]
 
 Your `GoInGameServerSystem.OnCreate` method should look like this now:
 
-```C#
-    [BurstCompile]
-    public void OnCreate(ref SystemState state)
-    {
-        state.RequireForUpdate<CubeSpawner>();
-
-        var builder = new EntityQueryBuilder(Allocator.Temp)
-            .WithAll<GoInGameRequest>()
-            .WithAll<ReceiveRpcCommandRequest>();
-        state.RequireForUpdate(state.GetEntityQuery(builder));
-        networkIdFromEntity = state.GetComponentLookup<NetworkId>(true);
-    }
-```
+[!code-cs[blobs](../Tests/Editor/DocCodeSamples/networked-cube.cs#ModifiedGoInGameServerCreate)]
 
 Additionally, for the `GoInGameServerSystem.OnUpdate` method we want to:
 - Get the prefab to spawn.
@@ -294,160 +110,11 @@ Additionally, for the `GoInGameServerSystem.OnUpdate` method we want to:
 
 Update your `GoInGameServerSystem.OnUpdate` method to this:
 
-```C#
-    [BurstCompile]
-    public void OnUpdate(ref SystemState state)
-    {
-        // Get the prefab to instantiate
-        var prefab = SystemAPI.GetSingleton<CubeSpawner>().Cube;
-
-        // Ge the name of the prefab being instantiated
-        state.EntityManager.GetName(prefab, out var prefabName);
-        var worldName = new FixedString32Bytes(state.WorldUnmanaged.Name);
-
-        var commandBuffer = new EntityCommandBuffer(Allocator.Temp);
-        networkIdFromEntity.Update(ref state);
-
-        foreach (var (reqSrc, reqEntity) in SystemAPI.Query<RefRO<ReceiveRpcCommandRequest>>().WithAll<GoInGameRequest>().WithEntityAccess())
-        {
-            commandBuffer.AddComponent<NetworkStreamInGame>(reqSrc.ValueRO.SourceConnection);
-            // Get the NetworkId for the requesting client
-            var networkId = networkIdFromEntity[reqSrc.ValueRO.SourceConnection];
-
-            // Log information about the connection request that includes the client's assigned NetworkId and the name of the prefab spawned.
-            UnityEngine.Debug.Log($"'{worldName}' setting connection '{networkId.Value}' to in game, spawning a Ghost '{prefabName}' for them!");
-
-            // Instantiate the prefab
-            var player = commandBuffer.Instantiate(prefab);
-            // Associate the instantiated prefab with the connected client's assigned NetworkId
-            commandBuffer.SetComponent(player, new GhostOwner { NetworkId = networkId.Value});
-
-            // Add the player to the linked entity group so it is destroyed automatically on disconnect
-            commandBuffer.AppendToBuffer(reqSrc.ValueRO.SourceConnection, new LinkedEntityGroup{Value = player});
-            commandBuffer.DestroyEntity(reqEntity);
-        }
-        commandBuffer.Playback(state.EntityManager);
-    }
-```
-
+[!code-cs[blobs](../Tests/Editor/DocCodeSamples/networked-cube.cs#ModifiedGoInGameServerUpdate)]
 
 Your *GoInGame.cs* file should now look like this:
 
-```C#
-using UnityEngine;
-using Unity.Collections;
-using Unity.Entities;
-using Unity.NetCode;
-using Unity.Burst;
-
-/// <summary>
-/// This allows sending RPCs between a stand alone build and the editor for testing purposes in the event when you finish this example
-/// you want to connect a server-client stand alone build to a client configured editor instance.
-/// </summary>
-[BurstCompile]
-[WorldSystemFilter(WorldSystemFilterFlags.ClientSimulation | WorldSystemFilterFlags.ServerSimulation | WorldSystemFilterFlags.ThinClientSimulation)]
-[UpdateInGroup(typeof(InitializationSystemGroup))]
-[CreateAfter(typeof(RpcSystem))]
-public partial struct SetRpcSystemDynamicAssemblyListSystem : ISystem
-{
-    public void OnCreate(ref SystemState state)
-    {
-        SystemAPI.GetSingletonRW<RpcCollection>().ValueRW.DynamicAssemblyList = true;
-        state.Enabled = false;
-    }
-}
-
-// RPC request from client to server for game to go "in game" and send snapshots / inputs
-public struct GoInGameRequest : IRpcCommand
-{
-}
-
-// When client has a connection with network id, go in game and tell server to also go in game
-[BurstCompile]
-[WorldSystemFilter(WorldSystemFilterFlags.ClientSimulation | WorldSystemFilterFlags.ThinClientSimulation)]
-public partial struct GoInGameClientSystem : ISystem
-{
-    [BurstCompile]
-    public void OnCreate(ref SystemState state)
-    {
-        // Run only on entities with a CubeSpawner component data
-        state.RequireForUpdate<CubeSpawner>();
-
-        var builder = new EntityQueryBuilder(Allocator.Temp)
-            .WithAll<NetworkId>()
-            .WithNone<NetworkStreamInGame>();
-        state.RequireForUpdate(state.GetEntityQuery(builder));
-    }
-
-    [BurstCompile]
-    public void OnUpdate(ref SystemState state)
-    {
-        var commandBuffer = new EntityCommandBuffer(Allocator.Temp);
-        foreach (var (id, entity) in SystemAPI.Query<RefRO<NetworkId>>().WithEntityAccess().WithNone<NetworkStreamInGame>())
-        {
-            commandBuffer.AddComponent<NetworkStreamInGame>(entity);
-            var req = commandBuffer.CreateEntity();
-            commandBuffer.AddComponent<GoInGameRequest>(req);
-            commandBuffer.AddComponent(req, new SendRpcCommandRequest { TargetConnection = entity });
-        }
-        commandBuffer.Playback(state.EntityManager);
-    }
-}
-
-// When server receives go in game request, go in game and delete request
-[BurstCompile]
-[WorldSystemFilter(WorldSystemFilterFlags.ServerSimulation)]
-public partial struct GoInGameServerSystem : ISystem
-{
-    private ComponentLookup<NetworkId> networkIdFromEntity;
-
-    [BurstCompile]
-    public void OnCreate(ref SystemState state)
-    {
-        state.RequireForUpdate<CubeSpawner>();
-
-        var builder = new EntityQueryBuilder(Allocator.Temp)
-            .WithAll<GoInGameRequest>()
-            .WithAll<ReceiveRpcCommandRequest>();
-        state.RequireForUpdate(state.GetEntityQuery(builder));
-        networkIdFromEntity = state.GetComponentLookup<NetworkId>(true);
-    }
-
-    [BurstCompile]
-    public void OnUpdate(ref SystemState state)
-    {
-        // Get the prefab to instantiate
-        var prefab = SystemAPI.GetSingleton<CubeSpawner>().Cube;
-
-        // Ge the name of the prefab being instantiated
-        state.EntityManager.GetName(prefab, out var prefabName);
-        var worldName = new FixedString32Bytes(state.WorldUnmanaged.Name);
-
-        var commandBuffer = new EntityCommandBuffer(Allocator.Temp);
-        networkIdFromEntity.Update(ref state);
-
-        foreach (var (reqSrc, reqEntity) in SystemAPI.Query<RefRO<ReceiveRpcCommandRequest>>().WithAll<GoInGameRequest>().WithEntityAccess())
-        {
-            commandBuffer.AddComponent<NetworkStreamInGame>(reqSrc.ValueRO.SourceConnection);
-            // Get the NetworkId for the requesting client
-            var networkId = networkIdFromEntity[reqSrc.ValueRO.SourceConnection];
-
-            // Log information about the connection request that includes the client's assigned NetworkId and the name of the prefab spawned.
-            UnityEngine.Debug.Log($"'{worldName}' setting connection '{networkId.Value}' to in game, spawning a Ghost '{prefabName}' for them!");
-
-            // Instantiate the prefab
-            var player = commandBuffer.Instantiate(prefab);
-            // Associate the instantiated prefab with the connected client's assigned NetworkId
-            commandBuffer.SetComponent(player, new GhostOwner { NetworkId = networkId.Value});
-
-            // Add the player to the linked entity group so it is destroyed automatically on disconnect
-            commandBuffer.AppendToBuffer(reqSrc.ValueRO.SourceConnection, new LinkedEntityGroup{Value = player});
-            commandBuffer.DestroyEntity(reqEntity);
-        }
-        commandBuffer.Playback(state.EntityManager);
-    }
-}
-```
+[!code-cs[blobs](../Tests/Editor/DocCodeSamples/networked-cube.cs#ModifiedGoInGameAll)]
 
 If you press __Play__ now, you should see the replicated cube in the Game view and the Entity Hierarchy view.
 
@@ -459,86 +126,13 @@ Because you used the _Support Auto Command Target_ feature when you set up the g
 
 Create a script called *CubeInputAuthoring.cs* and add the following code:
 
-```c#
-using Unity.Burst;
-using Unity.Entities;
-using Unity.NetCode;
-using UnityEngine;
-
-public struct CubeInput : IInputComponentData
-{
-    public int Horizontal;
-    public int Vertical;
-}
-
-[DisallowMultipleComponent]
-public class CubeInputAuthoring : MonoBehaviour
-{
-    class CubeInputBaking : Unity.Entities.Baker<CubeInputAuthoring>
-    {
-        public override void Bake(CubeInputAuthoring authoring)
-        {
-            var entity = GetEntity(TransformUsageFlags.Dynamic);
-            AddComponent<CubeInput>(entity);
-        }
-    }
-}
-
-[UpdateInGroup(typeof(GhostInputSystemGroup))]
-public partial struct SampleCubeInput : ISystem
-{
-    public void OnCreate(ref SystemState state)
-    {
-        state.RequireForUpdate<NetworkStreamInGame>();
-        state.RequireForUpdate<CubeSpawner>();
-    }
-
-    public void OnUpdate(ref SystemState state)
-    {
-        foreach (var playerInput in SystemAPI.Query<RefRW<CubeInput>>().WithAll<GhostOwnerIsLocal>())
-        {
-            playerInput.ValueRW = default;
-            if (Input.GetKey("left"))
-                playerInput.ValueRW.Horizontal -= 1;
-            if (Input.GetKey("right"))
-                playerInput.ValueRW.Horizontal += 1;
-            if (Input.GetKey("down"))
-                playerInput.ValueRW.Vertical -= 1;
-            if (Input.GetKey("up"))
-                playerInput.ValueRW.Vertical += 1;
-        }
-    }
-}
-```
+[!code-cs[blobs](../Tests/Editor/DocCodeSamples/networked-cube.cs#MovingCube)]
 
 Add the `CubeInputAuthoring` component to your cube prefab, and then finally, create a system that can read the `CubeInput` and move the player.
 
 Create a new file script called `CubeMovementSystem.cs` and add the following code:
 
-```c#
-using Unity.Entities;
-using Unity.Mathematics;
-using Unity.NetCode;
-using Unity.Transforms;
-using Unity.Burst;
-
-[UpdateInGroup(typeof(PredictedSimulationSystemGroup))]
-[BurstCompile]
-public partial struct CubeMovementSystem : ISystem
-{
-    [BurstCompile]
-    public void OnUpdate(ref SystemState state)
-    {
-        var speed = SystemAPI.Time.DeltaTime * 4;
-        foreach (var (input, trans) in SystemAPI.Query<RefRO<CubeInput>, RefRW<LocalTransform>>().WithAll<Simulate>())
-        {
-            var moveInput = new float2(input.ValueRO.Horizontal, input.ValueRO.Vertical);
-            moveInput = math.normalizesafe(moveInput) * speed;
-            trans.ValueRW.Position += new float3(moveInput.x, 0, moveInput.y);
-        }
-    }
-}
-```
+[!code-cs[blobs](../Tests/Editor/DocCodeSamples/networked-cube.cs#CubeMovementSystem)]
 
 ## Test the code
 

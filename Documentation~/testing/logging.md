@@ -24,13 +24,7 @@ You can enable ghost snapshot logging by adding an [`EnablePacketLogging`](https
 
 For example, to add `EnablePacketLogging` to every connection established, you would write this in a system:
 
-```c#
-[BurstCompile]
-public void OnUpdate(ref SystemState state)
-{
-    state.EntityManager.AddComponent<EnablePacketLogging>(SystemAPI.QueryBuilder().WithAll<NetworkId>().WithNone<EnablePacketLogging>().Build());
-}
-```
+[!code-cs[blobs](../Tests/Editor/DocCodeSamples/logging.cs#GhostSnapshotLogging)]
 
 Packet log dumps go into the same directory as the normal log file on desktop platforms (Windows, Mac, and Linux). On mobile (Android or iOS) platforms, logs go into the persistent file location where the app has write access.
 

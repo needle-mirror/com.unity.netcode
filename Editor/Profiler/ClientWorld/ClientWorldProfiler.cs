@@ -7,6 +7,7 @@ namespace Unity.NetCode.Editor
     /// <summary>
     /// The profiler module for the client world in Netcode for Entities.
     /// </summary>
+    [Serializable]
     [ProfilerModuleMetadata("Client World", IconPath = "Packages/com.unity.netcode/EditorIcons/GhostAuthoring.png")]
     class ClientWorldProfiler : ProfilerModule
     {

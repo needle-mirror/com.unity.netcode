@@ -42,11 +42,7 @@ It is possible to further customize the client times calculation. Please read th
 Netcode for Entities provide a [NetworkTime](https://docs.unity3d.com/Packages/com.unity.netcode@latest/index.html?subfolder=/api/Unity.NetCode.NetworkTime.html) singleton
 that should be used to retrieve the current simulated/predicted server tick, interpolated tick and other time related properties.
 
-```csharp
-var networkTime = SystemAPI.GetSingleton<NetworkTime>();
-var currentTick = networkTime.ServerTick;
-...
-```
+[!code-cs[blobs](../Tests/Editor/DocCodeSamples/time-synchronization.cs#GetTime)]
 
 The `NetworkTime` can be used indistinctly on both client and server both inside and outside the prediction loop. <br/>
 For the prediction loop in particular, the `NetworkTime` add some flags to the current simulated tick that can be used to implement certain logic:

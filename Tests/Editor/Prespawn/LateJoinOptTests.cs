@@ -10,7 +10,7 @@ using Unity.NetCode.Tests;
 using Unity.Networking.Transport;
 using Unity.Transforms;
 
-namespace Unity.NetCode.PrespawnTests
+namespace Unity.NetCode.Tests.PrespawnTests
 {
     struct ServerOnlyTag : IComponentData
     {

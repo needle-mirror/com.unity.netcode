@@ -33,6 +33,9 @@ apiRules:
       uidRegex: ^Generated.*
       type: Namespace
   - exclude:
+      uidRegex: ^DocumentationCodeSamples.*
+      type: Namespace
+  - exclude:
       uidRegex: \.ToString$
       type: Method
   - exclude:

@@ -4,7 +4,7 @@ using Unity.NetCode.Tests;
 using Unity.Networking.Transport.Utilities;
 using UnityEngine;
 
-namespace Tests.Editor
+namespace Unity.NetCode.Tests
 {
     [Category(NetcodeTestCategories.Foundational)]
     internal class SnapshotSequenceIdTests

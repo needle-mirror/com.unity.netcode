@@ -1,2 +1,2 @@
 using System.Runtime.CompilerServices;
-[assembly:InternalsVisibleTo("Unity.Netcode.EditorTests")]
+[assembly:InternalsVisibleTo("Unity.Netcode.Editor.Tests")]

@@ -111,26 +111,21 @@ namespace Unity.NetCode
 
             public unsafe void Execute(in ArchetypeChunk chunk, int unfilteredChunkIndex, bool useEnabledMask, in v128 chunkEnabledMask)
             {
-                // This job is not written to support queries with enableable component types.
-                Assert.IsFalse(useEnabledMask);
-
                 DynamicComponentTypeHandle* ghostChunkComponentTypesPtr = DynamicTypeList.GetData();
                 var entityList = chunk.GetNativeArray(entityType);
                 var snapshotDataList = chunk.GetNativeArray(ref snapshotDataType);
                 var snapshotDataBufferList = chunk.GetBufferAccessor(ref snapshotDataBufferType);
                 var snapshotDynamicDataBufferList = chunk.GetBufferAccessor(ref snapshotDynamicDataBufferType);
 
-                var GhostCollection = GhostCollectionFromEntity[GhostCollectionSingleton];
                 var GhostTypeCollection = GhostTypeCollectionFromEntity[GhostCollectionSingleton];
                 var ghostType = ghostTypeFromEntity[entityList[0]];
                 if (!GhostTypeToColletionIndex.TryGetValue(ghostType, out var ghostTypeIndex))
                 {
                     //there is no mapping for this ghost yet. The warning is a little spamming but at least it will get noticed.
-                    //TODO Maybe limit to 3-4 time.
-                    netDebug.LogError($"Failed to initialize predicted spawned ghost with type {(Hash128)ghostType}.\nThe ghost has been spawed before the client received from the server the required mapping (`GhostType -> index`),\nand the associated prefab loaded and processed by the GhostCollectionSystem.\nTo prevent this error/warning, you can check before spawning predicted ghosts that the GhostCollection.GhostTypeToColletionIndex hashmap contains a entry or the `GhostType` component assigned on the prefab.");
+                    netDebug.LogError($"Failed to initialize predicted spawned ghost with type {(Hash128)ghostType}. The ghost has been spawned before the client received from the server the required mapping (`GhostType -> index`), and the associated prefab loaded and processed by the GhostCollectionSystem. To prevent this error/warning, you can check before spawning predicted ghosts that the GhostCollection.GhostTypeToCollectionIndex hashmap contains a entry or the `GhostType` component assigned on the prefab.");
                     //Early exiting here will not add this ghost to the spawned list.
                     //What that means? It means that if the client spawn a ghost from a prefab the server didn't load
-                    //this will never get detroyed and this error/warning continously reported.
+                    //this will never get destroyed and this error/warning continuously reported.
                     //This was already the case. No behaviour has changed.
                     return;
                 }
@@ -163,7 +158,8 @@ namespace Unity.NetCode
                 if (hasBuffers)
                     helper.GatherBufferSize(chunk, 0, chunk.Count, typeData, ref bufferSizes);
 
-                for (int i = 0; i < entityList.Length; ++i)
+                var entityIterator = new ChunkEntityEnumerator(useEnabledMask, chunkEnabledMask, chunk.Count);
+                while(entityIterator.NextEntityIndex(out var i))
                 {
                     var entity = entityList[i];
 

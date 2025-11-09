@@ -213,7 +213,8 @@ namespace Unity.NetCode.Editor
                 sizeInBits = ghostTypeStats.SizeInBits,
                 instanceCount = (int)ghostTypeStats.EntityCount,
                 componentsPerType = componentsStats,
-                newInstancesCount = ghostTypeStats.UncompressedCount
+                newInstancesCount = ghostTypeStats.UncompressedCount,
+                isGhost = true
             };
 
             if (ghostTypeStats.SizeInBits != 0 && ghostTypeStats.EntityCount != 0)
@@ -256,7 +257,8 @@ namespace Unity.NetCode.Editor
                     name = type.ToString(),
                     instanceCount = (int)ghostTypeStats.EntityCount,
                     combinedCompressionEfficiency = compressionEfficiency,
-                    avgSizePerEntity = (float)Math.Round(sizePerComponent, 2)
+                    avgSizePerEntity = (float)Math.Round(sizePerComponent, 2),
+                    typeIndex = type.TypeIndex
                 };
 
                 sumComponentTypeSizePerType += ghostTypeComponentData.sizeInBits;

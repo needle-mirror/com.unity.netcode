@@ -30,20 +30,7 @@ the ones raised on the remote peer to troubleshoot type mismatches.
 To disable the check, set [`RpcCollection.DynamicAssemblyList`](https://docs.unity3d.com/Packages/com.unity.netcode@latest/index.html?subfolder=/api/Unity.NetCode.RpcCollection.html#Unity_NetCode_RpcCollection_DynamicAssemblyList)
 to true like this:
 
-```csharp
-[BurstCompile] // BurstCompile is optional
-[WorldSystemFilter(WorldSystemFilterFlags.ClientSimulation | WorldSystemFilterFlags.ServerSimulation | WorldSystemFilterFlags.ThinClientSimulation)]
-[UpdateInGroup(typeof(InitializationSystemGroup))]
-[CreateAfter(typeof(RpcSystem))]
-public partial struct SetRpcSystemDynamicAssemblyListSystem : ISystem
-{
-    public void OnCreate(ref SystemState state)
-    {
-        SystemAPI.GetSingletonRW<RpcCollection>().ValueRW.DynamicAssemblyList = true;
-        state.Enabled = false;
-    }
-}
-```
+[!code-csharp[blobs](../Tests/Editor/DocCodeSamples/network-protocol-checks.cs#DisablingProtocolChecks)]
 
 Because this modifies the `RpcCollection` (which is itself instantiated by the `RpcSystem`), this flag needs to be set before `RpcSystem.OnUpdate` has run, but after `RpcSystem.OnCreate` has run. This flag must also match on both the client and the server before beginning communication, because the netcode package changes its RPC encoding based off the flag's value (including for the `NetworkProtocolVersion` RPC itself). Attempting to connect to a world with a different flag value than your own will lead to a similar (but less explicit) forceful disconnect error.
 

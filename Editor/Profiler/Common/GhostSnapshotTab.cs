@@ -1,5 +1,7 @@
 using System;
 using System.Collections.Generic;
+using Unity.Entities;
+using Unity.Entities.Editor;
 using UnityEditor;
 using UnityEngine;
 using UnityEngine.UIElements;
@@ -129,19 +131,20 @@ namespace Unity.NetCode.Editor
 
             foreach (var tickData in frameData.tickData)
             {
-                var tickGhostData = new ProfilerGhostTypeData
+                var tickItemData = new ProfilerGhostTypeData
                 {
                     name = $"Tick {tickData.tick.TickValue}",
                     sizeInBits = tickData.snapshotSizeInBits,
-                    instanceCount = (int)tickData.totalInstanceCount
+                    instanceCount = (int)tickData.totalInstanceCount,
+                    isGhost = false
                 };
 
-                var children = new List<TreeViewItemData<ProfilerGhostTypeData>>();
+                var ghostItems = new List<TreeViewItemData<ProfilerGhostTypeData>>();
                 if (m_OverheadEnabled && tickData.ghostTypeData.Length > 0)
                 {
                     // Add overhead item
                     var overheadItem = CreateOverheadItem("Overhead", tickData.overheadSize, true, -1, ref id);
-                    children.Add(overheadItem);
+                    ghostItems.Add(overheadItem);
                 }
 
                 for (var i = 0; i < tickData.ghostTypeData.Length; i++)
@@ -150,30 +153,30 @@ namespace Unity.NetCode.Editor
                     if (ghostTypeData.instanceCount == 0)
                         continue;
 
-                    var ghostTypeComponents = new List<TreeViewItemData<ProfilerGhostTypeData>>();
+                    var componentTypeItems = new List<TreeViewItemData<ProfilerGhostTypeData>>();
 
                     if (m_OverheadEnabled)
                     {
                         // Add overhead item
                         var overheadData = CreateOverheadItem("Overhead", ghostTypeData.overheadSize, true, -1, ref id);
                         var overheadItem = new TreeViewItemData<ProfilerGhostTypeData>(id++, overheadData.data);
-                        ghostTypeComponents.Add(overheadItem);
+                        componentTypeItems.Add(overheadItem);
                     }
 
                     foreach (var componentTypeData in ghostTypeData.componentsPerType)
                     {
-                        var componentItem = new TreeViewItemData<ProfilerGhostTypeData>(id++, componentTypeData);
-                        ghostTypeComponents.Add(componentItem);
+                        var componentTypeItem = new TreeViewItemData<ProfilerGhostTypeData>(id++, componentTypeData);
+                        componentTypeItems.Add(componentTypeItem);
                     }
 
-                    var ghostTypeItem = new TreeViewItemData<ProfilerGhostTypeData>(id++, ghostTypeData, ghostTypeComponents);
+                    var ghostTypeItem = new TreeViewItemData<ProfilerGhostTypeData>(id++, ghostTypeData, componentTypeItems);
 
-                    children.Add(ghostTypeItem);
+                    ghostItems.Add(ghostTypeItem);
                 }
 
-                tickGhostData.sizeInBits = tickData.snapshotSizeInBits;
+                tickItemData.sizeInBits = tickData.snapshotSizeInBits;
 
-                var tickElement = new TreeViewItemData<ProfilerGhostTypeData>(id++, tickGhostData, children);
+                var tickElement = new TreeViewItemData<ProfilerGhostTypeData>(id++, tickItemData, ghostItems);
                 items.Add(tickElement);
             }
 
@@ -225,10 +228,23 @@ namespace Unity.NetCode.Editor
             multiColumnTreeView.columns["name"].width = 250;
             multiColumnTreeView.columns["name"].bindCell = (element, index) =>
             {
-                ((LabelWithIcon)element).SetText(GetGhostTypeDataAtIndex(multiColumnTreeView, index).name.Value);
+                var labelWithIcon = (LabelWithIcon)element;
+                var ghostTypeData = GetGhostTypeDataAtIndex(multiColumnTreeView, index);
+                labelWithIcon.SetText(ghostTypeData.name.Value);
                 // Insert Overhead icon in front of the name if this is an overhead item
-                var isOverhead = GetGhostTypeDataAtIndex(multiColumnTreeView, index).needsOverheadIcon;
-                ((LabelWithIcon)element).SetIconEnabled(isOverhead);
+                var isOverhead = ghostTypeData.needsOverheadIcon;
+                labelWithIcon.SetIconEnabled(isOverhead);
+
+                // Context menu
+                if (!isOverhead && index != 0) // Can't inspect overhead or the root tick item
+                {
+                    var actionName = ghostTypeData.isGhost ? "Inspect Ghost Prefab" : "Inspect Component";
+                    Action<TypeIndex, string> action = ghostTypeData.isGhost ? SelectGhostPrefab : SelectGhostComponent;
+                    element.AddManipulator(new ContextualMenuManipulator(evt =>
+                    {
+                        evt.menu.AppendAction(actionName, _ => action(ghostTypeData.typeIndex, labelWithIcon.Label.text));
+                    }));
+                }
             };
 
             // Ghost type size
@@ -304,6 +320,29 @@ namespace Unity.NetCode.Editor
             multiColumnTreeView.viewDataKey = viewDataKey;
 
             return multiColumnTreeView;
+        }
+
+        static void SelectGhostPrefab(TypeIndex typeIndex, string name)
+        {
+            // Ping the ghost prefab in the project window
+            var guids = AssetDatabase.FindAssets(name);
+            foreach (var guid in guids)
+            {
+                var path = AssetDatabase.GUIDToAssetPath(guid);
+                var asset = AssetDatabase.LoadAssetAtPath<GameObject>(path);
+                if (asset != null && asset.name == name)
+                {
+                    EditorGUIUtility.PingObject(asset);
+                    Selection.activeObject = asset;
+                    break;
+                }
+            }
+        }
+
+        static void SelectGhostComponent(TypeIndex typeIndex, string name = null)
+        {
+            var type = TypeManager.GetType(typeIndex);
+            NetcodeEditorUtility.ShowGhostComponentInspectorContent(type);
         }
 
         static ProfilerGhostTypeData GetGhostTypeDataAtIndex(MultiColumnTreeView multiColumnTreeView, int index)

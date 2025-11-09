@@ -1,6 +1,7 @@
 #if UNITY_EDITOR || NETCODE_DEBUG
 using System;
 using Unity.Collections;
+using Unity.Entities;
 
 namespace Unity.NetCode.Editor
 {
@@ -66,6 +67,8 @@ namespace Unity.NetCode.Editor
         internal NativeArray<ProfilerGhostTypeData> componentsPerType;
         internal bool needsOverheadIcon;
         internal uint newInstancesCount;
+        internal bool isGhost;
+        internal TypeIndex typeIndex;
     }
 
     [Serializable]

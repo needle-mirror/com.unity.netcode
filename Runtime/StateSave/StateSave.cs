@@ -1170,7 +1170,16 @@ namespace Unity.NetCode.LowLevel.StateSave
             if (currentCompType.IsBuffer)
                 currentStateSave.SaveBufferForEntityIndex(fullWorldStateSave, entIndex, currentCompType, toCopyPtr, bufferElementCount, enableBitIsSet);
             else
-                currentStateSave.SaveCompForEntityIndex(entIndex: entIndex, componentType: currentCompType, toCopyPtr, enableBitIsSet);
+            {
+                if ( toCopyPtr != null )
+                {
+                    currentStateSave.SaveCompForEntityIndex(entIndex: entIndex, componentType: currentCompType, toCopyPtr, enableBitIsSet);
+                }
+                else if ( !currentCompType.IsZeroSized )
+                {
+                    UnityEngine.Debug.LogError($"Trying to save entity component data with a null toCopyPtr when it isn't a zero sized component.");
+                }
+            }
         }
 
         public void UpdateTypesToTrack(ref NativeHashSet<ComponentType> requiredTypes, ref NativeHashSet<ComponentType> optionalTypes)
@@ -1195,7 +1204,17 @@ namespace Unity.NetCode.LowLevel.StateSave
             if (currentCompType.IsBuffer)
                 currentStateSave.SaveBufferForEntityIndex(fullWorldStateSave, entIndex, currentCompType, toCopyPtr, bufferElementCount, enableBitIsSet);
             else
-                currentStateSave.SaveCompForEntityIndex(entIndex: entIndex, componentType: currentCompType, toCopyPtr, enableBitIsSet);
+            {
+                if ( toCopyPtr != null )
+                {
+                    currentStateSave.SaveCompForEntityIndex(entIndex: entIndex, componentType: currentCompType, toCopyPtr, enableBitIsSet);
+                }
+                else if ( !currentCompType.IsZeroSized )
+                {
+                    UnityEngine.Debug.LogError($"Trying to save entity component data with a null toCopyPtr when it isn't a zero sized component.");
+                }
+            }
+
             GhostInstance* ghostInstancePtr = (GhostInstance*)chunk.GetRequiredComponentDataPtrRO(ref ghostInstanceHandle);
             var ghostInstance = ghostInstancePtr[entIndex];
             if (compIndex == 0)
@@ -1282,8 +1301,13 @@ namespace Unity.NetCode.LowLevel.StateSave
                     else
                     {
                         var compSize = typeInfo.SizeInChunk;
-                        byte* toCopyPtr = (byte*)chunk.GetDynamicComponentDataArrayReinterpret<byte>(ref dynamicTypeList.AsSpan()[indicesInDynamicTypeList[compIndex]], compSize).GetUnsafeReadOnlyPtr();
-                        stateSaveStrategy.SaveEntity(ref currentStateSaveContainer, ref fullWorldStateSave, chunk, unfilteredChunkIndex, entIndex, currentCompType,  toCopyPtr, bufferElementCount: 0, compIndex, enableBitIsSet);
+                        byte* toCopyPtr = null;
+                        if ( compSize != 0 )
+                        {
+                            toCopyPtr = (byte*)chunk.GetDynamicComponentDataArrayReinterpret<byte>(ref dynamicTypeList.AsSpan()[indicesInDynamicTypeList[compIndex]], compSize).GetUnsafeReadOnlyPtr();
+                        }
+
+                        stateSaveStrategy.SaveEntity(ref currentStateSaveContainer, ref fullWorldStateSave, chunk, unfilteredChunkIndex, entIndex, currentCompType, toCopyPtr, bufferElementCount: 0, compIndex, enableBitIsSet);
                     }
                 }
             }

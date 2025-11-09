@@ -70,24 +70,7 @@ There are some built-in variant types that have specific behaviors.
 | `ServerOnlyVariant`      | Use this to specify that a given `ComponentType` should only appear on server worlds. |
 | `DontSerializeVariant`   | Use this to disable serialization of a type entirely. Replication attributes (`[GhostField]` and `[GhostEnabledBit]`) are ignored. |
 
-```C#
-using System.Collections.Generic;
-using Unity.Entities;
-using Unity.Transforms;
-
-namespace Unity.NetCode.Samples
-{
-    sealed class DefaultVariantSystem : DefaultVariantSystemBase
-    {
-        protected override void RegisterDefaultVariants(Dictionary<ComponentType, Rule> defaultVariants)
-        {
-            defaultVariants.Add(typeof(SomeClientOnlyThing), Rule.ForAll(typeof(ClientOnlyVariant)));
-            defaultVariants.Add(typeof(SomeServerOnlyThing), Rule.ForAll(typeof(ServerOnlyVariant)));
-            defaultVariants.Add(typeof(NoNeedToSyncThis), Rule.ForAll(typeof(DontSerializeVariant)));
-        }
-    }
-}
-```
+[!code-cs[blobs](../Tests/Editor/DocCodeSamples/ghost-variants.cs#SpecialVariantTypes)]
 
 You can also manually select the `DontSerializeVariant` in the ghost component on ghost prefabs (via the `GhostAuthoringInspectionComponent`).
 
@@ -104,22 +87,7 @@ If multiple variants are available for a type, Netcode for Entities may be unabl
 To specify which variant to use as the default for a given type, you need to create a system that inherits from the
 [`DefaultVariantSystemBase`](https://docs.unity3d.com/Packages/com.unity.netcode@latest?subfolder=/api/Unity.NetCode.DefaultVariantSystemBase.html) class and implements the `RegisterDefaultVariants` method. For example:
 
-```c#
-using System.Collections.Generic;
-using Unity.Entities;
-using Unity.Transforms;
-
-namespace Unity.NetCode.Samples
-{
-    sealed partial class DefaultVariantSystem : DefaultVariantSystemBase
-    {
-        protected override void RegisterDefaultVariants(Dictionary<ComponentType, Rule> defaultVariants)
-        {
-            defaultVariants.Add(typeof(LocalTransform), Rule.OnlyParents(typeof(TransformDefaultVariant)));
-        }
-    }
-}
-```
+[!code-cs[blobs](../Tests/Editor/DocCodeSamples/ghost-variants.cs#DefiningVariants)]
 
 The previous example code ensures that the default `LocalTransform` variant to use is the `TransformDefaultVariant`. For more details, refer to the [`DefaultVariantSystemBase`](https://docs.unity3d.com/Packages/com.unity.netcode@latest?subfolder=/api/Unity.NetCode.DefaultVariantSystemBase.html) documentation.
 

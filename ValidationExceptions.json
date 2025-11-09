@@ -3,12 +3,7 @@
     {
       "ValidationTest": "API Validation",
       "ExceptionMessage": "Assembly \"Unity.NetCode.Editor.Drawers\" no longer exists or is no longer included in build. This change requires a new major version.",
-      "PackageVersion": "1.9.3"
-    },
-    {
-      "ValidationTest": "API Validation",
-      "ExceptionMessage": "New assembly \"Unity.NetCode.TestsUtils\" may only be added in a new minor or major version.",
-      "PackageVersion": "1.9.3"
+      "PackageVersion": "1.10.0"
     }
   ],
   "WarningExceptions": []

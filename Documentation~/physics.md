@@ -97,23 +97,7 @@ As part of the entity baking process, a `PhysicsWorldIndex` shared component is 
 
 Create a secondary physics world group that simulates a specific `PhysicsWorldIndex`:
 
-```csharp
-[WorldSystemFilter(WorldSystemFilterFlags.ClientSimulation)]
-[UpdateInGroup(typeof(FixedStepSimulationSystemGroup))]
-public partial class VisualizationPhysicsSystemGroup : CustomPhysicsSystemGroup
-{
-    //This should match the value you set into the `Client Non Ghost World` property.
-    public const int WorldToSimulate = 1;
-    public VisualizationPhysicsSystemGroup() : base(WorldToSimulate, true)
-    {
-        protected override void OnCreate()
-        {
-            base.OnCreate();
-            //Any other things you need.
-        }
-    }
-}
-```
+[!code-cs[blobs](../Tests/Editor/DocCodeSamples/physics.cs#MultiplePhysicsWorlds)]
 
 The arguments passed to the custom class constructor are the world index and a Boolean indicating if it should share static colliders with the main physics world.
 
@@ -165,17 +149,7 @@ In these cases, you can manually [disable predicted physics](#disable-predicted-
 
 When you don't want or need to have the physics simulation run inside the `PredictedSimulationSystemGroup`, you can force this by manually disabling the `PredictedPhysicsConfigSystem` system.
 
-```csharp
-[UpdateInGroup(typeof(InitializationSystemGroup))]
-[CreateAfter(typeof(PredictedPhysicsConfigSystem))]
-public partial struct DisablePhysicsInitializationIfNotConnect : ISystem
-{
-    public void OnCreate(ref SystemState state)
-    {
-        state.World.GetExistingSystemManaged< PredictedPhysicsConfigSystem >().Enabled = false;
-    }
-}
-```
+[!code-cs[blobs](../Tests/Editor/DocCodeSamples/physics.cs#DisablePhysicsInitialization)]
 
 Because the system doesn't run, the `PhysicsSystemGroup` continues to update inside the `FixedStepSimulationSystemGroup` as usual.
 
@@ -185,23 +159,7 @@ If disabling the `PredictedPhysicsConfigSystem` is not an option and you still n
 
 Because the `Unity.Physics.SimulationSingleton` must be initialized for physics to run, you can forcibly run the `PhysicsSystemGroup` once at the beginning of the frame.
 
-```csharp
-[UpdateInGroup(typeof(InitializationSystemGroup))]
-public partial class ForcePhysicsInitializationIfNotConnect : SystemBase
-{
-    protected override void OnUpdate()
-    {
-        if (SystemAPI.GetSingleton<SimulationSingleton>().Type == SimulationType.NoPhysics)
-        {
-            //Force a single update of physics just to ensure we have some stuff setup
-            World.PushTime(new TimeData(0.0, 0f));
-            World.GetExistingSystem<PhysicsSystemGroup>().Update(World.Unmanaged);
-            World.PopTime();
-            Enabled = false;
-        }
-    }
-}
-```
+[!code-cs[blobs](../Tests/Editor/DocCodeSamples/physics.cs#ForcePhysicsInitialization)]
 
 The custom physics world will now update at fixed rate on the client, even if not connected with the server or in-game at all.
 

@@ -5,7 +5,9 @@
         "Unity.NetCode",
         "Unity.Entities",
         "Unity.Collections",
-        "Unity.Profiling.Core"
+        "Unity.Profiling.Core",
+        "Unity.Entities.Editor",
+        "Unity.NetCode.Editor"
     ],
     "includePlatforms": [
         "Editor"

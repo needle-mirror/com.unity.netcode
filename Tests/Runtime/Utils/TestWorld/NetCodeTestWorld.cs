@@ -366,9 +366,9 @@ namespace Unity.NetCode.Tests
                 sys.Assembly.FullName.StartsWith("Unity.Entities,", StringComparison.Ordinal) ||
                 sys.Assembly.FullName.StartsWith("Unity.Transforms,", StringComparison.Ordinal) ||
                 sys.Assembly.FullName.StartsWith("Unity.Scenes,", StringComparison.Ordinal) ||
-                sys.Assembly.FullName.StartsWith("Unity.NetCode.EditorTests,", StringComparison.Ordinal) ||
-                sys.Assembly.FullName.StartsWith("Unity.NetCode.Physics.EditorTests,", StringComparison.Ordinal) ||
-                sys.Assembly.FullName.StartsWith("Unity.NetCode.TestsUtils,", StringComparison.Ordinal) ||
+                sys.Assembly.FullName.StartsWith("Unity.NetCode.Editor.Tests,", StringComparison.Ordinal) ||
+                sys.Assembly.FullName.StartsWith("Unity.NetCode.Physics.Editor.Tests,", StringComparison.Ordinal) ||
+                sys.Assembly.FullName.StartsWith("Unity.NetCode.TestsUtils.Runtime.Tests,", StringComparison.Ordinal) ||
                 typeof(IGhostComponentSerializerRegistration).IsAssignableFrom(sys);
         }
 

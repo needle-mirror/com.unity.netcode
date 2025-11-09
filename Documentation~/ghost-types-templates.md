@@ -39,19 +39,11 @@ By default, Netcode for Entities has serialization templates for the following t
 
 ### Supporting unsafe fixed T\[const\]
 Fields such as the following:
-```csharp
-    public const int MyFixedArrayLength = 3;
-    [GhostField(Quantization = 100)]public unsafe fixed float MyFixedArray[MyFixedArrayLength];
-```
+[!code-cs[blobs](../Tests/Editor/DocCodeSamples/ghost-types-templates.cs#UnsafeFixed)]
+
 Must provide a helper method, named `{MyFieldName}Ref`, to safely fetch `ref` access in a safe context, as follows:
-```csharp
-    public unsafe ref float MyFixedArrayRef(int index)
-    {
-        if (index < 0 || index >= MyFixedArrayLength)
-            throw new InvalidOperationException($"MyFixedArrayRef<float>[{index}] is out of bounds (Length:{MyFixedArrayLength})!");
-        return ref MyFixedArray[index];
-    }
-```
+[!code-cs[blobs](../Tests/Editor/DocCodeSamples/ghost-types-templates.cs#UnsafeHelperMethod)]
+
 Without the helper method, you will get compiler errors because Netcode for Entities can't access its unsafe fields.
 
 ### Types that support reporting of prediction errors
@@ -124,21 +116,7 @@ When fixed-size list fields are replicated in `IComponentData`, `IBufferElementD
 Because there is no way to enforce a lower capacity for a fixed list of the give byte size (the size implicitly define the capacity) it is permitted to use larger list with exceeding capacity, but sufficient then to hold the number of element that you require.
 When this necessity arise, it is mandatory to use the [`GhostFixedListCapacity`](https://docs.unity3d.com/Packages/com.unity.netcode@latest?subfolder=/api/Unity.NetCode.GhostFixedListCapacityAttribute.html) attribute to declare what it is the expected capacity of the list.
 
-```csharp
-struct MyRpc : IRpcCommand
-{
-    //limit the list replicated elements to 32. The limit is enforced
-    [GhostFixedListCapacity(Capacity=32)]
-    public FixedList4096<float> floats;
-}
-
-struct MyComponent : IComponentData
-{
-    //limit the list replicated elements to 32. The limit is enforced
-    [GhostFixedListCapacity(Capacity=32)]
-    public FixedList4096<float> floats;
-}
-```
+[!code-cs[blobs](../Tests/Editor/DocCodeSamples/ghost-types-templates.cs#RPC)]
 
 A compile time error is reported to inform what fields that are exceeding the maximum capacity and that required the attribute to be present.
 
@@ -196,33 +174,7 @@ with the following limitations.
 different states are written to.
 
 Example that works with input commands, RPCs, components, and buffers:
-```csharp
-    [StructLayout(LayoutKind.Explicit)]
-    public struct Union
-    {
-        [FieldOffset(0)] [GhostField(SendData = false)] public StructA State1;
-        [FieldOffset(0)] [GhostField(Quantization = 0, Smoothing = SmoothingAction.Clamp, Composite = true)] public StructB State2;
-        [FieldOffset(0)] [GhostField(SendData = false)] public StructC State3;
-        public struct StructA
-        {
-            public int A, B;
-            public float C;
-        }
-        public struct StructB
-        {
-            public ulong A, B, C, D;
-        }
-        public struct StructC
-        {
-            public double A, B;
-        }
-        public static void Assertions()
-        {
-            UnityEngine.Debug.Assert(UnsafeUtility.SizeOf<StructB>() >= UnsafeUtility.SizeOf<StructA>());
-            UnityEngine.Debug.Assert(UnsafeUtility.SizeOf<StructB>() >= UnsafeUtility.SizeOf<StructC>());
-        }
-    }
-```
+[!code-cs[blobs](../Tests/Editor/DocCodeSamples/ghost-types-templates.cs#Union)]
 
 > Netcode for Entities doesn't perform any checks to verify that the union member struct you marked as replicated is the one with the largest size, nor that you used `SendData = false` on the others. You must verify this yourself.
 > It's recommend that you write a [serializer template](#defining-additional-templates) for your unions, which may allow you to circumvent most of the above limitations.

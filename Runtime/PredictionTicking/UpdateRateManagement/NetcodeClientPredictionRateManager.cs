@@ -171,6 +171,14 @@ namespace Unity.NetCode
                         m_AppliedPredictedTickArray[i] = m_AppliedPredictedTickArray[i+toRemove];
                 }
 
+                // If applied ticks is 1 (last full tick always required) and this is a full tick, and we're in the first prediction loop tick (m_TickIdx is 1 here),
+                // then there is no prediction tick for us to perform (can happen on the first run of the prediction loop after world creation)
+                if (m_NumAppliedPredictedTicks == 1 && !m_CurrentTime.IsPartialTick)
+                {
+                    m_LastFullPredictionTick = NetworkTick.Invalid;
+                    return false;
+                }
+
                 networkTime.Flags |= NetworkTimeFlags.IsInPredictionLoop | NetworkTimeFlags.IsFirstPredictionTick;
                 networkTime.Flags &= ~(NetworkTimeFlags.IsFinalPredictionTick|NetworkTimeFlags.IsFinalFullPredictionTick|NetworkTimeFlags.IsFirstTimeFullyPredictingTick);
                 networkTime.NumPredictedTicksExpected = m_TargetTick.TicksSince(oldestTick) + (m_CurrentTime.IsPartialTick ? 1 : 0);
@@ -255,11 +263,11 @@ namespace Unity.NetCode
             }
 #if UNITY_EDITOR || NETCODE_DEBUG
             if (!networkTime.IsFinalPredictionTick)
-                throw new InvalidOperationException("IsFinalPredictionTick should not be set before executing the final prediction tick");
+                throw new InvalidOperationException("IsFinalPredictionTick should have been set before the end of the prediction loop");
             if (networkTime.ServerTick != m_CurrentTime.ServerTick)
-                throw new InvalidOperationException("ServerTick should be equals to current server tick at the end of the prediction loop");
+                throw new InvalidOperationException("ServerTick should be equal to current server tick at the end of the prediction loop");
             if (math.abs(networkTime.ServerTickFraction-m_CurrentTime.ServerTickFraction) > 1e-6f)
-                throw new InvalidOperationException("ServerTickFraction should be equals to current tick fraction at the end of the prediction loop");
+                throw new InvalidOperationException("ServerTickFraction should be equal to current tick fraction at the end of the prediction loop");
 #endif
             // Reset all the prediction flags. They are not valid outside the prediction loop
             networkTime.Flags &= ~(NetworkTimeFlags.IsInPredictionLoop |

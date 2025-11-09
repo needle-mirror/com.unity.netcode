@@ -18,7 +18,7 @@ using Unity.Mathematics;
 using Unity.Networking.Transport;
 using UnityEngine.TestTools;
 
-namespace Unity.NetCode.PrespawnTests
+namespace Unity.NetCode.Tests.PrespawnTests
 {
     internal struct EnableVerifyGhostIds : IComponentData
     {}

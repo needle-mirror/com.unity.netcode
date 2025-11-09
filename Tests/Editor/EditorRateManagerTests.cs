@@ -8,7 +8,7 @@ using UnityEngine;
 using UnityEngine.TestTools;
 using static Unity.NetCode.ClientServerTickRate.FrameRateMode;
 
-namespace Tests.Editor
+namespace Unity.NetCode.Tests
 {
     [DisableAutoCreation]
     internal abstract partial class BaseCallbackSystem : SystemBase

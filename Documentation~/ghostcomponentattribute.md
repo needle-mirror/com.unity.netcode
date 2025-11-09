@@ -15,13 +15,7 @@ Use these properties to customize how replication is modified using `GhostCompon
 | [`SendDataForChildEntity`](https://docs.unity3d.com/Packages/com.unity.netcode@latest?subfolder=/api/Unity.NetCode.GhostComponentAttribute.html#Unity_NetCode_GhostComponentAttribute_SendDataForChildEntity) | `false` | Use the `SendDataForChildEntity` property to specify whether to replicate the component when it's attached to a child of a ghost entity. Replicating the children of ghost entities is significantly slower than replicating the parent ghost entities. This property also applies to `[GhostEnabledBit]`. Refer to [`SendDataForChildEntity` details](#senddataforchildentity-details). |
 | [`SendTypeOptimization`](https://docs.unity3d.com/Packages/com.unity.netcode@latest?subfolder=/api/Unity.NetCode.GhostComponentAttribute.html#Unity_NetCode_GhostComponentAttribute_SendTypeOptimization) | `AllClients` | Use the `SendTypeOptimization` property to specify (using [`GhostSendType`](https://docs.unity3d.com/Packages/com.unity.netcode@latest?subfolder=/api/Unity.NetCode.GhostSendType.html)) whether to replicate the component when the ghost is predicted or interpolated. For example, you can use this property to only replicate `PhysicsVelocity` when actually predicting the physics of a ghost. Refer to [`SendTypeOptimization` details](#sendtypeoptimization-details). |
 
-```csharp
-[GhostComponent(PrefabType=GhostPrefabType.All, SendTypeOptimization=GhostSendType.OnlyInterpolatedClients, SendDataForChildEntity=false)]
-public struct MyComponent : IComponentData
-{
-    [GhostField(Quantized=1000)] public float3 Value;
-}
-```
+[!code-cs[blobs](../Tests/Editor/DocCodeSamples/ghostcomponentattribute.cs#GhostComponentAttribute)]
 
 ## `OwnerSendType` details
 

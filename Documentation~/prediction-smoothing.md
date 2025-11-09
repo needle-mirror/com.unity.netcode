@@ -4,38 +4,11 @@ Prediction errors can occur for a number of reasons: variations in logic between
 
 For each component, you can configure how to manage these errors by registering a `Smoothing Action Function` on the `GhostPredictionSmoothing` singleton which smooths the error out over time.
 
-```c#
-    public delegate void SmoothingActionDelegate(void* currentData, void* previousData, void* userData);
-    //pass null as user data
-    GhostPredictionSmoothing.RegisterSmoothingAction<Translation>(EntityManager, MySmoothingAction);
-    //will pass as user data a pointer to a MySmoothingActionParams chunk component
-    GhostPredictionSmoothing.RegisterSmoothingAction<Translation, MySmoothingActionParams>(EntityManager, DefaultTranslateSmoothingAction.Action);
-```
+[!code-cs[blobs](../Tests/Editor/DocCodeSamples/prediction-smoothing.cs#SmoothingRegistration)]
+
 The user data must be a chunk-component present in the entity. A default implementation for smoothing out any translation prediction errors is provided by the package.
 
-```c#
-world.GetSingleton<GhostPredictionSmoothing>().RegisterSmootingAction<Translation>(EntityManager, CustomSmoothing.Action);
-
-[BurstCompile]
-public unsafe class CustomSmoothing
-{
-    public static readonly PortableFunctionPointer<GhostPredictionSmoothing.SmoothingActionDelegate>
-        Action =
-            new PortableFunctionPointer<GhostPredictionSmoothing.SmoothingActionDelegate>(SmoothingAction);
-
-    [BurstCompile(DisableDirectCall = true)]
-    private static void SmoothingAction(void* currentData, void* previousData, void* userData)
-    {
-        ref var trans = ref UnsafeUtility.AsRef<Translation>(currentData);
-        ref var backup = ref UnsafeUtility.AsRef<Translation>(previousData);
-
-        var dist = math.distance(trans.Value, backup.Value);
-        //UnityEngine.Debug.Log($"Custom smoothing, diff {trans.Value - backup.Value}, dist {dist}");
-        if (dist > 0)
-            trans.Value = backup.Value + (trans.Value - backup.Value) / dist;
-    }
-}
-```
+[!code-cs[blobs](../Tests/Editor/DocCodeSamples/prediction-smoothing.cs#CustomSmoothingAction)]
 
 ## Smoothing frequency
 

@@ -94,6 +94,8 @@ namespace Unity.NetCode.Generators
 
         public void Initialize(GeneratorInitializationContext context)
         {
+            if (!Helpers.IsBuildTime)
+                return;
             context.RegisterForSyntaxNotifications(() => new NetCodeSyntaxReceiver());
             //Initialize the profile here also take in account the internal Unity compilation time not
             //stritcly related to the source generators. This is useful metric to have, since we can then how
@@ -119,7 +121,7 @@ namespace Unity.NetCode.Generators
         {
             executionContext.CancellationToken.ThrowIfCancellationRequested();
 
-            if (!ShouldRunGenerator(executionContext))
+            if (!Helpers.IsBuildTime || !ShouldRunGenerator(executionContext))
                 return;
 
             Helpers.SetupContext(executionContext);
@@ -217,6 +219,7 @@ namespace Unity.NetCode.Generators
                 CodeGenerator.GhostFixedListCommandHelper,
                 CodeGenerator.GhostFixedListSnapshotHelpers,
             };
+
             List<TypeRegistryEntry> allFieldTemplates = new List<TypeRegistryEntry>(DefaultTypes.Registry);
             using (new Profiler.Auto("LoadRegistryAndOverrides"))
             {

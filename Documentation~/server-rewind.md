@@ -20,55 +20,7 @@ To implement server-side rewind in your project, you need to fetch the collision
 
 The following code example shows an example implementation of server-side rewind logic. For the full context of this example implementation, refer to the [`ShootingSystem` sample](https://github.com/Unity-Technologies/EntityComponentSystemSamples/blob/master/NetcodeSamples/Assets/Samples/HelloNetcode/2_Intermediate/03_HitScanWeapon/ShootingSystem.cs).
 
-
-```csharp
-var collisionHistory = SystemAPI.GetSingleton<PhysicsWorldHistorySingleton>();
-var physicsWorld = SystemAPI.GetSingleton<PhysicsWorldSingleton>().PhysicsWorld;
-var networkTime = SystemAPI.GetSingleton<NetworkTime>();
-var ghostComponentFromEntity = SystemAPI.GetComponentLookup<GhostInstance>();
-var localToWorldFromEntity = SystemAPI.GetComponentLookup<LocalToWorld>();
-var lagCompensationEnabledFromEntity = SystemAPI.GetComponentLookup<LagCompensationEnabled>();
-var predictingTick = networkTime.ServerTick;
-// Do not perform hit-scan when rolling back, only when simulating the latest tick
-if (!networkTime.IsFirstTimeFullyPredictingTick)
-    return;
-
-foreach (var (character, interpolationDelay, hitComponent) in SystemAPI.Query<CharacterAspect, RefRO<CommandDataInterpolationDelay>, RefRW<Hit>>().WithAll<Simulate>())
-{
-    if (character.Input.SecondaryFire.IsSet)
-    {
-        hitComponent.ValueRW.Victim = character.Self;
-        hitComponent.ValueRW.Tick = predictingTick;
-        continue;
-    }
-    if (!character.Input.PrimaryFire.IsSet)
-    {
-        continue;
-    }
-
-    // When we fetch the CollisionWorld for ServerTick T, we need to account for the fact that the user
-    // raised this input sometime on the previous tick (render-frame, technically).
-    const int additionalRenderDelay = 1;
-
-    // Breakdown of timings:
-    // - On the client, predicting ServerTick: 100 (for example)
-    // - InterpolationDelay: 2 ticks
-    // - Rendering Latency (assumption): 1 tick (likely more than 1 due to: double/triple buffering, pipelining, monitor refresh & draw latency)
-    // - Client visually sees 97 (-1 for render latency, -2 for lag compensation)
-    // - CommandDataInterpolationTick.Delay is a delta between CurrentCommand.Tick vs InterpolationTick, thus -2.
-    //   I.e. InterpolationDelay is already accounted for.
-    // - On the server, we process this input on ServerTick:100.
-    // - CommandDataInterpolationTick.Delay:-2 = 98 (-2)
-    // - So the server also needs to subtract the rendering delay to be consistent with what the client sees and queries against (97).
-    var delay = lagCompensationEnabledFromEntity.HasComponent(character.Self)
-        ? interpolationDelay.ValueRO.Delay + additionalRenderDelay
-        : additionalRenderDelay;
-
-    collisionHistory.GetCollisionWorldFromTick(predictingTick, delay, ref physicsWorld, out var collWorld, out var expectedTick, out var returnedTick);
-
-    bool hit = collWorld.CastRay(rayInput, out var closestHit);
-}
-```
+[!code-cs[blobs](../Tests/Editor/DocCodeSamples/server-rewind.cs#Logic)]
 
 ### Implementation considerations
 

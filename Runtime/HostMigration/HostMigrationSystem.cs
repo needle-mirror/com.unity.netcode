@@ -669,11 +669,14 @@ namespace Unity.NetCode.HostMigration
 
                 if (!componentType.IsBuffer)
                 {
-                    int offset = indexInChunk * componentSize;
-                    var compDataPtr = (byte*)chunk
-                        .GetDynamicComponentDataArrayReinterpret<byte>(ref typeHandle, componentSize)
-                        .GetUnsafeReadOnlyPtr() + offset;
-                    UnsafeUtility.MemCpy(compDataPtr, ghostDataPtr, componentSize);
+                    if (componentSize != 0)
+                    {
+                        int offset = indexInChunk * componentSize;
+                        var compDataPtr = (byte*)chunk
+                            .GetDynamicComponentDataArrayReinterpret<byte>(ref typeHandle, componentSize)
+                            .GetUnsafeReadOnlyPtr() + offset;
+                        UnsafeUtility.MemCpy(compDataPtr, ghostDataPtr, componentSize);
+                    }
                 }
                 else
                 {

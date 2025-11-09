@@ -10,7 +10,7 @@ using Unity.Networking.Transport;
 using Unity.Transforms;
 using Unity.Scenes;
 using UnityEngine;
-using Unity.NetCode.PrespawnTests;
+using Unity.NetCode.Tests.PrespawnTests;
 using Unity.Collections.LowLevel.Unsafe;
 using UnityEngine.SceneManagement;
 using System.Linq;
@@ -68,6 +68,10 @@ namespace Unity.NetCode.Tests
             [GhostField] public int ValueOne;
             [GhostField] public int ValueTwo;
         }
+
+        [GhostComponent]
+        internal struct EmptyComponent : IComponentData
+        {}
 
         internal struct SimpleData : IComponentData
         {
@@ -2244,6 +2248,7 @@ namespace Unity.NetCode.Tests
             var prefab = entityManager.CreateEntity();
             entityManager.AddComponentData(prefab, LocalTransform.Identity);
             entityManager.AddComponent<GhostOwner>(prefab);
+            entityManager.AddComponent<EmptyComponent>(prefab);
             entityManager.AddBuffer<SomeBuffer>(prefab);
             entityManager.AddBuffer<AnotherBuffer>(prefab);
 

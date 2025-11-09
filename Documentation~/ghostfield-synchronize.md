@@ -25,21 +25,7 @@ Use these properties to customize how components and buffers are serialized usin
 
 If a `[GhostField]` is specified for a non-primitive field type, the attribute (and some of its properties) are automatically inherited by all subfields which don't themselves implement a `[GhostField]` attribute. For example:
 
-```c#
-
-public struct Vector2
-{
-    public float x;
-    [GhostField(Quantization=100)] public float y;
-}
-
-public struct MyComponent : IComponentData
-{
-    //Value.x will inherit the quantization value specified by the parent definition (1000).
-    //Value.y will maintain its original quantization value (100).
-    [GhostField(Quantized=1000)] public Vector2 Value;
-}
-```
+[!code-cs[blobs](../Tests/Editor/DocCodeSamples/ghostfield-synchronize.cs#GhostFieldInheritance)]
 
 > [!NOTE]
 > The `SubType` property always resets to the default.
@@ -55,16 +41,7 @@ The component declaration must:
 - Implement either `IComponentData` or any interface inheriting from it. Generic interfaces inheriting from
   `IComponentData` are supported.
 
-```csharp
-public struct MySerializedComponent : IComponentData
-{
-    [GhostField]public int MyIntField;
-    [GhostField(Quantization=1000)]public float MyFloatField;
-    [GhostField(Quantization=1000, Smoothing=SmoothingAction.Interpolate)]public float2 Position;
-    public float2 NonSerializedField;
-    ...
-}
-```
+[!code-cs[blobs](../Tests/Editor/DocCodeSamples/ghostfield-synchronize.cs#GhostField)]
 
 Only `public` members of the component can be serialized. Adding `[GhostField]` to a `private` member has no effect.
 
@@ -79,18 +56,7 @@ The buffer declaration must:
 - Implement either `IBufferElementData` or any interface inheriting from it. Generic interfaces inheriting from
 `IBufferElementData` are supported.
 
-```csharp
-public struct SerialisedBuffer : IBufferElementData
-{
-    [GhostField]public int Field0;
-    [GhostField(Quantization=1000)]public float Field1;
-    [GhostField(Quantization=1000)]public float2 Position;
-    public float2 NonSerialisedField; // This is an explicit error!
-    private float2 NonSerialisedField; // We allow this. Ensure you set this on the client, before reading from it.
-    [GhostField(SendData=false)]public int NotSentAndUninitialised; // We allow this. Ensure you set this on the client, before reading from it.
-    ...
-}
-```
+[!code-cs[blobs](../Tests/Editor/DocCodeSamples/ghostfield-synchronize.cs#DynamicBufferSerialization)]
 
 You can use the [`SendData` property](https://docs.unity3d.com/Packages/com.unity.netcode@latest?subfolder=/api/Unity.NetCode.GhostFieldAttribute.html#Unity_NetCode_GhostFieldAttribute_SendData) to skip serialization and replication of a field, which means that:
 
@@ -105,25 +71,13 @@ You can annotate your input's fields with `[GhostField]` to replicate them from 
 
 When using automated input synchronization with [`IInputComponentData`](https://docs.unity3d.com/Packages/com.unity.netcode@latest?subfolder=/api/Unity.NetCode.IInputComponentData.html):
 
-```c#
-    public struct MyCommand : IInputComponentData
-    {
-        [GhostField] public int Value;
-    }
-```
+[!code-cs[blobs](../Tests/Editor/DocCodeSamples/ghostfield-synchronize.cs#IInputComponentData)]
 
 [`ICommandData`](https://docs.unity3d.com/Packages/com.unity.netcode@latest?subfolder=/api/Unity.NetCode.ICommandData.html) is a subclass of [`IBufferElementData`](https://docs.unity3d.com/Packages/com.unity.entities@latest?subfolder=/api/Unity.Entities.IBufferElementData.html) and can be serialized for replication from the server to clients. As such, the same rules as for [buffers](#dynamic-buffer-serialization) apply: if the command buffer is to be serialized, then all fields must be annotated.
 
 When using `ICommandData`:
 
-```c#
-    [GhostComponent()]
-    public struct MyCommand : ICommandData
-    {
-        [GhostField] public NetworkTick Tick {get; set;}
-        [GhostField] public int Value;
-    }
-```
+[!code-cs[blobs](../Tests/Editor/DocCodeSamples/ghostfield-synchronize.cs#ICommandData)]
 
 Command data serialization is particularly useful for implementing [remote player prediction](prediction-n4e.md#remote-player-prediction).
 

@@ -19,6 +19,17 @@ namespace Unity.NetCode.Physics.Tests
         }
     }
 
+    [DisableAutoCreation]
+    [UpdateInGroup(typeof(PredictedSimulationSystemGroup))]
+    partial class PredictedCheck : SystemBase
+    {
+        public NetworkTick lastTick;
+        protected override void OnUpdate()
+        {
+            lastTick = SystemAPI.GetSingleton<NetworkTime>().ServerTick;
+        }
+    }
+
     //Increment a predicted ghost field inside fixed step prediction group by using the end command buffer.
     //It uses the latest value on SomaData compoent and increment it by one each time the PredictedFixedStepSimulationSystemGroup run.
     [DisableAutoCreation]
@@ -242,7 +253,7 @@ namespace Unity.NetCode.Physics.Tests
             {
                 testWorld.TestSpecificAdditionalAssemblies.Add("Unity.NetCode.Physics,");
                 testWorld.TestSpecificAdditionalAssemblies.Add("Unity.Physics,");
-                testWorld.Bootstrap(true, typeof(PhysicCheck));
+                testWorld.Bootstrap(true, typeof(PhysicCheck), typeof(PredictedCheck));
 
                 //Static ghost
                 var cubeGameObject = new GameObject();
@@ -316,17 +327,19 @@ namespace Unity.NetCode.Physics.Tests
                 {
                     Assert.AreEqual(0,clientNetworkTime.PredictedTickIndex);
                     Assert.IsFalse(testWorld.GetSingleton<PhysicsWorldHistorySingleton>(testWorld.ClientWorlds[0]).LatestStoredTick.IsValid, "history should not be recorded without ghost because prediction loop does not run");
+                    Assert.IsFalse(testWorld.ClientWorlds[0].GetExistingSystemManaged<PredictedCheck>().lastTick.IsValid);
                     // no need to test further conditions
                     return;
                 }
                 //if the loopMode is set to AlwaysRun, the prediction loop should have run
                 Assert.Greater(clientNetworkTime.PredictedTickIndex, 0);
+                var time = testWorld.GetNetworkTime(testWorld.ClientWorlds[0]);
+                Assert.IsTrue(testWorld.ClientWorlds[0].GetExistingSystemManaged<PredictedCheck>().lastTick == time.ServerTick);
 
                 // when lag compensation is set, physics however run only once, for firsttimepredicted tick condition only, that it is partially
                 //   incorrect in case we have high-frequency physics loop, because physics should be able to run also for partial ticks in case
                 //   on the client. But, does it make sense running the physics loop in that case, if there is nothing to actually predict? (everything
                 //   is kinematic and driven by server). Looks to me no, so the behaviour seems fine.
-                var time = testWorld.GetNetworkTime(testWorld.ClientWorlds[0]);
                 if(time.IsPartialTick)
                     time.ServerTick.Decrement();
                 if (physicsRunMode == PhysicsRunMode.EnableLagCompensation)

@@ -2,6 +2,7 @@ using System;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Threading;
 using Microsoft.CodeAnalysis;
@@ -55,6 +56,45 @@ namespace Unity.NetCode.Generators
         }
 
         static public LoggingLevel CurrentLogLevel => s_LogLevel.Value;
+
+        /// <summary>
+        /// Returns true if running as part of csc.exe, otherwise we are likely running in the IDE.
+        /// Skipping Source Generation in the IDE can be a considerable performance win as source
+        /// generators can be run multiple times per keystroke. If the user doesn't rely on generated types
+        /// consider skipping your Generator's Execute method when this returns false
+        /// </summary>
+        public static bool IsBuildTime
+        {
+            // We want to be exclusive rather than inclusive here to avoid any issues with unknown processes, Unity changes, and testing
+            get
+            {
+                Assembly assembly = Assembly.GetEntryAssembly();
+                if (assembly == null)
+                {
+                    return false;
+                }
+                // VS Code
+                if (assembly.FullName.StartsWith("Microsoft",
+                        StringComparison.InvariantCultureIgnoreCase))
+                {
+                    return false;
+                }
+                // Visual Studio
+                if (assembly.FullName.StartsWith("ServiceHub",
+                        StringComparison.InvariantCultureIgnoreCase))
+                {
+                    return false;
+                }
+                // Rider
+                if (assembly.FullName.StartsWith("JetBrains",
+                        StringComparison.InvariantCultureIgnoreCase))
+                {
+                    return false;
+                }
+
+                return true;
+            }
+        }
 
         static Helpers()
         {
@@ -147,6 +187,9 @@ namespace Unity.NetCode.Generators
         public static string LastErrorLog { get; set; } // used for tests. TODO have something fancier that tracks all logs
         public static void LaunchDebugger()
         {
+            if (Debugger.IsAttached)
+                return;
+
             if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
             {
                 Debugger.Launch();
@@ -195,7 +238,6 @@ namespace Unity.NetCode.Generators
                 UseShellExecute = true,
                 CreateNoWindow = false
             };
-
             var processTemp = new Process {StartInfo = startInfo, EnableRaisingEvents = true};
             processTemp.Start();
             processTemp.WaitForExit();

@@ -57,76 +57,15 @@ The first and last steps are the same (as with the single-player input handling)
 
 Simple input values for character movement (with jumping):
 
-```c#
-using Unity.Entities;
-using Unity.NetCode;
-
-[GenerateAuthoringComponent]
-public struct PlayerInput : IInputComponentData
-{
-    public int Horizontal;
-    public int Vertical;
-    public InputEvent Jump;
-}
-```
+[!code-cs[blobs](../Tests/Editor/DocCodeSamples/command-stream.cs#InputEvents)]
 
 The input gathering system, which takes current inputs and applies them to the input component data on the local player's entity.
 
-```c#
-[UpdateInGroup(typeof(GhostInputSystemGroup))]
-[AlwaysSynchronizeSystem]
-public partial class GatherInputs : SystemBase
-{
-    protected override void OnCreate()
-    {
-        RequireForUpdate<PlayerInput>();
-    }
-
-    protected override void OnUpdate()
-    {
-        bool jump = UnityEngine.Input.GetKeyDown("space");
-        bool left = UnityEngine.Input.GetKey("left");
-        //...
-
-        var networkId = GetSingleton<NetworkId>().Value;
-        Entities.WithName("GatherInput").WithAll<GhostOwnerIsLocal>().ForEach((ref PlayerInput inputData) =>
-            {
-                inputData = default;
-
-                if (jump)
-                    inputData.Jump.Set();
-                if (left)
-                    inputData.Horizontal -= 1;
-                //...
-            }).ScheduleParallel();
-    }
-}
-```
+[!code-cs[blobs](../Tests/Editor/DocCodeSamples/command-stream.cs#GatherInput)]
 
 The processing input system, which takes the current input values stored on the player's input component and applies the equivalent movement actions.
 
-```c#
-    [UpdateInGroup(typeof(PredictedSimulationSystemGroup))]
-    public partial class ProcessInputs : SystemBase
-    {
-        protected override void OnCreate()
-        {
-            RequireForUpdate<PlayerInput>();
-        }
-        protected override void OnUpdate()
-        {
-            var movementSpeed = Time.DeltaTime * 3;
-            Entities.WithAll<Simulate>().WithName("ProcessInputForTick").ForEach(
-                (ref PlayerInput input, ref Translation trans, ref PlayerMovement movement) =>
-                {
-                    if (input.Jump.IsSet)
-                        movement.JumpVelocity = 10; // start jump routine
-
-                    // handle jump event logic, movement logic etc
-                }).ScheduleParallel();
-        }
-    }
-```
+[!code-cs[blobs](../Tests/Editor/DocCodeSamples/command-stream.cs#ProcessInput)]
 
 ## Creating commands
 
@@ -232,67 +171,12 @@ Entities
 
 To manually serialize commands:
 1. Add the [`[NetCodeDisableCommandCodeGen]`](https://docs.unity3d.com/Packages/com.unity.netcode@latest?subfolder=/api/Unity.NetCode.NetCodeDisableCommandCodeGenAttribute.html) attribute to the struct that impliments the `ICommandData` interface.
-2. Create a struct that implements [`ICommandDataSerializer<T>`](https://docs.unity3d.com/Packages/com.unity.netcode@latest?subfolder=/api/Unity.NetCode.ICommandDataSerializer-1.html), where `<T>` is your `ICommandData` struct.
+2. Create a struct that implements [`ICommandDataSerializer<T>`](https://docs.unity3d.com/Packages/com.unity.netcode@latest?subfolder=/api/Unity.NetCode.ICommandDataSerializer-1.html), where `<T>` is your `ICommandData` struct. Note that you can implement this on the same struct that implements `ICommandData` for convenience.
 
 [`ICommandDataSerializer`](https://docs.unity3d.com/Packages/com.unity.netcode@latest?subfolder=/api/Unity.NetCode.ICommandDataSerializer-1.html) has two `Serialize` and two `Deserialize` methods: one pair for raw values, and one pair for delta compressed values. The system sends multiple inputs in each command packet. The first packet contains raw data but the rest are compressed using delta compression. Delta compression compresses inputs well because the rate of change is low.
 
 As well as creating a struct, you also need to create specific instances of the generic systems `CommandSendSystem` and `CommandReceiveSystem`. To do this, extend the base system, for example with:
 
-```c#
-[UpdateInGroup(typeof(CommandSendSystemGroup))]
-[BurstCompile]
-public partial struct MyCommandSendCommandSystem : ISystem
-{
-    CommandSendSystem<MyCommandSerializer, MyCommand> m_CommandSend;
-    [BurstCompile]
-    struct SendJob : IJobChunk
-    {
-        public CommandSendSystem<MyCommandSerializer, MyCommand>.SendJobData data;
-        public void Execute(in ArchetypeChunk chunk, int unfilteredChunkIndex,
-            bool useEnabledMask, in v128 chunkEnabledMask)
-        {
-            data.Execute(chunk, unfilteredChunkIndex);
-        }
-    }
-    [BurstCompile]
-    public void OnCreate(ref SystemState state)
-    {
-        m_CommandSend.OnCreate(ref state);
-    }
-    [BurstCompile]
-    public void OnUpdate(ref SystemState state)
-    {
-        if (!m_CommandSend.ShouldRunCommandJob(ref state))
-            return;
-        var sendJob = new SendJob{data = m_CommandSend.InitJobData(ref state)};
-        state.Dependency = sendJob.Schedule(m_CommandSend.Query, state.Dependency);
-    }
-}
-[UpdateInGroup(typeof(CommandReceiveSystemGroup))]
-[BurstCompile]
-public partial struct MyCommandReceiveCommandSystem : ISystem
-{
-    CommandReceiveSystem<MyCommandSerializer, MyCommand> m_CommandRecv;
-    [BurstCompile]
-    struct ReceiveJob : IJobChunk
-    {
-        public CommandReceiveSystem<MyCommandSerializer, MyCommand>.ReceiveJobData data;
-        public void Execute(in ArchetypeChunk chunk, int unfilteredChunkIndex,
-            bool useEnabledMask, in v128 chunkEnabledMask)
-        {
-            data.Execute(chunk, unfilteredChunkIndex);
-        }
-    }
-    [BurstCompile]
-    public void OnCreate(ref SystemState state)
-    {
-        m_CommandRecv.OnCreate(ref state);
-    }
-    [BurstCompile]
-    public void OnUpdate(ref SystemState state)
-    {
-        var recvJob = new ReceiveJob{data = m_CommandRecv.InitJobData(ref state)};
-        state.Dependency = recvJob.Schedule(m_CommandRecv.Query, state.Dependency);
-    }
-}
-```
+[!code-cs[blobs](../Tests/Editor/DocCodeSamples/command-stream.cs#ManualSerialization)]
+
+[!code-cs[blobs](../Tests/Editor/DocCodeSamples/command-stream.cs#TestWrongAnchor)]
