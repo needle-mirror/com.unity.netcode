@@ -1,0 +1,40 @@
+{
+    "name": "Unity.NetCode.GhostAdapter.Runtime.Tests",
+    "rootNamespace": "Unity.NetCode.Tests",
+    "references": [
+        "Unity.Burst",
+        "Unity.Mathematics.Extensions",
+        "Unity.NetCode",
+        "Unity.NetCode.Editor",
+        "Unity.NetCode.TestsUtils.Runtime.Tests",
+        "Unity.NetCode.Authoring.Hybrid",
+        "Unity.Entities.Hybrid",
+        "Unity.Transforms",
+        "Unity.Scenes",
+        "Unity.Networking.Transport",
+        "UnityEngine.TestRunner",
+        "UnityEditor.TestRunner",
+        "Unity.Logging",
+        "Unity.Entities.Build",
+        "Unity.Core.Editor",
+        "Unity.Collections",
+        "Unity.Entities",
+        "Unity.Mathematics"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": true,
+    "overrideReferences": true,
+    "precompiledReferences": [
+        "nunit.framework.dll"
+    ],
+    "autoReferenced": false,
+    "defineConstraints": [
+        "UNITY_INCLUDE_TESTS",
+        "!UNITY_DISABLE_MANAGED_COMPONENTS",
+        "UNITY_6000_3_OR_NEWER"
+    ],
+    "versionDefines": [
+    ],
+    "noEngineReferences": false
+}

@@ -3,7 +3,9 @@ using System.Collections.Generic;
 using NUnit.Framework;
 using Unity.Collections;
 using Unity.Entities;
+using Unity.Networking.Transport;
 using UnityEngine;
+using UnityEngine.TestTools;
 
 // TODO most of these tests should be useless once we have a global flag for single world host testing
 namespace Unity.NetCode.Tests
@@ -225,6 +227,31 @@ namespace Unity.NetCode.Tests
             testWorld.Tick();
             clientGhosts = testWorld.ClientWorlds[0].EntityManager.CreateEntityQuery(typeof(GhostInstance)).ToEntityArray(Allocator.Temp);
             Assert.AreEqual(ghostCount, clientGhosts.Length);
+        }
+
+        [Test]
+        public void SingleWorldHost_ErrorOnHostConnect()
+        {
+            using var testWorld = new NetCodeTestWorld();
+            testWorld.Bootstrap(includeNetCodeSystems: true, typeof(GenericExecuteOnUpdateSystem));
+            testWorld.CreateWorlds(server: false, numClients: 0, numHostWorlds: 1);
+
+            Assert.IsTrue(testWorld.ServerWorld.IsHost());
+
+            var driver = testWorld.GetSingletonRW<NetworkStreamDriver>(testWorld.ServerWorld).ValueRW;
+            var endpoint = NetworkEndpoint.LoopbackIpv4.WithPort(7979);
+
+            try
+            {
+                driver.Connect(testWorld.ServerWorld.EntityManager, endpoint);
+                Assert.Fail("Connecting a host world should throw an exception");
+            }
+            catch (InvalidOperationException e)
+            {
+                Assert.IsTrue(e.Message.Contains("You cannot call Connect on a NetworkStreamDriver in a host world."));
+            }
+
+            LogAssert.NoUnexpectedReceived();
         }
     }
 }

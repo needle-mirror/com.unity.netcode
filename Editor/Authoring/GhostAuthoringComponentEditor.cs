@@ -1,9 +1,5 @@
 using System;
-using System.Collections.Generic;
 using System.Linq;
-using Unity.Collections;
-using Unity.Entities.Conversion;
-using Unity.Mathematics;
 using Unity.NetCode.Hybrid;
 using UnityEditor;
 using UnityEditor.SceneManagement;
@@ -13,7 +9,24 @@ namespace Unity.NetCode.Editor
 {
     [CustomEditor(typeof(GhostAuthoringComponent))]
     [CanEditMultipleObjects]
-    internal class GhostAuthoringComponentEditor : UnityEditor.Editor
+    internal class GhostAuthoringComponentEditor : BaseGhostAuthoringComponentEditor<GhostAuthoringComponentEditor, GhostAuthoringComponent>
+    {
+        // TODO-next have a GhostAdapter version of this
+        [MenuItem("Window/Multiplayer/Ghost Prefab List", priority = 3007)] // 3007 is the same as the playmode tools window, to stay in that same group
+        internal static void ShowGhostPrefabListSearch()
+        {
+            // This search checks for all prefabs containing a GhostAuthoringComponent script and lists them with columns related to ghosts like importance, ghost mode and the such
+            // Eventually with runtime GameObjects, this should also include those monobehaviours as well
+#if UNITY_6000_0_OR_NEWER
+            var query = AssetDatabase.LoadMainAssetAtPath("Packages/com.unity.netcode/Editor/SearchQueries/U6-GhostSearchQuery.asset");
+#elif UNITY_2022_3_OR_NEWER
+            var query = AssetDatabase.LoadMainAssetAtPath("Packages/com.unity.netcode/Editor/SearchQueries/U2022-GhostSearchQuery.asset");
+#endif
+            AssetDatabase.OpenAsset(query);
+        }
+    }
+
+    internal abstract class BaseGhostAuthoringComponentEditor<TEditor, TGhostSetting> : UnityEditor.Editor where TEditor : BaseGhostAuthoringComponentEditor<TEditor, TGhostSetting> where TGhostSetting : BaseGhostSettings
     {
         SerializedProperty DefaultGhostMode;
         SerializedProperty SupportedGhostModes;
@@ -39,24 +52,24 @@ namespace Unity.NetCode.Editor
 
         void OnEnable()
         {
-            DefaultGhostMode = serializedObject.FindProperty(nameof(GhostAuthoringComponent.DefaultGhostMode));
-            SupportedGhostModes = serializedObject.FindProperty(nameof(GhostAuthoringComponent.SupportedGhostModes));
-            OptimizationMode = serializedObject.FindProperty(nameof(GhostAuthoringComponent.OptimizationMode));
-            HasOwner = serializedObject.FindProperty(nameof(GhostAuthoringComponent.HasOwner));
-            SupportAutoCommandTarget = serializedObject.FindProperty(nameof(GhostAuthoringComponent.SupportAutoCommandTarget));
-            TrackInterpolationDelay = serializedObject.FindProperty(nameof(GhostAuthoringComponent.TrackInterpolationDelay));
-            GhostGroup = serializedObject.FindProperty(nameof(GhostAuthoringComponent.GhostGroup));
-            UsePreSerialization = serializedObject.FindProperty(nameof(GhostAuthoringComponent.UsePreSerialization));
-            Importance = serializedObject.FindProperty(nameof(GhostAuthoringComponent.Importance));
-            MaxSendRate = serializedObject.FindProperty(nameof(GhostAuthoringComponent.MaxSendRate));
-            PredictedSpawnedGhostRollbackToSpawnTick = serializedObject.FindProperty(nameof(GhostAuthoringComponent.RollbackPredictedSpawnedGhostState));
-            RollbackPredictionOnStructuralChanges = serializedObject.FindProperty(nameof(GhostAuthoringComponent.RollbackPredictionOnStructuralChanges));
-            UseSingleBaseline = serializedObject.FindProperty(nameof(GhostAuthoringComponent.UseSingleBaseline));
+            DefaultGhostMode = serializedObject.FindProperty(nameof(BaseGhostSettings.DefaultGhostMode));
+            SupportedGhostModes = serializedObject.FindProperty(nameof(BaseGhostSettings.SupportedGhostModes));
+            OptimizationMode = serializedObject.FindProperty(nameof(BaseGhostSettings.OptimizationMode));
+            HasOwner = serializedObject.FindProperty(nameof(BaseGhostSettings.HasOwner));
+            SupportAutoCommandTarget = serializedObject.FindProperty(nameof(BaseGhostSettings.SupportAutoCommandTarget));
+            TrackInterpolationDelay = serializedObject.FindProperty(nameof(BaseGhostSettings.TrackInterpolationDelay));
+            GhostGroup = serializedObject.FindProperty(nameof(BaseGhostSettings.GhostGroup));
+            UsePreSerialization = serializedObject.FindProperty(nameof(BaseGhostSettings.UsePreSerialization));
+            Importance = serializedObject.FindProperty(nameof(BaseGhostSettings.Importance));
+            MaxSendRate = serializedObject.FindProperty(nameof(BaseGhostSettings.MaxSendRate));
+            PredictedSpawnedGhostRollbackToSpawnTick = serializedObject.FindProperty(nameof(BaseGhostSettings.RollbackPredictedSpawnedGhostState));
+            RollbackPredictionOnStructuralChanges = serializedObject.FindProperty(nameof(BaseGhostSettings.RollbackPredictionOnStructuralChanges));
+            UseSingleBaseline = serializedObject.FindProperty(nameof(BaseGhostSettings.UseSingleBaseline));
         }
 
         public override void OnInspectorGUI()
         {
-            var authoringComponent = (GhostAuthoringComponent)target;
+            var authoringComponent = (TGhostSetting)target;
             var go = authoringComponent.gameObject;
             var isPrefabEditable = IsPrefabEditable(go);
             GUI.enabled = isPrefabEditable;
@@ -67,13 +80,13 @@ namespace Unity.NetCode.Editor
             {
                 if (authoringComponent.transform != authoringComponent.transform.root)
                 {
-                    EditorGUILayout.HelpBox("The `GhostAuthoringComponent` must only be added to the root GameObject of a prefab. This is invalid, please remove or correct this authoring.", MessageType.Error);
+                    EditorGUILayout.HelpBox($"The `{target.GetType()}` must only be added to the root GameObject of a prefab. This is invalid, please remove or correct this authoring.", MessageType.Error);
                     GUI.enabled = false;
                 }
 
                 if (!isViewingPrefab)
                 {
-                    EditorGUILayout.HelpBox($"'{authoringComponent}' is not a recognised Prefab, so the `GhostAuthoringComponent` is not valid. Please ensure that this GameObject is an unmodified Prefab instance mapped to a known project asset.", MessageType.Error);
+                    EditorGUILayout.HelpBox($"'{authoringComponent}' is not a recognised Prefab, so the `{target.GetType()}` is not valid. Please ensure that this GameObject is an unmodified Prefab instance mapped to a known project asset.", MessageType.Error);
                 }
             }
 
@@ -127,7 +140,7 @@ namespace Unity.NetCode.Editor
 
             EditorGUILayout.PropertyField(SupportedGhostModes);
 
-            var self = (GhostAuthoringComponent) target;
+            var self = (TGhostSetting) target;
             var isOwnerPredictedError = DefaultGhostMode.enumValueIndex == (int) GhostMode.OwnerPredicted && !self.HasOwner;
 
             if (SupportedGhostModes.intValue == (int) GhostModeMask.All)

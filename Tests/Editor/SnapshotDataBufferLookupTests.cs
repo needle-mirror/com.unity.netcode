@@ -104,6 +104,7 @@ namespace Unity.NetCode.Tests
         }
 
         [Test]
+        [DisableSingleWorldHostTest]
         public void ComponentCanBeExtractedFromPredictedSpawnBuffer()
         {
             using (var testWorld = new NetCodeTestWorld())
@@ -137,6 +138,7 @@ namespace Unity.NetCode.Tests
         }
 
         [Test]
+        [DisableSingleWorldHostTest]
         public void ComponentCanBeExtractedForDifferentGhostTypes()
         {
             using (var testWorld = new NetCodeTestWorld())

@@ -256,6 +256,9 @@ namespace Unity.NetCode
         /// <exception cref="InvalidOperationException">Throw an exception if the driver is not created or if multiple drivers are register</exception>
         public Entity Connect(EntityManager entityManager, NetworkEndpoint endpoint, Entity ent = default)
         {
+            if (entityManager.WorldUnmanaged.IsHost())
+                throw new InvalidOperationException("You cannot call Connect on a NetworkStreamDriver in a host world.");
+
             if (!DriverStore.m_Driver0.IsCreated)
                 throw new InvalidOperationException($"You cannot call Connect on a NetworkStreamDriver for which the DriverStore have been not created. Please ensure the NetworkDriverStore is setup before calling the Connect method.");
 

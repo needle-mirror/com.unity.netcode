@@ -1157,6 +1157,11 @@ Denotes that the server driver is closed i.e. not currently listening.
         void DrawLoggingGroup()
         {
             GUILayout.BeginHorizontal();
+            if (GUILayout.Button("Prefabs List", s_RightButtonWidth))
+                GhostAuthoringComponentEditor.ShowGhostPrefabListSearch();
+            GUILayout.EndHorizontal();
+
+            GUILayout.BeginHorizontal();
             GUI.color = Prefs.ApplyLoggerSettings ? s_Blue : Color.white;
             Prefs.ApplyLoggerSettings = EditorGUILayout.Toggle(s_ForceLogLevel, Prefs.ApplyLoggerSettings);
             if (!Prefs.ApplyLoggerSettings)

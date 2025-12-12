@@ -58,6 +58,7 @@ namespace Unity.NetCode.Tests
             }
         }
         [Test]
+        [DisableSingleWorldHostTest]
         public void ServerGhostCountOnlyIncludesRelevantSet()
         {
             using (var testWorld = new NetCodeTestWorld())
@@ -112,6 +113,7 @@ namespace Unity.NetCode.Tests
             }
         }
         [Test]
+        [DisableSingleWorldHostTest]
         public void ServerGhostCountDoesNotIncludeIrrelevantSet()
         {
             using (var testWorld = new NetCodeTestWorld())

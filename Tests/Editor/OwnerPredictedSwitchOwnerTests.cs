@@ -52,6 +52,7 @@ namespace Unity.NetCode.Tests
     internal class OwnerPredictedSwitchOwnerTests
     {
         [Test]
+        [DisableSingleWorldHostTest]
         public void SwitchingOwner_ChangeGhostModeOnClients()
         {
             using (var testWorld = new NetCodeTestWorld())
@@ -114,6 +115,7 @@ namespace Unity.NetCode.Tests
         }
 
         [Test]
+        [DisableSingleWorldHostTest]
         public void SwitchingOwner_ServerReceiveCommandFromOwningClient([Values]GhostMode ghostMode)
         {
             using (var testWorld = new NetCodeTestWorld())
@@ -184,6 +186,7 @@ namespace Unity.NetCode.Tests
         }
 
         [Test]
+        [DisableSingleWorldHostTest]
         public void SwitchingOwnerDeserializeComponentCorreclty()
         {
             //The purpose of this test is to verify that when using prediction switching for a

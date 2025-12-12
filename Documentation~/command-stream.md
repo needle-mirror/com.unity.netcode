@@ -22,7 +22,7 @@ For example, if a client predicted spawns a missile, then, although that client 
 
 The recommended method for handling user inputs is to create an input component data struct that inherits the [`IInputComponentData`](https://docs.unity3d.com/Packages/com.unity.netcode@latest?subfolder=/api/Unity.NetCode.IInputComponentData.html) interface. Then you can add command data to the buffer and retrieve it when processing. Unity handles inputs automatically through code-generated systems, as long as you set up the input gathering and input processing systems separately.
 
-Because the input struct implementing `IInputComponentData` is baked by `ICommandData`, [the 1024 bytes limit for the payload](#ICommandData-serialization-and-payload-limit) also applies.
+Your `IInputComponentData` component needs to be on the target ghost at baking time, then Netcode for Entities baking will set up and generate appropriate commands and serializers for you. Because the input struct implementing `IInputComponentData` is baked by `ICommandData`, [the 1024 bytes limit for the payload](#ICommandData-serialization-and-payload-limit) also applies.
 
 > [!NOTE]
 > Per prefab overrides done in the ghost authoring component inspector are disabled for input components and their companion buffer. You can add a ghost component attribute on the input component in code and it will apply to the buffer as well.

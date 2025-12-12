@@ -456,6 +456,7 @@ namespace Unity.NetCode.Tests
         }
 
         [Test]
+        [DisableSingleWorldHostTest]
         public void CommandDataAndIInputComponent_SupportFixedList([Values]bool useInputData)
         {
             using (var testWorld = new NetCodeTestWorld())
@@ -875,6 +876,7 @@ namespace Unity.NetCode.Tests
         }
 
         [Test]
+        [DisableSingleWorldHostTest]
         public void FixedList_Command_Capacity_Cap()
         {
             using (var testWorld = new NetCodeTestWorld())

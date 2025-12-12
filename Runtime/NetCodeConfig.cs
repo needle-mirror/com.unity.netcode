@@ -180,7 +180,10 @@ Default value: 512 i.e. <b>NetworkParameterConstants.ReceiveQueueCapacity</b>")]
         public int ServerReceiveQueueCapacity;
 
         /// <inheritdoc cref="NetworkConfigParameter.maxMessageSize"/>
-        [Tooltip("Maximum size of a packet that can be sent by the transport.\n\nNote that this size includes any headers that could be added by the transport (e. g. headers for DTLS or pipelines), which means the actual maximum message size that can be sent by a user is slightly less than this value.\n\nTo find out what the size of these headers is, use MaxHeaderSize(NetworkPipeline).\n\nIt is possible to send messages larger than that by sending them through a pipeline with a FragmentationPipelineStage. These headers do not include those added by the OS network stack (like UDP or IP).")]
+        /// <remarks>
+        /// Please use <see cref="GhostSendSystemData.DefaultSnapshotPacketSize"/> to allow fragmented snapshots over multiple packets.
+        /// </remarks>
+        [Tooltip("Maximum size of a packet that can be sent by the transport.\nPlease use GhostSendSystemData.DefaultSnapshotPacketSize to allow fragmented snapshots over multiple packets.\n\nNote that this size includes any headers that could be added by the transport (e. g. headers for DTLS or pipelines), which means the actual maximum message size that can be sent by a user is slightly less than this value.\n\nTo find out what the size of these headers is, use MaxHeaderSize(NetworkPipeline).\n\nIt is possible to send messages larger than that by sending them through a pipeline with a FragmentationPipelineStage. These headers do not include those added by the OS network stack (like UDP or IP).")]
         [Range(64, NetworkParameterConstants.AbsoluteMaxMessageSize)]
         public int MaxMessageSize;
 

@@ -3,6 +3,33 @@ namespace Generated
 {
     public struct GhostSnapshotData
     {
+        public void PredictDelta(uint tick, ref GhostSnapshotData baseline1, ref GhostSnapshotData baseline2)
+        {
+            #region __GHOST_PREDICT__
+            #endregion
+        }
+
+        public void Serialize(int networkId, ref GhostSnapshotData baseline, ref DataStreamWriter writer, StreamCompressionModel compressionModel)
+        {
+            // NOTE: Ideally we'd INFER the value here, but when Composite=true,
+            // there is a chance that this mask is true, even if this bool has not changed.
+            #region __GHOST_WRITE__
+            if ((changeMask & (1 << __GHOST_MASK_INDEX__)) != 0)
+                writer.WriteRawBits(snapshot.__GHOST_FIELD_NAME__, 1);
+            #endregion
+        }
+
+        public void Deserialize(uint tick, ref GhostSnapshotData baseline, ref DataStreamReader reader,
+            StreamCompressionModel compressionModel)
+        {
+            #region __GHOST_READ__
+            if ((changeMask & (1 << __GHOST_MASK_INDEX__)) != 0)
+                snapshot.__GHOST_FIELD_NAME__ = reader.ReadRawBits(1);
+            else
+                snapshot.__GHOST_FIELD_NAME__ = baseline.__GHOST_FIELD_NAME__;
+            #endregion
+        }
+
         public unsafe void CopyToSnapshot(ref Snapshot snapshot, ref IComponentData component)
         {
             if (true)
@@ -32,20 +59,20 @@ namespace Generated
         public void SerializeCommand(ref DataStreamWriter writer, in IComponentData data, in IComponentData baseline, StreamCompressionModel compressionModel)
         {
             #region __COMMAND_WRITE__
-            writer.WriteUInt(data.__COMMAND_FIELD_NAME__ ? 1u : 0);
+            writer.WriteByte((byte)(data.__COMMAND_FIELD_NAME__ ? 1u : 0));
             #endregion
             #region __COMMAND_WRITE_PACKED__
-            writer.WritePackedUInt(data.__COMMAND_FIELD_NAME__ ? 1u : 0, compressionModel);
+            writer.WriteRawBits(data.__COMMAND_FIELD_NAME__ ? 1u : 0u, 1);
             #endregion
         }
 
         public void DeserializeCommand(ref DataStreamReader reader, ref IComponentData data, in IComponentData baseline, StreamCompressionModel compressionModel)
         {
             #region __COMMAND_READ__
-            data.__COMMAND_FIELD_NAME__ = (reader.ReadUInt() != 0) ? true : false;
+            data.__COMMAND_FIELD_NAME__ = (reader.ReadByte() != 0);
             #endregion
             #region __COMMAND_READ_PACKED__
-            data.__COMMAND_FIELD_NAME__ = (reader.ReadPackedUInt(compressionModel) != 0) ? true : false;
+            data.__COMMAND_FIELD_NAME__ = (reader.ReadRawBits(1) != 0);
             #endregion
         }
 #if UNITY_EDITOR || NETCODE_DEBUG

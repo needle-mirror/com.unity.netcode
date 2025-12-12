@@ -3,6 +3,9 @@ using System.Collections.Generic;
 using Unity.Entities;
 using UnityEngine;
 using UnityEngine.Serialization;
+#if UNITY_6000_5_OR_NEWER
+using UnityEngine.Assemblies;
+#endif
 
 namespace Unity.NetCode
 {
@@ -34,7 +37,11 @@ namespace Unity.NetCode
         static Type FindTypeFromFullTypeNameInAllAssemblies(string fullName)
         {
             // TODO - Consider using the TypeManager.
+#if UNITY_6000_5_OR_NEWER
+            foreach (var a in CurrentAssemblies.GetLoadedAssemblies())
+#else
             foreach (var a in AppDomain.CurrentDomain.GetAssemblies())
+#endif
             {
                 var type = a.GetType(fullName, false);
                 if (type != null)
@@ -170,7 +177,7 @@ namespace Unity.NetCode
         /// <summary>Finds all <see cref="GhostAuthoringInspectionComponent"/>'s on this Ghost Authoring Prefab (including in children), and adds all <see cref="ComponentOverrides"/> to a single list.</summary>
         /// <param name="ghostAuthoring">Root prefab to search from.</param>
         /// <param name="validate"></param>
-        internal static List<(GameObject, ComponentOverride)> CollectAllComponentOverridesInInspectionComponents(GhostAuthoringComponent ghostAuthoring, bool validate)
+        internal static List<(GameObject, ComponentOverride)> CollectAllComponentOverridesInInspectionComponents(BaseGhostSettings ghostAuthoring, bool validate)
         {
             var inspectionComponents = CollectAllInspectionComponents(ghostAuthoring);
             var allComponentOverrides = new List<(GameObject, ComponentOverride)>(inspectionComponents.Count * 4);
@@ -188,7 +195,7 @@ namespace Unity.NetCode
             return allComponentOverrides;
         }
 
-        internal static List<GhostAuthoringInspectionComponent> CollectAllInspectionComponents(GhostAuthoringComponent ghostAuthoring)
+        internal static List<GhostAuthoringInspectionComponent> CollectAllInspectionComponents(BaseGhostSettings ghostAuthoring)
         {
             var inspectionComponents = new List<GhostAuthoringInspectionComponent>(8);
             ghostAuthoring.gameObject.GetComponents(inspectionComponents);

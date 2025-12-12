@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using Unity.Entities;
-using Unity.Entities.Editor;
 using UnityEditor;
 using UnityEngine;
 using UnityEngine.UIElements;
@@ -13,17 +12,21 @@ namespace Unity.NetCode.Editor
         TabHeader m_TabHeader;
         MetricsHeader m_MetricsHeader;
         MultiColumnTreeView m_TreeView;
+        VisualElement m_NoDataInfoLabels;
         List<TreeViewItemData<ProfilerGhostTypeData>> m_ItemList;
         NetworkRole m_NetworkRole;
         VisualElement m_FilterOptionsElement;
         bool m_OverheadEnabled = true;
+        static int s_MaxMessageSize;
 
         internal GhostSnapshotsTab(NetworkRole networkRole)
             : base("Ghost Snapshots", networkRole.ToString())
         {
             m_NetworkRole = networkRole;
             var networkRolePrefix = networkRole.ToString();
-            var packetDirection = networkRole == NetworkRole.Client ? "received" : "sent";
+            var packetDirection = ProfilerUtils.GetPacketDirection(networkRole);
+
+            s_MaxMessageSize = ProfilerUtils.GetMaxMessageSize();
 
             m_MetricsHeader = new MetricsHeader(m_NetworkRole);
             Add(m_MetricsHeader);
@@ -40,8 +43,11 @@ namespace Unity.NetCode.Editor
             {
                 m_TabHeader.AddColumn("Snapshot age");
             }
-
             Add(m_TabHeader);
+
+            m_NoDataInfoLabels = UIFactory.CreateNoDataInfoLabel(packetDirection, NetcodeProfilerConstants.s_ProfilerDocsLink);
+            Add(m_NoDataInfoLabels);
+
             viewDataKey = networkRolePrefix + nameof(GhostSnapshotsTab);
             m_FilterOptionsElement ??= UIFactory.CreateFilterOptionsForSnapshots(FilterTreeView, true, Rebuild);
             Add(m_FilterOptionsElement);
@@ -61,17 +67,13 @@ namespace Unity.NetCode.Editor
 
         internal void Update(NetcodeFrameData frameData)
         {
-            if (frameData.tickData.Length == 0)
-            {
-                m_TabHeader.SetText(0, "No data");
-                m_TabHeader.SetText(1, "No data");
-                m_TabHeader.SetText(2, "No data");
-                if (m_NetworkRole == NetworkRole.Client)
-                {
-                    m_TabHeader.SetText(3, "No data");
-                }
+            // No data received for this frame
+            var noData = !frameData.isValid;
+            // Hide/Show UI
+            ShowNoDataInfoLabel(noData);
+
+            if (noData)
                 return;
-            }
 
             UpdateMetricsHeader(frameData);
 
@@ -80,13 +82,13 @@ namespace Unity.NetCode.Editor
 
             if (m_NetworkRole == NetworkRole.Server)
             {
-                var formattedBytes = UIUtils.FormatBitsToBytes(frameData.totalSizeSentByServerInBits);
+                var formattedBytes = ProfilerUtils.FormatBitsToBytes(frameData.totalSizeSentByServerInBits);
                 bitsAndBytes = $"{frameData.totalSizeSentByServerInBits}b ({formattedBytes})";
                 packetCount = frameData.totalPacketCountSentByServer.ToString();
             }
             else
             {
-                var formattedBytes = UIUtils.FormatBitsToBytes(frameData.totalSizeReceivedByClientInBits);
+                var formattedBytes = ProfilerUtils.FormatBitsToBytes(frameData.totalSizeReceivedByClientInBits);
                 bitsAndBytes = $"{frameData.totalSizeReceivedByClientInBits}b ({formattedBytes})";
                 packetCount = frameData.totalPacketCountReceivedByClient.ToString();
             }
@@ -113,6 +115,14 @@ namespace Unity.NetCode.Editor
             m_TreeView.showAlternatingRowBackgrounds = AlternatingRowBackground.All;
         }
 
+        void ShowNoDataInfoLabel(bool noData)
+        {
+            m_TabHeader.style.display = noData ? DisplayStyle.None : DisplayStyle.Flex;
+            m_TreeView.style.display = noData ? DisplayStyle.None : DisplayStyle.Flex;
+            m_FilterOptionsElement.style.display = noData ? DisplayStyle.None : DisplayStyle.Flex;
+            m_NoDataInfoLabels.style.display = noData ? DisplayStyle.Flex : DisplayStyle.None;
+        }
+
         void UpdateMetricsHeader(NetcodeFrameData frameData)
         {
             m_MetricsHeader.SetWorldName(ProfilerUtils.GetWorldName(m_NetworkRole));
@@ -133,7 +143,7 @@ namespace Unity.NetCode.Editor
             {
                 var tickItemData = new ProfilerGhostTypeData
                 {
-                    name = $"Tick {tickData.tick.TickValue}",
+                    name = $"Snapshot (Tick {tickData.tick.TickValue})",
                     sizeInBits = tickData.snapshotSizeInBits,
                     instanceCount = (int)tickData.totalInstanceCount,
                     isGhost = false
@@ -142,8 +152,8 @@ namespace Unity.NetCode.Editor
                 var ghostItems = new List<TreeViewItemData<ProfilerGhostTypeData>>();
                 if (m_OverheadEnabled && tickData.ghostTypeData.Length > 0)
                 {
-                    // Add overhead item
-                    var overheadItem = CreateOverheadItem("Overhead", tickData.overheadSize, true, -1, ref id);
+                    // Add overhead item for the tick
+                    var overheadItem = CreateOverheadItem(OverheadType.SnapshotOverhead, tickData.overheadSize, -1, ref id);
                     ghostItems.Add(overheadItem);
                 }
 
@@ -157,8 +167,8 @@ namespace Unity.NetCode.Editor
 
                     if (m_OverheadEnabled)
                     {
-                        // Add overhead item
-                        var overheadData = CreateOverheadItem("Overhead", ghostTypeData.overheadSize, true, -1, ref id);
+                        // Add overhead item for the ghost type
+                        var overheadData = CreateOverheadItem(OverheadType.GhostTypeOverhead, ghostTypeData.overheadSize, ghostTypeData.instanceCount, ref id);
                         var overheadItem = new TreeViewItemData<ProfilerGhostTypeData>(id++, overheadData.data);
                         componentTypeItems.Add(overheadItem);
                     }
@@ -183,178 +193,66 @@ namespace Unity.NetCode.Editor
             return items;
         }
 
-        static TreeViewItemData<ProfilerGhostTypeData> CreateOverheadItem(string name, uint size, bool needsIcon, int instanceCount, ref int id)
+        static TreeViewItemData<ProfilerGhostTypeData> CreateOverheadItem(OverheadType isTickOverhead, uint size, int instanceCount, ref int id)
         {
+            var name = isTickOverhead == OverheadType.SnapshotOverhead ? "Snapshot Overhead" : "Ghost Type Overhead";
             var overheadData = new ProfilerGhostTypeData
             {
                 name = name,
                 sizeInBits = size,
-                needsOverheadIcon = needsIcon,
-                instanceCount = instanceCount
+                overheadType = isTickOverhead,
+                instanceCount = instanceCount,
             };
+            if (instanceCount >= 0)
+                overheadData.avgSizePerEntity = (float)Math.Ceiling((float)size / instanceCount);
             var overheadItem = new TreeViewItemData<ProfilerGhostTypeData>(id++, overheadData);
             return overheadItem;
         }
 
         static MultiColumnTreeView CreateGhostSnapshotTreeView(string viewDataKey, List<TreeViewItemData<ProfilerGhostTypeData>> itemList)
         {
-            var columnKeysToColumnTitle = new Dictionary<string, string>
-            {
-                { "name", "Name" },
-                { "size", "Size in bits (bytes)" },
-                { "percentOfSnapshot", "% of snapshot size" },
-                { "instanceCount", "Instance count" },
-                { "compressed", "Compression efficiency" },
-                { "avgSizePerEntity", "Avg size / instance" },
-                // { "avgSizePerInstance", "Avg size / servertick over last second" }
-            };
-
             var multiColumnTreeView = new MultiColumnTreeView();
 
-            foreach (var columns in columnKeysToColumnTitle)
+            foreach (var columns in NetcodeProfilerConstants.s_ColumnKeysToTitles)
             {
-                multiColumnTreeView.columns.Add(new Column { name = columns.Key, title = columns.Value, width = 100 });
+                multiColumnTreeView.columns.Add(new Column
+                {
+                    name = columns.Key, width = 100, makeHeader = UIFactory.MakeTreeViewColumnHeader(columns.Value)
+                });
             }
 
-            multiColumnTreeView.columns["name"].makeCell = UIFactory.CreateTreeViewLabelWithIcon;
-            multiColumnTreeView.columns["size"].makeCell = UIFactory.CreateTreeViewLabel;
-            multiColumnTreeView.columns["percentOfSnapshot"].makeCell = () => new PercentBar();
-            multiColumnTreeView.columns["instanceCount"].makeCell = UIFactory.CreateTreeViewLabel;
-            multiColumnTreeView.columns["compressed"].makeCell = UIFactory.CreateTreeViewLabel;
-            multiColumnTreeView.columns["avgSizePerEntity"].makeCell = UIFactory.CreateTreeViewLabel;
-            // multiColumnTreeView.columns["avgSizePerInstance"].makeCell = UIFactory.CreateTreeViewLabel;
+            // Cell creation functions
+            multiColumnTreeView.columns[NetcodeProfilerConstants.nameKey].makeCell = () => UIFactory.CreateTreeViewLabelWithIcon(IconType.Overhead, IconPosition.BeforeLabel);
+            multiColumnTreeView.columns[NetcodeProfilerConstants.sizeKey].makeCell = () => UIFactory.CreateTreeViewLabelWithIcon(IconType.Warning, IconPosition.AfterLabel);
+            multiColumnTreeView.columns[NetcodeProfilerConstants.percentOfSnapshotKey].makeCell = () => new PercentBar();
+            multiColumnTreeView.columns[NetcodeProfilerConstants.instanceCountKey].makeCell = UIFactory.CreateTreeViewLabel;
+            multiColumnTreeView.columns[NetcodeProfilerConstants.compressionKey].makeCell = () => UIFactory.CreateTreeViewLabelWithIcon(IconType.Warning, IconPosition.AfterLabel);
+            multiColumnTreeView.columns[NetcodeProfilerConstants.avgSizePerEntityKey].makeCell = UIFactory.CreateTreeViewLabel;
 
-            // Ghost type name
-            multiColumnTreeView.columns["name"].width = 250;
-            multiColumnTreeView.columns["name"].bindCell = (element, index) =>
-            {
-                var labelWithIcon = (LabelWithIcon)element;
-                var ghostTypeData = GetGhostTypeDataAtIndex(multiColumnTreeView, index);
-                labelWithIcon.SetText(ghostTypeData.name.Value);
-                // Insert Overhead icon in front of the name if this is an overhead item
-                var isOverhead = ghostTypeData.needsOverheadIcon;
-                labelWithIcon.SetIconEnabled(isOverhead);
+            // Set specific column widths
+            multiColumnTreeView.columns[NetcodeProfilerConstants.nameKey].width = 250;
+            multiColumnTreeView.columns[NetcodeProfilerConstants.sizeKey].width = 120;
 
-                // Context menu
-                if (!isOverhead && index != 0) // Can't inspect overhead or the root tick item
-                {
-                    var actionName = ghostTypeData.isGhost ? "Inspect Ghost Prefab" : "Inspect Component";
-                    Action<TypeIndex, string> action = ghostTypeData.isGhost ? SelectGhostPrefab : SelectGhostComponent;
-                    element.AddManipulator(new ContextualMenuManipulator(evt =>
-                    {
-                        evt.menu.AppendAction(actionName, _ => action(ghostTypeData.typeIndex, labelWithIcon.Label.text));
-                    }));
-                }
-            };
+            // Cell binding functions
+            multiColumnTreeView.columns[NetcodeProfilerConstants.nameKey].bindCell = (element, index) => TreeViewBindings.BindNameCell(element, multiColumnTreeView, index);
+            multiColumnTreeView.columns[NetcodeProfilerConstants.sizeKey].bindCell = (element, index) => TreeViewBindings.BindSizeCell(multiColumnTreeView, index, element, s_MaxMessageSize);
+            multiColumnTreeView.columns[NetcodeProfilerConstants.percentOfSnapshotKey].bindCell = (element, index) => TreeViewBindings.BindSnapshotPercentageCell(multiColumnTreeView, index, element);
+            multiColumnTreeView.columns[NetcodeProfilerConstants.instanceCountKey].bindCell = (element, index) => TreeViewBindings.BindInstanceCountCell(multiColumnTreeView, index, element);
+            multiColumnTreeView.columns[NetcodeProfilerConstants.compressionKey].bindCell = (element, index) => TreeViewBindings.BindCompressionEfficiencyCell(multiColumnTreeView, index, element);
+            multiColumnTreeView.columns[NetcodeProfilerConstants.avgSizePerEntityKey].bindCell = (element, index) => TreeViewBindings.BindAverageSizeCell(multiColumnTreeView, index, element);
 
-            // Ghost type size
-            multiColumnTreeView.columns["size"].width = 120;
-            multiColumnTreeView.columns["size"].bindCell = (element, index) =>
-            {
-                var size = GetGhostTypeDataAtIndex(multiColumnTreeView, index).sizeInBits;
-                var isOverhead = GetGhostTypeDataAtIndex(multiColumnTreeView, index).needsOverheadIcon;
-                var bitsAndBytes = $"{size} ({UIUtils.BitsToBytes(size)})";
-                ((Label)element).text = bitsAndBytes;
-                element.parent.parent.SetEnabled(isOverhead || size != 0); // Disable the row if size is 0 and not overhead
-            };
-
-            // Ghost type size as a percentage of the snapshot size
-            multiColumnTreeView.columns["percentOfSnapshot"].bindCell = (element, index) =>
-            {
-                var item = GetGhostTypeDataAtIndex(multiColumnTreeView, index);
-                var percentBar = (PercentBar)element;
-
-                if (item.sizeInBits == 0)
-                {
-                    percentBar.SetValue(0);
-                    return;
-                }
-
-                var rootData = GetGhostTypeDataAtIndex(multiColumnTreeView, 0);
-                if (rootData.sizeInBits == 0)
-                {
-                    percentBar.SetValue(0);
-                    return;
-                }
-
-                var percentage = item.sizeInBits/ (float)rootData.sizeInBits * 100;
-                percentBar.SetValue(Mathf.RoundToInt(percentage));
-            };
-
-            // Ghost type instance count
-            multiColumnTreeView.columns["instanceCount"].bindCell = (element, index) =>
-            {
-                var count = GetGhostTypeDataAtIndex(multiColumnTreeView, index).instanceCount;
-                var newInstances = GetGhostTypeDataAtIndex(multiColumnTreeView, index).newInstancesCount;
-                var text = count == -1 ? "-" : count.ToString();
-                if (newInstances > 0)
-                {
-                    text += $" <color=#888888>(+{newInstances})</color>";
-                }
-                ((Label)element).text = text;
-            };
-
-            // Compression efficiency
-            multiColumnTreeView.columns["compressed"].bindCell = (element, index) =>
-            {
-                var ghostTypeData = GetGhostTypeDataAtIndex(multiColumnTreeView, index);
-                var compressionEfficiency = ghostTypeData.combinedCompressionEfficiency;
-                var compressionEfficiencyString = compressionEfficiency < 0 || ghostTypeData.needsOverheadIcon ? "-" : $"{compressionEfficiency}%";
-
-                ((Label)element).text = compressionEfficiencyString;
-            };
-
-            // Average size per entity
-            multiColumnTreeView.columns["avgSizePerEntity"].bindCell = (element, index) =>
-            {
-                var sizePerEntity = GetGhostTypeDataAtIndex(multiColumnTreeView, index).avgSizePerEntity;
-                var bitsAndBytes = $"{sizePerEntity} ({UIUtils.BitsToBytes(sizePerEntity)})";
-                ((Label)element).text = bitsAndBytes;
-            };
-
-            // Average size per servertick over last second
-            // multiColumnTreeView.columns["avgSizePerInstance"].bindCell = (element, index) =>
-            //     ((Label)element).text = "TODO";
+            // Column header tooltips
+            multiColumnTreeView.columns[NetcodeProfilerConstants.nameKey].bindHeader = element => element.tooltip = NetcodeProfilerConstants.s_NameTooltip;
+            multiColumnTreeView.columns[NetcodeProfilerConstants.sizeKey].bindHeader = element => element.tooltip = NetcodeProfilerConstants.s_SizeTooltip;
+            multiColumnTreeView.columns[NetcodeProfilerConstants.percentOfSnapshotKey].bindHeader = element => element.tooltip = NetcodeProfilerConstants.s_PercentOfSnapshotTooltip;
+            multiColumnTreeView.columns[NetcodeProfilerConstants.instanceCountKey].bindHeader = element => element.tooltip = NetcodeProfilerConstants.s_InstanceCountTooltip;
+            multiColumnTreeView.columns[NetcodeProfilerConstants.compressionKey].bindHeader = element => element.tooltip = NetcodeProfilerConstants.s_CompressionEfficiencyTooltip;
+            multiColumnTreeView.columns[NetcodeProfilerConstants.avgSizePerEntityKey].bindHeader = element => element.tooltip = NetcodeProfilerConstants.s_AvgSizePerInstanceTooltip;
 
             multiColumnTreeView.SetRootItems(itemList);
             multiColumnTreeView.viewDataKey = viewDataKey;
 
             return multiColumnTreeView;
-        }
-
-        static void SelectGhostPrefab(TypeIndex typeIndex, string name)
-        {
-            // Ping the ghost prefab in the project window
-            var guids = AssetDatabase.FindAssets(name);
-            foreach (var guid in guids)
-            {
-                var path = AssetDatabase.GUIDToAssetPath(guid);
-                var asset = AssetDatabase.LoadAssetAtPath<GameObject>(path);
-                if (asset != null && asset.name == name)
-                {
-                    EditorGUIUtility.PingObject(asset);
-                    Selection.activeObject = asset;
-                    break;
-                }
-            }
-        }
-
-        static void SelectGhostComponent(TypeIndex typeIndex, string name = null)
-        {
-            var type = TypeManager.GetType(typeIndex);
-            NetcodeEditorUtility.ShowGhostComponentInspectorContent(type);
-        }
-
-        static ProfilerGhostTypeData GetGhostTypeDataAtIndex(MultiColumnTreeView multiColumnTreeView, int index)
-        {
-            var data = multiColumnTreeView.GetItemDataForIndex<ProfilerGhostTypeData>(index);
-            return data;
-        }
-
-        static ProfilerGhostTypeData GetGhostTypeDataForId(MultiColumnTreeView multiColumnTreeView, int id)
-        {
-            var data = multiColumnTreeView.GetItemDataForId<ProfilerGhostTypeData>(id);
-            return data;
         }
 
         void FilterTreeView(string query)

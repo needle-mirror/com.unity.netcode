@@ -12,7 +12,7 @@ For a complete list of host migration requirements, refer to the [Host migration
 
 ## Host migration process
 
-When host migration is enabled, the host serializes a snapshot of the synchronizable game state at regular intervals, including the list of connected clients, added components, loaded scenes, and all ghost and ghost prefab information. This host migration data is uploaded securely to the connected lobby, with each snapshot overwriting the previous one.
+When host migration is enabled, the host serializes a snapshot of the synchronizable game state at regular intervals, including the list of connected clients, added components, loaded scenes, all ghost and ghost prefab information, and any user data added via the [IncludeInMigration](https://docs.unity3d.com/Packages/com.unity.netcode@latest?subfolder=/api/Unity.NetCode.HostMigration.IncludeInMigration.html) component. This host migration data is uploaded securely to the connected lobby, with each snapshot overwriting the previous one.
 
 A host migration is triggered when the host leaves or is disconnected and the relay connection is lost. The lobby notifies all connected clients and one of the clients is chosen as the new host, requests a new [relay allocation](https://docs.unity.com/ugs/en-us/manual/relay/manual/connection-flow#1), and updates the lobby data with the new relay allocation information. The other clients can then join the new relay allocation when they receive the lobby update.
 
@@ -27,6 +27,7 @@ The following data is saved and restored on the new host as part of host migrati
 * Server-only components with at least one variable marked with a `GhostField` attribute.
 * The current network tick and elapsed time values.
 * Only data which is normally included in [snapshots](ghost-snapshots.md) is supported (components and dynamic buffers). For example, native containers aren't included in the migration data.
+* Components listed in the [`NonGhostMigrationComponents`](https://docs.unity3d.com/Packages/com.unity.netcode@latest?subfolder=/api/Unity.NetCode.HostMigration.NonGhostMigrationComponents.html) buffer of entities marked with the [IncludeInMigration](https://docs.unity3d.com/Packages/com.unity.netcode@latest?subfolder=/api/Unity.NetCode.HostMigration.IncludeInMigration.html) component, including non-ghost components on ghost entities.
 
 ### Detecting connection loss
 

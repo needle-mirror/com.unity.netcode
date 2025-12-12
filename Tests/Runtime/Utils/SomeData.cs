@@ -11,5 +11,9 @@ namespace Unity.NetCode.Tests
     {
         [GhostField] public int Value;
     }
-}
 
+    internal struct NonGhostTestData : IComponentData
+    {
+        public int Value;
+    }
+}

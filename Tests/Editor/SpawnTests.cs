@@ -411,6 +411,50 @@ namespace Unity.NetCode.Tests
             }
         }
 
+        [Category(NetcodeTestCategories.Foundational)]
+        [Category(NetcodeTestCategories.Smoke)]
+        [Test(Description = "Sanity check that a simple spawn works")]
+        public void SimpleSpawnTest([Values(4, 10, 100)] int ticksToWaitForSpawn)
+        {
+            // This might look like a simple test, but it's useful to know when other things are broken whether the simple stuff works too
+            using var testWorld = new NetCodeTestWorld();
+            testWorld.Bootstrap(true);
+
+            var ghostGO = new GameObject("TestGhost");
+            ghostGO.AddComponent<TestNetCodeAuthoring>().Converter = new PredictedGhostDataConverter();
+            var ghostConfig = ghostGO.AddComponent<GhostAuthoringComponent>();
+            ghostConfig.DefaultGhostMode = GhostMode.Predicted;
+            ghostConfig.SupportedGhostModes = GhostModeMask.Predicted;
+
+            Assert.IsTrue(testWorld.CreateGhostCollection(ghostGO));
+            testWorld.CreateWorlds(true, 1);
+            testWorld.Connect();
+            testWorld.GoInGame();
+
+            // Spawn server side
+            var serverEnt = testWorld.SpawnOnServer(0);
+
+            // Let is spawn client side
+            testWorld.TickMultiple(ticksToWaitForSpawn);
+
+            var serverQuery = testWorld.ServerWorld.EntityManager.CreateEntityQuery(ComponentType.ReadOnly<GhostInstance>());
+            var clientQuery = testWorld.ClientWorlds[0].EntityManager.CreateEntityQuery(ComponentType.ReadOnly<GhostInstance>());
+
+            void Validate()
+            {
+                Assert.AreEqual(1, serverQuery.CalculateEntityCount());
+                Assert.AreEqual(1, clientQuery.CalculateEntityCount());
+                Assert.AreEqual(serverQuery.GetSingleton<GhostInstance>().ghostId, clientQuery.GetSingleton<GhostInstance>().ghostId);
+            }
+            Validate();
+
+            testWorld.TickMultiple(100);
+
+            // check they are still there
+            Validate();
+        }
+
+
         [Test]
         public void CustomSpawnClassificationSystem()
         {
@@ -866,6 +910,7 @@ namespace Unity.NetCode.Tests
 
         [Test(Description = "The test verify that predicted spawned ghost instantiated inside in the prediction loop" +
                             "don't mispredict and rewind correctly")]
+        [DisableSingleWorldHostTest]
         public void PredictSpawnGhost_InsidePrediction_AlwaysRollbackCorrectly([Values]PredictedSpawnRollbackOptions rollback,
             [Values]KeepHistoryBufferOptions keepHistoryBufferOnStructuralChanges)
         {

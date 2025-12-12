@@ -354,6 +354,7 @@ namespace Unity.NetCode.Tests
 
 
         [Test]
+        [DisableSingleWorldHostTest]
         public void TestSwitchAndInterpolation([Values] bool UseOwnerPredicted, [Values] bool testInterruptSwitch)
         {
             using var testWorld = new NetCodeTestWorld();

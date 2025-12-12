@@ -8,6 +8,8 @@ namespace Unity.NetCode
 {
     /// <summary>
     /// A special component data interface used for storing player inputs.
+    /// You should choose this over <see cref="ICommandData"/>.
+    /// This component needs to be present on your target ghost at baking time.
     /// </summary>
     /// <remarks> When using the netcode package these inputs will be automatically handled
     /// like command data and will be stored in a buffer synchronized between client and

@@ -53,6 +53,7 @@ namespace Unity.NetCode.Tests
         }
     }
 
+    [DisableSingleWorldHostTest]
     internal class RelevancyTests
     {
         GameObject bootstrapAndSetup(NetCodeTestWorld testWorld, System.Type additionalSystem = null)
@@ -569,7 +570,6 @@ namespace Unity.NetCode.Tests
                 Assert.IsTrue(foundOne);
             }
         }
-        [Ignore("Temporarily disabled for 1.10.0 release due to Ubuntu issues with 6000.3 and 6000.4")]
         [Test]
         public void ManyEntitiesCanBecomeIrrelevantSameTick([Values(NetCodeTestLatencyProfile.PL33, NetCodeTestLatencyProfile.RTT16ms_PL5)]NetCodeTestLatencyProfile profile)
         {

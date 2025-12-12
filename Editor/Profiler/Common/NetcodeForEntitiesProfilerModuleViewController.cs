@@ -120,24 +120,27 @@ namespace Unity.NetCode.Editor
         {
             using (var frameDataView = ProfilerDriver.GetRawFrameDataView((int)selectedFrameIndex, 0))
             {
-                if (frameDataView == null || frameDataView.valid == false)
+                if (frameDataView is not { valid: true })
                 {
-                    return default;
+                    return new NetcodeFrameData { isValid = false };
                 }
 
                 // Get the correct GUID to get frame metadata based on the active profiler module
-                var guid = m_NetworkRole == NetworkRole.Server ? ProfilerMetricsConstants.ServerGuid : ProfilerMetricsConstants.ClientGuid;
+                var guid = GetGUID();
 
                 // Get the serialized ghost stats
                 var serializedGhostStatsSnapshot = frameDataView.GetFrameMetaData<byte>(guid, ProfilerMetricsConstants.SerializedGhostStatsSnapshotTag);
                 if (serializedGhostStatsSnapshot.Length == 0)
                 {
-                    // TODO: In this case we didn't receive a snapshot but we should highlight this in the UI, we can also keep accumulated stats from the previous frame
-                    return default;
+                    return new NetcodeFrameData { isValid = false };
                 }
 
                 // Deserialize the ghost stats
                 var ghostStatsSnapshot = UnsafeGhostStatsSnapshot.FromBlittableData(Allocator.Temp, serializedGhostStatsSnapshot);
+                if (!ghostStatsSnapshot.Tick.IsValid)
+                {
+                    return new NetcodeFrameData { isValid = false };
+                }
                 var perGhostTypeStats = ghostStatsSnapshot.PerGhostTypeStatsListRO;
 
                 var profilerFrameMetaData = GetProfilerFrameMetaData(frameDataView, guid);
@@ -190,7 +193,8 @@ namespace Unity.NetCode.Editor
                     {
                         [0] = tickData
                     },
-                    frameCount = (uint)(ProfilerDriver.lastFrameIndex - ProfilerDriver.firstFrameIndex), // TODO: do we need this? Maybe for computing averages.
+                    isValid = true,
+                    frameIndex = (int)selectedFrameIndex,
                     jitter = profilerFrameMetaData.NetworkMetrics.Jitter,
                     rtt = profilerFrameMetaData.NetworkMetrics.Rtt,
                     serverTickSent = profilerFrameMetaData.ProfilerMetrics.ServerTick,
@@ -202,6 +206,11 @@ namespace Unity.NetCode.Editor
 
                 return frameData;
             }
+        }
+
+        Guid GetGUID()
+        {
+            return m_NetworkRole == NetworkRole.Server ? ProfilerMetricsConstants.ServerGuid : ProfilerMetricsConstants.ClientGuid;
         }
 
         // Helper methods to build ProfilerGhostTypeData from per-frame emitted profiler data.
@@ -220,7 +229,7 @@ namespace Unity.NetCode.Editor
             if (ghostTypeStats.SizeInBits != 0 && ghostTypeStats.EntityCount != 0)
             {
                 var sizePerInstance = (float)ghostTypeStats.SizeInBits / ghostTypeStats.EntityCount;
-                ghostTypeData.avgSizePerEntity = (float)Math.Round(sizePerInstance, 2);
+                ghostTypeData.avgSizePerEntity = (float)Math.Ceiling(sizePerInstance);
                 // It can happen that the buffer for uncompressed sizes is not created yet, in that case we just skip the compression efficiency calculation.
                 if (uncompressedSizes.Length > ghostIndex && uncompressedSizes[ghostIndex].SizeInBytes > 0)
                     ghostTypeData.combinedCompressionEfficiency = (float)Math.Round(1f - sizePerInstance / (uncompressedSizes[ghostIndex].SizeInBytes * 8f), 2) * 100f;
@@ -257,7 +266,7 @@ namespace Unity.NetCode.Editor
                     name = type.ToString(),
                     instanceCount = (int)ghostTypeStats.EntityCount,
                     combinedCompressionEfficiency = compressionEfficiency,
-                    avgSizePerEntity = (float)Math.Round(sizePerComponent, 2),
+                    avgSizePerEntity = (float)Math.Ceiling(sizePerComponent),
                     typeIndex = type.TypeIndex
                 };
 

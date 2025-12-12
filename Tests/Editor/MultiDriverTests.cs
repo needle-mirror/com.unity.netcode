@@ -35,10 +35,14 @@ namespace Unity.NetCode.Tests
                 Assert.That(firstDriver.Address, Is.EqualTo("127.0.0.1:4242"), "Local IP Address was not set correctly");
                 var defaultDriverEndpoint = streamDriver.GetLocalEndPoint();
                 Assert.That(defaultDriverEndpoint.Address, Is.EqualTo("127.0.0.1:4242"), "This should be the same driver as used above");
+
+                netDebug.Dispose();
+                driverStore.Dispose();
             }
         }
 
         [Test]
+        [DisableSingleWorldHostTest]
         public void ConnectWithMultipleInterfaces()
         {
             using (var testWorld = new NetCodeTestWorld())
@@ -82,6 +86,7 @@ namespace Unity.NetCode.Tests
         }
 
         [Test]
+        [DisableSingleWorldHostTest]
         public void RpcAreSentAndReceiveByAllClients()
         {
             using (var testWorld = new NetCodeTestWorld())

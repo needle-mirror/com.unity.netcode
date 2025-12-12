@@ -42,6 +42,7 @@ namespace Unity.NetCode.Tests
 
         [Test]
         [Category(NetcodeTestCategories.Smoke)]
+        [DisableSingleWorldHostTest]
         public void ConnectSingleClient()
         {
             using (var testWorld = new NetCodeTestWorld())
@@ -73,6 +74,7 @@ namespace Unity.NetCode.Tests
 
         [TestCase(60, 60, 1)]
         [TestCase(40, 20, 2)]
+        [DisableSingleWorldHostTest]
         public void ClientTickRate_ServerAndClientsUseTheSameRateSettings(
             int simulationTickRate, int networkTickRate, int predictedFixedStepRatio)
         {
@@ -668,6 +670,7 @@ namespace Unity.NetCode.Tests
         [Test]
         [TestCase(true)]
         [TestCase(false)]
+        [DisableSingleWorldHostTest]
         public void ProtocolVersionDebugInfoAppearsOnMismatch(bool debugServer)
         {
             using (var testWorld = new NetCodeTestWorld())
@@ -703,6 +706,7 @@ namespace Unity.NetCode.Tests
         }
 
         [Test]
+        [DisableSingleWorldHostTest]
         public void DisconnectEventAndRPCVersionErrorProcessedInSameFrame([Values] bool checkServer)
         {
             using (var testWorld = new NetCodeTestWorld())

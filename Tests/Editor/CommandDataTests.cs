@@ -136,6 +136,7 @@ namespace Unity.NetCode.Tests
         }
     }
 
+    [DisableSingleWorldHostTest]
     internal class CommandDataTests
     {
         [Test]

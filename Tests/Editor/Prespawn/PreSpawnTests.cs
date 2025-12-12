@@ -727,6 +727,7 @@ namespace Unity.NetCode.Tests.PrespawnTests
         }
 
         [Test]
+        [DisableSingleWorldHostTest]
         public void PrespawnsCanGetRelevantAgain()
         {
             int rows = 5;

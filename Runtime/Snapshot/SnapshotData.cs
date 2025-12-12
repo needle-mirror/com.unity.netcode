@@ -64,6 +64,16 @@ namespace Unity.NetCode
         /// The history slot used to store the last received data from the server. It is always less than <see cref="GhostSystemConstants.SnapshotHistorySize"/>.
         /// </summary>
         public int LatestIndex;
+        /// <summary>
+        /// The latest snapshot history applied to this ghost (via <c>CopyFromSnapshot</c>). Otherwise, <c>Invalid</c>.
+        /// </summary>
+        /// <remarks>
+        /// Set for both predicted and interpolated ghosts.
+        /// For predicted ghosts, this value matches <see cref="PredictedGhost.AppliedTick"/>.
+        /// </remarks>
+        public NetworkTick AppliedTick;
+
+        private static readonly ProfilerMarker k_GetDataAtTick = new ProfilerMarker("SnapshotData_GetDataAtTick");
 
         /// <summary>
         /// The latest snapshot server tick received by the client.
@@ -139,6 +149,8 @@ namespace Unity.NetCode
             int localNetworkId, float targetTickFraction, in DynamicBuffer<SnapshotDataBuffer> buffer,
             out DataAtTick data, uint MaxExtrapolationTicks)
         {
+            using var _ = k_GetDataAtTick.Auto();
+
             data = default;
             if (buffer.Length == 0)
                 return false;

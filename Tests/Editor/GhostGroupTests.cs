@@ -284,6 +284,7 @@ namespace Unity.NetCode.Tests
         [NUnit.Framework.Description("Test an edge case of ghost serialization, where we are unable to serializea group," +
                                      " therefore we reset the state and try again. The test is only meant to verify that exceptions aren't throwns and that data are serialized." +
                                      " We are not currently testing another issue that arise with large ghost, that is handled somewhat correctly, but that has not nice user error reported.")]
+        [DisableSingleWorldHostTest]
         public void GroupLargerThan1MTU_WorkCorrectly()
         {
             using (var testWorld = new NetCodeTestWorld())
@@ -467,6 +468,7 @@ namespace Unity.NetCode.Tests
         }
 
         [Test]
+        [DisableSingleWorldHostTest]
         public void GhostGroup_WorksWithRelevancy_AndStaticOptimization([Values]NetCodeTestLatencyProfile latencyProfile, [Values]GhostOptimizationMode rootMode, [Values]GhostOptimizationMode childMode)
         {
             using (var testWorld = new NetCodeTestWorld())

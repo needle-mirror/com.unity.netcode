@@ -1,3 +1,4 @@
+
 using System;
 using System.Diagnostics;
 using Unity.Burst;
@@ -5,6 +6,7 @@ using Unity.Collections;
 using Unity.Entities;
 using Unity.Collections.LowLevel.Unsafe;
 using UnityEngine;
+using UnityEngine.Assertions;
 
 namespace Unity.NetCode
 {
@@ -89,6 +91,32 @@ namespace Unity.NetCode
             m_DelayedInterpolatedGhostSpawnQueue.Dispose();
         }
 
+        Entity SpawnGhost(ref SystemState state, Entity predictedEntity, int type, NativeArray<GhostCollectionPrefab> prefabs)
+        {
+            if (predictedEntity != Entity.Null && state.EntityManager.Exists(predictedEntity))
+                return predictedEntity;
+            using (GhostSpawningContext.CreateSpawnContext(state.WorldUnmanaged))
+            {
+                var spawnedEntity = state.EntityManager.Instantiate(prefabs[type].GhostPrefab);
+                if (state.EntityManager.HasComponent<GhostGameObjectLink>(prefabs[type].GhostPrefab))
+                {
+#if UNITY_6000_3_OR_NEWER // Required to use GameObject bridge with EntityID
+                    using var instances = new NativeArray<EntityId>(1, Allocator.Temp);
+                    using var transformInstances = new NativeArray<EntityId>(1, Allocator.Temp);
+                    GhostSpawningContext.Current.SpawnedEntity = spawnedEntity;
+                    var goPrefab = state.EntityManager.GetComponentData<GhostGameObjectLink>(prefabs[type].GhostPrefab).AssociatedGameObject;
+                    GameObject.InstantiateGameObjects(goPrefab, 1, instances, transformInstances);
+
+                    // make sure if the GO is Active=false and no initialization logic already ran that we do it here, so we get the right entity injected (and not try to create one next time we activate the GO)
+                    // There's a symetric release in the Despawn system
+                    return GhostEntityMapping.AcquireEntityReferenceGameObject(instances[0], transformInstances[0], goPrefab, autoWorld: state.WorldUnmanaged).Entity;
+#else
+                    throw new InvalidOperationException("Sanity check failed, GameObject instantiation isn't supported, shouldn't be here");
+#endif
+                }
+                return spawnedEntity;
+            }
+        }
         /// <inheritdoc/>
         [BurstCompile]
         public unsafe void OnUpdate(ref SystemState state)
@@ -156,12 +184,12 @@ namespace Unity.NetCode
                             continue;
                         }
                         // Spawn directly
-                        entity = ghost.PredictedSpawnEntity != Entity.Null ? ghost.PredictedSpawnEntity : stateEntityManager.Instantiate(prefabs[ghost.GhostType].GhostPrefab);
+                        entity = SpawnGhost(ref state, ghost.PredictedSpawnEntity, ghost.GhostType, prefabs);
                         if(stateEntityManager.HasComponent<PredictedGhostSpawnRequest>(entity))
                             stateEntityManager.RemoveComponent<PredictedGhostSpawnRequest>(entity);
-                        if (stateEntityManager.HasComponent<GhostPrefabMetaData>(prefabs[ghost.GhostType].GhostPrefab))
+                        if (stateEntityManager.HasComponent<GhostPrefabMetaData>(entity))
                         {
-                            ref var toRemove = ref stateEntityManager.GetComponentData<GhostPrefabMetaData>(prefabs[ghost.GhostType].GhostPrefab).Value.Value.DisableOnPredictedClient;
+                            ref var toRemove = ref stateEntityManager.GetComponentData<GhostPrefabMetaData>(entity).Value.Value.DisableOnPredictedClient;
                             //Need copy because removing component will invalidate the buffer pointer, since introduce structural changes
                             var linkedEntityGroup = stateEntityManager.GetBuffer<LinkedEntityGroup>(entity).ToNativeArray(Allocator.Temp);
                             for (int rm = 0; rm < toRemove.Length; ++rm)
@@ -219,7 +247,7 @@ namespace Unity.NetCode
                    !m_DelayedInterpolatedGhostSpawnQueue.Peek().clientSpawnTick.IsNewerThan(interpolationTargetTick))
             {
                 var ghost = m_DelayedInterpolatedGhostSpawnQueue.Dequeue();
-                if (TrySpawnFromDelayedQueue(ref stateEntityManager, ghost, GhostSpawnBuffer.Type.Interpolated, prefabs, ghostCollectionSingleton, out var entity))
+                if (TrySpawnFromDelayedQueue(ref state, ghost, GhostSpawnBuffer.Type.Interpolated, prefabs, ghostCollectionSingleton, out var entity))
                 {
                     spawnedGhosts.Add(new SpawnedGhostMapping { ghost = new SpawnedGhost { ghostId = ghost.ghostId, spawnTick = ghost.serverSpawnTick }, entity = entity, previousEntity = ghost.oldEntity });
                 }
@@ -228,7 +256,7 @@ namespace Unity.NetCode
                    !m_DelayedPredictedGhostSpawnQueue.Peek().clientSpawnTick.IsNewerThan(predictionTargetTick))
             {
                 var ghost = m_DelayedPredictedGhostSpawnQueue.Dequeue();
-                if (TrySpawnFromDelayedQueue(ref stateEntityManager, ghost, GhostSpawnBuffer.Type.Predicted, prefabs, ghostCollectionSingleton, out var entity))
+                if (TrySpawnFromDelayedQueue(ref state, ghost, GhostSpawnBuffer.Type.Predicted, prefabs, ghostCollectionSingleton, out var entity))
                 {
                     spawnedGhosts.Add(new SpawnedGhostMapping { ghost = new SpawnedGhost { ghostId = ghost.ghostId, spawnTick = ghost.serverSpawnTick }, entity = entity, previousEntity = ghost.oldEntity });
                 }
@@ -310,9 +338,10 @@ namespace Unity.NetCode
             return entity;
         }
 
-        unsafe bool TrySpawnFromDelayedQueue(ref EntityManager entityManager, in DelayedSpawnGhost ghost, GhostSpawnBuffer.Type spawnType, in NativeArray<GhostCollectionPrefab> prefabs, Entity ghostCollectionSingleton, out Entity entity)
+        unsafe bool TrySpawnFromDelayedQueue(ref SystemState state, in DelayedSpawnGhost ghost, GhostSpawnBuffer.Type spawnType, in NativeArray<GhostCollectionPrefab> prefabs, Entity ghostCollectionSingleton, out Entity entity)
         {
             entity = Entity.Null;
+            var entityManager = state.EntityManager;
 
             // TODO: this could allow some time for the prefab to load before giving an error
             if (prefabs[ghost.ghostType].GhostPrefab == Entity.Null)
@@ -325,14 +354,14 @@ namespace Unity.NetCode
                 return false;
 
             // Spawn actual entity
-            entity = ghost.predictedSpawnEntity != Entity.Null ? ghost.predictedSpawnEntity : entityManager.Instantiate(prefabs[ghost.ghostType].GhostPrefab);
+            entity = SpawnGhost(ref state, ghost.predictedSpawnEntity, ghost.ghostType, prefabs);
             if(entityManager.HasComponent<PredictedGhostSpawnRequest>(entity))
                 entityManager.RemoveComponent<PredictedGhostSpawnRequest>(entity);
-            if (entityManager.HasComponent<GhostPrefabMetaData>(prefabs[ghost.ghostType].GhostPrefab))
+            if (entityManager.HasComponent<GhostPrefabMetaData>(entity))
             {
-                ref var toRemove = ref entityManager.GetComponentData<GhostPrefabMetaData>(prefabs[ghost.ghostType].GhostPrefab).Value.Value.DisableOnInterpolatedClient;
+                ref var toRemove = ref entityManager.GetComponentData<GhostPrefabMetaData>(entity).Value.Value.DisableOnInterpolatedClient;
                 if (spawnType == GhostSpawnBuffer.Type.Predicted)
-                    toRemove = ref entityManager.GetComponentData<GhostPrefabMetaData>(prefabs[ghost.ghostType].GhostPrefab).Value.Value.DisableOnPredictedClient;
+                    toRemove = ref entityManager.GetComponentData<GhostPrefabMetaData>(entity).Value.Value.DisableOnPredictedClient;
                 var linkedEntityGroup = entityManager.GetBuffer<LinkedEntityGroup>(entity).ToNativeArray(Allocator.Temp);
                 //Need copy because removing component will invalidate the buffer pointer, since introduce structural changes
                 for (int rm = 0; rm < toRemove.Length; ++rm)
@@ -368,6 +397,54 @@ namespace Unity.NetCode
             entityManager.DestroyEntity(ghost.oldEntity);
 
             return true;
+        }
+    }
+
+    // Needs to be internal (and not private) to avoid boxing allocations (if we were only returning IDisposable)
+    internal partial struct GhostSpawningContext : IDisposable
+    {
+        // [AutoStaticsCleanupOnCodeReload]
+        private struct ContextKey { }
+
+        private static readonly SharedStatic<GhostSpawningContext> s_InitializationContext = SharedStatic<GhostSpawningContext>.GetOrCreate<GhostSpawningContext, ContextKey>();
+
+        public static ref GhostSpawningContext Current => ref s_InitializationContext.Data;
+
+        public static GhostSpawningContext CreateSpawnContext(WorldUnmanaged world)
+        {
+            s_InitializationContext.Data = new GhostSpawningContext()
+            {
+                worldUnmanaged = world,
+            };
+            return s_InitializationContext.Data;
+        }
+
+        public WorldUnmanaged worldUnmanaged;
+        public Entity SpawnedEntity;
+
+
+        public WorldUnmanaged GetWorld()
+        {
+            if (worldUnmanaged.IsCreated)
+            {
+                return worldUnmanaged;
+            }
+
+            if (Netcode.IsClientRole && Netcode.Client.NetworkTime.IsInPredictionLoop)
+            {
+                if (ClientServerBootstrap.ClientWorld == null || !ClientServerBootstrap.ClientWorld.IsCreated)
+                    throw new InvalidOperationException("Trying to spawn a client ghost, but no client world is present");
+                return ClientServerBootstrap.ClientWorld.Unmanaged;
+            }
+
+            if (ClientServerBootstrap.ServerWorld == null || !ClientServerBootstrap.ServerWorld.IsCreated)
+                throw new InvalidOperationException("Trying to spawn a server ghost, but no server world is present");
+            return ClientServerBootstrap.ServerWorld.Unmanaged;
+        }
+
+        public void Dispose()
+        {
+            s_InitializationContext.Data = default;
         }
     }
 }

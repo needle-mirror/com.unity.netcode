@@ -1,7 +1,7 @@
 {
   "name": "com.unity.netcode",
   "displayName": "Netcode for Entities",
-  "version": "1.10.0",
+  "version": "1.11.0",
   "unity": "2022.3",
   "unityRelease": "20f1",
   "description": "Unity's Data Oriented Technology Stack (DOTS) multiplayer netcode layer - a high level netcode system built on entities. This package provides a foundation for creating networked multiplayer applications within DOTS.",
@@ -11,15 +11,15 @@
     "com.unity.modules.animation": "1.0.0"
   },
   "_upm": {
-    "changelog": "### Added\n\n* World state save can now correctly save zero sized components.\n* Netcode Profiler - added a context menu in the Ghost Snapshot View's TreeView Labels to quickly access and inspect Ghost Prefabs and Components.\n\n### Changed\n\n* Dependent version of com.unity.entities is updated to 1.4.2.\n* Source generators will now only run as part of compilation within Unity, and not in IDEs (tested with Rider and Visual Studio, please report a bug if you use another IDE where they are not disabled). This will disable generated sources from showing up in your IDE, but will significantly speed up Roslyn processes in IDEs.\n\n### Removed\n\n* Usage of obsolete entities method `GetRefRWOptional`\n\n### Fixed\n\n* Erroneous Assert in the `PredictedGhostSpawnSystem` incorrectly stating that the `InitJob` does not support enableable components, despite the fact that the query itself polls for disabled entities.\n* Removed warning that spams console when `ClientServerTickRate.TargetFrameRateMode` is set to `Sleep`.\n* Rare issue where an exception would happen in the first run of the prediction loop, only happens when `PredictionUpdateLoopMode` is set to `AlwaysRun`\n* You can again add multiple `Entity` types to your ghost components and commands.\n* Shorts are now properly supported in components and commands.\n* Missing Physics-related API docs have been re-added."
+    "changelog": "### Added\n\n* New Prefab List menu item and playmode tools button to quickly list all ghost prefabs in your project or scene hierarchy.\n* Internal changes to support GameObject ghosts. More to come later. See Discussions post talking more about this work in progress.\n* [Potential Breaking Change] Moving server side's ghost spawn writes from BeginFrame ECB to new PresentationGroup ECB.\n* [Potential Breaking Change] GhostAuthoringComponent's content has been moved to a base class.\n* Netcode profiler received new tooltips and warning icons. These will show if compression efficiency is low or the snapshot size is approaching max message size.\n* Static ghosts now aggressively attempt to avoid looking up snapshot data (via `SnapshotData.GetDataAtTick`) inside the `GhostUpdateSystem.UpdateJob`, and the job itself early outs if there are no ghosts needing to restore, leading to a ~90% reduction in job timings. Profiler markers have also been added to this job, denoting which ghost types (and API calls) are taking the time.\n* Users can now migrate non ghost data using the `IncludeInMigration` component and the associated `NonGhostMigrationComponents` buffer.\n* Non-Ghost Components marked for migration on a Ghost Entity will now be automatically migrated to the correct Ghost.\n\n### Changed\n\n* Corrected ghost-types-templates docs regarding the packed vs unpacked format of `bool`, `byte`, `sbyte`, `float`, and `double`.\n* Improved the `bool` serialization template, improving packed and unpacked costs (~4 bits to 1 bit, and 32 bits to 8 bits, respectively).\n\n### Fixed\n\n* An issue with static optimized ghosts, where incorrect logic in the `GhostUpdateSystem` caused them to not have their `CopyFromSnapshot` called even once in rare cases, which led to `[GhostFields]` like `StaticAsteroid.SpawnTick` (which need additional processing via the `CopyFromSnapshot` code-gen) to be incorrect on the client.\n* `NetworkEndpoint` serialization inside GhostField's, which were mistakenly using `SerializeNetworkEndpointUnpacked` in a packed case.\n* Missing average per entity column for per ghost type overhead sections in the profiler."
   },
   "upmCi": {
-    "footprint": "a1f7d7742495368c01e561ffff04ddcd42e0f49e"
+    "footprint": "142efdef1aff7a09087e0fbddb5de061a3edb607"
   },
-  "documentationUrl": "https://docs.unity3d.com/Packages/com.unity.netcode@1.10/manual/index.html",
+  "documentationUrl": "https://docs.unity3d.com/Packages/com.unity.netcode@1.11/manual/index.html",
   "repository": {
     "url": "https://github.cds.internal.unity3d.com/unity/dots.git",
     "type": "git",
-    "revision": "e05a11b356ac55726ab85150a7dba73285e5d752"
+    "revision": "49126e05d4702e8b1a52bdcdf26685699897b42b"
   }
 }

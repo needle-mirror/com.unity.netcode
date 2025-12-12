@@ -26,11 +26,11 @@ namespace Unity.NetCode
                     {
                         All = new[]
                         {
-                            input.Key
+                            input.Key // key is IInputComponentData type
                         },
                         None = new []
                         {
-                            input.Value
+                            input.Value // value is ICommandData buffer type
                         },
                         Options = EntityQueryOptions.IncludeDisabledEntities | EntityQueryOptions.IncludePrefab
                     });

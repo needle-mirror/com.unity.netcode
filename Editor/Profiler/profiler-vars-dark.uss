@@ -1,3 +1,4 @@
 :root {
-    --overhead-icon: url("../../EditorIcons/d_UnityAsset.png")
+    --overhead-icon: url("../../EditorIcons/Profiler/d_UnityAsset.png");
+    --warning-icon: url("../../EditorIcons/Profiler/d_WarningDimmed.png");
 }

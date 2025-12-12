@@ -454,6 +454,7 @@ namespace Unity.NetCode.Physics.Tests
         }
     }
 
+    [DisableSingleWorldHostTest]
     internal class LagCompensationTests
     {
         const int k_TicksToRegisterHit = 12;

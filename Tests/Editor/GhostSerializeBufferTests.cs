@@ -886,6 +886,7 @@ namespace Unity.NetCode.Tests
         }
 
         [Test]
+        [DisableSingleWorldHostTest]
         [TestCase(typeof(GhostServerOnlyBuffer), true, false, TestName = "ServerOnly")]
         [TestCase(typeof(GhostClientOnlyBuffer), false, true, TestName = "ClientOnly")]
         public void BuffersAreNotSerialized(Type bufferType, bool presentOnServer, bool presentOnClient)

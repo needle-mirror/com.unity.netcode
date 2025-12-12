@@ -63,7 +63,7 @@ namespace Unity.NetCode.Tests
                 if (thinClient)
                 {
                     TypeManager.SortSystemTypesInCreationOrder(NetCodeTestWorld.m_ThinClientSystems); // Ensure CreationOrder is respected.
-                    world = ClientServerBootstrap.CreateThinClientWorld(ListToNativeList(NetCodeTestWorld.m_ThinClientSystems));
+                    world = ClientServerBootstrap.CreateThinClientWorld(ListToNativeList(NetCodeTestWorld.m_ThinClientSystems), name);
                 }
                 else
                 {

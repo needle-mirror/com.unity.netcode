@@ -186,7 +186,10 @@ namespace Unity.NetCode
         }
     }
 
-    /// <summary>Singleton handling NetCode logging and log management.</summary>
+    /// <summary>
+    /// Singleton handling NetCode logging and log management.
+    /// Use <see cref="NetCodeDebugConfig"/> to configure this programmatically.
+    /// </summary>
     public struct NetDebug : IComponentData
     {
         internal const LogLevelType DefaultLogLevel = LogLevelType.Notify;

@@ -50,6 +50,11 @@ namespace Unity.NetCode.Tests
 
     internal partial class HostMigrationTests : TestWithSceneAsset
     {
+        internal struct NonGhostTestData1 : IComponentData
+        {
+            public float Value;
+        }
+
         internal struct UserConnectionComponent : IComponentData
         {
             public int Value1;
@@ -772,6 +777,7 @@ namespace Unity.NetCode.Tests
         }
 
         [Test]
+        [DisableSingleWorldHostTest]
         public void InputBufferIsSkipped()
         {
             int clientCount = 2;
@@ -842,7 +848,7 @@ namespace Unity.NetCode.Tests
                 var hostMigrationData = hostMigrationDataQuery.ToComponentDataArray<HostMigrationStorage>(Allocator.Temp);
                 Assert.AreEqual(1, hostMigrationData.Length);
                 var dataSize = 0;
-                foreach (var ghost in hostMigrationData[0].Ghosts.Ghosts)
+                foreach (var ghost in hostMigrationData[0].MigratedEntities.Ghosts)
                 {
                     foreach (var component in ghost.DataComponents)
                     {
@@ -1103,6 +1109,7 @@ namespace Unity.NetCode.Tests
         /// If input buffers are not migrated the counts will always start from 0 on both the new host and clients.
         /// </summary>
         [Test]
+        [DisableSingleWorldHostTest]
         public void InputEventCountsWorkAfterMigration()
         {
             int clientCount = 4;
@@ -1348,7 +1355,7 @@ namespace Unity.NetCode.Tests
                     UnsafeUtility.Free(tempData, Allocator.Temp);
 
                     // Set the index in the middle
-                    entitySnapshotData.LatestIndex = bufferSize / 2;
+                    entitySnapshotData.LatestIndex = (byte) (bufferSize / 2);
                     testWorld.ClientWorlds[0].EntityManager.SetComponentData<SnapshotData>(prespawnEntities[0], entitySnapshotData);
 
                     // Do the most migration
@@ -1948,6 +1955,7 @@ namespace Unity.NetCode.Tests
         /// After a host migration re-connecting clients who were originally in the session will retain their network ID
         /// </summary>
         [Test]
+        [DisableSingleWorldHostTest]
         public void ClientsKeepIDsAfterMigration()
         {
             // so we want two new test cases we want to add a client mid migration and a client after the migration and we want to make sure they get the next logical id
@@ -2148,6 +2156,348 @@ namespace Unity.NetCode.Tests
                     var ghostInstance = testWorld.ServerWorld.EntityManager.GetComponentData<GhostInstance>(ghostEntities[0]);
                     Assert.AreNotEqual(0, ghostInstance.ghostId);
                     Assert.AreNotEqual(0, ghostInstance.ghostType);
+                }
+            }
+        }
+
+        [Test]
+        public unsafe void CheckMarkedNonGhostDataIsCorrectlyMigrated()
+        {
+            const int testIntValue = 42;
+            const float testFloatValue = 24.0f;
+
+            int clientCount = 2;
+            using (var testWorld = new NetCodeTestWorld())
+            {
+                testWorld.Bootstrap(true, typeof(ServerHostMigrationSystem));
+                testWorld.CreateWorlds(true, clientCount);
+
+                for (int i = 0; i < clientCount; ++i)
+                {
+                    CreatePrefab(testWorld.ClientWorlds[i].EntityManager);
+                }
+
+                testWorld.ServerWorld.EntityManager.CreateEntity(ComponentType.ReadOnly<EnableHostMigration>());
+                CreatePrefab(testWorld.ServerWorld.EntityManager);
+
+                testWorld.Connect(maxSteps:10);
+                testWorld.GoInGame();
+
+                testWorld.TickMultiple(4);
+
+                // Make the entities to migrate and register the component types to migrate
+                var migrationComponentTypesEntity = testWorld.ServerWorld.EntityManager.CreateSingletonBuffer<NonGhostMigrationComponents>();
+                var migrationComponentTypesBuffer = testWorld.ServerWorld.EntityManager.GetBuffer<NonGhostMigrationComponents>(migrationComponentTypesEntity);
+                migrationComponentTypesBuffer.Add(new NonGhostMigrationComponents() {ComponentToMigrate = ComponentType.ReadOnly<NonGhostTestData>() });
+                migrationComponentTypesBuffer.Add(new NonGhostMigrationComponents() {ComponentToMigrate = ComponentType.ReadOnly<NonGhostTestData1>() });
+
+                var serverOnlyMigrationEntity = testWorld.ServerWorld.EntityManager.CreateEntity();
+                testWorld.ServerWorld.EntityManager.AddComponentData<NonGhostTestData>(serverOnlyMigrationEntity, new NonGhostTestData( ) { Value = testIntValue });
+                testWorld.ServerWorld.EntityManager.AddComponentData<NonGhostTestData1>(serverOnlyMigrationEntity, new NonGhostTestData1( ) { Value = testFloatValue });
+                testWorld.ServerWorld.EntityManager.AddComponentData<IncludeInMigration>(serverOnlyMigrationEntity, new IncludeInMigration(){});
+
+                var serverOnlyMigrationEntity1 = testWorld.ServerWorld.EntityManager.CreateEntity();
+                testWorld.ServerWorld.EntityManager.AddComponentData<NonGhostTestData>(serverOnlyMigrationEntity1, new NonGhostTestData( ) { Value = testIntValue });
+                testWorld.ServerWorld.EntityManager.AddComponentData<IncludeInMigration>(serverOnlyMigrationEntity1, new IncludeInMigration(){});
+
+                testWorld.TickMultiple(8);
+
+                {
+                    // Verify the migration componment exists on the server
+                    var IncludeInMigrationComponentsServerQuery = testWorld.ServerWorld.EntityManager.CreateEntityQuery(ComponentType.ReadOnly<IncludeInMigration>());
+                    Assert.AreEqual(2, IncludeInMigrationComponentsServerQuery.CalculateEntityCount(), $"Server doesn't have a IncludeInMigration component before migration. It should have one.");
+
+                    // Verify the migration componment doesn't exist on the clients
+                    for (int i = 0; i < testWorld.ClientWorlds.Length; ++i)
+                    {
+                        var world = testWorld.ClientWorlds[i];
+                        var IncludeInMigrationComponentsClientQuery = world.EntityManager.CreateEntityQuery(ComponentType.ReadOnly<IncludeInMigration>());
+                        Assert.AreEqual(0, IncludeInMigrationComponentsClientQuery.CalculateEntityCount(), $"Client {i} has IncludeInMigration components before migration. It should have none.");
+                    }
+                }
+
+                var migrationConfig = testWorld.GetSingletonRW<HostMigrationConfig>(testWorld.ServerWorld);
+                migrationConfig.ValueRW.ServerUpdateInterval = 0.0f; // Do a migration instantly
+
+                GetHostMigrationData(testWorld, out var migrationData);
+                DisconnectServerAndCreateNewServerWorld(testWorld, ref migrationData);
+
+                // Wait until client disconnects
+                testWorld.TickMultiple(2);
+
+                for (int i = 0; i < clientCount; ++i)
+                {
+                    using var networkIdQuery = testWorld.ClientWorlds[i].EntityManager.CreateEntityQuery(ComponentType.ReadOnly<NetworkId>());
+                    Assert.AreEqual(0, networkIdQuery.CalculateEntityCount());
+                }
+
+                // Need to restore the prefab/ghost collection but normally it would happen via subscene loading during migration
+                CreatePrefab(testWorld.ServerWorld.EntityManager);
+
+                // One of the clients will be the one local to the host, so we won't reconnect that one (always skip processing client 1 from now on)
+                var ep = NetworkEndpoint.LoopbackIpv4;
+                ep.Port = 7979;
+                testWorld.GetSingletonRW<NetworkStreamDriver>(testWorld.ServerWorld).ValueRW.Listen(ep);
+                for (int i = 1; i < clientCount; ++i)
+                    testWorld.GetSingletonRW<NetworkStreamDriver>(testWorld.ClientWorlds[i]).ValueRW.Connect(testWorld.ClientWorlds[i].EntityManager, ep);
+
+                testWorld.TickMultiple(8);
+
+                // TODO: We don't handle connection restore on clients atm, so need to manually place in game
+                for (int i = 1; i < clientCount; ++i)
+                {
+                    using var clientConnectionQuery = testWorld.ClientWorlds[i].EntityManager.CreateEntityQuery(ComponentType.ReadOnly<NetworkStreamConnection>());
+                    testWorld.ClientWorlds[i].EntityManager.AddComponent<NetworkStreamInGame>(clientConnectionQuery.GetSingletonEntity());
+                }
+
+                // Allow ghost collection system to run
+                testWorld.TickMultiple( 2 );
+
+                {
+                    // Verify the miration componment doesn't exist on the clients
+                    for (int i = 0; i < testWorld.ClientWorlds.Length; ++i)
+                    {
+                        var world = testWorld.ClientWorlds[i];
+                        var IncludeInMigrationComponentsClientQuery = world.EntityManager.CreateEntityQuery(ComponentType.ReadOnly<IsMigrated>(),ComponentType.ReadOnly<IncludeInMigration>());
+                        Assert.AreEqual(0, IncludeInMigrationComponentsClientQuery.CalculateEntityCount(), $"Client {i} has MigratedMe components after migration. It should have none.");
+                    }
+
+                    // Validate the new server has the same entities
+                    var IncludeInMigrationComponentsServerQuery = testWorld.ServerWorld.EntityManager.CreateEntityQuery(ComponentType.ReadOnly<IsMigrated>(),ComponentType.ReadOnly<IncludeInMigration>());
+                    Assert.AreEqual(2, IncludeInMigrationComponentsServerQuery.CalculateEntityCount(), $"Server doesn't have Migrated Entities containing both a IncludeInMigration and IsMigrated component after migration. It should have two.");
+
+                    var nonGhostMigratedEntity = IncludeInMigrationComponentsServerQuery.ToEntityArray(Allocator.Temp)[0];
+
+                    Assert.True(testWorld.ServerWorld.EntityManager.HasComponent<NonGhostTestData>(nonGhostMigratedEntity) );
+                    Assert.AreEqual(testIntValue, testWorld.ServerWorld.EntityManager.GetComponentData<NonGhostTestData>(nonGhostMigratedEntity).Value, $"Server hasn't correctly migrated the NonGhostTestData components Value");
+
+                    Assert.True(testWorld.ServerWorld.EntityManager.HasComponent<NonGhostTestData1>(nonGhostMigratedEntity) );
+                    Assert.AreEqual(testFloatValue, testWorld.ServerWorld.EntityManager.GetComponentData<NonGhostTestData1>(nonGhostMigratedEntity).Value, $"Server hasn't correctly migrated the NonGhostTestData1 components Value");
+                }
+            }
+        }
+
+        [Test]
+        public unsafe void MarkedNonGhostPrespawnsMigrateCorrectly()
+        {
+            const int k_testValue = 0x7e57;
+            // so we need to make a server with 3 prespawn scenes with a tracked ghost in each
+            var ghost = SubSceneHelper.CreateSimplePrefab(ScenePath, "Ghost", typeof(GhostAuthoringComponent), typeof(GhostIdAndTickCheckerAuthoring));
+            var migrationPrefab = SubSceneHelper.CreateSimplePrefab(ScenePath, "MigrationPrefab", typeof(IncludeInMigrationAuthoring), typeof(NonGhostMigrationDataAuthoring));
+            var nonMigrationPrefab = SubSceneHelper.CreateSimplePrefab(ScenePath, "NotMigratedPrefab", typeof(NonGhostMigrationDataAuthoring));
+            var scene = SubSceneHelper.CreateEmptyScene(ScenePath, "ParentScene");
+            var subscene = SubSceneHelper.CreateSubSceneWithPrefabs(scene, ScenePath, "SubScene_1", new[] { migrationPrefab, nonMigrationPrefab, ghost }, 1);
+            SceneManager.SetActiveScene(scene);
+
+            const int clientCount = 2;
+            using (var testWorld = new NetCodeTestWorld())
+            {
+                testWorld.Bootstrap(true, typeof(ServerHostMigrationSystem));
+                testWorld.CreateWorlds(true, clientCount);
+                SubSceneHelper.LoadSubSceneInWorlds(testWorld);
+
+                testWorld.ServerWorld.EntityManager.CreateEntity(ComponentType.ReadOnly<EnableHostMigration>());
+
+                testWorld.Connect(maxSteps: 10);
+                testWorld.GoInGame();
+
+                testWorld.TickMultiple(8);
+
+                var migrationComponentTypesEntity = testWorld.ServerWorld.EntityManager.CreateSingletonBuffer<NonGhostMigrationComponents>();
+                var migrationComponentTypesBuffer = testWorld.ServerWorld.EntityManager.GetBuffer<NonGhostMigrationComponents>(migrationComponentTypesEntity);
+                migrationComponentTypesBuffer.Add(new NonGhostMigrationComponents() {ComponentToMigrate = ComponentType.ReadOnly<NonGhostTestData>() });
+
+                var serverEntityManager = testWorld.ServerWorld.EntityManager;
+                var serverMigrationEntities = serverEntityManager.CreateEntityQuery(ComponentType.ReadWrite<NonGhostTestData>()).ToEntityArray(Allocator.Temp);
+                Assert.AreEqual(serverMigrationEntities.Length, 2);
+
+                // Set everything to the test value
+                foreach (var e in serverMigrationEntities)
+                {
+                    Assert.AreNotEqual(serverEntityManager.GetComponentData<NonGhostTestData>(e).Value, k_testValue); // neither prefab should be set to the test value at first
+                    serverEntityManager.SetComponentData(e, new NonGhostTestData() { Value = k_testValue });
+                }
+
+                testWorld.TickMultiple(16);
+
+                var migrationConfig = testWorld.GetSingletonRW<HostMigrationConfig>(testWorld.ServerWorld);
+                migrationConfig.ValueRW.ServerUpdateInterval = 0.0f; // Do a migration instantly
+
+                GetHostMigrationData(testWorld, out var migrationData);
+                DisconnectServerAndCreateNewServerWorld(testWorld, ref migrationData);
+
+                serverEntityManager = testWorld.ServerWorld.EntityManager;
+
+                // Wait until client disconnects
+                testWorld.TickMultiple(2);
+
+                for (int i = 0; i < clientCount; ++i)
+                {
+                    using var networkIdQuery = testWorld.ClientWorlds[i].EntityManager.CreateEntityQuery(ComponentType.ReadOnly<NetworkId>());
+                    Assert.AreEqual(0, networkIdQuery.CalculateEntityCount());
+                }
+
+                // One of the clients will be the one local to the host, so we won't reconnect that one (always skip processing client 1 from now on)
+                var ep = NetworkEndpoint.LoopbackIpv4;
+                ep.Port = 7979;
+                testWorld.GetSingletonRW<NetworkStreamDriver>(testWorld.ServerWorld).ValueRW.Listen(ep);
+                for (int i = 1; i < clientCount; ++i)
+                    testWorld.GetSingletonRW<NetworkStreamDriver>(testWorld.ClientWorlds[i]).ValueRW.Connect(testWorld.ClientWorlds[i].EntityManager, ep);
+
+                testWorld.TickMultiple(8);
+
+                // TODO: We don't handle connection restore on clients atm, so need to manually place in game
+                for (int i = 1; i < clientCount; ++i)
+                {
+                    using var clientConnectionQuery = testWorld.ClientWorlds[i].EntityManager.CreateEntityQuery(ComponentType.ReadOnly<NetworkStreamConnection>());
+                    testWorld.ClientWorlds[i].EntityManager.AddComponent<NetworkStreamInGame>(clientConnectionQuery.GetSingletonEntity());
+                }
+
+                // Allow ghost collection system to run
+                testWorld.TickMultiple( 2 );
+
+                var postMigrationserverMigrationEntities = serverEntityManager.CreateEntityQuery(ComponentType.ReadWrite<NonGhostTestData>()).ToEntityArray(Allocator.Temp);
+                Assert.AreEqual(2,postMigrationserverMigrationEntities.Length);
+
+                // Only the migrated version should still have the test value, the non migrated version, will not be set to the test value
+                var migratedEntities = 0;
+                var notMigratedEntities = 0;
+                foreach(var e in postMigrationserverMigrationEntities)
+                {
+                    var testData = serverEntityManager.GetComponentData<NonGhostTestData>(e);
+                    if ( serverEntityManager.HasComponent<IsMigrated>(e) )
+                    {
+                        Assert.AreEqual(testData.Value, k_testValue);
+                        migratedEntities++;
+                    }
+                    else
+                    {
+                        Assert.AreNotEqual(testData.Value, k_testValue);
+                        notMigratedEntities++;
+                    }
+                }
+
+                Assert.AreEqual(1,migratedEntities);
+                Assert.AreEqual(1,notMigratedEntities);
+            }
+        }
+
+        /// <summary>
+        /// A Ghost Entity can contain both Ghost and Non Ghost Components. Ghost Components are automatically migrated and linked to the correct Ghost Entities on the new Host
+        /// we also need to make sure marked non ghost componetns are also linked back to the correct Ghosts.
+        /// </summary>
+        [Test]
+        public unsafe void MigrationLinksNonGhostComponentsOnGhostsToThierOriginalGhosts()
+        {
+            int clientCount = 2;
+            using (var testWorld = new NetCodeTestWorld())
+            {
+                testWorld.Bootstrap(true, typeof(ServerHostMigrationSystem));
+                testWorld.CreateWorlds(true, clientCount);
+
+                var migrationTestTypes = new ComponentType[3];
+                migrationTestTypes[0] = typeof(IncludeInMigration);
+                migrationTestTypes[1] = typeof(NonGhostTestData);
+                migrationTestTypes[2] = typeof(SimpleData); // add some ghost data too to test it also still migrates correctly
+
+                for (int i = 0; i < clientCount; ++i)
+                {
+                    CreatePrefab(testWorld.ClientWorlds[i].EntityManager, "TestGhost", migrationTestTypes );
+                }
+
+                testWorld.ServerWorld.EntityManager.CreateEntity(ComponentType.ReadOnly<EnableHostMigration>());
+                var prefab = CreatePrefab(testWorld.ServerWorld.EntityManager, "TestGhost", migrationTestTypes );
+
+                testWorld.Connect(maxSteps:10);
+                testWorld.GoInGame();
+
+                testWorld.TickMultiple(4);
+
+                // spawn 2 ghosts
+                for (int i = 0; i < 2; ++i)
+                    testWorld.ServerWorld.EntityManager.Instantiate(prefab);
+
+                // Make the entities to migrate and register the component types to migrate
+                var migrationComponentTypesEntity = testWorld.ServerWorld.EntityManager.CreateSingletonBuffer<NonGhostMigrationComponents>();
+                var migrationComponentTypesBuffer = testWorld.ServerWorld.EntityManager.GetBuffer<NonGhostMigrationComponents>(migrationComponentTypesEntity);
+                migrationComponentTypesBuffer.Add(new NonGhostMigrationComponents() {ComponentToMigrate = ComponentType.ReadOnly<NonGhostTestData>() });
+
+                testWorld.TickMultiple(4);
+
+                // set the test data on the ghost prefabs
+                var preMigrationMigrationDataInitQuery = testWorld.ServerWorld.EntityManager.CreateEntityQuery(ComponentType.ReadOnly<GhostInstance>(),ComponentType.ReadOnly<NonGhostTestData>());
+                foreach (var e in preMigrationMigrationDataInitQuery.ToEntityArray(Allocator.Temp))
+                {
+                    testWorld.ServerWorld.EntityManager.SetComponentData(e, new NonGhostTestData { Value = testWorld.ServerWorld.EntityManager.GetComponentData<GhostInstance>(e).ghostId });
+                    testWorld.ServerWorld.EntityManager.SetComponentData(e, new SimpleData { IntValue = testWorld.ServerWorld.EntityManager.GetComponentData<GhostInstance>(e).ghostId });
+                }
+
+                testWorld.TickMultiple(8);
+
+                // Check the data is correct on the server before we migrate
+                {
+                    Assert.AreEqual(2, testWorld.ServerWorld.EntityManager.CreateEntityQuery(ComponentType.ReadOnly<NonGhostTestData>()).CalculateEntityCount());
+
+                    var preMigrationMigrationDataQuery = testWorld.ServerWorld.EntityManager.CreateEntityQuery(ComponentType.ReadOnly<GhostInstance>(),ComponentType.ReadOnly<NonGhostTestData>());
+                    foreach (var e in preMigrationMigrationDataQuery.ToEntityArray(Allocator.Temp))
+                    {
+                        int ghostId = testWorld.ServerWorld.EntityManager.GetComponentData<GhostInstance>(e).ghostId;
+                        int nonGhostTestDataValue = testWorld.ServerWorld.EntityManager.GetComponentData<NonGhostTestData>(e).Value;
+                        Assert.AreEqual( ghostId, nonGhostTestDataValue, $"Pre migration ghost non ghost data ({nonGhostTestDataValue}) does not match ghost id ({ghostId}).");
+                    }
+                }
+
+                var migrationConfig = testWorld.GetSingletonRW<HostMigrationConfig>(testWorld.ServerWorld);
+                migrationConfig.ValueRW.ServerUpdateInterval = 0.0f; // Do a migration instantly
+
+                GetHostMigrationData(testWorld, out var migrationData);
+                DisconnectServerAndCreateNewServerWorld(testWorld, ref migrationData);
+
+                // Wait until client disconnects
+                testWorld.TickMultiple(2);
+
+                for (int i = 0; i < clientCount; ++i)
+                {
+                    using var networkIdQuery = testWorld.ClientWorlds[i].EntityManager.CreateEntityQuery(ComponentType.ReadOnly<NetworkId>());
+                    Assert.AreEqual(0, networkIdQuery.CalculateEntityCount());
+                }
+
+                // Need to restore the prefab/ghost collection but normally it would happen via subscene loading during migration
+                CreatePrefab(testWorld.ServerWorld.EntityManager, "TestGhost", migrationTestTypes );
+
+                // One of the clients will be the one local to the host, so we won't reconnect that one (always skip processing client 1 from now on)
+                var ep = NetworkEndpoint.LoopbackIpv4;
+                ep.Port = 7979;
+                testWorld.GetSingletonRW<NetworkStreamDriver>(testWorld.ServerWorld).ValueRW.Listen(ep);
+                for (int i = 1; i < clientCount; ++i)
+                    testWorld.GetSingletonRW<NetworkStreamDriver>(testWorld.ClientWorlds[i]).ValueRW.Connect(testWorld.ClientWorlds[i].EntityManager, ep);
+
+                testWorld.TickMultiple(8);
+
+                // TODO: We don't handle connection restore on clients atm, so need to manually place in game
+                for (int i = 1; i < clientCount; ++i)
+                {
+                    using var clientConnectionQuery = testWorld.ClientWorlds[i].EntityManager.CreateEntityQuery(ComponentType.ReadOnly<NetworkStreamConnection>());
+                    testWorld.ClientWorlds[i].EntityManager.AddComponent<NetworkStreamInGame>(clientConnectionQuery.GetSingletonEntity());
+                }
+
+                // Allow ghost collection system to run
+                testWorld.TickMultiple( 2 );
+
+                {
+                    // Validate the new server has the same entities
+                    var includeInMigrationComponentsServerQueryPostMigration = testWorld.ServerWorld.EntityManager.CreateEntityQuery(ComponentType.ReadOnly<IsMigrated>(),ComponentType.ReadOnly<IncludeInMigration>());
+                    Assert.AreEqual(2, includeInMigrationComponentsServerQueryPostMigration.CalculateEntityCount(), $"Server has {includeInMigrationComponentsServerQueryPostMigration.CalculateEntityCount()} Migrated Entities containing both a IncludeInMigration and IsMigrated component after migration. It should have two.");
+
+                    var PostMigrationMigrationDataQuery = testWorld.ServerWorld.EntityManager.CreateEntityQuery(ComponentType.ReadOnly<GhostInstance>());
+                    foreach (var e in PostMigrationMigrationDataQuery.ToEntityArray(Allocator.Temp))
+                    {
+                        int ghostId = testWorld.ServerWorld.EntityManager.GetComponentData<GhostInstance>(e).ghostId;
+                        int nonGhostTestDataValue = testWorld.ServerWorld.EntityManager.GetComponentData<NonGhostTestData>(e).Value;
+                        int ghostDataTestValue = testWorld.ServerWorld.EntityManager.GetComponentData<SimpleData>(e).IntValue;
+                        Assert.AreEqual( ghostId, nonGhostTestDataValue, $"Migrated Ghost Non-Ghost data ({nonGhostTestDataValue}) does not match ghost id ({ghostId}).");
+                        Assert.AreEqual( ghostId, ghostDataTestValue, $"Migrated Ghost Ghost data ({ghostDataTestValue}) does not match ghost id ({ghostId}).");
+                    }
                 }
             }
         }

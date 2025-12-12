@@ -858,26 +858,8 @@ namespace Unity.NetCode
             }
         }
 
-        /// <summary>
-        /// Converts an entity to a ghost prefab, and registers it with the collection.
-        /// This method will add the `Prefab` and `LinkedEntityGroup` components if they do not already exist.
-        /// It will also add all component required for a prefab to be used as a ghost, and register it with the `GhostCollectionSystem`.
-        /// The blob asset (which is created as part of making it a ghost prefab) is owned (and will be freed by) the `GhostCollectionSystem`.
-        /// Thus, the calling code should not free the blob asset.
-        /// The prefabs must be created exactly the same way on both the client and the server, and they must contain all components.
-        /// Use component overrides if you want to have some components server or client only.
-        /// </summary>
-        /// <remarks>
-        /// Note that - when using this in a System `OnCreate` method - you must ensure your system is created after the `DefaultVariantSystemGroup`,
-        /// as we must register serialization strategies before you access them.
-        /// </remarks>
-        /// <param name="entityManager">Used to add components data on ghost children.</param>
-        /// <param name="prefab">Entity prefab to be converted.</param>
-        /// <param name="config">Configuration used to create a ghost prefab.</param>
-        /// <param name="overrides">Override types for specific components.</param>
-        public static void ConvertToGhostPrefab(EntityManager entityManager, Entity prefab,
-            Config config,
-            NativeParallelHashMap<Component, ComponentOverride> overrides = default)
+        internal static void ConvertToGhostPrefab_Internal(EntityManager entityManager, Entity prefab,
+            Config config, NetcodeConversionTarget target, NativeParallelHashMap<Component, ComponentOverride> overrides)
         {
             // Make sure there is a valid overrides map to make the rest of this function easier
             if (!overrides.IsCreated)
@@ -958,7 +940,6 @@ namespace Unity.NetCode
                 }
             }
 
-            NetcodeConversionTarget target = (entityManager.World.IsServer()) ? NetcodeConversionTarget.Server : NetcodeConversionTarget.Client;
             // Calculate a uuid v5 using the guid of this .cs file as namespace and the prefab name as name. See rfc 4122 for more info on uuid5
             // TODO: should probably be the raw bytes from the namespace guid + name
             GhostType ghostType;
@@ -988,6 +969,38 @@ namespace Unity.NetCode
             FinalizePrefabComponents(config, entityManager, prefab, ghostType, linkedEntitiesArray,
                         allComponents, componentCounts, target, prefabTypes);
 
+            var blobAsset = CreateBlobAsset(config, entityManager, prefab, linkedEntitiesArray,
+                allComponents, componentCounts, target, prefabTypes, sendMasksOverride, variants);
+
+            entityManager.AddComponentData(prefab, new GhostPrefabMetaData
+            {
+                Value = blobAsset
+            });
+        }
+
+        /// <summary>
+        /// Converts an entity to a ghost prefab, and registers it with the collection.
+        /// This method will add the `Prefab` and `LinkedEntityGroup` components if they do not already exist.
+        /// It will also add all component required for a prefab to be used as a ghost, and register it with the `GhostCollectionSystem`.
+        /// The blob asset (which is created as part of making it a ghost prefab) is owned (and will be freed by) the `GhostCollectionSystem`.
+        /// Thus, the calling code should not free the blob asset.
+        /// The prefabs must be created exactly the same way on both the client and the server, and they must contain all components.
+        /// Use component overrides if you want to have some components server or client only.
+        /// </summary>
+        /// <remarks>
+        /// Note that - when using this in a System `OnCreate` method - you must ensure your system is created after the `DefaultVariantSystemGroup`,
+        /// as we must register serialization strategies before you access them.
+        /// </remarks>
+        /// <param name="entityManager">Used to add components data on ghost children.</param>
+        /// <param name="prefab">Entity prefab to be converted.</param>
+        /// <param name="config">Configuration used to create a ghost prefab.</param>
+        /// <param name="overrides">Override types for specific components.</param>
+        public static void ConvertToGhostPrefab(EntityManager entityManager, Entity prefab,
+            Config config,
+            NativeParallelHashMap<Component, ComponentOverride> overrides = default)
+        {
+            NetcodeConversionTarget target = (entityManager.World.IsServer()) ? NetcodeConversionTarget.Server : NetcodeConversionTarget.Client;
+            ConvertToGhostPrefab_Internal(entityManager, prefab, config, target, overrides);
             using var codePrefabQuery = entityManager.CreateEntityQuery(new EntityQueryBuilder(Allocator.Temp).WithAll<CodeGhostPrefab>());
             if (!codePrefabQuery.TryGetSingletonEntity<CodeGhostPrefab>(out var codePrefabSingleton))
                 codePrefabSingleton = entityManager.CreateSingletonBuffer<CodeGhostPrefab>();
@@ -996,20 +1009,16 @@ namespace Unity.NetCode
 #if NETCODE_DEBUG
             for (int i = 0; i < codePrefabs.Length; ++i)
             {
+                var ghostType = entityManager.GetComponentData<GhostType>(prefab);
                 if (entityManager.GetComponentData<GhostType>(codePrefabs[i].entity) == ghostType)
                 {
-                    throw new InvalidOperationException("Duplicate ghost prefab found, all ghost prefabs must have a unique name");
+                    throw new InvalidOperationException($"Duplicate ghost prefab with name:{config.Name} type:{ghostType.ToFixedString()} found, all ghost prefabs must have a unique name");
                 }
             }
-            #endif
-
-            var blobAsset = CreateBlobAsset(config, entityManager, prefab, linkedEntitiesArray,
-                allComponents, componentCounts, target, prefabTypes, sendMasksOverride, variants);
-            codePrefabs.Add(new CodeGhostPrefab{entity = prefab, blob = blobAsset});
-            entityManager.AddComponentData(prefab, new GhostPrefabMetaData
-            {
-                Value = blobAsset
-            });
+#endif
+            var prefabMeta = entityManager.GetComponentData<GhostPrefabMetaData>(prefab);
+            codePrefabs.Add(new CodeGhostPrefab{entity = prefab, blob = prefabMeta.Value});
         }
+
     }
 }

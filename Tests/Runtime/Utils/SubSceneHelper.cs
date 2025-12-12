@@ -5,6 +5,7 @@ using System.Linq;
 using System.Reflection;
 using System.Collections.Generic;
 using System.Threading;
+using NUnit.Framework;
 using Unity.Entities;
 using Unity.Scenes;
 using UnityEditor;
@@ -167,6 +168,57 @@ namespace Unity.NetCode.Tests
             return CreatePrefab(path, go);
         }
 
+#if UNITY_6000_3_OR_NEWER // Required to use GameObject bridge with EntityID
+
+        public static GameObject CreateGhostBehaviourPrefab(string path, string name, params Type[] componentTypes)
+        {
+            return CreateGhostBehaviourPrefab(path, name, false, componentTypes);
+        }
+
+        /// <summary>
+        /// Creates GhostBehaviour prefab with proper prefab ref tracking setup.
+        /// </summary>
+        /// <param name="path">Ex: Assets/Tests</param>
+        /// <param name="name">Ex: MyPrefab (no extension .prefab)</param>
+        /// <param name="componentTypes">Asserts one of the provided component is a GhostBehaviour. No need to add GhostAdapter, that should be added automatically by GhostBehaviour RequireComponent</param>
+        /// <returns></returns>
+        public static GameObject CreateGhostBehaviourPrefab(string path, string name, bool skipAutoRegistration = false, params Type[] componentTypes)
+        {
+            Assert.That(componentTypes.Any(t => t.IsSubclassOf(typeof(GhostBehaviour))));
+            var go = new GameObject(name);
+            go.SetActive(false); // to prevent Awake from triggering initialization and logging null refs
+            foreach (var type in componentTypes)
+            {
+                go.AddComponent(type);
+            }
+
+            go.GetComponent<GhostAdapter>().SkipAutomaticPrefabRegistration = skipAutoRegistration;
+            var prefab = CreatePrefab(path, go);
+            prefab.SetActive(true);
+            foreach (var world in World.All)
+            {
+                // check all possible worlds for the prefab that was just created and reenable it there too, since normal prefab creation would think the prefab is inactive
+                // and automatically set the associated entity disabled too
+                var link = GhostEntityMapping.LookupEntityReferencePrefab(prefab.GetEntityId(), world.Unmanaged);
+                if (link.WasInitialized)
+                    link.World.EntityManager.SetEnabled(link.Entity, true);
+            }
+            return prefab;
+        }
+        public static GameObject CreateGhostBehaviourPrefab(string path, GameObject gameObject,
+            params Type[] componentTypes)
+        {
+            Assert.That(componentTypes.Any(t => t.IsSubclassOf(typeof(GhostBehaviour))));
+            gameObject.SetActive(false); // to prevent Awake from triggering and logging null refs
+            foreach (var type in componentTypes)
+            {
+                gameObject.AddComponent(type);
+            }
+            var prefab = CreatePrefab(path, gameObject);
+            prefab.SetActive(true);
+            return prefab;
+        }
+#endif
         static public GameObject CreatePrefab(string path, GameObject go)
         {
             if (!Directory.Exists(path))

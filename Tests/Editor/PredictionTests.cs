@@ -447,6 +447,7 @@ namespace Unity.NetCode.Tests
         [TestCase(20)]
         [TestCase(30)]
         [TestCase(40)]
+        [DisableSingleWorldHostTest]
         public void HistoryBufferIsRollbackCorrectly(int ghostCount)
         {
             using (var testWorld = new NetCodeTestWorld())
@@ -598,6 +599,7 @@ namespace Unity.NetCode.Tests
 
         [TestCase(1)]
         [TestCase(100)]
+        [DisableSingleWorldHostTest]
         public void HistoryBufferIsPreservedOnStructuralChanges(int ghostCount)
         {
             void CheckPredicitionStepsAndStartTick(NativeArray<Entity> entities, NetCodeTestWorld testWorld, NetworkTick currentPartialTick,
@@ -882,6 +884,7 @@ namespace Unity.NetCode.Tests
         }
 
         [Test]
+        [DisableSingleWorldHostTest]
         public void NetworkTimeSingleton_CorrectValuesInsidePredictionLoop()
         {
             using var testWorld = new NetCodeTestWorld();

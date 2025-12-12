@@ -15,6 +15,7 @@ namespace Unity.NetCode.Tests
         // Tests that all supported ghost values are replicated from Server->Client on IComponentData via ghost fields
         [Test]
         [Category(NetcodeTestCategories.Foundational)]
+        [DisableSingleWorldHostTest]
         public void GhostValuesAreSerialized_IComponentData()
         {
             using (var testWorld = new NetCodeTestWorld())
@@ -90,6 +91,7 @@ namespace Unity.NetCode.Tests
         // This uses multiple test cases, because there is a size limit on ICommandData, so we split the struct into multiple values
         [Test]
         [Category(NetcodeTestCategories.Foundational)]
+        [DisableSingleWorldHostTest]
         public void ValuesAreSerialized_ICommandData_Values()
         {
             Func<NetworkTick, int, Entity, GhostGenTestUtils.GhostGenTestType_ICommandData_Values> creator =
@@ -100,6 +102,7 @@ namespace Unity.NetCode.Tests
         }
 
         [Test]
+        [DisableSingleWorldHostTest]
         public void ValuesAreSerialized_ICommandData_Strings()
         {
             Func<NetworkTick, int, Entity, GhostGenTestUtils.GhostGenTestType_ICommandData_Strings> creator =
@@ -330,6 +333,7 @@ namespace Unity.NetCode.Tests
         }
 
         [Test]
+        [DisableSingleWorldHostTest]
         public void CommandTooBig()
         {
             using (var testWorld = new NetCodeTestWorld())

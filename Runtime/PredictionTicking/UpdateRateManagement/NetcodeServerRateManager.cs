@@ -120,7 +120,8 @@ namespace Unity.NetCode
         /// This can be useful if your host's rate mode is set to BusyWait and you want to do client operations during frames where your server isn't ticking.
         /// Ex: for a tick rate of 60Hz and a frame rate of 120Hz, a client hosted server would execute 2 frames for every tick. In other words, your game would be
         /// less busy one frame out of two. This can be used to do extra operations.
-        /// This method can be accessible through the server's rate manager.
+        /// Note that the result of this method is undefined when calling this after the <see cref="SimulationSystemGroup"/>.
+        /// This method can be accessed through the server's rate manager.
         /// </para>
         /// </summary>
         /// <example>

@@ -89,6 +89,7 @@ namespace Unity.NetCode.Tests
         }
 
         [Test]
+        [DisableSingleWorldHostTest]
         public void OverrideComponentPrefabType_RootEntity()
         {
             using (var testWorld = new NetCodeTestWorld())
@@ -151,6 +152,7 @@ namespace Unity.NetCode.Tests
         }
 
         [Test]
+        [DisableSingleWorldHostTest]
         public void OverrideComponentPrefabType_ChildEntity()
         {
             using (var testWorld = new NetCodeTestWorld())
@@ -214,6 +216,7 @@ namespace Unity.NetCode.Tests
         }
 
         [Test]
+        [DisableSingleWorldHostTest]
         public void OverrideComponentPrefabType_NestedChildEntity()
         {
             using (var testWorld = new NetCodeTestWorld())

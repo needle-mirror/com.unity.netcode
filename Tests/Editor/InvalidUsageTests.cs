@@ -35,6 +35,7 @@ namespace Unity.NetCode.Tests
     internal class InvalidUsageTests
     {
         [Test]
+        [DisableSingleWorldHostTest]
         public void CanRecoverFromDeletingGhostOnClient()
         {
             using (var testWorld = new NetCodeTestWorld())

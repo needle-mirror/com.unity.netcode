@@ -228,6 +228,7 @@ namespace Unity.NetCode.Tests
         Any,
     }
 
+    [DisableSingleWorldHostTest]
     internal class ExtrapolationTests
     {
         public static NetcodeSetupMode TMode;

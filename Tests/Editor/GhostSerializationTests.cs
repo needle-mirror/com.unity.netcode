@@ -570,6 +570,7 @@ namespace Unity.NetCode.Tests
             }
         }
         [Test]
+        [DisableSingleWorldHostTest]
         public void EntityReferenceUnavailableGhostIsResolved()
         {
             using (var testWorld = new NetCodeTestWorld())
@@ -707,6 +708,7 @@ namespace Unity.NetCode.Tests
         }
         [Test]
         [Category(NetcodeTestCategories.Foundational)]
+        [DisableSingleWorldHostTest]
         public void SnapshotAckMaskIsReportedCorrectlyByTheClient()
         {
             using (var testWorld = new NetCodeTestWorld())
@@ -835,6 +837,7 @@ namespace Unity.NetCode.Tests
             }
         }
         [Test]
+        [DisableSingleWorldHostTest]
         public void GhostValuesAreSerializedWhenLargerThanMaxMessageSize()
         {
             using (var testWorld = new NetCodeTestWorld())
@@ -880,6 +883,7 @@ namespace Unity.NetCode.Tests
         }
 
         [Test]
+        [DisableSingleWorldHostTest]
         public void TooSmall_SnapshotPacketSize_FailsGracefully_ViaMaxSnapshotSendAttempts([Values]bool useNetworkStreamSnapshotTargetSize)
         {
             using var testWorld = new NetCodeTestWorld();

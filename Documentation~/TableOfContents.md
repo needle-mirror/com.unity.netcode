@@ -33,6 +33,7 @@
     * [Host migration API and components](host-migration/host-migration-api.md)
     * [Add host migration to your project](host-migration/add-host-migration.md)
       * [Host migration requirements](host-migration/host-migration-requirements.md)
+      * [Host migration considerations](host-migration/host-migration-considerations.md)
       * [Host migration systems and data](host-migration/host-migration-systems.md)
       * [Lobby and Relay integration](host-migration/lobby-relay-integration.md)
     * [Limitations and known issues](host-migration/host-migration-limitations.md)

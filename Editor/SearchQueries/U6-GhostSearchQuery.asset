@@ -1,0 +1,240 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 13982, guid: 0000000000000000e000000000000000, type: 0}
+  m_Name: U6-GhostSearchQuery
+  m_EditorClassIdentifier: UnityEditor.dll::UnityEditor.Search.SearchQueryAsset
+  text: t:GhostAuthoringComponent
+  description: 
+  viewState:
+    providerIds:
+    - asset
+    - scene
+    - menu
+    - settings
+    searchFlags: -1195376374
+    searchText: t:GhostAuthoringComponent
+    m_SelectHandler:
+      stream: 
+    m_TrackingHandler:
+      stream: 
+    m_FilterHandler:
+      stream: 
+    m_GroupChanged:
+      stream: 
+    m_ActiveQueryGuid: f560c9068d75f4b39b993a27ac415cdf
+    hideTabs: 0
+    sessionId: 64959935cf694b558bae84741c04708a
+    sessionName: 
+    excludeClearItem: 0
+    tableConfig:
+      id: aaeff17b43094dce812a84615669b988
+      name: Default
+      columns:
+      - path: Label
+        provider: Name
+        selector: Label
+        width: 250
+        options: 3178500
+        content:
+          m_Text: Label
+          m_Image: {fileID: 0}
+          m_Tooltip: 
+          m_TextWithWhitespace: "Label\u200B"
+        m_Getter:
+          stream: AAEAAAD/////AQAAAAAAAAAEAQAAAC9TeXN0ZW0uUmVmbGVjdGlvbi5NZW1iZXJJbmZvU2VyaWFsaXphdGlvbkhvbGRlcgcAAAAETmFtZQxBc3NlbWJseU5hbWUJQ2xhc3NOYW1lCVNpZ25hdHVyZQpTaWduYXR1cmUyCk1lbWJlclR5cGUQR2VuZXJpY0FyZ3VtZW50cwEBAQEBAAMIDVN5c3RlbS5UeXBlW10GAgAAAAdHZXROYW1lBgMAAABUVW5pdHlFZGl0b3IuUXVpY2tTZWFyY2hNb2R1bGUsIFZlcnNpb249MC4wLjAuMCwgQ3VsdHVyZT1uZXV0cmFsLCBQdWJsaWNLZXlUb2tlbj1udWxsBgQAAAAgVW5pdHlFZGl0b3IuU2VhcmNoLkl0ZW1TZWxlY3RvcnMGBQAAAD9TeXN0ZW0uT2JqZWN0IEdldE5hbWUoVW5pdHlFZGl0b3IuU2VhcmNoLlNlYXJjaENvbHVtbkV2ZW50QXJncykGBgAAAD9TeXN0ZW0uT2JqZWN0IEdldE5hbWUoVW5pdHlFZGl0b3IuU2VhcmNoLlNlYXJjaENvbHVtbkV2ZW50QXJncykIAAAACgs=
+        m_Setter:
+          stream: 
+        m_Drawer:
+          stream: 
+        m_CellCreator:
+          stream: AAEAAAD/////AQAAAAAAAAAEAQAAAC9TeXN0ZW0uUmVmbGVjdGlvbi5NZW1iZXJJbmZvU2VyaWFsaXphdGlvbkhvbGRlcgcAAAAETmFtZQxBc3NlbWJseU5hbWUJQ2xhc3NOYW1lCVNpZ25hdHVyZQpTaWduYXR1cmUyCk1lbWJlclR5cGUQR2VuZXJpY0FyZ3VtZW50cwEBAQEBAAMIDVN5c3RlbS5UeXBlW10GAgAAABNDcmVhdGVWaXN1YWxFbGVtZW50BgMAAABUVW5pdHlFZGl0b3IuUXVpY2tTZWFyY2hNb2R1bGUsIFZlcnNpb249MC4wLjAuMCwgQ3VsdHVyZT1uZXV0cmFsLCBQdWJsaWNLZXlUb2tlbj1udWxsBgQAAAAgVW5pdHlFZGl0b3IuU2VhcmNoLkl0ZW1TZWxlY3RvcnMGBQAAAFlVbml0eUVuZ2luZS5VSUVsZW1lbnRzLlZpc3VhbEVsZW1lbnQgQ3JlYXRlVmlzdWFsRWxlbWVudChVbml0eUVkaXRvci5TZWFyY2guU2VhcmNoQ29sdW1uKQYGAAAAWVVuaXR5RW5naW5lLlVJRWxlbWVudHMuVmlzdWFsRWxlbWVudCBDcmVhdGVWaXN1YWxFbGVtZW50KFVuaXR5RWRpdG9yLlNlYXJjaC5TZWFyY2hDb2x1bW4pCAAAAAoL
+        m_Binder:
+          stream: AAEAAAD/////AQAAAAAAAAAEAQAAAC9TeXN0ZW0uUmVmbGVjdGlvbi5NZW1iZXJJbmZvU2VyaWFsaXphdGlvbkhvbGRlcgcAAAAETmFtZQxBc3NlbWJseU5hbWUJQ2xhc3NOYW1lCVNpZ25hdHVyZQpTaWduYXR1cmUyCk1lbWJlclR5cGUQR2VuZXJpY0FyZ3VtZW50cwEBAQEBAAMIDVN5c3RlbS5UeXBlW10GAgAAAAhCaW5kTmFtZQYDAAAAVFVuaXR5RWRpdG9yLlF1aWNrU2VhcmNoTW9kdWxlLCBWZXJzaW9uPTAuMC4wLjAsIEN1bHR1cmU9bmV1dHJhbCwgUHVibGljS2V5VG9rZW49bnVsbAYEAAAAIFVuaXR5RWRpdG9yLlNlYXJjaC5JdGVtU2VsZWN0b3JzBgUAAABdVm9pZCBCaW5kTmFtZShVbml0eUVkaXRvci5TZWFyY2guU2VhcmNoQ29sdW1uRXZlbnRBcmdzLCBVbml0eUVuZ2luZS5VSUVsZW1lbnRzLlZpc3VhbEVsZW1lbnQpBgYAAABkU3lzdGVtLlZvaWQgQmluZE5hbWUoVW5pdHlFZGl0b3IuU2VhcmNoLlNlYXJjaENvbHVtbkV2ZW50QXJncywgVW5pdHlFbmdpbmUuVUlFbGVtZW50cy5WaXN1YWxFbGVtZW50KQgAAAAKCw==
+        m_Comparer:
+          stream: 
+      - path: GhostAuthoringComponent/DefaultGhostMode
+        provider: SerializedProperty
+        selector: '#DefaultGhostMode'
+        width: 129.53
+        options: 3178496
+        content:
+          m_Text: Default Ghost Mode
+          m_Image: {fileID: 0}
+          m_Tooltip: 'The `GhostMode` used when first spawned (assuming you do not
+            manually change it, using a GhostSpawnClassificationSystem).
+
+
+            If
+            set to ''Owner Predicted'', the ghost will be ''Predicted'' on the client
+            which owns it, and ''Interpolated'' on all others. If using ''Owner Predicted'',
+            you cannot change the ghost mode via a classification system.'
+          m_TextWithWhitespace: "Default Ghost Mode\u200B"
+        m_Getter:
+          stream: 
+        m_Setter:
+          stream: 
+        m_Drawer:
+          stream: 
+        m_CellCreator:
+          stream: 
+        m_Binder:
+          stream: 
+        m_Comparer:
+          stream: 
+      - path: GhostAuthoringComponent/Importance
+        provider: SerializedProperty
+        selector: '#Importance'
+        width: 79.8
+        options: 3178496
+        content:
+          m_Text: Importance
+          m_Image: {fileID: 0}
+          m_Tooltip: '<b>Importance</b> determines how ghost chunks are prioritized
+            against each other when working out what to send in the upcoming snapshot.
+            Higher values are sent more frequently. Applied at the chunk level.
+
+            <i>Simplified
+            example: When comparing a gameplay-critical <b>Player</b> ghost with
+            an <b>Importance</b> of 100 to a cosmetic <b>Cone</b> ghost with an <b>Importance</b>
+            of 1, the <b>Player</b> ghost will likely be sent 100 times for every
+            1 time the <b>Cone</b> will be.</i>'
+          m_TextWithWhitespace: "Importance\u200B"
+        m_Getter:
+          stream: 
+        m_Setter:
+          stream: 
+        m_Drawer:
+          stream: 
+        m_CellCreator:
+          stream: 
+        m_Binder:
+          stream: 
+        m_Comparer:
+          stream: 
+      - path: GhostAuthoringComponent/MaxSendRate
+        provider: SerializedProperty
+        selector: '#MaxSendRate'
+        width: 113.51
+        options: 3178496
+        content:
+          m_Text: Max Send Rate
+          m_Image: {fileID: 0}
+          m_Tooltip: 'The <b>theoretical</b> maximum send frequency (in <b>Hertz</b>)
+            for ghost chunks of this ghost prefab type.
+
+
+            <b>Important
+            Note:</b> The <b>MaxSendRate</b> only denotes the maximum possible replication
+            frequency. Other factors (like <b>NetworkTickRate</b>, ghost instance
+            count, <b>Importance</b>, <b>Importance-Scaling</b>, <b>DefaultSnapshotPacketSize</b>
+            etc.) will determine the live send rate.
+
+
+            <i>Use this to
+            brute-force reduce the bandwidth consumption of your most impactful ghost
+            types.</i>'
+          m_TextWithWhitespace: "Max Send Rate\u200B"
+        m_Getter:
+          stream: 
+        m_Setter:
+          stream: 
+        m_Drawer:
+          stream: 
+        m_CellCreator:
+          stream: 
+        m_Binder:
+          stream: 
+        m_Comparer:
+          stream: 
+      - path: GhostAuthoringComponent/OptimizationMode
+        provider: SerializedProperty
+        selector: '#OptimizationMode'
+        width: 130.23001
+        options: 3178496
+        content:
+          m_Text: Optimization Mode
+          m_Image: {fileID: 0}
+          m_Tooltip: "Bandwidth and CPU optimization:\n\n - <b>Static</b> - This
+            ghost will only be added to a snapshot when its ghost values actually
+            change.\n<i>Examples: Barrels, trees, dropped items, asteroids etc.</i>\n\n
+            - <b>Dynamic</b> - This ghost will be replicated at a regular interval,
+            regardless of whether or not its values have changed, allowing for more
+            aggressive compression.\n<i>Examples: Character controllers, missiles,
+            important gameplay items like CTF flags and footballs etc.</i>\n\n<i>Marking
+            a ghost as `Static` makes snapshots slightly larger when replicated values
+            change, but smaller when they do not.</i>"
+          m_TextWithWhitespace: "Optimization Mode\u200B"
+        m_Getter:
+          stream: 
+        m_Setter:
+          stream: 
+        m_Drawer:
+          stream: 
+        m_CellCreator:
+          stream: 
+        m_Binder:
+          stream: 
+        m_Comparer:
+          stream: 
+      - path: Default/Path
+        provider: 
+        selector: path
+        width: 562
+        options: 3178496
+        content:
+          m_Text: Path
+          m_Image: {fileID: 0}
+          m_Tooltip: 
+          m_TextWithWhitespace: "Path\u200B"
+        m_Getter:
+          stream: AAEAAAD/////AQAAAAAAAAAEAQAAAC9TeXN0ZW0uUmVmbGVjdGlvbi5NZW1iZXJJbmZvU2VyaWFsaXphdGlvbkhvbGRlcgcAAAAETmFtZQxBc3NlbWJseU5hbWUJQ2xhc3NOYW1lCVNpZ25hdHVyZQpTaWduYXR1cmUyCk1lbWJlclR5cGUQR2VuZXJpY0FyZ3VtZW50cwEBAQEBAAMIDVN5c3RlbS5UeXBlW10GAgAAAA1EZWZhdWx0U2VsZWN0BgMAAABUVW5pdHlFZGl0b3IuUXVpY2tTZWFyY2hNb2R1bGUsIFZlcnNpb249MC4wLjAuMCwgQ3VsdHVyZT1uZXV0cmFsLCBQdWJsaWNLZXlUb2tlbj1udWxsBgQAAAAfVW5pdHlFZGl0b3IuU2VhcmNoLlNlYXJjaENvbHVtbgYFAAAARVN5c3RlbS5PYmplY3QgRGVmYXVsdFNlbGVjdChVbml0eUVkaXRvci5TZWFyY2guU2VhcmNoQ29sdW1uRXZlbnRBcmdzKQYGAAAARVN5c3RlbS5PYmplY3QgRGVmYXVsdFNlbGVjdChVbml0eUVkaXRvci5TZWFyY2guU2VhcmNoQ29sdW1uRXZlbnRBcmdzKQgAAAAKCw==
+        m_Setter:
+          stream: 
+        m_Drawer:
+          stream: 
+        m_CellCreator:
+          stream: 
+        m_Binder:
+          stream: 
+        m_Comparer:
+          stream: 
+      itemHeight: 22
+    ignoreSaveSearches: 1
+    hideAllGroup: 0
+    windowTitle:
+      m_Text: 
+      m_Image: {fileID: 0}
+      m_Tooltip: 
+      m_TextWithWhitespace: 
+    title: project, files
+    itemSize: 129
+    position:
+      serializedVersion: 2
+      x: 0
+      y: 0
+      width: 0
+      height: 0
+    flags: 2048
+    group: asset
+    queryBuilderEnabled: 1
+    m_ContextUseExplicitProvidersAsNormalProviders: 0
+    queryTreeConfig:
+      NodeSources: []
+    customPanelConfig:
+      m_BindPanel:
+        stream: 
+      m_UnbindPanel:
+        stream: 
+      m_Id: 
+  icon: {fileID: 0}
+  m_IsSearchTemplate: 0
+  viewStateQuery: {fileID: 0}

@@ -2,6 +2,30 @@
 uid: changelog
 ---
 
+## [1.11.0] - 2025-12-12
+
+### Added
+
+* New Prefab List menu item and playmode tools button to quickly list all ghost prefabs in your project or scene hierarchy.
+* Internal changes to support GameObject ghosts. More to come later. See Discussions post talking more about this work in progress.
+* [Potential Breaking Change] Moving server side's ghost spawn writes from BeginFrame ECB to new PresentationGroup ECB.
+* [Potential Breaking Change] GhostAuthoringComponent's content has been moved to a base class.
+* Netcode profiler received new tooltips and warning icons. These will show if compression efficiency is low or the snapshot size is approaching max message size.
+* Static ghosts now aggressively attempt to avoid looking up snapshot data (via `SnapshotData.GetDataAtTick`) inside the `GhostUpdateSystem.UpdateJob`, and the job itself early outs if there are no ghosts needing to restore, leading to a ~90% reduction in job timings. Profiler markers have also been added to this job, denoting which ghost types (and API calls) are taking the time.
+* Users can now migrate non ghost data using the `IncludeInMigration` component and the associated `NonGhostMigrationComponents` buffer.
+* Non-Ghost Components marked for migration on a Ghost Entity will now be automatically migrated to the correct Ghost.
+
+### Changed
+
+* Corrected ghost-types-templates docs regarding the packed vs unpacked format of `bool`, `byte`, `sbyte`, `float`, and `double`.
+* Improved the `bool` serialization template, improving packed and unpacked costs (~4 bits to 1 bit, and 32 bits to 8 bits, respectively).
+
+### Fixed
+
+* An issue with static optimized ghosts, where incorrect logic in the `GhostUpdateSystem` caused them to not have their `CopyFromSnapshot` called even once in rare cases, which led to `[GhostFields]` like `StaticAsteroid.SpawnTick` (which need additional processing via the `CopyFromSnapshot` code-gen) to be incorrect on the client.
+* `NetworkEndpoint` serialization inside GhostField's, which were mistakenly using `SerializeNetworkEndpointUnpacked` in a packed case.
+* Missing average per entity column for per ghost type overhead sections in the profiler.
+
 ## [1.10.0] - 2025-11-09
 
 ### Added
@@ -26,8 +50,6 @@ uid: changelog
 * You can again add multiple `Entity` types to your ghost components and commands.
 * Shorts are now properly supported in components and commands.
 * Missing Physics-related API docs have been re-added.
-
-
 
 ## [1.9.1] - 2025-10-11
 

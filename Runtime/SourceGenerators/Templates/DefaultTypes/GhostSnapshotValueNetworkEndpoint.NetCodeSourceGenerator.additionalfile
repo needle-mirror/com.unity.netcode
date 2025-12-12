@@ -46,7 +46,7 @@ namespace Generated
             if ((changeMask & (1 << __GHOST_MASK_INDEX__)) != 0)
             {
                 Unity.Networking.Transport.NetworkEndpoint value = snapshot.__GHOST_FIELD_NAME__;
-                SerializationHelpers.PerTypeSerializationHelpers.SerializeNetworkEndpointUnpacked(value, ref writer);
+                SerializationHelpers.PerTypeSerializationHelpers.SerializeNetworkEndpointPacked(value, ref writer);
             }
             #endregion
         }

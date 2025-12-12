@@ -26,6 +26,7 @@ namespace Unity.NetCode.Tests
         [GhostField] public int Value;
     }
     [Category(NetcodeTestCategories.Foundational)]
+    [DisableSingleWorldHostTest]
     internal class PartialSendTests
     {
         [Test]

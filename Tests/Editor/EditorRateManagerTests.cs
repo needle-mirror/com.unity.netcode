@@ -22,12 +22,14 @@ namespace Unity.NetCode.Tests
         }
     }
 
+    [DisableAutoCreation]
     [UpdateInGroup(typeof(SimulationSystemGroup), OrderFirst = true)]
     [UpdateBefore(typeof(PredictedSimulationSystemGroup))]
     internal partial class BeforePredictionSystem : BaseCallbackSystem
     {
     }
 
+    [DisableAutoCreation]
     [UpdateInGroup(typeof(SimulationSystemGroup))]
     [UpdateAfter(typeof(PredictedSimulationSystemGroup))]
     internal partial class AfterPredictionSystem : BaseCallbackSystem
@@ -35,12 +37,14 @@ namespace Unity.NetCode.Tests
 
     }
 
+    [DisableAutoCreation]
     [UpdateInGroup(typeof(PredictedSimulationSystemGroup))]
     internal partial class UpdateInPredictionSystem : BaseCallbackSystem
     {
 
     }
 
+    [DisableAutoCreation]
     [WorldSystemFilter(WorldSystemFilterFlags.ServerSimulation)]
     [UpdateInGroup(typeof(InitializationSystemGroup))]
     [UpdateAfter(typeof(UpdateNetworkTimeSystem))]
@@ -49,6 +53,7 @@ namespace Unity.NetCode.Tests
 
     }
 
+    [DisableAutoCreation]
     [WorldSystemFilter(WorldSystemFilterFlags.ServerSimulation)]
     [UpdateInGroup(typeof(PresentationSystemGroup))]
     internal partial class AfterSimulationSystemGroup : BaseCallbackSystem
@@ -68,7 +73,7 @@ namespace Unity.NetCode.Tests
             NetCodeConfig.Global.ClientServerTickRate.MaxSimulationStepBatchSize = 4;
             NetCodeConfig.Global.ClientServerTickRate.MaxSimulationStepsPerFrame = 4;
 
-            testWorld.Bootstrap(includeNetCodeSystems: true);
+            testWorld.Bootstrap(includeNetCodeSystems: true, typeof(UpdateInPredictionSystem));
             testWorld.CreateWorlds(server: true, numClients: 1, tickWorldAfterCreation: false);
 
             bool didRun = false;
@@ -82,6 +87,7 @@ namespace Unity.NetCode.Tests
         }
 
         [Test]
+        [DisableSingleWorldHostTest]
         public void RateManagerTest([Values(BusyWait, Sleep)] ClientServerTickRate.FrameRateMode frameRateMode, [Values] NetCodeConfig.HostWorldMode hostMode, [Values(1, 4)] int maxBatchSize, [Values(1, 4)] int maxStepsPerFrame)
         {
             // Setup
@@ -96,6 +102,7 @@ namespace Unity.NetCode.Tests
             NetCodeConfig.Global.ClientServerTickRate.MaxSimulationStepBatchSize = maxBatchSize;
             NetCodeConfig.Global.ClientServerTickRate.MaxSimulationStepsPerFrame = maxStepsPerFrame;
             testWorld.Bootstrap(includeNetCodeSystems: true,
+                typeof(BeforeSimulationSystemGroup),
                 typeof(BeforePredictionSystem),
                 typeof(AfterPredictionSystem),
                 typeof(UpdateInPredictionSystem)
@@ -372,6 +379,7 @@ namespace Unity.NetCode.Tests
         }
 
         [Test]
+        [DisableSingleWorldHostTest]
         public void TestCanDetectIfServerWillUpdate([Values(Sleep, BusyWait)] ClientServerTickRate.FrameRateMode mode, [Values] bool singleWorldHost)
         {
             if (mode == Sleep && singleWorldHost) Assert.Ignore("TODO-release not supported right now");
@@ -405,7 +413,8 @@ namespace Unity.NetCode.Tests
                     willUpdate = serverRateManager.WillUpdate();
 #pragma warning restore CS0618 // Type or member is obsolete
                 }
-                Assert.AreEqual(expectedWillUpdate, isBefore ? willUpdate : !willUpdate);
+                if (isBefore) // result of WillUpdate() is undefined when calling after SimulationSystemGroup
+                    Assert.AreEqual(expectedWillUpdate, willUpdate, $"expected update? {expectedWillUpdate}, but got {willUpdate} in a system {(isBefore ? "before" : "after")} simulation system group");
                 Assert.AreEqual(expectedWillUpdate, !networkTime.IsOffFrame);
             }
             testWorld.ServerWorld.GetExistingSystemManaged<BeforeSimulationSystemGroup>().OnUpdateCallback += world =>

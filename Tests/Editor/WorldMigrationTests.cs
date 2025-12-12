@@ -45,6 +45,7 @@ namespace Unity.NetCode.Tests
         }
 
         [Test]
+        [DisableSingleWorldHostTest]
         public void WorldMigration_ResetWorlds_Works()
         {
             using (var testWorld = new NetCodeTestWorld())
@@ -80,6 +81,7 @@ namespace Unity.NetCode.Tests
         }
 
         [Test]
+        [DisableSingleWorldHostTest]
         public void WorldMigration_MigrateToOwnWorld_Works()
         {
             using (var testWorld = new NetCodeTestWorld())

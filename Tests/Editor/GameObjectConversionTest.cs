@@ -166,6 +166,7 @@ namespace Unity.NetCode.Tests
 
 
         [Test]
+        [DisableSingleWorldHostTest]
         public void ComponentsStrippedAccordingToGhostConfig()
         {
             using (var testWorld = new NetCodeTestWorld())

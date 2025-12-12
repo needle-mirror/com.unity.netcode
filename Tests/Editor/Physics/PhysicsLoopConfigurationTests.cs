@@ -246,6 +246,7 @@ namespace Unity.NetCode.Physics.Tests
         }
 
         [Test]
+        [DisableSingleWorldHostTest]
         public void EnablePhysicToRunWithoutPredictedGhosts([Values]PredictionLoopUpdateMode loopMode,
             [Values]PhysicsRunMode physicsRunMode)
         {

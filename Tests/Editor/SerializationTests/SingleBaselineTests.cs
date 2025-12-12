@@ -226,6 +226,7 @@ namespace Unity.NetCode.Tests
             }
 
             [Test]
+            [DisableSingleWorldHostTest]
             public void DifferenceInBandwidth()
             {
                 var config = new GhostPrefabCreation.Config

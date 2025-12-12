@@ -1898,6 +1898,9 @@ namespace Unity.NetCode
             //yet.
             //It is necessary to check always for the cleanup component being added to the chunk in general in the serialization
             //job to ensure the data has been appropriately set.
+
+            // GameObject OnDestroy is called in LateUpdate, so we need to apply spawn changes before OnDestroy gets called (in cases where a GameObject is created and destroyed in the same frame, which would in turn destroy the underlying entity)
+            var endFrameCommandBuffer = SystemAPI.GetSingleton<PreLateUpdateCommandBufferSystem.Singleton>().CreateCommandBuffer(state.WorldUnmanaged);
             var spawnJob = new SpawnGhostJob
             {
                 connectionState = m_ConnectionsToProcess.AsDeferredJobArray(),
@@ -1909,7 +1912,7 @@ namespace Unity.NetCode
                 ghostComponentType = m_GhostComponentType,
                 freeGhostIds = m_FreeGhostIds,
                 allocatedGhostIds = m_AllocatedGhostIds,
-                commandBuffer = commandBuffer,
+                commandBuffer = endFrameCommandBuffer,
                 ghostMap = m_GhostMap,
                 ghostTypeFromEntity = m_GhostTypeFromEntity,
                 ghostOverrideFromEntity = m_GhostOverrideFromEntity,

@@ -749,7 +749,7 @@ namespace Unity.NetCode
                     CheckSnapshotBufferSizeIsCorrect(snapshotDataBuffer, snapshotSize);
                     snapshotData = (byte*)snapshotDataBuffer.GetUnsafePtr();
                     snapshotDataComponent = SnapshotDataFromEntity[gent];
-                    snapshotDataComponent.LatestIndex = (snapshotDataComponent.LatestIndex + 1) % GhostSystemConstants.SnapshotHistorySize;
+                    snapshotDataComponent.LatestIndex = (byte)((snapshotDataComponent.LatestIndex + 1) % GhostSystemConstants.SnapshotHistorySize);
                     SnapshotDataFromEntity[gent] = snapshotDataComponent;
                     // If this is a prespawned ghost with no baseline tick set use the prespawn baseline
                     if (!data.BaselineTick.IsValid && PrespawnHelper.IsPrespawnGhostId(GhostFromEntity[gent].ghostId))

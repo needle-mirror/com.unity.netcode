@@ -5,7 +5,7 @@ Optimize your ghosts to improve the performance of your game.
 * [Importance scaling](#importance-scaling)
 * [Ghost relevancy](#ghost-relevancy)
 * [Preserialize ghosts](#preserialize-ghosts)
-* [__Optimization Mode__](#optimization-mode)
+* [Optimization Mode](#optimization-mode)
 
 ## Importance scaling
 
@@ -146,7 +146,7 @@ Preserialization is a feature that allows you to serialize ghost data once and r
 
 When preserialization is enabled the server only serializes the ghost once for all connections. However, preserialized ghosts are serialized regularly on every tick, even if the ghost isn't going to be sent to any client. As a result, preserialization is only recommended for ghosts that are frequently sent to multiple clients (otherwise the CPU cost might be higher than the default behavior of serializing ghosts on demand).
 
-## __Optimization Mode__
+## Optimization Mode
 
 __Optimization Mode__ is a setting available on the `GhostAuthoringComponent` that changes how often Netcode for Entities resends the `GhostField` on a spawned entity. It has two modes: __Dynamic__ and __Static__.
 

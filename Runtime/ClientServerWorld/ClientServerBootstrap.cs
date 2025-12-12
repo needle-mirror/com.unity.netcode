@@ -244,21 +244,42 @@ namespace Unity.NetCode
         /// Can be used in custom implementations of `Initialize` as well as at runtime
         /// to add new clients dynamically.
         /// </summary>
-        /// <returns>Thin client world instance.</returns>
+        /// <returns>Newly created thin client world instance.</returns>
         public static World CreateThinClientWorld()
         {
+            return CreateThinClientWorld("");
+        }
+
+        /// <param name="name">Name for the thin client world.</param>
+        /// <inheritdoc cref="CreateThinClientWorld()"/>
+        public static World CreateThinClientWorld(string name)
+        {
+            // in order to not create breaking changes, we can't just add an optional param for the name, we need to create overloads
             var systems = DefaultWorldInitialization.GetAllSystemTypeIndices(WorldSystemFilterFlags.ThinClientSimulation);
-            return CreateThinClientWorld(systems);
+            return CreateThinClientWorld(systems, name);
         }
 
         /// <param name="systems">List of systems to be included.</param>
         /// <inheritdoc cref="CreateThinClientWorld()"/>
         public static World CreateThinClientWorld(NativeList<SystemTypeIndex> systems)
         {
+            return CreateThinClientWorld(systems, "");
+        }
+
+        /// <param name="systems">List of systems to be included.</param>
+        /// <param name="name">Name for the thin client world.</param>
+        /// <inheritdoc cref="CreateThinClientWorld()"/>
+        public static World CreateThinClientWorld(NativeList<SystemTypeIndex> systems, string name)
+        {
+            // in order to not create breaking changes, we can't just add an optional param for the name, we need to create overloads
 #if UNITY_SERVER && !UNITY_EDITOR
             Debug.LogWarning("This executable was built using a 'server-only' build target (likely DGS). Thus, may not be able to successfully initialize thin client world.");
 #endif
-            var world = new World("ThinClientWorld" + s_NextThinClientId++, WorldFlags.GameThinClient);
+            if (name == "")
+            {
+                name = "ThinClientWorld" + s_NextThinClientId++;
+            }
+            var world = new World(name, WorldFlags.GameThinClient);
 
             DefaultWorldInitialization.AddSystemsToRootLevelSystemGroups(world, systems);
 
@@ -303,6 +324,9 @@ namespace Unity.NetCode
             if (World.DefaultGameObjectInjectionWorld == null)
                 World.DefaultGameObjectInjectionWorld = world;
 
+            Netcode.Client.Init();
+            Netcode.Server.Init();
+
             return world;
         }
 
@@ -328,6 +352,7 @@ namespace Unity.NetCode
             throw new PlatformNotSupportedException("This executable was built using a 'server-only' build target (likely DGS). Thus, cannot create client worlds.");
 #else
             var world = new World(name, WorldFlags.GameClient);
+            ClientWorlds.Add(world); // Needs to happen before system creation, so ClientServerBootstrap.ClientWorld is initialized
 
             DefaultWorldInitialization.AddSystemsToRootLevelSystemGroups(world, systems);
             ScriptBehaviourUpdateOrder.AppendWorldToCurrentPlayerLoop(world);
@@ -335,7 +360,8 @@ namespace Unity.NetCode
             if (World.DefaultGameObjectInjectionWorld == null)
                 World.DefaultGameObjectInjectionWorld = world;
 
-            ClientWorlds.Add(world);
+            Netcode.Client.Init();
+
             return world;
 #endif
         }
@@ -431,6 +457,7 @@ namespace Unity.NetCode
 #else
 
             var world = new World(name, WorldFlags.GameServer);
+            ServerWorlds.Add(world); // Needs to happen before system creation, so ClientServerBootstrap.ServerWorld is initialized
 
             DefaultWorldInitialization.AddSystemsToRootLevelSystemGroups(world, systems);
             ScriptBehaviourUpdateOrder.AppendWorldToCurrentPlayerLoop(world);
@@ -438,7 +465,8 @@ namespace Unity.NetCode
             if (World.DefaultGameObjectInjectionWorld == null)
                 World.DefaultGameObjectInjectionWorld = world;
 
-            ServerWorlds.Add(world);
+            Netcode.Server.Init();
+
             return world;
 #endif
         }
@@ -682,6 +710,7 @@ namespace Unity.NetCode
 
     [WorldSystemFilter(WorldSystemFilterFlags.ServerSimulation)]
     [CreateAfter(typeof(NetworkStreamReceiveSystem))]
+    [CreateBefore(typeof(PrefabRegistryInitSystem))]
     internal partial struct ConfigureServerWorldSystem : ISystem
     {
         EntityQuery m_SendDataQuery;
@@ -743,6 +772,7 @@ namespace Unity.NetCode
     }
 
     [WorldSystemFilter(WorldSystemFilterFlags.ClientSimulation)]
+    [CreateBefore(typeof(PrefabRegistryInitSystem))]
     [CreateAfter(typeof(NetworkStreamReceiveSystem))]
     internal partial struct ConfigureClientWorldSystem : ISystem
     {
@@ -801,6 +831,7 @@ namespace Unity.NetCode
     }
 
     [WorldSystemFilter(WorldSystemFilterFlags.ThinClientSimulation)]
+    [CreateBefore(typeof(PrefabRegistryInitSystem))]
     [CreateAfter(typeof(NetworkStreamReceiveSystem))]
     internal partial struct ConfigureThinClientWorldSystem : ISystem
     {
@@ -841,6 +872,7 @@ namespace Unity.NetCode
 
 
     [WorldSystemFilter(WorldSystemFilterFlags.ServerSimulation)]
+    [CreateBefore(typeof(PrefabRegistryInitSystem))]
     [CreateAfter(typeof(NetworkStreamReceiveSystem))]
     internal partial struct ConfigureSingleWorldHostSystem : ISystem
     {

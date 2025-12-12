@@ -345,6 +345,7 @@ namespace Unity.NetCode.Tests.PrespawnTests
         }
 
         [Test]
+        [DisableSingleWorldHostTest]
         public void Test_BaselineAreCreated()
         {
             //Set the scene with multiple prefab types

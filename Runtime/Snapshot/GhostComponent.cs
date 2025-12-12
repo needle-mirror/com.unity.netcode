@@ -259,6 +259,24 @@ namespace Unity.NetCode
             result = (result*31) ^ guid3.GetHashCode();
             return result;
         }
+
+        /// <summary>
+        /// String representation of the guid
+        /// </summary>
+        /// <returns>String representation</returns>
+        public override string ToString()
+        {
+            return $"{guid0:x}-{guid1:x}-{guid2:x}-{guid3:x}";
+        }
+
+        /// <summary>
+        /// FixedString64 representation of the guid
+        /// </summary>
+        /// <returns>String representation</returns>
+        public FixedString64Bytes ToFixedString()
+        {
+            return $"{guid0:x}-{guid1:x}-{guid2:x}-{guid3:x}";
+        }
     }
 
 
@@ -287,6 +305,7 @@ namespace Unity.NetCode
     {
         /// <summary>
         /// The last server snapshot that has been applied to the entity.
+        /// Prefer <see cref="SnapshotData.AppliedTick"/>, which is set for both interpolated and predicted ghosts.
         /// </summary>
         public NetworkTick AppliedTick;
         /// <summary>

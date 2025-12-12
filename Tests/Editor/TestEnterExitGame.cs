@@ -16,6 +16,7 @@ namespace Unity.NetCode.Tests
         }
 
         [Test]
+        [DisableSingleWorldHostTest]
         public unsafe void PrespawnSystemResetWhenExitGame()
         {
             const int numClients = 2;

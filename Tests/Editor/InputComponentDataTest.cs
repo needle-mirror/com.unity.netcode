@@ -359,6 +359,7 @@ namespace Unity.NetCode.Tests
          * filled with the input values of each one as well.
          */
         [Test]
+        [DisableSingleWorldHostTest]
         public void InputComponentData_InputBufferIsRemotePredictedWhenAppropriate()
         {
             using (var testWorld = new NetCodeTestWorld())
@@ -545,6 +546,7 @@ namespace Unity.NetCode.Tests
          * should copy over to the generated input buffer.
          */
         [Test]
+        [DisableSingleWorldHostTest]
         public void InputComponentData_BufferCopiesGhostComponentConfigFromInputComponent()
         {
             using (var testWorld = new NetCodeTestWorld())

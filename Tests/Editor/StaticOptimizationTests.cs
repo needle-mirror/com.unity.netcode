@@ -74,7 +74,7 @@ namespace Unity.NetCode.Tests
                 testWorld.Tick();
         }
         [Test]
-        public void StaticGhostsAreNotSent([Values]NetCodeTestLatencyProfile latencyProfile)
+        public void StaticGhosts_AreNotSent_WhenUnchanged([Values]NetCodeTestLatencyProfile latencyProfile)
         {
             using (var testWorld = new NetCodeTestWorld())
             {
@@ -112,7 +112,7 @@ namespace Unity.NetCode.Tests
             }
         }
         [Test]
-        public void GhostsCanBeStaticWhenChunksAreDirty([Values]NetCodeTestLatencyProfile latencyProfile)
+        public void StaticGhosts_AreNotSent_EvenWithChunkChangeFilteringChanges([Values]NetCodeTestLatencyProfile latencyProfile)
         {
             using (var testWorld = new NetCodeTestWorld())
             {
@@ -152,7 +152,7 @@ namespace Unity.NetCode.Tests
             }
         }
         [Test]
-        public void StaticGhostsAreNotApplied([Values]NetCodeTestLatencyProfile latencyProfile)
+        public void StaticGhosts_DoNotHaveDataContinuouslyApplied_AfterComingToRest([Values]NetCodeTestLatencyProfile latencyProfile)
         {
             using (var testWorld = new NetCodeTestWorld())
             {
@@ -173,6 +173,7 @@ namespace Unity.NetCode.Tests
                 // the ghost apply of the constantly changing entity.
                 var expectedPos = new float3(3, 4, 5);
                 var expectedRot = Mathematics.quaternion.Euler(5, 6, 7);
+                Span<NetworkTick> lastSnapshotApplyTick = stackalloc NetworkTick[clientEntities.Length];
                 const int expectedScale = 8;
                 for (var i = 0; i < clientEntities.Length; i++)
                 {
@@ -182,6 +183,11 @@ namespace Unity.NetCode.Tests
                         Rotation = expectedRot,
                         Scale = expectedScale,
                     });
+                    var snapshotData = clientEm.GetComponentData<SnapshotData>(clientEntities[i]);
+                    var snapshotDataBuffer = clientEm.GetBuffer<SnapshotDataBuffer>(clientEntities[i]);
+                    lastSnapshotApplyTick[i] = snapshotData.AppliedTick;
+                    Assert.IsTrue(snapshotData.AppliedTick.IsValid, "All ghosts must apply at least one tick!");
+                    Assert.That(snapshotData.AppliedTick, Is.EqualTo(snapshotData.GetLatestTick(snapshotDataBuffer)), "The last snapshot we applied must be for the latest tick we received.");
                 }
 
                 // Tick for a bit:
@@ -196,15 +202,16 @@ namespace Unity.NetCode.Tests
                     // Note: GhostField's are "applied" on a per-field basis, so other GhostFields on this struct shouldn't change,
                     // even when the LocalTransform.Position does!
                     if (i == constantlyChangingIndex)
-                        Assert.AreNotEqual(expectedPos, clientTrans.Position, $"Unexpectedly NOT changed on idx:{i} i.e. ServerTick:{serverTick.ToFixedString()}");
-                    else Assert.AreEqual(expectedPos, clientTrans.Position, $"Unexpected change on idx:{i} i.e. ServerTick:{serverTick.ToFixedString()}");
-                    Assert.AreEqual(expectedRot, clientTrans.Rotation, $"Unexpected change on idx:{i} i.e. ServerTick:{serverTick.ToFixedString()}");
-                    Assert.AreEqual(expectedScale, clientTrans.Scale, $"Unexpected change on idx:{i} i.e. ServerTick:{serverTick.ToFixedString()}");
+                        Assert.AreNotEqual(expectedPos, clientTrans.Position, $"Unexpectedly NOT changed on idx:{i} on ServerTick:{serverTick}!");
+                    else Assert.AreEqual(expectedPos, clientTrans.Position, $"Unexpected change on idx:{i} on ServerTick:{serverTick}!");
+                    Assert.AreEqual(expectedRot, clientTrans.Rotation, $"Unexpected change on idx:{i} on ServerTick:{serverTick}!");
+                    Assert.AreEqual(expectedScale, clientTrans.Scale, $"Unexpected change on idx:{i} on ServerTick:{serverTick}!");
+                    Assert.AreEqual(lastSnapshotApplyTick[i], clientEm.GetComponentData<SnapshotData>(clientEntities[i]).AppliedTick, $"Unexpected change on idx:{i} AppliedTick on {serverTick}!");
                 }
             }
         }
         [Test]
-        public void StaticGhostsAreSentWhenModified([Values]NetCodeTestLatencyProfile latencyProfile)
+        public void StaticGhosts_AreSent_WhenModified([Values]NetCodeTestLatencyProfile latencyProfile)
         {
             using (var testWorld = new NetCodeTestWorld())
             {
@@ -255,7 +262,7 @@ namespace Unity.NetCode.Tests
         }
 
         [Test]
-        public void StaticGhostsAreSentWhenUnmodified([Values]NetCodeTestLatencyProfile latencyProfile)
+        public void StaticGhosts_AreSentOnce_WhenUnmodified([Values]NetCodeTestLatencyProfile latencyProfile)
         {
             using var testWorld = new NetCodeTestWorld();
             testWorld.Bootstrap(true);
@@ -280,7 +287,8 @@ namespace Unity.NetCode.Tests
         }
 
         [Test]
-        public void RelevancyChangesSendsStaticGhosts([Values]NetCodeTestLatencyProfile latencyProfile)
+        [DisableSingleWorldHostTest]
+        public void StaticGhosts_AreResent_AfterRelevancyChanges([Values]NetCodeTestLatencyProfile latencyProfile)
         {
             using (var testWorld = new NetCodeTestWorld())
             {

@@ -13,12 +13,14 @@ namespace Unity.NetCode.Editor
         NetworkRole m_NetworkRole;
         BarChartCategory m_GhostSnapshotCat;
         Label m_WorldNameLabel;
+        VisualElement m_NoDataInfoLabels;
 
         internal FrameOverviewTab(NetworkRole networkRole)
             : base("Frame Overview", networkRole.ToString())
         {
             var networkRolePrefix = networkRole.ToString();
             m_NetworkRole = networkRole;
+            var packetDirection = ProfilerUtils.GetPacketDirection(networkRole);
             var worldHeader = new VisualElement();
             const string worldInfoUss = "worldinfo";
 
@@ -30,6 +32,9 @@ namespace Unity.NetCode.Editor
 
             worldHeader.Add(m_WorldNameLabel);
 
+            m_NoDataInfoLabels = UIFactory.CreateNoDataInfoLabel(packetDirection, NetcodeProfilerConstants.s_ProfilerDocsLink);
+            Add(m_NoDataInfoLabels);
+
             m_SnapshotBarChart = CreateSnapshotBarGraph();
             m_CommandsBarChart = CreateCommandsBarGraph();
 
@@ -39,6 +44,9 @@ namespace Unity.NetCode.Editor
 
         internal void Update(NetcodeFrameData frameData)
         {
+            // Hide/Show info labels
+            m_NoDataInfoLabels.style.display = !frameData.isValid ? DisplayStyle.Flex : DisplayStyle.None;
+
             m_WorldNameLabel.text = ProfilerUtils.GetWorldName(m_NetworkRole);
 
             m_SnapshotBarChart.Update(frameData);
@@ -46,14 +54,14 @@ namespace Unity.NetCode.Editor
 
             if (m_NetworkRole == NetworkRole.Server)
             {
-                var formattedBytes = UIUtils.FormatBitsToBytes(frameData.totalSizeSentByServerInBits);
+                var formattedBytes = ProfilerUtils.FormatBitsToBytes(frameData.totalSizeSentByServerInBits);
                 var bitsAndBytes = $"{frameData.totalSizeSentByServerInBits}b ({formattedBytes})";
                 m_TotalReceivedLabel.text = "Received: N/A"; // TODO: Add received data for server
                 m_TotalSentLabel.text = $"Sent: {bitsAndBytes}";
             }
             else
             {
-                var formattedBytes = UIUtils.FormatBitsToBytes(frameData.totalSizeReceivedByClientInBits);
+                var formattedBytes = ProfilerUtils.FormatBitsToBytes(frameData.totalSizeReceivedByClientInBits);
                 var bitsAndBytes = $"{frameData.totalSizeReceivedByClientInBits}b ({formattedBytes})";
                 m_TotalReceivedLabel.text = $"Received: {bitsAndBytes}";
                 m_TotalSentLabel.text = $"Sent: N/A"; // TODO: Add sent data for client
@@ -112,7 +120,7 @@ namespace Unity.NetCode.Editor
                         }
                     }
 
-                    var bitsAndBytes = $"{tickData.snapshotSizeInBits} ({UIUtils.BitsToBytes(tickData.snapshotSizeInBits)})";
+                    var bitsAndBytes = $"{tickData.snapshotSizeInBits} ({ProfilerUtils.BitsToBytes(tickData.snapshotSizeInBits)})";
                     m_GhostSnapshotCat.listViewData.Add(new LegendEntryData
                     {
                         values =
@@ -183,7 +191,7 @@ namespace Unity.NetCode.Editor
 
                 foreach (var tickData in frameData.tickData)
                 {
-                    var bitsAndBytes = $"{tickData.commandSizeInBits} ({UIUtils.BitsToBytes(tickData.commandSizeInBits)})";
+                    var bitsAndBytes = $"{tickData.commandSizeInBits} ({ProfilerUtils.BitsToBytes(tickData.commandSizeInBits)})";
                     commandsCat.listViewData.Add(new LegendEntryData
                     {
                         values =

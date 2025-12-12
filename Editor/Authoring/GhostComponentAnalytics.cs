@@ -386,7 +386,7 @@ namespace Unity.NetCode.Editor
         /// </summary>
         /// <param name="ghostComponent">Retrieve data from this component.</param>
         /// <param name="numVariants">Count of the number of variants on this ghost.</param>
-        public static void BufferConfigurationData(GhostAuthoringComponent ghostComponent, int numVariants)
+        public static void BufferConfigurationData(BaseGhostSettings ghostComponent, int numVariants)
         {
             var analyticsData = new GhostConfigurationAnalyticsData
             {

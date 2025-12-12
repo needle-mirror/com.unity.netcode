@@ -89,10 +89,10 @@ Some types have multiple templates that provide alternative ways to serialize th
 
 For types with multiple templates, the available options are as follows:
 
-| Setting | Options | Description |
-|---|---|---|
-| Quantization | Quantized or unquantized  | Quantization involves limiting the precision of data for the sake of reducing the number of bits required to send and receive that data. For example, a float value `12.456789` with a quantization factor of `1000` is sent as `int 12345`. Unquantized means the float is sent with full precision. Refer to [quantization](compression.md#quantization) for more details. |
-| Smoothing method | `Clamp`, `Interpolate`, or `InterpolateAndExtrapolate` | Smoothing method specifies how a new value is applied on the client when a snapshot is received. Refer to the [`SmoothingAction` API documentation](https://docs.unity3d.com/Packages/com.unity.netcode@latest?subfolder=/api/Unity.NetCode.SmoothingAction.html) for more details. |
+| Setting          | Options                                                | Description                                                                                                                                                                                                                                                                                                                                                                  |
+|------------------|--------------------------------------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| Quantization     | Quantized or unquantized                               | Quantization involves limiting the precision of data for the sake of reducing the number of bits required to send and receive that data. For example, a float value `12.456789` with a quantization factor of `1000` is sent as `int 12345`. Unquantized means the float is sent with full precision. Refer to [quantization](compression.md#quantization) for more details. |
+| Smoothing method | `Clamp`, `Interpolate`, or `InterpolateAndExtrapolate` | Smoothing method specifies how a new value is applied on the client when a snapshot is received. Refer to the [`SmoothingAction` API documentation](https://docs.unity3d.com/Packages/com.unity.netcode@latest?subfolder=/api/Unity.NetCode.SmoothingAction.html) for more details.                                                                                          |
 
 Each of these options changes how the original value is serialized, deserialized, and applied on the client, and each template uses different, named regions to handle these cases. The code generator chooses the appropriate regions to generate, and bakes your user-defined serialization settings for fields on your types directly into the serializer for your type. You can explore these generated types in the projects' `Temp/NetCodeGenerated` folder (note that they're deleted when Unity is closed).
 
@@ -109,7 +109,9 @@ When fixed-size list are serialized in RPC/Command or as a field in replicated c
 | IInputComponentData | 64         |
 
 When fixed-size list fields are replicated in RPCs the maximum allowed capacity (and thus length) for any fixed size list field element is limited to 1024 elements.
-> Remark: Notice that becase sending RPC larger than 1MTU is not currently supported, the packet size induce an instrisict limitation on the maximunumber of serializable elements that can be way lower than 1024.
+
+> [!NOTE]
+> Sending an RPC larger than the max transmission unit (MTU) isn't supported. This limitation on packet size means that the maximum number of serializable elements can be lower than 1024, depending on the [size of your MTU](https://docs.unity3d.com/Packages/com.unity.transport@latest?subfolder=/api/Unity.Networking.Transport.NetworkParameterConstants.html#Unity_Networking_Transport_NetworkParameterConstants_MTU).
 
 When fixed-size list fields are replicated in `IComponentData`, `IBufferElementData`, `ICommandData` and `IInputComponentData` the maximum allowed fixed-list capacity is capped to 64 elements.
 
@@ -129,10 +131,10 @@ The cap (of 64) is intentional; it is a good compromise between flexibility (as 
 
 For Inputs (commands) the common use case we are optimizing for is that input should be in general small. So we preferred to enforce the rule to constrain input size. Further, because inputs can be replicated for other players (via the presence of the `[GhostField]` attribute - and associated `GhostComponent` flags), we would had a very strange and non-uniform behaviour in such case.
 
-#### Why don't RPCs have a larger maximum allowed capacity ?
+#### Why don't RPCs have a larger maximum allowed capacity?
 The main reasons are:
-- RPCs are meant to be sent unfrequently
-- They our most flexible and unique tool for message passing.
+- RPCs are meant to be sent infrequently.
+- They are the most flexible tool for message passing.
 - They don't have any particular needs for complex change mask generation that justify applying the limit either.
 
 ## How types are serialized
@@ -141,23 +143,26 @@ Netcode for Entities serialize the supported types over the network by using eit
 "un-packed" (full bits) format.
 
 #### packed vs unpacked format
-| Type           | unpacked          | packed                                                                        |
-|----------------|-------------------|-------------------------------------------------------------------------------|
-| sbyte          | 32 bit            | zig-zag encoded, 4 bits + variable size payload (huffman/golomb bucket)       |
-| short          | 16 bit            | zig-zag encoded, 4 bits + variable size payload (huffman/golomb bucket)       |
-| int            | 32 bit            | zig-zag encoded, 4 bits + variable size payload (huffman/golomb bucket)       |
-| long           | 64 bit            | zig-zag encoded, 2 x (4 bits + variable size payload (huffman/golomb bucket)) |
-| byte           | 32 bit            | 4 bits + variable size payload (huffman/golomb bucket)                        |
-| uint           | 32 bit            | 4 bits + variable size payload (huffman/golomb bucket)                        |
-| ushort         | 16 bit            | 4 bits + variable size payload (huffman/golomb bucket)                        |
-| ulong          | 64 bit            | 2 x (4 bits + variable size payload (huffman/golomb bucket))                  |
-| float          | 32 bit            | 0: 1bit otherwise 32 bits                                                     |
-| double         | 64 bit            | 0: 1bit otherwise 64 bits                                                     |
-| FixedStringXXX | 8bit + len * 8bits | 4 bits + varialbe size payload (len) + len * (4 bits + varialbe size payload) |
-| float2         | 2 * 32bits        | 2 * packed float size                                                         |
-| float3         | 3 * 32bits        | 3 * packed float size                                                         |
-| float4         | 4 * 32bits        | 4 * packed float size                                                         |
-| quaternion     | 4 * 32bits        | 4 * packed float size                                                         |
+| Type                    | unpacked            | packed                                                                                  |
+|-------------------------|---------------------|-----------------------------------------------------------------------------------------|
+| bool                    | 8 bits              | 1 bit                                                                                   |
+| sbyte                   | 8 bits              | zig-zag encoded, 4 bits + variable size payload (huffman/golomb bucket)                 |
+| short                   | 16 bits             | zig-zag encoded, 4 bits + variable size payload (huffman/golomb bucket)                 |
+| int                     | 32 bits             | zig-zag encoded, 4 bits + variable size payload (huffman/golomb bucket)                 |
+| long                    | 64 bits             | zig-zag encoded, 2 x (4 bits + variable size payload (huffman/golomb bucket))           |
+| byte                    | 8 bits              | 4 bits + variable size payload (huffman/golomb bucket)                                  |
+| uint                    | 32 bits             | 4 bits + variable size payload (huffman/golomb bucket)                                  |
+| ushort                  | 16 bits             | 4 bits + variable size payload (huffman/golomb bucket)                                  |
+| ulong                   | 64 bits             | 2 x (4 bits + variable size payload (huffman/golomb bucket))                            |
+| float (full precision)  | 32 bits             | 0: 1bit otherwise 32 bits                                                               |
+| float (quantized)       | 32 bits             | quantized, then zig-zag encoded, 4 bits + variable size payload (huffman/golomb bucket) |
+| double (full precision) | 64 bits             | 0: 1bit otherwise 64 bits                                                               |
+| double (quantized)      | 64 bits             | quantized, then zig-zag encoded, 4 bits + variable size payload (huffman/golomb bucket) |
+| FixedStringXXXBytes     | 8bits + len * 8bits | 4 bits + variable size payload (len) + len * (4 bits + variable size payload)           |
+| float2                  | 2 * 32bits          | 2 * packed float size                                                                   |
+| float3                  | 3 * 32bits          | 3 * packed float size                                                                   |
+| float4                  | 4 * 32bits          | 4 * packed float size                                                                   |
+| quaternion              | 4 * 32bits          | 4 * packed float size                                                                   |
 
 ### How to support unions
 The `[GhostField]` attribute enables two netcode sub-systems; serialization, and client prediction (backup & restoring).

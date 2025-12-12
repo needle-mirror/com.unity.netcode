@@ -1,5 +1,6 @@
 using System;
 using System.Runtime.InteropServices;
+using Unity.Assertions;
 using Unity.Burst;
 using Unity.Collections;
 using Unity.Collections.LowLevel.Unsafe;
@@ -20,7 +21,7 @@ namespace Unity.NetCode.HostMigration
     public struct EnableHostMigration : IComponentData { }
 
     /// <summary>
-    /// This tag is added to ghost entities on the new server when they have been respawned after a host migration.
+    /// This tag is added to ghost and non ghost entities on the new server when they have been respawned after a host migration.
     /// </summary>
     public struct IsMigrated : IComponentData { }
 
@@ -41,7 +42,7 @@ namespace Unity.NetCode.HostMigration
     struct HostMigrationStorage : IComponentData
     {
         public HostDataStorage HostData;
-        public GhostStorage Ghosts;
+        public MigratedDataStorage MigratedEntities;
         public NativeList<byte> HostDataBlob;
         public NativeList<byte> GhostDataBlob;
     }
@@ -131,6 +132,40 @@ namespace Unity.NetCode.HostMigration
         public double LastDataUpdateTime;
     }
 
+    /// <summary>
+    /// Add to any entity to migrate the associated components in the NonGhostMigrationComponents buffer to the new host.
+    /// A new entity will be created containing the components with thier data but not from the original archetype
+    /// its upto the user to manually copy these components back to the correct entity using a user defined linkage method
+    /// </summary>
+    public struct IncludeInMigration : IComponentData
+    {}
+
+    /// <summary>
+    /// Used internally to track scene entities which have non-ghost components which will be migrated during
+    /// host migrations. These are attached to entities with the <see cref="IncludeInMigration"/> component placed in
+    /// a subscene. When a migration occurs the host migration data will be applied to existing scene entities
+    /// on the new host (no new entity created), and this identifier is used to establish the matches.
+    /// </summary>
+    public struct SceneEntityMigrationId : IComponentData
+    {
+        /// <summary>
+        /// Value used to link entities together after a migration has occured
+        /// </summary>
+        public ulong Value;
+    }
+
+    /// <summary>
+    /// Singleton buffer to declare which components should be migrated on non ghost entities marked for migration
+    /// with the IncludeInMigration component
+    /// </summary>
+    public struct NonGhostMigrationComponents : IBufferElementData
+    {
+        /// <summary>
+        /// Componet type to migrate
+        /// </summary>
+        public ComponentType ComponentToMigrate;
+    }
+
     struct HostDataStorage
     {
         public NativeArray<HostConnectionData> Connections;
@@ -147,10 +182,11 @@ namespace Unity.NetCode.HostMigration
         public NativeArray<int> FreeNetworkIds;
     }
 
-    struct GhostStorage
+    struct MigratedDataStorage
     {
         public NativeArray<GhostData> Ghosts;
         public NativeArray<GhostPrefabData> GhostPrefabs;
+        public NativeArray<MigratedEntityData> Entities;
     }
 
     struct GhostPrefabData
@@ -176,6 +212,14 @@ namespace Unity.NetCode.HostMigration
         /// The component data for each ghost component
         /// </summary>
         public NativeArray<DataComponent> DataComponents;
+    }
+
+    struct MigratedEntityData
+    {
+        /// <summary>
+        /// The component data for each migrated component
+        /// </summary>
+        public NativeArray<DataComponent> MigratedDataComponents;
     }
 
     struct DataComponent
@@ -240,6 +284,8 @@ namespace Unity.NetCode.HostMigration
         EntityQuery m_ConnectionQuery;
         EntityQuery m_SubsceneQuery;
 
+        EntityQuery m_NonGhostMigrationEntities;
+
         EntityStorageInfoLookup m_EntityStorageInfo;
         ComponentLookup<NetworkId> m_NetworkIdsLookup;
         ComponentLookup<ConnectionUniqueId> m_UniqueIdsLookup;
@@ -251,10 +297,12 @@ namespace Unity.NetCode.HostMigration
         HostMigrationData.Data m_HostMigrationCache;
         int m_LastSeenGhostPrefabCount;
         NativeHashSet<ComponentType> m_GhostComponentTypes;
-        NativeHashSet<ComponentType> m_RequiredComponentTypes;
+        NativeHashSet<ComponentType> m_RequiredGhostComponentTypes;
         NativeHashSet<ComponentType> m_InputBuffers;
+        NativeHashSet<ComponentType> m_RequiredMigrationEntityComponentTypes;
         NativeList<GhostPrefabData> m_GhostPrefabData;
-        WorldStateSave m_WorldStateSave;
+        WorldStateSave m_GhostWorldStateSave;
+        WorldStateSave m_MigrationEntitiesWorldStateSave;
 
         public void OnCreate(ref SystemState state)
         {
@@ -282,8 +330,10 @@ namespace Unity.NetCode.HostMigration
             m_DefaultComponents[15] = ComponentType.ReadOnly<EnablePacketLogging>();
 
             m_GhostComponentTypes = new NativeHashSet<ComponentType>(16, Allocator.Persistent);
-            m_RequiredComponentTypes = new NativeHashSet<ComponentType>(1, Allocator.Persistent);
-            m_RequiredComponentTypes.Add(ComponentType.ReadOnly<GhostInstance>());
+            m_RequiredGhostComponentTypes = new NativeHashSet<ComponentType>(1, Allocator.Persistent);
+            m_RequiredGhostComponentTypes.Add(ComponentType.ReadOnly<GhostInstance>());
+            m_RequiredMigrationEntityComponentTypes = new NativeHashSet<ComponentType>(1, Allocator.Persistent);
+            m_RequiredMigrationEntityComponentTypes.Add(ComponentType.ReadOnly<IncludeInMigration>());
             m_GhostPrefabData = new NativeList<GhostPrefabData>(Allocator.Persistent);
             m_InputBuffers = new NativeHashSet<ComponentType>(16, Allocator.Persistent);
 
@@ -307,6 +357,10 @@ namespace Unity.NetCode.HostMigration
             builder.WithAll<SceneSectionData>();
             m_SubsceneQuery = state.GetEntityQuery(builder);
 
+            builder.Reset();
+            builder.WithAll<IncludeInMigration>();
+            m_NonGhostMigrationEntities = state.GetEntityQuery(builder);
+
             if (!SystemAPI.TryGetSingleton(out HostMigrationConfig _))
             {
                 var entityConfig = state.EntityManager.CreateEntity(ComponentType.ReadWrite<HostMigrationConfig>());
@@ -322,7 +376,8 @@ namespace Unity.NetCode.HostMigration
             hostMigrationData.ValueRW.HostDataBlob = new NativeList<byte>(Allocator.Persistent);
             hostMigrationData.ValueRW.GhostDataBlob = new NativeList<byte>(Allocator.Persistent);
 
-            m_WorldStateSave = new WorldStateSave(Allocator.Persistent);
+            m_GhostWorldStateSave = new WorldStateSave(Allocator.Persistent);
+            m_MigrationEntitiesWorldStateSave = new WorldStateSave(Allocator.Persistent);
         }
 
         public void OnDestroy(ref SystemState state)
@@ -340,10 +395,13 @@ namespace Unity.NetCode.HostMigration
             hostMigrationData.ValueRW.HostData.SubScenes.Dispose();
             hostMigrationData.ValueRW.HostData.PrespawnGhostIdRanges.Dispose();
             hostMigrationData.ValueRW.HostData.FreeNetworkIds.Dispose();
-            hostMigrationData.ValueRW.Ghosts.GhostPrefabs.Dispose();
-            for (int i = 0; i < hostMigrationData.ValueRW.Ghosts.Ghosts.Length; i++)
-                hostMigrationData.ValueRW.Ghosts.Ghosts[i].DataComponents.Dispose();
-            hostMigrationData.ValueRW.Ghosts.Ghosts.Dispose();
+            hostMigrationData.ValueRW.MigratedEntities.GhostPrefabs.Dispose();
+            for (int i = 0; i < hostMigrationData.ValueRW.MigratedEntities.Ghosts.Length; i++)
+                hostMigrationData.ValueRW.MigratedEntities.Ghosts[i].DataComponents.Dispose();
+            for (int i = 0; i < hostMigrationData.ValueRW.MigratedEntities.Entities.Length; i++)
+                hostMigrationData.ValueRW.MigratedEntities.Entities[i].MigratedDataComponents.Dispose();
+            hostMigrationData.ValueRW.MigratedEntities.Ghosts.Dispose();
+            hostMigrationData.ValueRW.MigratedEntities.Entities.Dispose();
             m_HostMigrationCache.ServerOnlyComponentsFlag.Dispose();
             foreach (var componentList in m_HostMigrationCache.ServerOnlyComponentsPerGhostType.GetValueArray(Allocator.Temp))
                 componentList.Dispose();
@@ -351,10 +409,12 @@ namespace Unity.NetCode.HostMigration
             m_NetworkIdMap.Dispose();
             m_DefaultComponents.Dispose();
             m_GhostComponentTypes.Dispose();
-            m_RequiredComponentTypes.Dispose();
+            m_RequiredGhostComponentTypes.Dispose();
+            m_RequiredMigrationEntityComponentTypes.Dispose();
             m_GhostPrefabData.Dispose();
             m_InputBuffers.Dispose();
-            m_WorldStateSave.Dispose();
+            m_GhostWorldStateSave.Dispose();
+            m_MigrationEntitiesWorldStateSave.Dispose();
         }
 
         [BurstCompile]
@@ -423,7 +483,8 @@ namespace Unity.NetCode.HostMigration
                     migrationRequest.ServerSubScenes.Dispose();
                     state.EntityManager.DestroyEntity(SystemAPI.GetSingletonEntity<HostMigrationRequest>());
                     state.EntityManager.DestroyEntity(SystemAPI.GetSingletonEntity<HostMigrationInProgress>());
-                    SpawnAllGhosts(ref state, hostMigrationData.Ghosts.Ghosts, hostMigrationData.Ghosts.GhostPrefabs);
+                    SpawnAllGhosts(ref state, hostMigrationData.MigratedEntities.Ghosts, hostMigrationData.MigratedEntities.GhostPrefabs);
+                    SpawnAllMigratedEntities(ref state, hostMigrationData.MigratedEntities.Entities);
                 }
 
                 // Host migration has timed out (not all subscenes have finished loading and/or not all ghost prefabs exist)
@@ -438,7 +499,7 @@ namespace Unity.NetCode.HostMigration
                     if (!allLoaded)
                         Debug.LogError($"Host migration failed. Did not finish loading migrated scenes (subscene count:{hostMigrationData.HostData.SubScenes.Length})");
                     else
-                        Debug.LogError($"Host migration failed. Did not load all ghost prefabs (expected {hostMigrationData.Ghosts.GhostPrefabs.Length} but only have {ghostCollection.NumLoadedPrefabs})");
+                        Debug.LogError($"Host migration failed. Did not load all ghost prefabs (expected {hostMigrationData.MigratedEntities.GhostPrefabs.Length} but only have {ghostCollection.NumLoadedPrefabs})");
                     if (m_InGameQuery.IsEmpty)
                         Debug.LogError($"No connection with NetworkStreamInGame found, no ghost prefab will be loaded into the ghost collection until that happens.");
                 }
@@ -453,23 +514,46 @@ namespace Unity.NetCode.HostMigration
                 state.EntityManager.CompleteAllTrackedJobs();
                 GetHostConfigurationForSerializer(ref state, hostMigrationData.HostDataBlob, config, networkTime);
 
-                if (m_WorldStateSave.Initialized)
-                    m_WorldStateSave.Reset();
-                m_WorldStateSave.RequiredTypesToSaveConfig = m_RequiredComponentTypes;
-                m_WorldStateSave.OptionalTypesToSaveConfig = m_GhostComponentTypes;
-                m_WorldStateSave.Initialize(ref state);
-                var stateSaveJob = m_WorldStateSave.ScheduleStateSaveJob(ref state);
+                if (m_GhostWorldStateSave.Initialized)
+                    m_GhostWorldStateSave.Reset();
+                m_GhostWorldStateSave.RequiredTypesToSaveConfig = m_RequiredGhostComponentTypes;
+                m_GhostWorldStateSave.OptionalTypesToSaveConfig = m_GhostComponentTypes;
+                m_GhostWorldStateSave.Initialize(ref state);
+                var ghostsStateSaveJob = m_GhostWorldStateSave.ScheduleStateSaveJob(ref state);
+
+                if (m_MigrationEntitiesWorldStateSave.Initialized)
+                    m_MigrationEntitiesWorldStateSave.Reset();
+                m_MigrationEntitiesWorldStateSave.RequiredTypesToSaveConfig = m_RequiredMigrationEntityComponentTypes;
+
+                var optionalNonGhostComponents = new NativeHashSet<ComponentType>(0, Allocator.Persistent);
+                if ( SystemAPI.TryGetSingletonBuffer<NonGhostMigrationComponents>(out var migrationComponentsBuffer, true) )
+                {
+                    foreach ( var migrationComponent in migrationComponentsBuffer )
+                    {
+                        optionalNonGhostComponents.Add( migrationComponent.ComponentToMigrate );
+                    }
+                }
+
+                optionalNonGhostComponents.Add(ComponentType.ReadOnly<SceneEntityMigrationId>());
+                // We need to add the GhostInstance as optional so we can use it to copy back any migrated non-ghost component data to the correct ghost entity after the migration
+                optionalNonGhostComponents.Add(ComponentType.ReadOnly<GhostInstance>());
+
+                m_MigrationEntitiesWorldStateSave.OptionalTypesToSaveConfig = optionalNonGhostComponents;
+                m_MigrationEntitiesWorldStateSave.Initialize(ref state);
+                var migratedEntitiesWorldStateSaveJob = m_MigrationEntitiesWorldStateSave.ScheduleStateSaveJob(ref state);
 
                 var updateJob = new GatherGhostsAndMigrationStatsJob()
                 {
-                    StateSave = m_WorldStateSave,
+                    GhostsStateSave = m_GhostWorldStateSave,
+                    MigrationEntitesStateSave = m_MigrationEntitiesWorldStateSave,
                     GhostPrefabs = m_GhostPrefabData,
                     GhostDataBlob = hostMigrationData.GhostDataBlob,
                     Stats = SystemAPI.GetSingletonRW<HostMigrationStats>(),
                     UpdateTime = state.WorldUnmanaged.Time.ElapsedTime,
                     HostDataSize = hostMigrationData.HostDataBlob.Length,
                 };
-                state.Dependency = updateJob.Schedule(JobHandle.CombineDependencies(state.Dependency, stateSaveJob));
+                state.Dependency = updateJob.Schedule(JobHandle.CombineDependencies(state.Dependency, ghostsStateSaveJob, migratedEntitiesWorldStateSaveJob));
+
                 state.Dependency.Complete();
             }
 
@@ -600,7 +684,7 @@ namespace Unity.NetCode.HostMigration
                     }
                 }
 
-                SetGhostComponentData(ref state, entity, ghostType, ghost.DataComponents);
+                SetEntityComponentData(ref state, entity, ghost.DataComponents, ghostType);
                 state.EntityManager.AddComponent<IsMigrated>(entity);
             }
 
@@ -617,6 +701,90 @@ namespace Unity.NetCode.HostMigration
             }
 
             return ghostEntities;
+        }
+
+        unsafe void SpawnAllMigratedEntities(ref SystemState state, NativeArray<MigratedEntityData> migratedEntites)
+        {
+            var sceneEntityMigrationIdTypeInfo = TypeManager.GetTypeInfo(ComponentType.ReadOnly<SceneEntityMigrationId>().TypeIndex);
+            var sceneEntityMigrationIdStableHash = sceneEntityMigrationIdTypeInfo.StableTypeHash;
+
+            var ghostInstanceStableHash = TypeManager.GetTypeInfo(ComponentType.ReadOnly<GhostInstance>().TypeIndex).StableTypeHash;
+
+            foreach ( var migratedEntity in migratedEntites )
+            {
+                ulong entityMigrationId = 0;
+                GhostInstance ghostInstanceInMigrationData = default;
+                for (int i = 0; i < migratedEntity.MigratedDataComponents.Length; ++i)
+                {
+                    if (migratedEntity.MigratedDataComponents[i].StableHash == sceneEntityMigrationIdStableHash)
+                    {
+                        var componentData = migratedEntity.MigratedDataComponents[i];
+                        // Extract the ID value from the data component byte array
+                        unsafe
+                        {
+                            SceneEntityMigrationId sceneEntityMigrationId = default;
+                            UnsafeUtility.MemCpy(UnsafeUtility.AddressOf(ref sceneEntityMigrationId), componentData.Data.GetUnsafeReadOnlyPtr(), componentData.Data.Length);
+                            entityMigrationId = sceneEntityMigrationId.Value;
+                        }
+                    }
+
+                    if (migratedEntity.MigratedDataComponents[i].StableHash == ghostInstanceStableHash)
+                    {
+                        var componentData = migratedEntity.MigratedDataComponents[i];
+                        unsafe
+                        {
+                            UnsafeUtility.MemCpy(UnsafeUtility.AddressOf(ref ghostInstanceInMigrationData), componentData.Data.GetUnsafeReadOnlyPtr(), componentData.Data.Length);
+                        }
+                    }
+                }
+                // Scene based entities do not need to be created as they're already there loaded from the subscene,
+                // only apply the data on the entity which has the same migration identifier
+                Entity entity = Entity.Null;
+                if (entityMigrationId != 0)
+                {
+                    foreach (var (migrationId, sceneEntity) in SystemAPI.Query<RefRO<SceneEntityMigrationId>>().WithEntityAccess())
+                    {
+                        if (migrationId.ValueRO.Value == entityMigrationId)
+                        {
+                            entity = sceneEntity;
+                            break;
+                        }
+                    }
+                    if (entity == Entity.Null)
+                    {
+                        Debug.LogError($"Trying to migrate subscene based entity with migration id {entityMigrationId} but it's scene isn't/hasn't been loaded.");
+                        continue;
+                    }
+                }
+                else if (ghostInstanceInMigrationData.ghostId != 0)
+                {
+                    // find the ghost and set that as the entity
+                    foreach (var (ghostInstance, ghostEntity) in SystemAPI.Query<RefRO<GhostInstance>>().WithEntityAccess())
+                    {
+                        if ( ghostInstance.ValueRO.ghostId == ghostInstanceInMigrationData.ghostId && ghostInstance.ValueRO.spawnTick == ghostInstanceInMigrationData.spawnTick )
+                        {
+                            entity = ghostEntity;
+                            break;
+                        }
+                    }
+                    Assert.IsTrue(entity != Entity.Null);
+                }
+                else
+                {
+                    entity = state.EntityManager.CreateEntity();
+                    for (int i = 0; i < migratedEntity.MigratedDataComponents.Length; ++i)
+                    {
+                        var dataComponent = migratedEntity.MigratedDataComponents[i];
+                        var typeIndex = TypeManager.GetTypeIndexFromStableTypeHash(dataComponent.StableHash);
+                        state.EntityManager.AddComponent(entity, ComponentType.FromTypeIndex(typeIndex));
+                    }
+
+                    state.EntityManager.AddComponentData(entity, new IncludeInMigration() { });
+                }
+
+                state.EntityManager.AddComponent<IsMigrated>(entity);
+                SetEntityComponentData(ref state, entity, migratedEntity.MigratedDataComponents);
+            }
         }
 
         NativeHashMap<int, int> CreateGhostTypeMap(NativeArray<GhostPrefabData> ghostData)
@@ -641,14 +809,12 @@ namespace Unity.NetCode.HostMigration
             return ghostTypeMap;
         }
 
-        unsafe void SetGhostComponentData(ref SystemState state, Entity ghostEntity, int ghostType, NativeArray<DataComponent> componentDatas)
+        unsafe void SetEntityComponentData(ref SystemState state, Entity entity, NativeArray<DataComponent> componentDatas, int ghostType = 0)
         {
-            var chunk = state.EntityManager.GetChunk(ghostEntity);
+            var chunk = state.EntityManager.GetChunk(entity);
             var entityStorageInfo = state.GetEntityStorageInfoLookup();
-            var indexInChunk = entityStorageInfo[ghostEntity].IndexInChunk;
+            var indexInChunk = entityStorageInfo[entity].IndexInChunk;
 
-            // int numBaseComponents = typeData.NumComponents - typeData.NumChildComponents;
-            // for (int comp = 0; comp < numBaseComponents; ++comp)
             foreach (var componentData in componentDatas)
             {
                 var typeIndex = TypeManager.GetTypeIndexFromStableTypeHash(componentData.StableHash);
@@ -660,7 +826,15 @@ namespace Unity.NetCode.HostMigration
 
                 if (!chunk.Has(ref typeHandle))
                 {
-                    Debug.LogError($"Component {componentType} not found on ghost entity {ghostEntity.ToFixedString()} ghost type {ghostType} while trying to migrate ghost component data");
+                    if ( ghostType == 0 )
+                    {
+                        Debug.LogError($"Component {componentType} not found on entity {entity.ToFixedString()} while trying to migrate component data");
+                    }
+                    else
+                    {
+                        Debug.LogError($"Component {componentType} not found on ghost entity {entity.ToFixedString()} ghost type {ghostType} while trying to migrate ghost component data");
+                    }
+
                     continue;
                 }
 
@@ -906,7 +1080,8 @@ namespace Unity.NetCode.HostMigration
     [BurstCompile]
     internal struct GatherGhostsAndMigrationStatsJob : IJob
     {
-        [ReadOnly] public WorldStateSave StateSave;
+        [ReadOnly] public WorldStateSave GhostsStateSave;
+        [ReadOnly] public WorldStateSave MigrationEntitesStateSave;
         [NativeDisableUnsafePtrRestriction] public RefRW<HostMigrationStats> Stats;
         public NativeList<byte> GhostDataBlob;
         public double UpdateTime;
@@ -919,10 +1094,10 @@ namespace Unity.NetCode.HostMigration
             unsafe
             {
                 GhostDataBlob.Clear();
-                if (StateSave.EntityCount != 0)
+                if (GhostsStateSave.EntityCount != 0 || MigrationEntitesStateSave.EntityCount != 0)
                 {
                     // Use double estimated size, the actual size could be bigger than the estimate
-                    var requiredSize = 2 * (StateSave.Size + GhostPrefabs.Length * sizeof(GhostPrefabData) + 2 * sizeof(int));
+                    var requiredSize = 2 * (MigrationEntitesStateSave.Size + GhostsStateSave.Size + GhostPrefabs.Length * sizeof(GhostPrefabData) + 2 * sizeof(int));
                     if (GhostDataBlob.Capacity < requiredSize)
                         GhostDataBlob.Resize(2 * requiredSize, NativeArrayOptions.ClearMemory);
                     GhostDataBlob.Length = GhostDataBlob.Capacity;
@@ -931,6 +1106,8 @@ namespace Unity.NetCode.HostMigration
                     // Write prefab data
                     var ghostPrefabWriter = writer;
                     writer.WriteInt(0);
+                    writer.WriteInt(GhostsStateSave.AsSpan.Length);
+                    writer.WriteInt(MigrationEntitesStateSave.AsSpan.Length);
                     writer.WriteShort((short)GhostPrefabs.Length);
                     foreach (var ghostPrefab in GhostPrefabs)
                     {
@@ -940,15 +1117,19 @@ namespace Unity.NetCode.HostMigration
 
                     ghostPrefabWriter.WriteInt(writer.Length);
 
-                    // Copy ghost data from the state save behind the ghost prefab data
+                    // Copy ghost data from the state save in front of the ghost prefab data
                     var ghostPrefabDataSize = writer.Length;
-                    var ghostDataInBlob = new Span<byte>(GhostDataBlob.GetUnsafePtr() + ghostPrefabDataSize, StateSave.AsSpan.Length);
-                    StateSave.AsSpan.CopyTo(ghostDataInBlob);
-                    GhostDataBlob.Length = ghostPrefabDataSize + StateSave.AsSpan.Length;
+                    var ghostDataInBlob = new Span<byte>(GhostDataBlob.GetUnsafePtr() + ghostPrefabDataSize, GhostsStateSave.AsSpan.Length);
+                    GhostsStateSave.AsSpan.CopyTo(ghostDataInBlob);
+
+                    // Copy migration entity data in front of the ghost data
+                    var nonGhostDataInBlob = new Span<byte>(GhostDataBlob.GetUnsafePtr() + ghostPrefabDataSize + GhostsStateSave.AsSpan.Length, MigrationEntitesStateSave.AsSpan.Length);
+                    MigrationEntitesStateSave.AsSpan.CopyTo(nonGhostDataInBlob);
+                    GhostDataBlob.Length = ghostPrefabDataSize + GhostsStateSave.AsSpan.Length + MigrationEntitesStateSave.AsSpan.Length;
                 }
 
                 Stats.ValueRW.PrefabCount = GhostPrefabs.Length;
-                Stats.ValueRW.GhostCount = StateSave.EntityCount;
+                Stats.ValueRW.GhostCount = GhostsStateSave.EntityCount;
                 Stats.ValueRW.LastDataUpdateTime = UpdateTime;
                 var updateSize = HostDataSize + GhostDataBlob.Length;
                 Stats.ValueRW.UpdateSize = updateSize;

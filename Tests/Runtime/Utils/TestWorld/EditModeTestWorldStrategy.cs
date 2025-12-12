@@ -21,6 +21,7 @@ namespace Unity.NetCode.Tests
         static readonly ProfilerMarker k_TickClientInitializationSystem = new ProfilerMarker("TickClientInitializationSystem");
         static readonly ProfilerMarker k_TickServerSimulationSystem = new ProfilerMarker("TickServerSimulationSystem");
         static readonly ProfilerMarker k_TickClientSimulationSystem = new ProfilerMarker("TickClientSimulationSystem");
+        static readonly ProfilerMarker k_TickServerPresentationSystem = new ProfilerMarker("TickServerPresentationSystem");
         static readonly ProfilerMarker k_TickClientPresentationSystem = new ProfilerMarker("TickClientPresentationSystem");
 
         public World CreateServerWorld(string name, World world = null)
@@ -162,7 +163,14 @@ namespace Unity.NetCode.Tests
             if (serverWorld != null)
             {
                 RemoveWorldFromUpdateList(serverWorld);
-                if (!m_TestWorld.m_IncludeNetcodeSystems) ClientServerBootstrap.ServerWorlds.Remove(serverWorld);
+                if (!m_TestWorld.m_IncludeNetcodeSystems)
+                {
+                    ClientServerBootstrap.ServerWorlds.Remove(serverWorld);
+                    if (serverWorld.IsHost())
+                    {
+                        ClientServerBootstrap.ClientWorlds.Remove(serverWorld);
+                    }
+                }
                 if (m_TestWorld.AlwaysDispose || serverWorld.IsCreated)
                 {
                     serverWorld.Dispose();
@@ -211,10 +219,10 @@ namespace Unity.NetCode.Tests
             FlushLogs();
             foreach (var world in m_WorldsToUpdate)
             {
-                if(!world.IsClient())
-                    continue;
-                var profilerMarker = k_TickClientPresentationSystem;
-                UpdateWorldSystemGroup(world, ref profilerMarker, typeof(PresentationSystemGroup));
+                var marker = world.IsClient()
+                    ? k_TickClientPresentationSystem
+                    : k_TickServerPresentationSystem;
+                UpdateWorldSystemGroup(world, ref marker, typeof(PresentationSystemGroup));
             }
             FlushLogs();
 #if USING_UNITY_LOGGING
@@ -310,8 +318,17 @@ namespace Unity.NetCode.Tests
             {
                 if(!world.IsServer())
                     continue;
-                var profilerMarker = k_TickClientPresentationSystem;
+                var profilerMarker = k_TickServerPresentationSystem;
                 //UpdateWorldSystemGroup(world, ref profilerMarker, typeof(PreLateUpdateSystemGroup));
+            }
+            FlushLogs();
+            foreach (var world in m_WorldsToUpdate)
+            {
+                // At runtime, server worlds can have PresentationSystems too (for late update)
+                if(!world.IsServer())
+                    continue;
+                var profilerMarker = k_TickServerPresentationSystem;
+                UpdateWorldSystemGroup(world, ref profilerMarker, typeof(PresentationSystemGroup));
             }
             FlushLogs();
         }

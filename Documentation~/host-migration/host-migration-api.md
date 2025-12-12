@@ -18,6 +18,8 @@ Understand the host migration API, components, and component options.
 | `HostMigrationInProgress` | This component is used to detect when a host migration is in progress and when it's complete. |
 | `HostMigrationConfig` | A singleton component that exposes a few options to modify in the host migration system. |
 | `HostMigrationStats` | A few statistics about the lobby operations like the data blob size. This component also contains the last update time of the host migration data which can be used to see when it's time to upload it again.|
+| `NonGhostMigrationComponents` | Used to specify which components on entities marked with the IncludeInMigration component will be migrated. |
+| `IncludeInMigration` | Used to tag entities containing non-ghost components for migration. Only components specified in the NonGhostMigrationComponents buffer will be migrated. |
 
 The `HostMigrationConfig` component has the following options:
 

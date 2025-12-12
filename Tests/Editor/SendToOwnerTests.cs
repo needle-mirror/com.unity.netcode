@@ -6,6 +6,7 @@ using Unity.NetCode.LowLevel.Unsafe;
 
 namespace Unity.NetCode.Tests
 {
+    [DisableSingleWorldHostTest]
     class SendToOwnerTests
     {
         internal class TestComponentConverter : TestNetCodeAuthoring.IConverter

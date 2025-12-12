@@ -81,6 +81,8 @@ namespace Unity.NetCode.Tests
             });
         }
     }
+
+    [DisableSingleWorldHostTest]
     internal class CommandBufferTests
     {
         [Test]

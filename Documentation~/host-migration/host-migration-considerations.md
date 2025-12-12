@@ -20,3 +20,14 @@ To ensure things settle properly after a host migration, these systems should ch
 
 When clients reconnect to a new host there might be special considerations for dealing with the player entity owned in the previous host session. Since the player is included in the host migration data, there's no need to spawn it again. As would normally happen when the client connects, possibly after some initial init/handshake with the server. There are multiple ways to deal with that, for example if the server saves information about the client on the  connection entity (like a tag component with `PlayerSpawned`) then this information will be migrated as well and seeing that tag could skip initialization of the player for that client. The `GhostOwner` component will then also be updated and inputs should work correctly without any intervention.
 
+## Non-ghost migrated data
+
+To migrate non-ghost component data during host migration, you need to do the following:
+
+- Add an IncludeInMigration component to the entity with data you want to migrate.
+- Add the entity components you want to migrate to the NonGhostMigrationComponents buffer.
+
+When these requirements are met, an entity will be created on the new host after host migration with the relevant data and components, although it won't be automatically linked to the original entity (if it exists). To link the new entity to the original one, you need to add and migrate some kind of unique ID and create a system to connect the two. All migrated entities have an IsMigrated component added that you can use to identify migrated data.
+
+> [!NOTE]
+> It isn't necessary to add an IncludeInMigration component to ghost entities because ghost components are automatically migrated. However, if you want to migrate any non-ghost components on a ghost entity, you do need to add an IncludeInMigration component and add the components you want to migrate to the NonGhostMigrationComponents buffer. The host migration system will automatically copy back this non-ghost data to the correct ghost.

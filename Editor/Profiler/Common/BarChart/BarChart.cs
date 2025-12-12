@@ -50,7 +50,7 @@ namespace Unity.NetCode.Editor
 
         void SetFrameDataOverview(uint totalBits, uint totalPackets)
         {
-            var formattedBytes = UIUtils.FormatBitsToBytes(totalBits);
+            var formattedBytes = ProfilerUtils.FormatBitsToBytes(totalBits);
             var bitsAndBytes = $"{totalBits}b ({formattedBytes})";
             m_TotalBytesLabel.text = $"Total: {bitsAndBytes}";
             m_TotalPacketsLabel.text = $"Packets: {totalPackets}";

@@ -27,6 +27,11 @@ namespace Unity.NetCode
         public int Value;
 
         /// <summary>
+        /// Invalid NetworkId
+        /// </summary>
+        public static readonly NetworkId Invalid = new NetworkId { Value = 0 };
+
+        /// <summary>
         /// Returns 'NID[value]'.
         /// </summary>
         /// <returns>Returns 'NID[value]'.</returns>

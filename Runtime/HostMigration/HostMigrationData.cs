@@ -228,7 +228,7 @@ namespace Unity.NetCode.HostMigration
             toWorld.EntityManager.SetComponentData(configQuery.GetSingletonEntity(), config);
             Debug.Log($"Setting host migration configuration StoreOwnGhosts={config.StoreOwnGhosts} MigrationTimeout={config.MigrationTimeout} ServerUpdateInterval={config.ServerUpdateInterval}");
 
-            hostMigrationData.ValueRW.Ghosts = DecompressAndDecodeGhostData(ghostData, hostMigrationData.ValueRW.HostData);
+            hostMigrationData.ValueRW.MigratedEntities = DecompressAndDecodeGhostData(ghostData, hostMigrationData.ValueRW.HostData);
 
             // TODO: It appears this does not work
             toWorld.SetTime(new TimeData(hostMigrationData.ValueRO.HostData.ElapsedTime, 0));
@@ -290,9 +290,9 @@ namespace Unity.NetCode.HostMigration
 
             toWorld.EntityManager.CreateEntity(ComponentType.ReadOnly<EnableHostMigration>());
             bool hasPrespawns = false;
-            for (int i = 0; i < hostMigrationData.ValueRO.Ghosts.Ghosts.Length; ++i)
+            for (int i = 0; i < hostMigrationData.ValueRO.MigratedEntities.Ghosts.Length; ++i)
             {
-                if (hostMigrationData.ValueRO.Ghosts.Ghosts[i].GhostId < 0)
+                if (hostMigrationData.ValueRO.MigratedEntities.Ghosts[i].GhostId < 0)
                 {
                     hasPrespawns = true;
                     break;
@@ -303,11 +303,11 @@ namespace Unity.NetCode.HostMigration
 
             // Trigger server host migration system
             var requestEntity = toWorld.EntityManager.CreateEntity(ComponentType.ReadOnly<HostMigrationRequest>());
-            toWorld.EntityManager.SetComponentData(requestEntity, new HostMigrationRequest(){ExpectedPrefabCount = hostMigrationData.ValueRW.Ghosts.GhostPrefabs.Length});
+            toWorld.EntityManager.SetComponentData(requestEntity, new HostMigrationRequest(){ExpectedPrefabCount = hostMigrationData.ValueRW.MigratedEntities.GhostPrefabs.Length});
             toWorld.EntityManager.CreateEntity(ComponentType.ReadOnly<HostMigrationInProgress>());
         }
 
-        internal static unsafe GhostStorage DecompressAndDecodeGhostData(NativeSlice<byte> ghostDataBlob, HostDataStorage hostData)
+        internal static unsafe MigratedDataStorage DecompressAndDecodeGhostData(NativeSlice<byte> ghostDataBlob, HostDataStorage hostData)
         {
             if (ghostDataBlob.Length == 0)
                 return default;
@@ -328,6 +328,8 @@ namespace Unity.NetCode.HostMigration
 
             var reader = new DataStreamReader(decompressedBytes);
             var ghostPrefabDataSize = reader.ReadInt();
+            var ghostStateSaveSize = reader.ReadInt();
+            var migrationEntitesStateSaveSize = reader.ReadInt();
             var prefabCount = reader.ReadShort();
             var prefabs = new NativeArray<GhostPrefabData>(prefabCount, Allocator.Persistent);
             for (int i = 0; i < prefabCount; ++i)
@@ -345,12 +347,12 @@ namespace Unity.NetCode.HostMigration
             if (decompressedBytes.Length <= ghostPrefabDataSize)
             {
                 Debug.LogWarning("No ghost instances found in host migration data.");
-                return new GhostStorage() { GhostPrefabs = prefabs, Ghosts = new NativeArray<GhostData>(0, Allocator.Persistent) };
+                return new MigratedDataStorage() { GhostPrefabs = prefabs, Ghosts = new NativeArray<GhostData>(0, Allocator.Persistent) };
             }
 
-            var stateSave = new WorldStateSave(Allocator.Persistent).InitializeFromBuffer((byte*)decompressedBytes.GetUnsafeReadOnlyPtr() + ghostPrefabDataSize, decompressedBytes.Length - ghostPrefabDataSize);
-            var ghosts = new NativeList<GhostData>(stateSave.EntityCount, Allocator.Persistent);
-            foreach (var entry in stateSave)
+            var ghostsStateSave = new WorldStateSave(Allocator.Persistent).InitializeFromBuffer((byte*)decompressedBytes.GetUnsafeReadOnlyPtr() + ghostPrefabDataSize, ghostStateSaveSize);
+            var ghosts = new NativeList<GhostData>(ghostsStateSave.EntityCount, Allocator.Persistent);
+            foreach (var entry in ghostsStateSave)
             {
                 GhostInstance ghostInstance = default;
                 var skipEntity = false;
@@ -383,28 +385,7 @@ namespace Unity.NetCode.HostMigration
                         break;
                     }
 
-                    var typeInfo = TypeManager.GetTypeInfo(compData.Type.TypeIndex);
-                    if (compData.Type.IsBuffer)
-                    {
-                        var elementSize = TypeManager.GetTypeInfo(compData.Type.TypeIndex).ElementSize;
-                        var srcDataSize = compData.Length * elementSize;
-                        if (srcDataSize > decompressedBytes.Length)
-                        {
-                            Debug.LogError($"Invalid buffer size detected while unpacking ghost data, buffer size={srcDataSize}, source data size={decompressedBytes.Length}");
-                            return default;
-                        }
-                        var data = new NativeArray<byte>(srcDataSize, Allocator.Persistent);
-                        var dataSpan = new Span<byte>(compData.ComponentAdr, compData.Length * elementSize);
-                        dataSpan.CopyTo(data);
-                        componentData[componentCount++] = new DataComponent() { StableHash = typeInfo.StableTypeHash, Length = compData.Length, Enabled = compData.Enabled, Data = data };
-                    }
-                    else
-                    {
-                        var data = new NativeArray<byte>(typeInfo.TypeSize, Allocator.Persistent);
-                        var dataSpan = new Span<byte>(compData.ComponentAdr, typeInfo.TypeSize);
-                        dataSpan.CopyTo(data);
-                        componentData[componentCount++] = new DataComponent() { StableHash = typeInfo.StableTypeHash, Enabled = compData.Enabled, Data = data };
-                    }
+                    componentData[componentCount++] = ExtractComponentData( compData, decompressedBytes.Length);
                 }
 
                 if (skipEntity)
@@ -420,13 +401,61 @@ namespace Unity.NetCode.HostMigration
                 ghosts.Add(newGhostData);
             }
 
-            var ghostData = new GhostStorage()
+            var ghostData = new MigratedDataStorage()
             {
                 GhostPrefabs = prefabs,
                 Ghosts = ghosts.AsArray()
             };
 
+            var migratedEntitiesStateSave = new WorldStateSave(Allocator.Persistent).InitializeFromBuffer((byte*)decompressedBytes.GetUnsafeReadOnlyPtr() + ghostPrefabDataSize + ghostStateSaveSize, migrationEntitesStateSaveSize);
+            ghostData.Entities = new NativeArray<MigratedEntityData>(migratedEntitiesStateSave.EntityCount, Allocator.Persistent);
+            int migratedEntityCount = 0;
+
+            foreach (var entry in migratedEntitiesStateSave)
+            {
+                var componentData = new NativeArray<DataComponent>(entry.types.Length, Allocator.Persistent);
+                var componentCount = 0;
+
+                foreach (var compData in entry)
+                {
+                    componentData[componentCount++] = ExtractComponentData( compData, decompressedBytes.Length);
+                }
+
+                var newMigratedEntityData = new MigratedEntityData()
+                {
+                    MigratedDataComponents = componentData
+                };
+
+                ghostData.Entities[migratedEntityCount++] = newMigratedEntityData;
+            }
+
             return ghostData;
+        }
+
+        internal static unsafe DataComponent ExtractComponentData( in WorldStateSave.StateSaveEntry.SavedComponentData compData, int bufferLength )
+        {
+            var typeInfo = TypeManager.GetTypeInfo(compData.Type.TypeIndex);
+            if (compData.Type.IsBuffer)
+            {
+                var elementSize = TypeManager.GetTypeInfo(compData.Type.TypeIndex).ElementSize;
+                var srcDataSize = compData.Length * elementSize;
+                if (srcDataSize > bufferLength)
+                {
+                    Debug.LogError($"Invalid buffer size detected while unpacking ghost data, buffer size={srcDataSize}, source data size={bufferLength}");
+                    return default;
+                }
+                var data = new NativeArray<byte>(srcDataSize, Allocator.Persistent);
+                var dataSpan = new Span<byte>(compData.ComponentAdr, compData.Length * elementSize);
+                dataSpan.CopyTo(data);
+                return new DataComponent() { StableHash = typeInfo.StableTypeHash, Length = compData.Length, Enabled = compData.Enabled, Data = data };
+            }
+            else
+            {
+                var data = new NativeArray<byte>(typeInfo.TypeSize, Allocator.Persistent);
+                var dataSpan = new Span<byte>(compData.ComponentAdr, typeInfo.TypeSize);
+                dataSpan.CopyTo(data);
+                return new DataComponent() { StableHash = typeInfo.StableTypeHash, Enabled = compData.Enabled, Data = data };
+            }
         }
 
         internal static unsafe HostDataStorage DecodeHostData(NativeSlice<byte> data)

@@ -75,6 +75,7 @@ namespace Unity.NetCode.Tests
     internal class BootstrapTests
     {
         [Test]
+        [DisableSingleWorldHostTest]
         public void BootstrapRespectsUpdateInWorld()
         {
             using (var testWorld = new NetCodeTestWorld())

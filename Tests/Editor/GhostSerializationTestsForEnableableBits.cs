@@ -27,6 +27,7 @@ namespace Unity.NetCode.Tests
         StartDisabledAndWaitForClientSpawn = 4,
     }
 
+    [DisableSingleWorldHostTest]
     internal class GhostSerializationTestsForEnableableBits
     {
         void TickMultipleFrames(int numTicksToProperlyReplicate)
@@ -1408,10 +1409,15 @@ namespace Unity.NetCode.Tests
             }
         }
 
+        // If the testworld was created in setup, we should dispose it during teardown.
+        // We should not just check whether the world is null, as that would mean it was disposed unexpectedly.
+        private bool didCreateTestWorld;
+
         [SetUp]
         public void SetupTestsForEnableableBits()
         {
             m_TestWorld = new NetCodeTestWorld();
+            didCreateTestWorld = true;
             //We need a larger payload to handle the test
             m_TestWorld.DriverFragmentedPayloadCapacity = 32 * 1024;
         }
@@ -1423,7 +1429,8 @@ namespace Unity.NetCode.Tests
                 m_ServerEntities.Dispose();
             if (chunkArray.IsCreated)
                 chunkArray.Dispose();
-            m_TestWorld.Dispose();
+            if (didCreateTestWorld)
+                m_TestWorld.Dispose();
         }
 
         [Test]
@@ -1496,7 +1503,6 @@ namespace Unity.NetCode.Tests
             RunTest(1, type, count, GhostFlags.PreSerialize, sendForChildrenTestCase, PredictionSetting.WithInterpolatedEntities, enabledBitBakedValue);
         }
 
-        [Ignore("Temporarily disabled for 1.10.0 release due to Ubuntu issues with 6000.3 and 6000.4")]
         [Test]
         public void GhostsAreSerializedWithEnabledBits_StaticOptimize(
             [Values(GhostFlags.StaticOptimization, GhostFlags.StaticOptimization|GhostFlags.PreSerialize)]GhostFlags flags,

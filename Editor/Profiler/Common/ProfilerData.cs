@@ -13,7 +13,8 @@ namespace Unity.NetCode.Editor
     [Serializable]
     struct NetcodeFrameData
     {
-        internal uint frameCount;
+        internal bool isValid;
+        internal int frameIndex;
         internal uint totalSizeSentByServerInBits;
         internal uint totalSizeReceivedByClientInBits;
         internal uint totalPacketCountSentByServer;
@@ -65,7 +66,7 @@ namespace Unity.NetCode.Editor
         internal float combinedCompressionEfficiency;
         internal float avgSizePerEntity;
         internal NativeArray<ProfilerGhostTypeData> componentsPerType;
-        internal bool needsOverheadIcon;
+        internal OverheadType overheadType;
         internal uint newInstancesCount;
         internal bool isGhost;
         internal TypeIndex typeIndex;

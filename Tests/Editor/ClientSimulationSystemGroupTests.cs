@@ -72,6 +72,7 @@ namespace Unity.NetCode.Tests
         /// for 10 ticks.
         /// </summary>
         [Test]
+        [DisableSingleWorldHostTest]
         public void WhenRollbackPredictionErrorWillBeDisplayed()
         {
             // const int rollback = 10;

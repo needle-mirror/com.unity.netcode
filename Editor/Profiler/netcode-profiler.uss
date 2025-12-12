@@ -71,7 +71,6 @@
 
 .legend__name-container{
     flex-direction: row;
-    margin-top: 16px;
     margin-bottom: 4px;
 }
 
@@ -237,8 +236,16 @@
 }
 
 /* Ghost Snapshot TreeView */
-.unity-multi-column-view__cell__icon {
+.unity-multi-column-view__cell__overhead-icon {
     background-image: var(--overhead-icon);
+    width: 16px;
+    height: 16px;
+    align-self: center;
+    display: none;
+}
+
+.unity-multi-column-view__cell__warning-icon {
+    background-image: var(--warning-icon);
     width: 16px;
     height: 16px;
     align-self: center;

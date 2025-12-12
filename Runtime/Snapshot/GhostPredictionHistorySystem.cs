@@ -193,11 +193,11 @@ namespace Unity.NetCode
             /// <summary>
             /// The index in chunk at the time of the last history backup
             /// </summary>
-            public int LastIndexInChunk;
+            public byte LastIndexInChunk;
             /// <summary>
             /// The capacity of the that chunk, that it used to correctly decode the history data.
             /// </summary>
-            public int LastChunkCapacity;
+            public byte LastChunkCapacity;
         }
 
         NativeParallelHashMap<ArchetypeChunk, System.IntPtr> m_PredictionState;
@@ -607,13 +607,13 @@ namespace Unity.NetCode
                 UnsafeUtility.MemCpy(entities, srcEntities, chunk.Count * singleEntitySize);
                 if (chunk.Count < chunk.Capacity)
                     UnsafeUtility.MemClear(entities + chunk.Count, (chunk.Capacity - chunk.Count) * singleEntitySize);
-                for (int i = 0; i < chunk.Count; ++i)
+                for (byte i = 0; i < chunk.Count; ++i)
                 {
                     entityData.TryAdd(entities[i], new PredictionBufferHistoryData
                     {
                         lastChunk = chunk,
                         LastIndexInChunk = i,
-                        LastChunkCapacity = chunk.Capacity
+                        LastChunkCapacity = (byte) chunk.Capacity
                     });
                 }
                 byte* dataPtr = PredictionBackupState.GetData(state);

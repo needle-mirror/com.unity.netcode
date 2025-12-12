@@ -13,6 +13,7 @@ namespace Unity.NetCode.Tests
     internal class RpcTests
     {
         [Test]
+        [DisableSingleWorldHostTest]
         public void Rpc_UsingBroadcastOnClient_Works()
         {
             using (var testWorld = new NetCodeTestWorld())
@@ -38,6 +39,7 @@ namespace Unity.NetCode.Tests
         }
 
         [Test]
+        [DisableSingleWorldHostTest]
         public void Rpc_UsingConnectionEntityOnClient_Works()
         {
             using (var testWorld = new NetCodeTestWorld())
@@ -66,6 +68,7 @@ namespace Unity.NetCode.Tests
         }
 
         [Test]
+        [DisableSingleWorldHostTest]
         public void Rpc_SerializedRpcFlow_Works()
         {
             using (var testWorld = new NetCodeTestWorld())
@@ -96,6 +99,7 @@ namespace Unity.NetCode.Tests
         }
 
         [Test]
+        [DisableSingleWorldHostTest]
         public void Rpc_ServerBroadcast_Works([Values(32, 64)] int windowSize)
         {
             using (var testWorld = new NetCodeTestWorld())
@@ -307,6 +311,7 @@ namespace Unity.NetCode.Tests
         }
 
         [Test]
+        [DisableSingleWorldHostTest]
         public void Rpc_CanSendMoreThanOnePacketPerFrame([Values] bool useDynamicAssemblyList, [Values(2, 100)] int sendCount, [Values(32, 64)] int windowSize)
         {
             using (var testWorld = new NetCodeTestWorld())
@@ -393,6 +398,7 @@ namespace Unity.NetCode.Tests
         }
 
         [Test]
+        [DisableSingleWorldHostTest]
         public void Rpc_IsRemovedWithConnectionDeletionInSystem()
         {
             using (var testWorld = new NetCodeTestWorld())
@@ -460,6 +466,7 @@ namespace Unity.NetCode.Tests
         //   "Cannot send RPC 'Unity.NetCode.Tests.FastReconnectRpc' with no remote connection." - The SendRpcData job
         //     ran when the connection was disconnected. We sent an RPC and immediately disconnected in the same frame.
         [Test]
+        [DisableSingleWorldHostTest]
         public void Rpc_IsCleanedUpWithFastReconnectManual(
             [Values] bool useApproval,
             [Values] SystemSetup systemSetup)
@@ -502,6 +509,7 @@ namespace Unity.NetCode.Tests
         }
 
         [Test]
+        [DisableSingleWorldHostTest]
         public void Rpc_IsCleanedUpWithFastReconnectInSystems(
             [Values] bool useApproval,
             [Values] SystemSetup systemSetup,
@@ -553,6 +561,7 @@ namespace Unity.NetCode.Tests
         }
 
         [Test]
+        [DisableSingleWorldHostTest]
         public void Rpc_CanPackMultipleRPCs()
         {
             using (var testWorld = new NetCodeTestWorld())
@@ -592,6 +601,7 @@ namespace Unity.NetCode.Tests
         }
 
         [Test]
+        [DisableSingleWorldHostTest]
         public void Rpc_CanSendEntityFromClientAndServer()
         {
             void SendRpc(World world, Entity entity)
@@ -695,6 +705,7 @@ namespace Unity.NetCode.Tests
 
 #if ENABLE_UNITY_COLLECTIONS_CHECKS && !NETCODE_NDEBUG
         [Test]
+        [DisableSingleWorldHostTest]
         public void Rpc_WarnIfSendingApprovalRpcWithoutApprovalRequired([Values]bool suppressWarning)
         {
             using (var testWorld = new NetCodeTestWorld())
@@ -862,6 +873,7 @@ namespace Unity.NetCode.Tests
         }
 
         [Test]
+        [DisableSingleWorldHostTest]
         public void Rpc_SendingRPCLargerThanMaxMessageSizeGivesTheCorrectError()
         {
             using (var testWorld = new NetCodeTestWorld())
