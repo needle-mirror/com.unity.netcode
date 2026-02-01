@@ -61,7 +61,9 @@ namespace Unity.NetCode.Generators
         public void GenerateFields(CodeGenerator.Context context,
             string fieldPath = null,
             Dictionary<string, GhostCodeGen.FragmentData> overrides = null,
-            Dictionary<string, string> replacements = null)
+            Dictionary<string, string> replacements = null,
+            string fullFieldNames = ""
+            )
         {
             if (m_Template == null)
                 return;
@@ -142,6 +144,8 @@ namespace Unity.NetCode.Generators
             fieldHash = Utilities.TypeHash.CombineFNV1A64(fieldHash, Utilities.TypeHash.FNV1A64(m_TypeInformation.Attribute.subtype));
             fieldHash = Utilities.TypeHash.CombineFNV1A64(fieldHash, (ulong)m_TypeInformation.Attribute.quantization);
             fieldHash = Utilities.TypeHash.CombineFNV1A64(fieldHash, Utilities.TypeHash.FNV1A64((int)m_TypeInformation.Attribute.smoothing));
+            fieldHash = Utilities.TypeHash.CombineFNV1A64(fieldHash, Utilities.TypeHash.FNV1A64(fullFieldNames));
+            fieldHash = Utilities.TypeHash.CombineFNV1A64(fieldHash, Utilities.TypeHash.FNV1A64(m_TypeInformation.TypeFullName));
             context.ghostFieldHash = Utilities.TypeHash.CombineFNV1A64(context.ghostFieldHash, fieldHash);
             m_ActiveGenerator = generator;
         }

@@ -951,5 +951,109 @@ namespace Unity.NetCode.Tests
     #endif
         }
 #endif
+
+        [Test(Description =
+            "This test was implemented due to the fact that we did not have any test coverage where a client was" +
+            " ticking exactly on a full tick every tick, using IPC, and without tick batching, which caused issues with the ghost update system. " +
+            "This is due to most tests not using the IPC socket, which causes the client to always be slightly off a full tick.")]
+        public void GhostSerialization_WorksAtNonPartialTicks()
+        {
+            using var testWorld = new NetCodeTestWorld();
+            testWorld.UseFakeSocketConnection = 0;
+            testWorld.Bootstrap(true);
+            var ghostGameObject = new GameObject();
+            ghostGameObject.AddComponent<TestNetCodeAuthoring>().Converter = new GhostValueSerializerConverter();
+            ghostGameObject.AddComponent<GhostAuthoringComponent>().DefaultGhostMode = GhostMode.Predicted;
+            Assert.IsTrue(testWorld.CreateGhostCollection(ghostGameObject));
+            testWorld.CreateWorlds(true, 1);
+
+            testWorld.Connect();
+            testWorld.GoInGame();
+
+            var clientTime = testWorld.GetSingleton<NetworkTime>(testWorld.ClientWorlds[0]);
+
+            while (!clientTime.ServerTick.IsValid)
+            {
+                testWorld.Tick();
+                clientTime = testWorld.GetSingleton<NetworkTime>(testWorld.ClientWorlds[0]);
+            }
+
+            Assert.IsFalse(clientTime.IsPartialTick,
+                "Test is only valid if the client world is on a full tick, but it is on a partial tick");
+
+            testWorld.SpawnOnServer(ghostGameObject);
+            testWorld.TickUntilClientsHaveAllGhosts();
+
+            // Ensure that the ghost is spawned
+            var clientEnt = testWorld.TryGetSingletonEntity<GhostValueSerializer>(testWorld.ClientWorlds[0]);
+            Assert.AreNotEqual(Entity.Null, clientEnt, "GhostValueSerializer was not spawned on the client");
+            var clientGhost = testWorld.ClientWorlds[0].EntityManager.GetComponentData<GhostInstance>(clientEnt);
+            Assert.IsTrue(clientGhost.ghostId != 0,
+                "GhostValueSerializer has invalid ghostId on the client, it should have been replicated from the server");
+
+            // Set values on the server and ensure they replicate correctly
+            SetGhostValuesOnServer(testWorld, 1234);
+            for (int i = 0; i < 16; i++)
+            {
+                testWorld.Tick();
+                clientTime = testWorld.GetSingleton<NetworkTime>(testWorld.ClientWorlds[0]);
+                Assert.IsFalse(clientTime.IsPartialTick,
+                    $"Test is only valid if the client world is on a full tick, but it is on a partial tick at iteration {i + 16}");
+            }
+
+            VerifyGhostValues(testWorld);
+        }
+
+        public struct SimilarComponent1 : IComponentData
+        {
+            [GhostField] public int ValueA;
+            [GhostField] public int ValueB;
+        }
+
+        // names are different
+        public struct SimilarComponent2 : IComponentData
+        {
+            [GhostField] public int ValueB;
+            [GhostField] public int ValueA;
+        }
+
+        // field type is different
+        public struct SimilarComponent3 : IComponentData
+        {
+            [GhostField] public float ValueA;
+            [GhostField] public int ValueB;
+        }
+
+        [Description("There was a bug where a component who's fields are reordered didn't trigger hash checks when connecting. We're checking here that field hashes are different for similar components. Note: there's more comprehensive tests inside the source gen tests themselves, we're a bit limited on the recompilation capacities in these engine side tests.")]
+        [Test]
+        public void Test_HashDifferent_ForSimilarComponents()
+        {
+            using var testWorld = new NetCodeTestWorld();
+            testWorld.Bootstrap(true);
+            testWorld.CreateWorlds(true, 0);
+
+            testWorld.Tick();
+            var allSerializers = testWorld.ServerWorld.EntityManager.CreateEntityQuery(typeof(GhostComponentSerializer.State)).GetSingletonBuffer<GhostComponentSerializer.State>();
+            GhostComponentSerializer.State serializer1 = default;
+            GhostComponentSerializer.State serializer2 = default;
+            GhostComponentSerializer.State serializer3 = default;
+            foreach (GhostComponentSerializer.State serializer in allSerializers)
+            {
+                if (serializer.ComponentType.TypeIndex == TypeManager.GetTypeIndex<SimilarComponent1>())
+                    serializer1 = serializer;
+                else if (serializer.ComponentType.TypeIndex == TypeManager.GetTypeIndex<SimilarComponent2>())
+                    serializer2 = serializer;
+                else if (serializer.ComponentType.TypeIndex == TypeManager.GetTypeIndex<SimilarComponent3>())
+                    serializer3 = serializer;
+            }
+
+            Assert.IsTrue(serializer1.HasGhostFields);
+            Assert.IsTrue(serializer2.HasGhostFields);
+            Assert.IsTrue(serializer3.HasGhostFields);
+
+            Assert.AreNotEqual(serializer1.GhostFieldsHash, serializer2.GhostFieldsHash, "component 1 and component 2 are the same!");
+            Assert.AreNotEqual(serializer1.GhostFieldsHash, serializer3.GhostFieldsHash, "component 1 and component 3 are the same!");
+            Assert.AreNotEqual(serializer2.GhostFieldsHash, serializer3.GhostFieldsHash, "component 2 and component 3 are the same!");
+        }
     }
 }

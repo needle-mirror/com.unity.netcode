@@ -257,7 +257,7 @@ namespace Unity.NetCode.Tests
             Disabled = 0u,
             ForcedInputLatency_1 = 1u,
             ForcedInputLatency_2 = 2u,
-            ForcedInputLatency_8 = 16u,
+            ForcedInputLatency_8 = 8u,
         }
 
         [Test, Description("Ensures that InputComponentData's are correctly handled by netcode locally (i.e. client-side, inside prediction) and remotely (i.e. on the server), and without input delay. Also ensures ForcedInputLatency is correctly applied.")]

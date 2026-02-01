@@ -28,7 +28,7 @@ When implementing server-side rewind in your game, consider limiting the server'
 
 ## Test server-side rewind
 
-Test your implementation of server-side rewind by adding artificial latency and seeing how your clients and server behave. Testing at 50, 150, and 500 ms of latency is usually enough to cover most common network conditions. You can use the Netcode for Entities PlayMode Tool to [emulate network conditions](playmode-tool.md#emulate-client-network-conditions) in your project.
+Test your implementation of server-side rewind by adding artificial latency and seeing how your clients and server behave. Testing at 50, 150, and 500 ms of latency is usually enough to cover most common network conditions. You can use the Netcode for Entities PlayMode Tool to [emulate network conditions](testing/playmode-tool.md#emulate-client-network-conditions) in your project.
 
 You can either test manually, or use bots to simulate client inputs and see if your server-side rewind is working as expected. In the context of the shooting example, this could involve adding test code that counts hits both client- and server-side, and then ensuring that those numbers remain similar and converge when shooting stops.
 

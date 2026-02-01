@@ -4,11 +4,11 @@ Set up host migration systems in your project to enable host migration in a clie
 
 Netcode for Entities contains [APIs](host-migration-api.md) for gathering host migration data into a buffer, which can then be used with the Multiplayer Services SDK to upload to the host migration service, and for deploying this data to a new server after a migration.
 
-Use the information on this page in conjunction with [Lobby and Relay integrations](lobby-relay-integrations.md) to set up host migration in your project.
+Use the information on this page in conjunction with [Lobby and Relay integrations](lobby-relay-integration.md) to set up host migration in your project.
 
 ## Start the host migration systems
 
-To enable host migration, create an `EnableHostMigration` singleton component in the server world. A default `HostMigrationConfig` is created, which has [configuration options](host-migration-api.md#hostmigrationconfig-component-options) for host migration, including how frequently the [host migration data](host-migration-intro.md#host-migration-data) should be automatically gathered.
+To enable host migration, create an `EnableHostMigration` singleton component in the server world. A default `HostMigrationConfig` is created, which has [configuration options](host-migration-api.md#host-migration-components) for host migration, including how frequently the [host migration data](host-migration-intro.md#host-migration-data) should be automatically gathered.
 
 ```
 var serverWorld = ClientServerBootstrap.ServerWorld;

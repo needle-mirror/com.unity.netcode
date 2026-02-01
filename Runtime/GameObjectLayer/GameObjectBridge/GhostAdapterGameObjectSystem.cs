@@ -18,6 +18,7 @@ namespace Unity.NetCode
 #endif
     partial class GhostGameObjectSystemGroup : ComponentSystemGroup { }
 
+#if ENABLE_UNITY_COLLECTIONS_CHECKS
     /// <summary>
     /// Simple system that gives users proper messages if they try to do things that aren't supported.
     /// </summary>
@@ -28,10 +29,6 @@ namespace Unity.NetCode
         EntityQuery m_InvalidGhostsQuery;
         public void OnCreate(ref SystemState state)
         {
-#if !ENABLE_UNITY_COLLECTIONS_CHECKS
-            state.Enabled = false;
-            return;
-#endif
             m_InvalidGhostsQuery = new EntityQueryBuilder(Allocator.Temp).WithAll<GhostGameObjectLink>().WithNone<GhostInstance>().Build(ref state);
         }
 
@@ -47,5 +44,6 @@ namespace Unity.NetCode
             }
         }
     }
+#endif
 }
 

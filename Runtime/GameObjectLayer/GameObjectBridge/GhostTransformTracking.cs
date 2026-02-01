@@ -44,10 +44,10 @@ namespace Unity.NetCode
             this.m_Transforms.RemoveAtSwapBack(mappedEntity.TransformIndex);
             this.m_EntitiesForTransforms.RemoveAtSwapBack(mappedEntity.TransformIndex);
             this.m_IndexedGameObjectIds.RemoveAtSwapBack(mappedEntity.TransformIndex);
-            if (Netcode.EntityMappingRef.m_MappedEntities.TryGetValue(swappedKey, out var swappedMappedEntity))
+            if (Netcode.Unmanaged.m_EntityMapping.m_MappedEntities.TryGetValue(swappedKey, out var swappedMappedEntity))
             {
                 swappedMappedEntity.TransformIndex = mappedEntity.TransformIndex;
-                Netcode.EntityMappingRef.m_MappedEntities[swappedKey] = swappedMappedEntity;
+                Netcode.Unmanaged.m_EntityMapping.m_MappedEntities[swappedKey] = swappedMappedEntity;
             }
         }
 

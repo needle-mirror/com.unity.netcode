@@ -1,4 +1,4 @@
-#if (UNITY_EDITOR || NETCODE_DEBUG) && (NETCODE_PROFILER_ENABLED && UNITY_6000_0_OR_NEWER)
+#if (UNITY_EDITOR || NETCODE_DEBUG) && UNITY_6000_0_OR_NEWER
 using System;
 using System.Diagnostics;
 using Unity.Collections;
@@ -18,13 +18,13 @@ namespace Unity.NetCode
         internal uint TotalSizeSentByServerInBits;
 
         // Total packet count sent by server over the whole profiler run
-        internal uint TotalPacketCountSentByServer;
+        internal uint TotalSnapshotCountSentByServer;
 
         // Size received by client accumulated over the whole profiler run
         internal uint TotalSizeReceivedByClientInBits;
 
         // Total packet count received by client over the whole profiler run
-        internal uint TotalPacketCountReceivedByClient;
+        internal uint TotalSnapshotCountReceivedByClient;
 
         // Server World Counters
         internal ProfilerCounterValue<uint> ServerGhostInstancesCounter;
@@ -35,11 +35,6 @@ namespace Unity.NetCode
         internal ProfilerCounterValue<uint> ClientGhostSnapshotCounter;
         internal ProfilerCounterValue<float> JitterCounter;
         internal ProfilerCounterValue<float> RttCounter;
-        internal ProfilerCounterValue<float> SnapshotAgeMinCounter;
-        internal ProfilerCounterValue<float> SnapshotAgeMaxCounter;
-
-        // ServerTick
-        internal NetworkTick ServerTick;
     }
 
     /// <summary>
@@ -73,6 +68,8 @@ namespace Unity.NetCode
         bool m_WaitForConnection;
         // Flag to know if we need to clean up the profiler metrics.
         bool m_IsCleanedUp = true;
+        // Flag to track last processed client tick. Not required on server.
+        NetworkTick m_LastClientTick;
 
         void Initialize()
         {
@@ -87,25 +84,22 @@ namespace Unity.NetCode
             var profilerMetrics = new ProfilerMetrics
             {
                 TotalSizeSentByServerInBits = 0,
-                TotalPacketCountSentByServer = 0,
+                TotalSnapshotCountSentByServer = 0,
                 TotalSizeReceivedByClientInBits = 0,
-                TotalPacketCountReceivedByClient = 0,
-                ServerTick = new NetworkTick()
+                TotalSnapshotCountReceivedByClient = 0
             };
 
             if (World.IsServer())
             {
-                profilerMetrics.ServerGhostInstancesCounter = new ProfilerCounterValue<uint>(ProfilerCategory.Network, ProfilerMetricsConstants.GhostInstancesCounterNameServer, ProfilerMarkerDataUnit.Count);
-                profilerMetrics.ServerGhostSnapshotCounter = new ProfilerCounterValue<uint>(ProfilerCategory.Network, ProfilerMetricsConstants.GhostSnapshotsCounterNameServer, ProfilerMarkerDataUnit.Bytes);
+                profilerMetrics.ServerGhostInstancesCounter = new ProfilerCounterValue<uint>(ProfilerCategory.Network, ProfilerMetricsConstants.GhostInstancesCounterNameServer, ProfilerMarkerDataUnit.Count, ProfilerCounterOptions.FlushOnEndOfFrame | ProfilerCounterOptions.ResetToZeroOnFlush);
+                profilerMetrics.ServerGhostSnapshotCounter = new ProfilerCounterValue<uint>(ProfilerCategory.Network, ProfilerMetricsConstants.GhostSnapshotsCounterNameServer, ProfilerMarkerDataUnit.Bytes, ProfilerCounterOptions.FlushOnEndOfFrame | ProfilerCounterOptions.ResetToZeroOnFlush);
             }
             else
             {
-                profilerMetrics.ClientGhostInstancesCounter = new ProfilerCounterValue<uint>(ProfilerCategory.Network, ProfilerMetricsConstants.GhostInstancesCounterNameClient, ProfilerMarkerDataUnit.Count);
-                profilerMetrics.ClientGhostSnapshotCounter = new ProfilerCounterValue<uint>(ProfilerCategory.Network, ProfilerMetricsConstants.GhostSnapshotsCounterNameClient, ProfilerMarkerDataUnit.Bytes);
+                profilerMetrics.ClientGhostInstancesCounter = new ProfilerCounterValue<uint>(ProfilerCategory.Network, ProfilerMetricsConstants.GhostInstancesCounterNameClient, ProfilerMarkerDataUnit.Count, ProfilerCounterOptions.FlushOnEndOfFrame | ProfilerCounterOptions.ResetToZeroOnFlush);
+                profilerMetrics.ClientGhostSnapshotCounter = new ProfilerCounterValue<uint>(ProfilerCategory.Network, ProfilerMetricsConstants.GhostSnapshotsCounterNameClient, ProfilerMarkerDataUnit.Bytes, ProfilerCounterOptions.FlushOnEndOfFrame | ProfilerCounterOptions.ResetToZeroOnFlush);
                 profilerMetrics.JitterCounter = new ProfilerCounterValue<float>(ProfilerCategory.Network, ProfilerMetricsConstants.JitterCounterName, ProfilerMarkerDataUnit.TimeNanoseconds);
                 profilerMetrics.RttCounter = new ProfilerCounterValue<float>(ProfilerCategory.Network, ProfilerMetricsConstants.RTTCounterName, ProfilerMarkerDataUnit.TimeNanoseconds);
-                profilerMetrics.SnapshotAgeMinCounter = new ProfilerCounterValue<float>(ProfilerCategory.Network, ProfilerMetricsConstants.SnapshotAgeMinCounterName, ProfilerMarkerDataUnit.Count);
-                profilerMetrics.SnapshotAgeMaxCounter = new ProfilerCounterValue<float>(ProfilerCategory.Network, ProfilerMetricsConstants.SnapshotAgeMaxCounterName, ProfilerMarkerDataUnit.Count);
             }
 
             EntityManager.AddComponentData(profilerMetricsSingleton, profilerMetrics);
@@ -156,6 +150,8 @@ namespace Unity.NetCode
 
             var ghostStatsSnapshot = SystemAPI.GetSingleton<GhostStatsSnapshotSingleton>().GetAsyncStatsReader();
             var ghostTypeStats = ghostStatsSnapshot.PerGhostTypeStatsListRO;
+            var profilerMetrics = SystemAPI.GetSingleton<ProfilerMetrics>();
+            if (!ghostStatsSnapshot.Tick.IsValid) return;
             var hasSnapshotStats = ghostTypeStats.IsCreated && ghostTypeStats.Length > 0;
             if (!hasSnapshotStats) return;
 
@@ -163,32 +159,19 @@ namespace Unity.NetCode
             var hasGhostMetrics = ghostMetrics.IsCreated && ghostMetrics.Length > 0;
             if (!hasGhostMetrics) return;
 
-            var profilerMetrics = SystemAPI.GetSingleton<ProfilerMetrics>();
-            var networkTime = SystemAPI.GetSingleton<NetworkTime>();
-            profilerMetrics.ServerTick = networkTime.ServerTick;
-
-            UpdateProfilerCounters(ghostStatsSnapshot, ref profilerMetrics);
-
-            if (World.IsServer())
-            {
-                profilerMetrics.TotalSizeSentByServerInBits += ghostStatsSnapshot.SnapshotTotalSizeInBits;
-                profilerMetrics.TotalPacketCountSentByServer += ghostStatsSnapshot.PacketsCount;
-            }
-            else
-            {
-                profilerMetrics.TotalSizeReceivedByClientInBits += ghostStatsSnapshot.SnapshotTotalSizeInBits;
-                profilerMetrics.TotalPacketCountReceivedByClient += ghostStatsSnapshot.PacketsCount;
-            }
+            UpdateProfilerMetricsAndCounters(ghostStatsSnapshot, ref profilerMetrics);
 
             SystemAPI.SetSingleton(profilerMetrics);
 
+#if ENABLE_PROFILER
             // Serialize component stats.
             var serializedGhostStatsSnapshot = ghostStatsSnapshot.ToBlittableData(Allocator.Temp);
 
             var guid = World.IsServer() ? ProfilerMetricsConstants.ServerGuid : ProfilerMetricsConstants.ClientGuid;
 
             // Send the data to the profiler.
-            EmitNetcodeFrameMetaData(guid, serializedGhostStatsSnapshot);
+            EmitNetcodeFrameMetaData(guid, serializedGhostStatsSnapshot, ghostStatsSnapshot.Tick);
+#endif
         }
 
         void SetUncompressedSizesPerType()
@@ -229,7 +212,7 @@ namespace Unity.NetCode
             }
         }
 
-        void UpdateProfilerCounters(UnsafeGhostStatsSnapshot ghostStatsSnapshot, ref ProfilerMetrics profilerMetrics)
+        void UpdateProfilerMetricsAndCounters(UnsafeGhostStatsSnapshot ghostStatsSnapshot, ref ProfilerMetrics profilerMetrics)
         {
             var ghostTypeStats = ghostStatsSnapshot.PerGhostTypeStatsListRO;
             uint instancesCount = 0;
@@ -241,25 +224,38 @@ namespace Unity.NetCode
             // Update Graph Counters
             if (World.IsServer())
             {
+                profilerMetrics.TotalSizeSentByServerInBits += ghostStatsSnapshot.SnapshotTotalSizeInBits;
+                profilerMetrics.TotalSnapshotCountSentByServer += ghostStatsSnapshot.SnapshotCount;
                 profilerMetrics.ServerGhostInstancesCounter.Value = instancesCount;
                 profilerMetrics.ServerGhostSnapshotCounter.Value = ghostStatsSnapshot.SnapshotTotalSizeInBits >> 3; // Convert to bytes;
             }
             else
             {
-                profilerMetrics.ClientGhostInstancesCounter.Value = instancesCount;
-                profilerMetrics.ClientGhostSnapshotCounter.Value = ghostStatsSnapshot.SnapshotTotalSizeInBits >> 3; // Convert to bytes
+                if (m_LastClientTick != ghostStatsSnapshot.Tick)
+                {
+                    m_LastClientTick = ghostStatsSnapshot.Tick;
+
+                    profilerMetrics.TotalSizeReceivedByClientInBits += ghostStatsSnapshot.SnapshotTotalSizeInBits;
+                    profilerMetrics.TotalSnapshotCountReceivedByClient += ghostStatsSnapshot.SnapshotCount;
+
+                    profilerMetrics.ClientGhostInstancesCounter.Value = instancesCount;
+                    profilerMetrics.ClientGhostSnapshotCounter.Value = ghostStatsSnapshot.SnapshotTotalSizeInBits >> 3; // Convert to bytes
+                }
+                else
+                {
+                    profilerMetrics.ClientGhostInstancesCounter.Value = 0;
+                    profilerMetrics.ClientGhostSnapshotCounter.Value = 0;
+                }
 
                 var networkMetrics = SystemAPI.GetSingleton<NetworkMetrics>();
                 // Profiler expects nanoseconds as base unit
                 profilerMetrics.JitterCounter.Value = networkMetrics.Jitter * 1_000_000f;
                 profilerMetrics.RttCounter.Value = networkMetrics.Rtt * 1_000_000f;
-                profilerMetrics.SnapshotAgeMinCounter.Value = networkMetrics.SnapshotAgeMin;
-                profilerMetrics.SnapshotAgeMaxCounter.Value = networkMetrics.SnapshotAgeMax;
             }
         }
 
         [Conditional("ENABLE_PROFILER")]
-        void EmitNetcodeFrameMetaData(Guid guid, NativeArray<byte> serializedGhostStatsSnapshot)
+        void EmitNetcodeFrameMetaData(Guid guid, NativeArray<byte> serializedGhostStatsSnapshot, NetworkTick snapshotTick)
         {
             var serializers = SystemAPI.GetSingletonBuffer<GhostCollectionPrefabSerializer>();
             var serializerStates = SystemAPI.GetSingletonBuffer<GhostComponentSerializer.State>();
@@ -268,6 +264,9 @@ namespace Unity.NetCode
             var targetTick = commandStats.Value[0];
             var commandStatsSize = commandStats.Value[1];
             var discardedPackets = commandStats.Value[2];
+            var networkTime = SystemAPI.GetSingleton<NetworkTime>();
+            var serverTick = networkTime.ServerTick;
+            var interpolationTick = networkTime.InterpolationTick;
 
             Profiler.EmitFrameMetaData(guid, ProfilerMetricsConstants.NetworkMetricsTag, new[] { SystemAPI.GetSingleton<NetworkMetrics>() });
             Profiler.EmitFrameMetaData(guid, ProfilerMetricsConstants.GhostNamesTag, SystemAPI.GetSingletonBuffer<GhostNames>().AsNativeArray());
@@ -281,6 +280,9 @@ namespace Unity.NetCode
             Profiler.EmitFrameMetaData(guid, ProfilerMetricsConstants.SerializerStatesTag, serializerStates.AsNativeArray());
             Profiler.EmitFrameMetaData(guid, ProfilerMetricsConstants.ComponentIndicesTag, ghostCollectionComponentIndices.AsNativeArray());
             Profiler.EmitFrameMetaData(guid, ProfilerMetricsConstants.CommandStatsTag, new [] { targetTick, commandStatsSize, discardedPackets });
+            Profiler.EmitFrameMetaData(guid, ProfilerMetricsConstants.SnapshotTickTag, new [] { snapshotTick });
+            Profiler.EmitFrameMetaData(guid, ProfilerMetricsConstants.ServerTickTag, new [] { serverTick });
+            Profiler.EmitFrameMetaData(guid, ProfilerMetricsConstants.InterpolationTickTag, new [] { interpolationTick });
         }
 
         void Cleanup()

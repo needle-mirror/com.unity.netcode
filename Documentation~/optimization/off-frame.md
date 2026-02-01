@@ -7,4 +7,4 @@ On client-hosted servers, your game can be set at a tick rate of 30Hz and a fram
 > [!NOTE]
 > A server world isn't idle during off frames and can time-slice its data sending to multiple connections if there's enough connections and enough off frames. For example, a server with ten connections can send data to five connections in one frame and the other five the next frame if its tick rate is low enough.
 
-[!code-cs[blobs](../Tests/Editor/DocCodeSamples/optimizations.cs#OffFrames)]
+[!code-cs[blobs](../../Tests/Editor/DocCodeSamples/optimizations.cs#OffFrames)]

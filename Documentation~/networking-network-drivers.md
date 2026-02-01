@@ -4,7 +4,7 @@ Netcode for Entities has a multi-driver architecture, allowing you to use multip
 
 `NetworkDriver` configuration is designed to be customizable and is implemented using a delegate/strategy pattern. Netcode for Entities provides a [default strategy implementation](#default-driver-setup) that can be changed by creating your own custom strategy class that implements the [`INetworkStreamDriverConstructor`](https://docs.unity3d.com/Packages/com.unity.netcode.adapter.utp@latest?subfolder=/api/Unity.Netcode.INetworkStreamDriverConstructor.html) interface.
 
-The most common use cases for implementing a custom initialization strategy, or [resetting the `NetworkDriverStore`](#resetting-the-networkdriverstore-setup), are usually:
+The most common use cases for implementing a custom initialization strategy, or [resetting the `NetworkDriverStore`](#reset-the-networkdriverstore-setup), are usually:
 
 - Using [Unity Relay](networking-using-relay.md) for self-hosting and letting remote players connect to a local machine.
 - Listening to all interfaces on the server-side (to support connecting web and standalone).
@@ -25,7 +25,7 @@ The [`NetworkDriverStore`](https://docs.unity3d.com/Packages/com.unity.netcode@l
 
 ## Default driver setup
 
-Netcode for Entities provides a default `NetworkDriver` setup, implemented by the [`IPCAndSocketDriverConstructor`](https://docs.unity3d.com/Packages/com.unity.netcode@latest?subfolder=/api/Unity.NetCode.IPCAndSocketDriverConstructor.html). The driver setup is different for each world type and depends on the [PlayMode Tool](playmode-tool.md) settings.
+Netcode for Entities provides a default `NetworkDriver` setup, implemented by the [`IPCAndSocketDriverConstructor`](https://docs.unity3d.com/Packages/com.unity.netcode@latest?subfolder=/api/Unity.NetCode.IPCAndSocketDriverConstructor.html). The driver setup is different for each world type and depends on the [PlayMode Tool](testing/playmode-tool.md) settings.
 
 ### Default server configuration
 
@@ -38,7 +38,7 @@ For the server world, the `NetworkDriverStore` contains multiple drivers to list
 
 ### Default client configuration
 
-For the client world, the `NetworkDriverStore` always uses a single `NetworkDriver`, but the interface used depends on the [PlayMode Tool](playmode-tool.md) settings.
+For the client world, the `NetworkDriverStore` always uses a single `NetworkDriver`, but the interface used depends on the [PlayMode Tool](testing/playmode-tool.md) settings.
 
 | Mode          | Network Emulator |                                                                        |
 |---------------|------------------|------------------------------------------------------------------------|
@@ -91,9 +91,9 @@ A new `NetworkDriverStore` instance must be created, manually configured, and pa
 > Resetting can't be done if there are live connections. Drivers can be reset only when no `NetworkStreamConnection` exists in the world.
 
 Resetting the `NetworkDriverStore` instead of using a custom driver constructor can be useful or preferred in some cases. One
-of the most common use cases is when connecting or listening requires an asynchronous setup, such as when [using relay](configure-drivers-for-relay.md).
+of the most common use cases is when connecting or listening requires an asynchronous setup, such as when [using relay](networking-using-relay.md).
 
-Another common scenario is when using [thin clients](thin-clients.md), if asynchronous connection logic is required and thus not supported natively by the Play Mode Tool (because it requires a synchronous connection setup).
+Another common scenario is when using [thin clients](testing/thin-clients.md), if asynchronous connection logic is required and thus not supported natively by the Play Mode Tool (because it requires a synchronous connection setup).
 
 ### Reset the driver store
 

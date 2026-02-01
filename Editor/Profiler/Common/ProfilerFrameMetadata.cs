@@ -18,5 +18,7 @@ namespace Unity.NetCode.Editor
         internal NativeArray<PredictionErrorNames> PredictionErrors;
         internal NativeArray<PredictionErrorMetrics> PredictionErrorMetrics;
         internal NativeArray<uint> CommandStats;
+        internal NetworkTick ServerTick;
+        internal NetworkTick InterpolationTick;
     }
 }

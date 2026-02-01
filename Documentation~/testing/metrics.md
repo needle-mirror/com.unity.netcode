@@ -4,18 +4,18 @@ Gather metrics to monitor performance and identify potential issues in your Netc
 
 There are two ways to gather metrics in Netcode for Entities:
 
-* Use the [Network Debugger tool](../ghost-snapshots.md#snapshot-visualization-tool) by selecting **Window** > **Multiplayer** > **Network Debugger** in the Editor. This provides you with a simple web interface to view metrics.
+* Use the [Network Profiler tool](network-profiler.md) by selecting **Window** > **Multiplayer** > **Network Debugger** in the Editor. This provides you with a simple web interface to view metrics.
 * Create a [`GhostMetricsMonitorComponent`](https://docs.unity3d.com/Packages/com.unity.netcode@latest?subfolder=/api/Unity.NetCode.GhostMetricsMonitor.html) singleton and populate it with the data points you want to monitor. This allows you to access the metrics programmatically and use them in your project logic or for custom monitoring solutions.
 
 The following example creates a singleton containing all available data metrics.
 
 Adding the respective `IComponentData` to the singleton enables the collection of that metrics type.
 
-[!code-cs[blobs](../Tests/Editor/DocCodeSamples/metrics.cs#MetricsSystem)]
+[!code-cs[blobs](../../Tests/Editor/DocCodeSamples/metrics.cs#MetricsSystem)]
 
 Use `SystemAPI.GetSingleton` to access data metrics for a specific metrics type. For example, to access the `NetworkMetrics`:
 
-[!code-cs[blobs](../Tests/Editor/DocCodeSamples/metrics.cs#GetNetworkMetrics)]
+[!code-cs[blobs](../../Tests/Editor/DocCodeSamples/metrics.cs#GetNetworkMetrics)]
 
 ## Available metrics
 

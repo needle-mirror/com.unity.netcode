@@ -12,7 +12,7 @@ There are two possible strategies for configuring the `NetworkDriverStore` to us
 
 * By using a [custom driver constructor](networking-network-drivers.md#customize-network-driver-creation).
     * The Netcode for Entities [Relay sample](https://github.com/Unity-Technologies/EntityComponentSystemSamples/tree/master/NetcodeSamples/Assets/Samples/HelloNetcode/1_Basics/01b_RelaySupport) show how to use this setup.
-* By [resetting the driver store](networking-network-drivers.md#reset-the-NetworkDriverStore-setup) after world creation.
+* By [resetting the driver store](networking-network-drivers.md#reset-the-networkdriverstore-setup) after world creation.
 
 For the former, the set up and connection to the Relay service, the allocation, and the relative join-code must be obtained before the worlds are created.
 

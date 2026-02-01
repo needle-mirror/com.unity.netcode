@@ -165,6 +165,7 @@ namespace Unity.NetCode.Tests
         {
             //Create a prefab
             GameObject go = new GameObject(name, componentTypes);
+            go.AddComponent<AddLocalTransformToGhostBaker>();
             return CreatePrefab(path, go);
         }
 

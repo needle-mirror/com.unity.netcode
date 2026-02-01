@@ -74,8 +74,10 @@ namespace Unity.NetCode
 
         public void Dispose()
         {
-            m_MappedEntities.Dispose();
-            m_CurrentObjectInitializingCheck.Dispose();
+            if (m_MappedEntities.IsCreated)
+                m_MappedEntities.Dispose();
+            if (m_CurrentObjectInitializingCheck.IsCreated)
+                m_CurrentObjectInitializingCheck.Dispose();
         }
 
         /// <summary>
@@ -111,8 +113,8 @@ namespace Unity.NetCode
         /// <inheritdoc cref="LookupEntityReferenceGameObject(GameObject)"/>
         private static EntityLink LookupEntityReference(GameObjectKey key)
         {
-            var self = Netcode.EntityMappingRef;
-            if (self.m_MappedEntities.TryGetValue(key, out var mappedEntity))
+            ref var self = ref Netcode.Unmanaged.m_EntityMapping;
+            if (self.m_MappedEntities.IsCreated && self.m_MappedEntities.TryGetValue(key, out var mappedEntity))
                 return new EntityLink { World = mappedEntity.World, Entity = mappedEntity.Entity };
             return default;
         }
@@ -141,7 +143,7 @@ namespace Unity.NetCode
         /// <inheritdoc cref="AcquireEntityReferencePrefab"/>
         private static EntityLink AcquireEntityReference(EntityId gameObjectId, EntityId transformId, bool isPrefabGameObject , WorldUnmanaged forWorld, EntityId prefabId = default)
         {
-            ref var self = ref Netcode.EntityMappingRef;
+            ref var self = ref Netcode.Unmanaged.m_EntityMapping;
 #if ENABLE_UNITY_COLLECTIONS_CHECKS
             if (self.m_CurrentObjectInitializingCheck.Contains(gameObjectId))
                 throw new InvalidOperationException($"Already initializing object {(int)gameObjectId}, sanity check failed.");
@@ -248,7 +250,7 @@ namespace Unity.NetCode
         /// <inheritdoc cref="ReleasePrefabReference"/>
         private static EntityLink ReleaseEntityReference(GameObjectKey gameObjectKey, bool worldIsCreated)
         {
-            ref var self = ref Netcode.EntityMappingRef;
+            ref var self = ref Netcode.Unmanaged.m_EntityMapping;
             if (self.m_MappedEntities.TryGetValue(gameObjectKey, out var mappedEntity))
             {
                 if (--mappedEntity.RefCount > 0)

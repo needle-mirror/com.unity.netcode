@@ -22,7 +22,7 @@ In practice, this is represented as either adding (or removing) the `PredictedGh
 ## Prediction switching queue rules
 
 - The entity must be a ghost.
-- The ghost type (prefab) must have its `Supported Ghost Modes` set to `All` (via the [`GhostAuthoringComponent`](ghost-snapshots.md#authoring-ghosts)).
+- The ghost type (prefab) must have its `Supported Ghost Modes` set to `All` (via the [`GhostAuthoringComponent`](ghost-snapshots.md#supported-ghost-mode-options)).
 - Its `CurrentGhostMode` must not be set to `OwnerPredicted`. `OwnerPredicted` ghosts already switch prediction based on ownership.
 - If switching to `Predicted`, the ghost must currently be `Interpolated` (and vice versa).
 - The ghost must not currently be switching prediction (see the transitions section below, and the `SwitchPredictionSmoothing` component).

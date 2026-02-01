@@ -42,7 +42,7 @@ This means if your ghost B (rolled back) interacts with your ghost C (not rolled
 - Use `GhostGroup`.
   - Since `GhostGroup` guarantees ghosts in that group will be sent together, this removes the partial snapshot issue. This is a more complex solution that requires careful grouping, however.
 - Prioritizing the chunk.
-  - Prioritize the chunk such that ghosts near the ball get higher priority, and the ball has always the highest priority (sent every tick). Refer to [Importance Scaling](optimizations.md#importance-scaling) for more details.
+  - Prioritize the chunk such that ghosts near the ball get higher priority, and the ball has always the highest priority (sent every tick). Refer to [Importance Scaling](optimization/optimize-ghosts.md#importance-scaling) for more details.
 - Only allow interactions between ghosts that are being simulated.
   - Use the `Simulate` tag in your entity queries to filter for entities to interact with.
   - With this, A and B could only interact together and ignore C and D. This mitigation still produces mispredictions. It depends on your gameplay to see if corrections are more visible if you interact with a frozen ghost or skip it entirely.
@@ -74,7 +74,7 @@ As described above, predicted spawns are not rolled back and resimulated (becaus
 
 ### Possible mitigations
 
-You can use [allow predicted spawned ghost to rollback to spawn tick](ghost-spawning.md#specify-specific-rollback-options-for-predicted-spawned-ghosts) option to help fixing these issue. When the flag is set,
+You can use [allow predicted spawned ghost to rollback to spawn tick](ghost-spawning.md#specify-rollback-options-for-predicted-spawned-ghosts) option to help fixing these issue. When the flag is set,
 the predicted spawned ghost state is restored and re-predicted starting from the its spawning tick when other predicted ghost snapshot udpdate are received from the server.
 
 In these case, using the 'ball thrower example', when the client receive a snapshot contaning state for ball A, with an old position that's behing ball B,
@@ -85,7 +85,7 @@ both ball A and ball B are simulated, alleviating some mi-sprediction problem.
 
 ## Quantization and determinism
 
-The client and server simulation doesn't [quantize](compression.md#quantization) values between ticks. So if a client resimulates tick 10, 11, and 12, then 10 to 11 and 11 to 12 will not quantize their initial values as they would with initial ticks from snapshots. Since clients base their initial simulation on the snapshot state (which is quantized), they base their simulation on values with less precision than their server counterparts, and thus, on values which are fundamentally different. As a result, enabling quantization worsens indeterminism (and higher quantization values are 'more incorrect'), causing larger discrepancies between the two simulations.
+The client and server simulation doesn't [quantize](optimization/compression.md#quantization) values between ticks. So if a client resimulates tick 10, 11, and 12, then 10 to 11 and 11 to 12 will not quantize their initial values as they would with initial ticks from snapshots. Since clients base their initial simulation on the snapshot state (which is quantized), they base their simulation on values with less precision than their server counterparts, and thus, on values which are fundamentally different. As a result, enabling quantization worsens indeterminism (and higher quantization values are 'more incorrect'), causing larger discrepancies between the two simulations.
 
 ### Example
 

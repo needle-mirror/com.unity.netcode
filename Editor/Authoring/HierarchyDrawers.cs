@@ -127,7 +127,11 @@ namespace Unity.NetCode.Editor
 
         static void GhostAuthoringSetCustomColors(int instanceID, Rect selectionRect)
         {
+#if UNITY_6000_3_OR_NEWER
+            var obj = EditorUtility.EntityIdToObject(instanceID);
+#else
             var obj = EditorUtility.InstanceIDToObject(instanceID);
+#endif
             if (obj != null && obj is GameObject go)
             {
                 if (go.GetComponent<GhostAuthoringComponent>())

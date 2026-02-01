@@ -35,7 +35,7 @@ The term dead reckoning is also used in a similar context as extrapolation, but 
 
 Clients operate on three different timelines simultaneously:
 1. The client input target tick timeline (i.e. the 'present') - which must be ahead of the server to ensure that inputs you poll are sent to the server in time to be processed (by said server).
-2. The [client predicted](intro-to-prediction.md) timeline - which is where the client non-authoritatively predicts its own future position - which typically runs on the same timeline as the input gathering timeline above, except when [Forced Input Latency](optimizations.md#using-forcedinputlatencyticks) is enabled.
+2. The [client predicted](intro-to-prediction.md) timeline - which is where the client non-authoritatively predicts its own future position - which typically runs on the same timeline as the input gathering timeline above, except when [Forced Input Latency](optimization/reduce-prediction-overhead.md#using-forcedinputlatencyticks) is enabled.
 3. The interpolated timeline - which runs behind the server authoritative simulation timeline, as it plays back interpolated `GhostField` values from received snapshots, and is therefore delayed by `RTT/2 + InterpolationTimeNetTicks`. Refer to the [time synchronization page](time-synchronization.md) for more details.
 
 Server-side, there's only one timeline:

@@ -61,7 +61,7 @@ The built-in form of importance scaling in Netcode for Entities is distance-base
 
 The [Asteroids sample project](https://github.com/Unity-Technologies/EntityComponentSystemSamples/tree/master/NetcodeSamples/Assets/Samples/Asteroids) uses Netcode for Entities' default scaling implementation. The `LoadLevelSystem` sets up an entity to act as a singleton with `GhostDistanceData` and `GhostImportance` added:
 
-[!code-cs[blobs](../Tests/Editor/DocCodeSamples/optimizations.cs#DistanceBasedImportance)]
+[!code-cs[blobs](../../Tests/Editor/DocCodeSamples/optimizations.cs#DistanceBasedImportance)]
 
 >[!NOTE]
 > Again, you must add both singleton components to the same entity.
@@ -72,11 +72,11 @@ The [`GhostDistancePartitioningSystem`](https://docs.unity3d.com/Packages/com.un
 
 In Asteroids, this component is added to the connection entity when the (Asteroids-specific) `RpcLevelLoaded` RPC is invoked:
 
-[!code-cs[blobs](../Tests/Editor/DocCodeSamples/optimizations.cs#GhostDistancePartitioning)]
+[!code-cs[blobs](../../Tests/Editor/DocCodeSamples/optimizations.cs#GhostDistancePartitioning)]
 
 Which is then updated via the Asteroids server system `UpdateConnectionPositionSystemJob`:
 
-[!code-cs[blobs](../Tests/Editor/DocCodeSamples/optimizations.cs#SetImportancePosition)]
+[!code-cs[blobs](../../Tests/Editor/DocCodeSamples/optimizations.cs#SetImportancePosition)]
 
 ### Create a custom importance scaling function
 
@@ -111,7 +111,7 @@ The [`GhostRelevancy`](https://docs.unity3d.com/Packages/com.unity.netcode@lates
 * [`GhostRelevancySet`](https://docs.unity3d.com/Packages/com.unity.netcode@latest?subfolder=/api/Unity.NetCode.GhostRelevancy.html#Unity_NetCode_GhostRelevancy_GhostRelevancySet) stores the connection-ghost pairs. The behavior of the set is defined by `GhostRelevancyMode`.
 * [`DefaultRelevancyQuery`](https://docs.unity3d.com/Packages/com.unity.netcode@latest?subfolder=/api/Unity.NetCode.GhostRelevancy.html#Unity_NetCode_GhostRelevancy_DefaultRelevancyQuery) is a global rule denoting that all ghost chunks matching this query are always considered relevant to all connections (unless you've added the ghosts in said chunk to the `GhostRelevancySet`). This is useful for creating general relevancy rules (for example: the entities in charge of tracking player scores are always relevant). `GhostRelevancySet` takes precedence over this rule. Refer to the [Asteroids sample](https://github.com/Unity-Technologies/EntityComponentSystemSamples/tree/master/NetcodeSamples/Assets/Samples/Asteroids/Authoring/Server/SetAlwaysRelevantSystem.cs) for an example implementation.
 
-[!code-cs[blobs](../Tests/Editor/DocCodeSamples/optimizations.cs#Relevancy)]
+[!code-cs[blobs](../../Tests/Editor/DocCodeSamples/optimizations.cs#Relevancy)]
 
 > [!NOTE]
 > If a ghost has been replicated to a client and is then set to **not be** relevant to that client, the client will be notified that the entity has been **destroyed**, and will replicate that change locally. This misnomer can be confusing, as the entity being despawned does not imply the server entity was destroyed.

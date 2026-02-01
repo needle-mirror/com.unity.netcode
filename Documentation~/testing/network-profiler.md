@@ -1,9 +1,5 @@
 # Network Profiler tool
 
->[!NOTE]
-> The Netcode for Entities Profiler is an experimental feature that's disabled by default.
-> Refer to the [Requirements](#requirements) section for instructions on enabling it.
-
 Use the Netcode for Entities Profiler to view detailed information about the network performance and behavior of your project.
 
 The Profiler captures and visualizes networking data to help identify sources of high bandwidth consumption, analyze the cost of synchronizing [ghosts](../ghosts.md), and inspect data for client-side [prediction](../prediction.md) and [interpolation](../interpolation.md).
@@ -12,20 +8,14 @@ There are two modules for the [Unity Profiler](https://docs.unity3d.com/Manual/P
 
 ## Requirements
 
-To enable the Netcode for Entities Profiler:
-
-1. Go to **Project Settings** > **Player** > **Other Settings**.
-2. Find the **Scripting Define Symbols** field.
-3. Add `NETCODE_PROFILER_ENABLED` to the list.
-
 To use the client and server Profiler modules, your project must meet the following requirements:
 
 * Unity version: Unity 6.0 or newer
-* Netcode for Entities: `com.unity.netcode` package version 1.8.0 or newer
+* Netcode for Entities: `com.unity.netcode` package version 1.12.0 or newer
 
 ## Usage
 
-Once enabled, you can access the Profiler modules from the Unity Profiler window (**Window** > **Analysis** > **Profiler**). The **Client World** and **Server World** modules are enabled by default and can also be toggled from the module dropdown menu. Press the **Record** button to begin capturing data during a play session.
+You can access the Profiler modules from the Unity Profiler window (**Window** > **Analysis** > **Profiler**) or from the multiplayer menu (**Window** > **Multiplayer** > **Network Profiler**). The **Client World** and **Server World** modules can be toggled from the **Profiler Modules** dropdown menu and are not enabled by default. Press the **Record** button to begin capturing data during a play session.
 
 The Netcode Profiler data is organized into three tabs:
 
@@ -71,7 +61,7 @@ The **Prediction and Interpolation** tab's data is only available for the **Clie
 
 * General workflow: Use the **Frame Overview** tab and the graph counters to find frames with high bandwidth usage. After identifying a frame of interest, switch to the **Snapshot Overview** tab to investigate the specific ghosts and components that contributed to the data usage in that frame.
 * For optimization: In the **Snapshot Overview**, check the **Size** column and the **% of snapshot column** to identify the ghost types that contribute most to your bandwidth. Focus [optimization](../optimizations.md) efforts on these high-cost items.
-* Testing network environments: For the most accurate data, use the [PlayMode Tool](../playmode-tool.md) window to run your application under representative network conditions, such as a client-hosted server with multiple clients and simulated latency.
+* Testing network environments: For the most accurate data, use the [PlayMode Tool](playmode-tool.md) window to run your application under representative network conditions, such as a client-hosted server with multiple clients and simulated latency.
 * Negative compression efficiency: This can rarely happen when there are extreme value changes with no quantization. A new spawn with an initial value of `Int32.MaxValue`, for example, can't be quantized (because it's an int) and doesn't take advantage of delta compression (because the baseline is 0). In this case, the compression process has overhead and adds a few bits to the sent value, sending 38 bits instead of 32, producing a negative compression efficiency. If this happens too often, consider using a different syncing mechanism for those values.
 
 ## Per ghost overhead
@@ -86,15 +76,6 @@ In addition to sending ghost data, Netcode for Entities includes various other o
 
 ## Untracked overhead
 The Netcode for Entities Profiler doesn’t track bytes added to the overhead by [Unity Transport](https://docs.unity3d.com/Packages/com.unity.transport@latest/index.html) protocols. This is usually a small amount and varies depending on the [pipeline](https://docs.unity3d.com/Packages/com.unity.transport@latest?subfolder=/manual/pipelines-usage.html) in use. If you notice discrepancies between the Netcode for Entities Profiler and other packet inspection tools, this is likely why.
-
-
-## Known issues
-
-### Exception with JetBrains Rider
-
-An exception may be thrown when using the Profiler with JetBrains Rider.
-
-**Solution:** This can be resolved by disabling the integration in Rider's settings. Instructions are provided in the official JetBrains documentation: [Disabling Unity Profiler Assistance in Rider](https://www.jetbrains.com/help/rider/Unity_Profiler_Assistance.html?utm_source=product#before-you-start).
 
 ## Additional resources
 

@@ -30,9 +30,9 @@ Therefore, to support sending input from a thin client, you must do the followin
 
 1. Create an entity containing your `IInputCommmandData` (or `ICommandData`) component, as well as the code-generated `YourNamespace.YouCommandNameInputBufferData` dynamic buffer. This may appear to throw a missing assembly definition error in your IDE, but it will work.
 2. Set up the `CommandTarget` component to point to this entity. In a `[WorldSystemFilter(WorldSystemFilterFlags.ThinClientSimulation)]` system:
-[!code-cs[blobs](../Tests/Editor/DocCodeSamples/thin-clients.cs#ThinClientInput)]
+[!code-cs[blobs](../../Tests/Editor/DocCodeSamples/thin-clients.cs#ThinClientInput)]
 3. On the server (where you spawn the actual character controller ghost for the thin client, which will be replicated to all proper clients), you only need to setup the `CommandTarget` for thin clients (assuming your player ghosts all use `AutoCommandTarget`. If you're not using `AutoCommandTarget`, you probably already perform this action for all clients already).
-   [!code-cs[blobs](../Tests/Editor/DocCodeSamples/thin-clients.cs#ThinClientCommandTarget)]
+   [!code-cs[blobs](../../Tests/Editor/DocCodeSamples/thin-clients.cs#ThinClientCommandTarget)]
 
 ## Thin client samples
 

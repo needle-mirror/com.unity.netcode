@@ -38,7 +38,7 @@ All predicted ghosts with physics components run this kind of simulation when th
 
 Since the physics simulation can be quite CPU intensive, it can spiral out of control when it needs to run multiple times. Needing to predict multiple simulation frames could then result in needing to run multiple ticks in one frame as the fixed timesteps falls behind the simulation tick rate, making the situation worse. On the server it can be beneficial to enable simulation batching in the [`ClientServerTickRate`](https://docs.unity3d.com/Packages/com.unity.netcode@latest/index.html?subfolder=/api/Unity.NetCode.ClientServerTickRate.html) component, see the `MaxSimulationStepBatchSize` and `MaxSimulationStepsPerFrame` options. On clients there are options for prediction batching exposed in the [`ClientTickRate`](https://docs.unity3d.com/Packages/com.unity.netcode@latest/index.html?subfolder=/api/Unity.NetCode.ClientTickRate.html), see `MaxPredictionStepBatchSizeFirstTimeTick` and `MaxPredictionStepBatchSizeRepeatedTick`. However, this WILL increase the chance of mispredictions.
 
-By default, the current [quantization](compression.md#quantization) level is set to 1000 for transform and velocity. This is enough in most cases, but does create discrepancies in simulation which can create visible corrections or jitter. [Increasing quantization](ghost-snapshots.md#ghost-component-variants) for physics ghosts will result in more precise simulations at the cost of more bandwidth consumption.
+By default, the current [quantization](optimization/compression.md#quantization) level is set to 1000 for transform and velocity. This is enough in most cases, but does create discrepancies in simulation which can create visible corrections or jitter. [Increasing quantization](optimization/compression.md#quantization) for physics ghosts will result in more precise simulations at the cost of more bandwidth consumption.
 
 ### Using lag compensation predicted collision worlds
 
@@ -155,7 +155,7 @@ Because the system doesn't run, the `PhysicsSystemGroup` continues to update ins
 
 ### Enabling multi-physics worlds without connection or predicted ghosts
 
-If disabling the `PredictedPhysicsConfigSystem` is not an option and you still need to run physics before you start receiving ghost data, you can instead use a [multiple physics worlds setup](#multiple-physics-worlds).
+If disabling the `PredictedPhysicsConfigSystem` is not an option and you still need to run physics before you start receiving ghost data, you can instead use a [multiple physics worlds setup](#set-up-the-multi-physics-world).
 
 Because the `Unity.Physics.SimulationSingleton` must be initialized for physics to run, you can forcibly run the `PhysicsSystemGroup` once at the beginning of the frame.
 

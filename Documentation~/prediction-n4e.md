@@ -78,7 +78,7 @@ Thus, the `PredictedGhost.ShouldPredict` always returns true when called on the 
 
 ### Remote player prediction with `IInputComponentData`
 
-If inputs are configured to be serialized to other players (refer to [GhostSnapshots](ghost-snapshots.md#icommanddata-and-iinputcomponentdata-serialization)), then it's possible to use client-side prediction for the remote players using the remote player's inputs, the same way you would predict the local player.
+If inputs are configured to be serialized to other players (refer to [this page](ghostfield-synchronize.md#icommanddata-and-iinputcomponentdata-serialization)), then it's possible to use client-side prediction for the remote players using the remote player's inputs, the same way you would predict the local player.
 
 When a new snapshot is received by the client, the `PredictedSimulationSystemGroup` runs from the oldest tick applied to any entity, to the tick the prediction is targeting. What needs to be predicted can vary by entity, and you must always check if the entity needs to update/apply the input for a specific tick by only processing entities with the `Simulate` component.
 

@@ -19,8 +19,7 @@
     "precompiledReferences": [],
     "autoReferenced": true,
     "defineConstraints": [
-        "UNITY_6000_0_OR_NEWER",
-        "NETCODE_PROFILER_ENABLED"
+        "UNITY_6000_0_OR_NEWER"
     ],
     "versionDefines": [],
     "noEngineReferences": false

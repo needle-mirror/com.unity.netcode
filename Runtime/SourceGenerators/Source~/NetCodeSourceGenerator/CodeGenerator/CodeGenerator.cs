@@ -545,7 +545,7 @@ namespace Unity.NetCode.Generators
                 else
                 {
                     var generator = new ComponentSerializer(context, type, template);
-                    generator.GenerateFields(context, rootPath);
+                    generator.GenerateFields(context, rootPath, fullFieldNames: fullFieldName);
                     //TODO: we don't support yet multibits templates. FixedList is an exception ot this rule and handle things slightly differently
                     generator.GenerateMasks(context, 1, type.Attribute.aggregateChangeMask, fieldIndex);
                     generator.AppendTarget(parentContainer);

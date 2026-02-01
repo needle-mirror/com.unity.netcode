@@ -58,7 +58,7 @@ namespace Unity.NetCode.Tests
                 var ent = go.GetComponent<GhostAdapter>().Entity;
                 Assert.IsTrue(transformTracking.m_IndexedGameObjectIds.Contains(GhostEntityMapping.GameObjectKey.GetForGameObject(go.GetEntityId())), $"the m_GameObject list should contain {go.name}");
                 Assert.IsTrue(transformTracking.m_EntitiesForTransforms.Contains(ent), $"entity {ent} should be inside the m_Entities array");
-                var map = Netcode.EntityMappingRef.m_MappedEntities[GhostEntityMapping.GameObjectKey.GetForGameObject(go.GetEntityId())];
+                var map = Netcode.Unmanaged.m_EntityMapping.m_MappedEntities[GhostEntityMapping.GameObjectKey.GetForGameObject(go.GetEntityId())];
                 Assert.AreEqual(transformTracking.m_IndexedGameObjectIds[map.TransformIndex], GhostEntityMapping.GameObjectKey.GetForGameObject(go.GetEntityId()));
                 Assert.AreEqual(transformTracking.m_EntitiesForTransforms[map.TransformIndex], ent);
                 Assert.AreEqual(transformTracking.m_Transforms[map.TransformIndex].GetEntityId(), go.transform.GetEntityId());
@@ -80,7 +80,7 @@ namespace Unity.NetCode.Tests
                 {
                     GameObject go = serverInstances[i]; // specifying GameObject type as we don't want to do a GetEntityId on a monobehaviour by accident
                     var ent = serverInstances[i].GetComponent<GhostAdapter>().Entity;
-                    var map = Netcode.EntityMappingRef.m_MappedEntities[GhostEntityMapping.GameObjectKey.GetForGameObject(go.GetEntityId())];
+                    var map = Netcode.Unmanaged.m_EntityMapping.m_MappedEntities[GhostEntityMapping.GameObjectKey.GetForGameObject(go.GetEntityId())];
                     var mappedObject = transformTracking.m_Transforms[map.TransformIndex].gameObject;
                     Assert.AreEqual(serverInstances[i], mappedObject, $"Expected {serverInstances[i].name} to be mapped to entity {ent} but the " +
                     $"index in the {nameof(GhostEntityMapping.MappedEntity)} point to {map.TransformIndex} that is {mappedObject.name} with instance id {mappedObject.GetEntityId()}");
@@ -157,7 +157,7 @@ namespace Unity.NetCode.Tests
                 foreach (GhostAdapter ghostAdapter in instances)
                 {
                     var ent = ghostAdapter.Entity;
-                    var map = Netcode.EntityMappingRef.m_MappedEntities[GhostEntityMapping.GameObjectKey.GetForGameObject(ghostAdapter.gameObject)];
+                    var map = Netcode.Unmanaged.m_EntityMapping.m_MappedEntities[GhostEntityMapping.GameObjectKey.GetForGameObject(ghostAdapter.gameObject)];
                     var mappedObject = transformTracking.m_Transforms[map.TransformIndex].gameObject;
                     Assert.IsTrue(transformTracking.m_IndexedGameObjectIds.Contains(GhostEntityMapping.GameObjectKey.GetForGameObject(ghostAdapter.gameObject)), $"the GameObject tracking list should contain {ghostAdapter.name}");
                     Assert.IsTrue(transformTracking.m_EntitiesForTransforms.Contains(ent), $"entity {ent} should be inside the entities tracking array");

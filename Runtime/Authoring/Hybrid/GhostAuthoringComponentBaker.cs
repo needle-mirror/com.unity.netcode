@@ -65,7 +65,7 @@ namespace Unity.NetCode
                     prefab = (GameObject) UnityEditor.AssetDatabase.LoadAssetAtPath(path, typeof(GameObject));
                 // GetEntity is used here to tell the baker that the prefab needs to be baked as well. This replaces
                 // the Conversion callback DeclareReferencedPrefabs.
-                GetEntity(prefab, TransformUsageFlags.Dynamic);
+                GetEntity(prefab, TransformUsageFlags.None);
             }
 #endif
 
@@ -85,7 +85,7 @@ namespace Unity.NetCode
                 throw new InvalidOperationException("Invalid guid for ghost prefab type");
 
             // Add components which are serialized based on settings
-            var entity = GetEntity(TransformUsageFlags.Dynamic);
+            var entity = GetEntity(TransformUsageFlags.None);
             if (ghostAuthoring.HasOwner)
             {
                 AddComponent(entity, default(GhostOwner));

@@ -1,4 +1,3 @@
-#if UNITY_EDITOR || NETCODE_DEBUG
 using System;
 using Unity.Collections;
 using Unity.Entities;
@@ -14,12 +13,10 @@ namespace Unity.NetCode.Editor
     struct NetcodeFrameData
     {
         internal bool isValid;
-        internal int frameIndex;
         internal uint totalSizeSentByServerInBits;
         internal uint totalSizeReceivedByClientInBits;
-        internal uint totalPacketCountSentByServer;
-        internal uint totalPacketCountReceivedByClient;
-        internal NetworkTick serverTickSent;
+        internal uint totalSnapshotCountSentByServer;
+        internal uint totalSnapshotCountReceivedByClient;
         internal NativeArray<TickData> tickData;
         internal float jitter;
         internal float rtt;
@@ -34,7 +31,9 @@ namespace Unity.NetCode.Editor
     struct TickData
     {
         internal NetworkTick tick;
+        internal NetworkTick interpolationTick;
         internal uint packetCount;
+        internal uint snapshotCount;
         internal uint snapshotSizeInBits;
         internal uint totalInstanceCount;
         internal uint overheadSize;
@@ -61,14 +60,16 @@ namespace Unity.NetCode.Editor
     {
         internal FixedString128Bytes name;
         internal uint sizeInBits;
+        internal int percentageOfSnapshot; // Stored as an integer percentage (0-100)
         internal int instanceCount;
+        internal uint snapshotCount;
         internal uint overheadSize;
         internal float combinedCompressionEfficiency;
         internal float avgSizePerEntity;
         internal NativeArray<ProfilerGhostTypeData> componentsPerType;
         internal OverheadType overheadType;
         internal uint newInstancesCount;
-        internal bool isGhost;
+        internal bool isGhostPrefab;
         internal TypeIndex typeIndex;
     }
 
@@ -79,4 +80,3 @@ namespace Unity.NetCode.Editor
         internal float errorValue;
     }
 }
-#endif

@@ -103,8 +103,7 @@ namespace Unity.NetCode.Tests
         // }
 
         [Test]
-        [Ignore("TODO-release No support for thin clients yet with PrefabRegistry")]
-        public async Task TestClientWithThinClients([Values] bool testHost)
+        public async Task TestClientWithThinClients()
         {
             await using var testWorld = new NetCodeTestWorld();
             await testWorld.SetupGameObjectTest();
@@ -113,24 +112,9 @@ namespace Unity.NetCode.Tests
             Assert.That(MultiplayerPlayModePreferences.RequestedNumThinClients, Is.EqualTo(0), "Sanity check failed, must not have any thin clients configured to run via Multiplayer PlayMode Tools");
 #endif
             // Test setup
-            testWorld.UseFakeSocketConnection = testHost ? 0 : 1;
             await testWorld.CreateWorldsAsync(false, 1, useThinClients:true, throwIfWorldsAlreadyExist: false); // extra world
 
-            var thinClientWorld = testWorld.ClientWorlds[^1];
-            if (testHost)
-            {
-                var ep = NetworkEndpoint.LoopbackIpv4.WithPort(7979);
-                throw new NotImplementedException();
-                // Assert.True(Netcode.Server.StartAsHost(ep));
-                // Assert.NotNull(testWorld.ServerWorld);
-                // await testWorld.TickUntilConnectedAsync(ClientServerBootstrap.ClientWorld);
-                // var driverQuery = thinClientWorld.EntityManager.CreateEntityQuery(new EntityQueryBuilder(Allocator.Temp).WithAll<NetworkStreamDriver>());
-                // driverQuery.GetSingleton<NetworkStreamDriver>().Connect(thinClientWorld.EntityManager, ep);
-                // await testWorld.TickUntilConnectedAsync(thinClientWorld);
-                // testWorld.GoInGame();
-            }
-            else
-                await testWorld.ConnectAsync(enableGhostReplication: true); // this does a lot of the boilerplate of connecting, ticking, enabling replication
+            await testWorld.ConnectAsync(enableGhostReplication: true); // this does a lot of the boilerplate of connecting, ticking, enabling replication
 
             // Execute the test
             var cubePrefab = SubSceneHelper.CreateGhostBehaviourPrefab(NetCodeTestWorld.k_GeneratedFolderBasePath, "BasicCube", typeof(TestMoveCube)).GetComponent<TestMoveCube>();
@@ -168,19 +152,24 @@ namespace Unity.NetCode.Tests
             Assert.That(TestMoveCube.CubeInstances, Is.EqualTo(2)); // 1 clients, 1 server. no pseudo prefab, so no noise :)
 
             // server moves cube
+            serverCube.transform.position = Vector3.one;
             await testWorld.TickMultipleAsync(30);
 
             // client sees the cube interpolated to destination within expected time
-            Assert.That(serverCube.transform.position, Is.EqualTo(Vector3.one));
             Assert.That(otherClientCube.transform.position, Is.EqualTo(Vector3.one));
 
-            // cubes are all different instances
-            Assert.That(otherClientCube, Is.Not.EqualTo(serverCube));
-            // clients can't move its own cube
-            otherClientCube.transform.position = Vector3.zero;
+            // When not in host mode the client has its own version of the cube and can't move it
+            if (!ClientServerBootstrap.ServerWorld.IsHost())
+            {
+                // cubes are all different instances
+                Assert.That(otherClientCube, Is.Not.EqualTo(serverCube));
 
-            await testWorld.TickMultipleAsync(30);
-            Assert.That(otherClientCube.transform.position, Is.EqualTo(Vector3.one));
+                // clients can't move its own cube
+                otherClientCube.transform.position = Vector3.zero;
+
+                await testWorld.TickMultipleAsync(30);
+                Assert.That(otherClientCube.transform.position, Is.EqualTo(Vector3.one));
+            }
 
             Assert.That(Netcode.Server.Connections.Count, Is.EqualTo(2)); // Server sees 2 client connections (thin client did indeed connect)
         }
@@ -277,6 +266,24 @@ namespace Unity.NetCode.Tests
             await testWorld.TickAsync();
 
             Assert.IsTrue(serverObj.Ghost.World.EntityManager.HasComponent<GhostOwner>(serverObj.Ghost.Entity) == skip, $"skip is {skip}, which means we should{(skip ? "" : "n't")} have been able to customize the prefab before registering.");
+        }
+
+        [Category(NetcodeTestCategories.Foundational)]
+        [Test(Description = "Sanity check to see if registering prefabs before there is any world to register in works")]
+        public async Task Test_RegisterPrefabsBeforeWorldCreation()
+        {
+            var prefab = GhostAdapterUtils.CreatePredictionCallbackHelperPrefab("BasicCube", skipAutoRegistration: true);
+            prefab.GetComponent<GhostAdapter>().HasOwner = true;
+            Netcode.RegisterPrefab(prefab.gameObject);
+
+            await using var testWorld = new NetCodeTestWorld(keepExistingNetcodeInstance: true);
+            await testWorld.SetupGameObjectTest(cleanGeneratedDirectory: false, keepExistingNetcodeInstance: true);
+
+            await testWorld.ConnectAsync(enableGhostReplication: true);
+            var serverObj = GameObject.Instantiate(prefab);
+            await testWorld.TickAsync();
+
+            Assert.IsTrue(serverObj.Ghost.World.EntityManager.HasComponent<GhostOwner>(serverObj.Ghost.Entity), $"skipAutoRegistration is true, which means we should have been able to customize the prefab before registering.");
         }
 
         [Test(Description = "OnDestroy is called even when SetActive is false, so this should work fine, but sanity checking with this test to make sure this assumption holds true.")]

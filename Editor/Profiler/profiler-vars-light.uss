@@ -1,4 +1,10 @@
 :root {
     --overhead-icon: url("../../EditorIcons/Profiler/UnityAsset.png");
     --warning-icon: url("../../EditorIcons/Profiler/WarningDimmed.png");
+    --ghost-prefab-icon: url("../../EditorIcons/Profiler/Ghost.png");
+    --ghost-component-icon: url("../../EditorIcons/Profiler/Component.png");
+    --arrow-forward-icon: url("../../EditorIcons/Profiler/OneFrameForward.png");
+    --arrow-back-icon: url("../../EditorIcons/Profiler/OneFrameBack.png");
+    --client-icon: url("../../EditorIcons/Profiler/PCMacLinux.png");
+    --server-icon: url("../../EditorIcons/Profiler/BuildSettings.DedicatedServer.png");
 }

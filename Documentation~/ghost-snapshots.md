@@ -8,10 +8,10 @@ Netcode for Entities also supports a limited form of [remote procedure call-like
 
 A ghost is a networked object in a multiplayer game.
 * A ghost is owned by (and simulated by) the server. In other words; the server has final authority over all ghosts. The server may therefore spawn, destroy, and update ghost entities.
-* Each client connected to the server has a copy of each relevant server ghost, and the client updates this representation by receiving [snapshots](#snapshots) sent by the server - once per network tick - which contains the current state of a subset of these ghosts. The client then presents the updated state of the ghosts to the rest of the game simulation on one of two timelines (see [interpolation](#interpolation.md) and [client prediction](#intro-to-prediction.md)), allowing ghosts to be smoothly rendered etc.
+* Each client connected to the server has a copy of each relevant server ghost, and the client updates this representation by receiving [snapshots](#snapshots) sent by the server - once per network tick - which contains the current state of a subset of these ghosts. The client then presents the updated state of the ghosts to the rest of the game simulation on one of two timelines (see [interpolation](interpolation.md) and [client prediction](intro-to-prediction.md)), allowing ghosts to be smoothly rendered etc.
 _Note, then; the client cannot directly control or affect ghosts, because the server has authority over the entire game simulation. Therefore, any modification the client makes to a ghost is considered a client prediction, and can (and will) be reverted when new, server authoritative snapshot data arrives._
 
-When you create a ghost, you need to define how it's [synchronized between client and server](#synchronizing-ghost-components-and-fields). For more information about how to spawn ghosts after defining them, refer to the [Ghost spawning page](#ghost-spawning.md).
+When you create a ghost, you need to define how it's [synchronized between client and server](#synchronize-ghost-components-and-fields). For more information about how to spawn ghosts after defining them, refer to the [Ghost spawning page](ghost-spawning.md).
 
 ### Create a ghost
 
@@ -135,20 +135,7 @@ _You can also use `MaxSendRate` to reduce the number of ghost chunks which are e
 
 You can change the maximum size of snapshots. Reducing the maximum size saves bandwidth at the cost of a higher relative header overhead and less usable data, while increasing it may cause multiple UDP packets to have to be sent per snapshot, which can increase the probability of packet loss.
 
-Refer to the documentation on [importance scaling](optimizations.md#importance-scaling) for more details.
-
-### Snapshot visualization tool
-
-To understand what's being sent over the network, you can use the Network Debugger snapshot visualization tool.
-
-To open the tool, go to __Multiplayer__ > __Open NetDbg__, and the tool opens in a browser window. It displays a vertical bar for each received snapshot, with a breakdown of key information about each snapshot.
-
-For more information about a particular snapshot, select one of the bars.
-
-<img src="images/snapshot-debugger.png" width="1000" alt="net debug tool">
-
-> [!NOTE]
-> This tool is a prototype.
+Refer to the documentation on [importance scaling](optimization/optimize-ghosts.md#importance-scaling) for more details.
 
 ## Additional resources
 

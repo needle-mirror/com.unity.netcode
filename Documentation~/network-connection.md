@@ -61,14 +61,14 @@ The `ClientServerBootstrap` [`AutoConnectPort` field](https://docs.unity3d.com/P
 - [DefaultConnectAddress](https://docs.unity3d.com/Packages/com.unity.netcode@latest/index.html?subfolder=/api/Unity.NetCode.ClientServerBootstrap.html#Unity_NetCode_ClientServerBootstrap_DefaultConnectAddress)
 - [DefaultListenAddress](https://docs.unity3d.com/Packages/com.unity.netcode@latest/index.html?subfolder=/api/Unity.NetCode.ClientServerBootstrap.html#Unity_NetCode_ClientServerBootstrap_DefaultListenAddress)
 
-To set up the `AutoConnectPort`, you need to create a custom [bootstrap](client-server-worlds.md#bootstrap) and set a value other than 0 for the `AutoConnectPort` before creating your worlds. For example:
+To set up the `AutoConnectPort`, you need to create a custom [bootstrap](client-server-worlds.md#customize-the-bootstrapping-flow) and set a value other than 0 for the `AutoConnectPort` before creating your worlds. For example:
 
 [!code-cs[blobs](../Tests/Editor/DocCodeSamples/network-connection.cs#AutoConnectPort)]
 
 The server starts listening at the wildcard address (`DefaultListenAddress`:`AutoConnectPort`). The `DefaultConnectAddress` is by default set to `NetworkEndpoint.AnyIpv4`. The client starts connecting to server address (`DefaultConnectAddress`:`AutoConnectPort`). The `DefaultConnectAddress` is by default set to `NetworkEndpoint.Loopback`.
 
 > [!NOTE]
-> In the Editor, the [PlayMode tool](playmode-tool.md) allows you to override both the `AutoConnectAddress` and `AutoConnectPort` fields. However, when `AutoConnectPort` is set to 0, the PlayMode Tool's override functionality won't be used. The intent is then you need to manually trigger connection.
+> In the Editor, the [PlayMode tool](testing/playmode-tool.md) allows you to override both the `AutoConnectAddress` and `AutoConnectPort` fields. However, when `AutoConnectPort` is set to 0, the PlayMode Tool's override functionality won't be used. The intent is then you need to manually trigger connection.
 
 ### Controlling the connection flow using `NetworkStreamRequest`
 
@@ -88,7 +88,7 @@ The request will be then consumed at runtime by the [NetworkStreamReceiveSystem]
 
 ### Network simulator
 
-Unity Transport provides a [SimulatorUtility](playmode-tool.md#networksimulator), which is available (and configurable) in the Netcode for Entities package. Access it via **Multiplayer** > **PlayMode Tools** in the Editor.
+Unity Transport provides a [SimulatorUtility](testing/playmode-tool.md#emulate-client-network-conditions), which is available (and configurable) in the Netcode for Entities package. Access it via **Multiplayer** > **PlayMode Tools** in the Editor.
 
 We strongly recommend that you frequently test your gameplay with the simulator enabled, as it more closely resembles real-world conditions.
 

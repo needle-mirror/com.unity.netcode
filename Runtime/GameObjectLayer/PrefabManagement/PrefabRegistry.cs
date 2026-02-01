@@ -27,7 +27,7 @@ namespace Unity.NetCode
     // TMP while waiting for entities integration. Storing the prefab registry dictionary inside the world. Makes it easier to manage for single host world vs binary world
     // Note some of this is going to get refactored in an upcoming PR with auto prefab registration
     [CreateAfter(typeof(DefaultVariantSystemGroup))]
-    [WorldSystemFilter(WorldSystemFilterFlags.ClientSimulation | WorldSystemFilterFlags.ServerSimulation)]
+    [WorldSystemFilter(WorldSystemFilterFlags.ClientSimulation | WorldSystemFilterFlags.ThinClientSimulation | WorldSystemFilterFlags.ServerSimulation)]
     internal partial class PrefabRegistryInitSystem : SystemBase
     {
 #if UNITY_6000_3_OR_NEWER // Required to use GameObject bridge with EntityID
@@ -38,8 +38,11 @@ namespace Unity.NetCode
             foreach (var prefabReference in allPrefabs)
             {
                 if (!prefabReference.Ghost.SkipAutomaticPrefabRegistration)
-                    Netcode.RegisterPrefab(prefabReference.Prefab, forWorld: this.World);
+                    PrefabsRegistry.RegisterPrefab(prefabReference.Prefab, World);
             }
+
+            Netcode.Instance.InitializePlaceholderPrefabs(World);
+
             Enabled = false;
         }
 #endif
@@ -54,42 +57,24 @@ namespace Unity.NetCode
     {
          // private Dictionary<Entity, GhostPrefabReference> m_PrefabResources = new();
 
-         internal bool m_IsClient = false;
-         private World m_World
-         {
-             get
-             {
-                 if (m_IsClient)
-                 {
-                     // TODO-next refactor this with prefab list PR. This is for test purposes, with both a host world and a client world present
-                     if (ClientServerBootstrap.ClientWorld.IsHost() && ClientServerBootstrap.ClientWorlds.Count > 1)
-                         return ClientServerBootstrap.ClientWorlds[1];
-                     return ClientServerBootstrap.ClientWorld;
-                 }
-                 else return ClientServerBootstrap.ServerWorld;
-             }
-         }
-
          /// <summary>
-         /// Creates the entity prefab for a given GameObject based prefab. This can be called before and after a
-         /// world has been created which this registry is associated with. A prefab must be registered before it can
+         /// Creates the entity prefab for a given GameObject based prefab. A prefab must be registered before it can
          /// be spawned (or pre-spawned), it can be done right before the prefab is instantiates, as long as it's happens on both server
          /// and client.
          /// </summary>
          /// <remarks>
-         /// This creates the prefab entity when the registry has a world associated. The registration happens later in ECS systems.
+         /// This creates the prefab entity in the given world. The registration happens later in ECS systems.
          /// </remarks>
-         /// <param name="prefab"></param>
-         public void RegisterPrefab(UnityEngine.GameObject prefab)
+         /// <param name="prefab">GameObject prefab to register</param>
+         /// <param name="forWorld">World to link the registration with</param>
+         public static void RegisterPrefab(GameObject prefab, World forWorld)
          {
-            //The m_PrefabResources is cleared every time we enter/exit playmode. This ensure we are re-creating all the
-            //prefabs as necessary (some components may not be saved or persist)
-            if (prefab.EntityExt(isPrefab: true, this.m_World.Unmanaged) != default)
-                // already initialized for this world
-                return;
+             // already initialized for this world
+             if (prefab.EntityExt(isPrefab: true, forWorld.Unmanaged) != default)
+                 return;
 
-             CreateEntityPrefab(prefab);
-             var createdEntity = prefab.EntityExt(isPrefab: true, m_World.Unmanaged);
+             CreateEntityPrefab(prefab, forWorld);
+             var createdEntity = prefab.EntityExt(isPrefab: true, forWorld.Unmanaged);
              Assert.IsTrue(createdEntity != Entity.Null);
              // m_PrefabResources.Add(createdEntity, prefab.GetComponent<GhostAdapter>().prefabReference);
              //Ok, now the real deal: how do we make everything we have in the ghost collection to still work ?
@@ -107,17 +92,16 @@ namespace Unity.NetCode
              // Sam note: the above comment from Cristian was made with entities integration. It's still relevant to think about, but right now this backport is solving this a different way. We'll need to look at the entities integration version of this implementation later.
          }
 
-
-        private void CreateEntityPrefab(UnityEngine.GameObject prefab)
+        private static void CreateEntityPrefab(GameObject prefab, World world)
         {
-            using var _ = GhostSpawningContext.CreateSpawnContext(m_World.Unmanaged); // spawn context for creating the prefab entity
+            using var _ = GhostSpawningContext.CreateSpawnContext(world.Unmanaged); // spawn context for creating the prefab entity
 
             var ghostAuthoring = prefab.GetComponent<GhostAdapter>();
-            var prefabEntity = GhostEntityMapping.AcquireEntityReferencePrefab(prefab.GetEntityId(), prefab.transform.GetEntityId(), forWorld: m_World.Unmanaged).Entity;
+            var prefabEntity = GhostEntityMapping.AcquireEntityReferencePrefab(prefab.GetEntityId(), prefab.transform.GetEntityId(), forWorld: world.Unmanaged).Entity;
 
             // TODO-release handle child GOs that could have networked data as well
             var transforms = prefab.GetComponentsInChildren<Transform>(includeInactive:true);
-            var entityManager = m_World.EntityManager;
+            var entityManager = world.EntityManager;
             entityManager.SetName(prefabEntity, prefab.name);
             entityManager.AddComponentData(prefabEntity, default(Prefab));
             //TODO-release This will go away with transform ref
@@ -130,7 +114,7 @@ namespace Unity.NetCode
 #if UNITY_EDITOR
             // Following is for BoundingBoxDebugGhostDrawer to draw bounding boxes around the ghost
             // TODO-release this can be a perf hit to gather all renderers in children, should find a way to debug gate this. Only when the drawer is enabled? can be enabled at runtime? Only ifdef DEBUG?
-            var meshBounds = new GhostDebugMeshBounds().Initialize(prefab, prefabEntity, m_World);
+            var meshBounds = new GhostDebugMeshBounds().Initialize(prefab, prefabEntity, world);
             entityManager.AddComponentData(prefabEntity, meshBounds);
 #endif
             if (ghostAuthoring.HasOwner) // TODO-release should always have an owner?

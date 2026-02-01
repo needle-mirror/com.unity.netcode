@@ -11,12 +11,10 @@ namespace Unity.NetCode
 
         internal const string GhostInstancesCounterNameServer = "Ghost Instances (Server)";
         internal const string GhostInstancesCounterNameClient = "Ghost Instances (Client)";
-        internal const string GhostSnapshotsCounterNameServer = "Ghost Snapshots (Server)";
-        internal const string GhostSnapshotsCounterNameClient = "Ghost Snapshots (Client)";
+        internal const string GhostSnapshotsCounterNameServer = "Snapshot Size (Server)";
+        internal const string GhostSnapshotsCounterNameClient = "Snapshot Size (Client)";
         internal const string JitterCounterName = "Jitter";
         internal const string RTTCounterName = "RTT";
-        internal const string SnapshotAgeMinCounterName = "Snapshot Age Min";
-        internal const string SnapshotAgeMaxCounterName = "Snapshot Age Max";
 
         internal const int NetworkMetricsTag = 0;
         internal const int GhostNamesTag = 1;
@@ -30,6 +28,9 @@ namespace Unity.NetCode
         internal const int SerializerStatesTag = 9;
         internal const int ComponentIndicesTag = 10;
         internal const int CommandStatsTag = 11;
+        internal const int SnapshotTickTag = 12;
+        internal const int ServerTickTag = 13;
+        internal const int InterpolationTickTag = 14;
     }
 }
 #endif

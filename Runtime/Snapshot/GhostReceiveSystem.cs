@@ -515,6 +515,7 @@ namespace Unity.NetCode
                 netStatsSnapshot.Tick = serverTick;
                 netStatsSnapshot.DespawnCount = despawnLen;
                 netStatsSnapshot.DestroySizeInBits = (uint) (dataStream.GetBitsRead() - data.StartPos);
+                netStatsSnapshot.SnapshotCount += 1;
                 data.StartPos = data.CurPos;
                 data.NetStatsSnapshot = (UnsafeGhostStatsSnapshot*)UnsafeUtility.AddressOf(ref netStatsSnapshot);
 #endif

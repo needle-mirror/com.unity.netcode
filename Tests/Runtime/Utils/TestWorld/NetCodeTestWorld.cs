@@ -248,7 +248,7 @@ namespace Unity.NetCode.Tests
             });
         }
 
-        public NetCodeTestWorld(bool useGlobalConfig=false, double initialElapsedTime = 42)
+        public NetCodeTestWorld(bool useGlobalConfig=false, double initialElapsedTime = 42, bool keepExistingNetcodeInstance = false)
         {
             if (OverrideUseSingleWorldHost && !SingleWorldHostUtils.CurrentTestSupportsSingleWorldHost())
                 Assert.Ignore("Test doesn't support single world host, but the global override is enabled.");
@@ -260,7 +260,7 @@ namespace Unity.NetCode.Tests
             // Not having a default world means RegisterUnloadOrPlayModeChangeShutdown has not been called which causes memory leaks
             DefaultWorldInitialization.DefaultLazyEditModeInitialize();
 #endif
-            SetupTestNetcodeAPI();
+            SetupTestNetcodeAPI(keepExistingNetcodeInstance);
 
             m_OldConfigsList.AddRange(Resources.FindObjectsOfTypeAll<NetCodeConfig>());
             m_OldGlobalConfig = NetCodeConfig.Global;
@@ -375,13 +375,18 @@ namespace Unity.NetCode.Tests
             m_WorldStrategy.DisposeDefaultWorld();
         }
 
-        private void SetupTestNetcodeAPI()
+        private void SetupTestNetcodeAPI(bool keepExistingNetcodeInstance = false)
         {
-            Netcode.DisposeAfterEnterEditMode();
-            var testNetcode = new TestNetcode(this); // this auto registers to Netcode.Instance
-            testNetcode.Initialize();
-            testNetcode.InitializeWithAssets();
-            Assert.IsTrue(Netcode.Instance is TestNetcode);
+            // Only keep an existing instance if it's actually initialized
+            keepExistingNetcodeInstance &= Netcode.IsInitialized;
+            if (!keepExistingNetcodeInstance)
+            {
+                Netcode.DisposeAfterEnterEditMode();
+                var testNetcode = new TestNetcode(this); // this auto registers to Netcode.Instance
+                testNetcode.Initialize();
+                testNetcode.InitializeWithAssets();
+                Assert.IsTrue(Netcode.Instance is TestNetcode);
+            }
         }
 
         public void SetServerTick(NetworkTick tick)
@@ -563,18 +568,18 @@ namespace Unity.NetCode.Tests
             }
         }
 
-        public void CreateAdditionalClientWorlds(int numClients, bool tickWorldAfterCreation = true, bool useThinClients = false)
+        public void CreateAdditionalClientWorlds(int numClients, bool tickWorldAfterCreation = true, float dt = k_defaultDT, bool useThinClients = false)
         {
-            CreateWorlds(false, numClients, tickWorldAfterCreation, useThinClients, throwIfWorldsAlreadyExist: false);
+            CreateWorlds(false, numClients, tickWorldAfterCreation, dt, useThinClients, throwIfWorldsAlreadyExist: false);
         }
 
-        public void CreateWorlds(bool server, int numClients, bool tickWorldAfterCreation = true,
+        public void CreateWorlds(bool server, int numClients, bool tickWorldAfterCreation = true, float dt = k_defaultDT,
             bool useThinClients = false, bool throwIfWorldsAlreadyExist = true, int numHostWorlds = 0)
         {
-            CreateWorldsAsync(server, numClients, tickWorldAfterCreation, useThinClients, throwIfWorldsAlreadyExist, numHostWorlds: numHostWorlds).Wait();
+            CreateWorldsAsync(server, numClients, tickWorldAfterCreation, dt, useThinClients, throwIfWorldsAlreadyExist, numHostWorlds: numHostWorlds).Wait();
         }
 
-        public async Task CreateWorldsAsync(bool server, int numClients, bool tickWorldAfterCreation = true, bool useThinClients = false, bool throwIfWorldsAlreadyExist = true, int numHostWorlds = 0)
+        public async Task CreateWorldsAsync(bool server, int numClients, bool tickWorldAfterCreation = true, float dt = k_defaultDT, bool useThinClients = false, bool throwIfWorldsAlreadyExist = true, int numHostWorlds = 0)
         {
             // Most tests should work with both binary and single world host, so instead of duplicating all tests
             // we create this way to override which mode to use so we can easily test both modes in our CI.
@@ -640,7 +645,8 @@ namespace Unity.NetCode.Tests
                     {
                         WorldCreationIndex = i;
 
-                        m_ClientWorlds.Add(m_WorldStrategy.CreateClientWorld($"ClientTest{i}-{testMethodName}", useThinClients));
+                        var clientWorldName = $"{(useThinClients ? "Thin" : "")}ClientTest{i}-{testMethodName}";
+                        m_ClientWorlds.Add(m_WorldStrategy.CreateClientWorld(clientWorldName, useThinClients));
 
                         SetupNetDebugConfig(m_ClientWorlds[i]);
                     }
@@ -663,7 +669,7 @@ namespace Unity.NetCode.Tests
 
             //Run 1 tick so that all the ghost collection and the ghost collection component run once.
             if (tickWorldAfterCreation)
-                await TickAsync();
+                await TickAsync(dt);
 
         }
 
@@ -1036,7 +1042,6 @@ namespace Unity.NetCode.Tests
         /// </summary>
         public async Task ConnectAsync(float dt = k_defaultDT, int maxSteps = 7, bool failTestIfConnectionFails = true, bool tickUntilConnected = true, bool enableGhostReplication = false, bool withConnectionState = false)
         {
-
             // Initialize prefab registry as is usually done in Connect/Listen routines
             Netcode.Client.Init();
             Netcode.Server.Init();
@@ -1517,7 +1522,7 @@ namespace Unity.NetCode.Tests
         /// </code>
         /// </summary>
         /// <returns></returns>
-        public async Task SetupGameObjectTest(bool useNormalMainLoop = true, int serverCount = 1, int clientCount = 1, int singleWorldHostCount = 0)
+        public async Task SetupGameObjectTest(bool useNormalMainLoop = true, int serverCount = 1, int clientCount = 1, int singleWorldHostCount = 0, bool cleanGeneratedDirectory = true, bool keepExistingNetcodeInstance = false)
         {
             // Any playmode test will trigger IBootstrap's Initialize which already creates worlds we don't have control over
             // This test needs to run in a project with no custom bootstrapper for the below cleanup to still be valid
@@ -1530,11 +1535,12 @@ namespace Unity.NetCode.Tests
             {
                 ClientServerBootstrap.ClientWorld.Dispose();
             }
-            CleanGeneratedDirectory();
+            if (cleanGeneratedDirectory)
+                CleanGeneratedDirectory();
             m_EmptyScene = SceneManager.CreateScene(k_TestSceneName, new CreateSceneParameters() { localPhysicsMode = LocalPhysicsMode.Physics3D });
             SceneManager.SetActiveScene(m_EmptyScene);
 
-            SetupTestNetcodeAPI(); // Needs to run again since we might have disposed the above worlds, changing the various cached queries
+            SetupTestNetcodeAPI(keepExistingNetcodeInstance); // Needs to run again since we might have disposed the above worlds, changing the various cached queries
 
             Bootstrap(NetCodeTestWorld.SystemResolutionMode.NetcodeAndUserSystems, includePresentationSystemsOnClient: false, useNormalMainLoop: useNormalMainLoop);
             if (serverCount > 0 || clientCount > 0)

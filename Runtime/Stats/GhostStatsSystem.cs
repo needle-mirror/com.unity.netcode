@@ -19,7 +19,7 @@ namespace Unity.NetCode
     class GhostStatsConnection : IDisposable
     {
         #if UNITY_EDITOR
-        [MenuItem("Window/Multiplayer/Network Debugger (Browser)", priority = 3007)]
+        [MenuItem("Window/Multiplayer/Network Debugger (Browser) (Deprecated)", priority = 3007)]
         public static void OpenDebugger()
         {
             System.Diagnostics.Process.Start(Path.GetFullPath("Packages/com.unity.netcode/Runtime/Stats/netdbg.html"));

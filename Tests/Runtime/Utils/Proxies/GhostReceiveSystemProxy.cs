@@ -1,3 +1,4 @@
+using Unity.Collections;
 using Unity.Entities;
 using Unity.PerformanceTesting;
 using Unity.Profiling;
@@ -12,34 +13,22 @@ namespace Unity.NetCode.Tests
     [UpdateAfter(typeof(GhostCollectionSystem))]
     [UpdateAfter(typeof(NetDebugSystem))]
     [UpdateBefore(typeof(GhostReceiveSystem))]
-    internal partial class GhostReceiveSystemProxy : ComponentSystemGroup
+    internal partial class GhostReceiveSystemProxy : SystemBase
     {
         static readonly ProfilerMarker k_Update = new ProfilerMarker("GhostReceiveSystem_OnUpdate");
         static readonly ProfilerMarker k_CompleteTrackedJobs = new ProfilerMarker("GhostReceiveSystem_CompleteAllTrackedJobs");
-
-        protected override void OnCreate()
-        {
-            base.OnCreate();
-            RequireForUpdate<GhostCollection>();
-        }
-
-        protected override void OnStartRunning()
-        {
-            base.OnStartRunning();
-
-            var ghostReceiveSystem = World.GetExistingSystem<GhostUpdateSystem>();
-            var ghostSimulationSystemGroup = World.GetExistingSystemManaged<GhostSimulationSystemGroup>();
-            ghostSimulationSystemGroup.RemoveSystemFromUpdateList(ghostReceiveSystem);
-            AddSystemToUpdateList(ghostReceiveSystem);
-        }
 
         protected override void OnUpdate()
         {
             EntityManager.CompleteAllTrackedJobs();
 
+            var systemHandle = World.GetExistingSystem<GhostReceiveSystem>();
+            var unmanagedSystem = World.Unmanaged.GetExistingSystemState<GhostReceiveSystem>();
+            unmanagedSystem.Enabled = false;
+
             k_CompleteTrackedJobs.Begin();
             k_Update.Begin();
-            base.OnUpdate();
+            systemHandle.Update(World.Unmanaged);
             k_Update.End();
             EntityManager.CompleteAllTrackedJobs();
             k_CompleteTrackedJobs.End();

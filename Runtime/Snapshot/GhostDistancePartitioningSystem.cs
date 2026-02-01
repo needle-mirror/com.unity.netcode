@@ -75,8 +75,6 @@ namespace Unity.NetCode
         SharedComponentTypeHandle<GhostDistancePartitionShared> m_SharedPartition;
 
         [BurstCompile]
-        [WithChangeFilter(typeof(LocalTransform), typeof(GhostDistancePartitionShared))]
-        // WithChangeFilter optimization; there is no need to re-calculate the tile index of each entity within this chunk if none of them have moved.
         struct UpdateTileIndexJob : IJobChunk
         {
             [ReadOnly] public SharedComponentTypeHandle<GhostDistancePartitionShared> TileTypeHandle;
@@ -84,17 +82,22 @@ namespace Unity.NetCode
             [ReadOnly] public EntityTypeHandle EntityTypeHandle;
             public GhostDistanceData Config;
             public EntityCommandBuffer.ParallelWriter Ecb;
+            public uint LastSystemVersion;
 
             public void Execute(in ArchetypeChunk chunk, int unfilteredChunkIndex, bool useEnabledMask, in v128 chunkEnabledMask)
             {
+#if ENABLE_UNITY_COLLECTIONS_CHECKS
                 Assert.IsFalse(useEnabledMask);
+                Assert.IsTrue(chunk.DidChange(ref TransHandle, LastSystemVersion) || chunk.DidChange(TileTypeHandle, LastSystemVersion) || chunk.DidOrderChange(LastSystemVersion));
+#endif
+
                 var tile = chunk.GetSharedComponent(TileTypeHandle);
-                var transforms = chunk.GetNativeArray(ref TransHandle);
+                var transforms = chunk.GetNativeArray(ref TransHandle).AsReadOnlySpan();
                 var entities = chunk.GetNativeArray(EntityTypeHandle);
 
                 for (var index = 0; index < transforms.Length; index++)
                 {
-                    var transform = transforms[index];
+                    ref readonly var transform = ref transforms[index];
                     var origTilePos = tile.Index * Config.TileSize + Config.TileCenter;
                     if (math.all(transform.Position >= origTilePos - Config.TileBorderWidth) &&
                         math.all(transform.Position <= origTilePos + Config.TileSize + Config.TileBorderWidth))
@@ -184,6 +187,7 @@ namespace Unity.NetCode
                 EntityTypeHandle = m_EntityTypeHandle,
                 TileTypeHandle = m_SharedPartition,
                 TransHandle = m_Transform,
+                LastSystemVersion = state.LastSystemVersion,
             }.ScheduleParallel(m_DistancePartitionedEntitiesQuery, state.Dependency);
         }
 
@@ -199,6 +203,10 @@ namespace Unity.NetCode
             var builder = new EntityQueryBuilder(Allocator.Temp)
                 .WithAll<GhostDistancePartitionShared, LocalTransform, GhostInstance>();
             m_DistancePartitionedEntitiesQuery = state.GetEntityQuery(builder);
+
+            // WithChangeFilter optimization; there is no need to re-calculate the tile index of each entity within this chunk if none of them have moved.
+            m_DistancePartitionedEntitiesQuery.AddChangedVersionFilter(ComponentType.ReadWrite<LocalTransform>());
+            m_DistancePartitionedEntitiesQuery.AddChangedVersionFilter(ComponentType.ReadWrite<GhostDistancePartitionShared>());
         }
 
         /// <inheritdoc/>

@@ -1,9 +1,10 @@
-
 using System;
+using System.Collections.Generic;
 using Unity.Burst;
 using Unity.Entities;
+using Unity.Jobs.LowLevel.Unsafe;
 #if UNITY_EDITOR
-    using UnityEditor;
+using UnityEditor;
 #endif
 using UnityEngine;
 namespace Unity.NetCode
@@ -11,6 +12,7 @@ namespace Unity.NetCode
     /// <summary>
     /// Main point of access to Netcode APIs. All global calls and configuration should be available from here.
     /// When writing gameplay code, this is the main class you should remember when dealing with Netcode.
+    /// For an unmanaged version that Burst compatible, please use <see cref="Netcode.Unmanaged"/>.
     /// </summary>
     // Design note: Similar with Physics.Raycast() and other such APIs.
 #if NETCODE_GAMEOBJECT_BRIDGE_EXPERIMENTAL
@@ -55,6 +57,14 @@ namespace Unity.NetCode
         public static bool IsClientServerBuild => ClientServerBootstrap.RequestedPlayType == ClientServerBootstrap.PlayType.ClientAndServer;
         Client m_Client;
         Server m_Server;
+        bool m_Initialized;
+
+        /// <summary>
+        /// A place to keep track of prefabs registrations for worlds which have not yet been created (like
+        /// when no world exists yet), new worlds will process this list and register entity prefabs for each one.
+        /// </summary>
+        List<GameObject> m_PrefabPlaceholder;
+
 #if UNITY_6000_3_OR_NEWER // Required to use GameObject bridge with EntityID
         PrefabsRegistry m_ServerPrefabsRegistry;
         PrefabsRegistry m_ClientPrefabsRegistry;
@@ -71,12 +81,7 @@ namespace Unity.NetCode
         /// </summary>
         public static Server Server => Instance.m_Server;
 
-#if UNITY_6000_3_OR_NEWER // Required to use GameObject bridge with EntityID
-        internal static ref GhostEntityMapping EntityMappingRef => ref s_EntityMapping.Data;
-        // Needs to be unique to mimic entities integration. if we want to iterate over all entities in a world, we need a separate data structure tracking those
-        private class EntityMapFieldKey { }
-        private static readonly SharedStatic<GhostEntityMapping> s_EntityMapping = SharedStatic<GhostEntityMapping>.GetOrCreate<Netcode, EntityMapFieldKey>();
-#endif
+
         #region singleton
 
         // The only static state in Netcode should be instance
@@ -84,6 +89,12 @@ namespace Unity.NetCode
         {
             get
             {
+                // From Unity's doc: Important: There’s no protection against accessing non-readonly or mutable
+                // static data from within a job. Accessing this kind of data circumvents all safety systems and might crash your application or the Unity Editor.
+                // So some best practice around thread safety and static access: either don't have static fields or they have threadsafe ones (e.g. typemanager is mostly
+                // threadsafe, because it's mostly readonly). Calling "IsExecutingJob" helps prevent these kinds of invisible issues for users (else there's zero errors and it can become race conditions galore).
+                if (JobsUtility.IsExecutingJob) throw new Exception("Static access while in a job is unsafe and unsupported by Unity's job system. Please save the instance you're trying to access as a field inside the job to take full advantage of the jobs safety system. e.g. new MyJob(){ myField = Netcode.Something; }");
+
                 // TODO-release investigate if we can just use RuntimeInitializationOnLoad instead of lazy initialization.
                 if (s_Instance == null)
                 {
@@ -96,6 +107,26 @@ namespace Unity.NetCode
         }
 
         protected internal static Netcode s_Instance;
+
+        /// <summary>
+        /// Gives access to parts of the APIs that are unmanaged. This is useful when your code needs to run
+        /// with Burst.
+        /// </summary>
+        public static ref NetcodeUnmanaged Unmanaged
+        {
+            get
+            {
+                // See Netcode.Instance for some best practices around statics and thread safety
+                if (JobsUtility.IsExecutingJob) throw new Exception("Static access while in a job is unsafe and unsupported by Unity's job system. Please save the instance you're trying to access as a field inside the job to take full advantage of the jobs safety system. e.g. new MyJob(){ myField = Netcode.Unmanaged.Something; }");
+
+                if (!s_UnmanagedInstance.Data.Initialized)
+                    s_UnmanagedInstance.Data.TryInitialize();
+                return ref s_UnmanagedInstance.Data;
+            }
+        }
+
+        // Using NetcodeUnmanaged as the key as well. There should be very little reason to add another SharedStatic for NetcodeUnmanaged in this class. The design goal is for it to be unique at all times.
+        private static readonly SharedStatic<NetcodeUnmanaged> s_UnmanagedInstance = SharedStatic<NetcodeUnmanaged>.GetOrCreate<NetcodeUnmanaged, NetcodeUnmanaged>();
 
 #if UNITY_EDITOR
         // entities bootstrapping happens in BeforeSceneLoad, we need Netcode to be initialized before that
@@ -138,19 +169,21 @@ namespace Unity.NetCode
 
         internal void Initialize()
         {
+            if (m_Initialized)
+                return;
+            m_Initialized = true;
             // These need to happen outside the constructor, since some of these's initialization depends on the instance being set already
             // for example Client() accesses Instance.m_WorldManager and so Instance needs to be set already
             // m_WorldManager = new NetcodeWorldManager();
             m_Client = new Client();
             m_Server = new Server();
+            m_PrefabPlaceholder = new List<GameObject>();
 #if UNITY_6000_3_OR_NEWER // Required to use GameObject bridge with EntityID
-            m_ClientPrefabsRegistry = new PrefabsRegistry() {m_IsClient = true};
-            m_ServerPrefabsRegistry = new PrefabsRegistry() {m_IsClient = false};
             // ClientServerBootstrap.CustomDriverConstructors = default;
             // GhostBehaviourTypeManager = new GhostBehaviourTypeManager();
             // BootstrapSceneOverrideManager = new BootstrapSceneOverrideManager();
-            EntityMappingRef = new GhostEntityMapping(true);
 #endif
+            s_UnmanagedInstance.Data.TryInitialize();
 
             InitializeWithAssets(); // TODO-release for now should be ok to call from here, but once entities changes bootstrap ordering, we'll need to move this to a new "after assets have loaded" place
             // for now bootstrapping happens here: BeforeSceneLoad (from https://docs.unity3d.com/ScriptReference/RuntimeInitializeOnLoadMethodAttribute.html)
@@ -165,27 +198,50 @@ namespace Unity.NetCode
             // BootstrapSceneOverrideManager.InitializeWithAssets();
         }
 
+        internal void InitializePlaceholderPrefabs(World forWorld)
+        {
+            if (m_PrefabPlaceholder == null)
+                return;
+#if UNITY_6000_3_OR_NEWER // Required to use GameObject bridge with EntityID
+            foreach (var prefab in m_PrefabPlaceholder)
+                PrefabsRegistry.RegisterPrefab(prefab, forWorld);
+#endif
+        }
+
+        internal static bool IsInitialized => s_Instance != null && s_Instance.m_Initialized;
+
         public void Dispose()
         {
-#if UNITY_6000_3_OR_NEWER // Required to use GameObject bridge with EntityID
-            EntityMappingRef.Dispose();
-#endif
+            m_Initialized = false;
+            s_UnmanagedInstance.Data.Dispose();
         }
 
         #endregion // singleton
 
 #if UNITY_6000_3_OR_NEWER // Required to use GameObject bridge with EntityID
+        /// <inheritdoc cref="PrefabsRegistry.RegisterPrefab" />
+        public static void RegisterPrefab(GameObject prefab, World forWorld)
+        {
+            PrefabsRegistry.RegisterPrefab(prefab, forWorld);
+        }
+
         /// <summary>
-        /// Registers a prefab with the client and server. This is a convenience method for <see cref="PrefabsRegistry.RegisterPrefab"/>.
+        /// Registers a prefab with all netcode worlds and also queue for later registration for
+        /// worlds which are created later.
         /// </summary>
-        /// <param name="prefab"></param>
-        public static void RegisterPrefab(UnityEngine.GameObject prefab, World forWorld = null)
+        /// <param name="prefab">GameObject prefab to register</param>
+        public static void RegisterPrefab(GameObject prefab)
         {
             // TODO-release this flow shouldn't be needed once we have UDM and/or auto prefab registration
-            if (forWorld == null || forWorld.IsServer())
-                Instance.m_ServerPrefabsRegistry.RegisterPrefab(prefab);
-            if (forWorld == null || forWorld.IsClient())
-                Instance.m_ClientPrefabsRegistry.RegisterPrefab(prefab);
+            foreach (var world in World.All)
+            {
+                if (world.IsClient() || world.IsServer())
+                    PrefabsRegistry.RegisterPrefab(prefab, world);
+            }
+            // Always add to placeholder list, any world created later will then also register this prefab
+            if (Instance.m_PrefabPlaceholder.Contains(prefab))
+                return;
+            Instance.m_PrefabPlaceholder.Add(prefab);
         }
 #endif
 
@@ -204,5 +260,39 @@ namespace Unity.NetCode
             if (IsServerRole) action();
             else Instance.OnServerStarted += action;
         }
+    }
+
+    /// <summary>
+    /// Unmanaged version of the Netcode API. Similar to World.Unmanaged, in that it offers a subset of the features in <see cref="Netcode"/> that's burst compatible
+    /// </summary>
+#if NETCODE_GAMEOBJECT_BRIDGE_EXPERIMENTAL
+    public
+#endif
+        struct NetcodeUnmanaged
+    {
+        internal bool Initialized;
+
+        internal void TryInitialize()
+        {
+            if (Initialized) return;
+
+            Initialized = true;
+#if UNITY_6000_3_OR_NEWER // Required to use GameObject bridge with EntityID
+            m_EntityMapping = new GhostEntityMapping(true);
+#endif
+        }
+
+        internal void Dispose()
+        {
+#if UNITY_6000_3_OR_NEWER // Required to use GameObject bridge with EntityID
+            m_EntityMapping.Dispose();
+#endif
+            Initialized = false;
+        }
+
+#if UNITY_6000_3_OR_NEWER // Required to use GameObject bridge with EntityID
+        internal GhostEntityMapping m_EntityMapping;
+        // Needs to be unique to mimic entities integration. if we want to iterate over all entities in a world, we need a separate data structure tracking those
+#endif
     }
 }

@@ -164,6 +164,7 @@ namespace Unity.NetCode
         internal uint DespawnCount; // old index 1
         internal uint DestroySizeInBits; // old index 2
         internal uint PacketsCount;
+        internal uint SnapshotCount; // number of snapshots sent or received
         internal uint SnapshotTotalSizeInBits; // includes headers
         public bool Initialized;
 #if ENABLE_UNITY_COLLECTIONS_CHECKS
@@ -197,6 +198,7 @@ namespace Unity.NetCode
             DespawnCount = 0;
             DestroySizeInBits = 0;
             PacketsCount = 0;
+            SnapshotCount = 0;
             SnapshotTotalSizeInBits = 0;
             m_Allocator = allocator;
 #if ENABLE_UNITY_COLLECTIONS_CHECKS
@@ -236,6 +238,7 @@ namespace Unity.NetCode
             DespawnCount += other.DespawnCount;
             DestroySizeInBits += other.DestroySizeInBits;
             PacketsCount += other.PacketsCount;
+            SnapshotCount += other.SnapshotCount;
             SnapshotTotalSizeInBits += other.SnapshotTotalSizeInBits;
             for (int i = 0; i < other.PerGhostTypeStatsListRefRW.Length; i++)
             {
@@ -251,6 +254,7 @@ namespace Unity.NetCode
             DespawnCount = 0;
             DestroySizeInBits = 0;
             PacketsCount = 0;
+            SnapshotCount = 0;
             SnapshotTotalSizeInBits = 0;
             for (int i = 0; i < PerGhostTypeStatsListRefRW.Length; i++)
             {
@@ -265,6 +269,7 @@ namespace Unity.NetCode
             DespawnCount = 0;
             DestroySizeInBits = 0;
             PacketsCount = 0;
+            SnapshotCount = 0;
             SnapshotTotalSizeInBits = 0;
             if (numLoadedPrefab < PerGhostTypeStatsListRefRW.Length)
             {
@@ -306,6 +311,7 @@ namespace Unity.NetCode
             writer.WriteUInt(this.DespawnCount);
             writer.WriteUInt(this.DestroySizeInBits);
             writer.WriteUInt(this.PacketsCount);
+            writer.WriteUInt(this.SnapshotCount);
             writer.WriteUInt(this.SnapshotTotalSizeInBits);
             var statsList = this.PerGhostTypeStatsListRO;
             writer.WriteInt(statsList.Length);
@@ -325,6 +331,7 @@ namespace Unity.NetCode
             toReturn += UnsafeUtility.SizeOf<uint>(); // DespawnCount
             toReturn += UnsafeUtility.SizeOf<uint>(); // DestroySizeInBits
             toReturn += UnsafeUtility.SizeOf<uint>(); // NewPacketsCountSent
+            toReturn += UnsafeUtility.SizeOf<uint>(); // SnapshotCount
             toReturn += UnsafeUtility.SizeOf<uint>(); // SnapshotTotalSizeInBits
 
             var statsList = this.PerGhostTypeStatsListRO;
@@ -348,6 +355,7 @@ namespace Unity.NetCode
             toReturn.DespawnCount = reader.ReadUInt();
             toReturn.DestroySizeInBits = reader.ReadUInt();
             toReturn.PacketsCount = reader.ReadUInt();
+            toReturn.SnapshotCount = reader.ReadUInt();
             toReturn.SnapshotTotalSizeInBits = reader.ReadUInt();
             var listLength = reader.ReadInt();
             toReturn.PerGhostTypeStatsListRefRW.Resize(listLength, NativeArrayOptions.ClearMemory);
@@ -646,12 +654,7 @@ namespace Unity.NetCode
             {
                 snapshotStatsSingleton.UnsafeMainStatsRead.PacketsCount = 0;
 
-                var totalSnapshotSize = 0f;
-                foreach (var stat in snapshotStatsSingleton.UnsafeMainStatsRead.PerGhostTypeStatsListRO)
-                {
-                    totalSnapshotSize += stat.SizeInBits / 8f;
-                }
-
+                var totalSnapshotSize = snapshotStatsSingleton.UnsafeMainStatsRead.SnapshotTotalSizeInBits / 8f;
                 if (totalSnapshotSize == 0) return;
 
                 foreach (var networkStreamConnection in SystemAPI.Query<RefRO<NetworkStreamConnection>>())
@@ -677,6 +680,7 @@ namespace Unity.NetCode
                             headerSize = networkDriver.MaxHeaderSize(driverStore.GetDriverInstanceRO(i).unreliableFragmentedPipeline);
                             payloadMaxSize = networkDriver.GetMaxSupportedMessageSize(connection) - headerSize;
                         }
+
                         snapshotStatsSingleton.UnsafeMainStatsRead.PacketsCount += (uint)math.ceil(totalSnapshotSize / payloadMaxSize);
 
                         break; // TODO we currently don't take into account snapshot size per connection, only globally. We assume the payload max size is the same for each connections and each non-IPC driver (which might not be the case in real life) currently, but would need to adapt to a per connection stats eventually. Breaking for now.

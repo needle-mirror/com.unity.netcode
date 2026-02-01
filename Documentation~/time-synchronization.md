@@ -19,7 +19,7 @@ The tick the client estimates the server will apply the commands on is called th
 For interpolated objects, the client should present them in a state it has received data for. This time is called **interpolation tick**. The `interpolation tick` is calculated as an offset in respect the `predicted tick`.
 That time offset is called **prediction delay**. <br/>
 The `interpolation delay` is calculated by taking into account round trip time, jitter and packet arrival rate, all data that is generally available on the client.
-We also add some additional time, based on the network tick rate, to make sure we can handle some packets being lost. You can visualize the time offsets and scales in the snapshot visualization tool, [Network Debugger](ghost-snapshots#Snapshot-visualization-tool).
+We also add some additional time, based on the network tick rate, to make sure we can handle some packets being lost. You can visualize the time offsets and scales in the [Network Profiler](testing/network-profiler.md).
 
 The `NetworkTimeSystem` slowly adjusts both `prediction tick` and `interpolation delay` in small increments to keep them advancing at a smooth rate and ensure that neither the
 interpolation tick nor the prediction tick goes back in time.

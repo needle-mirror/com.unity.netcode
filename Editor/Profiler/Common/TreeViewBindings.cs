@@ -13,10 +13,25 @@ namespace Unity.NetCode.Editor
         internal static void BindNameCell(VisualElement element, MultiColumnTreeView multiColumnTreeView, int index)
         {
             var labelWithIcon = (LabelWithIcon)element;
-            var ghostTypeData = GetGhostTypeDataAtIndex(multiColumnTreeView, index);
+            var ghostTypeData = ProfilerUtils.GetGhostTypeDataAtIndex(multiColumnTreeView, index);
             labelWithIcon.SetText(ghostTypeData.name.Value);
-            // Insert Overhead icon in front of the name if this is an overhead item
-            labelWithIcon.SetIconEnabled(ghostTypeData.overheadType != OverheadType.None);
+            // Set icon
+            if (ghostTypeData.overheadType != OverheadType.None)
+            {
+                labelWithIcon.SetIcon(IconType.Overhead);
+            }
+            else if (ghostTypeData.isGhostPrefab)
+            {
+                labelWithIcon.SetIcon(IconType.GhostPrefab);
+            }
+            else if (index != 0)
+            {
+                labelWithIcon.SetIcon(IconType.GhostComponent);
+            }
+            else
+            {
+                labelWithIcon.ResetIcon();
+            }
 
             // Add tooltip for overhead items
             labelWithIcon.SetTooltip(ProfilerUtils.GetOverheadTooltip(ghostTypeData.overheadType));
@@ -24,45 +39,62 @@ namespace Unity.NetCode.Editor
             // Context menu
             if (ghostTypeData.overheadType == OverheadType.None && index != 0) // Can't inspect overhead or the root tick item
             {
-                var actionName = ghostTypeData.isGhost ? "Inspect Ghost Prefab" : "Inspect Component";
-                Action<TypeIndex, string> action = ghostTypeData.isGhost ? ProfilerUtils.SelectGhostPrefab : ProfilerUtils.SelectGhostComponent;
-                element.AddManipulator(new ContextualMenuManipulator(evt =>
-                {
-                    evt.menu.AppendAction(actionName, _ => action(ghostTypeData.typeIndex, labelWithIcon.Label.text));
-                }));
+                var actionName = ghostTypeData.isGhostPrefab ? "Inspect Ghost Prefab" : "Inspect Component";
+                Action<TypeIndex, string> action = ghostTypeData.isGhostPrefab ? ProfilerUtils.SelectGhostPrefab : ProfilerUtils.SelectGhostComponent;
+                // To track the manipulator for unbinding later we put it into the userData of the VisualElement.
+                labelWithIcon.userData = CreateManipulator(actionName, action, ghostTypeData);
+                labelWithIcon.AddManipulator((ContextualMenuManipulator)labelWithIcon.userData);
             }
+        }
+
+        static ContextualMenuManipulator CreateManipulator(string actionName, Action<TypeIndex, string> action, ProfilerGhostTypeData data)
+        {
+            return new ContextualMenuManipulator(evt => MenuBuilder(evt, actionName, action, data));
+        }
+
+        static void MenuBuilder(ContextualMenuPopulateEvent evt, string actionName, Action<TypeIndex, string> action, ProfilerGhostTypeData data)
+        {
+            evt.menu.AppendAction(actionName, _ => action(data.typeIndex, data.name.Value));
+        }
+
+        internal static void UnbindNameCell(VisualElement element)
+        {
+            var labelWithIcon = (LabelWithIcon)element;
+            labelWithIcon.RemoveManipulator((ContextualMenuManipulator)labelWithIcon.userData);
         }
 
         internal static void BindAverageSizeCell(MultiColumnTreeView multiColumnTreeView, int index, VisualElement element)
         {
-            var sizePerEntity = GetGhostTypeDataAtIndex(multiColumnTreeView, index).avgSizePerEntity;
-            var bitsAndBytes = sizePerEntity != 0 ? $"{sizePerEntity} ({ProfilerUtils.BitsToBytes(sizePerEntity)})" : "-";
+            var sizePerEntity = ProfilerUtils.GetGhostTypeDataAtIndex(multiColumnTreeView, index).avgSizePerEntity;
+            var bitsAndBytes = sizePerEntity != 0 ? ProfilerUtils.FormatFractionalBytes((uint)Math.Ceiling(sizePerEntity)) : "-";
             ((Label)element).text = bitsAndBytes;
         }
 
         internal static void BindCompressionEfficiencyCell(MultiColumnTreeView multiColumnTreeView, int index, VisualElement element)
         {
-            var ghostTypeData = GetGhostTypeDataAtIndex(multiColumnTreeView, index);
+            var ghostTypeData = ProfilerUtils.GetGhostTypeDataAtIndex(multiColumnTreeView, index);
             var compressionEfficiency = ghostTypeData.combinedCompressionEfficiency;
             // No efficiency for overheads, empty entries or the root item
             var noCompressionEfficiency = index == 0 || ghostTypeData.overheadType != OverheadType.None || ghostTypeData.sizeInBits == 0;
             var compressionEfficiencyString = noCompressionEfficiency ? "-" : $"{compressionEfficiency}%";
 
             var labelWithIcon = (LabelWithIcon)element;
+            labelWithIcon.ResetIcon();
             labelWithIcon.SetText(compressionEfficiencyString);
             var showWarning = compressionEfficiency <= NetcodeProfilerConstants.s_CompressionEfficiencyWarningThresholdPercentage
                 && !noCompressionEfficiency;
-            labelWithIcon.SetIconEnabled(showWarning);
             if (showWarning)
             {
+                labelWithIcon.SetIcon(IconType.Warning);
                 labelWithIcon.SetTooltip(NetcodeProfilerConstants.s_CompressionEfficiencyWarning);
             }
         }
 
         internal static void BindInstanceCountCell(MultiColumnTreeView multiColumnTreeView, int index, VisualElement element)
         {
-            var count = GetGhostTypeDataAtIndex(multiColumnTreeView, index).instanceCount;
-            var newInstances = GetGhostTypeDataAtIndex(multiColumnTreeView, index).newInstancesCount;
+            var data = ProfilerUtils.GetGhostTypeDataAtIndex(multiColumnTreeView, index);
+            var count = data.instanceCount;
+            var newInstances = data.newInstancesCount;
             var text = count == -1 ? "-" : count.ToString();
             if (newInstances > 0)
             {
@@ -73,56 +105,35 @@ namespace Unity.NetCode.Editor
 
         internal static void BindSnapshotPercentageCell(MultiColumnTreeView multiColumnTreeView, int index, VisualElement element)
         {
-            var item = GetGhostTypeDataAtIndex(multiColumnTreeView, index);
+            var item = ProfilerUtils.GetGhostTypeDataAtIndex(multiColumnTreeView, index);
             var percentBar = (PercentBar)element;
-
-            if (item.sizeInBits == 0)
-            {
-                percentBar.SetValue(0);
-                return;
-            }
-
-            var rootData = GetGhostTypeDataAtIndex(multiColumnTreeView, 0);
-            if (rootData.sizeInBits == 0)
-            {
-                percentBar.SetValue(0);
-                return;
-            }
-
-            var percentage = item.sizeInBits/ (float)rootData.sizeInBits * 100;
-            percentBar.SetValue(Mathf.RoundToInt(percentage));
+            var value = index == 0 ? 100 : item.percentageOfSnapshot; // Root item is always 100%
+            percentBar.SetValue(value);
         }
 
         internal static void BindSizeCell(MultiColumnTreeView multiColumnTreeView, int index, VisualElement element, int maxMessageSize)
         {
             var labelWithIcon = (LabelWithIcon)element;
-            var size = GetGhostTypeDataAtIndex(multiColumnTreeView, index).sizeInBits;
+            labelWithIcon.ResetIcon();
+            var ghostTypeData = ProfilerUtils.GetGhostTypeDataAtIndex(multiColumnTreeView, index);
+            var size = ghostTypeData.sizeInBits;
             var sizeInBytes = ProfilerUtils.BitsToBytes(size);
-            var isOverhead = GetGhostTypeDataAtIndex(multiColumnTreeView, index).overheadType != OverheadType.None;
-            var bitsAndBytes = $"{size} ({sizeInBytes})";
-            labelWithIcon.SetText(bitsAndBytes);
+            var formattedBytes = ProfilerUtils.FormatFractionalBytes(size);
+            var isOverhead = ghostTypeData.overheadType != OverheadType.None;
+            labelWithIcon.SetText(formattedBytes);
             element.parent.parent.SetEnabled(isOverhead || size != 0); // Disable the row if size is 0 and not overhead
-            // Show warning if the root item is reaching max message size
-            var showWarning = index == 0 && sizeInBytes >= maxMessageSize * NetcodeProfilerConstants.s_MaxMessageSizeWarningThreshold;
-            labelWithIcon.SetIconEnabled(showWarning);
-            if (showWarning)
+            var snapshotCount = ghostTypeData.snapshotCount;
+            if (snapshotCount > 0 && maxMessageSize > 0)
             {
-                labelWithIcon.SetTooltip(NetcodeProfilerConstants.GetMaxMessageSizeWarning(maxMessageSize));
+                // Show warning if the item is reaching max message size
+                var totalMaxMessageSize = maxMessageSize * ghostTypeData.snapshotCount;
+                var showWarning = sizeInBytes >= totalMaxMessageSize * NetcodeProfilerConstants.s_MaxMessageSizeWarningThreshold;
+                if (showWarning)
+                {
+                    labelWithIcon.SetIcon(IconType.Warning);
+                    labelWithIcon.SetTooltip(NetcodeProfilerConstants.GetMaxMessageSizeWarning(maxMessageSize, ghostTypeData.snapshotCount));
+                }
             }
         }
-
-        static ProfilerGhostTypeData GetGhostTypeDataAtIndex(MultiColumnTreeView multiColumnTreeView, int index)
-        {
-            var data = multiColumnTreeView.GetItemDataForIndex<ProfilerGhostTypeData>(index);
-            return data;
-        }
-
-        static ProfilerGhostTypeData GetGhostTypeDataForId(MultiColumnTreeView multiColumnTreeView, int id)
-        {
-            var data = multiColumnTreeView.GetItemDataForId<ProfilerGhostTypeData>(id);
-            return data;
-        }
     }
-
-
 }

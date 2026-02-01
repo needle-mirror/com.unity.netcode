@@ -2746,5 +2746,158 @@ namespace Unity.NetCode.GeneratorTests
                 GeneratorTestHelpers.RunGenerators(tree);
             });
         }
+
+
+        [Test]
+        public void SourceGenerator_GhostFieldHash_Differs()
+        {
+            string GetTestCode(string toTest)
+            {
+                var testData = $@"
+                using Unity.Entities;
+                using Unity.NetCode;
+
+                public struct Composite
+                {{
+                    public int a;
+                    public int b;
+                }}
+
+                public struct Composite2
+                {{
+                    public int a;
+                    public int b;
+                }}
+
+                public struct SimilarComp1 : IComponentData
+                {{
+                    {toTest}
+                }}
+                ";
+                return testData;
+            }
+
+            string CompileAndGetFieldsHash(string versionToTest)
+            {
+                var tree = CSharpSyntaxTree.ParseText(versionToTest);
+                var customTemplates = @"
+            using Unity.NetCode;
+            using System.Collections.Generic;
+            namespace Unity.NetCode.Generators
+            {
+                internal static partial class UserDefinedTemplates
+                {
+                    static partial void RegisterTemplates(List<TypeRegistryEntry> templates)
+                    {
+                        templates.AddRange(new[]
+                        {
+                            new TypeRegistryEntry
+                            {
+                                Type = ""System.Single"",
+                                Quantized = true,
+                                Smoothing = SmoothingAction.Clamp
+                                SupportCommand = false,
+                                Composite = false,
+                                SubType = 123,
+                                Template = $""NetCode.GhostSnapshotValueFloat.cs""
+                            },
+                        });
+                    }
+                }
+            }";
+
+                var templateTree = CSharpSyntaxTree.ParseText(customTemplates);
+                var results = GeneratorTestHelpers.RunGenerators(tree, templateTree);
+
+                Assert.AreEqual(0, results.Diagnostics.Count(d=>d.Severity >= DiagnosticSeverity.Error));
+
+                var outputTree = results.GeneratedSources[0].SyntaxTree;
+                var initBlockWalker = new InializationBlockWalker();
+                outputTree.GetCompilationUnitRoot().Accept(initBlockWalker);
+                Assert.IsNotNull(initBlockWalker.Intializer);
+
+                var hashField = initBlockWalker.Intializer?.Expressions
+                    .First(e => ((AssignmentExpressionSyntax)e).Left.ToString() == "GhostFieldsHash");
+                Assert.IsTrue(hashField.IsKind(SyntaxKind.SimpleAssignmentExpression));
+                var hashFieldValue = ((AssignmentExpressionSyntax)hashField!).Right.ToString();
+                Assert.AreNotEqual("0", hashFieldValue);
+
+                return hashFieldValue;
+            }
+
+            List<string> differentHashes = new();
+
+            // index 0
+            differentHashes.Add(CompileAndGetFieldsHash(GetTestCode(@"
+                [GhostField]public int ValueA;
+                [GhostField]public int ValueB;
+            ")));
+
+            differentHashes.Add(CompileAndGetFieldsHash(GetTestCode(@"
+                [GhostField]public int ValueB; // swapped
+                [GhostField]public int ValueA;
+            ")));
+
+            differentHashes.Add(CompileAndGetFieldsHash(GetTestCode(@"
+                [GhostField]public float ValueA; // different type
+                [GhostField]public int ValueB;
+            ")));
+
+            var hashNonReplicatedField = CompileAndGetFieldsHash(GetTestCode(@"
+                public int ValueA; // non replicated
+                [GhostField]public int ValueB;
+            "));
+            differentHashes.Add(hashNonReplicatedField);
+
+            var sameHashNonReplicated = CompileAndGetFieldsHash(GetTestCode(@"
+                [GhostField(SendData = false)]public int ValueA; // different setting
+                [GhostField]public int ValueB;
+            "));
+            Assert.AreEqual(hashNonReplicatedField, sameHashNonReplicated, "these two declarations should be virtually the same and should produce the same hash, as we have the same set of fields, types and replication configurations");
+
+            differentHashes.Add(CompileAndGetFieldsHash(GetTestCode(@"
+                [GhostField(Quantization = 1)]public int ValueA; // different setting
+                [GhostField]public int ValueB;
+            ")));
+
+            differentHashes.Add(CompileAndGetFieldsHash(GetTestCode(@"
+                [GhostField(Composite = true)]public Composite ValueA; // composite is different
+                [GhostField]public int ValueB;
+            ")));
+            differentHashes.Add(CompileAndGetFieldsHash(GetTestCode(@"
+                [GhostField(Composite = false)]public Composite ValueA; // composite is different
+                [GhostField]public int ValueB;
+            ")));
+            differentHashes.Add(CompileAndGetFieldsHash(GetTestCode(@"
+                [GhostField(Composite = true)]public Composite2 ValueA; // composite is different
+                [GhostField]public int ValueB;
+            ")));
+
+            differentHashes.Add(CompileAndGetFieldsHash(GetTestCode(@"
+                [GhostField(Smoothing = SmoothingAction.Interpolate)]public float ValueA; // different setting. it's a float, but should be the same as the previous version with a float too
+                [GhostField]public int ValueB;
+            ")));
+
+            differentHashes.Add(CompileAndGetFieldsHash(GetTestCode(@"
+                [GhostField(SubType = 123, Quantization=1)]public float ValueA; // different settings
+                [GhostField]public int ValueB;
+            ")));
+
+            differentHashes.Add(CompileAndGetFieldsHash(GetTestCode(@"
+                [GhostField(Quantization=1)]public float ValueA; // different settings
+                [GhostField]public int ValueB;
+            ")));
+
+
+
+            for (int i = 0; i < differentHashes.Count; i++)
+            {
+                for (int j = 0; j < differentHashes.Count; j++)
+                {
+                    if (i == j) continue;
+                    Assert.AreNotEqual(differentHashes[i], differentHashes[j], $"error hash {i} and {j} are equal!");
+                }
+            }
+        }
     }
 }

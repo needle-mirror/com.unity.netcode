@@ -168,6 +168,24 @@ namespace Unity.NetCode
             // Invert the check so same does not count as newer
             return !(old.m_Value - m_Value < (1u << 31));
         }
+
+        /// <summary>
+        /// Checks if this tick is older than another tick. Assumes both ticks are valid.
+        /// </summary>
+        /// <remarks>
+        /// The ticks wraps around, so if either tick is stored for too long (several days assuming 60hz)
+        /// the result might not be correct.
+        /// </remarks>
+        /// <param name="other">The tick to compare with</param>
+        /// <returns>Whether this tick is older than another tick.</returns>
+        public bool IsOlderThan(NetworkTick other)
+        {
+            CheckValid();
+            other.CheckValid();
+            // Invert the check so same does not count as older
+            return !(m_Value - other.m_Value < (1u << 31));
+        }
+
         /// <summary>
         /// Convert the tick to a fixed string. Also handles invalid ticks.
         /// </summary>

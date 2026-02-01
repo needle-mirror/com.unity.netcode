@@ -2,6 +2,40 @@
 uid: changelog
 ---
 
+## [1.12.0] - 2026-02-01
+
+### Added
+
+* Netcode profiler now supports tick-based navigation through a new title bar that has buttons to jump to the next or previous frame where a snapshot was sent or received. It also allows the selection of the corresponding tick on the client or server side.
+* Search fields for the ghost snapshot tree view and prediction error list view.
+* The Netcode Profiler now shows the values of the client prediction tick and the interpolation tick in the Prediction and Interpolation Tab.
+* Editor analytics for the netcode profiler.
+
+### Changed
+
+* bumped com.unity.entities dependency from 1.4.2 to 1.4.4
+* The Netcode Profiler is now an officially supported feature. It is accessible via two new modules in the Unity Profiler for Unity 6.0 or newer. For further reading, refer to the documentation [here](https://docs.unity3d.com/Packages/com.unity.netcode@latest/index.html?subfolder=/manual/testing/network-profiler.html).
+* Internal changes for prefab registration when using the future gameobject layer. Prefabs can now be registered before world creation and thin client worlds will work.
+
+### Deprecated
+
+* The browser-based Network Debugger has been deprecated in favor of the new Netcode Profiler.
+
+### Removed
+
+* The `NETCODE_PROFILER_ENABLED` scripting define is no longer required and has been removed.
+
+### Fixed
+
+* Several small fixes for the netcode profiler
+* **Behaviour Breaking Change:** `GhostAuthoringComponentBaker`'s `TransformUsageFlags.Dynamic` have been changed from `TransformUsageFlags.None`, as this package does not actually require them. If your ghost does need Transform components, specify that need via your own bakers.
+* Issue where the `GhostDistancePartitionShared` change filtering optimization added in 1.5.0 didn't apply correctly to the `UpdateTileIndexJob`, because the `WithChangeFilter` attribute only works for `IJobEntity`s, and thus silently failed on the `IJobChunk`.
+* The Netcode Profiler now correctly shows and considers the number of snapshots sent or received per tick.
+* (Potential breaking change) Fixed an issue where it's possible for a client with a different state serialization schema to connect to a server without triggering a hash check. This can happen if changing the order of ghost fields for example. This might require you forcing an update on your game clients.
+* Newly spawned ghosts on the clients will now correctly apply snapshots when always hitting a full tick on the client, which would happen in cases where you have the server and client world in the same application using the IPC socket, and with the framerate being exactly equal to the simulation tickrate.
+
+
+
 ## [1.11.0] - 2025-12-12
 
 ### Added

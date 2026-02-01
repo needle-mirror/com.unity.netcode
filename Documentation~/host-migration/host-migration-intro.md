@@ -26,7 +26,7 @@ The following data is saved and restored on the new host as part of host migrati
 * All ghosts and their ghost components. The full component data of ghost components is saved and restored, not just ghost fields.
 * Server-only components with at least one variable marked with a `GhostField` attribute.
 * The current network tick and elapsed time values.
-* Only data which is normally included in [snapshots](ghost-snapshots.md) is supported (components and dynamic buffers). For example, native containers aren't included in the migration data.
+* Only data which is normally included in [snapshots](../ghost-snapshots.md) is supported (components and dynamic buffers). For example, native containers aren't included in the migration data.
 * Components listed in the [`NonGhostMigrationComponents`](https://docs.unity3d.com/Packages/com.unity.netcode@latest?subfolder=/api/Unity.NetCode.HostMigration.NonGhostMigrationComponents.html) buffer of entities marked with the [IncludeInMigration](https://docs.unity3d.com/Packages/com.unity.netcode@latest?subfolder=/api/Unity.NetCode.HostMigration.IncludeInMigration.html) component, including non-ghost components on ghost entities.
 
 ### Detecting connection loss

@@ -73,6 +73,7 @@ namespace Unity.NetCode
             [ReadOnly]public NativeArray<int> numPredictedGhostWithNewData;
             public ComponentTypeHandle<PredictedGhost> PredictedGhostType;
             public NetworkTick lastPredictedTick;
+            public bool lastPredictedTickWasPartial;
             public NetworkTick lastInterpolatedTick;
 
             [ReadOnly] public EntityStorageInfoLookup childEntityLookup;
@@ -88,10 +89,10 @@ namespace Unity.NetCode
 
             private void AddPredictionStartTick(NetworkTick targetTick, NetworkTick predictionStartTick)
             {
-                // Add a tick a ghost is predicting from, but avoid setting the start tick to something newer (or same tick) as the target tick
-                // since the we don't need to predict in that case and having it newer can cause an almost infinate loop (loop until a uint wraps around)
-                // Ticks in the buffer which are newer than target tick usually do not happen but it can happen when time goes out of sync and cannot adjust fast enough
-                if (targetTick.IsNewerThan(predictionStartTick))
+                // Add a tick a ghost is predicting from, but avoid setting the start tick to something newer as the target tick
+                // since we don't need to predict in that case and having it newer can cause an almost infinite loop (loop until a uint wraps around).
+                // Ticks in the buffer which are newer than target tick usually do not happen, but it can happen when time goes out of sync and cannot adjust fast enough
+                if (!targetTick.IsOlderThan(predictionStartTick))
                 {
                     // The prediction loop does not run for more ticks than we have inputs for, so clamp the start tick to keep a max hashmap size
                     var startTick = predictionStartTick;
@@ -284,41 +285,8 @@ namespace Unity.NetCode
                             data.InterpolationFactor = 0;
                             var snapshotTick = new NetworkTick{SerializedData = *(uint*)data.SnapshotBefore};
                             ref var predictedData = ref predictedGhostArray[ent];
-                            // We want to contiue prediction from the last full tick we predicted last time
-                            var predictionStartTick = predictionStateBackupTick;
-                            // If there is no history, try to use the tick where we left off last time, will only be a valid tick if we ended with a full prediction tick as opposed to a fractional one
-                            if (!predictionStartTick.IsValid)
-                                predictionStartTick = lastPredictedTick;
-                            var hasBackup = predictionStartTick.IsValid;
-                            // If we do not have a backup or we got more data since last time we run from the tick we have snapshot data for
-                            if (!hasBackup || predictedData.AppliedTick != snapshotTick)
-                                predictionStartTick = snapshotTick;
-                            // If we have newer or equally new data in the snapshot buffer, start from the new data instead
-                            else if (!predictionStartTick.IsNewerThan(snapshotTick))
-                                predictionStartTick = snapshotTick;
 
-                            // When we talk about "continuing prediction", we're talking about continuing from a
-                            // predicted state we calculated (via client prediction) on the previous frame,
-                            // without a restore step.
-
-                            //we should try to restore from backup if a backup is available, and if we want to continue prediction, and the last
-                            //predicted tick was a full tick (we avoid a rollback in this case).
-                            bool continuePrediction = predictionStartTick != snapshotTick;
-
-                            // TODO: BUG: As static predicted ghosts sometimes don't receive new snapshots
-                            // (because they're not changing), mispredictions can linger.
-                            // We will need to resolve that.
-
-                            //For predicted spawned ghosts (that have ghostId = 0), if user selected to always start
-                            //re-predicting from the spawn tick, we always honour that if there is at least another predicted ghost
-                            //that will rollback.
-                            //Otherwise we try to continue prediction from the backup if available.
-                            if (ghostInstances[ent].ghostId == 0 && shouldRewindAndResimulate != 0)
-                            {
-                                //Force rewind to the snapshot tick the PredictedGhpstSpawnSystem saved in the snapshot buffer.
-                                predictionStartTick = snapshotTick;
-                                continuePrediction = false;
-                            }
+                            bool shouldRollbackToSnapshot = GetPredictionStartTick(snapshotTick, predictedData.AppliedTick, ghostInstances[ent].ghostId, shouldRewindAndResimulate, out NetworkTick predictionStartTick);
 
                             // CPU optimization: if we want to continue prediction, but the last tick was a full tick (and therefore its state
                             // is going to be identical to the backup), we avoid restoring from it now (again).
@@ -327,7 +295,7 @@ namespace Unity.NetCode
                             // mobile or devices that run at fixed tick rate (v-synced) this is the norm, and therefore the backup
                             // is useless (never used, basically).
                             // We are also wasting CPU time for the backup as well for nothing in these scenarios.
-                            var restoreFromBackup = continuePrediction && (!lastPredictedTick.IsValid || predictionStartTick != lastPredictedTick);
+                            var restoreFromBackup = !shouldRollbackToSnapshot && (lastPredictedTickWasPartial || predictionStartTick != lastPredictedTick);
                             if (restoreFromBackup)
                             {
                                 // If we cannot restore the backup and continue prediction, we roll back and resimulate
@@ -344,16 +312,15 @@ namespace Unity.NetCode
                                 else
                                 {
                                     predictionStartTick = snapshotTick;
-                                    continuePrediction = false;
+                                    shouldRollbackToSnapshot = true;
                                 }
                             }
 
                             AddPredictionStartTick(targetTick, predictionStartTick);
 
-                            continuePrediction |= predictionStartTick == lastPredictedTick;
-
-                            if (continuePrediction)
+                            if (!shouldRollbackToSnapshot)
                             {
+                                // This will happen if we don't need to roll back at all (e.g. we are continuing prediction from last tick)
                                 SkipEntity(ref entityRanges, ent);
                             }
                             else
@@ -752,6 +719,73 @@ namespace Unity.NetCode
                 }
                 ValidateAllEnableBitsHasBeenRead(enableableMaskOffset, typeData.EnableableBits);
                 k_CopyFromSnapshot.End();
+            }
+
+
+            /// <summary>
+            /// Determine from which tick we should start predicting.
+            /// </summary>
+            /// <param name="snapshotTick">The tick of the latest snapshot received for this ghost.</param>
+            /// <param name="appliedTick">The tick of the last snapshot applied to this ghost.</param>
+            /// <param name="ghostId">The ghostId of the ghost instance.</param>
+            /// <param name="shouldRewindAndResimulate">User setting to always rewind predicted spawned ghosts to their spawn tick.</param>
+            /// <param name="predictionStartTick">Output parameter for the tick to start prediction from for this ghost.</param>
+            /// <returns>Returns true if we can continue prediction from the last predicted tick, false if we need to go back to the tick from the snapshot.</returns>
+            private bool GetPredictionStartTick(NetworkTick snapshotTick, NetworkTick appliedTick,
+                int ghostId, int shouldRewindAndResimulate, out NetworkTick predictionStartTick)
+            {
+                // TODO: BUG: As static predicted ghosts sometimes don't receive new snapshots
+                // (because they're not changing), mispredictions can linger.
+                // We will need to resolve that.
+
+                //For predicted spawned ghosts (that have ghostId = 0), if user selected to always start
+                //re-predicting from the spawn tick, we always honour that if there is at least another predicted ghost
+                //that will rollback.
+                //Otherwise we try to continue prediction from the backup if available.
+                if (ghostId == 0 && shouldRewindAndResimulate != 0)
+                {
+                    //Force rewind to the snapshot tick the PredictedGhpstSpawnSystem saved in the snapshot buffer.
+                    predictionStartTick = snapshotTick;
+                    return true;
+                }
+
+                // Cases we should cover
+                // * Have received snapshot for predicted ghost (whether it's the spawn or an update): Copy data from snapshot
+                // * No new snapshot since last predicted tick, and the last predicted tick was partial: Continue predicting from last predicted backup state
+                // * No new snapshot since last predicted tick, but last predicted tick was full: Continue predicting from last predicted tick since the backup is taken from that tick and it hasn't changed
+
+                // Note that we do not rollback all ghosts when one ghost needs to rollback.
+                // While this will lead to more mispredictions, rolling back all predicted ghosts will be too expensive on the CPU.
+                // This is why we only need to care about the current ghost's AppliedTick instead of global state.
+                bool shouldRollbackToSnapshot = snapshotTick.IsValid && (!appliedTick.IsValid || appliedTick.IsOlderThan(snapshotTick));
+
+                if (shouldRollbackToSnapshot)
+                {
+                    // Always rollback when we have a newer snapshot
+                    predictionStartTick = snapshotTick;
+                }
+                else
+                {
+                    if (lastPredictedTickWasPartial)
+                    {
+                        // Since last predicted tick was partial, we want to restore from backup if available
+                        predictionStartTick = predictionStateBackupTick;
+                    }
+                    else
+                    {
+#if ENABLE_UNITY_COLLECTIONS_CHECKS
+                        // It shouldn't be possible to have a mismatch here, since last predicted tick was full
+                        Assert.AreEqual(lastPredictedTick, predictionStateBackupTick,
+                            $"Last predicted tick {lastPredictedTick} does not match the prediction state backup tick {predictionStateBackupTick}");
+#endif
+
+                        // Last predicted tick was the same as the backup, we can continue predicting without restoring
+                        // There may be some cases where we don't have a backup (e.g. first prediction frame), so we need to check that as well
+                        predictionStartTick = lastPredictedTick;
+                    }
+                }
+
+                return shouldRollbackToSnapshot;
             }
 
             [Conditional("ENABLE_UNITY_COLLECTIONS_CHECKS")]
@@ -1275,6 +1309,7 @@ namespace Unity.NetCode
         private EntityQuery m_ghostQuery;
         private EntityQuery m_PredictedGhostQuery;
         private NetworkTick m_LastPredictedTick;
+        private bool m_LastPredictedTickWasPartial;
         private NativeReference<NetworkTick> m_LastInterpolatedTick;
         private NativeParallelHashMap<NetworkTick, NetworkTick> m_AppliedPredictedTicks;
         private NativeArray<int> m_NumPredictedGhostWithNewData;
@@ -1429,6 +1464,7 @@ namespace Unity.NetCode
                     appliedPredictedTicks = m_AppliedPredictedTicks.AsParallelWriter(),
                     PredictedGhostType = m_PredictedGhostTypeHandle,
                     lastPredictedTick = m_LastPredictedTick,
+                    lastPredictedTickWasPartial = m_LastPredictedTickWasPartial,
                     lastInterpolatedTick = m_LastInterpolatedTick.Value,
 
                     ghostInstanceTypeHandle = m_GhostComponentTypeHandle,
@@ -1458,8 +1494,7 @@ namespace Unity.NetCode
             }
 
             m_LastPredictedTick = networkTime.ServerTick;
-            if (networkTime.IsPartialTick)
-                m_LastPredictedTick = NetworkTick.Invalid;
+            m_LastPredictedTickWasPartial = networkTime.IsPartialTick;
 
             // If the interpolation target for this frame was received we can update which the latest fully applied interpolation tick is
             m_NetworkSnapshotAckLookup.Update(ref systemState);

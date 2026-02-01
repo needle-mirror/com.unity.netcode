@@ -80,7 +80,7 @@ All Netcode systems (apart some exception) should be considered stateless. All t
 
 ## New way to pass templates to source generator
 * Netcode source generator templates should now use the passed to the generators using `additional files`. The template must have a `NetCodeSourceGenerator.additionalfile` extension, and should be identified using a unique id, that must be present in the first line of the template. </br>
-  Find more information in the [templates](ghost-types-templates.md#writing-the-template) and [templates](ghost-types-templates.md#registering-your-new-template-with-netcode) documentation.
+  Find more information about [writing a template](ghost-types-templates.md#writing-a-template) and [registering a template](ghost-types-templates.md#registering-a-template) in the documentation.
 
 
 ## Netcode groups, world filtering and detect world types.

@@ -1,3 +1,4 @@
+using Unity.Collections;
 using Unity.Entities;
 using Unity.Profiling;
 
@@ -8,34 +9,22 @@ namespace Unity.NetCode.Tests
     [WorldSystemFilter(WorldSystemFilterFlags.Default | WorldSystemFilterFlags.ThinClientSimulation)]
     [UpdateInGroup(typeof(GhostSimulationSystemGroup))]
     [UpdateBefore(typeof(GhostCollectionSystem))]
-    internal partial class GhostCollectionSystemProxy : ComponentSystemGroup
+    internal partial class GhostCollectionSystemProxy : SystemBase
     {
         static readonly ProfilerMarker k_Update = new ProfilerMarker("GhostCollectionSystem_OnUpdate");
         static readonly ProfilerMarker k_CompleteTrackedJobs = new ProfilerMarker("GhostCollectionSystem_CompleteAllTrackedJobs");
-
-        protected override void OnCreate()
-        {
-            base.OnCreate();
-            RequireForUpdate<NetworkStreamInGame>();
-        }
-
-        protected override void OnStartRunning()
-        {
-            base.OnStartRunning();
-
-            var ghostCollectionSystem = World.GetExistingSystem<GhostCollectionSystem>();
-            var simulationSystemGroup = World.GetExistingSystemManaged<GhostSimulationSystemGroup>();
-            simulationSystemGroup.RemoveSystemFromUpdateList(ghostCollectionSystem);
-            AddSystemToUpdateList(ghostCollectionSystem);
-        }
 
         protected override void OnUpdate()
         {
             EntityManager.CompleteAllTrackedJobs();
 
+            var systemHandle = World.GetExistingSystem<GhostCollectionSystem>();
+            var unmanagedSystem = World.Unmanaged.GetExistingSystemState<GhostCollectionSystem>();
+            unmanagedSystem.Enabled = false;
+
             k_CompleteTrackedJobs.Begin();
             k_Update.Begin();
-            base.OnUpdate();
+            systemHandle.Update(World.Unmanaged);
             k_Update.End();
             EntityManager.CompleteAllTrackedJobs();
             k_CompleteTrackedJobs.End();

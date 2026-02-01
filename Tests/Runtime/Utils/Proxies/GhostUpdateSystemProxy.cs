@@ -1,3 +1,4 @@
+using Unity.Collections;
 using Unity.Entities;
 using Unity.Profiling;
 
@@ -10,35 +11,28 @@ namespace Unity.NetCode.Tests
     [UpdateAfter(typeof(GhostReceiveSystem))]
     [UpdateBefore(typeof(GhostSpawnClassificationSystemGroup))]
     [UpdateBefore(typeof(GhostInputSystemGroup))]
-    internal partial class GhostUpdateSystemProxy : ComponentSystemGroup
+    [UpdateBefore(typeof(GhostUpdateSystem))]
+    internal partial class GhostUpdateSystemProxy : SystemBase
     {
         static readonly ProfilerMarker k_Update = new ProfilerMarker("GhostUpdateSystem_OnUpdate");
         static readonly ProfilerMarker k_CompleteTrackedJobs = new ProfilerMarker("GhostUpdateSystem_CompleteAllTrackedJobs");
-
-        protected override void OnCreate()
-        {
-            base.OnCreate();
-            RequireForUpdate<NetworkStreamInGame>();
-            RequireForUpdate<GhostCollection>();
-        }
-
-        protected override void OnStartRunning()
-        {
-            base.OnStartRunning();
-
-            var ghostUpdateSystem = World.GetExistingSystem<GhostUpdateSystem>();
-            var ghostSimulationSystemGroup = World.GetExistingSystemManaged<GhostSimulationSystemGroup>();
-            ghostSimulationSystemGroup.RemoveSystemFromUpdateList(ghostUpdateSystem);
-            AddSystemToUpdateList(ghostUpdateSystem);
-        }
 
         protected override void OnUpdate()
         {
             EntityManager.CompleteAllTrackedJobs();
 
+            var systemHandle = World.GetExistingSystem<GhostUpdateSystem>();
+            if (systemHandle == SystemHandle.Null)
+            {
+                Assertions.Assert.IsTrue(World.IsThinClient());
+                return;
+            }
+            var unmanagedSystem = World.Unmanaged.GetExistingSystemState<GhostUpdateSystem>();
+            unmanagedSystem.Enabled = false;
+
             k_CompleteTrackedJobs.Begin();
             k_Update.Begin();
-            base.OnUpdate();
+            systemHandle.Update(World.Unmanaged);
             k_Update.End();
             EntityManager.CompleteAllTrackedJobs();
             k_CompleteTrackedJobs.End();

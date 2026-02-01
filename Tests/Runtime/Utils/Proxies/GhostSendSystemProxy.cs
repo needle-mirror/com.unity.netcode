@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using Unity.Collections;
 using Unity.Entities;
 using Unity.PerformanceTesting;
 using Unity.Profiling;
@@ -11,35 +12,22 @@ namespace Unity.NetCode.Tests
     [UpdateInGroup(typeof(SimulationSystemGroup), OrderLast = true)]
     [UpdateBefore(typeof(GhostSendSystem))]
     [UpdateAfter(typeof(EndSimulationEntityCommandBufferSystem))]
-    internal partial class SimpleGhostSendSystemProxy : ComponentSystemGroup
+    internal partial class SimpleGhostSendSystemProxy : SystemBase
     {
         static readonly ProfilerMarker k_Update = new ProfilerMarker("GhostSendSystem_OnUpdate");
         static readonly ProfilerMarker k_CompleteTrackedJobs = new ProfilerMarker("GhostSendSystem_CompleteAllTrackedJobs");
-
-        protected override void OnCreate()
-        {
-            base.OnCreate();
-            RequireForUpdate<GhostCollection>();
-            RequireForUpdate<NetworkStreamInGame>();
-        }
-
-        protected override void OnStartRunning()
-        {
-            base.OnStartRunning();
-
-            var ghostSendSystem = World.GetExistingSystem<GhostSendSystem>();
-            var simulationSystemGroup = World.GetExistingSystemManaged<SimulationSystemGroup>();
-            simulationSystemGroup.RemoveSystemFromUpdateList(ghostSendSystem);
-            AddSystemToUpdateList(ghostSendSystem);
-        }
 
         protected override void OnUpdate()
         {
             EntityManager.CompleteAllTrackedJobs();
 
+            var systemHandle = World.GetExistingSystem<GhostSendSystem>();
+            var unmanagedSystem = World.Unmanaged.GetExistingSystemState<GhostSendSystem>();
+            unmanagedSystem.Enabled = false;
+
             k_CompleteTrackedJobs.Begin();
             k_Update.Begin();
-            base.OnUpdate();
+            systemHandle.Update(World.Unmanaged);
             k_Update.End();
             EntityManager.CompleteAllTrackedJobs();
             k_CompleteTrackedJobs.End();
@@ -51,31 +39,13 @@ namespace Unity.NetCode.Tests
     [UpdateInGroup(typeof(SimulationSystemGroup), OrderLast = true)]
     [UpdateBefore(typeof(GhostSendSystem))]
     [UpdateAfter(typeof(EndSimulationEntityCommandBufferSystem))]
-    internal partial class GhostSendSystemProxy : ComponentSystemGroup
+    internal partial class GhostSendSystemProxy : SystemBase
     {
         List<SampleGroup> m_GhostSampleGroups;
         readonly SampleGroup m_SerializationGroup = new SampleGroup("SpeedOfLightGroup", SampleUnit.Nanosecond);
 
         int m_ConnectionCount;
         bool m_IsSetup;
-
-        protected override void OnCreate()
-        {
-            base.OnCreate();
-            m_ConnectionCount = 0;
-            RequireForUpdate<GhostCollection>();
-            RequireForUpdate<NetworkStreamInGame>();
-        }
-
-        protected override void OnStartRunning()
-        {
-            base.OnStartRunning();
-
-            var ghostSendSystem = World.GetExistingSystem<GhostSendSystem>();
-            var simulationSystemGroup = World.GetExistingSystemManaged<SimulationSystemGroup>();
-            simulationSystemGroup.RemoveSystemFromUpdateList(ghostSendSystem);
-            AddSystemToUpdateList(ghostSendSystem);
-        }
 
         public void ConfigureSendSystem(NetcodeScenarioUtils.ScenarioParams parameters)
         {
@@ -107,9 +77,15 @@ namespace Unity.NetCode.Tests
             m_IsSetup = true;
         }
 
-        protected override unsafe void OnUpdate()
+        protected override void OnUpdate()
         {
             var numLoadedPrefabs = SystemAPI.GetSingleton<GhostCollection>().NumLoadedPrefabs;
+
+            EntityManager.CompleteAllTrackedJobs();
+
+            var systemHandle = World.GetExistingSystem<GhostSendSystem>();
+            var unmanagedSystem = World.Unmanaged.GetExistingSystemState<GhostSendSystem>();
+            unmanagedSystem.Enabled = false;
 
             var markers = new[]
             {
@@ -134,7 +110,7 @@ namespace Unity.NetCode.Tests
                     {
                         using (Measure.Scope("GhostSendSystem_OnUpdate"))
                         {
-                            base.OnUpdate();
+                            systemHandle.Update(World.Unmanaged);
                             EntityManager.CompleteAllTrackedJobs();
 
 #if UNITY_EDITOR || NETCODE_DEBUG
@@ -176,7 +152,7 @@ namespace Unity.NetCode.Tests
                 }
                 else
                 {
-                    base.OnUpdate();
+                    systemHandle.Update(World.Unmanaged);
                     EntityManager.CompleteAllTrackedJobs();
                 }
 

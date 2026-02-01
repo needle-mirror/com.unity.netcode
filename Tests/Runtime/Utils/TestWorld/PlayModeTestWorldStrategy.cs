@@ -74,7 +74,10 @@ namespace Unity.NetCode.Tests
             world.GetExistingSystemManaged<UpdateWorldTimeSystem>().Enabled = false;
 #if UNITY_EDITOR
             if (thinClient)
+            {
                 MultiplayerPlayModePreferences.RequestedNumThinClients += 1; // this way any code calls don't conflict with editor side settings and we won't randomly get our code side thin client worlds destroyed by the editor
+                AutomaticThinClientWorldsUtility.AutomaticallyManagedWorlds.Add(world); // this makes the thin client world known to the automatic management system so it won't create an extra one
+            }
 #endif
             return world;
         }

@@ -4,7 +4,7 @@ Understand the client and server networking model that the Netcode for Entities 
 
 Netcode for Entities uses a client-server model and has a separation between client and server logic that is split into multiple worlds (the client world and server world <!-- or host world (Experimental) TODO -->). The concept of [worlds](https://docs.unity3d.com/Packages/com.unity.entities@latest?subfolder=/manual/concepts-worlds.html) is inherited from Unity's Entity Component System (ECS), and refers to a collection of [entities](https://docs.unity3d.com/Packages/com.unity.entities@latest?subfolder=/manual/concepts-entities.html) and [systems](https://docs.unity3d.com/Packages/com.unity.entities@latest?subfolder=/manual/concepts-systems.html) arranged into [system groups](https://docs.unity3d.com/Packages/com.unity.entities@latest?subfolder=/manual/systems-update-order.html).
 
-In addition to the standard client and server worlds, Netcode for Entities also supports [thin clients](thin-clients.md) which you can use to test your game during development.
+In addition to the standard client and server worlds, Netcode for Entities also supports [thin clients](testing/thin-clients.md) which you can use to test your game during development.
 
 ## Terminology
 
@@ -188,5 +188,5 @@ If you want to destroy the world you're in and spin up another world without los
 ## Additional resources
 
 - [Entities overview](https://docs.unity3d.com/Packages/com.unity.entities@latest?subfolder=/manual/index.html)
-- [Thin clients](thin-clients.md)
+- [Thin clients](testing/thin-clients.md)
 - [Introduction to prediction](intro-to-prediction.md)

@@ -1045,6 +1045,7 @@ namespace Unity.NetCode
 #if UNITY_EDITOR || NETCODE_DEBUG
                                     ref var netStatsSnapshots = ref NetStatsSnapshotPerThread.AsSpan()[ThreadIndex];
                                     netStatsSnapshots.SnapshotTotalSizeInBits += (uint)dataStream.LengthInBits;
+                                    netStatsSnapshots.SnapshotCount += 1;
 #endif
                                     snapshotAck.CurrentSnapshotSequenceId++;
                                     snapshotAck.SnapshotPacketLoss.NumPacketsReceived++;
@@ -1062,13 +1063,13 @@ namespace Unity.NetCode
                         finally
                         {
 
-                            //Finally is always called for non butsted code because there is a try-catch in outer caller (worldunmanged)
+                            //Finally is always called for non bursted code because there is a try-catch in outer caller (world unmanaged)
                             //regardless of the exception thrown (even invalidprogramexception).
                             //For bursted code, the try-finally has some limitation but it is still unwinding the blocks in the correct order
                             //(not in all cases, but it the one used here everything work fine).
-                            //In general, the unhandled error and exceptions are all cought first by the outermost try-catch (world unmanged)
-                            //and then the try-finally are called in reverse order (stack unwiding).
-                            //There are two exeption handling in the ghost send system:
+                            //In general, the unhandled error and exceptions are all caught first by the outermost try-catch (world unmanaged)
+                            //and then the try-finally are called in reverse order (stack unwinding).
+                            //There are two exception handling in the ghost send system:
                             //- the one here, that is responsible to abort the data stream.
                             //- one inside the sendEntities method itself, that try to revert some internal state (i.e: the despawn ghost)
                             //

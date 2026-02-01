@@ -38,7 +38,7 @@ namespace Unity.NetCode
         /// <br/><b>NOTE: Netcode makes no guarantees that any major, minor, or patch versions of netcode are
         /// compatible with each other. We only guarantee that the exact version is compatible with itself.</b>
         /// </remarks>
-        public const int k_NetCodeVersion = 2;
+        public const int k_NetCodeVersion = 3;
 
         /// <summary>
         /// The NetCode package version
