@@ -153,6 +153,23 @@ namespace Unity.NetCode
             return delta>>1;
         }
         /// <summary>
+        /// Use if the tick calculating from is part of a fractional tick.
+        /// Computes the number of ticks which passed since an older tick, taking into account the fractional tick.
+        /// If the passed in tick is newer, this will return a negative value
+        /// </summary>
+        /// <param name="selfFractionalTick">The fractional part of the self tick to calculate from.</param>
+        /// <param name="older">The whole tick, with no fractional part, to calculate the delta from</param>
+        /// <returns>The number of whole ticks which passed since <paramref name="older"/></returns>
+        internal int TicksSince(in float selfFractionalTick, NetworkTick older)
+        {
+            // If we currently are fractional, then count the older tick as one tick closer to us
+            if (selfFractionalTick < 1)
+            {
+                older.Increment();
+            }
+            return TicksSince(older);
+        }
+        /// <summary>
         /// Check if this tick is newer than another tick. Assumes both ticks are valid.
         /// </summary>
         /// <remarks>

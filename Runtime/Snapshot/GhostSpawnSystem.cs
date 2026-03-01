@@ -1,12 +1,13 @@
 
 using System;
-using System.Diagnostics;
+using System.Collections.Generic;
 using Unity.Burst;
 using Unity.Collections;
 using Unity.Entities;
 using Unity.Collections.LowLevel.Unsafe;
 using UnityEngine;
 using UnityEngine.Assertions;
+using Object = UnityEngine.Object;
 
 namespace Unity.NetCode
 {
@@ -95,27 +96,8 @@ namespace Unity.NetCode
         {
             if (predictedEntity != Entity.Null && state.EntityManager.Exists(predictedEntity))
                 return predictedEntity;
-            using (GhostSpawningContext.CreateSpawnContext(state.WorldUnmanaged))
-            {
-                var spawnedEntity = state.EntityManager.Instantiate(prefabs[type].GhostPrefab);
-                if (state.EntityManager.HasComponent<GhostGameObjectLink>(prefabs[type].GhostPrefab))
-                {
-#if UNITY_6000_3_OR_NEWER // Required to use GameObject bridge with EntityID
-                    using var instances = new NativeArray<EntityId>(1, Allocator.Temp);
-                    using var transformInstances = new NativeArray<EntityId>(1, Allocator.Temp);
-                    GhostSpawningContext.Current.SpawnedEntity = spawnedEntity;
-                    var goPrefab = state.EntityManager.GetComponentData<GhostGameObjectLink>(prefabs[type].GhostPrefab).AssociatedGameObject;
-                    GameObject.InstantiateGameObjects(goPrefab, 1, instances, transformInstances);
-
-                    // make sure if the GO is Active=false and no initialization logic already ran that we do it here, so we get the right entity injected (and not try to create one next time we activate the GO)
-                    // There's a symetric release in the Despawn system
-                    return GhostEntityMapping.AcquireEntityReferenceGameObject(instances[0], transformInstances[0], goPrefab, autoWorld: state.WorldUnmanaged).Entity;
-#else
-                    throw new InvalidOperationException("Sanity check failed, GameObject instantiation isn't supported, shouldn't be here");
-#endif
-                }
-                return spawnedEntity;
-            }
+            var spawnedEntity = state.EntityManager.Instantiate(prefabs[type].GhostPrefab);
+            return spawnedEntity;
         }
         /// <inheritdoc/>
         [BurstCompile]
@@ -400,51 +382,125 @@ namespace Unity.NetCode
         }
     }
 
-    // Needs to be internal (and not private) to avoid boxing allocations (if we were only returning IDisposable)
-    internal partial struct GhostSpawningContext : IDisposable
+    internal struct PendingGameObjectSpawn : IComponentData
     {
-        // [AutoStaticsCleanupOnCodeReload]
-        private struct ContextKey { }
+        public bool ShouldBeActive;
+    }
 
-        private static readonly SharedStatic<GhostSpawningContext> s_InitializationContext = SharedStatic<GhostSpawningContext>.GetOrCreate<GhostSpawningContext, ContextKey>();
+    /// <summary>
+    /// In order to get ghost state accessible from GameObject's awake, we need the awake to execute after snapshot data has been deserialized in GhostUpdateSystem
+    /// </summary>
+    [UpdateInGroup(typeof(GhostSimulationSystemGroup))]
+    [UpdateAfter(typeof(GhostUpdateSystem))]
+    [WorldSystemFilter(WorldSystemFilterFlags.ClientSimulation)] // This isn't on thin clients since GhostUpdateSystem isn't on thin clients either.
+    internal partial class GhostGameObjectSpawnSystem : SystemBase
+    {
+        EntityQuery m_PendingSpawnQuery;
 
-        public static ref GhostSpawningContext Current => ref s_InitializationContext.Data;
-
-        public static GhostSpawningContext CreateSpawnContext(WorldUnmanaged world)
+        protected override void OnCreate()
         {
-            s_InitializationContext.Data = new GhostSpawningContext()
+            if (this.World.Unmanaged.IsHost())
             {
-                worldUnmanaged = world,
-            };
-            return s_InitializationContext.Data;
-        }
-
-        public WorldUnmanaged worldUnmanaged;
-        public Entity SpawnedEntity;
-
-
-        public WorldUnmanaged GetWorld()
-        {
-            if (worldUnmanaged.IsCreated)
-            {
-                return worldUnmanaged;
+                this.Enabled = false;
+                return;
             }
 
+            using var builder = new EntityQueryBuilder(Allocator.Temp);
+            m_PendingSpawnQuery = this.EntityManager.CreateEntityQuery(builder.WithAll<PendingGameObjectSpawn, GhostInstance>());
+            RequireForUpdate(m_PendingSpawnQuery);
+        }
+
+        protected override void OnUpdate()
+        {
+
+            // Design note: we could potentially move the burstable part of this system to the spawn system, with the entities spawn logic. But it'd make potential GO batching a bit harder and it'd also mean you'd get non-initialized GOs present for a few systems before they are initialized later in this system. If there's custom user systems introduced in between, this could be weird.
+#if UNITY_6000_3_OR_NEWER // Required to use GameObject bridge with EntityID
+            using var pendingEntities = m_PendingSpawnQuery.ToEntityArray(Allocator.Temp);
+            using var ghostInstances = m_PendingSpawnQuery.ToComponentDataArray<GhostInstance>(Allocator.Temp);
+            using var pendingSpawn = m_PendingSpawnQuery.ToComponentDataArray<PendingGameObjectSpawn>(Allocator.Temp);
+            using NativeList<EntityId> objectsToReenable = new NativeList<EntityId>(pendingEntities.Length, Allocator.Temp);
+            var prefabsEntity = SystemAPI.GetSingletonEntity<GhostCollection>();
+            var prefabs = EntityManager.GetBuffer<GhostCollectionPrefab>(prefabsEntity).ToNativeArray(Allocator.Temp);
+            var links = new NativeArray<GhostEntityMapping.EntityLink>(pendingEntities.Length, Allocator.Temp);
+            var allGOs = new NativeArray<EntityId>(pendingEntities.Length, Allocator.Temp);
+
+            using var instances = new NativeArray<EntityId>(1, Allocator.Temp);
+            using var transformInstances = new NativeArray<EntityId>(1, Allocator.Temp);
+            using var prefabInstancesDisposable = new NativeArray<EntityId>(1, Allocator.Temp);
+
+            for (int i = 0; i < pendingEntities.Length; i++)
+            {
+                var spawnedEntity = pendingEntities[i];
+                var type = ghostInstances[i].ghostType;
+                var prefabEntity = prefabs[type].GhostPrefab;
+                var goPrefab = EntityManager.GetComponentData<GhostGameObjectLink>(prefabEntity).AssociatedGameObject;
+                var prefabId = prefabInstancesDisposable;
+                prefabId[0] = goPrefab;
+                // setting the prefab inactive in order to control when the GameObject's awake gets called. This way we can delay it until we've injected it with
+                // the appropriate world and entity
+                // TODO-release@potentialOptim batch these GameObject calls if we see this system is too heavy weight
+                // TODO-release@potentialOptim we can also potentially burst this
+                GameObject.SetGameObjectsActive(prefabId, false); // TODO-release@potentialOptim We can potentially apply the setactive only once per prefab (have a bool to mark them as "already disabled" and add them in a list to be reenabled at the end of the system OnUpdate). But the set active is already pretty quick, especially compared to the actual GameObject Instantiate.
+                GameObject.InstantiateGameObjects(goPrefab, 1, instances, transformInstances);
+                var shouldPrefabBeActive = EntityManager.GetComponentData<PendingGameObjectSpawn>(prefabEntity).ShouldBeActive;
+                GameObject.SetGameObjectsActive(prefabId, shouldPrefabBeActive);
+
+                var link = new GhostGameObjectLink(instances[0], transformInstances[0]);
+
+                // Inject linked entity and world in GO and do initialization steps.
+                // This also executes even if users don't plan to reactivate the GO, to make sure that netcode logic can still run on a valid entity
+                // There's a symmetric release in the Despawn system
+                var newLink = GhostEntityMapping.AcquireEntityReferenceGameObject(link.AssociatedGameObject, link.AssociatedTransform, goPrefab, autoWorld: this.World.Unmanaged, injectedEntity: pendingEntities[i]);
+                links[i] = newLink;
+                allGOs[i] = instances[0];
+
+                EntityManager.SetComponentData(spawnedEntity, link);
+
+                if (pendingSpawn[i].ShouldBeActive)
+                {
+                    objectsToReenable.Add(link.AssociatedGameObject);
+                }
+            }
+
+            // managed
+            {
+                List<Object> allGOsAsObjects = new();
+                Resources.EntityIdsToObjectList(allGOs, allGOsAsObjects);
+                for (int i = 0; i < pendingEntities.Length; i++)
+                {
+                    var ghost = ((GameObject)allGOsAsObjects[i]).GetComponent<GhostAdapter>();
+                    var ghostInfoComponent = EntityManager.GetComponentData<GhostGameObjectLink>(pendingEntities[i]);
+                    ghostInfoComponent.GhostAdapterId = ghost.GetEntityId();
+                    EntityManager.SetComponentData(pendingEntities[i], ghostInfoComponent);
+                    ghost.InitializeRuntimeGhostBehaviours(links[i], withInitialValue: false); // withInitialValue=false since this is a spawn from the network, we already have values in ECS components.
+                }
+            }
+
+            // This needs to execute in this system, since we want state to be accessible in Awake (and so this system needs to execute after GhostUpdateSystem)
+            GameObject.SetGameObjectsActive(objectsToReenable.AsArray(), true); // Triggers the Awake
+
+            EntityManager.RemoveComponent<PendingGameObjectSpawn>(m_PendingSpawnQuery);
+#else
+            throw new InvalidOperationException("Sanity check failed, GameObject instantiation isn't supported, shouldn't be here");
+#endif
+        }
+
+        public static bool TryGetAutomaticWorld(out WorldUnmanaged world)
+        {
             if (Netcode.IsClientRole && Netcode.Client.NetworkTime.IsInPredictionLoop)
             {
-                if (ClientServerBootstrap.ClientWorld == null || !ClientServerBootstrap.ClientWorld.IsCreated)
-                    throw new InvalidOperationException("Trying to spawn a client ghost, but no client world is present");
-                return ClientServerBootstrap.ClientWorld.Unmanaged;
+                Assert.IsTrue(ClientServerBootstrap.ClientWorld != null && ClientServerBootstrap.ClientWorld.IsCreated, "sanity check failed, trying to spawn a client ghost but with invalid client world");
+                world = ClientServerBootstrap.ClientWorld.Unmanaged;
+                return true;
             }
 
-            if (ClientServerBootstrap.ServerWorld == null || !ClientServerBootstrap.ServerWorld.IsCreated)
-                throw new InvalidOperationException("Trying to spawn a server ghost, but no server world is present");
-            return ClientServerBootstrap.ServerWorld.Unmanaged;
-        }
-
-        public void Dispose()
-        {
-            s_InitializationContext.Data = default;
+            if (ClientServerBootstrap.ServerWorld != null && ClientServerBootstrap.ServerWorld.IsCreated)
+            {
+                world = ClientServerBootstrap.ServerWorld.Unmanaged;
+                return true;
+            }
+            world = default; // this might be a valid case if the world is already linked on the ghost
+            return false;
         }
     }
 }

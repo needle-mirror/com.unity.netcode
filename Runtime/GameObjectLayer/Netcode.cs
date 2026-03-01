@@ -36,7 +36,7 @@ namespace Unity.NetCode
         /// If you're  a client in a standalone build, you could have IsHostRole == false and IsClientServerBuild == true.
         /// You can have a client role, still in a host or client/server build.
         /// </summary>
-        public static bool IsHostRole => IsClientRole && IsServerRole;
+        public static bool IsHostRole => IsClientRole && IsServerRole; // TODO-next@connection this is false on awake, since Connection is only set in OnUpdate. should be true, since host world should already be present and listening?
         /// <summary>
         /// Whether there's any online functionality
         /// </summary>
@@ -66,10 +66,11 @@ namespace Unity.NetCode
         List<GameObject> m_PrefabPlaceholder;
 
 #if UNITY_6000_3_OR_NEWER // Required to use GameObject bridge with EntityID
-        PrefabsRegistry m_ServerPrefabsRegistry;
-        PrefabsRegistry m_ClientPrefabsRegistry;
+        internal GhostBehaviourTypeManager GhostBehaviourTypeManager;
 #endif
         // GhostEntityMapping m_EntityMapping; // Needs to be unique to mimic entities integration. if we want to iterate over all entities in a world, we need a separate data structure tracking those
+
+        internal const string kTempBuildFolder = "netcode-build-assets-temp";
 
         /// <summary>
         /// Default client access.
@@ -80,6 +81,18 @@ namespace Unity.NetCode
         /// Default server access.
         /// </summary>
         public static Server Server => Instance.m_Server;
+
+        public static NetworkTime NetworkTime
+        {
+            get
+            {
+                // TODO-next@NetcodeWorld with new NetcodeWorld: cache this query
+                return Instance.m_ActiveWorld.EntityManager.CreateEntityQuery(typeof(NetworkTime)).GetSingleton<NetworkTime>();
+            }
+        }
+
+        internal World m_ActiveWorld;
+        internal static World ActiveWorld => Instance.m_ActiveWorld;
 
 
         #region singleton
@@ -180,7 +193,7 @@ namespace Unity.NetCode
             m_PrefabPlaceholder = new List<GameObject>();
 #if UNITY_6000_3_OR_NEWER // Required to use GameObject bridge with EntityID
             // ClientServerBootstrap.CustomDriverConstructors = default;
-            // GhostBehaviourTypeManager = new GhostBehaviourTypeManager();
+            GhostBehaviourTypeManager = new GhostBehaviourTypeManager();
             // BootstrapSceneOverrideManager = new BootstrapSceneOverrideManager();
 #endif
             s_UnmanagedInstance.Data.TryInitialize();
@@ -194,7 +207,10 @@ namespace Unity.NetCode
             // Some initialization logic relies on resources being already loaded. Since Initialize can be called any time, we need to make sure to isolate those specific initialization steps else where.
             // m_Config = NetCodeConfig.RuntimeTryFindSettings();
             // if (m_Config == null) m_Config = NetCodeConfig.CreateNewGlobalInstance();
-            // GhostBehaviourTypeManager.InitializeGhostBehaviourInfos();
+#if !UNITY_DISABLE_MANAGED_COMPONENTS && UNITY_6000_3_OR_NEWER // Required to use GameObject bridge with EntityID
+            GhostBehaviourTypeManager.InitializeGhostBehaviourInfos();
+#endif
+
             // BootstrapSceneOverrideManager.InitializeWithAssets();
         }
 
@@ -232,7 +248,7 @@ namespace Unity.NetCode
         /// <param name="prefab">GameObject prefab to register</param>
         public static void RegisterPrefab(GameObject prefab)
         {
-            // TODO-release this flow shouldn't be needed once we have UDM and/or auto prefab registration
+            // TODO-release@prefabRegistration this flow shouldn't be needed once we have UDM and/or auto prefab registration. It'd still be needed for Addressables support
             foreach (var world in World.All)
             {
                 if (world.IsClient() || world.IsServer())
@@ -249,7 +265,7 @@ namespace Unity.NetCode
         /// Callback when server has started. Once the callback is called, it's consumed and so needs to be re-registered if needed again.
         /// </summary>
         public delegate void OnServerStartedDelegate();
-        internal OnServerStartedDelegate OnServerStarted;
+        internal OnServerStartedDelegate OnServerStarted; // TODO-next@connection with connection management: this is not called anywhere right now, need connection management
 
         /// <summary>
         /// Runs an action if the server is started or queues the action to be executed later if not started yet. The action is then consumed and so needs to be re-registered if needed again.

@@ -355,6 +355,40 @@ namespace Unity.NetCode.Tests
             Assert.AreEqual((~((1u << 19)-1)), mask[2]);
         }
 
+        [Category(NetcodeTestCategories.Foundational)]
+        [Test(Description = "make sure timings used in other tests work. spawn tick count, state replication tick count for example")]
+        public void TestReplicationTiming()
+        {
+            using (var testWorld = new NetCodeTestWorld())
+            {
+                testWorld.Bootstrap(true);
+                var ghostGameObject = new GameObject();
+                ghostGameObject.AddComponent<TestNetCodeAuthoring>().Converter = new GhostValueSerializerConverter();
+                var ghostConf = ghostGameObject.AddComponent<GhostAuthoringComponent>();
+                ghostConf.DefaultGhostMode = GhostMode.Predicted;
+                Assert.IsTrue(testWorld.CreateGhostCollection(ghostGameObject));
+                testWorld.CreateWorlds(true, 1);
+                var serverEnt = testWorld.SpawnOnServer(ghostGameObject);
+                SetGhostValuesOnServer(testWorld, 42);
+                testWorld.Connect();
+                testWorld.GoInGame();
+
+                testWorld.TickMultiple(4); // 4 ticks for predicted spawn
+                var clientEnt = testWorld.ClientWorlds[0].EntityManager.CreateEntityQuery(typeof(GhostValueSerializer)).GetSingletonEntity();
+
+                var serverVal = testWorld.ServerWorld.EntityManager.GetComponentData<GhostValueSerializer>(serverEnt);
+                var clientVal = testWorld.ClientWorlds[0].EntityManager.GetComponentData<GhostValueSerializer>(clientEnt);
+                Assert.AreEqual(42, serverVal.IntValue);
+                Assert.AreEqual(42, clientVal.IntValue);
+                var server = testWorld.ServerWorld.EntityManager;
+                var client = testWorld.ClientWorlds[0].EntityManager;
+                server.SetComponentData(serverEnt, new GhostValueSerializer(){IntValue = 123});
+                testWorld.Tick(); // other tests assume it only takes 1 tick to sync ghost fields.
+                clientVal = client.GetComponentData<GhostValueSerializer>(clientEnt);
+                Assert.AreEqual(123, clientVal.IntValue);
+            }
+        }
+
         [Test]
         [Category(NetcodeTestCategories.Foundational)]
         public void GhostValuesAreSerialized()

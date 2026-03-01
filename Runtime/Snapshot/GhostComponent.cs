@@ -297,6 +297,7 @@ namespace Unity.NetCode
 
     /// <summary>
     /// Component on client signaling that an entity is predicted (as opposed to interpolated).
+    /// Always present on the server even for interpolated ghosts, with invalid ticks.
     /// </summary>
     /// <seealso cref="GhostMode"/>
     /// <seealso cref="GhostModeMask"/>

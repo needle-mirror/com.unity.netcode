@@ -740,8 +740,8 @@ namespace Unity.NetCode.Tests
         void LogExpectProtocolError(NetCodeTestWorld testWorld, World world, bool checkServer)
         {
             LogAssert.Expect(LogType.Error, new Regex(@$"\[{(checkServer ? "Server" : "Client")}Test(.*)\] RpcSystem received bad protocol version from NetworkConnection\[id0,v1\]"
-                                                      + @$"\nLocal protocol: NPV\[NetCodeVersion:{NetworkProtocolVersion.k_NetCodeVersion}, GameVersion:{(checkServer ? "0" : "9000")}, RpcCollection:(\d+), ComponentCollection:(\d+)\]"
-                                                      + @$"\nRemote protocol: NPV\[NetCodeVersion:{NetworkProtocolVersion.k_NetCodeVersion}, GameVersion:{(!checkServer ? "0" : "9000")}, RpcCollection:(\d+), ComponentCollection:(\d+)\]"));
+                                                      + @$"\nLocal protocol: NPV\[NetCodeVersion:{NetworkProtocolVersion.DefaultNetCodeVersion}, GameVersion:{(checkServer ? "0" : "9000")}, RpcCollection:(\d+), ComponentCollection:(\d+)\]"
+                                                      + @$"\nRemote protocol: NPV\[NetCodeVersion:{NetworkProtocolVersion.DefaultNetCodeVersion}, GameVersion:{(!checkServer ? "0" : "9000")}, RpcCollection:(\d+), ComponentCollection:(\d+)\]"));
             LogAssert.Expect(LogType.Error, "The Game version mismatched between remote and local. Ensure that you are using the same version of the game on both client and server.");
             var rpcs = testWorld.GetSingleton<RpcCollection>(world).Rpcs;
             Assert.AreNotEqual(0, rpcs.Length, "Sanity.");

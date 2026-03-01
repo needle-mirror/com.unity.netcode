@@ -1,7 +1,7 @@
 {
   "name": "com.unity.netcode",
   "displayName": "Netcode for Entities",
-  "version": "1.12.0",
+  "version": "1.13.0",
   "unity": "2022.3",
   "unityRelease": "20f1",
   "description": "Unity's Data Oriented Technology Stack (DOTS) multiplayer netcode layer - a high level netcode system built on entities. This package provides a foundation for creating networked multiplayer applications within DOTS.",
@@ -11,15 +11,15 @@
     "com.unity.modules.animation": "1.0.0"
   },
   "_upm": {
-    "changelog": "### Added\n\n* Netcode profiler now supports tick-based navigation through a new title bar that has buttons to jump to the next or previous frame where a snapshot was sent or received. It also allows the selection of the corresponding tick on the client or server side.\n* Search fields for the ghost snapshot tree view and prediction error list view.\n* The Netcode Profiler now shows the values of the client prediction tick and the interpolation tick in the Prediction and Interpolation Tab.\n* Editor analytics for the netcode profiler.\n\n### Changed\n\n* bumped com.unity.entities dependency from 1.4.2 to 1.4.4\n* The Netcode Profiler is now an officially supported feature. It is accessible via two new modules in the Unity Profiler for Unity 6.0 or newer. For further reading, refer to the documentation [here](https://docs.unity3d.com/Packages/com.unity.netcode@latest/index.html?subfolder=/manual/testing/network-profiler.html).\n* Internal changes for prefab registration when using the future gameobject layer. Prefabs can now be registered before world creation and thin client worlds will work.\n\n### Deprecated\n\n* The browser-based Network Debugger has been deprecated in favor of the new Netcode Profiler.\n\n### Removed\n\n* The `NETCODE_PROFILER_ENABLED` scripting define is no longer required and has been removed.\n\n### Fixed\n\n* Several small fixes for the netcode profiler\n* **Behaviour Breaking Change:** `GhostAuthoringComponentBaker`'s `TransformUsageFlags.Dynamic` have been changed from `TransformUsageFlags.None`, as this package does not actually require them. If your ghost does need Transform components, specify that need via your own bakers.\n* Issue where the `GhostDistancePartitionShared` change filtering optimization added in 1.5.0 didn't apply correctly to the `UpdateTileIndexJob`, because the `WithChangeFilter` attribute only works for `IJobEntity`s, and thus silently failed on the `IJobChunk`.\n* The Netcode Profiler now correctly shows and considers the number of snapshots sent or received per tick.\n* (Potential breaking change) Fixed an issue where it's possible for a client with a different state serialization schema to connect to a server without triggering a hash check. This can happen if changing the order of ghost fields for example. This might require you forcing an update on your game clients.\n* Newly spawned ghosts on the clients will now correctly apply snapshots when always hitting a full tick on the client, which would happen in cases where you have the server and client world in the same application using the IPC socket, and with the framerate being exactly equal to the simulation tickrate."
+    "changelog": "### Added\n\n* internal changes required for a GhostField type usable in monobehaviour to access replicated state.\n* internal changes required for GameObject side prediction update.\n* internal changes required for GameObject side input management for prediction.\n\n### Changed\n\n* **[Potential Breaking Change]** NetcodeProtocolVersion.k_NetCodeVersion is now private, use NetcodeProtocolVersion.DefaultNetCodeVersion instead to get the builtin netcode version.\n* **Behaviour-Breaking Change:** The GhostUpdateSystem's predicted ghost history backup lookup failure case now only attempts to rollback to the snapshot if said rollback isn't too severe. This change marginally worsens correctness in exceptional cases, but prevents egregiously large rollbacks.\n\n### Fixed\n\n* Extraordinarily rare correctness bug introduced with the static ghost early-out optimisation, where the early-out would be applied even when new snapshot data arrived, but only if said snapshot arrived so late that it was older than the `lastInterpolationTick`.\n* Issue where prediction switching a static, unchanging ghost (to predicted) would cause massive 64-tick rollbacks.\n* Issue where the GhostUpdateSystem's predicted ghost history backup lookups were failing whenever other entities within the chunk were deleted (which caused the cached `entityIndexInChunk` to be incorrect).\n* The GhostUpdateSystem's snapshot rollback is now constrained below 64 ticks typically, massively reducing the severity of rollbacks in some esoteric cases, at the cost of minor misprediction issues (which will get resolved by eventual consistency).\n* Interpolated static ghosts will now wait until the interpolation timeline reaches new snapshot data before applying any new snapshot. This fixes jittery movement on static interpolated ghosts when new snapshots arrive after a static ghost had stopped moving for a few frames."
   },
   "upmCi": {
-    "footprint": "173b21c278d28e1af5517750e4f68ff023db99bd"
+    "footprint": "052865d72f74e995cf54bfa8a114bc766f3979f4"
   },
-  "documentationUrl": "https://docs.unity3d.com/Packages/com.unity.netcode@1.12/manual/index.html",
+  "documentationUrl": "https://docs.unity3d.com/Packages/com.unity.netcode@1.13/manual/index.html",
   "repository": {
     "url": "https://github.cds.internal.unity3d.com/unity/dots.git",
     "type": "git",
-    "revision": "c88a4bb684e552c7892e333590100bedb59c5ab1"
+    "revision": "f166ae7a4b3ac99248779a2f0a070050a5c7b3e2"
   }
 }

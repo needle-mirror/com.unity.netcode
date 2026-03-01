@@ -135,13 +135,13 @@ namespace Unity.NetCode
         }
 
         /// <inheritdoc cref="AcquireEntityReferencePrefab"/>
-        internal static EntityLink AcquireEntityReferenceGameObject(EntityId gameObjectId, EntityId transformId, EntityId prefabEntityId, WorldUnmanaged autoWorld)
+        internal static EntityLink AcquireEntityReferenceGameObject(EntityId gameObjectId, EntityId transformId, EntityId prefabEntityId, WorldUnmanaged autoWorld, Entity injectedEntity = default)
         {
-            return AcquireEntityReference(gameObjectId, transformId, isPrefabGameObject: false, forWorld: autoWorld, prefabId: prefabEntityId);
+            return AcquireEntityReference(gameObjectId, transformId, isPrefabGameObject: false, forWorld: autoWorld, prefabId: prefabEntityId, injectedEntity: injectedEntity);
         }
 
         /// <inheritdoc cref="AcquireEntityReferencePrefab"/>
-        private static EntityLink AcquireEntityReference(EntityId gameObjectId, EntityId transformId, bool isPrefabGameObject , WorldUnmanaged forWorld, EntityId prefabId = default)
+        private static EntityLink AcquireEntityReference(EntityId gameObjectId, EntityId transformId, bool isPrefabGameObject , WorldUnmanaged forWorld, EntityId prefabId = default, Entity injectedEntity = default)
         {
             ref var self = ref Netcode.Unmanaged.m_EntityMapping;
 #if ENABLE_UNITY_COLLECTIONS_CHECKS
@@ -151,13 +151,16 @@ namespace Unity.NetCode
             try
             {
 #endif
-                var world = forWorld;
-
                 GameObjectKey mapKey;
                 if (isPrefabGameObject)
-                    mapKey = GameObjectKey.GetForPrefab(gameObjectId, world);
+                {
+                    Assert.IsTrue(forWorld.IsCreated, "sanity check failed, when creating an entity for a prefab, a world must be specified");
+                    mapKey = GameObjectKey.GetForPrefab(gameObjectId, forWorld);
+                }
                 else
+                {
                     mapKey = GameObjectKey.GetForGameObject(gameObjectId);
+                }
                 if (self.m_MappedEntities.TryGetValue(mapKey, out var mappedEntity))
                 {
                     ++mappedEntity.RefCount;
@@ -167,42 +170,40 @@ namespace Unity.NetCode
                 {
 #if UNITY_EDITOR
                     if (!Application.isPlaying)
-                        throw new InvalidOperationException("Sanity check failed, shouldn't be here");
+                        throw new InvalidOperationException("Sanity check failed, shouldn't be here. Please raise a bug if you see this, editor time is not supported.");
 #endif
-                    var injectedWorld = forWorld;
 
-                    Assert.IsTrue(injectedWorld.IsCreated, "sanity check failed");
+                    Assert.IsTrue(forWorld.IsCreated, "sanity check failed, the world to instantiate into should be known at this point");
 
-                    var injectedEntity = GhostSpawningContext.Current.SpawnedEntity;
+                    var entity = injectedEntity;
                     if (injectedEntity == Entity.Null)
                     {
                         if (prefabId != default)
                         {
-                            var prefabEntity = prefabId.EntityExt(isPrefab: true, injectedWorld);
+                            var prefabEntity = prefabId.EntityExt(isPrefab: true, forWorld);
                             if (prefabEntity == Entity.Null)
                                 throw new InvalidOperationException("prefab GameObject was specified, but no associated prefab entity was found, have you registered your prefab?");
-                            injectedEntity = injectedWorld.EntityManager.Instantiate(prefabEntity);
+                            entity = forWorld.EntityManager.Instantiate(prefabEntity);
                         }
                         else
-                            injectedEntity = injectedWorld.EntityManager.CreateEntity();
+                            entity = forWorld.EntityManager.CreateEntity();
                     }
 
-                    Assert.IsTrue(injectedEntity != Entity.Null, "sanity check failed");
+                    Assert.IsTrue(entity != Entity.Null, "sanity check failed");
 
-                    var entity = injectedEntity;
                     int transformIndex = -1;
                     if (!isPrefabGameObject)
                     {
                         // TODO-release cache query
                         // we only track runtime GameObject's transforms, we don't want to do useless iterations over prefab transforms
                         using var builder = new EntityQueryBuilder(Allocator.Temp).WithAll<PerWorldIndexedTransformTrackingSingleton>();
-                        var trackingSingleton = injectedWorld.EntityManager.CreateEntityQuery(builder).GetSingleton<PerWorldIndexedTransformTrackingSingleton>();
+                        var trackingSingleton = forWorld.EntityManager.CreateEntityQuery(builder).GetSingleton<PerWorldIndexedTransformTrackingSingleton>();
                         transformIndex = trackingSingleton.AddGameObjectToTrack(gameObjectId, entity, transformId);
                     }
 
                     mappedEntity = new MappedEntity()
                     {
-                        World = injectedWorld,
+                        World = forWorld,
                         Entity = entity,
                         RefCount = 1,
                         TransformIndex = transformIndex
@@ -211,8 +212,8 @@ namespace Unity.NetCode
                     // We keep the key using forWorld which might be null, to keep the same consistent keying for prefab vs runtime ghosts
                     self.m_MappedEntities.Add(mapKey, mappedEntity);
 
-                    if (!injectedWorld.EntityManager.AddComponentData(mappedEntity.Entity, new GhostGameObjectLink(mapKey.gameObjectId)))
-                        injectedWorld.EntityManager.SetComponentData(mappedEntity.Entity, new GhostGameObjectLink(mapKey.gameObjectId));
+                    forWorld.EntityManager.AddComponentData(mappedEntity.Entity, new GhostGameObjectLink(mapKey.gameObjectId, transformId));
+
                 }
 
                 return new EntityLink { World = mappedEntity.World, Entity = mappedEntity.Entity };
@@ -230,8 +231,10 @@ namespace Unity.NetCode
         /// If the reference count goes to zero, the entity is destroyed.
         /// </summary>
         // TODO-release this is never used?
+        // TODO-next@prefabRegistration make sure this is called whenever we unload a GameObject prefab
         public static void ReleasePrefabReference(GameObject prefab, World forWorld)
         {
+            forWorld.EntityManager.GetComponentData<GhostBehaviour.GhostBehaviourTracking>(prefab.EntityExt(isPrefab: true, forWorld: forWorld.Unmanaged)).allBehaviourTypeInfo.Dispose();
             ReleaseEntityReference(GameObjectKey.GetForPrefab(prefab.GetEntityId(), forWorld.Unmanaged), forWorld.IsCreated);
         }
 

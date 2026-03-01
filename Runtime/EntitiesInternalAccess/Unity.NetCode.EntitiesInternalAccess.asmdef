@@ -1,0 +1,20 @@
+{
+  "name": "Unity.NetCode.EntitiesInternalAccess",
+  "rootNamespace": "Unity.NetCode.EntitiesInternalAccess",
+  "references": [
+    "Unity.Entities",
+    "Unity.Burst",
+    "Unity.Collections",
+    "Unity.Mathematics",
+    "Unity.Transforms"
+  ],
+  "includePlatforms": [],
+  "excludePlatforms": [],
+  "allowUnsafeCode": true,
+  "overrideReferences": false,
+  "precompiledReferences": [],
+  "autoReferenced": true,
+  "defineConstraints": [],
+  "versionDefines": [],
+  "noEngineReferences": false
+}

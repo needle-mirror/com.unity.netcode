@@ -500,7 +500,7 @@ namespace Unity.NetCode.Tests
             var cubePrefab = GhostAdapterUtils.CreatePredictionCallbackHelperPrefab("BasicCube");
             await testWorld.ConnectAsync(enableGhostReplication:true);
             var serverObj = GameObject.Instantiate(cubePrefab);
-            await testWorld.TickMultipleAsync(6);
+            await testWorld.TickMultipleAsync(4);
             var clientObj = PredictionCallbackHelper.ClientInstances[0];
 
             void OnDestroy(GameObject gameObject)
@@ -518,9 +518,9 @@ namespace Unity.NetCode.Tests
                 // just want to check if we can access entity components at all
                 gameObject.WorldExt().EntityManager.GetComponentData<LocalTransform>(gameObject.EntityExt(isPrefab: false)); // TODO-release it's possible to already have released the entity here. So should destroy the entity in an ECB instead? And destroy it later? Right now users can prevent the entity from being destroyed by calling base.OnDestroy after they do their entity related stuff. but it's a bit of a gotcha. This WILL go away as soon as we have entities integration though, since then the entity lifecycle will be managed engine side.
 
-                // TODO-next uncomment this once inputs are available
-                // behaviour.InputData = new DummyInput() { value = 123 };
-                // Assert.IsTrue(behaviour.InputData.value == 123);
+                behaviour.Input.Value = new DummyInput() { value = 123 };
+                Assert.IsTrue(behaviour.Input.Value.value == 123);
+                Assert.IsTrue(adapter.World.EntityManager.GetComponentData<DummyInput>(adapter.Entity).value == 123);
             }
 
             serverObj.OnDestroyEvent += OnDestroy;

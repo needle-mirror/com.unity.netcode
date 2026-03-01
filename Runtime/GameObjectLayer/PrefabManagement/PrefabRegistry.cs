@@ -17,10 +17,14 @@ namespace Unity.NetCode
     {
 #if UNITY_6000_3_OR_NEWER // Required to use GameObject bridge with EntityID
         public EntityId AssociatedGameObject;
+        public EntityId AssociatedTransform;
+        public EntityId GhostAdapterId;
 
-        public GhostGameObjectLink(EntityId go)
+        public GhostGameObjectLink(EntityId go, EntityId associatedTransform)
         {
             this.AssociatedGameObject = go;
+            this.AssociatedTransform = associatedTransform;
+            this.GhostAdapterId = default;
         }
 #endif
     }
@@ -55,8 +59,6 @@ namespace Unity.NetCode
     //The prefab registry is just a resource manager, that live and exist across world.
     internal class PrefabsRegistry
     {
-         // private Dictionary<Entity, GhostPrefabReference> m_PrefabResources = new();
-
          /// <summary>
          /// Creates the entity prefab for a given GameObject based prefab. A prefab must be registered before it can
          /// be spawned (or pre-spawned), it can be done right before the prefab is instantiates, as long as it's happens on both server
@@ -69,6 +71,7 @@ namespace Unity.NetCode
          /// <param name="forWorld">World to link the registration with</param>
          public static void RegisterPrefab(GameObject prefab, World forWorld)
          {
+
              // already initialized for this world
              if (prefab.EntityExt(isPrefab: true, forWorld.Unmanaged) != default)
                  return;
@@ -94,10 +97,11 @@ namespace Unity.NetCode
 
         private static void CreateEntityPrefab(GameObject prefab, World world)
         {
-            using var _ = GhostSpawningContext.CreateSpawnContext(world.Unmanaged); // spawn context for creating the prefab entity
+            var ghostAdapter = prefab.GetComponent<GhostAdapter>();
+            var prefabLink = GhostEntityMapping.AcquireEntityReferencePrefab(prefab.GetEntityId(), prefab.transform.GetEntityId(), forWorld: world.Unmanaged);
+            var prefabEntity = prefabLink.Entity;
+            ghostAdapter.InitializePrefabGhostBehaviours(prefabLink);
 
-            var ghostAuthoring = prefab.GetComponent<GhostAdapter>();
-            var prefabEntity = GhostEntityMapping.AcquireEntityReferencePrefab(prefab.GetEntityId(), prefab.transform.GetEntityId(), forWorld: world.Unmanaged).Entity;
 
             // TODO-release handle child GOs that could have networked data as well
             var transforms = prefab.GetComponentsInChildren<Transform>(includeInactive:true);
@@ -109,7 +113,8 @@ namespace Unity.NetCode
             entityManager.AddComponentData(prefabEntity, new LocalToWorld());
             entityManager.AddComponentData(prefabEntity, new PostTransformMatrix{Value = float4x4.Scale(prefab.transform.localScale)});
             entityManager.AddComponentData(prefabEntity, new LocalTransform() { Position = prefab.transform.localPosition, Rotation = prefab.transform.localRotation});
-            entityManager.SetEnabled(prefabEntity, prefab.activeSelf); // TODO-release this should be handled by entities engine side.
+            entityManager.AddComponentData(prefabEntity, new PendingGameObjectSpawn() { ShouldBeActive = prefab.activeSelf });
+            // entityManager.SetEnabled(prefabEntity, prefab.activeSelf); // TODO-release this should be handled by entities engine side.
 
 #if UNITY_EDITOR
             // Following is for BoundingBoxDebugGhostDrawer to draw bounding boxes around the ghost
@@ -117,7 +122,7 @@ namespace Unity.NetCode
             var meshBounds = new GhostDebugMeshBounds().Initialize(prefab, prefabEntity, world);
             entityManager.AddComponentData(prefabEntity, meshBounds);
 #endif
-            if (ghostAuthoring.HasOwner) // TODO-release should always have an owner?
+            if (ghostAdapter.HasOwner) // TODO-release should always have an owner?
             {
                 entityManager.AddComponentData(prefabEntity, default(GhostOwner));
                 // TODO-release https://jira.unity3d.com/browse/MTT-7127 on any new manually created instance, the actual value vvv will be updated on the next frame by GhostUpdateSystem after its instantiation.
@@ -125,7 +130,7 @@ namespace Unity.NetCode
                 // This should be fine for network spawned instances, as they'll be spawned after ghost update system has set this correctly for the new entity
                 entityManager.AddComponentData(prefabEntity, default(GhostOwnerIsLocal));
             }
-            if (ghostAuthoring.SupportAutoCommandTarget)
+            if (ghostAdapter.SupportAutoCommandTarget)
                 entityManager.AddComponentData(prefabEntity, new AutoCommandTarget {Enabled = true});
 
             // TODO-next handle hierarchy of GameObjects
@@ -156,7 +161,7 @@ namespace Unity.NetCode
             //TODO-next: NetDebug should not be a per-world object but a static
             //Debug.Log($"[{entityManager.World.Name}:PrefabRegistry] Creating Ghost Prefab Entity '{ghostAuthoring.gameObject.name}'.");
 
-            var config = ghostAuthoring.AsConfig(prefab.gameObject.name); // TODO-next two prefabs with the same name will clash
+            var config = ghostAdapter.AsConfig(prefab.gameObject.name); // TODO-next@prefabRegistration two prefabs with the same name will clash
 
             GhostPrefabCreation.ConvertToGhostPrefab(entityManager, prefabEntity, config, default);
             // TODO-release the below was what we used with entities integration, since then we use baking/persistent worlds to generate GO prefabs. We'll need to come back to this once we have something concrete

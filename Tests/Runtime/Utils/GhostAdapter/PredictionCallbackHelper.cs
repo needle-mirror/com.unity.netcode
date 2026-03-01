@@ -1,6 +1,7 @@
 #if UNITY_6000_3_OR_NEWER // Required to use GameObject bridge with EntityID
 using System;
 using System.Collections.Generic;
+using Unity.Entities;
 using UnityEngine;
 
 namespace Unity.NetCode.Tests
@@ -9,10 +10,15 @@ namespace Unity.NetCode.Tests
     {
         public int value;
     }
+
+    internal struct SomeBridgedValue : IComponentData
+    {
+        [GhostField] public int value;
+    }
     /// <summary>
     /// Test helper so we don't have to write tons of different GhostBehaviours for prediction tests.
     /// </summary>
-    internal class PredictionCallbackHelper : GhostBehaviour//: GhostInputBehaviour<DummyInput>, IDisposable
+    internal partial class PredictionCallbackHelper : GhostBehaviour
     {
         public static List<PredictionCallbackHelper> ServerInstances;
         public static List<PredictionCallbackHelper> ClientInstances;
@@ -27,6 +33,10 @@ namespace Unity.NetCode.Tests
         public event Action<GameObject> OnDestroyEvent;
 
         public MonoEventCallbackScriptableObject CallbackHolder;
+
+        public GhostComponentRef<DummyInput> Input;
+        public GhostField<int> SomeGhostField;
+        public GhostComponentRef<SomeBridgedValue> SomeBridgedVar;
 
         static PredictionCallbackHelper()
         {
@@ -87,12 +97,12 @@ namespace Unity.NetCode.Tests
             // TODO-release it's also tricky, since base.OnDestroy needs to be called at the end of the OnDestroy, so that the rest of the OnDestroy above can still access entity things
         }
 
-        public void GatherInput()
+        public override void GatherInput(float tickedDeltaTime)
         {
             OnInputEvent?.Invoke(gameObject);
         }
 
-        public void PredictionUpdate()
+        public override void PredictionUpdate(float tickedDeltaTime)
         {
             OnPredictionEvent?.Invoke(gameObject);
             if (CallbackHolder != null) CallbackHolder.TriggerOnPrediction(gameObject);
@@ -100,17 +110,24 @@ namespace Unity.NetCode.Tests
 
         public void Dispose()
         {
+            ClearEvents();
+            CallbackHolder = null;
+        }
+
+        public void ClearEvents()
+        {
             // Note: those two are the most important to dispose, as they'll be called while the containing scene is unloaded in Teardown(),
             // potentially executing test logic while tearing down the test.
             OnDestroyEvent = null;
             OnDisableEvent = null;
             // Other events just for good measure
             OnPredictionEvent = null;
+            OnInputEvent = null;
             OnUpdate = null;
             OnFixedUpdate = null;
             OnLateUpdate = null;
             OnEnableEvent = null;
-            CallbackHolder = null;
+            CallbackHolder?.ClearEvents();
         }
     }
 }

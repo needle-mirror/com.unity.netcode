@@ -53,10 +53,14 @@ namespace Unity.NetCode
         {
             if (m_DidPushTime)
             {
+                if (ClientServerBootstrap.ServerWorld != null)
+                    Netcode.Instance.m_ActiveWorld = ClientServerBootstrap.ServerWorld;
                 group.World.PopTime();
                 m_DidPushTime = false;
                 return false;
             }
+
+            Netcode.Instance.m_ActiveWorld = group.World;
 
             m_ClientSeverTickRateQuery.TryGetSingleton<ClientServerTickRate>(out var tickRate);
             tickRate.ResolveDefaults();

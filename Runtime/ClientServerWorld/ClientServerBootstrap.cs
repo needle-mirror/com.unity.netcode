@@ -706,6 +706,16 @@ namespace Unity.NetCode
         {
             return IsClient(world) && IsServer(world);
         }
+
+        internal static bool IsNetcode(this World world)
+        {
+            return IsClient(world) || IsServer(world) || IsThinClient(world);
+        }
+
+        internal static bool IsNetcode(this WorldUnmanaged world)
+        {
+            return IsClient(world) || IsServer(world) || IsThinClient(world);
+        }
     }
 
     [WorldSystemFilter(WorldSystemFilterFlags.ServerSimulation)]

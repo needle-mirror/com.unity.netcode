@@ -1,13 +1,10 @@
 using System;
 using System.Collections.Generic;
-using System.ComponentModel;
-using System.Globalization;
 using System.Linq;
-using System.Text;
 using System.Text.RegularExpressions;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
-using Unity.NetCode.Roslyn;
+using Microsoft.CodeAnalysis.CSharp.Syntax;
 
 namespace Unity.NetCode.Generators
 {
@@ -282,6 +279,201 @@ namespace Unity.NetCode.Generators
                 GenerateType(context, typeTree, generator, null,typeTree.TypeFullName, 0);
                 generator.GenerateSerializer(context, typeTree);
             }
+        }
+
+        public static void GenerateGhostBehaviour(Context context, SyntaxNode syntaxNode, SemanticModel model, INamedTypeSymbol netVarType, INamedTypeSymbol netVarBridgeType, INamedTypeSymbol inputInterfaceType)
+        {
+            using var a = new Profiler.Auto("GenerateGhostBehaviour");
+
+            var ghostBehaviourSymbol = model.GetDeclaredSymbol(syntaxNode) as INamedTypeSymbol;
+            var behaviourName = ghostBehaviourSymbol.Name; // ex: "MyCharacterBehaviour"
+            var behaviourNamespace = ghostBehaviourSymbol.ContainingNamespace;
+            var targetClassAccessModifier = SyntaxFacts.GetText(ghostBehaviourSymbol.DeclaredAccessibility);
+            var fullName = Roslyn.Extensions.GetFullTypeName(ghostBehaviourSymbol);
+            var fileName = $"{fullName}_generate.cs";
+
+            // find GhostField and bridge fields for current GhostBehaviour
+            List<IFieldSymbol> netVarFields = new();
+            List<IFieldSymbol> netVarBridgeFields = new();
+            foreach (var member in ghostBehaviourSymbol.GetMembers().OfType<IFieldSymbol>())
+            {
+                if (member.Type.OriginalDefinition.Equals(netVarType, SymbolEqualityComparer.Default))
+                {
+                    netVarFields.Add(member);
+                }
+                else if (member.Type.OriginalDefinition.Equals(netVarBridgeType, SymbolEqualityComparer.Default))
+                {
+                    netVarBridgeFields.Add(member);
+                }
+            }
+
+            if (netVarFields.Count == 0 && netVarBridgeFields.Count == 0)
+            {
+                // No need for partial class if there's no GhostFields or GhostComponentRef in it
+                // For example if I have a PredictionUpdate that only touches the transform, no need for partial there.
+                return;
+            }
+
+            // Start setting up generated file
+            // We won't use a template for this and will just compose the file's text here.
+            string namespaceLine = $"namespace {behaviourNamespace}";
+            if (string.IsNullOrEmpty(behaviourNamespace.ToString()))
+            {
+                namespaceLine = "";
+            }
+
+            // A GhostField (type) can be declared with GhostFieldAttribute settings (e.g. Quantization). Generating the GhostField parameters here from user's code
+            string GetGhostFieldConfig(IFieldSymbol fieldSymbol, SemanticModel model)
+            {
+                string ghostFieldConfig = "";
+                if (fieldSymbol.DeclaringSyntaxReferences.Length == 0) return "";
+
+                List<string> fieldParams = new();
+
+                var syntaxRef = fieldSymbol.DeclaringSyntaxReferences[0];
+                var syntaxNode = syntaxRef.GetSyntax();
+                if (syntaxNode is VariableDeclaratorSyntax declarator && declarator.Initializer?.Value is BaseObjectCreationExpressionSyntax objectCreation)
+                {
+                    var argList = objectCreation.ArgumentList;
+                    foreach (var arg in argList.Arguments)
+                    {
+                        if (model.GetTypeInfo(arg.Expression).Type.Name == "FieldConfig")
+                        {
+                            var expr = arg.Expression as BaseObjectCreationExpressionSyntax;
+                            if (expr == null)
+                                throw new InvalidCastException("fieldConfig is not an object creation. Was expecting new().");
+                            foreach (var initExpression in expr.Initializer.Expressions)
+                            {
+                                fieldParams.Add(initExpression.ToString());
+                            }
+                        }
+                    }
+                }
+
+                ghostFieldConfig = string.Join(", ", fieldParams);
+
+                return ghostFieldConfig;
+            }
+
+            string initializeBlock = "// Generated Components Fields\n";
+            string generateComponentsBlock = "";
+            string getGeneratedTypesBlock = "// Generated Components Fields\n";
+            List<string> allGeneratedComponentName = new();
+            foreach (IFieldSymbol netVarField in netVarFields)
+            {
+                var userFieldName = netVarField.Name;
+                INamedTypeSymbol netVarTypeForField = netVarField.Type as INamedTypeSymbol;
+                var netVarGenericType = netVarTypeForField.TypeArguments[0];
+                var generatedComponentInnerType = netVarGenericType.ToString();
+                var generatedComponentName = $"{behaviourName}_{userFieldName}_Gen";
+                allGeneratedComponentName.Add(generatedComponentName);
+
+                // generating blocks
+                // IMPORTANT the m_Value field needs to be the first one in the component for casting purposes GhostField side. This way we can cast 'GeneratedComponent' to 'InternalType for m_Value'. We're using FieldOffset to enforce this. If we want new fields in the future, just make sure m_Value stays at offset=0.
+                generateComponentsBlock += $@"
+        [StructLayout(LayoutKind.Explicit)]
+        public struct {generatedComponentName} : IComponentData
+        {{
+            // Netcode requires marked fields to be public. Make sure the types you're using have the appropriate accessibility
+            [FieldOffset(0)] [GhostField({GetGhostFieldConfig(netVarField, model)})] public {generatedComponentInnerType} m_Value;
+        }}
+";
+                initializeBlock += $"{userFieldName}.Initialize(World, Entity, ComponentType.ReadWrite<{generatedComponentName}>(), withInitialValue);\n";
+                getGeneratedTypesBlock += $"yield return ComponentType.ReadWrite<{generatedComponentName}>();\n";
+            }
+
+            initializeBlock += "// Bridge Fields\n";
+            getGeneratedTypesBlock += "// Bridge Fields\n";
+            foreach (var netVarBridgeField in netVarBridgeFields)
+            {
+                var userFieldName = netVarBridgeField.Name;
+                INamedTypeSymbol netVarTypeForField = netVarBridgeField.Type as INamedTypeSymbol;
+                var netVarGenericType = netVarTypeForField.TypeArguments[0];
+                var componentInnerType = netVarGenericType.ToString();
+
+                // generating blocks
+                initializeBlock += $"{userFieldName}.Initialize(World, Entity, withInitialValue);\n";
+                getGeneratedTypesBlock += $"yield return ComponentType.ReadWrite<{componentInnerType}>();\n";
+
+                if (netVarGenericType.AllInterfaces.Contains(inputInterfaceType))
+                    getGeneratedTypesBlock += $"yield return ComponentType.ReadWrite<InputBufferData<{componentInnerType}>>();\n";
+            }
+
+            var finalCodeStringContent = $@"
+using System;
+using System.Collections;
+using System.Collections.Generic;
+using System.Runtime.InteropServices;
+using Unity.Collections;
+using Unity.Collections.LowLevel.Unsafe;
+using Unity.Entities;
+using Unity.NetCode;
+using UnityEngine;
+
+// Generated
+{namespaceLine}
+{{
+    {targetClassAccessModifier} partial class {behaviourName}
+    {{
+        {generateComponentsBlock}
+        protected override IEnumerable<ComponentType> GetComponentTypes()
+        {{
+            foreach (var componentType in base.GetComponentTypes()) yield return componentType ;
+            {getGeneratedTypesBlock}
+        }}
+
+        protected override void InitializeRuntimeGameObject(bool withInitialValue)
+        {{
+            base.InitializeRuntimeGameObject(withInitialValue);
+            var Entity = this.Ghost.Entity;
+            var World = this.Ghost.World;
+
+            // Initialize all net vars
+            {initializeBlock}
+        }}
+    }}
+}}
+                ";
+
+            {
+                // Build the newly created ghost components structs, so we can generate serializers for them
+                // TODO@potentialSourceOfBugs this works, but seems a bit hacky, since the we're not patching the original compilation, just creating a new one and generating serializers for that new one. If we add new sourcegen code later that only uses the original compilation, it'll skip the newly created components
+                ParseOptions options = ((CSharpCompilation)context.executionContext.Compilation).SyntaxTrees[0].Options;
+                SyntaxTree sourceTree = CSharpSyntaxTree.ParseText(finalCodeStringContent, (CSharpParseOptions)options);
+                Compilation compilation = context.executionContext.Compilation.AddSyntaxTrees(sourceTree);
+
+                var typeBuilder = new TypeInformationBuilder(context.diagnostic, context.executionContext, TypeInformationBuilder.SerializationMode.Component);
+
+                foreach (var generatedComponentName in allGeneratedComponentName)
+                {
+                    context.ResetState();
+                    context.diagnostic.LogInfo($"generating serializers for generated component {generatedComponentName}");
+                    if (compilation.GetSymbolsWithName(generatedComponentName, SymbolFilter.Type).Count() == 0)
+                        context.diagnostic.LogError($"Type {generatedComponentName} can't be found in compilation!");
+                    var componentSymbol = compilation.GetSymbolsWithName(generatedComponentName, SymbolFilter.Type).First() as INamedTypeSymbol;
+                    var ghostComponent = ComponentFactory.TryGetGhostComponent(componentSymbol);
+                    var typeInfo = typeBuilder.BuildTypeInformation(componentSymbol, ghostComponent);
+                    NameUtils.UpdateNameAndNamespace(typeInfo, ref context, componentSymbol);
+                    var variantHash = Helpers.ComputeVariantHash(typeInfo.Symbol, typeInfo.Symbol);
+
+                    context.serializationStrategies.Add(new CodeGenerator.Context.SerializationStrategyCodeGen
+                    {
+                        TypeInfo = typeInfo,
+                        VariantTypeName = typeInfo.TypeFullName.Replace('+', '.'),
+                        ComponentTypeName = typeInfo.TypeFullName.Replace('+', '.'),
+                        Hash = variantHash.ToString(),
+                        GhostAttribute = typeInfo.GhostAttribute,
+                        IsSerialized = true,
+                    });
+                    GenerateGhost(context, typeInfo);
+                }
+            }
+
+            context.batch.Add(new GeneratedFile()
+            {
+                GeneratedFileName = fileName,
+                Code = finalCodeStringContent,
+            });
         }
 
         public static void GenerateCommand(Context context, TypeInformation typeInfo, CommandSerializer.Type commandType)

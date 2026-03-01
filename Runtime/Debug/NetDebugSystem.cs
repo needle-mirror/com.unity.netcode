@@ -27,21 +27,26 @@ namespace Unity.NetCode
 
         private void CreateNetDebugSingleton(ref SystemState state)
         {
-            var netDebug = new NetDebug();
-            netDebug.Initialize();
-#if UNITY_EDITOR
-            if (MultiplayerPlayModePreferences.ApplyLoggerSettings)
-                netDebug.LogLevel = MultiplayerPlayModePreferences.TargetLogLevel;
-
-            netDebug.WarnBatchedTicks = MultiplayerPlayModePreferences.WarnBatchedTicks;
-            netDebug.WarnBatchedTicksRollingWindowSize = MultiplayerPlayModePreferences.WarnBatchedTicksRollingWindow;
-            netDebug.WarnAboveAverageBatchedTicksPerFrame = MultiplayerPlayModePreferences.WarnAboveAverageBatchedTicksPerFrame;
-#endif
+            var netDebug = GetDefaultNetDebug();
 #if NETCODE_DEBUG
             m_ComponentTypeNameLookupData = new NativeHashMap<int, FixedString128Bytes>(1024, Allocator.Persistent);
             netDebug.ComponentTypeNameLookup = m_ComponentTypeNameLookupData.AsReadOnly();
 #endif
             state.EntityManager.CreateSingleton(netDebug);
+        }
+
+        internal static NetDebug GetDefaultNetDebug()
+        {
+            var netDebug = new NetDebug();
+            netDebug.Initialize();
+#if UNITY_EDITOR
+            if (MultiplayerPlayModePreferences.ApplyLoggerSettings)
+                netDebug.LogLevel = MultiplayerPlayModePreferences.TargetLogLevel;
+            netDebug.WarnBatchedTicks = MultiplayerPlayModePreferences.WarnBatchedTicks;
+            netDebug.WarnBatchedTicksRollingWindowSize = MultiplayerPlayModePreferences.WarnBatchedTicksRollingWindow;
+            netDebug.WarnAboveAverageBatchedTicksPerFrame = MultiplayerPlayModePreferences.WarnAboveAverageBatchedTicksPerFrame;
+#endif
+            return netDebug;
         }
 
         /// <inheritdoc/>

@@ -21,11 +21,9 @@ public struct CharacterInput : IInputComponentData
 // User gameplay logic is done in GhostBehaviours, similar to NGO's NetworkBehaviour
 public partial class MyCharacter : GhostBehaviour
 {
-    public GhostVariable<int> MyHealth;
-    public GhostVariable<Vector3> Velocity;
-    public GhostVariableBridge<CharacterInput> Input; // TODO this input design is still TBD. This works, but isn't great and has gotchas (like I can forget to setup ownership)
-
-    public GhostVariable<Vector3> PlayerHeadPosition = new GhostVariable(Authority=Authority.Client); // VR player head can't be corrected, so setting it as client authoritative. TODO Design still TBD
+    public GhostField<int> MyHealth;
+    public GhostField<Vector3> Velocity;
+    public GhostComponentRef<CharacterInput> Input; // TODO this input design is still TBD. This works, but isn't great and has gotchas (like I can forget to setup ownership)
 
     public void Awake()
     {
@@ -66,7 +64,10 @@ public partial class MyCharacter : GhostBehaviour
 
     public void Update()
     {
-        // this should be done once per frame, so not running in PredictionUpdate()
+        // Client authority is a ghost wide mode, like Predicted or Interpolated
+        // If this character is set as client authoritative, then we can update the position only once per frame in Update.
+        // If we want something that's ticking at the right rate, automatically adjusting, accelerating, deccelarating according to server update rate, then it's better
+        // to still call this in PredictionUpdate
         this.PlayerHeadPosition.Value = VRUtility.GetHeadsetPosition();
     }
 
@@ -88,7 +89,7 @@ public struct HealthComponent : IComponentData
 }
 public partial class MyCharacter : GhostBehaviour
 {
-    public GhostVariableBridge<HealthComponent> health;
+    public GhostComponentRef<HealthComponent> health;
 
     void PredictionUpdate()
     {
@@ -131,6 +132,8 @@ void Awake()
 ## Per Ghost GameObject Bridge (GameObject to Entity)
 
 Entities integration is coming eventually. In the meantime, we have a simple static hashmap of GameObject ID to Entity that allows us to simulate that behaviour of implicit association between a GameObject and entity.
+
+TODO-next we'll probably rename GhostAdapter to GhostObject. Keeping that name for now for ease of backporting PRs.
 
 ```mermaid
 ---
@@ -188,7 +191,7 @@ classDiagram
     note for GhostAdapter "Similar to NGO's NetworkObject<br>abstracts queries for Ghost wide data<br>list owner, ghost ID, spawn tick, etc"
 
     class MyCharacterController {
-        -NetworkVariable<int> Health
+        -GhostField<int> Health
         +PredictionUpdate()
     }
     GhostBehaviour <|-- MyCharacterController
@@ -343,57 +346,25 @@ end
     Netcode ->> Entity : Networked spawn (through Netcode's Spawn System)
 
     participant ClientNetcode as Client Spawn System
+    participant GhostUpdateSystem
     Netcode ->> ClientNetcode : Send spawn
     create participant ClientEntity
     ClientNetcode ->> ClientEntity : spawn using <br>registered entity prefab
     ClientNetcode ->> ClientEntity : Get associated GO prefab <br> (saved in comp)
-    ClientNetcode ->> Prefab : get
+    ClientNetcode ->> Prefab : get and set active false temporarily
     create participant ClientGameObject
     ClientNetcode ->> ClientGameObject : Instantiate
     participant ClientGhostEntityMapping as Client Ghost Mapping
     ClientGameObject ->> ClientGhostEntityMapping : Acquire ref (increments by one)
+    GhostUpdateSystem ->> ClientEntity : Set Initial Values
+    ClientNetcode ->> ClientGameObject : SetActive(true)
+    ClientGameObject ->> ClientEntity : Awake can get up to date to date values
 
 
 ```
 
-## Accessing Networked State
-
-```mermaid
----
-title: Networked State
-config:
-class:
-hideEmptyMembersBox: true
----
-
-classDiagram
-    direction TB
-    class NetworkVariable~T~ {
-        -Entity
-        -World
-        -ComponentType
-        +T Value
-    }
-    class Generated_HealthComponent {
-        +[GhostField] int Value
-    }
-    class MyCharacterController {
-        -NetworkVariable~int~ Health
-    }
-    NetworkVariable "1" o-- Generated_HealthComponent
-    MyCharacterController "0..*" *-- NetworkVariable
-    World "1..*" *-- Chunk
-    Chunk "1..*" *-- Generated_HealthComponent
-
-    GameObject "0..*" *-- GhostBehaviour
-    GhostBehaviour <|-- MyCharacterController
-
-    Entity --> Chunk : is an entry in
-    NetworkVariable "1" o-- World
-    NetworkVariable "1" o-- Entity
-
-
-```
+## Accessing Networked State using GhostField
+See [StateSyncing.md](StateSyncing.md)
 
 ## Prediction
 
@@ -496,5 +467,4 @@ RelevancyComponent <-- RelevancySystem  : OnUpdate
 PredictionSwitchComponent <-- PredictionSwitchSystem : OnUpdate
 ServerRewindComponent <-- ServerRewindSystem : OnUpdate
 ConnectionComponent <-- ConnectionSystem : OnUpdate
-
 ```

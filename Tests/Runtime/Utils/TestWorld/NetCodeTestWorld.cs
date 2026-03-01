@@ -121,8 +121,8 @@ namespace Unity.NetCode.Tests
             World CreateHostWorld(string name, World world = null);
             void DisposeClientWorld(World clientWorld);
             void DisposeServerWorld(World serverWorld);
-            void TickNoAwait(float dt);
-            Task TickAsync(float dt, NetcodeAwaitable waitInstruction = null);
+            void TickNoAwait(float dt, bool skipSanityCheck = false);
+            Task TickAsync(float dt, NetcodeAwaitable waitInstruction = null, bool skipSanityCheck = false);
             void TickClientWorld(float dt);
             void TickServerWorld(float dt);
             void RemoveWorldFromUpdateList(World world);
@@ -200,7 +200,7 @@ namespace Unity.NetCode.Tests
         NetCodeConfig m_GlobalConfigForTests;
 
         public Scene m_EmptyScene;
-        protected string k_TestSceneName = "TestScene";
+        public string k_TestSceneName = "TestScene";
         public const string k_GeneratedFolderBasePath = "Assets/Tests/Generated/";
         NetCodeConfig m_TempBootstrapConfig;
 
@@ -294,7 +294,8 @@ namespace Unity.NetCode.Tests
                     Object.DestroyImmediate(config, allowDestroyingAssets: true);
                 }
             }
-            m_WorldStrategy.Dispose();
+            if (m_WorldStrategy != null) // doing a null check since if this is null, this can hide other exceptions in unity's test log reports, if the exception happens before worlds are created
+                m_WorldStrategy.Dispose();
             if (m_ClientWorlds != null)
             {
                 for (int i = 0; i < m_ClientWorlds.Count; ++i)
@@ -384,7 +385,7 @@ namespace Unity.NetCode.Tests
                 Netcode.DisposeAfterEnterEditMode();
                 var testNetcode = new TestNetcode(this); // this auto registers to Netcode.Instance
                 testNetcode.Initialize();
-                testNetcode.InitializeWithAssets();
+            // testNetcode.InitializeWithAssets(); // TODO-release@entitiesIntegration for now this is called as part of Netcode.Initialize
                 Assert.IsTrue(Netcode.Instance is TestNetcode);
             }
         }
@@ -734,8 +735,10 @@ namespace Unity.NetCode.Tests
         }
 #endif
 
-        public void ApplyDT(float dt)
+        public void ApplyDT(float dt, bool skipSanityCheck = false)
         {
+            if (!skipSanityCheck)
+                Assert.That(dt, Is.Not.InRange(0.9999f, 1.0001f), "sanity check after making the silly mistake of setting '1' for count, but used dt instead and spending too much time debugging this. Did you mean to set a number of iteration count to 1 and used the wrong parameter?"); // this check can be removed if you absolutely need to set 1 whole second of delta time.
             ApplyDTServer(dt);
             ApplyDTClient(dt);
         }
@@ -788,9 +791,9 @@ namespace Unity.NetCode.Tests
 
         const float k_defaultDT = 1f / 60f;
 
-        public void Tick(float dt = k_defaultDT)
+        public void Tick(float dt = k_defaultDT, bool skipSanityCheck = false)
         {
-            m_WorldStrategy.TickNoAwait(dt);
+            m_WorldStrategy.TickNoAwait(dt, skipSanityCheck: skipSanityCheck);
         }
 
         public void TickMultiple( int numTicks, float dt = k_defaultDT)
@@ -1522,7 +1525,8 @@ namespace Unity.NetCode.Tests
         /// </code>
         /// </summary>
         /// <returns></returns>
-        public async Task SetupGameObjectTest(bool useNormalMainLoop = true, int serverCount = 1, int clientCount = 1, int singleWorldHostCount = 0, bool cleanGeneratedDirectory = true, bool keepExistingNetcodeInstance = false)
+        public async Task SetupGameObjectTest(bool useNormalMainLoop = true, int serverCount = 1, int clientCount = 1, int singleWorldHostCount = 0, bool cleanGeneratedDirectory = true, bool keepExistingNetcodeInstance = false,
+            params Type[] userSystems)
         {
             // Any playmode test will trigger IBootstrap's Initialize which already creates worlds we don't have control over
             // This test needs to run in a project with no custom bootstrapper for the below cleanup to still be valid
@@ -1542,7 +1546,7 @@ namespace Unity.NetCode.Tests
 
             SetupTestNetcodeAPI(keepExistingNetcodeInstance); // Needs to run again since we might have disposed the above worlds, changing the various cached queries
 
-            Bootstrap(NetCodeTestWorld.SystemResolutionMode.NetcodeAndUserSystems, includePresentationSystemsOnClient: false, useNormalMainLoop: useNormalMainLoop);
+            Bootstrap(NetCodeTestWorld.SystemResolutionMode.NetcodeAndUserSystems, includePresentationSystemsOnClient: false, useNormalMainLoop: useNormalMainLoop, userSystems: userSystems);
             if (serverCount > 0 || clientCount > 0)
             {
                 // Warning: multiple ticks can be called between test setup and the test execution. Test shouldn't rely on the exact number of ticks
@@ -1607,7 +1611,13 @@ namespace Unity.NetCode.Tests
                 await UnloadSceneAsync(m_EmptyScene);
             }
 #if UNITY_6000_3_OR_NEWER // Required to use GameObject bridge with EntityID
-            Assert.That(GameObject.FindObjectsByType<GhostAdapter>(FindObjectsInactive.Include, FindObjectsSortMode.None), Is.Empty);
+            var foundObjects = GameObject.FindObjectsByType<GhostAdapter>(FindObjectsInactive.Include, FindObjectsSortMode.None);
+            for (int i = 0; i < foundObjects.Length; i++)
+            {
+                GameObject.Destroy(foundObjects[i].gameObject);
+            }
+
+            Assert.That(foundObjects, Is.Empty);
 #endif
         }
 

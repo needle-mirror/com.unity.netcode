@@ -123,7 +123,7 @@ namespace Unity.NetCode
 
             if (!m_GameObjectQuery.IsEmpty)
             {
-                // Delay the GameObject destruction to a subsequent managed system since we can't burst GameObject Destroy right now TODO-next merge that system back here
+                // Delay the GameObject destruction to a subsequent managed system since we can't burst GameObject Destroy right now TODO-next@domino after domino: merge that system back here
                 state.Dependency.Complete();
                 ref var GODespawnTracking = ref SystemAPI.GetSingletonRW<GameObjectDespawnTracking>().ValueRW;
                 GODespawnTracking.allGODespawns = m_AllGameObjectDespawns;
@@ -188,7 +188,7 @@ namespace Unity.NetCode
         public NativeList<GhostDespawnSystem.DelayedDespawnGhost> allGODespawns;
     }
 
-    // TODO-next GO despawn doesn't have APIs for burst compatible GO destruction. Raised this on slack. Disabling burst for now, since this is really just a system that schedules a job that's itself bursted anyway. But should come back to this if/when that's available. Slack thread https://unity.slack.com/archives/C0575F6KEAY/p1757546583041179
+    // TODO-next@trunk once we're in trunk, check slack thread see if they were able to get to it: GO despawn doesn't have APIs for burst compatible GO destruction. Raised this on slack. Disabling burst for now, since this is really just a system that schedules a job that's itself bursted anyway. But should come back to this if/when that's available. Slack thread https://unity.slack.com/archives/C0575F6KEAY/p1757546583041179
     [RequireMatchingQueriesForUpdate]
     [UpdateInGroup(typeof(GhostSimulationSystemGroup))]
     [WorldSystemFilter(WorldSystemFilterFlags.ClientSimulation | WorldSystemFilterFlags.ThinClientSimulation)]

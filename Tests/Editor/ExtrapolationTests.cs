@@ -1,7 +1,7 @@
 #pragma warning disable CS0618 // Disable Entities.ForEach obsolete warnings
 using System;
 using System.Collections.Generic;
-using System.Linq;
+using System.Text;
 using System.Text.RegularExpressions;
 using NUnit.Framework;
 using Unity.Collections;
@@ -87,7 +87,7 @@ namespace Unity.NetCode.Tests
     [UpdateInGroup(typeof(SimulationSystemGroup), OrderLast = true)]
     internal partial class CheckExtrapolate : SystemBase
     {
-        private const float DrawDurationSeconds = 180;
+        private const float DrawDurationSeconds = 30;
         public static uint NumStepsTested;
 
         protected override void OnUpdate()
@@ -145,26 +145,32 @@ namespace Unity.NetCode.Tests
                     // Draw every time we receive a snapshot:
                     const float markerLength = 0.3f;
                     var expectedDeltaStep = tickRate.SimulationFixedTimeStep;
+                    // Static interpolated ghosts will assume the object started moving MaxSendRateTicks/2 ago, so the smoothed delta will be twice as big.
+                    if (current.OptimizationMode == GhostOptimizationMode.Static && current.GhostMode == GhostMode.Interpolated)
+                        expectedDeltaStep *= 2;
+
                     var numPredictedTicks = nTime.ServerTick.TicksSince(nTime.InterpolationTick);
 
                     var log = ExtrapolationTests.TestLog[clientEntity];
                     if (hasNewSnapshotContainingThisGhost)
                     {
+                        // Draw snapshot lines.
                         Debug.DrawRay(new Vector3(x + backupLength, backup.ReceivedValueIaE, 0), new Vector3(-markerLength * 0.5f, markerLength, 0), Color.green, DrawDurationSeconds);
-                        log += ($"\n\n-- New Snapshot! ?:{current.TicksSinceClampedValueChanged} ticks");
+                        Debug.DrawRay(new Vector3(x + backupLength, -backup.ReceivedValueIaE, 0), new Vector3(-markerLength * 0.5f, -markerLength, 0), Color.green, DrawDurationSeconds);
+                        log.Append($"\n\n-- New Snapshot! ?:{current.TicksSinceClampedValueChanged} ticks");
 
                         var isReceivingSnapshotsTooFrequently = current.TicksSinceClampedValueChanged < (tickRate.SimulationTickRate / 2) - 2;
                         if (isReceivingSnapshotsTooFrequently)
-                            log += ($"\nFATAL! isReceivingSnapshotsTooFrequently:{current.TicksSinceClampedValueChanged}");
+                            log.Append($"\nFATAL! isReceivingSnapshotsTooFrequently:{current.TicksSinceClampedValueChanged}");
                         var interpolationBufferTooBig = numPredictedTicks > 12;
                         if (interpolationBufferTooBig)
-                            log += ($"\nFATAL! interpolationBufferTooBig:{numPredictedTicks}");
+                            log.Append($"\nFATAL! interpolationBufferTooBig:{numPredictedTicks}");
 
                         current.TicksSinceClampedValueChanged = 0;
                     }
                     else if(current.TicksSinceClampedValueChanged.HasValue) current.TicksSinceClampedValueChanged++;
 
-                    log += $"\nST:{nTime.ServerTick.ToFixedString()} IT:{nTime.InterpolationTick.ToFixedString()} ?:{numPredictedTicks} TSCVC:{current.TicksSinceClampedValueChanged} --";
+                    log.Append($"\nST:{nTime.ServerTick.ToFixedString()} IT:{nTime.InterpolationTick.ToFixedString()} ?:{numPredictedTicks} TSCVC:{current.TicksSinceClampedValueChanged} --");
                     NumStepsTested++;
 
                     // Expected behaviour:
@@ -177,7 +183,7 @@ namespace Unity.NetCode.Tests
                     TestValue(-1, exp.ExpectedPInterp, current.PredictedValueInterp, backup.PredictedValueInterp, ref log, "PInterp", current.TicksSinceClampedValueChanged, false);
                     TestValue(-1, exp.ExpectedPClamp, current.PredictedValueClamp, backup.PredictedValueClamp, ref log, "PClamp", current.TicksSinceClampedValueChanged, false);
 
-                    void TestValue(float yMul, Result expectedResult, float currentVal, float previousVal, ref string log2, string name, int? ticksSinceClampedValueChangedLocal, bool isExtrapolating)
+                    void TestValue(float yMul, Result expectedResult, float currentVal, float previousVal, ref StringBuilder log2, string name, int? ticksSinceClampedValueChangedLocal, bool isExtrapolating)
                     {
                         var result = Result.Unknown;
                         const float clampTolerance = 0.005f;
@@ -187,13 +193,16 @@ namespace Unity.NetCode.Tests
                         if(isSmooth) result = Result.Smooth;
                         var modDelta = math.abs(delta) % expectedDeltaStep;
                         var deltaToModDelta = math.min(modDelta, math.abs(expectedDeltaStep - modDelta));
-                        if (!isSmooth && deltaToModDelta <= clampTolerance) result = Result.Clamp;
+                        if (!isSmooth && deltaToModDelta <= clampTolerance)
+                        {
+                            result = delta > 0 ? Result.Teleport : Result.NoChange;
+                        }
                         if (delta < 0) result = Result.Negative;
-                        log2 += $"\n\t{name}    \t >> {currentVal:0.000} {result.ToString()} ";
-                        //log2 += $"%?:{(delta % expectedDeltaStep):0.000} {1f-(delta/expectedDeltaStep):p0}";
+                        log2.Append($"\n\t{name}    \t >> {currentVal:0.000} {result.ToString()} ");
+                        //log2.Append($"%?:{(delta % expectedDeltaStep):0.000} {1f-(delta/expectedDeltaStep):p0}");
                         if (result != expectedResult && expectedResult != Result.Any)
                         {
-                            log2 += $" < EXPECTED {expectedResult}";
+                            log2.Append($" < EXPECTED {expectedResult}");
                             Debug.DrawRay(new Vector3(x + length, yMul * currentVal, 0), new Vector3(-markerLength, yMul * markerLength, 0), Color.red, DrawDurationSeconds);
                         }
                     }
@@ -220,8 +229,10 @@ namespace Unity.NetCode.Tests
         Unknown,
         /// <summary>Denotes the value has (or should) smoothly increase (by deltaTime) in a positive direction, without any noticeable jumps or negative values.</summary>
         Smooth,
-        /// <summary>Denotes the value has (or should) clamp to the latest value, forming a staircase where it either doesn't change, or (rarely) jumps many ticks.</summary>
-        Clamp,
+        /// <summary>Denotes the value has (or should) match the last value.</summary>
+        NoChange,
+        /// <summary>Denotes the value has (or should) teleport to the latest value</summary>
+        Teleport,
         /// <summary>Denotes the value has (or should) go negative.</summary>
         Negative,
         /// <summary>Denotes any value allowed / skipped.</summary>
@@ -243,8 +254,12 @@ namespace Unity.NetCode.Tests
             Interpolate50msThenExtrapolate50ms,
         }
 
+        private static int ExpectedInterpolationTicks;
+        private static int ExpectedExtrapolationTicks;
+        private static int ExpectedTicksBetweenSnapshots;
+
         public const float k_StepTolerance = 0.001f;
-        public static Dictionary<Entity,string> TestLog;
+        public static Dictionary<Entity,StringBuilder> TestLog;
         /// <summary>
         /// Tests three sub-systems used by end-users to get smooth, consistent gameplay using GhostFields;
         /// <list type="bullet">
@@ -280,6 +295,12 @@ namespace Unity.NetCode.Tests
             var optimizationModes = (GhostOptimizationMode[])Enum.GetValues(typeof(GhostOptimizationMode));
             var ghostModes = (GhostMode[])Enum.GetValues(typeof(GhostMode));
             var authoringGhostPrefabs = new List<GameObject>(32);
+
+            // MaxSendRate needs to be low, to make sure interpolation & extrapolation is used.
+            // Note: Don't use NetworkTickRate for this, as it forces
+            // the interpolation window to be a minimum of 1 NetworkTickRate tick.
+            byte maxSendRate = 2;
+
             foreach (var optimizationMode in optimizationModes)
             {
                 foreach (var ghostMode in ghostModes)
@@ -298,9 +319,7 @@ namespace Unity.NetCode.Tests
                     ghostAuthoringComponent.SupportedGhostModes = GhostModeMask.All;
                     ghostAuthoringComponent.OptimizationMode = optimizationMode;
                     ghostAuthoringComponent.HasOwner = true;
-                    ghostAuthoringComponent.MaxSendRate = 2; // Low, to make sure interpolation & extrapolation is used.
-                                                             // Note: Don't use NetworkTickRate for this, as it forces
-                                                             // the interpolation window to be a minimum of 1 NetworkTickRate tick.
+                    ghostAuthoringComponent.MaxSendRate = maxSendRate;
                 }
             }
             Assert.IsTrue(testWorld.CreateGhostCollection(authoringGhostPrefabs.ToArray()));
@@ -325,6 +344,12 @@ namespace Unity.NetCode.Tests
             clientTickRate.MaxExtrapolationTimeSimTicks = (uint) (extrapMs / 1000f * tickRate.SimulationTickRate);
             testWorld.ClientWorlds[0].EntityManager.CreateSingleton(clientTickRate);
 
+            // Calculate various tick windows for this test
+            ExpectedTicksBetweenSnapshots = tickRate.SimulationTickRate / maxSendRate;
+            // there'll always be a minimum of 2 ticks of interpolation
+            ExpectedInterpolationTicks = math.max((int) (interpMs / 1000f * tickRate.SimulationTickRate), 1);
+            ExpectedExtrapolationTicks = (int) clientTickRate.MaxExtrapolationTimeSimTicks;
+
             // Spawn & set owner (for owner predicted):
             var serverEntitites = new FixedList4096Bytes<Entity>();
             foreach (var ghostPrefab in authoringGhostPrefabs)
@@ -337,7 +362,7 @@ namespace Unity.NetCode.Tests
             // Let the simulation run for a bit since we're testing the stability of the connection (and start-up is turbulent):
             testWorld.Connect();
             testWorld.GoInGame();
-            for (int i = 0; i < 256; ++i)
+            for (int i = 0; i < 300; ++i)
                 testWorld.Tick();
 
             // Reset the values just before test start:
@@ -345,9 +370,9 @@ namespace Unity.NetCode.Tests
             using var clientEntities = clientEntityQuery.ToEntityArray(Allocator.Persistent);
             foreach (var serverEntity in serverEntitites)
                 ResetComp(testWorld.ServerWorld.EntityManager, serverEntity);
-            TestLog = new Dictionary<Entity, string>(clientEntities.Length);
+            TestLog = new Dictionary<Entity, StringBuilder>(clientEntities.Length);
             foreach (var clientEntity in clientEntities)
-                TestLog.Add(clientEntity, "");
+                TestLog.Add(clientEntity, new StringBuilder());
             static void ResetComp(EntityManager em, Entity entity)
             {
                 var comp = em.GetComponentData<TestExtrapolated>(entity);
@@ -381,7 +406,7 @@ namespace Unity.NetCode.Tests
                 LogEach(ref current, TestLog[clientEntity]);
             }
 
-            void LogEach(ref TestExtrapolated current, string logFs)
+            void LogEach(ref TestExtrapolated current, StringBuilder logFs)
             {
                 Assert.That(logFs.Length > 1000, "Sanity");
                 var title = $"({mode},{current.OptimizationMode},{current.GhostMode}) - InterpolationBufferWindow:{clientTickRate.CalculateInterpolationBufferTimeInMs(in tickRate)}ms, ExtrapolationBufferWindow:{clientTickRate.MaxExtrapolationTimeSimTicks}ticks!";
@@ -398,9 +423,15 @@ namespace Unity.NetCode.Tests
                         return;
                     }
                 }
-                Debug.Log($"PASS: Found {foundErrors} errors with (stepTolerance:{k_StepTolerance:0.000}) on {log}");
+
+                if (DebugMode)
+                {
+                    Debug.Log($"PASS: Found {foundErrors} errors with (stepTolerance:{k_StepTolerance:0.000}) on {log}");
+                }
             }
         }
+
+        public static bool DebugMode = false;
 
         internal struct ResultGroup
         {
@@ -414,114 +445,106 @@ namespace Unity.NetCode.Tests
         }
         public static ResultGroup GetExpectedResults(in TestExtrapolated current)
         {
-            // Nuance1: Interpolation smoothes values for `(SNAPSHOT-N) to SNAPSHOT` ticks BEFORE the NEXT clamp value (including the tick the snapshot arrived for).
-            // Nuance2: Extrapolation smoothes values from `SNAPSHOT to (SNAPSHOT+N)` ticks i.e. AFTER the snapshot arrives (including the tick the snapshot arrived for).
-            // Nuance3: When in the extrapolation mode, we still see ~2 ticks of interpolation for SmoothingAction.Interpolate and SmoothingAction.InterpolateAndExtrapolate,
-            // on the 0th and last tick (before another snapshot arrives). This is correct & expected.
-            // Nuance4: Static-optimized disables extrapolation.
-            // Nuance5: 50ms of interpolation + 50ms of extrapolation leads to a different smooth & clamp pattern than previous patterns (as expected). This one is for dynamic ghosts.
-            // Nuance6: Same as Note5, but for static-optimized ghosts.
-            Span<(Result n1, Result n2, Result n3, Result n4, Result n5, Result n6)> nuances = stackalloc (Result, Result, Result, Result, Result, Result)[]
+            // Test is still warming up, return fields that are safe to assume their behavior
+            if (!current.TicksSinceClampedValueChanged.HasValue)
             {
-                // Note1,           Note2,          Note3,          Note4,          Note5,          Note6
-                (Result.Smooth,     Result.Smooth,  Result.Smooth,  Result.Smooth,  Result.Smooth,  Result.Smooth), // 0
-                (Result.Clamp,      Result.Clamp,   Result.Smooth,  Result.Clamp,   Result.Smooth,  Result.Clamp),
-                (Result.Clamp,      Result.Clamp,   Result.Smooth,  Result.Clamp,   Result.Smooth,  Result.Clamp),
-                (Result.Clamp,      Result.Clamp,   Result.Smooth,  Result.Clamp,   Result.Smooth,  Result.Clamp), // 3 - Extrapolation ends at 50ms.
-                (Result.Clamp,      Result.Clamp,   Result.Smooth,  Result.Clamp,   Result.Clamp,   Result.Clamp),
-                (Result.Clamp,      Result.Clamp,   Result.Smooth,  Result.Clamp,   Result.Clamp,   Result.Clamp),
-                (Result.Clamp,      Result.Clamp,   Result.Smooth,  Result.Clamp,   Result.Clamp,   Result.Clamp), // 6 - Extrapolation ends at 100ms.
-                (Result.Clamp,      Result.Clamp,   Result.Clamp,   Result.Clamp,   Result.Clamp,   Result.Clamp),
-                (Result.Clamp,      Result.Clamp,   Result.Clamp,   Result.Clamp,   Result.Clamp,   Result.Clamp),
-                (Result.Clamp,      Result.Clamp,   Result.Clamp,   Result.Clamp,   Result.Clamp,   Result.Clamp),
-                (Result.Clamp,      Result.Clamp,   Result.Clamp,   Result.Clamp,   Result.Clamp,   Result.Clamp), // 10
-                (Result.Clamp,      Result.Clamp,   Result.Clamp,   Result.Clamp,   Result.Clamp,   Result.Clamp),
-                (Result.Clamp,      Result.Clamp,   Result.Clamp,   Result.Clamp,   Result.Clamp,   Result.Clamp),
-                (Result.Clamp,      Result.Clamp,   Result.Clamp,   Result.Clamp,   Result.Clamp,   Result.Clamp),
-                (Result.Clamp,      Result.Clamp,   Result.Clamp,   Result.Clamp,   Result.Clamp,   Result.Clamp),
-                (Result.Clamp,      Result.Clamp,   Result.Clamp,   Result.Clamp,   Result.Clamp,   Result.Clamp),
-                (Result.Clamp,      Result.Clamp,   Result.Clamp,   Result.Clamp,   Result.Clamp,   Result.Clamp),
-                (Result.Clamp,      Result.Clamp,   Result.Clamp,   Result.Clamp,   Result.Clamp,   Result.Clamp),
-                (Result.Clamp,      Result.Clamp,   Result.Clamp,   Result.Clamp,   Result.Clamp,   Result.Clamp),
-                (Result.Clamp,      Result.Clamp,   Result.Clamp,   Result.Clamp,   Result.Clamp,   Result.Clamp),
-                (Result.Clamp,      Result.Clamp,   Result.Clamp,   Result.Clamp,   Result.Clamp,   Result.Clamp), // 20
-                (Result.Clamp,      Result.Clamp,   Result.Clamp,   Result.Clamp,   Result.Clamp,   Result.Clamp),
-                (Result.Clamp,      Result.Clamp,   Result.Clamp,   Result.Clamp,   Result.Clamp,   Result.Clamp),
-                (Result.Clamp,      Result.Clamp,   Result.Clamp,   Result.Clamp,   Result.Clamp,   Result.Clamp),
-                (Result.Smooth,     Result.Clamp,   Result.Clamp,   Result.Clamp,   Result.Clamp,   Result.Clamp), // 24 - Interpolation begins at 100ms.
-                (Result.Smooth,     Result.Clamp,   Result.Clamp,   Result.Clamp,   Result.Clamp,   Result.Clamp),
-                (Result.Smooth,     Result.Clamp,   Result.Clamp,   Result.Clamp,   Result.Clamp,   Result.Clamp),
-                (Result.Smooth,     Result.Clamp,   Result.Clamp,   Result.Clamp,   Result.Smooth,  Result.Smooth), // 27 - Interpolation begins at 50ms.
-                (Result.Smooth,     Result.Clamp,   Result.Clamp,   Result.Clamp,   Result.Smooth,  Result.Smooth),
-                (Result.Smooth,     Result.Smooth,  Result.Smooth,  Result.Smooth,  Result.Smooth,  Result.Smooth), // 29
-            };
+                if (current.GhostMode == GhostMode.Interpolated)
+                {
+                    return new ResultGroup
+                    {
+                        ExpectedRIaE = Result.Any,
+                        ExpectedRIaEWithMaxSmoothingDistance = Result.NoChange,
+                        ExpectedRInterp = Result.Any,
+                        ExpectedRClamp = Result.NoChange,
+                        ExpectedPIaE = Result.Any,
+                        ExpectedPInterp = Result.Any,
+                        ExpectedPClamp = Result.NoChange,
+                    };
+                }
+
+                return new ResultGroup
+                {
+                    ExpectedRIaE = Result.NoChange,
+                    ExpectedRIaEWithMaxSmoothingDistance = Result.NoChange,
+                    ExpectedRInterp = Result.NoChange,
+                    ExpectedRClamp = Result.NoChange,
+                    ExpectedPIaE = Result.Smooth,
+                    ExpectedPInterp = Result.Smooth,
+                    ExpectedPClamp = Result.Smooth,
+                };
+            }
+
+            /*
+             * Calculate the expected behavior from the ticksSinceValueChanged along with the expected tick windows for this test.
+             * - InsideTolerance smooths values for `(SNAPSHOT-N) to SNAPSHOT` ticks BEFORE the NEXT clamp value (including the tick the snapshot arrived for)
+             * - Extrapolation smooths values from `SNAPSHOT to (SNAPSHOT+N)` ticks i.e. AFTER the tick the snapshot arrived (including the tick the snapshot arrived for).
+             *
+             * When a new snapshot arrives,
+             *  1. Clamped fields should teleport
+             *  2. Interpolated fields should teleport part of the way and then interpolate for the rest of the interpolation window
+             *  2. Non-predicted fields on a predicted ghost should smooth
+             */
+
+            var ticksSinceValueChanged = current.TicksSinceClampedValueChanged.Value;
+            var ticksUntilSnapshot = ExpectedTicksBetweenSnapshots - ticksSinceValueChanged;
+
+            var clampedMovement = ticksSinceValueChanged == 0 ? Result.Teleport : Result.NoChange;
+
+            var interpolatedMovement = Result.NoChange;
+
+            // Interpolated fields should smooth on
+            //   1. The calculated number of ticks before a valid snapshot
+            //   2. The tick the value changes
+            if (ticksUntilSnapshot <= ExpectedInterpolationTicks || ticksSinceValueChanged == 0)
+            {
+                interpolatedMovement = Result.Smooth;
+            }
+            // The movement will teleport on the tick a new snapshot arrives,
+            // This will be one tick before the interpolation window starts
+            else if (ticksUntilSnapshot == ExpectedInterpolationTicks + 1)
+            {
+                interpolatedMovement = Result.Teleport;
+            }
+
+            // When interpolating and extrapolating, the movement will smooth for the number of ticks defined by the extrapolation window
+            var interpolateAndExtrapolateMovement = ticksSinceValueChanged <= ExpectedExtrapolationTicks ? Result.Smooth : interpolatedMovement;
+
             switch (TMode, current.OptimizationMode, current.GhostMode)
             {
                 case (_, GhostOptimizationMode.Dynamic or GhostOptimizationMode.Static, GhostMode.Predicted or GhostMode.OwnerPredicted):
                     return new ResultGroup
                     {
-                        ExpectedRIaE = Result.Clamp,
-                        ExpectedRIaEWithMaxSmoothingDistance = Result.Clamp,
-                        ExpectedRInterp = Result.Clamp,
-                        ExpectedRClamp = Result.Clamp,
+                        ExpectedRIaE = clampedMovement,
+                        ExpectedRIaEWithMaxSmoothingDistance = clampedMovement,
+                        ExpectedRInterp = clampedMovement,
+                        ExpectedRClamp = clampedMovement,
                         ExpectedPIaE = Result.Smooth,
                         ExpectedPInterp = Result.Smooth,
                         ExpectedPClamp = Result.Smooth,
                     };
-                case (NetcodeSetupMode.OnlyInterpolate100ms, _, GhostMode.Interpolated):
-                    return new ResultGroup
-                    {
-                        ExpectedRIaE = current.TicksSinceClampedValueChanged.HasValue ? nuances[current.TicksSinceClampedValueChanged.Value].n1 : Result.Any,
-                        ExpectedRIaEWithMaxSmoothingDistance = Result.Clamp,
-                        ExpectedRInterp = current.TicksSinceClampedValueChanged.HasValue ? nuances[current.TicksSinceClampedValueChanged.Value].n1 : Result.Any,
-                        ExpectedRClamp = Result.Clamp,
-                        ExpectedPIaE = current.TicksSinceClampedValueChanged.HasValue ? nuances[current.TicksSinceClampedValueChanged.Value].n1 : Result.Any,
-                        ExpectedPInterp = current.TicksSinceClampedValueChanged.HasValue ? nuances[current.TicksSinceClampedValueChanged.Value].n1 : Result.Any,
-                        ExpectedPClamp = Result.Clamp,
-                    };
-                case (NetcodeSetupMode.Interpolate50msThenExtrapolate50ms, GhostOptimizationMode.Dynamic, GhostMode.Interpolated):
-                    return new ResultGroup
-                    {
-                        ExpectedRIaE = current.TicksSinceClampedValueChanged.HasValue ? nuances[current.TicksSinceClampedValueChanged.Value].n5 : Result.Any,
-                        ExpectedRIaEWithMaxSmoothingDistance = Result.Clamp,
-                        ExpectedRInterp = current.TicksSinceClampedValueChanged.HasValue ? nuances[current.TicksSinceClampedValueChanged.Value].n6 : Result.Any,
-                        ExpectedRClamp = Result.Clamp,
-                        ExpectedPIaE = current.TicksSinceClampedValueChanged.HasValue ? nuances[current.TicksSinceClampedValueChanged.Value].n5 : Result.Any,
-                        ExpectedPInterp = current.TicksSinceClampedValueChanged.HasValue ? nuances[current.TicksSinceClampedValueChanged.Value].n6 : Result.Any,
-                        ExpectedPClamp = Result.Clamp,
-                    };
-                case (NetcodeSetupMode.Interpolate50msThenExtrapolate50ms, GhostOptimizationMode.Static, GhostMode.Interpolated):
-                    return new ResultGroup
-                    {
-                        ExpectedRIaE = current.TicksSinceClampedValueChanged.HasValue ? nuances[current.TicksSinceClampedValueChanged.Value].n6 : Result.Any,
-                        ExpectedRIaEWithMaxSmoothingDistance = Result.Clamp,
-                        ExpectedRInterp = current.TicksSinceClampedValueChanged.HasValue ? nuances[current.TicksSinceClampedValueChanged.Value].n6 : Result.Any,
-                        ExpectedRClamp = Result.Clamp,
-                        ExpectedPIaE = current.TicksSinceClampedValueChanged.HasValue ? nuances[current.TicksSinceClampedValueChanged.Value].n6 : Result.Any,
-                        ExpectedPInterp = current.TicksSinceClampedValueChanged.HasValue ? nuances[current.TicksSinceClampedValueChanged.Value].n6 : Result.Any,
-                        ExpectedPClamp = Result.Clamp,
-                    };
                 case (_, GhostOptimizationMode.Dynamic, GhostMode.Interpolated):
+
                     return new ResultGroup
                     {
-                        ExpectedRIaE = current.TicksSinceClampedValueChanged.HasValue ? nuances[current.TicksSinceClampedValueChanged.Value].n3 : Result.Any,
-                        ExpectedRIaEWithMaxSmoothingDistance = Result.Clamp,
-                        ExpectedRInterp = current.TicksSinceClampedValueChanged.HasValue ? nuances[current.TicksSinceClampedValueChanged.Value].n2 : Result.Any,
-                        ExpectedRClamp = Result.Clamp,
-                        ExpectedPIaE = current.TicksSinceClampedValueChanged.HasValue ? nuances[current.TicksSinceClampedValueChanged.Value].n3 : Result.Any,
-                        ExpectedPInterp = current.TicksSinceClampedValueChanged.HasValue ? nuances[current.TicksSinceClampedValueChanged.Value].n2 : Result.Any,
-                        ExpectedPClamp = Result.Clamp,
+                        ExpectedRIaE = interpolateAndExtrapolateMovement,
+                        ExpectedRIaEWithMaxSmoothingDistance = clampedMovement,
+                        ExpectedRInterp = interpolatedMovement,
+                        ExpectedRClamp = clampedMovement,
+                        ExpectedPIaE = interpolateAndExtrapolateMovement,
+                        ExpectedPInterp = interpolatedMovement,
+                        ExpectedPClamp = clampedMovement,
                     };
                 case (_, GhostOptimizationMode.Static, GhostMode.Interpolated):
+
                     return new ResultGroup
                     {
-                        ExpectedRIaE = current.TicksSinceClampedValueChanged.HasValue ? nuances[current.TicksSinceClampedValueChanged.Value].n4 : Result.Any,
-                        ExpectedRIaEWithMaxSmoothingDistance = Result.Clamp,
-                        ExpectedRInterp = current.TicksSinceClampedValueChanged.HasValue ? nuances[current.TicksSinceClampedValueChanged.Value].n2 : Result.Any,
-                        ExpectedRClamp = Result.Clamp,
-                        ExpectedPIaE = current.TicksSinceClampedValueChanged.HasValue ? nuances[current.TicksSinceClampedValueChanged.Value].n4 : Result.Any,
-                        ExpectedPInterp = current.TicksSinceClampedValueChanged.HasValue ? nuances[current.TicksSinceClampedValueChanged.Value].n2 : Result.Any,
-                        ExpectedPClamp = Result.Clamp,
+                        ExpectedRIaE = interpolatedMovement,
+                        ExpectedRIaEWithMaxSmoothingDistance = clampedMovement,
+                        ExpectedRInterp = interpolatedMovement,
+                        ExpectedRClamp = clampedMovement,
+                        ExpectedPIaE = interpolatedMovement,
+                        ExpectedPInterp = interpolatedMovement,
+                        ExpectedPClamp = clampedMovement,
                     };
                 default: return default;
             }

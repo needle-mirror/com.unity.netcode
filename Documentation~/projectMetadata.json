@@ -1,3 +1,6 @@
 {
-  "pmdt-additional-preprocessors": "ENABLE_UNITY_NETCODE_PHYSICS"
+  "pmdt-additional-preprocessors": "ENABLE_UNITY_NETCODE_PHYSICS",
+  "additional-dependencies": {
+    "com.unity.physics": "1.4.5"
+  }
 }

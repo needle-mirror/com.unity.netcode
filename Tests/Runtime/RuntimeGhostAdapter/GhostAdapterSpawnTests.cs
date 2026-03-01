@@ -102,6 +102,32 @@ namespace Unity.NetCode.Tests
         //     Assert.That(otherClientCube.transform.position, Is.EqualTo(Vector3.one));
         // }
 
+        [Test(Description = "Validates assumptions regarding spawn/despawn GameObject timings")]
+        public async Task TestSimpleSpawnTimings([Values] bool isPredicted)
+        {
+            await using var testWorld = new NetCodeTestWorld();
+            await testWorld.SetupGameObjectTest();
+            await testWorld.ConnectAsync(enableGhostReplication: true); // this does a lot of the boilerplate of connecting, ticking, enabling replication
+            var prefab = GhostAdapterUtils.CreatePredictionCallbackHelperPrefab("BasicData", autoRegister: false);
+            prefab.Ghost.DefaultGhostMode = isPredicted ? GhostMode.Predicted : GhostMode.Interpolated;
+            Netcode.RegisterPrefab(prefab.gameObject);
+            await testWorld.TickMultipleAsync(1); // spawning doesn't happen until prefab has been acked, so need to wait a tick
+
+            int ticksBeforeSpawn = isPredicted ? 3 : 6;
+            int ticksBeforeDespawn = isPredicted ? 4 : 6;
+
+            var serverObj = GameObject.Instantiate(prefab);
+            await testWorld.TickMultipleAsync(ticksBeforeSpawn); // expect 4 ticks to spawn a predicted ghost client side
+
+            Assert.AreEqual(1, PredictionCallbackHelper.ClientInstances.Count);
+            Assert.AreEqual(1, PredictionCallbackHelper.ServerInstances.Count);
+
+            GameObject.Destroy(serverObj.gameObject);
+            await testWorld.TickMultipleAsync(ticksBeforeDespawn); // same for despawn, we expect the GO to be gone after 4 ticks
+            Assert.AreEqual(0, PredictionCallbackHelper.ClientInstances.Count);
+            Assert.AreEqual(0, PredictionCallbackHelper.ServerInstances.Count);
+        }
+
         [Test]
         public async Task TestClientWithThinClients()
         {
@@ -182,8 +208,9 @@ namespace Unity.NetCode.Tests
             await testWorld.SetupGameObjectTest();
             await testWorld.ConnectAsync(enableGhostReplication: true); // this does a lot of the boilerplate of connecting, ticking, enabling replication
 
-            var prefab = SubSceneHelper.CreateGhostBehaviourPrefab(NetCodeTestWorld.k_GeneratedFolderBasePath, "Empty", typeof(EmptyBehaviour));
+            var prefab = SubSceneHelper.CreateGhostBehaviourPrefab(NetCodeTestWorld.k_GeneratedFolderBasePath, "Empty", autoRegister: false, typeof(EmptyBehaviour));
             prefab.SetActive(false);
+            Netcode.RegisterPrefab(prefab);
 
             Assert.That(prefab.gameObject.activeInHierarchy, Is.False);
 
@@ -258,7 +285,7 @@ namespace Unity.NetCode.Tests
             await testWorld.SetupGameObjectTest();
 
             await testWorld.ConnectAsync(enableGhostReplication: true);
-            var prefab = GhostAdapterUtils.CreatePredictionCallbackHelperPrefab("BasicCube", skipAutoRegistration: skip);
+            var prefab = GhostAdapterUtils.CreatePredictionCallbackHelperPrefab("BasicCube", autoRegister: !skip);
             // if skip is false, this should be ignored, the prefab should be already registered and initialized by this point and it should use the default of false
             prefab.GetComponent<GhostAdapter>().HasOwner = true;
             Netcode.RegisterPrefab(prefab.gameObject); // if skip is false, this should no-op
@@ -272,7 +299,7 @@ namespace Unity.NetCode.Tests
         [Test(Description = "Sanity check to see if registering prefabs before there is any world to register in works")]
         public async Task Test_RegisterPrefabsBeforeWorldCreation()
         {
-            var prefab = GhostAdapterUtils.CreatePredictionCallbackHelperPrefab("BasicCube", skipAutoRegistration: true);
+            var prefab = GhostAdapterUtils.CreatePredictionCallbackHelperPrefab("BasicCube", autoRegister: false);
             prefab.GetComponent<GhostAdapter>().HasOwner = true;
             Netcode.RegisterPrefab(prefab.gameObject);
 
@@ -293,20 +320,13 @@ namespace Unity.NetCode.Tests
             await testWorld.SetupGameObjectTest();
 
             await testWorld.ConnectAsync(enableGhostReplication: true);
-            var prefab = GhostAdapterUtils.CreatePredictionCallbackHelperPrefab("BasicCube", skipAutoRegistration: true);
-            prefab.GetComponent<GhostAdapter>().DefaultGhostMode = GhostMode.Predicted; // to get the spawn/despawn faster with no interpolation delays
-            Netcode.RegisterPrefab(prefab.gameObject);
-            var predictionCallbackHelper = prefab.GetComponent<PredictionCallbackHelper>();
-            predictionCallbackHelper.CallbackHolder.OnAwake += o =>
-            {
-                GhostEntityMapping.AcquireEntityReferenceGameObject(o.GetEntityId(), o.transform.GetEntityId(), prefab.GetEntityId(), GhostSpawningContext.Current.GetWorld());
-            };
+            var prefab = GhostAdapterUtils.CreatePredictionCallbackHelperPrefab("BasicCube");
             GameObject serverObject = GameObject.Instantiate(prefab).gameObject;
 
+            int destroyCount = 0;
             void OnDestroy(GameObject go)
             {
-                // If on destroy isn't called, then this reference won't be released and entity destruction won't happen
-                GhostEntityMapping.ReleaseGameObjectEntityReference(go.GetEntityId(), go.WorldExt().IsCreated);
+                destroyCount++;
             }
 
             serverObject.GetComponent<PredictionCallbackHelper>().OnDestroyEvent += OnDestroy;
@@ -323,7 +343,7 @@ namespace Unity.NetCode.Tests
             Assert.IsTrue(serverGhostQuery.IsEmpty);
             Assert.IsTrue(clientObject == null, "client object should have been despawned");
             Assert.IsTrue(serverObject == null, "server object should have been despawned");
-
+            Assert.AreEqual(2, destroyCount);
         }
     }
 }

@@ -31,6 +31,7 @@ namespace Unity.NetCode
     /// (and local worlds, to allow singleplayer to use the same input gathering system).
     /// It runs before the <see cref="CommandSendSystemGroup"/> to remove any latency between
     /// input gathering and command submission.
+    /// Updating your inputs here guarantees you'll have the right values when using force input latency (which will override your inputs in other parts of the frame).
     /// All systems that translate user input (for example, using the <see cref="UnityEngine.Input"/> into
     /// <see cref="ICommandData"/> command data must update in this group).
     /// </summary>
@@ -156,6 +157,13 @@ namespace Unity.NetCode
             if (inputTargetTick.IsValid && inputTargetTick != m_LastInputTargetTick)
                 base.OnUpdate();
             m_LastInputTargetTick = inputTargetTick;
+        }
+
+
+        internal static void SetBuilderToGhostsWithInputQuery(ref EntityQueryBuilder builder)
+        {
+            builder.Reset();
+            builder.WithAll<GhostInstance, GhostOwner, GhostOwnerIsLocal, AutoCommandTarget>();
         }
     }
 
@@ -637,6 +645,7 @@ namespace Unity.NetCode
             }
         }
 
+
         /// <summary>
         /// The query to use when scheduling the processing job.
         /// </summary>
@@ -669,8 +678,8 @@ namespace Unity.NetCode
             var builder = new EntityQueryBuilder(Allocator.Temp)
                 .WithAll<NetworkStreamInGame, CommandTarget>();
             m_connectionQuery = state.GetEntityQuery(builder);
-            builder.Reset();
-            builder.WithAll<GhostInstance, GhostOwner, GhostOwnerIsLocal, TCommandData, AutoCommandTarget>();
+            CommandSendSystemGroup.SetBuilderToGhostsWithInputQuery(ref builder);
+            builder.WithAll<TCommandData>();
             m_autoTargetQuery = state.GetEntityQuery(builder);
             builder.Reset();
             builder.WithAll<NetworkTime>();

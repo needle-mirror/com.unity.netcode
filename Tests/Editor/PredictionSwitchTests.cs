@@ -427,10 +427,9 @@ namespace Unity.NetCode.Tests
             Assert.That((entityManager.GetComponentData<LocalToWorld>(clientEnt).Position - oldLocalToWorld.Position).x, Is.EqualTo(valueIncreasePerTick));
         }
 
-        // If there is a single predicted ghost, then no ghost for a while, then a predicted ghost again,
-        // we should not rollback to the last tick there was a predicted ghost.
-        [Test]
-        public void DoesNotRollbackAfterPredictionSwitching()
+        [Test(Description = "If there is a single predicted ghost, then no ghost for a while, then a predicted ghost again, we should not rollback to the last tick there was a predicted ghost." +
+                            "MTT-13640 - Static ghosts, when switching back to predicted, will attempt to rollback to their snapshot (which now could be stale). Previously, this would cause 64 tick rollbacks. This test ensures they no longer do.")]
+        public void DoesNotRollbackAfterPredictionSwitching([Values]bool rollbackPredictionOnStructuralChanges, [Values]GhostOptimizationMode ghostOptimizationMode)
         {
             using (var testWorld = new NetCodeTestWorld())
             {
@@ -440,6 +439,8 @@ namespace Unity.NetCode.Tests
                 var authoring = ghostGameObject.AddComponent<GhostAuthoringComponent>();
                 authoring.SupportedGhostModes = GhostModeMask.All;
                 authoring.DefaultGhostMode = GhostMode.Predicted;
+                authoring.OptimizationMode = ghostOptimizationMode;
+                authoring.RollbackPredictionOnStructuralChanges = rollbackPredictionOnStructuralChanges;
                 authoring.HasOwner = true;
                 testWorld.CreateGhostCollection(ghostGameObject);
                 testWorld.CreateWorlds(true, 1);
@@ -481,7 +482,9 @@ namespace Unity.NetCode.Tests
                 Assert.AreEqual(0, clientTime.PredictedTickIndex);
 
                 // Run to the max ticks (2 less because we predict 2 ticks ahead)
-                for (i = 0; i < CommandDataUtility.k_CommandDataMaxSize - 2; ++i)
+                var numTicks = CommandDataUtility.k_CommandDataMaxSize - 2;
+                Assert.That(numTicks, Is.GreaterThan(10), "Sanity.");
+                for (i = 0; i < numTicks; ++i)
                 {
                     testWorld.Tick();
                 }
@@ -491,23 +494,15 @@ namespace Unity.NetCode.Tests
                 {
                     TargetEntity = clientEntity,
                 });
+                Assert.IsTrue(clientQuery.IsEmpty);
+                testWorld.Tick(); // It should only take 1 tick...
+                Assert.IsFalse(clientQuery.IsEmpty);
 
-                i = 0;
-                while (clientQuery.IsEmpty)
-                {
-                    testWorld.Tick();
-                    i++;
-                    if (i > 16)
-                    {
-                        Assert.Fail("Timed out waiting for predicted ghost to spawn");
-                        return;
-                    }
-                }
-
-                for (i = 0; i < 3; i++)
+                // Now ensure we don't rollback too far.
+                for (i = 0; i < 8; i++)
                 {
                     clientTime = testWorld.GetNetworkTime(testWorld.ClientWorlds[0]);
-                    Assert.IsTrue(clientTime.PredictedTickIndex > 0 && clientTime.PredictedTickIndex < 5);
+                    Assert.That(clientTime.PredictedTickIndex, Is.LessThanOrEqualTo(5).And.GreaterThan(0));
                     testWorld.Tick();
                 }
             }

@@ -182,6 +182,7 @@ namespace Unity.NetCode
                 var ghostUpdateVersion = SystemAPI.GetSingleton<GhostUpdateVersion>();
                 var prefabs = SystemAPI.GetSingletonBuffer<GhostCollectionPrefab>().ToNativeArray(Allocator.Temp);
                 var networkId = SystemAPI.GetSingleton<NetworkId>();
+                var networkTime = SystemAPI.GetSingleton<NetworkTime>();
                 while (m_OwnerPredictedQueue.TryDequeue(out var ownerSwitching))
                 {
                     //This is unfortunately necessary because components are added and removed
@@ -196,11 +197,11 @@ namespace Unity.NetCode
                 }
                 while (m_ConvertToPredictedQueue.TryDequeue(out var conversion))
                 {
-                    PredictionSwitchingUtilities.ConvertGhostToPredicted(state.EntityManager, ghostUpdateVersion, netDebug, prefabs, conversion.TargetEntity, conversion.TransitionDurationSeconds, ref batchedDeletedWarnings, ref batchedDeletedCount);
+                    PredictionSwitchingUtilities.ConvertGhostToPredicted(state.EntityManager, networkTime, ghostUpdateVersion, netDebug, prefabs, conversion.TargetEntity, conversion.TransitionDurationSeconds, ref batchedDeletedWarnings, ref batchedDeletedCount);
                 }
                 while (m_ConvertToInterpolatedQueue.TryDequeue(out var conversion))
                 {
-                    PredictionSwitchingUtilities.ConvertGhostToInterpolated(state.EntityManager, ghostUpdateVersion, netDebug, prefabs, conversion.TargetEntity, conversion.TransitionDurationSeconds, ref batchedDeletedWarnings, ref batchedDeletedCount);
+                    PredictionSwitchingUtilities.ConvertGhostToInterpolated(state.EntityManager, networkTime, ghostUpdateVersion, netDebug, prefabs, conversion.TargetEntity, conversion.TransitionDurationSeconds, ref batchedDeletedWarnings, ref batchedDeletedCount);
                 }
 
 #if ENABLE_UNITY_COLLECTIONS_CHECKS
@@ -303,7 +304,7 @@ namespace Unity.NetCode
         /// and it cannot be owner predicted. The new components added as a result of this operation will have the inital
         /// values from the ghost prefab.
         /// </summary>
-        static public void ConvertGhostToPredicted(EntityManager entityManager, GhostUpdateVersion ghostUpdateVersion,
+        static public void ConvertGhostToPredicted(EntityManager entityManager, in NetworkTime networkTime, GhostUpdateVersion ghostUpdateVersion,
             NetDebug netDbg, NativeArray<GhostCollectionPrefab> ghostCollectionPrefabs, Entity entity, float transitionDuration,
             ref FixedList64Bytes<Entity> destroyedEntities, ref uint batchedDeletedCount)
         {
@@ -353,6 +354,16 @@ namespace Unity.NetCode
             ref var toAdd = ref ghostMetaData.DisableOnInterpolatedClient;
             ref var toRemove = ref ghostMetaData.DisableOnPredictedClient;
             AddRemoveComponents(entityManager, ref ghostUpdateVersion, entity, prefab, ref toAdd, ref toRemove, transitionDuration);
+
+            // When a ghost gets converted to predicted, we should pretend its last applied tick was the interpolationTick,
+            // as we essentially need to begin predicting this ghost from there.
+            // Setting this solves the issue where static, unchanging ghosts are converted to predicted, leading the
+            // GhostUpdateSystem to try to rollback to the (now possibly EXTRAORDINARILY STALE) snapshot, which causes
+            // 64 tick rollbacks (64 as clamped to the command buffer size).
+            var predictedGhost = entityManager.GetComponentData<PredictedGhost>(entity);
+            predictedGhost.AppliedTick = networkTime.InterpolationTick;
+            predictedGhost.PredictionStartTick = networkTime.InterpolationTick;
+            entityManager.SetComponentData(entity, predictedGhost);
         }
 
         /// <summary>
@@ -360,7 +371,7 @@ namespace Unity.NetCode
         /// and it cannot be owner predicted. The new components added as a result of this operation will have the inital
         /// values from the ghost prefab.
         /// </summary>
-        static public void ConvertGhostToInterpolated(EntityManager entityManager, GhostUpdateVersion ghostUpdateVersion, NetDebug netDbg, NativeArray<GhostCollectionPrefab> ghostCollectionPrefabs, Entity entity, float transitionDuration, ref FixedList64Bytes<Entity> destroyedEntities, ref uint batchedDeletedCount)
+        static public void ConvertGhostToInterpolated(EntityManager entityManager, in NetworkTime networkTime, GhostUpdateVersion ghostUpdateVersion, NetDebug netDbg, NativeArray<GhostCollectionPrefab> ghostCollectionPrefabs, Entity entity, float transitionDuration, ref FixedList64Bytes<Entity> destroyedEntities, ref uint batchedDeletedCount)
         {
             if (!entityManager.Exists(entity))
             {

@@ -23,7 +23,8 @@ namespace Unity.NetCode.Generators
         Buffer,
         Rpc,
         CommandData,
-        Input
+        Input,
+        GhostBehaviour
     }
 
     // This is used internally in SG but needs to be kept in sync with the runtime netcode class in

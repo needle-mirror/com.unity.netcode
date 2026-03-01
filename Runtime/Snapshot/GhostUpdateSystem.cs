@@ -87,23 +87,6 @@ namespace Unity.NetCode
             public uint MaxExtrapolationTicks;
             public NetDebug netDebug;
 
-            private void AddPredictionStartTick(NetworkTick targetTick, NetworkTick predictionStartTick)
-            {
-                // Add a tick a ghost is predicting from, but avoid setting the start tick to something newer as the target tick
-                // since we don't need to predict in that case and having it newer can cause an almost infinite loop (loop until a uint wraps around).
-                // Ticks in the buffer which are newer than target tick usually do not happen, but it can happen when time goes out of sync and cannot adjust fast enough
-                if (!targetTick.IsOlderThan(predictionStartTick))
-                {
-                    // The prediction loop does not run for more ticks than we have inputs for, so clamp the start tick to keep a max hashmap size
-                    var startTick = predictionStartTick;
-                    if ((uint)targetTick.TicksSince(startTick) > CommandDataUtility.k_CommandDataMaxSize)
-                    {
-                        startTick = targetTick;
-                        startTick.Subtract(CommandDataUtility.k_CommandDataMaxSize);
-                    }
-                    appliedPredictedTicks.TryAdd(startTick, predictionStartTick);
-                }
-            }
             [Conditional("ENABLE_UNITY_COLLECTIONS_CHECKS")]
             private static void ValidateReadEnableBits(int enableableMaskOffset, int numEnableBits)
             {
@@ -119,7 +102,7 @@ namespace Unity.NetCode
 
             struct BackupRange
             {
-                public byte StartEntityIndex;
+                public byte EntityIndex;
                 public byte EntityIndexInBackup;
                 public IntPtr BackupState;
             }
@@ -194,7 +177,7 @@ namespace Unity.NetCode
                 var entityRanges = new NativeList<EntityRange>(ghostInstances.Length, Allocator.Temp);
                 var predictedGhostArray = chunk.GetNativeArray(ref PredictedGhostType).AsSpan();
                 var chunkEntities = chunk.GetNativeArray(entityType);
-                var restoreFromBackupRange = new NativeList<BackupRange>(ghostInstances.Length, Allocator.Temp);
+                var restoreFromHistoryBackup = new NativeList<BackupRange>(ghostInstances.Length, Allocator.Temp);
 
                 int shouldRewindAndResimulate = 0;
                 if (typeData.PredictedSpawnedGhostRollbackToSpawnTick != 0)
@@ -232,23 +215,87 @@ namespace Unity.NetCode
                     ref var ghostSnapshotData = ref ghostSnapshotDataArray[ent];
                     var latestTick = ghostSnapshotData.GetLatestTick(snapshotDataBuffer);
 
+                    #region Interpolated static ghost early exit
+
                     // CPU optimization: Static ghosts can be skipped (without expensive GetDataAtTick lookups) IF:
-                    bool skipUpdateForStaticGhost =
-                        isStatic
+                    if (isStatic
                         && !predicted
                         // we have valid tick data (should always be true!)...
                         && latestTick.IsValid
                         && lastInterpolatedTick.IsValid
-                        // & when we've applied a snapshot at least once (as we must apply at least once to resolve
+                        // & when we've applied the latest snapshot at least once (as we must apply at least once to resolve
                         // GhostField's that need additional processing, like `NetworkTick`)...
-                        && ghostSnapshotData.AppliedTick.IsValid
-                        // & finally; when the client interpolation timeline has already gone past the latest snapshot we have.
-                        && !latestTick.IsNewerThan(lastInterpolatedTick);
-                    if (skipUpdateForStaticGhost)
+                        && ghostSnapshotData.AppliedTick.IsValid)
                     {
-                        SkipEntity(ref entityRanges, ent);
-                        continue;
+                        /*
+\                       * Static ghosts only send snapshots for ticks ghost has changed.
+                        *    We assume there is nothing to process if we don't have new snapshots to apply.
+                        *    State diagram: https://miro.com/app/board/uXjVGF3bwyQ=/
+                        */
+
+                        // When the client interpolation timeline has already gone past the latest snapshot we have.
+                        // AND we've already applied the newest snapshot we have,
+                        if (lastInterpolatedTick.TicksSince(latestTick) >= 0 && ghostSnapshotData.AppliedTick == latestTick)
+                        {
+                            /*
+                            * STATE 1: STOPPED MOVING
+                            * Static ghost is stopped. Nothing to interpolate.
+                            */
+
+                            SkipEntity(ref entityRanges, ent);
+                            continue;
+                        }
+
+                        // If the MaxSendRate is low, the ghost may have started moving on any tick where the ghost wasn't being polled.
+                        // For the smoothest possible movement, we assume it started moving halfway between the MaxSendRate interval
+                        // e.g. if MaxSendRate is once every 4 ticks, we assume that the ghost started moving 2 ticks before we received the snapshot.
+                        var assumedChangePollDelay = (uint) math.max(typeData.MaxSendRateAsSimTickInterval / 2, 1);
+
+
+                        if (!ghostSnapshotData.ResumeTick.IsValid && targetTick.TicksSince(targetTickFraction, ghostSnapshotData.AppliedTick) >= 0)
+                        {
+                            /*
+                            * STATE 2: RECEIVED NEW SNAPSHOT
+                            *   As the interpolation timeline is in the past, the new snapshot could be for a few ticks in the future
+                            *   Calculate which tick was the last tick where the ghost was stopped.
+                            */
+
+                            ghostSnapshotData.ResumeTick = latestTick;
+                            ghostSnapshotData.ResumeTick.Subtract(assumedChangePollDelay);
+                        }
+
+                        // No ResumeTick means this ghost is interpolating normally.
+                        if (ghostSnapshotData.ResumeTick.IsValid)
+                        {
+                            // resumeDelta will be negative when the ResumeTick is in the future.
+                            // It will be zero or positive when we should start resuming.
+                            var resumeDelta = targetTick.TicksSince(targetTickFraction, ghostSnapshotData.ResumeTick);
+
+                            // Skip while the ResumeTick is in the future.
+                            if (resumeDelta < 0)
+                            {
+                                /*
+                                * STATE 3: WAITING FOR RESUME
+                                *   The interpolation timeline is currently behind the new snapshot that has new data.
+                                */
+                                SkipEntity(ref entityRanges, ent);
+                                continue;
+                            }
+
+                            // Once positive, the resumeDelta will count up for the number of ticks since we assumed we started moving
+                            if (resumeDelta >= assumedChangePollDelay)
+                            {
+                                /*
+                                * STATE 4: RESUME COMPLETE
+                                */
+
+                                // Once we've reached the poll delay, we've finished resuming and can clear the ResumeTick
+                                ghostSnapshotData.ResumeTick = NetworkTick.Invalid;
+                            }
+
+                        }
                     }
+                    #endregion
 
 #if UNITY_EDITOR || NETCODE_DEBUG
                     if (latestTick.IsValid && !isStatic)
@@ -267,7 +314,7 @@ namespace Unity.NetCode
                     // This method is quite heavy, and inside is doing a bunch of logic to retrieve:
                     // - the received snapshot ticks and indices before and after the targetTick
                     bool hasSnapshot = ghostSnapshotData.GetDataAtTick(targetTick, typeData.PredictionOwnerOffset, ghostOwnerId,
-                        targetTickFraction, snapshotDataBuffer, out var data, MaxExtrapolationTicks);
+                        targetTickFraction, snapshotDataBuffer, out var data, MaxExtrapolationTicks, isStatic);
                     if (!hasSnapshot)
                     {
                         //This is also quite heavy work. In general this is doing two linear search (nothing bad but for all ghosts all the time is plenty an overhead).
@@ -275,7 +322,7 @@ namespace Unity.NetCode
                         // This deals better with ticks moving backwards and clamps ghosts at the oldest state we do have data for
                         var oldestSnapshot = ghostSnapshotData.GetOldestTick(snapshotDataBuffer);
                         hasSnapshot = (oldestSnapshot.IsValid && ghostSnapshotData.GetDataAtTick(oldestSnapshot, typeData.PredictionOwnerOffset, ghostOwnerId,
-                            1, snapshotDataBuffer, out data, MaxExtrapolationTicks));
+                            1, snapshotDataBuffer, out data, MaxExtrapolationTicks, isStatic));
                     }
                     if (hasSnapshot)
                     {
@@ -283,40 +330,10 @@ namespace Unity.NetCode
                         {
                             // We might get an interpolation between the tick before and after our target - we have to apply the tick right before our target so we set interpolation to 0
                             data.InterpolationFactor = 0;
-                            var snapshotTick = new NetworkTick{SerializedData = *(uint*)data.SnapshotBefore};
+                            var snapshotTick = data.Tick;
                             ref var predictedData = ref predictedGhostArray[ent];
 
-                            bool shouldRollbackToSnapshot = GetPredictionStartTick(snapshotTick, predictedData.AppliedTick, ghostInstances[ent].ghostId, shouldRewindAndResimulate, out NetworkTick predictionStartTick);
-
-                            // CPU optimization: if we want to continue prediction, but the last tick was a full tick (and therefore its state
-                            // is going to be identical to the backup), we avoid restoring from it now (again).
-                            // NOTE:
-                            // This case for client that aren't v-sync is quite rare (or let's say occasional). However, for
-                            // mobile or devices that run at fixed tick rate (v-synced) this is the norm, and therefore the backup
-                            // is useless (never used, basically).
-                            // We are also wasting CPU time for the backup as well for nothing in these scenarios.
-                            var restoreFromBackup = !shouldRollbackToSnapshot && (lastPredictedTickWasPartial || predictionStartTick != lastPredictedTick);
-                            if (restoreFromBackup)
-                            {
-                                // If we cannot restore the backup and continue prediction, we roll back and resimulate
-                                if (TryGetChunkBackupState(chunk, ent, typeData.RollbackPredictionOnStructuralChanges,
-                                        chunkEntities[ent], out var backupState, out var indexInBackup))
-                                {
-                                    restoreFromBackupRange.Add(new BackupRange
-                                    {
-                                        StartEntityIndex = ent,
-                                        EntityIndexInBackup = indexInBackup,
-                                        BackupState = backupState,
-                                    });
-                                }
-                                else
-                                {
-                                    predictionStartTick = snapshotTick;
-                                    shouldRollbackToSnapshot = true;
-                                }
-                            }
-
-                            AddPredictionStartTick(targetTick, predictionStartTick);
+                            bool shouldRollbackToSnapshot = GetPredictionStartTick(snapshotTick, targetTick, predictedData.AppliedTick, ghostInstances[ent].ghostId, shouldRewindAndResimulate, ent, chunkEntities[ent], isStatic, in chunk, in typeData, ref restoreFromHistoryBackup, out NetworkTick predictionStartTick);
 
                             if (!shouldRollbackToSnapshot)
                             {
@@ -330,6 +347,7 @@ namespace Unity.NetCode
                                 ghostSnapshotData.AppliedTick = snapshotTick;
                             }
                             predictedData.PredictionStartTick = predictionStartTick;
+                            appliedPredictedTicks.TryAdd(predictionStartTick, predictionStartTick);
                         }
                         else
                         {
@@ -355,31 +373,30 @@ namespace Unity.NetCode
                                     chunkEntities[ent], out var backupState, out var indexInBackup))
                             {
                                 predictionStartTick = predictionStateBackupTick;
-                                restoreFromBackupRange.Add(new BackupRange
+                                restoreFromHistoryBackup.Add(new BackupRange
                                 {
-                                    StartEntityIndex = ent,
+                                    EntityIndex = ent,
                                     EntityIndexInBackup = indexInBackup,
                                     BackupState = backupState
                                 });
                             }
                             else if (!predictionStartTick.IsValid)
                             {
-                                // There was no last state to continue from, so do not run prediction at all
+                                // There was no last state to continue from, so do not run prediction at all.
                                 predictionStartTick = targetTick;
                             }
-                            AddPredictionStartTick(targetTick, predictionStartTick);
-                            var predictedData = predictedGhostArray[ent];
+                            ref var predictedData = ref predictedGhostArray[ent];
+                            appliedPredictedTicks.TryAdd(predictionStartTick, predictionStartTick);
                             predictedData.PredictionStartTick = predictionStartTick;
-                            predictedGhostArray[ent] = predictedData;
                         }
                     }
                 }
                 k_FindCandidates.End();
 
-                if(restoreFromBackupRange.Length > 0)
+                if(restoreFromHistoryBackup.Length > 0)
                 {
                     k_RestoreFromBackup.Begin();
-                    RestorePredictionBackup(chunk, restoreFromBackupRange, typeData, ghostChunkComponentTypesPtr, ghostChunkComponentTypesLength);
+                    RestorePredictionBackup(chunk, restoreFromHistoryBackup, typeData, ghostChunkComponentTypesPtr, ghostChunkComponentTypesLength);
                     k_RestoreFromBackup.End();
                 }
 
@@ -425,7 +442,7 @@ namespace Unity.NetCode
                         if (ghostSerializer.HasGhostFields)
                         {
                             var roDynamicComponentTypeHandle = ghostChunkComponentTypesPtr[compIdx].CopyToReadOnly();
-                            // 1. Get Readonly version from chunk. We always reaad/write from/to this pointer. It is stable and does not change.
+                            // 1. Get Readonly version from chunk. We always read/write from/to this pointer. It is stable and does not change.
                             var compDataPtr = (byte*)chunk.GetDynamicComponentDataArrayReinterpret<byte>(ref roDynamicComponentTypeHandle, compSize).GetUnsafeReadOnlyPtr();
                             for (var rangeIdx = 0; rangeIdx < entityRanges.Length; ++rangeIdx)
                             {
@@ -721,74 +738,140 @@ namespace Unity.NetCode
                 k_CopyFromSnapshot.End();
             }
 
-
             /// <summary>
             /// Determine from which tick we should start predicting.
             /// </summary>
             /// <param name="snapshotTick">The tick of the latest snapshot received for this ghost.</param>
+            /// <param name="targetTick">The tick denoting the timeline this ghost is on; ServerTick for predicted ghosts, InterpolationTick for interpolated ghosts.</param>
             /// <param name="appliedTick">The tick of the last snapshot applied to this ghost.</param>
             /// <param name="ghostId">The ghostId of the ghost instance.</param>
             /// <param name="shouldRewindAndResimulate">User setting to always rewind predicted spawned ghosts to their spawn tick.</param>
+            /// <param name="entityIndexInChunk">The index of the entity in the chunk.</param>
+            /// <param name="entity">The ghost entity.</param>
+            /// <param name="isStatic"></param>
+            /// <param name="chunk">The ghost entity's chunk.</param>
+            /// <param name="typeData"></param>
+            /// <param name="restoreFromHistoryBackupList"></param>
             /// <param name="predictionStartTick">Output parameter for the tick to start prediction from for this ghost.</param>
             /// <returns>Returns true if we can continue prediction from the last predicted tick, false if we need to go back to the tick from the snapshot.</returns>
-            private bool GetPredictionStartTick(NetworkTick snapshotTick, NetworkTick appliedTick,
-                int ghostId, int shouldRewindAndResimulate, out NetworkTick predictionStartTick)
+            private bool GetPredictionStartTick(NetworkTick snapshotTick, NetworkTick targetTick, NetworkTick appliedTick,
+                int ghostId, int shouldRewindAndResimulate, byte entityIndexInChunk, Entity entity, bool isStatic, in ArchetypeChunk chunk,
+                in GhostCollectionPrefabSerializer typeData, ref NativeList<BackupRange> restoreFromHistoryBackupList, out NetworkTick predictionStartTick)
             {
                 // TODO: BUG: As static predicted ghosts sometimes don't receive new snapshots
                 // (because they're not changing), mispredictions can linger.
                 // We will need to resolve that.
 
-                //For predicted spawned ghosts (that have ghostId = 0), if user selected to always start
-                //re-predicting from the spawn tick, we always honour that if there is at least another predicted ghost
-                //that will rollback.
-                //Otherwise we try to continue prediction from the backup if available.
-                if (ghostId == 0 && shouldRewindAndResimulate != 0)
-                {
-                    //Force rewind to the snapshot tick the PredictedGhpstSpawnSystem saved in the snapshot buffer.
-                    predictionStartTick = snapshotTick;
-                    return true;
-                }
+                // Cases we should cover:
 
-                // Cases we should cover
-                // * Have received snapshot for predicted ghost (whether it's the spawn or an update): Copy data from snapshot
-                // * No new snapshot since last predicted tick, and the last predicted tick was partial: Continue predicting from last predicted backup state
-                // * No new snapshot since last predicted tick, but last predicted tick was full: Continue predicting from last predicted tick since the backup is taken from that tick and it hasn't changed
+                // [Case A] For predicted spawned ghosts (that have ghostId = 0), if user selected to always start
+                // re-predicting from the spawn tick, we always honour that if there is at least another predicted ghost
+                // that will rollback. We will attempt to rollback to the snapshot tick the `PredictedGhostSpawnSystem` saved
+                // into the snapshot buffer.
+                // TODO: Possible bug: Doesn't this have non-determinism issues?
+                var predictedSpawnShouldRollbackToSnapshot = ghostId == 0 && shouldRewindAndResimulate != 0;
 
+                // [Case B] Rollback to the (typically new) snapshot:
                 // Note that we do not rollback all ghosts when one ghost needs to rollback.
                 // While this will lead to more mispredictions, rolling back all predicted ghosts will be too expensive on the CPU.
                 // This is why we only need to care about the current ghost's AppliedTick instead of global state.
-                bool shouldRollbackToSnapshot = snapshotTick.IsValid && (!appliedTick.IsValid || appliedTick.IsOlderThan(snapshotTick));
+                bool shouldRollbackToSnapshot = snapshotTick.IsValid && (!appliedTick.IsValid || appliedTick.IsOlderThan(snapshotTick) || predictedSpawnShouldRollbackToSnapshot);
 
+                // [Case C] We want to continue prediction from where we left off, but the last predicted tick was partial,
+                // we need to UNDO that partial write by restoring from the 'prediction history backup'.
+                // NOTE: Partial ticks are common on PC (where render rates are variable),
+                // but mobile & consoles will typically be locked to the SimulationTickRate, so partial ticks should be
+                // basically so rare that they are never encountered.
+                if (!shouldRollbackToSnapshot && lastPredictedTickWasPartial)
+                {
+                    if (predictionStateBackupTick.IsValid && TryGetChunkBackupState(chunk, entityIndexInChunk,
+                            typeData.RollbackPredictionOnStructuralChanges, entity,
+                            out var backupState, out var indexInBackup))
+                    {
+                        predictionStartTick = predictionStateBackupTick;
+                        restoreFromHistoryBackupList.Add(new BackupRange
+                        {
+                            EntityIndex = entityIndexInChunk,
+                            EntityIndexInBackup = indexInBackup,
+                            BackupState = backupState,
+                        });
+                        return false;
+                    }
+
+                    // As we cannot undo this partial tick, we INSTEAD attempt to rollback all the way to the
+                    // snapshot, and re-simulate from there. But note: This snapshot is likely to be VERY OLD
+                    // (so that rollback would be TOO severe from a CPU performance POV), so we may just continue
+                    // from the partial (which is technically "incorrect"), but ultimately harmless
+                    // (a la eventual consistency).
+                    shouldRollbackToSnapshot = typeData.RollbackPredictionOnStructuralChanges != 0 && snapshotTick.IsValid;
+                }
+
+                // [Case B Continued...]
                 if (shouldRollbackToSnapshot)
                 {
-                    // Always rollback when we have a newer snapshot
-                    predictionStartTick = snapshotTick;
-                }
-                else
-                {
-                    if (lastPredictedTickWasPartial)
+                    // It does not make sense to rollback & run the prediction loop for more ticks than we have inputs for,
+                    // so we clamp the predictionStartTick to the input buffer size k_CommandDataMaxSize.
+                    // But it also does not make sense to rollback too far behind the interpolation tick, as all snapshots
+                    // should have already arrived by then (and it's rare to rollback to an old, pre-existing snapshot),
+                    // so we simply decide NOT to rollback in this case (with a healthy margin), and allow the latest prediction
+                    // to stand, as we ANTICIPATE that we'll get better snapshot data "soon" (due to eventual consistency).
+                    var commandInterpolationDelay = (uint)targetTick.TicksSince(interpolatedTargetTick);
+                    const uint marginForOlderSnapshots = 2;
+                    var maxRollbackDistanceInTicks = (math.min(math.max(commandInterpolationDelay * marginForOlderSnapshots, 4),
+                        CommandDataUtility.k_CommandDataMaxSize));
+
+                    // Use-cases where we encounter this:
+                    // 1. When prediction switching a static ghost (that has not changed recently) BACK to predicted,
+                    // the snapshot to start prediction from may be VERY old (e.g. feasibly 1000+ ticks old).
+                    // So: We use the fact that we haven't received any snapshots since then to assume that the ghost simply
+                    // hasn't changed (and won't have changed within the prediction loop either, HAD WE rolled back and simulated it),
+                    // thus no need to rollback now (as we assume the latest data we have is correct).
+                    // Note: Thanks to a fix in PredictionSwitchingUtilities.ConvertGhostToPredicted, this case is now
+                    // no longer explicitly hit here.
+
+                    // 2. If you have a lag spike, it is possible to receive a snapshot for a predicted ghost super late.
+                    // In this case, if it falls behind the above margin, we prefer to continue the misprediction until
+                    // we get another snapshot, as continuing the misprediction is "good enough" (a la "eventual consistency").
+
+                    // 3. Sometimes the 'full tick prediction history backup' fetch (after a partial tick) can fail
+                    // due to esoteric reasons (related to structural changes), so, when it does, we instead try to rollback
+                    // to the latest snapshot instead (which can now be quite old).
+                    // So, again; we simply prefer not to rollback at all, as rolling back so far will cause a CPU spike,
+                    // and we assume better data will arrive shortly.
+                    // Note: This is technically "incorrect", as we're continuing our client prediction from a now undone
+                    // partial tick DeltaTime, but this case is so rare, and client predictions are often off-by-one
+                    // tick anyway, it basically becomes invisible.
+                    if (targetTick.TicksSince(snapshotTick) <= maxRollbackDistanceInTicks)
                     {
-                        // Since last predicted tick was partial, we want to restore from backup if available
-                        predictionStartTick = predictionStateBackupTick;
+                        predictionStartTick = snapshotTick;
+                        return true;
                     }
-                    else
+
+                    // It is EXPECTED that static-optimized, predicted ghosts will want to rollback to their snapshot,
+                    // but be unable to, as their snapshots are so old.
+                    // Therefore, we will only rollback static ghosts as far back as the interpolationTick, as we
+                    // assume they haven't changed since then (otherwise we should have received a new snapshot).
+                    if (isStatic)
                     {
-#if ENABLE_UNITY_COLLECTIONS_CHECKS
-                        // It shouldn't be possible to have a mismatch here, since last predicted tick was full
-                        Assert.AreEqual(lastPredictedTick, predictionStateBackupTick,
-                            $"Last predicted tick {lastPredictedTick} does not match the prediction state backup tick {predictionStateBackupTick}");
+                        predictionStartTick = targetTick;
+                        predictionStartTick.Subtract(commandInterpolationDelay);
+                        return true;
+                    }
+                    shouldRollbackToSnapshot = false;
+#if NETCODE_DEBUG || UNITY_EDITOR
+                    if (netDebug.LogLevel == NetDebug.LogLevelType.Debug)
+                        netDebug.LogWarning($"Dynamic predicted ghost GID:{ghostId} wants to rollback to (i.e. re-predict from) its latest snapshot tick {snapshotTick.ToFixedString()}, which is {targetTick.TicksSince(snapshotTick)} ticks behind targetTick:{targetTick.ToFixedString()}, which is above our dynamic threshold of {maxRollbackDistanceInTicks} ticks, so the rollback was cancelled! This case should be exceptional - if you're observing this often (with associated gameplay quality issues), report a bug. interpolationTick:{interpolatedTargetTick.ToFixedString()} ({commandInterpolationDelay}), appliedTick:{appliedTick.ToFixedString()} snapshotTick:{snapshotTick.ToFixedString()}, MaxExtrapolationTicks:{MaxExtrapolationTicks}, lastPredictedTickWasPartial:{lastPredictedTickWasPartial}!");
 #endif
-
-                        // Last predicted tick was the same as the backup, we can continue predicting without restoring
-                        // There may be some cases where we don't have a backup (e.g. first prediction frame), so we need to check that as well
-                        predictionStartTick = lastPredictedTick;
-                    }
                 }
 
-                return shouldRollbackToSnapshot;
+                // The common, fast-path case: We don't need to rollback to either the snapshot or the prediction history backup!
+                // We can just continue predicting from where we left off.
+                predictionStartTick = lastPredictedTick;
+                Assert.IsTrue(targetTick.TicksSince(predictionStartTick) < 32);
+                return false;
             }
 
-            [Conditional("ENABLE_UNITY_COLLECTIONS_CHECKS")]
+            [Conditional("UNITY_ASSERTIONS")]
             private void SkipEntity(ref NativeList<EntityRange> entityRanges, byte entityIndex)
             {
                 if(entityRanges.Length != 0)
@@ -845,16 +928,16 @@ namespace Unity.NetCode
                     if (!predictionStateBackup.TryGetValue(chunk, out backupState))
                         return false;
                     remappedIndex = indexInChunk;
-                    return PredictionBackupState.MatchEntity(backupState, indexInChunk, entity);
+                    return PredictionBackupState.MatchOrFindEntity(backupState, ref remappedIndex, entity);
                 }
                 //if the last backup chunk we used is the same (we need only the pointer check for sake of retrieving it)
                 if (!predictionStateBackup.TryGetValue(lastState.lastChunk, out backupState))
                     return false;
                 remappedIndex = lastState.LastIndexInChunk;
                 //Even if the last chunk was different in respect the current chunk (because of structural changes),
-                //we can find the entry in backup using the original information for the entity we stored at backup time and we remap the index accordingly
-                //to access the backup information
-                return PredictionBackupState.MatchEntity(backupState, lastState.LastIndexInChunk, entity);
+                //we can find the entry in backup using the original information for the entity we stored at backup time,
+                //and we remap the index accordingly to access the backup information
+                return PredictionBackupState.MatchOrFindEntity(backupState, ref remappedIndex, entity);
             }
 
             private static void CopyRODataIntoTempChangeBuffer(int requiredCompDataLength, ref byte* tempChangeBuffer, ref int tempChangeBufferSize, ref NativeArray<byte> tempChangeBufferLarge, byte* roCompData)
@@ -1032,7 +1115,7 @@ namespace Unity.NetCode
                             if ((ghostSerializer.SendToOwner & requiredOwnerMask) != 0)
                             {
                                 bool isSet = (allStates[toRestoreIdx].enableBits[indexInBackup >> 6] & (1ul << (indexInBackup & 0x3f))) != 0;
-                                chunk.SetComponentEnabled(ref ghostChunkComponentTypesPtr[compIdx], toRestore[toRestoreIdx].StartEntityIndex, isSet);
+                                chunk.SetComponentEnabled(ref ghostChunkComponentTypesPtr[compIdx], toRestore[toRestoreIdx].EntityIndex, isSet);
                             }
                             allStates[toRestoreIdx].enableBits = PredictionBackupState.GetNextEnabledBits(allStates[toRestoreIdx].enableBits, PredictionBackupState.GetEntityCapacity(toRestore[toRestoreIdx].BackupState));
                         }
@@ -1057,7 +1140,7 @@ namespace Unity.NetCode
                             //The component is present in the buffer, so we need to skip the data
                             if ((ghostSerializer.SendToOwner & requiredOwnerMask) != 0)
                             {
-                                ghostSerializer.RestoreFromBackup.Invoke((System.IntPtr)(compData + toRestore[toRestoreIdx].StartEntityIndex * compSize),
+                                ghostSerializer.RestoreFromBackup.Invoke((System.IntPtr)(compData + toRestore[toRestoreIdx].EntityIndex * compSize),
                                     (System.IntPtr)(allStates[toRestoreIdx].dataPtr + indexInBackup * compSize));
                             }
                             allStates[toRestoreIdx].dataPtr = PredictionBackupState.GetNextData(allStates[toRestoreIdx].dataPtr, compSize,
@@ -1091,8 +1174,8 @@ namespace Unity.NetCode
                                 //in case some of the element fields does not have a [GhostField] annotation.
                                 //For such a reason we enforced a rule: BufferElementData MUST have all fields annotated with the GhostFieldAttribute.
                                 //This solve the problem and we might relax that condition later.
-                                bufferAccessor.ResizeUninitialized(toRestore[toRestoreIdx].StartEntityIndex, bufLen);
-                                var bufferPointer = (byte*)bufferAccessor.GetUnsafePtr(toRestore[toRestoreIdx].StartEntityIndex);
+                                bufferAccessor.ResizeUninitialized(toRestore[toRestoreIdx].EntityIndex, bufLen);
+                                var bufferPointer = (byte*)bufferAccessor.GetUnsafePtr(toRestore[toRestoreIdx].EntityIndex);
                                 //for buffers we could probably use just a memcpy. the rule is that all fields must have a [GhostField],
                                 //so everything is replicated. But.. what about internal fields or properties?
                                 //These aren't replicated, nor we complain about their presence in code-gen.
@@ -1140,7 +1223,7 @@ namespace Unity.NetCode
                         var childIndex = GhostComponentIndex[typeData.FirstComponent + comp].EntityIndex;
                         for (var toRestoreIdx = 0; toRestoreIdx < toRestore.Length; toRestoreIdx++)
                         {
-                            var rootEnt = toRestore[toRestoreIdx].StartEntityIndex;
+                            var rootEnt = toRestore[toRestoreIdx].EntityIndex;
                             var linkedEntityGroup = linkedEntityGroupAccessor[rootEnt];
                             var childEnt = linkedEntityGroup[childIndex].Value;
 

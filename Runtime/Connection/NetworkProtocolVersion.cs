@@ -27,18 +27,24 @@ namespace Unity.NetCode
     /// </summary>
     public struct NetworkProtocolVersion : IComponentData
     {
+        /// <inheritdoc cref="DefaultNetCodeVersion"/>
+        [Obsolete("k_NetCodeVersion is obsolete, use DefaultNetCodeVersion instead (UnityUpgradable) -> DefaultNetCodeVersion", true)]
+        public const int k_NetCodeVersion = -1;
+
+        const int k_DefaultNetCodeVersion = 4;  // Updated on every release
+
         /// <summary>
-        /// The integer used to determine a compatible version of the NetCode package.
+        /// Get the integer used to determine a compatible version of the Netcode package.
         /// </summary>
         /// <remarks>
-        /// Note: When we increment this, it implies netcode is not compatible with a previous version.
-        /// However, there is no guarantee you'll get a graceful error if connecting to an incompatible version,
+        /// NOTE: There is no guarantee you'll get a graceful error if connecting to an incompatible version,
         /// because, if we change the serialization of the protocol version (e.g. by changing RPC header size), we
         /// almost certainly cannot deserialize this value correctly anyway.
         /// <br/><b>NOTE: Netcode makes no guarantees that any major, minor, or patch versions of netcode are
         /// compatible with each other. We only guarantee that the exact version is compatible with itself.</b>
         /// </remarks>
-        public const int k_NetCodeVersion = 3;
+        /// <value>Builtin default netcode package version value</value>
+        public static int DefaultNetCodeVersion => k_DefaultNetCodeVersion;
 
         /// <summary>
         /// The NetCode package version

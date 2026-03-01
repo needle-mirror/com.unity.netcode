@@ -91,7 +91,7 @@ namespace Unity.NetCode.Tests
             }
         }
 
-        // TODO-next uncomment once we have ghost adapter backported
+        // TODO-next@RPCs RPCs + GhostAdapter needed: uncomment once we have ghost adapter backported
         // [UnityTest]
         // public IEnumerator SimpleTest([Values] bool useSingleWorld, [Values] bool useRemotes)
         // {

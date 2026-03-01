@@ -3,7 +3,7 @@ using UnityEngine;
 
 namespace Unity.NetCode.Tests
 {
-    internal class EmptyBehaviour : GhostBehaviour
+    internal partial class EmptyBehaviour : GhostBehaviour
     {
 
     }

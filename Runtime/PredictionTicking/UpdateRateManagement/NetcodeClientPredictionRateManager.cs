@@ -160,7 +160,7 @@ namespace Unity.NetCode
                 // remove everything newer than the target tick
                 while (m_NumAppliedPredictedTicks > 0 && m_AppliedPredictedTickArray[m_NumAppliedPredictedTicks-1].IsNewerThan(m_TargetTick))
                     --m_NumAppliedPredictedTicks;
-                // remove everything older than "server tick - max inputs"
+                // remove everything older than "server tick - max inputs" - shouldn't be possible any more!
                 int toRemove = 0;
                 while (toRemove < m_NumAppliedPredictedTicks && (uint)m_CurrentTime.ServerTick.TicksSince(m_AppliedPredictedTickArray[toRemove]) > CommandDataUtility.k_CommandDataMaxSize)
                     ++toRemove;

@@ -22,16 +22,15 @@ namespace Unity.NetCode
         [SerializeField] public UnityEngine.GameObject Prefab;
         [SerializeField] public GhostAdapter Ghost;
 
-        // TODO-next what if the object is never referenced in the scene, so never loaded? We need a way to set "this list of prefabs is still loaded"
+        // TODO-next@prefabRegistration what if the object is never referenced in the scene, so never loaded? We need a way to set "this list of prefabs is still loaded"
         void OnEnable()
         {
-            // TODO-next this auto registration might fail if OnEnable doesn't happen in the same order?
-            // TODO-next check how NGO does auto prefab registration https://github.com/Unity-Technologies/com.unity.netcode.gameobjects/blob/develop/com.unity.netcode.gameobjects/Editor/Configuration/NetworkPrefabProcessor.cs
-            // TODO-next this is already handled in a PR coming further down the line. Keeping as is right now, tests are passing. But this is most likely flaky if you try to use this on your own in different ways
-            // TODO-next could call automatic prefab registration only after NetworkStreamInGame is set. Should check this once we handle scene switching and networkStreamInGame.
+            // TODO-next@prefabRegistration this auto registration might fail if OnEnable doesn't happen in the same order?
+            // TODO-next@prefabRegistration check how NGO does auto prefab registration https://github.com/Unity-Technologies/com.unity.netcode.gameobjects/blob/develop/com.unity.netcode.gameobjects/Editor/Configuration/NetworkPrefabProcessor.cs
+            // TODO-next@prefabRegistration this is already handled in a PR coming further down the line. Keeping as is right now, tests are passing. But this is most likely flaky if you try to use this on your own in different ways
+            // TODO-next@prefabRegistration could call automatic prefab registration only after NetworkStreamInGame is set. Should check this once we handle scene switching and networkStreamInGame.
             if (Application.isPlaying && !s_IsPostProcessing && !Ghost.SkipAutomaticPrefabRegistration)
                 Netcode.RegisterPrefab(Prefab);
-            // TODO-next auto prefab registration isn't going to be great for memory constrained devices. First iteration is going to effectively load all networked prefabs in memory on startup all the time. Need to address asap. P0 for mobile. Not great for addressable or even just normal scene loading.
         }
 
         internal static bool s_IsPostProcessing;
@@ -40,6 +39,11 @@ namespace Unity.NetCode
 #if UNITY_EDITOR
     internal class GhostPrefabPostProcessor : UnityEditor.AssetPostprocessor
     {
+        public override uint GetVersion()
+        {
+            return 8; // NOTE: bump this whenever we're changing the code below
+        }
+
         void OnPostprocessPrefab(UnityEngine.GameObject g)
         {
             var adapter = g.GetComponent<GhostAdapter>();
@@ -50,6 +54,7 @@ namespace Unity.NetCode
             {
                 GhostPrefabReference.s_IsPostProcessing = true;
                 adapter.prefabReference = ScriptableObject.CreateInstance<GhostPrefabReference>();
+                adapter.prefabReference.name = "GhostPrefabReference";
 
                 adapter.prefabReference.Prefab = g;
                 adapter.prefabReference.Ghost = adapter;

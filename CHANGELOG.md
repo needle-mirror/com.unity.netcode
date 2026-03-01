@@ -2,6 +2,29 @@
 uid: changelog
 ---
 
+## [1.13.0] - 2026-03-01
+
+### Added
+
+* internal changes required for a GhostField type usable in monobehaviour to access replicated state.
+* internal changes required for GameObject side prediction update.
+* internal changes required for GameObject side input management for prediction.
+
+### Changed
+
+* **[Potential Breaking Change]** NetcodeProtocolVersion.k_NetCodeVersion is now private, use NetcodeProtocolVersion.DefaultNetCodeVersion instead to get the builtin netcode version.
+* **Behaviour-Breaking Change:** The GhostUpdateSystem's predicted ghost history backup lookup failure case now only attempts to rollback to the snapshot if said rollback isn't too severe. This change marginally worsens correctness in exceptional cases, but prevents egregiously large rollbacks.
+
+### Fixed
+
+* Extraordinarily rare correctness bug introduced with the static ghost early-out optimisation, where the early-out would be applied even when new snapshot data arrived, but only if said snapshot arrived so late that it was older than the `lastInterpolationTick`.
+* Issue where prediction switching a static, unchanging ghost (to predicted) would cause massive 64-tick rollbacks.
+* Issue where the GhostUpdateSystem's predicted ghost history backup lookups were failing whenever other entities within the chunk were deleted (which caused the cached `entityIndexInChunk` to be incorrect).
+* The GhostUpdateSystem's snapshot rollback is now constrained below 64 ticks typically, massively reducing the severity of rollbacks in some esoteric cases, at the cost of minor misprediction issues (which will get resolved by eventual consistency).
+* Interpolated static ghosts will now wait until the interpolation timeline reaches new snapshot data before applying any new snapshot. This fixes jittery movement on static interpolated ghosts when new snapshots arrive after a static ghost had stopped moving for a few frames.
+
+
+
 ## [1.12.0] - 2026-02-01
 
 ### Added

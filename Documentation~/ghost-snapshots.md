@@ -43,7 +43,7 @@ E.g. `NetworkTickRate:30Hz`, `MaxSendRate:45` means 30Hz is the actual maximum s
 ### __Optimization Mode__ options
 
 * __Dynamic__: This is the default setting. Use this when you expect the ghost to change often. The ghost is optimized for a small snapshot size when both changing and not changing.
-* __Static__: Use this when you expect the ghost to change infrequently. The ghost isn't optimized for a small snapshot size when changing, but isn't sent at all when it's not changing.
+* __Static__: Use this when you expect the ghost to change infrequently. The ghost isn't optimized for a small snapshot size when changing, but isn't sent at all when it's not changing. Because static ghosts are expected to change infrequently, the interpolation of static ghosts assumes that missing frames of data represent no change on the ghost.
 
 ## Structural changes on instantiated ghosts
 

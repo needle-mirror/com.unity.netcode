@@ -28,6 +28,7 @@ namespace Unity.NetCode
         public int Quantization { get; set; } = -1;
 
         /// <summary>
+        /// Informs how change tracking should occur on this field, whether for the whole field or on an inner-field per inner-field basis.
         /// Only applicable on GhostFieldAttributes applied to a non primitive struct containing multiple fields.
         /// If this value is not set (a.k.a. false, the default), a 'change bit' will be included 'per field, for every field inside the nested struct'.
         /// There will be no 'change bit' for the struct itself.
@@ -83,5 +84,17 @@ namespace Unity.NetCode
     [AttributeUsage(AttributeTargets.Field|AttributeTargets.Property, Inherited = true)]
     public class DontSerializeForCommandAttribute : Attribute
     {
+    }
+
+
+    /// <summary>
+    /// To configure your <see cref="GhostField{InternalTypeT}"/>. See <see cref="GhostFieldAttribute"/> for the fields you can use to configure this.
+    /// Do not use this as an attribute, as Netcode's sourcegen won't take it into account.
+    /// </summary>
+    // Design note: So we don't need to maintain two lists of ghost field arguments, we reuse the one in GhostField, but as a parameter in GhostField.
+    // TODO-release@Netcode2.0BreakingChanges we should probably refactor this and make a breaking change on GhostFields.
+    public class FieldConfig : GhostFieldAttribute
+    {
+
     }
 }

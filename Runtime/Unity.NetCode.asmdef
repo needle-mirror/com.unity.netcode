@@ -16,7 +16,8 @@
         "Unity.Properties",
         "Unity.DedicatedServer.MultiplayerRoles",
         "Unity.DedicatedServer.MultiplayerRoles.Editor",
-        "Unity.Profiling.Core"
+        "Unity.Profiling.Core",
+        "Unity.NetCode.EntitiesInternalAccess"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],

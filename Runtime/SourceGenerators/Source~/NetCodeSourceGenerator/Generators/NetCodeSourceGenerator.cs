@@ -88,6 +88,7 @@ namespace Unity.NetCode.Generators
             public List<SyntaxNode> Commands;
             public List<SyntaxNode> Inputs;
             public List<SyntaxNode> Variants;
+            public List<SyntaxNode> GhostBehaviours;
         }
 
         public const string NETCODE_ADDITIONAL_FILE = ".NetCodeSourceGenerator.additionalfile";
@@ -151,7 +152,7 @@ namespace Unity.NetCode.Generators
             //Try to dispatch any unknown candidates to the right array by checking what interface the struct is implementing
             var receiver = (NetCodeSyntaxReceiver)executionContext.SyntaxReceiver;
             var candidates = ResolveCandidates(executionContext, receiver, diagnostic);
-            var totalCandidates = candidates.Rpcs.Count + candidates.Commands.Count + candidates.Components.Count + candidates.Variants.Count + candidates.Inputs.Count;
+            var totalCandidates = candidates.Rpcs.Count + candidates.Commands.Count + candidates.Components.Count + candidates.Variants.Count + candidates.Inputs.Count + candidates.GhostBehaviours.Count;
             if (totalCandidates == 0)
                 return;
 
@@ -163,6 +164,9 @@ namespace Unity.NetCode.Generators
             // that will build the necessary source code.
             using (new Profiler.Auto("Generate"))
             {
+                // Generate netvar components supporting GhostBehaviours. This needs to happen first so the next steps can generate on top of it?
+                using(new Profiler.Auto("GhostBehaviour"))
+                    GhostBehaviourFactory.Generate(candidates.GhostBehaviours, codeGenerationContext, executionContext);
                 // Generate command data wrapper for input data and the CopyToBuffer/CopyFromBuffer systems
                 using(new Profiler.Auto("InputGeneration"))
                     InputFactory.Generate(candidates.Inputs, codeGenerationContext, executionContext);
@@ -174,6 +178,7 @@ namespace Unity.NetCode.Generators
                     CommandFactory.Generate(candidates.Commands, codeGenerationContext);
                 using(new Profiler.Auto("RpcGeneration"))
                     RpcFactory.Generate(candidates.Rpcs, codeGenerationContext);
+
             }
             if (codeGenerationContext.batch.Count > 0)
             {
@@ -246,7 +251,8 @@ namespace Unity.NetCode.Generators
                 Rpcs = new List<SyntaxNode>(),
                 Commands = new List<SyntaxNode>(),
                 Inputs = new List<SyntaxNode>(),
-                Variants = receiver.Variants
+                Variants = receiver.Variants,
+                GhostBehaviours = new List<SyntaxNode>(),
             };
 
             foreach (var candidate in receiver.Candidates)
@@ -290,6 +296,9 @@ namespace Unity.NetCode.Generators
                         break;
                     case ComponentType.Input:
                         candidates.Inputs.Add(candidate);
+                        break;
+                    case ComponentType.GhostBehaviour:
+                        candidates.GhostBehaviours.Add(candidate);
                         break;
                     default:
                         throw new ArgumentOutOfRangeException();

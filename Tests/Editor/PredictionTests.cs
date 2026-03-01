@@ -597,14 +597,18 @@ namespace Unity.NetCode.Tests
             }
         }
 
-        [TestCase(1)]
-        [TestCase(100)]
+        [Test]
         [DisableSingleWorldHostTest]
-        public void HistoryBufferIsPreservedOnStructuralChanges(int ghostCount)
+        public void HistoryBufferIsPreservedOnStructuralChanges([Values]GhostOptimizationMode ghostOptimizationMode, [Values]bool rollbackHistoryOnStructuralChange, [Values(1, 100)]int ghostCount)
         {
-            void CheckPredicitionStepsAndStartTick(NativeArray<Entity> entities, NetCodeTestWorld testWorld, NetworkTick currentPartialTick,
-                NetworkTick lastBackupTick)
+            void CheckPredictionPartialStepAndStartTick(NativeArray<Entity> entities, NetCodeTestWorld testWorld, NetworkTick currentPartialTick,
+                NetworkTick lastBackupTick, bool expectIsPartialTick)
             {
+                var clientTime = testWorld.GetNetworkTime(testWorld.ClientWorlds[0]);
+                // `rollbackHistoryOnStructuralChange` specifies that we should rollback to the snapshot if we cannot find the entry in the history buffer.
+                Assert.That(clientTime.PredictedTickIndex, rollbackHistoryOnStructuralChange ? Is.InRange(1, 20) : Is.EqualTo(1));
+                Assert.That(clientTime.IsPartialTick, Is.EqualTo(expectIsPartialTick));
+
                 for (int i = 0; i < entities.Length; i++)
                 {
                     var predictionCount = testWorld.ClientWorlds[0].EntityManager.GetComponentData<CountSimulationFromSpawnTick>(entities[i]).Value;
@@ -615,8 +619,12 @@ namespace Unity.NetCode.Tests
                     }
                     else
                     {
-                        Assert.AreEqual(lastBackupTick, predictedGhost.PredictionStartTick);
-                        Assert.AreEqual(currentPartialTick.TicksSince(lastBackupTick), predictionCount);
+                        // Static ghosts attempt to rollback to the snapshot (when rollbackHistoryOnStructuralChange is true),
+                        // but WHEN that snapshot is too old, the rollback is CLAMPED to the interpolationTick (5 ticks ago).
+                        var rollbackAndResimulateTicks = lastBackupTick.TicksSince(predictedGhost.PredictionStartTick);
+                        if (ghostOptimizationMode == GhostOptimizationMode.Static)
+                            Assert.That(rollbackAndResimulateTicks, Is.Zero.Or.EqualTo(rollbackHistoryOnStructuralChange ? 5 : 1));
+                        else Assert.That(rollbackAndResimulateTicks, Is.Zero);
                     }
 
                     //reset here the start tick, so next partial we will track and reset counters
@@ -624,7 +632,7 @@ namespace Unity.NetCode.Tests
                 }
             }
 
-            void CheckValues(NativeArray<Entity> entities, NetCodeTestWorld testWorld, NativeArray<int> expecteDataValue)
+            void CheckValues(NativeArray<Entity> entities, NetCodeTestWorld testWorld, NativeArray<int> expectedDataValue)
             {
                 for (int i = 0; i < entities.Length; i++)
                 {
@@ -632,7 +640,7 @@ namespace Unity.NetCode.Tests
                     Assert.AreEqual(2000, testWorld.ClientWorlds[0].EntityManager.GetComponentData<EnableableComponent_1>(entities[i]).value);
                     Assert.AreEqual(3000, testWorld.ClientWorlds[0].EntityManager.GetComponentData<EnableableComponent_3>(entities[i]).value);
                     if (testWorld.ClientWorlds[0].EntityManager.HasComponent<Data>(entities[i]))
-                        Assert.AreEqual(expecteDataValue[i], testWorld.ClientWorlds[0].EntityManager.GetComponentData<Data>(entities[i]).Value);
+                        Assert.AreEqual(expectedDataValue[i], testWorld.ClientWorlds[0].EntityManager.GetComponentData<Data>(entities[i]).Value);
                     {
                         var b = testWorld.ClientWorlds[0].EntityManager.GetBuffer<EnableableBuffer_0>(entities[i]);
                         Assert.AreEqual(3, b.Length);
@@ -699,7 +707,11 @@ namespace Unity.NetCode.Tests
                 ghostGameObject.AddComponent<TestNetCodeAuthoring>().Converter = new StructuralChangesConverter();
                 var ghostConfig = ghostGameObject.AddComponent<GhostAuthoringComponent>();
                 ghostConfig.DefaultGhostMode = GhostMode.Predicted;
-                ghostConfig.RollbackPredictionOnStructuralChanges = false;
+                ghostConfig.OptimizationMode = ghostOptimizationMode; // Static-optimization prevents this ghost from rolling
+                                                                      // back to the snapshot, so we RELY on the predicted history backup.
+                ghostConfig.MaxSendRate = 10; // We ALSO don't want dynamic ghosts to constantly rollback to the snapshot,
+                                             // as it makes it hard to verify prediction history rollback, so we prevent that via this.
+                ghostConfig.RollbackPredictionOnStructuralChanges = rollbackHistoryOnStructuralChange;
                 var ghostChild = new GameObject();
                 ghostChild.transform.parent = ghostGameObject.transform;
                 ghostChild.AddComponent<TestNetCodeAuthoring>().Converter = new StructuralChangesConverter();
@@ -715,7 +727,9 @@ namespace Unity.NetCode.Tests
                 //spawn
                 for (int i = 0; i < ghostCount; ++i)
                 {
-                    testWorld.SpawnOnServer(ghostGameObject);
+                    var serverEntity = testWorld.SpawnOnServer(ghostGameObject);
+                    // Give each ghost a UNIQUE data value, to ensure we're not reading back a different ghost's values.
+                    testWorld.ServerWorld.EntityManager.SetComponentData(serverEntity, new Data {Value = 100 + i});
                 }
 
                 testWorld.ClientWorlds[0].Unmanaged.GetExistingSystemState<CheckGhostsAlwaysResumedFromLastPredictionBackupTick>().Enabled = false;
@@ -745,15 +759,16 @@ namespace Unity.NetCode.Tests
                 //there is no partial tick restore in this tick because the last tick was a full tick. The continuation goes without actually
                 //restoring from the backup.
                 //TODO: would be nice to distinguish
-                testWorld.TickClientWorld(1f/240f);
+                const float partialTickDT = (1f/(60f*4)); // We want to do exactly 3 partial ticks (the 4th step will trigger a full tick).
+                testWorld.TickClientWorld(partialTickDT); // 1st PartialTick.
                 var currentPartialTick = testWorld.GetNetworkTime(testWorld.ClientWorlds[0]).ServerTick;
-                CheckPredicitionStepsAndStartTick(entities, testWorld, currentPartialTick, lastBackupTick);
+                CheckPredictionPartialStepAndStartTick(entities, testWorld, currentPartialTick, lastBackupTick, expectIsPartialTick:true);
                 //Now I can invalidate and check restore work properly
                 InvalidateValues(entities, testWorld);
-                testWorld.TickClientWorld(1f/240f);
+                testWorld.TickClientWorld(partialTickDT); // 2nd PartialTick.
                 //run partial ticks and verify max 1 prediction step is done`
                 Assert.AreEqual(testWorld.GetSingleton<GhostSnapshotLastBackupTick>(testWorld.ClientWorlds[0]).Value, lastBackupTick);
-                CheckPredicitionStepsAndStartTick(entities, testWorld, currentPartialTick, lastBackupTick);
+                CheckPredictionPartialStepAndStartTick(entities, testWorld, currentPartialTick, lastBackupTick, expectIsPartialTick:true);
                 CheckValues(entities, testWorld, dataValues);
                 //change half of the entities. Backup should be still the same and so all values should be restored as they were at backup time
                 for (int i = 0; i < entities.Length; i+=2)
@@ -763,31 +778,24 @@ namespace Unity.NetCode.Tests
                 //causing a new backup being made for the same tick on the client. What the Data backup contains? because the component has been
                 //removed, the value should be 0 on certain entities
                 testWorld.TickServerWorld();
-                testWorld.TickClientWorld(1f/240f);
-                //run partial ticks and verify max 1 prediction step is done`
+                testWorld.TickClientWorld(partialTickDT); // 3rd PartialTick.
+                //run partial ticks and verify max 1 prediction step is done
                 Assert.AreEqual(testWorld.GetSingleton<GhostSnapshotLastBackupTick>(testWorld.ClientWorlds[0]).Value, lastBackupTick);
-                CheckPredicitionStepsAndStartTick(entities, testWorld, currentPartialTick, lastBackupTick);
+                CheckPredictionPartialStepAndStartTick(entities, testWorld, currentPartialTick, lastBackupTick, expectIsPartialTick:true);
                 CheckValues(entities, testWorld, dataValues);
-                //Add 1/4 of the entities back to the previous chunk. For these entities the data value will be 0 now.
+                //Add 1/4 of the entities back to the previous chunk. For these entities, we STILL EXPECT to find the backup.
+                // Note: If we DID NOT restoreFromBackup below, the GhostField values within Data would now be stale...
+                // But thanks to the partial tick, we restore REAL values.
                 for (int i = 0; i < entities.Length; i += 4)
                 {
                     testWorld.ClientWorlds[0].EntityManager.AddComponent<Data>(entities[i]);
-                    dataValues[i] = 0;
                 }
                 InvalidateValues(entities, testWorld);
-                //What happen here: the client will now re-add the component and it state will be restored from the backup, that does not contain
-                //the correct authoritative (or predicted) data (that is 100) but instead 0.
-                //Should this be considered a bug?
-                //In the original implementation, because a rollback to that last received snapshot occur (because of the structural change)
-                //this will sync the component to a correct state.
-                //But because now the recovery is able to find the backup, until we don't receive new data from the server, that value is stale.
-                //This does not occur if the structural change does not affect replicated components. That is probably the most common scenario.
-                //How do we solve this?
-                testWorld.TickClientWorld(1f/240f);
+                testWorld.TickClientWorld(partialTickDT);  // Next FullTick!
                 Assert.AreEqual(currentPartialTick.TickIndexForValidTick, testWorld.GetNetworkTime(testWorld.ClientWorlds[0]).ServerTick.TickIndexForValidTick);
                 //A new backup has been made
                 Assert.AreNotEqual(lastBackupTick, testWorld.GetSingleton<GhostSnapshotLastBackupTick>(testWorld.ClientWorlds[0]).Value);
-                CheckPredicitionStepsAndStartTick(entities, testWorld, currentPartialTick, lastBackupTick);
+                CheckPredictionPartialStepAndStartTick(entities, testWorld, currentPartialTick, lastBackupTick, expectIsPartialTick:false);
                 CheckValues(entities, testWorld, dataValues);
             }
         }

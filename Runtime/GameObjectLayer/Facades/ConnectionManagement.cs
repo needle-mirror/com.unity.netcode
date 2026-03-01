@@ -186,7 +186,7 @@ namespace Unity.NetCode
         /// <summary>
         /// Async method to disconnect this connection. See <see cref="NetworkStreamRequestDisconnect"/>
         /// </summary>
-        /// TODO-next disconnect reason parameter
+        /// TODO-next@connection disconnect reason parameter
         public void RequestDisconnect()
         {
             if (!IsValid()) return;

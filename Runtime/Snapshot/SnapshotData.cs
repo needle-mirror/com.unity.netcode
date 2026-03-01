@@ -20,10 +20,13 @@ namespace Unity.NetCode
         {
             /// <summary>
             /// Pointer to the snapshot data for which the tick is less than, or equals to, the target tick.
+            /// This snapshot is valid for the tick represented by <see cref="Tick"/>.
             /// </summary>
             public System.IntPtr SnapshotBefore;
             /// <summary>
-            /// Pointer to the snapshot data for which the tick is newer than the target tick.
+            /// Pointer to snapshot data.
+            /// When interpolating, This snapshot is the most recent snapshot <b>after</b> <see cref="Tick"/>).
+            /// When extrapolating, This snapshot is the most recent snapshot <b>before</b> <see cref="Tick"/>
             /// </summary>
             public System.IntPtr SnapshotAfter;
             /// <summary>
@@ -32,14 +35,17 @@ namespace Unity.NetCode
             public float InterpolationFactor;
             /// <summary>
             /// The target server tick we are currently updating or deserializing.
+            /// <see cref="SnapshotBefore"/> is the ghost snapshot received on this tick
             /// </summary>
             public NetworkTick Tick;
             /// <summary>
-            /// The history slot index that contains the ghost snapshot (that is <b>older</b> than the target <see cref="Tick"/>).
+            /// The history slot index that contains the ghost snapshot for <see cref="Tick"/>).
             /// </summary>
             public int BeforeIdx;
             /// <summary>
-            /// The history slot index that contains the ghost snapshot (that is <b>newer</b> than the target <see cref="Tick"/>).
+            /// A history slot index.
+            /// When interpolating, this is the index that contains the ghost snapshot received directly <b>after</b> <see cref="Tick"/>).
+            /// When extrapolating, this is the index that contains the ghost snapshot received directly <b>before</b> <see cref="Tick"/>
             /// </summary>
             public int AfterIdx;
             /// <summary>
@@ -54,7 +60,58 @@ namespace Unity.NetCode
             /// The network id of the client owning the ghost. 0 if the ghost does not have a <see cref="NetCode.GhostOwner"/>.
             /// </summary>
             public int GhostOwner;
+
+            internal void PopulateInterpolationFactor(bool isExtrapolating, NetworkTick targetTick, NetworkTick afterTick,
+                NetworkTick extrapolateTick, float targetTickFraction, uint MaxExtrapolationTicks)
+            {
+                if (!afterTick.IsValid && !extrapolateTick.IsValid)
+                {
+                    InterpolationFactor = 0;
+                    return;
+                }
+
+                var newestTick = afterTick;
+                var oldestTick = Tick;
+
+                // ExtrapolateTick path
+                if (isExtrapolating)
+                {
+                    if (targetTick.TicksSince(Tick) > MaxExtrapolationTicks)
+                    {
+                        targetTick = Tick;
+                        targetTick.Add(MaxExtrapolationTicks);
+                    }
+
+                    newestTick = Tick;
+                    oldestTick = extrapolateTick;
+                }
+
+                InterpolationFactor = (float)(targetTick.TicksSince(oldestTick)) /
+                                      (float)(newestTick.TicksSince(oldestTick));
+                if (targetTickFraction < 1)
+                {
+                    InterpolationFactor += targetTickFraction / (float)(newestTick.TicksSince(oldestTick));
+                }
+
+                if (isExtrapolating)
+                {
+                    InterpolationFactor = 1 - InterpolationFactor;
+                }
+            }
+
+            internal unsafe void PopulateOwnerData(int predictionOwnerOffset, int localNetworkId)
+            {
+                GhostOwner = predictionOwnerOffset != 0 ? *(int*)(SnapshotBefore + predictionOwnerOffset) : 0;
+
+                if (predictionOwnerOffset == 0)
+                    RequiredOwnerSendMask = SendToOwnerType.All;
+                else if (localNetworkId == GhostOwner)
+                    RequiredOwnerSendMask = SendToOwnerType.SendToOwner;
+                else
+                    RequiredOwnerSendMask = SendToOwnerType.SendToNonOwner;
+            }
         }
+
         /// <summary>
         /// The size (in bytes) of the ghost snapshots. It is constant after the ghost entity is spawned, and corresponds to the
         /// <see cref="GhostCollectionPrefabSerializer.SnapshotSize"/>.
@@ -72,6 +129,13 @@ namespace Unity.NetCode
         /// For predicted ghosts, this value matches <see cref="PredictedGhost.AppliedTick"/>.
         /// </remarks>
         public NetworkTick AppliedTick;
+
+        /// <summary>
+        /// Should only ever be valid for a static interpolated ghost.
+        /// ResumeTick will be valid when a static ghost that previously stopped moving has received new data.
+        /// It represents the tick on the interpolation timeline where it's valid to start processing the new snapshot.
+        /// </summary>
+        internal NetworkTick ResumeTick;
 
         private static readonly ProfilerMarker k_GetDataAtTick = new ProfilerMarker("SnapshotData_GetDataAtTick");
 
@@ -137,17 +201,10 @@ namespace Unity.NetCode
         /// Try to find the two closest received ghost snapshots for a given <paramref name="targetTick"/>,
         /// and fill the <paramref name="data"/> accordingly.
         /// </summary>
-        /// <param name="targetTick"></param>
-        /// <param name="predictionOwnerOffset"></param>
-        /// <param name="localNetworkId"></param>
-        /// <param name="targetTickFraction"></param>
-        /// <param name="buffer"></param>
-        /// <param name="data"></param>
-        /// <param name="MaxExtrapolationTicks"></param>
         /// <returns>True if at least one snapshot has been received and if its tick is less or equal the current target tick.</returns>
         internal unsafe bool GetDataAtTick(NetworkTick targetTick, int predictionOwnerOffset,
             int localNetworkId, float targetTickFraction, in DynamicBuffer<SnapshotDataBuffer> buffer,
-            out DataAtTick data, uint MaxExtrapolationTicks)
+            out DataAtTick data, uint MaxExtrapolationTicks, bool isStatic)
         {
             using var _ = k_GetDataAtTick.Auto();
 
@@ -155,100 +212,99 @@ namespace Unity.NetCode
             if (buffer.Length == 0)
                 return false;
             var numBuffers = buffer.Length / SnapshotSize;
-            int beforeIdx = 0;
-            NetworkTick beforeTick = NetworkTick.Invalid;
-            int afterIdx = 0;
-            NetworkTick afterTick = NetworkTick.Invalid;
+
+            // setup local variables to avoid assigning to the out var until we know we have valid data
+            var afterTick = NetworkTick.Invalid;
+            var extrapolateTick = NetworkTick.Invalid;
+            var isExtrapolating = false;
+
             // If last tick is fractional before should not include the tick we are targeting, it should instead be included in after
-            if (targetTickFraction < 1)
+            var fractionalTargetTick = targetTickFraction < 1;
+            if (fractionalTargetTick)
                 targetTick.Decrement();
-            // Loop from latest available to oldest available snapshot
+
+            // Loop from newest/latest available to oldest available snapshot
             int slot;
             var bufferData = (byte*)buffer.GetUnsafeReadOnlyPtr();
             for (slot = 0; slot < numBuffers; ++slot)
             {
                 var curIndex = (LatestIndex + GhostSystemConstants.SnapshotHistorySize - slot) % GhostSystemConstants.SnapshotHistorySize;
                 var snapshotData = bufferData + curIndex * SnapshotSize;
-                var tick = new NetworkTick{SerializedData = *(uint*)snapshotData};
-                //var tick = new NetworkTick{SerializedData = Ticks[curIndex]};
+                var tick = new NetworkTick { SerializedData = *(uint*)snapshotData };
+
                 if (!tick.IsValid)
                     continue;
+
+                // While this tick is ahead of our target, overwrite our afterTick
                 if (tick.IsNewerThan(targetTick))
                 {
                     afterTick = tick;
-                    afterIdx = curIndex;
+                    data.AfterIdx = curIndex;
+                    continue;
                 }
-                else
+
+                // The first time we see a tick that is older or equal to our target, save it as our before tick
+                if (!data.Tick.IsValid)
                 {
-                    beforeTick = tick;
-                    beforeIdx = curIndex;
+                    data.Tick = tick;
+                    data.BeforeIdx = curIndex;
+
+                    // If it's valid to look for an extrapolation tick:
+                    //  1. We found no snapshots newer than our target
+                    //  2. Our before snapshot is older than our target, or we're simulating a fractional tick
+                    //  3. This ghost is dynamic (not static)
+                    if (!afterTick.IsValid && (data.Tick != targetTick || fractionalTargetTick) && !isStatic)
+                    {
+                        isExtrapolating = true;
+                        continue;
+                    }
+
+                    // If we have a valid afterTick, or it's not valid to extrapolate
+                    // We've found all relevant data and can break
                     break;
                 }
+
+                // The first valid tick after we've found the beforeTick will be the extrapolateTick
+                extrapolateTick = tick;
+                // Reuse the AfterIdx even if this tick is before our before tick
+                data.AfterIdx = curIndex;
+                break;
             }
-            if (!beforeTick.IsValid)
+
+            if (!data.Tick.IsValid)
             {
+                // If we haven't found any valid tick, ensure that we reset data to default before returning
+                // This ensures we're not leaking invalid data
+                data = default;
                 return false;
             }
-            data.SnapshotBefore = (System.IntPtr)(bufferData + beforeIdx * SnapshotSize);
-            data.Tick = beforeTick;
-            data.GhostOwner = predictionOwnerOffset != 0 ? *(int*) (data.SnapshotBefore + predictionOwnerOffset) : 0;
-            if (predictionOwnerOffset == 0)
-                data.RequiredOwnerSendMask = SendToOwnerType.All;
-            else if (localNetworkId == data.GhostOwner)
-                data.RequiredOwnerSendMask = SendToOwnerType.SendToOwner;
-            else
-                data.RequiredOwnerSendMask = SendToOwnerType.SendToNonOwner;
-            if (!afterTick.IsValid)
-            {
-                data.BeforeIdx = beforeIdx;
-                var beforeBeforeTick = NetworkTick.Invalid;
-                int beforeBeforeIdx = 0;
-                if (beforeTick != targetTick || targetTickFraction < 1)
-                {
-                    for (++slot; slot < numBuffers; ++slot)
-                    {
-                        var curIndex = (LatestIndex + GhostSystemConstants.SnapshotHistorySize - slot) % GhostSystemConstants.SnapshotHistorySize;
-                        var snapshotData = bufferData + curIndex * SnapshotSize;
-                        var tick = new NetworkTick{SerializedData = *(uint*)snapshotData};
-                        //var tick = new NetworkTick{SerializedData = Ticks[curIndex]};
-                        if (!tick.IsValid)
-                            continue;
-                        beforeBeforeTick = tick;
-                        beforeBeforeIdx = curIndex;
-                        break;
-                    }
-                }
-                if (beforeBeforeTick.IsValid)
-                {
-                    data.AfterIdx = beforeBeforeIdx;
-                    data.SnapshotAfter = (System.IntPtr)(bufferData + beforeBeforeIdx * SnapshotSize);
 
-                    if (targetTick.TicksSince(beforeTick) > MaxExtrapolationTicks)
-                    {
-                        targetTick = beforeTick;
-                        targetTick.Add(MaxExtrapolationTicks);
-                    }
-                    data.InterpolationFactor = (float) (targetTick.TicksSince(beforeBeforeTick)) / (float) (beforeTick.TicksSince(beforeBeforeTick));
-                    if (targetTickFraction < 1)
-                        data.InterpolationFactor += targetTickFraction / (float) (beforeTick.TicksSince(beforeBeforeTick));
-                    data.InterpolationFactor = 1-data.InterpolationFactor;
-                }
-                else
-                {
-                    data.AfterIdx = beforeIdx;
-                    data.SnapshotAfter = data.SnapshotBefore;
-                    data.InterpolationFactor = 0;
-                }
-            }
-            else
+            data.SnapshotBefore = (IntPtr)(bufferData + data.BeforeIdx * SnapshotSize);
+
+            // Neither afterTick or extrapolateTick will be valid if we only have one valid snapshot
+            // Or if we don't have any snapshots newer than our target tick and we're not valid to extrapolate.
+            if (!afterTick.IsValid && !extrapolateTick.IsValid)
             {
-                data.BeforeIdx = beforeIdx;
-                data.AfterIdx = afterIdx;
-                data.SnapshotAfter = (System.IntPtr)(bufferData + afterIdx * SnapshotSize);
-                data.InterpolationFactor = (float) (targetTick.TicksSince(beforeTick)) / (float) (afterTick.TicksSince(beforeTick));
-                if (targetTickFraction < 1)
-                    data.InterpolationFactor += targetTickFraction / (float) (afterTick.TicksSince(beforeTick));
+                // In that case we want to use the BeforeIdx and the before snapshot twice
+                // The interpolation factor will be clamped at zero in this case.
+                data.AfterIdx = data.BeforeIdx;
             }
+
+            data.SnapshotAfter = (IntPtr)(bufferData + data.AfterIdx * SnapshotSize);
+
+            // ResumeTick can only be valid for a static interpolated ghost.
+            // It will be valid after a static ghost that stopped moving has started moving again.
+            // The stopped movement will leave a gap in the snapshot buffer, we need to compensate for that gap.
+            // The ResumeTick is the tick on which the movement was assumed to start.
+            if (afterTick.IsValid && ResumeTick.IsValid)
+            {
+                // The snapshot data will still be the old data,
+                // The interpolation factor will be calculated off of this assumed tick, leading to smoother movement.
+                data.Tick = ResumeTick;
+            }
+
+            data.PopulateOwnerData(predictionOwnerOffset, localNetworkId);
+            data.PopulateInterpolationFactor(isExtrapolating, targetTick, afterTick, extrapolateTick, targetTickFraction, MaxExtrapolationTicks);
             return true;
         }
     }

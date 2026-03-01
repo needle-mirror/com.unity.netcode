@@ -51,6 +51,7 @@ namespace Unity.NetCode
 
         void OnEnterServerFrame(ComponentSystemGroup group)
         {
+            Netcode.Instance.m_ActiveWorld = group.World;
             ref var networkTime = ref m_NetworkTimeQuery.GetSingletonRW<NetworkTime>().ValueRW;
             m_ClientSeverTickRateQuery.TryGetSingleton<ClientServerTickRate>(out var tickRate);
             tickRate.ResolveDefaults();

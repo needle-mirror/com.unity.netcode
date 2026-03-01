@@ -4,7 +4,7 @@ using UnityEngine;
 
 namespace Unity.NetCode.Tests
 {
-    internal class TestMoveCube : GhostBehaviour//<TestMoveCube.MoveData>
+    internal partial class TestMoveCube : GhostBehaviour//<TestMoveCube.MoveData>
     {
         private Vector3 m_OriginPos;
         public static int CubeInstances;

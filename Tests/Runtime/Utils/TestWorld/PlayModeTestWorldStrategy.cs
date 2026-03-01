@@ -128,12 +128,12 @@ namespace Unity.NetCode.Tests
         #endregion
 
         #region ticking
-        public void TickNoAwait(float dt)
+        public void TickNoAwait(float dt, bool skipSanityCheck = false)
         {
             throw new NotSupportedException("Must yield in playmode");
         }
 
-        public async Task TickAsync(float dt, NetcodeAwaitable awaitInstruction = null)
+        public async Task TickAsync(float dt, NetcodeAwaitable awaitInstruction = null, bool skipSanityCheck = false)
         {
             DeltaTime = dt;
             if (awaitInstruction == null)
@@ -142,7 +142,9 @@ namespace Unity.NetCode.Tests
                 // await Awaitable.EndOfFrameAsync(); // TODO this hangs forever when in batchmode, so hacking this for now with yield in tests that need it
             }
             else
-                await awaitInstruction;
+                await awaitInstruction.awaitable; // Unity depends on the type of the awaitable, rather than the actual functionality. So we can't return an
+                                                  // awaitable that "acts" as the specified awaitable (WaitForEndOfFrame for example), we need to return the
+                                                  // actual WaitForEndOfFrame awaitable
         }
 
         public void TickClientWorld(float dt)

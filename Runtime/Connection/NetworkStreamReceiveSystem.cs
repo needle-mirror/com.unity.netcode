@@ -484,7 +484,7 @@ namespace Unity.NetCode
                 var serializerState = SystemAPI.GetSingletonBuffer<GhostComponentSerializer.State>();
                 var npv = new NetworkProtocolVersion
                 {
-                    NetCodeVersion = NetworkProtocolVersion.k_NetCodeVersion,
+                    NetCodeVersion = NetworkProtocolVersion.DefaultNetCodeVersion,
                     GameVersion = SystemAPI.TryGetSingleton(out GameProtocolVersion gameProtocolVersion) ? gameProtocolVersion.Version : 0,
                     RpcCollectionVersion = rpcCollection.CalculateVersionHash(),
                     ComponentCollectionVersion = GhostCollectionSystem.CalculateComponentCollectionHash(serializerState),

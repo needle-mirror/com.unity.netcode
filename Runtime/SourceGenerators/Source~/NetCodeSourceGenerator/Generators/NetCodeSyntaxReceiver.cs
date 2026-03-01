@@ -21,7 +21,7 @@ namespace Unity.NetCode.Generators
         /// Analyze the all the nodes and build a list of candidates
         /// for rcps, commands and components
         /// The minimal requirement for a type to be considered a potential candidates are:
-        /// - Must be a struct
+        /// - Must be a struct or a class that inherits from something (can't do deep inheritance checks at this stage?)
         /// - The struct declaration must be public
         /// - Must implement either RpcCommandData, ICommandData, ComponentData or IBufferElementData
         /// There are no check at that level for the ghost fields since it would require the ghost modifiers that
@@ -44,8 +44,13 @@ namespace Unity.NetCode.Generators
                     // The node must be either a struct, or a class with a [GhostComponent] attribute
                     if (!(syntaxNode is ClassDeclarationSyntax))
                         return;
-                    if (!ComponentFactory.HasGhostComponentAttribute((TypeDeclarationSyntax)syntaxNode))
+
+                    if (!ComponentFactory.HasGhostComponentAttribute((TypeDeclarationSyntax)syntaxNode) &&
+                        syntaxNode is TypeDeclarationSyntax typeSyntax &&
+                        typeSyntax.BaseList == null)
+                    {
                         return;
+                    }
                 }
 
                 var structNode = (TypeDeclarationSyntax) syntaxNode;

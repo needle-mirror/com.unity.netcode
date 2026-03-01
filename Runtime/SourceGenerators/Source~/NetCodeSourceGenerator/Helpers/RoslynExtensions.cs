@@ -278,6 +278,14 @@ namespace Unity.NetCode.Roslyn
                 componentType = ComponentType.Component;
                 return true;
             }
+
+            if (interfaceQualifiedName == "Unity.NetCode.GhostBehaviour" ||
+                interfaceSymbol.InheritsFromBase("Unity.NetCode.GhostBehaviour"))
+            {
+                componentType = ComponentType.GhostBehaviour;
+                return true;
+            }
+
             if (interfaceQualifiedName == "UnityEngine.Component" ||
                 Roslyn.Extensions.InheritsFromBase(interfaceSymbol, "UnityEngine.Component"))
             {
@@ -291,6 +299,7 @@ namespace Unity.NetCode.Roslyn
                 componentType = ComponentType.Buffer;
                 return true;
             }
+
             componentType = ComponentType.Unknown;
             return false;
         }

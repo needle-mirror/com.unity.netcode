@@ -173,7 +173,7 @@ namespace Unity.NetCode.Tests
 
         public static GameObject CreateGhostBehaviourPrefab(string path, string name, params Type[] componentTypes)
         {
-            return CreateGhostBehaviourPrefab(path, name, false, componentTypes);
+            return CreateGhostBehaviourPrefab(path, name, true, componentTypes);
         }
 
         /// <summary>
@@ -181,9 +181,10 @@ namespace Unity.NetCode.Tests
         /// </summary>
         /// <param name="path">Ex: Assets/Tests</param>
         /// <param name="name">Ex: MyPrefab (no extension .prefab)</param>
+        /// <param name="autoRegister">In order to modify the generated prefab, you need to prevent it from registering automatically, modify it, then register it yourself using <see cref="Netcode.RegisterPrefab(GameObject,World)"/></param>
         /// <param name="componentTypes">Asserts one of the provided component is a GhostBehaviour. No need to add GhostAdapter, that should be added automatically by GhostBehaviour RequireComponent</param>
         /// <returns></returns>
-        public static GameObject CreateGhostBehaviourPrefab(string path, string name, bool skipAutoRegistration = false, params Type[] componentTypes)
+        public static GameObject CreateGhostBehaviourPrefab(string path, string name, bool autoRegister = true, params Type[] componentTypes)
         {
             Assert.That(componentTypes.Any(t => t.IsSubclassOf(typeof(GhostBehaviour))));
             var go = new GameObject(name);
@@ -193,7 +194,7 @@ namespace Unity.NetCode.Tests
                 go.AddComponent(type);
             }
 
-            go.GetComponent<GhostAdapter>().SkipAutomaticPrefabRegistration = skipAutoRegistration;
+            go.GetComponent<GhostAdapter>().SkipAutomaticPrefabRegistration = !autoRegister;
             var prefab = CreatePrefab(path, go);
             prefab.SetActive(true);
             foreach (var world in World.All)
@@ -202,7 +203,13 @@ namespace Unity.NetCode.Tests
                 // and automatically set the associated entity disabled too
                 var link = GhostEntityMapping.LookupEntityReferencePrefab(prefab.GetEntityId(), world.Unmanaged);
                 if (link.WasInitialized)
+                {
                     link.World.EntityManager.SetEnabled(link.Entity, true);
+                    // also have to override this in tests, since prefab registration will have had the wrong value during registration
+                    var pendingGameObjectSpawn = link.World.EntityManager.GetComponentData<PendingGameObjectSpawn>(link.Entity);
+                    pendingGameObjectSpawn.ShouldBeActive = true;
+                    link.World.EntityManager.SetComponentData(link.Entity, pendingGameObjectSpawn);
+                }
             }
             return prefab;
         }
@@ -220,11 +227,15 @@ namespace Unity.NetCode.Tests
             return prefab;
         }
 #endif
-        static public GameObject CreatePrefab(string path, GameObject go)
+        static public GameObject CreatePrefab(string directoryPath, GameObject go)
         {
-            if (!Directory.Exists(path))
-                Directory.CreateDirectory(path);
-            var prefab = PrefabUtility.SaveAsPrefabAsset(go, $"{path}/{go.name}.prefab");
+            if (!Directory.Exists(directoryPath))
+                Directory.CreateDirectory(directoryPath);
+            var assetPath = $"{directoryPath}/{go.name}.prefab";
+#if UNITY_6000_3_OR_NEWER // Since this is just a sanity check when writing tests, it's ok to define it out where the API isn't available
+            Assert.IsFalse(AssetDatabase.AssetPathExists(assetPath), $"path already exists for asset {assetPath}");
+#endif
+            var prefab = PrefabUtility.SaveAsPrefabAsset(go, assetPath);
             Object.DestroyImmediate(go);
 
             return prefab;

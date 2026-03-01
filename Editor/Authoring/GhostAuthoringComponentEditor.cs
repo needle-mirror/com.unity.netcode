@@ -11,7 +11,7 @@ namespace Unity.NetCode.Editor
     [CanEditMultipleObjects]
     internal class GhostAuthoringComponentEditor : BaseGhostAuthoringComponentEditor<GhostAuthoringComponentEditor, GhostAuthoringComponent>
     {
-        // TODO-next have a GhostAdapter version of this
+        // TODO-next@domino after domino PRs: have a GhostAdapter version of this
         [MenuItem("Window/Multiplayer/Ghost Prefab List", priority = 3007)] // 3007 is the same as the playmode tools window, to stay in that same group
         internal static void ShowGhostPrefabListSearch()
         {
@@ -69,8 +69,8 @@ namespace Unity.NetCode.Editor
 
         public override void OnInspectorGUI()
         {
-            var authoringComponent = (TGhostSetting)target;
-            var go = authoringComponent.gameObject;
+            var self = (TGhostSetting)target;
+            var go = self.gameObject;
             var isPrefabEditable = IsPrefabEditable(go);
             GUI.enabled = isPrefabEditable;
 
@@ -78,7 +78,7 @@ namespace Unity.NetCode.Editor
             var isViewingPrefab = PrefabUtility.IsPartOfPrefabAsset(go) || PrefabUtility.IsPartOfPrefabInstance(go) || (currentPrefabStage != null && currentPrefabStage.IsPartOfPrefabContents(go));
             if (isPrefabEditable)
             {
-                if (authoringComponent.transform != authoringComponent.transform.root)
+                if (self.transform != self.transform.root)
                 {
                     EditorGUILayout.HelpBox($"The `{target.GetType()}` must only be added to the root GameObject of a prefab. This is invalid, please remove or correct this authoring.", MessageType.Error);
                     GUI.enabled = false;
@@ -86,7 +86,7 @@ namespace Unity.NetCode.Editor
 
                 if (!isViewingPrefab)
                 {
-                    EditorGUILayout.HelpBox($"'{authoringComponent}' is not a recognised Prefab, so the `{target.GetType()}` is not valid. Please ensure that this GameObject is an unmodified Prefab instance mapped to a known project asset.", MessageType.Error);
+                    EditorGUILayout.HelpBox($"'{self}' is not a recognised Prefab, so the `{target.GetType()}` is not valid. Please ensure that this GameObject is an unmodified Prefab instance mapped to a known project asset.", MessageType.Error);
                 }
             }
 
@@ -97,21 +97,21 @@ namespace Unity.NetCode.Editor
                 EditorGUILayout.BeginHorizontal();
                 var importanceContent = new GUIContent(nameof(Importance), GetImportanceFieldTooltip());
                 EditorGUILayout.PropertyField(Importance, importanceContent);
-                var editorImportanceSuggestion = ImportanceInlineTooltip(authoringComponent.Importance);
+                var editorImportanceSuggestion = ImportanceInlineTooltip(self.Importance);
                 importanceContent.text = editorImportanceSuggestion.Name;
                 GUILayout.Box(importanceContent, s_HelperWidth);
                 EditorGUILayout.EndHorizontal();
             }
             // MaxSendRate:
             {
-                var hasMaxSendRate = authoringComponent.MaxSendRate != 0;
+                var hasMaxSendRate = self.MaxSendRate != 0;
                 EditorGUILayout.BeginHorizontal();
                 EditorGUILayout.PropertyField(MaxSendRate);
                 var globalConfig = NetCodeClientAndServerSettings.instance?.GlobalNetCodeConfig;
                 var tickRate = globalConfig != null ? globalConfig.ClientServerTickRate : new ClientServerTickRate();
                 tickRate.ResolveDefaults();
                 var clientTickRate = globalConfig != null ? NetCodeClientAndServerSettings.instance.GlobalNetCodeConfig.ClientTickRate : NetworkTimeSystem.DefaultClientTickRate;
-                var sendInterval = tickRate.CalculateNetworkSendIntervalOfGhostInTicks(authoringComponent.MaxSendRate);
+                var sendInterval = tickRate.CalculateNetworkSendIntervalOfGhostInTicks(self.MaxSendRate);
                 var label = new GUIContent(SendRateInlineTooltip(), MaxSendRate.tooltip);
                 GUILayout.Box(label, s_HelperWidth);
 
@@ -127,20 +127,19 @@ namespace Unity.NetCode.Editor
                 EditorGUILayout.EndHorizontal();
 
                 // MaxSendRate warning:
-                if (authoringComponent.SupportedGhostModes != GhostModeMask.Predicted)
+                if (self.SupportedGhostModes != GhostModeMask.Predicted)
                 {
                     var interpolationBufferWindowInTicks = clientTickRate.CalculateInterpolationBufferTimeInTicks(in tickRate);
                     var delta = sendInterval - interpolationBufferWindowInTicks;
                     if (delta > 0)
                     {
-                        EditorGUILayout.HelpBox($"This ghost prefab is using a MaxSendRate value of {authoringComponent.MaxSendRate}, which leads to a maximum send interval of '{label.text}' i.e. every {sendInterval}ms, which is {delta} ticks longer than your maximum interpolation buffer window of {interpolationBufferWindowInTicks} ticks. You are therefore not replicating this ghost often enough to allow it to smoothly interpolate. To fix; either increase MaxSendRate, or increase the size of the interpolation buffer window globally.", MessageType.Warning);
+                        EditorGUILayout.HelpBox($"This ghost prefab is using a MaxSendRate value of {self.MaxSendRate}, which leads to a maximum send interval of '{label.text}' i.e. every {sendInterval}ms, which is {delta} ticks longer than your maximum interpolation buffer window of {interpolationBufferWindowInTicks} ticks. You are therefore not replicating this ghost often enough to allow it to smoothly interpolate. To fix; either increase MaxSendRate, or increase the size of the interpolation buffer window globally.", MessageType.Warning);
                     }
                 }
             }
 
             EditorGUILayout.PropertyField(SupportedGhostModes);
 
-            var self = (TGhostSetting) target;
             var isOwnerPredictedError = DefaultGhostMode.enumValueIndex == (int) GhostMode.OwnerPredicted && !self.HasOwner;
 
             if (SupportedGhostModes.intValue == (int) GhostModeMask.All)
@@ -203,8 +202,8 @@ namespace Unity.NetCode.Editor
             if (serializedObject.ApplyModifiedProperties())
             {
                 GhostAuthoringInspectionComponent.forceBake = true;
-                var allComponentOverridesForGhost = GhostAuthoringInspectionComponent.CollectAllComponentOverridesInInspectionComponents(authoringComponent, false);
-                GhostComponentAnalytics.BufferConfigurationData(authoringComponent, allComponentOverridesForGhost.Count);
+                var allComponentOverridesForGhost = GhostAuthoringInspectionComponent.CollectAllComponentOverridesInInspectionComponents(self, false);
+                GhostComponentAnalytics.BufferConfigurationData(self, allComponentOverridesForGhost.Count);
             }
 
             if (isViewingPrefab && !go.GetComponent<GhostAuthoringInspectionComponent>())

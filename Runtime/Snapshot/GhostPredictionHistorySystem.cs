@@ -85,10 +85,31 @@ namespace Unity.NetCode
             var ps = ((PredictionBackupState*) state);
             return (Entity*)(((byte*)state) + ps->entitiesOffset);
         }
-        public static bool MatchEntity(IntPtr state, int ent, in Entity entity)
+        /// <summary>
+        /// Looks for the entity at the passed in <see cref="entityIndex"/>,
+        /// but if not found there, linearly searches the history state to try to find it.
+        /// </summary>
+        /// <param name="state">The backup state to search in.</param>
+        /// <param name="entityIndex">The presumed index of the entity. Written if incorrect.</param>
+        /// <param name="entity">The entity to find.</param>
+        /// <returns>True if found.</returns>
+        public static bool MatchOrFindEntity(IntPtr state, ref byte entityIndex, in Entity entity)
         {
-            var ps = ((PredictionBackupState*) state);
-            return ((Entity*)(((byte*)state) + ps->entitiesOffset))[ent] == entity;
+            var capacity = (byte)GetEntityCapacity(state);
+            var entities = GetEntities(state);
+            if (entityIndex < capacity && entities[entityIndex] == entity)
+                return true;
+
+            // TODO - Entities sparse chunks makes this lookup fail 100% of the time.
+            for (byte i = 0; i < capacity; i++)
+            {
+                if (entities[i] == entity)
+                {
+                    entityIndex = i;
+                    return true;
+                }
+            }
+            return false;
         }
         public static byte* GetData(IntPtr state)
         {
@@ -147,6 +168,9 @@ namespace Unity.NetCode
         public NetworkTick Value;
     }
 
+    /// <summary>
+    /// Singleton.
+    /// </summary>
     internal struct GhostPredictionHistoryState : IComponentData
     {
         public NativeParallelHashMap<ArchetypeChunk, System.IntPtr>.ReadOnly PredictionState;

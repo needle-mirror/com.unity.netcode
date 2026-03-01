@@ -179,9 +179,9 @@ namespace Unity.NetCode.Tests
         }
 
         // This can't just call TickClientWorld or TickServerWorld because it needs to run the systems in the correct order
-        public void TickNoAwait(float dt)
+        public void TickNoAwait(float dt, bool skipSanityCheck = false)
         {
-            m_TestWorld.ApplyDT(dt);
+            m_TestWorld.ApplyDT(dt, skipSanityCheck: skipSanityCheck);
 
             // Make sure the log flush does not run
             foreach (var world in m_WorldsToUpdate)
@@ -232,12 +232,12 @@ namespace Unity.NetCode.Tests
         }
 
 #pragma warning disable CS1998 // Async method lacks 'await' operators and will run synchronously
-        public async Task TickAsync(float dt, NetcodeAwaitable waitInstruction = null)
+        public async Task TickAsync(float dt, NetcodeAwaitable waitInstruction = null, bool skipSanityCheck = false)
 #pragma warning restore CS1998 // Async method lacks 'await' operators and will run synchronously
         {
             // This is called from the various methods that tick the world in NetcodeTestWorld, like TickUntilConnected. In order to have a single implementation, we use the TickAsync from them and then just Wait on them in edit mode. But this means TickAsync needs to work in edit mode so we just TickNoYield here.
             Assert.IsNull(waitInstruction, "Awaitable not supported in edit mode");
-            TickNoAwait(dt);
+            TickNoAwait(dt, skipSanityCheck: skipSanityCheck);
         }
 
         public void TickClientWorld(float dt)
