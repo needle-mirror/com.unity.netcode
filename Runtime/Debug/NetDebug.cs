@@ -194,6 +194,18 @@ namespace Unity.NetCode
     {
         internal const LogLevelType DefaultLogLevel = LogLevelType.Notify;
 
+        internal static LogLevelType CurrentEditorLogLevel
+        {
+            get
+            {
+#if UNITY_EDITOR
+                if (MultiplayerPlayModePreferences.ApplyLoggerSettings)
+                    return MultiplayerPlayModePreferences.TargetLogLevel;
+#endif
+                return DefaultLogLevel;
+            }
+        }
+
         /// <summary>
         /// Use this method to retrieve the platform specific folder where the NetCode logs files
         /// will be stored.

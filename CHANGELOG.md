@@ -2,6 +2,16 @@
 uid: changelog
 ---
 
+## [1.13.1] - 2026-04-26
+
+### Fixed
+
+* Obscure error messages when the RpcCollection.DynamicAssemblyList value is not configured the same way between client and server.
+* Fixed a niche null reference exception when editing the lists in Project Settings > Multiplayer > Build immediately after adding the Netcode for Entities package.
+* Add missing profiler marker for GhostReceiveSystem
+
+
+
 ## [1.13.0] - 2026-03-01
 
 ### Added
@@ -12,8 +22,8 @@ uid: changelog
 
 ### Changed
 
-* **[Potential Breaking Change]** NetcodeProtocolVersion.k_NetCodeVersion is now private, use NetcodeProtocolVersion.DefaultNetCodeVersion instead to get the builtin netcode version.
 * **Behaviour-Breaking Change:** The GhostUpdateSystem's predicted ghost history backup lookup failure case now only attempts to rollback to the snapshot if said rollback isn't too severe. This change marginally worsens correctness in exceptional cases, but prevents egregiously large rollbacks.
+* [Potential Breaking Change] `NetcodeProtocolVersion.k_NetCodeVersion` is now private, use `NetcodeProtocolVersion.DefaultNetCodeVersion` instead to get the builtin netcode version.
 
 ### Fixed
 

@@ -300,7 +300,7 @@ namespace Unity.NetCode.Tests
 
                 if (incorrectDeserializationMode == IncorrectDeserializationCommand.IncorrectMode.DeserializeTooManyBytes)
                     LogAssert.Expect(LogType.Error, new Regex(@"Trying to read \d bytes from a stream where only \d are available"));
-                LogAssert.Expect(LogType.Error, new Regex(@"\[ServerTest(.*)\](.*)RpcSystem failed to deserialize RPC(.*)as bits read(.*)did not match expected"));
+                LogAssert.Expect(LogType.Error, new Regex(@"\[(Server|Host)Test(.*)\](.*)RpcSystem failed to deserialize RPC(.*)as bits read(.*)did not match expected"));
                 // Note: When failing to deserialize, the received RPC will still be created!
                 for (int i = 0; i < 8; ++i)
                     testWorld.Tick();

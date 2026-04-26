@@ -101,7 +101,7 @@ namespace Unity.NetCode
                 //pre-computed at build time and exported.
                 SerializedData = ScriptableObject.CreateInstance<GhostBehaviourSortOrder>();
                 SerializedData.hideFlags = HideFlags.DontSaveInEditor | HideFlags.DontSaveInBuild | HideFlags.DontUnloadUnusedAsset;
-                SerializedData.InitializeSortOrderFromScriptSortOrder(withExportLog: NetDebugSystem.GetDefaultNetDebug().LogLevel == NetDebug.LogLevelType.Debug);
+                SerializedData.InitializeSortOrderFromScriptSortOrder(withExportLog: NetDebug.CurrentEditorLogLevel == NetDebug.LogLevelType.Debug);
             }
             else
             {

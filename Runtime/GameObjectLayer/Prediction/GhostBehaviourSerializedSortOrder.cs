@@ -44,6 +44,7 @@ namespace Unity.NetCode
 
 #if UNITY_EDITOR
         private static ProfilerMarker s_IniProfiletMarker = new ProfilerMarker("Netcode-InitializeSortOrderFromScriptSortOrder");
+
 #endif
         //This must be loaded before scene load, otherwise the runtime stuff aren't ready yet. Netcode initialize this lazily at
         //runtime in player build
@@ -64,14 +65,25 @@ namespace Unity.NetCode
             //So the correct way to handle this is :
             // - Check current order using the MonoImporter
             // - if 0, check for the custom attribute
-            var assemblies = new HashSet<string>(CompilationPipeline
-                .GetAssemblies(AssembliesType.PlayerWithoutTestAssemblies).Select(a => a.name));
+
+            HashSet<string> assemblyNames = new();
+
+            if (withoutTestAssemblies)
+            {
+                var assemblies = CompilationPipeline.GetAssemblies(AssembliesType.PlayerWithoutTestAssemblies);
+                foreach (var assembly in assemblies)
+                {
+                    assemblyNames.Add(assembly.name);
+                }
+            }
+
+
             foreach (var monoScript in MonoImporter.GetAllRuntimeMonoScripts())
             {
                 var @class = monoScript.GetClass();
                 if (@class == null || @class.IsAbstract || @class.IsGenericType || !@class.IsSubclassOf(typeof(GhostBehaviour)))
                     continue;
-                if (withoutTestAssemblies && !assemblies.Contains(@class.Assembly.GetName().Name))
+                if (withoutTestAssemblies && !assemblyNames.Contains(@class.Assembly.GetName().Name))
                     continue;
 
                 var hash = Netcode.Instance.GhostBehaviourTypeManager.GetGhostBehaviourStableTypeHash(@class);
@@ -97,7 +109,7 @@ namespace Unity.NetCode
             var behaviourTypes = TypeCache.GetTypesDerivedFrom<GhostBehaviour>();
             foreach (var b in behaviourTypes)
             {
-                if (withoutTestAssemblies && !assemblies.Contains(b.Assembly.GetName().Name))
+                if (withoutTestAssemblies && !assemblyNames.Contains(b.Assembly.GetName().Name))
                     continue;
                 if (!b.IsAbstract && !b.IsGenericType && !ghostBehaviourTypes.ContainsKey(b))
                 {

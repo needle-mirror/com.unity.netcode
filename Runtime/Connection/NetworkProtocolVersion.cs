@@ -31,7 +31,7 @@ namespace Unity.NetCode
         [Obsolete("k_NetCodeVersion is obsolete, use DefaultNetCodeVersion instead (UnityUpgradable) -> DefaultNetCodeVersion", true)]
         public const int k_NetCodeVersion = -1;
 
-        const int k_DefaultNetCodeVersion = 4;  // Updated on every release
+        const int k_DefaultNetCodeVersion = 5;  // Updated on every release
 
         /// <summary>
         /// Get the integer used to determine a compatible version of the Netcode package.

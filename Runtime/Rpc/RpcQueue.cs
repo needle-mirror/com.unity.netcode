@@ -66,18 +66,23 @@ namespace Unity.NetCode
             while (true)
             {
                 DataStreamWriter writer = new DataStreamWriter(maxSizeBytes, Allocator.Temp);
+                writer.WriteRawBits(dynamicAssemblyList.Value, 1);
+
                 if (dynamicAssemblyList.Value == 1)
+                {
+                    writer.Flush();
                     writer.WriteULong(rpcType);
+                }
                 else
-                    writer.WriteUShort((ushort)rpcIndex);
+                {
+                    UnityEngine.Debug.Assert(rpcIndex < (1 << 15), $"RPC index {rpcIndex} out of range");
+                    writer.WriteRawBits((uint)rpcIndex, 15);
+                    writer.Flush();
+                }
 
                 var lenWriter = writer;
                 writer.WriteUShort((ushort)0);
-
-#if ENABLE_UNITY_COLLECTIONS_CHECKS
                 UnityEngine.Debug.Assert(writer.Length == RpcCollection.GetInnerRpcMessageHeaderLength(dynamicAssemblyList.Value == 1));
-#endif
-
                 serializer.Serialize(ref writer, serializerState, data);
 
                 if (!writer.HasFailedWrites)

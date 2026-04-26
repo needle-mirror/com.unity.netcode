@@ -76,7 +76,7 @@ namespace Unity.NetCode.Tests
             void RunOnceOnUpdate(GameObject _)
             {
                 var instance = UnityEngine.Object.Instantiate(predictedPrefab);
-                instance.GetComponent<GhostAdapter>().OwnerNetworkId = new NetworkId() { Value = 1 };
+                instance.GetComponent<GhostAdapter>().OwnerNetworkId = testWorld.GetSingleton<NetworkId>(testWorld.ClientWorlds[0]);;
             }
 
             runnerObj.OnUpdate += RunOnceOnUpdate; // make sure the order of events is realistic. We don't care about Awake being called from a test runner, we care about being called from an actual Update

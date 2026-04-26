@@ -21,6 +21,29 @@ namespace Unity.NetCode.Tests
             public int Value;
         }
 
+        /// <summary>
+        /// System for triggering a disconnect right before the RpcSystem runs
+        /// </summary>
+        [DisableAutoCreation]
+        [WorldSystemFilter(WorldSystemFilterFlags.ClientSimulation)]
+        [UpdateInGroup(typeof(SimulationSystemGroup), OrderLast = true)]
+        [UpdateAfter(typeof(EndSimulationEntityCommandBufferSystem))]
+        [UpdateBefore(typeof(RpcSystem))]
+        partial class DisconnectSystem : SystemBase
+        {
+            public static bool TriggerDisconnect;
+
+            protected override void OnUpdate()
+            {
+                if (TriggerDisconnect)
+                {
+                    var connectionEntity = SystemAPI.GetSingletonEntity<NetworkStreamConnection>();
+                    SystemAPI.GetSingletonRW<NetworkStreamDriver>().ValueRO.DriverStore.Disconnect(EntityManager.GetComponentData<NetworkStreamConnection>(connectionEntity));
+                    Enabled = false;
+                }
+            }
+        }
+
         [Test]
         public void StandardConnectionApprovalFlow()
         {
@@ -184,8 +207,64 @@ namespace Unity.NetCode.Tests
                 for (int i = 0; i < 4; ++i)
                     testWorld.Tick();
 
-                LogAssert.Expect(LogType.Error, new Regex(@"\[Server(.*)\]\[Connection\] Server received internal client-only RPC request 'Unity\.NetCode\.ServerRequestApprovalAfterHandshake' from client"));
-                LogAssert.Expect(LogType.Error, new Regex(@"\[Server(.*)\]\[Connection\] Server received internal client-only RPC request 'Unity\.NetCode\.ServerApprovedConnection' from client"));
+                LogAssert.Expect(LogType.Error, new Regex(@"\[(Server|Host)(.*)\]\[Connection\] Server received internal client-only RPC request 'Unity\.NetCode\.ServerRequestApprovalAfterHandshake' from client"));
+                LogAssert.Expect(LogType.Error, new Regex(@"\[(Server|Host)(.*)\]\[Connection\] Server received internal client-only RPC request 'Unity\.NetCode\.ServerApprovedConnection' from client"));
+            }
+        }
+
+        /// <summary>
+        /// There is a special case where a disconnect might happen because of an error during the handshake/approval
+        /// process but the RPC involved might never get processed as the connection is disconnected at the same time.
+        /// This can be tested by disconnecting right after connecting, then we'll have the RequestProtocolVersionHandshake
+        /// RPC (an approval RPC) in the queue and ensure it will get processed.
+        /// </summary>
+        [Test]
+#if NETCODE_NDEBUG
+        [Ignore("This tests depends on a debug log level message appearing so cannot run when debug logging is disabled via NETCODE_NDEBUG define")]
+#endif
+        public void ApprovalRpcsGetProcessedWhenDisconnected([Values(true, false)] bool useHash)
+        {
+            using (var testWorld = new NetCodeTestWorld())
+            {
+                DisconnectSystem.TriggerDisconnect = false;
+                testWorld.Bootstrap(true, typeof(DisconnectSystem));
+                testWorld.CreateWorlds(true, 1);
+
+                var ep = NetworkEndpoint.LoopbackIpv4;
+                ep.Port = 7979;
+                if (useHash)
+                {
+                    testWorld.GetSingletonRW<RpcCollection>(testWorld.ServerWorld).ValueRW.DynamicAssemblyList = true;
+                    testWorld.GetSingletonRW<RpcCollection>(testWorld.ClientWorlds[0]).ValueRW.DynamicAssemblyList = true;
+                }
+                testWorld.GetSingletonRW<NetworkStreamDriver>(testWorld.ServerWorld).ValueRW.RequireConnectionApproval = true;
+                testWorld.GetSingletonRW<NetworkStreamDriver>(testWorld.ServerWorld).ValueRW.Listen(ep);
+                testWorld.GetSingletonRW<NetworkStreamDriver>(testWorld.ClientWorlds[0]).ValueRW.Connect(testWorld.ClientWorlds[0].EntityManager, ep);
+
+                // The message printed in this scenario only appears when in debug logging mode
+                testWorld.GetSingletonRW<NetCodeDebugConfig>(testWorld.ServerWorld).ValueRW.LogLevel = NetDebug.LogLevelType.Debug;
+                testWorld.GetSingletonRW<NetCodeDebugConfig>(testWorld.ClientWorlds[0]).ValueRW.LogLevel = NetDebug.LogLevelType.Debug;
+
+                // The disconnect needs to happen right before the RpcSystem runs right after connecting, then we'll have
+                // the network protocol version RPC in the queue
+                testWorld.Tick();
+                if (testWorld.ServerWorld.IsClient())
+                    testWorld.Tick(); // an extra tick is needed when in single world host mode
+                DisconnectSystem.TriggerDisconnect = true;
+
+                // A few other debug messages will print so we'll just watch out for this specific one (ignore the rest)
+                // which indicates we're disconnected but processed this pending RPC in the queue
+                LogAssert.ignoreFailingMessages = true;
+                LogAssert.Expect(LogType.Log, new Regex(@$"\[(.*)\] NetworkConnection\[id0,v1\] in disconnected state but allowing Rpc\[(\d+), Unity.NetCode.RequestProtocolVersionHandshake\] to get processed, as it's an approval RPC\!"));
+
+                for (int i = 0; i < 4; ++i)
+                    testWorld.Tick();
+
+                // Just verify we end up in a fully disconnected state
+                var clientQuery = testWorld.ClientWorlds[0].EntityManager.CreateEntityQuery(ComponentType.ReadWrite<NetworkStreamConnection>());
+                var serverQuery = testWorld.ServerWorld.EntityManager.CreateEntityQuery(ComponentType.ReadWrite<NetworkStreamConnection>());
+                Assert.AreEqual(0, clientQuery.CalculateEntityCount());
+                Assert.AreEqual(0, serverQuery.CalculateEntityCount());
             }
         }
     }

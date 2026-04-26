@@ -20,7 +20,7 @@ namespace Unity.NetCode.Hybrid
     {
         NetcodeConversionTarget INetCodeConversionTarget.NetcodeTarget => NetcodeConversionTarget.ClientAndServer;
 
-        [SerializeField] private BakingSystemFilterSettings FilterSettings;
+        [SerializeField] private BakingSystemFilterSettings FilterSettings = new BakingSystemFilterSettings();
 
         [SerializeField] private string[] AdditionalScriptingDefines = Array.Empty<string>();
 

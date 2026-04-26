@@ -215,6 +215,7 @@ namespace Unity.NetCode
             // Initializing GhostBehaviour information
             m_AllBehaviours = GetComponentsInChildren<GhostBehaviour>();
             var tracker = new GhostBehaviour.GhostBehaviourTracking();
+#if !UNITY_DISABLE_MANAGED_COMPONENTS
             tracker.allBehaviourTypeInfo = new NativeArray<GhostBehaviourTypeInfo>(m_AllBehaviours.Length, Allocator.Domain); // TODO-next@prefabRegistration once we release unused prefabs, switch this back to Persistent allocator and release this allocation
             for (int i = 0; i < m_AllBehaviours.Length; i++)
             {
@@ -222,6 +223,7 @@ namespace Unity.NetCode
                 tracker.allBehaviourTypeInfo[i] = ghostBehaviourTypeInfo;
                 tracker.AnyHasUpdate |= ghostBehaviourTypeInfo.AnyHasUpdate();
             }
+#endif
             link.World.EntityManager.AddComponentData(link.Entity, tracker);
             if (Debug.isDebugBuild)
             {

@@ -351,21 +351,12 @@ namespace Unity.NetCode
                     // If we're now in a disconnected state check if the protocol version RPC is in the incoming buffer so we can process it and report an error if it's mismatched (reason for the disconnect)
                     if (conState == NetworkConnection.State.Disconnected && rpcInBuffer[i].Length > 0)
                     {
-                        ushort rpcIndex = 0;
-                        if (dynamicAssemblyList == 1)
-                        {
-                            var rpcHashPeek = *(ulong*) rpcInBuffer[i].GetUnsafeReadOnlyPtr();
-                            if (hashToIndex.TryGetValue(rpcHashPeek, out var rpcIndexInt))
-                                rpcIndex = (ushort) rpcIndexInt;
-                            else rpcIndex = ushort.MaxValue;
-                        }
-                        else
-                        {
-                            rpcIndex = *(ushort*) rpcInBuffer[i].GetUnsafeReadOnlyPtr();
-                        }
+                        // Create another data reader here just to parse the rpc type information
+                        var reader = rpcInBuffer[i].AsDataStreamReader();
+                        ReadRpcIndexOrHash(unfilteredChunkIndex, ref reader, conn, connectionEntity, out var rpcIndex, out _);
 
                         if (rpcIndex < execute.Length && execute[rpcIndex].IsApprovalType == 1)
-                            netDebug.DebugLog($"[{worldName}] {conn.Value.ToFixedString()} in disconnected state but allowing {execute[rpcIndex].ToFixedString()} to get processed, as is approval RPC!");
+                            netDebug.DebugLog($"[{worldName}] {conn.Value.ToFixedString()} in disconnected state but allowing {execute[rpcIndex].ToFixedString()} to get processed, as it's an approval RPC!");
                         else
                             continue;
                     }
@@ -397,23 +388,8 @@ namespace Unity.NetCode
                     int msgHeaderLen = RpcCollection.GetInnerRpcMessageHeaderLength(dynamicAssemblyList == 1);
                     while (parameters.Reader.GetBytesRead() < parameters.Reader.Length)
                     {
-                        int rpcIndex;
-                        if (dynamicAssemblyList == 1)
-                        {
-                            ulong rpcHash = parameters.Reader.ReadULong();
-                            if (!hashToIndex.TryGetValue(rpcHash, out rpcIndex))
-                            {
-                                netDebug.LogError(
-                                    $"[{worldName}] RpcSystem received rpc with invalid hash ({rpcHash}) from {conn.Value.ToFixedString()}");
-                                commandBuffer.AddComponent(unfilteredChunkIndex, connectionEntity,
-                                    new NetworkStreamRequestDisconnect {Reason = NetworkStreamDisconnectReason.InvalidRpc});
-                                break;
-                            }
-                        }
-                        else
-                        {
-                            rpcIndex = parameters.Reader.ReadUShort();
-                        }
+                        if (!ReadRpcIndexOrHash(unfilteredChunkIndex, ref parameters.Reader, conn, connectionEntity, out var rpcIndex, out _))
+                            break;
 
                         var rpcSizeBits = parameters.Reader.ReadUShort();
                         var rpcSizeBytes = (rpcSizeBits + 7) >> 3;
@@ -497,20 +473,8 @@ namespace Unity.NetCode
                             NativeArrayUnsafeUtility.SetAtomicSafetyHandle(ref sendArray, safety);
 #endif
                             var reader = new DataStreamReader(sendArray);
-                            ushort rpcIndex;
-                            ulong rpcHash;
-                            if (dynamicAssemblyList == 1)
-                            {
-                                rpcHash = reader.ReadULong();
-                                if (hashToIndex.TryGetValue(rpcHash, out var rpcIndexInt))
-                                    rpcIndex = (ushort) rpcIndexInt;
-                                else throw new InvalidOperationException($"[{worldName}][RpcSystem] Attempting to send RPC with hash '{rpcHash}' that is unknown to our own collection!");
-                            }
-                            else
-                            {
-                                rpcHash = 0;
-                                rpcIndex = reader.ReadUShort();
-                            }
+                            if (!ReadRpcIndexOrHash(unfilteredChunkIndex, ref reader, conn, connectionEntity, out var rpcIndex, out var rpcHash))
+                                throw new InvalidOperationException($"[{worldName}][RpcSystem] Attempting to send RPC with hash '{rpcHash}' that is unknown to our own collection!");
 
                             var payloadLengthBits = reader.ReadUShort();
                             var payloadLengthBytes = ((payloadLengthBits + 7) >> 3);
@@ -533,10 +497,7 @@ namespace Unity.NetCode
                                 var curTmpDataLength = rpcPacketWriter.Length - headerLengthBytes;
                                 var subArray = sendArray.GetSubArray(curTmpDataLength, sendArray.Length - curTmpDataLength);
                                 reader = new DataStreamReader(subArray);
-                                if (dynamicAssemblyList == 1)
-                                    reader.ReadULong();
-                                else
-                                    reader.ReadUShort();
+                                ReadRpcIndexOrHash(unfilteredChunkIndex, ref reader, conn, connectionEntity, out _, out _);
                                 var innerPayloadLengthBits = reader.ReadUShort();
                                 var innerPayloadLengthBytes = ((innerPayloadLengthBits+7) >> 3);
                                 var innerRpcLengthBytes = innerPayloadLengthBytes + msgHeaderLen;
@@ -569,6 +530,39 @@ namespace Unity.NetCode
                             sendBuffer.Clear();
                     }
                 }
+            }
+
+            bool ReadRpcIndexOrHash(int unfilteredChunkIndex, ref DataStreamReader reader, NetworkStreamConnection conn, Entity connectionEntity, out int rpcIndex, out ulong rpcHash)
+            {
+                rpcIndex = 0;
+                rpcHash = 0;
+                var incomingDynamicAssemblyList = reader.ReadRawBits(1);
+                if (incomingDynamicAssemblyList != dynamicAssemblyList)
+                {
+                    netDebug.LogError($"DynamicAssemblyList value mismatch, ours={dynamicAssemblyList} theirs={incomingDynamicAssemblyList}. Make sure the RpcCollection.DynamicAssemblyList value is the same everywhere.");
+                    commandBuffer.AddComponent(unfilteredChunkIndex, connectionEntity,
+                        new NetworkStreamRequestDisconnect {Reason = NetworkStreamDisconnectReason.InvalidRpc});
+                    return false;
+                }
+                if (incomingDynamicAssemblyList == 1)
+                {
+                    reader.Flush();
+                    rpcHash = reader.ReadULong();
+                    if (!hashToIndex.TryGetValue(rpcHash, out rpcIndex))
+                    {
+                        netDebug.LogError(
+                            $"[{worldName}] RpcSystem processing rpc with invalid hash ({rpcHash}) from {conn.Value.ToFixedString()}");
+                        commandBuffer.AddComponent(unfilteredChunkIndex, connectionEntity,
+                            new NetworkStreamRequestDisconnect {Reason = NetworkStreamDisconnectReason.InvalidRpc});
+                        return false;
+                    }
+                }
+                else
+                {
+                    rpcIndex = (int)reader.ReadRawBits(15);
+                    reader.Flush();
+                }
+                return true;
             }
         }
 
@@ -661,7 +655,7 @@ namespace Unity.NetCode
             public void Execute(Entity entity, in RpcSystem.ProtocolVersionError rpcError)
             {
                 FixedString128Bytes connection = "unknown connection";
-                if (rpcError.connection != Entity.Null)
+                if (rpcError.connection != Entity.Null && connections.EntityExists(rpcError.connection))
                 {
                     commandBuffer.AddComponent(rpcError.connection,
                         new NetworkStreamRequestDisconnect

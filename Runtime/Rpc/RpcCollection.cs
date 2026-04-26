@@ -97,11 +97,11 @@ namespace Unity.NetCode
         internal const int k_RpcCommonHeaderLengthBytes = 5;
 
         /// <summary>
-        /// If <see cref="DynamicAssemblyList"/>, 10 bytes, otherwise 4 bytes.
+        /// If <see cref="DynamicAssemblyList"/>, 11 bytes, otherwise 4 bytes.
         /// </summary>
         /// <param name="dynamicAssemblyList">Whether or not your project is using <see cref="DynamicAssemblyList"/>.</param>
-        /// <returns>If <see cref="DynamicAssemblyList"/>, 10 bytes, otherwise 4 bytes.</returns>
-        internal static int GetInnerRpcMessageHeaderLength(bool dynamicAssemblyList) => dynamicAssemblyList ? 10 : 4;
+        /// <returns>If <see cref="DynamicAssemblyList"/>, 11 bytes, otherwise 4 bytes.</returns>
+        internal static int GetInnerRpcMessageHeaderLength(bool dynamicAssemblyList) => dynamicAssemblyList ? 11 : 4;
 
         /// <summary>
         /// Register a new RPC type which can be sent over the network. This must be called before

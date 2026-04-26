@@ -1,4 +1,4 @@
-#if UNITY_6000_3_OR_NEWER // Required to use GameObject bridge with EntityID
+#if !UNITY_DISABLE_MANAGED_COMPONENTS && UNITY_6000_3_OR_NEWER // Required to use GameObject bridge with EntityID
 using Unity.Burst;
 using Unity.Collections;
 using Unity.Entities;

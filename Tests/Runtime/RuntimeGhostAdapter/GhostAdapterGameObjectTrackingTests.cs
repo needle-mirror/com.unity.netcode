@@ -222,7 +222,7 @@ namespace Unity.NetCode.Tests
             Assert.IsFalse(trackedGhosts.IsEmpty);
             Assert.AreEqual(ghostCount, trackedGhosts.CalculateEntityCount());
             //GameObject should have spawned now
-            var clientGameObjectsList = Object.FindObjectsByType<GhostAdapter>(FindObjectsSortMode.None)
+            var clientGameObjectsList = FindObjectUtils.FindObjectsByType<GhostAdapter>()
                 .Where(go => !go.GetComponent<GhostAdapter>().World.IsServer()).ToList();
             Assert.AreEqual(ghostCount, clientGameObjectsList.Count);
 
@@ -321,7 +321,7 @@ namespace Unity.NetCode.Tests
                 int frameCountToCheckNothingHappens = 32;
                 for (int i = 0; i < frameCountToCheckNothingHappens; i++)
                 {
-                    var clientGhosts = Object.FindObjectsByType<GhostAdapter>(FindObjectsSortMode.None);
+                    var clientGhosts = FindObjectUtils.FindObjectsByType<GhostAdapter>();
                     Assert.AreEqual(0, clientGhosts.Length, $"no spawn should have happened client side, but found {clientGhosts.Length} ghosts after {i} ticks!");
                     await testWorld.TickAsync();
                 }
@@ -366,7 +366,7 @@ namespace Unity.NetCode.Tests
                 instances.Add(Object.Instantiate(cubePrefab));
             await testWorld.TickMultipleAsync(8);
             //everything should have been spawned
-            var goAdapters = Object.FindObjectsByType<GhostAdapter>(FindObjectsSortMode.None);
+            var goAdapters = FindObjectUtils.FindObjectsByType<GhostAdapter>();
             Assert.AreEqual(100, goAdapters.Length);
             //and tracked
             var serverGhosts = testWorld.ServerWorld.EntityManager.CreateEntityQuery(new EntityQueryBuilder(Allocator.Temp)
@@ -377,7 +377,7 @@ namespace Unity.NetCode.Tests
                 .WithAll<GhostInstance>());
             Assert.IsFalse(clientGhosts.IsEmpty, "ghost should have been spawned by the client");
             Assert.AreEqual(50, clientGhosts.CalculateEntityCount(), "All ghost should have been spawned by the client");
-            var clientGo = Object.FindObjectsByType<GhostAdapter>(FindObjectsSortMode.None).Where(ga=>!ga.World.IsServer()).ToArray();
+            var clientGo = FindObjectUtils.FindObjectsByType<GhostAdapter>().Where(ga=>!ga.World.IsServer()).ToArray();
             Assert.AreEqual(50, clientGo.Length);
             var ghostEntities = serverGhosts.ToEntityArray(Allocator.Temp).ToArray();
             //Despawn all at once,
@@ -404,7 +404,7 @@ namespace Unity.NetCode.Tests
                 }
             }
             //on client everything is disposed as well after 4 ticks
-            goAdapters = Object.FindObjectsByType<GhostAdapter>(FindObjectsInactive.Include, FindObjectsSortMode.None);
+            goAdapters = FindObjectUtils.FindObjectsByType<GhostAdapter>(FindObjectsInactive.Include);
             Assert.AreEqual(0, goAdapters.Length);
             Assert.IsTrue(serverGhosts.IsEmpty, "All GhostCleanup should have been removed on the server");
             Assert.IsTrue(clientGhosts.IsEmpty, "All ghost should have been despawn by the client");
@@ -434,7 +434,7 @@ namespace Unity.NetCode.Tests
 
             await testWorld.TickMultipleAsync(8);
             //everything should have been spawned
-            var goAdapters = Object.FindObjectsByType<GhostAdapter>(FindObjectsSortMode.None);
+            var goAdapters = FindObjectUtils.FindObjectsByType<GhostAdapter>();
             Assert.AreEqual(100, goAdapters.Length);
             //and tracked
             var serverGhosts = testWorld.ServerWorld.EntityManager.CreateEntityQuery(new EntityQueryBuilder(Allocator.Temp)
@@ -445,7 +445,7 @@ namespace Unity.NetCode.Tests
                 .WithAll<GhostInstance>());
             Assert.IsFalse(clientGhosts.IsEmpty, "ghost should have been spawned by the client");
             Assert.AreEqual(50, clientGhosts.CalculateEntityCount(), "All ghost should have been spawned by the client");
-            var clientGo = Object.FindObjectsByType<GhostAdapter>(FindObjectsSortMode.None).Where(ga=>!ga.World.IsServer()).ToArray();
+            var clientGo = FindObjectUtils.FindObjectsByType<GhostAdapter>().Where(ga=>!ga.World.IsServer()).ToArray();
             Assert.AreEqual(50, clientGo.Length);
             var ghostIds = serverGhosts.ToEntityArray(Allocator.Temp).ToArray();
             //Despawn all at once
@@ -485,7 +485,7 @@ namespace Unity.NetCode.Tests
                     Assert.AreEqual(tick < 3, testWorld.ServerWorld.EntityManager.Exists(ghostIds[i]));
             }
             //on client everything is disposed as well after 4 ticks
-            goAdapters = Object.FindObjectsByType<GhostAdapter>(FindObjectsSortMode.None);
+            goAdapters = FindObjectUtils.FindObjectsByType<GhostAdapter>();
             Assert.AreEqual(0, goAdapters.Length);
             Assert.IsTrue(serverGhosts.IsEmpty, "All GhostCleanup should have been removed on the server");
             Assert.IsTrue(clientGhosts.IsEmpty, "All ghost should have been despawn by the client");
@@ -547,7 +547,7 @@ namespace Unity.NetCode.Tests
 
             await testWorld.TickMultipleAsync(4);
 
-            Assert.IsTrue(Object.FindObjectsByType<GhostAdapter>(FindObjectsInactive.Include, sortMode: FindObjectsSortMode.None).Length == 0, "GhostAdapter should be destroyed");
+            Assert.IsTrue(FindObjectUtils.FindObjectsByType<GhostAdapter>(FindObjectsInactive.Include).Length == 0, "GhostAdapter should be destroyed");
             Assert.IsTrue(serverObj == null, "serverObj should be null and despawned");
             Assert.IsTrue(clientObj == null, "clientObj should be null and despawned");
 

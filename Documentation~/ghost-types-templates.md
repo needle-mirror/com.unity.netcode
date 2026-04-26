@@ -482,4 +482,4 @@ There are a number of additional requirements for creating templates that must b
 You must fill in all sections.
 
 > [!NOTE]
-> When making changes to templates, you need to use the **Multiplayer** > **Force Code Generation** menu to force a new code compilation (which will then use the updated templates).
+> When making changes to templates, you need to use the **Assets** > **Multiplayer** > **Force Code Generation** menu to force a new code compilation (which will then use the updated templates).

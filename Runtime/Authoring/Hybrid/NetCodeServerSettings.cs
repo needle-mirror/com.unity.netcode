@@ -20,7 +20,7 @@ namespace Unity.NetCode.Hybrid
     {
         NetcodeConversionTarget INetCodeConversionTarget.NetcodeTarget => NetcodeConversionTarget.Server;
 
-        [SerializeField] private BakingSystemFilterSettings FilterSettings;
+        [SerializeField] private BakingSystemFilterSettings FilterSettings = new BakingSystemFilterSettings();
         [SerializeField] private string[] AdditionalScriptingDefines = Array.Empty<string>();
 
         static Entities.Hash128 s_Guid;
@@ -165,7 +165,7 @@ namespace Unity.NetCode.Hybrid
             propServerField.RegisterCallback<ChangeEvent<string>>(
                 evt =>
                 {
-                    NetCodeServerSettings.instance.GetFilterSettings().SetDirty();
+                    NetCodeServerSettings.instance.GetFilterSettings()?.SetDirty();
                 });
             targetS.Add(propServerField);
 

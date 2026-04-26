@@ -625,7 +625,7 @@ namespace Unity.NetCode.Tests
                 // TODO handle calling this more than once per test
                 // We don't add the host world to the client list, as we want a deterministic way to retrieve extra client worlds. If I do testWorld.ClientWorlds[0], which client is it going to return if it can contain hosts?
                 // For now, treating a host world as just a server world.
-                m_ServerWorld = (m_WorldStrategy.CreateHostWorld($"ServerTest-{testMethodName}"));
+                m_ServerWorld = (m_WorldStrategy.CreateHostWorld($"HostTest-{testMethodName}"));
                 SetupNetDebugConfig(m_ServerWorld);
             }
 
@@ -1297,6 +1297,14 @@ namespace Unity.NetCode.Tests
             return query.GetSingletonBuffer<T>();
         }
 
+        public void SetSingleton<T>(World world, T value) where T : unmanaged, IComponentData
+        {
+            using var query = world.EntityManager.CreateEntityQuery(ComponentType.ReadOnly<T>());
+            Assert.IsTrue(query.CalculateEntityCount() == 1);
+            var entity = query.GetSingletonEntity();
+            world.EntityManager.SetComponentData(entity, value);
+        }
+
 #if UNITY_EDITOR
         public bool CreateGhostCollection(params GameObject[] ghostTypes)
         {
@@ -1596,8 +1604,7 @@ namespace Unity.NetCode.Tests
 
 #if UNITY_6000_3_OR_NEWER // Required to use GameObject bridge with EntityID
             PredictionCallbackHelper.Reset();
-            foreach (var predictionCallbackHelper in GameObject.FindObjectsByType<PredictionCallbackHelper>(
-                         FindObjectsInactive.Include, FindObjectsSortMode.None))
+            foreach (var predictionCallbackHelper in FindObjectUtils.FindObjectsByType<PredictionCallbackHelper>(FindObjectsInactive.Include))
             {
                 predictionCallbackHelper.Dispose();
             }
@@ -1611,7 +1618,7 @@ namespace Unity.NetCode.Tests
                 await UnloadSceneAsync(m_EmptyScene);
             }
 #if UNITY_6000_3_OR_NEWER // Required to use GameObject bridge with EntityID
-            var foundObjects = GameObject.FindObjectsByType<GhostAdapter>(FindObjectsInactive.Include, FindObjectsSortMode.None);
+            var foundObjects = FindObjectUtils.FindObjectsByType<GhostAdapter>(FindObjectsInactive.Include);
             for (int i = 0; i < foundObjects.Length; i++)
             {
                 GameObject.Destroy(foundObjects[i].gameObject);

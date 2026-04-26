@@ -145,7 +145,7 @@ namespace Unity.NetCode
 
         NativeArray<int> m_GhostCompletionCount;
         StreamCompressionModel m_CompressionModel;
-        static readonly Unity.Profiling.ProfilerMarker k_Scheduling = new Unity.Profiling.ProfilerMarker("GhostUpdateSystem_Scheduling");
+        static readonly Unity.Profiling.ProfilerMarker k_Scheduling = new Unity.Profiling.ProfilerMarker("GhostReceiveSystem_Scheduling");
 
         EntityTypeHandle m_EntityTypeHandle;
         ComponentLookup<SnapshotData> m_SnapshotDataFromEntity;

@@ -138,7 +138,11 @@ namespace Unity.NetCode
             // Note that GetActiveScene will return invalid when domain reloads are ENABLED.
             var activeScene = SceneManager.GetActiveScene();
             // We must use `FindObjectsInactive.Include` here, otherwise we'll get zero results.
+#if UNITY_6000_4_OR_NEWER
+            var sceneConfigurations = UnityEngine.Object.FindObjectsByType<OverrideAutomaticNetcodeBootstrap>(FindObjectsInactive.Include);
+#else
             var sceneConfigurations = UnityEngine.Object.FindObjectsByType<OverrideAutomaticNetcodeBootstrap>(FindObjectsInactive.Include, FindObjectsSortMode.None);
+#endif
             if (sceneConfigurations.Length <= 0)
             {
                 if(logNonErrors)

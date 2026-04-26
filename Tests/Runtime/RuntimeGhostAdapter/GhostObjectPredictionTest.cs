@@ -32,14 +32,14 @@ namespace Unity.NetCode.Tests
             Netcode.RegisterPrefab(prefab);
 
             var serverObj = GameObject.Instantiate(prefab).GetComponent<PredictionTestBehaviour>();
-            serverObj.Ghost.OwnerNetworkId = Netcode.Client.Connection.NetworkId;
+            serverObj.Ghost.OwnerNetworkId = testWorld.GetSingleton<NetworkId>(testWorld.ClientWorlds[0]);
             serverObj.name = "PredictionObjectForTest";
             await testWorld.TickMultipleAsync(6);
-            var clientObj = GameObject.FindObjectsByType<PredictionTestBehaviour>(FindObjectsSortMode.None).First(x => x != serverObj);
+            var clientObj = FindObjectUtils.FindObjectsByType<PredictionTestBehaviour>().First(x => x != serverObj);
             Assert.That(clientObj.Ghost.World.IsClient());
 
-            Assert.That(serverObj.Ghost.OwnerNetworkId, Is.EqualTo(Netcode.Client.Connection.NetworkId));
-            Assert.That(clientObj.Ghost.OwnerNetworkId, Is.EqualTo(Netcode.Client.Connection.NetworkId));
+            Assert.That(serverObj.Ghost.OwnerNetworkId, Is.EqualTo(testWorld.GetSingleton<NetworkId>(testWorld.ClientWorlds[0])));
+            Assert.That(clientObj.Ghost.OwnerNetworkId, Is.EqualTo(testWorld.GetSingleton<NetworkId>(testWorld.ClientWorlds[0])));
 
             clientObj.ValueForInput = 0;
             int nbTicks = 10;
@@ -110,8 +110,8 @@ namespace Unity.NetCode.Tests
             Netcode.RegisterPrefab(prefab.gameObject);
             var serverObj = GameObject.Instantiate(prefab);
             var serverObj2 = GameObject.Instantiate(prefab);
-            serverObj.GetComponent<GhostAdapter>().OwnerNetworkId = new NetworkId() { Value = 1 };
-            serverObj2.GetComponent<GhostAdapter>().OwnerNetworkId = new NetworkId() { Value = 1 };
+            serverObj.GetComponent<GhostAdapter>().OwnerNetworkId = testWorld.GetSingleton<NetworkId>(testWorld.ClientWorlds[0]);
+            serverObj2.GetComponent<GhostAdapter>().OwnerNetworkId = testWorld.GetSingleton<NetworkId>(testWorld.ClientWorlds[0]);
             await testWorld.TickMultipleAsync(4);
             var clientObj = PredictionCallbackHelper.ClientInstances[0];
             Assert.That(clientObj.Ghost.World.IsClient());
@@ -181,11 +181,11 @@ namespace Unity.NetCode.Tests
 
             var serverZero = GameObject.Instantiate(prefabZeroBehaviour);
             await testWorld.TickMultipleAsync(4);
-            var clientZero = GameObject.FindObjectsByType<GhostAdapter>(sortMode: FindObjectsSortMode.None).First(ghost => ghost.IsClient);
+            var clientZero = FindObjectUtils.FindObjectsByType<GhostAdapter>().First(ghost => ghost.IsClient);
 
             var serverNo = GameObject.Instantiate(prefabNo).GetComponent<BehaviourAllData>();
             await testWorld.TickMultipleAsync(4);
-            var clientNo = GameObject.FindObjectsByType<BehaviourAllData>(sortMode: FindObjectsSortMode.None).First(data => data.Ghost.IsClient);
+            var clientNo = FindObjectUtils.FindObjectsByType<BehaviourAllData>().First(data => data.Ghost.IsClient);
 
             var serverYesNo = GameObject.Instantiate(prefabYesNo);
             await testWorld.TickMultipleAsync(4);
@@ -282,7 +282,7 @@ namespace Unity.NetCode.Tests
                     c.predictionUpdate = predictionUpdate;
                 }
                 //awake the GhostBehaviours and GhostAdapter, because mock start as disabled.
-                serverObj.Ghost.OwnerNetworkId = Netcode.Client.Connection.NetworkId;
+                serverObj.Ghost.OwnerNetworkId = testWorld.GetSingleton<NetworkId>(testWorld.ClientWorlds[0]);
                 serverObj.name = $"Ghost{i}";
                 serverObjects[i] = serverObj.Ghost;
             }
@@ -292,8 +292,8 @@ namespace Unity.NetCode.Tests
             var clientUpdate = new List<MonoBehaviour>();
             var clientPredictionUpdate = new List<MonoBehaviour>();
             //we should have 5 ghost client-side
-            var clientObjects = GameObject.FindObjectsByType<GhostAdapter>(FindObjectsInactive.Exclude, FindObjectsSortMode.None)
-                .Where(go=>go.World.IsClient()).ToArray();
+            var clientObjects = FindObjectUtils.FindObjectsByType<GhostAdapter>(FindObjectsInactive.Exclude)
+                .Where(go=>!go.World.IsServer()).ToArray();
             Assert.AreEqual(5, clientObjects.Length);
             for (int i = 0; i < 5; ++i)
             {
@@ -410,12 +410,13 @@ namespace Unity.NetCode.Tests
 
             prefabMonobehaviour.CallbackHolder.OnPrediction += o =>
             {
-                if (o.GetComponent<GhostAdapter>().IsServer)
+                var ghost = o.GetComponent<GhostAdapter>();
+                if (ghost.IsServer)
                 {
                     serverPredictionCalled = true;
                     Assert.IsTrue(serverStartCalled);
                 }
-                else
+                if (ghost.IsClient) // both can be true for host
                 {
                     clientPredictionCalled = true;
                     Assert.IsTrue(clientStartCalled);
@@ -423,12 +424,13 @@ namespace Unity.NetCode.Tests
             };
             prefabMonobehaviour.CallbackHolder.OnStart += o =>
             {
-                if (o.GetComponent<GhostAdapter>().IsServer)
+                var ghost = o.GetComponent<GhostAdapter>();
+                if (ghost.IsServer)
                 {
                     serverStartCalled = true;
                     Assert.IsFalse(serverPredictionCalled);
                 }
-                else
+                if (ghost.IsClient) // both can be true for host
                 {
                     clientStartCalled = true;
                     Assert.IsFalse(clientPredictionCalled);
@@ -437,7 +439,7 @@ namespace Unity.NetCode.Tests
             prefabMonobehaviour.enabled = false;
             var serverHelper = GameObject.Instantiate(prefabMonobehaviour);
             await testWorld.TickMultipleAsync(32);
-            var clientHelper = GameObject.FindObjectsByType<PredictionCallbackHelper>(sortMode: FindObjectsSortMode.None, findObjectsInactive: FindObjectsInactive.Include).First(o => o.Ghost.IsClient);
+            var clientHelper = FindObjectUtils.FindObjectsByType<PredictionCallbackHelper>(findObjectsInactive: FindObjectsInactive.Include).First(o => o.Ghost.IsClient);
 
             Assert.IsFalse(clientStartCalled);
             Assert.IsFalse(clientPredictionCalled);

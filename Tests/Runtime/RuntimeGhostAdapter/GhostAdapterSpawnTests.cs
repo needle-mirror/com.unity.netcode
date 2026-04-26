@@ -71,7 +71,7 @@ namespace Unity.NetCode.Tests
         //     var foundClient = false;
         //     var foundServer = false;
         //     TestMoveCube otherClientCube = null;
-        //     foreach (var oneCube in GameObject.FindObjectsByType<TestMoveCube>(FindObjectsSortMode.None))
+        //     foreach (var oneCube in GameObject.FindObjectsByType<TestMoveCube>())
         //     {
         //         if (oneCube.BelongTo(otherClient.world))
         //         {
@@ -157,7 +157,7 @@ namespace Unity.NetCode.Tests
             var foundClient = false;
             var foundServer = false;
             TestMoveCube otherClientCube = null;
-            var cubes = GameObject.FindObjectsByType<TestMoveCube>(FindObjectsSortMode.None);
+            var cubes = FindObjectUtils.FindObjectsByType<TestMoveCube>();
             Assert.That(cubes.Length, Is.EqualTo(2)); // Thin client spawns no ghosts
             foreach (var oneCube in cubes)
             {
@@ -218,7 +218,7 @@ namespace Unity.NetCode.Tests
             serverCube.gameObject.SetActive(true); // triggers the ghost initialization
             // TODO-release the above SetActive isn't synced properly with entities integration. But then, what does it mean to have a Disabled prefab entities side for Netcode? If we instantiate that prefab client side, it'll be disabled and not processed. Should we sync Disabled status as well and make sure if the server side entity is enabled, it's enabled as well client side? How will that mess with pooling if we go that route? We need to come back to this.
             await testWorld.TickMultipleAsync(6); // 1 tick for prefab syncing, 3 for spawn, 2 for interpolated spawn
-            var foundObjects = GameObject.FindObjectsByType<EmptyBehaviour>(FindObjectsInactive.Include, FindObjectsSortMode.None);
+            var foundObjects = FindObjectUtils.FindObjectsByType<EmptyBehaviour>(FindObjectsInactive.Include);
             Assert.That(foundObjects.Length, Is.EqualTo(2), "found object count mismatch, expecting 1 client and 1 server object in total"); // 1 server, 1 client
             EmptyBehaviour clientCube = null;
 
@@ -274,7 +274,7 @@ namespace Unity.NetCode.Tests
             var serverCube = GameObject.Instantiate(prefab);
             Assert.IsFalse(serverCube.gameObject.activeSelf, "sanity check failed, if prefab is inactive, instantiated object should be inactive too");
             await testWorld.TickMultipleAsync(30); // spend some time, make sure it's not spawned client side
-            Assert.That(GameObject.FindObjectsByType<GhostAdapter>(FindObjectsInactive.Include, FindObjectsSortMode.None).Length, Is.EqualTo(1), "found ghost adapters count mismatch");
+            Assert.That(FindObjectUtils.FindObjectsByType<GhostAdapter>(FindObjectsInactive.Include).Length, Is.EqualTo(1), "found ghost adapters count mismatch");
         }
 
         [Category(NetcodeTestCategories.Foundational)]

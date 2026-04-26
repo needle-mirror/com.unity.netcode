@@ -248,7 +248,7 @@ namespace Unity.NetCode.Tests
         {
             if (subScenes.Length == 0)
             {
-                subScenes = Object.FindObjectsByType<SubScene>(FindObjectsSortMode.None);
+                subScenes = FindObjectUtils.FindObjectsByType<SubScene>();
             }
 
             var sceneEntities = new Entity[subScenes.Length];

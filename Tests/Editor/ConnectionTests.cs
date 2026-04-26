@@ -639,7 +639,7 @@ namespace Unity.NetCode.Tests
                 // The ordering of the protocol version error messages can be scrambled, so we can't log.expect exact ordering
                 LogAssert.ignoreFailingMessages = true;
                 LogAssert.Expect(LogType.Error, new Regex(@"\[ClientTest(.*)\] RpcSystem received bad protocol version from NetworkConnection"));
-                LogAssert.Expect(LogType.Error, new Regex(@"\[ServerTest(.*)\] RpcSystem received bad protocol version from NetworkConnection"));
+                LogAssert.Expect(LogType.Error, new Regex(@"\[(Server|Host)Test(.*)\] RpcSystem received bad protocol version from NetworkConnection"));
 
                 switch (differenceType)
                 {
@@ -698,6 +698,40 @@ namespace Unity.NetCode.Tests
                 // Allow disconnect to happen
                 for (int i = 0; i < 16; ++i)
                     testWorld.Tick();
+
+                // Verify client connection is disconnected
+                using var query = testWorld.ClientWorlds[0].EntityManager.CreateEntityQuery(ComponentType.ReadOnly<NetworkStreamConnection>());
+                Assert.AreEqual(0, query.CalculateEntityCount());
+            }
+        }
+
+        [Test]
+        public void UseDynamicAssemblyListMismatchWillDisconnect()
+        {
+            using (var testWorld = new NetCodeTestWorld())
+            {
+                testWorld.Bootstrap(true);
+                testWorld.CreateWorlds(true, 1, false);
+
+                // Change DynamicAssemblyList value on the client only
+                float dt = 16f / 1000f;
+                var rpcCollectionQuery = testWorld.ClientWorlds[0].EntityManager.CreateEntityQuery(ComponentType.ReadWrite<RpcCollection>());
+                var rpcCollection = rpcCollectionQuery.GetSingleton<RpcCollection>();
+                rpcCollection.DynamicAssemblyList = true;   // default is false
+                testWorld.Tick(dt);
+                testWorld.Tick(dt);
+
+                var ep = NetworkEndpoint.LoopbackIpv4;
+                ep.Port = 7979;
+                testWorld.GetSingletonRW<NetworkStreamDriver>(testWorld.ServerWorld).ValueRW.Listen(ep);
+                testWorld.GetSingletonRW<NetworkStreamDriver>(testWorld.ClientWorlds[0]).ValueRW.Connect(testWorld.ClientWorlds[0].EntityManager, ep);
+
+                // Allow disconnect to happen
+                for (int i = 0; i < 16; ++i)
+                    testWorld.Tick();
+
+                LogAssert.Expect(LogType.Error, "DynamicAssemblyList value mismatch, ours=1 theirs=0. Make sure the RpcCollection.DynamicAssemblyList value is the same everywhere.");
+                LogAssert.Expect(LogType.Error, "DynamicAssemblyList value mismatch, ours=0 theirs=1. Make sure the RpcCollection.DynamicAssemblyList value is the same everywhere.");
 
                 // Verify client connection is disconnected
                 using var query = testWorld.ClientWorlds[0].EntityManager.CreateEntityQuery(ComponentType.ReadOnly<NetworkStreamConnection>());

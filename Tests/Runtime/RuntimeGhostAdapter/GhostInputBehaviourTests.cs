@@ -26,7 +26,17 @@ namespace Unity.NetCode.Tests
             //Runs for a bit to sync the initial network time etc etc.
             await testWorld.TickMultipleAsync(32); // stabilize ticks
             var serverGo = Object.Instantiate(prefab).gameObject;
-            serverGo.GetComponent<GhostAdapter>().OwnerNetworkId = new NetworkId() { Value = 1 };
+            NetworkId clientId = testWorld.GetSingleton<NetworkId>(testWorld.ClientWorlds[0]);
+            serverGo.GetComponent<GhostAdapter>().OwnerNetworkId = clientId;
+
+            NetworkId hostId = NetworkId.Invalid;
+            if (NetCodeTestWorld.OverrideUseSingleWorldHost)
+            {
+                hostId = testWorld.ServerWorld.EntityManager.CreateEntityQuery(typeof(NetworkId), typeof(LocalConnection)).GetSingleton<NetworkId>();
+                var singleWorldOwnedGhost = Object.Instantiate(prefab).gameObject;
+                singleWorldOwnedGhost.GetComponent<GhostAdapter>().OwnerNetworkId = hostId;
+            }
+
             // Wait for the client side spawn
             await testWorld.TickMultipleAsync(4);
             // Now run a few ticks to let the test do its thing and collect inputs.
@@ -36,8 +46,13 @@ namespace Unity.NetCode.Tests
             //This should have run for 1 ticks. So we should have as value 16 on the server
             //Same for the client. Client-side we need to get the spawned gameobject that match this one.
             //TODO-release@potentialUX: we need an easier way (in general, not just for sake of test) to map a GameObject to an entity to a Ghost ID. Useful for tools like mppm if we want to ping another ghost in a clone for example or for tools around binary world setup. Only useful for tooling though? Nothing runtime?
-            var client = PredictionCallbackHelper.ClientInstances[0];
+            var client = PredictionCallbackHelper.ClientInstances.First(o => o.Ghost.OwnerNetworkId == clientId);
             var clientGo = client.gameObject;
+            GameObject hostGo = null;
+            if (NetCodeTestWorld.OverrideUseSingleWorldHost)
+            {
+                hostGo = PredictionCallbackHelper.ServerInstances.First(o => o.Ghost.OwnerNetworkId == hostId).gameObject;
+            }
             Assert.AreNotEqual(serverGo, clientGo);
             if (testInterpolated)
                 Assert.IsFalse(clientGo.WorldExt().EntityManager.HasComponent<PredictedGhost>(clientGo.EntityExt(false)), "sanity check failed, client should not be a predicted ghost");
@@ -47,6 +62,12 @@ namespace Unity.NetCode.Tests
             //and server input value should be 4
             Assert.AreEqual(testInterpolated ? 15 : 17, clientGo.GetComponent<TestInputBehaviour>().InputData.Value.Value);
             Assert.AreEqual(testInterpolated ? 11 : 13, serverGo.GetComponent<TestInputBehaviour>().InputData.Value.Value);
+            if (NetCodeTestWorld.OverrideUseSingleWorldHost)
+            {
+                // host starts doing inputs sooner than an extra client, who's inputs will only update when it's spawned
+                // there's no interpolated on hosts for now, so same value
+                Assert.AreEqual(19, hostGo.GetComponent<TestInputBehaviour>().InputData.Value.Value);
+            }
         }
 
         [Test]

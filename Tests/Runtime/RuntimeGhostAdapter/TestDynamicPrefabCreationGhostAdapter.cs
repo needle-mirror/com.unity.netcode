@@ -28,7 +28,7 @@ namespace Unity.NetCode.Tests
         public void TestDynamicPrefabCreationWithSubsceneHelper_Step2()
         {
             // check there's not remaining GOs from previous tests
-            Assert.That(GameObject.FindObjectsByType<GhostAdapter>(FindObjectsInactive.Include, FindObjectsSortMode.None), Is.Empty);
+            Assert.That(FindObjectUtils.FindObjectsByType<GhostAdapter>(FindObjectsInactive.Include), Is.Empty);
         }
     }
 }

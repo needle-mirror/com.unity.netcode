@@ -3,6 +3,9 @@ using System.Collections.Generic;
 using Unity.Burst;
 using Unity.Entities;
 using Unity.Jobs.LowLevel.Unsafe;
+#if USING_UNITY_LOGGING
+using Unity.Logging.Internal;
+#endif
 #if UNITY_EDITOR
 using UnityEditor;
 #endif
@@ -65,7 +68,7 @@ namespace Unity.NetCode
         /// </summary>
         List<GameObject> m_PrefabPlaceholder;
 
-#if UNITY_6000_3_OR_NEWER // Required to use GameObject bridge with EntityID
+#if !UNITY_DISABLE_MANAGED_COMPONENTS && UNITY_6000_3_OR_NEWER // Required to use GameObject bridge with EntityID
         internal GhostBehaviourTypeManager GhostBehaviourTypeManager;
 #endif
         // GhostEntityMapping m_EntityMapping; // Needs to be unique to mimic entities integration. if we want to iterate over all entities in a world, we need a separate data structure tracking those
@@ -191,7 +194,7 @@ namespace Unity.NetCode
             m_Client = new Client();
             m_Server = new Server();
             m_PrefabPlaceholder = new List<GameObject>();
-#if UNITY_6000_3_OR_NEWER // Required to use GameObject bridge with EntityID
+#if !UNITY_DISABLE_MANAGED_COMPONENTS && UNITY_6000_3_OR_NEWER // Required to use GameObject bridge with EntityID
             // ClientServerBootstrap.CustomDriverConstructors = default;
             GhostBehaviourTypeManager = new GhostBehaviourTypeManager();
             // BootstrapSceneOverrideManager = new BootstrapSceneOverrideManager();
@@ -230,6 +233,9 @@ namespace Unity.NetCode
         {
             m_Initialized = false;
             s_UnmanagedInstance.Data.Dispose();
+#if USING_UNITY_LOGGING
+            LoggerManager.DeleteAllLoggers();
+#endif
         }
 
         #endregion // singleton
