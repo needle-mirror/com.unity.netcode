@@ -200,11 +200,11 @@ namespace Unity.NetCode.Generators
 
                 if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
                 {
-                    StarProcess("/usr/bin/osascript", $"-e \"display dialog \\\"{text}\\\" with icon note buttons {{\\\"OK\\\"}}\"");
+                    StartProcess("/usr/bin/osascript", $"-e \"display dialog \\\"{text}\\\" with icon note buttons {{\\\"OK\\\"}}\"");
                 }
                 else if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
                 {
-                    StarProcess("/usr/bin/zenity", $@"--info --title=""Attach Debugger"" --text=""{text}"" --no-wrap");
+                    StartProcess("/usr/bin/zenity", $@"--info --title=""Attach Debugger"" --text=""{text}"" --no-wrap");
                 }
             }
         }
@@ -227,7 +227,7 @@ namespace Unity.NetCode.Generators
             }
         }
 
-        private static void StarProcess(string fileName, string arguments)
+        private static void StartProcess(string fileName, string arguments)
         {
             var startInfo = new ProcessStartInfo
             {
@@ -250,10 +250,14 @@ namespace Unity.NetCode.Generators
         }
         private static TextWriter GetOutputStream()
         {
-            return Helpers.WriteLogToDisk ? File.AppendText(GetLogFilePath()) : Console.Out;
+            return File.AppendText(GetLogFilePath());
         }
         static void LogToDebugStream(string level, string message)
         {
+            if (!Helpers.WriteLogToDisk)
+            {
+                return;
+            }
             try
             {
                 using var writer = GetOutputStream();
@@ -267,14 +271,15 @@ namespace Unity.NetCode.Generators
         public static void LogException(Exception exception)
         {
             LastErrorLog = exception.ToString();
+
+            if (!Helpers.WriteLogToDisk)
+            {
+                return;
+            }
             try
             {
                 using var writer = GetOutputStream();
-                writer.Write("[Exception]");
-                writer.WriteLine(exception.ToString());
-                writer.WriteLine("Callstack:");
-                writer.Write(exception.StackTrace);
-                writer.Write('\n');
+                writer.WriteLine($"[Exception] {exception.Message}\nCallstack: {exception.StackTrace}");
             }
             catch (Exception flushEx)
             {

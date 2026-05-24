@@ -2,6 +2,18 @@
 uid: changelog
 ---
 
+## [1.13.2] - 2026-05-24
+
+### Changed
+
+* Source generators no longer log to Console.Out
+
+### Fixed
+
+* Fix source generator deadlock where Roslyn Analyzers were never finishing in Rider
+
+
+
 ## [1.13.1] - 2026-04-26
 
 ### Fixed

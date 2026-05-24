@@ -34,7 +34,7 @@ namespace Unity.NetCode.Generators
         /// </summary>
         public const string WriteLogsToDisk = "unity.netcode.sourcegenerator.write_logs_to_disk";
         /// <summary>
-        /// The minimal log level. Available: Debug, Warning, Error. Default is error. (NOT SUPPORTED YET)
+        /// The minimal log level. Available: Debug, Warning, Error, Info. Default is Info.
         /// </summary>
         public const string LoggingLevel = "unity.netcode.sourcegenerator.logging_level";
         /// <summary>

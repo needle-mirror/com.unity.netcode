@@ -1,7 +1,7 @@
 {
   "name": "com.unity.netcode",
   "displayName": "Netcode for Entities",
-  "version": "1.13.1",
+  "version": "1.13.2",
   "unity": "2022.3",
   "unityRelease": "20f1",
   "description": "Unity's Data Oriented Technology Stack (DOTS) multiplayer netcode layer - a high level netcode system built on entities. This package provides a foundation for creating networked multiplayer applications within DOTS.",
@@ -11,15 +11,15 @@
     "com.unity.modules.animation": "1.0.0"
   },
   "_upm": {
-    "changelog": "### Fixed\n\n* Obscure error messages when the RpcCollection.DynamicAssemblyList value is not configured the same way between client and server.\n* Fixed a niche null reference exception when editing the lists in Project Settings > Multiplayer > Build immediately after adding the Netcode for Entities package.\n* Add missing profiler marker for GhostReceiveSystem"
+    "changelog": "### Changed\n\n* Source generators no longer log to Console.Out\n\n### Fixed\n\n* Fix source generator deadlock where Roslyn Analyzers were never finishing in Rider"
   },
   "upmCi": {
-    "footprint": "dc74cb6dec8cef894b6a7c52ee648153b41d780f"
+    "footprint": "cd005cbde61b010081e9e3b8b874063e58494261"
   },
   "documentationUrl": "https://docs.unity3d.com/Packages/com.unity.netcode@1.13/manual/index.html",
   "repository": {
     "url": "https://github.cds.internal.unity3d.com/unity/dots.git",
     "type": "git",
-    "revision": "480cf34418a4313452b3eb89fc49ba076b78cf7d"
+    "revision": "622551ee84f9e51c65147f22bf7c95902a90ce50"
   }
 }
