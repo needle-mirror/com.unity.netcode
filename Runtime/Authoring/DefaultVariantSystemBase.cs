@@ -107,17 +107,7 @@ namespace Unity.NetCode
             internal HashRule CreateHashRule(ComponentType componentType) => new HashRule(TryGetHashElseZero(componentType, VariantForParents), TryGetHashElseZero(componentType, VariantForChildren));
 
             static ulong TryGetHashElseZero(ComponentType componentType, Type variantType)
-            {
-                if (variantType == null)
-                    return 0;
-                if (variantType == typeof(DontSerializeVariant))
-                    return GhostVariantsUtility.DontSerializeHash;
-                if (variantType == typeof(ClientOnlyVariant))
-                    return GhostVariantsUtility.ClientOnlyHash;
-                if (variantType == typeof(ServerOnlyVariant))
-                    return GhostVariantsUtility.ServerOnlyHash;
-                return GhostVariantsUtility.UncheckedVariantHash(variantType.FullName, componentType);
-            }
+                => GhostVariantsUtility.ResolveVariantHashFromType(variantType, componentType);
         }
 
         /// <summary>Hash version of <see cref="Rule"/> to allow it to be BurstCompatible.</summary>

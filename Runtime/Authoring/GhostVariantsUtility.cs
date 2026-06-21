@@ -18,9 +18,12 @@ namespace Unity.NetCode
         static readonly FixedString32Bytes k_NetCodeGhostNetVariant = "NetCode.GhostNetVariant";
         static readonly ulong k_NetCodeGhostNetVariantHash = TypeHash.FNV1A64(k_NetCodeGhostNetVariant);
 
-        internal static readonly ulong ClientOnlyHash = TypeHash.CombineFNV1A64(k_NetCodeGhostNetVariantHash, TypeHash.FNV1A64((FixedString64Bytes)$"Unity.NetCode.{k_ClientOnlyVariant}"));
-        internal static readonly ulong ServerOnlyHash = TypeHash.CombineFNV1A64(k_NetCodeGhostNetVariantHash, TypeHash.FNV1A64((FixedString64Bytes)$"Unity.NetCode.{k_ServerOnlyVariant}"));
-        internal static readonly ulong DontSerializeHash = TypeHash.CombineFNV1A64(k_NetCodeGhostNetVariantHash, TypeHash.FNV1A64((FixedString64Bytes)$"Unity.NetCode.{k_DontSerializeVariant}"));
+        /// <summary>Stable hash of the built-in <see cref="ClientOnlyVariant"/>. Use this from a baker to force a component to be client-only.</summary>
+        public static readonly ulong ClientOnlyHash = TypeHash.CombineFNV1A64(k_NetCodeGhostNetVariantHash, TypeHash.FNV1A64((FixedString64Bytes)$"Unity.NetCode.{k_ClientOnlyVariant}"));
+        /// <summary>Stable hash of the built-in <see cref="ServerOnlyVariant"/>. Use this from a baker to force a component to be server-only.</summary>
+        public static readonly ulong ServerOnlyHash = TypeHash.CombineFNV1A64(k_NetCodeGhostNetVariantHash, TypeHash.FNV1A64((FixedString64Bytes)$"Unity.NetCode.{k_ServerOnlyVariant}"));
+        /// <summary>Stable hash of the built-in <see cref="DontSerializeVariant"/>. Use this from a baker to mark a component as non-serialized.</summary>
+        public static readonly ulong DontSerializeHash = TypeHash.CombineFNV1A64(k_NetCodeGhostNetVariantHash, TypeHash.FNV1A64((FixedString64Bytes)$"Unity.NetCode.{k_DontSerializeVariant}"));
 
         static ulong CalculateVariantHash(ulong variantTypeHash, ulong componentTypeHash)
         {
@@ -88,6 +91,32 @@ namespace Unity.NetCode
         public static ulong UncheckedVariantHash(ulong variantTypeHash, ComponentType componentType)
         {
             return CalculateVariantHash(variantTypeHash, TypeManager.GetFullNameHash(componentType.TypeIndex));
+        }
+
+        /// <summary>Resolves a variant <see cref="Type"/> to its <see cref="ulong"/> hash for a given component,
+        /// honoring the well-known special variants (<see cref="DontSerializeVariant"/>, <see cref="ClientOnlyVariant"/>,
+        /// <see cref="ServerOnlyVariant"/>) and falling through to <see cref="UncheckedVariantHashNBC(Type, ComponentType)"/>.
+        /// Returns 0 when <paramref name="variantType"/> is null.</summary>
+        /// <remarks>Single-source-of-truth for converting a managed variant type into its on-disk hash; used by both
+        /// <c>DefaultVariantSystemBase.Rule</c> and the baker-side <c>AppendOverride&lt;TVariant&gt;</c> extension.</remarks>
+        /// <param name="variantType">The managed variant type to resolve. Pass null to receive 0; pass one of the
+        /// well-known special variants to receive the precomputed hash; pass any other type to fall through to
+        /// <see cref="UncheckedVariantHashNBC(Type, ComponentType)"/>.</param>
+        /// <param name="componentType">The component type the variant applies to. Used as the second hash input for
+        /// the fall-through path; ignored for the well-known special variants.</param>
+        /// <returns>The resolved variant hash, or 0 if <paramref name="variantType"/> is null.</returns>
+        [ExcludeFromBurstCompatTesting("Use managed types")]
+        public static ulong ResolveVariantHashFromType(Type variantType, ComponentType componentType)
+        {
+            if (variantType == null)
+                return 0;
+            if (variantType == typeof(DontSerializeVariant))
+                return DontSerializeHash;
+            if (variantType == typeof(ClientOnlyVariant))
+                return ClientOnlyHash;
+            if (variantType == typeof(ServerOnlyVariant))
+                return ServerOnlyHash;
+            return UncheckedVariantHashNBC(variantType, componentType);
         }
 
     }

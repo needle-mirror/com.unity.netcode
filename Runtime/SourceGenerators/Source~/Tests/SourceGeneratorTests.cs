@@ -1697,6 +1697,39 @@ namespace Unity.NetCode.GeneratorTests
         }
 
         [Test]
+        public void SourceGenerator_InputComponentData_NestedInClass_GhostField_RegistrationMatchesSerializer()
+        {
+            var testData = @"
+            using Unity.Entities;
+            using Unity.NetCode;
+            namespace Unity.Test
+            {
+                internal class OuterHost
+                {
+                    internal struct PlayerInput : IInputComponentData
+                    {
+                        [GhostField] public int Horizontal;
+                    }
+                }
+            }
+            ";
+            var receiver = GeneratorTestHelpers.CreateSyntaxReceiver();
+            var walker = new TestSyntaxWalker { Receiver = receiver };
+            var tree = CSharpSyntaxTree.ParseText(testData);
+            tree.GetCompilationUnitRoot().Accept(walker);
+            Assert.AreEqual(1, walker.Receiver.Candidates.Count);
+
+            var results = GeneratorTestHelpers.RunGenerators(tree);
+            Assert.AreEqual(0, results.Diagnostics.Count(d => d.Severity == DiagnosticSeverity.Error));
+            Assert.AreEqual(4, results.GeneratedSources.Length, "Num generated files does not match");
+            var registrationText = results.GeneratedSources[3].SyntaxTree.GetText().ToString();
+            Assert.IsFalse(registrationText.Contains("+"),
+                "Ghost registration must not use Roslyn '+' nested-type markers in generated identifiers.");
+            var foundLinesCount = new Regex(@"data\.AddSerializer\(.*OuterHost_PlayerInputInputBufferDataGhostComponentSerializer\.GetState").Matches(registrationText).Count;
+            Assert.AreEqual(1, foundLinesCount);
+        }
+
+        [Test]
         public void SourceGenerator_RPC_DontSerializeForCommand()
         {
             var testData = @"

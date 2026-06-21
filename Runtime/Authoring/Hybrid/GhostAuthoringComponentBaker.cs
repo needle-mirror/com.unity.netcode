@@ -168,7 +168,7 @@ namespace Unity.NetCode
     [UpdateInGroup(typeof(PostBakingSystemGroup))]
     [WorldSystemFilter(WorldSystemFilterFlags.BakingSystem)]
     [AlwaysSynchronizeSystem]
-    [BakingVersion("cmarastoni", 1)]
+    [BakingVersion("nwalker", 2)]
     partial class GhostAuthoringBakingSystem : SystemBase
     {
         EntityQuery m_NoLongerBakedRootEntities;
@@ -394,6 +394,22 @@ namespace Unity.NetCode
 
             // Setup all components GhostType, variants, sendMask and sendToChild arrays. Used later to mark components to be added or removed.
             DynamicBuffer<GhostAuthoringComponentOverridesBaking> overrides = EntityManager.GetBuffer<GhostAuthoringComponentOverridesBaking>(rootEntity);
+
+            using var bakerOverrides = new NativeList<GhostVariantBakedOverride>(8, Allocator.Temp);
+            for (int k = 0; k < linkedEntities.Length; ++k)
+            {
+                if (!EntityManager.HasBuffer<GhostVariantBakedOverride>(linkedEntities[k]))
+                    continue;
+                var hostGuid = EntityManager.GetComponentData<EntityGuid>(linkedEntities[k]);
+                var hostBuf = EntityManager.GetBuffer<GhostVariantBakedOverride>(linkedEntities[k]);
+                for (int j = 0; j < hostBuf.Length; ++j)
+                {
+                    var ov = hostBuf[j];
+                    GhostVariantBakedOverride.ResolveSelfTargeting(ref ov, hostGuid);
+                    bakerOverrides.Add(ov);
+                }
+            }
+
             var compIdx = 0;
             for (int k = 0; k < linkedEntities.Length; ++k)
             {
@@ -403,11 +419,11 @@ namespace Unity.NetCode
                 var numComponents = componentCounts[k];
                 for (int i = 0; i < numComponents; ++i, ++compIdx)
                 {
-                    // Find the override
+                    ulong fullTypeNameID = TypeManager.GetFullNameHash(allComponents[compIdx].TypeIndex);
+
                     GhostAuthoringComponentOverridesBaking? myOverride = default;
                     foreach (var overrideEntry in overrides)
                     {
-                        ulong fullTypeNameID = TypeManager.GetFullNameHash(allComponents[compIdx].TypeIndex);
                         if (overrideEntry.FullTypeNameID == fullTypeNameID && overrideEntry.GameObjectID == instanceId)
                         {
                             myOverride = overrideEntry;
@@ -415,13 +431,45 @@ namespace Unity.NetCode
                         }
                     }
 
-                    //Initialize the value with common default and they overwrite them in case is necessary.
+                    GhostVariantBakedOverride? bakerOverride = default;
+                    for (int j = 0; j < bakerOverrides.Length; ++j)
+                    {
+                        var ov = bakerOverrides[j];
+                        if (ov.ComponentTypeFullNameHash != fullTypeNameID) continue;
+                        if (ov.TargetGameObjectInstanceId != instanceId) continue;
+                        if (ov.TargetEntitySerial != entityGUID.Serial) continue;
+
+                        bakerOverride = ov;
+                        break;
+                    }
+
+                    bool inspectionPickedVariant = myOverride.HasValue && myOverride.Value.ComponentVariant != 0;
+                    bool inspectionPickedPrefabType = myOverride.HasValue && myOverride.Value.PrefabType != GhostAuthoringInspectionComponent.ComponentOverride.NoOverride;
+                    bool inspectionPickedSendType = myOverride.HasValue && myOverride.Value.SendTypeOptimization != GhostAuthoringInspectionComponent.ComponentOverride.NoOverride;
+
+                    ulong effectiveVariantHash = 0;
+                    if (inspectionPickedVariant)
+                        effectiveVariantHash = myOverride.Value.ComponentVariant;
+                    else if (bakerOverride.HasValue && bakerOverride.Value.VariantHash != 0)
+                        effectiveVariantHash = bakerOverride.Value.VariantHash;
+
+                    int effectivePrefabType = GhostAuthoringInspectionComponent.ComponentOverride.NoOverride;
+                    if (inspectionPickedPrefabType)
+                        effectivePrefabType = myOverride.Value.PrefabType;
+                    else if (bakerOverride.HasValue && bakerOverride.Value.PrefabType != GhostVariantBakedOverride.NoPrefabTypeOverride)
+                        effectivePrefabType = (int)bakerOverride.Value.PrefabType;
+
+                    int effectiveSendType = GhostAuthoringInspectionComponent.ComponentOverride.NoOverride;
+                    if (inspectionPickedSendType)
+                        effectiveSendType = myOverride.Value.SendTypeOptimization;
+                    else if (bakerOverride.HasValue && bakerOverride.Value.SendTypeOptimization != GhostVariantBakedOverride.NoSendTypeOverride)
+                        effectiveSendType = (int)bakerOverride.Value.SendTypeOptimization;
+
                     prefabTypes[compIdx] = GhostPrefabType.All;
-                    ulong variantHash = myOverride.HasValue ? myOverride.Value.ComponentVariant : 0;
                     bool isRoot = !isChild;
-                    var variantType = serializerCollectionData.GetCurrentSerializationStrategyForComponent(allComponents[compIdx], variantHash, isRoot);
+                    var variantType = serializerCollectionData.GetCurrentSerializationStrategyForComponent(allComponents[compIdx], effectiveVariantHash, isRoot);
                     variants[compIdx] = variantType.Hash;
-                    sendMasksOverride[compIdx] = GhostAuthoringInspectionComponent.ComponentOverride.NoOverride;
+                    sendMasksOverride[compIdx] = effectiveSendType;
 
                     // NW: Disabled warning while investigating CI timeout error on mac: [TimeoutExceptionMessage]: Timeout while waiting for a log message, no editor logging has happened during the timeout window
                     //if (variantType.IsTestVariant != 0)
@@ -429,30 +477,26 @@ namespace Unity.NetCode
                     //    Debug.LogWarning($"Ghost '{ghostAuthoringBakingData.GhostName}' uses a test variant {variantType.ToFixedString()}! Ensure this is only ever used in an Editor, test context.");
                     //}
 
-                    //Initialize the common default and then overwrite in case
-                    if (myOverride.HasValue)
+                    // Stale variant hashes get distinct severities: inspection-set hashes are user-visible (loud
+                    // error, must re-apply in inspector); baker-set hashes are code/data version mismatch (warn
+                    // and fall through, baker can be re-run).
+                    if (inspectionPickedVariant && variantType.Hash != myOverride.Value.ComponentVariant)
                     {
-                        if (myOverride.Value.ComponentVariant != 0) // Not an error if the hash is 0 (default).
-                        {
-                            if (variantType.Hash != myOverride.Value.ComponentVariant)
-                            {
-                                Debug.LogError($"Ghost '{ghostAuthoringBakingData.GhostName}' has an override for type {allComponents[compIdx].ToFixedString()} that sets the Variant to hash '{myOverride.Value.ComponentVariant}'. However, this hash is no longer present in code-gen, likely due to a code change removing or renaming the old variant. Thus, using Variant '{variantType.DisplayName}' (with hash: '{variantType.Hash}') and ignoring your \"Component Override\". Please open this prefab and re-apply.");
-                            }
-                        }
-
-                        //Only override the the default if the property is meant to (so always check for UseDefaultValue first)
-                        if (myOverride.Value.PrefabType != GhostAuthoringInspectionComponent.ComponentOverride.NoOverride)
-                            prefabTypes[compIdx] = (GhostPrefabType) myOverride.Value.PrefabType;
-                        else
-                            // Problem: if the variant attribute changed, or we removed a variant,
-                            // subscenes and prefabs aren't reconverted (they are not in the subscene or components).
-                            // Unless we enforce only runtime stripping, checking what variant you expect at conversion
-                            // is mandatory.
-                            prefabTypes[compIdx] = variantType.PrefabType;
-                        if (myOverride.Value.SendTypeOptimization != GhostAuthoringInspectionComponent.ComponentOverride.NoOverride)
-                            sendMasksOverride[compIdx] = myOverride.Value.SendTypeOptimization;
+                        Debug.LogError($"Ghost '{ghostAuthoringBakingData.GhostName}' has an override for type {allComponents[compIdx].ToFixedString()} that sets the Variant to hash '{myOverride.Value.ComponentVariant}'. However, this hash is no longer present in code-gen, likely due to a code change removing or renaming the old variant. Thus, using Variant '{variantType.DisplayName}' (with hash: '{variantType.Hash}') and ignoring your \"Component Override\". Please open this prefab and re-apply.");
                     }
+                    else if (!inspectionPickedVariant && bakerOverride.HasValue && bakerOverride.Value.VariantHash != 0
+                             && variantType.Hash != bakerOverride.Value.VariantHash)
+                    {
+                        Debug.LogWarning($"Ghost '{ghostAuthoringBakingData.GhostName}' has a baker override for type {allComponents[compIdx].ToFixedString()} requesting Variant hash '{bakerOverride.Value.VariantHash}', but this hash is unknown to code-gen. Falling back to Variant '{variantType.DisplayName}' (hash '{variantType.Hash}').");
+                    }
+
+                    if (effectivePrefabType != GhostAuthoringInspectionComponent.ComponentOverride.NoOverride)
+                        prefabTypes[compIdx] = (GhostPrefabType) effectivePrefabType;
                     else
+                        // Problem: if the variant attribute changed, or we removed a variant,
+                        // subscenes and prefabs aren't reconverted (they are not in the subscene or components).
+                        // Unless we enforce only runtime stripping, checking what variant you expect at conversion
+                        // is mandatory.
                         prefabTypes[compIdx] = variantType.PrefabType;
                 }
             }

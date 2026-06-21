@@ -13,6 +13,7 @@
       * [Serialization and synchronization with `GhostFieldAttribute`](ghostfield-synchronize.md)
       * [Customizing replication with `GhostComponentAttribute`](ghostcomponentattribute.md)
       * [Creating replication schemas with `GhostComponentVariationAttribute`](ghost-variants.md)
+        * [Apply variant overrides from a baker](baker-variant-overrides.md)
       * [Spawn and pre-spawn ghosts](ghost-spawning.md)
       * [Ghost type templates](ghost-types-templates.md)
       * [Ghost groups](ghost-groups.md)

@@ -18,6 +18,13 @@ namespace Unity.NetCode.Tests
             baker.AddComponent(entity, new GhostOwner());
             // Dependency on the name
             baker.DependsOn(gameObject);
+
+            var byteBuf = baker.AddBuffer<GhostGenBuffer_ByteBuffer>(entity);
+            byteBuf.Length = 3;
+            for (int i = 0; i < byteBuf.Length; i++)
+                byteBuf[i] = new GhostGenBuffer_ByteBuffer {Value = (byte) (i+10),};
+
+
             if (gameObject.name == "ParentGhost")
             {
                 baker.AddBuffer<GhostGroup>(entity);
@@ -173,111 +180,170 @@ namespace Unity.NetCode.Tests
                 Assert.AreEqual(43, testWorld.ClientWorlds[0].EntityManager.GetComponentData<GhostOwner>(clientChildEnt).NetworkId);
             }
         }
+
         [Test]
-        public void CanHaveManyGhostGroupGhostTypes()
+        public void CanHaveManyGhostGroupGhostTypes([Values]bool preSerialize)
         {
-            using (var testWorld = new NetCodeTestWorld())
+            using var testWorld = new NetCodeTestWorld();
+            testWorld.Bootstrap(true);
+
+            var ghostGameObjects = new GameObject[64];
+            var serverEntities = new Entity[64];
+
+            for (int i = 0; i < 32; ++i)
             {
-                testWorld.Bootstrap(true);
+                var ghostGameObject = new GameObject("ParentGhost");
+                ghostGameObject.AddComponent<GhostAuthoringComponent>().UsePreSerialization = preSerialize;
+                ghostGameObject.AddComponent<TestNetCodeAuthoring>().Converter = new GhostGroupGhostConverter();
+                var childGhostGameObject = new GameObject("ChildGhost");
+                childGhostGameObject.AddComponent<GhostAuthoringComponent>().UsePreSerialization = preSerialize;
+                childGhostGameObject.AddComponent<TestNetCodeAuthoring>().Converter = new GhostGroupGhostConverter();
 
-                var ghostGameObjects = new GameObject[64];
+                ghostGameObjects[i] = ghostGameObject;
+                ghostGameObjects[i+32] = childGhostGameObject;
+            }
 
-                for (int i = 0; i < 32; ++i)
-                {
-                    var ghostGameObject = new GameObject();
-                    ghostGameObject.name = "ParentGhost";
-                    ghostGameObject.AddComponent<TestNetCodeAuthoring>().Converter = new GhostGroupGhostConverter();
-                    var childGhostGameObject = new GameObject();
-                    childGhostGameObject.name = "ChildGhost";
-                    childGhostGameObject.AddComponent<TestNetCodeAuthoring>().Converter = new GhostGroupGhostConverter();
+            Assert.IsTrue(testWorld.CreateGhostCollection(ghostGameObjects));
 
-                    ghostGameObjects[i] = ghostGameObject;
-                    ghostGameObjects[i+32] = childGhostGameObject;
-                }
+            testWorld.CreateWorlds(true, 1);
 
-                Assert.IsTrue(testWorld.CreateGhostCollection(ghostGameObjects));
+            for (int i = 0; i < 32; ++i)
+            {
+                var serverEnt = testWorld.SpawnOnServer(ghostGameObjects[i]);
+                var serverChildEnt = testWorld.SpawnOnServer(ghostGameObjects[i + 32]);
 
-                testWorld.CreateWorlds(true, 1);
+                serverEntities[i] = serverEnt;
+                serverEntities[32 + i] = serverChildEnt;
 
-                for (int i = 0; i < 32; ++i)
-                {
-                    var serverEnt = testWorld.SpawnOnServer(ghostGameObjects[i]);
-                    var serverChildEnt = testWorld.SpawnOnServer(ghostGameObjects[i+32]);
+                testWorld.ServerWorld.EntityManager.SetComponentData(serverEnt, new GhostOwner {NetworkId = 42});
+                testWorld.ServerWorld.EntityManager.SetComponentData(serverChildEnt, new GhostOwner {NetworkId = 43});
+                testWorld.ServerWorld.EntityManager.GetBuffer<GhostGroup>(serverEnt).Add(new GhostGroup {Value = serverChildEnt});
+            }
 
-                    testWorld.ServerWorld.EntityManager.SetComponentData(serverEnt, new GhostOwner{NetworkId = 42});
-                    testWorld.ServerWorld.EntityManager.SetComponentData(serverChildEnt, new GhostOwner{NetworkId = 43});
-                    testWorld.ServerWorld.EntityManager.GetBuffer<GhostGroup>(serverEnt).Add(new GhostGroup{Value = serverChildEnt});
-                }
+            SetDeterministicRandBufferValues(testWorld, serverEntities, 299735u);
 
-                // Connect and make sure the connection could be established
-                testWorld.Connect();
+            testWorld.Connect();
+            testWorld.GoInGame();
 
-                // Go in-game
-                testWorld.GoInGame();
+            // Let the game run for a bit so the ghosts are spawned on the client
+            for (int i = 0; i < 64; ++i)
+                testWorld.Tick();
 
-                // Let the game run for a bit so the ghosts are spawned on the client
-                for (int i = 0; i < 64; ++i)
-                    testWorld.Tick();
+            // Check that the client world has the right thing and value
+            var ghostQuery = testWorld.ClientWorlds[0].EntityManager.CreateEntityQuery(typeof(GhostOwner));
+            var groupQuery = testWorld.ClientWorlds[0].EntityManager.CreateEntityQuery(typeof(GhostGroup));
+            Assert.AreEqual(64, ghostQuery.CalculateEntityCount());
+            Assert.AreEqual(32, groupQuery.CalculateEntityCount());
 
-                // Check that the client world has the right thing and value
-                var ghostQuery = testWorld.ClientWorlds[0].EntityManager.CreateEntityQuery(typeof(GhostOwner));
-                var groupQuery = testWorld.ClientWorlds[0].EntityManager.CreateEntityQuery(typeof(GhostGroup));
-                Assert.AreEqual(64, ghostQuery.CalculateEntityCount());
-                Assert.AreEqual(32, groupQuery.CalculateEntityCount());
+            // Ensure GhostGroup values are correct:
+            VerifyClientsBufferValues(testWorld, serverEntities);
+
+            testWorld.TryLogPacket($"\n\nTEST-CASE: Modifying the ghost group buffer values AGAIN to test that baselines don't get clobbered when in DIFFERENT chunks!\n\n");
+            SetDeterministicRandBufferValues(testWorld, serverEntities, 35555029u);
+
+            for (int i = 0; i < 64; ++i)
+                testWorld.Tick();
+
+            VerifyClientsBufferValues(testWorld, serverEntities);
+        }
+
+        private static void VerifyClientsBufferValues(NetCodeTestWorld testWorld, Entity[] serverEntities)
+        {
+            var clientGhostMap = testWorld.GetSingleton<SpawnedGhostEntityMap>(testWorld.ClientWorlds[0]).Value;
+            for (int i = 0; i < serverEntities.Length; i++)
+            {
+                // We must iterate over the client entities in server spawn order,
+                // therefore we use the map:
+                var serverGhostInstance = testWorld.ServerWorld.EntityManager.GetComponentData<GhostInstance>(serverEntities[i]);
+                string s = $"[{i}] {serverGhostInstance.ToFixedString()}";
+                Assert.IsTrue(clientGhostMap.TryGetValue(serverGhostInstance, out var clientEntity), $"ClientGhostMap should have the server entity! {s}");
+
+                var serverByteBuf = testWorld.ServerWorld.EntityManager.GetBuffer<GhostGenBuffer_ByteBuffer>(serverEntities[i]);
+                var clientByteBuf = testWorld.ClientWorlds[0].EntityManager.GetBuffer<GhostGenBuffer_ByteBuffer>(clientEntity);
+                Assert.That(clientByteBuf.Length, Is.EqualTo(serverByteBuf.Length), s);
+                for(int j = 0; j < clientByteBuf.Length; j++)
+                    Assert.That(clientByteBuf[j].Value, Is.EqualTo(serverByteBuf[j].Value), s);
             }
         }
-        [Test]
-        public void CanHaveManyGhostGroupsOfSameType()
+
+        /// <summary>
+        /// Write deterministic random data into this ghost, forcing our DynamicBuffer serialization (and delta-compression)
+        /// code paths to be hit/tested. UUM-136609 highlights that ghost group DynamicBuffer snapshot saving logic was
+        /// missing this kind of testing.
+        /// We emulate data changes via different seed values.
+        /// </summary>
+        private static void SetDeterministicRandBufferValues(NetCodeTestWorld testWorld, Entity[] serverEntities, uint randSeed)
         {
-            using (var testWorld = new NetCodeTestWorld())
+            var rand = new Unity.Mathematics.Random(randSeed);
+            for (int i = 0; i < serverEntities.Length; i++)
             {
-                testWorld.Bootstrap(true);
-
-                var ghostGameObjects = new GameObject[2];
-
-                for (int i = 0; i < 1; ++i)
-                {
-                    var ghostGameObject = new GameObject();
-                    ghostGameObject.name = "ParentGhost";
-                    ghostGameObject.AddComponent<TestNetCodeAuthoring>().Converter = new GhostGroupGhostConverter();
-                    var childGhostGameObject = new GameObject();
-                    childGhostGameObject.name = "ChildGhost";
-                    childGhostGameObject.AddComponent<TestNetCodeAuthoring>().Converter = new GhostGroupGhostConverter();
-
-                    ghostGameObjects[i] = ghostGameObject;
-                    ghostGameObjects[i+1] = childGhostGameObject;
-                }
-
-                Assert.IsTrue(testWorld.CreateGhostCollection(ghostGameObjects));
-
-                testWorld.CreateWorlds(true, 1);
-
-                for (int i = 0; i < 32; ++i)
-                {
-                    var serverEnt = testWorld.SpawnOnServer(ghostGameObjects[0]);
-                    var serverChildEnt = testWorld.SpawnOnServer(ghostGameObjects[1]);
-
-                    testWorld.ServerWorld.EntityManager.SetComponentData(serverEnt, new GhostOwner{NetworkId = 42});
-                    testWorld.ServerWorld.EntityManager.SetComponentData(serverChildEnt, new GhostOwner{NetworkId = 43});
-                    testWorld.ServerWorld.EntityManager.GetBuffer<GhostGroup>(serverEnt).Add(new GhostGroup{Value = serverChildEnt});
-                }
-
-                // Connect and make sure the connection could be established
-                testWorld.Connect();
-
-                // Go in-game
-                testWorld.GoInGame();
-
-                // Let the game run for a bit so the ghosts are spawned on the client
-                for (int i = 0; i < 64; ++i)
-                    testWorld.Tick();
-
-                // Check that the client world has the right thing and value
-                var ghostQuery = testWorld.ClientWorlds[0].EntityManager.CreateEntityQuery(typeof(GhostOwner));
-                var groupQuery = testWorld.ClientWorlds[0].EntityManager.CreateEntityQuery(typeof(GhostGroup));
-                Assert.AreEqual(64, ghostQuery.CalculateEntityCount());
-                Assert.AreEqual(32, groupQuery.CalculateEntityCount());
+                var serverByteBuf = testWorld.ServerWorld.EntityManager.GetBuffer<GhostGenBuffer_ByteBuffer>(serverEntities[i]);
+                serverByteBuf.Length = rand.NextInt(0, 3);
+                for (int j = 0; j < serverByteBuf.Length; j++)
+                    serverByteBuf[j] = new GhostGenBuffer_ByteBuffer {Value = (byte) rand.NextInt(byte.MaxValue),};
             }
+        }
+
+        [Test]
+        public void CanHaveManyGhostGroupsOfSameType([Values]bool preSerialize)
+        {
+            using var testWorld = new NetCodeTestWorld();
+            testWorld.Bootstrap(true);
+
+            var ghostGameObjects = new GameObject[2];
+            var serverEntities = new Entity[64];
+
+            var ghostGameObject = new GameObject("ParentGhost");
+            ghostGameObject.AddComponent<GhostAuthoringComponent>().UsePreSerialization = preSerialize;
+            ghostGameObject.AddComponent<TestNetCodeAuthoring>().Converter = new GhostGroupGhostConverter();
+            var childGhostGameObject = new GameObject("ChildGhost");
+            childGhostGameObject.AddComponent<GhostAuthoringComponent>().UsePreSerialization = preSerialize;
+            childGhostGameObject.AddComponent<TestNetCodeAuthoring>().Converter = new GhostGroupGhostConverter();
+
+            ghostGameObjects[0] = ghostGameObject;
+            ghostGameObjects[1] = childGhostGameObject;
+
+            Assert.IsTrue(testWorld.CreateGhostCollection(ghostGameObjects));
+
+            testWorld.CreateWorlds(true, 1);
+
+            for (int i = 0; i < 32; ++i)
+            {
+                var serverEnt = testWorld.SpawnOnServer(ghostGameObjects[0]);
+                var serverChildEnt = testWorld.SpawnOnServer(ghostGameObjects[1]);
+
+                serverEntities[i] = serverEnt;
+                serverEntities[32+i] = serverChildEnt;
+
+                testWorld.ServerWorld.EntityManager.SetComponentData(serverEnt, new GhostOwner{NetworkId = 42});
+                testWorld.ServerWorld.EntityManager.SetComponentData(serverChildEnt, new GhostOwner{NetworkId = 43});
+                testWorld.ServerWorld.EntityManager.GetBuffer<GhostGroup>(serverEnt).Add(new GhostGroup{Value = serverChildEnt});
+            }
+            SetDeterministicRandBufferValues(testWorld, serverEntities, 232u);
+
+            testWorld.Connect();
+            testWorld.GoInGame();
+
+            // Let the game run for a bit so the ghosts are spawned on the client
+            for (int i = 0; i < 64; ++i)
+                testWorld.Tick();
+
+            // Check that the client world has the right thing and value
+            var ghostQuery = testWorld.ClientWorlds[0].EntityManager.CreateEntityQuery(typeof(GhostOwner));
+            var groupQuery = testWorld.ClientWorlds[0].EntityManager.CreateEntityQuery(typeof(GhostGroup));
+            Assert.AreEqual(64, ghostQuery.CalculateEntityCount());
+            Assert.AreEqual(32, groupQuery.CalculateEntityCount());
+
+            // Ensure GhostGroup values are correct:
+            VerifyClientsBufferValues(testWorld, serverEntities);
+
+            testWorld.TryLogPacket($"\n\nTEST-CASE ITERATION: UUM-136609 - Modifying the ghost group buffer values AGAIN to test that baselines don't get clobbered when in the same chunk!\n\n");
+            SetDeterministicRandBufferValues(testWorld, serverEntities, 9997u);
+
+            for (int i = 0; i < 64; ++i)
+                testWorld.Tick();
+
+            VerifyClientsBufferValues(testWorld, serverEntities);
         }
 
         [Test]

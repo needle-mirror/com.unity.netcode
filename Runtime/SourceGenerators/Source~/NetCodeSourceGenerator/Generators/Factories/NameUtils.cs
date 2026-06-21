@@ -17,7 +17,8 @@ internal class NameUtils
         if (!string.IsNullOrEmpty(typeInfo.Namespace))
             uniquePrefix += $".{typeInfo.Namespace}";
         codeGenContext.generatedNs = $"{uniquePrefix.Replace(".", "_")}"; // replace needed so we have a namespace different from the original type and so C# doesn't try to find the original type within the generated namespace. Need the G since you can't have a namespace with only numbers
-        var typeName = Roslyn.Extensions.GetTypeNameWithDeclaringTypename(candidateSymbol);
+        // Roslyn nested types use '+' (metadata convention). Generated C# identifiers and file names must not contain '+'
+        var typeName = Roslyn.Extensions.GetTypeNameWithDeclaringTypename(candidateSymbol).Replace('+', '_');
         codeGenContext.generatorName = $"{codeGenContext.generatedNs}_{typeName}";
         codeGenContext.generatedFilePrefix = $"{Utilities.TypeHash.FNV1A64(uniquePrefix).ToString()}_{typeName}";
     }

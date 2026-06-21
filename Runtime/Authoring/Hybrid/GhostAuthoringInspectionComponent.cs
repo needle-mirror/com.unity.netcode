@@ -32,6 +32,16 @@ namespace Unity.NetCode
         [SerializeField]
         internal ComponentOverride[] ComponentOverrides = Array.Empty<ComponentOverride>();
 
+        /// <summary>Read-only view of the saved overrides. Mutate via <see cref="GetOrAddPrefabOverride"/> +
+        /// <see cref="SavePrefabOverride"/> or <see cref="RemoveComponentOverrideByIndex"/> so the editor's
+        /// dirty/save signal fires correctly.</summary>
+        /// <returns>A read-only view backed directly by the underlying override array; iteration order is the
+        /// array's storage order.</returns>
+        public IReadOnlyList<ComponentOverride> EnumerateOverrides() => ComponentOverrides;
+
+        /// <summary>Number of saved overrides on this inspection component.</summary>
+        public int OverrideCount => ComponentOverrides.Length;
+
         ///<summary>Not the fastest way but on average is taking something like 10-50us or less to find the type,
         ///so seem reasonably fast even with tens of components per prefab.</summary>
         static Type FindTypeFromFullTypeNameInAllAssemblies(string fullName)
@@ -57,7 +67,8 @@ namespace Unity.NetCode
             forceRebuildInspector = true;
         }
 
-        /// <summary>Notifies of all invalid overrides.</summary>
+        /// <summary>Logs a Unity error for each entry in <see cref="EnumerateOverrides"/> whose
+        /// <see cref="ComponentOverride.FullTypeName"/> does not resolve to a loaded type.</summary>
         internal void LogErrorIfComponentOverrideIsInvalid()
         {
             for (var i = 0; i < ComponentOverrides.Length; i++)
@@ -72,8 +83,26 @@ namespace Unity.NetCode
             }
         }
 
-        /// <remarks>Note that this operation is not saved. Ensure you call <see cref="SavePrefabOverride"/>.</remarks>
-        internal ref ComponentOverride GetOrAddPrefabOverride(Type managedType, EntityGuid entityGuid, GhostPrefabType defaultPrefabType)
+        /// <summary>Returns the existing <see cref="ComponentOverride"/> for (<paramref name="managedType"/>,
+        /// <paramref name="entityGuid"/>) on this inspection component, or appends a new entry initialized with
+        /// <paramref name="defaultPrefabType"/> and returns that.</summary>
+        /// <remarks>
+        /// <para>Returns by ref into the underlying serialized array. <b>The ref is invalidated</b> by any subsequent
+        /// call to <see cref="GetOrAddPrefabOverride"/> that adds a NEW entry, or by
+        /// <see cref="RemoveComponentOverrideByIndex"/> — both can resize the backing array. Don't hold the ref
+        /// across those calls.</para>
+        /// <para>This operation is NOT persisted. Call <see cref="SavePrefabOverride"/> after mutating the returned
+        /// ref to flag the inspection component as dirty.</para>
+        /// </remarks>
+        /// <param name="managedType">The component type to override. Matched (case-insensitive) against
+        /// <see cref="ComponentOverride.FullTypeName"/>.</param>
+        /// <param name="entityGuid">The entity within the prefab hierarchy this override targets. Must match either
+        /// this GameObject's entity id or one of its descendants', else throws.</param>
+        /// <param name="defaultPrefabType">Initial <see cref="ComponentOverride.PrefabType"/> when a new entry is
+        /// appended. Ignored when an existing entry is returned.</param>
+        /// <returns>A ref to the existing or newly-appended override entry. Caller must call
+        /// <see cref="SavePrefabOverride"/> after mutating it.</returns>
+        public ref ComponentOverride GetOrAddPrefabOverride(Type managedType, EntityGuid entityGuid, GhostPrefabType defaultPrefabType)
         {
             if (!gameObject || !this)
                 throw new ArgumentException($"Attempting to GetOrAddPrefabOverride for entityGuid '{entityGuid}' to '{this}', but GameObject and/or InspectionComponent has been destroyed!");
@@ -106,8 +135,15 @@ namespace Unity.NetCode
             return ref ComponentOverrides[ComponentOverrides.Length - 1];
         }
 
-        /// <summary>Saves this component override. Attempts to remove it if it's default.</summary>
-        internal void SavePrefabOverride(ref ComponentOverride componentOverride, string reason)
+        /// <summary>Persists changes made to <paramref name="componentOverride"/> (by-ref). If the override no
+        /// longer carries any overridden fields (<see cref="ComponentOverride.HasOverriden"/> is false), removes
+        /// it from the array entirely.</summary>
+        /// <param name="componentOverride">The override entry being saved, passed by ref so that auto-removal
+        /// (when no fields are overridden) can resolve its index.</param>
+        /// <param name="reason">Free-text reason for the save, useful when debugging editor undo/save flow. Not persisted.</param>
+        /// <remarks>At runtime this only flags the editor signal that drives a re-save; outside the editor the
+        /// flag is harmless.</remarks>
+        public void SavePrefabOverride(ref ComponentOverride componentOverride, string reason)
         {
             forceSave = true;
 
@@ -119,9 +155,12 @@ namespace Unity.NetCode
             }
         }
 
-        /// <summary>Replaces this element with the last, then resizes -1.</summary>
-        /// <param name="index">Index to remove.</param>
-        internal void RemoveComponentOverrideByIndex(int index)
+        /// <summary>Removes the override at <paramref name="index"/> by swapping in the last element and resizing.
+        /// Order of remaining entries is not preserved.</summary>
+        /// <param name="index">Position in the override array to remove. Out-of-range indices are silently ignored
+        /// when the array is empty; otherwise behaviour matches a normal indexed write to the array.</param>
+        /// <remarks>Invalidates any <c>ref</c> previously obtained from <see cref="GetOrAddPrefabOverride"/>.</remarks>
+        public void RemoveComponentOverrideByIndex(int index)
         {
             if (ComponentOverrides.Length == 0) return;
             if (index < ComponentOverrides.Length - 1)
@@ -131,7 +170,14 @@ namespace Unity.NetCode
             Array.Resize(ref ComponentOverrides, ComponentOverrides.Length - 1);
         }
 
-        int FindExistingOverrideIndex(ref ComponentOverride currentOverride)
+        /// <summary>Finds the array index of <paramref name="currentOverride"/> by matching
+        /// <see cref="ComponentOverride.FullTypeName"/> (case-insensitive). Throws if not found.</summary>
+        /// <param name="currentOverride">The override entry to locate. Passed by ref so callers holding a ref into
+        /// the underlying array can ask "where am I?" without copying.</param>
+        /// <returns>The position of <paramref name="currentOverride"/> in the underlying array.</returns>
+        /// <remarks>Intended for callers holding a <c>ref</c> obtained from <see cref="GetOrAddPrefabOverride"/> —
+        /// the entry MUST exist by construction. For non-ref lookups, use <see cref="TryFindExistingOverrideIndex(Type, in EntityGuid, out int)"/>.</remarks>
+        public int FindExistingOverrideIndex(ref ComponentOverride currentOverride)
         {
             for (int i = 0; i < ComponentOverrides.Length; i++)
             {
@@ -174,10 +220,15 @@ namespace Unity.NetCode
             return false;
         }
 
-        /// <summary>Finds all <see cref="GhostAuthoringInspectionComponent"/>'s on this Ghost Authoring Prefab (including in children), and adds all <see cref="ComponentOverrides"/> to a single list.</summary>
+        /// <summary>Finds all <see cref="GhostAuthoringInspectionComponent"/>'s on this Ghost Authoring Prefab
+        /// (including in children) and flattens their overrides into one list, paired with the GameObject each
+        /// override was authored on.</summary>
         /// <param name="ghostAuthoring">Root prefab to search from.</param>
-        /// <param name="validate"></param>
-        internal static List<(GameObject, ComponentOverride)> CollectAllComponentOverridesInInspectionComponents(BaseGhostSettings ghostAuthoring, bool validate)
+        /// <param name="validate">If true, calls <see cref="LogErrorIfComponentOverrideIsInvalid"/> on each
+        /// inspection component visited.</param>
+        /// <returns>A flat list of every override across the prefab hierarchy, each paired with the GameObject
+        /// that hosts the inspection component the override was authored on.</returns>
+        public static List<(GameObject, ComponentOverride)> CollectAllComponentOverridesInInspectionComponents(BaseGhostSettings ghostAuthoring, bool validate)
         {
             var inspectionComponents = CollectAllInspectionComponents(ghostAuthoring);
             var allComponentOverrides = new List<(GameObject, ComponentOverride)>(inspectionComponents.Count * 4);
@@ -195,7 +246,12 @@ namespace Unity.NetCode
             return allComponentOverrides;
         }
 
-        internal static List<GhostAuthoringInspectionComponent> CollectAllInspectionComponents(BaseGhostSettings ghostAuthoring)
+        /// <summary>Returns every <see cref="GhostAuthoringInspectionComponent"/> attached to
+        /// <paramref name="ghostAuthoring"/>'s GameObject or any descendant.</summary>
+        /// <param name="ghostAuthoring">The ghost authoring whose GameObject hierarchy is searched.</param>
+        /// <returns>A list containing the inspection components on the root GameObject followed by those on every
+        /// descendant. Empty if none are present.</returns>
+        public static List<GhostAuthoringInspectionComponent> CollectAllInspectionComponents(BaseGhostSettings ghostAuthoring)
         {
             var inspectionComponents = new List<GhostAuthoringInspectionComponent>(8);
             ghostAuthoring.gameObject.GetComponents(inspectionComponents);
@@ -203,10 +259,11 @@ namespace Unity.NetCode
             return inspectionComponents;
         }
 
-        /// <summary>Saved override values.</summary>
+        /// <summary>Saved override values for a single (entity, component) pair on a Ghost Prefab.</summary>
         [Serializable]
-        internal struct ComponentOverride : IComparer<ComponentOverride>, IComparable<ComponentOverride>
+        public struct ComponentOverride : IComparer<ComponentOverride>, IComparable<ComponentOverride>
         {
+            /// <summary>Sentinel for an unset <see cref="PrefabType"/> or <see cref="SendTypeOptimization"/>: -1 (cast to the relevant enum).</summary>
             public const int NoOverride = -1;
 
             ///<summary>
@@ -226,20 +283,30 @@ namespace Unity.NetCode
             [FormerlySerializedAs("OwnerPredictedSendType")]
             public GhostSendType SendTypeOptimization;
 
-            ///<summary>Select which variant we would like to use. 0 means the default.</summary>
+            ///<summary>Select which variant we would like to use. 0 means the default. Compute via
+            /// <see cref="GhostVariantsUtility.ResolveVariantHashFromType"/> (which honors well-known special variants
+            /// like <see cref="DontSerializeVariant"/>), or <see cref="GhostVariantsUtility.UncheckedVariantHashNBC(Type, ComponentType)"/>
+            /// when you already know the variant is a user-defined struct.</summary>
             public ulong VariantHash;
 
-            /// <summary>Flag denoting that this ComponentOverride is known, and properly configured.</summary>
-            [NonSerialized]public bool DidCorrectlyMap;
+            /// <summary>Editor-only flag set during inspection-component validation to mark that this entry mapped
+            /// to a known component type. Not serialized, not meaningful at runtime.</summary>
+            public bool DidCorrectlyMap { get; internal set; }
 
+            /// <summary>True if any of <see cref="PrefabType"/>, <see cref="SendTypeOptimization"/>, or <see cref="VariantHash"/> is set.</summary>
             public bool HasOverriden => IsPrefabTypeOverriden || IsSendTypeOptimizationOverriden || IsVariantOverriden;
 
+            /// <summary>True if <see cref="PrefabType"/> is set (not equal to <see cref="NoOverride"/>).</summary>
             public bool IsPrefabTypeOverriden => (int)PrefabType != NoOverride;
 
+            /// <summary>True if <see cref="SendTypeOptimization"/> is set (not equal to <see cref="NoOverride"/>).</summary>
             public bool IsSendTypeOptimizationOverriden => (int)SendTypeOptimization != NoOverride;
 
+            /// <summary>True if <see cref="VariantHash"/> is non-zero.</summary>
             public bool IsVariantOverriden => VariantHash != 0;
 
+            /// <summary>Resets <see cref="PrefabType"/>, <see cref="SendTypeOptimization"/>, and <see cref="VariantHash"/>
+            /// back to "no override". Does not touch <see cref="FullTypeName"/> or <see cref="EntityIndex"/>.</summary>
             public void Reset()
             {
                 PrefabType = (GhostPrefabType)NoOverride;
@@ -247,11 +314,14 @@ namespace Unity.NetCode
                 VariantHash = 0;
             }
 
-            public override string ToString()
-            {
-                return $"ComponentOverride['{FullTypeName}', EntityIndex:'{EntityIndex}', prefabType:{PrefabType}, sto:{SendTypeOptimization}, variantH:{VariantHash}]";
-            }
+            /// <inheritdoc/>
+            public override string ToString() => $"ComponentOverride['{FullTypeName}', EntityIndex:'{EntityIndex}', prefabType:{PrefabType}, sto:{SendTypeOptimization}, variantH:{VariantHash}]";
 
+            /// <summary>Sort order: by <see cref="FullTypeName"/>, then <see cref="EntityIndex"/>, then <see cref="VariantHash"/>.</summary>
+            /// <param name="x">First override to compare.</param>
+            /// <param name="y">Second override to compare.</param>
+            /// <returns>Negative if <paramref name="x"/> precedes <paramref name="y"/>, positive if it follows, zero
+            /// if all three sort keys are equal.</returns>
             public int Compare(ComponentOverride x, ComponentOverride y)
             {
                 var fullTypeNameComparison = string.Compare(x.FullTypeName, y.FullTypeName, StringComparison.Ordinal);
@@ -260,19 +330,35 @@ namespace Unity.NetCode
                 return entityGuidComparison != 0 ? entityGuidComparison : x.VariantHash.CompareTo(y.VariantHash);
             }
 
+            /// <inheritdoc/>
             public int CompareTo(ComponentOverride other)
             {
                 return Compare(this, other);
             }
         }
 
-        internal bool TryFindExistingOverrideIndex(Type managedType, in EntityGuid guid, out int index)
+        /// <summary>Looks up the index of the override targeting <paramref name="managedType"/> on the entity
+        /// identified by <paramref name="guid"/>, if one exists.</summary>
+        /// <param name="managedType">Component type to match. <see cref="Type.FullName"/> is compared case-insensitively
+        /// against <see cref="ComponentOverride.FullTypeName"/>.</param>
+        /// <param name="guid">Entity identifier within the prefab; only <see cref="EntityGuid.Serial"/> is used.</param>
+        /// <param name="index">Set to the matching index when this method returns true; -1 otherwise.</param>
+        /// <returns>True if found; <paramref name="index"/> is the position in the override list, else -1.</returns>
+        public bool TryFindExistingOverrideIndex(Type managedType, in EntityGuid guid, out int index)
         {
             var managedTypeFullName = managedType.FullName;
             return TryFindExistingOverrideIndex(managedTypeFullName, guid.b, out index);
         }
 
-        internal bool TryFindExistingOverrideIndex(string managedTypeFullName, in ulong entityGuid, out int index)
+        /// <summary>Looks up the index of the override matching <paramref name="managedTypeFullName"/> +
+        /// <paramref name="entityGuid"/>, if one exists. The string overload exists so callers without a runtime
+        /// <see cref="Type"/> handle (e.g. tooling reading serialized prefab data) can still query.</summary>
+        /// <param name="managedTypeFullName">Component type's <see cref="Type.FullName"/>; compared case-insensitively
+        /// against <see cref="ComponentOverride.FullTypeName"/>.</param>
+        /// <param name="entityGuid">The entity serial to match (mirrors <see cref="EntityGuid.Serial"/>).</param>
+        /// <param name="index">Set to the matching index when this method returns true; -1 otherwise.</param>
+        /// <returns>True if found; <paramref name="index"/> is the position in the override list, else -1.</returns>
+        public bool TryFindExistingOverrideIndex(string managedTypeFullName, in ulong entityGuid, out int index)
         {
             for (index = 0; index < ComponentOverrides.Length; index++)
             {

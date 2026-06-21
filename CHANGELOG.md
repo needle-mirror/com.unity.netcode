@@ -2,6 +2,24 @@
 uid: changelog
 ---
 
+## [1.14.0] - 2026-06-21
+
+### Added
+
+* Support for overiding `GhostComponentVariation` defaults through baking code. Add the `GhostVariantBakedOverride` dynamic buffer, then use the `Append...` extension methods to set a new default variant for that prefab. Note: The `IBaker.AppendToBuffer` method does not support adding to the same buffer from two different bakers.
+
+### Changed
+
+* `GhostAuthoringInspectionComponent` instance methods are now `public`, allowing override entries to be
+
+### Fixed
+
+* If two GhostGroup entities happened to contain children that shared the same ArchetypeChunk - and both group root entities were sent in the same snapshot, the snapshot data of the first child would be clobbered by the snapshot data of each successive child, leading to unrecoverable snapshot read errors.
+* Adding GhostFields to IInputComponentData in a nested class no longer causes a compilation error.
+* A `PrefabType` override set via `GhostAuthoringInspectionComponent` was not surfacing in the baked-prefab
+
+
+
 ## [1.13.2] - 2026-05-24
 
 ### Changed

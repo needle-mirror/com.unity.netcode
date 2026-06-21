@@ -69,14 +69,53 @@ namespace Unity.NetCode.Editor
         public bool anyVariantIsSerialized;
         public SendToOwnerType sendToOwnerType;
 
-        public GhostPrefabType PrefabType => HasPrefabOverride() && GetPrefabOverride().IsPrefabTypeOverriden
-            ? GetPrefabOverride().PrefabType
-            : serializationStrategy.PrefabType;
+        /// <summary>Baker-contributed <see cref="GhostVariantBakedOverride"/> entries that target this component on this
+        /// entity. Populated by <see cref="EntityPrefabComponentsPreview"/> after baking. May be null if no bakers
+        /// contributed an override for this component. Inspection component overrides take precedence over these.</summary>
+        public List<GhostVariantBakedOverride> BakerContributedOverrides;
 
-        public GhostSendType SendTypeOptimization =>
-            HasPrefabOverride() && GetPrefabOverride().IsSendTypeOptimizationOverriden
-                ? GetPrefabOverride().SendTypeOptimization
-                : serializationStrategy.SendTypeOptimization;
+        /// <summary>Variant hash from the first baker override that sets one (non-zero), or 0 if none. Cached at
+        /// the same time as <see cref="BakerContributedOverrides"/>. Used by the inspector dropdown to display the
+        /// baker's variant choice when no inspection override exists.</summary>
+        public ulong BakerContributedVariantHash;
+
+        /// <summary>PrefabType from the first baker override that sets one (not <see cref="GhostVariantBakedOverride.NoPrefabTypeOverride"/>),
+        /// else <see cref="GhostVariantBakedOverride.NoPrefabTypeOverride"/>. Cached so the PrefabType buttons
+        /// can reflect the baker's choice when no inspection override exists.</summary>
+        public GhostPrefabType BakerContributedPrefabType = GhostVariantBakedOverride.NoPrefabTypeOverride;
+
+        /// <summary>SendType from the first baker override that sets one (not <see cref="GhostVariantBakedOverride.NoSendTypeOverride"/>),
+        /// else <see cref="GhostVariantBakedOverride.NoSendTypeOverride"/>. Cached so the SendType dropdown can
+        /// reflect the baker's choice when no inspection override exists.</summary>
+        public GhostSendType BakerContributedSendType = GhostVariantBakedOverride.NoSendTypeOverride;
+
+        /// <summary>Resolved PrefabType for this component: inspection override wins, else baker-contributed
+        /// override (if any), else the strategy's default.</summary>
+        public GhostPrefabType PrefabType
+        {
+            get
+            {
+                if (HasPrefabOverride() && GetPrefabOverride().IsPrefabTypeOverriden)
+                    return GetPrefabOverride().PrefabType;
+                if (BakerContributedPrefabType != GhostVariantBakedOverride.NoPrefabTypeOverride)
+                    return BakerContributedPrefabType;
+                return serializationStrategy.PrefabType;
+            }
+        }
+
+        /// <summary>Resolved SendType for this component: inspection override wins, else baker-contributed
+        /// override (if any), else the strategy's default.</summary>
+        public GhostSendType SendTypeOptimization
+        {
+            get
+            {
+                if (HasPrefabOverride() && GetPrefabOverride().IsSendTypeOptimizationOverriden)
+                    return GetPrefabOverride().SendTypeOptimization;
+                if (BakerContributedSendType != GhostVariantBakedOverride.NoSendTypeOverride)
+                    return BakerContributedSendType;
+                return serializationStrategy.SendTypeOptimization;
+            }
+        }
 
         public ulong VariantHash
         {

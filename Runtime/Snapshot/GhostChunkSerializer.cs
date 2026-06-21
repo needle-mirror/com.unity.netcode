@@ -85,6 +85,7 @@ namespace Unity.NetCode
             // GhostGroup (temporary)
             // Spawn chunks
             public byte* SnapshotDynamicData;
+            public int SnapshotDynamicDataOffset;
             public int SnapshotDynamicDataCapacity;
             // Total chunck dynamic buffers data to serialize.
             // currentDynamicDataCapacity and snapshotDynamicDataSize can be different (currentDynamicDataCapacity is usually larger).
@@ -856,7 +857,7 @@ namespace Unity.NetCode
             int snapshotMaskOffsetInBits = 0;
 
             int dynamicDataHeaderSize = GhostChunkSerializationState.GetDynamicDataHeaderSize(chunk.Capacity);
-            int snapshotDynamicDataOffset = dynamicDataHeaderSize;
+            int snapshotDynamicDataOffset = dynamicDataHeaderSize + currentSnapshot.SnapshotDynamicDataOffset;
             int dynamicSnapshotDataCapacity = currentSnapshot.SnapshotDynamicDataCapacity;
 
             byte* snapshotDynamicDataPtr = currentSnapshot.SnapshotDynamicData;
@@ -1687,6 +1688,13 @@ namespace Unity.NetCode
                     clearEntityArray = false;
                     groupSnapshot.AlreadyUsedChunk = 1;
                 }
+
+
+                // setup dynamic data offset to not overwrite previous write
+                groupSnapshot.SnapshotDynamicDataOffset = childChunkState.GetDynamicDataOffset();
+                groupSnapshot.SnapshotDynamicDataSize += groupSnapshot.SnapshotDynamicDataOffset;
+                childChunkState.SetDynamicDataOffset(groupSnapshot.SnapshotDynamicDataSize);
+
                 currentWriteIndex[i] = writeIndex;
 
                 SetupDataAndAvailableBaselines(ref groupSnapshot, ref childChunkState, childChunk.Chunk, childGhostPrefabSerializer.SnapshotSize, writeIndex, snapshotIndex);

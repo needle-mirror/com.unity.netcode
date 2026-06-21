@@ -669,6 +669,8 @@ namespace Unity.NetCode
             m_GhostComponentIndexFromEntity = state.GetBufferLookup<GhostCollectionComponentIndex>(true);
             m_PrespawnAckFromEntity = state.GetBufferLookup<PrespawnSectionAck>(true);
             m_PrespawnSceneLoadedFromEntity = state.GetBufferLookup<PrespawnSceneLoaded>(true);
+
+            GhostChunkSerializationState.ValidateMetaDataSize();
         }
 
 #if UNITY_EDITOR

@@ -139,7 +139,7 @@ namespace Unity.NetCode
         internal static FixedString32Bytes GetDefaultDisplayName(ComponentTypeSerializationStrategy.DefaultType defaultRule)
         {
             if ((defaultRule & ComponentTypeSerializationStrategy.DefaultType.YesViaUserSpecifiedNamedDefaultOrHash) != 0)
-                return "Chosen";
+                return default;
             if ((defaultRule & ComponentTypeSerializationStrategy.DefaultType.YesAsIsUserSpecifiedNewDefault) != 0)
                 return "User-Specified Default";
             if ((defaultRule & ComponentTypeSerializationStrategy.DefaultType.YesAsOnlyOneVariantBecomesDefault) != 0)

@@ -32,14 +32,36 @@ namespace Unity.NetCode.LowLevel.Unsafe
         [StructLayout(LayoutKind.Sequential)]
         public struct MetaData
         {
+           /// <summary>Denotes the latest tick that this chunk was sent to this client. Used to bubble up a chunk's relative importance.</summary>
             public NetworkTick lastUpdate;
+            /// <summary>
+            /// Denotes the entity to start serializing at. Only used for partial chunk sends (i.e. we could only
+            /// fit the first N entities into the snapshot, so our next snapshot should start at entity index N).
+            /// </summary>
             public int startIndex;
+            /// <summary>The server stores baseline data in the snapshot history buffer. This field tracks the current write index.</summary>
             public int snapshotWriteIndex;
+            /// <summary>
+            /// Tracks the last order change version, allowing us to "slow-poll" for order change version changes
+            /// (i.e. at a frequency below 'one poll per tick').
+            /// </summary>
             public uint orderChangeVersion;
+            /// <summary>
+            /// Denotes the FIRST tick where we detected no GhostField changes for any ghost within this chunk.
+            /// Used to allow the SerializeJob to early out.
+            /// </summary>
             public NetworkTick firstZeroChangeTick;
+            /// <summary>
+            /// Denotes the FIRST chunk order version where we detected no GhostField changes for any ghost within this chunk.
+            /// Used to allow the SerializeJob to early out.
+            /// </summary>
             public uint firstZeroChangeVersion;
+            /// <summary>Tracks the number of relevant ghosts, for accurate <see cref="GhostCount"/> reporting.</summary>
             public int numRelevant;
+            /// <summary>Only used to validate that memory has been allocated for this chunk, and that said memory has not been re-purposed.</summary>
             public NetworkTick lastValidTick;
+            /// <summary>DynamicBuffer data needs to be stored at an offset within the chunk data. This tracks said offset.</summary>
+            public int dynamicDataWriteOffset;
         }
 
         // The memory layout of the snapshot data is (all items are rounded up to an even 16 bytes)
@@ -55,7 +77,8 @@ namespace Unity.NetCode.LowLevel.Unsafe
         //   uint bufferContentOffset offset from the beginning of the dynamic history slot wher buffers elements and the masks are stored (see info below)
 
         // This must match the MetaData struct
-        const int MetaDataSizeInInts = 8;
+        const int MetaDataSizeInInts = 9;
+        internal static void ValidateMetaDataSize() => UnityEngine.Assertions.Assert.AreEqual(sizeof(MetaData), MetaDataSizeInInts * 4);
         // 4 is size of uint in bytes, the chunk size is in bytes
         const int DataPerChunkSize = (4 * (MetaDataSizeInInts + GhostSystemConstants.SnapshotHistorySize + ((GhostSystemConstants.SnapshotHistorySize+31)>>5)) + 15) & (~15);
 
@@ -139,8 +162,19 @@ namespace Unity.NetCode.LowLevel.Unsafe
         public void SetSnapshotWriteIndex(int index)
         {
             ((MetaData*)snapshotData)->snapshotWriteIndex = index;
+            // new write, reset dynamicData offset
+            ((MetaData*)snapshotData)->dynamicDataWriteOffset = 0;
             // Mark this new thing we are trying to send as not acked
             ClearAckFlag(index);
+        }
+
+        public int GetDynamicDataOffset()
+        {
+            return ((MetaData*)snapshotData)->dynamicDataWriteOffset;
+        }
+        public void SetDynamicDataOffset(int value)
+        {
+            ((MetaData*)snapshotData)->dynamicDataWriteOffset = value;
         }
 
         public uint GetOrderChangeVersion()
