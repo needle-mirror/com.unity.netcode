@@ -271,11 +271,11 @@ namespace Unity.NetCode
 #endif
         }
         [Conditional("NETCODE_DEBUG")]
-        private void PacketDumpGhostCount(int ghostType, int relevantGhostCount)
+        private void PacketDumpGhostCount(int numRelevantInChunk, int expectedRelevantSendCount)
         {
 #if NETCODE_DEBUG
             if (netDebugPacket.IsCreated)
-                netDebugPacketDebug.Append(FixedString.Format(", RelevantGhostCount:{2}", ghostTypeName, ghostType, relevantGhostCount));
+                netDebugPacketDebug.Append(FixedString.Format(", NumRelevantInChunk:{0} ExpectedRelevantSendCount:{1}", numRelevantInChunk, expectedRelevantSendCount));
 #endif
         }
         [Conditional("NETCODE_DEBUG")]
@@ -1636,6 +1636,9 @@ namespace Unity.NetCode
             var entityStartBit = stackalloc int[ghostChunkComponentTypesLength*2 + 2];
             //we also need to track the current write index for rollback
             var currentWriteIndex = stackalloc int[ghostGroup.Length];
+            // Track which children had their SnapshotWriteIndex bumped this frame so rollback
+            // can revert both the index pointer and the tagged snapshotIndex slot.
+            var wasWriteIndexBumped = stackalloc bool[ghostGroup.Length];
             for (int i = 0; i < ghostGroup.Length; ++i)
             {
                 if (!childEntityLookup.TryGetValue(ghostGroup[i].Value, out var childChunk))
@@ -1678,6 +1681,7 @@ namespace Unity.NetCode
                     snapshotIndex[writeIndex] = currentTick.SerializedData;
                     var nextWriteIndex = (writeIndex + 1) % GhostSystemConstants.SnapshotHistorySize;
                     childChunkState.SetSnapshotWriteIndex(nextWriteIndex);
+                    wasWriteIndexBumped[i] = true;
                 }
                 else
                 {
@@ -1687,6 +1691,7 @@ namespace Unity.NetCode
                             GhostSystemConstants.SnapshotHistorySize;
                     clearEntityArray = false;
                     groupSnapshot.AlreadyUsedChunk = 1;
+                    wasWriteIndexBumped[i] = false;
                 }
 
 
@@ -1712,7 +1717,17 @@ namespace Unity.NetCode
                     baselinesPerEntity, &sameBaselinePerEntity, &dynamicDataLenPerEntity, entityStartBit) != childChunk.IndexInChunk+1)
                 {
                     // FIXME: this does not work if a group member is itself the root of a group since it can fail to roll back state to compress against in that case. This is the reason nested ghost groups are not supported
-                    // Roll back all written entities for group members
+
+                    // Revert the failing child's history state. SerializeEntities did not complete
+                    // for this entity so its slot is not set, but the snapshotIndex tag and the
+                    // SnapshotWriteIndex pointer were already bumped above and must be undone.
+                    if (wasWriteIndexBumped[i])
+                    {
+                        childChunkState.GetSnapshotIndex()[currentWriteIndex[i]] = 0;
+                        childChunkState.SetSnapshotWriteIndex(currentWriteIndex[i]);
+                    }
+
+                    // Roll back all written entities for prior group members
                     while(i-- > 0)
                     {
                         if (!childEntityLookup.TryGetValue(ghostGroup[i].Value, out var revertChunk))
@@ -1723,6 +1738,11 @@ namespace Unity.NetCode
                             var childCompDataSize = GhostTypeCollection.ElementAtRO(revertChunkState.ghostType).SnapshotSize;
                             var groupSnapshotEntity = revertChunkState.GetEntity(childCompDataSize, revertChunk.Chunk.Capacity, childWriteIndex);
                             groupSnapshotEntity[revertChunk.IndexInChunk] = Entity.Null;
+                            if (wasWriteIndexBumped[i])
+                            {
+                                revertChunkState.GetSnapshotIndex()[childWriteIndex] = 0;
+                                revertChunkState.SetSnapshotWriteIndex(childWriteIndex);
+                            }
                         }
                     }
                     return false;
@@ -1755,14 +1775,15 @@ namespace Unity.NetCode
             return requiredSize;
         }
 
-        int UpdateGhostRelevancy(ArchetypeChunk chunk, in PrioChunk prioChunk, int startIndex, byte* relevancyData,
-            in GhostChunkSerializationState chunkState, int snapshotSize, out bool hasRelevancySpawns)
+        void UpdateGhostRelevancy(ArchetypeChunk chunk, in PrioChunk prioChunk, int startIndex, byte* relevancyData,
+            in GhostChunkSerializationState chunkState, int snapshotSize, out bool hasRelevancySpawns, out int numRelevantInChunk, out int numRelevantInPartial)
         {
             hasRelevancySpawns = false;
+            numRelevantInChunk = 0;
+            numRelevantInPartial = 0;
             var ghost = chunk.GetNativeArray(ref ghostComponentType);
             var ghostSystemState = chunk.GetNativeArray(ref ghostSystemStateType);
             // First figure out the baselines to use per entity so they can be sent as baseline + maxCount instead of one per entity
-            int irrelevantCount = 0;
             bool setIsRelevant = relevancyMode == GhostRelevancyMode.SetIsRelevant;
             bool chunkMatchesInternalRelevantRule = internalGlobalRelevantMask.Matches(chunk.Archetype);
             bool chunkMatchesEitherRelevantRule = chunkMatchesInternalRelevantRule || userGlobalRelevantMask.Matches(chunk.Archetype);
@@ -1803,20 +1824,21 @@ namespace Unity.NetCode
                             despawnTick = NetworkTick.Invalid, // Not applicable to irrelevant despawns.
                         }, PendingGhostDespawn.DespawnReason.Irrelevant);
                     }
-                    if (ent >= startIndex)
-                        irrelevantCount = irrelevantCount + 1;
                 }
                 else if (!wasRelevant)
                     hasRelevancySpawns = true;
+                numRelevantInChunk += relevancyData[ent];
+                if (ent >= startIndex)
+                    numRelevantInPartial += relevancyData[ent];
             }
-            return irrelevantCount;
         }
-        int UpdateValidGhostGroupRelevancy(ArchetypeChunk chunk, int startIndex, byte* relevancyData, bool keepState)
+        void UpdateValidGhostGroupRelevancy(ArchetypeChunk chunk, int startIndex, byte* relevancyData, bool keepState, out int numRelevantInChunk, out int numRelevantInPartial)
         {
             var ghost = chunk.GetNativeArray(ref ghostComponentType);
             var ghostGroupAccessor = chunk.GetBufferAccessor(ref ghostGroupType);
 
-            int irrelevantCount = 0;
+            numRelevantInChunk = 0;
+            numRelevantInPartial = 0;
             for (int ent = 0, chunkEntityCount = chunk.Count; ent < chunkEntityCount; ++ent)
             {
                 relevancyData[ent] = keepState ? relevancyData[ent] : (byte)1;
@@ -1825,11 +1847,11 @@ namespace Unity.NetCode
                     PacketDumpSkipInvalidGroup(ghost[ent].ghostId);
                     PacketDumpFlush();
                     relevancyData[ent] = 0;
-                    if (ent >= startIndex)
-                        ++irrelevantCount;
                 }
+                numRelevantInChunk += relevancyData[ent];
+                if (ent >= startIndex)
+                    numRelevantInPartial += relevancyData[ent];
             }
-            return irrelevantCount;
         }
         bool CanUseStaticOptimization(in ArchetypeChunk chunk, int ghostType, int writeIndex, uint* snapshotIndex,
             ref GhostChunkSerializationState chunkState, bool hasRelevancySpawns, bool didOrderChange)
@@ -2027,7 +2049,8 @@ namespace Unity.NetCode
             var useSingleBaseline = typeData.UseSingleBaseline != 0;
             useSingleBaseline |= isStatic || systemData.ForceSingleBaseline;
 
-            int relevantGhostCount = chunk.Count - serialChunk.startIndex;
+            int numRelevantInChunk = chunk.Count; // Counts the WHOLE chunk's relevant ghosts (for NumRelevant).
+            int expectedRelevantSendCount = chunk.Count - serialChunk.startIndex; // Counts only the [startIndex, Count) slice serialized in this (partial) send
             var chunkState = chunkSerializationData[chunk];
 
             uint* snapshotIndex = chunkState.GetSnapshotIndex();
@@ -2060,8 +2083,7 @@ namespace Unity.NetCode
             {
                 using var _ = GhostSendSystem.s_RelevancyMarker.Auto();
                 currentSnapshot.relevancyData = (byte*)tempRelevancyPerEntity.GetUnsafePtr();
-                int irrelevantCount = UpdateGhostRelevancy(chunk, in serialChunk, startIndex, currentSnapshot.relevancyData, chunkState, snapshotSize, out hasRelevancySpawns);
-                relevantGhostCount -= irrelevantCount;
+                UpdateGhostRelevancy(chunk, in serialChunk, startIndex, currentSnapshot.relevancyData, chunkState, snapshotSize, out hasRelevancySpawns, out numRelevantInChunk, out expectedRelevantSendCount);
                 if (hasRelevancySpawns)
                 {
                     // We treat this as a structural change, don't try to skip any zero change packets
@@ -2075,12 +2097,11 @@ namespace Unity.NetCode
             {
                 using var _ = GhostSendSystem.s_GhostGroupRelevancyMarker.Auto();
                 currentSnapshot.relevancyData = (byte*)tempRelevancyPerEntity.GetUnsafePtr();
-                int irrelevantCount = UpdateValidGhostGroupRelevancy(chunk, startIndex, currentSnapshot.relevancyData, relevancyEnabled);
-                relevantGhostCount -= irrelevantCount;
+                UpdateValidGhostGroupRelevancy(chunk, startIndex, currentSnapshot.relevancyData, relevancyEnabled, out numRelevantInChunk, out expectedRelevantSendCount);
             }
-            chunkState.SetNumRelevant(relevantGhostCount, in chunk);
+            chunkState.SetNumRelevant(numRelevantInChunk, in chunk);
 
-            if (relevantGhostCount <= 0)
+            if (expectedRelevantSendCount <= 0)
             {
                 // There is nothing to send, so not need to spend time serializing
                 // We do want to mark the chunk as sent this frame though - to make sure it is not processed
@@ -2143,11 +2164,11 @@ namespace Unity.NetCode
             var oldStream = dataStream;
 
             dataStream.WritePackedUInt((uint) ghostType, compressionModel);
-            dataStream.WritePackedUInt((uint) relevantGhostCount, compressionModel);
+            dataStream.WritePackedUInt((uint) expectedRelevantSendCount, compressionModel);
             // Write 1 bits for that run if the entity are pre-spawned objects. This will change how the ghostId
             // is encoded and will not write the spawn tick
             dataStream.WriteRawBits(chunk.Has(ref PrespawnIndexType)?1u:0u, 1);
-            PacketDumpGhostCount(ghostType, relevantGhostCount);
+            PacketDumpGhostCount(numRelevantInChunk, expectedRelevantSendCount);
             if (dataStream.HasFailedWrites)
             {
                 PacketDumpResult_WriterFullBeforeSerialize();
@@ -2164,7 +2185,10 @@ namespace Unity.NetCode
 
             // Only append chunks which ACTUALLY contain changes since their last acked baseline, and only update
             // the write index if we actually sent it:
-            var isPartialChunkSend = startIndex != 0 || ent < endIndex;
+            // "Filled" means the writer ran out mid-chunk (we stopped before endIndex) — distinct from isPartialChunkSend,
+            // which is ALSO true for a resumed chunk (startIndex != 0) that finishes cleanly and must NOT truncate the send.
+            didFillPacket = ent < endIndex;
+            var isPartialChunkSend = startIndex != 0 || didFillPacket;
             var isZeroChange = anyChangeMask == 0 && !hasRelevancySpawns; // Note: isZeroChange will be FALSE if SerializeEntities
                                                                           // detected an order change resulting in a required send.
             var triggeredZeroChangeOptimization = !isPartialChunkSend && isZeroChange && isStatic;
@@ -2199,13 +2223,20 @@ namespace Unity.NetCode
                 // TODO: should this always be run or should partial chunks only be allowed for the highest priority chunk?
                 //if (pc == 0)
 
-                // Note: We take advantage of the fact that static ghosts have zero changeBits for MOST ghosts,
-                // by constantly resending from the 0th Entity. E.g.
-                // Send0: Send 0 - 4.
-                // Send1: Send 0 - 8 (where 0 - 4 are tiny as zero change).
-                // Send2: Send 0 - 10 (where 0 - 8 are tine as zero change).
-                if (isStatic)
-                    chunkState.SetStartIndex(0);
+                // If we send at least one entity, but this is a partial send, then we must advance the startIndex
+                // OR wrap it around back to zero.
+                if (sentAtLeastOneEntity)
+                {
+                    if (didFillPacket)
+                    {
+                        // Ran out of packet space mid-chunk: continue from this entity next go-around.
+                        chunkState.SetStartIndex(ent);
+                    }
+                    else
+                    {
+                        chunkState.SetLastFullUpdate(currentTick);
+                    }
+                }
 
                 // Partial chunk sends cannot be treated as static!
                 // The good news is; as we ack more and more of this chunks entities, each write gets smaller
@@ -2214,14 +2245,16 @@ namespace Unity.NetCode
                 // which then can be 'zero change' optimized.
                 // However, this is concerning as it theoretically COULD fail indefinitely.
                 // But pragmatically - this works.
-                didFillPacket = true; // Could not send all ghosts, so packet MUST BE full.
-                chunkState.SetFirstZeroChange(NetworkTick.Invalid, 0);
 
                 if (sentAtLeastOneEntity)
                 {
+                    // Partial sends cannot use static optimization — the client only has part of the chunk.
+                    chunkState.SetFirstZeroChange(NetworkTick.Invalid, 0);
                     PacketDumpResult_PartialSend();
                     return SerializeEnitiesResult.Ok;
                 }
+                // Writer rolled back — nothing was sent, so the client's view of this chunk is unchanged.
+                // Do NOT reset ZC tracking: the zero-change state is still valid.
                 PacketDumpResult_PacketFullBeforeOneEntity();
                 dataStream = oldStream;
                 return SerializeEnitiesResult.Failed;

@@ -321,7 +321,7 @@ namespace Unity.NetCode
             var bakingSystem = World.GetExistingSystemManaged<BakingSystem>();
 
             int ghostCount = m_GhostEntities.CalculateEntityCount();
-            NativeParallelHashSet<Entity> rootsToProcess = new NativeParallelHashSet<Entity>(ghostCount, Allocator.TempJob);
+            using var rootsToProcess = new NativeParallelHashSet<Entity>(ghostCount, Allocator.TempJob);
             var rootsToProcessWriter = rootsToProcess.AsParallelWriter();
             var bakedMask = m_BakedEntityMask;
 
@@ -371,7 +371,6 @@ namespace Unity.NetCode
 
                 ProcessRoot(linkedEntityGroup, rootEntity, serializerCollectionData, ghostAuthoringBakingData, context);
             }
-            rootsToProcess.Dispose();
         }
 
         void ProcessRoot(DynamicBuffer<LinkedEntityGroup> linkedEntityGroup, Entity rootEntity,

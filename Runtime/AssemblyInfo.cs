@@ -3,6 +3,7 @@ using System.Runtime.CompilerServices;
 [assembly: InternalsVisibleTo("Unity.NetCode.Drawers.Editor")]
 [assembly: InternalsVisibleTo("Unity.NetCode.Profiler.Editor")]
 [assembly: InternalsVisibleTo("Unity.NetCode.Editor.Tests")]
+[assembly: InternalsVisibleTo("Unity.NetCode.UI.Editor.Tests")]
 [assembly: InternalsVisibleTo("Unity.NetCode.Physics.Editor.Tests")]
 [assembly: InternalsVisibleTo("Unity.NetCode.TestsUtils.Runtime.Tests")]
 [assembly: InternalsVisibleTo("Unity.NetCode.Authoring.Hybrid")]

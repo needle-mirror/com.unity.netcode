@@ -227,18 +227,7 @@ namespace Unity.NetCode.Editor
                 compItem.serializationStrategy = collectionData.SelectSerializationStrategyForComponentWithHash(ComponentType.ReadWrite(compItem.managedType), searchHash, variantTypesList, result.IsRoot);
                 compItem.sendToOwnerType = compItem.serializationStrategy.IsSerialized != 0 ? collectionData.Serializers[compItem.serializationStrategy.SerializerIndex].SendToOwner : SendToOwnerType.None;
 
-                if (compItem.anyVariantIsSerialized)
-                {
-                    compItem.SaveVariant(true, false);
-                }
-                else
-                {
-                    if (compItem.VariantHash != 0)
-                    {
-                        Debug.LogWarning($"`{compItem.fullname}` has Variant Hash '{compItem.VariantHash}' but this type is not a GhostComponent. Removing Variant!");
-                        compItem.ResetVariantToDefault();
-                    }
-                }
+                compItem.SaveVariant(true, false);
             }
             variantTypesList.Dispose();
             return result;

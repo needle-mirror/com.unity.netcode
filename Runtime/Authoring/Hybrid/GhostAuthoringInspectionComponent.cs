@@ -79,6 +79,10 @@ namespace Unity.NetCode
                 {
                     Debug.LogError($"Ghost Prefab '{name}' has an invalid 'Component Override' targeting an unknown component type '{mod.FullTypeName}'. " +
                                    "If this type has been renamed, you will unfortunately need to manually re-add this override. If it has been deleted, simply re-commit this prefab.");
+                    RemoveComponentOverrideByIndex(i);
+                    forceSave = true;
+                    forceBake = true;
+                    i--;
                 }
             }
         }

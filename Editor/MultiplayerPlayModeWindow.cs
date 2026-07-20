@@ -20,14 +20,14 @@ using Prefs = Unity.NetCode.MultiplayerPlayModePreferences;
 namespace Unity.NetCode.Editor
 {
     /// <summary>
-    /// "PlayMode Tools" Window. Provides controls for:
+    /// "Play Mode Tools" Window. Provides controls for:
     /// - Configuring PlayMode World creation & configuration.
     /// - Bespoke views for netcode related Client, ThinClient, and Server worlds.
     /// - Controls to aid in testing of netcode, including a Simulator utility.
     /// </summary>
     internal class MultiplayerPlayModeWindow : EditorWindow, IHasCustomMenu
     {
-        const string k_Title = "PlayMode Tools";
+        const string k_Title = "Play Mode Tools";
         const int k_MaxWorldsToDisplay = 8;
         const string k_ToggleLagSpikeSimulatorBindingKey = "Main Menu/Multiplayer/Toggle Lag Spike Simulation";
         const string k_SimulatorPresetCaveat = "\n\n<i>Note: The simulator can only <b>add</b> additional latency to a given connection, and it does so naively. Therefore, poor editor performance will exacerbate the delay (and is not compensated for).</i>";
@@ -45,7 +45,7 @@ namespace Unity.NetCode.Editor
         static GUILayoutOption s_WorldNameWidth = GUILayout.Width(120);
 
         static GUIContent s_TitleContent = new GUIContent(k_Title, "Netcode for Entities editor playmode tools. View and control world creation, connection status and flows etc.\n\n<i>It has no impact on builds.</i>");
-        static GUIContent s_PlayModeType = new GUIContent("PlayMode Type", "During multiplayer development, it's useful to modify and run the client and server at the same time, in the same process (i.e. \"in-proc\"). DOTS Multiplayer supports this out of the box via the DOTS Entities \"Worlds\" feature.\n\nUse this toggle to determine which mode of operation is used for this Editor playmode session. <i>Has no impact on builds.</i>\n\n\"Client & Server\" is recommended for most workflows.");
+        static GUIContent s_PlayModeType = new GUIContent("Play Mode Type", "During multiplayer development, it's useful to modify and run the client and server at the same time, in the same process (i.e. \"in-proc\"). DOTS Multiplayer supports this out of the box via the DOTS Entities \"Worlds\" feature.\n\nUse this toggle to determine which mode of operation is used for this Editor Play Mode session. <i>Has no impact on builds.</i>\n\n\"Client & Server\" is recommended for most workflows.");
         static GUIContent s_ServerEmulation = new GUIContent("Server Emulation", $"Denotes how the ServerWorld should load data when in PlayMode in the Editor. This setting does not affect builds (see {k_ProjectSettingsConfigPath} for build configuration).");
         static GUIContent[] s_ServerEmulationContents;
         static GUIContent s_NumThinClients = new GUIContent("Num Thin Clients", "Thin clients are clients that receive snapshots, but do not attempt to process game logic. They can send arbitrary inputs though, and are useful to simulate opponents (to test connection & game logic).\n\nThin clients are instantiated on boot and at runtime via the <b>AutomaticThinClientWorldsUtility</b>. I.e. This value can be tweaked during Play Mode.");
@@ -166,7 +166,7 @@ Denotes that the server driver is closed i.e. not currently listening.
         /// Defaults to: <see cref="SimulatorPreset.DefaultInUseSimulatorPresets"/></summary>
         public static SimulatorPresetsSelectionDelegate InUseSimulatorPresets = SimulatorPreset.DefaultInUseSimulatorPresets;
 
-        [MenuItem("Window/Multiplayer/PlayMode Tools", priority = 3007)]
+        [MenuItem("Window/Multiplayer/Play Mode Tools", priority = 3007)]
         private static void ShowWindow()
         {
             GetWindow<MultiplayerPlayModeWindow>(false, k_Title, true);

@@ -216,7 +216,7 @@ namespace Unity.NetCode.Editor
             GhostAuthoringInspectionComponent.forceBake = true;
         }
 
-        void RebuildWindow()
+        internal void RebuildWindow()
         {
             inspection = target as GhostAuthoringInspectionComponent;
 

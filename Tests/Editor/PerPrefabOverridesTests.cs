@@ -1,19 +1,30 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
+using System.Text.RegularExpressions;
 using NUnit.Framework;
 using Unity.Collections;
 using Unity.Entities;
 using Unity.Mathematics;
 using Unity.NetCode.LowLevel.Unsafe;
 using UnityEngine;
+using UnityEngine.TestTools;
 
 namespace Unity.NetCode.Tests
 {
-    // TODO - Test case to ensure the default variants for all components on the root level entity are `DefaultSerialization`.
-    // TODO - Test case to ensure manually specified defaults are respected.
-    // TODO - Test case to ensure the default variant for all components on all child entities are `DontSerializeVariant`.
-    // TODO - Test case for usage of `ClientOnlyVariant`.
+    /// <summary>
+    /// Registers <see cref="ClientOnlyVariant"/> as the default rule for <see cref="GhostGen_IntStruct"/> so
+    /// the server prefab is stripped of the component while the client prefab keeps it.
+    /// </summary>
+    [DisableAutoCreation]
+    sealed partial class GhostGenIntStruct_ClientOnlyVariantSystem : DefaultVariantSystemBase
+    {
+        protected override void RegisterDefaultVariants(Dictionary<ComponentType, Rule> defaultVariants)
+        {
+            defaultVariants.Add(typeof(GhostGen_IntStruct), Rule.ForAll(typeof(ClientOnlyVariant)));
+        }
+    }
 
     [TestFixture]
     internal class PerPrefabOverridesTests
@@ -627,6 +638,75 @@ namespace Unity.NetCode.Tests
                 var foundInspection = allComponentOverrides.First(x => x.Item1 == goFromFunc);
                 Assert.AreEqual(foundInspection.Item1.GetInstanceID(), entityGuid.OriginatingId, $"entityGuid.OriginatingId '{entityGuid.OriginatingId}' did not match game object set '{goFromFunc}'");
                 Assert.AreEqual(foundInspection.Item2.EntityIndex, exampleEntityIndex, "EntityIndex should have been set!");
+            }
+        }
+
+        [Test, Description("A ComponentOverride targeting a renamed/deleted type should be removed, so the UI doesn't enter a bad state.")]
+        public void LogErrorIfComponentOverrideIsInvalid_RemovesUnknownTypeOverride()
+        {
+            var go = new GameObject(nameof(LogErrorIfComponentOverrideIsInvalid_RemovesUnknownTypeOverride));
+            try
+            {
+                var inspection = go.AddComponent<GhostAuthoringInspectionComponent>();
+                inspection.ComponentOverrides = new[]
+                {
+                    new GhostAuthoringInspectionComponent.ComponentOverride
+                    {
+                        FullTypeName = "Unity.NetCode.Tests.NonExistentType_RenamedAway",
+                        EntityIndex = 0,
+                        PrefabType = GhostPrefabType.Server,
+                        SendTypeOptimization = GhostSendType.AllClients,
+                        VariantHash = 12345UL,
+                    },
+                };
+
+                GhostAuthoringInspectionComponent.forceSave = false;
+                GhostAuthoringInspectionComponent.forceBake = false;
+
+                LogAssert.Expect(LogType.Error, new Regex("invalid 'Component Override'"));
+                inspection.LogErrorIfComponentOverrideIsInvalid();
+
+                Assert.AreEqual(0, inspection.ComponentOverrides.Length, "Override targeting an unknown type should be auto-removed.");
+                Assert.IsTrue(GhostAuthoringInspectionComponent.forceSave, "Removing an invalid override should request a save.");
+                Assert.IsTrue(GhostAuthoringInspectionComponent.forceBake, "Removing an invalid override should request a re-bake.");
+            }
+            finally
+            {
+                GhostAuthoringInspectionComponent.forceSave = false;
+                GhostAuthoringInspectionComponent.forceBake = false;
+                UnityEngine.Object.DestroyImmediate(go);
+            }
+        }
+
+        [Test, Description("Verifies that a component - whose default rule is ClientOnlyVariant - is stripped from the baked server prefab (so the server never allocates or processes it) while remaining present on every client-side prefab variant.")]
+        [DisableSingleWorldHostTest]
+        public void DefaultVariant_ClientOnlyVariant_StripsComponentFromServerPrefab()
+        {
+            using var testWorld = new NetCodeTestWorld();
+            testWorld.Bootstrap(true, typeof(GhostGenIntStruct_ClientOnlyVariantSystem));
+            var collection = CreatePrefabs(new[] { "ClientOnlyGhost" });
+            Assert.IsTrue(testWorld.CreateGhostCollection(collection));
+            testWorld.CreateWorlds(true, 1);
+
+            for (int i = 0; i < 16; ++i)
+                testWorld.Tick();
+
+            var serverGhostCollection = testWorld.TryGetSingletonEntity<NetCodeTestPrefabCollection>(testWorld.ServerWorld);
+            using var serverPrefabs = testWorld.ServerWorld.EntityManager.GetBuffer<NetCodeTestPrefab>(serverGhostCollection).ToNativeArray(Allocator.Temp);
+            Assert.Greater(serverPrefabs.Length, 0, "Expected at least one baked server prefab.");
+            for (int i = 0; i < serverPrefabs.Length; ++i)
+            {
+                Assert.IsFalse(testWorld.ServerWorld.EntityManager.HasComponent<GhostGen_IntStruct>(serverPrefabs[i].Value),
+                    "ClientOnlyVariant must strip the component from the server-side root prefab.");
+            }
+
+            var clientGhostCollection = testWorld.TryGetSingletonEntity<NetCodeTestPrefabCollection>(testWorld.ClientWorlds[0]);
+            using var clientPrefabs = testWorld.ClientWorlds[0].EntityManager.GetBuffer<NetCodeTestPrefab>(clientGhostCollection).ToNativeArray(Allocator.Temp);
+            Assert.Greater(clientPrefabs.Length, 0, "Expected at least one baked client prefab.");
+            for (int i = 0; i < clientPrefabs.Length; ++i)
+            {
+                Assert.IsTrue(testWorld.ClientWorlds[0].EntityManager.HasComponent<GhostGen_IntStruct>(clientPrefabs[i].Value),
+                    "ClientOnlyVariant must NOT strip the component from the client-side root prefab.");
             }
         }
     }

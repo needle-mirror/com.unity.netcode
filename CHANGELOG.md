@@ -2,6 +2,18 @@
 uid: changelog
 ---
 
+## [1.14.1] - 2026-07-20
+
+### Changed
+
+* Removed the 'must be a serialized component' limitation from the `GhostComponentVariation` dropdown selection in the `GhostAuthoringInspectionComponent`, as non-serialized components already support things like `PrefabType` stripping, just not explicitly. Handling of invalid ComponentOverrides has also been improved.
+
+### Fixed
+
+* Switched usage of 'PlayMode' to 'Play Mode' to be more consistent with other areas of the menu.
+* Fixed a spurious "JobTempAlloc has allocations that are more than the maximum lifespan of 4 frames old" warning that appeared when baking a ghost prefab set to Owner Predicted mode without a GhostOwner component.
+* A regression in the handling of partial sends. In rare cases, the same dynamic ghost chunk hits the partial boundary at roughly the same entity index every tick. This indefinitely causes a subset of its ghosts to no longer be added to the snapshot.
+
 ## [1.14.0] - 2026-06-21
 
 ### Added
@@ -10,13 +22,13 @@ uid: changelog
 
 ### Changed
 
-* `GhostAuthoringInspectionComponent` instance methods are now `public`, allowing override entries to be
+* `GhostAuthoringInspectionComponent` instance methods are now `public`, allowing override entries to be authored programmatically.
 
 ### Fixed
 
 * If two GhostGroup entities happened to contain children that shared the same ArchetypeChunk - and both group root entities were sent in the same snapshot, the snapshot data of the first child would be clobbered by the snapshot data of each successive child, leading to unrecoverable snapshot read errors.
 * Adding GhostFields to IInputComponentData in a nested class no longer causes a compilation error.
-* A `PrefabType` override set via `GhostAuthoringInspectionComponent` was not surfacing in the baked-prefab
+* A `PrefabType` override set via `GhostAuthoringInspectionComponent` was not surfacing in the baked-prefab preview.
 
 
 

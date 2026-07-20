@@ -192,9 +192,14 @@ namespace Unity.NetCode.Editor
             {
                 ref var @override = ref GetPrefabOverride();
                 var hash = (!@override.IsVariantOverriden || allowSettingDefaultToRevertOverride) && VariantIsTheDefault ? 0 : serializationStrategy.Hash;
-                if (@override.VariantHash != hash)
+                // FullTypeName is also rewritten when it diverges from managedType.FullName: existing
+                // overrides loaded from disk may carry a stale value (e.g. saved before this write was added),
+                // and the runtime variant resolver only matches by hash, so a mismatched FullTypeName lets
+                // the runtime succeed while the inspector silently fails to re-resolve the override.
+                if (@override.VariantHash != hash || @override.FullTypeName != managedType.FullName)
                 {
                     @override.VariantHash = hash;
+                    @override.FullTypeName = managedType.FullName;
                     EntityParent.GoParent.SourceInspection.SavePrefabOverride(ref @override, $"Confirmed Variant on {fullname} is {serializationStrategy}");
                 }
             }

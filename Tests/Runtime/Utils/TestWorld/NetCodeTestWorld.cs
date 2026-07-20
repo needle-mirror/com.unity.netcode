@@ -1305,6 +1305,19 @@ namespace Unity.NetCode.Tests
             world.EntityManager.SetComponentData(entity, value);
         }
 
+        public bool TryFindGhostByInstance(World world, GhostInstance ghostId, out Entity entity)
+        {
+            using var query = world.EntityManager.CreateEntityQuery(ComponentType.ReadOnly<SpawnedGhostEntityMap>());
+            var map = query.GetSingleton<SpawnedGhostEntityMap>();
+            return map.Value.TryGetValue(ghostId, out entity);
+        }
+
+        /// <summary>
+        /// Generates a fake 32-char hex GUID suitable for assigning to <see cref="GhostAuthoringComponent.prefabId"/>
+        /// in tests. The baker rejects any ghost whose prefabId is empty (it's normally populated when the
+        /// prefab asset is saved), so in-memory GameObjects need this stamped manually.
+        /// </summary>
+        public static string NewFakePrefabId() => Guid.NewGuid().ToString().Replace("-", "");
 #if UNITY_EDITOR
         public bool CreateGhostCollection(params GameObject[] ghostTypes)
         {
@@ -1319,7 +1332,7 @@ namespace Unity.NetCode.Tests
                 {
                     ghost = ghostObject.AddComponent<GhostAuthoringComponent>();
                 }
-                ghost.prefabId = Guid.NewGuid().ToString().Replace("-", "");
+                ghost.prefabId = NewFakePrefabId();
                 m_GhostCollection.Add(ghostObject);
             }
             m_BlobAssetStore = new BlobAssetStore(128);

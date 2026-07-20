@@ -1,0 +1,45 @@
+{
+    "name": "Unity.NetCode.UI.Editor.Tests",
+    "rootNamespace": "",
+    "references": [
+        "Unity.NetCode",
+        "Unity.Collections",
+        "Unity.NetCode.Editor",
+        "Unity.NetCode.Authoring.Hybrid",
+        "Unity.Entities",
+        "Unity.Entities.Hybrid",
+        "Unity.Burst",
+        "Unity.Mathematics",
+        "Unity.Networking.Transport",
+        "UnityEditor.TestRunner",
+        "UnityEngine.TestRunner",
+        "Unity.NetCode.Editor.Tests",
+        "Unity.NetCode.TestsUtils.Runtime.Tests",
+        "UnityEngine.UI",
+        "Unity.UI.TestFramework.Editor",
+        "UnityEditor.UI",
+        "Unity.UI.TestFramework.Runtime"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": true,
+    "precompiledReferences": [
+        "nunit.framework.dll"
+    ],
+    "autoReferenced": false,
+    "defineConstraints": [
+        "UNITY_INCLUDE_TESTS",
+        "ENABLE_UNITY_NETCODE_UI_TESTS"
+    ],
+    "versionDefines": [
+        {
+            "name": "com.unity.ui.test-framework",
+            "expression": "6.6.0",
+            "define": "ENABLE_UNITY_NETCODE_UI_TESTS"
+        }
+    ],
+    "noEngineReferences": false
+}

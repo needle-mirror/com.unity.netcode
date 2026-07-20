@@ -1,7 +1,7 @@
 {
   "name": "com.unity.netcode",
   "displayName": "Netcode for Entities",
-  "version": "1.14.0",
+  "version": "1.14.1",
   "unity": "2022.3",
   "unityRelease": "20f1",
   "description": "Unity's Data Oriented Technology Stack (DOTS) multiplayer netcode layer - a high level netcode system built on entities. This package provides a foundation for creating networked multiplayer applications within DOTS.",
@@ -11,15 +11,15 @@
     "com.unity.modules.animation": "1.0.0"
   },
   "_upm": {
-    "changelog": "### Added\n\n* Support for overiding `GhostComponentVariation` defaults through baking code. Add the `GhostVariantBakedOverride` dynamic buffer, then use the `Append...` extension methods to set a new default variant for that prefab. Note: The `IBaker.AppendToBuffer` method does not support adding to the same buffer from two different bakers.\n\n### Changed\n\n* `GhostAuthoringInspectionComponent` instance methods are now `public`, allowing override entries to be\n\n### Fixed\n\n* If two GhostGroup entities happened to contain children that shared the same ArchetypeChunk - and both group root entities were sent in the same snapshot, the snapshot data of the first child would be clobbered by the snapshot data of each successive child, leading to unrecoverable snapshot read errors.\n* Adding GhostFields to IInputComponentData in a nested class no longer causes a compilation error.\n* A `PrefabType` override set via `GhostAuthoringInspectionComponent` was not surfacing in the baked-prefab"
+    "changelog": "### Changed\n\n* Removed the 'must be a serialized component' limitation from the `GhostComponentVariation` dropdown selection in the `GhostAuthoringInspectionComponent`, as non-serialized components already support things like `PrefabType` stripping, just not explicitly. Handling of invalid ComponentOverrides has also been improved.\n\n### Fixed\n\n* Switched usage of 'PlayMode' to 'Play Mode' to be more consistent with other areas of the menu.\n* Fixed a spurious \"JobTempAlloc has allocations that are more than the maximum lifespan of 4 frames old\" warning that appeared when baking a ghost prefab set to Owner Predicted mode without a GhostOwner component.\n* A regression in the handling of partial sends. In rare cases, the same dynamic ghost chunk hits the partial boundary at roughly the same entity index every tick. This indefinitely causes a subset of its ghosts to no longer be added to the snapshot."
   },
   "upmCi": {
-    "footprint": "2a12a043a201a36b2d69d169f6909f3127ca86d6"
+    "footprint": "96e8e5a1c9509f5a8ac2cec97988f21332b22e50"
   },
   "documentationUrl": "https://docs.unity3d.com/Packages/com.unity.netcode@1.14/manual/index.html",
   "repository": {
     "url": "https://github.cds.internal.unity3d.com/unity/dots.git",
     "type": "git",
-    "revision": "e6bd31408643ed13d03e477e3658e48e2fb1e68e"
+    "revision": "db82a03e5740c8635aeaf885a65208d267f57cdb"
   }
 }
