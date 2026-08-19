@@ -75,6 +75,25 @@ namespace Unity.NetCode.Tests
             }).ScheduleParallel();
         }
     }
+    /// <summary>Client-only misprediction: pushes the predicted transform right on every predicted tick, client-side only.
+    /// The server leaves the ghost at the origin, so every snapshot is the authoritative (0,0,0) correction and the client
+    /// must be pulled back to it. A ghost that latches onto a stale prediction-history backup keeps drifting right instead.</summary>
+    [DisableAutoCreation]
+    [UpdateInGroup(typeof(PredictedSimulationSystemGroup))]
+    [WorldSystemFilter(WorldSystemFilterFlags.ClientSimulation)]
+    internal partial struct MispredictClientTransformEachTickSystem : ISystem
+    {
+        public const float MovePerTick = 10f;
+        public static bool s_Enabled;
+        public void OnUpdate(ref SystemState state)
+        {
+            if (!s_Enabled) return;
+            if (state.World.IsServer()) return; // The host world is authoritative; only the pure client should mispredict.
+            foreach (var trans in SystemAPI.Query<RefRW<LocalTransform>>().WithAll<Simulate, GhostInstance>())
+                trans.ValueRW.Position.x += MovePerTick;
+        }
+    }
+
     [DisableAutoCreation]
     [RequireMatchingQueriesForUpdate]
     [UpdateInGroup(typeof(GhostSimulationSystemGroup))]
@@ -382,6 +401,191 @@ namespace Unity.NetCode.Tests
                 prevClient = testWorld.ClientWorlds[0].EntityManager.GetComponentData<LocalTransform>(clientEnt).Position;
                 Assert.IsTrue(math.distance(prevServer, prevClient) < 0.01);
             }
+        }
+
+        [Test]
+        [DisableSingleWorldHostTest] // A host is server-authoritative and runs no client prediction, so it cannot mispredict; this scenario only exists in a distinct client world.
+        [Description("UUM-147343: at a very high client frame rate with ~zero command age (host/local client), a client-only misprediction pushed one tick ahead of the server bakes a divergence into the prediction-history backup. Once the client stops mispredicting, the authoritative snapshot (applied on partial ticks) must pull the ghost back to the origin - the stale backup must NOT be restored on every partial and latch the misprediction.")]
+        public void ClientMisprediction_DoesNotLatchOnStaleBackup()
+        {
+            PredictionTestPredictionSystem.s_IsEnabled = false; // Server keeps the ghost at the origin; only the client mispredicts.
+            MispredictClientTransformEachTickSystem.s_Enabled = false;
+            using var testWorld = new NetCodeTestWorld();
+            testWorld.UseFakeSocketConnection = 0; // IPC => zero command age (host/local client).
+            testWorld.Bootstrap(true, typeof(MispredictClientTransformEachTickSystem));
+
+            var ghostGameObject = new GameObject();
+            ghostGameObject.AddComponent<TestNetCodeAuthoring>().Converter = new PredictionTestConverter();
+            var ghostConfig = ghostGameObject.AddComponent<GhostAuthoringComponent>();
+            ghostConfig.DefaultGhostMode = GhostMode.Predicted;
+
+            Assert.IsTrue(testWorld.CreateGhostCollection(ghostGameObject));
+            testWorld.CreateWorlds(true, 1);
+
+            var tickRateEnt = testWorld.ServerWorld.EntityManager.CreateEntity(typeof(ClientServerTickRate));
+            testWorld.ServerWorld.EntityManager.SetComponentData(tickRateEnt, new ClientServerTickRate { SimulationTickRate = 30 });
+
+            var serverEnt = testWorld.SpawnOnServer(ghostGameObject);
+            Assert.AreNotEqual(Entity.Null, serverEnt);
+
+            const float fullDt = 1f / 30f;
+            const float partialDt = fullDt / 8f; // ~240fps client.
+
+            Entity clientEnt = Entity.Null;
+            void Sync() { testWorld.ServerWorld.EntityManager.CompleteAllTrackedJobs(); testWorld.ClientWorlds[0].EntityManager.CompleteAllTrackedJobs(); }
+            float ClientServerOffset()
+            {
+                Sync();
+                return math.abs(testWorld.ClientWorlds[0].EntityManager.GetComponentData<LocalTransform>(clientEnt).Position.x
+                    - testWorld.ServerWorld.EntityManager.GetComponentData<LocalTransform>(serverEnt).Position.x);
+            }
+            NetworkTick BackupTick() { Sync(); return testWorld.GetSingleton<GhostSnapshotLastBackupTick>(testWorld.ClientWorlds[0]).Value; }
+
+            testWorld.Connect(1f / 240f, 64);
+            testWorld.GoInGame();
+            for (int i = 0; i < 16; ++i)
+                testWorld.Tick(fullDt);
+
+            clientEnt = testWorld.TryGetSingletonEntity<GhostOwner>(testWorld.ClientWorlds[0]);
+            Assert.AreNotEqual(Entity.Null, clientEnt);
+            Assert.That(ClientServerOffset(), Is.EqualTo(0f), "Client and server should be identical before the misprediction.");
+
+            // Land on a full tick, then advance the applied snapshot to the tick just below the one we bake next.
+            var frac = testWorld.GetNetworkTime(testWorld.ClientWorlds[0]).ServerTickFraction;
+            if (frac < 1f)
+                testWorld.TickClientWorld((1f - frac) * fullDt);
+            testWorld.TickServerWorld(fullDt);
+            testWorld.TickClientWorld(partialDt);
+
+            // Client predicts (and mispredicts) the next tick ahead of its snapshot, baking a stale backup.
+            MispredictClientTransformEachTickSystem.s_Enabled = true;
+            var startBackup = BackupTick();
+            for (int i = 0; i < 12 && BackupTick() == startBackup; ++i)
+                testWorld.TickClientWorld(partialDt);
+            Assert.AreNotEqual(startBackup, BackupTick(), "Client should have crossed a full tick and recorded a (mispredicted) backup.");
+
+            // Server sends the authoritative snapshot for that tick; client stops mispredicting. Every partial tick from here
+            // rolls back to that (origin) snapshot, so the offset must collapse to zero and stay there - a ghost latching onto
+            // the stale mispredicted backup would instead hold near the injected drift on every partial after the first.
+            testWorld.TickServerWorld(fullDt);
+            MispredictClientTransformEachTickSystem.s_Enabled = false;
+            for (int i = 0; i < 6; ++i)
+            {
+                testWorld.TickClientWorld(partialDt);
+                Assert.That(ClientServerOffset(), Is.EqualTo(0f).Within(0.001f),
+                    $"Predicted ghost latched onto a stale prediction-history backup instead of being pulled back to the origin on partial tick {i}.");
+            }
+        }
+
+        internal enum PredictionRenderRegime
+        {
+            /// <summary>Client renders many frames per server tick.</summary>
+            HighRefreshManyPartialTicks,
+            /// <summary>Client dt == sim dt, landing on full-tick boundaries (no partial ticks).</summary>
+            SameRateNoPartialTicks,
+            /// <summary>Client dt == sim dt but phase-shifted, so every tick is partial.</summary>
+            SameRateAlwaysPartialTicks,
+            /// <summary>Client dt > sim dt (25fps vs 30hz), so the sim catches up multiple ticks per frame.</summary>
+            BelowRefreshRate,
+        }
+
+        [Test]
+        [DisableSingleWorldHostTest] // A host is server-authoritative and runs no client prediction, so it cannot mispredict; this scenario only exists in a distinct client world.
+        [Description("UUM-147343 (regression coverage): a client-only misprediction (the server holds the ghost at the origin) must stay pulled toward the authoritative snapshot rather than drifting away, across every render regime with the ghost's send rate throttled or not. The dedicated stale-backup latch is covered by ClientMisprediction_DoesNotLatchOnStaleBackup.")]
+        public void ClientMisprediction_ConvergesToSnapshot_AcrossRenderRegimes([Values] PredictionRenderRegime regime, [Values] bool lowSendRate)
+        {
+            PredictionTestPredictionSystem.s_IsEnabled = false; // Server keeps the ghost at the origin; only the client mispredicts.
+            MispredictClientTransformEachTickSystem.s_Enabled = false;
+            using var testWorld = new NetCodeTestWorld();
+            testWorld.UseFakeSocketConnection = 0; // IPC => zero command age (host/local client).
+            testWorld.Bootstrap(true, typeof(MispredictClientTransformEachTickSystem));
+
+            var ghostGameObject = new GameObject();
+            ghostGameObject.AddComponent<TestNetCodeAuthoring>().Converter = new PredictionTestConverter();
+            var ghostConfig = ghostGameObject.AddComponent<GhostAuthoringComponent>();
+            ghostConfig.DefaultGhostMode = GhostMode.Predicted;
+            if (lowSendRate)
+                ghostConfig.MaxSendRate = 10;
+
+            Assert.IsTrue(testWorld.CreateGhostCollection(ghostGameObject));
+            testWorld.CreateWorlds(true, 1);
+
+            var tickRateEnt = testWorld.ServerWorld.EntityManager.CreateEntity(typeof(ClientServerTickRate));
+            testWorld.ServerWorld.EntityManager.SetComponentData(tickRateEnt, new ClientServerTickRate { SimulationTickRate = 30 });
+
+            var serverEnt = testWorld.SpawnOnServer(ghostGameObject);
+            Assert.AreNotEqual(Entity.Null, serverEnt);
+
+            const float fullDt = 1f / 30f;
+            const float highRefreshDt = fullDt / 8f; // ~240fps client.
+
+            Entity clientEnt = Entity.Null;
+            void Sync() { testWorld.ServerWorld.EntityManager.CompleteAllTrackedJobs(); testWorld.ClientWorlds[0].EntityManager.CompleteAllTrackedJobs(); }
+            float ClientServerOffset()
+            {
+                Sync();
+                return math.abs(testWorld.ClientWorlds[0].EntityManager.GetComponentData<LocalTransform>(clientEnt).Position.x
+                    - testWorld.ServerWorld.EntityManager.GetComponentData<LocalTransform>(serverEnt).Position.x);
+            }
+
+            // Advance client and server by one server tick's worth of time in the pattern the regime dictates. Both worlds tick
+            // at the render rate (as an in-proc host does); the server only advances a full tick once enough dt has accumulated.
+            void DriveOneServerTick()
+            {
+                switch (regime)
+                {
+                    case PredictionRenderRegime.HighRefreshManyPartialTicks:
+                        for (int j = 0; j < 8; ++j)
+                            testWorld.Tick(highRefreshDt);
+                        break;
+                    case PredictionRenderRegime.SameRateNoPartialTicks:
+                    case PredictionRenderRegime.SameRateAlwaysPartialTicks:
+                        testWorld.Tick(fullDt);
+                        break;
+                    case PredictionRenderRegime.BelowRefreshRate:
+                        testWorld.Tick(1f / 25f);
+                        break;
+                }
+            }
+
+            testWorld.Connect(1f / 240f, 64);
+            testWorld.GoInGame();
+            for (int i = 0; i < 4; ++i)
+                testWorld.Tick(fullDt);
+
+            clientEnt = testWorld.TryGetSingletonEntity<GhostOwner>(testWorld.ClientWorlds[0]);
+            Assert.AreNotEqual(Entity.Null, clientEnt);
+            Assert.That(ClientServerOffset(), Is.EqualTo(0f), "Client and server should be identical before the misprediction.");
+
+            // The same-rate regimes need the client aligned to a full tick; always-partial then shifts half a tick off it.
+            if (regime == PredictionRenderRegime.SameRateNoPartialTicks || regime == PredictionRenderRegime.SameRateAlwaysPartialTicks)
+            {
+                var frac = testWorld.GetNetworkTime(testWorld.ClientWorlds[0]).ServerTickFraction;
+                if (frac < 1f)
+                    testWorld.TickClientWorld((1f - frac) * fullDt);
+                if (regime == PredictionRenderRegime.SameRateAlwaysPartialTicks)
+                    testWorld.TickClientWorld(fullDt / 2f);
+            }
+
+            MispredictClientTransformEachTickSystem.s_Enabled = true;
+            float maxOffset = 0f;
+            for (int cycle = 0; cycle < 8; ++cycle)
+            {
+                DriveOneServerTick();
+                maxOffset = math.max(maxOffset, ClientServerOffset());
+            }
+
+            // Each combo settles at a known, deterministic divergence from the authoritative snapshot: further when the ghost's
+            // send rate is throttled (staler snapshots) or the client renders below the sim rate (catch-up ticks). Assert that
+            // exact peak; a latch or unbounded drift would blow past it.
+            var expectedPeakTicks = regime switch
+            {
+                PredictionRenderRegime.HighRefreshManyPartialTicks or PredictionRenderRegime.SameRateNoPartialTicks => lowSendRate ? 3f : 1f,
+                PredictionRenderRegime.SameRateAlwaysPartialTicks or PredictionRenderRegime.BelowRefreshRate => lowSendRate ? 4f : 2f,
+                _ => throw new System.ArgumentOutOfRangeException(nameof(regime), regime, null),
+            };
+            Assert.That(maxOffset, Is.EqualTo(expectedPeakTicks * MispredictClientTransformEachTickSystem.MovePerTick).Within(1f),
+                $"Predicted ghost diverged from the authoritative snapshot by an unexpected amount (regime={regime}, lowSendRate={lowSendRate}).");
         }
 
         [Test]

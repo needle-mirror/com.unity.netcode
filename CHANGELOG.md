@@ -2,6 +2,15 @@
 uid: changelog
 ---
 
+## [1.14.2] - 2026-08-19
+
+### Fixed
+
+* A ghosted FixedList - that is cleared and later repopulated with the same data (e.g. during prediction rollback) - now replicates correctly.
+* A predicted ghost divergence caused by running at very high framerates with very low SimulationTickRate, which meant that the client to not even fully predict one tick ahead of the latest snapshot arrival, causing the snapshot to be applied on a partial tick, which in turn resulted in the prediction-history backup failing to write, so it would constantly be stale.
+
+
+
 ## [1.14.1] - 2026-07-20
 
 ### Changed

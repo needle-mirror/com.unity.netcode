@@ -739,6 +739,13 @@ namespace Unity.NetCode
             }
 
             /// <summary>
+            /// A prediction-history backup is "stale" when it is no newer than the snapshot already applied to this ghost
+            /// (appliedTick &gt;= backupTick): restoring it would revert the ghost to a state older than its authoritative snapshot.
+            /// </summary>
+            static bool BackupIsStale(NetworkTick appliedTick, NetworkTick predictionStateBackupTick) =>
+                appliedTick.IsValid && predictionStateBackupTick.IsValid && appliedTick.TicksSince(predictionStateBackupTick) >= 0;
+
+            /// <summary>
             /// Determine from which tick we should start predicting.
             /// </summary>
             /// <param name="snapshotTick">The tick of the latest snapshot received for this ghost.</param>
@@ -777,6 +784,18 @@ namespace Unity.NetCode
                 // This is why we only need to care about the current ghost's AppliedTick instead of global state.
                 bool shouldRollbackToSnapshot = snapshotTick.IsValid && (!appliedTick.IsValid || appliedTick.IsOlderThan(snapshotTick) || predictedSpawnShouldRollbackToSnapshot);
 
+                // [Case C guard] Never restore a prediction-history backup that predates the snapshot this ghost has already
+                // applied (see BackupIsStale). This regime is common when the client predicts less than one full tick ahead
+                // of the received snapshots (e.g. a host/local client rendering far above the simulation rate): the misprediction
+                // would otherwise latch until a frame hitch advances the full-tick frontier past the snapshot stream. Prefer the
+                // snapshot: it is authoritative and at least as new as the backup, and re-predicting from a tick at, or ahead of,
+                // the full-tick frontier introduces no extra full ticks.
+                if (!shouldRollbackToSnapshot && lastPredictedTickWasPartial && snapshotTick.IsValid &&
+                    BackupIsStale(appliedTick, predictionStateBackupTick))
+                {
+                    shouldRollbackToSnapshot = true;
+                }
+
                 // [Case C] We want to continue prediction from where we left off, but the last predicted tick was partial,
                 // we need to UNDO that partial write by restoring from the 'prediction history backup'.
                 // NOTE: Partial ticks are common on PC (where render rates are variable),
@@ -788,6 +807,8 @@ namespace Unity.NetCode
                             typeData.RollbackPredictionOnStructuralChanges, entity,
                             out var backupState, out var indexInBackup))
                     {
+                        Assert.IsTrue(!BackupIsStale(appliedTick, predictionStateBackupTick),
+                            "Case C is about to restore a prediction-history backup older than the applied snapshot; the [Case C guard] should have rolled it back to the snapshot instead.");
                         predictionStartTick = predictionStateBackupTick;
                         restoreFromHistoryBackupList.Add(new BackupRange
                         {

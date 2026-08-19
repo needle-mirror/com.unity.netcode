@@ -65,10 +65,15 @@ namespace Generated
             }
             else
             {
+                // Element data is unchanged: copy the still-valid prefix and default the rest so this snapshot
+                // stays a valid baseline when the list grows-but-matches-default or shrinks.
                 var snapshot___GHOST_FIELD_NAME___Buffer = snapshot.__GHOST_FIELD_NAME__.ToSpan();
                 var baseline___GHOST_FIELD_NAME___Buffer = baseline.__GHOST_FIELD_NAME__.ToReadOnlySpan();
-                for (int i = 0; i < baseline.__GHOST_FIELD_NAME___Length; ++i)
+                var copyLength = math.min(snapshot.__GHOST_FIELD_NAME___Length, baseline.__GHOST_FIELD_NAME___Length);
+                for (int i = 0; i < copyLength; ++i)
                     snapshot___GHOST_FIELD_NAME___Buffer[i] = baseline___GHOST_FIELD_NAME___Buffer[i];
+                for (int i = copyLength; i < snapshot___GHOST_FIELD_NAME___Buffer.Length; ++i)
+                    snapshot___GHOST_FIELD_NAME___Buffer[i] = default;
             }
             #endregion
         }
@@ -105,6 +110,13 @@ namespace Generated
                     serializerState,
                     snapshot.__GHOST_FIELD_NAME__.ToSpan(),
                     component.__GHOST_FIELD_REFERENCE__.ToReadOnlySpan(snapshot.__GHOST_FIELD_NAME___Length));
+            }
+            else
+            {
+                // Zero the element memory even when empty so this snapshot stays a valid delta baseline.
+                var snapshotBuffer = snapshot.__GHOST_FIELD_NAME__.ToSpan();
+                for (int i = 0; i < snapshotBuffer.Length; ++i)
+                    snapshotBuffer[i] = default;
             }
             #endregion
         }

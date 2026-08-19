@@ -309,8 +309,81 @@ namespace Unity.NetCode.Tests
         }
     }
 
+    internal struct FixedListClearData : IComponentData
+    {
+        [GhostField] public FixedList64Bytes<long> List;
+    }
+
     internal class FixedListSupportTests
     {
+        [Test]
+        [Description("IN-147902 / IN-127716: a ghosted FixedList cleared then repopulated with the same data must replicate correctly, on both the interpolated and predicted client apply paths. The cleared baseline previously kept stale element memory, so re-adding the pre-clear value was mis-detected as unchanged and never sent, leaving the client with garbage.")]
+        public void Snapshot_FixedListClearedThenRepopulated_ReplicatesData(
+            [Values(GhostMode.Interpolated, GhostMode.Predicted)] GhostMode ghostMode)
+        {
+            Entity CreateGhost(World world)
+            {
+                var entity = world.EntityManager.CreateEntity();
+                world.EntityManager.AddComponentData(entity, new FixedListClearData());
+                GhostPrefabCreation.ConvertToGhostPrefab(world.EntityManager, entity, new GhostPrefabCreation.Config
+                {
+                    Name = "FixedListClearGhost",
+                    Importance = 1,
+                    SupportedGhostModes = GhostModeMask.All,
+                    DefaultGhostMode = ghostMode,
+                    // Static optimization is what exercises the zero-change delta path where the bug lives.
+                    OptimizationMode = GhostOptimizationMode.Static
+                });
+                return entity;
+            }
+
+            using var testWorld = new NetCodeTestWorld();
+            testWorld.Bootstrap(true);
+            testWorld.CreateWorlds(true, 1, false);
+            testWorld.CreateGhostCollection();
+            testWorld.Connect();
+            var ghostPrefab = CreateGhost(testWorld.ServerWorld);
+            CreateGhost(testWorld.ClientWorlds[0]);
+            testWorld.GoInGame();
+
+            var serverGhost = testWorld.ServerWorld.EntityManager.Instantiate(ghostPrefab);
+
+            // Same value before and after the clear: the pre-clear value is exactly the
+            // stale memory the cleared baseline retains, which is what triggers the mis-detection.
+            const long value = 0x0123456789ABCDEF;
+
+            void SetServerList(bool populate)
+            {
+                var data = testWorld.ServerWorld.EntityManager.GetComponentData<FixedListClearData>(serverGhost);
+                data.List.Clear();
+                if (populate)
+                    data.List.Add(value);
+                testWorld.ServerWorld.EntityManager.SetComponentData(serverGhost, data);
+            }
+
+            FixedListClearData GetClientData() =>
+                testWorld.ClientWorlds[0].EntityManager.CreateEntityQuery(typeof(FixedListClearData)).GetSingleton<FixedListClearData>();
+
+            SetServerList(populate: true);
+            testWorld.TickUntilClientsHaveAllGhosts();
+            var client = GetClientData();
+            Assert.AreEqual(1, client.List.Length);
+            Assert.AreEqual(value, client.List[0]);
+
+            // Clear and let the emptied state become the acked baseline on the server.
+            SetServerList(populate: false);
+            testWorld.TickMultiple(4);
+            client = GetClientData();
+            Assert.AreEqual(0, client.List.Length);
+
+            // Repopulate with the identical value. Before the fix the client reads garbage here.
+            SetServerList(populate: true);
+            testWorld.TickMultiple(4);
+            client = GetClientData();
+            Assert.AreEqual(1, client.List.Length);
+            Assert.AreEqual(value, client.List[0]);
+        }
+
         [Test]
         public void RPC_SupportFixedLists_WithStruct()
         {
